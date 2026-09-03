@@ -1,0 +1,25 @@
+node_modules/
+dist/
+.next/
+out/
+build/
+coverage/
+*.tsbuildinfo
+
+# Environment files: only *.example may be committed.
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Local tooling noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.log
+npm-debug.log*
+
+# Design inputs and captures live outside the repo; never vendor them in.
+*.zip
+hid-preview*.html

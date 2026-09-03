@@ -1,0 +1,82 @@
+/**
+ * Service module foundation.
+ *
+ * Application code never calls `client.get('/patients-me')` directly, and it
+ * certainly never calls `fetch`. It calls a service method. That indirection is
+ * what makes it possible to change a path, add a header, or absorb a backend
+ * contract change without touching a single component.
+ *
+ * Every method defined through here is checked twice at construction time:
+ * the endpoint must exist in the verified registry, and the calling application
+ * must be granted the service that owns it.
+ */
+
+import type { ApiClient, AuthRequirement, QueryValue, RequestSpec } from '@hid/http'
+import { assertEndpointAllowed, findEndpoint, type HidApp, type HidService } from '@hid/contracts'
+
+/** Options every service method accepts, so cancellation is never an afterthought. */
+export interface CallOptions {
+  /** Abort the request when the component unmounts or the user navigates away. */
+  readonly signal?: AbortSignal
+}
+
+export interface ServiceContext {
+  readonly app: HidApp
+  readonly client: ApiClient
+}
+
+interface EndpointCallOptions extends CallOptions {
+  readonly query?: Readonly<Record<string, QueryValue>>
+  readonly body?: unknown
+  readonly auth?: AuthRequirement
+}
+
+/**
+ * Binds a service's endpoints to a client for one application.
+ *
+ * `call` is the only way a service reaches the network, so every request
+ * inherits the registry check, the boundary check, and the client's transport
+ * behaviour.
+ */
+export function createServiceBinding(context: ServiceContext, service: HidService) {
+  return function call<T = unknown>(
+    endpointName: string,
+    method: 'GET' | 'POST',
+    options: EndpointCallOptions = {},
+  ): Promise<T> {
+    assertEndpointAllowed(context.app, endpointName)
+
+    const descriptor = findEndpoint(endpointName)
+    if (!descriptor) {
+      // assertEndpointAllowed already threw; this keeps the type narrow.
+      throw new Error(`Unknown endpoint "${endpointName}"`)
+    }
+
+    if (descriptor.service !== service) {
+      throw new Error(
+        `Endpoint "${endpointName}" belongs to the "${descriptor.service}" service, ` +
+          `not "${service}". Move the method to the correct service module.`,
+      )
+    }
+
+    if (!descriptor.methods.includes(method)) {
+      throw new Error(
+        `"${endpointName}" does not accept ${method}. The backend declares: ${descriptor.methods.join(', ')}.`,
+      )
+    }
+
+    const auth: AuthRequirement =
+      options.auth ?? (descriptor.auth.kind === 'public' ? 'none' : 'required')
+
+    const spec: RequestSpec = {
+      method,
+      path: `/${endpointName}`,
+      auth,
+      ...(options.query ? { query: options.query } : {}),
+      ...(options.body !== undefined ? { body: options.body } : {}),
+      ...(options.signal ? { signal: options.signal } : {}),
+    }
+
+    return context.client.request<T>(spec)
+  }
+}

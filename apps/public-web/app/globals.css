@@ -1,0 +1,8 @@
+@import 'tailwindcss';
+
+/*
+ * Design tokens live in @hid/ui and are imported by every application, so the
+ * public site and the authenticated applications cannot drift apart visually
+ * without someone changing the shared source.
+ */
+@import '@hid/ui/tokens.css';

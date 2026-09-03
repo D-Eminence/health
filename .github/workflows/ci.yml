@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Architecture checks run first: a boundary violation is a design problem,
+      # and there is no point typechecking past one.
+      - name: Architecture boundaries
+        run: npm run audit:boundaries
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Tests
+        run: npm test
+
+      # Builds use placeholder local configuration. No staging or production
+      # gateway address is available to CI, and CI never points at production.
+      - name: Build applications
+        env:
+          NEXT_PUBLIC_HID_ENVIRONMENT: local
+          NEXT_PUBLIC_HID_API_BASE_URL: http://127.0.0.1:54321
+          NEXT_PUBLIC_HID_APP_ORIGIN: http://localhost:3100
+          VITE_HID_ENVIRONMENT: local
+          VITE_HID_API_BASE_URL: http://127.0.0.1:54321
+          VITE_HID_APP_ORIGIN: http://localhost:3200
+        run: |
+          npm run build:patient-web
+          npm run build:public-web
+
+      - name: Dependency audit
+        run: npm audit --audit-level=high

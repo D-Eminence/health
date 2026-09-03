@@ -1,0 +1,394 @@
+/**
+ * The Health ID API client.
+ *
+ * Every network call any Health ID frontend makes goes through here. Nothing
+ * in a component, hook, page or route calls `fetch` directly, which is what
+ * makes base URL, authentication, error shape, cancellation, retry and request
+ * correlation changeable in one place when the backend contract moves.
+ *
+ * What this client deliberately does not do:
+ *   - decide whether a user is allowed to do something (the backend does)
+ *   - persist tokens (see @hid/auth)
+ *   - log request or response bodies (they may carry PHI)
+ *   - reach anything but the configured Health ID Gateway base URL
+ */
+
+import {
+  HidApiError,
+  fallbackMessageForStatus,
+  isRetryableStatus,
+} from './errors'
+import { isLowSignalMessage, parseErrorEnvelope, parseJsonBody, unwrapData } from './envelope'
+import {
+  DEFAULT_READ_RETRY,
+  NO_RETRY,
+  isIdempotentMethod,
+  nextDelayMs,
+  parseRetryAfter,
+  shouldRetry,
+  type RetryPolicy,
+} from './retry'
+
+export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
+
+export type QueryValue = string | number | boolean | null | undefined
+
+/** How a request relates to the caller's session. */
+export type AuthRequirement =
+  /** Send the token; fail fast with 401 if there is none. */
+  | 'required'
+  /** Send the token when one exists; proceed without it otherwise. */
+  | 'optional'
+  /** Never attach a token (public endpoints such as sign-in or availability). */
+  | 'none'
+
+export interface RequestSpec {
+  readonly method: HttpMethod
+  /** Gateway-relative path, e.g. `/patients-me`. Joined onto the configured base URL. */
+  readonly path: string
+  readonly query?: Readonly<Record<string, QueryValue>>
+  readonly body?: unknown
+  readonly auth?: AuthRequirement
+  /** Caller cancellation, composed with the client's own timeout. */
+  readonly signal?: AbortSignal
+  readonly timeoutMs?: number
+  readonly retry?: RetryPolicy
+  /**
+   * Collapses concurrent identical in-flight reads into one request.
+   * Defaults to true for GET, and is never applied to anything else.
+   */
+  readonly dedupe?: boolean
+  /** Extra headers for this call. Must never carry a secret. */
+  readonly headers?: Readonly<Record<string, string>>
+}
+
+export interface ApiClientLogger {
+  debug(message: string, context?: Record<string, unknown>): void
+  warn(message: string, context?: Record<string, unknown>): void
+  error(message: string, context?: Record<string, unknown>): void
+}
+
+export interface ApiClientOptions {
+  /** Absolute Health ID Gateway base URL, from environment configuration. */
+  readonly baseUrl: string
+  /**
+   * Supplies the current access token. Returning null means "not signed in".
+   * The client never reads or writes storage itself.
+   */
+  readonly getAccessToken?: () => Promise<string | null> | string | null
+  /**
+   * Headers the gateway requires on every call (for example a client
+   * identifier). Resolved per request so they can rotate without a rebuild.
+   * Must contain only values that are safe to ship to a browser.
+   */
+  readonly getDefaultHeaders?: () => Promise<Record<string, string>> | Record<string, string>
+  /** Wall-clock budget per attempt. Defaults to 15s, matching current behaviour. */
+  readonly timeoutMs?: number
+  /** Injected for tests and for runtimes with a non-global fetch. */
+  readonly fetchImpl?: typeof fetch
+  /** Receives redacted diagnostics only. */
+  readonly logger?: ApiClientLogger
+  /**
+   * Called once per 401 so the application can clear session state and route
+   * the user to sign-in. The rejection still propagates to the caller.
+   */
+  readonly onUnauthorized?: (error: HidApiError) => void
+  /** Identifies the calling application in `X-HID-Client`, e.g. `patient-web`. */
+  readonly clientId: string
+  /** Injected in tests to make backoff deterministic. */
+  readonly sleep?: (ms: number, signal?: AbortSignal) => Promise<void>
+  readonly random?: () => number
+}
+
+const DEFAULT_TIMEOUT_MS = 15_000
+
+/**
+ * Per-error `Retry-After` hints. A WeakMap keeps the value off the public error
+ * surface — it is transport bookkeeping, not something a caller should branch on.
+ */
+const retryAfterByError = new WeakMap<HidApiError, number | null>()
+
+function defaultSleep(ms: number, signal?: AbortSignal): Promise<void> {
+  if (ms <= 0) return Promise.resolve()
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    const onAbort = () => {
+      clearTimeout(timer)
+      reject(new DOMException('Aborted', 'AbortError'))
+    }
+    if (signal?.aborted) {
+      onAbort()
+      return
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
+export function createRequestId(): string {
+  const random =
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`
+  return `hid_web_${random}`
+}
+
+function buildUrl(
+  baseUrl: string,
+  path: string,
+  query: Readonly<Record<string, QueryValue>> | undefined,
+): URL {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`
+  const url = new URL(`${baseUrl}${normalizedPath}`)
+
+  for (const [key, value] of Object.entries(query ?? {})) {
+    if (value === undefined || value === null || value === '') continue
+    url.searchParams.set(key, String(value))
+  }
+
+  return url
+}
+
+/** Composes the caller's signal with a per-attempt timeout. */
+function createAttemptSignal(
+  timeoutMs: number,
+  callerSignal: AbortSignal | undefined,
+): { signal: AbortSignal; timedOut: () => boolean; dispose: () => void } {
+  const controller = new AbortController()
+  let timedOut = false
+
+  const timer = setTimeout(() => {
+    timedOut = true
+    controller.abort(new DOMException('Request timed out', 'TimeoutError'))
+  }, timeoutMs)
+
+  const onCallerAbort = () => controller.abort(callerSignal?.reason)
+  if (callerSignal) {
+    if (callerSignal.aborted) onCallerAbort()
+    else callerSignal.addEventListener('abort', onCallerAbort, { once: true })
+  }
+
+  return {
+    signal: controller.signal,
+    timedOut: () => timedOut,
+    dispose: () => {
+      clearTimeout(timer)
+      callerSignal?.removeEventListener('abort', onCallerAbort)
+    },
+  }
+}
+
+export interface ApiClient {
+  request<T>(spec: RequestSpec): Promise<T>
+  get<T>(path: string, spec?: Omit<RequestSpec, 'method' | 'path' | 'body'>): Promise<T>
+  post<T>(path: string, body?: unknown, spec?: Omit<RequestSpec, 'method' | 'path' | 'body'>): Promise<T>
+  /** The configured gateway base URL, for diagnostics. */
+  readonly baseUrl: string
+}
+
+export function createApiClient(options: ApiClientOptions): ApiClient {
+  const fetchImpl = options.fetchImpl ?? globalThis.fetch
+  if (typeof fetchImpl !== 'function') {
+    throw new Error('createApiClient requires a fetch implementation')
+  }
+
+  const baseUrl = options.baseUrl.replace(/\/+$/, '')
+  const defaultTimeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
+  const sleep = options.sleep ?? defaultSleep
+  const logger = options.logger
+  const inflight = new Map<string, Promise<unknown>>()
+
+  async function resolveHeaders(spec: RequestSpec, requestId: string): Promise<Headers> {
+    const headers = new Headers(await options.getDefaultHeaders?.())
+
+    for (const [key, value] of Object.entries(spec.headers ?? {})) headers.set(key, value)
+
+    headers.set('Accept', 'application/json')
+    headers.set('X-Request-ID', requestId)
+    headers.set('X-HID-Client', options.clientId)
+
+    if (spec.body !== undefined) headers.set('Content-Type', 'application/json')
+
+    const requirement: AuthRequirement = spec.auth ?? 'required'
+    if (requirement !== 'none') {
+      const token = (await options.getAccessToken?.()) ?? null
+      if (token) {
+        headers.set('Authorization', `Bearer ${token}`)
+      } else if (requirement === 'required') {
+        throw new HidApiError(401, fallbackMessageForStatus(401), {
+          code: 'UNAUTHENTICATED',
+          requestId,
+          retryable: false,
+        })
+      }
+    }
+
+    return headers
+  }
+
+  async function attempt<T>(spec: RequestSpec, url: URL, requestId: string): Promise<T> {
+    const headers = await resolveHeaders(spec, requestId)
+    const timeoutMs = spec.timeoutMs ?? defaultTimeoutMs
+    const attemptSignal = createAttemptSignal(timeoutMs, spec.signal)
+
+    let response: Response
+    try {
+      response = await fetchImpl(url.toString(), {
+        method: spec.method,
+        headers,
+        body: spec.body === undefined ? undefined : JSON.stringify(spec.body),
+        signal: attemptSignal.signal,
+        // Clinical data is never served from the HTTP cache.
+        cache: 'no-store',
+        credentials: 'omit',
+        mode: 'cors',
+        redirect: 'error',
+      })
+    } catch (error) {
+      if (spec.signal?.aborted) {
+        throw new HidApiError(0, 'The request was cancelled.', {
+          code: 'REQUEST_CANCELLED',
+          requestId,
+          retryable: false,
+          cause: error,
+        })
+      }
+      if (attemptSignal.timedOut()) {
+        throw new HidApiError(408, fallbackMessageForStatus(408), {
+          code: 'REQUEST_TIMEOUT',
+          requestId,
+          retryable: true,
+          cause: error,
+        })
+      }
+      throw new HidApiError(0, 'We could not reach the service. Check your connection and try again.', {
+        code: 'NETWORK_ERROR',
+        requestId,
+        retryable: true,
+        cause: error,
+      })
+    } finally {
+      attemptSignal.dispose()
+    }
+
+    const headerRequestId = response.headers.get('X-Request-ID')
+    const rawBody = await response.text()
+    const payload = parseJsonBody(rawBody)
+
+    if (!response.ok) {
+      const envelope = parseErrorEnvelope(payload, {
+        status: response.status,
+        headerRequestId,
+      })
+      const message = isLowSignalMessage(envelope.message)
+        ? fallbackMessageForStatus(response.status)
+        : envelope.message
+
+      const error = new HidApiError(response.status, message, {
+        code: envelope.code,
+        requestId: envelope.requestId ?? requestId,
+        retryable: envelope.retryable ?? isRetryableStatus(response.status),
+        details: envelope.details,
+      })
+
+      // Attach transport hints the retry loop needs without widening HidApiError.
+      retryAfterByError.set(error, parseRetryAfter(response.headers.get('Retry-After')))
+
+      if (error.status === 401) options.onUnauthorized?.(error)
+
+      logger?.warn('api request failed', {
+        method: spec.method,
+        path: spec.path,
+        ...error.toLogContext(),
+      })
+
+      throw error
+    }
+
+    if (response.status === 204 || rawBody.trim() === '') return undefined as T
+
+    if (payload === null && rawBody.trim() !== '') {
+      throw new HidApiError(502, 'The service returned an unreadable response.', {
+        code: 'INVALID_RESPONSE',
+        requestId: headerRequestId ?? requestId,
+        retryable: true,
+      })
+    }
+
+    return unwrapData<T>(payload)
+  }
+
+  async function run<T>(spec: RequestSpec): Promise<T> {
+    const requestId = createRequestId()
+    const url = buildUrl(baseUrl, spec.path, spec.query)
+    const idempotent = isIdempotentMethod(spec.method)
+    const policy = spec.retry ?? (idempotent ? DEFAULT_READ_RETRY : NO_RETRY)
+
+    let attemptIndex = 0
+    for (;;) {
+      try {
+        return await attempt<T>(spec, url, requestId)
+      } catch (error) {
+        if (!shouldRetry({ error, method: spec.method, attempt: attemptIndex, policy, idempotent })) {
+          throw error
+        }
+
+        const delay = nextDelayMs({
+          attempt: attemptIndex,
+          policy,
+          retryAfterSeconds: error instanceof HidApiError ? retryAfterByError.get(error) ?? null : null,
+          ...(options.random ? { random: options.random } : {}),
+        })
+
+        logger?.debug('retrying api request', {
+          method: spec.method,
+          path: spec.path,
+          attempt: attemptIndex + 1,
+          delayMs: delay,
+        })
+
+        await sleep(delay, spec.signal)
+        attemptIndex += 1
+      }
+    }
+  }
+
+  function dedupeKey(spec: RequestSpec): string {
+    return JSON.stringify([spec.method, spec.path, spec.query ?? null, spec.auth ?? 'required'])
+  }
+
+  const client: ApiClient = {
+    baseUrl,
+
+    request<T>(spec: RequestSpec): Promise<T> {
+      const canDedupe = spec.method === 'GET' && (spec.dedupe ?? true)
+      if (!canDedupe) return run<T>(spec)
+
+      const key = dedupeKey(spec)
+      const existing = inflight.get(key)
+      if (existing) return existing as Promise<T>
+
+      const pending = run<T>(spec).finally(() => {
+        inflight.delete(key)
+      })
+      inflight.set(key, pending)
+      return pending
+    },
+
+    get<T>(path: string, spec?: Omit<RequestSpec, 'method' | 'path' | 'body'>): Promise<T> {
+      return client.request<T>({ ...spec, method: 'GET', path })
+    },
+
+    post<T>(
+      path: string,
+      body?: unknown,
+      spec?: Omit<RequestSpec, 'method' | 'path' | 'body'>,
+    ): Promise<T> {
+      return client.request<T>({ ...spec, method: 'POST', path, body })
+    },
+  }
+
+  return client
+}

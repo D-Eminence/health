@@ -1,0 +1,43 @@
+/*
+ * Health ID design tokens.
+ *
+ * One source of colour, type and spacing for every application in the
+ * ecosystem, exposed to Tailwind through `@theme` so utilities such as
+ * `bg-surface` and `text-muted` resolve identically in a Next.js app and a
+ * Vite app. An application that needs a new token adds it here rather than
+ * hard-coding a hex value, which is what stops nine applications drifting into
+ * nine slightly different products.
+ *
+ * Visual design is out of scope for this task; these are placeholders with the
+ * right structure, not a finished palette.
+ */
+
+@theme {
+  --color-surface: oklch(99% 0.004 240);
+  --color-surface-raised: oklch(100% 0 0);
+  --color-ink: oklch(22% 0.02 250);
+  --color-muted: oklch(52% 0.02 250);
+  --color-line: oklch(90% 0.008 250);
+  --color-accent: oklch(52% 0.14 240);
+  --color-accent-ink: oklch(99% 0.005 240);
+  --color-danger: oklch(54% 0.19 25);
+  --color-warning: oklch(72% 0.15 75);
+  --color-success: oklch(58% 0.13 155);
+
+  --radius-control: 0.5rem;
+  --spacing-gutter: 1.5rem;
+}
+
+/*
+ * Dark theme. Only the tokens change; no component restates a colour.
+ */
+@media (prefers-color-scheme: dark) {
+  @theme {
+    --color-surface: oklch(18% 0.015 250);
+    --color-surface-raised: oklch(23% 0.018 250);
+    --color-ink: oklch(96% 0.006 250);
+    --color-muted: oklch(70% 0.02 250);
+    --color-line: oklch(32% 0.02 250);
+    --color-accent-ink: oklch(15% 0.02 250);
+  }
+}
