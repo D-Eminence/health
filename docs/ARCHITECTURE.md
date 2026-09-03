@@ -133,8 +133,10 @@ against the calling application's boundary.
 
 ### Types stop where knowledge stops
 
-`packages/contracts/src/registry.ts` records all 59 endpoints with their methods
-and authorisation class — **verified** by reading the backend source. Request and
+`packages/contracts/src/registry.ts` records 57 of the backend's 59 functions
+with their methods and authorisation class — **verified** by reading the backend
+source. The two omitted (`send-email`, `migration-worker-jobs`) are
+backend-internal and have no business being callable from a browser. Request and
 response *shapes* were not verified endpoint by endpoint, so every service method
 returns `UnverifiedPayload` (`unknown`).
 

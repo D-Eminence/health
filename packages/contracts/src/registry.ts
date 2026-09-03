@@ -158,6 +158,19 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   endpoint('health-check', 'platform', ['GET'], PUBLIC),
 ]
 
+/**
+ * Backend functions deliberately left out of the registry.
+ *
+ * The backend exposes 59 functions; 57 are registered above. These two are
+ * backend-internal — they exist to be called by other backend components, not
+ * by a browser — so giving them a frontend service module would invite exactly
+ * the coupling this registry exists to prevent.
+ */
+export const NON_FRONTEND_ENDPOINTS: readonly string[] = [
+  'send-email',
+  'migration-worker-jobs',
+]
+
 const ENDPOINTS_BY_NAME = new Map(HID_ENDPOINTS.map(descriptor => [descriptor.name, descriptor]))
 
 export function findEndpoint(name: string): EndpointDescriptor | undefined {

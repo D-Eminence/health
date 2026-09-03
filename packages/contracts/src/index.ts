@@ -8,6 +8,7 @@ export {
 export type { AppBoundary, HidApp, ServicesOf } from './boundaries'
 export {
   HID_ENDPOINTS,
+  NON_FRONTEND_ENDPOINTS,
   SERVICES_WITHOUT_CONTRACTS,
   endpointsForService,
   findEndpoint,
