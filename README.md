@@ -28,7 +28,7 @@ npm run dev --workspace @hid/patient-web   # :3200
 
 | Path | Purpose |
 | --- | --- |
-| `apps/public-web` | Public site. Next.js. Granted one backend service; cannot reach anything clinical |
+| `apps/public-web` | Public site — chooser, provider and patient landing pages, product pages. Next.js, statically pre-rendered. Granted one backend service; cannot reach anything clinical |
 | `apps/patient-web` | Patient application. Vite |
 | `packages/config` | Environment resolution and the public-environment guard |
 | `packages/contracts` | Verified endpoint registry, domain vocabulary, application boundaries |
@@ -58,6 +58,6 @@ npm run audit:boundaries   # repository-level architecture checks
 
 ## Status
 
-119 tests passing; both applications build. **No integration has been tested
+149 tests passing; both applications build; the public site pre-renders 13 routes. **No integration has been tested
 against staging or production** — nothing here has spoken to a real Health ID
 environment. See the integration sequence in the architecture document.

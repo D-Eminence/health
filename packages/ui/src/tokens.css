@@ -1,43 +1,64 @@
 /*
  * Health ID design tokens.
  *
- * One source of colour, type and spacing for every application in the
- * ecosystem, exposed to Tailwind through `@theme` so utilities such as
- * `bg-surface` and `text-muted` resolve identically in a Next.js app and a
- * Vite app. An application that needs a new token adds it here rather than
- * hard-coding a hex value, which is what stops nine applications drifting into
- * nine slightly different products.
+ * Transcribed from the approved landing design. One source of colour, type and
+ * spacing for every application in the ecosystem, exposed to Tailwind through
+ * `@theme` so `bg-brand` and `text-muted` resolve identically in a Next.js app
+ * and a Vite app.
  *
- * Visual design is out of scope for this task; these are placeholders with the
- * right structure, not a finished palette.
+ * An application that needs a new token adds it here rather than hard-coding a
+ * hex value — that is what stops nine applications drifting into nine slightly
+ * different products.
+ *
+ * The brand commits to a light ground. That is a deliberate identity choice
+ * carried over from the design, not an omission: there is no dark palette to
+ * fall back to, so every surface and every colour is stated explicitly.
  */
 
 @theme {
-  --color-surface: oklch(99% 0.004 240);
-  --color-surface-raised: oklch(100% 0 0);
-  --color-ink: oklch(22% 0.02 250);
-  --color-muted: oklch(52% 0.02 250);
-  --color-line: oklch(90% 0.008 250);
-  --color-accent: oklch(52% 0.14 240);
-  --color-accent-ink: oklch(99% 0.005 240);
-  --color-danger: oklch(54% 0.19 25);
-  --color-warning: oklch(72% 0.15 75);
-  --color-success: oklch(58% 0.13 155);
+  /* --- brand ------------------------------------------------------------ */
+  --color-brand: #086dd9;
+  --color-brand-dark: #075fbe;
+  --color-brand-tint: #eaf4ff;
 
-  --radius-control: 0.5rem;
+  /* --- text ------------------------------------------------------------- */
+  --color-ink: #0b1b2e;
+  --color-muted: #5b6b80;
+  --color-faint: #7b8a9c;
+
+  /* --- surfaces --------------------------------------------------------- */
+  --color-surface: #ffffff;
+  --color-surface-sunk: #eef2f7;
+  --color-surface-tint: #f4f7fb;
+  --color-line: #e3e9f0;
+  --color-line-strong: #d7deea;
+
+  /* Inverted sections ("dark" bands) keep their own named tokens so a
+     component never guesses at a colour that works on a navy ground. */
+  --color-inverse-surface: #0b1b2e;
+  --color-inverse-ink: #ffffff;
+  --color-inverse-muted: #9fb0c4;
+
+  /* --- status ----------------------------------------------------------- */
+  --color-positive: #12805c;
+  --color-caution: #b06a12;
+  --color-critical: #b3261e;
+
+  /* --- type ------------------------------------------------------------- */
+  /* The font-family variables are supplied per application: Next.js sets them
+     through next/font, Vite through an @font-face or @fontsource import. Each
+     falls back to a real stack so a failed font load degrades rather than
+     silently substituting something unrelated. */
+  --font-display: var(--font-forum), 'Iowan Old Style', Georgia, serif;
+  --font-sans: var(--font-inter), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: var(--font-jetbrains-mono), ui-monospace, 'SF Mono', Menlo, monospace;
+
+  /* --- layout ----------------------------------------------------------- */
   --spacing-gutter: 1.5rem;
-}
+  --radius-control: 999px;
+  --radius-panel: 20px;
+  --radius-card: 14px;
 
-/*
- * Dark theme. Only the tokens change; no component restates a colour.
- */
-@media (prefers-color-scheme: dark) {
-  @theme {
-    --color-surface: oklch(18% 0.015 250);
-    --color-surface-raised: oklch(23% 0.018 250);
-    --color-ink: oklch(96% 0.006 250);
-    --color-muted: oklch(70% 0.02 250);
-    --color-line: oklch(32% 0.02 250);
-    --color-accent-ink: oklch(15% 0.02 250);
-  }
+  /* Content column of the marketing pages. */
+  --container-wrap: 1080px;
 }

@@ -59,7 +59,8 @@ any manifest.
 ```
 hid-frontend/
 ├── apps/
-│   ├── public-web/       Next.js  — public site
+│   ├── public-web/       Next.js  — public site (chooser, providers,
+│   │                                patients, products)
 │   └── patient-web/      Vite     — patient application
 ├── packages/
 │   ├── config/           environment resolution + public-env guard
@@ -72,6 +73,12 @@ hid-frontend/
 ├── scripts/              repository-level architecture checks
 └── docs/
 ```
+
+`public-web` implements the approved landing design: the audience chooser at
+`/`, the provider and patient landing pages, and a product page per module. All
+thirteen routes pre-render as static HTML — nothing on the public site is
+fetched at runtime, which is both the fastest option and the reason this
+application can be granted a single backend service.
 
 `staff-web`, `ehr-web`, `lab-web`, `pharmacy-web`, `ocr-web`, `outreach-web` and
 `admin-web` are **declared** in `packages/contracts/src/boundaries.ts` but not
@@ -98,6 +105,17 @@ is also the choice that does not require rewriting what works.
 
 TypeScript is the primary language throughout; `strict` plus
 `noUncheckedIndexedAccess` in `tsconfig.base.json`.
+
+### Styling
+
+Tailwind CSS v4, driven by design tokens in `@hid/ui/tokens.css` — the brand
+palette, type stack and radii transcribed from the approved design. Both
+applications import the same file, so `bg-brand` resolves identically under
+Next.js and under Vite, and a brand change is one edit rather than nine.
+
+Typefaces are self-hosted through `next/font`: Forum for display, JetBrains
+Mono for technical labels, and an interface sans. No request leaves for a font
+CDN, and there is no layout shift while a face loads.
 
 ---
 
@@ -250,13 +268,16 @@ hard-coded anywhere.
 
 ## 10. Testing
 
-`npm run check` runs typecheck, lint and tests. Current state: **119 tests
-passing**, both applications building.
+`npm run check` runs typecheck, lint and tests. Current state: **149 tests
+passing**, both applications building, all thirteen public routes pre-rendering.
 
 Covered: environment resolution and the secret guard, PHI redaction and logging,
 the API client (construction, auth, envelopes, errors, cancellation, timeouts,
 retries, deduplication), the endpoint registry, application boundaries, session
-and persistence rules, access decisions, and route-guard rendering in jsdom.
+and persistence rules, access decisions, route-guard rendering in jsdom, the
+product catalogue and audience routing, pricing arithmetic against the figures
+the design quotes, demo-enquiry validation and encoding, and the pricing
+control's interactive behaviour.
 
 Not covered, and not claimed: **no integration has been tested against staging
 or production.** Nothing in this repository has spoken to a real Health ID

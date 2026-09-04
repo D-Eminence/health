@@ -8,7 +8,7 @@ Evidence is cited from the frozen release `dfd07792a25dd9af9ec79972da350b0bda4bb
 
 **Blocking staging integration:** Q1, Q2, Q3, Q4, Q11
 **Blocking specific applications:** Q5, Q7, Q8, Q9
-**Needs a decision, not blocking:** Q6, Q10, Q12
+**Needs a decision, not blocking:** Q6, Q10, Q12, Q13
 
 ---
 
@@ -217,6 +217,28 @@ can be safely retried.
 
 **Meanwhile** `shouldRetry()` refuses every non-idempotent method. A failed
 `records-create` surfaces to the user rather than being retried.
+
+---
+
+## Q13 — Demo and sales enquiries have no intake endpoint *(decision)*
+
+The approved design includes a "Book an EHR demo" dialog that submits and
+confirms. No endpoint at the frozen release accepts a demo or sales enquiry:
+`send-email` exists but is backend-internal rather than a public intake, and
+exposing it to anonymous browsers would be an open relay.
+
+Every call to action on the provider site — the hero, the pricing cards, the
+enterprise link and both closing sections — leads to this dialog, so it is the
+site's only conversion path.
+
+**Needed** — either a public enquiry endpoint behind the Gateway (with its own
+bot protection; Turnstile is already in the stack), or agreement that enquiries
+are handled by email.
+
+**Meanwhile** the form is fully built and validated client-side, and hands the
+composed enquiry to the visitor's mail client via `mailto:`. That loses no
+lead, invents no endpoint, and makes no claim the platform cannot honour. It is
+one function to delete: `apps/public-web/lib/demo-request.ts`.
 
 ---
 

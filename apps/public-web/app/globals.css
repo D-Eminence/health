@@ -1,8 +1,33 @@
 @import 'tailwindcss';
 
 /*
- * Design tokens live in @hid/ui and are imported by every application, so the
- * public site and the authenticated applications cannot drift apart visually
- * without someone changing the shared source.
+ * Design tokens come from the shared package, so the public site and the
+ * authenticated applications resolve `bg-brand` and `text-muted` to the same
+ * values. Changing a brand colour is one edit, in one file, for the ecosystem.
  */
 @import '@hid/ui/tokens.css';
+
+/*
+ * Tailwind ignores node_modules when scanning for class names, and the shared
+ * UI package is linked from there. Pointing at its source keeps the utilities
+ * its components use from being stripped out of this app's stylesheet.
+ */
+@source '../../../packages/ui/src';
+
+@layer base {
+  /* The pill nav is sticky, so anchored sections need clearance or their
+     heading lands underneath it. */
+  :target {
+    scroll-margin-top: 6rem;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+  }
+}

@@ -40,7 +40,7 @@ export function ErrorState({ error, onRetry, children }: ErrorStateProps) {
     <div
       role="alert"
       aria-live="polite"
-      className="rounded-[--radius-control] border border-line bg-surface-raised p-4"
+      className="rounded-(--radius-card) border border-line bg-surface p-4"
     >
       <p className="text-ink">{toDisplayMessage(error)}</p>
 
@@ -50,7 +50,7 @@ export function ErrorState({ error, onRetry, children }: ErrorStateProps) {
         <button
           type="button"
           onClick={onRetry}
-          className="mt-3 rounded-[--radius-control] bg-accent px-3 py-1.5 text-sm text-accent-ink"
+          className="mt-3 rounded-(--radius-control) bg-brand px-4 py-2 text-sm font-semibold text-white hover:bg-brand-dark"
         >
           Try again
         </button>

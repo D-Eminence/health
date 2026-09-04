@@ -1,24 +1,73 @@
-import { getEnvironment } from '@/lib/env'
+import Image from 'next/image'
+import Link from 'next/link'
+import { Display, Wrap } from '@hid/ui'
+import { AUDIENCES, CHOOSER } from '@/content/site'
+import { LogoMark } from '@/components/layout/Logo'
+
+export const metadata = {
+  title: 'Choose how you use Health ID',
+  description:
+    'Health ID works differently for patients and for healthcare providers. Choose the experience that fits your role.',
+}
 
 /**
- * Rendered on the server. It reads configuration, never a person's data: this
- * application has no authenticated session and no access to a clinical service.
+ * The entry screen.
+ *
+ * Health ID serves two audiences with genuinely different products, so the site
+ * asks once rather than trying to address both at the top of one page. Both
+ * options are plain links: the choice routes, it does not set state, so it
+ * survives a shared URL and works with JavaScript disabled.
  */
-export default function HomePage() {
-  const environment = getEnvironment()
-
+export default function ChooserPage() {
   return (
-    <main className="mx-auto flex min-h-screen max-w-2xl flex-col justify-center gap-4 px-6">
-      <h1 className="text-3xl font-semibold tracking-tight">Health ID</h1>
-      <p className="text-muted">
-        Public web application shell. Content is out of scope for this task; the architecture is not.
-      </p>
-      <dl className="mt-4 grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-sm">
-        <dt className="text-muted">Environment</dt>
-        <dd>{environment.name}</dd>
-        <dt className="text-muted">Gateway</dt>
-        <dd className="font-mono text-xs">{environment.apiBaseUrl}</dd>
-      </dl>
+    <main
+      id="main"
+      className="flex min-h-screen flex-col justify-center bg-linear-to-b from-surface-tint to-brand-tint/60 py-16"
+    >
+      <Wrap>
+        <div className="flex flex-col items-center gap-7">
+          <span className="flex items-center gap-2 text-brand">
+            <LogoMark />
+            <span className="font-display text-[26px] leading-none">Health ID</span>
+          </span>
+
+          <div className="flex flex-col items-center gap-4">
+            <Display as="h1" size="lg" className="text-center">
+              {CHOOSER.title}
+            </Display>
+            <p className="max-w-[520px] text-center text-base/relaxed text-muted">{CHOOSER.lede}</p>
+          </div>
+
+          <ul className="grid w-full max-w-[820px] gap-5 sm:grid-cols-2">
+            {AUDIENCES.map(audience => (
+              <li key={audience.id} className="flex">
+                <Link
+                  href={audience.href}
+                  className="group flex flex-1 flex-col items-center gap-4 rounded-(--radius-panel) border border-line bg-surface p-8 text-center transition-shadow hover:shadow-[0_12px_40px_rgba(11,27,46,0.10)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                >
+                  <Image
+                    src={audience.image}
+                    alt={audience.imageAlt}
+                    width={180}
+                    height={130}
+                    className="h-[118px] w-auto object-contain"
+                    priority
+                  />
+                  <Display as="h2" size="sm">
+                    {audience.title}
+                  </Display>
+                  <p className="max-w-[38ch] text-[15px]/relaxed text-muted">{audience.body}</p>
+                  <span className="mt-auto pt-3 font-semibold text-brand group-hover:text-brand-dark">
+                    Continue <span aria-hidden="true">&rarr;</span>
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+
+          <p className="text-[13px] text-faint">{CHOOSER.footnote}</p>
+        </div>
+      </Wrap>
     </main>
   )
 }

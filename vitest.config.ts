@@ -1,3 +1,5 @@
+import { fileURLToPath } from 'node:url'
+import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vitest/config'
 
 /**
@@ -26,13 +28,25 @@ export default defineConfig({
         },
       },
       {
+        // The React plugin supplies the automatic JSX runtime. Without it,
+        // Next.js apps transform their tests with the classic runtime — their
+        // tsconfig sets `jsx: preserve` for the Next compiler — and every
+        // render fails on an undefined `React`.
+        plugins: [react()],
         test: {
           name: 'apps',
           environment: 'jsdom',
-          include: ['apps/**/src/**/*.test.{ts,tsx}'],
+          include: ['apps/*/**/*.test.{ts,tsx}'],
           exclude: ['**/node_modules/**', '**/dist/**', '**/.next/**'],
           setupFiles: ['./vitest.setup.ts'],
           restoreMocks: true,
+        },
+        resolve: {
+          // Mirrors the `@/*` path alias each Next.js app declares in its
+          // tsconfig, so tests import modules the same way the app does.
+          alias: {
+            '@/': `${fileURLToPath(new URL('./apps/public-web', import.meta.url))}/`,
+          },
         },
       },
     ],
