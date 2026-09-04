@@ -43,6 +43,9 @@
   --color-positive: #12805c;
   --color-caution: #b06a12;
   --color-critical: #b3261e;
+  /* Used to distinguish a workflow stage that is neither a warning nor a
+     success — laboratory work in the patient-flow board, for instance. */
+  --color-stage: #6034b8;
 
   /* --- type ------------------------------------------------------------- */
   /* The font-family variables are supplied per application: Next.js sets them

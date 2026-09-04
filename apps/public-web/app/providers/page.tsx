@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { ProviderNav } from '@/components/layout/SiteNav'
 import { SiteFooter } from '@/components/layout/SiteFooter'
 import { DemoDialog } from '@/components/shared/DemoDialog'
+import { BackToTop } from '@/components/shared/BackToTop'
 import { ProviderHero } from '@/components/provider/Hero'
 import {
   AdoptionSection,
@@ -18,6 +19,9 @@ import {
   MigrateSection,
   ProviderClosing,
 } from '@/components/provider/Connected'
+import { ModulesSection } from '@/components/provider/Modules'
+import { OperationsSection } from '@/components/provider/Operations'
+import { RecordSection, TeamsSection } from '@/components/provider/RecordAndTeams'
 import { PricingSection } from '@/components/provider/Pricing'
 import { PROVIDER_CTA } from '@/content/provider'
 import { APP_ENTRY } from '@/content/site'
@@ -45,9 +49,13 @@ export default function ProvidersPage() {
         <PartnerStrip />
         <PlatformSection />
         <AdoptionSection />
+        <ModulesSection />
         <FeaturesSection />
         <EhrSection />
         <StandardsSection />
+        <OperationsSection />
+        <RecordSection />
+        <TeamsSection />
         <IdentitySection />
         <AccessSection />
         <MigrateSection />
@@ -62,6 +70,7 @@ export default function ProvidersPage() {
         />
       </main>
       <SiteFooter />
+      <BackToTop />
       <DemoDialog />
     </>
   )

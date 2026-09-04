@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { PatientNav } from '@/components/layout/SiteNav'
 import { SiteFooter } from '@/components/layout/SiteFooter'
+import { BackToTop } from '@/components/shared/BackToTop'
 import { PatientFaq } from '@/components/patient/Faq'
 import {
   PatientClosing,
@@ -37,6 +38,7 @@ export default function PatientsPage() {
         <PatientClosing />
       </main>
       <SiteFooter />
+      <BackToTop />
     </>
   )
 }

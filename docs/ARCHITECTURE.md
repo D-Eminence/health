@@ -268,7 +268,7 @@ hard-coded anywhere.
 
 ## 10. Testing
 
-`npm run check` runs typecheck, lint and tests. Current state: **149 tests
+`npm run check` runs typecheck, lint and tests. Current state: **177 tests
 passing**, both applications building, all thirteen public routes pre-rendering.
 
 Covered: environment resolution and the secret guard, PHI redaction and logging,
@@ -276,8 +276,10 @@ the API client (construction, auth, envelopes, errors, cancellation, timeouts,
 retries, deduplication), the endpoint registry, application boundaries, session
 and persistence rules, access decisions, route-guard rendering in jsdom, the
 product catalogue and audience routing, pricing arithmetic against the figures
-the design quotes, demo-enquiry validation and encoding, and the pricing
-control's interactive behaviour.
+the design quotes, demo-enquiry validation and encoding, and every interactive
+surface on the public site — the pricing control, all four tab sets (including
+arrow-key, Home and End movement and the roving tabindex), and each product's
+dashboard panels.
 
 Not covered, and not claimed: **no integration has been tested against staging
 or production.** Nothing in this repository has spoken to a real Health ID

@@ -4,6 +4,7 @@ import { Card, Display, Section, SectionHeader, Wrap } from '@hid/ui'
 import { ProviderNav } from '@/components/layout/SiteNav'
 import { SiteFooter } from '@/components/layout/SiteFooter'
 import { DemoDialog } from '@/components/shared/DemoDialog'
+import { BackToTop } from '@/components/shared/BackToTop'
 import { PRODUCTS } from '@/content/products'
 import { ROUTES } from '@/content/site'
 
@@ -54,6 +55,7 @@ export default function ProductsPage() {
         </Section>
       </main>
       <SiteFooter />
+      <BackToTop />
       <DemoDialog />
     </>
   )

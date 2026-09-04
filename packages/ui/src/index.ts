@@ -1,4 +1,6 @@
 export { ErrorState, toDisplayMessage } from './ErrorState'
+export { TabList, TabPanel, useTabs } from './Tabs'
+export type { TabItem, TabPanelProps, TabsProps } from './Tabs'
 export type { ErrorStateProps } from './ErrorState'
 export {
   Arrow,
