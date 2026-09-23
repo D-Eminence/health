@@ -3,19 +3,21 @@ import { PatientNav } from '@/components/layout/SiteNav'
 import { SiteFooter } from '@/components/layout/SiteFooter'
 import { BackToTop } from '@/components/shared/BackToTop'
 import { PatientFaq } from '@/components/patient/Faq'
+import { PatientExperienceBento } from '@/components/patient/PatientExperienceBento'
+import { HealthIDModuleShowcase } from '@/components/product/HealthIDModuleShowcase'
+import { TrustStrip } from '@/components/provider/TrustStrip'
 import {
   PatientClosing,
   PatientControl,
   PatientHero,
   PatientJourney,
   PatientSteps,
-  PatientUpload,
 } from '@/components/patient/Sections'
 
 export const metadata: Metadata = {
   title: 'For patients',
   description:
-    'One Health ID carries your medical history between hospitals, laboratories and pharmacies — and only opens when you allow it.',
+    'Health ID carries your medical history between hospitals, laboratories and pharmacies — and only opens when you allow it.',
 }
 
 /**
@@ -30,11 +32,13 @@ export default function PatientsPage() {
       <PatientNav />
       <main id="main">
         <PatientHero />
+        <TrustStrip />
         <PatientSteps />
+        <PatientExperienceBento />
         <PatientJourney />
         <PatientControl />
-        <PatientUpload />
         <PatientFaq />
+        <HealthIDModuleShowcase />
         <PatientClosing />
       </main>
       <SiteFooter />

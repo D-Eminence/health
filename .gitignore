@@ -20,6 +20,9 @@ Thumbs.db
 *.log
 npm-debug.log*
 
+# Vercel CLI working directory: the project link and the pulled environment.
+.vercel/
+
 # Design inputs and captures live outside the repo; never vendor them in.
 *.zip
 hid-preview*.html

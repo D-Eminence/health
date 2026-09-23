@@ -1,0 +1,154 @@
+/**
+ * Copy for the pages behind the navigation: solutions, company, contact and
+ * resources.
+ *
+ * Written to the same rule as the rest of the site — say what the platform
+ * does, and claim nothing it cannot honour. The resource pages in particular
+ * describe this website and the platform as they actually are, because a
+ * security or privacy page that overstates is worse than no page at all.
+ */
+
+export const SOLUTIONS_PAGE = {
+  eyebrow: 'Solutions',
+  title: 'Built for the way each care setting works.',
+  lede: 'Health ID is one platform, but a hospital, a clinic, a diagnostic centre, a pharmacy and a public health programme use it differently. Start with the workflow you need, and connect the rest when you are ready.',
+  audiences: [
+    {
+      id: 'hospitals',
+      title: 'Hospitals',
+      lede: 'One patient identity across every department, with authorised teams working from the relevant connected record.',
+      points: [
+        'Registration, consultation, laboratory, pharmacy and inpatient workflows share one patient identity.',
+        'Registration, ward, laboratory and pharmacy workflows stay connected to the same patient identity; record access remains role- and purpose-specific.',
+        'Role-based access gives each staff member the workflows their role requires, and nothing more.',
+        'Historical paper files can be brought in through Health ID Migrate rather than abandoned.',
+      ],
+      products: ['identity', 'ehr', 'laboratory', 'pharmacy', 'migrate'],
+    },
+    {
+      id: 'clinics',
+      title: 'Clinics',
+      lede: 'Start with registration and consultation, and add modules when the clinic needs them.',
+      points: [
+        'Health ID Identity and Health ID EHR cover the everyday clinic workflow.',
+        'Patients arriving from another facility can be identified rather than registered again.',
+        'Prescriptions and investigations leave the consultation already attached to the patient.',
+        'Modules can be added one at a time, without a migration project.',
+      ],
+      products: ['identity', 'ehr', 'pharmacy'],
+    },
+    {
+      id: 'diagnostic-centres',
+      title: 'Diagnostic centres',
+      lede: 'Investigations ordered against an identity, not against a name written on a request slip.',
+      points: [
+        'Receive requests from a connected facility, or create them for walk-in patients.',
+        'Track every sample from collection through processing to verification.',
+        'Verified results return to the record that requested them and can join the patient’s history through the applicable authorised workflow.',
+      ],
+      products: ['laboratory', 'identity'],
+    },
+    {
+      id: 'pharmacies',
+      title: 'Pharmacies',
+      lede: 'Dispensing connected to the prescription that caused it.',
+      points: [
+        'Prescriptions arrive against the patient record rather than on a slip of paper.',
+        'What is dispensed returns to the patient’s medication history.',
+        'Stock levels and reorder thresholds stay visible at the counter.',
+      ],
+      products: ['pharmacy', 'identity'],
+    },
+    {
+      id: 'public-health-programmes',
+      title: 'Public health programmes',
+      lede: 'Register patients where they are, and issue a Health ID that participating facilities can recognise.',
+      points: [
+        'Run registration campaigns in communities, workplaces and outreach events.',
+        'Every registration is verified and issued a Health ID through the standard identity flow.',
+        'Records created in the field are ordinary Health ID records, not a separate register.',
+      ],
+      products: ['outreach', 'identity'],
+    },
+  ],
+} as const
+
+export const ABOUT_PAGE = {
+  eyebrow: 'About Health ID',
+  title: 'Building the infrastructure for connected healthcare.',
+  lede: 'Health ID is creating the digital infrastructure that helps healthcare organizations identify patients, manage care, digitize legacy records, and connect healthcare services across one ecosystem.',
+  paragraphs: [
+    'Healthcare information is usually organised around the institution that holds it. A patient seen at three facilities becomes three records, and the clinician in front of them sees only the part their own system holds.',
+    'Health ID inverts that. The identity belongs to the patient, and facilities work against it — so registration, clinical records, investigations, prescriptions and outreach registration all contribute to one connected history.',
+    'We work with hospitals, clinics, diagnostic centres, pharmacies and public health programmes. Facilities with existing software keep it and connect through Health ID API; facilities on paper start with Health ID Migrate.',
+  ],
+  principles: [
+    { title: 'Identity is separate from access', body: 'A Health ID identifies a patient. It does not, by itself, open their medical history.' },
+    { title: 'Access is deliberate', body: 'Records are reached by role, purpose and authorised scope, with patient consent where it applies.' },
+    { title: 'Nothing is claimed that is not built', body: 'Standards alignment is described as alignment, not as certification.' },
+  ],
+} as const
+
+export const CONTACT_PAGE = {
+  eyebrow: 'Contact',
+  title: 'Talk to us about your facility.',
+  lede: 'Tell us what you run today and what you would like to change. Demonstrations are arranged with the clinical and administrative teams who would use the system, not as a generic sales call.',
+  demoTitle: 'Book a demo',
+  emailLabel: 'Email',
+  patientNote:
+    'For questions about your own Health ID or your medical records, please contact the healthcare facility that created your record. We cannot discuss an individual patient’s information from this website.',
+} as const
+
+export const DOCUMENTATION_PAGE = {
+  eyebrow: 'Resources',
+  title: 'Documentation.',
+  lede: 'Written material accompanies every module, and implementation documentation is provided to your team during onboarding.',
+  sections: [
+    {
+      title: 'Product documentation',
+      body: 'Each product page describes what the module does and where it sits in the patient journey. Start there for an overview of a module before an implementation.',
+    },
+    {
+      title: 'Implementation and onboarding',
+      body: 'Facilities receive setup guidance for their modules, and staff receive onboarding material for the workflows their role uses.',
+    },
+    {
+      title: 'Integration reference',
+      body: 'Facilities and vendors integrating through Health ID API receive the interface reference as part of the integration.',
+    },
+  ],
+  cta: 'Ask about documentation',
+} as const
+
+export const SECURITY_PAGE = {
+  eyebrow: 'Resources',
+  title: 'Security and access.',
+  lede: 'Health information is only useful if it can be trusted. Access to patient information is controlled by role, purpose and authorised scope, and important actions remain attributable.',
+  websiteNote:
+    'This website is served as static pages. It holds no clinical data, cannot reach a clinical service, and stores nothing about you in your browser.',
+} as const
+
+export const PRIVACY_PAGE = {
+  eyebrow: 'Resources',
+  title: 'Privacy on this website.',
+  lede: 'This notice covers this website only — the public pages you are reading. It is not the notice that governs the patient information held in the Health ID platform, which is provided to patients and to facilities separately.',
+  points: [
+    {
+      title: 'We do not collect anything as you browse',
+      body: 'This site sets no cookies, runs no third-party analytics, and stores nothing in your browser.',
+    },
+    {
+      title: 'The demo form sends nothing to us',
+      body: 'The form composes your enquiry and hands it to your own email application. Nothing is transmitted to Health ID until you send that email yourself.',
+    },
+    {
+      title: 'Please do not send patient information',
+      body: 'The demo form asks for your facility, your name and how to reply. Do not include patient details in it, in the notes field, or in any email to us.',
+    },
+    {
+      title: 'Clinical information is different',
+      body: 'Patient records held in the platform are governed by the terms agreed with the facility that created them, and by the notice given to the patient. Questions about your own records should go to that facility.',
+    },
+  ],
+  contactNote: 'Questions about this notice can be sent to',
+} as const

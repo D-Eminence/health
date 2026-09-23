@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from 'next'
 import type { ReactNode } from 'react'
-import { Forum, IBM_Plex_Sans, JetBrains_Mono } from 'next/font/google'
+import { Forum, Inter, JetBrains_Mono } from 'next/font/google'
 import { getEnvironment } from '@/lib/env'
 import './globals.css'
 
@@ -9,10 +9,9 @@ import './globals.css'
  * origin, so no request leaves for a font CDN and there is no layout shift
  * while a face loads.
  *
- * `Forum` is the display face from the approved design. `IBM_Plex_Sans` stands
- * in for Inter at the same metrics and weights — swap the import when the
- * licensed interface face is confirmed; every consumer reads the CSS variable,
- * not the family name.
+ * `Forum` is the display face from the approved design and `Inter` is used for
+ * navigation, body copy and interface controls. Every consumer reads the CSS
+ * variables rather than a hard-coded family name.
  */
 const forum = Forum({
   subsets: ['latin'],
@@ -21,7 +20,7 @@ const forum = Forum({
   display: 'swap',
 })
 
-const inter = IBM_Plex_Sans({
+const inter = Inter({
   subsets: ['latin'],
   weight: ['400', '500', '600'],
   variable: '--font-inter',
@@ -57,7 +56,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   getEnvironment()
 
   return (
-    <html lang="en" className={`${forum.variable} ${inter.variable} ${jetbrainsMono.variable}`}>
+    <html lang="en" data-scroll-behavior="smooth" className={`${forum.variable} ${inter.variable} ${jetbrainsMono.variable}`}>
       <body className="bg-surface font-sans text-ink antialiased">
         <a
           href="#main"

@@ -65,7 +65,7 @@ describe('PricingSection', () => {
 
   it('gives every plan a way to act', () => {
     render(<PricingSection />)
-    const actions = screen.getAllByRole('link', { name: /book an ehr demo/i })
+    const actions = screen.getAllByRole('link', { name: /book a demo/i })
     expect(actions.length).toBeGreaterThanOrEqual(2)
   })
 })

@@ -15,6 +15,7 @@ export {
   TextLink,
   Wrap,
   cx,
+  glassSurface,
 } from './primitives'
 export type {
   ButtonLinkProps,

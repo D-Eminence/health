@@ -58,6 +58,7 @@ npm run audit:boundaries   # repository-level architecture checks
 
 ## Status
 
-177 tests passing; both applications build; the public site pre-renders 13 routes. **No integration has been tested
-against staging or production** — nothing here has spoken to a real Health ID
-environment. See the integration sequence in the architecture document.
+176 tests passing; both applications build; the public site pre-renders 20 page
+variants. **No integration has been tested against staging or production** —
+nothing here has spoken to a real Health ID environment. See the integration
+sequence and open questions in the architecture documents.

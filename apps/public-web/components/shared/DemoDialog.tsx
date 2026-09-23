@@ -10,7 +10,7 @@ import {
   type DemoRequestErrors,
 } from '@/lib/demo-request'
 
-const EMPTY: DemoRequest = { facility: '', contactName: '', email: '', phone: '', notes: '' }
+const EMPTY: DemoRequest = { service: '', facility: '', contactName: '', role: '', otherRole: '', email: '', phone: '', notes: '' }
 
 /**
  * The demo request dialog.
@@ -27,6 +27,7 @@ const EMPTY: DemoRequest = { facility: '', contactName: '', email: '', phone: ''
  */
 export function DemoDialog() {
   const dialogRef = useRef<HTMLDialogElement>(null)
+  const openerRef = useRef<HTMLElement | null>(null)
   const [request, setRequest] = useState<DemoRequest>(EMPTY)
   const [errors, setErrors] = useState<DemoRequestErrors>({})
   const [sent, setSent] = useState(false)
@@ -35,11 +36,21 @@ export function DemoDialog() {
     dialogRef.current?.close()
   }, [])
 
+  const onDialogClose = useCallback(() => {
+    setRequest(EMPTY)
+    const opener = openerRef.current
+    openerRef.current = null
+    if (opener?.isConnected) requestAnimationFrame(() => opener.focus())
+  }, [])
+
   useEffect(() => {
-    const open = () => {
+    const open = (opener: HTMLElement) => {
       setSent(false)
       setErrors({})
-      dialogRef.current?.showModal()
+      openerRef.current = opener
+
+      const dialog = dialogRef.current
+      if (dialog && !dialog.open) dialog.showModal()
     }
 
     // Any link to #demo opens the dialog. Intercepting the click rather than
@@ -50,7 +61,7 @@ export function DemoDialog() {
       if (!target) return
       if (target.getAttribute('href') !== '#demo') return
       event.preventDefault()
-      open()
+      open(target)
     }
 
     document.addEventListener('click', onClick)
@@ -78,13 +89,14 @@ export function DemoDialog() {
     <dialog
       ref={dialogRef}
       aria-labelledby="demo-dialog-title"
-      onClose={() => setRequest(EMPTY)}
-      className="m-auto w-[min(560px,calc(100vw-2rem))] rounded-(--radius-panel) border border-line bg-surface p-0 text-ink backdrop:bg-ink/45 backdrop:backdrop-blur-sm"
+      aria-modal="true"
+      onClose={onDialogClose}
+      className="m-auto max-h-[calc(100dvh-2rem)] w-[min(560px,calc(100vw-2rem))] overflow-y-auto rounded-(--radius-panel) border border-line bg-surface p-0 text-ink backdrop:bg-ink/45 backdrop:backdrop-blur-sm"
     >
       <div className="flex items-start justify-between gap-4 border-b border-line px-6 py-5">
         <div>
           <Display as="h2" size="sm" id="demo-dialog-title">
-            {sent ? 'Demo request ready to send' : 'Book an EHR demo'}
+            {sent ? 'Demo request ready to send' : 'Book a demo'}
           </Display>
           <p className="mt-1 text-sm text-muted">
             {sent
@@ -93,10 +105,11 @@ export function DemoDialog() {
           </p>
         </div>
         <button
+          autoFocus
           type="button"
           onClick={close}
           aria-label="Close"
-          className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-line text-muted hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+          className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-line text-muted hover:border-brand hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
         >
           <svg viewBox="0 0 16 16" aria-hidden="true" className="h-3.5 w-3.5">
             <path
@@ -125,6 +138,7 @@ export function DemoDialog() {
         </div>
       ) : (
         <form onSubmit={onSubmit} noValidate className="flex flex-col gap-4 px-6 py-6">
+          <Field label="Service of interest" name="service" value={request.service} error={errors.service} onChange={update('service')} />
           <Field
             label="Facility"
             name="facility"
@@ -141,6 +155,8 @@ export function DemoDialog() {
             onChange={update('contactName')}
             autoComplete="name"
           />
+          <Field label="Your role" name="role" value={request.role} error={errors.role} onChange={update('role')} autoComplete="organization-title" />
+          {request.role === 'Other' ? <Field label="Specify your role" name="otherRole" value={request.otherRole} error={errors.otherRole} onChange={update('otherRole')} /> : null}
           <div className="grid gap-4 sm:grid-cols-2">
             <Field
               label="Email"
@@ -183,7 +199,7 @@ export function DemoDialog() {
             <button
               type="button"
               onClick={close}
-              className="text-sm font-medium text-muted hover:text-ink"
+              className="inline-flex min-h-11 items-center px-2 text-sm font-medium text-muted hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
             >
               Cancel
             </button>
@@ -232,7 +248,7 @@ function Field({
         aria-invalid={error ? true : undefined}
         aria-describedby={error ? errorId : undefined}
         className={cx(
-          'rounded-(--radius-card) border bg-surface px-3.5 py-2.5 text-[15px] text-ink focus:outline-2 focus:outline-offset-0 focus:outline-brand',
+          'min-h-11 rounded-(--radius-card) border bg-surface px-3.5 py-2.5 text-[15px] text-ink focus:outline-2 focus:outline-offset-0 focus:outline-brand',
           error ? 'border-critical' : 'border-line-strong focus:border-brand',
         )}
       />

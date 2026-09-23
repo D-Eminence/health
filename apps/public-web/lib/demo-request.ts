@@ -15,22 +15,37 @@
  */
 
 export interface DemoRequest {
+  readonly service: string
   readonly facility: string
   readonly contactName: string
+  readonly role: string
+  readonly otherRole: string
   readonly email: string
   readonly phone: string
   readonly notes: string
+}
+
+export interface DemoRequestContext {
+  readonly sourcePage: string
+  readonly sourceSection: string
+  readonly ctaLabel: string
+  readonly pageUrl: string
+  readonly submittedAt: string
+  readonly campaign: string
 }
 
 /** Where enquiries go until an intake endpoint exists. */
 export const DEMO_INBOX = 'hello@healthidentitydirectory.com'
 
 const FIELD_LABELS: Record<keyof DemoRequest, string> = {
-  facility: 'Facility',
-  contactName: 'Contact name',
-  email: 'Email',
-  phone: 'Phone',
-  notes: 'Notes',
+  service: 'Service',
+  facility: 'Organisation or facility',
+  contactName: 'Full name',
+  role: 'Role',
+  otherRole: 'Specified role',
+  email: 'Work email',
+  phone: 'Phone number',
+  notes: 'Additional note',
 }
 
 export type DemoRequestErrors = Partial<Record<keyof DemoRequest, string>>
@@ -45,8 +60,11 @@ export type DemoRequestErrors = Partial<Record<keyof DemoRequest, string>>
 export function validateDemoRequest(request: DemoRequest): DemoRequestErrors {
   const errors: DemoRequestErrors = {}
 
-  if (request.facility.trim() === '') errors.facility = 'Enter the name of your facility.'
-  if (request.contactName.trim() === '') errors.contactName = 'Enter your name.'
+  if (request.service.trim() === '') errors.service = 'Select the service you are interested in.'
+  if (request.facility.trim() === '') errors.facility = 'Enter your organisation or facility.'
+  if (request.contactName.trim() === '') errors.contactName = 'Enter your full name.'
+  if (request.role.trim() === '') errors.role = 'Select your role.'
+  if (request.role === 'Other' && request.otherRole.trim() === '') errors.otherRole = 'Tell us your role.'
 
   const email = request.email.trim()
   if (email === '') {
@@ -59,24 +77,34 @@ export function validateDemoRequest(request: DemoRequest): DemoRequestErrors {
 }
 
 /** Builds the message body. Plain text so it reads correctly in any mail client. */
-export function composeDemoEnquiry(request: DemoRequest): { subject: string; body: string } {
+export function composeDemoEnquiry(request: DemoRequest, context?: DemoRequestContext): { subject: string; body: string } {
   const lines = (Object.keys(FIELD_LABELS) as (keyof DemoRequest)[])
     .map(field => [FIELD_LABELS[field], request[field].trim()] as const)
     .filter(([, value]) => value !== '')
     .map(([label, value]) => `${label}: ${value}`)
 
   return {
-    subject: `EHR demo request — ${request.facility.trim()}`,
+    subject: `Demo request — ${request.facility.trim()}`,
     body: [
       'A demo request from the Health ID website.',
       '',
       ...lines,
+      ...(context ? [
+        '',
+        'Request context',
+        `Source page: ${context.sourcePage}`,
+        `Source section: ${context.sourceSection}`,
+        `CTA: ${context.ctaLabel}`,
+        `Page URL: ${context.pageUrl}`,
+        `Submitted: ${context.submittedAt}`,
+        ...(context.campaign ? [`Campaign: ${context.campaign}`] : []),
+      ] : []),
     ].join('\n'),
   }
 }
 
 /** The `mailto:` URL the form hands to the browser. */
-export function buildDemoMailto(request: DemoRequest): string {
-  const { subject, body } = composeDemoEnquiry(request)
+export function buildDemoMailto(request: DemoRequest, context?: DemoRequestContext): string {
+  const { subject, body } = composeDemoEnquiry(request, context)
   return `mailto:${DEMO_INBOX}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
 }

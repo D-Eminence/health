@@ -29,8 +29,12 @@ export interface TabsProps {
   readonly onSelect: (id: string) => void
   /** Names the tab list for assistive technology. */
   readonly label: string
-  /** `pill` for filter chips, `underline` for section navigation. */
-  readonly variant?: 'pill' | 'underline'
+  /**
+   * `pill` for filter chips, `underline` for section navigation, `strip` for the
+   * full-width segmented bar the module switcher uses — equal columns divided by
+   * hairlines, with the selected column raised on a white surface.
+   */
+  readonly variant?: 'pill' | 'underline' | 'strip'
   readonly className?: string
   /** Namespace for the generated ids, so panels can reference them. */
   readonly idPrefix: string
@@ -74,7 +78,10 @@ export function TabList({
       aria-label={label}
       onKeyDown={move}
       className={cx(
-        'flex gap-1 overflow-x-auto',
+        'flex',
+        variant === 'strip'
+          ? 'overflow-x-auto border-y border-line [scrollbar-width:none] [&::-webkit-scrollbar]:hidden'
+          : 'gap-1 overflow-x-auto',
         variant === 'underline' && 'border-b border-line',
         className,
       )}
@@ -97,20 +104,29 @@ export function TabList({
             tabIndex={selected ? 0 : -1}
             onClick={() => onSelect(item.id)}
             className={cx(
-              'shrink-0 text-sm font-medium whitespace-nowrap transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand',
-              variant === 'pill'
-                ? cx(
-                    'rounded-(--radius-control) border px-4 py-2',
-                    selected
-                      ? 'border-brand bg-brand text-white'
-                      : 'border-line bg-surface text-muted hover:border-line-strong hover:text-ink',
-                  )
-                : cx(
-                    'border-b-2 px-4 py-3',
-                    selected
-                      ? 'border-brand text-brand'
-                      : 'border-transparent text-muted hover:text-ink',
-                  ),
+              'shrink-0 text-sm font-medium whitespace-nowrap focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand',
+              variant !== 'strip' && 'transition-colors',
+              variant === 'pill' &&
+                cx(
+                  'rounded-(--radius-control) border px-4 py-2',
+                  selected
+                    ? 'border-brand bg-brand text-white shadow-[0_8px_20px_rgba(8,109,217,0.28)]'
+                    : 'border-white/70 bg-white/60 text-muted backdrop-blur-md hover:border-white hover:bg-white/80 hover:text-ink',
+                ),
+              variant === 'underline' &&
+                cx(
+                  'border-b-2 px-4 py-3',
+                  selected
+                    ? 'border-brand text-brand'
+                    : 'border-transparent text-muted hover:text-ink',
+                ),
+              variant === 'strip' &&
+                cx(
+                  'flex-1 px-3 py-[22px] text-[15px] transition-[background-color,color,box-shadow] duration-200',
+                  selected
+                    ? 'bg-surface font-semibold text-ink shadow-[0_8px_20px_rgba(15,39,66,0.06)]'
+                    : 'text-faint hover:text-ink',
+                ),
             )}
           >
             {item.label}

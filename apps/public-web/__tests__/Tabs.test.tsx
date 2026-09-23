@@ -1,180 +1,156 @@
 import { describe, expect, it } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import { fireEvent } from '@testing-library/dom'
-import { OperationsSection } from '@/components/provider/Operations'
-import { ModulesSection } from '@/components/provider/Modules'
-import { RecordSection, TeamsSection } from '@/components/provider/RecordAndTeams'
-import { OPERATIONS_FLOW } from '@/content/tabs'
+import { ProductsSection } from '@/components/provider/Products'
+import { MODULES } from '@/content/modules'
+import { findProduct } from '@/content/products'
+import { ROUTES } from '@/content/site'
 
 function tab(name: string | RegExp) {
   return screen.getByRole('tab', { name })
 }
 
-describe('OperationsSection — patient flow filters', () => {
-  it('opens showing every patient in the queue', () => {
-    render(<OperationsSection />)
+function moduleFor(slug: string) {
+  const found = MODULES.find(entry => entry.slug === slug)
+  if (!found) throw new Error(`No module in the design with the slug "${slug}"`)
+  return found
+}
 
-    expect(tab('All').getAttribute('aria-selected')).toBe('true')
-    expect(screen.getAllByRole('row')).toHaveLength(OPERATIONS_FLOW.length + 1) // + header
+const FIRST = MODULES[0]
+const LAST = MODULES[MODULES.length - 1]
+
+if (!FIRST || !LAST) throw new Error('The module list needs at least one entry')
+
+/**
+ * The module switcher.
+ *
+ * Tested against the design's content rather than a hard-coded list, so adding a
+ * module does not mean editing the test, and removing one cannot leave a tab
+ * behind. The section is transcribed from the approved design, so what is
+ * asserted here is the design's structure: a segmented strip, the claim, the
+ * product-specific miniature workflow, and the caption.
+ */
+describe('ProductsSection', () => {
+  it('offers a segment for every module, in the design’s order', () => {
+    render(<ProductsSection />)
+
+    const labels = screen.getAllByRole('tab').map(element => element.textContent)
+    expect(labels).toEqual(MODULES.map(entry => entry.tab))
   })
 
-  it('narrows the queue to the selected stage', () => {
-    render(<OperationsSection />)
+  it('opens on identity', () => {
+    render(<ProductsSection />)
 
-    fireEvent.click(tab('Waiting'))
-
-    const rows = within(screen.getByRole('table')).getAllByRole('row').slice(1)
-    expect(rows).toHaveLength(2)
-    expect(screen.getByText('Amina Yusuf')).toBeDefined()
-    expect(screen.queryByText('Musa Bello')).toBeNull()
+    expect(tab(FIRST.tab).getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByText(FIRST.statement)).toBeDefined()
   })
 
-  it('counts what it is showing', () => {
-    render(<OperationsSection />)
+  it('shows the claim, the panel and the caption for the chosen module', () => {
+    render(<ProductsSection />)
 
-    fireEvent.click(tab('Consultation'))
-    expect(screen.getByText('1 patient')).toBeDefined()
-
-    fireEvent.click(tab('Waiting'))
-    expect(screen.getByText('2 patients')).toBeDefined()
+    expect(screen.getByText(FIRST.statement)).toBeDefined()
+    expect(screen.getByText(FIRST.caption)).toBeDefined()
+    expect(screen.getByText(FIRST.panelTitle)).toBeDefined()
+    expect(screen.getByText(FIRST.panelBadge)).toBeDefined()
   })
 
-  it('returns to the full queue', () => {
-    render(<OperationsSection />)
+  it('gives the panel the active module’s status rows', () => {
+    render(<ProductsSection />)
 
-    fireEvent.click(tab('Pharmacy'))
-    fireEvent.click(tab('All'))
-
-    expect(within(screen.getByRole('table')).getAllByRole('row').slice(1)).toHaveLength(
-      OPERATIONS_FLOW.length,
-    )
+    for (const row of FIRST.rows) {
+      expect(screen.getByText(row.label)).toBeDefined()
+      expect(screen.getByText(row.value)).toBeDefined()
+    }
   })
 
-  it('moves between filters with the arrow keys', () => {
-    render(<OperationsSection />)
+  it('swaps the claim, the panel and the caption when another module is chosen', () => {
+    render(<ProductsSection />)
 
-    const list = screen.getByRole('tablist', { name: /filter patient flow/i })
+    const laboratory = moduleFor('laboratory')
+    fireEvent.click(tab(laboratory.tab))
+
+    expect(screen.getByText(laboratory.statement)).toBeDefined()
+    expect(screen.getByText(laboratory.panelTitle)).toBeDefined()
+    expect(screen.queryByText(FIRST.statement)).toBeNull()
+    expect(screen.queryByText(FIRST.panelTitle)).toBeNull()
+  })
+
+  it('replays the body for every choice rather than only on first paint', () => {
+    const { container } = render(<ProductsSection />)
+
+    const body = () => container.querySelector('.tab-fade')
+    expect(body()).not.toBeNull()
+
+    const before = body()
+    fireEvent.click(tab(moduleFor('migrate').tab))
+
+    // A remount is what replays the design's fade-and-rise, so the node is a
+    // different one after the switch.
+    expect(body()).not.toBe(before)
+  })
+
+  it('points every module at the product page for its slug', () => {
+    render(<ProductsSection />)
+
+    for (const entry of MODULES) {
+      fireEvent.click(tab(entry.tab))
+
+      const product = findProduct(entry.slug)
+      expect(product).toBeDefined()
+
+      const link = within(screen.getByRole('tabpanel')).getByRole('link')
+      expect(link.getAttribute('href')).toBe(ROUTES.product(entry.slug))
+    }
+  })
+
+  it('moves between modules with the arrow keys', () => {
+    render(<ProductsSection />)
+
+    const list = screen.getByRole('tablist', { name: /health id modules/i })
     fireEvent.keyDown(list, { key: 'ArrowRight' })
 
-    expect(tab('Waiting').getAttribute('aria-selected')).toBe('true')
-    expect(tab('All').getAttribute('aria-selected')).toBe('false')
+    const second = MODULES[1]
+    if (!second) throw new Error('The module list needs at least two entries for this test')
+
+    expect(tab(second.tab).getAttribute('aria-selected')).toBe('true')
+    expect(tab(FIRST.tab).getAttribute('aria-selected')).toBe('false')
   })
 
-  it('wraps from the first filter back to the last', () => {
-    render(<OperationsSection />)
+  it('wraps from the first module back to the last', () => {
+    render(<ProductsSection />)
 
-    const list = screen.getByRole('tablist', { name: /filter patient flow/i })
+    const list = screen.getByRole('tablist', { name: /health id modules/i })
     fireEvent.keyDown(list, { key: 'ArrowLeft' })
 
-    expect(tab('Completed').getAttribute('aria-selected')).toBe('true')
+    expect(tab(LAST.tab).getAttribute('aria-selected')).toBe('true')
   })
 
   it('jumps to the ends with Home and End', () => {
-    render(<OperationsSection />)
-    const list = screen.getByRole('tablist', { name: /filter patient flow/i })
+    render(<ProductsSection />)
+    const list = screen.getByRole('tablist', { name: /health id modules/i })
 
     fireEvent.keyDown(list, { key: 'End' })
-    expect(tab('Completed').getAttribute('aria-selected')).toBe('true')
+    expect(tab(LAST.tab).getAttribute('aria-selected')).toBe('true')
 
     fireEvent.keyDown(list, { key: 'Home' })
-    expect(tab('All').getAttribute('aria-selected')).toBe('true')
+    expect(tab(FIRST.tab).getAttribute('aria-selected')).toBe('true')
   })
 
-  it('keeps exactly one filter in the tab order', () => {
-    render(<OperationsSection />)
+  it('keeps exactly one module in the tab order', () => {
+    render(<ProductsSection />)
 
-    const tabs = screen.getAllByRole('tab')
-    const reachable = tabs.filter(element => element.getAttribute('tabindex') === '0')
+    const reachable = screen
+      .getAllByRole('tab')
+      .filter(element => element.getAttribute('tabindex') === '0')
     expect(reachable).toHaveLength(1)
   })
 
-  it('pairs each panel with the tab that controls it', () => {
-    render(<OperationsSection />)
+  it('pairs the panel with the tab that controls it', () => {
+    render(<ProductsSection />)
 
     const panel = screen.getByRole('tabpanel')
-    expect(panel.getAttribute('aria-labelledby')).toBe(tab('All').id)
-    expect(tab('All').getAttribute('aria-controls')).toBe(panel.id)
-  })
-})
-
-describe('ModulesSection', () => {
-  it('opens on the identity module', () => {
-    render(<ModulesSection />)
-
-    expect(tab('Identity').getAttribute('aria-selected')).toBe('true')
-    expect(
-      screen.getByText('One patient identity that every connected facility can verify.'),
-    ).toBeDefined()
-  })
-
-  it('swaps both the claim and the panel when another module is chosen', () => {
-    render(<ModulesSection />)
-
-    fireEvent.click(tab('Laboratory'))
-
-    expect(
-      screen.getByText('Results that attach themselves to the right patient automatically.'),
-    ).toBeDefined()
-    expect(screen.getByText('Full Blood Count')).toBeDefined()
-    expect(screen.queryByText('HID-4471-08')).toBeNull()
-  })
-})
-
-describe('RecordSection', () => {
-  it('shows the whole history under Overview', () => {
-    render(<RecordSection />)
-
-    expect(tab('Overview').getAttribute('aria-selected')).toBe('true')
-    expect(screen.getAllByRole('listitem').length).toBeGreaterThanOrEqual(6)
-  })
-
-  it('filters the record to one type', () => {
-    render(<RecordSection />)
-
-    fireEvent.click(tab('Laboratory'))
-
-    expect(screen.getByText('Full Blood Count')).toBeDefined()
-    expect(screen.queryByText('Discharge summary')).toBeNull()
-  })
-
-  it('explains an empty view rather than showing a blank panel', () => {
-    render(<RecordSection />)
-
-    // No entry in the design's timeline is tagged Medication *and* absent, so
-    // this exercises a tab that has exactly one entry, then one that has none.
-    fireEvent.click(tab('Medication'))
-    expect(screen.getByText('Medication dispensed')).toBeDefined()
-  })
-})
-
-describe('TeamsSection', () => {
-  it('opens on reception and lists that role’s workspace', () => {
-    render(<TeamsSection />)
-
-    expect(tab('Reception').getAttribute('aria-selected')).toBe('true')
-    expect(screen.getByText('Register patient')).toBeDefined()
-  })
-
-  it('shows a different workspace for each role', () => {
-    render(<TeamsSection />)
-
-    fireEvent.click(tab('Pharmacy'))
-
-    expect(screen.getByText('Prescription queue')).toBeDefined()
-    expect(screen.queryByText('Register patient')).toBeNull()
-  })
-
-  it('names every role the design covers', () => {
-    render(<TeamsSection />)
-
-    const names = screen.getAllByRole('tab').map(element => element.textContent)
-    expect(names).toEqual([
-      'Reception',
-      'Nurses',
-      'Doctors',
-      'Laboratory',
-      'Pharmacy',
-      'Administrators',
-    ])
+    const selected = tab(FIRST.tab)
+    expect(panel.getAttribute('aria-labelledby')).toBe(selected.id)
+    expect(selected.getAttribute('aria-controls')).toBe(panel.id)
   })
 })

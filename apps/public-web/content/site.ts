@@ -10,11 +10,42 @@ export const ROUTES = {
   providers: '/providers',
   patients: '/patients',
   products: '/products',
-  product: (slug: string) => `/products/${slug}`,
-  pricing: '/providers#pricing',
-  howItWorksProvider: '/providers#platform',
+  /** Identity belongs to the patient journey, not a duplicate provider product page. */
+  product: (slug: string) => (slug === 'identity' ? '/patients' : `/products/${slug}`),
+  pricing: '/pricing',
+  solutions: '/solutions',
+  /** One audience on the solutions page, as an anchor. */
+  solution: (id: string) => `/solutions#${id}`,
+  about: '/about',
+  contact: '/contact',
+  resources: '/resources',
+  documentation: '/resources/documentation',
+  security: '/resources/security',
+  privacy: '/resources/privacy',
+  howItWorksProvider: '/providers#products',
   howItWorksPatient: '/patients#steps',
 } as const
+
+/** The audiences the solutions page speaks to, in the order it presents them. */
+export const SOLUTION_AUDIENCES = [
+  { id: 'hospitals', label: 'Hospitals' },
+  { id: 'clinics', label: 'Clinics' },
+  { id: 'diagnostic-centres', label: 'Diagnostic centres' },
+  { id: 'pharmacies', label: 'Pharmacies' },
+  { id: 'public-health-programmes', label: 'Public health programmes' },
+] as const
+
+export type SolutionAudienceId = (typeof SOLUTION_AUDIENCES)[number]['id']
+
+/** Shared audience photography for the navigation and solutions page. */
+export const SOLUTION_IMAGES: Record<SolutionAudienceId, { src: string; alt: string; position: string }> = {
+  hospitals: { src: '/brand/solutions/hospital.jpg', alt: 'Hospital building with its main entrance and emergency department', position: '50% 50%' },
+  clinics: { src: '/brand/solutions/clinic.jpg', alt: 'Clinic treatment room with a patient bed and monitoring equipment', position: '56% 60%' },
+  'diagnostic-centres': { src: '/brand/solutions/laboratory.jpg', alt: 'Laboratory scientist examining a sample through a microscope', position: '50% 45%' },
+  pharmacies: { src: '/brand/solutions/pharmacy.jpg', alt: 'Pharmacy dispensing counter and organised medication shelves', position: '50% 60%' },
+  'public-health-programmes': { src: '/brand/solutions/outreach.jpg', alt: 'Healthcare worker checking a patient during community outreach', position: '50% 50%' },
+}
+
 
 /**
  * Destinations owned by the authenticated applications, not by this site.
@@ -44,7 +75,7 @@ export const AUDIENCES: readonly Audience[] = [
     title: 'Patient',
     body: 'Get a Health ID that carries all your health records.',
     href: ROUTES.patients,
-    image: '/brand/chooser-patient.webp',
+    image: '/brand/chooser-patient.png',
     imageAlt: 'A person holding a phone showing their Health ID record',
   },
   {
@@ -52,7 +83,7 @@ export const AUDIENCES: readonly Audience[] = [
     title: 'Healthcare provider',
     body: 'Identify patients, access their medical history with consent, and create a unified electronic health record (EHR) for patients at your facility.',
     href: ROUTES.providers,
-    image: '/brand/chooser-provider.webp',
+    image: '/brand/chooser-provider.png',
     imageAlt: 'A hospital building',
   },
 ]
@@ -63,8 +94,13 @@ export const CHOOSER = {
   footnote: 'You can change this later from the footer.',
 } as const
 
-export const PARTNERS: readonly string[] = [
-  'Ilorin Innovation Hub',
-  'iDICE Startup Bridge',
-  'Kolekto',
-]
+/**
+ * The organisations shown beneath the provider hero.
+ *
+ * The label is written exactly as the brand requests it; the list stays a static
+ * one so it can be reviewed and corrected in one place.
+ */
+export const TRUST = {
+  label: 'In partnership with',
+  organisations: ['Kolekto', 'Ilorin Innovation Hub', 'iDICE Startup Bridge', 'Amazon Web Services'],
+} as const

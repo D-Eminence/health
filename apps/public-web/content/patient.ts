@@ -6,12 +6,12 @@
  */
 
 export const PATIENT_HERO = {
-  eyebrow: 'For patients',
+  eyebrow: 'Health ID for patients',
   headline: 'Your medical history',
   headlineAccent: 'should arrive before you do.',
-  lede: 'One Health ID. Every connected hospital, laboratory and pharmacy sees what they need to treat you — and only when you allow it.',
+  lede: 'Health ID gives you a place to keep your medical history connected — whether your care comes from a Health ID provider or somewhere else.',
   primary: 'Get your Health ID',
-  secondary: 'See how it works',
+  secondary: 'I already have a Health ID',
   footnote: 'Free for patients.',
 } as const
 
@@ -21,7 +21,7 @@ export const PATIENT_STEPS = {
     {
       step: '01',
       title: 'Get your Health ID',
-      body: 'You receive one Health ID that stays with you throughout your healthcare journey.',
+      body: 'Your Health ID stays with you throughout your healthcare journey.',
     },
     {
       step: '02',
@@ -37,53 +37,49 @@ export const PATIENT_STEPS = {
 } as const
 
 export const PATIENT_JOURNEY = {
-  eyebrow: 'One year, one record',
-  title: 'What it actually looks like.',
-  lede: 'Four visits, four different places, and not one of them asks you to start again.',
+  eyebrow: "Hikmah's journey",
+  title: 'One record, wherever care happens.',
+  lede: 'Four visits in different places. No repeated registration, no missing context.',
   moments: [
     {
       when: 'January',
-      where: 'Hospital A, Ilorin',
-      body: 'You are treated for malaria. The diagnosis, your allergy to sulfa drugs, and your prescription attach to your Health ID.',
+      where: 'Hospital visit',
+      body: 'Malaria treated. Allergy information and prescription added to your Health ID.',
     },
     {
       when: 'February',
-      where: 'A laboratory, elsewhere',
-      body: 'You do a blood test at a connected lab. The result joins the same record, without you carrying a printout anywhere.',
+      where: 'Laboratory',
+      body: 'Blood test completed. Result added to your record.',
     },
     {
       when: 'April',
-      where: 'Hospital B, Abuja',
-      body: 'You travel and fall ill. The doctor asks for your Health ID, you enter your PIN, and your allergy is on screen before you finish sitting down.',
+      where: 'A new hospital. Her history already there.',
+      body: 'In Abuja, Hikmah shared her Health ID and entered her PIN. Before prescribing, the doctor could already see her sulfa-drug allergy.',
     },
     {
-      when: 'Always',
-      where: 'Your phone, any time',
-      body: 'You open your access history and see all three. If a facility no longer needs access, you revoke it.',
+      when: 'Today',
+      where: 'She remains in control.',
+      body: 'Review access history and revoke access at any time.',
     },
   ],
 } as const
 
 export const PATIENT_CONTROL = {
-  eyebrow: 'Your control',
-  title: 'You hold the key.',
-  lede: 'Connecting your records to a network only works if you decide who opens them. So you do.',
+  eyebrow: 'Your record. Your control.',
+  title: 'Keeping a record is different from giving someone access to it.',
+  lede: 'Your Health ID helps you maintain your health history, but having your Health ID does not automatically give a healthcare provider access to your information. When access is required, it should follow the appropriate Health ID access and consent workflow.',
   guarantees: [
     {
-      title: 'Your PIN is the key',
-      body: 'Your name or Health ID does not give a facility access to your medical records. Access is granted when you enter your access PIN.',
+      title: 'Control access',
+      body: 'Authorise appropriate access when a healthcare provider needs your information.',
     },
     {
-      title: 'You can take it back',
-      body: "Revoke a facility's access from your dashboard, and their access ends immediately.",
+      title: 'See access history',
+      body: 'Review who accessed your information and when.',
     },
     {
-      title: 'Nothing happens invisibly',
-      body: 'Every time your record is viewed, it is noted — who, where, and when. You can read the whole list.',
-    },
-    {
-      title: 'Emergencies still work',
-      body: 'If you arrive unconscious and cannot give a PIN, a doctor can use emergency access to treat you. They must state a reason, and it appears in your history like everything else.',
+      title: 'Revoke access',
+      body: 'Remove access when a facility no longer needs it.',
     },
   ],
 } as const
@@ -120,6 +116,9 @@ export const PATIENT_FAQ = {
 } as const
 
 export const PATIENT_CTA = {
-  title: 'Start with your Health ID.',
+  title: 'Start building the health history that stays with you.',
+  body: 'Create your Health ID and keep your medical information connected as your care continues — wherever you receive it.',
   action: 'Get your Health ID',
+  secondary: 'I already have a Health ID',
+  footnote: 'Free for patients.',
 } as const

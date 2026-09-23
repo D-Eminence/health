@@ -75,10 +75,18 @@ hid-frontend/
 ```
 
 `public-web` implements the approved landing design: the audience chooser at
-`/`, the provider and patient landing pages, and a product page per module. All
-thirteen routes pre-render as static HTML — nothing on the public site is
-fetched at runtime, which is both the fastest option and the reason this
-application can be granted a single backend service.
+`/`, the provider and patient landing pages, a product page per module, and the
+informational pages behind the navigation (pricing, solutions, about, contact and
+three resources pages). All twenty public page variants pre-render as static HTML —
+nothing on the public site is fetched at runtime, which is both the fastest
+option and the reason this application can be granted a single backend service.
+
+The provider homepage carries four bands and no more: the hero with the product
+beneath it, why Health ID, the product switcher, and the footer that closes it
+with the call to action. Everything else — the modules in depth, pricing,
+security, the company — has its own page, so no claim is repeated and the
+homepage answers only what a reader arrives asking: what Health ID is, why it
+matters, and which product they need.
 
 `staff-web`, `ehr-web`, `lab-web`, `pharmacy-web`, `ocr-web`, `outreach-web` and
 `admin-web` are **declared** in `packages/contracts/src/boundaries.ts` but not
@@ -268,18 +276,20 @@ hard-coded anywhere.
 
 ## 10. Testing
 
-`npm run check` runs typecheck, lint and tests. Current state: **177 tests
-passing**, both applications building, all thirteen public routes pre-rendering.
+`npm run check` runs typecheck, lint and tests. Current state: **176 tests
+passing**, both applications building, all twenty public page variants
+pre-rendering.
 
 Covered: environment resolution and the secret guard, PHI redaction and logging,
 the API client (construction, auth, envelopes, errors, cancellation, timeouts,
 retries, deduplication), the endpoint registry, application boundaries, session
 and persistence rules, access decisions, route-guard rendering in jsdom, the
-product catalogue and audience routing, pricing arithmetic against the figures
-the design quotes, demo-enquiry validation and encoding, and every interactive
-surface on the public site — the pricing control, all four tab sets (including
-arrow-key, Home and End movement and the roving tabindex), and each product's
-dashboard panels.
+product catalogue and audience routing, the homepage product switcher against the
+catalogue it renders (including arrow-key, Home and End movement and the roving
+tabindex), the solutions content and the wording rule that keeps the trust strip
+from claiming a partnership, pricing arithmetic against the figures the design
+quotes, demo-enquiry validation and encoding, and each product's dashboard
+panels.
 
 Not covered, and not claimed: **no integration has been tested against staging
 or production.** Nothing in this repository has spoken to a real Health ID

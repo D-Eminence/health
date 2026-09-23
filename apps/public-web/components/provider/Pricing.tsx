@@ -1,11 +1,12 @@
 'use client'
 
 import { useId, useState } from 'react'
-import { ButtonLink, Card, Display, Section, SectionHeader, TextLink, Wrap, cx } from '@hid/ui'
+import { Card, Display, Section, SectionHeader, TextLink, Wrap, cx } from '@hid/ui'
+import { HeroDemoButton } from '@/components/shared/HeroDemoButton'
 import { PRICING } from '@/content/provider'
 import { annualSaving, formatNaira, monthlyRate, type Billing } from '@/lib/pricing'
 
-export function PricingSection() {
+export function PricingSection({ headingAs = 'h1' }: { headingAs?: 'h1' | 'h2' }) {
   const [billing, setBilling] = useState<Billing>('monthly')
   const groupId = useId()
 
@@ -17,6 +18,7 @@ export function PricingSection() {
           id="pricing-title"
           title={PRICING.title}
           lede={PRICING.lede}
+          as={headingAs}
         />
 
         {/*
@@ -67,6 +69,7 @@ export function PricingSection() {
             return (
               <li key={plan.name} className="flex">
                 <Card
+                  glass
                   className={cx(
                     'flex flex-1 flex-col gap-4 p-7',
                     plan.badge && 'border-brand ring-1 ring-brand',
@@ -122,9 +125,7 @@ export function PricingSection() {
                     ))}
                   </ul>
 
-                  <ButtonLink href="#demo" className="mt-auto w-full">
-                    Book an EHR demo
-                  </ButtonLink>
+                  <HeroDemoButton className="mt-auto w-full" />
                 </Card>
               </li>
             )

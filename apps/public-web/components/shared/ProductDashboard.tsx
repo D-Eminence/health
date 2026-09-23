@@ -1,3 +1,5 @@
+import { DashboardShell } from './DashboardShell'
+import { HealthIcon, type HealthIconName } from './HealthIcon'
 import { cx } from '@hid/ui'
 import type {
   DashboardAlerts,
@@ -47,7 +49,7 @@ const METRIC_TONE = {
 
 function Panel({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-(--radius-card) border border-line p-4">
+    <div className="console-panel rounded-(--radius-card) border border-line p-4">
       <p className="text-[13px] font-semibold text-ink">{title}</p>
       {children}
     </div>
@@ -69,13 +71,14 @@ function StatusPill({ tone, children }: { tone: StatusTone; children: React.Reac
 
 function Metrics({ metrics }: { metrics: readonly DashboardMetric[] }) {
   return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-      {metrics.map(metric => (
-        <div key={metric.label} className="rounded-(--radius-card) border border-line p-3.5">
-          <p className="font-mono text-[10px] tracking-[0.08em] text-faint uppercase">
+    <div className="console-metrics grid grid-cols-2 gap-3 lg:grid-cols-4">
+      {metrics.map((metric, index) => (
+        <div key={metric.label} className="console-metric rounded-(--radius-card) border border-line p-3.5">
+          <span className="console-metric-icon"><HealthIcon name={(['people', 'activity', 'file', 'check'] as readonly HealthIconName[])[index] ?? 'activity'} size={17} /></span>
+          <p className="console-metric-label">
             {metric.label}
           </p>
-          <p className="mt-1 font-display text-[32px] leading-none text-ink tabular-nums">
+          <p className="console-metric-value">
             {metric.value}
           </p>
           <p className="mt-3 flex items-center justify-between gap-2 border-t border-line pt-2 text-[11px]">
@@ -282,44 +285,13 @@ export function ProductDashboard({ product }: { product: ProductDetail }) {
   ].filter(Boolean)
 
   return (
-    <div
-      role="img"
-      aria-label={`Illustration of the ${product.name} dashboard: ${product.dash}, showing example workload figures and queues.`}
-      className="overflow-hidden rounded-(--radius-panel) border border-line bg-surface shadow-[0_18px_50px_rgba(11,27,46,0.10)]"
-    >
-      <div aria-hidden="true">
-        {/* Browser chrome, so the illustration reads as a product screen. */}
-        <div className="flex items-center gap-2 border-b border-line bg-surface-tint px-4 py-2.5">
-          <span className="flex gap-1.5">
-            <span className="h-2.5 w-2.5 rounded-full bg-line-strong" />
-            <span className="h-2.5 w-2.5 rounded-full bg-line-strong" />
-            <span className="h-2.5 w-2.5 rounded-full bg-line-strong" />
-          </span>
-          <span className="mx-auto rounded-(--radius-control) bg-surface px-3 py-1 font-mono text-[11px] text-faint">
-            app.healthidentitydirectory.com
-          </span>
-        </div>
-
-        <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
-          <p className="text-[15px] font-semibold text-ink">{product.dash}</p>
-          <span className="flex items-center gap-2 rounded-(--radius-control) border border-line px-2.5 py-1 text-[11px] text-muted">
-            <span className="h-1.5 w-1.5 rounded-full bg-positive" />
-            Live
-          </span>
-        </div>
-
-        <div className="flex flex-col gap-3 p-4 sm:p-5">
-          <Metrics metrics={product.metrics} />
-          {product.stages ? <Stages stages={product.stages} /> : null}
-
-          <div
-            className={cx('grid gap-3', product.table && sidePanels.length > 0 && 'lg:grid-cols-2')}
-          >
-            {product.table ? <Table table={product.table} /> : null}
-            {sidePanels}
-          </div>
-        </div>
+    <DashboardShell slug={product.slug} title={product.dash}>
+      <Metrics metrics={product.metrics} />
+      {product.stages ? <Stages stages={product.stages} /> : null}
+      <div className={cx('console-panels grid gap-3', product.table && sidePanels.length > 0 && 'lg:grid-cols-2')}>
+        {product.table ? <Table table={product.table} /> : null}
+        {sidePanels}
       </div>
-    </div>
+    </DashboardShell>
   )
 }

@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { PRODUCTS, findProduct } from '../content/products'
-import { AUDIENCES, ROUTES } from '../content/site'
+import { AUDIENCES, ROUTES, SOLUTION_AUDIENCES, TRUST } from '../content/site'
 import { PRICING } from '../content/provider'
 import { PATIENT_FAQ, PATIENT_JOURNEY } from '../content/patient'
+import { SOLUTIONS_PAGE } from '../content/pages'
 import { annualSaving, annualTotal, monthlyRate } from '../lib/pricing'
 import {
   buildDemoMailto,
@@ -23,11 +24,24 @@ describe('product catalogue', () => {
     }
   })
 
+  it('lists the products in the order every surface presents them', () => {
+    expect(PRODUCTS.map(product => product.slug)).toEqual([
+      'identity',
+      'ehr',
+      'migrate',
+      'laboratory',
+      'pharmacy',
+      'outreach',
+      'api',
+    ])
+  })
+
   it('gives every product the copy each surface needs', () => {
     for (const product of PRODUCTS) {
       expect(product.name.startsWith('Health ID')).toBe(true)
       expect(product.mark).toHaveLength(2)
       expect(product.summary.length).toBeGreaterThan(10)
+      expect(product.body.length).toBeGreaterThan(30)
       expect(product.capabilities.length).toBeGreaterThanOrEqual(3)
     }
   })
@@ -35,6 +49,39 @@ describe('product catalogue', () => {
   it('finds a product by slug and reports an unknown one', () => {
     expect(findProduct('ehr')?.name).toBe('Health ID EHR')
     expect(findProduct('cardiology')).toBeUndefined()
+  })
+})
+
+describe('homepage content', () => {
+  it('carries the approved partner label and real-logo roster', () => {
+    expect(TRUST.label).toBe('In partnership with')
+    expect(TRUST.organisations).toEqual([
+      'Kolekto',
+      'Ilorin Innovation Hub',
+      'iDICE Startup Bridge',
+      'Amazon Web Services',
+    ])
+  })
+})
+
+describe('solutions content', () => {
+  it('gives every navigation entry a section that exists', () => {
+    expect(SOLUTIONS_PAGE.audiences.map(audience => audience.id)).toEqual(
+      SOLUTION_AUDIENCES.map(audience => audience.id),
+    )
+  })
+
+  it('links only to products that exist', () => {
+    const ids = SOLUTIONS_PAGE.audiences.map(audience => audience.id)
+
+    expect(new Set(ids).size).toBe(ids.length)
+    for (const audience of SOLUTIONS_PAGE.audiences) {
+      expect(ROUTES.solution(audience.id)).toBe(`/solutions#${audience.id}`)
+      expect(audience.points.length).toBeGreaterThanOrEqual(3)
+      for (const slug of audience.products) {
+        expect(findProduct(slug)).toBeDefined()
+      }
+    }
   })
 })
 
@@ -85,6 +132,9 @@ describe('pricing', () => {
 
 describe('demo request', () => {
   const valid: DemoRequest = {
+    service: 'Health ID EHR',
+    role: 'Doctor',
+    otherRole: '',
     facility: 'Prime Hospital',
     contactName: 'Amaka Eze',
     email: 'amaka@example.com',
@@ -115,15 +165,15 @@ describe('demo request', () => {
 
   it('composes an enquiry naming the facility in the subject', () => {
     const { subject, body } = composeDemoEnquiry(valid)
-    expect(subject).toBe('EHR demo request — Prime Hospital')
-    expect(body).toContain('Contact name: Amaka Eze')
-    expect(body).toContain('Email: amaka@example.com')
+    expect(subject).toBe('Demo request — Prime Hospital')
+    expect(body).toContain('Full name: Amaka Eze')
+    expect(body).toContain('Work email: amaka@example.com')
   })
 
   it('omits empty optional fields rather than sending blank lines', () => {
     const { body } = composeDemoEnquiry(valid)
-    expect(body).not.toContain('Phone:')
-    expect(body).not.toContain('Notes:')
+    expect(body).not.toContain('Phone number:')
+    expect(body).not.toContain('Additional note:')
   })
 
   it('percent-encodes the mailto so punctuation survives', () => {
@@ -144,6 +194,6 @@ describe('patient content', () => {
 
   it('tells the journey in order, ending with the patient in control', () => {
     const moments = PATIENT_JOURNEY.moments.map(moment => moment.when)
-    expect(moments).toEqual(['January', 'February', 'April', 'Always'])
+    expect(moments).toEqual(['January', 'February', 'April', 'Today'])
   })
 })

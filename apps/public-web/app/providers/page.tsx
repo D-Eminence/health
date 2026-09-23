@@ -4,41 +4,34 @@ import { SiteFooter } from '@/components/layout/SiteFooter'
 import { DemoDialog } from '@/components/shared/DemoDialog'
 import { BackToTop } from '@/components/shared/BackToTop'
 import { ProviderHero } from '@/components/provider/Hero'
-import {
-  AdoptionSection,
-  EhrSection,
-  FeaturesSection,
-  PartnerStrip,
-  PlatformSection,
-  StandardsSection,
-} from '@/components/provider/Platform'
-import {
-  AccessSection,
-  ApiSection,
-  IdentitySection,
-  MigrateSection,
-  ProviderClosing,
-} from '@/components/provider/Connected'
-import { ModulesSection } from '@/components/provider/Modules'
-import { OperationsSection } from '@/components/provider/Operations'
-import { RecordSection, TeamsSection } from '@/components/provider/RecordAndTeams'
+import { TrustStrip } from '@/components/provider/TrustStrip'
+import { ProductsSection } from '@/components/provider/Products'
 import { PricingSection } from '@/components/provider/Pricing'
-import { PROVIDER_CTA } from '@/content/provider'
-import { APP_ENTRY } from '@/content/site'
+import { ProviderClosing } from '@/components/provider/Closing'
+import { ROUTES } from '@/content/site'
 
 export const metadata: Metadata = {
   title: 'For healthcare providers',
   description:
-    'Digitise consultations, records, laboratory results and prescriptions — with patient identity built into every encounter.',
+    'One connected healthcare platform for patient identity, electronic health records, laboratory, pharmacy and outreach — with legacy record migration built in.',
 }
 
 /**
- * The healthcare provider landing page.
+ * The healthcare provider homepage.
  *
- * Every section is a server component holding static content; only the pricing
- * toggle, the navigation menus and the demo dialog opt into the client. That
- * keeps the page cheap to render and fast to load, which is the reason this
- * application is on Next.js at all.
+ * The provider overview page includes five main sections:
+ *
+ *   1. the hero, and the product itself beneath it
+ *   2. why Health ID, in four benefits
+ *   3. the product switcher, which is the gateway to the ecosystem
+ *   4. clinic and hospital pricing
+ *   5. the closing call to action
+ *
+ * The page answers what Health ID is, why it matters, which product a reader
+ * needs, and what the plans cost.
+ *
+ * Only the navigation, the product switcher and the demo dialog opt into the
+ * client, which keeps the page cheap to render and fast to load.
  */
 export default function ProvidersPage() {
   return (
@@ -46,30 +39,18 @@ export default function ProvidersPage() {
       <ProviderNav />
       <main id="main">
         <ProviderHero />
-        <PartnerStrip />
-        <PlatformSection />
-        <AdoptionSection />
-        <ModulesSection />
-        <FeaturesSection />
-        <EhrSection />
-        <StandardsSection />
-        <OperationsSection />
-        <RecordSection />
-        <TeamsSection />
-        <IdentitySection />
-        <AccessSection />
-        <MigrateSection />
-        <ApiSection />
-        <PricingSection />
+        <TrustStrip />
+        <ProductsSection />
+        <PricingSection headingAs="h2" />
         <ProviderClosing
-          title={PROVIDER_CTA.title}
-          lede={PROVIDER_CTA.lede}
-          primary={PROVIDER_CTA.primary}
-          secondary={PROVIDER_CTA.secondary}
-          secondaryHref={APP_ENTRY.staffSignIn}
+          title="Get in touch."
+          lede="Talk with the Health ID team about connecting your healthcare operations."
+          primary="Book a demo"
+          secondary="Contact us"
+          secondaryHref={ROUTES.contact}
         />
       </main>
-      <SiteFooter />
+      <SiteFooter cta />
       <BackToTop />
       <DemoDialog />
     </>

@@ -17,9 +17,9 @@
 
 @theme {
   /* --- brand ------------------------------------------------------------ */
-  --color-brand: #086dd9;
-  --color-brand-dark: #075fbe;
-  --color-brand-tint: #eaf4ff;
+  --color-brand: #0088ff;
+  --color-brand-dark: #0074dc;
+  --color-brand-tint: #e8f5ff;
 
   /* --- text ------------------------------------------------------------- */
   --color-ink: #0b1b2e;
@@ -59,9 +59,9 @@
   /* --- layout ----------------------------------------------------------- */
   --spacing-gutter: 1.5rem;
   --radius-control: 999px;
-  --radius-panel: 20px;
-  --radius-card: 14px;
+  --radius-panel: 28px;
+  --radius-card: 20px;
 
   /* Content column of the marketing pages. */
-  --container-wrap: 1080px;
+  --container-wrap: 1280px;
 }

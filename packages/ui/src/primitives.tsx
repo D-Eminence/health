@@ -38,14 +38,18 @@ export interface SectionProps {
   readonly id?: string
   /** `tight` for a closing call to action; `default` for a full band. */
   readonly rhythm?: 'default' | 'tight'
-  /** Inverted navy band. Sets the inverse tokens for everything inside. */
-  readonly tone?: 'plain' | 'sunk' | 'inverse'
+  /**
+   * `wash` is a pale-blue solid band for occasional emphasis. It remains
+   * intentionally quiet so hierarchy comes from spacing and product UI rather
+   * than a decorative colour treatment.
+   */
+  readonly tone?: 'plain' | 'sunk' | 'inverse' | 'wash'
   readonly className?: string
   readonly labelledBy?: string
 }
 
 const RHYTHM = {
-  default: 'py-16 sm:py-20 lg:py-24',
+  default: 'py-20 sm:py-24 lg:py-32',
   tight: 'py-12 sm:py-14 lg:py-16',
 } as const
 
@@ -53,6 +57,7 @@ const TONE = {
   plain: 'bg-surface text-ink',
   sunk: 'bg-surface-tint text-ink',
   inverse: 'bg-inverse-surface text-inverse-ink',
+  wash: 'bg-brand-tint/45 text-ink',
 } as const
 
 export function Section({
@@ -247,14 +252,33 @@ export function TextLink({ className, children, ...rest }: TextLinkProps) {
 export interface CardProps {
   readonly children: ReactNode
   readonly className?: string
+  /**
+   * Frosted glass: translucent, blurred, with a hairline highlight along the
+   * top edge. Used for emphasis panels — the homepage benefits, the product
+   * switcher, pricing plans, the closing call to action. Content lists keep the
+   * solid card, so the two treatments mean something rather than alternating
+   * for variety.
+   */
+  readonly glass?: boolean
 }
 
-export function Card({ children, className }: CardProps) {
-  return (
-    <div className={cx('rounded-(--radius-panel) border border-line bg-surface', className)}>
-      {children}
-    </div>
-  )
+const CARD_SOLID = 'rounded-(--radius-panel) border border-line bg-surface'
+
+/**
+ * The frosted surface, without a radius, so a caller can shape it.
+ *
+ * Exported because the navigation, the hero frame and the closing band are all
+ * the same material at different sizes; a second hand-written copy of these
+ * five utilities is how a design system starts drifting.
+ */
+export const glassSurface =
+  'border border-white/70 bg-white/65 backdrop-blur-xl backdrop-saturate-150 ' +
+  'shadow-[0_18px_48px_rgba(15,39,66,0.10),inset_0_1px_0_rgba(255,255,255,0.75)]'
+
+const CARD_GLASS = `rounded-(--radius-panel) ${glassSurface}`
+
+export function Card({ children, className, glass = false }: CardProps) {
+  return <div className={cx(glass ? CARD_GLASS : CARD_SOLID, className)}>{children}</div>
 }
 
 export interface SectionHeaderProps {
@@ -265,6 +289,8 @@ export interface SectionHeaderProps {
   readonly tone?: 'plain' | 'inverse'
   readonly id?: string
   readonly size?: DisplayProps['size']
+  /** `h1` when the header opens a page rather than a section within one. */
+  readonly as?: ElementType
 }
 
 /** Eyebrow + heading + lede, composed the same way in every section. */
@@ -276,11 +302,13 @@ export function SectionHeader({
   tone = 'plain',
   id,
   size = 'lg',
+  as,
 }: SectionHeaderProps) {
   return (
     <div className={cx('flex flex-col gap-4', align === 'center' ? 'items-center' : 'items-start')}>
       {eyebrow ? <Eyebrow tone={tone === 'inverse' ? 'inverse' : 'plain'}>{eyebrow}</Eyebrow> : null}
       <Display
+        {...(as ? { as } : {})}
         size={size}
         id={id}
         className={cx(align === 'center' && 'text-center', tone === 'inverse' && 'text-white')}

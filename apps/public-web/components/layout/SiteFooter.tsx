@@ -2,90 +2,84 @@ import Link from 'next/link'
 import { Wrap } from '@hid/ui'
 import { PRODUCTS } from '@/content/products'
 import { APP_ENTRY, ROUTES } from '@/content/site'
+import { DEMO_INBOX } from '@/lib/demo-request'
 import { Logo } from './Logo'
 
-const COMPANY_LINKS = [
-  { label: 'How it works', href: ROUTES.howItWorksProvider },
-  { label: 'Pricing', href: ROUTES.pricing },
-  { label: 'For patients', href: ROUTES.patients },
-  { label: 'For providers', href: ROUTES.providers },
-]
+const FOOTER_GROUPS = [
+  {
+    title: 'Products',
+    links: PRODUCTS.map(product => ({ label: product.name, href: ROUTES.product(product.slug) })),
+  },
+  {
+    title: 'Explore',
+    links: [
+      { label: 'For providers', href: ROUTES.providers },
+      { label: 'For patients', href: ROUTES.patients },
+      { label: 'How it works', href: ROUTES.howItWorksProvider },
+      { label: 'Pricing', href: ROUTES.pricing },
+      { label: 'Solutions', href: ROUTES.solutions },
+    ],
+  },
+  {
+    title: 'Company',
+    links: [
+      { label: 'About Health ID', href: ROUTES.about },
+      { label: 'Contact', href: ROUTES.contact },
+      { label: 'Resources', href: ROUTES.resources },
+      { label: 'Documentation', href: ROUTES.documentation },
+      { label: 'Security', href: ROUTES.security },
+      { label: 'Privacy', href: ROUTES.privacy },
+    ],
+  },
+  {
+    title: 'Sign in',
+    links: [
+      { label: 'Patient sign in', href: APP_ENTRY.patientSignIn },
+      { label: 'Hospital sign in', href: APP_ENTRY.staffSignIn },
+    ],
+  },
+] as const
 
-const ACCESS_LINKS = [
-  { label: 'Patient sign in', href: APP_ENTRY.patientSignIn },
-  { label: 'Hospital sign in', href: APP_ENTRY.staffSignIn },
-]
+export interface SiteFooterProps {
+  readonly cta?: boolean
+}
 
-export function SiteFooter() {
+export function SiteFooter(_: SiteFooterProps) {
   const year = new Date().getFullYear()
 
   return (
-    <footer className="border-t border-line bg-surface-tint">
-      <Wrap className="py-14">
-        <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr_1fr]">
-          <div className="flex flex-col gap-3">
-            <Logo />
-            <p className="max-w-[280px] text-sm/relaxed text-muted">
-              One health identity, connecting patients and healthcare providers across the systems
-              that care for them.
-            </p>
+    <footer className="health-footer">
+      <Wrap className="health-footer-wrap">
+        <div className="health-footer-intro">
+          <div className="health-footer-brand">
+            <Logo variant="full" />
+            <p>One health identity, connecting patients and healthcare providers across the systems that care for them.</p>
           </div>
-
-          <FooterColumn title="Products">
-            {PRODUCTS.map(product => (
-              <FooterLink key={product.slug} href={ROUTES.product(product.slug)}>
-                {product.name}
-              </FooterLink>
-            ))}
-          </FooterColumn>
-
-          <FooterColumn title="Company">
-            {COMPANY_LINKS.map(link => (
-              <FooterLink key={link.href} href={link.href}>
-                {link.label}
-              </FooterLink>
-            ))}
-          </FooterColumn>
-
-          <FooterColumn title="Access">
-            {ACCESS_LINKS.map(link => (
-              <FooterLink key={link.href} href={link.href}>
-                {link.label}
-              </FooterLink>
-            ))}
-          </FooterColumn>
+          <a className="health-footer-contact" href={`mailto:${DEMO_INBOX}`}>
+            <span>Building a more connected healthcare operation?</span>
+            <strong>Talk to our team <span aria-hidden="true">↗</span></strong>
+          </a>
         </div>
 
-        <div className="mt-12 flex flex-col gap-3 border-t border-line pt-6 text-[13px] text-faint sm:flex-row sm:items-center sm:justify-between">
-          <p>&copy; {year} Health ID. All rights reserved.</p>
-          {/* The chooser is the way back to the other audience, which is what
-              the entry screen promises when it says "you can change this later". */}
-          <Link href={ROUTES.chooser} className="font-medium text-muted hover:text-brand">
-            Change your experience
-          </Link>
+        <nav aria-label="Footer navigation" className="health-footer-navigation">
+          {FOOTER_GROUPS.map(group => (
+            <div className="health-footer-column" key={group.title}>
+              <h2>{group.title}</h2>
+              <ul>
+                {group.links.map(link => <li key={link.href}>
+                  <Link href={link.href}>{link.label}<span aria-hidden="true">↗</span></Link>
+                </li>)}
+              </ul>
+            </div>
+          ))}
+        </nav>
+
+        <div className="health-footer-bottom">
+          <p>© {year} Health ID. All rights reserved.</p>
+          <p className="health-footer-tagline">One Health Identity. Connected Care. Accessible Records.</p>
+          <Link href={ROUTES.chooser}>Change your experience <span aria-hidden="true">↗</span></Link>
         </div>
       </Wrap>
     </footer>
-  )
-}
-
-function FooterColumn({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="flex flex-col gap-3">
-      <h2 className="font-mono text-[11px] font-medium tracking-[0.12em] text-faint uppercase">
-        {title}
-      </h2>
-      <ul className="flex flex-col gap-2.5">{children}</ul>
-    </div>
-  )
-}
-
-function FooterLink({ href, children }: { href: string; children: React.ReactNode }) {
-  return (
-    <li>
-      <Link href={href} className="text-sm text-muted hover:text-brand">
-        {children}
-      </Link>
-    </li>
   )
 }

@@ -1,50 +1,39 @@
 import Image from 'next/image'
-import { ButtonLink, Card, Display, Eyebrow, Section, SectionHeader, Wrap } from '@hid/ui'
+import { Card, Display, Eyebrow, Section, Wrap } from '@hid/ui'
+import { HeroDemoButton } from '@/components/shared/HeroDemoButton'
 import {
   PATIENT_CONTROL,
   PATIENT_CTA,
   PATIENT_HERO,
-  PATIENT_JOURNEY,
-  PATIENT_STEPS,
   PATIENT_UPLOAD,
 } from '@/content/patient'
 import { APP_ENTRY } from '@/content/site'
+import { CareJourney } from './CareJourney'
 
 export function PatientHero() {
   return (
-    <section className="relative overflow-hidden bg-linear-to-b from-brand-tint/50 to-surface">
-      <Wrap className="pt-14 pb-16 sm:pt-18">
-        <div className="grid items-center gap-10 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)] lg:gap-14">
-          <div className="flex flex-col items-start gap-5">
-            <Eyebrow tone="outline">{PATIENT_HERO.eyebrow}</Eyebrow>
-
-            <h1 className="font-display text-[clamp(2.25rem,5vw,3.75rem)] leading-[1.05] font-normal tracking-[-0.02em] text-balance">
-              {PATIENT_HERO.headline}
-              <br />
-              <span className="text-brand">{PATIENT_HERO.headlineAccent}</span>
-            </h1>
-
-            <p className="max-w-[52ch] text-base/relaxed text-muted">{PATIENT_HERO.lede}</p>
-
-            <div className="mt-1 flex flex-wrap items-center gap-3">
-              <ButtonLink href={APP_ENTRY.patientSignUp}>{PATIENT_HERO.primary}</ButtonLink>
-              <ButtonLink href="#steps" tone="secondary">
-                {PATIENT_HERO.secondary}
-              </ButtonLink>
-            </div>
-
-            <p className="text-[13px] font-medium text-faint">{PATIENT_HERO.footnote}</p>
+    <section className="relative isolate overflow-hidden bg-[#05090f]">
+      <Image src="/brand/patient-hero-grid.jpg" alt="" fill priority className="-z-20 object-cover object-center opacity-60" />
+      <div aria-hidden="true" className="absolute inset-0 -z-10 bg-black/80" />
+      <Wrap className="relative pt-16 pb-0 sm:pt-24">
+        <div className="mx-auto flex max-w-[1280px] flex-col items-center text-center">
+          <Eyebrow tone="outline" className="patient-hero-reveal patient-hero-reveal-1 border-white/25 bg-white/10 text-white">{PATIENT_HERO.eyebrow}</Eyebrow>
+          <h1 className="patient-hero-reveal patient-hero-reveal-2 mt-8 max-w-[1000px] font-display text-[clamp(2.625rem,7vw,5.5rem)] leading-[0.98] tracking-[-0.035em] text-balance">
+            <span className="block text-white">{PATIENT_HERO.headline}</span>
+            <span className="mt-1 block text-[#0088FF]">{PATIENT_HERO.headlineAccent}</span>
+          </h1>
+          <p className="patient-hero-reveal patient-hero-reveal-3 mt-8 max-w-[680px] text-[18px]/relaxed text-white/72 sm:text-[20px]/relaxed">{PATIENT_HERO.lede}</p>
+          <div className="patient-hero-reveal patient-hero-reveal-4 mt-9 flex flex-col items-center gap-3 sm:flex-row">
+            <HeroDemoButton href={APP_ENTRY.patientSignUp}>{PATIENT_HERO.primary}</HeroDemoButton>
+            <HeroDemoButton href={APP_ENTRY.patientSignIn} variant="secondary">{PATIENT_HERO.secondary}</HeroDemoButton>
           </div>
-
-          <div className="justify-self-center">
-            <Image
-              src="/brand/patient-app.png"
-              alt="The Health ID patient app showing a connected health record"
-              width={520}
-              height={420}
-              className="h-auto w-full max-w-[460px]"
-              priority
-            />
+          <div className="patient-hero-visual patient-hero-device-stage mt-12 h-[282px] w-full sm:mt-14 sm:h-[388px]">
+            <HeroWidget className="patient-hero-widget-prescription" icon="rx" label="Prescription" value="Amoxicillin" status="Active" />
+            <HeroWidget className="patient-hero-widget-verified" icon="check" label="Health ID" value="Identity verified" status="Secure" />
+            <HeroWidget className="patient-hero-widget-dose" icon="pill" label="Medication" value="Next dose" status="8:00 PM" />
+            <div className="mx-auto w-fit">
+              <Image src="/brand/patient-health-record.png" alt="Health ID patient app showing the Add Health Information screen" width={1024} height={1536} className="h-auto w-[342px] max-w-none mix-blend-screen contrast-125 sm:w-[458px]" priority />
+            </div>
           </div>
         </div>
       </Wrap>
@@ -52,106 +41,60 @@ export function PatientHero() {
   )
 }
 
-/** The three steps. A real sequence, so it is an ordered list. */
-export function PatientSteps() {
+function HeroWidget({ className, icon, label, value, status }: { className: string; icon: 'rx' | 'check' | 'pill'; label: string; value: string; status: string }) {
   return (
-    <Section id="steps" tone="sunk" labelledBy="steps-title">
-      <Wrap>
-        <SectionHeader id="steps-title" title={PATIENT_STEPS.title} size="md" />
-
-        <ol className="mt-12 grid gap-4 lg:grid-cols-3">
-          {PATIENT_STEPS.steps.map(step => (
-            <li key={step.step}>
-              <Card className="flex h-full flex-col gap-2.5 p-7">
-                <span className="font-mono text-[12px] font-medium text-brand tabular-nums">
-                  {step.step}
-                </span>
-                <Display as="h3" size="sm">
-                  {step.title}
-                </Display>
-                <p className="text-[15px]/relaxed text-muted">{step.body}</p>
-              </Card>
-            </li>
-          ))}
-        </ol>
-      </Wrap>
-    </Section>
+    <div className={`patient-hero-widget ${className}`}>
+      <span className="patient-hero-widget-icon" aria-hidden="true">
+        {icon === 'rx' ? <svg viewBox="0 0 24 24"><path d="M5 6h6.5a3.5 3.5 0 0 1 0 7H8l8 5" /><path d="m14 6-8 12" /></svg> : null}
+        {icon === 'check' ? <svg viewBox="0 0 24 24"><path d="M12 3 19 6v5.2c0 4.1-2.8 7.8-7 9.3-4.2-1.5-7-5.2-7-9.3V6l7-3Z" /><path d="m8.6 12 2.2 2.2 4.7-5" /></svg> : null}
+        {icon === 'pill' ? <svg viewBox="0 0 24 24"><path d="m7.1 16.9-1-1a4 4 0 0 1 0-5.7l4.1-4.1a4 4 0 0 1 5.7 5.7l-4.1 4.1a4 4 0 0 1-4.7 1Z" /><path d="m9.1 8.1 6.8 6.8" /></svg> : null}
+      </span>
+      <span><small>{label}</small><b>{value}</b><em>{status}</em></span>
+    </div>
   )
 }
 
-/**
- * A year in one patient's record.
- *
- * Rendered as a timeline because the moments are dated and their order is the
- * argument: each visit builds on the last without the patient repeating themselves.
- */
+export { PatientSteps } from './PatientSteps'
+
+/** A client-island so the record story can respond to scroll and direct input. */
 export function PatientJourney() {
-  return (
-    <Section labelledBy="journey-title">
-      <Wrap>
-        <SectionHeader
-          eyebrow={PATIENT_JOURNEY.eyebrow}
-          id="journey-title"
-          title={PATIENT_JOURNEY.title}
-          lede={PATIENT_JOURNEY.lede}
-          size="md"
-        />
-
-        <ol className="mx-auto mt-12 flex max-w-[720px] flex-col">
-          {PATIENT_JOURNEY.moments.map((moment, index) => (
-            <li key={moment.when} className="grid grid-cols-[auto_1fr] gap-x-5">
-              <div className="flex flex-col items-center">
-                <span
-                  aria-hidden="true"
-                  className="mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full bg-brand"
-                />
-                {index < PATIENT_JOURNEY.moments.length - 1 ? (
-                  <span aria-hidden="true" className="w-px flex-1 bg-line" />
-                ) : null}
-              </div>
-
-              <div className="pb-8">
-                <p className="flex flex-wrap items-baseline gap-x-2.5">
-                  <span className="font-mono text-[12px] font-medium tracking-[0.06em] text-brand uppercase">
-                    {moment.when}
-                  </span>
-                  <span className="text-[15px] font-semibold text-ink">{moment.where}</span>
-                </p>
-                <p className="mt-1.5 text-[15px]/relaxed text-muted">{moment.body}</p>
-              </div>
-            </li>
-          ))}
-        </ol>
-      </Wrap>
-    </Section>
-  )
+  return <CareJourney />
 }
 
-/** The consent guarantees, on an inverted band. */
+/** The consent guarantees, presented as clear patient-held controls. */
 export function PatientControl() {
-  return (
-    <Section id="control" tone="inverse" labelledBy="control-title">
-      <Wrap>
-        <SectionHeader
-          eyebrow={PATIENT_CONTROL.eyebrow}
-          id="control-title"
-          title={PATIENT_CONTROL.title}
-          lede={PATIENT_CONTROL.lede}
-          tone="inverse"
-          size="md"
-        />
+  const icons = ['/brand/control-access.svg', '/brand/control-history.svg', '/brand/control-security.svg'] as const
 
-        <ul className="mt-12 grid gap-4 md:grid-cols-2">
-          {PATIENT_CONTROL.guarantees.map(guarantee => (
+  return (
+    <Section id="control" labelledBy="control-title" className="patient-control-section">
+      <Wrap>
+        <div className="patient-control-layout mx-auto max-w-[1180px]">
+          <div className="patient-control-intro">
+            <Eyebrow tone="outline">{PATIENT_CONTROL.eyebrow}</Eyebrow>
+            <Display as="h2" id="control-title" size="md" className="mt-6">
+              {PATIENT_CONTROL.title}
+            </Display>
+            <p className="mt-6 max-w-[39ch] text-[17px]/relaxed text-muted">
+              {PATIENT_CONTROL.lede}
+            </p>
+          </div>
+
+          <ol className="patient-control-actions">
+          {PATIENT_CONTROL.guarantees.map((guarantee, index) => (
             <li
               key={guarantee.title}
-              className="flex flex-col gap-2 rounded-(--radius-panel) border border-white/12 bg-white/5 p-6"
+              className="patient-control-action"
             >
-              <h3 className="text-[16px] font-semibold text-white">{guarantee.title}</h3>
-              <p className="text-[15px]/relaxed text-inverse-muted">{guarantee.body}</p>
+              <span className="patient-control-index">0{index + 1}</span>
+              <Image src={icons[index] ?? icons[0]} alt="" width={86} height={108} className="patient-control-art" />
+              <div>
+                <h3>{guarantee.title}</h3>
+                <p>{guarantee.body}</p>
+              </div>
             </li>
           ))}
-        </ul>
+          </ol>
+        </div>
       </Wrap>
     </Section>
   )
@@ -181,7 +124,11 @@ export function PatientClosing() {
           <Display as="h2" size="md">
             {PATIENT_CTA.title}
           </Display>
-          <ButtonLink href={APP_ENTRY.patientSignUp}>{PATIENT_CTA.action}</ButtonLink>
+          <p className="max-w-[620px] text-[16px]/relaxed text-muted">{PATIENT_CTA.body}</p>
+          <div className="flex flex-col items-center gap-3 sm:flex-row">
+            <HeroDemoButton href={APP_ENTRY.patientSignUp}>{PATIENT_CTA.action}</HeroDemoButton>
+            <HeroDemoButton href={APP_ENTRY.patientSignIn} variant="secondary">{PATIENT_CTA.secondary}</HeroDemoButton>
+          </div>
         </div>
       </Wrap>
     </Section>

@@ -2,7 +2,7 @@ import Image from 'next/image'
 import Link from 'next/link'
 import { Display, Wrap } from '@hid/ui'
 import { AUDIENCES, CHOOSER } from '@/content/site'
-import { LogoMark } from '@/components/layout/Logo'
+import { LogoImage } from '@/components/layout/Logo'
 
 export const metadata = {
   title: 'Choose how you use Health ID',
@@ -22,13 +22,12 @@ export default function ChooserPage() {
   return (
     <main
       id="main"
-      className="flex min-h-screen flex-col justify-center bg-linear-to-b from-surface-tint to-brand-tint/60 py-16"
+      className="flex min-h-screen flex-col justify-center bg-surface-tint py-16"
     >
       <Wrap>
         <div className="flex flex-col items-center gap-7">
           <span className="flex items-center gap-2 text-brand">
-            <LogoMark />
-            <span className="font-display text-[26px] leading-none">Health ID</span>
+            <LogoImage variant="nav" />
           </span>
 
           <div className="flex flex-col items-center gap-4">
@@ -43,7 +42,7 @@ export default function ChooserPage() {
               <li key={audience.id} className="flex">
                 <Link
                   href={audience.href}
-                  className="group flex flex-1 flex-col items-center gap-4 rounded-(--radius-panel) border border-line bg-surface p-8 text-center transition-shadow hover:shadow-[0_12px_40px_rgba(11,27,46,0.10)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                  className="group flex flex-1 flex-col items-center gap-4 rounded-(--radius-panel) border border-white/70 bg-white/65 p-8 text-center shadow-[0_18px_48px_rgba(15,39,66,0.10),inset_0_1px_0_rgba(255,255,255,0.75)] backdrop-blur-xl backdrop-saturate-150 transition-shadow hover:shadow-[0_24px_60px_rgba(15,39,66,0.16)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
                 >
                   <Image
                     src={audience.image}
