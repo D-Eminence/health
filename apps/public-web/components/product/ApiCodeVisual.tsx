@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { motion, useReducedMotion } from 'motion/react'
-import { cx } from '@hid/ui'
+import { cx, toast } from '@hid/ui'
 
 const SNIPPETS = {
   JavaScript: [
@@ -34,7 +34,6 @@ type Language = keyof typeof SNIPPETS
 export function ApiCodeVisual() {
   const [language, setLanguage] = useState<Language>('JavaScript')
   const [state, setState] = useState<'ready' | 'sending' | 'complete'>('ready')
-  const [copied, setCopied] = useState(false)
   const reduceMotion = useReducedMotion()
 
   const send = () => {
@@ -46,10 +45,13 @@ export function ApiCodeVisual() {
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(SNIPPETS[language].join('\n'))
-      setCopied(true)
-      window.setTimeout(() => setCopied(false), 1400)
+      toast.success('Copied to clipboard', { dedupeKey: 'api-code-example' })
     } catch {
-      setCopied(false)
+      toast.error('Unable to copy example', {
+        description: 'Check your browser permissions and try again.',
+        dedupeKey: 'api-code-example',
+        action: { label: 'Retry', onAction: () => void copy(), dismissOnAction: false },
+      })
     }
   }
 
@@ -57,7 +59,7 @@ export function ApiCodeVisual() {
     <div
       role="group"
       aria-label="Illustrative Health ID API request and authorised response"
-      className="overflow-hidden rounded-(--radius-panel) border border-line bg-white shadow-[0_14px_36px_rgba(15,39,66,0.08)]"
+      className="overflow-hidden rounded-(--radius-card) border-[0.5px] border-line-strong bg-surface"
     >
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line bg-surface-tint px-4 py-3 sm:px-5">
         <p className="font-mono text-[11px] font-medium tracking-[0.1em] text-faint uppercase">Illustrative request</p>
@@ -86,7 +88,7 @@ export function ApiCodeVisual() {
               </button>
             ))}
           </div>
-          <div className="mt-4 flex justify-end"><button type="button" onClick={copy} className="min-h-9 rounded-lg px-3 text-[11px] font-medium text-muted transition-colors hover:bg-surface-tint hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand motion-reduce:transition-none">{copied ? 'Copied' : 'Copy example'}</button></div>
+          <div className="mt-4 flex justify-end"><button type="button" onClick={copy} className="min-h-9 rounded-lg px-3 text-[11px] font-medium text-muted transition-colors hover:bg-surface-tint hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand motion-reduce:transition-none">Copy example</button></div>
           <pre className="mt-2 overflow-x-auto font-mono text-[13px]/relaxed text-ink">
             <code>{SNIPPETS[language].map((line, index) => <span key={line} className="block"><span className="mr-4 select-none text-faint">{String(index + 1).padStart(2, '0')}</span>{line}</span>)}</code>
           </pre>

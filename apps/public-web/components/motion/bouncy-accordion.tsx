@@ -6,7 +6,8 @@ import {
   useReducedMotion,
   type Transition,
 } from "motion/react";
-import { ChevronDown } from "lucide-react";
+import { HugeiconsIcon } from "@hugeicons/react";
+import ChevronDownIcon from "@hugeicons/core-free-icons/ChevronDownIcon";
 import {
   useCallback,
   useId,
@@ -47,26 +48,21 @@ export interface BouncyAccordionProps {
   classNames?: BouncyAccordionClassNames;
 }
 
-// Local springs keep the accordion's connected groups moving together while
-// avoiding scale projection on text-heavy row contents.
-// Gap spring: must not overshoot y — positive y overshoot drifts items below
-// their mt-3 resting point and briefly overlaps the next item.
+// Compact transitions communicate disclosure without making text content feel
+// animated for its own sake.
 const ROW_TRANSITION: Transition = {
-  type: "spring",
-  duration: 0.55,
-  bounce: 0.38,
+  duration: 0.25,
+  ease: EASE_OUT,
 };
 
 const CONTENT_OPEN_TRANSITION: Transition = {
-  type: "spring",
-  duration: 0.58,
-  bounce: 0.32,
+  duration: 0.25,
+  ease: EASE_OUT,
 };
 
 const CONTENT_CLOSE_TRANSITION: Transition = {
-  type: "spring",
-  duration: 0.46,
-  bounce: 0.26,
+  duration: 0.15,
+  ease: EASE_OUT,
 };
 
 const DESCRIPTION_TRANSITION: Transition = {
@@ -75,9 +71,8 @@ const DESCRIPTION_TRANSITION: Transition = {
 };
 
 const CHEVRON_TRANSITION: Transition = {
-  type: "spring",
-  duration: 0.42,
-  bounce: 0.28,
+  duration: 0.15,
+  ease: EASE_OUT,
 };
 
 
@@ -163,14 +158,14 @@ function BouncyAccordionRow({
         data-state={open ? "open" : "closed"}
         initial={false}
         animate={{
-          borderTopLeftRadius: startsGroup ? 28 : 0,
-          borderTopRightRadius: startsGroup ? 28 : 0,
-          borderBottomLeftRadius: endsGroup ? 28 : 0,
-          borderBottomRightRadius: endsGroup ? 28 : 0,
+          borderTopLeftRadius: startsGroup ? 8 : 0,
+          borderTopRightRadius: startsGroup ? 8 : 0,
+          borderBottomLeftRadius: endsGroup ? 8 : 0,
+          borderBottomRightRadius: endsGroup ? 8 : 0,
         }}
         transition={reduce ? { duration: 0 } : ROW_TRANSITION}
         className={cn(
-          "overflow-hidden bg-card text-card-foreground",
+          "overflow-hidden rounded-(--radius-card) border-[0.5px] border-line bg-surface text-ink",
           item.disabled && "opacity-50",
           classNames?.item,
         )}
@@ -183,8 +178,8 @@ function BouncyAccordionRow({
           aria-controls={contentId}
           onClick={onToggle}
           className={cn(
-            "flex min-h-[54px] w-full items-center gap-4 px-5 text-left outline-none transition-colors",
-            "focus-visible:bg-muted/25",
+            "flex min-h-10 w-full items-center gap-3 px-4 text-left outline-none transition-colors",
+            "focus-visible:bg-surface-hover",
             "disabled:pointer-events-none",
             classNames?.trigger,
           )}
@@ -192,7 +187,7 @@ function BouncyAccordionRow({
           {item.icon ? (
             <span
               className={cn(
-                "grid h-7 w-7 shrink-0 place-items-center text-muted-foreground",
+                "grid h-7 w-7 shrink-0 place-items-center text-muted",
                 classNames?.icon,
               )}
             >
@@ -201,7 +196,7 @@ function BouncyAccordionRow({
           ) : null}
           <span
             className={cn(
-              "min-w-0 flex-1 truncate text-[15px] font-medium text-foreground",
+              "min-w-0 flex-1 truncate text-[14px] font-medium text-ink",
               classNames?.title,
             )}
           >
@@ -212,11 +207,11 @@ function BouncyAccordionRow({
             animate={{ rotate: open ? 180 : 0 }}
             transition={reduce ? { duration: 0 } : CHEVRON_TRANSITION}
             className={cn(
-              "grid h-6 w-6 shrink-0 place-items-center text-muted-foreground",
+              "grid h-6 w-6 shrink-0 place-items-center text-muted",
               classNames?.chevron,
             )}
           >
-            <ChevronDown className="h-4 w-4" />
+            <HugeiconsIcon icon={ChevronDownIcon} size={16} strokeWidth={1.5} aria-hidden />
           </motion.span>
         </button>
 
@@ -248,7 +243,7 @@ function BouncyAccordionRow({
           >
             <div
               className={cn(
-                "text-[15px] leading-6 text-muted-foreground",
+                "text-[14px] leading-[1.45] text-muted",
                 classNames?.description,
               )}
             >

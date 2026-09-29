@@ -2,8 +2,10 @@ import { HugeiconsIcon } from '@hugeicons/react'
 import Menu01Icon from '@hugeicons/core-free-icons/Menu01Icon'
 import Cancel01Icon from '@hugeicons/core-free-icons/Cancel01Icon'
 import Activity01Icon from '@hugeicons/core-free-icons/Activity01Icon'
+import Add01Icon from '@hugeicons/core-free-icons/Add01Icon'
 import ArrowDown01Icon from '@hugeicons/core-free-icons/ArrowDown01Icon'
 import ArrowRight02Icon from '@hugeicons/core-free-icons/ArrowRight02Icon'
+import ArrowUp01Icon from '@hugeicons/core-free-icons/ArrowUp01Icon'
 import ArrowUpRight01Icon from '@hugeicons/core-free-icons/ArrowUpRight01Icon'
 import Attachment01Icon from '@hugeicons/core-free-icons/Attachment01Icon'
 import BedSingle01Icon from '@hugeicons/core-free-icons/BedSingle01Icon'
@@ -15,6 +17,7 @@ import Database01Icon from '@hugeicons/core-free-icons/Database01Icon'
 import File01Icon from '@hugeicons/core-free-icons/File01Icon'
 import Hospital01Icon from '@hugeicons/core-free-icons/Hospital01Icon'
 import Location01Icon from '@hugeicons/core-free-icons/Location01Icon'
+import Linkedin01Icon from '@hugeicons/core-free-icons/Linkedin01Icon'
 import Medicine02Icon from '@hugeicons/core-free-icons/Medicine02Icon'
 import Notification03Icon from '@hugeicons/core-free-icons/Notification03Icon'
 import Search01Icon from '@hugeicons/core-free-icons/Search01Icon'
@@ -26,13 +29,14 @@ import UserIcon from '@hugeicons/core-free-icons/UserIcon'
 
 const icons = {
   menu: Menu01Icon, close: Cancel01Icon,
+  plus: Add01Icon,
   activity: Activity01Icon, down: ArrowDown01Icon, arrow: ArrowRight02Icon,
-  trend: ArrowUpRight01Icon, attachment: Attachment01Icon, bed: BedSingle01Icon,
+  up: ArrowUp01Icon, trend: ArrowUpRight01Icon, attachment: Attachment01Icon, bed: BedSingle01Icon,
   calendar: Calendar03Icon, check: CheckmarkCircle02Icon, code: CodeIcon,
   dashboard: DashboardSquare01Icon, database: Database01Icon, file: File01Icon,
   hospital: Hospital01Icon, location: Location01Icon, medicine: Medicine02Icon,
   bell: Notification03Icon, search: Search01Icon, settings: Settings01Icon,
-  shield: Shield01Icon, laboratory: TestTube01Icon, people: UserGroupIcon, person: UserIcon,
+  shield: Shield01Icon, laboratory: TestTube01Icon, people: UserGroupIcon, person: UserIcon, linkedin: Linkedin01Icon,
 } as const
 
 export type HealthIconName = keyof typeof icons

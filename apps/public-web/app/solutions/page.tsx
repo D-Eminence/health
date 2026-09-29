@@ -7,6 +7,7 @@ import { ProviderNav } from '@/components/layout/SiteNav'
 import { SiteFooter } from '@/components/layout/SiteFooter'
 import { DemoDialog } from '@/components/shared/DemoDialog'
 import { BackToTop } from '@/components/shared/BackToTop'
+import { HealthIcon } from '@/components/shared/HealthIcon'
 import { SOLUTIONS_PAGE } from '@/content/pages'
 import { findProduct } from '@/content/products'
 import { ROUTES, SOLUTION_IMAGES, type SolutionAudienceId } from '@/content/site'
@@ -70,20 +71,7 @@ export default function SolutionsPage() {
                   <ul className="flex flex-col gap-3">
                     {audience.points.map(point => (
                       <li key={point} className="flex items-start gap-3 text-[15px]/relaxed text-ink">
-                        <svg
-                          viewBox="0 0 16 16"
-                          aria-hidden="true"
-                          className="mt-1.5 h-3.5 w-3.5 shrink-0 text-brand"
-                        >
-                          <path
-                            d="M3 8.5l3 3 7-7"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                        </svg>
+                        <span aria-hidden="true" className="mt-1.5 shrink-0 text-brand"><HealthIcon name="check" size={14} /></span>
                         {point}
                       </li>
                     ))}

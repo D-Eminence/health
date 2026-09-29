@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { cx } from '@hid/ui'
+import { HealthIcon } from './HealthIcon'
 
 /**
  * Back to top.
@@ -39,19 +40,10 @@ export function BackToTop() {
       // Hidden from everything, not just from sight, while it is not offered.
       hidden={!visible}
       className={cx(
-        'fixed right-4 bottom-4 z-40 grid h-11 w-11 place-items-center rounded-full border border-brand bg-brand text-white shadow-[0_6px_20px_rgba(11,27,46,0.18)] transition-opacity hover:bg-brand-dark focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:right-7 sm:bottom-7',
+        'fixed right-4 bottom-4 z-40 grid h-[38px] w-[38px] place-items-center rounded-(--radius-button) border border-brand bg-brand text-white transition-colors hover:bg-brand-dark focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand sm:right-7 sm:bottom-7',
       )}
     >
-      <svg viewBox="0 0 16 16" aria-hidden="true" className="h-4 w-4">
-        <path
-          d="M8 13V3M3.5 7.5 8 3l4.5 4.5"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.8"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
+      <HealthIcon name="up" size={16} />
     </button>
   )
 }

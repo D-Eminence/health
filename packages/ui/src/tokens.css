@@ -1,67 +1,607 @@
 /*
- * Health ID design tokens.
+ * Waya design tokens.
  *
- * Transcribed from the approved landing design. One source of colour, type and
- * spacing for every application in the ecosystem, exposed to Tailwind through
- * `@theme` so `bg-brand` and `text-muted` resolve identically in a Next.js app
- * and a Vite app.
- *
- * An application that needs a new token adds it here rather than hard-coding a
- * hex value — that is what stops nine applications drifting into nine slightly
- * different products.
- *
- * The brand commits to a light ground. That is a deliberate identity choice
- * carried over from the design, not an omission: there is no dark palette to
- * fall back to, so every surface and every colour is stated explicitly.
+ * This is the visual contract shared by the public site and authenticated
+ * applications. Components consume semantic names rather than values, so a
+ * future brand override does not turn into a repository-wide colour hunt.
  */
 
 @theme {
-  /* --- brand ------------------------------------------------------------ */
-  --color-brand: #0088ff;
-  --color-brand-dark: #0074dc;
-  --color-brand-tint: #e8f5ff;
+  /* Brand — used as a deliberate interaction signal, never as a page fill. */
+  --color-brand: #086dd9;
+  --color-brand-dark: #0762c3; /* backwards-compatible hover alias */
+  --color-brand-hover: #0762c3;
+  --color-brand-active: #0657ad;
+  --color-brand-tint: #eff6fd;
+  --color-brand-tint-hover: #e5f1fc;
+  --color-brand-border: #b8d8f7;
 
-  /* --- text ------------------------------------------------------------- */
-  --color-ink: #0b1b2e;
-  --color-muted: #5b6b80;
-  --color-faint: #7b8a9c;
-
-  /* --- surfaces --------------------------------------------------------- */
+  /* Light surfaces. */
+  --color-page: #ffffff;
   --color-surface: #ffffff;
-  --color-surface-sunk: #eef2f7;
-  --color-surface-tint: #f4f7fb;
-  --color-line: #e3e9f0;
-  --color-line-strong: #d7deea;
+  --color-surface-raised: #ffffff;
+  --color-surface-sunk: #f8f8f8;
+  --color-surface-tint: #f6f6f6;
+  --color-surface-hover: #f3f3f3;
+  --color-surface-selected: #eeeeee;
 
-  /* Inverted sections ("dark" bands) keep their own named tokens so a
-     component never guesses at a colour that works on a navy ground. */
-  --color-inverse-surface: #0b1b2e;
+  /* Text and separation. */
+  --color-ink: #222222;
+  --color-text: #262626;
+  --color-muted: #555555;
+  --color-faint: #7b7b7b;
+  --color-soft: #898989;
+  --color-line: #f0f0f0;
+  --color-line-strong: #e3e3e3;
+
+  /* Elevated/inverse surfaces. */
+  --color-inverse-surface: #252525;
   --color-inverse-ink: #ffffff;
-  --color-inverse-muted: #9fb0c4;
+  --color-inverse-muted: #cccccc;
 
-  /* --- status ----------------------------------------------------------- */
-  --color-positive: #12805c;
-  --color-caution: #b06a12;
-  --color-critical: #b3261e;
-  /* Used to distinguish a workflow stage that is neither a warning nor a
-     success — laboratory work in the patient-flow board, for instance. */
-  --color-stage: #6034b8;
+  /* Semantic status. */
+  --color-positive: #00a94f;
+  --color-caution: #d89600;
+  --color-critical: #ba3a35;
+  --color-information: #25a4ff;
+  --color-stage: #25a4ff; /* compatibility alias for existing workflow UI */
 
-  /* --- type ------------------------------------------------------------- */
-  /* The font-family variables are supplied per application: Next.js sets them
-     through next/font, Vite through an @font-face or @fontsource import. Each
-     falls back to a real stack so a failed font load degrades rather than
-     silently substituting something unrelated. */
-  --font-display: var(--font-forum), 'Iowan Old Style', Georgia, serif;
-  --font-sans: var(--font-inter), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --font-mono: var(--font-jetbrains-mono), ui-monospace, 'SF Mono', Menlo, monospace;
+  /* Type: Forum is editorial only; Inter serves every product control. */
+  --font-display: var(--font-forum), Forum, Georgia, 'Times New Roman', serif;
+  --font-sans: var(--font-inter), Inter, Arial, Helvetica, sans-serif;
+  --font-mono: var(--font-inter), Inter, Arial, Helvetica, sans-serif;
+  --font-jetbrains-mono: var(--font-inter); /* legacy labels stay in Inter */
 
-  /* --- layout ----------------------------------------------------------- */
-  --spacing-gutter: 1.5rem;
-  --radius-control: 999px;
-  --radius-panel: 28px;
-  --radius-card: 20px;
+  /* Layout and compact component geometry. */
+  --spacing-gutter: 16px;
+  --container-wrap: 1440px;
+  --sidebar-expanded: 247px;
+  --sidebar-collapsed: 60px;
+  --radius-tiny: 3px;
+  --radius-compact: 4px;
+  --radius-button: 5px;
+  --radius-control: 6px;
+  --radius-card: 8px;
+  --radius-panel: 8px; /* compatibility alias for legacy cards */
+  --radius-popover: 8px;
+  --radius-dialog: 10px;
+  --radius-sheet: 12px;
+  --radius-pill: 999px;
+  --border-quiet: 0.5px;
+  --border-control: 1px;
 
-  /* Content column of the marketing pages. */
-  --container-wrap: 1280px;
+  /* Purposeful elevation, motion and layering. */
+  --shadow-popover: 0 8px 20px rgb(34 34 34 / 10%);
+  --shadow-dialog: 0 20px 48px rgb(34 34 34 / 16%);
+  --shadow-toast: 0 8px 20px rgb(34 34 34 / 12%);
+  --motion-quick: 150ms;
+  --motion-sidebar: 180ms;
+  --motion-standard: 250ms;
+  --motion-slow: 350ms;
+  --motion-emphasis: 500ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --z-sticky: 10;
+  --z-dropdown: 20;
+  --z-popover: 30;
+  --z-tooltip: 40;
+  --z-drawer: 50;
+  --z-dialog: 60;
+  --z-toast: 70;
+}
+
+:root {
+  color-scheme: light;
+  --focus-ring-color: var(--color-brand);
+  --focus-ring: 0 0 0 2px color-mix(in srgb, var(--color-brand) 45%, transparent);
+}
+
+/*
+ * The applications are light by default. This deliberately authored opt-in
+ * palette is available to a future theme switcher without relying on a naive
+ * inversion of the light values.
+ */
+[data-theme='dark'] {
+  color-scheme: dark;
+  --color-page: #0b0b0b;
+  --color-surface: #0b0b0b;
+  --color-surface-raised: #151515;
+  --color-surface-sunk: #121212;
+  --color-surface-tint: #1a1a1a;
+  --color-surface-hover: #202020;
+  --color-surface-selected: #242424;
+  --color-ink: #ffffff;
+  --color-text: #f2f2f2;
+  --color-muted: #cccccc;
+  --color-faint: #aaaaaa;
+  --color-soft: #8f8f8f;
+  --color-line: #242424;
+  --color-line-strong: #343434;
+  --color-inverse-surface: #f2f2f2;
+  --color-inverse-ink: #0b0b0b;
+  --color-inverse-muted: #555555;
+}
+
+@layer base {
+  *, ::before, ::after { border-color: var(--color-line); }
+
+  html { background: var(--color-page); }
+
+  body {
+    min-width: 320px;
+    background: var(--color-page);
+    color: var(--color-text);
+    font-family: var(--font-sans);
+    font-size: 15px;
+    line-height: 1.45;
+  }
+
+  :where(button, a, input, select, textarea, summary):focus-visible {
+    outline: 2px solid var(--focus-ring-color);
+    outline-offset: 2px;
+  }
+
+  :where(button, [role='button']) { touch-action: manipulation; }
+
+  ::selection { background: var(--color-brand-tint-hover); color: var(--color-ink); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 1ms !important;
+  }
+}
+
+/* Reusable keyboard-first command palette. Hosts supply only data and selection. */
+@layer components {
+  .waya-command-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-dialog);
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    padding: clamp(20px, 9vh, 116px) 20px 20px;
+    background: rgb(34 34 34 / 42%);
+    animation: waya-command-fade-in var(--motion-quick) var(--ease-standard) both;
+  }
+
+  .waya-command {
+    display: grid;
+    width: min(760px, 100%);
+    height: min(540px, calc(100dvh - 48px));
+    grid-template-rows: auto minmax(220px, 1fr) auto;
+    overflow: hidden;
+    border: 0.5px solid var(--color-line-strong);
+    border-radius: var(--radius-dialog);
+    background: var(--color-surface-raised);
+    box-shadow: var(--shadow-dialog);
+    color: var(--color-text);
+    font-family: var(--font-sans);
+    animation: waya-command-rise var(--motion-standard) var(--ease-out) both;
+  }
+
+  .waya-command[data-filters-open='true'] { grid-template-rows: auto auto minmax(220px, 1fr) auto; }
+
+  .waya-command__header {
+    display: flex;
+    min-height: 56px;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px 8px 16px;
+    border-bottom: 0.5px solid var(--color-line);
+  }
+
+  .waya-command__input-wrap {
+    display: flex;
+    min-width: 0;
+    height: 40px;
+    flex: 1;
+    align-items: center;
+    gap: 10px;
+    padding-left: 12px;
+    border-radius: var(--radius-control);
+    color: var(--color-muted);
+    transition: background-color var(--motion-quick) var(--ease-standard);
+  }
+
+  .waya-command__input-wrap:focus-within,
+  .waya-command__input-wrap.is-filled { background: var(--color-surface-tint); }
+
+  .waya-command__input {
+    width: 100%;
+    min-width: 0;
+    height: 100%;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: var(--color-ink);
+    caret-color: var(--color-brand);
+    font: 400 16px/1.2 var(--font-sans);
+    letter-spacing: -0.018em;
+  }
+
+  .waya-command__input::placeholder { color: var(--color-faint); }
+
+  .waya-command__clear,
+  .waya-command__icon-button,
+  .waya-command__filter,
+  .waya-command__retry { border: 0; background: transparent; font-family: inherit; cursor: pointer; }
+
+  .waya-command__clear {
+    align-self: stretch;
+    padding: 0 12px;
+    border-left: 0.5px solid var(--color-line);
+    color: var(--color-muted);
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .waya-command__clear:hover { color: var(--color-ink); }
+
+  .waya-command__icon-button {
+    display: grid;
+    width: 40px;
+    height: 40px;
+    flex: 0 0 auto;
+    place-items: center;
+    border-radius: var(--radius-button);
+    color: var(--color-muted);
+    transition: background-color var(--motion-quick) var(--ease-standard), color var(--motion-quick) var(--ease-standard);
+  }
+
+  .waya-command__icon-button:hover,
+  .waya-command__icon-button[aria-expanded='true'] { background: var(--color-surface-hover); color: var(--color-ink); }
+
+  .waya-command__filters {
+    display: flex;
+    min-height: 44px;
+    align-items: center;
+    gap: 8px;
+    overflow-x: auto;
+    padding: 4px 20px;
+    border-bottom: 0.5px solid var(--color-line);
+    scrollbar-width: none;
+  }
+
+  .waya-command__filters::-webkit-scrollbar { display: none; }
+
+  .waya-command__filter-label,
+  .waya-command__group-title { flex: 0 0 auto; color: var(--color-muted); font-size: 12px; font-weight: 500; line-height: 1.25; }
+  .waya-command__filter-label { margin-right: 4px; }
+
+  .waya-command__filter {
+    display: inline-flex;
+    height: 32px;
+    flex: 0 0 auto;
+    align-items: center;
+    padding: 0 12px;
+    border-radius: var(--radius-control);
+    color: var(--color-muted);
+    font-size: 13px;
+    font-weight: 500;
+    transition: background-color var(--motion-quick) var(--ease-standard), color var(--motion-quick) var(--ease-standard);
+  }
+
+  .waya-command__filter:hover:not(:disabled) { color: var(--color-ink); }
+  .waya-command__filter[aria-pressed='true'] { background: var(--color-brand-tint); color: var(--color-brand); }
+  .waya-command__filter:disabled { cursor: not-allowed; opacity: 0.45; }
+
+  .waya-command__results { min-height: 0; overflow-y: auto; padding: 8px 12px 16px; scrollbar-width: none; }
+  .waya-command__results::-webkit-scrollbar { display: none; }
+  .waya-command__group { padding-bottom: 8px; }
+  .waya-command__group-title { margin: 0; padding: 6px 6px 8px; }
+
+  .waya-command__item {
+    display: grid;
+    width: 100%;
+    min-height: 56px;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 0.9fr) 20px;
+    align-items: center;
+    gap: 14px;
+    padding: 9px 8px;
+    border: 0;
+    border-radius: var(--radius-card);
+    background: transparent;
+    color: var(--color-muted);
+    text-align: left;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background-color var(--motion-quick) var(--ease-standard), color var(--motion-quick) var(--ease-standard);
+  }
+
+  .waya-command__item:hover:not(:disabled),
+  .waya-command__item[aria-selected='true'] { background: var(--color-surface-hover); color: var(--color-ink); }
+  .waya-command__item:disabled { cursor: not-allowed; opacity: 0.45; }
+
+  .waya-command__leading { display: flex; min-width: 0; align-items: center; gap: 12px; }
+
+  .waya-command__item-icon {
+    display: grid;
+    width: 28px;
+    height: 28px;
+    flex: 0 0 auto;
+    place-items: center;
+    border-radius: var(--radius-control);
+    background: var(--color-brand-tint);
+    color: var(--color-brand);
+  }
+
+  .waya-command__item-label,
+  .waya-command__item-description { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .waya-command__item-label { color: inherit; font-size: 15px; font-weight: 500; letter-spacing: -0.012em; }
+  .waya-command__item-description { color: var(--color-muted); text-align: right; font-size: 13px; line-height: 1.35; }
+  .waya-command__arrow { opacity: 0; transition: opacity var(--motion-quick) var(--ease-standard); }
+  .waya-command__item:hover:not(:disabled) .waya-command__arrow,
+  .waya-command__item[aria-selected='true'] .waya-command__arrow { opacity: 1; }
+
+  .waya-command__state {
+    display: grid;
+    min-height: 280px;
+    align-content: center;
+    justify-items: center;
+    gap: 8px;
+    padding: 24px;
+    color: var(--color-muted);
+    text-align: center;
+    font-size: 13px;
+    line-height: 1.45;
+  }
+
+  .waya-command__state strong { color: var(--color-ink); font-size: 15px; font-weight: 600; }
+  .waya-command__spinner { color: var(--color-brand); animation: waya-command-spin 750ms linear infinite; }
+
+  .waya-command__retry {
+    min-height: 32px;
+    margin-top: 4px;
+    padding: 0 12px;
+    border-radius: var(--radius-button);
+    background: var(--color-brand);
+    color: #fff;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .waya-command__retry:hover { background: var(--color-brand-hover); }
+
+  .waya-command__footer {
+    display: flex;
+    min-height: 52px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 0 24px;
+    border-top: 0.5px solid var(--color-line);
+    color: var(--color-muted);
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1;
+  }
+
+  .waya-command__footer > span { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+  .waya-command__footer kbd {
+    display: inline-flex;
+    min-width: 24px;
+    height: 22px;
+    align-items: center;
+    justify-content: center;
+    padding: 0 6px;
+    border-radius: var(--radius-compact);
+    background: var(--color-surface-selected);
+    color: var(--color-muted);
+    font: 600 10px/1 var(--font-mono);
+  }
+
+  .waya-command__sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  @keyframes waya-command-fade-in { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes waya-command-rise { from { opacity: 0; transform: translateY(6px) scale(0.985); } to { opacity: 1; transform: translateY(0) scale(1); } }
+  @keyframes waya-command-spin { to { transform: rotate(360deg); } }
+
+  @media (max-width: 600px) {
+    .waya-command-overlay { align-items: flex-start; padding: 12px 0; }
+    .waya-command { width: 100%; height: calc(100dvh - 24px); border-radius: var(--radius-sheet); }
+    .waya-command__header { padding: 8px; }
+    .waya-command__input-wrap { height: 44px; }
+    .waya-command__icon-button { width: 44px; height: 44px; }
+    .waya-command__filters { min-height: 60px; padding-inline: 16px; }
+    .waya-command__filter { height: 44px; }
+    .waya-command__item { grid-template-columns: minmax(0, 1fr) 16px; gap: 8px; }
+    .waya-command__item-description { display: none; }
+    .waya-command__footer { min-height: 56px; padding-inline: 16px; }
+    .waya-command__footer-nav,
+    .waya-command__footer-shortcut { display: none !important; }
+  }
+}
+
+/*
+ * Waya's one feedback surface: compact and neutral, with semantic colour
+ * limited to the icon. These classes live beside the tokens because both
+ * Next and Vite applications import this stylesheet at their roots.
+ */
+@layer components {
+  .waya-toast-region {
+    position: fixed;
+    right: max(24px, env(safe-area-inset-right));
+    bottom: calc(max(24px, env(safe-area-inset-bottom)) + var(--waya-toast-offset, 0px));
+    z-index: var(--z-toast);
+    display: flex;
+    width: min(360px, calc(100vw - 40px));
+    max-width: 420px;
+    flex-direction: column-reverse;
+    gap: 8px;
+    pointer-events: none;
+  }
+
+  .waya-toast-region[data-position='bottom-center'] {
+    right: auto;
+    left: 50%;
+    transform: translateX(-50%);
+  }
+
+  .waya-toast {
+    display: grid;
+    min-height: 48px;
+    grid-template-columns: 17px minmax(0, 1fr) auto auto;
+    align-items: start;
+    gap: 10px;
+    padding: 12px 14px;
+    border: 0.5px solid var(--color-line-strong);
+    border-radius: var(--radius-card);
+    background: var(--color-surface-raised);
+    box-shadow: var(--shadow-toast);
+    color: var(--color-text);
+    font-family: var(--font-sans);
+    animation: waya-toast-enter var(--motion-standard) var(--ease-standard) both;
+    pointer-events: auto;
+  }
+
+  .waya-toast[data-complex='true'] {
+    padding: 14px 16px;
+  }
+
+  .waya-toast[data-state='closing'] {
+    animation: waya-toast-exit var(--motion-sidebar) var(--ease-standard) both;
+    pointer-events: none;
+  }
+
+  .waya-toast__icon {
+    display: grid;
+    width: 17px;
+    height: 17px;
+    margin-top: 1px;
+    place-items: center;
+    color: var(--color-information);
+  }
+
+  .waya-toast[data-type='success'] .waya-toast__icon { color: var(--color-positive); }
+  .waya-toast[data-type='error'] .waya-toast__icon { color: var(--color-critical); }
+  .waya-toast[data-type='warning'] .waya-toast__icon { color: var(--color-caution); }
+  .waya-toast[data-type='info'] .waya-toast__icon,
+  .waya-toast[data-type='loading'] .waya-toast__icon { color: var(--color-information); }
+
+  .waya-toast__spinner {
+    animation: waya-toast-spin 750ms linear infinite;
+  }
+
+  .waya-toast__content {
+    min-width: 0;
+    padding-top: 1px;
+  }
+
+  .waya-toast__title,
+  .waya-toast__description {
+    margin: 0;
+  }
+
+  .waya-toast__title {
+    color: var(--color-text);
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.3;
+  }
+
+  .waya-toast__description {
+    margin-top: 3px;
+    color: var(--color-muted);
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+  }
+
+  .waya-toast__action {
+    min-height: 28px;
+    align-self: center;
+    padding: 0 2px;
+    border: 0;
+    border-radius: var(--radius-compact);
+    background: transparent;
+    color: var(--color-brand);
+    font: 600 12px/1.25 var(--font-sans);
+    white-space: nowrap;
+    cursor: pointer;
+  }
+
+  .waya-toast__action:hover { color: var(--color-brand-hover); }
+
+  .waya-toast__action:focus-visible,
+  .waya-toast__close:focus-visible {
+    outline: 2px solid var(--focus-ring-color);
+    outline-offset: 2px;
+  }
+
+  .waya-toast__close {
+    display: grid;
+    width: 28px;
+    height: 28px;
+    margin: -5px -5px -5px 0;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-button);
+    place-items: center;
+    background: transparent;
+    color: var(--color-faint);
+    cursor: pointer;
+  }
+
+  .waya-toast__close:hover {
+    background: var(--color-surface-hover);
+    color: var(--color-text);
+  }
+
+  @keyframes waya-toast-enter {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes waya-toast-exit {
+    from { opacity: 1; transform: translateY(0); }
+    to { opacity: 0; transform: translateY(6px); }
+  }
+
+  @keyframes waya-toast-spin {
+    to { transform: rotate(360deg); }
+  }
+
+  @media (max-width: 767px) {
+    .waya-toast-region,
+    .waya-toast-region[data-position='bottom-center'] {
+      right: 16px;
+      bottom: calc(max(16px, env(safe-area-inset-bottom)) + var(--waya-toast-offset, 0px));
+      left: 16px;
+      width: auto;
+      max-width: 400px;
+      margin-inline: auto;
+      transform: none;
+    }
+
+    .waya-toast {
+      grid-template-columns: 17px minmax(0, 1fr) auto;
+    }
+
+    .waya-toast__action {
+      grid-column: 2;
+      grid-row: 2;
+      justify-self: start;
+      min-height: 24px;
+      margin-top: -2px;
+    }
+
+    .waya-toast__close {
+      grid-column: 3;
+      grid-row: 1;
+    }
+  }
 }

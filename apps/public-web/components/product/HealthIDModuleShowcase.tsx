@@ -6,6 +6,7 @@ import { findProductDetail } from '@/content/product-details'
 import { useMemo, useRef, useState } from 'react'
 import { cx } from '@hid/ui'
 import { HEALTH_ID_MODULES, type HealthIDModule, type HealthIDModuleSlug } from '@/content/module-showcase'
+import { HealthIcon } from '@/components/shared/HealthIcon'
 
 export interface HealthIDModuleShowcaseProps {
   readonly currentModule?: HealthIDModuleSlug
@@ -80,7 +81,7 @@ function ActiveModule({ module }: { module: HealthIDModule }) {
         <p className="text-[13px] font-semibold text-brand">{module.name}</p>
         <h3 className="mt-4 font-display text-[clamp(1.875rem,3vw,2.5rem)] leading-[1.05] tracking-[-0.03em] text-ink">{module.statement}</h3>
         <p className="mt-5 max-w-[42ch] text-[15px]/relaxed text-muted sm:text-[16px]/relaxed">{module.description}</p>
-        <Link href={module.href} className="module-showcase-cta mt-7 inline-flex min-h-11 items-center text-[15px] font-semibold text-brand focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand">{module.cta}<span aria-hidden="true" className="module-showcase-arrow ml-1">→</span></Link>
+        <Link href={module.href} className="module-showcase-cta mt-7 inline-flex min-h-11 items-center gap-1 text-[15px] font-semibold text-brand focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand">{module.cta}<HealthIcon name="arrow" size={16} className="module-showcase-arrow" /></Link>
       </div>
     </article>
   )
@@ -93,6 +94,6 @@ function ModuleVisual({ module }: { module: HealthIDModule }) {
 
 function CollapsedModule({ module, onSelect }: { module: HealthIDModule; onSelect: () => void }) {
   return <button type="button" onClick={onSelect} className="module-showcase-collapsed" aria-label={`Show ${module.name}`}>
-    <span>{module.shortName}</span><span aria-hidden="true" className="module-showcase-collapsed-arrow">→</span>
+    <span>{module.shortName}</span><HealthIcon name="arrow" size={16} className="module-showcase-collapsed-arrow" />
   </button>
 }

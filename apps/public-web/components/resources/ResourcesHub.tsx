@@ -2,7 +2,8 @@
 
 import Link from 'next/link'
 import { useMemo, useState } from 'react'
-import { Card, Display, Section, SectionHeader, Wrap } from '@hid/ui'
+import { Card, Display, SearchField, Section, SectionHeader, Wrap } from '@hid/ui'
+import { HealthIcon } from '@/components/shared/HealthIcon'
 import {
   ABOUT_PAGE,
   CONTACT_PAGE,
@@ -175,30 +176,21 @@ export function ResourcesHub() {
             as="h1"
           />
 
-          <div className="mx-auto mt-12 max-w-[920px] rounded-(--radius-panel) border border-line bg-white p-4 shadow-[0_16px_40px_rgba(15,39,66,0.06)] sm:p-5">
+          <div className="mx-auto mt-12 max-w-[920px] rounded-(--radius-card) border-[0.5px] border-line bg-surface p-4 sm:p-5">
             <form role="search" onSubmit={event => event.preventDefault()}>
               <label className="sr-only" htmlFor="resource-search">
                 Search Health ID resources
               </label>
               <div className="flex flex-col gap-3 sm:flex-row">
-                <div className="relative flex-1">
-                  <svg
-                    aria-hidden="true"
-                    className="pointer-events-none absolute top-1/2 left-4 h-5 w-5 -translate-y-1/2 text-muted"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                  >
-                    <circle cx="11" cy="11" r="6.5" stroke="currentColor" strokeWidth="1.8" />
-                    <path d="m16 16 4 4" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
-                  </svg>
-                  <input
+                <div className="flex-1">
+                  <SearchField
                     id="resource-search"
-                    type="search"
+                    label="Search Health ID resources"
+                    startAdornment={<HealthIcon name="search" size={16} />}
                     value={query}
                     onChange={event => setQuery(event.target.value)}
                     placeholder="Search Health ID resources..."
                     aria-describedby="resources-count"
-                    className="min-h-12 w-full rounded-(--radius-control) border border-line bg-surface py-3 pr-4 pl-12 text-[16px] text-ink placeholder:text-faint focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
                   />
                 </div>
                 {hasActiveFilters ? (
@@ -208,7 +200,7 @@ export function ResourcesHub() {
                       setQuery('')
                       setActiveCategory('All')
                     }}
-                    className="min-h-12 rounded-(--radius-control) border border-line px-5 text-[15px] font-semibold text-ink transition-colors hover:border-brand hover:text-brand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                    className="h-[38px] rounded-(--radius-button) border border-line-strong px-3.5 text-[14px] font-semibold text-ink transition-colors hover:border-brand-border hover:bg-brand-tint hover:text-brand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
                   >
                     Clear filters
                   </button>
@@ -292,7 +284,7 @@ export function ResourcesHub() {
               ))}
             </div>
           ) : (
-            <div className="mx-auto mt-10 max-w-[600px] rounded-(--radius-panel) border border-line bg-white px-6 py-10 text-center">
+            <div className="mx-auto mt-10 max-w-[600px] rounded-(--radius-card) border-[0.5px] border-line bg-surface px-5 py-8 text-center">
               <p className="text-[18px] font-semibold text-ink">No resources match that search.</p>
               <p className="mt-2 text-[15px]/relaxed text-muted">
                 Try another term, or clear the current filters to view the full library.
@@ -303,7 +295,7 @@ export function ResourcesHub() {
                   setQuery('')
                   setActiveCategory('All')
                 }}
-                className="mt-5 min-h-11 rounded-(--radius-control) border border-line px-5 text-[15px] font-semibold text-ink transition-colors hover:border-brand hover:text-brand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                className="mt-5 h-[38px] rounded-(--radius-button) border border-line-strong px-3.5 text-[14px] font-semibold text-ink transition-colors hover:border-brand-border hover:bg-brand-tint hover:text-brand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
               >
                 View all resources
               </button>
@@ -331,10 +323,10 @@ function FilterButton({
       type="button"
       aria-pressed={active}
       onClick={onClick}
-      className={`min-h-11 rounded-(--radius-control) border px-4 text-[14px] font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${
+      className={`h-8 rounded-(--radius-control) border px-3 text-[13px] font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand ${
         active
-          ? 'border-brand bg-brand text-white'
-          : 'border-line bg-surface text-ink hover:border-brand hover:text-brand'
+          ? 'border-brand-border bg-brand-tint text-brand'
+          : 'border-line-strong bg-surface text-ink hover:border-brand-border hover:bg-surface-hover hover:text-brand'
       }`}
     >
       {label} <span className="ml-1 opacity-70">{count}</span>

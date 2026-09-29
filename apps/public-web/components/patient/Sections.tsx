@@ -1,6 +1,7 @@
 import Image from 'next/image'
 import { Card, Display, Eyebrow, Section, Wrap } from '@hid/ui'
 import { HeroDemoButton } from '@/components/shared/HeroDemoButton'
+import { HealthIcon } from '@/components/shared/HealthIcon'
 import {
   PATIENT_CONTROL,
   PATIENT_CTA,
@@ -12,17 +13,15 @@ import { CareJourney } from './CareJourney'
 
 export function PatientHero() {
   return (
-    <section className="relative isolate overflow-hidden bg-[#05090f]">
-      <Image src="/brand/patient-hero-grid.jpg" alt="" fill priority className="-z-20 object-cover object-center opacity-60" />
-      <div aria-hidden="true" className="absolute inset-0 -z-10 bg-black/80" />
+    <section className="relative isolate overflow-hidden bg-inverse-surface">
       <Wrap className="relative pt-16 pb-0 sm:pt-24">
         <div className="mx-auto flex max-w-[1280px] flex-col items-center text-center">
-          <Eyebrow tone="outline" className="patient-hero-reveal patient-hero-reveal-1 border-white/25 bg-white/10 text-white">{PATIENT_HERO.eyebrow}</Eyebrow>
-          <h1 className="patient-hero-reveal patient-hero-reveal-2 mt-8 max-w-[1000px] font-display text-[clamp(2.625rem,7vw,5.5rem)] leading-[0.98] tracking-[-0.035em] text-balance">
+          <Eyebrow tone="inverse" className="patient-hero-reveal patient-hero-reveal-1">{PATIENT_HERO.eyebrow}</Eyebrow>
+          <h1 className="patient-hero-reveal patient-hero-reveal-2 mt-6 max-w-[1000px] font-display text-[clamp(2.4375rem,4vw,3rem)] leading-[1.06] tracking-[-0.03em] text-balance">
             <span className="block text-white">{PATIENT_HERO.headline}</span>
-            <span className="mt-1 block text-[#0088FF]">{PATIENT_HERO.headlineAccent}</span>
+            <span className="mt-1 block text-brand">{PATIENT_HERO.headlineAccent}</span>
           </h1>
-          <p className="patient-hero-reveal patient-hero-reveal-3 mt-8 max-w-[680px] text-[18px]/relaxed text-white/72 sm:text-[20px]/relaxed">{PATIENT_HERO.lede}</p>
+          <p className="patient-hero-reveal patient-hero-reveal-3 mt-5 max-w-[680px] text-[15px]/[1.45] text-white/72">{PATIENT_HERO.lede}</p>
           <div className="patient-hero-reveal patient-hero-reveal-4 mt-9 flex flex-col items-center gap-3 sm:flex-row">
             <HeroDemoButton href={APP_ENTRY.patientSignUp}>{PATIENT_HERO.primary}</HeroDemoButton>
             <HeroDemoButton href={APP_ENTRY.patientSignIn} variant="secondary">{PATIENT_HERO.secondary}</HeroDemoButton>
@@ -45,9 +44,7 @@ function HeroWidget({ className, icon, label, value, status }: { className: stri
   return (
     <div className={`patient-hero-widget ${className}`}>
       <span className="patient-hero-widget-icon" aria-hidden="true">
-        {icon === 'rx' ? <svg viewBox="0 0 24 24"><path d="M5 6h6.5a3.5 3.5 0 0 1 0 7H8l8 5" /><path d="m14 6-8 12" /></svg> : null}
-        {icon === 'check' ? <svg viewBox="0 0 24 24"><path d="M12 3 19 6v5.2c0 4.1-2.8 7.8-7 9.3-4.2-1.5-7-5.2-7-9.3V6l7-3Z" /><path d="m8.6 12 2.2 2.2 4.7-5" /></svg> : null}
-        {icon === 'pill' ? <svg viewBox="0 0 24 24"><path d="m7.1 16.9-1-1a4 4 0 0 1 0-5.7l4.1-4.1a4 4 0 0 1 5.7 5.7l-4.1 4.1a4 4 0 0 1-4.7 1Z" /><path d="m9.1 8.1 6.8 6.8" /></svg> : null}
+        <HealthIcon name={icon === 'check' ? 'shield' : 'medicine'} size={17} />
       </span>
       <span><small>{label}</small><b>{value}</b><em>{status}</em></span>
     </div>
@@ -63,7 +60,7 @@ export function PatientJourney() {
 
 /** The consent guarantees, presented as clear patient-held controls. */
 export function PatientControl() {
-  const icons = ['/brand/control-access.svg', '/brand/control-history.svg', '/brand/control-security.svg'] as const
+  const icons = ['person', 'file', 'shield'] as const
 
   return (
     <Section id="control" labelledBy="control-title" className="patient-control-section">
@@ -86,7 +83,9 @@ export function PatientControl() {
               className="patient-control-action"
             >
               <span className="patient-control-index">0{index + 1}</span>
-              <Image src={icons[index] ?? icons[0]} alt="" width={86} height={108} className="patient-control-art" />
+              <span className="patient-control-icon" aria-hidden="true">
+                <HealthIcon name={icons[index] ?? 'shield'} size={20} />
+              </span>
               <div>
                 <h3>{guarantee.title}</h3>
                 <p>{guarantee.body}</p>

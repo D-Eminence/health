@@ -63,8 +63,8 @@ export function CareJourney() {
       <Wrap>
         <div className="hikmah-journey-intro mx-auto max-w-[760px] text-center">
           <p className="font-mono text-[12px] font-semibold tracking-[0.12em] text-brand uppercase">Hikmah&apos;s journey</p>
-          <h2 id="journey-title" className="mt-5 font-display text-[clamp(2.25rem,4.2vw,3.5rem)] leading-[1.06] tracking-[-0.035em] text-ink">One record, wherever care happens.</h2>
-          <p className="mx-auto mt-5 max-w-[58ch] text-[17px]/relaxed text-muted sm:text-[18px]/relaxed">Four visits in different places. No repeated registration, no missing context.</p>
+          <h2 id="journey-title" className="mt-5 font-display text-[clamp(2rem,3.5vw,2.5rem)] leading-[1.08] tracking-[-0.025em] text-ink">One record, wherever care happens.</h2>
+          <p className="mx-auto mt-5 max-w-[58ch] text-[15px]/relaxed text-muted sm:text-[16px]/relaxed">Four visits in different places. No repeated registration, no missing context.</p>
         </div>
 
         <div className="hikmah-focus mt-16">

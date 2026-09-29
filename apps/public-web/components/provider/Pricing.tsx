@@ -3,6 +3,7 @@
 import { useId, useState } from 'react'
 import { Card, Display, Section, SectionHeader, TextLink, Wrap, cx } from '@hid/ui'
 import { HeroDemoButton } from '@/components/shared/HeroDemoButton'
+import { HealthIcon } from '@/components/shared/HealthIcon'
 import { PRICING } from '@/content/provider'
 import { annualSaving, formatNaira, monthlyRate, type Billing } from '@/lib/pricing'
 
@@ -106,20 +107,7 @@ export function PricingSection({ headingAs = 'h1' }: { headingAs?: 'h1' | 'h2' }
                   <ul className="flex flex-col gap-2.5 border-t border-line pt-4">
                     {plan.includes.map(item => (
                       <li key={item} className="flex items-start gap-2.5 text-[15px] text-ink">
-                        <svg
-                          viewBox="0 0 16 16"
-                          aria-hidden="true"
-                          className="mt-1 h-3.5 w-3.5 shrink-0 text-brand"
-                        >
-                          <path
-                            d="M3 8.5l3 3 7-7"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="2"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                        </svg>
+                        <span aria-hidden="true" className="mt-1 shrink-0 text-brand"><HealthIcon name="check" size={14} /></span>
                         {item}
                       </li>
                     ))}

@@ -14,26 +14,68 @@ export function Overview() {
   const { api } = useSession()
   const [error, setError] = useState<unknown>(null)
   const [loaded, setLoaded] = useState(false)
+  const [requestVersion, setRequestVersion] = useState(0)
 
   useEffect(() => {
     const controller = new AbortController()
 
+    setError(null)
+    setLoaded(false)
+
     api.identity
       .getMyPatientProfile({ signal: controller.signal })
       .then(() => setLoaded(true))
-      .catch(setError)
+      .catch(reason => {
+        // Aborting on unmount is expected, not a patient-facing failure.
+        if (!controller.signal.aborted) setError(reason)
+      })
 
     // Cancel on unmount so a slow response cannot resolve into a screen the
     // patient has already navigated away from.
     return () => controller.abort()
-  }, [api])
+  }, [api, requestVersion])
 
-  if (error) return <ErrorState error={error} />
+  const retry = () => {
+    // Move immediately to the loading state so a retry cannot be submitted twice.
+    setError(null)
+    setLoaded(false)
+    setRequestVersion(version => version + 1)
+  }
 
   return (
-    <main className="p-6">
-      <h1 className="text-2xl font-semibold">Your health information</h1>
-      <p className="mt-2 text-muted">{loaded ? 'Profile loaded.' : 'Loading…'}</p>
+    <main className="patient-page">
+      <div className="patient-content">
+        <header className="patient-page-header">
+          <p className="patient-eyebrow">Health ID</p>
+          <h1 className="patient-page-title">Your health information</h1>
+        </header>
+
+        {error ? (
+          <section className="patient-feedback" aria-label="Unable to load your health information">
+            <ErrorState error={error} onRetry={retry} />
+          </section>
+        ) : (
+          <section
+            className="patient-feedback patient-status-panel"
+            aria-busy={!loaded}
+            aria-live="polite"
+            role="status"
+          >
+            {loaded ? (
+              <>
+                <p className="patient-status-label">Profile</p>
+                <p className="patient-status-value">Profile loaded.</p>
+              </>
+            ) : (
+              <>
+                <span className="sr-only">Loading your health information…</span>
+                <span className="patient-skeleton patient-skeleton-label" aria-hidden="true" />
+                <span className="patient-skeleton patient-skeleton-value" aria-hidden="true" />
+              </>
+            )}
+          </section>
+        )}
+      </div>
     </main>
   )
 }

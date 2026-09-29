@@ -1,7 +1,9 @@
 import type { Metadata, Viewport } from 'next'
 import type { ReactNode } from 'react'
-import { Forum, Inter, JetBrains_Mono } from 'next/font/google'
+import { Forum, Inter } from 'next/font/google'
 import { getEnvironment } from '@/lib/env'
+import { GlobalSearchProvider } from '@/components/layout/GlobalSearch'
+import { FeedbackProvider } from '@/components/shared/FeedbackProvider'
 import './globals.css'
 
 /**
@@ -27,13 +29,6 @@ const inter = Inter({
   display: 'swap',
 })
 
-const jetbrainsMono = JetBrains_Mono({
-  subsets: ['latin'],
-  weight: ['400', '500'],
-  variable: '--font-jetbrains-mono',
-  display: 'swap',
-})
-
 export const metadata: Metadata = {
   title: {
     default: 'Health ID — One health identity, every connected provider',
@@ -56,7 +51,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   getEnvironment()
 
   return (
-    <html lang="en" data-scroll-behavior="smooth" className={`${forum.variable} ${inter.variable} ${jetbrainsMono.variable}`}>
+    <html lang="en" data-scroll-behavior="smooth" className={`${forum.variable} ${inter.variable}`}>
       <body className="bg-surface font-sans text-ink antialiased">
         <a
           href="#main"
@@ -64,7 +59,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
         >
           Skip to content
         </a>
-        {children}
+        <FeedbackProvider>
+          <GlobalSearchProvider>{children}</GlobalSearchProvider>
+        </FeedbackProvider>
       </body>
     </html>
   )

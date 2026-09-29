@@ -26,3 +26,8 @@ npm-debug.log*
 # Design inputs and captures live outside the repo; never vendor them in.
 *.zip
 hid-preview*.html
+*.play_around
+.play_around
+play_around
+play_around*
+/play around/

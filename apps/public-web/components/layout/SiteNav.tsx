@@ -3,9 +3,11 @@
 import Link from 'next/link'
 import Image from 'next/image'
 import { ProductDashboard } from '@/components/shared/ProductDashboard'
-import { HeroBackground } from '@/components/shared/HeroBackground'
 import { findProductDetail } from '@/content/product-details'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
+import { HugeiconsIcon } from '@hugeicons/react'
+import ArrowReloadHorizontalIcon from '@hugeicons/core-free-icons/ArrowReloadHorizontalIcon'
+import ChevronDownIcon from '@hugeicons/core-free-icons/ChevronDownIcon'
 import { EASE_OUT } from '@/lib/ease'
 import { SharedLayoutBg } from '@/components/motion/shared-layout-bg'
 import { HealthIcon, type HealthIconName } from '@/components/shared/HealthIcon'
@@ -14,6 +16,7 @@ import { cx } from '@hid/ui'
 import { HeroDemoButton } from '@/components/shared/HeroDemoButton'
 import { PRODUCTS } from '@/content/products'
 import { APP_ENTRY, ROUTES, SOLUTION_AUDIENCES, SOLUTION_IMAGES } from '@/content/site'
+import { GlobalSearch } from './GlobalSearch'
 import { Logo } from './Logo'
 export interface NavLinkEntry {
   readonly type: 'link'
@@ -47,6 +50,21 @@ function mobileGroupId(baseId: string, label: string): string {
   return `${baseId}-mobile-${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`
 }
 
+function NavChevron({ open }: { readonly open: boolean }) {
+  return (
+    <HugeiconsIcon
+      icon={ChevronDownIcon}
+      size={12}
+      strokeWidth={1.5}
+      aria-hidden
+      className={cx(
+        'shrink-0 transition-transform duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
+        open && 'rotate-180',
+      )}
+    />
+  )
+}
+
 export interface SiteNavProps {
   /** Rendered in order, so a menu can sit between two plain links. */
   readonly entries: readonly NavEntry[]
@@ -57,7 +75,7 @@ export interface SiteNavProps {
 }
 
 /**
- * The floating pill navigation.
+ * The compact floating navigation.
  *
  * Client-side because each menu and the small-screen drawer are disclosure
  * widgets. Everything it links to is a plain URL, so the nav still works before
@@ -79,9 +97,8 @@ export function SiteNav({ entries, signInHref, signInLabel, action, audience }: 
   const mobileMenuTriggerRef = useRef<HTMLButtonElement>(null)
   const desktopMenuTriggerRef = useRef<HTMLButtonElement | null>(null)
 
-  // The pill is frosted glass over the page. Once the reader scrolls, content
-  // passes underneath it, so it thickens to stay legible — the same behaviour
-  // the approved design gives its navigation.
+  // The navigation stays opaque at every scroll position so its compact
+  // controls remain legible without introducing decorative glass effects.
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 12)
     onScroll()
@@ -134,7 +151,6 @@ export function SiteNav({ entries, signInHref, signInLabel, action, audience }: 
           key="desktop-navigation-backdrop"
           aria-hidden="true"
           className="health-navigation-backdrop"
-          style={{ backdropFilter: 'blur(18px)', WebkitBackdropFilter: 'blur(18px)' }}
           data-products-open={openMenu === 'Products'}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -145,12 +161,11 @@ export function SiteNav({ entries, signInHref, signInLabel, action, audience }: 
       <div ref={navigationRef} className="relative mx-auto w-full max-w-[1180px]">
         <nav
         aria-label="Primary"
-        style={megaOpen ? { backdropFilter: 'none' } : undefined}
         className={cx(
-          'relative max-lg:z-50 mx-auto flex w-full max-w-[1180px] items-center gap-4 rounded-[26px] border px-4 py-2.5 backdrop-blur-[18px] backdrop-saturate-[160%] transition-[background-color,box-shadow,border-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none sm:px-5',
+          'relative max-lg:z-50 mx-auto flex w-full max-w-[1180px] items-center gap-4 rounded-(--radius-card) border-[0.5px] px-4 py-2.5 transition-[background-color,border-color] duration-150 motion-reduce:transition-none sm:px-5',
           openMenu !== null || scrolled
-            ? 'border-white/80 bg-white/92 shadow-[0_10px_34px_rgba(15,39,66,0.12),inset_0_1px_0_rgba(255,255,255,0.9)]'
-            : 'border-white/60 bg-white/72 shadow-[0_4px_20px_rgba(15,39,66,0.07),inset_0_1px_0_rgba(255,255,255,0.8)]',
+            ? 'border-line-strong bg-surface'
+            : 'border-line bg-surface',
         )}
       >
         <div className="flex items-center gap-2">
@@ -193,6 +208,7 @@ export function SiteNav({ entries, signInHref, signInLabel, action, audience }: 
         </div>
 
         <div className="ml-auto flex items-center gap-2.5 lg:ml-7">
+          <GlobalSearch />
           <a
             href={signInHref}
             className="hidden min-h-11 items-center text-sm font-semibold text-ink hover:text-brand focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand lg:inline-flex"
@@ -242,7 +258,7 @@ export function SiteNav({ entries, signInHref, signInLabel, action, audience }: 
               <li key={entry.label} className="border-b border-line" data-open={mobileOpenGroup === entry.label}>
                   <button type="button" aria-expanded={mobileOpenGroup === entry.label} aria-controls={mobileGroupId(menuId, entry.label)} onClick={() => setMobileOpenGroup(current => current === entry.label ? null : entry.label)} className="flex min-h-14 w-full items-center justify-between px-0 py-3 text-left text-[15px] font-semibold text-ink focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-brand">
                     {entry.label}
-                    <svg viewBox="0 0 12 12" aria-hidden="true" className={cx('h-3 w-3 transition-transform duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none', mobileOpenGroup === entry.label && 'rotate-180')}><path d="M2.5 4.5 6 8l3.5-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+                    <NavChevron open={mobileOpenGroup === entry.label} />
                   </button>
                   <div id={mobileGroupId(menuId, entry.label)} aria-hidden={mobileOpenGroup !== entry.label} inert={mobileOpenGroup !== entry.label} className={cx('grid transition-[grid-template-rows,opacity] duration-[220ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none', mobileOpenGroup === entry.label ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0')}>
                     <div className="overflow-hidden"><div className="border-t border-line">
@@ -250,10 +266,10 @@ export function SiteNav({ entries, signInHref, signInLabel, action, audience }: 
                         <Link key={item.href} href={item.href} onClick={() => setMenuOpen(false)} className="group flex min-h-16 items-center gap-3 border-b border-line px-1 text-[14px] font-medium text-ink transition-colors hover:text-brand focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-brand motion-reduce:transition-none">
                           <span aria-hidden="true" className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-brand-tint text-brand"><HealthIcon name={destinationIcon(item.href)} size={18} /></span>
                           <span className="min-w-0 flex-1">{item.label}</span>
-                          <span aria-hidden="true" className="pr-1 text-base text-brand transition-transform duration-200 group-hover:translate-x-1 motion-reduce:transition-none">→</span>
+                          <HealthIcon name="arrow" size={16} className="pr-1 text-brand transition-transform duration-150 group-hover:translate-x-1 motion-reduce:transition-none" />
                         </Link>
                       ) : <Link key={item.href} href={item.href} onClick={() => setMenuOpen(false)} className="flex min-h-12 flex-col justify-center border-b border-line px-1 py-2 text-[14px] font-medium text-muted hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-brand"><span>{item.label}</span>{item.description ? <span className="mt-0.5 text-[12px]/snug font-normal text-faint">{item.description}</span> : null}</Link>)}
-                      {entry.all ? <Link href={entry.all.href} onClick={() => setMenuOpen(false)} className="mt-2 flex min-h-12 items-center justify-between rounded-lg bg-brand-tint px-3 text-[14px] font-semibold text-brand hover:bg-brand/10 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-brand">{entry.all.label.replace(/\s*→$/, '')}<span aria-hidden="true">→</span></Link> : null}
+                      {entry.all ? <Link href={entry.all.href} onClick={() => setMenuOpen(false)} className="mt-2 flex min-h-12 items-center justify-between rounded-lg bg-brand-tint px-3 text-[14px] font-semibold text-brand hover:bg-brand/10 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-brand">{entry.all.label}<HealthIcon name="arrow" size={16} /></Link> : null}
                     </div></div>
                   </div>
                 </li>
@@ -306,9 +322,7 @@ function AudienceSwitch({ audience }: { audience: 'patient' | 'provider' }) {
       title={label}
       className="group grid h-9 w-9 place-items-center rounded-full border border-line bg-white/60 text-muted transition-colors hover:border-brand hover:bg-brand-tint hover:text-brand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
     >
-      <svg viewBox="0 0 24 24" aria-hidden="true" className="h-[17px] w-[17px]">
-        <path d="M7 7h10l-2.8-2.8M17 17H7l2.8 2.8" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" />
-      </svg>
+      <HugeiconsIcon icon={ArrowReloadHorizontalIcon} size={17} strokeWidth={1.8} aria-hidden />
     </Link>
   )
 }
@@ -341,7 +355,7 @@ function MegaNavMenu({
         className="flex min-h-11 items-center gap-1.5 text-sm font-medium text-muted hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand"
       >
         {entry.label}
-        <svg viewBox="0 0 12 12" aria-hidden="true" className={cx('h-3 w-3 transition-transform duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none', open && 'rotate-180')}><path d="M2.5 4.5 6 8l3.5-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+        <NavChevron open={open} />
       </button>
 
       <AnimatePresence initial={false}>
@@ -368,7 +382,7 @@ function MegaNavMenu({
                   >
                     <span className="health-menu-icon"><HealthIcon name={destinationIcon(item.href)} size={21} /></span>
                     <span>
-                      <span className="flex items-center gap-2"><b>{item.label}</b><span aria-hidden="true" className="health-mega-menu-arrow">→</span></span>
+                      <span className="flex items-center gap-2"><b>{item.label}</b><HealthIcon name="arrow" size={15} className="health-mega-menu-arrow" /></span>
                       {item.description ? <small>{item.description}</small> : null}
                     </span>
                   </Link>
@@ -378,14 +392,13 @@ function MegaNavMenu({
             {entry.all ? <Link href={entry.all.href} onClick={onClose} className="mt-2 inline-flex min-h-10 items-center px-3 text-[13px] font-semibold text-brand hover:text-brand-dark focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand">{entry.all.label}</Link> : null}
           </div>
           <div className="health-mega-menu-preview">
-            {active.href.startsWith('/products/') && <HeroBackground />}
             <motion.div key={active.href} className="health-menu-preview-art"
               initial={{ opacity: 0 }} animate={{ opacity: 1 }}
               transition={{ duration: reduce ? 0 : 0.18 }}
             ><DestinationPreview item={active} /></motion.div>
             <div className="health-mega-menu-caption">
               <p>{active.preview?.caption ?? active.label}</p>
-              <Link href={active.href} onClick={onClose}>Explore {active.label} <span aria-hidden="true">→</span></Link>
+              <Link href={active.href} onClick={onClose} className="inline-flex items-center gap-1">Explore {active.label} <HealthIcon name="arrow" size={15} /></Link>
             </div>
           </div>
         </motion.section>
@@ -420,19 +433,7 @@ function NavMenu({
         className="flex min-h-11 items-center gap-1.5 text-sm font-medium text-muted hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand"
       >
         {entry.label}
-        <svg
-          viewBox="0 0 12 12"
-          aria-hidden="true"
-          className={cx('h-3 w-3 transition-transform duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none', open && 'rotate-180')}
-        >
-          <path
-            d="M2.5 4.5 6 8l3.5-3.5"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-          />
-        </svg>
+        <NavChevron open={open} />
       </button>
 
       <AnimatePresence initial={false}>
@@ -445,7 +446,7 @@ function NavMenu({
           inert={!open}
           id={panelId}
           className={cx(
-            'absolute top-full left-1/2 z-50 mt-4 -translate-x-1/2 rounded-(--radius-panel) border border-white/70 bg-white/85 p-2 shadow-[0_20px_56px_rgba(15,39,66,0.18),inset_0_1px_0_rgba(255,255,255,0.75)] backdrop-blur-[18px] backdrop-saturate-[170%]',
+            'absolute top-full left-1/2 z-50 mt-4 -translate-x-1/2 rounded-(--radius-popover) border-[0.5px] border-line-strong bg-surface p-2 shadow-[var(--shadow-popover)]',
             wide ? 'w-[420px]' : 'w-[240px]',
           )}
         >
@@ -502,7 +503,7 @@ const PRODUCT_MENU: NavMenuEntry = {
     mark: product.mark,
     get preview() { return PRODUCT_PREVIEWS[product.slug] ?? PRODUCT_PREVIEWS.identity },
   })),
-  all: { label: 'View all products →', href: ROUTES.products },
+  all: { label: 'View all products', href: ROUTES.products },
 }
 
 const SOLUTIONS_MENU: NavMenuEntry = {
@@ -515,7 +516,7 @@ const SOLUTIONS_MENU: NavMenuEntry = {
     get description() { return SOLUTION_PREVIEWS[audience.id]?.description },
     get preview() { return SOLUTION_PREVIEWS[audience.id]?.preview },
   })),
-  all: { label: 'How each setting works →', href: ROUTES.solutions },
+  all: { label: 'How each setting works', href: ROUTES.solutions },
 }
 
 const PRODUCT_PREVIEWS: Record<string, NonNullable<NavMenuItem['preview']>> = {
@@ -545,7 +546,7 @@ const _RESOURCES_MENU: NavMenuEntry = {
     { label: 'Privacy Policy', href: ROUTES.privacy },
     { label: 'Contact', href: ROUTES.contact },
   ],
-  all: { label: 'Explore resources →', href: ROUTES.resources },
+  all: { label: 'Explore resources', href: ROUTES.resources },
 }
 
 /** Navigation for the provider side of the site. */

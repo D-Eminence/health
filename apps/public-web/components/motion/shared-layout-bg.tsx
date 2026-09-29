@@ -20,7 +20,6 @@ import {
   useId,
   useState,
 } from "react";
-import { SPRING_LAYOUT } from "@/lib/ease";
 import { cn } from "@/lib/utils";
 
 export interface SharedLayoutBgProps
@@ -37,10 +36,9 @@ export interface SharedLayoutBgProps
 }
 
 const variants: Variants = {
-  initial: { opacity: 0, filter: "blur(6px)" },
-  animate: { opacity: 1, filter: "blur(0px)" },
-  exit: (isActive: boolean) =>
-    !isActive ? { opacity: 0, filter: "blur(6px)" } : {},
+  initial: { opacity: 0 },
+  animate: { opacity: 1 },
+  exit: (isActive: boolean) => (!isActive ? { opacity: 0 } : {}),
 };
 
 const reducedVariants: Variants = {
@@ -104,9 +102,9 @@ export const SharedLayoutBg = forwardRef<HTMLElement, SharedLayoutBgProps>(
                   {activeId === childKey ? (
                     <motion.div
                       layoutId={`shared-bg-${uid}`}
-                      transition={reduce ? { duration: 0 } : SPRING_LAYOUT}
+                      transition={reduce ? { duration: 0 } : { duration: 0.18, ease: [0.2, 0, 0, 1] }}
                       className={cn(
-                        "pointer-events-none h-full w-full rounded-2xl bg-muted/80",
+                        "pointer-events-none h-full w-full rounded-(--radius-control) bg-surface-hover",
                         pillClassName,
                       )}
                     />

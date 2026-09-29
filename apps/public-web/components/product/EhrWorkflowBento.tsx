@@ -142,8 +142,8 @@ export function EhrWorkflowBento() {
         <section aria-labelledby="ehr-workflows-title">
           <div className="mx-auto max-w-[680px] text-center">
             <p className="font-mono text-[12px] font-semibold tracking-[0.12em] text-brand">CORE WORKFLOW</p>
-            <h2 id="ehr-workflows-title" className="mt-4 font-display text-[clamp(2.25rem,4.6vw,3.75rem)] leading-[1.02] tracking-[-0.035em] text-ink">From registration to ongoing care.</h2>
-            <p className="mt-5 text-[18px]/relaxed text-muted">A complete clinical workflow, connected by Health ID.</p>
+            <h2 id="ehr-workflows-title" className="mt-4 font-display text-[clamp(2rem,3.5vw,2.5rem)] leading-[1.08] tracking-[-0.025em] text-ink">From registration to ongoing care.</h2>
+            <p className="mt-5 text-[16px]/relaxed text-muted">A complete clinical workflow, connected by Health ID.</p>
           </div>
           <div className="ehr-bento-grid bento-grid mt-12 grid gap-4 md:grid-cols-2 sm:mt-16 lg:grid-cols-12">
             <WorkflowCard number="01" title="Registration" copy="Find an existing patient by their Health ID before creating a new record, helping prevent duplicate patient identities." delay={0} className="lg:col-span-5">{state => <Registration reduced={state.reduced} active={state.active} />}</WorkflowCard>

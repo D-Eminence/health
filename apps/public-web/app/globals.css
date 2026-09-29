@@ -1,4 +1,5 @@
 @import 'tailwindcss';
+@import '@hid/ui/tokens.css';
 
 /* Shared public-site footer, grounded in the Health ID inverse surface. */
 .health-footer { position: relative; overflow: hidden; background: radial-gradient(ellipse at 86% 5%, color-mix(in srgb, var(--color-brand) 18%, transparent), transparent 34%), var(--color-inverse-surface); color: var(--color-inverse-ink); }
@@ -45,13 +46,6 @@
   .text-center > h3 { max-inline-size: 100%; font-size: clamp(1.35rem, 6.5vw, 1.7rem); line-height: 1.16; }
   .text-center > p { max-inline-size: 100%; font-size: 15px; line-height: 1.6; }
 }
-
-/*
- * Design tokens come from the shared package, so the public site and the
- * authenticated applications resolve `bg-brand` and `text-muted` to the same
- * values. Changing a brand colour is one edit, in one file, for the ecosystem.
- */
-@import '@hid/ui/tokens.css';
 
 /*
  * Tailwind ignores node_modules when scanning for class names, and the shared
@@ -1011,3 +1005,131 @@
 .hero-demo-button[data-variant="secondary"] { border-color: #fff; background: #fff; color: #0088ff; box-shadow: 0 8px 24px rgba(0,0,0,.08); }
 .hero-demo-button[data-variant="secondary"] .hero-demo-button-panel { background: #eaf5ff; color: #0088ff; }
 .hero-demo-button[data-variant="secondary"]:hover { box-shadow: 0 12px 28px rgba(0,0,0,.12); }
+
+/*
+ * Waya refinement layer. The route-specific visuals above retain their content
+ * and interaction models; this final layer gives repeated chrome, controls and
+ * preview panels one quiet, compact visual language.
+ */
+.health-footer { background: var(--color-inverse-surface); }
+.health-footer-wrap { padding-block: 56px 24px; }
+.health-footer-intro { gap: 32px; padding-bottom: 32px; }
+.health-footer-navigation { gap: 32px; padding-block: 32px; }
+
+.health-site-header nav {
+  border-color: var(--color-line-strong) !important;
+  border-radius: var(--radius-card) !important;
+  background: var(--color-surface) !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+.health-navigation-backdrop { background: rgb(34 34 34 / 12%); backdrop-filter: none; -webkit-backdrop-filter: none; }
+.health-mega-menu {
+  border: 0.5px solid var(--color-line-strong);
+  border-radius: var(--radius-popover);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-popover);
+}
+.health-mega-menu-row { min-height: 44px; border-radius: var(--radius-control); color: var(--color-muted); }
+.health-mega-menu-row:hover, .health-mega-menu-row:focus-visible, .health-mega-menu-row[data-active="true"] { background: var(--color-surface-hover); color: var(--color-ink); }
+.health-mega-menu-row:focus-visible { box-shadow: inset 0 0 0 2px var(--color-brand); }
+.health-mega-menu-row small { color: var(--color-faint); }
+.health-mega-menu-arrow, .health-menu-icon { color: var(--color-brand); }
+.health-menu-icon { border-color: var(--color-line); border-radius: var(--radius-control); background: var(--color-surface-tint); }
+.health-mega-menu-preview { background: var(--color-surface-tint); }
+.health-mega-menu-preview::after { background: transparent; }
+.health-mega-menu-caption { border-color: var(--color-line); border-radius: var(--radius-card); background: var(--color-surface); box-shadow: none; }
+
+.hero-reveal { animation-duration: var(--motion-slow); }
+.hero-dashboard { animation-duration: var(--motion-emphasis); }
+.hero-button-lift { transition-duration: var(--motion-quick); }
+.hero-button-lift:hover { transform: none; box-shadow: none; }
+.hero-demo-button {
+  --demo-arrow-size: 30px;
+  min-height: 38px;
+  min-width: 0;
+  border-color: var(--color-brand);
+  border-radius: var(--radius-button);
+  background: var(--color-brand);
+  padding: 3px 12px 3px 42px;
+  font-size: 14px;
+  font-weight: 600;
+  box-shadow: none;
+  transition: background-color var(--motion-quick) var(--ease-standard), border-color var(--motion-quick) var(--ease-standard);
+}
+.hero-demo-button--sm { --demo-arrow-size: 26px; min-height: 32px; min-width: 0; padding-right: 10px; font-size: 13px; }
+.hero-demo-button:hover { background: var(--color-brand-hover); box-shadow: none; transform: none; }
+.hero-demo-button:active { background: var(--color-brand-active); transform: none; }
+.hero-demo-button:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 2px; }
+.hero-demo-button-panel { background: var(--color-surface); color: var(--color-brand); }
+.hero-demo-button-arrow svg { width: 16px; height: 16px; }
+.hero-demo-button-trail, .hero-demo-button-trail-chevron { display: none; }
+.hero-demo-button[data-variant="secondary"] { border-color: var(--color-line-strong); background: var(--color-surface); color: var(--color-ink); box-shadow: none; }
+.hero-demo-button[data-variant="secondary"] .hero-demo-button-panel { background: var(--color-surface-tint); color: var(--color-brand); }
+.hero-demo-button[data-variant="secondary"]:hover { border-color: var(--color-brand-border); background: var(--color-brand-tint); box-shadow: none; }
+
+.hero-product-stage, .product-console, .module-showcase-panel, .module-showcase-active, .module-showcase-visual,
+.solution-audience-image, .ehr-card, .ehr-dashboard-snippet {
+  border-color: var(--color-line) !important;
+  border-radius: var(--radius-card) !important;
+  box-shadow: none !important;
+}
+.hero-product-stage, .module-showcase-visual, .module-showcase-panel, .module-showcase-panel.is-active,
+.ehr-dashboard-snippet { background: var(--color-surface-tint) !important; }
+.product-console { background: var(--color-surface) !important; color: var(--color-ink); }
+.module-showcase-section { background: var(--color-surface); padding-block: 80px; }
+.module-showcase-panel { transition-duration: var(--motion-standard); }
+.module-showcase-visual:hover, .module-showcase-collapsed:hover, .module-showcase-collapsed:focus-visible { background: var(--color-surface-hover); color: var(--color-ink); }
+.module-showcase-content { padding: 24px; animation-duration: var(--motion-standard); }
+
+.patient-hero-reveal { animation-duration: var(--motion-slow); }
+.patient-hero-visual { animation-duration: var(--motion-emphasis); }
+.patient-hero-button:hover { transform: none; box-shadow: none; }
+.patient-hero-widget { animation: patient-widget-in var(--motion-standard) var(--ease-out) both; }
+.patient-hero-widget:hover { transform: none; }
+.patient-hero-widget, .patient-id-card, .patient-access-request, .patient-history-visual,
+.patient-record-checkin, .patient-record-photo figcaption, .hikmah-april-surface, .hikmah-event-surface,
+.hikmah-history-demo, .hikmah-access-demo, .hikmah-image-status, .patient-identity-visual, .hikmah-photo-frame,
+.patient-pin-input, .patient-pin-input span {
+  border-color: var(--color-line-strong) !important;
+  border-radius: var(--radius-card) !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+.patient-hero-widget, .patient-access-request, .patient-history-visual, .hikmah-event-surface,
+.hikmah-history-demo, .hikmah-access-demo, .hikmah-image-status { background: var(--color-surface) !important; }
+.patient-id-card, .patient-record-checkin, .hikmah-april-surface { background: var(--color-surface-tint) !important; }
+.patient-pin-input { background: var(--color-brand-tint) !important; }
+.patient-pin-input span { border-radius: var(--radius-control) !important; background: var(--color-surface) !important; }
+.patient-pin-button { min-height: 38px; border-radius: var(--radius-button); box-shadow: none; }
+.patient-floating-chip { border-color: var(--color-line); box-shadow: none; }
+
+.bento-card, .workflow-bento-card, .bento-visual, .ehr-bento-grid > .ehr-card,
+.ehr-bento-grid > .ehr-card :is(.ehr-lookup-result, .ehr-pharmacy-receipt, .ehr-admission-result, .ehr-lab-result) {
+  border-color: var(--color-line) !important;
+  border-radius: var(--radius-card) !important;
+  box-shadow: none !important;
+}
+.bento-card, .workflow-bento-card, .ehr-bento-grid > .ehr-card { background: var(--color-surface) !important; }
+.bento-visual { background: var(--color-surface-tint) !important; }
+
+.patient-control-actions { border-color: var(--color-line); }
+.patient-control-action { grid-template-columns: 28px 40px minmax(0, 1fr); gap: 16px; min-height: 120px; border-color: var(--color-line); padding-block: 20px; }
+.patient-control-index { color: var(--color-brand); font-family: var(--font-sans); font-size: 11px; font-weight: 600; }
+.patient-control-icon { display: grid; width: 38px; height: 38px; place-items: center; border: 0.5px solid var(--color-brand-border); border-radius: var(--radius-control); background: var(--color-brand-tint); color: var(--color-brand); }
+.patient-control-action h3 { color: var(--color-ink); font-size: 18px; font-weight: 500; letter-spacing: -0.015em; line-height: 1.25; }
+.patient-control-action p { margin-top: 6px; color: var(--color-muted); font-size: 14px; line-height: 1.45; }
+.patient-control-intro h2, .hikmah-story-chapter h3, .hikmah-mobile-story h3 { font-size: clamp(2rem, 3.5vw, 2.5rem); line-height: 1.08; letter-spacing: -0.025em; }
+#workflows-title { font-size: clamp(2rem, 3.5vw, 2.5rem) !important; line-height: 1.08 !important; letter-spacing: -0.025em !important; }
+#workflows .rounded-2xl { border-radius: var(--radius-card); }
+
+@media (max-width: 767px) {
+  .health-footer-wrap { padding-block: 40px 20px; }
+  .health-footer-intro { gap: 24px; padding-bottom: 28px; }
+  .health-footer-navigation { gap: 28px 22px; padding-block: 28px; }
+  .module-showcase-section { padding-block: 56px; }
+  .module-showcase-content { padding: 20px; }
+  .patient-control-action { grid-template-columns: 24px 38px minmax(0, 1fr); gap: 12px; min-height: 112px; padding-block: 18px; }
+}

@@ -1,7 +1,10 @@
 "use client";
 // beui.dev/components/motion/button
 
-import { Check, Loader2, X } from "lucide-react";
+import { HugeiconsIcon } from "@hugeicons/react";
+import Cancel01Icon from "@hugeicons/core-free-icons/Cancel01Icon";
+import CheckIcon from "@hugeicons/core-free-icons/CheckIcon";
+import Loading03Icon from "@hugeicons/core-free-icons/Loading03Icon";
 import {
   AnimatePresence,
   motion,
@@ -15,7 +18,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { EASE_OUT, SPRING_SWAP } from "@/lib/ease";
+import { EASE_OUT } from "@/lib/ease";
 import { Button, type ButtonProps } from "./base";
 
 export type ButtonState = "idle" | "loading" | "success" | "error";
@@ -30,20 +33,18 @@ export interface StatefulButtonProps extends Omit<ButtonProps, "children"> {
 }
 
 const CASCADE_STAGGER = 0.025;
-const ROLL_BLUR = "blur(6px)";
+const SWAP_TRANSITION = { duration: 0.15, ease: EASE_OUT };
 
 const CASCADE_LETTER_VARIANTS: Variants = {
-  initial: { opacity: 0, y: "105%", filter: ROLL_BLUR },
+  initial: { opacity: 0, y: "105%" },
   animate: (delay: number = 0) => ({
     opacity: 1,
     y: "0%",
-    filter: "blur(0px)",
-    transition: { ...SPRING_SWAP, delay },
+    transition: { ...SWAP_TRANSITION, delay },
   }),
   exit: (delay: number = 0) => ({
     opacity: 0,
     y: "-105%",
-    filter: ROLL_BLUR,
     transition: { duration: 0.16, ease: EASE_OUT, delay: delay * 0.5 },
   }),
 };
@@ -51,19 +52,17 @@ const CASCADE_LETTER_VARIANTS: Variants = {
 const ICON_VARIANTS: Variants = {
   // Width collapses too, so the icon adds/removes its own space smoothly
   // instead of popping the row width in a single frame.
-  initial: { opacity: 0, width: 0, scale: 0.7, filter: ROLL_BLUR },
+  initial: { opacity: 0, width: 0, scale: 0.7 },
   animate: {
     opacity: 1,
     width: "1.5rem",
     scale: 1,
-    filter: "blur(0px)",
-    transition: SPRING_SWAP,
+    transition: SWAP_TRANSITION,
   },
   exit: {
     opacity: 0,
     width: 0,
     scale: 0.7,
-    filter: ROLL_BLUR,
     transition: { duration: 0.16, ease: EASE_OUT },
   },
 };
@@ -111,7 +110,7 @@ function TextSlot({
     <motion.span
       initial={false}
       animate={{ width }}
-      transition={reduce ? { duration: 0 } : SPRING_SWAP}
+      transition={reduce ? { duration: 0 } : SWAP_TRANSITION}
       className="relative inline-block overflow-hidden whitespace-nowrap align-bottom"
     >
       <span
@@ -150,7 +149,7 @@ function TextSlot({
                   key={index}
                   custom={index * CASCADE_STAGGER}
                   variants={CASCADE_LETTER_VARIANTS}
-                  className="inline-block whitespace-pre will-change-[opacity,filter,transform]"
+                  className="inline-block whitespace-pre will-change-[opacity,transform]"
                 >
                   {char}
                 </motion.span>
@@ -162,11 +161,11 @@ function TextSlot({
         <AnimatePresence initial={false}>
           <motion.span
             key={`text-${value}`}
-            initial={reduce ? { opacity: 0 } : { opacity: 0, y: 14, filter: ROLL_BLUR }}
-            animate={reduce ? { opacity: 1 } : { opacity: 1, y: 0, filter: "blur(0px)" }}
-            exit={reduce ? { opacity: 0 } : { opacity: 0, y: -14, filter: ROLL_BLUR }}
-            transition={reduce ? { duration: 0.15 } : SPRING_SWAP}
-            className="absolute left-0 top-0 inline-block will-change-[opacity,filter,transform]"
+            initial={reduce ? { opacity: 0 } : { opacity: 0, y: 8 }}
+            animate={reduce ? { opacity: 1 } : { opacity: 1, y: 0 }}
+            exit={reduce ? { opacity: 0 } : { opacity: 0, y: -8 }}
+            transition={reduce ? { duration: 0.15 } : SWAP_TRANSITION}
+            className="absolute left-0 top-0 inline-block will-change-[opacity,transform]"
           >
             {children}
           </motion.span>
@@ -210,17 +209,17 @@ export const StatefulButton = forwardRef<HTMLButtonElement, StatefulButtonProps>
         <AnimatePresence initial={false}>
           {state === "loading" ? (
             <IconSlot keyId="loading-icon">
-              <Loader2 className="h-4 w-4 animate-spin" />
+              <HugeiconsIcon icon={Loading03Icon} size={16} strokeWidth={1.5} aria-hidden className="animate-spin" />
             </IconSlot>
           ) : null}
           {state === "success" ? (
             <IconSlot keyId="success-icon">
-              <Check className="h-4 w-4" />
+              <HugeiconsIcon icon={CheckIcon} size={16} strokeWidth={1.5} aria-hidden />
             </IconSlot>
           ) : null}
           {state === "error" ? (
             <IconSlot keyId="error-icon">
-              <X className="h-4 w-4" />
+              <HugeiconsIcon icon={Cancel01Icon} size={16} strokeWidth={1.5} aria-hidden />
             </IconSlot>
           ) : null}
         </AnimatePresence>

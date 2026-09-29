@@ -1,2 +1,206 @@
 @import 'tailwindcss';
 @import '@hid/ui/tokens.css';
+
+/*
+ * The patient application does not make a third-party font request. These
+ * faces use an installed Forum/Inter when one is available; the shared token
+ * stacks below continue to give a deliberate serif/sans fallback when it is
+ * not. Font files can be supplied by the product later without changing a
+ * screen or component API.
+ */
+@font-face {
+  font-family: 'Forum';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: local('Forum');
+}
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: local('Inter'), local('Inter Regular');
+}
+
+/*
+ * @hid/ui owns the cross-product design tokens. These two app-level aliases
+ * let Vite resolve the Waya font roles without adding a remote dependency.
+ */
+@layer base {
+  :root {
+    --font-forum: 'Forum';
+    --font-inter: 'Inter';
+    --patient-heading-measure: 42rem;
+    --patient-copy-measure: 34rem;
+    --patient-feedback-measure: 35rem;
+    --patient-auth-measure: 28rem;
+    color-scheme: light;
+  }
+
+  #root {
+    min-height: 100svh;
+  }
+}
+
+@layer components {
+  .patient-page {
+    min-height: 100svh;
+    background: var(--color-surface);
+  }
+
+  .patient-content {
+    width: 100%;
+    max-width: var(--container-wrap);
+    margin-inline: auto;
+    padding: 48px 16px 64px;
+  }
+
+  .patient-page-header {
+    max-width: var(--patient-heading-measure);
+  }
+
+  .patient-eyebrow {
+    margin: 0 0 10px;
+    color: var(--color-brand);
+    font-family: var(--font-sans);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    line-height: 1.25;
+    text-transform: uppercase;
+  }
+
+  .patient-page-title {
+    margin: 0;
+    color: var(--color-ink);
+    font-family: var(--font-display);
+    font-size: clamp(2.4375rem, 5vw, 3rem);
+    font-weight: 400;
+    letter-spacing: -0.03em;
+    line-height: 1.08;
+    text-wrap: balance;
+  }
+
+  .patient-page-copy {
+    max-width: var(--patient-copy-measure);
+    margin: 16px 0 0;
+    color: var(--color-muted);
+    font-size: 15px;
+    line-height: 1.45;
+  }
+
+  .patient-feedback {
+    max-width: var(--patient-feedback-measure);
+    margin-top: 32px;
+  }
+
+  .patient-status-panel,
+  .patient-access-state {
+    border: 0.5px solid var(--color-line);
+    border-radius: var(--radius-card);
+    background: var(--color-surface-tint);
+  }
+
+  .patient-status-panel {
+    display: grid;
+    align-content: center;
+    min-height: 128px;
+    padding: 20px;
+    background: var(--color-surface-sunk);
+  }
+
+  .patient-status-label {
+    margin: 0;
+    color: var(--color-muted);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.25;
+  }
+
+  .patient-status-value {
+    margin: 6px 0 0;
+    color: var(--color-ink);
+    font-size: 15px;
+    line-height: 1.45;
+  }
+
+  .patient-skeleton {
+    display: block;
+    border-radius: 3px;
+    background: var(--color-surface-selected);
+    animation: patient-pulse 1.5s ease-in-out infinite;
+  }
+
+  .patient-skeleton-label {
+    width: 5.5rem;
+    height: 12px;
+  }
+
+  .patient-skeleton-value {
+    width: min(15rem, 75%);
+    height: 16px;
+    margin-top: 12px;
+  }
+
+  .patient-auth-page {
+    display: grid;
+    min-height: 100svh;
+    place-items: center;
+    padding: 32px 16px;
+    background: var(--color-surface);
+  }
+
+  .patient-auth-content {
+    width: min(100%, var(--patient-auth-measure));
+  }
+
+  .patient-auth-content::before {
+    display: block;
+    width: 32px;
+    height: 2px;
+    margin-bottom: 24px;
+    border-radius: var(--radius-pill);
+    background: var(--color-brand);
+    content: '';
+  }
+
+  .patient-access-state {
+    max-width: var(--patient-feedback-measure);
+    margin: 48px 16px;
+    padding: 20px;
+  }
+
+  .patient-access-state p {
+    margin: 0;
+    font-size: 15px;
+    line-height: 1.45;
+  }
+
+  .patient-access-state p + p {
+    margin-top: 8px;
+    color: var(--color-muted);
+  }
+}
+
+@keyframes patient-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (min-width: 640px) {
+  .patient-content {
+    padding: 56px 24px 72px;
+  }
+
+  .patient-auth-page {
+    padding-inline: 24px;
+  }
+}

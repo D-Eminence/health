@@ -29,9 +29,11 @@ export function RequireAccess({ requirement, children }: RequireAccessProps) {
       // The session is still resolving. Redirecting here would bounce a
       // signed-in patient to the sign-in screen on every page load.
       return (
-        <div role="status" aria-live="polite" className="p-6 text-muted">
-          Checking your session…
-        </div>
+        <main className="patient-page">
+          <div role="status" aria-live="polite" className="patient-access-state">
+            Checking your session…
+          </div>
+        </main>
       )
 
     case 'sign-in-required':
@@ -44,19 +46,21 @@ export function RequireAccess({ requirement, children }: RequireAccessProps) {
       // A member of staff reached a patient URL. Say so plainly rather than
       // showing an empty screen or a permission error they cannot act on.
       return (
-        <div role="alert" className="p-6">
-          <p className="text-ink">This page is part of the patient application.</p>
-          <p className="mt-1 text-muted">
-            You are signed in to the {decision.actual} experience. Sign out to continue as a patient.
-          </p>
-        </div>
+        <main className="patient-page">
+          <div role="alert" className="patient-access-state">
+            <p>This page is part of the patient application.</p>
+            <p>You are signed in to the {decision.actual} experience. Sign out to continue as a patient.</p>
+          </div>
+        </main>
       )
 
     case 'not-permitted':
       return (
-        <div role="alert" className="p-6 text-ink">
-          You do not have access to this page.
-        </div>
+        <main className="patient-page">
+          <div role="alert" className="patient-access-state">
+            <p>You do not have access to this page.</p>
+          </div>
+        </main>
       )
   }
 }

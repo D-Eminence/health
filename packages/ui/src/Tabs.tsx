@@ -30,9 +30,8 @@ export interface TabsProps {
   /** Names the tab list for assistive technology. */
   readonly label: string
   /**
-   * `pill` for filter chips, `underline` for section navigation, `strip` for the
-   * full-width segmented bar the module switcher uses — equal columns divided by
-   * hairlines, with the selected column raised on a white surface.
+   * `pill` is reserved for genuinely compact mode controls; `underline` is the
+   * ordinary Waya tab treatment; `strip` is for equal-width module switches.
    */
   readonly variant?: 'pill' | 'underline' | 'strip'
   readonly className?: string
@@ -80,7 +79,7 @@ export function TabList({
       className={cx(
         'flex',
         variant === 'strip'
-          ? 'overflow-x-auto border-y border-line [scrollbar-width:none] [&::-webkit-scrollbar]:hidden'
+          ? 'overflow-x-auto border-b border-line [scrollbar-width:none] [&::-webkit-scrollbar]:hidden'
           : 'gap-1 overflow-x-auto',
         variant === 'underline' && 'border-b border-line',
         className,
@@ -104,28 +103,29 @@ export function TabList({
             tabIndex={selected ? 0 : -1}
             onClick={() => onSelect(item.id)}
             className={cx(
-              'shrink-0 text-sm font-medium whitespace-nowrap focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand',
+              'relative flex shrink-0 items-center text-[14px] font-medium whitespace-nowrap focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-brand',
+              variant !== 'pill' && 'h-10',
               variant !== 'strip' && 'transition-colors',
               variant === 'pill' &&
                 cx(
-                  'rounded-(--radius-control) border px-4 py-2',
+                  'h-8 rounded-(--radius-control) border px-3',
                   selected
-                    ? 'border-brand bg-brand text-white shadow-[0_8px_20px_rgba(8,109,217,0.28)]'
-                    : 'border-white/70 bg-white/60 text-muted backdrop-blur-md hover:border-white hover:bg-white/80 hover:text-ink',
+                    ? 'border-brand-border bg-brand-tint text-brand'
+                    : 'border-line-strong bg-surface text-muted hover:bg-surface-hover hover:text-ink',
                 ),
               variant === 'underline' &&
                 cx(
-                  'border-b-2 px-4 py-3',
+                  'border-b-2 px-3',
                   selected
-                    ? 'border-brand text-brand'
+                    ? 'border-brand text-ink font-semibold'
                     : 'border-transparent text-muted hover:text-ink',
                 ),
               variant === 'strip' &&
                 cx(
-                  'flex-1 px-3 py-[22px] text-[15px] transition-[background-color,color,box-shadow] duration-200',
+                  'flex-1 border-b-2 border-transparent px-3 text-[14px] transition-[background-color,color,border-color] duration-150',
                   selected
-                    ? 'bg-surface font-semibold text-ink shadow-[0_8px_20px_rgba(15,39,66,0.06)]'
-                    : 'text-faint hover:text-ink',
+                    ? 'border-brand bg-surface font-semibold text-ink'
+                    : 'text-muted hover:bg-surface-hover hover:text-ink',
                 ),
             )}
           >

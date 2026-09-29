@@ -1,7 +1,8 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Button, Display, cx } from '@hid/ui'
+import { Button, Display, IconButton, cx } from '@hid/ui'
+import { HealthIcon } from './HealthIcon'
 import {
   DEMO_INBOX,
   buildDemoMailto,
@@ -91,9 +92,9 @@ export function DemoDialog() {
       aria-labelledby="demo-dialog-title"
       aria-modal="true"
       onClose={onDialogClose}
-      className="m-auto max-h-[calc(100dvh-2rem)] w-[min(560px,calc(100vw-2rem))] overflow-y-auto rounded-(--radius-panel) border border-line bg-surface p-0 text-ink backdrop:bg-ink/45 backdrop:backdrop-blur-sm"
+      className="m-auto max-h-[calc(100dvh-2rem)] w-[min(500px,calc(100vw-2rem))] overflow-y-auto rounded-(--radius-dialog) border-[0.5px] border-line-strong bg-surface p-0 text-ink backdrop:bg-ink/45"
     >
-      <div className="flex items-start justify-between gap-4 border-b border-line px-6 py-5">
+      <div className="flex items-start justify-between gap-4 border-b border-line px-5 py-5">
         <div>
           <Display as="h2" size="sm" id="demo-dialog-title">
             {sent ? 'Demo request ready to send' : 'Book a demo'}
@@ -104,27 +105,19 @@ export function DemoDialog() {
               : 'Tell us about your facility and we will arrange a walkthrough.'}
           </p>
         </div>
-        <button
+        <IconButton
           autoFocus
-          type="button"
           onClick={close}
           aria-label="Close"
-          className="grid h-11 w-11 shrink-0 place-items-center rounded-full border border-line text-muted hover:border-brand hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+          size="md"
+          className="border-line-strong hover:border-brand-border"
         >
-          <svg viewBox="0 0 16 16" aria-hidden="true" className="h-3.5 w-3.5">
-            <path
-              d="M3 3l10 10M13 3L3 13"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.6"
-              strokeLinecap="round"
-            />
-          </svg>
-        </button>
+          <HealthIcon name="close" size={15} />
+        </IconButton>
       </div>
 
       {sent ? (
-        <div className="flex flex-col gap-4 px-6 py-6">
+        <div className="flex flex-col gap-4 px-5 py-5">
           <p className="text-[15px]/relaxed text-muted">
             If nothing opened, email us directly at{' '}
             <a href={`mailto:${DEMO_INBOX}`} className="font-semibold text-brand">
@@ -137,7 +130,7 @@ export function DemoDialog() {
           </Button>
         </div>
       ) : (
-        <form onSubmit={onSubmit} noValidate className="flex flex-col gap-4 px-6 py-6">
+        <form onSubmit={onSubmit} noValidate className="flex flex-col gap-4 px-5 py-5">
           <Field label="Service of interest" name="service" value={request.service} error={errors.service} onChange={update('service')} />
           <Field
             label="Facility"
@@ -187,7 +180,7 @@ export function DemoDialog() {
               rows={3}
               value={request.notes}
               onChange={update('notes')}
-              className="resize-y rounded-(--radius-card) border border-line-strong bg-surface px-3.5 py-2.5 text-[15px] text-ink focus:border-brand focus:outline-2 focus:outline-offset-0 focus:outline-brand"
+              className="min-h-28 resize-y rounded-(--radius-control) border border-line-strong bg-surface px-3 py-2.5 text-[14px] text-ink focus:border-brand focus:outline-2 focus:outline-offset-0 focus:outline-brand"
             />
             <span className="text-[12px] text-faint">
               Please do not include any patient information.
@@ -199,7 +192,7 @@ export function DemoDialog() {
             <button
               type="button"
               onClick={close}
-              className="inline-flex min-h-11 items-center px-2 text-sm font-medium text-muted hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+              className="inline-flex h-[38px] items-center px-2 text-[14px] font-medium text-muted hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
             >
               Cancel
             </button>
@@ -248,7 +241,7 @@ function Field({
         aria-invalid={error ? true : undefined}
         aria-describedby={error ? errorId : undefined}
         className={cx(
-          'min-h-11 rounded-(--radius-card) border bg-surface px-3.5 py-2.5 text-[15px] text-ink focus:outline-2 focus:outline-offset-0 focus:outline-brand',
+          'h-[38px] rounded-(--radius-control) border bg-surface px-3 py-2.5 text-[14px] text-ink focus:outline-2 focus:outline-offset-0 focus:outline-brand',
           error ? 'border-critical' : 'border-line-strong focus:border-brand',
         )}
       />

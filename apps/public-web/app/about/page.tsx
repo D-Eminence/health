@@ -7,7 +7,6 @@ import { SiteFooter } from '@/components/layout/SiteFooter'
 import { DemoDialog } from '@/components/shared/DemoDialog'
 import { BackToTop } from '@/components/shared/BackToTop'
 import { HeroDemoButton } from '@/components/shared/HeroDemoButton'
-import { HeroBackground } from '@/components/shared/HeroBackground'
 import { CtaBand } from '@/components/shared/CtaBand'
 import { HealthIcon } from '@/components/shared/HealthIcon'
 import { HealthIDModuleShowcase } from '@/components/product/HealthIDModuleShowcase'
@@ -27,7 +26,7 @@ function Heading({ id, eyebrow, title, children }: { id: string; eyebrow: string
 function Flow({ steps, label }: { steps: readonly string[]; label: string }) {
   return <ol aria-label={label} className="about-flow">{steps.map((step, index) => <li key={step}>
     <span className="about-flow-number" aria-hidden="true">{String(index + 1).padStart(2, '0')}</span><span>{step}</span>
-    {index < steps.length - 1 && <span className="about-flow-arrow" aria-hidden="true">→</span>}
+    {index < steps.length - 1 && <span className="about-flow-arrow" aria-hidden="true"><HealthIcon name="arrow" size={14} /></span>}
   </li>)}</ol>
 }
 
@@ -103,7 +102,7 @@ export default function AboutPage() {
 
       <Section tone="wash" labelledBy="interoperability-title"><Wrap><div className="about-split items-center">
         <Heading id="interoperability-title" eyebrow="Interoperability" title="Healthcare systems should be able to work together."><p>Health ID is being built so organizations can either use Health ID products directly or connect existing systems through APIs.</p><p>The long-term goal is not to create another isolated healthcare database. It is to make healthcare information easier to connect securely across the systems and organizations involved in care.</p></Heading>
-        <div className="about-api" aria-label="Existing healthcare systems connect through the Health ID API to the Health ID ecosystem"><ul>{CONNECTED_SYSTEMS.map(item => <li key={item}>{item}</li>)}</ul><span className="about-api-arrow" aria-hidden="true">↓</span><div className="about-api-hub"><HealthIcon name="code" size={24} />Health ID API</div><span className="about-api-arrow" aria-hidden="true">↓</span><div className="about-api-destination">Health ID Ecosystem</div><p className="mt-4 text-xs text-muted">Our direction for connected healthcare.</p></div>
+        <div className="about-api" aria-label="Existing healthcare systems connect through the Health ID API to the Health ID ecosystem"><ul>{CONNECTED_SYSTEMS.map(item => <li key={item}>{item}</li>)}</ul><span className="about-api-arrow" aria-hidden="true"><HealthIcon name="down" size={18} /></span><div className="about-api-hub"><HealthIcon name="code" size={24} />Health ID API</div><span className="about-api-arrow" aria-hidden="true"><HealthIcon name="down" size={18} /></span><div className="about-api-destination">Health ID Ecosystem</div><p className="mt-4 text-xs text-muted">Our direction for connected healthcare.</p></div>
       </div></Wrap></Section>
 
       <Section labelledBy="trust-title"><Wrap>
@@ -122,7 +121,7 @@ export default function AboutPage() {
         <ul className="about-card-grid mt-10">{TEAM.map(person => <li key={person.name}>
           <Card className="team-card">
             <div className="team-card-portrait">
-              {person.photo ? <Image src={person.photo} alt={person.name} width={640} height={820} className={`team-card-image${person.name === 'Abdulrahman Umar' ? ' team-card-image-abdulrahman' : person.name === 'Abeki Faridat' ? ' team-card-image-abeki' : person.name === 'Hikmah Owoade' ? ' team-card-image-hikmah' : ''}`} /> : <div className="team-card-placeholder" aria-label={`Portrait of ${person.name} coming soon`}><svg viewBox="0 0 64 64" fill="none" aria-hidden="true"><circle cx="32" cy="23" r="12" fill="currentColor" opacity=".48"/><path d="M10 60c1.5-14 9.5-21 22-21s20.5 7 22 21" fill="currentColor" opacity=".32"/></svg></div>}
+              {person.photo ? <Image src={person.photo} alt={person.name} width={640} height={820} className={`team-card-image${person.name === 'Abdulrahman Umar' ? ' team-card-image-abdulrahman' : person.name === 'Abeki Faridat' ? ' team-card-image-abeki' : person.name === 'Hikmah Owoade' ? ' team-card-image-hikmah' : ''}`} /> : <div className="team-card-placeholder" aria-label={`Portrait of ${person.name} coming soon`}><HealthIcon name="person" size={52} /></div>}
             </div>
             <div className="team-card-body">
               <Display as="h3" size="sm">{person.name}</Display>
@@ -131,7 +130,7 @@ export default function AboutPage() {
               <div className="team-card-link-wrap">
                 {person.linkedin ? <>
                 <a href={person.linkedin} target="_blank" rel="noopener noreferrer" aria-label={`${person.name} on LinkedIn (opens in a new tab)`} className="team-card-link">
-                  <svg aria-hidden="true" width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M20.45 2H3.55C2.69 2 2 2.68 2 3.52v16.96c0 .84.69 1.52 1.55 1.52h16.9c.86 0 1.55-.68 1.55-1.52V3.52c0-.84-.69-1.52-1.55-1.52ZM7.93 18.75H4.98V9.2h2.95v9.55ZM6.45 7.9a1.71 1.71 0 1 1 0-3.42 1.71 1.71 0 0 1 0 3.42Zm12.3 10.85H15.8V14.1c0-1.11-.02-2.54-1.55-2.54-1.55 0-1.79 1.21-1.79 2.46v4.73H9.51V9.2h2.83v1.3h.04c.39-.74 1.36-1.52 2.79-1.52 2.99 0 3.54 1.97 3.54 4.53v5.24Z" /></svg>
+                  <HealthIcon name="linkedin" size={18} />
                   LinkedIn profile
                 </a>
                 </> : <span className="team-card-link-placeholder" aria-hidden="true" />}
@@ -141,7 +140,7 @@ export default function AboutPage() {
         </li>)}</ul>
       </Wrap></Section>
 
-      <Section tone="inverse" labelledBy="vision-title" className="relative isolate overflow-hidden !bg-[#05090f]"><HeroBackground /><Wrap><div className="about-vision">
+      <Section tone="inverse" labelledBy="vision-title" className="relative isolate overflow-hidden"><Wrap><div className="about-vision">
         <Eyebrow tone="inverse">Our vision</Eyebrow><Display id="vision-title">A future where healthcare does not lose the patient between systems.</Display>
         <p>We are working toward a healthcare ecosystem where a patient’s identity can remain consistent across care settings, healthcare organizations can digitize without discarding their history, and providers can access the information they need without rebuilding the patient’s story from the beginning.</p>
         <span className="about-caption">The goal is simple</span><p className="about-vision-brand">One Health Identity.<br />Connected Care.<br />Accessible Records.</p>

@@ -183,3 +183,46 @@
   .about-page .module-showcase-content h3 { font-size: clamp(1.5rem, 6.5vw, 1.875rem); }
   .about-page .module-showcase-content > p:nth-of-type(2) { font-size: 15px; }
 }
+
+/* Waya normalisation: keep the long-form story, reduce decorative treatment. */
+.about-page { --about-line: var(--color-line); max-width: var(--container-wrap); }
+.about-navigation { padding: 24px 14px 24px 16px; }
+.about-navigation-label { color: var(--color-faint); font-family: var(--font-sans); }
+.about-navigation a { border-radius: var(--radius-button); color: var(--color-muted); }
+.about-navigation a:hover { background: var(--color-surface-hover); color: var(--color-ink); }
+.about-navigation a[aria-current] { background: var(--color-brand-tint); color: var(--color-ink); }
+.about-navigation a:focus-visible, .about-mobile-navigation select:focus-visible { outline-color: var(--color-brand); }
+.about-hero { background: var(--color-surface); }
+.about-heading { gap: 16px; }
+.about-prose { color: var(--color-muted); font-size: 15px; line-height: 1.45; }
+.about-brand-line, .about-ecosystem-products span, .about-approach-label, .about-api-arrow { color: var(--color-brand); }
+.about-ecosystem, .about-identity, .about-approach, .about-folder, .about-flow li,
+.about-departments li, .about-api li, .about-api-hub, .about-api-destination {
+  border-color: var(--color-line-strong);
+  border-radius: var(--radius-card);
+  box-shadow: none;
+}
+.about-ecosystem, .about-approach { background: var(--color-surface-tint); }
+.about-identity, .about-flow li:last-child { border-color: var(--color-brand-border); background: var(--color-brand-tint); color: var(--color-brand); }
+.about-ecosystem-products > div, .about-folder, .about-flow li, .about-api li { background: var(--color-surface); }
+.team-card { border-radius: var(--radius-card); background-image: none; }
+.team-card-portrait { border-width: 1px; border-radius: var(--radius-card); box-shadow: none; }
+.team-card-image, .team-card-placeholder { border-radius: calc(var(--radius-card) - 2px); }
+.about-folder { border-radius: var(--radius-card); }
+.about-folder-tab { border-color: var(--color-line-strong); border-radius: var(--radius-card) var(--radius-card) 0 0; color: var(--color-brand); }
+.about-callout { border-left-color: var(--color-brand); background: var(--color-brand-tint); }
+.about-api-hub { background: var(--color-brand); }
+.about-api-destination { color: var(--color-brand); }
+.about-vision-brand { font-size: clamp(2.4375rem, 4vw, 3rem); line-height: 1.08; }
+.about-content > section { padding-block: clamp(3rem, 5vw, 5rem); }
+.about-heading h1 { font-size: clamp(2.4375rem, 4vw, 3rem); line-height: 1.08; }
+.about-heading h2, .about-vision h2, .about-page #about-cta h2 { font-size: clamp(2rem, 3.5vw, 2.5rem); line-height: 1.1; }
+.about-split .about-heading h2 { font-size: clamp(1.625rem, 2.6vw, 2rem); }
+.about-page .module-showcase-compact .module-showcase-active { border-color: var(--color-line); border-radius: var(--radius-card); background: var(--color-surface); }
+.about-page .module-showcase-tab { min-height: 40px; border-color: var(--color-line-strong); border-radius: var(--radius-control); background: var(--color-surface); color: var(--color-muted); }
+.about-page .module-showcase-tab[aria-selected="true"] { border-color: var(--color-brand-border); background: var(--color-brand-tint); color: var(--color-ink); }
+
+@media (max-width: 1100px) {
+  .about-navigation { border-bottom-color: var(--color-line); background: var(--color-surface); }
+  .about-mobile-navigation select { border-color: var(--color-line-strong); border-radius: var(--radius-control); background: var(--color-surface); color: var(--color-ink); }
+}

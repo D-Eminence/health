@@ -1,0 +1,121 @@
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
+import { CommandPalette, type CommandPaletteItem } from '@hid/ui'
+import { GlobalSearch, GlobalSearchProvider } from '@/components/layout/GlobalSearch'
+
+const push = vi.fn()
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push }),
+}))
+
+const items: readonly CommandPaletteItem[] = [
+  {
+    id: 'ehr',
+    label: 'Health ID EHR',
+    category: 'products',
+    description: 'Clinical records for connected care.',
+    keywords: ['consultations', 'clinical'],
+  },
+  {
+    id: 'security',
+    label: 'Security and access',
+    category: 'resources',
+    description: 'Authorised access and accountability.',
+    keywords: ['consent', 'permissions'],
+  },
+]
+
+describe('CommandPalette', () => {
+  it('opens from its trigger, supports filtering and selects with the keyboard', () => {
+    const select = vi.fn()
+    render(
+      <CommandPalette
+        title="Search Health ID"
+        trigger={<button type="button">Open search</button>}
+        groups={[
+          { id: 'products', label: 'Products' },
+          { id: 'resources', label: 'Resources' },
+        ]}
+        filters={[
+          { id: 'products', label: 'Products' },
+          { id: 'resources', label: 'Resources' },
+        ]}
+        items={items}
+        onSelect={select}
+      />,
+    )
+
+    const trigger = screen.getByRole('button', { name: 'Open search' })
+    expect(trigger.getAttribute('aria-expanded')).toBe('false')
+    fireEvent.click(trigger)
+
+    const dialog = screen.getByRole('dialog', { name: 'Search Health ID' })
+    const input = screen.getByRole('combobox', { name: 'Search Health ID' })
+    expect(trigger.getAttribute('aria-expanded')).toBe('true')
+    expect(input.getAttribute('aria-controls')).toBeTruthy()
+    expect(dialog.contains(screen.getByRole('listbox', { name: 'Search results' }))).toBe(true)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Filter results' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Products' }))
+    expect(screen.getByRole('button', { name: 'Products' }).getAttribute('aria-pressed')).toBe('true')
+
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    expect(select).toHaveBeenCalledWith(expect.objectContaining({ id: 'ehr' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('opens with Ctrl/Cmd+K and returns focus to the initiating control on Escape', async () => {
+    render(
+      <CommandPalette
+        title="Search Health ID"
+        trigger={<button type="button">Open search</button>}
+        items={items}
+      />,
+    )
+
+    const trigger = screen.getByRole('button', { name: 'Open search' })
+    trigger.focus()
+    fireEvent.keyDown(document, { key: 'k', ctrlKey: true })
+    const input = screen.getByRole('combobox', { name: 'Search Health ID' })
+    fireEvent.keyDown(input, { key: 'Escape' })
+
+    await waitFor(() => expect(document.activeElement).toBe(trigger))
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  it('has explicit loading and retryable error states', () => {
+    const retry = vi.fn()
+    const view = render(<CommandPalette title="Search Health ID" defaultOpen items={items} loading />)
+    expect(screen.getByRole('status').textContent).toContain('Searching Health ID')
+
+    view.rerender(<CommandPalette title="Search Health ID" defaultOpen items={items} error="Search is temporarily unavailable." onRetry={retry} />)
+    expect(screen.getByRole('alert').textContent).toContain('Search is temporarily unavailable.')
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(retry).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('Health ID global search adapter', () => {
+  it('uses only the public route table and keeps product navigation in the host', () => {
+    push.mockReset()
+    render(
+      <GlobalSearchProvider>
+        <GlobalSearch />
+      </GlobalSearchProvider>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Search Health ID' }))
+    const input = screen.getByRole('combobox', { name: 'Search Health ID' })
+    fireEvent.change(input, { target: { value: 'Health ID EHR' } })
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    expect(push).toHaveBeenCalledWith('/products/ehr')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Search Health ID' }))
+    expect(screen.getByText('Recent')).toBeDefined()
+  })
+})

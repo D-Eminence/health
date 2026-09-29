@@ -13,7 +13,7 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
 
   // Workspace packages ship TypeScript source rather than a build step.
-  transpilePackages: ['@hid/api', '@hid/config', '@hid/contracts', '@hid/http', '@hid/observability'],
+  transpilePackages: ['@hid/api', '@hid/config', '@hid/contracts', '@hid/http', '@hid/observability', '@hid/ui'],
 
   // The browser reaches the Health ID Gateway directly over CORS; this app has
   // no server-side proxy and holds no credentials of its own.

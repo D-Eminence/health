@@ -42,7 +42,7 @@ export default function ChooserPage() {
               <li key={audience.id} className="flex">
                 <Link
                   href={audience.href}
-                  className="group flex flex-1 flex-col items-center gap-4 rounded-(--radius-panel) border border-white/70 bg-white/65 p-8 text-center shadow-[0_18px_48px_rgba(15,39,66,0.10),inset_0_1px_0_rgba(255,255,255,0.75)] backdrop-blur-xl backdrop-saturate-150 transition-shadow hover:shadow-[0_24px_60px_rgba(15,39,66,0.16)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                  className="group flex flex-1 flex-col items-center gap-4 rounded-(--radius-card) border-[0.5px] border-line-strong bg-surface p-6 text-center transition-[background-color,border-color] duration-150 hover:border-brand-border hover:bg-surface-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
                 >
                   <Image
                     src={audience.image}

@@ -5,7 +5,6 @@ import { useEffect, useRef, useState } from 'react'
 import { motion, useReducedMotion } from 'motion/react'
 import { Section, Wrap } from '@hid/ui'
 import { Reveal } from '@/components/motion/Reveal'
-import { TiltCard } from '@/components/motion/tilt-card'
 import { StatefulButton, type ButtonState } from '@/components/motion/button/stateful'
 import { BouncyAccordion } from '@/components/motion/bouncy-accordion'
 import { HealthIcon } from '@/components/shared/HealthIcon'
@@ -17,11 +16,11 @@ function IdentityPreview() {
   return <div className="patient-identity-visual" aria-label="Illustrative Health ID card">
     <Image src="/brand/access-pin-provider.png" alt="Patient viewing her Health ID on a phone at a hospital" width={1860} height={847} className="patient-identity-photo h-full w-full object-cover object-[72%_35%]" />
     <motion.div className="patient-id-reveal" initial={{ opacity: 0, y: reduce ? 0 : 18 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, amount: .3 }} transition={{ duration: .32, delay: reduce ? 0 : .15, ease: EASE_OUT }}>
-      <TiltCard max={5} glare={false} className="patient-id-card">
+      <div className="patient-id-card">
         <p>YOUR HEALTH ID</p>
         <div className="mt-6 flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-full bg-brand-tint text-[13px] font-semibold text-brand">AF</span><span><b>Abeki Faridat</b><small>HID-4471-08</small></span></div>
         <div className="mt-6 flex items-center justify-between border-t border-line pt-3"><span>Connected care</span><span className="patient-id-verified"><HealthIcon name="check" size={12} />Verified</span></div>
-      </TiltCard>
+      </div>
     </motion.div>
     <motion.span className="patient-floating-chip patient-floating-chip-top" initial={{ opacity: 0, y: reduce ? 0 : 6 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ delay: reduce ? 0 : .25, duration: .22 }}>One identity</motion.span>
     <motion.span className="patient-floating-chip patient-floating-chip-bottom" initial={{ opacity: 0, y: reduce ? 0 : 6 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true }} transition={{ delay: reduce ? 0 : .35, duration: .22 }}>Ready for care</motion.span>
@@ -57,7 +56,7 @@ function AccessPreview() {
       <div className="patient-pin-input" aria-hidden="true">
         {[0, 1, 2, 3].map(index => <span key={index} data-filled={filled > index}><motion.i initial={false} animate={{ opacity: filled > index ? 1 : 0, scale: reduce ? 1 : filled > index ? 1 : .4 }} transition={{ duration: .18, ease: EASE_OUT }} /></span>)}
       </div>
-      <StatefulButton state={state} onClick={preview} pressScale={.97} className="patient-pin-button" loadingText={<span>Approving access</span>} successText={<span>Access granted · Replay</span>} aria-label={state === 'success' ? 'Replay access PIN preview' : state === 'loading' ? 'Approving access in preview' : 'Preview entering PIN to grant access'}>
+      <StatefulButton state={state} onClick={preview} className="patient-pin-button" loadingText={<span>Approving access</span>} successText={<span>Access granted · Replay</span>} aria-label={state === 'success' ? 'Replay access PIN preview' : state === 'loading' ? 'Approving access in preview' : 'Preview entering PIN to grant access'}>
         <span>Enter PIN to grant access</span>
       </StatefulButton>
       <p className="patient-privacy-note"><HealthIcon name="shield" size={14} /> Access remains protected until you approve it · End-to-end encrypted</p>
@@ -94,7 +93,7 @@ export function PatientSteps() {
   return <Section id="steps" labelledBy="steps-title"><Wrap>
     <Reveal className="mx-auto max-w-[760px] text-center">
       <p className="font-mono text-[12px] font-semibold tracking-[0.12em] text-brand uppercase">Your Health ID</p>
-      <h2 id="steps-title" className="mt-4 font-display text-[clamp(2.25rem,4.8vw,3.75rem)] leading-[1.04] tracking-[-0.035em] text-ink">{PATIENT_STEPS.title}</h2>
+      <h2 id="steps-title" className="mt-4 font-display text-[clamp(2rem,3.5vw,2.5rem)] leading-[1.08] tracking-[-0.025em] text-ink">{PATIENT_STEPS.title}</h2>
     </Reveal>
     <ol className="patient-care-story mx-auto mt-14 grid max-w-[1280px] gap-12 lg:grid-cols-3 lg:gap-10">
       {PATIENT_STEPS.steps.map((step, index) => <li key={step.step}>

@@ -1,5 +1,6 @@
 import { Section, SectionHeader, Wrap } from '@hid/ui'
 import { PATIENT_FAQ } from '@/content/patient'
+import { HealthIcon } from '@/components/shared/HealthIcon'
 
 /**
  * Frequently asked questions.
@@ -24,15 +25,7 @@ export function PatientFaq() {
                     aria-hidden="true"
                     className="grid h-6 w-6 shrink-0 place-items-center rounded-full border border-line text-muted transition-transform group-open:rotate-45"
                   >
-                    <svg viewBox="0 0 12 12" className="h-2.5 w-2.5">
-                      <path
-                        d="M6 1v10M1 6h10"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="1.6"
-                        strokeLinecap="round"
-                      />
-                    </svg>
+                    <HealthIcon name="plus" size={13} />
                   </span>
                 </summary>
                 <p className="px-5 pb-5 text-[15px]/relaxed text-muted">{item.answer}</p>
