@@ -520,7 +520,10 @@ function OcrPublicationCard({ facilityId, validation, confirmationId, canPublish
   return <div className="staff-list-item"><div className="staff-row"><strong>Review {validation.version} · {validation.targetDomain}</strong><Badge tone={validation.disposition === 'validated' ? 'success' : 'danger'}>{validation.disposition}</Badge></div><p>{validation.reason} · {dateText(validation.reviewedAt)}</p>
     {error && <p className="staff-error" role="alert">{error}</p>}
     {publications === null && !error && <p className="staff-muted" role="status">Loading publication history…</p>}
-    {publications?.map(publication => <p key={publication.id}>Publication: <Badge tone={publication.status === 'published' ? 'success' : publication.status === 'failed' ? 'danger' : 'information'}>{publication.status}</Badge>{publication.failureCode ? ` · ${publication.failureCode}` : ''}</p>)}
+    {publications?.map(publication => <div key={publication.id} className="staff-stack">
+      <p>Publication: <Badge tone={publication.status === 'published' ? 'success' : publication.status === 'failed' ? 'danger' : 'information'}>{publication.status}</Badge>{publication.failureCode ? ` · ${publication.failureCode}` : ''}</p>
+      {publication.targetResourceId && <p>Published {publication.targetResourceType ?? publication.targetDomain.toLowerCase()} record: <code>{publication.targetResourceId}</code></p>}
+    </div>)}
     {canPublish && confirmationId && validation.disposition === 'validated' && validation.targetDomain !== 'UNCLASSIFIED' && publications?.length === 0 && <Button size="sm" onClick={() => void publish()} disabled={busy}>{busy ? 'Publishing…' : `Publish to ${validation.targetDomain.replace('_', ' ')}`}</Button>}
   </div>
 }
