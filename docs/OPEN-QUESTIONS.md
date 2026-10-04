@@ -1,255 +1,67 @@
-# Open questions
-
-Every item here is something the existing Health ID system does not answer and
-that this frontend therefore did **not** guess at. Each says what is needed, why
-it blocks, and what the code does in the meantime.
-
-Evidence is cited from the frozen release `dfd07792a25dd9af9ec79972da350b0bda4bbcf7`.
-
-**Blocking staging integration:** Q1, Q2, Q3, Q4, Q11
-**Blocking specific applications:** Q5, Q7, Q8, Q9
-**Needs a decision, not blocking:** Q6, Q10, Q12, Q13
-
----
-
-## Q1 — What is the Health ID Gateway, concretely? *(blocking)*
-
-The target architecture is `Frontend → Cloudflare → Gateway/API → services`. The
-frontend today calls `${VITE_SUPABASE_URL}/functions/v1/<name>` directly
-(`src/lib/hidApi.ts`, `edgeRequest`), sending two headers:
-
-```
-apikey:        <Supabase anon key>
-Authorization: Bearer <access token>
-```
-
-**Needed**
-
-1. Gateway base URL for local, staging and production.
-2. Whether the gateway requires any header beyond `Authorization` — specifically
-   whether `apikey` is still expected from the browser, or injected at the edge.
-3. Whether "Gateway" is a distinct service or the Supabase functions host fronted
-   by Cloudflare. This changes nothing structurally but changes what we test.
-
-**Meanwhile** `@hid/http` takes `baseUrl` from configuration with no default, and
-exposes `getDefaultHeaders()` for whatever the gateway turns out to require. No
-Supabase key is compiled into anything.
-
----
-
-## Q2 — Path shape and versioning at the gateway *(blocking)*
-
-Service modules build `<baseUrl>/<endpoint-name>`, e.g. `/patients-me`. That
-matches the current function names, and works if `baseUrl` ends in
-`/functions/v1`.
-
-**Needed** — does the gateway preserve function names, or expose versioned REST
-paths (`/v1/patients/me`)? The brief asks for API versioning; the current surface
-has no version segment at all.
-
-**Meanwhile** paths come from one registry file, so a change to the scheme is a
-change to `packages/contracts/src/registry.ts` and nothing else.
-
----
-
-## Q3 — Success response shapes *(blocking)*
-
-The **error** envelope is consistent and verified
-(`supabase/functions/_shared/http.ts`): `{ code, message, requestId, retryable,
-status }` plus `X-Request-ID`. The client relies on it.
-
-**Success** payloads are not consistent: some handlers wrap in `{ data: ... }`,
-others return bare objects. Which endpoint does which was not verified, so no
-response type has been written.
-
-**Needed** — per endpoint: is the payload wrapped, and what is its shape? Sequence
-matters most for `patients-me`, `patients-records`, `health-events`,
-`staff-dashboard`, `notifications-list`.
-
-**Meanwhile** `unwrapData()` handles both forms, and every service method returns
-`UnverifiedPayload` (`unknown`). Grep `UnverifiedPayload` to find every contract
-still to be settled.
-
----
-
-## Q4 — Where does authentication happen? *(blocking — biggest gap)*
-
-This is the one that most affects the plan.
-
-Authentication today is **Supabase GoTrue, called directly from the browser**:
-
-| Operation | Current call |
-| --- | --- |
-| Password / OTP sign-in | `supabase.auth.signInWithOtp`, `verifyOtp` |
-| Google | `supabase.auth.signInWithIdToken` |
-| MFA | `supabase.auth.mfa.enroll` / `challengeAndVerify` / `getAuthenticatorAssuranceLevel` |
-| Session | `supabase.auth.getSession` — token refresh handled by the SDK |
-
-The edge functions `patient-login` and `staff-login` exist, but token **issue**,
-**refresh** and **MFA enrolment** are GoTrue operations, not endpoints.
-
-If the browser must not talk to Supabase directly, then either:
-
-- **(a)** the Gateway exposes sign-in, refresh and MFA, and those contracts need
-  defining — a backend change requiring review under the frozen-release policy; or
-- **(b)** GoTrue is the sanctioned identity provider and talking to it from the
-  browser is an accepted exception to "no direct Supabase".
-
-**This is a decision, not an implementation detail, and it is not ours to make.**
-
-**Meanwhile** `@hid/auth` models principals, session state and guards with no
-provider attached. `SessionProvider` marks the bootstrap point and resolves to
-anonymous. Sign-in renders an explanatory screen rather than a form wired to a
-provider chosen by default.
-
----
-
-## Q5 — Lab and Pharmacy have no backend *(blocks those applications)*
-
-The brief lists Lab and Pharmacy as applications. At the frozen release there
-are **zero** `lab-*` or `pharmacy-*` endpoints among the 60 functions. They exist
-only as marketing content (`features/commercial/catalog.ts`,
-`features/providerProducts/data.ts`, `components/landing/ModuleTabs.tsx`) and as
-values in the `HidStaffRole` union (`'lab'`, `'pharmacist'`).
-
-**Needed** — do these services exist elsewhere, are they planned, or is the
-intent to build the frontend against contracts yet to be designed?
-
-**Meanwhile** both are declared in `SERVICES_WITHOUT_CONTRACTS`. Their
-applications have boundaries but no service client, and `assertEndpointAllowed`
-refuses any call. **No mock stands in for them** — a mock would become a second
-interpretation of a system that has not been designed yet.
-
----
-
-## Q6 — Are EHR and OCR separate applications? *(decision)*
-
-The brief lists EHR and OCR as applications. Today EHR workflows live inside the
-staff/hospital application, and OCR is `src/features/migrate` (the
-`migration-*` endpoints, with `_shared/migration-ocr-adapter.ts` behind them).
-
-**Needed** — separate deployables with their own boundaries, or modules within
-`staff-web`? Both are declared as separate applications here, which is the more
-conservative choice: splitting later is easier than unpicking a merge.
-
----
-
-## Q7 — Public pricing has no endpoint *(blocks a public-web feature)*
-
-`src/pages/Pricing.tsx` reads the `hid_public_product_prices` table directly
-from the browser via PostgREST. There is no pricing endpoint.
-
-**Needed** — a public pricing endpoint, or agreement that pricing is build-time
-content in `public-web`.
-
-**Meanwhile** `public-web` is granted only the `platform` service, so it has no
-way to fetch pricing at all.
-
----
-
-## Q8 — Realtime notifications *(blocks a patient/staff feature)*
-
-`src/lib/notificationsRealtime.ts` and `accessRealtime.ts` open Supabase Realtime
-websockets from the browser, and `patientNotifications.ts` reads the
-`notifications` table directly.
-
-**Needed** — a gateway-side realtime channel (SSE or WebSocket), or an accepted
-exception, or a decision to poll `notifications-list`.
-
-**Meanwhile** only `notifications-list` is in the registry. Nothing opens a socket.
-
----
-
-## Q9 — Outreach reads five tables directly *(blocks outreach-web)*
-
-`src/lib/outreachApi.ts` performs `supabase.from()` selects and inserts against
-`hid_outreach_campaigns`, `hid_outreach_workers` and `hid_outreach_invites`.
-The four `outreach-*` endpoints cover signup, OTP and join — not campaign,
-worker or invite management.
-
-**Needed** — endpoints for campaign listing/creation, worker registration and
-invite create/consume.
-
-**Meanwhile** `outreach-web` is declared but not built; only the four verified
-endpoints are callable.
-
----
-
-## Q10 — Deployment target *(decision)*
-
-The existing pipeline deploys to **Vercel** (`.github/workflows/vercel-*.yml`,
-project `prj_BrqBNZ4JXQQ78lNzvEM0nXYaOrq7`) with Cloudflare for DNS/CDN and
-Turnstile. The brief specifies Cloudflare in front and forbids introducing new
-infrastructure.
-
-**Needed** — do these applications continue on Vercel behind Cloudflare, or move
-to Cloudflare Pages/Workers? Both satisfy "behind Cloudflare"; they differ in
-build configuration and preview flow.
-
-**Meanwhile** nothing deployment-specific is committed. Both applications produce
-standard build output.
-
----
-
-## Q11 — CORS allowlist must be extended *(blocking, needs backend change)*
-
-`supabase/functions/_shared/cors.ts` allows `https://healthidentitydirectory.com`,
-`https://www.healthidentitydirectory.com` and `http://localhost:3000`, overridable
-via the `HID_ALLOWED_ORIGIN` environment variable.
-
-New origins — `http://localhost:3100` (public-web), `http://localhost:3200`
-(patient-web), and every staging hostname — are **not** on that list. Requests
-will fail preflight until they are.
-
-**Needed** — `HID_ALLOWED_ORIGIN` updated per environment. This is configuration
-rather than code, but it is a backend change and is recorded here for review
-rather than made.
-
----
-
-## Q12 — Idempotency keys for writes *(decision)*
-
-`_shared/cors.ts` already allows the `x-idempotency-key` request header, which
-suggests intent, but no endpoint contract for it was found.
-
-**Needed** — do write endpoints honour it, and which ones? Without it, no write
-can be safely retried.
-
-**Meanwhile** `shouldRetry()` refuses every non-idempotent method. A failed
-`records-create` surfaces to the user rather than being retried.
-
----
-
-## Q13 — Demo and sales enquiries have no intake endpoint *(decision)*
-
-The approved design includes a "Book an EHR demo" dialog that submits and
-confirms. No endpoint at the frozen release accepts a demo or sales enquiry:
-`send-email` exists but is backend-internal rather than a public intake, and
-exposing it to anonymous browsers would be an open relay.
-
-Every call to action on the provider site — the hero, the pricing cards, the
-enterprise link and both closing sections — leads to this dialog, so it is the
-site's only conversion path.
-
-**Needed** — either a public enquiry endpoint behind the Gateway (with its own
-bot protection; Turnstile is already in the stack), or agreement that enquiries
-are handled by email.
-
-**Meanwhile** the form is fully built and validated client-side, and hands the
-composed enquiry to the visitor's mail client via `mailto:`. That loses no
-lead, invents no endpoint, and makes no claim the platform cannot honour. It is
-one function to delete: `apps/public-web/lib/demo-request.ts`.
-
----
-
-## Not a question — three things to fix in the existing frontend
-
-Recorded because they conflict with the target architecture and should be closed
-deliberately, not inherited:
-
-1. **Identifying data in `localStorage`.** `src/lib/auth.ts` persists
-   `hid_patient_session` = `{ hidCode, phone, fullName }` and `hid_staff_session`
-   = `{ id, fullName, email, hospitalName, role }`.
-2. **Seven direct browser→database calls**, listed in Q7, Q8 and Q9.
-3. **Mixed repository.** `hid-unified` holds both the SPA and `supabase/**`.
-   Splitting it is prerequisite to "the frontend is its own repository".
+# Open questions and integration blockers
+
+These items are based on the `hid-system` snapshot at `c4b5445` and the
+frontend integration in this repository. They separate known backend defects,
+deployment dependencies and absent contracts. The historical
+[gap map](./HEALTH_ID_COMPLETE_FRONTEND_GAP_MAP.md) contains the reference
+screen audit; its baseline status column predates the portal implementation.
+
+## Acceptance environment and deployment
+
+| Item | Current evidence | Needed to close |
+| --- | --- | --- |
+| Staging acceptance | The user confirmed there is no staging environment yet. Local builds and mocked tests cannot prove end-to-end behavior. | A non-production gateway, service configuration, seeded test principals/facilities and test accounts; run patient, provider, admin, pricing and demo journeys there. |
+| Production `/api/v1` routing | Access and refresh cookies are host-only and SameSite Strict. The Next.js and Vite `/api/v1` forwards in this repo are development-only. | Route `/api/v1/*` from each deployed frontend origin to the gateway while preserving cookies, CSRF, Origin and facility/purpose headers. Verify logout, refresh and mutation flows from a browser. |
+| Portal hostname and Turnstile | `TurnstileService` currently permits `patient-login`, `staff-login` and `admin-login` together only on `www.healthidentitydirectory.com` or `staging.healthidentitydirectory.com`. The frontend example's portal origin is a local port; visual references mention a separate app hostname. | Choose the one production portal hostname. If it differs from the permitted hosts, change the backend Turnstile allowlist/configuration and verify all three actions on that host. Configure public site links to it. |
+| Environment secrets and origins | Public site keys and Google client ID may be exposed to the browser; provider secrets and Turnstile secret must stay server-side. The local gateway must accept both frontend origins. | Supply each environment's public site key, optional Google client ID and backend-only credentials; configure allowed origins and verify production HTTPS. Do not paste credentials into this repository. |
+
+## Backend defects and contract limits at `c4b5445`
+
+| Item | Current evidence | Needed to close |
+| --- | --- | --- |
+| Patient consent requests | Patient list/approve/deny routes call `consentContext()` and then `requireRequestContext()`, which requires a facility ID that a patient session does not carry. The frontend can send the routes, but this backend path blocks real use. | Give patient consent routes patient-scoped context without a facility requirement; test list, approve and deny with patient cookies and CSRF. |
+| Emergency access to the detailed chart | Identity can create an audited break-glass grant with emergency purpose. EHR's ordinary encounter, vital, note, diagnosis, prescription and lab-request controllers call `clinicalContext()`, which accepts only `direct-care`. The distinct `GET /ehr/patients/:patientId/emergency-records` accepts `emergency` but returns only completed encounters and signed notes. | Define which detailed clinical reads, if any, an emergency grant permits; add explicit backend authorization and tests. Keep the frontend on the limited emergency summary until then. |
+| Provider organization application | `organization-applications.service.ts` passes five arguments to `identity.submit_organization_application`; migration `0046_organization_onboarding.sql` declares six required arguments. | Reconcile the function call and migration; prove a public application can be submitted and reviewed. |
+| Facility selection after reload | `/auth/facility` returns selected context but does not persist a new cookie; the provider portal must ask for a facility again after a reload. Browser storage outside the sanctioned auth hint is blocked by this repo's data policy. | Persist the authorized facility context in the backend session or return it from `/auth/session`, then verify reload and facility switching. |
+| Lab draft activation | `LabRequestsService.create()` sends an order to Lab when created with `status: active`, while `LabRequestsService.update()` changes draft to active without calling Lab acceptance. The portal offers active creation, but a saved draft cannot become a Lab work item through the existing PATCH. | Make the draft-to-active transition perform the same governed, idempotent Lab handoff, and test conflict and retry behavior. |
+| Direct cross-origin methods/headers | Identity's CORS list permits `GET`, `POST`, `OPTIONS` while PIN revoke uses `DELETE` and organization completion uses `PATCH`. Pharmacy CORS omits `x-csrf-token`. | Fix the backend CORS declarations for supported routes and verify preflight where requests can originate across origins. Same-origin production routing remains required for cookie sessions. |
+| Facility audit and provider reporting | The gateway routes `/api/v1/audit/*` to Identity, so EHR's identically named audit controller is not reachable there. Identity facility audit exists, but the current portal has no provider audit screen, and no general provider reports/trends API was found. The platform audit screen uses `/api/v1/admin/audit/events`. | Decide which facility audit source is authoritative and route it explicitly; add a permissioned provider reporting contract for the reference reports/trends workflow. |
+| Platform-only administrator | Admin routes are marked facility optional, but `requireAdminContext()` requires an actor facility, and staff actor construction rejects accounts with no active facility membership. The portal cannot currently support a platform administrator without a facility. | Decide whether platform administrators must always have facility membership; if not, correct actor/context construction and test a platform-only login. |
+
+## Configuration and contract decisions
+
+| Item | Current evidence | Needed to close |
+| --- | --- | --- |
+| NIN verification | Identity's NIN provider is disabled by default behind release/security gates. The frontend cannot make verification operational by itself. | Complete provider setup and release review; test with safe non-production identities before enabling the patient action. |
+| Google, OTP and bot checks | Frontend flows are wired to the backend's OIDC/OTP and Turnstile actions, but no staging provider configuration is available. | Verify configured providers, redirect origins, action names, token validation, rate limits and recovery behavior in staging. |
+| Provider onboarding depth | The backend has a narrow organization application/completion DTO, not the five-step registration or nine-step facility setup represented in `Dashboard.zip`. It has no server draft, department/branch, invitations, documents or setup-progress contract. | Decide which reference steps are product requirements, then define and implement their persisted backend contracts before exposing them as completed flows. |
+| Lab and Pharmacy work queues | Facility-scoped list endpoints return patient IDs and work details with module read permission. Their individual `get` endpoints also call patient authorization; the list endpoints do not. | Confirm the intended policy for queue visibility, then enforce and audit the chosen minimum disclosure in the backend. The portal currently displays only abbreviated patient IDs in queues. |
+| Lab execution list and result values | `LabExecutionsService.listForSpecimen()` checks `lab.execution.read` and queries under facility RLS, but does not call the patient authorization service used by `get()`. It aggregates each execution's result revisions, including values that have not been released. Knowledge of a specimen UUID could therefore expose values within the facility to a permitted staff member without the separate patient authorization check. | Apply patient authorization to each returned execution before aggregating result values, or define and enforce an explicit facility-wide result visibility policy. Test revoked/absent grants and unreleased results. |
+
+## Reference workflows without an audited API
+
+The following remain backend contract work before an operational frontend can
+claim them:
+
+- **Patient account:** general self-profile editing, patient-created sharing or
+  invitations, patient revocation of an active staff grant, account deletion and
+  patient-authored structured history.
+- **Hospital operations:** appointments, triage queues, inpatient/ICU, maternity,
+  surgery, radiology, claims and insurance, inventory, referrals, shifts/HR,
+  quality, telemedicine, ambulance, blood bank, dental and procurement.
+- **Provider organization:** facility staff invitation/membership mutations,
+  branch selection, provider profile/credentials/presence and offline
+  lease/sync/conflict handling.
+- **Outreach:** public worker signup, OTP, invitation/join, visits and screenings.
+  The staff-scoped campaign, member and registration-case routes are separate
+  supported contracts and are wired in the provider portal.
+- **Migrate:** bulk import, project matching, project/team lifecycle, a global
+  completed-record index and intelligence analytics. OCR job, extraction,
+  validation, patient confirmation and publication are supported routes.
+- **Commercial/admin:** subscription, trial, invoice, payment and global AI
+  processing administration. The existing public prices, demo intake and
+  platform administration routes do not imply these capabilities.
+
+Before adding any of these screens, agree a permissioned API with persistence,
+validation and audit behavior in `hid-system`. Static reference UI and browser
+fixtures do not resolve the missing contract.

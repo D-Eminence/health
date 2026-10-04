@@ -1,64 +1,65 @@
 # Health ID frontend
 
-The frontend layer of the Health ID platform. A **consumer** of the existing
-Health ID backend — it contains no backend code, no database access, and no
-second interpretation of the system.
+This repository contains the public website and one authenticated portal for the
+Health ID platform. It consumes the existing `hid-system` gateway and services;
+it does not contain the clinical backend or a database. The integration was
+checked against `hid-system` commit `c4b5445`. The supplied `Dashboard.zip`,
+`HID.html` and `hid-1.0` are workflow and visual references, not API contracts.
 
-- [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) — the architecture and why it is shaped this way
-- [docs/OPEN-QUESTIONS.md](./docs/OPEN-QUESTIONS.md) — what the existing system does not answer yet
+| App | Local origin | Purpose |
+| --- | --- | --- |
+| `apps/public-web` | `http://localhost:3100` | Next.js public information, live public pricing, demo requests and links into the portal |
+| `apps/patient-web` | `http://localhost:3200` | Vite authenticated portal: patient routes at `/`, provider routes at `/provider/*`, platform routes at `/admin/*` |
 
-## Getting started
+## Local development
+
+Use Node.js 22 or later. Start the `hid-system` gateway on
+`http://localhost:3000`, then configure the two frontends:
 
 ```bash
 npm install
-cp .env.example apps/patient-web/.env.local    # then edit
-cp .env.example apps/public-web/.env.local     # then edit
-npm run check                                  # typecheck + lint + tests
+cp .env.example apps/public-web/.env.local
+cp .env.example apps/patient-web/.env.local
+npm run dev --workspace @hid/public-web
+npm run dev --workspace @hid/patient-web
 ```
 
-There is no default gateway address. A build without `*_HID_API_BASE_URL`
-fails, by design.
+Run the two `dev` commands in separate terminals. The example sets each app's
+API base URL to its own origin. In development, Next.js and Vite forward
+`/api/v1/*` to `HID_LOCAL_GATEWAY_ORIGIN`. The backend must allow both local
+frontend origins in its CORS configuration. A working login or demo submission
+requires the corresponding backend services. Local development can omit the
+public Turnstile site key only when the backend has Turnstile disabled; staging
+and production require configured site and secret keys.
+Do not place gateway secrets or provider credentials in `NEXT_PUBLIC_*` or
+`VITE_*` variables.
 
 ```bash
-npm run dev --workspace @hid/public-web    # :3100
-npm run dev --workspace @hid/patient-web   # :3200
+npm run typecheck
+npm run lint
+npm run test
+npm run audit:boundaries
+npm run build:public-web
+npm run build:patient-web
 ```
 
-## Layout
+`npm run check` runs typecheck, lint and tests in sequence. See
+[architecture](./docs/ARCHITECTURE.md) for the request and session model and
+[open questions](./docs/OPEN-QUESTIONS.md) for backend and deployment work.
+The [gap map](./docs/HEALTH_ID_COMPLETE_FRONTEND_GAP_MAP.md) records the initial
+reference audit; its baseline matrix is not a current completion report.
 
-| Path | Purpose |
-| --- | --- |
-| `apps/public-web` | Public site — chooser, provider and patient landing pages, product pages. Next.js, statically pre-rendered. Granted one backend service; cannot reach anything clinical |
-| `apps/patient-web` | Patient application. Vite |
-| `packages/config` | Environment resolution and the public-environment guard |
-| `packages/contracts` | Verified endpoint registry, domain vocabulary, application boundaries |
-| `packages/http` | The transport layer — the only place `fetch` is called |
-| `packages/api` | Typed service modules, bound to one application's boundary |
-| `packages/auth` | Principals, in-memory session, route guards |
-| `packages/observability` | PHI-safe logging and redaction |
-| `packages/ui` | Design tokens and shared primitives |
+## Integration status
 
-## Rules the tooling enforces
+The portal now mounts patient, provider and admin workspaces under one origin.
+Its browser clients use registered `/api/v1` routes, cookie sessions, CSRF
+headers and backend permissions. Public pricing and demo requests use the
+commercial API. Supported clinical, operational and platform screens call real
+read or mutation endpoints; unsupported reference workflows are identified in
+the docs rather than filled with fixture data.
 
-Not conventions — checks that fail a build:
-
-- No `fetch` outside `@hid/http`; no `@supabase/supabase-js`, database driver or
-  cloud SDK anywhere
-- No `localStorage` / `sessionStorage` / `indexedDB` outside `@hid/auth`, which
-  persists exactly one non-identifying value
-- No `console` outside `@hid/observability`, which redacts before it writes
-- No cross-application imports
-- No secret-shaped environment variable or value in a public bundle
-- An application cannot call a service it is not granted — a **compile** error
-
-```bash
-npm run check              # typecheck, lint, tests
-npm run audit:boundaries   # repository-level architecture checks
-```
-
-## Status
-
-176 tests passing; both applications build; the public site pre-renders 20 page
-variants. **No integration has been tested against staging or production** —
-nothing here has spoken to a real Health ID environment. See the integration
-sequence and open questions in the architecture documents.
+There is **no staging environment yet**, so these flows have not passed live
+end-to-end acceptance. Production routing must forward `/api/v1` on the portal
+origin to the gateway for host-only, SameSite Strict cookies and CSRF. The
+backend's current Turnstile hostname rules and known API defects are described
+in [open questions](./docs/OPEN-QUESTIONS.md).
