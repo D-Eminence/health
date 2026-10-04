@@ -58,6 +58,8 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('identity.accessHistory','identity','/api/v1/identity/me/access-history',G),
   r('identity.accessPin','identity','/api/v1/identity/me/access-pin',['POST','DELETE']),
   r('identity.verifyNin','identity','/api/v1/identity/me/verification/nin',P),
+  r('identity.facilityAudit','identity','/api/v1/audit/events',G,false,one('GET','audit.read'),
+    'Gateway routes this path to Identity. Requires healthcare-operations purpose and active facility.'),
   r('identity.patientLookup','identity','/api/v1/identity/patient-lookup',P,false,one('POST','identity.patient.read')),
   r('identity.authorization','identity','/api/v1/identity/authorization/check',P,false,one('POST','identity.authorization.check')),
   r('identity.consentStatus','identity','/api/v1/identity/consent-status',P,false,one('POST','identity.consent.read')),

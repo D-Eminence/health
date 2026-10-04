@@ -6,7 +6,9 @@ import { staffApi, type PatientLookup, type StaffSession } from './api'
 import { SignIn } from './routes/SignIn'
 import { Dashboard } from './routes/Dashboard'
 import { Patients } from './routes/Patients'
+import { Registration } from './routes/Registration'
 import { AccessRequests } from './routes/AccessRequests'
+import { FacilityAudit } from './routes/Audit'
 import { Clinical } from './routes/Clinical'
 import { Laboratory, Pharmacy, Ocr, Outreach, MigrateGap } from './routes/Operations'
 import './style.css'
@@ -102,7 +104,9 @@ function Gate({ children }: { children: ReactNode }) {
 const navigation = [
   { to: '/provider', label: 'Overview', permission: '' },
   { to: '/provider/patients', label: 'Patient access', permission: 'identity.patient.read' },
+  { to: '/provider/registration', label: 'Patient registration', permission: 'identity.registration.write' },
   { to: '/provider/requests', label: 'Access requests', permission: 'identity.consent.write' },
+  { to: '/provider/audit', label: 'Facility audit', permission: 'audit.read' },
   { to: '/provider/clinical', label: 'Clinical record', permission: 'ehr.encounter.read' },
   { to: '/provider/laboratory', label: 'Laboratory', permission: 'lab.work-item.read' },
   { to: '/provider/pharmacy', label: 'Pharmacy', permission: 'pharmacy.work-item.read' },
@@ -172,7 +176,9 @@ export function App() {
     <Route element={<Gate><Shell /></Gate>}>
       <Route index element={<Dashboard />} />
       <Route path="patients" element={<Patients />} />
+      <Route path="registration" element={<Registration />} />
       <Route path="requests" element={<AccessRequests />} />
+      <Route path="audit" element={<FacilityAudit />} />
       <Route path="clinical" element={<Clinical />} />
       <Route path="laboratory" element={<Laboratory />} />
       <Route path="pharmacy" element={<Pharmacy />} />

@@ -29,6 +29,36 @@ export interface StaffSession {
   expiresAt?: string
 }
 
+export interface RegistrationCapabilities {
+  nin: { enabled: boolean; state: string }
+  newPatientRegistrationRequiresNin: boolean
+}
+
+export interface RegistrationCase {
+  caseId: string
+  status: 'pending_new_identity_approval' | 'review_required' | 'resolved_existing_identity' |
+    'linked_existing' | 'approved_new_identity' | 'rejected' | 'cancelled'
+  version: number
+  candidateCount: number
+  candidates?: Array<{ patientId: string; fullName: string; dateOfBirth: string | null }>
+  patient?: { patientId: string; hid: string }
+}
+
+export interface RegistrationEnrollment {
+  patientId: string
+  hid: string
+  contactVerificationRequired: boolean
+  replayed: boolean
+}
+
+export interface ResolveNinInput {
+  nin: string
+  firstName: string
+  lastName: string
+  dateOfBirth: string
+  gender?: 'female' | 'male' | 'intersex' | 'other' | 'unknown'
+}
+
 export interface AccessRequest {
   accessRequestId: string
   patientId: string
@@ -73,6 +103,22 @@ export function isAllowedPatientLookup(lookup: PatientLookup): lookup is Extract
 }
 
 export interface Page<T> { items: T[]; nextCursor: string | null }
+
+/** Only fields needed for the provider review are retained from the audit response. */
+export interface FacilityAuditEvent {
+  sequenceId: string
+  occurredAt: string
+  correlationId: string
+  actorType: string
+  action: string
+  outcome: 'success' | 'denied' | 'failure'
+  resourceType: string | null
+}
+
+export interface FacilityAuditPage {
+  items: FacilityAuditEvent[]
+  nextBeforeSequenceId: string | null
+}
 
 export interface Encounter {
   id: string
@@ -356,6 +402,48 @@ export const staffApi = {
   logout: () => client.post<null>('/api/v1/auth/logout'),
   selectFacility: (facilityId: string) =>
     client.post<StaffSession>('/api/v1/auth/facility', { facilityId }),
+
+  facilityAudit: async (facilityId: string, beforeSequenceId?: string): Promise<FacilityAuditPage> => {
+    const page = await client.get<FacilityAuditPage>('/api/v1/audit/events', {
+      query: { limit: 50, ...(beforeSequenceId ? { beforeSequenceId } : {}) },
+      headers: facilityHeaders(facilityId, 'healthcare-operations'),
+    })
+    return {
+      nextBeforeSequenceId: page.nextBeforeSequenceId,
+      items: page.items.map(event => ({
+        sequenceId: event.sequenceId,
+        occurredAt: event.occurredAt,
+        correlationId: event.correlationId,
+        actorType: event.actorType,
+        action: event.action,
+        outcome: event.outcome,
+        resourceType: event.resourceType,
+      })),
+    }
+  },
+
+  registrationCapabilities: (facilityId: string) =>
+    client.get<RegistrationCapabilities>('/api/v1/identity/registration-capabilities',
+      { headers: facilityHeaders(facilityId, 'healthcare-operations') }),
+  resolveNin: (facilityId: string, input: ResolveNinInput, idempotencyKey: string) =>
+    client.post<RegistrationCase>('/api/v1/identity/nin/resolve',
+      { ...input, purpose: 'healthcare-operations' },
+      { headers: { ...facilityHeaders(facilityId, 'healthcare-operations'), ...keyHeaders(idempotencyKey) } }),
+  registrationCase: (facilityId: string, caseId: string) =>
+    client.get<RegistrationCase>(`/api/v1/identity/registration-cases/${encodeURIComponent(caseId)}`,
+      { headers: facilityHeaders(facilityId, 'healthcare-operations') }),
+  approveNewRegistration: (facilityId: string, registrationCase: RegistrationCase, reason: string, idempotencyKey: string) =>
+    client.post<RegistrationCase>(`/api/v1/identity/registration-cases/${encodeURIComponent(registrationCase.caseId)}/approve-new`,
+      { expectedVersion: registrationCase.version, reason, purpose: 'healthcare-operations' },
+      { headers: { ...facilityHeaders(facilityId, 'healthcare-operations'), ...keyHeaders(idempotencyKey) } }),
+  linkExistingRegistration: (facilityId: string, registrationCase: RegistrationCase, patientId: string, reason: string, idempotencyKey: string) =>
+    client.post<RegistrationCase>(`/api/v1/identity/registration-cases/${encodeURIComponent(registrationCase.caseId)}/link-existing`,
+      { patientId, expectedVersion: registrationCase.version, reason, purpose: 'healthcare-operations' },
+      { headers: { ...facilityHeaders(facilityId, 'healthcare-operations'), ...keyHeaders(idempotencyKey) } }),
+  enrollRegistration: (facilityId: string, registrationCase: RegistrationCase, email: string, reason: string, idempotencyKey: string) =>
+    client.post<RegistrationEnrollment>(`/api/v1/identity/registration-cases/${encodeURIComponent(registrationCase.caseId)}/enroll`,
+      { expectedVersion: registrationCase.version, email, reason, purpose: 'healthcare-operations' },
+      { headers: { ...facilityHeaders(facilityId, 'healthcare-operations'), ...keyHeaders(idempotencyKey) } }),
 
   lookupPatient: (facilityId: string, hid: string, purpose: 'direct-care' | 'emergency' = 'direct-care') =>
     client.post<PatientLookup>('/api/v1/identity/patient-lookup', { hid: hid.trim().toUpperCase(), purpose },

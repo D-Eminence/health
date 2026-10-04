@@ -25,6 +25,13 @@ describe('c4b5445 route registry', () => {
     expect(encounters?.permissions?.POST).toEqual(['ehr.encounter.write'])
   })
 
+  it('routes provider facility audit to the Identity service', () => {
+    expect(findEndpoint('identity.facilityAudit')?.path).toBe('/api/v1/audit/events')
+    expect(findEndpoint('identity.facilityAudit')?.permissions?.GET).toEqual(['audit.read'])
+    expect(() => assertEndpointAllowed('staff-web','identity.facilityAudit')).not.toThrow()
+    expect(() => assertEndpointAllowed('patient-web','identity.facilityAudit')).toThrow(BoundaryViolationError)
+  })
+
   it('keeps workload routes and absent legacy flows out of browser contracts', () => {
     expect(NON_FRONTEND_ENDPOINTS).toContain('/api/v1/lab/work-items/accept-ehr-order')
     expect(findEndpoint('outreach.signup')).toBeUndefined()
