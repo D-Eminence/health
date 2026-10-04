@@ -20,9 +20,9 @@ Vite authenticated portal. All signed-in workspaces share **one portal origin**:
 
 | URL prefix | Workspace | Main implemented areas |
 | --- | --- | --- |
-| `/`, `/sign-in`, `/enroll`, `/recover` | Patient | Enrollment, session/recovery, profile, records, access, notifications, settings |
-| `/provider/*` | Provider | Session/facility selection, patient lookup and access, clinical work, laboratory, pharmacy, OCR and outreach |
-| `/admin/*` | Platform | Overview, controls, facilities, principals, applications, reviews, audit, operations, pricing, demos and integrations |
+| `/`, `/sign-in`, `/enroll`, `/recover` | Patient | Enrollment, session/recovery, profile and NIN re-verification, records, access, notifications, settings |
+| `/provider/*`, `/provider/recover` | Provider | Session/facility selection, patient lookup and access, registration-case review, clinical work, laboratory, pharmacy, OCR, outreach, facility audit and recovery |
+| `/admin/*`, `/admin/recover` | Platform | Overview, controls, facilities, principals, applications, reviews, audit, operations, pricing, demos, integrations and recovery |
 
 Each area restores the shared backend cookie session and applies its own
 permission checks. The backend remains the

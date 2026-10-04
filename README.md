@@ -57,6 +57,8 @@ headers and backend permissions. Public pricing and demo requests use the
 commercial API. Supported clinical, operational and platform screens call real
 read or mutation endpoints; unsupported reference workflows are identified in
 the docs rather than filled with fixture data.
+Patient NIN re-verification, facility audit, provider registration-case review,
+and staff/platform password recovery also use the existing Identity routes.
 
 There is **no staging environment yet**, so these flows have not passed live
 end-to-end acceptance. Production routing must forward `/api/v1` on the portal

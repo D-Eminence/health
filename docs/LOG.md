@@ -14,6 +14,11 @@
   Provider coverage includes clinical records and versioned status changes,
   active Lab order creation, prescription handoff, Lab accession/specimen
   custody and execution/results, pharmacy, OCR and staff outreach.
+- Added patient NIN re-verification, provider facility audit with server
+  pagination, and provider registration-case review/enrollment by case ID.
+  The registration screen checks the backend's NIN capability before offering
+  new case creation. Staff and platform password reset use the existing public
+  OTP service with their respective Turnstile actions.
 - Added direct-route portal tests covering patient, provider and admin entry
   points. Local checks and builds are code-level verification; no deployed
   browser or staging acceptance is recorded.
@@ -22,8 +27,8 @@
   outside the backend Turnstile allowlist needs a backend configuration change.
 - Recorded patient consent and organization application backend defects,
   emergency detailed-chart restriction, non-persistent facility selection,
-  Lab draft activation, direct-cross-origin CORS mismatches, provider
-  configuration gates and missing reference workflow contracts in
+  Lab draft activation, registration-case continuity, cross-origin CORS
+  mismatches, provider configuration gates and missing reference workflow contracts in
   [open questions](./OPEN-QUESTIONS.md).
 
 This log records implementation scope, not a release sign-off. The reference
