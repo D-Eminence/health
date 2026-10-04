@@ -1,8 +1,7 @@
 /**
  * Application boundaries, expressed as code rather than as a convention.
  *
- * Health ID is several applications, not one application with many tabs. Each
- * one is granted the backend services its workflows actually need, and calling
+ * Each frontend is granted the backend route groups its workflows need. Calling
  * outside that grant fails loudly at development time.
  *
  * This is an architecture guard, not a security control. The backend authorises
@@ -44,59 +43,98 @@ export const APP_BOUNDARIES = {
   'public-web': {
     app: 'public-web',
     purpose: 'Public information and the entry point into patient or provider sign-up.',
-    // Anonymous, cacheable, and deliberately unable to reach anything clinical.
-    services: ['platform'],
-    handlesPhi: false,
+    services: ['auth', 'enrollment', 'commercial', 'platform'],
+    handlesPhi: true,
   },
   'patient-web': {
     app: 'patient-web',
     purpose: 'A patient viewing and managing their own health information and consent.',
-    services: ['identity', 'ehr', 'access', 'files', 'notifications'],
+    services: ['auth', 'enrollment', 'identity', 'ehr', 'access', 'notifications'],
     handlesPhi: true,
   },
   'staff-web': {
     app: 'staff-web',
-    purpose: 'Clinician and facility workflows: patient lookup, access requests, encounters.',
-    services: ['identity', 'ehr', 'access', 'files', 'notifications'],
+    purpose: 'Provider workflows: care, laboratory, pharmacy, OCR and outreach.',
+    services: ['auth', 'identity', 'ehr', 'access', 'files', 'lab', 'pharmacy', 'ocr', 'outreach'],
     handlesPhi: true,
   },
   'ehr-web': {
     app: 'ehr-web',
     purpose: 'Electronic health record authoring and review.',
-    services: ['identity', 'ehr', 'access', 'files'],
+    services: ['auth', 'identity', 'ehr', 'access', 'files'],
     handlesPhi: true,
   },
   'lab-web': {
     app: 'lab-web',
     purpose: 'Laboratory workflows: orders, specimens, results.',
-    services: ['identity', 'lab'],
+    services: ['auth', 'identity', 'lab'],
     handlesPhi: true,
   },
   'pharmacy-web': {
     app: 'pharmacy-web',
     purpose: 'Pharmacy workflows: prescriptions, dispensing, stock.',
-    services: ['identity', 'pharmacy'],
+    services: ['auth', 'identity', 'pharmacy'],
     handlesPhi: true,
   },
   'ocr-web': {
     app: 'ocr-web',
     purpose: 'Document capture, OCR review and migration of existing records.',
-    services: ['identity', 'ocr'],
+    services: ['auth', 'identity', 'ocr'],
     handlesPhi: true,
   },
   'outreach-web': {
     app: 'outreach-web',
     purpose: 'Field registration campaigns run by outreach workers.',
-    services: ['identity', 'outreach'],
+    services: ['auth', 'identity', 'outreach'],
     handlesPhi: true,
   },
   'admin-web': {
     app: 'admin-web',
     purpose: 'Platform administration: users, roles, billing, platform controls.',
-    services: ['identity', 'admin', 'platform'],
+    services: ['auth', 'admin', 'platform'],
     handlesPhi: true,
   },
 } as const satisfies Record<HidApp, AppBoundary>
+
+/**
+ * Shared services contain routes for different actors. These grants narrow a
+ * service where the portal surfaces have distinct workflows; an unlisted
+ * service follows APP_BOUNDARIES. The backend still decides actual access.
+ */
+export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
+  Partial<Record<HidService, readonly string[]>>>> = {
+  'public-web': {
+    auth: ['auth.patientLogin', 'auth.staffLogin', 'auth.googleNonce', 'auth.googleOnboarding',
+      'auth.googleExchange', 'auth.otpStart', 'auth.otpVerify', 'auth.otpComplete'],
+  },
+  'patient-web': {
+    auth: ['auth.patientLogin', 'auth.googleNonce', 'auth.googleOnboarding', 'auth.googleExchange',
+      'auth.googleLink', 'auth.session', 'auth.refresh', 'auth.logout', 'auth.otpStart',
+      'auth.otpVerify', 'auth.otpComplete'],
+    enrollment: ['enrollment.start', 'enrollment.current', 'enrollment.google', 'enrollment.contact',
+      'enrollment.verifyContact', 'enrollment.activate'],
+    identity: ['identity.me', 'identity.accessHistory', 'identity.accessPin', 'identity.verifyNin'],
+    access: ['access.patientRequests', 'access.approve', 'access.deny'],
+    ehr: ['ehr.myRecords'],
+  },
+  'staff-web': {
+    auth: ['auth.staffLogin', 'auth.session', 'auth.refresh', 'auth.logout', 'auth.facility',
+      'auth.otpStart', 'auth.otpVerify', 'auth.otpComplete'],
+    identity: ['identity.patientLookup', 'identity.authorization', 'identity.consentStatus',
+      'identity.registrationCapabilities', 'identity.resolveNin', 'identity.registrationCase',
+      'identity.registrationApprove', 'identity.registrationEnroll', 'identity.registrationLink',
+      'identity.organizationVerifyCac'],
+    access: ['access.staffRequests', 'access.breakGlass', 'access.verifyPin', 'access.closeOwnGrant'],
+    ehr: ['ehr.emergencyRecords', 'ehr.encounters', 'ehr.encounter', 'ehr.vitals', 'ehr.vital',
+      'ehr.vitalCorrections', 'ehr.notes', 'ehr.note', 'ehr.noteRevisions', 'ehr.diagnoses',
+      'ehr.diagnosis', 'ehr.prescriptions', 'ehr.prescription', 'ehr.prescriptionPharmacy',
+      'ehr.labRequests', 'ehr.labRequest'],
+  },
+  'admin-web': {
+    auth: ['auth.staffLogin', 'auth.session', 'auth.refresh', 'auth.logout',
+      'auth.otpStart', 'auth.otpVerify', 'auth.otpComplete'],
+  },
+}
 
 /** The services a given application is granted, as a union of literal types. */
 export type ServicesOf<A extends HidApp> = (typeof APP_BOUNDARIES)[A]['services'][number]
@@ -148,6 +186,13 @@ export function assertEndpointAllowed(app: HidApp, endpointName: string): void {
       `"${app}" may not call the "${descriptor.service}" service (endpoint "${endpointName}"). ` +
         `It is granted: ${servicesFor(app).join(', ')}. ` +
         'Either the workflow belongs in a different application, or the boundary needs to change deliberately.',
+    )
+  }
+
+  const routeGrant = APP_ROUTE_GRANTS[app]?.[descriptor.service]
+  if (routeGrant && !routeGrant.includes(endpointName)) {
+    throw new BoundaryViolationError(
+      `"${app}" may not call endpoint "${endpointName}" in the shared "${descriptor.service}" service.`,
     )
   }
 }

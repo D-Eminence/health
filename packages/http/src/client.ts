@@ -71,6 +71,12 @@ export interface ApiClientLogger {
 export interface ApiClientOptions {
   /** Absolute Health ID Gateway base URL, from environment configuration. */
   readonly baseUrl: string
+  /** hid-system browser sessions use HttpOnly cookies and a readable CSRF cookie. */
+  readonly sessionMode?: 'bearer' | 'cookie'
+  /** Override only when the backend's AUTH_COOKIE_NAME differs from hid_access. */
+  readonly csrfCookieName?: string
+  /** Useful in non-browser tests; defaults to reading document.cookie. */
+  readonly getCsrfToken?: () => string | null
   /**
    * Supplies the current access token. Returning null means "not signed in".
    * The client never reads or writes storage itself.
@@ -93,6 +99,8 @@ export interface ApiClientOptions {
    * the user to sign-in. The rejection still propagates to the caller.
    */
   readonly onUnauthorized?: (error: HidApiError) => void
+  /** Restore a cookie session once before rejecting a protected request with 401. */
+  readonly refreshSession?: () => Promise<void>
   /** Identifies the calling application in `X-HID-Client`, e.g. `patient-web`. */
   readonly clientId: string
   /** Injected in tests to make backoff deterministic. */
@@ -139,9 +147,12 @@ function buildUrl(
   baseUrl: string,
   path: string,
   query: Readonly<Record<string, QueryValue>> | undefined,
+  rootRelative: boolean,
 ): URL {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`
-  const url = new URL(`${baseUrl}${normalizedPath}`)
+  const url = rootRelative
+    ? new URL(normalizedPath, baseUrl)
+    : new URL(`${baseUrl}${normalizedPath}`)
 
   for (const [key, value] of Object.entries(query ?? {})) {
     if (value === undefined || value === null || value === '') continue
@@ -149,6 +160,25 @@ function buildUrl(
   }
 
   return url
+}
+
+function readCookie(name: string): string | null {
+  if (typeof document === 'undefined') return null
+  const matches = document.cookie.split(';').map(part => part.trim())
+    .filter(part => part.startsWith(`${name}=`))
+  // Ambiguous duplicate cookies must never be used as CSRF evidence.
+  if (matches.length !== 1) return null
+  try {
+    return decodeURIComponent(matches[0]!.slice(name.length + 1))
+  } catch {
+    return null
+  }
+}
+
+function logSafePath(path: string): string {
+  // Route identifiers can be patient IDs. Diagnostics need the route shape,
+  // never the identifying value.
+  return path.replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, ':id')
 }
 
 /** Composes the caller's signal with a per-attempt timeout. */
@@ -199,6 +229,9 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
   const sleep = options.sleep ?? defaultSleep
   const logger = options.logger
   const inflight = new Map<string, Promise<unknown>>()
+  const cookieMode = options.sessionMode === 'cookie'
+  let responseCsrfToken: string | null = null
+  let refreshInFlight: Promise<void> | null = null
 
   async function resolveHeaders(spec: RequestSpec, requestId: string): Promise<Headers> {
     const headers = new Headers(await options.getDefaultHeaders?.())
@@ -206,13 +239,28 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
     for (const [key, value] of Object.entries(spec.headers ?? {})) headers.set(key, value)
 
     headers.set('Accept', 'application/json')
-    headers.set('X-Request-ID', requestId)
-    headers.set('X-HID-Client', options.clientId)
+    if (cookieMode) {
+      // These are on the hid-system CORS allow-list. X-HID-Client and
+      // X-Request-ID are not, so adding them would block browser preflight.
+      headers.set('X-Correlation-ID', requestId)
+    } else {
+      headers.set('X-Request-ID', requestId)
+      headers.set('X-HID-Client', options.clientId)
+    }
 
     if (spec.body !== undefined) headers.set('Content-Type', 'application/json')
 
     const requirement: AuthRequirement = spec.auth ?? 'required'
-    if (requirement !== 'none') {
+    if (cookieMode) {
+      // HttpOnly authentication cookies cannot be inspected from JavaScript.
+      // The backend decides whether the session is present and authorized.
+      headers.delete('Authorization')
+      if (!['GET', 'HEAD', 'OPTIONS'].includes(spec.method)) {
+        const csrf = options.getCsrfToken?.() ?? readCookie(options.csrfCookieName ?? 'hid_access_csrf')
+          ?? responseCsrfToken
+        if (csrf) headers.set('X-CSRF-Token', csrf)
+      }
+    } else if (requirement !== 'none') {
       const token = (await options.getAccessToken?.()) ?? null
       if (token) {
         headers.set('Authorization', `Bearer ${token}`)
@@ -242,7 +290,7 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
         signal: attemptSignal.signal,
         // Clinical data is never served from the HTTP cache.
         cache: 'no-store',
-        credentials: 'omit',
+        credentials: cookieMode ? 'include' : 'omit',
         mode: 'cors',
         redirect: 'error',
       })
@@ -273,7 +321,9 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
       attemptSignal.dispose()
     }
 
-    const headerRequestId = response.headers.get('X-Request-ID')
+    const headerRequestId = response.headers.get('X-Correlation-ID')
+      ?? response.headers.get('X-Request-ID')
+    if (cookieMode) responseCsrfToken = response.headers.get('X-CSRF-Token') ?? responseCsrfToken
     const rawBody = await response.text()
     const payload = parseJsonBody(rawBody)
 
@@ -296,11 +346,9 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
       // Attach transport hints the retry loop needs without widening HidApiError.
       retryAfterByError.set(error, parseRetryAfter(response.headers.get('Retry-After')))
 
-      if (error.status === 401) options.onUnauthorized?.(error)
-
       logger?.warn('api request failed', {
         method: spec.method,
-        path: spec.path,
+        path: logSafePath(spec.path),
         ...error.toLogContext(),
       })
 
@@ -317,21 +365,40 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
       })
     }
 
-    return unwrapData<T>(payload)
+    // hid-system returns both bare responses and domain objects containing a
+    // meaningful `data` property. Do not strip that property in cookie mode.
+    return cookieMode ? payload as T : unwrapData<T>(payload)
   }
 
   async function run<T>(spec: RequestSpec): Promise<T> {
     const requestId = createRequestId()
-    const url = buildUrl(baseUrl, spec.path, spec.query)
+    const url = buildUrl(baseUrl, spec.path, spec.query, cookieMode)
     const idempotent = isIdempotentMethod(spec.method)
     const policy = spec.retry ?? (idempotent ? DEFAULT_READ_RETRY : NO_RETRY)
 
     let attemptIndex = 0
+    let refreshed = false
     for (;;) {
       try {
         return await attempt<T>(spec, url, requestId)
       } catch (error) {
+        if (cookieMode && options.refreshSession && !refreshed
+          && spec.auth !== 'none' && !spec.path.startsWith('/api/v1/auth/')
+          && error instanceof HidApiError && error.status === 401) {
+          refreshed = true
+          try {
+            refreshInFlight ??= Promise.resolve().then(options.refreshSession)
+              .finally(() => { refreshInFlight = null })
+            await refreshInFlight
+            continue
+          } catch (refreshError) {
+            if (!(refreshError instanceof HidApiError) || refreshError.status !== 401) {
+              throw refreshError
+            }
+          }
+        }
         if (!shouldRetry({ error, method: spec.method, attempt: attemptIndex, policy, idempotent })) {
+          if (error instanceof HidApiError && error.status === 401) options.onUnauthorized?.(error)
           throw error
         }
 
@@ -344,7 +411,7 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
 
         logger?.debug('retrying api request', {
           method: spec.method,
-          path: spec.path,
+          path: logSafePath(spec.path),
           attempt: attemptIndex + 1,
           delayMs: delay,
         })
@@ -356,7 +423,8 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
   }
 
   function dedupeKey(spec: RequestSpec): string {
-    return JSON.stringify([spec.method, spec.path, spec.query ?? null, spec.auth ?? 'required'])
+    return JSON.stringify([spec.method, spec.path, spec.query ?? null, spec.auth ?? 'required',
+      spec.headers ?? null])
   }
 
   const client: ApiClient = {

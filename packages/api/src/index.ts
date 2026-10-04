@@ -17,12 +17,17 @@ import { APP_BOUNDARIES, type HidApp, type ServicesOf } from '@hid/contracts'
 import {
   createAccessService,
   createAdminService,
+  createAuthService,
+  createCommercialService,
   createEhrService,
+  createEnrollmentService,
   createFilesService,
   createIdentityService,
+  createLabService,
   createNotificationsService,
   createOcrService,
   createOutreachService,
+  createPharmacyService,
   createPlatformService,
 } from './services'
 import type { ServiceContext } from './service'
@@ -30,13 +35,11 @@ import type { ServiceContext } from './service'
 /**
  * Service factories, keyed by the service they implement.
  *
- * `lab` and `pharmacy` are absent because the backend has no endpoints for
- * them at the frozen release. Their applications cannot be given a client for
- * a service that does not exist yet, and pretending otherwise with a mock
- * module is exactly the second interpretation of the system this architecture
- * is meant to avoid. See `docs/OPEN-QUESTIONS.md`.
+ * Every factory checks both the route registry and application boundary.
  */
 const SERVICE_FACTORIES = {
+  auth: createAuthService,
+  enrollment: createEnrollmentService,
   identity: createIdentityService,
   ehr: createEhrService,
   access: createAccessService,
@@ -44,7 +47,10 @@ const SERVICE_FACTORIES = {
   notifications: createNotificationsService,
   outreach: createOutreachService,
   ocr: createOcrService,
+  lab: createLabService,
+  pharmacy: createPharmacyService,
   admin: createAdminService,
+  commercial: createCommercialService,
   platform: createPlatformService,
 } as const
 
@@ -78,15 +84,21 @@ export function createHidApi<A extends HidApp>({ app, client }: HidApiOptions<A>
 }
 
 export { createServiceBinding } from './service'
+export { createRegisteredBrowserClient } from './browser-client'
 export type { CallOptions, ServiceContext } from './service'
 export {
   createAccessService,
   createAdminService,
+  createAuthService,
+  createCommercialService,
   createEhrService,
+  createEnrollmentService,
   createFilesService,
   createIdentityService,
+  createLabService,
   createNotificationsService,
   createOcrService,
   createOutreachService,
+  createPharmacyService,
   createPlatformService,
 } from './services'

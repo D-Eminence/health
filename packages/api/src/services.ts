@@ -1,299 +1,256 @@
-/**
- * The Health ID service modules.
- *
- * Each function corresponds to one endpoint confirmed to exist at the frozen
- * backend release. What none of them do is claim to know the *shape* of what
- * comes back: return types are `UnverifiedPayload` (`unknown`) until a response
- * has been observed against staging and written down as a contract.
- *
- * That is deliberate, and it is the difference between a frontend that
- * integrates with the existing system and one that quietly invents a second
- * interpretation of it. Narrowing `unknown` is mildly annoying at the call
- * site; shipping a confidently wrong `PatientProfile` interface is worse.
- *
- * The path from here is in `docs/OPEN-QUESTIONS.md`: observe the response in
- * staging, agree the contract with the backend team, add a parser, replace the
- * `UnverifiedPayload` return type.
- */
-
-import type { UnverifiedPayload } from '@hid/contracts'
+/** Domain methods backed by the c4b5445 route registry. */
+import type {
+  CreateDemoRequest, DemoRequestAccepted, HidAuthSession, PatientEnrollmentProgress,
+  PatientRecordSummary, PublicPricingResponse, RecoveryOtpStart, RecoveryOtpVerified,
+  UnverifiedPayload,
+} from '@hid/contracts'
 import { createServiceBinding, type CallOptions, type ServiceContext } from './service'
 
-// ---------------------------------------------------------------------------
-// Identity
-// ---------------------------------------------------------------------------
+type Item = Record<string, unknown>
+
+export function createAuthService(context: ServiceContext) {
+  const request = createServiceBinding(context, 'auth')
+  return {
+    request,
+    patientLogin(body: { email: string; password: string; turnstileAction: 'patient-login'; turnstileToken?: string },
+      options: CallOptions = {}): Promise<HidAuthSession> {
+      return request('auth.patientLogin','POST',{ body, ...options })
+    },
+    staffLogin(body: { email: string; password: string; turnstileAction?: string; turnstileToken?: string },
+      options: CallOptions = {}): Promise<HidAuthSession> {
+      return request('auth.staffLogin','POST',{ body, ...options })
+    },
+    session(options: CallOptions = {}): Promise<HidAuthSession> {
+      return request('auth.session','GET',options)
+    },
+    refresh(options: CallOptions = {}): Promise<HidAuthSession> {
+      return request('auth.refresh','POST',options)
+    },
+    logout(options: CallOptions = {}): Promise<void> {
+      return request('auth.logout','POST',options)
+    },
+    selectFacility(facilityId: string, options: CallOptions = {}): Promise<HidAuthSession> {
+      return request('auth.facility','POST',{ body: { facilityId }, ...options })
+    },
+    googleNonce(options: CallOptions = {}): Promise<{ nonce: string }> {
+      return request('auth.googleNonce','GET',options)
+    },
+    googleOnboarding(options: CallOptions = {}): Promise<UnverifiedPayload> {
+      return request('auth.googleOnboarding','GET',options)
+    },
+    googleExchange(body: unknown, options: CallOptions = {}): Promise<HidAuthSession | UnverifiedPayload> {
+      return request('auth.googleExchange','POST',{ body, ...options })
+    },
+    startRecovery(body: { identifier: string; purpose: 'PASSWORD_RESET' | 'LEGACY_ACCOUNT_RECOVERY' | 'LEGACY_SESSION_FALLBACK';
+      turnstileAction: 'patient-reset-start' | 'staff-reset' | 'admin-reset' | 'legacy-recovery'; turnstileToken?: string },
+    options: CallOptions = {}): Promise<RecoveryOtpStart> {
+      return request('auth.otpStart','POST',{ body, ...options })
+    },
+    verifyRecovery(body: { challengeId: string; purpose: 'PASSWORD_RESET' | 'LEGACY_ACCOUNT_RECOVERY' | 'LEGACY_SESSION_FALLBACK'; code: string },
+      options: CallOptions = {}): Promise<RecoveryOtpVerified> {
+      return request('auth.otpVerify','POST',{ body, ...options })
+    },
+    completeRecovery(body: { challengeId: string; purpose: 'PASSWORD_RESET' | 'LEGACY_ACCOUNT_RECOVERY' | 'LEGACY_SESSION_FALLBACK';
+      verificationToken: string; newPassword: string }, options: CallOptions = {}): Promise<{ completed: true }> {
+      return request('auth.otpComplete','POST',{ body, ...options })
+    },
+  }
+}
+
+export function createEnrollmentService(context: ServiceContext) {
+  const request = createServiceBinding(context, 'enrollment')
+  return {
+    request,
+    start(body: { nin: string; turnstileAction: 'patient-enrollment'; turnstileToken: string },
+      idempotencyKey: string, options: CallOptions = {}): Promise<PatientEnrollmentProgress> {
+      return request('enrollment.start','POST',{ body, ...options,
+        headers: { ...options.headers, 'Idempotency-Key': idempotencyKey } })
+    },
+    current(options: CallOptions = {}): Promise<PatientEnrollmentProgress> {
+      return request('enrollment.current','GET',options)
+    },
+    bindGoogle(options: CallOptions = {}): Promise<{ bound: true }> {
+      return request('enrollment.google','POST',options)
+    },
+    contact(body: { channel: 'phone' | 'email'; contact: string },
+      options: CallOptions = {}): Promise<{ challengeId: string; expiresInSeconds: number }> {
+      return request('enrollment.contact','POST',{ body, ...options })
+    },
+    verifyContact(body: { challengeId: string; code: string },
+      options: CallOptions = {}): Promise<PatientEnrollmentProgress> {
+      return request('enrollment.verifyContact','POST',{ body, ...options })
+    },
+    activate(password: string, options: CallOptions = {}): Promise<{ stage: 'active'; hidCode: string }> {
+      return request('enrollment.activate','POST',{ body: { password }, ...options })
+    },
+    applyOrganization(body: unknown, options: CallOptions = {}): Promise<UnverifiedPayload> {
+      return request('identity.organizationApply','POST',{ body, ...options })
+    },
+  }
+}
 
 export function createIdentityService(context: ServiceContext) {
-  const call = createServiceBinding(context, 'identity')
-
+  const request = createServiceBinding(context, 'identity')
   return {
-    /** Whether a Health ID identifier is free. Public: used during sign-up. */
-    checkSignupAvailability(body: unknown, options: CallOptions = {}): Promise<UnverifiedPayload> {
-      return call('signup-availability', 'POST', { body, ...options })
-    },
-    startSignup(body: unknown, options: CallOptions = {}): Promise<UnverifiedPayload> {
-      return call('signup-start', 'POST', { body, ...options })
-    },
-    verifySignup(body: unknown, options: CallOptions = {}): Promise<UnverifiedPayload> {
-      return call('signup-verify', 'POST', { body, ...options })
-    },
-    patientLogin(body: unknown, options: CallOptions = {}): Promise<UnverifiedPayload> {
-      return call('patient-login', 'POST', { body, ...options })
-    },
-    staffLogin(body: unknown, options: CallOptions = {}): Promise<UnverifiedPayload> {
-      return call('staff-login', 'POST', { body, ...options })
-    },
-    /**
-     * The signed-in patient's own profile.
-     * Response is identifying and clinical: hold it in component state only,
-     * never in storage, and never log it.
-     */
+    request,
     getMyPatientProfile(options: CallOptions = {}): Promise<UnverifiedPayload> {
-      return call('patients-me', 'GET', options)
+      return request('identity.me','GET',options)
     },
-    searchStaff(
-      query: Readonly<Record<string, string | number>>,
-      options: CallOptions = {},
-    ): Promise<UnverifiedPayload> {
-      return call('staff-search', 'GET', { query, ...options })
+    getMyAccessHistory(options: CallOptions = {}): Promise<UnverifiedPayload> {
+      return request('identity.accessHistory','GET',options)
     },
-    startPasswordReset(body: unknown, options: CallOptions = {}): Promise<UnverifiedPayload> {
-      return call('patient-reset-start', 'POST', { body, ...options })
+    setAccessPin(pin: string, options: CallOptions = {}): Promise<{ configured: true }> {
+      return request('identity.accessPin','POST',{ body: { pin }, ...options })
     },
-    verifyPasswordReset(body: unknown, options: CallOptions = {}): Promise<UnverifiedPayload> {
-      return call('patient-reset-verify', 'POST', { body, ...options })
+    revokeAccessPin(options: CallOptions = {}): Promise<{ revoked: true }> {
+      return request('identity.accessPin','DELETE',options)
     },
-    completePasswordReset(body: unknown, options: CallOptions = {}): Promise<UnverifiedPayload> {
-      return call('patient-reset-complete', 'POST', { body, ...options })
+    patientLookup(body: { hid: string; purpose: 'direct-care' | 'emergency' | 'healthcare-operations' },
+      options: CallOptions = {}): Promise<UnverifiedPayload> {
+      return request('identity.patientLookup','POST',{ body, ...options })
     },
   }
 }
-
-// ---------------------------------------------------------------------------
-// EHR
-// ---------------------------------------------------------------------------
-
-export function createEhrService(context: ServiceContext) {
-  const call = createServiceBinding(context, 'ehr')
-
-  return {
-    /** Clinical content. Never cached to storage, never logged. */
-    listRecords(
-      query: Readonly<Record<string, string | number>> = {},
-      options: CallOptions = {},
-    ): Promise<UnverifiedPayload> {
-      return call('patients-records', 'GET', { query, ...options })
-    },
-    listHistory(
-      query: Readonly<Record<string, string | number>> = {},
-      options: CallOptions = {},
-    ): Promise<UnverifiedPayload> {
-      return call('patient-history-list', 'GET', { query, ...options })
-    },
-    /** Creates a record. Not idempotent, so it is never retried automatically. */
-    createRecord(body: unknown, options: CallOptions = {}): Promise<UnverifiedPayload> {
-      return call('records-create', 'POST', { body, ...options })
-    },
-    createRecordVersion(body: unknown, options: CallOptions = {}): Promise<UnverifiedPayload> {
-      return call('records-version-create', 'POST', { body, ...options })
-    },
-    listHealthEvents(
-      query: Readonly<Record<string, string | number>> = {},
-      options: CallOptions = {},
-    ): Promise<UnverifiedPayload> {
-      return call('health-events', 'GET', { query, ...options })
-    },
-    createHealthEvent(body: unknown, options: CallOptions = {}): Promise<UnverifiedPayload> {
-      return call('health-events', 'POST', { body, ...options })
-    },
-    updateHealthEvent(body: unknown, options: CallOptions = {}): Promise<UnverifiedPayload> {
-      return call('health-event-update', 'POST', { body, ...options })
-    },
-    getStaffDashboard(options: CallOptions = {}): Promise<UnverifiedPayload> {
-      return call('staff-dashboard', 'GET', options)
-    },
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Access and consent
-// ---------------------------------------------------------------------------
 
 export function createAccessService(context: ServiceContext) {
-  const call = createServiceBinding(context, 'access')
-
+  const request = createServiceBinding(context, 'access')
   return {
-    requestAccess(body: unknown, options: CallOptions = {}): Promise<UnverifiedPayload> {
-      return call('access-request-create', 'POST', { body, ...options })
+    request,
+    listMyRequests(options: CallOptions = {}): Promise<readonly Item[]> {
+      return request('access.patientRequests','GET',options)
     },
-    closeGrant(body: unknown, options: CallOptions = {}): Promise<UnverifiedPayload> {
-      return call('access-grant-close', 'POST', { body, ...options })
+    approve(requestId: string, options: CallOptions = {}): Promise<UnverifiedPayload> {
+      return request('access.approve','POST',{ params: { requestId }, ...options })
     },
-    revokeGrant(body: unknown, options: CallOptions = {}): Promise<UnverifiedPayload> {
-      return call('access-grant-revoke', 'POST', { body, ...options })
+    deny(requestId: string, reason: string, options: CallOptions = {}): Promise<UnverifiedPayload> {
+      return request('access.deny','POST',{ params: { requestId }, body: { reason }, ...options })
     },
-    /**
-     * Emergency access. The backend audits every use; the interface that calls
-     * this must tell the clinician so, before they confirm.
-     */
+    listStaffRequests(options: CallOptions = {}): Promise<readonly Item[]> {
+      return request('access.staffRequests','GET',options)
+    },
+    requestAccess(body: { hid: string; scope: 'read_records' | 'write_records'; reason: string; durationMinutes: number },
+      options: CallOptions = {}): Promise<UnverifiedPayload> {
+      return request('access.staffRequests','POST',{ body, ...options })
+    },
     breakGlass(body: unknown, options: CallOptions = {}): Promise<UnverifiedPayload> {
-      return call('break-glass', 'POST', { body, ...options })
+      return request('access.breakGlass','POST',{ body, ...options })
     },
-    createShare(body: unknown, options: CallOptions = {}): Promise<UnverifiedPayload> {
-      return call('share-create', 'POST', { body, ...options })
+    verifyPin(body: unknown, options: CallOptions = {}): Promise<UnverifiedPayload> {
+      return request('access.verifyPin','POST',{ body, ...options })
     },
-    createShareInvite(body: unknown, options: CallOptions = {}): Promise<UnverifiedPayload> {
-      return call('share-invite-create', 'POST', { body, ...options })
-    },
-    cancelShareInvite(body: unknown, options: CallOptions = {}): Promise<UnverifiedPayload> {
-      return call('share-invite-cancel', 'POST', { body, ...options })
-    },
-    listAudit(
-      query: Readonly<Record<string, string | number>> = {},
-      options: CallOptions = {},
-    ): Promise<UnverifiedPayload> {
-      return call('audit-list', 'GET', { query, ...options })
+    closeOwnGrant(grantId: string, reason: string, options: CallOptions = {}): Promise<UnverifiedPayload> {
+      return request('access.closeOwnGrant','POST',{ params: { grantId }, body: { reason }, ...options })
     },
   }
 }
 
-// ---------------------------------------------------------------------------
-// Files
-// ---------------------------------------------------------------------------
+export function createEhrService(context: ServiceContext) {
+  const request = createServiceBinding(context, 'ehr')
+  return {
+    request,
+    listRecords(options: CallOptions = {}): Promise<PatientRecordSummary> {
+      return request('ehr.myRecords','GET',options)
+    },
+    emergencyRecords(patientId: string, options: CallOptions = {}): Promise<PatientRecordSummary> {
+      return request('ehr.emergencyRecords','GET',{ params: { patientId }, ...options })
+    },
+    listEncounters(patientId: string, options: CallOptions = {}): Promise<UnverifiedPayload> {
+      return request('ehr.encounters','GET',{ params: { patientId }, ...options })
+    },
+    createEncounter(patientId: string, body: unknown, idempotencyKey: string,
+      options: CallOptions = {}): Promise<UnverifiedPayload> {
+      return request('ehr.encounters','POST',{ params: { patientId }, body, ...options,
+        headers: { ...options.headers, 'Idempotency-Key': idempotencyKey } })
+    },
+  }
+}
 
 export function createFilesService(context: ServiceContext) {
-  const call = createServiceBinding(context, 'files')
-
+  const request = createServiceBinding(context, 'files')
   return {
-    /** Returns a short-lived signed URL. Use it immediately; never store it. */
-    signUpload(body: unknown, options: CallOptions = {}): Promise<UnverifiedPayload> {
-      return call('files-sign-upload', 'POST', { body, ...options })
+    request,
+    list(patientId: string, encounterId: string, options: CallOptions = {}): Promise<UnverifiedPayload> {
+      return request('files.list','GET',{ query: { patientId, encounterId }, ...options })
     },
-    registerUpload(body: unknown, options: CallOptions = {}): Promise<UnverifiedPayload> {
-      return call('files-register-upload', 'POST', { body, ...options })
+    createUploadIntent(body: unknown, idempotencyKey: string, options: CallOptions = {}): Promise<UnverifiedPayload> {
+      return request('files.uploadIntent','POST',{ body, ...options,
+        headers: { ...options.headers, 'Idempotency-Key': idempotencyKey } })
     },
-    /** Returns a short-lived signed URL. Use it immediately; never store it. */
-    signDownload(body: unknown, options: CallOptions = {}): Promise<UnverifiedPayload> {
-      return call('files-sign-download', 'POST', { body, ...options })
+    complete(documentId: string, options: CallOptions = {}): Promise<UnverifiedPayload> {
+      return request('files.complete','POST',{ params: { documentId }, ...options })
+    },
+    download(documentId: string, options: CallOptions = {}): Promise<{ url: string; expiresInSeconds: number }> {
+      return request('files.download','GET',{ params: { documentId }, ...options })
     },
   }
 }
-
-// ---------------------------------------------------------------------------
-// Notifications
-// ---------------------------------------------------------------------------
 
 export function createNotificationsService(context: ServiceContext) {
-  const call = createServiceBinding(context, 'notifications')
-
+  const request = createServiceBinding(context, 'notifications')
   return {
-    list(
-      query: Readonly<Record<string, string | number>> = {},
-      options: CallOptions = {},
-    ): Promise<UnverifiedPayload> {
-      return call('notifications-list', 'GET', { query, ...options })
+    request,
+    list(limit?: number, options: CallOptions = {}): Promise<readonly Item[]> {
+      return request('notifications.list','GET',{ query: { limit }, ...options })
+    },
+    markRead(notificationId: string, options: CallOptions = {}): Promise<UnverifiedPayload> {
+      return request('notifications.read','POST',{ params: { notificationId }, ...options })
     },
   }
 }
 
-// ---------------------------------------------------------------------------
-// Outreach
-// ---------------------------------------------------------------------------
-
-export function createOutreachService(context: ServiceContext) {
-  const call = createServiceBinding(context, 'outreach')
-
+export function createCommercialService(context: ServiceContext) {
+  const request = createServiceBinding(context, 'commercial')
   return {
-    signup(body: unknown, options: CallOptions = {}): Promise<UnverifiedPayload> {
-      return call('outreach-signup', 'POST', { body, ...options })
+    request,
+    pricing(options: CallOptions = {}): Promise<PublicPricingResponse> {
+      return request('commercial.pricing','GET',options)
     },
-    verifyOtp(body: unknown, options: CallOptions = {}): Promise<UnverifiedPayload> {
-      return call('outreach-verify-otp', 'POST', { body, ...options })
-    },
-    resendOtp(body: unknown, options: CallOptions = {}): Promise<UnverifiedPayload> {
-      return call('outreach-resend-otp', 'POST', { body, ...options })
-    },
-    join(body: unknown, options: CallOptions = {}): Promise<UnverifiedPayload> {
-      return call('outreach-join', 'POST', { body, ...options })
+    bookDemo(body: CreateDemoRequest, idempotencyKey: string,
+      options: CallOptions = {}): Promise<DemoRequestAccepted> {
+      return request('commercial.demo','POST',{ body, ...options,
+        headers: { ...options.headers, 'Idempotency-Key': idempotencyKey } })
     },
   }
 }
-
-// ---------------------------------------------------------------------------
-// OCR / migration
-// ---------------------------------------------------------------------------
-
-export function createOcrService(context: ServiceContext) {
-  const call = createServiceBinding(context, 'ocr')
-
-  return {
-    getContext(options: CallOptions = {}): Promise<UnverifiedPayload> {
-      return call('migration-context', 'GET', options)
-    },
-    capture(body: unknown, options: CallOptions = {}): Promise<UnverifiedPayload> {
-      return call('migration-capture', 'POST', { body, ...options })
-    },
-    listImports(
-      query: Readonly<Record<string, string | number>> = {},
-      options: CallOptions = {},
-    ): Promise<UnverifiedPayload> {
-      return call('migration-imports', 'GET', { query, ...options })
-    },
-    listProcessing(
-      query: Readonly<Record<string, string | number>> = {},
-      options: CallOptions = {},
-    ): Promise<UnverifiedPayload> {
-      return call('migration-processing', 'GET', { query, ...options })
-    },
-    submitReview(body: unknown, options: CallOptions = {}): Promise<UnverifiedPayload> {
-      return call('migration-review', 'POST', { body, ...options })
-    },
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Admin
-// ---------------------------------------------------------------------------
 
 export function createAdminService(context: ServiceContext) {
-  const call = createServiceBinding(context, 'admin')
-
+  const request = createServiceBinding(context, 'admin')
   return {
+    request,
+    session(options: CallOptions = {}): Promise<UnverifiedPayload> {
+      return request('admin.session','GET',options)
+    },
     getOverview(options: CallOptions = {}): Promise<UnverifiedPayload> {
-      return call('admin-dashboard-overview', 'GET', options)
-    },
-    listUsers(
-      query: Readonly<Record<string, string | number>> = {},
-      options: CallOptions = {},
-    ): Promise<UnverifiedPayload> {
-      return call('admin-user-management', 'GET', { query, ...options })
-    },
-    updateUser(body: unknown, options: CallOptions = {}): Promise<UnverifiedPayload> {
-      return call('admin-user-management', 'POST', { body, ...options })
-    },
-    getBilling(
-      query: Readonly<Record<string, string | number>> = {},
-      options: CallOptions = {},
-    ): Promise<UnverifiedPayload> {
-      return call('admin-billing', 'GET', { query, ...options })
+      return request('admin.overview','GET',options)
     },
     getPlatformControls(options: CallOptions = {}): Promise<UnverifiedPayload> {
-      return call('admin-platform-controls', 'GET', options)
+      return request('admin.controls','GET',options)
+    },
+    getPricing(options: CallOptions = {}): Promise<UnverifiedPayload> {
+      return request('admin.pricing','GET',options)
     },
   }
 }
 
-// ---------------------------------------------------------------------------
-// Platform
-// ---------------------------------------------------------------------------
+export function createLabService(context: ServiceContext) {
+  return { request: createServiceBinding(context, 'lab') }
+}
+export function createPharmacyService(context: ServiceContext) {
+  return { request: createServiceBinding(context, 'pharmacy') }
+}
+export function createOcrService(context: ServiceContext) {
+  return { request: createServiceBinding(context, 'ocr') }
+}
+export function createOutreachService(context: ServiceContext) {
+  return { request: createServiceBinding(context, 'outreach') }
+}
 
 export function createPlatformService(context: ServiceContext) {
-  const call = createServiceBinding(context, 'platform')
-
+  const request = createServiceBinding(context, 'platform')
   return {
-    /** Liveness probe. The only call the public site is permitted to make. */
-    healthCheck(options: CallOptions = {}): Promise<UnverifiedPayload> {
-      return call('health-check', 'GET', options)
+    request,
+    healthCheck(options: CallOptions = {}): Promise<{ status: 'ok' }> {
+      return request('platform.live','GET',options)
     },
   }
 }

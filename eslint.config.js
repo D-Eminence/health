@@ -42,6 +42,8 @@ export default tseslint.config(
       '**/.next/**',
       '**/coverage/**',
       '**/*.tsbuildinfo',
+      // Historical sketches outside the npm workspaces are not shipped frontend code.
+      'play_around/**',
     ],
   },
 

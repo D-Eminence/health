@@ -32,3 +32,5 @@ export {
   shouldRetry,
 } from './retry'
 export type { RetryPolicy } from './retry'
+export { uploadPresignedObject } from './upload'
+export type { PresignedUpload, PresignedUploadOptions } from './upload'

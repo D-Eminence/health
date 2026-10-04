@@ -13,6 +13,7 @@
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { join, relative, sep } from 'node:path'
 import process from 'node:process'
+import ts from 'typescript'
 
 const root = process.cwd()
 const failures = []
@@ -164,7 +165,18 @@ for (const path of scanTargets) {
   if (path.includes(`${sep}__tests__${sep}`)) continue
 
   const source = await readFile(path, 'utf8')
-  if (/(?<![.\w])fetch\s*\(/.test(source)) fetchCallers.push(relative(root, path))
+  const syntax = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true,
+    path.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS)
+  let callsFetch = false
+  const inspect = node => {
+    if (ts.isCallExpression(node) && (
+      ts.isIdentifier(node.expression) && node.expression.text === 'fetch'
+      || ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === 'fetch'
+    )) callsFetch = true
+    ts.forEachChild(node, inspect)
+  }
+  inspect(syntax)
+  if (callsFetch) fetchCallers.push(relative(root, path))
 }
 
 for (const path of fetchCallers) {
