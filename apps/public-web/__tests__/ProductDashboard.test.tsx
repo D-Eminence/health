@@ -61,8 +61,8 @@ describe('ProductDashboard', () => {
   it('shows the metrics for the module it is given', () => {
     const { container } = render(<ProductDashboard product={detail('ehr')} />)
 
-    expect(container.textContent).toContain('My patients today')
-    expect(container.textContent).toContain('Ready for doctor')
+    expect(container.textContent).toContain('Encounters')
+    expect(container.textContent).toContain('Recent encounters')
   })
 
   it('renders a pipeline for the laboratory, which has stages', () => {
@@ -74,14 +74,14 @@ describe('ProductDashboard', () => {
     expect(container.textContent).toContain('Sample collected')
   })
 
-  it('renders stock lists for the pharmacy, which has no alerts panel', () => {
+  it('renders dispensing lists for the pharmacy, which has no alerts panel', () => {
     const product = detail('pharmacy')
     expect(product.lists).toBeDefined()
     expect(product.alerts).toBeUndefined()
 
     const { container } = render(<ProductDashboard product={product} />)
-    expect(container.textContent).toContain('Low stock')
-    expect(container.textContent).toContain('Expiring soon')
+    expect(container.textContent).toContain('Dispensing details')
+    expect(container.textContent).toContain('Work item states')
   })
 
   it('renders a profile and activity for identity, which has no table', () => {

@@ -15,8 +15,20 @@ const nextConfig: NextConfig = {
   // Workspace packages ship TypeScript source rather than a build step.
   transpilePackages: ['@hid/api', '@hid/config', '@hid/contracts', '@hid/http', '@hid/observability', '@hid/ui'],
 
-  // The browser reaches the Health ID Gateway directly over CORS; this app has
-  // no server-side proxy and holds no credentials of its own.
+  // Local development exposes the gateway under the public site's origin.
+  // Production routing is supplied by the deployment's frontend worker.
+  async rewrites() {
+    if (process.env.NODE_ENV !== 'development') return []
+    const target = process.env.HID_LOCAL_GATEWAY_ORIGIN ?? 'http://localhost:3000'
+    const url = new URL(target)
+    if (!['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
+      || url.protocol !== 'http:' || url.username || url.password
+      || url.pathname !== '/' || url.search || url.hash) {
+      throw new Error('HID_LOCAL_GATEWAY_ORIGIN must be an HTTP localhost origin.')
+    }
+    return [{ source: '/api/v1/:path*', destination: `${url.origin}/api/v1/:path*` }]
+  },
+
   async headers() {
     return [
       {

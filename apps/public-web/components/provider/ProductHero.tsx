@@ -29,7 +29,10 @@ export function ProductHero({ product }: { product: ProductDetail }) {
         </div>
       </Wrap>
       <div id="product-showcase" className="relative pt-16 sm:pt-20">
-        <Wrap><div className="hero-dashboard hero-product-stage product-hero-dashboard mx-auto max-w-[1160px]"><ProductDashboard product={product} /></div></Wrap>
+        <Wrap>
+          <div className="hero-dashboard hero-product-stage product-hero-dashboard mx-auto max-w-[1160px]"><ProductDashboard product={product} /></div>
+          <p className="mx-auto mt-4 max-w-[1160px] pb-5 text-center text-xs text-white/75">Illustrative product view. Names, figures and activity are examples, not live data.</p>
+        </Wrap>
       </div>
     </section>
   )

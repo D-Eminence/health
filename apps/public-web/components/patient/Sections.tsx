@@ -31,9 +31,10 @@ export function PatientHero() {
             <HeroWidget className="patient-hero-widget-verified" icon="check" label="Health ID" value="Identity verified" status="Secure" />
             <HeroWidget className="patient-hero-widget-dose" icon="pill" label="Medication" value="Next dose" status="8:00 PM" />
             <div className="mx-auto w-fit">
-              <Image src="/brand/patient-health-record.png" alt="Health ID patient app showing the Add Health Information screen" width={1024} height={1536} className="h-auto w-[342px] max-w-none mix-blend-screen contrast-125 sm:w-[458px]" priority />
+              <Image src="/brand/patient-health-record.png" alt="Illustrative Health ID patient app concept" width={1024} height={1536} className="h-auto w-[342px] max-w-none mix-blend-screen contrast-125 sm:w-[458px]" priority />
             </div>
           </div>
+          <p className="pb-5 text-xs text-white/75">Illustrative app view. Available features depend on the connected care workflow.</p>
         </div>
       </Wrap>
     </section>

@@ -1,9 +1,8 @@
 /**
  * The Health ID product catalogue.
  *
- * Marketing content is build-time content. The public site is granted exactly
- * one backend service and is deliberately unable to fetch anything, so this is
- * the source of truth for the products menu and the product detail routes.
+ * Marketing content is build-time content. Public pricing and demo requests
+ * use the commercial API; this catalogue describes product routes and copy.
  *
  * The slugs are the public URLs. Changing one changes a live address, so treat
  * them as part of the contract with anything that links here.
@@ -75,15 +74,15 @@ export const PRODUCTS: readonly Product[] = [
     slug: 'migrate',
     mark: 'Mi',
     name: 'Health ID Migrate',
-    summary: 'Move paper records into searchable digital health records.',
-    body: 'Digitise legacy files with scanning, OCR, validation workflows and structured data extraction.',
+    summary: 'Review and publish extracted clinical documents.',
+    body: 'Process supported document jobs with OCR extraction, patient confirmation and human validation.',
     headline: 'Don’t lose years of records when you go digital.',
     intro:
-      'Health ID Migrate helps facilities move historical medical records into the digital system while preserving the clinical information they already hold.',
+      'Health ID Migrate supports document-level OCR jobs, human validation, patient confirmation and controlled publication into the clinical record.',
     capabilities: [
       { title: 'Capture', body: 'Scan or photograph existing patient files.' },
       { title: 'Extract and validate', body: 'Convert documents to structured data, reviewed before import.' },
-      { title: 'Match', body: 'Connect each record to the correct patient identity.' },
+      { title: 'Confirm patient', body: 'Confirm the patient for each validated document job.' },
     ],
   },
   {
@@ -113,26 +112,26 @@ export const PRODUCTS: readonly Product[] = [
     capabilities: [
       { title: 'Prescriptions', body: 'Received directly from the consultation that raised them.' },
       { title: 'Dispensing', body: 'Recorded against the patient’s medication history.' },
-      { title: 'Inventory', body: 'Stock levels and reorder thresholds across the facility.' },
+      { title: 'Corrections', body: 'Record reversals when a dispensing needs correction.' },
     ],
   },
   {
     slug: 'outreach',
     mark: 'Or',
     name: 'Health ID Outreach',
-    summary: 'Register patients and issue Health IDs in the field.',
-    body: 'Run registration campaigns outside the facility, with every new patient issued a Health ID through the same verified identity flow.',
+    summary: 'Manage campaign registration cases in the field.',
+    body: 'Run campaigns, assign members and reconcile registration cases to existing patient identities.',
     headline: 'Registration that reaches people where they are.',
     intro:
-      'Health ID Outreach lets a programme register patients outside the facility — in communities, workplaces and public health campaigns — and issue each one a Health ID through the same verified identity flow used at registration. The records created in the field are ordinary Health ID records, not a separate register to be reconciled later.',
+      'Health ID Outreach lets a facility create campaigns and record registration cases in communities and public health programmes. Reviewed cases can be linked to existing Health ID patients.',
     capabilities: [
       {
         title: 'Campaigns',
         body: 'Registration runs under a named campaign, so a programme can account for what it has registered.',
       },
       {
-        title: 'Verified registration',
-        body: 'Each new patient is verified and issued a Health ID through the standard identity flow.',
+        title: 'Identity resolution',
+        body: 'A case can be linked to an authorised existing patient after review.',
       },
       {
         title: 'Field workers',
@@ -144,11 +143,11 @@ export const PRODUCTS: readonly Product[] = [
     slug: 'api',
     mark: 'AP',
     name: 'Health ID API',
-    summary: 'Keep the EHR you already use.',
-    body: 'Connect persistent patient identity and authorised healthcare information to the systems your team already runs.',
-    headline: 'Keep the EHR you already use.',
+    summary: 'Gateway routes for approved integrations.',
+    body: 'Use supported patient identity and health record routes within an authorised facility context.',
+    headline: 'Explore supported Health ID integrations.',
     intro:
-      'Healthcare facilities with existing software do not need to replace it to participate in HID. Health ID API can connect supported patient identity and authorised healthcare information with existing systems. Your team continues working from familiar software while HID provides the connectivity layer.',
+      'Approved facility integrations can use supported gateway routes for identity lookup, access checks and selected clinical workflows. Access requires the appropriate session, facility, purpose and permissions.',
     capabilities: [
       { title: 'Identity lookup', body: 'Resolve patients against the Health ID identity layer.' },
       { title: 'Authorised exchange', body: 'Exchange information within the scope a patient has approved.' },

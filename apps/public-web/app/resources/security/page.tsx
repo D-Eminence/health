@@ -17,9 +17,8 @@ export const metadata: Metadata = {
  * Security.
  *
  * Moved here from the homepage, where it was competing with the product story.
- * It is a compliance reader's page, so it says what the controls are, what this
- * website does with data, and which standards the platform is aligned with —
- * with the disclaimer that alignment is not certification.
+ * It describes supported access controls and the public site's commercial
+ * gateway calls without claiming an external certification.
  */
 export default function SecurityPage() {
   return (

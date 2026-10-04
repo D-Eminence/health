@@ -6,30 +6,40 @@ import { cx, toast } from '@hid/ui'
 
 const SNIPPETS = {
   JavaScript: [
-    "const patient = await healthId.patients.verify({",
-    "  healthId: 'HID-[redacted]',",
-    "  purpose: 'consultation',",
+    "await fetch('/api/v1/identity/patient-lookup', {",
+    "  method: 'POST', credentials: 'include',",
+    "  headers: { 'Content-Type': 'application/json',",
+    "    'X-Facility-Id': '<selected facility>',",
+    "    'X-Purpose-Of-Use': 'direct-care',",
+    "    'X-CSRF-Token': '<session CSRF token>' },",
+    "  body: JSON.stringify({ hid: 'HID-ABCD23',",
+    "    purpose: 'direct-care' }),",
     '})',
   ],
   Python: [
-    'patient = health_id.patients.verify(',
-    "    health_id='HID-[redacted]',",
-    "    purpose='consultation',",
-    ')',
+    "# Approved server integration with an authenticated session",
+    "response = session.post('/api/v1/identity/patient-lookup',",
+    "    json={'hid': 'HID-ABCD23', 'purpose': 'direct-care'},",
+    "    headers={'X-Facility-Id': '<selected facility>',",
+    "             'X-Purpose-Of-Use': 'direct-care',",
+    "             'X-CSRF-Token': '<session CSRF token>'})",
   ],
   cURL: [
-    "curl --request POST 'https://api.example/verify' \\",
-    "  --header 'Authorization: Bearer [redacted]' \\",
-    "  --data '{ \"healthId\": \"HID-[redacted]\" }'",
+    "curl --request POST '/api/v1/identity/patient-lookup' \\",
+    "  --cookie '<authenticated session cookies>' \\",
+    "  --header 'X-Facility-Id: <selected facility>' \\",
+    "  --header 'X-Purpose-Of-Use: direct-care' \\",
+    "  --header 'X-CSRF-Token: <session CSRF token>' \\",
+    "  --header 'Content-Type: application/json' \\",
+    "  --data '{\"hid\":\"HID-ABCD23\",\"purpose\":\"direct-care\"}'",
   ],
 } as const
 
 type Language = keyof typeof SNIPPETS
 
 /**
- * Illustrative only: the public site does not publish production endpoint
- * syntax. The interaction communicates request-to-authorised-response without
- * pretending to be a live API console.
+ * The path and required request context reflect the gateway contract. Values,
+ * responses and the preview animation are illustrative; no request is sent.
  */
 export function ApiCodeVisual() {
   const [language, setLanguage] = useState<Language>('JavaScript')
@@ -65,7 +75,7 @@ export function ApiCodeVisual() {
         <p className="font-mono text-[11px] font-medium tracking-[0.1em] text-faint uppercase">Illustrative request</p>
         <span className="inline-flex items-center gap-2 text-[12px] font-medium text-muted">
           <span className={cx('h-1.5 w-1.5 rounded-full', state === 'complete' ? 'bg-positive' : 'bg-brand')} />
-          {state === 'sending' ? 'Requesting' : state === 'complete' ? '200 OK' : 'Ready'}
+          {state === 'sending' ? 'Previewing' : state === 'complete' ? 'Example complete' : 'Ready'}
         </span>
       </div>
 
@@ -97,7 +107,7 @@ export function ApiCodeVisual() {
             onClick={send}
             className="mt-6 min-h-11 rounded-(--radius-control) bg-brand px-5 text-[14px] font-semibold text-white transition-colors hover:bg-brand-dark focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
           >
-            {state === 'sending' ? 'Sending request...' : state === 'complete' ? 'Request complete' : 'Send illustrative request'}
+            {state === 'sending' ? 'Preparing preview...' : state === 'complete' ? 'Preview complete' : 'Preview illustrative response'}
           </button>
         </div>
 

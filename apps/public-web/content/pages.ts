@@ -18,8 +18,8 @@ export const SOLUTIONS_PAGE = {
       title: 'Hospitals',
       lede: 'One patient identity across every department, with authorised teams working from the relevant connected record.',
       points: [
-        'Registration, consultation, laboratory, pharmacy and inpatient workflows share one patient identity.',
-        'Registration, ward, laboratory and pharmacy workflows stay connected to the same patient identity; record access remains role- and purpose-specific.',
+        'Identity, encounters, laboratory and prescription dispensing use the same patient reference.',
+        'Clinical and pharmacy activity remains governed by role, facility and care purpose.',
         'Role-based access gives each staff member the workflows their role requires, and nothing more.',
         'Historical paper files can be brought in through Health ID Migrate rather than abandoned.',
       ],
@@ -55,18 +55,18 @@ export const SOLUTIONS_PAGE = {
       points: [
         'Prescriptions arrive against the patient record rather than on a slip of paper.',
         'What is dispensed returns to the patient’s medication history.',
-        'Stock levels and reorder thresholds stay visible at the counter.',
+        'Dispensing records and corrections remain attributable to the authorised team.',
       ],
       products: ['pharmacy', 'identity'],
     },
     {
       id: 'public-health-programmes',
       title: 'Public health programmes',
-      lede: 'Register patients where they are, and issue a Health ID that participating facilities can recognise.',
+      lede: 'Manage outreach campaigns and review field registration cases.',
       points: [
         'Run registration campaigns in communities, workplaces and outreach events.',
-        'Every registration is verified and issued a Health ID through the standard identity flow.',
-        'Records created in the field are ordinary Health ID records, not a separate register.',
+        'Campaign members can capture registration cases under their assigned facility.',
+        'Reviewed cases can be reconciled to an existing patient identity.',
       ],
       products: ['outreach', 'identity'],
     },
@@ -85,7 +85,7 @@ export const ABOUT_PAGE = {
   principles: [
     { title: 'Identity is separate from access', body: 'A Health ID identifies a patient. It does not, by itself, open their medical history.' },
     { title: 'Access is deliberate', body: 'Records are reached by role, purpose and authorised scope, with patient consent where it applies.' },
-    { title: 'Nothing is claimed that is not built', body: 'Standards alignment is described as alignment, not as certification.' },
+    { title: 'Clear scope', body: 'Product examples are illustrative, while available workflows are described against the supported gateway routes.' },
   ],
 } as const
 
@@ -125,7 +125,7 @@ export const SECURITY_PAGE = {
   title: 'Security and access.',
   lede: 'Health information is only useful if it can be trusted. Access to patient information is controlled by role, purpose and authorised scope, and important actions remain attributable.',
   websiteNote:
-    'This website is served as static pages. It holds no clinical data, cannot reach a clinical service, and stores nothing about you in your browser.',
+    'The public pages do not show clinical records. Pricing and demo requests use the Health ID gateway, and the demo form asks only for business contact details.',
 } as const
 
 export const PRIVACY_PAGE = {
@@ -134,16 +134,16 @@ export const PRIVACY_PAGE = {
   lede: 'This notice covers this website only — the public pages you are reading. It is not the notice that governs the patient information held in the Health ID platform, which is provided to patients and to facilities separately.',
   points: [
     {
-      title: 'We do not collect anything as you browse',
-      body: 'This site sets no cookies, runs no third-party analytics, and stores nothing in your browser.',
+      title: 'Public browsing and forms',
+      body: 'Public pages do not request your clinical records. Pricing is read from the Health ID gateway. When you submit the demo form, your contact details and message are sent to Health ID.',
     },
     {
-      title: 'The demo form sends nothing to us',
-      body: 'The form composes your enquiry and hands it to your own email application. Nothing is transmitted to Health ID until you send that email yourself.',
+      title: 'Demo requests',
+      body: 'The demo form sends the contact details and message you provide to Health ID so the team can respond. A bot check runs in configured environments.',
     },
     {
       title: 'Please do not send patient information',
-      body: 'The demo form asks for your facility, your name and how to reply. Do not include patient details in it, in the notes field, or in any email to us.',
+      body: 'The demo form asks for your organisation, name and how to reply. Do not include patient details in its message field or in any email to us.',
     },
     {
       title: 'Clinical information is different',

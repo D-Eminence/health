@@ -98,6 +98,7 @@ export function ProductsSection() {
                   ))}
                 </dl>
               </div>
+              <p className="text-right text-[11px] font-medium text-white/85">Illustrative view · sample data</p>
             </div>
 
             <div className="flex flex-col gap-4">

@@ -9,14 +9,14 @@ export const PATIENT_HERO = {
   eyebrow: 'Health ID for patients',
   headline: 'Your medical history',
   headlineAccent: 'should arrive before you do.',
-  lede: 'Health ID gives you a place to keep your medical history connected — whether your care comes from a Health ID provider or somewhere else.',
+  lede: 'Health ID gives you a persistent identity and a place to review records shared through participating care teams.',
   primary: 'Get your Health ID',
   secondary: 'I already have a Health ID',
-  footnote: 'Free for patients.',
+  footnote: 'Your records remain subject to the relevant access controls.',
 } as const
 
 export const PATIENT_STEPS = {
-  title: 'Your care history stays connected, wherever you go.',
+  title: 'Your care history can stay connected across participating providers.',
   steps: [
     {
       step: '01',
@@ -39,7 +39,7 @@ export const PATIENT_STEPS = {
 export const PATIENT_JOURNEY = {
   eyebrow: "Hikmah's journey",
   title: 'One record, wherever care happens.',
-  lede: 'Four visits in different places. No repeated registration, no missing context.',
+  lede: 'An illustrative journey through participating care settings.',
   moments: [
     {
       when: 'January',
@@ -59,7 +59,7 @@ export const PATIENT_JOURNEY = {
     {
       when: 'Today',
       where: 'She remains in control.',
-      body: 'Review access history and revoke access at any time.',
+      body: 'Review access history and respond to supported access requests.',
     },
   ],
 } as const
@@ -78,15 +78,15 @@ export const PATIENT_CONTROL = {
       body: 'Review who accessed your information and when.',
     },
     {
-      title: 'Revoke access',
-      body: 'Remove access when a facility no longer needs it.',
+      title: 'Use an access PIN',
+      body: 'Set an access PIN for supported provider access workflows.',
     },
   ],
 } as const
 
 export const PATIENT_UPLOAD = {
-  title: 'Including the records we didn’t create.',
-  body: 'Not every hospital is connected yet. Until yours is, you can add your own scans, test results, prescriptions and discharge summaries to your Health ID — so the history is complete when a doctor finally needs it.',
+  title: 'A record from participating care teams.',
+  body: 'When participating facilities document your care, supported encounters, notes and results can be linked to your Health ID under the applicable access controls.',
 } as const
 
 export const PATIENT_FAQ = {
@@ -100,17 +100,17 @@ export const PATIENT_FAQ = {
     {
       question: 'What does it cost me?',
       answer:
-        'Nothing. Your Health ID is free. Healthcare facilities pay to be part of the network.',
+        'Ask the Health ID team about current patient and facility terms before enrolling.',
     },
     {
       question: 'What if my hospital is not on HID yet?',
       answer:
-        'You can still hold your Health ID and upload your own documents — test results, scans, discharge summaries — so they are with you when you need them.',
+        'You can still create a Health ID. Records from a facility become available through Health ID when that facility participates in the supported workflow.',
     },
     {
       question: 'What happens if I lose my phone?',
       answer:
-        'Your records live with your Health ID, not on your device. You recover your account and everything is still there.',
+        'Your account and supported records are held by Health ID. Use the account recovery flow to regain access.',
     },
   ],
 } as const
@@ -120,5 +120,5 @@ export const PATIENT_CTA = {
   body: 'Create your Health ID and keep your medical information connected as your care continues — wherever you receive it.',
   action: 'Get your Health ID',
   secondary: 'I already have a Health ID',
-  footnote: 'Free for patients.',
+  footnote: 'Your records remain subject to the relevant access controls.',
 } as const

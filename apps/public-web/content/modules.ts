@@ -51,7 +51,7 @@ export const MODULES: readonly HealthModule[] = [
     tab: 'Identity',
     statement: 'One patient identity that every connected facility can verify.',
     caption:
-      'A persistent Health ID replaces the duplicate file a patient acquires at every new facility. Verified by PIN, never by name alone.',
+      'A persistent Health ID helps a facility find the right patient. Record access follows a separate, authorised workflow.',
     panelTitle: 'Patient Lookup',
     workflows: [
       { label: 'Identity verification', steps: ['Patient', 'Health ID', 'Identity verified'] },
@@ -81,7 +81,7 @@ export const MODULES: readonly HealthModule[] = [
         steps: ['Identify patient', 'Consultation', 'Diagnosis', 'Treatment', 'Connected record'],
       },
     ],
-    panelBadge: 'Dr. Bello · Ward 2',
+    panelBadge: 'Dr. Bello · Clinic',
     rows: [
       { label: 'Presenting complaint', value: 'Recorded', tone: 'ok' },
       { label: 'Vitals', value: 'Recorded', tone: 'ok' },
@@ -95,7 +95,7 @@ export const MODULES: readonly HealthModule[] = [
     statement: 'Years of paper folders, turned into records a doctor can search.',
     caption:
       'Capture on a phone camera, OCR-assisted extraction, then human validation before anything is matched to a patient.',
-    panelTitle: 'Migration Batch',
+    panelTitle: 'OCR Job',
     workflows: [
       {
         label: 'Migration workflow',
@@ -104,17 +104,17 @@ export const MODULES: readonly HealthModule[] = [
           'Capture',
           'OCR-assisted extraction',
           'Human validation',
-          'Patient matching',
+          'Patient confirmation',
           'Connected history',
         ],
       },
     ],
-    panelBadge: '248 files',
+    panelBadge: '1 document',
     rows: [
       { label: 'Pages captured', value: 'Complete', tone: 'ok' },
       { label: 'OCR extraction', value: 'Processing', tone: 'active' },
       { label: 'Human validation', value: 'In review', tone: 'pending' },
-      { label: 'Unmatched patients', value: '6 flagged', tone: 'alert' },
+      { label: 'Patient confirmation', value: 'Needed', tone: 'alert' },
     ],
   },
   {
@@ -150,7 +150,7 @@ export const MODULES: readonly HealthModule[] = [
     tab: 'Pharmacy',
     statement: 'Dispensing tied to the prescription, not to a paper slip.',
     caption:
-      'Stock, dispensing and sales across branches — with authorised medication history connected to the patient record.',
+      'Prescription work items, dispensing and reversals stay tied to the patient record under access controls.',
     panelTitle: 'Dispensing',
     workflows: [
       {
@@ -158,33 +158,33 @@ export const MODULES: readonly HealthModule[] = [
         steps: ['Prescription', 'Patient verification', 'Dispensing', 'Medication history'],
       },
     ],
-    panelBadge: 'Branch 02',
+    panelBadge: 'Prescription example',
     rows: [
       { label: 'Prescription received', value: 'Verified', tone: 'ok' },
-      { label: 'Stock check', value: 'Available', tone: 'ok' },
-      { label: 'Allergy conflict', value: 'None found', tone: 'ok' },
-      { label: 'Reorder level', value: '2 items low', tone: 'pending' },
+      { label: 'Dispensing', value: 'Recorded', tone: 'ok' },
+      { label: 'Medication details', value: 'Captured', tone: 'ok' },
+      { label: 'Reversal', value: 'Available when needed', tone: 'pending' },
     ],
   },
   {
     slug: 'outreach',
     tab: 'Outreach',
-    statement: 'Field enrolment that does not end in another lost spreadsheet.',
+    statement: 'Campaign registration cases that can be reconciled.',
     caption:
-      'Register patients in bulk, capture screening data offline, and sync it into a real health identity when connectivity returns.',
+      'Record a registration case under a campaign and link it to an existing patient identity after authorised review.',
     panelTitle: 'Outreach Session',
     workflows: [
       {
         label: 'Outreach workflow',
-        steps: ['Patient registration', 'Health ID', 'Outreach encounter', 'Connected record'],
+        steps: ['Campaign', 'Registration case', 'Identity review', 'Existing patient link'],
       },
     ],
     panelBadge: 'Ilorin · Day 2',
     rows: [
-      { label: 'Patients enrolled', value: '182 today', tone: 'ok' },
-      { label: 'Screening captured', value: 'Recorded', tone: 'ok' },
-      { label: 'Offline queue', value: 'Syncing', tone: 'active' },
-      { label: 'Follow-up flagged', value: '23 patients', tone: 'pending' },
+      { label: 'Campaign', value: 'Active', tone: 'ok' },
+      { label: 'Registration case', value: 'Received', tone: 'ok' },
+      { label: 'Identity resolution', value: 'Pending', tone: 'active' },
+      { label: 'Existing patient link', value: 'Review needed', tone: 'pending' },
     ],
   },
   {
@@ -192,7 +192,7 @@ export const MODULES: readonly HealthModule[] = [
     tab: 'API',
     statement: 'Keep the system you already paid for. Connect it to the network.',
     caption:
-      'Facilities with an existing EHR integrate through the Health ID API instead of migrating. Integrate, do not replace.',
+      'The gateway exposes supported identity, clinical and audit endpoints for approved integrations with facility-scoped access.',
     panelTitle: 'Integration',
     workflows: [
       {
@@ -203,9 +203,9 @@ export const MODULES: readonly HealthModule[] = [
     panelBadge: 'facility.api.v1',
     rows: [
       { label: 'Identity lookup', value: 'Connected', tone: 'ok' },
-      { label: 'Consent handshake', value: 'Connected', tone: 'ok' },
-      { label: 'Record write-back', value: 'Connected', tone: 'ok' },
-      { label: 'Audit stream', value: 'Live', tone: 'active' },
+      { label: 'Authorisation check', value: 'Available', tone: 'ok' },
+      { label: 'Supported record routes', value: 'Available', tone: 'ok' },
+      { label: 'Audit events', value: 'Recorded', tone: 'active' },
     ],
   },
 ]
