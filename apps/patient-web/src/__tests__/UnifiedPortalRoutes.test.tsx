@@ -95,6 +95,18 @@ describe('unified authenticated portal routes', () => {
     expect(calls.patientEnrollmentCurrent).toHaveBeenCalledTimes(2)
   })
 
+  it('keeps a protected patient URL pending when the session check loses the network', async () => {
+    calls.patientSession.mockRejectedValueOnce(new Error('Network unavailable'))
+    open('/profile')
+
+    expect(await screen.findByText('We could not check your session. Try again.')).toBeTruthy()
+    expect(screen.getByTestId('portal-path').textContent).toBe('/profile')
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+
+    await waitFor(() => expect(screen.getByTestId('portal-path').textContent).toBe('/sign-in'))
+    expect(calls.patientSession).toHaveBeenCalledTimes(2)
+  })
+
   it('opens provider sign in directly under /provider', async () => {
     open('/provider/sign-in')
 
@@ -106,6 +118,15 @@ describe('unified authenticated portal routes', () => {
     expect(screen.queryByLabelText('Email or Health ID')).toBeNull()
   })
 
+  it('opens provider password recovery without requiring an existing session', async () => {
+    open('/provider/recover')
+
+    expect(await screen.findByRole('heading', { name: 'Reset your password.' })).toBeTruthy()
+    expect(screen.getByTestId('portal-path').textContent).toBe('/provider/recover')
+    expect(calls.staffSession).not.toHaveBeenCalled()
+    expect(calls.patientSession).not.toHaveBeenCalled()
+  })
+
   it('opens platform administration sign in directly under /admin', async () => {
     open('/admin/sign-in')
 
@@ -115,6 +136,15 @@ describe('unified authenticated portal routes', () => {
     expect(calls.patientSession).not.toHaveBeenCalled()
     expect(calls.staffSession).not.toHaveBeenCalled()
     expect(screen.queryByLabelText('Email or Health ID')).toBeNull()
+  })
+
+  it('opens platform password recovery without requiring an existing session', async () => {
+    open('/admin/recover')
+
+    expect(await screen.findByRole('heading', { name: 'Reset your password.' })).toBeTruthy()
+    expect(screen.getByTestId('portal-path').textContent).toBe('/admin/recover')
+    expect(calls.adminSession).not.toHaveBeenCalled()
+    expect(calls.patientSession).not.toHaveBeenCalled()
   })
 
   it('sends an unknown provider URL to provider sign in when signed out', async () => {

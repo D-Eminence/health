@@ -7,6 +7,7 @@ import { Overview } from './routes/Overview'
 import { SignIn } from './routes/SignIn'
 import { Enrollment } from './routes/Enrollment'
 import { Recovery } from './routes/Recovery'
+import { PrincipalRecovery } from './routes/PrincipalRecovery'
 import { AccessPage, NotificationsPage, PortalShell, ProfilePage, RecordsPage, SettingsPage } from './routes/Portal'
 
 const StaffApp = lazy(async () => ({ default: (await import('./staff/App')).App }))
@@ -42,6 +43,8 @@ function PatientRoutes() {
 /** One authenticated portal origin, with separate session and permission scopes. */
 export function App() {
   return <Routes>
+    <Route path="/provider/recover" element={<PrincipalRecovery audience="staff" />} />
+    <Route path="/admin/recover" element={<PrincipalRecovery audience="admin" />} />
     <Route path="/provider/*" element={<Suspense fallback={<main role="status">Opening provider workspace…</main>}><StaffApp /></Suspense>} />
     <Route path="/admin/*" element={<Suspense fallback={<main role="status">Opening platform workspace…</main>}><AdminApp /></Suspense>} />
     <Route path="/*" element={<SessionProvider><PatientRoutes /></SessionProvider>} />

@@ -54,6 +54,36 @@ export function PortalShell() {
 export function ProfilePage() {
   const { api } = useSession()
   const profile = usePatientResource(api.profile)
+  const [nin, setNin] = useState('')
+  const [verifying, setVerifying] = useState(false)
+  const [verificationError, setVerificationError] = useState<string | null>(null)
+  const [verificationNotice, setVerificationNotice] = useState<string | null>(null)
+  const assurance = profile.data?.assuranceState
+  const eligibleAssurance = assurance === 'NIN_VERIFIED' || assurance === 'LEGACY_MIGRATED'
+  const completeIdentity = Boolean(profile.data?.firstName.trim() && profile.data?.lastName.trim() && profile.data?.dateOfBirth)
+
+  const verifyNin = async (event: FormEvent) => {
+    event.preventDefault()
+    if (verifying || !eligibleAssurance || !completeIdentity || !/^\d{11}$/.test(nin)) return
+    setVerifying(true); setVerificationError(null); setVerificationNotice(null)
+    try {
+      const result = await api.verifyNin(nin)
+      if (result.state === 'verified') {
+        setNin('')
+        setVerificationNotice('NIN verification succeeded. Identity evidence was recorded.')
+        profile.reload()
+      } else if (result.state === 'not_verified') {
+        setVerificationError('This NIN could not be verified against your Health ID profile. Check the number and try again.')
+      } else if (result.state === 'incomplete') {
+        setVerificationError('The identity provider could not complete this verification. Try again later.')
+      } else {
+        setVerificationError('NIN verification is temporarily unavailable. Try again later.')
+      }
+    } catch (cause) {
+      setVerificationError(isHidApiError(cause) ? cause.message : 'NIN verification could not be completed. Try again.')
+    } finally { setVerifying(false) }
+  }
+
   return <section className="patient-section"><p className="patient-eyebrow">Identity</p><h1 className="patient-page-title">Your profile</h1>
     <p className="patient-page-copy">These details come from your verified Health ID account.</p>
     <LoadState loading={profile.loading} error={profile.error} retry={profile.reload} />
@@ -66,6 +96,20 @@ export function ProfilePage() {
       <div><dt>Country</dt><dd>{profile.data.country || '—'}</dd></div>
       <div><dt>Identity assurance</dt><dd>{profile.data.assuranceState || '—'}</dd></div>
     </dl></div>}
+    {profile.data && !profile.loading && !profile.error && <div className="patient-card"><h2>NIN verification</h2>
+      <p className="patient-field-hint">Repeat verification for a NIN already linked to your account. An eligible migrated account may link a matching NIN. The service checks your account and compares your verified profile details before recording the result.</p>
+      {!eligibleAssurance ? <p className="patient-field-hint">This account is not eligible for self-service NIN verification. Identity review is required.</p>
+        : !completeIdentity ? <p className="patient-field-hint">A complete name and birth date are required before NIN verification can be requested.</p>
+          : <form className="patient-form patient-inline-form" onSubmit={event => void verifyNin(event)}>
+            <label>National Identification Number<input type="text" inputMode="numeric" autoComplete="off" spellCheck={false}
+              pattern="[0-9]{11}" minLength={11} maxLength={11} required value={nin}
+              onChange={event => { setNin(event.target.value.replace(/\D/g, '').slice(0, 11)); setVerificationError(null); setVerificationNotice(null) }} /></label>
+            <button type="submit" className="patient-primary-button" disabled={verifying || !/^\d{11}$/.test(nin)}>
+              {verifying ? 'Verifying…' : 'Verify NIN'}</button>
+          </form>}
+      {verificationError && <p role="alert" className="patient-inline-error">{verificationError}</p>}
+      {verificationNotice && <p role="status" className="patient-inline-success">{verificationNotice}</p>}
+    </div>}
   </section>
 }
 

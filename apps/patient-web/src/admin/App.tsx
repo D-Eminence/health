@@ -173,5 +173,6 @@ function AdminSignIn({ onSubmit, error }: { onSubmit: (email: string, password: 
     <button type="submit" className="admin-primary" disabled={pending || (requiresToken && !token)}>
       {pending ? 'Signing in…' : 'Sign in'}
     </button>
+    <p><Link to="/admin/recover">Forgot your password?</Link></p>
   </form></main>
 }

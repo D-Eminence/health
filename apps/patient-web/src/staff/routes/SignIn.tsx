@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
-import { Navigate, useNavigate } from 'react-router-dom'
+import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { Button, Field, Input } from '@hid/ui'
 import { getEnvironment } from '../env'
 import { useStaff } from '../App'
 
-function TurnstileChallenge({ onToken }: { onToken: (token: string) => void }) {
+function TurnstileChallenge({ onToken, resetKey }: { onToken: (token: string) => void; resetKey: number }) {
   const siteKey = getEnvironment().turnstileSiteKey
   const host = useRef<HTMLDivElement>(null)
   const [error, setError] = useState('')
@@ -33,7 +33,7 @@ function TurnstileChallenge({ onToken }: { onToken: (token: string) => void }) {
       document.head.append(script)
     }
     return () => { active = false; if (widgetId && window.turnstile) window.turnstile.remove(widgetId) }
-  }, [siteKey, onToken])
+  }, [siteKey, onToken, resetKey])
 
   if (!siteKey) return null
   return <div><div ref={host} />{error && <p role="alert" className="staff-error">{error}</p>}</div>
@@ -45,6 +45,7 @@ export function SignIn() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [token, setToken] = useState('')
+  const [turnstileResetKey, setTurnstileResetKey] = useState(0)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const siteKey = getEnvironment().turnstileSiteKey
@@ -56,7 +57,11 @@ export function SignIn() {
     setBusy(true)
     try { await login(email.trim(), password, token || undefined); navigate('/provider') }
     catch (caught) { setError(caught instanceof Error ? caught.message : 'Sign in failed.') }
-    finally { setBusy(false) }
+    finally {
+      setToken('')
+      setTurnstileResetKey(value => value + 1)
+      setBusy(false)
+    }
   }
 
   return <div className="staff-auth-page">
@@ -68,11 +73,11 @@ export function SignIn() {
       <form className="staff-form" onSubmit={event => void submit(event)}>
         <Field label="Work email" htmlFor="staff-email" required><Input id="staff-email" type="email" autoComplete="username" value={email} onChange={event => setEmail(event.target.value)} required /></Field>
         <Field label="Password" htmlFor="staff-password" required><Input id="staff-password" type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} required /></Field>
-        <TurnstileChallenge onToken={setToken} />
+        <TurnstileChallenge onToken={setToken} resetKey={turnstileResetKey} />
         {error && <p className="staff-error" role="alert">{error}</p>}
         <Button type="submit" disabled={busy || !!siteKey && !token}>{busy ? 'Signing in…' : 'Sign in'}</Button>
       </form>
-      <p className="staff-muted">Need access or password recovery? Contact your facility administrator. Self-service staff recovery is not exposed by this backend.</p>
+      <p className="staff-muted"><Link to="/provider/recover">Forgot your password?</Link> For a new staff account, contact your facility administrator.</p>
     </main>
     <aside className="staff-auth-aside" aria-label="About secure access">
       <p className="staff-eyebrow">One connected care record</p>
