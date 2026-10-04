@@ -3,7 +3,6 @@ import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import { ToastProvider } from '@hid/ui'
 import { App } from './App'
-import { SessionProvider } from './session'
 import './index.css'
 
 const container = document.getElementById('root')
@@ -13,9 +12,7 @@ createRoot(container).render(
   <StrictMode>
     <BrowserRouter>
       <ToastProvider>
-        <SessionProvider>
-          <App />
-        </SessionProvider>
+        <App />
       </ToastProvider>
     </BrowserRouter>
   </StrictMode>,

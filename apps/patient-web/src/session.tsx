@@ -1,84 +1,107 @@
-/**
- * Session wiring for the patient application.
- *
- * This is the seam between the authentication provider and the rest of the
- * application. It holds the in-memory session store, hands the API client a
- * token supplier, and clears state when the backend rejects a token.
- *
- * What it does *not* do is authenticate anyone. Signing in, refreshing tokens
- * and enforcing MFA belong to the Health ID authentication architecture that
- * already exists; `signIn` below is the single place where that provider will
- * be attached, and it is marked accordingly rather than guessed at.
- */
-
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { createHidApi, type HidApiFor } from '@hid/api'
-import { createApiClient } from '@hid/http'
+import { createApiClient, isHidApiError } from '@hid/http'
+import { createRegisteredBrowserClient } from '@hid/api'
 import { createLogger } from '@hid/observability'
 import { createSessionStore, type AuthPrincipal, type SessionState } from '@hid/auth'
+import { createPatientApi, type PatientApi, type PatientSession } from './api'
 import { getEnvironment } from './env'
 
 interface SessionContextValue {
   readonly state: SessionState
-  readonly api: HidApiFor<'patient-web'>
-  /** Ends the session locally. The backend invalidates its own state separately. */
-  readonly signOut: () => void
+  readonly api: PatientApi
+  readonly sessionError: string | null
+  readonly retrySessionCheck: () => void
+  readonly signIn: (email: string, password: string, turnstileToken: string) => Promise<void>
+  readonly acceptGoogleSession: (session: PatientSession) => void
+  readonly refresh: () => Promise<void>
+  readonly signOut: () => Promise<void>
 }
 
 const SessionContext = createContext<SessionContextValue | null>(null)
+
+/** The backend is authoritative: only a verified patient actor opens this app. */
+function patientPrincipal(session: PatientSession): AuthPrincipal {
+  const actor = session?.actor
+  if (actor?.kind !== 'patient' || !actor.subject || !actor.patientId || !actor.accountId) {
+    throw new Error('This session does not belong to a patient account.')
+  }
+  return { kind: 'patient', subjectId: actor.subject, appRole: 'patient', assuranceLevel: 'aal1' }
+}
 
 export function SessionProvider({ children }: { children: ReactNode }) {
   const environment = getEnvironment()
   const storeRef = useRef(createSessionStore())
   const store = storeRef.current
-
   const [state, setState] = useState<SessionState>(store.getState())
+  const [sessionError, setSessionError] = useState<string | null>(null)
+  const [checkKey, setCheckKey] = useState(0)
 
   useEffect(() => store.subscribe(setState), [store])
 
   const api = useMemo(() => {
-    const logger = createLogger({
-      minLevel: environment.name === 'local' ? 'debug' : 'warn',
-      baseContext: { app: 'patient-web', environment: environment.name },
-    })
-
-    const client = createApiClient({
+    let patientApi: PatientApi | null = null
+    const client = createRegisteredBrowserClient(createApiClient({
       baseUrl: environment.apiBaseUrl,
       clientId: 'patient-web',
-      logger,
-      // The token lives in the store's closure, never in storage.
-      getAccessToken: () => store.getAccessToken(),
-      // A rejected token means this session is over. Clearing here is what makes
-      // the guards re-evaluate and route the user back to sign-in.
-      onUnauthorized: () => store.clear(),
-    })
-
-    return createHidApi({ app: 'patient-web', client })
+      sessionMode: 'cookie',
+      logger: createLogger({ minLevel: environment.name === 'local' ? 'warn' : 'error',
+        baseContext: { app: 'patient-web', environment: environment.name } }),
+      // Protected requests try a refresh before the final 401 clears the session.
+      onUnauthorized: () => { if (store.getState().status === 'authenticated') store.clear() },
+      refreshSession: async () => { await patientApi?.refresh() },
+    }), 'patient-web')
+    patientApi = createPatientApi(client)
+    return patientApi
   }, [environment, store])
 
   useEffect(() => {
-    // CONTRACT GAP — the session bootstrap goes here.
-    //
-    // Restoring a session on load requires the Health ID authentication
-    // provider: reading the current token, its assurance level, and the
-    // principal it belongs to. That integration is not built in this task
-    // because the provider boundary at the Gateway has not been confirmed
-    // (docs/OPEN-QUESTIONS.md, Q1 and Q4).
-    //
-    // Until it is, the application resolves to anonymous rather than
-    // pretending to be signed in. Failing closed is the only safe default.
-    store.setAnonymous()
-  }, [store])
+    let active = true
+    void (async () => {
+      try {
+        let session: PatientSession
+        try {
+          session = await api.session()
+        } catch (error) {
+          if (!isHidApiError(error) || error.status !== 401) throw error
+          session = await api.refresh()
+        }
+        if (active) {
+          store.setAuthenticated(patientPrincipal(session))
+          setSessionError(null)
+        }
+      } catch (error) {
+        if (!active) return
+        if (isHidApiError(error) && error.status === 401) {
+          store.setAnonymous()
+          setSessionError(null)
+        } else setSessionError('We could not check your session. Try again.')
+      }
+    })()
+    return () => { active = false }
+  }, [api, store, checkKey])
 
-  const value = useMemo<SessionContextValue>(
-    () => ({
-      state,
-      api,
-      signOut: () => store.clear(),
-    }),
-    [state, api, store],
-  )
+  const value = useMemo<SessionContextValue>(() => ({
+    state, api, sessionError,
+    retrySessionCheck: () => { setSessionError(null); setCheckKey(value => value + 1) },
+    signIn: async (email, password, turnstileToken) => {
+      const session = await api.login(email, password, turnstileToken)
+      store.setAuthenticated(patientPrincipal(session))
+      setSessionError(null)
+    },
+    acceptGoogleSession: session => {
+      store.setAuthenticated(patientPrincipal(session))
+      setSessionError(null)
+    },
+    refresh: async () => {
+      const session = await api.refresh()
+      store.setAuthenticated(patientPrincipal(session))
+    },
+    signOut: async () => {
+      await api.logout()
+      store.clear()
+    },
+  }), [state, api, sessionError, store])
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>
 }
@@ -89,17 +112,17 @@ export function useSession(): SessionContextValue {
   return value
 }
 
-/** Test seam: builds a provider value without a network or a real environment. */
-export function createTestSessionValue(
-  principal: AuthPrincipal | null,
-  api: HidApiFor<'patient-web'>,
-): SessionContextValue {
+/** Test seam for route guards and screens; no network or environment needed. */
+export function createTestSessionValue(principal: AuthPrincipal | null, api: PatientApi): SessionContextValue {
   return {
-    state: principal
-      ? { status: 'authenticated', principal }
-      : { status: 'anonymous', principal: null },
+    state: principal ? { status: 'authenticated', principal } : { status: 'anonymous', principal: null },
     api,
-    signOut: () => {},
+    sessionError: null,
+    retrySessionCheck: () => {},
+    signIn: async () => {},
+    acceptGoogleSession: () => {},
+    refresh: async () => {},
+    signOut: async () => {},
   }
 }
 

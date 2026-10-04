@@ -1,34 +1,39 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
 /**
- * The patient application.
+ * The authenticated Health ID portal.
  *
  * Vite rather than Next.js, deliberately. Every screen here renders data that
- * belongs to one signed-in person: there is nothing to pre-render, nothing to
- * cache at the edge, and no crawler to serve. Adding a server rendering tier
- * would add a hop that handles PHI without adding anything a patient benefits
- * from. The existing operational application is already built this way, so this
- * is also the path that does not require rewriting what works.
+ * belongs to a signed-in patient, provider, or administrator. There is nothing
+ * to pre-render or cache at the edge. The browser uses a same-origin gateway
+ * route for cookie sessions, while server rendering would add a PHI-handling hop.
  */
-export default defineConfig({
-  // Only `VITE_HID_` variables reach the bundle. Anything else stays server-side.
-  envPrefix: 'VITE_HID_',
-  plugins: [react(), tailwindcss()],
-  server: { port: 3200, strictPort: true },
-  preview: { port: 3200, strictPort: true },
-  build: {
-    sourcemap: true,
-    rollupOptions: {
-      output: {
-        manualChunks(id: string) {
-          if (!id.includes('node_modules')) return undefined
-          if (id.includes('/react-router')) return 'vendor-router'
-          if (id.includes('/react-dom/') || id.includes('/react/')) return 'vendor-react'
-          return undefined
+export default defineConfig(({ mode }) => {
+  const localGateway = loadEnv(mode, process.cwd(), '').HID_LOCAL_GATEWAY_ORIGIN ?? 'http://localhost:3000'
+  const target = new URL(localGateway)
+  if (!['http:', 'https:'].includes(target.protocol) || target.pathname !== '/' || target.search || target.hash) {
+    throw new Error('HID_LOCAL_GATEWAY_ORIGIN must be an HTTP origin.')
+  }
+  return {
+    // Only `VITE_HID_` variables reach the bundle. Anything else stays server-side.
+    envPrefix: 'VITE_HID_',
+    plugins: [react(), tailwindcss()],
+    server: { port: 3200, strictPort: true, proxy: { '/api/v1': { target: target.origin, changeOrigin: true } } },
+    preview: { port: 3200, strictPort: true },
+    build: {
+      sourcemap: true,
+      rollupOptions: {
+        output: {
+          manualChunks(id: string) {
+            if (!id.includes('node_modules')) return undefined
+            if (id.includes('/react-router')) return 'vendor-router'
+            if (id.includes('/react-dom/') || id.includes('/react/')) return 'vendor-react'
+            return undefined
+          },
         },
       },
     },
-  },
+  }
 })

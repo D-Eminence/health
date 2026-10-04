@@ -18,7 +18,7 @@ export interface RequireAccessProps {
 }
 
 export function RequireAccess({ requirement, children }: RequireAccessProps) {
-  const { state } = useSession()
+  const { state, sessionError, retrySessionCheck } = useSession()
   const decision = evaluateAccess(state, requirement)
 
   switch (decision.outcome) {
@@ -30,9 +30,12 @@ export function RequireAccess({ requirement, children }: RequireAccessProps) {
       // signed-in patient to the sign-in screen on every page load.
       return (
         <main className="patient-page">
-          <div role="status" aria-live="polite" className="patient-access-state">
+          {sessionError ? <div role="alert" className="patient-access-state">
+            <p>{sessionError}</p>
+            <button type="button" onClick={retrySessionCheck}>Try again</button>
+          </div> : <div role="status" aria-live="polite" className="patient-access-state">
             Checking your session…
-          </div>
+          </div>}
         </main>
       )
 

@@ -1,5 +1,6 @@
 @import 'tailwindcss';
 @import '@hid/ui/tokens.css';
+@source '../../../packages/ui/src';
 
 /*
  * The patient application does not make a third-party font request. These
@@ -203,4 +204,108 @@
   .patient-auth-page {
     padding-inline: 24px;
   }
+}
+
+@layer components {
+  .patient-auth-card {
+    width: min(100%, 520px);
+    padding: clamp(24px, 5vw, 44px);
+    border: 1px solid var(--color-line-strong);
+    border-radius: var(--radius-dialog);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-dialog);
+  }
+  .patient-enroll-card { width: min(100%, 640px); }
+  .patient-auth-brand, .patient-app-logo { display: inline-flex; align-items: center; margin-bottom: 34px; color: var(--color-ink); font-family: var(--font-display); font-size: 28px; text-decoration: none; }
+  .patient-auth-brand span, .patient-app-logo span { color: var(--color-brand); }
+  .patient-form { display: grid; gap: 18px; margin-top: 28px; }
+  .patient-form h2, .patient-card h2, .patient-success h2 { margin: 0 0 6px; color: var(--color-ink); font-size: 20px; font-weight: 600; }
+  .patient-form label, .patient-deny-form label { display: grid; gap: 7px; color: var(--color-ink); font-size: 13px; font-weight: 600; }
+  .patient-form input, .patient-form select, .patient-deny-form input { width: 100%; min-height: 46px; padding: 10px 12px; border: 1px solid var(--color-line-strong); border-radius: var(--radius-control); background: var(--color-surface); color: var(--color-ink); font: inherit; font-size: 15px; }
+  .patient-form input:focus, .patient-form select:focus, .patient-deny-form input:focus { border-color: var(--color-brand); }
+  .patient-form-aside { text-align: right; }
+  .patient-form-aside a, .patient-auth-footer a, .patient-text-button { color: var(--color-brand); font-weight: 600; }
+  .patient-primary-button, .patient-secondary-button { display: inline-flex; min-height: 44px; align-items: center; justify-content: center; padding: 10px 16px; border: 1px solid var(--color-brand); border-radius: var(--radius-button); font-size: 14px; font-weight: 600; text-decoration: none; cursor: pointer; }
+  .patient-primary-button { background: var(--color-brand); color: #fff; }
+  .patient-secondary-button { background: var(--color-surface); color: var(--color-brand); }
+  .patient-primary-button:hover:not(:disabled) { background: var(--color-brand-hover); }
+  .patient-primary-button:disabled, .patient-secondary-button:disabled { cursor: not-allowed; opacity: .55; }
+  .patient-auth-footer { margin: 28px 0 0; color: var(--color-muted); font-size: 14px; }
+  .patient-auth-separator { display: grid; gap: 14px; margin-top: 28px; padding-top: 22px; border-top: 1px solid var(--color-line-strong); color: var(--color-muted); font-size: 13px; text-align: center; }
+  .patient-google { max-width: 400px; margin-inline: auto; width: 100%; }
+  .patient-turnstile { min-height: 64px; }
+  .patient-inline-error, .patient-inline-success { margin: 18px 0; padding: 12px 14px; border-radius: var(--radius-control); font-size: 14px; line-height: 1.45; }
+  .patient-inline-error { background: #fff0ef; color: #9b211d; }
+  .patient-inline-success { background: #ecf9f1; color: #126239; }
+  .patient-field-hint { margin: 0; color: var(--color-muted); font-size: 13px; line-height: 1.5; }
+  .patient-text-button { justify-self: start; padding: 0; border: 0; background: transparent; font-size: 13px; cursor: pointer; }
+  .patient-step-list { display: flex; gap: 8px; margin: 26px 0 0; padding: 0; list-style: none; }
+  .patient-step-list li { flex: 1; padding: 9px 4px; border-bottom: 2px solid var(--color-line-strong); color: var(--color-muted); font-size: 12px; text-align: center; }
+  .patient-step-list li[aria-current] { border-color: var(--color-brand); color: var(--color-brand); font-weight: 700; }
+  .patient-success { display: grid; gap: 14px; margin-top: 26px; }
+  .patient-success strong { color: var(--color-brand); font-family: var(--font-mono); font-size: 22px; overflow-wrap: anywhere; }
+
+  .patient-app { min-height: 100svh; background: var(--color-surface-sunk); }
+  .patient-app-header { position: sticky; top: 0; z-index: 20; border-bottom: 1px solid var(--color-line-strong); background: var(--color-surface); }
+  .patient-app-header-inner { display: flex; width: min(100%, 1440px); min-height: 66px; align-items: center; gap: 22px; margin: auto; padding: 0 24px; }
+  .patient-app-logo { margin: 0; font-size: 25px; }
+  .patient-header-title { color: var(--color-muted); font-size: 13px; }
+  .patient-signout { min-height: 40px; margin-left: auto; padding: 8px 13px; border: 1px solid var(--color-line-strong); border-radius: var(--radius-button); background: var(--color-surface); color: var(--color-ink); cursor: pointer; }
+  .patient-app-body { display: grid; grid-template-columns: 220px minmax(0, 1fr); width: min(100%, 1440px); min-height: calc(100svh - 66px); margin: auto; }
+  .patient-side-nav { display: grid; align-content: start; gap: 4px; padding: 30px 14px; border-right: 1px solid var(--color-line-strong); }
+  .patient-nav-link { display: block; padding: 12px 15px; border-radius: var(--radius-card); color: var(--color-muted); font-size: 14px; text-decoration: none; }
+  .patient-nav-link:hover, .patient-nav-link.active { background: var(--color-brand-tint); color: var(--color-brand); }
+  .patient-nav-link.active { font-weight: 700; }
+  .patient-main { min-width: 0; padding: 48px clamp(20px, 5vw, 68px) 80px; }
+  .patient-section { display: grid; align-content: start; gap: 24px; max-width: 920px; }
+  .patient-section > .patient-eyebrow { margin: 0 0 -14px; }
+  .patient-section > .patient-page-copy { margin: -14px 0 0; }
+  .patient-card { min-width: 0; padding: 24px; border: 1px solid var(--color-line-strong); border-radius: var(--radius-card); background: var(--color-surface); }
+  .patient-card button:not(.patient-primary-button):not(.patient-secondary-button) { min-height: 38px; padding: 6px 11px; border: 1px solid var(--color-line-strong); border-radius: var(--radius-button); background: var(--color-surface); color: var(--color-brand); cursor: pointer; }
+  .patient-loading { color: var(--color-muted); }
+  .patient-identity-card { display: grid; gap: 8px; min-height: 190px; padding: 28px; border-radius: var(--radius-card); background: var(--color-inverse-surface); color: var(--color-inverse-ink); }
+  .patient-identity-card .patient-eyebrow { color: #a7cbf5; }
+  .patient-identity-card strong { font-family: var(--font-mono); font-size: clamp(22px, 3vw, 32px); overflow-wrap: anywhere; }
+  .patient-identity-card p { margin: 0; color: var(--color-inverse-muted); }
+  .patient-identity-card a { justify-self: start; color: #b8d8f7; text-decoration: none; }
+  .patient-overview-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+  .patient-action-card { display: grid; align-content: start; gap: 12px; color: var(--color-muted); font-size: 14px; text-decoration: none; }
+  .patient-action-card strong { color: var(--color-ink); font-size: 18px; }
+  .patient-action-card b { align-self: end; margin-top: 22px; color: var(--color-brand); }
+  .patient-details { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; margin: 18px 0 0; }
+  .patient-details div { min-width: 0; padding-top: 12px; border-top: 1px solid var(--color-line); }
+  .patient-details dt { color: var(--color-muted); font-size: 12px; }
+  .patient-details dd { margin: 5px 0 0; color: var(--color-ink); font-size: 15px; overflow-wrap: anywhere; }
+  .patient-code { font-family: var(--font-mono); font-weight: 700; }
+  .patient-empty { color: var(--color-muted); }
+  .patient-list { margin: 12px 0 0; padding: 0; list-style: none; }
+  .patient-list li { display: flex; justify-content: space-between; gap: 20px; padding: 17px 0; border-top: 1px solid var(--color-line); }
+  .patient-list li > div:first-child { display: grid; gap: 5px; min-width: 0; }
+  .patient-list strong { color: var(--color-ink); font-size: 15px; }
+  .patient-list span { color: var(--color-muted); font-size: 13px; }
+  .patient-list p { margin: 4px 0 0; color: var(--color-muted); font-size: 13px; }
+  .patient-note { flex-direction: column; }
+  .patient-note p { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .patient-access-item { flex-wrap: wrap; }
+  .patient-decision-actions { display: flex; align-items: start; gap: 8px; }
+  .patient-deny-form { display: flex; width: 100%; align-items: end; gap: 10px; }
+  .patient-deny-form label { flex: 1; }
+  .patient-inline-form { grid-template-columns: minmax(0, 1fr) auto; align-items: end; max-width: 420px; }
+}
+
+@media (max-width: 900px) {
+  .patient-app-body { grid-template-columns: 1fr; }
+  .patient-side-nav { display: flex; gap: 4px; overflow-x: auto; padding: 8px 16px; border-right: 0; border-bottom: 1px solid var(--color-line-strong); background: var(--color-surface); white-space: nowrap; }
+  .patient-nav-link { flex: 0 0 auto; padding: 10px 12px; }
+  .patient-main { padding: 32px 24px 64px; }
+}
+@media (max-width: 640px) {
+  .patient-auth-card { padding: 24px 18px; box-shadow: none; }
+  .patient-app-header-inner { padding-inline: 16px; }
+  .patient-header-title { display: none; }
+  .patient-main { padding: 28px 16px 56px; }
+  .patient-overview-grid, .patient-details { grid-template-columns: 1fr; }
+  .patient-card { padding: 18px; }
+  .patient-list li, .patient-deny-form, .patient-inline-form { display: grid; grid-template-columns: 1fr; }
+  .patient-decision-actions { justify-content: start; }
 }
