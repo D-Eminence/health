@@ -59,13 +59,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     let active = true
     void (async () => {
       try {
-        let session: PatientSession
-        try {
-          session = await api.session()
-        } catch (error) {
-          if (!isHidApiError(error) || error.status !== 401) throw error
-          session = await api.refresh()
-        }
+        const session = await api.session()
         if (active) {
           store.setAuthenticated(patientPrincipal(session))
           setSessionError(null)
@@ -75,7 +69,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         if (isHidApiError(error) && error.status === 401) {
           store.setAnonymous()
           setSessionError(null)
-        } else setSessionError('We could not check your session. Try again.')
+        } else {
+          setSessionError('We could not check your session. Try again.')
+        }
       }
     })()
     return () => { active = false }
