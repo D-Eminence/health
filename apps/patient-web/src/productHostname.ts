@@ -6,6 +6,9 @@ export const STAFF_PRODUCT_ROUTES = {
   outreach: '/provider/outreach',
 } as const
 
+export const PLATFORM_ADMIN_HOSTNAME = 'admin.healthidentitydirectory.com'
+export const PLATFORM_ADMIN_ROUTE = '/admin/overview'
+
 export type StaffProductKey = keyof typeof STAFF_PRODUCT_ROUTES
 
 export interface StaffProduct {
@@ -22,11 +25,22 @@ const STAFF_PRODUCT_HOSTNAMES: Record<string, StaffProduct> = {
   'outreach.healthidentitydirectory.com': { key: 'outreach', hostname: 'outreach.healthidentitydirectory.com', route: STAFF_PRODUCT_ROUTES.outreach },
 }
 
+function normalizeHostname(hostname: string): string {
+  return hostname.trim().toLowerCase().replace(/\.+$/, '')
+}
+
 export function resolveStaffProductHostname(hostname: string): StaffProduct | null {
-  const normalized = hostname.trim().toLowerCase().replace(/\.+$/, '')
-  return STAFF_PRODUCT_HOSTNAMES[normalized] ?? null
+  return STAFF_PRODUCT_HOSTNAMES[normalizeHostname(hostname)] ?? null
 }
 
 export function isStaffProductRoute(pathname: string): boolean {
   return Object.values(STAFF_PRODUCT_ROUTES).includes(pathname as (typeof STAFF_PRODUCT_ROUTES)[StaffProductKey])
+}
+
+export function isPlatformAdminHostname(hostname: string): boolean {
+  return normalizeHostname(hostname) === PLATFORM_ADMIN_HOSTNAME
+}
+
+export function isPlatformAdminRoute(pathname: string): boolean {
+  return pathname === '/admin' || pathname === PLATFORM_ADMIN_ROUTE || pathname.startsWith('/admin/')
 }
