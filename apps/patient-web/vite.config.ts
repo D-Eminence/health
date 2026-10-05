@@ -17,10 +17,22 @@ export default defineConfig(({ mode }) => {
     throw new Error('HID_LOCAL_GATEWAY_ORIGIN must be an HTTP origin.')
   }
   return {
-    // Only `VITE_HID_` variables reach the bundle. Anything else stays server-side.
+    // Only VITE_HID_ variables reach the bundle. Anything else stays server-side.
     envPrefix: 'VITE_HID_',
     plugins: [react(), tailwindcss()],
-    server: { port: 3200, strictPort: true, proxy: { '/api/v1': { target: target.origin, changeOrigin: true } } },
+    server: {
+      port: 3200,
+      strictPort: true,
+      allowedHosts: [
+        'ehr.healthidentitydirectory.com',
+        'lab.healthidentitydirectory.com',
+        'pharmacy.healthidentitydirectory.com',
+        'migrate.healthidentitydirectory.com',
+        'outreach.healthidentitydirectory.com',
+        'admin.healthidentitydirectory.com',
+      ],
+      proxy: { '/api/v1': { target: target.origin, changeOrigin: true } },
+    },
     preview: { port: 3200, strictPort: true },
     build: {
       sourcemap: true,
