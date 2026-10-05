@@ -9,7 +9,7 @@ import { Enrollment } from './routes/Enrollment'
 import { Recovery } from './routes/Recovery'
 import { PrincipalRecovery } from './routes/PrincipalRecovery'
 import { AccessPage, NotificationsPage, PortalShell, ProfilePage, RecordsPage, SettingsPage } from './routes/Portal'
-import { resolveStaffProductHostname } from './productHostname'
+import { resolveStaffProductHostname, isPlatformAdminHostname, PLATFORM_ADMIN_ROUTE } from './productHostname'
 
 const StaffApp = lazy(async () => ({ default: (await import('./staff/App')).App }))
 const AdminApp = lazy(async () => ({ default: (await import('./admin/App')).App }))
@@ -43,7 +43,12 @@ function PatientRoutes() {
 
 function ProductHostnameGate({ children }: { children: React.ReactNode }) {
   const location = useLocation()
-  const product = resolveStaffProductHostname(window.location.hostname)
+  const hostname = window.location.hostname
+  const product = resolveStaffProductHostname(hostname)
+
+  if (isPlatformAdminHostname(hostname) && location.pathname === '/') {
+    return <Navigate to={PLATFORM_ADMIN_ROUTE} replace />
+  }
 
   if (product && location.pathname === '/') {
     return <Navigate to={product.route} replace />
