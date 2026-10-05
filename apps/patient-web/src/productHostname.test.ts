@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { isStaffProductRoute, resolveStaffProductHostname } from './productHostname'
+import {
+  isPlatformAdminHostname,
+  isPlatformAdminRoute,
+  isStaffProductRoute,
+  resolveStaffProductHostname,
+} from './productHostname'
 
 describe('resolveStaffProductHostname', () => {
   it.each([
@@ -37,5 +42,20 @@ describe('isStaffProductRoute', () => {
     expect(isStaffProductRoute('/provider/outreach')).toBe(true)
     expect(isStaffProductRoute('/provider')).toBe(false)
     expect(isStaffProductRoute('/provider/patients')).toBe(false)
+  })
+})
+
+describe('platform admin hostname', () => {
+  it('recognizes the admin hostname', () => {
+    expect(isPlatformAdminHostname('admin.healthidentitydirectory.com')).toBe(true)
+    expect(isPlatformAdminHostname('ADMIN.HEALTHIDENTITYDIRECTORY.COM.')).toBe(true)
+    expect(isPlatformAdminHostname('healthidentitydirectory.com')).toBe(false)
+  })
+
+  it('recognizes the admin routes', () => {
+    expect(isPlatformAdminRoute('/admin')).toBe(true)
+    expect(isPlatformAdminRoute('/admin/overview')).toBe(true)
+    expect(isPlatformAdminRoute('/admin/facilities')).toBe(true)
+    expect(isPlatformAdminRoute('/provider/clinical')).toBe(false)
   })
 })
