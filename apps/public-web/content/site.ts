@@ -10,6 +10,8 @@ export const ROUTES = {
   providers: '/providers',
   patients: '/patients',
   products: '/products',
+  providerApplication: '/provider/apply',
+  providerCompletion: '/provider/complete',
   /** Identity belongs to the patient journey, not a duplicate provider product page. */
   product: (slug: string) => (slug === 'identity' ? '/patients' : `/products/${slug}`),
   pricing: '/pricing',
@@ -47,17 +49,29 @@ export const SOLUTION_IMAGES: Record<SolutionAudienceId, { src: string; alt: str
 }
 
 
-/**
- * Destinations owned by the authenticated applications, not by this site.
- *
- * These are absolute paths on the application origin today. When patient-web
- * and staff-web move to their own hosts, these become configured URLs — which
- * is why they are gathered here rather than inlined in a nav component.
- */
+/** The authenticated portal serves patient, provider and admin journeys. */
+function portalOrigin(configured: string | undefined, localOrigin: string): string {
+  if (!configured) {
+    if (process.env.NEXT_PUBLIC_HID_ENVIRONMENT === 'staging'
+      || process.env.NEXT_PUBLIC_HID_ENVIRONMENT === 'production') {
+      throw new Error('The authenticated portal origin must be configured outside local development.')
+    }
+    return localOrigin
+  }
+  const url = new URL(configured)
+  if (!['http:', 'https:'].includes(url.protocol) || url.pathname !== '/' || url.search || url.hash
+    || (process.env.NEXT_PUBLIC_HID_ENVIRONMENT !== 'local' && url.protocol !== 'https:')) {
+    throw new Error('Authenticated app origin must be an HTTPS origin outside local development.')
+  }
+  return url.origin
+}
+
+const PORTAL_ORIGIN = portalOrigin(process.env.NEXT_PUBLIC_HID_PORTAL_ORIGIN, 'http://localhost:3200')
+
 export const APP_ENTRY = {
-  patientSignIn: '/patient',
-  patientSignUp: '/patient',
-  staffSignIn: '/hospital',
+  patientSignIn: `${PORTAL_ORIGIN}/sign-in`,
+  patientSignUp: `${PORTAL_ORIGIN}/enroll`,
+  staffSignIn: `${PORTAL_ORIGIN}/provider/sign-in`,
 } as const
 
 export interface Audience {
@@ -73,7 +87,7 @@ export const AUDIENCES: readonly Audience[] = [
   {
     id: 'patient',
     title: 'Patient',
-    body: 'Get a Health ID that carries all your health records.',
+    body: 'Create your Health ID and view the care records available to your account.',
     href: ROUTES.patients,
     image: '/brand/chooser-patient.png',
     imageAlt: 'A person holding a phone showing their Health ID record',

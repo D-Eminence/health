@@ -1,5 +1,6 @@
 export {
   APP_BOUNDARIES,
+  APP_ROUTE_GRANTS,
   BoundaryViolationError,
   assertEndpointAllowed,
   canUseService,
@@ -14,7 +15,9 @@ export {
   findEndpoint,
   hasContracts,
 } from './registry'
-export type { ContractStatus, EndpointAuth, EndpointDescriptor, HidService } from './registry'
+export type { ContractStatus, EndpointAuth, EndpointDescriptor, EndpointMethod, HidService } from './registry'
+export { BrowserRouteError, assertRegisteredBrowserRequest } from './browser-routes'
+export type { BrowserRouteErrorCode } from './browser-routes'
 export {
   PRIVILEGED_ROLES,
   isPrivilegedRole,
@@ -33,3 +36,19 @@ export type {
   HidStaffRole,
   UnverifiedPayload,
 } from './domain'
+export type {
+  ClinicalRequestHeaders,
+  CreateDemoRequest,
+  DemoProduct,
+  DemoRequestAccepted,
+  HidActor,
+  HidAuthSession,
+  HidFacilityAssignment,
+  HidProblemDetails,
+  PatientEnrollmentProgress,
+  PatientRecordSummary,
+  PublicPrice,
+  PublicPricingResponse,
+  RecoveryOtpStart,
+  RecoveryOtpVerified,
+} from './wire'

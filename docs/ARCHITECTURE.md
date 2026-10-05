@@ -1,324 +1,141 @@
-# Health ID frontend architecture
+# Frontend architecture
 
-This repository is the frontend layer of the Health ID platform. It is a
-consumer of the existing backend, and it contains no backend code.
+This document describes the code in this repository and the `hid-system`
+gateway/API audited at commit `c4b5445`. It supersedes the earlier plan based on
+the historical `hid-unified` Supabase functions. `hid-1.0`, `Dashboard.zip` and
+`HID.html` informed visual and workflow coverage; their local fixtures do not
+define API behavior. The [gap map](./HEALTH_ID_COMPLETE_FRONTEND_GAP_MAP.md)
+records that baseline audit and should not be read as today's completion list.
 
-Everything below is grounded in the Health ID codebase as it exists at the
-frozen successor release `dfd07792a25dd9af9ec79972da350b0bda4bbcf7`. Where the
-existing system does not answer a question, the question is recorded in
-[OPEN-QUESTIONS.md](./OPEN-QUESTIONS.md) rather than answered by assumption.
+## Deployment shape
 
----
-
-## 1. What already exists
-
-Read from the current `hid-unified` repository before any of this was designed:
-
-| Area | Current state |
-| --- | --- |
-| Application | One React 18 + TypeScript SPA built with Vite, serving landing, patient, hospital/staff, admin, outreach and migrate in a single route table |
-| Styling | Hand-written CSS (`src/index.css`) plus a 31 KB `components/ui.tsx`. No Tailwind |
-| API surface | 60 Deno edge functions under `<supabase-url>/functions/v1/*` |
-| Transport | `src/lib/hidApi.ts` (78 KB) — `edgeRequest()` builds `${VITE_SUPABASE_URL}/functions/v1/<fn>`, attaching `apikey` and `Authorization: Bearer <token>` |
-| Error contract | `supabase/functions/_shared/http.ts` returns `{ code, message, requestId, retryable, status }` and sets `X-Request-ID` / `X-Response-Time-Ms` |
-| Auth | Supabase GoTrue: password, OTP, Google ID token, TOTP MFA (`aal1`/`aal2`). Roles `patient` / `clinician` / `org_admin` / `platform_admin` |
-| CORS | Allowlist of `healthidentitydirectory.com`, `www.`, `localhost:3000`, overridable via `HID_ALLOWED_ORIGIN` |
-| Deployment | GitHub Actions → Vercel (preview + production), Cloudflare for DNS/CDN and Turnstile |
-| Testing | None. No test runner, no linter. CI runs `npm audit`, two contract-verification scripts, and a build |
-
-Three things in the current frontend conflict with the target architecture and
-are called out here so they are fixed deliberately rather than carried forward:
-
-1. **Identifying data in `localStorage`.** `src/lib/auth.ts` persists
-   `hid_patient_session` (`hidCode`, `phone`, `fullName`) and `hid_staff_session`.
-2. **Seven direct database reads from the browser.** `supabase.from()` against
-   `hid_outreach_campaigns`, `hid_outreach_workers`, `hid_outreach_invites`,
-   `hid_public_product_prices` and `notifications`, bypassing the API boundary.
-3. **A mixed repository.** `hid-unified` contains both the SPA and
-   `supabase/functions` + `supabase/migrations`.
-
----
-
-## 2. Target shape
-
-```
-Browser
-  → Cloudflare
-  → Health ID Gateway/API
-  → Health ID backend services
-  → database / infrastructure
+```text
+Public browser  → public-web origin → /api/v1 → hid-system gateway → services
+Portal browser  → one portal origin → /api/v1 → hid-system gateway → services
 ```
 
-The browser addresses exactly one host: the Gateway base URL for its
-environment. It never learns the topology behind it. `scripts/check-boundaries.mjs`
-fails the build if a database driver, cloud SDK or Supabase client appears in
-any manifest.
+`apps/public-web` is the Next.js public website. It owns the audience pages,
+product descriptions, pricing and demo request flow. `apps/patient-web` is the
+Vite authenticated portal. All signed-in workspaces share **one portal origin**:
 
-### Repository layout
-
-```
-hid-frontend/
-├── apps/
-│   ├── public-web/       Next.js  — public site (chooser, providers,
-│   │                                patients, products)
-│   └── patient-web/      Vite     — patient application
-├── packages/
-│   ├── config/           environment resolution + public-env guard
-│   ├── contracts/        endpoint registry, domain vocabulary, app boundaries
-│   ├── http/             the transport layer (the only place fetch is called)
-│   ├── api/              typed service modules bound to an application
-│   ├── auth/             principals, session state, route guards
-│   ├── observability/    PHI-safe logging and redaction
-│   └── ui/               design tokens and shared primitives
-├── scripts/              repository-level architecture checks
-└── docs/
-```
-
-`public-web` implements the approved landing design: the audience chooser at
-`/`, the provider and patient landing pages, a product page per module, and the
-informational pages behind the navigation (pricing, solutions, about, contact and
-three resources pages). All twenty public page variants pre-render as static HTML —
-nothing on the public site is fetched at runtime, which is both the fastest
-option and the reason this application can be granted a single backend service.
-
-The provider homepage carries four bands and no more: the hero with the product
-beneath it, why Health ID, the product switcher, and the footer that closes it
-with the call to action. Everything else — the modules in depth, pricing,
-security, the company — has its own page, so no claim is repeated and the
-homepage answers only what a reader arrives asking: what Health ID is, why it
-matters, and which product they need.
-
-`staff-web`, `ehr-web`, `lab-web`, `pharmacy-web`, `ocr-web`, `outreach-web` and
-`admin-web` are **declared** in `packages/contracts/src/boundaries.ts` but not
-scaffolded. Their boundaries, service grants and PHI classification exist and
-are enforced; the applications are built when their contracts are settled. Two
-applications are built here because two are enough to prove both framework
-lanes and every shared package end to end — nine empty shells would prove less.
-
----
-
-## 3. Framework choice, per application
-
-**Next.js is not applied uniformly, and neither is Vite.** The workload decides.
-
-| | Next.js | Vite |
+| URL prefix | Workspace | Main implemented areas |
 | --- | --- | --- |
-| Applications | `public-web` | `patient-web`, and the remaining authenticated applications |
-| Why | Public pages must be fast, crawlable and cacheable at the edge; server rendering and static generation earn their keep | Every screen renders one signed-in person's data. There is nothing to pre-render, nothing to cache at the edge, and no crawler to serve |
+| `/`, `/sign-in`, `/enroll`, `/recover` | Patient | Enrollment, session/recovery, profile and NIN re-verification, records, access, notifications, settings |
+| `/provider/*`, `/provider/recover` | Provider | Session/facility selection, patient lookup and access, registration-case review, clinical work, laboratory, pharmacy, OCR, outreach, facility audit and recovery |
+| `/admin/*`, `/admin/recover` | Platform | Overview, controls, facilities, principals, applications, reviews, audit, operations, pricing, demos, integrations and recovery |
 
-Adding a server-rendering tier to an authenticated application would put a hop
-that handles PHI into the path without giving a patient anything in return. The
-existing operational application is already React + Vite + TypeScript, so this
-is also the choice that does not require rewriting what works.
+Each area restores the shared backend cookie session and applies its own
+permission checks. The backend remains the
+authority for access control. Unsupported modules from the reference material
+are not represented by local fixture data or simulated mutations. Provider
+application submission is still blocked by a backend database call defect
+tracked in [open questions](./OPEN-QUESTIONS.md).
 
-TypeScript is the primary language throughout; `strict` plus
-`noUncheckedIndexedAccess` in `tsconfig.base.json`.
+The public site can link to a separately hosted portal through
+`NEXT_PUBLIC_HID_PORTAL_ORIGIN`. That variable names the one portal origin for
+patients, providers and admins; it does not imply separate provider or admin
+deployments. Production routing and hostnames still need to be configured and
+verified. Local development uses ports 3100 and 3200 for the two apps, with
+`/api/v1/*` forwarded to the local gateway on port 3000. Both apps use their own
+origin as the browser API base URL. The Vite/Next development proxies do not
+configure a production proxy.
 
-### Styling
+## Request and contract path
 
-Tailwind CSS v4, driven by design tokens in `@hid/ui/tokens.css` — the brand
-palette, type stack and radii transcribed from the approved design. Both
-applications import the same file, so `bg-brand` resolves identically under
-Next.js and under Vite, and a brand change is one edit rather than nine.
-
-Typefaces are self-hosted through `next/font`: Forum for display, JetBrains
-Mono for technical labels, and an interface sans. No request leaves for a font
-CDN, and there is no layout shift while a face loads.
-
----
-
-## 4. The API layer
-
-No component, hook, page or route calls `fetch`. The chain is:
-
-```
-component → service module (@hid/api) → API client (@hid/http) → Gateway
+```text
+screen → area API module → registered browser client → @hid/http → /api/v1
 ```
 
-**`@hid/http`** owns transport: base URL joining, `Authorization`, correlation
-ids (`X-Request-ID: hid_web_<uuid>`), the error envelope, timeouts,
-cancellation, retry policy and in-flight deduplication of identical GETs.
+`packages/contracts/src/registry.ts` records audited gateway routes and
+methods. The browser client in `packages/api` rejects unknown routes and
+backend-internal endpoints; app-scoped route checks apply the declared service
+grants. `packages/api` also contains typed service modules for shared use.
+`packages/http` owns URL construction, request timeout/cancellation, limited
+read retries, no-store requests, CSRF/cookie handling, correlation IDs and
+Problem Details error parsing. Neither route registration nor a frontend guard
+grants permission: the backend checks the current principal, facility and
+permission on every protected request.
 
-Decisions worth stating:
+The public pricing page reads `GET /api/v1/commercial/pricing`, and the demo form
+submits to `POST /api/v1/commercial/demo-requests` with Turnstile and an
+idempotency key. A `null` price is a quote, not an amount that the frontend can
+invent. Patient, provider and admin requests use the actual Identity, EHR,
+Access, Lab, Pharmacy, OCR, Outreach and Admin endpoints registered for their
+routes. The laboratory workspace covers work items, accession, specimen
+custody, analytical execution, result revisions, verification, release and
+history. The clinical workspace can create active EHR lab requests and hand
+active prescriptions to Pharmacy. See [open questions](./OPEN-QUESTIONS.md)
+for contract limits and backend defects.
 
-- **Retries are narrow.** Only idempotent methods, only when the backend marked
-  the failure retryable, and `Retry-After` always wins over local backoff.
-  `records-create` is never retried automatically — a duplicated clinical record
-  is worse than a failed request. Making writes retry-safe needs an idempotency
-  key contract, which does not exist yet (OPEN-QUESTIONS Q12).
-- **Cancellation is first class.** Every service method takes a `signal`, so a
-  screen that unmounts stops a response it should no longer receive.
-- **`cache: 'no-store'`, `credentials: 'omit'`.** Clinical responses never enter
-  the HTTP cache, and the client sends bearer tokens rather than cookies.
-- **401 is a session event, not an error to swallow.** `onUnauthorized` clears
-  session state; the rejection still reaches the caller.
+Break-glass access is audited by Identity. EHR has a dedicated emergency
+summary route for completed encounters and signed notes. Its ordinary
+encounter and related clinical routes require `direct-care`, so an emergency
+grant does not open the detailed chart; that policy gap is tracked in
+[open questions](./OPEN-QUESTIONS.md).
 
-**`@hid/api`** turns endpoints into service modules. Each call is checked
-against the registry (does this endpoint exist? does it accept this method?) and
-against the calling application's boundary.
+The frontend does not call a database directly. `scripts/check-boundaries.mjs`
+checks repository imports and forbidden dependencies, and ESLint restricts
+direct network calls outside the transport layer. The public browser still
+loads the approved Turnstile and optional Google identity scripts for those
+flows; they are not gateway business APIs.
 
-### Types stop where knowledge stops
+## Authentication and patient data
 
-`packages/contracts/src/registry.ts` records 57 of the backend's 59 functions
-with their methods and authorisation class — **verified** by reading the backend
-source. The two omitted (`send-email`, `migration-worker-jobs`) are
-backend-internal and have no business being callable from a browser. Request and
-response *shapes* were not verified endpoint by endpoint, so every service method
-returns `UnverifiedPayload` (`unknown`).
+`hid-system` issues HttpOnly, host-only, SameSite Strict access and refresh
+cookies. The browser client sends `credentials: 'include'`, reads the separate
+CSRF cookie and sends `X-CSRF-Token` on mutations. It does not put access tokens
+in the browser's local storage or attach a bearer header for cookie sessions.
+The client can call the refresh endpoint before treating a protected 401 as a
+signed-out session. Session state is restored from the backend; the browser
+cannot inspect the HttpOnly cookie to decide who is signed in.
 
-That is deliberate. Narrowing `unknown` is mildly annoying at a call site;
-shipping a confidently wrong `PatientProfile` interface creates a second
-interpretation of the system that is much more expensive to unpick later. The
-path to real types is step 8 of the integration sequence: observe the response
-in staging, agree the contract, add a parser, replace the return type.
+Staff requests include `X-Facility-ID` and `X-Purpose-Of-Use` with the selected
+facility context. The selected facility must belong to the authenticated
+session; the backend checks the header on each request. Admin routes use their
+own platform permissions. UI permission gates hide unavailable actions and
+render access errors, but do not replace server authorization.
 
----
+Clinical responses use `cache: 'no-store'`; screens show loading, empty and
+error states for backend reads. `@hid/observability` handles redaction for
+diagnostics, and public variables are checked for secret-like names and values.
+Clinical request/response bodies are not intended for logs, public URLs or
+browser persistence. Provider facility selection is held in portal memory and
+sent as `X-Facility-ID` on scoped calls. The backend's `/auth/facility` response
+does not persist the selection in the session cookie, so a reload currently
+requires selecting the facility again.
 
-## 5. Authentication
+## Production requirements
 
-Health ID has three identities and this frontend keeps them separate. There is
-no generic `User`.
+Because the session cookies are host-only and SameSite Strict, the portal's
+production origin must forward its own `/api/v1/*` requests to the gateway.
+That forwarding must preserve cookies, CSRF and request headers. A direct
+cross-origin call to the gateway is not an equivalent session deployment. The
+public site also needs a production `/api/v1/*` route for pricing and demo
+requests; its Next.js rewrite is development-only.
 
-```ts
-type AuthPrincipal = PatientPrincipal | StaffPrincipal | PlatformPrincipal
-```
+The backend's current Turnstile service permits all three portal login actions
+(`patient-login`, `staff-login`, `admin-login`) together only on
+`www.healthidentitydirectory.com` or `staging.healthidentitydirectory.com`.
+Hosting the unified portal on another hostname requires a backend Turnstile
+allowlist/configuration change. No staging environment exists yet, and no live
+end-to-end acceptance has been run. Backend defects and deployment decisions
+are listed in [open questions](./OPEN-QUESTIONS.md).
 
-A principal carries `subjectId`, `appRole`, `assuranceLevel`, and for staff
-`staffRole` and `organizationId`. It carries **no** name, Health ID code, phone
-number or clinical data — a test enforces the allowed field list. Display data is
-fetched when a screen needs it and lives as long as that screen does.
+## Repository and verification
 
-- **Tokens live in memory**, in the session store's closure. A token in
-  `localStorage` is readable by any script that reaches the page and outlives the
-  tab that earned it.
-- **One value persists**: `hid.portal-hint`, an enum of `patient | staff |
-  platform`, so a returning user lands on the right sign-in screen. It identifies
-  nobody.
-- **No new auth provider is introduced.** The provider integration point is
-  marked in `apps/patient-web/src/session.tsx` and left unbuilt pending
-  OPEN-QUESTIONS Q4.
-
-Until a session can be restored, the application resolves to **anonymous**.
-Failing closed is the only safe default.
-
----
-
-## 6. Routing and authorisation
-
-> Frontend routing is user experience. Backend authorisation is security.
-
-`evaluateAccess()` returns `allow`, `pending`, `sign-in-required`,
-`mfa-required`, `wrong-portal` or `not-permitted`. `pending` matters: redirecting
-while session state is still unknown bounces a signed-in patient to sign-in on
-every page load.
-
-A guard decides what to *render*. It never decides what a person is *allowed to
-do*, and no server-side check is ever skipped because a guard passed.
-
----
-
-## 7. Application boundaries
-
-Boundaries are code, not a diagram. `APP_BOUNDARIES` grants each application a
-set of backend services, and `createHidApi` returns **only those services**:
-
-```ts
-const api = createHidApi({ app: 'patient-web', client })
-api.admin.getOverview()
-//  ^^^^^ Property 'admin' does not exist
-```
-
-This is a compile error, verified by `@ts-expect-error` directives that `tsc`
-confirms are used. A second runtime check inside every service call covers
-dynamic callers and anything that cast its way past the types.
-
-`public-web` is granted exactly one service — `platform` — so the public site
-cannot reach anything clinical even by mistake.
-
-`lab` and `pharmacy` are granted to their applications but have **no endpoints**,
-so nothing can be called. No mock stands in for them (OPEN-QUESTIONS Q5).
-
----
-
-## 8. Environments
-
-Configuration is environment-based and validated at build time. No API URL is
-hard-coded anywhere.
-
-| | Next.js | Vite |
-| --- | --- | --- |
-| Prefix | `NEXT_PUBLIC_HID_` | `VITE_HID_` |
-| Required | `ENVIRONMENT`, `API_BASE_URL`, `APP_ORIGIN` | same |
-
-- **Fails closed.** A build with no `API_BASE_URL` fails; there is no default
-  gateway address. Verified: removing it makes `next build` exit non-zero.
-- **https outside local**, enforced.
-- **Public-only.** `assertPublicEnvironment` rejects any key naming a secret,
-  credential or internal endpoint (`SERVICE_ROLE`, `AWS_`, `POSTGRES`,
-  `SUPABASE_URL`, …) and any value shaped like a credential.
-- Development never points at production. `handlesRealData` is false only for
-  `local`.
-
----
-
-## 9. PHI handling
-
-| Rule | How it is held |
+| Path | Role |
 | --- | --- |
-| Not in storage | Session in memory; lint bans `localStorage`/`sessionStorage`/`indexedDB` outside `@hid/auth` |
-| Not in logs | `@hid/observability` redacts by field name and value shape before anything reaches a sink; lint bans `console` outside the logger |
-| Not in URLs | `redactUrl()` masks Health ID codes and UUIDs in paths and strips sensitive query parameters |
-| Not in error messages | `ErrorState` renders only the backend's sanitised message; an unrecognised error shows a generic string |
-| Not in the HTTP cache | `cache: 'no-store'` on every request |
-| Minimised in memory | Responses live in component state and are cancelled on unmount |
+| `apps/public-web` | Public website and commercial API flow |
+| `apps/patient-web` | Unified authenticated portal with patient, provider and admin route groups |
+| `packages/config` | Public environment parsing and validation |
+| `packages/contracts` | Audited route registry, permissions and app boundaries |
+| `packages/http` | Gateway transport and uploads |
+| `packages/api` | Service clients and browser route guards |
+| `packages/auth` | Principal and access models |
+| `packages/observability` | Redacted diagnostics |
+| `packages/ui` | Shared tokens and components |
 
----
-
-## 10. Testing
-
-`npm run check` runs typecheck, lint and tests. Current state: **176 tests
-passing**, both applications building, all twenty public page variants
-pre-rendering.
-
-Covered: environment resolution and the secret guard, PHI redaction and logging,
-the API client (construction, auth, envelopes, errors, cancellation, timeouts,
-retries, deduplication), the endpoint registry, application boundaries, session
-and persistence rules, access decisions, route-guard rendering in jsdom, the
-product catalogue and audience routing, the homepage product switcher against the
-catalogue it renders (including arrow-key, Home and End movement and the roving
-tabindex), the solutions content and the wording rule that keeps the trust strip
-from claiming a partnership, pricing arithmetic against the figures the design
-quotes, demo-enquiry validation and encoding, and each product's dashboard
-panels.
-
-Not covered, and not claimed: **no integration has been tested against staging
-or production.** Nothing in this repository has spoken to a real Health ID
-environment.
-
----
-
-## 11. Deployment
-
-Independently deployable per application, behind Cloudflare, against the
-established AWS backend. No Amplify, API Gateway, CloudFront, second backend or
-new database is introduced.
-
-The existing pipeline deploys to Vercel with Cloudflare in front; whether that
-continues for these applications is OPEN-QUESTIONS Q10.
-
----
-
-## 12. Migrating the existing application
-
-Suggested order, once the open questions are settled:
-
-1. Split `hid-unified`: frontend here, `supabase/**` stays in the backend repo.
-2. Move `hidApi.ts` callers onto `@hid/api`, endpoint by endpoint, deleting the
-   god file as it empties.
-3. Replace `hid_patient_session` / `hid_staff_session` with the in-memory store —
-   this removes identifying data from `localStorage`.
-4. Replace the seven direct `supabase.from()` reads with endpoints (Q7, Q8, Q9).
-5. Lift landing, patient, staff, admin, outreach and migrate into their own
-   applications behind the boundaries already declared.
-6. Adopt Tailwind per application; port `components/ui.tsx` into `@hid/ui`
-   incrementally rather than in one pass.
+The root scripts provide `typecheck`, `lint`, `test`, `audit:boundaries`,
+`build:public-web` and `build:patient-web`. These are local code checks. A
+successful build or mocked test does not establish that the backend routes,
+cookies, Turnstile actions or real credentials work in a deployed environment.

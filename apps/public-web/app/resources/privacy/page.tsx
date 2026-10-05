@@ -16,12 +16,8 @@ export const metadata: Metadata = {
 /**
  * Privacy.
  *
- * Scoped deliberately to this website. Every statement here is one the code
- * supports: the public site sets no cookies, stores nothing in the browser, runs
- * no analytics and sends nothing anywhere — the demo form hands the enquiry to
- * the visitor's own mail client. Nothing is claimed about the platform's own
- * handling of clinical data beyond pointing the reader at where that notice
- * comes from.
+ * Scoped to public browsing and commercial enquiries. Demo submissions reach
+ * the Health ID gateway; clinical records are governed by separate notices.
  */
 export default function PrivacyPage() {
   return (

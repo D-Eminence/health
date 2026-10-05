@@ -2,7 +2,7 @@
  * Route guards.
  *
  * These decide what to *show*. They do not decide what a person is *allowed to
- * do* — the backend does that, on every request, regardless of what the browser
+ * do*; the backend does that, on every request, regardless of what the browser
  * believes. A guard that passes when it should not is a user-experience bug; it
  * is not, on its own, a data breach, and the architecture depends on that
  * remaining true.

@@ -13,8 +13,8 @@ export const PROVIDER_HERO = {
   eyebrow: 'Health ID platform',
   headline: 'Digitise your healthcare operations.',
   headlineAccent: 'Move towards paperless care.',
-  lede: 'One connected healthcare platform for patient identity, electronic health records, laboratory operations, pharmacy workflows, outreach programmes and legacy record migration.',
-  primary: 'Book a demo',
+  lede: 'A connected platform for patient identity, clinical records, laboratory results, prescription dispensing, outreach registration cases and document migration.',
+  primary: 'Setup Your Facility',
   secondary: 'Explore products',
 } as const
 
@@ -22,39 +22,36 @@ export const PROVIDER_HERO = {
 export const PRODUCTS_SECTION = {
   eyebrow: 'HID Modules',
   title: 'One identity. Every system.',
-  lede: 'Health ID helps healthcare providers manage patient identity, electronic health records, laboratory operations, pharmacy workflows, outreach programmes, and legacy record migration from a single connected ecosystem.',
+  lede: 'Explore supported workflows for patient identity, clinical records, laboratory results, prescription dispensing, outreach cases and document migration.',
 } as const
 
 export const STANDARDS = {
-  eyebrow: 'Clinical standards',
-  title: 'Structured for modern healthcare records.',
+  eyebrow: 'Security and record design',
+  title: 'Controls visible in the current workflow.',
   items: [
     {
-      name: 'ICD-11',
-      summary: 'Structured diagnosis and disease classification.',
-      body: 'Support consistent clinical documentation through recognised diagnosis and disease classification.',
+      name: 'Clinical records',
+      summary: 'Encounters, notes and diagnoses.',
+      body: 'Supported record routes keep clinical entries linked to the appropriate patient and encounter.',
     },
     {
-      name: 'RxNorm',
-      summary: 'Standardised medication terminology.',
-      body: 'Maintain consistent medication naming across prescription and medication records.',
+      name: 'Facility context',
+      summary: 'Organisation-scoped access.',
+      body: 'Staff requests carry an authorised facility, role and purpose of use.',
     },
     {
-      name: 'ISO/IEC 27001-aligned',
-      summary: 'Information-security management controls.',
-      body: "HID's information-security controls are designed in alignment with recognised information-security management principles.",
+      name: 'Patient access',
+      summary: 'Consent and emergency paths.',
+      body: 'Patient record access is checked through the supported consent, PIN and emergency workflows.',
     },
     {
-      name: 'HIPAA',
-      summary: 'Healthcare privacy and data protection.',
-      body: 'Applied to the handling and protection of electronic health information.',
+      name: 'Audit',
+      summary: 'Attributable activity.',
+      body: 'Access and important changes are recorded with actor and request context.',
     },
   ],
-  // Stated plainly wherever these appear. Alignment with a standard is not
-  // certification, and the design is careful to say so rather than implying an
-  // audit.
   disclaimer:
-    'These describe the standards and principles HID is built around. They are not claims of formal certification.',
+    'These descriptions are based on supported platform workflows; they are not a certification claim.',
 } as const
 
 export const ACCESS_SECTION = {
@@ -84,58 +81,19 @@ export const ACCESS_SECTION = {
   ],
 } as const
 
-export interface PricingPlan {
-  readonly name: string
-  readonly audience: string
-  readonly monthlyNaira: number
-  readonly badge?: string
-  readonly includes: readonly string[]
-}
-
-const PRICING_PLANS: readonly PricingPlan[] = [
-  {
-    name: 'Clinic',
-    audience: 'For clinics and smaller healthcare facilities getting started with HID.',
-    monthlyNaira: 50_000,
-    includes: [
-      'Health ID Identity',
-      'Health ID EHR',
-      'Up to 10 staff accounts',
-      'Standard onboarding',
-    ],
-  },
-  {
-    name: 'Hospital',
-    audience:
-      'For hospitals and larger healthcare facilities that need broader clinical operations.',
-    monthlyNaira: 75_000,
-    badge: 'Most popular',
-    includes: [
-      'Everything in Clinic',
-      'Health ID Laboratory or Health ID Pharmacy',
-      'Unlimited staff accounts',
-      'Priority onboarding',
-    ],
-  },
-]
-
 export const PRICING = {
   eyebrow: 'Pricing',
-  title: 'Simple pricing for healthcare providers.',
-  lede: 'Choose monthly billing or save 20% when you pay yearly.',
-  /** Applied to the monthly rate when billed yearly. */
-  yearlyDiscount: 0.2,
-  plans: PRICING_PLANS,
+  title: 'Pricing for connected care.',
+  lede: 'Explore the current Health ID product catalogue. We will confirm the right scope and price for your organisation.',
   enterprise:
     'Need multiple branches, all modules, Health ID API access or a custom deployment?',
   enterpriseAction: 'Talk to us about enterprise pricing',
-  footnote:
-    'Implementation is quoted separately. Health ID Migrate is priced separately based on migration volume and scope.',
+  footnote: 'The available price and billing terms are set by the Health ID commercial catalogue.',
 } as const
 
 export const PROVIDER_CTA = {
   title: 'Ready to modernise healthcare delivery?',
   lede: 'Pilots begin with one facility, one department, and the records you already hold.',
-  primary: 'Book a demo',
+  primary: 'Setup Your Facility',
   secondary: 'Hospital sign in',
 } as const

@@ -8,15 +8,13 @@ import { PRICING } from '@/content/provider'
 
 export const metadata: Metadata = {
   title: PRICING.title,
-  description:
-    'Clinic and Hospital plans for Health ID, billed monthly or yearly, with migration and implementation quoted separately.',
+  description: 'Current Health ID product pricing and quote options for healthcare providers.',
 }
 
 /**
  * Pricing.
  *
- * The pricing page carries the full plan comparison; a summary also appears on
- * the healthcare provider homepage.
+ * The pricing page uses the backend catalogue; the provider homepage shows it too.
  */
 export default function PricingPage() {
   return (

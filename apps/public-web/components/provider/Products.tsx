@@ -13,10 +13,10 @@ const STATUS_DOT: Record<ModuleTone, string> = {
   alert: 'bg-[#ff786f]',
 }
 /**
- * The module switcher — "One identity. Every system."
+ * The module switcher: "One identity. Every system."
  *
  * Three parts, exactly as designed: a full-width segmented strip of modules, and
- * beneath it a three-column body — the claim, the photographic product panel, and
+ * beneath it a three-column body: the claim, the photographic product panel, and
  * the supporting line with the way through to the module's page.
  *
  * The panel is the design's, not a second dashboard: a photograph under a navy
@@ -98,6 +98,7 @@ export function ProductsSection() {
                   ))}
                 </dl>
               </div>
+              <p className="text-right text-[11px] font-medium text-white/85">Illustrative view · sample data</p>
             </div>
 
             <div className="flex flex-col gap-4">

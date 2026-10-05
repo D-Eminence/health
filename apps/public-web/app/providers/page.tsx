@@ -13,7 +13,7 @@ import { ROUTES } from '@/content/site'
 export const metadata: Metadata = {
   title: 'For healthcare providers',
   description:
-    'One connected healthcare platform for patient identity, electronic health records, laboratory, pharmacy and outreach — with legacy record migration built in.',
+    'One connected healthcare platform for patient identity, electronic health records, laboratory, pharmacy and outreach, with legacy record migration built in.',
 }
 
 /**
@@ -45,7 +45,8 @@ export default function ProvidersPage() {
         <ProviderClosing
           title="Get in touch."
           lede="Talk with the Health ID team about connecting your healthcare operations."
-          primary="Book a demo"
+          primary="Setup Your Facility"
+          primaryHref={ROUTES.providerApplication}
           secondary="Contact us"
           secondaryHref={ROUTES.contact}
         />

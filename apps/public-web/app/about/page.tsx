@@ -7,6 +7,7 @@ import { SiteFooter } from '@/components/layout/SiteFooter'
 import { DemoDialog } from '@/components/shared/DemoDialog'
 import { BackToTop } from '@/components/shared/BackToTop'
 import { HeroDemoButton } from '@/components/shared/HeroDemoButton'
+import { ROUTES } from '@/content/site'
 import { CtaBand } from '@/components/shared/CtaBand'
 import { HealthIcon } from '@/components/shared/HealthIcon'
 import { HealthIDModuleShowcase } from '@/components/product/HealthIDModuleShowcase'
@@ -41,7 +42,7 @@ export default function AboutPage() {
           <Eyebrow>About Health ID</Eyebrow>
           <Display as="h1" id="about-title">Building the infrastructure for connected healthcare.</Display>
           <p className="about-prose">Health ID is creating the digital infrastructure that helps healthcare organizations identify patients, manage care, digitize legacy records, and connect healthcare services across one ecosystem.</p>
-          <p className="about-brand-line">One Health Identity. Connected Care. Accessible Records.</p>
+          <p className="about-brand-line">One Identity. Connected Records. Better Care.</p>
           <div className="flex flex-wrap gap-3"><HeroDemoButton href="/products">Explore our products</HeroDemoButton><HeroDemoButton variant="secondary">Book a demo</HeroDemoButton></div>
         </div>
         <div className="about-ecosystem" aria-label="Health identity connects records, care, and healthcare services">
@@ -84,9 +85,9 @@ export default function AboutPage() {
       </div></Wrap></Section>
 
       <Section labelledBy="paper-title"><Wrap>
-        <Heading id="paper-title" eyebrow="From paper to connected care" title="Digital transformation should not mean abandoning the past."><p>Many healthcare organizations already have years or decades of medical records stored in physical folders. Health ID Migrate helps organizations bring those records forward.</p></Heading>
+        <Heading id="paper-title" eyebrow="From paper to connected care" title="Digital transformation should not mean abandoning the past."><p>Many healthcare organizations hold historical records in physical folders. Health ID Migrate supports document-level OCR extraction, validation, patient confirmation and publication.</p></Heading>
         <Flow steps={MIGRATION_STEPS} label="From paper folder to digital patient folder" />
-        <div className="about-callout"><HealthIcon name="file" size={24} /><div><p className="font-semibold">The original source record remains traceable alongside the structured digital data.</p><p className="about-prose mt-2">Healthcare organizations should not have to choose between their history and their future.</p></div></div>
+        <div className="about-callout"><HealthIcon name="file" size={24} /><div><p className="font-semibold">The source document remains associated with the OCR job and its review.</p><p className="about-prose mt-2">Validated information can then be published to the patient record through the supported workflow.</p></div></div>
       </Wrap></Section>
 
       <Section tone="sunk" labelledBy="workflow-title"><Wrap>
@@ -96,7 +97,7 @@ export default function AboutPage() {
       </Wrap></Section>
 
       <Section labelledBy="modular-title"><Wrap><div className="about-split">
-        <Heading id="modular-title" eyebrow="Designed to be modular" title="Every healthcare organization works differently."><p>A small clinic does not need the same system as a teaching hospital. A maternity centre does not need the same modules as a diagnostic centre.</p><p>Health ID allows organizations to activate only the departments and products they need.</p><p className="font-semibold text-brand">Start small. Add more when the organization is ready.</p></Heading>
+        <Heading id="modular-title" eyebrow="Designed to be modular" title="Every healthcare organization works differently."><p>A small clinic does not need the same workflow as a teaching hospital or diagnostic centre.</p><p>Health ID offers supported clinical, laboratory, pharmacy, outreach and document routes for authorised teams.</p><p className="font-semibold text-brand">Start with the workflow your team needs.</p></Heading>
         <ul className="about-departments">{DEPARTMENTS.map(item => <li key={item}><HealthIcon name="check" size={18} />{item}</li>)}</ul>
       </div></Wrap></Section>
 
@@ -143,10 +144,10 @@ export default function AboutPage() {
       <Section tone="inverse" labelledBy="vision-title" className="relative isolate overflow-hidden"><Wrap><div className="about-vision">
         <Eyebrow tone="inverse">Our vision</Eyebrow><Display id="vision-title">A future where healthcare does not lose the patient between systems.</Display>
         <p>We are working toward a healthcare ecosystem where a patient’s identity can remain consistent across care settings, healthcare organizations can digitize without discarding their history, and providers can access the information they need without rebuilding the patient’s story from the beginning.</p>
-        <span className="about-caption">The goal is simple</span><p className="about-vision-brand">One Health Identity.<br />Connected Care.<br />Accessible Records.</p>
+        <span className="about-caption">The goal is simple</span><p className="about-vision-brand">One Identity.<br />Connected Records.<br />Better Care.</p>
       </div></Wrap></Section>
 
-      <Section id="about-cta" rhythm="tight"><Wrap><CtaBand title="Build a more connected healthcare operation." lede="Whether you’re moving from paper, replacing fragmented tools, adding a laboratory or pharmacy system, or connecting an existing healthcare product, Health ID gives you a path forward." primary={{ label: 'Book a Demo', href: '#demo' }} secondary={{ label: 'Explore Health ID', href: '/products' }} /></Wrap></Section>
+      <Section id="about-cta" rhythm="tight"><Wrap><CtaBand title="Build a more connected healthcare operation." lede="Whether you’re moving from paper, replacing fragmented tools, adding a laboratory or pharmacy system, or connecting an existing healthcare product, Health ID gives you a path forward." primary={{ label: 'Setup Your Facility', href: ROUTES.providerApplication }} secondary={{ label: 'Explore Health ID', href: '/products' }} /></Wrap></Section>
       </div>
     </main>
     <SiteFooter /><BackToTop /><DemoDialog />

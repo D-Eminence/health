@@ -16,6 +16,7 @@ import { cx } from '@hid/ui'
 import { HeroDemoButton } from '@/components/shared/HeroDemoButton'
 import { PRODUCTS } from '@/content/products'
 import { APP_ENTRY, ROUTES, SOLUTION_AUDIENCES, SOLUTION_IMAGES } from '@/content/site'
+import { providerApplicationHref, type ApplicationProductCode } from '@/lib/provider-application'
 import { GlobalSearch } from './GlobalSearch'
 import { Logo } from './Logo'
 export interface NavLinkEntry {
@@ -550,7 +551,10 @@ const _RESOURCES_MENU: NavMenuEntry = {
 }
 
 /** Navigation for the provider side of the site. */
-export function ProviderNav() {
+export function ProviderNav({ preserveDemoAction = false, applicationProduct }: {
+  preserveDemoAction?: boolean
+  applicationProduct?: ApplicationProductCode
+} = {}) {
   return (
     <SiteNav
       entries={[
@@ -563,7 +567,9 @@ export function ProviderNav() {
       ]}
       signInHref={APP_ENTRY.staffSignIn}
       signInLabel="Sign in"
-      action={{ label: 'Book a demo', href: '#demo' }}
+      action={preserveDemoAction
+        ? { label: 'Book a demo', href: '#demo' }
+        : { label: 'Setup Your Facility', href: providerApplicationHref(applicationProduct) }}
       audience="provider"
     />
   )

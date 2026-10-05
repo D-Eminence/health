@@ -2,6 +2,7 @@ import { Eyebrow, Wrap } from '@hid/ui'
 import { ProductDashboard } from '@/components/shared/ProductDashboard'
 import { HeroDemoButton } from '@/components/shared/HeroDemoButton'
 import type { ProductDetail } from '@/content/product-details'
+import { isApplicationProduct, providerApplicationHref, PROVIDER_SETUP_CTA } from '@/lib/provider-application'
 
 function headlineLines(title: string): readonly [string, string | null] {
   const boundary = title.indexOf('. ')
@@ -24,12 +25,17 @@ export function ProductHero({ product }: { product: ProductDetail }) {
           </h1>
           <p className="hero-reveal hero-reveal-3 mt-5 max-w-[700px] text-[15px]/[1.45] text-white/72">{product.sub}</p>
           <div className="hero-reveal hero-reveal-4 mt-6 flex flex-wrap items-center justify-center gap-3 sm:mt-8">
-            <HeroDemoButton />
+            {isApplicationProduct(product.slug)
+              ? <HeroDemoButton href={providerApplicationHref(product.slug)}>{PROVIDER_SETUP_CTA}</HeroDemoButton>
+              : <HeroDemoButton />}
           </div>
         </div>
       </Wrap>
       <div id="product-showcase" className="relative pt-16 sm:pt-20">
-        <Wrap><div className="hero-dashboard hero-product-stage product-hero-dashboard mx-auto max-w-[1160px]"><ProductDashboard product={product} /></div></Wrap>
+        <Wrap>
+          <div className="hero-dashboard hero-product-stage product-hero-dashboard mx-auto max-w-[1160px]"><ProductDashboard product={product} /></div>
+          <p className="mx-auto mt-4 max-w-[1160px] pb-5 text-center text-xs text-white/75">Illustrative product view. Names, figures and activity are examples, not live data.</p>
+        </Wrap>
       </div>
     </section>
   )

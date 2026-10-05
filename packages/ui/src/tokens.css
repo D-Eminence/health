@@ -7,7 +7,7 @@
  */
 
 @theme {
-  /* Brand — used as a deliberate interaction signal, never as a page fill. */
+  /* Brand: used as a deliberate interaction signal, never as a page fill. */
   --color-brand: #086dd9;
   --color-brand-dark: #0762c3; /* backwards-compatible hover alias */
   --color-brand-hover: #0762c3;
@@ -173,7 +173,7 @@
     display: grid;
     width: min(760px, 100%);
     height: min(540px, calc(100dvh - 48px));
-    grid-template-rows: auto minmax(220px, 1fr) auto;
+    grid-template-rows: auto minmax(220px, 1fr);
     overflow: hidden;
     border: 0.5px solid var(--color-line-strong);
     border-radius: var(--radius-dialog);
@@ -184,7 +184,7 @@
     animation: waya-command-rise var(--motion-standard) var(--ease-out) both;
   }
 
-  .waya-command[data-filters-open='true'] { grid-template-rows: auto auto minmax(220px, 1fr) auto; }
+  .waya-command[data-filters-open='true'] { grid-template-rows: auto auto minmax(220px, 1fr); }
 
   .waya-command__header {
     display: flex;
@@ -367,34 +367,6 @@
 
   .waya-command__retry:hover { background: var(--color-brand-hover); }
 
-  .waya-command__footer {
-    display: flex;
-    min-height: 52px;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    padding: 0 24px;
-    border-top: 0.5px solid var(--color-line);
-    color: var(--color-muted);
-    font-size: 12px;
-    font-weight: 500;
-    line-height: 1;
-  }
-
-  .waya-command__footer > span { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
-  .waya-command__footer kbd {
-    display: inline-flex;
-    min-width: 24px;
-    height: 22px;
-    align-items: center;
-    justify-content: center;
-    padding: 0 6px;
-    border-radius: var(--radius-compact);
-    background: var(--color-surface-selected);
-    color: var(--color-muted);
-    font: 600 10px/1 var(--font-mono);
-  }
-
   .waya-command__sr-only {
     position: absolute;
     width: 1px;
@@ -419,9 +391,6 @@
     .waya-command__filter { height: 44px; }
     .waya-command__item { grid-template-columns: minmax(0, 1fr) 16px; gap: 8px; }
     .waya-command__item-description { display: none; }
-    .waya-command__footer { min-height: 56px; padding-inline: 16px; }
-    .waya-command__footer-nav,
-    .waya-command__footer-shortcut { display: none !important; }
   }
 }
 

@@ -17,7 +17,7 @@ import {
 export const metadata: Metadata = {
   title: 'For patients',
   description:
-    'Health ID carries your medical history between hospitals, laboratories and pharmacies — and only opens when you allow it.',
+    'Health ID carries your medical history between hospitals, laboratories and pharmacies, and only opens when you allow it.',
 }
 
 /**

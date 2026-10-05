@@ -44,7 +44,7 @@ function Icon({ name }: { name: 'search' | 'person' | 'clipboard' | 'pill' | 'fl
   return <HealthIcon name={names[name]} size={16} />
 }
 
-const FEATURE_ICONS: readonly HealthIconName[] = ['people', 'file', 'medicine', 'laboratory', 'bed', 'shield']
+const FEATURE_ICONS: readonly HealthIconName[] = ['people', 'file', 'medicine', 'laboratory', 'file', 'shield']
 
 function DashboardSnippet({ number, title, children }: { number: string; title: string; children: ReactNode }) {
   const active = Number(number) - 1
@@ -115,16 +115,16 @@ function Laboratory({ reduced, active }: { reduced: boolean; active: boolean }) 
   return <div className="mt-8 rounded-(--radius-card) border border-line bg-surface-tint p-4 sm:p-5"><div className="flex items-start justify-between gap-4"><div><p className="font-mono text-[11px] font-semibold tracking-[0.1em] text-faint">FULL BLOOD COUNT (FBC)</p><p className="mt-2 text-[13px] font-semibold text-ink">LAB-28471 <span className="font-normal text-muted">· {PATIENT}</span></p></div><span className="text-brand"><Icon name="flask" /></span></div><ol className="mt-6 grid grid-cols-4 gap-1" aria-label="Laboratory result progress">{steps.map((item, index) => <li key={item} title={`${['09:14', '10:02', '11:48', '14:32'][index]}`} className="relative text-center"><span className={cx('mx-auto grid h-7 w-7 place-items-center rounded-full border text-[11px] font-semibold', index <= stage ? 'border-brand bg-brand text-white' : 'border-line bg-white text-muted')}>{index < stage ? <Icon name="check" /> : index + 1}</span>{index < 3 ? <span aria-hidden="true" className={cx('absolute top-3.5 left-[58%] h-px w-[84%]', index < stage ? 'bg-brand' : 'bg-line')} /> : null}<span className="mt-2 block text-[10px] font-medium text-muted">{item}</span></li>)}</ol>{stage === 3 ? <div className="ehr-lab-result mt-6 rounded-xl border border-brand/15 bg-white p-4"><div className="flex items-start justify-between gap-3"><div><p className="text-[11px] font-semibold tracking-[0.08em] text-brand">RESULT VERIFIED</p><p className="mt-2 text-[13px] font-semibold text-ink">Full Blood Count</p><p className="text-[12px] text-muted">Released: 12 Mar 2024 · 14:32</p></div><Status tone="success">Released</Status></div><div className="mt-4 flex items-center justify-between border-t border-line pt-3"><button type="button" className="text-[13px] font-semibold text-brand">View result →</button><span className="text-[12px] text-positive">✓ Added to connected record</span></div></div> : null}</div>
 }
 
-function Admissions() {
-  const [assigned, setAssigned] = useState(false)
-  return <div className="mt-8 rounded-(--radius-card) border border-line bg-surface-tint p-4 sm:p-5"><p className="font-mono text-[11px] font-semibold tracking-[0.1em] text-faint">ASSIGN BED</p><div className="mt-4 flex items-center gap-3 rounded-xl border border-line bg-white p-3"><span className={cx('grid h-9 w-9 place-items-center rounded-lg', assigned ? 'bg-brand text-white' : 'bg-brand-tint text-brand')}><Icon name={assigned ? 'check' : 'bed'} /></span><div><p className="text-[13px] font-semibold text-ink">{PATIENT}</p><p className="text-[12px] text-muted">{HEALTH_ID} · Medical Ward · MW-12</p></div><div className="ml-auto"><Status tone={assigned ? 'success' : 'blue'}>{assigned ? 'Assigned' : 'Available'}</Status></div></div><button type="button" onClick={() => setAssigned(true)} className="ehr-primary-button mt-4 min-h-11 rounded-xl bg-brand px-4 text-[13px] font-semibold text-white">{assigned ? 'Bed assigned' : 'Assign to patient'}</button>{assigned ? <div className="ehr-admission-result mt-4 rounded-xl border border-brand/15 bg-white p-3"><p className="text-[11px] font-semibold tracking-[0.08em] text-brand">BED ASSIGNED</p><p className="mt-1 text-[13px] font-semibold text-ink">MW-12 · {PATIENT}</p><p className="mt-1 text-[12px] text-muted">Admission started 10:42</p></div> : null}</div>
+function VitalsDocuments() {
+  const [recorded, setRecorded] = useState(false)
+  return <div className="mt-8 rounded-(--radius-card) border border-line bg-surface-tint p-4 sm:p-5"><p className="font-mono text-[11px] font-semibold tracking-[0.1em] text-faint">ENCOUNTER VITALS</p><div className="mt-4 flex items-center gap-3 rounded-xl border border-line bg-white p-3"><span className={cx('grid h-9 w-9 place-items-center rounded-lg', recorded ? 'bg-brand text-white' : 'bg-brand-tint text-brand')}><Icon name={recorded ? 'check' : 'clipboard'} /></span><div><p className="text-[13px] font-semibold text-ink">{PATIENT}</p><p className="text-[12px] text-muted">{HEALTH_ID} · Blood pressure 120/80</p></div><div className="ml-auto"><Status tone={recorded ? 'success' : 'blue'}>{recorded ? 'Recorded' : 'Draft'}</Status></div></div><button type="button" onClick={() => setRecorded(true)} className="ehr-primary-button mt-4 min-h-11 rounded-xl bg-brand px-4 text-[13px] font-semibold text-white">{recorded ? 'Vitals recorded' : 'Record vitals'}</button>{recorded ? <div className="ehr-admission-result mt-4 rounded-xl border border-brand/15 bg-white p-3"><p className="text-[11px] font-semibold tracking-[0.08em] text-brand">ENCOUNTER UPDATED</p><p className="mt-1 text-[13px] font-semibold text-ink">Vitals · {PATIENT}</p><p className="mt-1 text-[12px] text-muted">Clinical documents can be attached to the same encounter.</p></div> : null}</div>
 }
 
 const activity = [
   { type: 'Access', action: 'Patient record viewed', by: 'Dr. Ahmed Yusuf', time: 'Today · 10:24', icon: 'person' as const },
   { type: 'Clinical', action: 'Prescription created', by: 'Dr. Ahmed Yusuf', time: 'Today · 09:18', icon: 'pill' as const },
   { type: 'Clinical', action: 'Laboratory result released', by: 'Lab Scientist · S. Johnson', time: 'Yesterday · 16:42', icon: 'flask' as const },
-  { type: 'Administrative', action: 'Patient admission', by: 'Nurse A. Bello', time: '12 Mar · 14:10', icon: 'bed' as const },
+  { type: 'Administrative', action: 'Document attached', by: 'Nurse A. Bello', time: '12 Mar · 14:10', icon: 'clipboard' as const },
 ]
 
 function RolesAudit() {
@@ -143,14 +143,14 @@ export function EhrWorkflowBento() {
           <div className="mx-auto max-w-[680px] text-center">
             <p className="font-mono text-[12px] font-semibold tracking-[0.12em] text-brand">CORE WORKFLOW</p>
             <h2 id="ehr-workflows-title" className="mt-4 font-display text-[clamp(2rem,3.5vw,2.5rem)] leading-[1.08] tracking-[-0.025em] text-ink">From registration to ongoing care.</h2>
-            <p className="mt-5 text-[16px]/relaxed text-muted">A complete clinical workflow, connected by Health ID.</p>
+            <p className="mt-5 text-[16px]/relaxed text-muted">Illustrative steps with sample patients and dates, showing supported clinical record concepts.</p>
           </div>
           <div className="ehr-bento-grid bento-grid mt-12 grid gap-4 md:grid-cols-2 sm:mt-16 lg:grid-cols-12">
             <WorkflowCard number="01" title="Registration" copy="Find an existing patient by their Health ID before creating a new record, helping prevent duplicate patient identities." delay={0} className="lg:col-span-5">{state => <Registration reduced={state.reduced} active={state.active} />}</WorkflowCard>
             <WorkflowCard number="02" title="Consultation" copy="Record presenting complaints, examination findings, diagnoses, and treatment plans, all linked to the patient encounter." delay={80} className="lg:col-span-7">{state => <Consultation reduced={state.reduced} active={state.active} />}</WorkflowCard>
             <WorkflowCard number="03" title="Prescriptions" copy="Create and route prescriptions to a connected pharmacy for authorised dispensing workflows while keeping the patient's medication history up to date." delay={160} className="lg:col-span-5">{() => <Prescriptions />}</WorkflowCard>
             <WorkflowCard number="04" title="Laboratory tests" copy="Order laboratory tests and receive verified results in the patient's record when released to the authorised care team." delay={240} className="md:col-span-2 lg:col-span-7">{state => <Laboratory reduced={state.reduced} active={state.active} />}</WorkflowCard>
-            <WorkflowCard number="05" title="Admissions" copy="Manage ward and bed assignments, with inpatient notes connected to the patient's longitudinal health record under the same Health ID." delay={320} className="lg:col-span-5">{() => <Admissions />}</WorkflowCard>
+            <WorkflowCard number="05" title="Vitals and documents" copy="Record encounter vitals and attach clinical documents to the patient's record under authorised access." delay={320} className="lg:col-span-5">{() => <VitalsDocuments />}</WorkflowCard>
             <WorkflowCard number="06" title="Roles and audit" copy="Limit doctors, nurses, receptionists, and administrators to organisation-approved roles, permissions and care activities. Keep a clear audit trail of access and actions." delay={400} className="md:col-span-2 lg:col-span-7">{() => <RolesAudit />}</WorkflowCard>
           </div>
         </section>

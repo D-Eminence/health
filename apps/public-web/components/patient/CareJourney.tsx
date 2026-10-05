@@ -64,7 +64,7 @@ export function CareJourney() {
         <div className="hikmah-journey-intro mx-auto max-w-[760px] text-center">
           <p className="font-mono text-[12px] font-semibold tracking-[0.12em] text-brand uppercase">Hikmah&apos;s journey</p>
           <h2 id="journey-title" className="mt-5 font-display text-[clamp(2rem,3.5vw,2.5rem)] leading-[1.08] tracking-[-0.025em] text-ink">One record, wherever care happens.</h2>
-          <p className="mx-auto mt-5 max-w-[58ch] text-[15px]/relaxed text-muted sm:text-[16px]/relaxed">Four visits in different places. No repeated registration, no missing context.</p>
+          <p className="mx-auto mt-5 max-w-[58ch] text-[15px]/relaxed text-muted sm:text-[16px]/relaxed">An illustrative care journey across participating settings. Each visit and access decision is an example.</p>
         </div>
 
         <div className="hikmah-focus mt-16">
@@ -95,7 +95,7 @@ export function CareJourney() {
                   data-index={index}
                   data-active={isActive}
                 >
-                  <p className="hikmah-story-label">{details.number} <span aria-hidden="true">—</span> {labels[index]}</p>
+                  <p className="hikmah-story-label">{details.number} <span aria-hidden="true">:</span> {labels[index]}</p>
                   <h3>{moment.where}</h3>
                   <p>{moment.body}</p>
                   {index === 2 ? <span className="hikmah-story-status">Access approved by Hikmah</span> : null}
@@ -106,7 +106,7 @@ export function CareJourney() {
           </div>
 
           <div className="hikmah-mobile-story" aria-live="polite">
-            <p className="hikmah-story-label">{detail.number} <span aria-hidden="true">—</span> {labels[activeIndex]}</p>
+            <p className="hikmah-story-label">{detail.number} <span aria-hidden="true">:</span> {labels[activeIndex]}</p>
             <h3>{current.where}</h3>
             <p>{current.body}</p>
             {activeIndex === 2 ? <span className="hikmah-story-status">Access approved by Hikmah</span> : null}

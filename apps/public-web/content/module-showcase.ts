@@ -31,8 +31,8 @@ export const HEALTH_ID_MODULES: readonly HealthIDModule[] = [
   },
   {
     slug: 'migrate', name: 'Health ID Migrate', shortName: 'Migrate',
-    statement: 'Move paper records into searchable digital health records.',
-    description: 'Digitise legacy files with scanning, validation workflows and structured data extraction.',
+    statement: 'Review and publish extracted clinical documents.',
+    description: 'Process supported document jobs with OCR extraction, validation and patient confirmation.',
     href: ROUTES.product('migrate'), cta: 'Explore Migrate', visual: null,
   },
   {
@@ -49,8 +49,8 @@ export const HEALTH_ID_MODULES: readonly HealthIDModule[] = [
   },
   {
     slug: 'outreach', name: 'Health ID Outreach', shortName: 'Outreach',
-    statement: 'Register patients and issue Health IDs in the field.',
-    description: 'Run registration campaigns outside the facility through the same verified identity flow.',
+    statement: 'Manage campaign registration cases in the field.',
+    description: 'Create campaigns and registration cases, then reconcile cases to existing patient identities.',
     href: ROUTES.product('outreach'), cta: 'Explore Outreach', visual: null,
   },
   {

@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
-import { createHidApi, type HidApiFor } from '@hid/api'
 import { createApiClient } from '@hid/http'
 import { PATIENT_ROUTE, STAFF_ROUTE, type SessionState } from '@hid/auth'
 import { RequireAccess } from '../RequireAccess'
-import { SessionContext } from '../session'
+import { createTestSessionValue, SessionContext } from '../session'
+import { createPatientApi, type PatientApi } from '../api'
 import type { PatientPrincipal, StaffPrincipal } from '@hid/auth'
 
 const patient: PatientPrincipal = {
@@ -24,19 +24,21 @@ const staff: StaffPrincipal = {
   organizationId: 'org-1',
 }
 
-function stubApi(): HidApiFor<'patient-web'> {
+function stubApi(): PatientApi {
   const client = createApiClient({
     baseUrl: 'https://gateway.test',
     clientId: 'patient-web',
     fetchImpl: vi.fn(async () => new Response('{}', { status: 200 })) as unknown as typeof fetch,
   })
-  return createHidApi({ app: 'patient-web', client })
+  return createPatientApi(client)
 }
 
-function renderGuard(state: SessionState, requirement = PATIENT_ROUTE) {
+function renderGuard(state: SessionState, requirement = PATIENT_ROUTE,
+  sessionError: string | null = null, retrySessionCheck = vi.fn()) {
   return render(
     <MemoryRouter initialEntries={['/']}>
-      <SessionContext.Provider value={{ state, api: stubApi(), signOut: () => {} }}>
+      <SessionContext.Provider value={{ ...createTestSessionValue(state.principal, stubApi()), state,
+        sessionError, retrySessionCheck }}>
         <Routes>
           <Route
             path="/"
@@ -67,6 +69,17 @@ describe('RequireAccess', () => {
     expect(screen.getByRole('status')).toBeDefined()
     expect(screen.queryByText('Sign-in screen')).toBeNull()
     expect(screen.queryByText('Protected content')).toBeNull()
+  })
+
+  it('offers a retry when session verification fails without confirming sign-out', () => {
+    const retry = vi.fn()
+    renderGuard({ status: 'unknown', principal: null }, PATIENT_ROUTE,
+      'We could not check your session. Try again.', retry)
+
+    expect(screen.getByRole('alert').textContent).toContain('could not check')
+    expect(screen.queryByText('Sign-in screen')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(retry).toHaveBeenCalledOnce()
   })
 
   it('redirects an anonymous visitor to sign-in', () => {

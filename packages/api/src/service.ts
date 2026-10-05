@@ -1,7 +1,7 @@
 /**
  * Service module foundation.
  *
- * Application code never calls `client.get('/patients-me')` directly, and it
+ * Application code can use typed service calls while the shared client keeps
  * certainly never calls `fetch`. It calls a service method. That indirection is
  * what makes it possible to change a path, add a header, or absorb a backend
  * contract change without touching a single component.
@@ -12,12 +12,14 @@
  */
 
 import type { ApiClient, AuthRequirement, QueryValue, RequestSpec } from '@hid/http'
-import { assertEndpointAllowed, findEndpoint, type HidApp, type HidService } from '@hid/contracts'
+import { assertEndpointAllowed, findEndpoint, type EndpointMethod, type HidApp, type HidService } from '@hid/contracts'
 
 /** Options every service method accepts, so cancellation is never an afterthought. */
 export interface CallOptions {
   /** Abort the request when the component unmounts or the user navigates away. */
   readonly signal?: AbortSignal
+  /** Facility, purpose, If-Match and idempotency headers required by a route. */
+  readonly headers?: Readonly<Record<string, string>>
 }
 
 export interface ServiceContext {
@@ -25,10 +27,23 @@ export interface ServiceContext {
   readonly client: ApiClient
 }
 
-interface EndpointCallOptions extends CallOptions {
+export interface EndpointCallOptions extends CallOptions {
   readonly query?: Readonly<Record<string, QueryValue>>
+  readonly params?: Readonly<Record<string, string>>
   readonly body?: unknown
   readonly auth?: AuthRequirement
+}
+
+function pathWithParams(template: string, params: Readonly<Record<string, string>> = {}): string {
+  const required = [...template.matchAll(/:([A-Za-z][A-Za-z0-9]*)/g)].map(match => match[1]!)
+  for (const key of required) {
+    if (!params[key]) throw new Error(`Missing route parameter "${key}"`)
+  }
+  for (const key of Object.keys(params)) {
+    if (!required.includes(key)) throw new Error(`Unknown route parameter "${key}"`)
+  }
+  return template.replace(/:([A-Za-z][A-Za-z0-9]*)/g,
+    (_, key: string) => encodeURIComponent(params[key]!))
 }
 
 /**
@@ -41,7 +56,7 @@ interface EndpointCallOptions extends CallOptions {
 export function createServiceBinding(context: ServiceContext, service: HidService) {
   return function call<T = unknown>(
     endpointName: string,
-    method: 'GET' | 'POST',
+    method: EndpointMethod,
     options: EndpointCallOptions = {},
   ): Promise<T> {
     assertEndpointAllowed(context.app, endpointName)
@@ -70,11 +85,12 @@ export function createServiceBinding(context: ServiceContext, service: HidServic
 
     const spec: RequestSpec = {
       method,
-      path: `/${endpointName}`,
+      path: pathWithParams(descriptor.path, options.params),
       auth,
       ...(options.query ? { query: options.query } : {}),
       ...(options.body !== undefined ? { body: options.body } : {}),
       ...(options.signal ? { signal: options.signal } : {}),
+      ...(options.headers ? { headers: options.headers } : {}),
     }
 
     return context.client.request<T>(spec)

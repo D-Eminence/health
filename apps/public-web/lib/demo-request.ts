@@ -1,21 +1,22 @@
-/**
- * Demo requests — INTERIM MECHANISM, MARKED FOR REPLACEMENT.
- *
- * The design shows a demo form that submits and confirms. There is no backend
- * contract for it: no endpoint at the frozen release accepts a demo or sales
- * enquiry, and `send-email` is backend-internal rather than a public intake.
- *
- * Rather than invent an endpoint or fake a success state, the form composes the
- * enquiry and hands it to the visitor's mail client. That loses no lead, makes
- * no claim the platform cannot honour, and is a single function to delete once
- * a real intake contract exists.
- *
- * See docs/OPEN-QUESTIONS.md, Q13. Replace this with a service module in
- * @hid/api the moment the endpoint is confirmed.
- */
+import type { DemoSubmission } from './commercial-api'
+
+/** Public contact address used on informational pages. Demo forms submit to the API. */
+export const DEMO_INBOX = 'hello@healthidentitydirectory.com'
+
+export const DEMO_PRODUCTS = [
+  { code: 'ehr', label: 'Health ID EHR' },
+  { code: 'migrate', label: 'Health ID Migrate' },
+  { code: 'laboratory', label: 'Health ID Laboratory' },
+  { code: 'pharmacy', label: 'Health ID Pharmacy' },
+  { code: 'outreach', label: 'Health ID Outreach' },
+  { code: 'api', label: 'Health ID API' },
+  { code: 'general', label: 'General enquiry' },
+] as const
+
+export type DemoProductCode = (typeof DEMO_PRODUCTS)[number]['code']
 
 export interface DemoRequest {
-  readonly service: string
+  readonly service: DemoProductCode | ''
   readonly facility: string
   readonly contactName: string
   readonly role: string
@@ -29,82 +30,59 @@ export interface DemoRequestContext {
   readonly sourcePage: string
   readonly sourceSection: string
   readonly ctaLabel: string
-  readonly pageUrl: string
-  readonly submittedAt: string
-  readonly campaign: string
-}
-
-/** Where enquiries go until an intake endpoint exists. */
-export const DEMO_INBOX = 'hello@healthidentitydirectory.com'
-
-const FIELD_LABELS: Record<keyof DemoRequest, string> = {
-  service: 'Service',
-  facility: 'Organisation or facility',
-  contactName: 'Full name',
-  role: 'Role',
-  otherRole: 'Specified role',
-  email: 'Work email',
-  phone: 'Phone number',
-  notes: 'Additional note',
 }
 
 export type DemoRequestErrors = Partial<Record<keyof DemoRequest, string>>
 
-/**
- * Validates the enquiry.
- *
- * Deliberately forgiving: this is a sales form, and rejecting a real facility
- * over a phone-number format loses a customer. Only the fields needed to reply
- * are required.
- */
 export function validateDemoRequest(request: DemoRequest): DemoRequestErrors {
   const errors: DemoRequestErrors = {}
-
-  if (request.service.trim() === '') errors.service = 'Select the service you are interested in.'
-  if (request.facility.trim() === '') errors.facility = 'Enter your organisation or facility.'
-  if (request.contactName.trim() === '') errors.contactName = 'Enter your full name.'
-  if (request.role.trim() === '') errors.role = 'Select your role.'
-  if (request.role === 'Other' && request.otherRole.trim() === '') errors.otherRole = 'Tell us your role.'
-
-  const email = request.email.trim()
-  if (email === '') {
-    errors.email = 'Enter an email address so we can reply.'
-  } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    errors.email = 'That email address does not look right.'
+  if (!DEMO_PRODUCTS.some(product => product.code === request.service)) {
+    errors.service = 'Choose a service.'
   }
-
+  if (request.facility.trim().length < 2 || request.facility.trim().length > 200) {
+    errors.facility = 'Enter your organisation or facility.'
+  }
+  if (request.contactName.trim().length < 2 || request.contactName.trim().length > 160) {
+    errors.contactName = 'Enter your full name.'
+  }
+  if (request.role.trim() === '') errors.role = 'Enter your role.'
+  if (request.role === 'Other' && request.otherRole.trim() === '') {
+    errors.otherRole = 'Tell us your role.'
+  }
+  if (request.email.trim().length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(request.email.trim())) {
+    errors.email = 'Enter a valid email address.'
+  }
+  if (request.phone.trim() && !/^\+?[0-9 ()-]{7,32}$/.test(request.phone.trim())) {
+    errors.phone = 'Enter a valid phone number.'
+  }
+  if (request.notes.trim() && (request.notes.trim().length < 8 || request.notes.trim().length > 2000)) {
+    errors.notes = 'Add at least 8 characters, or leave this blank.'
+  }
   return errors
 }
 
-/** Builds the message body. Plain text so it reads correctly in any mail client. */
-export function composeDemoEnquiry(request: DemoRequest, context?: DemoRequestContext): { subject: string; body: string } {
-  const lines = (Object.keys(FIELD_LABELS) as (keyof DemoRequest)[])
-    .map(field => [FIELD_LABELS[field], request[field].trim()] as const)
-    .filter(([, value]) => value !== '')
-    .map(([label, value]) => `${label}: ${value}`)
-
-  return {
-    subject: `Demo request — ${request.facility.trim()}`,
-    body: [
-      'A demo request from the Health ID website.',
-      '',
-      ...lines,
-      ...(context ? [
-        '',
-        'Request context',
-        `Source page: ${context.sourcePage}`,
-        `Source section: ${context.sourceSection}`,
-        `CTA: ${context.ctaLabel}`,
-        `Page URL: ${context.pageUrl}`,
-        `Submitted: ${context.submittedAt}`,
-        ...(context.campaign ? [`Campaign: ${context.campaign}`] : []),
-      ] : []),
-    ].join('\n'),
+export function toDemoSubmission(
+  request: DemoRequest,
+  context: DemoRequestContext,
+  turnstileToken: string,
+): DemoSubmission {
+  const errors = validateDemoRequest(request)
+  if (Object.keys(errors).length > 0 || !request.service || !turnstileToken) {
+    throw new Error('Complete the form and verification before submitting.')
   }
-}
-
-/** The `mailto:` URL the form hands to the browser. */
-export function buildDemoMailto(request: DemoRequest, context?: DemoRequestContext): string {
-  const { subject, body } = composeDemoEnquiry(request, context)
-  return `mailto:${DEMO_INBOX}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
+  const role = request.role === 'Other' ? request.otherRole.trim() : request.role.trim()
+  return {
+    contactName: request.contactName.trim(),
+    contactEmail: request.email.trim().toLowerCase(),
+    productCode: request.service,
+    organizationName: request.facility.trim(),
+    ...(role ? { contactRole: role } : {}),
+    ...(request.phone.trim() ? { contactPhone: request.phone.trim() } : {}),
+    ...(request.notes.trim() ? { message: request.notes.trim() } : {}),
+    sourcePage: context.sourcePage.slice(0, 200),
+    sourceSection: context.sourceSection.slice(0, 120),
+    ctaLabel: context.ctaLabel.slice(0, 120),
+    turnstileAction: 'book-demo',
+    turnstileToken,
+  }
 }

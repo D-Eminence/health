@@ -5,7 +5,7 @@
  * Nothing here is inferred from what an endpoint "probably" returns.
  *
  * Rule for this package: a type may describe a value the backend is known to
- * produce, or it may describe a value whose shape is not yet confirmed — in
+ * produce, or it may describe a value whose shape is not yet confirmed; in
  * which case it is `UnverifiedPayload` and the gap is recorded in
  * `docs/OPEN-QUESTIONS.md`. There is no third option where the frontend
  * invents a shape and treats it as fact.

@@ -3,13 +3,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Button, Display, IconButton, cx } from '@hid/ui'
 import { HealthIcon } from './HealthIcon'
+import { TurnstileWidget } from './TurnstileWidget'
 import {
-  DEMO_INBOX,
-  buildDemoMailto,
+  DEMO_PRODUCTS,
+  toDemoSubmission,
   validateDemoRequest,
   type DemoRequest,
   type DemoRequestErrors,
 } from '@/lib/demo-request'
+import { submitDemoRequest } from '@/lib/commercial-api'
+import { getEnvironment } from '@/lib/env'
 
 const EMPTY: DemoRequest = { service: '', facility: '', contactName: '', role: '', otherRole: '', email: '', phone: '', notes: '' }
 
@@ -32,6 +35,16 @@ export function DemoDialog() {
   const [request, setRequest] = useState<DemoRequest>(EMPTY)
   const [errors, setErrors] = useState<DemoRequestErrors>({})
   const [sent, setSent] = useState(false)
+  const [pending, setPending] = useState(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
+  const [verificationError, setVerificationError] = useState<string | null>(null)
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
+  const [resetKey, setResetKey] = useState(0)
+  const submissionKeyRef = useRef<string | null>(null)
+  const environment = getEnvironment()
+  const siteKey = environment.turnstileSiteKey
+  const localNoWidget = environment.name === 'local' && !siteKey
+    && ['localhost', '127.0.0.1', '[::1]'].includes(new URL(environment.appOrigin).hostname)
 
   const close = useCallback(() => {
     dialogRef.current?.close()
@@ -39,6 +52,9 @@ export function DemoDialog() {
 
   const onDialogClose = useCallback(() => {
     setRequest(EMPTY)
+    setTurnstileToken(null)
+    setSubmitError(null)
+    submissionKeyRef.current = null
     const opener = openerRef.current
     openerRef.current = null
     if (opener?.isConnected) requestAnimationFrame(() => opener.focus())
@@ -48,6 +64,8 @@ export function DemoDialog() {
     const open = (opener: HTMLElement) => {
       setSent(false)
       setErrors({})
+      setSubmitError(null)
+      setVerificationError(null)
       openerRef.current = opener
 
       const dialog = dialogRef.current
@@ -72,18 +90,43 @@ export function DemoDialog() {
   const update = (field: keyof DemoRequest) => (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { value } = event.target
     setRequest(current => ({ ...current, [field]: value }))
+    submissionKeyRef.current = null
   }
 
-  const onSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+  const onSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    if (pending) return
     const found = validateDemoRequest(request)
     setErrors(found)
     if (Object.keys(found).length > 0) return
+    const localToken = localNoWidget && ['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname)
+      ? 'local-turnstile-disabled' : null
+    const verificationToken = turnstileToken ?? localToken
+    if (!verificationToken) {
+      setVerificationError('Complete the security verification to continue.')
+      return
+    }
 
-    // Hands off to the visitor's mail client. See lib/demo-request.ts for why
-    // this is not a network call yet.
-    window.location.href = buildDemoMailto(request)
-    setSent(true)
+    setPending(true)
+    setSubmitError(null)
+    setVerificationError(null)
+    try {
+      const context = {
+        sourcePage: window.location.pathname,
+        sourceSection: 'demo-dialog',
+        ctaLabel: openerRef.current?.textContent?.trim() || 'Book a demo',
+      }
+      const body = toDemoSubmission(request, context, verificationToken)
+      submissionKeyRef.current ??= crypto.randomUUID()
+      await submitDemoRequest(body, submissionKeyRef.current)
+      setSent(true)
+    } catch (reason) {
+      setSubmitError(reason instanceof Error ? reason.message : 'The request could not be sent. Please try again.')
+    } finally {
+      setPending(false)
+      setTurnstileToken(null)
+      setResetKey(key => key + 1)
+    }
   }
 
   return (
@@ -97,11 +140,11 @@ export function DemoDialog() {
       <div className="flex items-start justify-between gap-4 border-b border-line px-5 py-5">
         <div>
           <Display as="h2" size="sm" id="demo-dialog-title">
-            {sent ? 'Demo request ready to send' : 'Book a demo'}
+            {sent ? 'Demo request received' : 'Book a demo'}
           </Display>
           <p className="mt-1 text-sm text-muted">
             {sent
-              ? 'Your email app should have opened with the details filled in.'
+              ? 'Our team has your request and can follow up by email.'
               : 'Tell us about your facility and we will arrange a walkthrough.'}
           </p>
         </div>
@@ -118,20 +161,24 @@ export function DemoDialog() {
 
       {sent ? (
         <div className="flex flex-col gap-4 px-5 py-5">
-          <p className="text-[15px]/relaxed text-muted">
-            If nothing opened, email us directly at{' '}
-            <a href={`mailto:${DEMO_INBOX}`} className="font-semibold text-brand">
-              {DEMO_INBOX}
-            </a>{' '}
-            and we will take it from there.
-          </p>
+          <p className="text-[15px]/relaxed text-muted">We will contact you at {request.email.trim()}.</p>
           <Button onClick={close} className="self-start">
             Done
           </Button>
         </div>
       ) : (
         <form onSubmit={onSubmit} noValidate className="flex flex-col gap-4 px-5 py-5">
-          <Field label="Service of interest" name="service" value={request.service} error={errors.service} onChange={update('service')} />
+          <label className="flex flex-col gap-1.5">
+            <span className="text-[13px] font-semibold text-ink">Service of interest</span>
+            <select name="service" value={request.service}
+              onChange={event => { setRequest(current => ({ ...current, service: event.target.value as DemoRequest['service'] })); submissionKeyRef.current = null }}
+              aria-invalid={Boolean(errors.service)}
+              className="h-[38px] rounded-(--radius-control) border border-line-strong bg-surface px-3 text-[14px] text-ink">
+              <option value="">Select a service</option>
+              {DEMO_PRODUCTS.map(product => <option key={product.code} value={product.code}>{product.label}</option>)}
+            </select>
+            {errors.service ? <span className="text-[12px] font-medium text-critical">{errors.service}</span> : null}
+          </label>
           <Field
             label="Facility"
             name="facility"
@@ -166,6 +213,7 @@ export function DemoDialog() {
               type="tel"
               optional
               value={request.phone}
+              error={errors.phone}
               onChange={update('phone')}
               autoComplete="tel"
             />
@@ -182,13 +230,21 @@ export function DemoDialog() {
               onChange={update('notes')}
               className="min-h-28 resize-y rounded-(--radius-control) border border-line-strong bg-surface px-3 py-2.5 text-[14px] text-ink focus:border-brand focus:outline-2 focus:outline-offset-0 focus:outline-brand"
             />
+            {errors.notes ? <span className="text-[12px] font-medium text-critical">{errors.notes}</span> : null}
             <span className="text-[12px] text-faint">
               Please do not include any patient information.
             </span>
           </label>
 
+          {localNoWidget
+            ? <p className="text-xs text-muted">Local development: security verification is disabled on the local gateway.</p>
+            : <TurnstileWidget siteKey={siteKey} action="book-demo" resetKey={resetKey}
+                onToken={setTurnstileToken} onError={setVerificationError} />}
+          {verificationError ? <p role="alert" className="text-sm text-critical">{verificationError}</p> : null}
+          {submitError ? <p role="alert" className="text-sm text-critical">{submitError}</p> : null}
+
           <div className="mt-1 flex items-center gap-3">
-            <Button type="submit">Send request</Button>
+            <Button type="submit" disabled={pending || (!turnstileToken && !localNoWidget)}>{pending ? 'Sending…' : 'Send request'}</Button>
             <button
               type="button"
               onClick={close}

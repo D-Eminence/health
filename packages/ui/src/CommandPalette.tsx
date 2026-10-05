@@ -146,6 +146,7 @@ export function CommandPalette({
   const recentIds = recentItemIds ?? uncontrolledRecentIds
   const dialogId = useId()
   const titleId = useId()
+  const instructionsId = useId()
   const resultsId = useId()
   const liveId = useId()
   const inputRef = useRef<HTMLInputElement>(null)
@@ -375,6 +376,10 @@ export function CommandPalette({
             onKeyDown={onDialogKeyDown}
           >
             <h2 id={titleId} className="waya-command__sr-only">{title}</h2>
+            <span id={instructionsId} className="waya-command__sr-only">
+              Use the arrow keys to navigate results, Enter to open a result, and Escape to close search.
+              {keyboardShortcut ? ` Open search with ${shortcutLabel}.` : ''}
+            </span>
             <header className="waya-command__header">
               <div className={`waya-command__input-wrap${query ? ' is-filled' : ''}`}>
                 <HugeiconsIcon icon={Search01Icon} size={18} strokeWidth={1.7} aria-hidden="true" />
@@ -385,7 +390,7 @@ export function CommandPalette({
                   aria-label={title}
                   aria-autocomplete="list"
                   aria-controls={resultsId}
-                  aria-describedby={liveId}
+                  aria-describedby={`${instructionsId} ${liveId}`}
                   aria-activedescendant={activeIndex >= 0 ? `${resultsId}-option-${activeIndex}` : undefined}
                   value={query}
                   onChange={event => setQuery(event.target.value)}
@@ -505,12 +510,6 @@ export function CommandPalette({
               )}
             </div>
 
-            <footer className="waya-command__footer">
-              <span className="waya-command__footer-nav">Navigate <kbd>↑</kbd><kbd>↓</kbd></span>
-              <span>Open <kbd>Enter</kbd></span>
-              <span>Close <kbd>Esc</kbd></span>
-              <span className="waya-command__footer-shortcut">Search <kbd>{shortcutLabel}</kbd></span>
-            </footer>
             <span id={liveId} className="waya-command__sr-only" aria-live="polite" aria-atomic="true">{liveMessage}</span>
           </section>
         </div>

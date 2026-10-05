@@ -11,12 +11,14 @@ export function ProviderClosing({
   title,
   lede,
   primary,
+  primaryHref = '#demo',
   secondary,
   secondaryHref,
 }: {
   title: string
   lede: string
   primary: string
+  primaryHref?: string
   secondary: string
   secondaryHref: string
 }) {
@@ -26,7 +28,7 @@ export function ProviderClosing({
         <CtaBand
           title={title}
           lede={lede}
-          primary={{ label: primary, href: '#demo' }}
+          primary={{ label: primary, href: primaryHref }}
           secondary={{ label: secondary, href: secondaryHref }}
         />
       </Wrap>

@@ -1,13 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { PRODUCTS, findProduct } from '../content/products'
 import { AUDIENCES, ROUTES, SOLUTION_AUDIENCES, TRUST } from '../content/site'
-import { PRICING } from '../content/provider'
 import { PATIENT_FAQ, PATIENT_JOURNEY } from '../content/patient'
 import { SOLUTIONS_PAGE } from '../content/pages'
-import { annualSaving, annualTotal, monthlyRate } from '../lib/pricing'
+import { formatPublicPrice, parsePublicPrices } from '../lib/commercial-api'
 import {
-  buildDemoMailto,
-  composeDemoEnquiry,
+  toDemoSubmission,
   validateDemoRequest,
   type DemoRequest,
 } from '../lib/demo-request'
@@ -98,41 +96,25 @@ describe('audience routing', () => {
 })
 
 describe('pricing', () => {
-  it('leaves the monthly rate alone when billed monthly', () => {
-    expect(monthlyRate(50_000, 'monthly')).toBe(50_000)
+  it('keeps quote prices as quotes and uses minor units for fixed prices', () => {
+    const prices = parsePublicPrices({ data: [
+      { product_slug: 'ehr', context: 'core', visibility: 'contact_sales', amount_minor: null, currency: 'NGN', billing_period: null, unit: null },
+      { product_slug: 'pharmacy', context: 'standalone', visibility: 'fixed', amount_minor: 1250000, currency: 'NGN', billing_period: 'monthly', unit: 'facility' },
+    ] })
+    expect(formatPublicPrice(prices[0]!)).toBe('Contact sales')
+    expect(formatPublicPrice(prices[1]!)).toContain('12,500')
   })
 
-  it('applies the stated 20% discount to the yearly rate', () => {
-    expect(PRICING.yearlyDiscount).toBe(0.2)
-    expect(monthlyRate(50_000, 'yearly')).toBe(40_000)
-    expect(monthlyRate(75_000, 'yearly')).toBe(60_000)
-  })
-
-  it('matches the saving quoted on the page to the actual difference', () => {
-    for (const plan of PRICING.plans) {
-      const difference =
-        annualTotal(plan.monthlyNaira, 'monthly') - annualTotal(plan.monthlyNaira, 'yearly')
-      expect(annualSaving(plan.monthlyNaira)).toBe(difference)
-    }
-  })
-
-  it('quotes the savings the design states', () => {
-    expect(annualSaving(50_000)).toBe(120_000)
-    expect(annualSaving(75_000)).toBe(180_000)
-  })
-
-  it('marks exactly one plan as most popular', () => {
-    expect(PRICING.plans.filter(plan => plan.badge).length).toBe(1)
-  })
-
-  it('rounds to whole naira rather than showing kobo', () => {
-    expect(Number.isInteger(monthlyRate(33_333, 'yearly'))).toBe(true)
+  it('rejects contradictory backend pricing instead of inventing an amount', () => {
+    expect(() => parsePublicPrices({ data: [
+      { product_slug: 'ehr', context: 'core', visibility: 'fixed', amount_minor: null, currency: 'NGN', billing_period: null, unit: null },
+    ] })).toThrow(/Pricing is temporarily unavailable/)
   })
 })
 
 describe('demo request', () => {
   const valid: DemoRequest = {
-    service: 'Health ID EHR',
+    service: 'ehr',
     role: 'Doctor',
     otherRole: '',
     facility: 'Prime Hospital',
@@ -163,24 +145,14 @@ describe('demo request', () => {
     expect(validateDemoRequest({ ...valid, facility: '   ' }).facility).toBeDefined()
   })
 
-  it('composes an enquiry naming the facility in the subject', () => {
-    const { subject, body } = composeDemoEnquiry(valid)
-    expect(subject).toBe('Demo request — Prime Hospital')
-    expect(body).toContain('Full name: Amaka Eze')
-    expect(body).toContain('Work email: amaka@example.com')
-  })
-
-  it('omits empty optional fields rather than sending blank lines', () => {
-    const { body } = composeDemoEnquiry(valid)
-    expect(body).not.toContain('Phone number:')
-    expect(body).not.toContain('Additional note:')
-  })
-
-  it('percent-encodes the mailto so punctuation survives', () => {
-    const mailto = buildDemoMailto({ ...valid, notes: 'We run two branches & a lab' })
-    expect(mailto.startsWith('mailto:')).toBe(true)
-    expect(mailto).toContain('%26')
-    expect(mailto).not.toContain('\n')
+  it('maps the form to the backend contract without including URL queries', () => {
+    const body = toDemoSubmission(valid, { sourcePage: '/contact', sourceSection: 'contact-card', ctaLabel: 'Book a demo' }, 'token')
+    expect(body).toMatchObject({
+      contactName: 'Amaka Eze', contactEmail: 'amaka@example.com', productCode: 'ehr',
+      organizationName: 'Prime Hospital', turnstileAction: 'book-demo', turnstileToken: 'token',
+      sourcePage: '/contact',
+    })
+    expect(JSON.stringify(body)).not.toContain('pageUrl')
   })
 })
 

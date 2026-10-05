@@ -10,7 +10,7 @@
  * at what assurance level*. It deliberately carries no name, no Health ID code,
  * no phone number and no clinical data. Display information is fetched from the
  * relevant service when a screen needs it and lives only as long as that screen
- * does — which is what keeps identifying data out of anything long-lived.
+ * does, which is what keeps identifying data out of anything long-lived.
  *
  * A principal is not a permission. The backend authorises every request.
  */

@@ -5,7 +5,7 @@
  *
  *  1. Only the backend's sanitised `message` is shown. Nothing is composed out
  *     of a request body, a URL or a record, so a failure cannot put clinical
- *     detail on screen — or into a screenshot pasted into a support ticket.
+ *     detail on screen, or into a screenshot pasted into a support ticket.
  *
  *  2. The correlation id is shown, because it is the one piece of information
  *     that lets support find the matching backend log line, and it identifies

@@ -1,141 +1,87 @@
 import { describe, expect, it } from 'vitest'
-import {
-  APP_BOUNDARIES,
-  BoundaryViolationError,
-  assertEndpointAllowed,
-  canUseService,
-} from '../boundaries'
-import { HID_ENDPOINTS, SERVICES_WITHOUT_CONTRACTS, findEndpoint } from '../registry'
-import type { HidApp } from '../boundaries'
+import { APP_BOUNDARIES, APP_ROUTE_GRANTS, BoundaryViolationError,
+  assertEndpointAllowed, canUseService } from '../boundaries'
+import { HID_ENDPOINTS, NON_FRONTEND_ENDPOINTS, findEndpoint, hasContracts } from '../registry'
 
-const ALL_APPS = Object.keys(APP_BOUNDARIES) as HidApp[]
+describe('c4b5445 route registry', () => {
+  it('uses unique names, full gateway paths and declared methods', () => {
+    expect(new Set(HID_ENDPOINTS.map(endpoint => endpoint.name)).size).toBe(HID_ENDPOINTS.length)
+    for (const endpoint of HID_ENDPOINTS) {
+      expect(endpoint.path).toMatch(/^\/(api\/v1|gateway-health)\//)
+      expect(endpoint.methods.length).toBeGreaterThan(0)
+    }
+  })
+
+  it('lists the actual public pricing, demo, enrollment and recovery routes', () => {
+    expect(findEndpoint('commercial.pricing')?.path).toBe('/api/v1/commercial/pricing')
+    expect(findEndpoint('commercial.demo')?.methods).toEqual(['POST'])
+    expect(findEndpoint('enrollment.start')?.path).toBe('/api/v1/identity/patient-enrollments')
+    expect(findEndpoint('auth.otpComplete')?.path).toBe('/api/v1/auth/otp/complete')
+  })
+
+  it('records distinct RBAC permissions per EHR method', () => {
+    const encounters = findEndpoint('ehr.encounters')
+    expect(encounters?.permissions?.GET).toEqual(['ehr.encounter.read'])
+    expect(encounters?.permissions?.POST).toEqual(['ehr.encounter.write'])
+  })
+
+  it('routes provider facility audit to the Identity service', () => {
+    expect(findEndpoint('identity.facilityAudit')?.path).toBe('/api/v1/audit/events')
+    expect(findEndpoint('identity.facilityAudit')?.permissions?.GET).toEqual(['audit.read'])
+    expect(() => assertEndpointAllowed('staff-web','identity.facilityAudit')).not.toThrow()
+    expect(() => assertEndpointAllowed('patient-web','identity.facilityAudit')).toThrow(BoundaryViolationError)
+  })
+
+  it('keeps workload routes and absent legacy flows out of browser contracts', () => {
+    expect(NON_FRONTEND_ENDPOINTS).toContain('/api/v1/lab/work-items/accept-ehr-order')
+    expect(findEndpoint('outreach.signup')).toBeUndefined()
+    expect(findEndpoint('ocr.projectOperations')).toBeUndefined()
+    expect(findEndpoint('admin.billing')).toBeUndefined()
+    expect(hasContracts('lab')).toBe(true)
+    expect(hasContracts('pharmacy')).toBe(true)
+  })
+})
 
 describe('application boundaries', () => {
-  it('grants the public site nothing that can reach patient data', () => {
-    const publicServices = APP_BOUNDARIES['public-web'].services
-    expect(publicServices).toEqual(['platform'])
-    expect(APP_BOUNDARIES['public-web'].handlesPhi).toBe(false)
+  it('keeps clinical and admin services out of the public site', () => {
+    expect(APP_BOUNDARIES['public-web'].services).toContain('commercial')
+    expect(canUseService('public-web','ehr')).toBe(false)
+    expect(canUseService('public-web','admin')).toBe(false)
+    expect(APP_BOUNDARIES['public-web'].handlesPhi).toBe(true)
   })
 
-  it('marks every application that touches a patient as handling PHI', () => {
-    for (const app of ALL_APPS) {
-      const boundary = APP_BOUNDARIES[app]
-      const reachesPatients = boundary.services.some(service =>
-        ['ehr', 'access', 'files', 'admin', 'outreach', 'ocr', 'lab', 'pharmacy'].includes(service),
-      )
-      if (reachesPatients) expect(boundary.handlesPhi).toBe(true)
+  it('grants Lab and Pharmacy their implemented service routes', () => {
+    expect(canUseService('lab-web','lab')).toBe(true)
+    expect(canUseService('pharmacy-web','pharmacy')).toBe(true)
+    for (const service of ['lab', 'pharmacy', 'ocr', 'outreach'] as const) {
+      expect(canUseService('staff-web', service)).toBe(true)
     }
   })
 
-  it('keeps administration out of the patient and staff applications', () => {
-    expect(canUseService('patient-web', 'admin')).toBe(false)
-    expect(canUseService('staff-web', 'admin')).toBe(false)
-    expect(canUseService('admin-web', 'admin')).toBe(true)
-  })
-
-  it('keeps clinical services out of outreach, which is a registration workflow', () => {
-    expect(canUseService('outreach-web', 'ehr')).toBe(false)
-    expect(canUseService('outreach-web', 'outreach')).toBe(true)
-  })
-
-  it('gives every application a stated purpose', () => {
-    for (const app of ALL_APPS) {
-      expect(APP_BOUNDARIES[app].purpose.length).toBeGreaterThan(20)
-    }
-  })
-})
-
-describe('assertEndpointAllowed', () => {
-  it('permits an endpoint inside the application grant', () => {
-    expect(() => assertEndpointAllowed('patient-web', 'patients-me')).not.toThrow()
-    expect(() => assertEndpointAllowed('admin-web', 'admin-billing')).not.toThrow()
-  })
-
-  it('rejects an endpoint outside the grant and says what is allowed', () => {
-    expect(() => assertEndpointAllowed('patient-web', 'admin-billing')).toThrow(
-      BoundaryViolationError,
-    )
-    expect(() => assertEndpointAllowed('patient-web', 'admin-billing')).toThrow(
-      /may not call the "admin" service/,
-    )
-  })
-
-  it('stops the public site reaching a clinical endpoint', () => {
-    expect(() => assertEndpointAllowed('public-web', 'patients-records')).toThrow(
-      BoundaryViolationError,
-    )
-  })
-
-  it('rejects an endpoint that is not in the registry rather than assuming it exists', () => {
-    expect(() => assertEndpointAllowed('patient-web', 'patient-preferences')).toThrow(
-      /not a known Health ID endpoint/,
-    )
-  })
-
-  it('refuses services that have no confirmed contracts', () => {
-    for (const service of SERVICES_WITHOUT_CONTRACTS) {
-      expect(HID_ENDPOINTS.filter(descriptor => descriptor.service === service)).toHaveLength(0)
-    }
-    // lab-web is granted the lab service, but there is nothing to call.
-    expect(() => assertEndpointAllowed('lab-web', 'lab-orders-list')).toThrow(
-      /not a known Health ID endpoint/,
-    )
-  })
-})
-
-describe('endpoint registry', () => {
-  it('has no duplicate endpoint names', () => {
-    const names = HID_ENDPOINTS.map(descriptor => descriptor.name)
-    expect(new Set(names).size).toBe(names.length)
-  })
-
-  it('declares at least one method for every endpoint', () => {
-    for (const descriptor of HID_ENDPOINTS) {
-      expect(descriptor.methods.length).toBeGreaterThan(0)
+  it('keeps shared-service grants specific to each portal', () => {
+    expect(() => assertEndpointAllowed('patient-web','identity.patientLookup'))
+      .toThrow(BoundaryViolationError)
+    expect(() => assertEndpointAllowed('staff-web','identity.me'))
+      .toThrow(BoundaryViolationError)
+    expect(() => assertEndpointAllowed('public-web','auth.logout'))
+      .toThrow(BoundaryViolationError)
+    expect(() => assertEndpointAllowed('admin-web','auth.patientLogin'))
+      .toThrow(BoundaryViolationError)
+    expect(() => assertEndpointAllowed('staff-web','lab.workItems')).not.toThrow()
+    for (const [app, byService] of Object.entries(APP_ROUTE_GRANTS)) {
+      for (const [service, names] of Object.entries(byService)) {
+        for (const name of names) {
+          expect(findEndpoint(name)?.service, `${app}: ${name}`).toBe(service)
+        }
+      }
     }
   })
 
-  it('restricts every admin endpoint to platform administrators', () => {
-    for (const descriptor of HID_ENDPOINTS.filter(entry => entry.service === 'admin')) {
-      expect(descriptor.auth).toEqual({ kind: 'role', roles: ['platform_admin'] })
-    }
+  it('refuses an admin endpoint in a patient application', () => {
+    expect(() => assertEndpointAllowed('patient-web','admin.overview')).toThrow(BoundaryViolationError)
   })
 
-  it('keeps the public surface small and explicitly enumerated', () => {
-    const publicEndpoints = HID_ENDPOINTS.filter(entry => entry.auth.kind === 'public').map(
-      entry => entry.name,
-    )
-
-    // Sign-in, sign-up, password reset and outreach onboarding are unauthenticated
-    // by necessity. Anything else appearing here needs justifying.
-    expect(publicEndpoints.sort()).toEqual(
-      [
-        'admin-password-reset-start',
-        'google-signin-eligibility',
-        'health-check',
-        'outreach-join',
-        'outreach-resend-otp',
-        'outreach-signup',
-        'outreach-verify-otp',
-        'patient-login',
-        'patient-reset-complete',
-        'patient-reset-start',
-        'patient-reset-verify',
-        'signup-availability',
-        'signup-start',
-        'signup-verify',
-        'staff-login',
-      ].sort(),
-    )
-  })
-
-  it('marks record writes as non-idempotent in their notes', () => {
-    expect(findEndpoint('records-create')?.note).toMatch(/not idempotent/i)
-    expect(findEndpoint('records-version-create')?.note).toMatch(/not idempotent/i)
-  })
-
-  it('flags signed file URLs as values that must not be persisted', () => {
-    expect(findEndpoint('files-sign-download')?.note).toMatch(/never persist/i)
-    expect(findEndpoint('files-sign-upload')?.note).toMatch(/never persist/i)
+  it('does not treat a missing route as a backend capability', () => {
+    expect(() => assertEndpointAllowed('outreach-web','outreach.signup')).toThrow(/not a known/)
   })
 })

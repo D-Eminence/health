@@ -14,6 +14,7 @@ import { HealthIDModuleShowcase } from '@/components/product/HealthIDModuleShowc
 import { PRODUCT_DETAILS, findProductDetail } from '@/content/product-details'
 import { APP_ENTRY, ROUTES } from '@/content/site'
 import type { HealthIDModuleSlug } from '@/content/module-showcase'
+import { isApplicationProduct, providerApplicationHref } from '@/lib/provider-application'
 
 interface PageProps {
   readonly params: Promise<{ readonly slug: string }>
@@ -28,6 +29,8 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const { slug } = await params
   const product = findProductDetail(slug)
   if (!product) return {}
+
+  if (slug === 'api') return { title: { absolute: 'Health ID API | Health ID' }, description: product.sub }
 
   return { title: product.name, description: product.sub }
 }
@@ -45,7 +48,8 @@ export default async function ProductPage({ params }: PageProps) {
 
   return (
     <>
-      <ProviderNav />
+      <ProviderNav preserveDemoAction={product.slug === 'api' || product.slug === 'outreach'}
+        applicationProduct={isApplicationProduct(product.slug) ? product.slug : undefined} />
       <main id="main">
         <ProductHero product={product} />
 
@@ -90,6 +94,7 @@ export default async function ProductPage({ params }: PageProps) {
           title={product.closingTitle}
           lede={product.closingBody}
           primary={product.cta}
+          primaryHref={isApplicationProduct(product.slug) ? providerApplicationHref(product.slug) : '#demo'}
           secondary="Hospital sign in"
           secondaryHref={APP_ENTRY.staffSignIn}
         />

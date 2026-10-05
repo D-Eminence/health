@@ -6,92 +6,144 @@ import { cx } from '@hid/ui'
 import { HeroDemoButton } from '@/components/shared/HeroDemoButton'
 import { HealthIcon } from '@/components/shared/HealthIcon'
 import type { ProductDetail } from '@/content/product-details'
+import { isApplicationProduct, providerApplicationHref, PROVIDER_SETUP_CTA } from '@/lib/provider-application'
 
-const CTA: Record<string, string> = { migrate: 'Plan your record migration', laboratory: 'Book a laboratory demo', pharmacy: 'Book a pharmacy demo', outreach: 'Plan an outreach programme', api: 'Explore integration options' }
-const LABELS: Record<string, string[]> = {
-  migrate: ['Capture', 'Organise', 'Extract', 'Validate', 'Match', 'Import'],
-  laboratory: ['Request', 'Verify', 'Collect', 'Process', 'Result entry', 'Release'],
-  pharmacy: ['Prescription', 'Verify', 'Dispense', 'History', 'Inventory', 'Payments', 'Audit'],
-  outreach: ['Campaign', 'Field team', 'Verify', 'Issue ID', 'Duplicates', 'Progress'],
-  api: ['Identity', 'Matching', 'Consent', 'Records', 'Contribution', 'Access logs'],
-}
-const META: Record<string, [string, string]> = {
-  migrate: ['RECORD MIGRATION', 'Legacy file · Batch 024'],
-  laboratory: ['LABORATORY ORDER', 'Full blood count'],
-  pharmacy: ['DISPENSING WORKSPACE', 'Prescription RX-2041'],
-  outreach: ['CAMPAIGN OPERATIONS', 'Community registration'],
-  api: ['ENDPOINT EXPLORER', 'Patient identity'],
+const CTA: Record<string, string> = {
+  outreach: 'Plan an outreach programme',
+  api: 'Explore integration options',
 }
 
-function Badge({ children, good = false }: { children: string; good?: boolean }) {
-  return <span className={cx('inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold', good ? 'bg-positive/10 text-positive' : 'bg-brand-tint text-brand')}><span className={cx('h-1.5 w-1.5 rounded-full', good ? 'bg-positive' : 'bg-brand')} />{children}</span>
-}
-function Row({ label, value, good = false, warn = false }: { label: string; value: string; good?: boolean; warn?: boolean }) {
-  return <div className="flex min-w-0 items-center justify-between gap-3 border-b border-line py-2 last:border-0 last:pb-0"><span className="text-[11px] text-muted">{label}</span><span className={cx('truncate text-right text-[11px] font-medium', good ? 'text-positive' : warn ? 'text-caution' : 'text-ink')}>{value}</span></div>
+type StepPreview = { readonly route: string; readonly detail: string; readonly result: string }
+
+/** Sample states correspond to supported route families, never live gateway data. */
+const PREVIEWS: Record<string, readonly StepPreview[]> = {
+  migrate: [
+    { route: 'EHR document upload', detail: 'A source document is attached to a patient record.', result: 'Source retained' },
+    { route: 'OCR job', detail: 'One job tracks one document through extraction.', result: 'Job created' },
+    { route: 'OCR extraction', detail: 'Extracted fields are available for review.', result: 'Review needed' },
+    { route: 'OCR validation', detail: 'An authorised reviewer records the validation decision.', result: 'Validated' },
+    { route: 'Patient confirmation', detail: 'The reviewer confirms the patient for the job.', result: 'Patient confirmed' },
+    { route: 'OCR publication', detail: 'Validated information is published through a controlled route.', result: 'Published' },
+  ],
+  laboratory: [
+    { route: 'Lab request', detail: 'A request is associated with a patient and care purpose.', result: 'Received' },
+    { route: 'Patient lookup', detail: 'Staff check identity in their authorised facility context.', result: 'Identity checked' },
+    { route: 'Sample collection', detail: 'Collection details are recorded against the request.', result: 'Collected' },
+    { route: 'Lab processing', detail: 'The sample moves through the available lab workflow.', result: 'Processing' },
+    { route: 'Result entry', detail: 'Structured results are recorded for review.', result: 'Entered' },
+    { route: 'Verification', detail: 'Authorised staff verify and release the result.', result: 'Released' },
+  ],
+  pharmacy: [
+    { route: 'Prescription work item', detail: 'A clinician-issued prescription enters the dispensing queue.', result: 'Received' },
+    { route: 'Patient lookup', detail: 'The patient is identified before medication is dispensed.', result: 'Identity checked' },
+    { route: 'Dispensing', detail: 'Medication, quantity and instructions are recorded.', result: 'Recorded' },
+    { route: 'Medication record', detail: 'The dispensing remains associated with the patient.', result: 'Connected' },
+    { route: 'Work item review', detail: 'Staff review the recorded dispensing details.', result: 'Reviewed' },
+    { route: 'Reversal', detail: 'A correction is made by recording a reversal.', result: 'Corrected' },
+    { route: 'Audit', detail: 'Actions retain staff and facility context.', result: 'Attributable' },
+  ],
+  outreach: [
+    { route: 'Campaign', detail: 'An authorised staff member creates a campaign.', result: 'Created' },
+    { route: 'Campaign member', detail: 'Staff are assigned to the campaign.', result: 'Assigned' },
+    { route: 'Registration case', detail: 'Temporary patient details are captured in a case.', result: 'Received' },
+    { route: 'Case review', detail: 'Identity resolution is reviewed before linking.', result: 'Review needed' },
+    { route: 'Existing patient link', detail: 'An authorised existing patient is linked to the case.', result: 'Resolved' },
+    { route: 'Case list', detail: 'Staff review the campaign and its case statuses.', result: 'Visible' },
+  ],
+  api: [
+    { route: 'POST /api/v1/identity/patient-lookup', detail: 'Identity lookup requires a staff session, facility and care purpose.', result: 'Scoped' },
+    { route: 'POST /api/v1/identity/authorization/check', detail: 'Check the requested patient, scope and purpose before access.', result: 'Checked' },
+    { route: '/api/v1/identity/access-requests', detail: 'Use the supported patient access request workflow.', result: 'Controlled' },
+    { route: '/api/v1/ehr', detail: 'Clinical records use the permitted encounter and patient routes.', result: 'Authorised' },
+    { route: '/api/v1/lab · /api/v1/pharmacy', detail: 'Contribute through the supported service routes.', result: 'Scoped' },
+    { route: '/api/v1/audit/events', detail: 'Access activity remains attributable for review.', result: 'Recorded' },
+  ],
 }
 
-function MigratePreview({ step, decision, onDecision }: { step: number; decision: 'accepted' | 'edited' | 'flagged' | null; onDecision: (value: 'accepted' | 'edited' | 'flagged') => void }) {
-  const labels = ['Capture', 'Organise', 'Extract', 'Validate', 'Match', 'Import']
-  const data = ([
-    [['Capture progress', '1 / 4 pages'], ['Document', 'Legacy file scanned'], ['Next step', 'Send for validation']],
-    [['Patient file', '4 pages grouped'], ['Duplicate page', 'Page 3 · review'], ['Folder status', 'Confirmed']],
-    [['Diagnosis', 'Malaria · 96%'], ['Medication', 'Artemisinin · 91%'], ['Date', '62% · review'], ['Provider', 'Not detected']],
-    [['Original text', '…reviewed for fever…'], ['Extracted value', 'Fever · 84%'], ['Reviewer', 'Validation queue'], ['Audit', decision ? 'Decision logged · now' : 'Awaiting decision']],
-    [['Candidate', 'HID-[redacted]'], ['Name and date', '2 fields match'], ['Confidence', 'High · confirm match']],
-    [['Records ready', '4 documents'], ['Validation', 'Completed'], ['Patient match', 'Confirmed'], ['Audit record', 'Created']],
-  ] as const)[step]!
-  return <><ol className="grid grid-cols-3 gap-1.5 sm:grid-cols-6">{labels.map((x, i) => <li key={x} className={cx('rounded-md px-1.5 py-2 text-center text-[9px] font-medium transition-colors duration-200 motion-reduce:transition-none', i === step ? 'bg-brand text-white' : i < step ? 'bg-surface-tint text-muted' : 'border border-line text-faint')}>{x}</li>)}</ol><div className="mt-3 grid gap-3 sm:grid-cols-[.8fr_1.2fr]"><div className="rounded-xl border border-line bg-surface-tint p-3"><p className="text-[9px] font-semibold text-muted">SOURCE RECORD</p><div className="mt-2 grid h-24 place-items-center rounded-lg border border-dashed border-line bg-white"><div className="w-14 rotate-[-2deg] border border-line bg-white p-2 shadow-sm"><div className="h-1 w-7 bg-line"/><div className="mt-2 h-1 bg-line"/><div className="mt-1 h-1 w-4/5 bg-line"/><div className="mt-1 h-1 bg-line"/><div className="mt-3 h-4 rounded border border-brand/20 bg-brand-tint"/></div></div><p className="mt-2 text-[9px] text-muted">Scanned pages · source retained</p></div><div className="rounded-xl border border-line p-3"><div className="flex items-center justify-between"><p className="text-[9px] font-semibold text-muted">{['CAPTURE STATUS','PATIENT FILE','EXTRACTED FIELDS','HUMAN REVIEW','IDENTITY MATCH','IMPORT SUMMARY'][step]!}</p><Badge good={step === 5 || step === 2}>{step === 3 && decision ? decision === 'flagged' ? 'Flagged' : 'Reviewed' : ['Ready','Grouped','OCR complete','Needs review','Review match','Imported'][step]!}</Badge></div><div className="mt-2">{data.map(([a, b]) => <Row key={a} label={a} value={b} good={(step === 5 || step === 2) && ['Diagnosis','Medication','Validation','Patient match'].includes(a)} warn={(step === 2 && (a === 'Date' || a === 'Provider')) || (step === 3 && !decision)}/>)}</div>{step === 3 ? <div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={()=>onDecision('accepted')} className="min-h-9 rounded-lg bg-brand px-3 text-[10px] font-semibold text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand">Accept</button><button type="button" onClick={()=>onDecision('edited')} className="min-h-9 rounded-lg border border-line px-3 text-[10px] font-semibold text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand">Edit value</button><button type="button" onClick={()=>onDecision('flagged')} className="min-h-9 rounded-lg border border-line px-3 text-[10px] font-semibold text-muted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand">Flag</button></div> : null}</div></div></>
-}
+function Preview({ product, index }: { product: ProductDetail; index: number }) {
+  const reducedMotion = useReducedMotion()
+  const step = product.workflows[index]
+  const example = PREVIEWS[product.slug]?.[index]
+  if (!step || !example) return null
 
-function LabPreview({ step }: { step: number }) {
-  const timeline = ['Ordered', 'Collected', 'Processing', 'Review', 'Completed']
-  return <div className="grid gap-3 sm:grid-cols-[.82fr_1.18fr]"><div className="rounded-xl border border-line bg-surface-tint p-3"><p className="text-[9px] font-semibold text-muted">ORDER DETAILS</p><div className="mt-2"><Row label="Patient" value="HID-[redacted]"/><Row label="Test" value="Full blood count"/><Row label="Sample" value={step < 2 ? 'EDTA · pending' : 'EDTA · LAB-0482'}/><Row label="Collected" value={step < 2 ? 'Awaiting collection' : '09:42 · Staff 014'}/></div></div><div className="rounded-xl border border-line p-3"><div className="flex items-center justify-between"><p className="text-[9px] font-semibold text-muted">{step < 2 ? 'SAMPLE STATUS' : step < 4 ? 'PROCESSING TIMELINE' : step === 4 ? 'RESULT ENTRY' : 'VERIFICATION & RELEASE'}</p><Badge good={step === 5}>{step === 5 ? 'Released' : step === 3 ? 'In review' : 'Tracking'}</Badge></div>{step < 2 ? <div className="mt-2"><Row label="Request" value="Received · 09:16" good/><Row label="Identity" value={step === 1 ? 'Verified' : 'Verification required'} good={step === 1}/><Row label="Duplicate check" value="No duplicate" good/><Row label="Next action" value={step === 0 ? 'Verify patient' : 'Collect sample'}/></div> : step < 4 ? <ol className="mt-2 space-y-1.5">{timeline.map((x, i) => <li key={x} className="flex justify-between gap-2 text-[10px]"><span className={i < step - 1 ? 'text-muted' : i === step - 1 ? 'font-semibold text-brand' : 'text-faint'}>{i < step - 1 ? '✓ ' : '○ '}{x}</span><span className="text-faint">{i < step - 1 ? '09:42 · Lab staff' : i === step - 1 ? 'Now' : '—'}</span></li>)}</ol> : step === 4 ? <div className="mt-2">{[['Haemoglobin','12.8 g/dL','12–16'],['White cells','7.4 ×10⁹/L','4–11'],['Platelets','248 ×10⁹/L','150–400']].map(x => <div key={x[0]} className="grid grid-cols-[1fr_auto_auto] gap-2 border-b border-line py-2 text-[10px] last:border-0"><span className="text-muted">{x[0]}</span><b className="text-ink">{x[1]}</b><span className="text-faint">{x[2]}</span></div>)}</div> : <div className="mt-2"><Row label="Reviewer" value="Authorised staff"/><Row label="Checklist" value="Results reviewed" good/><Row label="Destination" value="Ordering care team"/><Row label="Audit record" value="Logged on release" good/></div>}</div></div>
-}
-
-function PharmacyPreview({ step, medicineSelected, dispensed, onSelectMedicine, onDispense }: { step: number; medicineSelected: boolean; dispensed: boolean; onSelectMedicine: () => void; onDispense: () => void }) {
-  return <div className="grid gap-3 sm:grid-cols-[.82fr_1.18fr]"><div className="rounded-xl border border-line bg-surface-tint p-3"><p className="text-[9px] font-semibold text-muted">{['PRESCRIPTION','PATIENT CHECK','DISPENSING','MEDICATION HISTORY','STOCK CONTROL','TRANSACTION','ROLE & AUDIT'][step]}</p><p className="mt-2 text-[12px] font-semibold text-ink">{step < 3 ? 'Amoxicillin 500 mg' : step === 3 ? 'Patient medication record' : step === 4 ? 'Inventory item' : step === 5 ? 'Sale summary' : 'Staff permissions'}</p>{step < 3 ? <div className="mt-1"><Row label="Patient" value="HID-[redacted]"/><Row label="Allergy check" value={step === 1 ? 'Reviewed · none flagged' : 'Review required'} good={step === 1} warn={step !== 1}/><Row label="Quantity" value="21 capsules"/><Row label="Dosage" value="1 capsule · 3 times daily"/></div> : step === 3 ? <div className="mt-1"><Row label="Prescribed" value="21 · 04 Jun"/><Row label="Dispensed" value={dispensed ? '21 · recorded now' : 'Not yet dispensed'} good={dispensed}/><Row label="Prescriber" value="Authorised care team"/><Row label="Access" value="Controls apply"/></div> : step === 4 ? <div className="mt-1"><Row label="On hand" value={dispensed ? '83 packs' : '84 packs'}/><Row label="Reserved" value={medicineSelected && !dispensed ? '13 packs' : '12 packs'}/><Row label="Reorder level" value="20 packs" warn/><Row label="Batch / expiry" value="AMX-2406 · 2027-06"/></div> : step === 5 ? <div className="mt-1"><Row label="Amount" value="₦4,200"/><Row label="Payment" value="Paid · card" good/><Row label="Receipt" value="TXN-[redacted]"/><Row label="Daily total" value="₦86,400" good/></div> : <div className="mt-1"><Row label="Staff role" value="Pharmacist"/><Row label="Allowed" value="Review and dispense" good/><Row label="Restricted" value="Manage users" warn/><Row label="Organisation" value="Facility controlled"/></div>}</div><div className="rounded-xl border border-line p-3"><div className="flex items-center justify-between"><p className="text-[9px] font-semibold text-muted">{step < 3 ? 'DISPENSING CHECKLIST' : step === 3 ? 'LONGITUDINAL HISTORY' : step === 4 ? 'STOCK LEVEL' : step === 5 ? 'PAYMENT STATUS' : 'RECENT ACTIVITY'}</p><Badge good={dispensed && step > 1}>{step === 4 ? 'Reorder soon' : dispensed && step > 1 ? 'Recorded' : 'Current'}</Badge></div>{step < 3 ? <div className="mt-2"><Row label="Prescription match" value="Confirmed" good/><Row label="Medicine selected" value={medicineSelected ? 'Amoxicillin 500 mg · selected' : 'Amoxicillin 500 mg'}/><Row label="Stock available" value={dispensed ? '83 packs · updated' : medicineSelected ? '83 packs · 1 reserved' : '84 packs · sufficient'} good/><p className="mt-2 rounded-lg bg-brand-tint px-3 py-2 text-[10px] text-brand">{dispensed ? 'Dispensing recorded · stock updated' : step === 2 ? 'Ready to record dispensing' : 'Prescription ready for fulfilment'}</p>{step === 0 ? <button type="button" onClick={onSelectMedicine} className="mt-3 min-h-9 rounded-lg border border-line px-3 text-[10px] font-semibold text-brand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand">{medicineSelected ? 'Medicine selected' : 'Select medicine'}</button> : null}{step === 2 ? <button type="button" onClick={onDispense} className="mt-3 min-h-9 rounded-lg bg-brand px-3 text-[10px] font-semibold text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand">{dispensed ? 'Dispensing recorded' : 'Record dispensing'}</button> : null}</div> : step === 3 ? <div className="mt-2"><Row label="04 Jun · Main Pharmacy" value={dispensed ? 'Dispensed · 21' : 'Prescription · 21'} good={dispensed}/><Row label="04 Jun · City Clinic" value="Prescribed · 21"/><Row label="Access" value="Authorised workflow"/></div> : step === 4 ? <div className="mt-4"><div className="flex items-end justify-between"><b className="text-2xl text-ink">{dispensed ? '83' : '84'} <small className="text-xs font-normal text-muted">packs</small></b><span className="text-[9px] text-caution">Reorder at 20</span></div><div className="mt-3 h-2 rounded-full bg-surface-tint"><div className="h-2 w-3/4 rounded-full bg-brand"/></div><Row label="Reserved" value={medicineSelected && !dispensed ? '13 packs' : '12 packs'}/></div> : step === 5 ? <div className="mt-2"><Row label="Daily sales" value="₦86,400"/><Row label="Transactions" value="24 recorded" good/><Row label="Reconciliation" value="Complete" good/></div> : <div className="mt-2"><Row label="09:42" value={dispensed ? 'Dispensing recorded · you' : 'Dispensing activity'} /><Row label="09:40" value="Identity verified"/><Row label="09:36" value="Prescription received"/></div>}</div></div>
-}
-
-function OutreachPreview({ step }: { step: number }) {
-  const detail = ([
-    [['Programme','Community registration'],['Location','North District'],['Dates','04–18 Jun'],['Status','Active']],
-    [['Worker account','Field team · 04'],['Assigned location','North District'],['Registrations','18 completed'],['Last activity','09:42 · online']],
-    [['Identity','HID-[redacted]'],['Contact verification','Pending response'],['Code status','Awaiting response'],['Exception','Retry available']],
-    [['Identity','Verified'],['Health ID','HID-[redacted]'],['Delivery','SMS confirmation'],['Captured by','Field team · 04']],
-    [['Possible match','HID-[redacted]'],['Confidence','Review required'],['New ID','Paused until reviewed']],
-    [['Registered','132'],['IDs issued','118'],['Awaiting verification','14'],['Possible duplicates','3 · review']],
-  ] as const)[step]!
-  return <div className="grid gap-3 sm:grid-cols-[.86fr_1.14fr]"><div className="rounded-xl border border-line bg-surface-tint p-3"><p className="text-[9px] font-semibold text-muted">{['CAMPAIGN SETUP','FIELD TEAM','IDENTITY CHECK','REGISTRATION','POSSIBLE MATCHES','CAMPAIGN SUMMARY'][step]!}</p><div className="mt-1">{detail.map(([a,b]) => <Row key={a} label={a} value={b} good={b === 'Active' || b === 'Verified'} warn={b.includes('Pending') || b.includes('Paused') || b.includes('review')}/>)}</div></div><div className="rounded-xl border border-line p-3"><div className="flex items-center justify-between"><p className="text-[9px] font-semibold text-muted">{step < 2 ? 'FIELD REGISTRATION' : step === 2 ? 'VERIFICATION STATUS' : step === 3 ? 'ISSUANCE CONFIRMATION' : step === 4 ? 'MATCH REVIEW' : 'PROGRESS BY LOCATION'}</p><Badge good={step === 3}>{step === 3 ? 'Issued' : step === 4 ? 'Review needed' : 'Synced'}</Badge></div>{step < 2 ? <div className="mt-2"><Row label="Captured details" value="Saved on device" good/><Row label="Network" value="Low bandwidth mode"/><Row label="Sync queue" value="3 records · queued"/><p className="mt-2 rounded-lg bg-surface-tint p-2 text-[10px] text-muted">Each registration stays attributed to its signed-in field worker.</p></div> : step === 2 ? <div className="mt-2"><Row label="Identity details" value="Captured" good/><Row label="Contact verification" value="Pending response" warn/><Row label="Exception" value="Retry available"/><Row label="ID issuance" value="Waits for verification"/></div> : step === 3 ? <div className="mt-2"><Row label="Persistent Health ID" value="HID-[redacted]" good/><Row label="Facility recognition" value="Available" good/><Row label="Clinical records" value="Access controlled separately"/></div> : step === 4 ? <div className="mt-2"><Row label="Potential matches" value="2 identities" warn/><Row label="Review action" value="Compare before issue"/><Row label="New ID" value="Restricted until resolved" warn/></div> : <div className="mt-3 space-y-3">{[['North District','72'],['Market Road','48'],['School Zone','34']].map(([name,value]) => <div key={name}><div className="mb-1 flex justify-between text-[9px]"><span>{name}</span><span className="text-muted">{value} registrations</span></div><div className="h-1.5 rounded-full bg-surface-tint"><div className="h-1.5 rounded-full bg-brand" style={{width: (Number(value)/80*100)+'%'}}/></div></div>)}</div>}</div></div>
-}
-
-function ApiPreview({ step }: { step: number }) {
-  const paths = ['/patients/verify','/patients/match','/consent/requests','/records','/records/contribute','/access-logs']
-  const statuses = ['Identity verified', 'Match confirmed', 'Patient action pending', 'Access not requested', 'Contribution accepted', 'Activity recorded']
-  const labels = ['Identity result', 'Mapping status', 'Consent request', 'Record access', 'Contribution result', 'Audit reference']
-  const values = ['Verified · illustrative', 'Internal ID mapped', 'Awaiting patient response', 'Not requested', 'Accepted · illustrative', 'LOG-[redacted]']
-  return <div className="grid gap-3 sm:grid-cols-2"><div className="rounded-xl border border-line bg-surface-tint p-3 text-ink"><div className="flex items-center justify-between"><span className="font-mono text-[9px] text-muted">ILLUSTRATIVE REQUEST</span><span className="rounded border border-line bg-white px-2 py-1 font-mono text-[9px]">POST</span></div><p className="mt-4 break-all font-mono text-[11px] text-brand">{paths[step]!}</p><pre className="mt-3 overflow-x-auto font-mono text-[10px]/relaxed text-ink">{['{','  "healthId": "HID-[redacted]",','  "purpose": "consultation",','  "organisation": "facility-001"','}'].join('\n')}</pre></div><div className="rounded-xl border border-line bg-surface-tint p-3"><div className="flex items-center justify-between"><span className="text-[9px] font-semibold text-muted">ILLUSTRATIVE RESPONSE</span><Badge good={step === 0 || step === 1 || step === 4 || step === 5}>{statuses[step]!}</Badge></div><div className="mt-2"><Row label="Facility authentication" value="Valid" good/><Row label="Purpose" value="Consultation"/><Row label="Identity" value="HID-[redacted]"/><Row label={labels[step]!} value={values[step]!} good={step === 0 || step === 1 || step === 4 || step === 5} warn={step === 2}/></div><p className="mt-3 border-t border-line pt-3 text-[10px]/relaxed text-muted">Identity verification does not by itself provide medical-record access.</p></div></div>
-}
-
-function Preview({ product, index, decision, onDecision, medicineSelected, onSelectMedicine, dispensed, onDispense }: { product: ProductDetail; index: number; decision: 'accepted' | 'edited' | 'flagged' | null; onDecision: (value: 'accepted' | 'edited' | 'flagged') => void; medicineSelected: boolean; onSelectMedicine: () => void; dispensed: boolean; onDispense: () => void }) {
-  const reduceMotion = useReducedMotion()
-  const meta = META[product.slug] ?? META.laboratory!
-  return <motion.div key={product.slug + '-' + index} initial={{ opacity: 0, y: reduceMotion ? 0 : 4 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: reduceMotion ? 0 : 0.2, ease: 'easeOut' }} className="overflow-hidden rounded-2xl border border-line bg-white" aria-label={(product.workflows[index]?.title ?? 'Workflow')+' preview'}><div className="flex items-center justify-between gap-3 border-b border-line bg-surface-tint px-4 py-3 sm:px-5"><div><p className="font-mono text-[9px] font-semibold tracking-[.1em] text-brand">{meta[0]}</p><p className="mt-1 text-[13px] font-semibold text-ink">{meta[1]}</p></div><Badge>{product.slug === 'api' ? 'Illustrative' : 'Ready'}</Badge></div><div className="p-3 sm:p-4"><div className="mb-3 flex items-center justify-between border-b border-line pb-2"><span className="text-[11px] font-semibold text-ink">{product.workflows[index]?.title}</span><span className="font-mono text-[9px] text-faint">{String(index+1).padStart(2,'0')} / {String(product.workflows.length).padStart(2,'0')}</span></div>{product.slug === 'migrate' ? <MigratePreview step={index} decision={decision} onDecision={onDecision}/> : product.slug === 'laboratory' ? <LabPreview step={index}/> : product.slug === 'pharmacy' ? <PharmacyPreview step={index} medicineSelected={medicineSelected} dispensed={dispensed} onSelectMedicine={onSelectMedicine} onDispense={onDispense}/> : product.slug === 'outreach' ? <OutreachPreview step={index}/> : product.slug === 'api' ? <ApiPreview step={index}/> : <LabPreview step={index}/>}</div></motion.div>
-}
-
-function Capability({ product, index, active, select, hover, clear, ...previewProps }: { product: ProductDetail; index: number; active: boolean; select: () => void; hover: () => void; clear: () => void; decision: 'accepted' | 'edited' | 'flagged' | null; onDecision: (value: 'accepted' | 'edited' | 'flagged') => void; medicineSelected: boolean; onSelectMedicine: () => void; dispensed: boolean; onDispense: () => void }) {
-  const item = product.workflows[index]!
-  return <li className="border-b border-line last:border-0"><button type="button" aria-pressed={active} onClick={select} onMouseEnter={hover} onMouseLeave={clear} onFocus={hover} onBlur={clear} className={cx('group flex w-full items-start gap-3 rounded-xl px-3 py-3 text-left transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand motion-reduce:transition-none',active?'bg-brand-tint/70':'hover:bg-surface-tint')}><span className={cx('mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg font-mono text-[10px] font-semibold',active?'bg-brand text-white':'bg-surface-tint text-muted')}>{String(index+1).padStart(2,'0')}</span><span className="min-w-0 flex-1"><span className={cx('block text-[14px] font-semibold',active?'text-brand':'text-ink')}>{item.title}</span><span className="mt-1 block text-[13px]/relaxed text-muted sm:text-[14px]/relaxed">{item.body}</span></span><HealthIcon name="arrow" size={15} className={cx('mt-1 shrink-0 transition-transform duration-150 motion-reduce:transition-none',active?'translate-x-0.5 text-brand':'text-faint group-hover:translate-x-0.5')} /></button>{active ? <div className="px-3 pb-4 lg:hidden"><Preview product={product} index={index} {...previewProps}/></div> : null}</li>
+  return (
+    <motion.div
+      key={`${product.slug}-${index}`}
+      initial={{ opacity: 0, y: reducedMotion ? 0 : 4 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: reducedMotion ? 0 : 0.2, ease: 'easeOut' }}
+      className="overflow-hidden rounded-2xl border border-line bg-white"
+      aria-label={`${step.title} illustrative preview`}
+    >
+      <div className="flex items-center justify-between gap-3 border-b border-line bg-surface-tint px-4 py-3 sm:px-5">
+        <div>
+          <p className="font-mono text-[9px] font-semibold tracking-[.1em] text-brand">{product.name.toUpperCase()}</p>
+          <p className="mt-1 text-[13px] font-semibold text-ink">{step.title}</p>
+        </div>
+        <span className="rounded-full bg-brand-tint px-2.5 py-1 text-[10px] font-semibold text-brand">Illustrative</span>
+      </div>
+      <div className="p-3 sm:p-4">
+        <ol className="grid grid-cols-3 gap-1.5 sm:grid-cols-6" aria-label="Workflow stages">
+          {product.workflows.map((item, position) => (
+            <li key={item.title} className={cx(
+              'rounded-md px-1.5 py-2 text-center text-[9px] font-medium',
+              position === index ? 'bg-brand text-white' : position < index ? 'bg-surface-tint text-muted' : 'border border-line text-faint',
+            )}>{String(position + 1).padStart(2, '0')}</li>
+          ))}
+        </ol>
+        <div className="mt-3 grid gap-3 sm:grid-cols-[.82fr_1.18fr]">
+          <div className="rounded-xl border border-line bg-surface-tint p-3">
+            <p className="font-mono text-[9px] font-semibold text-muted">SUPPORTED WORKFLOW</p>
+            <p className="mt-3 break-words text-[12px] font-semibold text-ink">{example.route}</p>
+            <p className="mt-2 text-[11px]/relaxed text-muted">{example.detail}</p>
+          </div>
+          <div className="rounded-xl border border-line p-3">
+            <p className="font-mono text-[9px] font-semibold text-muted">EXAMPLE STATE</p>
+            <p className="mt-3 text-[13px] font-semibold text-ink">{example.result}</p>
+            <p className="mt-2 text-[11px]/relaxed text-muted">{step.body}</p>
+            <p className="mt-3 border-t border-line pt-3 text-[10px] text-faint">Sample workflow only. No request is sent from this illustration.</p>
+          </div>
+        </div>
+      </div>
+    </motion.div>
+  )
 }
 
 export function WorkflowBento({ product }: { product: ProductDetail }) {
-  const [selected,setSelected] = useState(0)
-  const [preview,setPreview] = useState<number|null>(null)
-  const [decision,setDecision] = useState<'accepted'|'edited'|'flagged'|null>(null)
-  const [medicineSelected,setMedicineSelected] = useState(false)
-  const [dispensed,setDispensed] = useState(false)
-  const current = preview ?? selected
-  const label = product.slug === 'migrate' ? 'From physical patient files to a validated digital history.' : product.slug === 'api' ? 'An endpoint explorer for connecting existing systems to Health ID.' : product.slug === 'outreach' ? 'A campaign workflow designed for field registration.' : product.slug === 'pharmacy' ? 'Prescription, dispensing, inventory and accountable operations.' : 'Follow each request from patient verification to verified result release.'
-  const steps = LABELS[product.slug] ?? product.workflows.map(x => x.title)
-  const previewProps = { decision, onDecision: setDecision, medicineSelected, onSelectMedicine: () => setMedicineSelected(true), dispensed, onDispense: () => { setMedicineSelected(true); setDispensed(true) } }
-  return <section id="workflows" aria-labelledby="workflows-title" className="bg-white py-14 sm:py-20 lg:py-24"><div className="mx-auto w-full max-w-[1240px] px-6"><div className="max-w-[600px]"><p className="font-mono text-[11px] font-semibold tracking-[.12em] text-brand">{product.name.toUpperCase()}</p><h2 id="workflows-title" className="mt-3 font-display text-[clamp(2rem,4vw,3.25rem)] leading-[1.06] tracking-[-.03em] text-ink">Core capabilities</h2><p className="mt-3 text-[15px]/relaxed text-muted">{label}</p></div><div className="mt-9 grid items-start gap-8 lg:grid-cols-[minmax(300px,.78fr)_minmax(0,1.22fr)] lg:gap-12"><ol aria-label={product.name+' capabilities'} className="overflow-hidden rounded-2xl border border-line bg-white">{product.workflows.map((item,index)=><Capability key={item.title} product={product} index={index} active={selected===index} select={()=>{setSelected(index);setPreview(null)}} hover={()=>setPreview(index)} clear={()=>setPreview(null)} {...previewProps}/>)}</ol><div className="hidden lg:sticky lg:top-24 lg:block"><Preview product={product} index={current} {...previewProps}/><div className="mt-4 flex items-center justify-between"><div className="flex items-center gap-2" aria-label="Choose workflow step">{steps.map((x,i)=><button key={x} type="button" aria-label={'Show '+x} aria-current={current===i?'step':undefined} onClick={()=>{setSelected(i);setPreview(null)}} className={cx('h-1.5 rounded-full transition-all duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand motion-reduce:transition-none',current===i?'w-8 bg-brand':'w-3 bg-line hover:bg-brand/40')}/>)}</div><span className="text-[10px] text-muted">{String(current+1).padStart(2,'0')} of {String(product.workflows.length).padStart(2,'0')}</span></div></div></div><div className="mt-6 lg:hidden"><HeroDemoButton href="#demo" size="sm">{CTA[product.slug] ?? product.cta}</HeroDemoButton></div><div className="hidden lg:block"><HeroDemoButton href="#demo" size="sm" className="mt-6">{CTA[product.slug] ?? product.cta}</HeroDemoButton></div></div></section>
+  const [selected, setSelected] = useState(0)
+  const [hovered, setHovered] = useState<number | null>(null)
+  const current = hovered ?? selected
+  return (
+    <section id="workflows" aria-labelledby="workflows-title" className="bg-white py-14 sm:py-20 lg:py-24">
+      <div className="mx-auto w-full max-w-[1240px] px-6">
+        <div className="max-w-[600px]">
+          <p className="font-mono text-[11px] font-semibold tracking-[.12em] text-brand">{product.name.toUpperCase()}</p>
+          <h2 id="workflows-title" className="mt-3 font-display text-[clamp(2rem,4vw,3.25rem)] leading-[1.06] tracking-[-.03em] text-ink">Core capabilities</h2>
+          <p className="mt-3 text-[15px]/relaxed text-muted">Select a step to see how the supported workflow is represented. These examples do not use live patient data.</p>
+        </div>
+        <div className="mt-9 grid items-start gap-8 lg:grid-cols-[minmax(300px,.78fr)_minmax(0,1.22fr)] lg:gap-12">
+          <ol aria-label={`${product.name} capabilities`} className="overflow-hidden rounded-2xl border border-line bg-white">
+            {product.workflows.map((item, index) => (
+              <li key={item.title} className="border-b border-line last:border-0">
+                <button type="button" aria-pressed={selected === index}
+                  onClick={() => { setSelected(index); setHovered(null) }}
+                  onMouseEnter={() => setHovered(index)} onMouseLeave={() => setHovered(null)}
+                  onFocus={() => setHovered(index)} onBlur={() => setHovered(null)}
+                  className={cx('group flex w-full items-start gap-3 rounded-xl px-3 py-3 text-left transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand motion-reduce:transition-none', selected === index ? 'bg-brand-tint/70' : 'hover:bg-surface-tint')}>
+                  <span className={cx('mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg font-mono text-[10px] font-semibold', selected === index ? 'bg-brand text-white' : 'bg-surface-tint text-muted')}>{String(index + 1).padStart(2, '0')}</span>
+                  <span className="min-w-0 flex-1"><span className={cx('block text-[14px] font-semibold', selected === index ? 'text-brand' : 'text-ink')}>{item.title}</span><span className="mt-1 block text-[13px]/relaxed text-muted sm:text-[14px]/relaxed">{item.body}</span></span>
+                  <HealthIcon name="arrow" size={15} className="mt-1 shrink-0 text-faint transition-transform duration-150 group-hover:translate-x-0.5 motion-reduce:transition-none" />
+                </button>
+                {selected === index ? <div className="px-3 pb-4 lg:hidden"><Preview product={product} index={index} /></div> : null}
+              </li>
+            ))}
+          </ol>
+          <div className="hidden lg:sticky lg:top-24 lg:block"><Preview product={product} index={current} /></div>
+        </div>
+        {isApplicationProduct(product.slug)
+          ? <HeroDemoButton href={providerApplicationHref(product.slug)} size="sm" className="mt-6">{PROVIDER_SETUP_CTA}</HeroDemoButton>
+          : <HeroDemoButton href="#demo" size="sm" className="mt-6">{CTA[product.slug] ?? product.cta}</HeroDemoButton>}
+      </div>
+    </section>
+  )
 }

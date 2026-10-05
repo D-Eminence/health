@@ -1,10 +1,9 @@
 /**
  * Response envelope handling.
  *
- * The Health ID backend's shared HTTP layer returns errors as a JSON object
- * carrying `code`, `message`, `requestId`, `retryable` and `status`, and sets
- * `X-Request-ID` on every response. Successful payloads are sometimes wrapped
- * in `{ data: ... }` and sometimes returned bare.
+ * hid-system returns RFC 7807 style Problem Details containing `detail`,
+ * `code`, `correlationId`, and optional field `errors`. The historical bearer
+ * transport also used a legacy envelope, which remains readable here.
  *
  * This module reads both without guessing at anything else, and is the only
  * place in the frontend that knows the wire shape.
@@ -69,6 +68,7 @@ export function parseErrorEnvelope(
   const nested = record && isRecord(record.error) ? record.error : null
 
   const message =
+    readNonEmptyString(record?.detail) ??
     readNonEmptyString(record?.message) ??
     readNonEmptyString(nested?.message) ??
     readNonEmptyString(record?.error) ??
@@ -81,11 +81,13 @@ export function parseErrorEnvelope(
     message,
     code: readNonEmptyString(record?.code) ?? readNonEmptyString(nested?.code),
     requestId:
+      readNonEmptyString(record?.correlationId) ??
       readNonEmptyString(record?.requestId) ??
       readNonEmptyString(record?.request_id) ??
       readNonEmptyString(options.headerRequestId),
     retryable: typeof retryableValue === 'boolean' ? retryableValue : null,
-    details: record && Object.prototype.hasOwnProperty.call(record, 'details') ? record.details : null,
+    details: record && Object.prototype.hasOwnProperty.call(record, 'errors') ? record.errors
+      : record && Object.prototype.hasOwnProperty.call(record, 'details') ? record.details : null,
   }
 }
 

@@ -2,7 +2,7 @@
  * Environment for the public site.
  *
  * Next.js inlines `process.env.NEXT_PUBLIC_*` at build time, but only when the
- * property is accessed statically — `process.env[key]` is not substituted. So
+ * property is accessed statically; `process.env[key]` is not substituted. So
  * the variables are enumerated by hand here, which has the useful side effect
  * of making the complete public surface of this application readable in one
  * place.

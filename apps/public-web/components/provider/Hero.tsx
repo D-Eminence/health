@@ -1,6 +1,7 @@
 import { Eyebrow, Wrap } from '@hid/ui'
 import { PROVIDER_HERO } from '@/content/provider'
 import { HeroDemoButton } from '@/components/shared/HeroDemoButton'
+import { ROUTES } from '@/content/site'
 import { FacilityDashboard } from './FacilityDashboard'
 
 /**
@@ -31,7 +32,7 @@ export function ProviderHero() {
           <p className="max-w-[660px] text-[15px]/[1.45] text-white/72">{PROVIDER_HERO.lede}</p>
 
           <div className="mt-2 flex flex-wrap items-center justify-center gap-3">
-            <HeroDemoButton />
+            <HeroDemoButton href={ROUTES.providerApplication}>{PROVIDER_HERO.primary}</HeroDemoButton>
           </div>
         </div>
       </Wrap>
