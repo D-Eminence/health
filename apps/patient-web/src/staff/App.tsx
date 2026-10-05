@@ -12,6 +12,7 @@ import { AccessRequests } from './routes/AccessRequests'
 import { FacilityAudit } from './routes/Audit'
 import { Clinical } from './routes/Clinical'
 import { Laboratory, Pharmacy, Ocr, Outreach, MigrateGap } from './routes/Operations'
+import { resolveStaffProductHostname } from '../productHostname'
 import './style.css'
 
 type SessionState =
@@ -97,7 +98,11 @@ function Gate({ children }: { children: ReactNode }) {
   const { state, refresh } = useStaff()
   if (state.status === 'loading') return <div className="staff-centered" role="status"><BrandLogo className="staff-state-logo" />Checking your secure session…</div>
   if (state.status === 'error') return <div className="staff-centered"><BrandLogo className="staff-state-logo" /><EmptyState title="Session unavailable" description={state.error} action={<Button onClick={() => void refresh()}>Try again</Button>} /></div>
-  if (state.status === 'signed-out') return <Navigate to="/provider/sign-in" replace />
+  if (state.status === 'signed-out') {
+    const productRoute = resolveStaffProductHostname(window.location.hostname)?.route
+    const signInPath = productRoute ? `/provider/sign-in?returnTo=${encodeURIComponent(productRoute)}` : '/provider/sign-in'
+    return <Navigate to={signInPath} replace />
+  }
   if (state.session.actor.facilities.length === 0) return <div className="staff-centered"><BrandLogo className="staff-state-logo" /><EmptyState title="No facility assignment" description="Your account has no active facility membership. Ask your organization administrator for access." /></div>
   return <>{children}</>
 }

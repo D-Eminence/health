@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react'
-import { Link, Route, Routes } from 'react-router-dom'
+import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { PATIENT_ROUTE } from '@hid/auth'
 import { RequireAccess } from './RequireAccess'
 import { SessionProvider } from './session'
@@ -9,6 +9,7 @@ import { Enrollment } from './routes/Enrollment'
 import { Recovery } from './routes/Recovery'
 import { PrincipalRecovery } from './routes/PrincipalRecovery'
 import { AccessPage, NotificationsPage, PortalShell, ProfilePage, RecordsPage, SettingsPage } from './routes/Portal'
+import { resolveStaffProductHostname } from './productHostname'
 
 const StaffApp = lazy(async () => ({ default: (await import('./staff/App')).App }))
 const AdminApp = lazy(async () => ({ default: (await import('./admin/App')).App }))
@@ -40,13 +41,24 @@ function PatientRoutes() {
   )
 }
 
+function ProductHostnameGate({ children }: { children: React.ReactNode }) {
+  const location = useLocation()
+  const product = resolveStaffProductHostname(window.location.hostname)
+
+  if (product && location.pathname === '/') {
+    return <Navigate to={product.route} replace />
+  }
+
+  return <>{children}</>
+}
+
 /** One authenticated portal origin, with separate session and permission scopes. */
 export function App() {
-  return <Routes>
+  return <ProductHostnameGate><Routes>
     <Route path="/provider/recover" element={<PrincipalRecovery audience="staff" />} />
     <Route path="/admin/recover" element={<PrincipalRecovery audience="admin" />} />
     <Route path="/provider/*" element={<Suspense fallback={<main role="status">Opening provider workspace…</main>}><StaffApp /></Suspense>} />
     <Route path="/admin/*" element={<Suspense fallback={<main role="status">Opening platform workspace…</main>}><AdminApp /></Suspense>} />
     <Route path="/*" element={<SessionProvider><PatientRoutes /></SessionProvider>} />
-  </Routes>
+  </Routes></ProductHostnameGate>
 }

@@ -1,9 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link, Navigate, useNavigate } from 'react-router-dom'
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { Button, Field, Input } from '@hid/ui'
 import { getEnvironment } from '../env'
 import { useStaff } from '../App'
 import { BrandLogo } from '../../BrandLogo'
+import { isStaffProductRoute, resolveStaffProductHostname } from '../../productHostname'
+
+function getStaffLandingPath(search: string): string {
+  const requested = new URLSearchParams(search).get('returnTo')
+  if (requested && isStaffProductRoute(requested)) return requested
+  return resolveStaffProductHostname(window.location.hostname)?.route ?? '/provider'
+}
 
 function TurnstileChallenge({ onToken, resetKey }: { onToken: (token: string) => void; resetKey: number }) {
   const siteKey = getEnvironment().turnstileSiteKey
@@ -42,6 +49,7 @@ function TurnstileChallenge({ onToken, resetKey }: { onToken: (token: string) =>
 
 export function SignIn() {
   const { state, login } = useStaff()
+  const location = useLocation()
   const navigate = useNavigate()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -50,13 +58,14 @@ export function SignIn() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const siteKey = getEnvironment().turnstileSiteKey
+  const landingPath = getStaffLandingPath(location.search)
 
-  if (state.status === 'ready') return <Navigate to="/provider" replace />
+  if (state.status === 'ready') return <Navigate to={landingPath} replace />
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setError('')
     setBusy(true)
-    try { await login(email.trim(), password, token || undefined); navigate('/provider') }
+    try { await login(email.trim(), password, token || undefined); navigate(getStaffLandingPath(location.search)) }
     catch (caught) { setError(caught instanceof Error ? caught.message : 'Sign in failed.') }
     finally {
       setToken('')
