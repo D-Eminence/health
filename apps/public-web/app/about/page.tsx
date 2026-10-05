@@ -144,7 +144,7 @@ export default function AboutPage() {
       <Section tone="inverse" labelledBy="vision-title" className="relative isolate overflow-hidden"><Wrap><div className="about-vision">
         <Eyebrow tone="inverse">Our vision</Eyebrow><Display id="vision-title">A future where healthcare does not lose the patient between systems.</Display>
         <p>We are working toward a healthcare ecosystem where a patient’s identity can remain consistent across care settings, healthcare organizations can digitize without discarding their history, and providers can access the information they need without rebuilding the patient’s story from the beginning.</p>
-        <span className="about-caption">The goal is simple</span><p className="about-vision-brand">One Health Identity.<br />Connected Care.<br />Accessible Records.</p>
+        <span className="about-caption">The goal is simple</span><p className="about-vision-brand">One Identity.<br />Connected Records.<br />Better Care.</p>
       </div></Wrap></Section>
 
       <Section id="about-cta" rhythm="tight"><Wrap><CtaBand title="Build a more connected healthcare operation." lede="Whether you’re moving from paper, replacing fragmented tools, adding a laboratory or pharmacy system, or connecting an existing healthcare product, Health ID gives you a path forward." primary={{ label: 'Setup Your Facility', href: ROUTES.providerApplication }} secondary={{ label: 'Explore Health ID', href: '/products' }} /></Wrap></Section>
