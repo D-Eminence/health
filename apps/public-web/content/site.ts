@@ -10,6 +10,8 @@ export const ROUTES = {
   providers: '/providers',
   patients: '/patients',
   products: '/products',
+  providerApplication: '/provider/apply',
+  providerCompletion: '/provider/complete',
   /** Identity belongs to the patient journey, not a duplicate provider product page. */
   product: (slug: string) => (slug === 'identity' ? '/patients' : `/products/${slug}`),
   pricing: '/pricing',

@@ -21,7 +21,8 @@ describe('PricingSection', () => {
     expect(await screen.findByText('Contact sales')).toBeDefined()
     expect(screen.getByText('Health ID EHR')).toBeDefined()
     expect(screen.queryByText('₦50,000')).toBeNull()
-    expect(screen.getByRole('link', { name: /book a demo/i })).toBeDefined()
+    expect(screen.getByRole('link', { name: 'Setup Your Facility' }).getAttribute('href'))
+      .toBe('/provider/apply?product=ehr')
   })
 
   it('offers a retry when pricing cannot be loaded', async () => {
@@ -33,5 +34,18 @@ describe('PricingSection', () => {
     expect(await screen.findByRole('alert')).toBeDefined()
     fireEvent.click(screen.getByRole('button', { name: /try again/i }))
     expect(await screen.findByText('Custom quote')).toBeDefined()
+  })
+
+  it('preserves the API demo action while routing facility products to applications', async () => {
+    read.mockResolvedValue([
+      { product_slug: 'api', context: 'standalone', visibility: 'custom_quote',
+        amount_minor: null, currency: 'NGN', billing_period: null, unit: null },
+      { product_slug: 'pharmacy', context: 'standalone', visibility: 'custom_quote',
+        amount_minor: null, currency: 'NGN', billing_period: null, unit: null },
+    ])
+    render(<PricingSection />)
+    expect((await screen.findByRole('link', { name: 'Book a demo' })).getAttribute('href')).toBe('#demo')
+    expect(screen.getByRole('link', { name: 'Setup Your Facility' }).getAttribute('href'))
+      .toBe('/provider/apply?product=pharmacy')
   })
 })

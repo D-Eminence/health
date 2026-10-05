@@ -54,6 +54,9 @@ describe('CommandPalette', () => {
     const input = screen.getByRole('combobox', { name: 'Search Health ID' })
     expect(trigger.getAttribute('aria-expanded')).toBe('true')
     expect(input.getAttribute('aria-controls')).toBeTruthy()
+    const describedBy = input.getAttribute('aria-describedby')?.split(' ') ?? []
+    expect(describedBy.some(id => document.getElementById(id)?.textContent?.includes('Use the arrow keys'))).toBe(true)
+    expect(dialog.querySelector('.waya-command__footer')).toBeNull()
     expect(dialog.contains(screen.getByRole('listbox', { name: 'Search results' }))).toBe(true)
 
     fireEvent.click(screen.getByRole('button', { name: 'Filter results' }))

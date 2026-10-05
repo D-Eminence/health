@@ -12,8 +12,8 @@ export interface CtaBandProps {
  * The closing call to action.
  *
  * The one dark moment in an otherwise light page: a navy panel with brand light
- * bleeding through frosted glass. It closes the site the way the hero opens it —
- * same material, opposite ground — so the two ends of a page belong to each
+ * bleeding through frosted glass. It closes the site the way the hero opens it:
+ * same material, opposite ground, so the two ends of a page belong to each
  * other.
  */
 export function CtaBand({ title, lede, primary, secondary }: CtaBandProps) {

@@ -1,5 +1,5 @@
 /**
- * The module switcher — "One identity. Every system."
+ * The module switcher: "One identity. Every system."
  *
  * Transcribed from the approved design, which is why the shape is unusual: the
  * tabs are a full-width segmented strip, the statement sits to the left of a
@@ -9,7 +9,7 @@
  *
  * The panel content is what the design shows for each module: a small console
  * with a title, a badge and four status rows. Those rows are part of the section
- * rather than a second dashboard — they are how the design says "this is what
+ * rather than a second dashboard; they are how the design says "this is what
  * the module looks like in use" without a screenshot.
  *
  * Every figure, name and Health ID here is invented for the marketing site.
@@ -73,7 +73,7 @@ export const MODULES: readonly HealthModule[] = [
     tab: 'EHR',
     statement: 'A full clinical record system for facilities that do not have one.',
     caption:
-      'Encounters, notes, prescriptions and results in one place — and every entry attaches to the patient identity, not just your database.',
+      'Encounters, notes, prescriptions and results in one place. Every entry attaches to the patient identity, not just your database.',
     panelTitle: 'Consultation',
     workflows: [
       {

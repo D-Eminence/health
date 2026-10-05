@@ -52,7 +52,7 @@ function makeClient(overrides: Partial<ApiClientOptions> = {}, responses: StubRe
   return { client, calls: fetchStub.calls, fetchImpl: fetchStub.impl }
 }
 
-describe('createApiClient — request construction', () => {
+describe('createApiClient: request construction', () => {
   it('joins the configured base URL with the endpoint path', async () => {
     const { client, calls } = makeClient()
     await client.get('/patients-me', { auth: 'none' })
@@ -96,7 +96,7 @@ describe('createApiClient — request construction', () => {
   })
 })
 
-describe('createApiClient — authentication', () => {
+describe('createApiClient: authentication', () => {
   it('attaches the bearer token when one is available', async () => {
     const { client, calls } = makeClient({ getAccessToken: () => 'token-abc' })
     await client.get('/patients-me')
@@ -141,7 +141,7 @@ describe('createApiClient — authentication', () => {
   })
 })
 
-describe('createApiClient — responses', () => {
+describe('createApiClient: responses', () => {
   it('unwraps a { data } envelope', async () => {
     const { client } = makeClient({}, [{ body: { data: { hidCode: 'HID-1' } } }])
     await expect(client.get('/patients-me', { auth: 'none' })).resolves.toEqual({ hidCode: 'HID-1' })
@@ -165,7 +165,7 @@ describe('createApiClient — responses', () => {
   })
 })
 
-describe('createApiClient — errors', () => {
+describe('createApiClient: errors', () => {
   it('surfaces the backend error envelope verbatim', async () => {
     const { client } = makeClient({}, [
       {
@@ -223,7 +223,7 @@ describe('createApiClient — errors', () => {
   })
 })
 
-describe('createApiClient — cancellation', () => {
+describe('createApiClient: cancellation', () => {
   it('reports caller cancellation as a non-retryable cancellation error', async () => {
     const controller = new AbortController()
     const client = createApiClient({
@@ -259,7 +259,7 @@ describe('createApiClient — cancellation', () => {
   })
 })
 
-describe('createApiClient — retries and deduplication', () => {
+describe('createApiClient: retries and deduplication', () => {
   it('retries a failed read and returns the eventual success', async () => {
     const { client, calls } = makeClient({}, [
       { status: 503, body: { message: 'Service unavailable.' } },

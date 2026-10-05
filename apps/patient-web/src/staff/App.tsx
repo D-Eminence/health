@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { NavLink, Navigate, Outlet, Route, Routes, useNavigate } from 'react-router-dom'
+import { BrandLogo } from '../BrandLogo'
 import { Badge, Button, EmptyState, Select } from '@hid/ui'
 import { isHidApiError } from '@hid/http'
 import { staffApi, type PatientLookup, type StaffSession } from './api'
@@ -94,10 +95,10 @@ function StaffProvider({ children }: { children: ReactNode }) {
 
 function Gate({ children }: { children: ReactNode }) {
   const { state, refresh } = useStaff()
-  if (state.status === 'loading') return <div className="staff-centered" role="status">Checking your secure session…</div>
-  if (state.status === 'error') return <div className="staff-centered"><EmptyState title="Session unavailable" description={state.error} action={<Button onClick={() => void refresh()}>Try again</Button>} /></div>
+  if (state.status === 'loading') return <div className="staff-centered" role="status"><BrandLogo className="staff-state-logo" />Checking your secure session…</div>
+  if (state.status === 'error') return <div className="staff-centered"><BrandLogo className="staff-state-logo" /><EmptyState title="Session unavailable" description={state.error} action={<Button onClick={() => void refresh()}>Try again</Button>} /></div>
   if (state.status === 'signed-out') return <Navigate to="/provider/sign-in" replace />
-  if (state.session.actor.facilities.length === 0) return <div className="staff-centered"><EmptyState title="No facility assignment" description="Your account has no active facility membership. Ask your organization administrator for access." /></div>
+  if (state.session.actor.facilities.length === 0) return <div className="staff-centered"><BrandLogo className="staff-state-logo" /><EmptyState title="No facility assignment" description="Your account has no active facility membership. Ask your organization administrator for access." /></div>
   return <>{children}</>
 }
 
@@ -146,7 +147,7 @@ function Shell() {
 
   return <div className="staff-app">
     <header className="staff-topbar">
-      <NavLink to="/provider" className="staff-brand" aria-label="Health ID provider home"><span className="staff-brand-mark">H</span><span>Health ID <small>Provider</small></span></NavLink>
+      <NavLink to="/provider" className="staff-brand" aria-label="Health ID provider home"><BrandLogo /><small>Provider</small></NavLink>
       <div className="staff-topbar-actions">
         <span className="staff-user">{actor.displayName ?? actor.email ?? 'Staff member'}</span>
         <Button tone="quiet" size="sm" onClick={() => void leave()} disabled={signingOut}>{signingOut ? 'Signing out…' : 'Sign out'}</Button>

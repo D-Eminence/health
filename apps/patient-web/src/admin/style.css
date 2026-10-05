@@ -33,25 +33,9 @@
   align-items: center;
   gap: 10px;
   padding: 18px 22px;
-  font-family: var(--font-display);
-  font-size: 25px;
-  line-height: 1;
 }
-.admin-brand-mark {
-  display: grid;
-  width: 34px;
-  height: 34px;
-  place-items: center;
-  border-radius: 8px;
-  background: var(--color-brand);
-  color: white;
-  font-family: var(--font-sans);
-  font-size: 21px;
-  font-weight: 700;
-}
+.admin-brand img { display: block; width: auto; height: 29px; }
 .admin-brand small {
-  display: block;
-  margin-top: 5px;
   color: var(--color-muted);
   font-family: var(--font-sans);
   font-size: 10px;
@@ -302,8 +286,10 @@
 .admin-auth-card { display: grid; width: min(100%, 480px); gap: 17px; padding: clamp(23px, 5vw, 42px); border: 1px solid var(--color-line-strong); border-radius: var(--radius-dialog); background: var(--color-surface); box-shadow: var(--shadow-dialog); }
 .admin-auth-card > p { margin: 0; color: var(--color-muted); font-size: 14px; }
 .admin-auth-card .admin-eyebrow { color: var(--color-brand); }
+.admin-auth-logo { display: block; width: auto; height: 32px; }
 .admin-auth-card .admin-primary { justify-self: start; }
-.admin-message { align-content: center; text-align: center; }
+.admin-message { align-content: center; justify-items: center; gap: 14px; text-align: center; }
+.admin-state-logo { display: block; width: auto; height: 32px; }
 .admin-message h1 { margin: 0; font-family: var(--font-display); font-size: 38px; font-weight: 400; }
 .admin-message p { color: var(--color-muted); }
 
@@ -323,7 +309,9 @@
     border-bottom: 1px solid var(--color-line-strong);
     background: var(--color-surface);
   }
-  .admin-mobile-logo { color: var(--color-ink); font-family: var(--font-display); font-size: 20px; text-decoration: none; }
+  .admin-mobile-logo { display: inline-flex; align-items: center; gap: 8px; text-decoration: none; }
+  .admin-mobile-logo img { display: block; width: auto; height: 24px; }
+  .admin-mobile-logo span { color: var(--color-muted); font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
   .admin-mobile-nav { display: flex; gap: 2px; overflow-x: auto; padding: 8px 12px; border-bottom: 1px solid var(--color-line-strong); background: var(--color-surface); scrollbar-width: thin; }
   .admin-mobile-nav a { flex: none; min-height: 36px; padding: 7px 10px; font-size: 12px; }
   .admin-main { min-height: calc(100svh - 100px); padding: 28px 18px 56px; }

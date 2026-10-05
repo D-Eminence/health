@@ -7,10 +7,11 @@ import type { NextConfig } from 'next'
  * rendering and static generation for pages that must be fast, crawlable and
  * cacheable at the edge. That reasoning does not extend to the authenticated
  * applications, which render private data per session and gain nothing from
- * pre-rendering — they stay on Vite. Framework choice follows the workload.
+ * pre-rendering; they stay on Vite. Framework choice follows the workload.
  */
 const nextConfig: NextConfig = {
   reactStrictMode: true,
+  devIndicators: false,
 
   // Workspace packages ship TypeScript source rather than a build step.
   transpilePackages: ['@hid/api', '@hid/config', '@hid/contracts', '@hid/http', '@hid/observability', '@hid/ui'],

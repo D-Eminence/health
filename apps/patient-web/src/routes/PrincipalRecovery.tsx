@@ -2,6 +2,7 @@ import { useMemo, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { Turnstile } from '../Turnstile'
+import { BrandLogo } from '../BrandLogo'
 import { createPrincipalRecoveryApi, type RecoveryAudience } from '../recoveryApi'
 
 type Step = 'start' | 'code' | 'password' | 'complete'
@@ -83,7 +84,7 @@ export function PrincipalRecovery({ audience }: { audience: RecoveryAudience }) 
   }
 
   return <main className="patient-auth-page"><section className="patient-auth-card" aria-labelledby="principal-recovery-title">
-    <Link to={signInPath} className="patient-auth-brand">H<span>ID</span></Link>
+    <Link to={signInPath} className="patient-auth-brand"><BrandLogo /></Link>
     <p className="patient-eyebrow">{accountLabel} account recovery</p>
     <h1 id="principal-recovery-title" className="patient-page-title">Reset your password.</h1>
     {error && <p role="alert" className="patient-inline-error">{error}</p>}

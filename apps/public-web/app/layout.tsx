@@ -31,11 +31,11 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: {
-    default: 'Health ID — One health identity, every connected provider',
-    template: '%s — Health ID',
+    default: 'Health ID: One health identity, every connected provider',
+    template: '%s | Health ID',
   },
   description:
-    'One Health ID connects a patient’s records across hospitals, laboratories and pharmacies — accessible to providers only with the patient’s consent.',
+    'One Health ID connects a patient’s records across hospitals, laboratories and pharmacies. Providers access them only with the patient’s consent.',
 }
 
 export const viewport: Viewport = {

@@ -29,8 +29,8 @@ export default defineConfig({
       },
       {
         // The React plugin supplies the automatic JSX runtime. Without it,
-        // Next.js apps transform their tests with the classic runtime — their
-        // tsconfig sets `jsx: preserve` for the Next compiler — and every
+        // Next.js apps transform their tests with the classic runtime; their
+        // tsconfig sets `jsx: preserve` for the Next compiler, and every
         // render fails on an undefined `React`.
         plugins: [react()],
         test: {

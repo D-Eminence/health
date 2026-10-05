@@ -11,7 +11,7 @@ function errorText(error: unknown, fallback: string) {
 function shortId(value: string) { return `••••${value.slice(-6)}` }
 
 function dateText(value: string | undefined) {
-  return value ? new Date(value).toLocaleString() : '—'
+  return value ? new Date(value).toLocaleString() : 'Not available'
 }
 
 function PageHead({ eyebrow, title, children }: { eyebrow: string; title: string; children: ReactNode }) {
@@ -200,7 +200,7 @@ function ResultGovernance({ facilityId, result, action, onChanged }: {
 function RevisionList({ revisions }: { revisions: LabResultRevision[] }) {
   return <div className="staff-list">{revisions.map(revision => <div className="staff-list-item" key={revision.version}>
     <div className="staff-row"><strong>Version {revision.version}</strong><Badge tone={revision.releaseStatus === 'released' ? 'success' : 'warning'}>{revision.releaseStatus.replaceAll('_', ' ')}</Badge></div>
-    <p>{revision.resultType === 'numeric' ? `${revision.numericValue ?? '—'} ${revision.unit ?? ''}` : revision.textValue ?? '—'} · {revision.abnormalFlag.replaceAll('_', ' ')}</p>
+    <p>{revision.resultType === 'numeric' ? revision.numericValue == null ? 'Not recorded' : `${revision.numericValue} ${revision.unit ?? ''}` : revision.textValue ?? 'Not recorded'} · {revision.abnormalFlag.replaceAll('_', ' ')}</p>
     <p>Entered {dateText(revision.enteredAt)} · {revision.verificationStatus.replaceAll('_', ' ')}</p>
     {revision.referenceRange && <p>Reference range: {revision.referenceRange}</p>}
     {revision.correctionReason && <p>Reason: {revision.correctionReason}</p>}
@@ -259,7 +259,7 @@ function ExecutionCard({ facilityId, execution, permissions, onExecutionChanged,
     {error && <p className="staff-error" role="alert">{error}</p>}
     {execution.status === 'completed' && !result && permissions.includes('lab.result.enter') && <ResultEntry facilityId={facilityId} execution={execution} result={null} onChanged={onResultChanged} />}
     {result && <><div className="staff-row"><strong>Manual result · version {result.currentVersion}</strong><Badge tone={result.status === 'released' ? 'success' : 'warning'}>{result.status.replaceAll('_', ' ')}</Badge></div>
-      {current && <p>{current.resultType === 'numeric' ? `${current.numericValue ?? '—'} ${current.unit ?? ''}` : current.textValue ?? '—'} · {current.abnormalFlag.replaceAll('_', ' ')}</p>}
+      {current && <p>{current.resultType === 'numeric' ? current.numericValue == null ? 'Not recorded' : `${current.numericValue} ${current.unit ?? ''}` : current.textValue ?? 'Not recorded'} · {current.abnormalFlag.replaceAll('_', ' ')}</p>}
       {canCorrect && <ResultEntry key={`${result.id}-${result.currentVersion}`} facilityId={facilityId} execution={execution} result={result} onChanged={onResultChanged} />}
       {result.status === 'entered_unverified' && permissions.includes('lab.result.verify') && <ResultGovernance facilityId={facilityId} result={result} action="verify" onChanged={onResultChanged} />}
       {result.status === 'verified_not_released' && permissions.includes('lab.result.release') && <ResultGovernance facilityId={facilityId} result={result} action="release" onChanged={onResultChanged} />}
@@ -392,7 +392,7 @@ function PharmacyAction({ facilityId, item, permissions, onChanged }: { facility
   }
   const canDispense = !item.dispensing && permissions.includes('pharmacy.dispensing.create')
   const canReverse = Boolean(item.dispensing && !item.dispensing.reversed && permissions.includes('pharmacy.dispensing.reverse') && permissions.includes('pharmacy.dispensing.read'))
-  return <div className="staff-list-item"><div className="staff-row"><strong>{item.medication.display}</strong><Badge tone={item.dispensing?.reversed ? 'warning' : item.dispensing ? 'success' : 'information'}>{item.dispensing?.reversed ? 'Reversed' : item.dispensing ? 'Dispensed' : 'Accepted'}</Badge></div><p>Patient {shortId(item.patientId)} · {item.doseQuantity ?? '—'} {item.doseUnit ?? ''} · {item.frequency ?? 'Frequency not recorded'}</p>
+  return <div className="staff-list-item"><div className="staff-row"><strong>{item.medication.display}</strong><Badge tone={item.dispensing?.reversed ? 'warning' : item.dispensing ? 'success' : 'information'}>{item.dispensing?.reversed ? 'Reversed' : item.dispensing ? 'Dispensed' : 'Accepted'}</Badge></div><p>Patient {shortId(item.patientId)} · {item.doseQuantity == null ? 'Dose not recorded' : `${item.doseQuantity} ${item.doseUnit ?? ''}`} · {item.frequency ?? 'Frequency not recorded'}</p>
     {canDispense && <form className="staff-form" onSubmit={event => void submit(event)}><div className="staff-form-row"><Field label="Quantity dispensed" htmlFor={`pharmacy-quantity-${item.id}`} required><Input id={`pharmacy-quantity-${item.id}`} name="quantity" type="number" min="0.0001" step="0.0001" required /></Field><Field label="Unit" htmlFor={`pharmacy-unit-${item.id}`} required><Input id={`pharmacy-unit-${item.id}`} name="unit" maxLength={80} defaultValue={item.doseUnit ?? ''} required /></Field></div><Field label="Reason" htmlFor={`pharmacy-reason-${item.id}`} required><Textarea id={`pharmacy-reason-${item.id}`} name="reason" minLength={8} maxLength={500} required /></Field><Button type="submit" size="sm" disabled={busy}>{busy ? 'Recording…' : 'Record full dispensing'}</Button></form>}
     {canReverse && <form className="staff-form" onSubmit={event => void submit(event, true)}><Field label="Reversal reason" htmlFor={`pharmacy-reversal-${item.id}`} required><Textarea id={`pharmacy-reversal-${item.id}`} name="reason" minLength={8} maxLength={500} required /></Field><Button type="submit" tone="secondary" size="sm" disabled={busy}>{busy ? 'Recording…' : 'Reverse dispensing'}</Button></form>}
     {error && <p className="staff-error" role="alert">{error}</p>}{success && <p className="staff-success" role="status">{success}</p>}
@@ -592,7 +592,7 @@ export function Ocr() {
       {!visibleJob && permissions.includes('ocr.job.write') && <div className="staff-stack"><p>Create an extraction job for a verified patient document.</p><Field label="Patient ID" htmlFor="ocr-patient" required><Input id="ocr-patient" value={patientId} onChange={event => setPatientId(event.target.value)} placeholder="Patient UUID" /></Field><Button onClick={() => void create()} disabled={busy || !documentId.trim() || !patientId.trim()}>{busy ? 'Creating…' : 'Create extraction job'}</Button></div>}
       {error && <p className="staff-error" role="alert">{error}</p>}
     </Card>
-      {visibleJob ? <Card className="staff-card"><h2>Job status</h2><div className="staff-row"><Badge tone={visibleJob.status === 'failed' ? 'danger' : visibleJob.status === 'validated' ? 'success' : 'information'}>{visibleJob.status.replaceAll('_', ' ')}</Badge><span className="staff-muted">Version {visibleJob.version ?? '—'}</span></div><p>Provider {visibleJob.provider} · Document {shortId(visibleJob.documentId)}</p><Button tone="secondary" size="sm" onClick={() => void lookup()} disabled={busy}>Refresh status</Button>
+      {visibleJob ? <Card className="staff-card"><h2>Job status</h2><div className="staff-row"><Badge tone={visibleJob.status === 'failed' ? 'danger' : visibleJob.status === 'validated' ? 'success' : 'information'}>{visibleJob.status.replaceAll('_', ' ')}</Badge><span className="staff-muted">Version {visibleJob.version ?? 'unknown'}</span></div><p>Provider {visibleJob.provider} · Document {shortId(visibleJob.documentId)}</p><Button tone="secondary" size="sm" onClick={() => void lookup()} disabled={busy}>Refresh status</Button>
         {canRetryJob && permissions.includes('ocr.job.write') && <form className="staff-form" onSubmit={event => void retry(event)}><Field label="Retry reason" htmlFor="ocr-retry-reason" required><Textarea id="ocr-retry-reason" name="reason" minLength={8} maxLength={500} required /></Field><Button size="sm" type="submit" disabled={busy || !visibleJob.version}>{busy ? 'Retrying…' : 'Retry job'}</Button></form>}
         {visibleJob.status === 'failed' && !canRetryJob && <p className="staff-muted">The extraction attempt limit has been reached. This job cannot be retried.</p>}
         {extractions === null && <p className="staff-muted" role="status">Loading extractions…</p>}
@@ -670,7 +670,7 @@ function OutreachCaseCard({ facilityId, item, canLink, onChanged }: { facilityId
     catch (caught) { setError(errorText(caught, 'Patient could not be linked. Verify access and refresh the case.')) }
     finally { setBusy(false) }
   }
-  return <div className="staff-list-item"><div className="staff-row"><strong>{item.fullName ?? 'Registrant'}</strong><Badge tone={item.status === 'identity_resolved' ? 'success' : 'warning'}>{item.status.replaceAll('_', ' ')}</Badge></div><p>Case {shortId(item.id)} · {item.ageYears ?? '—'} years · {item.sex ?? 'Unknown'} · {dateText(item.createdAt)}</p>{item.temporaryPatientId && <p>Temporary ID {shortId(item.temporaryPatientId)}</p>}
+  return <div className="staff-list-item"><div className="staff-row"><strong>{item.fullName ?? 'Registrant'}</strong><Badge tone={item.status === 'identity_resolved' ? 'success' : 'warning'}>{item.status.replaceAll('_', ' ')}</Badge></div><p>Case {shortId(item.id)} · {item.ageYears == null ? 'Age not recorded' : `${item.ageYears} years`} · {item.sex ?? 'Unknown'} · {dateText(item.createdAt)}</p>{item.temporaryPatientId && <p>Temporary ID {shortId(item.temporaryPatientId)}</p>}
     {canLink && item.status === 'identity_resolution_pending' && <details><summary>Link verified existing patient</summary><form className="staff-form" onSubmit={event => void linkExisting(event)}><Field label="Canonical patient ID" htmlFor={`outreach-patient-${item.id}`} required><Input id={`outreach-patient-${item.id}`} name="patientId" placeholder="Patient UUID" required /></Field><Field label="Resolution reason" htmlFor={`outreach-reason-${item.id}`} required><Textarea id={`outreach-reason-${item.id}`} name="reason" minLength={8} maxLength={1000} required /></Field><p className="staff-muted">The server checks your exact patient authorization and the case version.</p><Button type="submit" size="sm" disabled={busy}>{busy ? 'Linking…' : 'Link existing patient'}</Button></form></details>}
     {error && <p className="staff-error" role="alert">{error}</p>}{success && <p className="staff-success" role="status">{success}</p>}
   </div>

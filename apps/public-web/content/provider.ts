@@ -14,7 +14,7 @@ export const PROVIDER_HERO = {
   headline: 'Digitise your healthcare operations.',
   headlineAccent: 'Move towards paperless care.',
   lede: 'A connected platform for patient identity, clinical records, laboratory results, prescription dispensing, outreach registration cases and document migration.',
-  primary: 'Book a demo',
+  primary: 'Setup Your Facility',
   secondary: 'Explore products',
 } as const
 
@@ -94,6 +94,6 @@ export const PRICING = {
 export const PROVIDER_CTA = {
   title: 'Ready to modernise healthcare delivery?',
   lede: 'Pilots begin with one facility, one department, and the records you already hold.',
-  primary: 'Book a demo',
+  primary: 'Setup Your Facility',
   secondary: 'Hospital sign in',
 } as const

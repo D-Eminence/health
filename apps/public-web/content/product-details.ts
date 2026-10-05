@@ -2,9 +2,9 @@
  * Product dashboards and detail copy.
  *
  * Transcribed from the approved design's product pages. Each module shows a
- * different arrangement of panels because each one does a different job — a
+ * different arrangement of panels because each one does a different job: a
  * laboratory has a pipeline, a pharmacy has stock lists, an identity service
- * has a profile — so panels are optional rather than forced into one shape.
+ * has a profile, so panels are optional rather than forced into one shape.
  *
  * Every figure, name and Health ID here is invented for the marketing site.
  * These examples are visibly labelled; no patient record is fetched here.
@@ -121,7 +121,7 @@ export const PRODUCT_DETAILS: readonly ProductDetail[] = [
     eyebrow: "Clinical operations",
     title: "Move your clinical operations beyond paper and fragmented records.",
     sub: "Give authorised teams one connected workspace to manage patient records, clinical workflows, and care from one place.",
-    cta: "Modernise your patient health records",
+    cta: "Setup Your Facility",
     dash: "Clinical dashboard",
     metrics: [
       { label: "Encounters", value: "18", footLabel: "Completed", footValue: "9", tone: "neutral" },
@@ -174,7 +174,7 @@ export const PRODUCT_DETAILS: readonly ProductDetail[] = [
     eyebrow: "Diagnostics",
     title: "One connected workspace for your entire laboratory.",
     sub: "Manage laboratory tests and verified results for authorised care workflows. From test requests and sample collection to result verification and patient records, run your laboratory in one secure, connected system.",
-    cta: "Digitise your laboratory",
+    cta: "Setup Your Facility",
     dash: "Laboratory dashboard",
     metrics: [
       { label: "Tests today", value: "84", footLabel: "Completed", footValue: "51", tone: "neutral" },
@@ -229,7 +229,7 @@ export const PRODUCT_DETAILS: readonly ProductDetail[] = [
     eyebrow: "Prescription dispensing",
     title: "Manage your pharmacy. Keep every medication connected.",
     sub: "Receive prescription work items, record dispensing and reversals, and keep medication activity connected to the patient under authorised care workflows.",
-    cta: "Bring your pharmacy online",
+    cta: "Setup Your Facility",
     dash: "Pharmacy dashboard",
     metrics: [
       { label: "Prescriptions today", value: "46", footLabel: "Dispensed", footValue: "31", tone: "neutral" },
@@ -266,7 +266,7 @@ export const PRODUCT_DETAILS: readonly ProductDetail[] = [
     ],
     narrativeTitle: "Medication history is health history.",
     narrativeBody: [
-      "What a patient has been prescribed and what they actually collected is clinical information — but it usually stays locked inside one pharmacy’s books.",
+      "What a patient has been prescribed and what they actually collected is clinical information, but it usually stays locked inside one pharmacy’s books.",
       "Health ID Pharmacy connects dispensing activity to the patient’s persistent identity, so care teams can use relevant medication history only when the applicable consent or access mechanism, organisation, professional role, permissions and care purpose allow it.",
     ],
     workflows: [
@@ -349,7 +349,7 @@ export const PRODUCT_DETAILS: readonly ProductDetail[] = [
     eyebrow: "Legacy digitisation",
     title: "Don’t leave decades of patient history in filing cabinets.",
     sub: "Create OCR jobs for clinical documents, review extracted information, confirm the patient and publish validated information under applicable access controls.",
-    cta: "Start your migration",
+    cta: "Setup Your Facility",
     dash: "Migration dashboard",
     metrics: [
       { label: "OCR jobs", value: "12", footLabel: "Processed", footValue: "8", tone: "neutral" },

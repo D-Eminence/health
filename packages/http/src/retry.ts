@@ -42,7 +42,7 @@ export function isIdempotentMethod(method: string): boolean {
  *
  * A non-idempotent request is never retried here. If a write needs to be
  * retry-safe, the endpoint has to accept an idempotency key and the caller has
- * to pass one — the backend already accepts `x-idempotency-key` on its CORS
+ * to pass one; the backend already accepts `x-idempotency-key` on its CORS
  * allow-list, but no endpoint contract for it has been confirmed, so this
  * package does not assume one exists.
  */

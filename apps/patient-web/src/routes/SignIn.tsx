@@ -3,6 +3,7 @@ import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { GoogleButton } from '../GoogleButton'
 import { Turnstile } from '../Turnstile'
+import { BrandLogo } from '../BrandLogo'
 import { useSession } from '../session'
 
 export function SignIn() {
@@ -54,7 +55,7 @@ export function SignIn() {
 
   return <main className="patient-auth-page">
     <section className="patient-auth-card" aria-labelledby="sign-in-title">
-      <Link to="/" className="patient-auth-brand">H<span>ID</span></Link>
+      <Link to="/" className="patient-auth-brand"><BrandLogo /></Link>
       <p className="patient-eyebrow">Your Health ID</p>
       <h1 id="sign-in-title" className="patient-page-title">Welcome back.</h1>
       <p className="patient-page-copy">Sign in to view your health information and manage access to it.</p>

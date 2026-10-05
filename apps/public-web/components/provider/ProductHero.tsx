@@ -2,6 +2,7 @@ import { Eyebrow, Wrap } from '@hid/ui'
 import { ProductDashboard } from '@/components/shared/ProductDashboard'
 import { HeroDemoButton } from '@/components/shared/HeroDemoButton'
 import type { ProductDetail } from '@/content/product-details'
+import { isApplicationProduct, providerApplicationHref, PROVIDER_SETUP_CTA } from '@/lib/provider-application'
 
 function headlineLines(title: string): readonly [string, string | null] {
   const boundary = title.indexOf('. ')
@@ -24,7 +25,9 @@ export function ProductHero({ product }: { product: ProductDetail }) {
           </h1>
           <p className="hero-reveal hero-reveal-3 mt-5 max-w-[700px] text-[15px]/[1.45] text-white/72">{product.sub}</p>
           <div className="hero-reveal hero-reveal-4 mt-6 flex flex-wrap items-center justify-center gap-3 sm:mt-8">
-            <HeroDemoButton />
+            {isApplicationProduct(product.slug)
+              ? <HeroDemoButton href={providerApplicationHref(product.slug)}>{PROVIDER_SETUP_CTA}</HeroDemoButton>
+              : <HeroDemoButton />}
           </div>
         </div>
       </Wrap>

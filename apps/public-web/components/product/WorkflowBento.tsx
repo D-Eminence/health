@@ -6,11 +6,9 @@ import { cx } from '@hid/ui'
 import { HeroDemoButton } from '@/components/shared/HeroDemoButton'
 import { HealthIcon } from '@/components/shared/HealthIcon'
 import type { ProductDetail } from '@/content/product-details'
+import { isApplicationProduct, providerApplicationHref, PROVIDER_SETUP_CTA } from '@/lib/provider-application'
 
 const CTA: Record<string, string> = {
-  migrate: 'Plan your document migration',
-  laboratory: 'Book a laboratory demo',
-  pharmacy: 'Book a pharmacy demo',
   outreach: 'Plan an outreach programme',
   api: 'Explore integration options',
 }
@@ -142,7 +140,9 @@ export function WorkflowBento({ product }: { product: ProductDetail }) {
           </ol>
           <div className="hidden lg:sticky lg:top-24 lg:block"><Preview product={product} index={current} /></div>
         </div>
-        <HeroDemoButton href="#demo" size="sm" className="mt-6">{CTA[product.slug] ?? product.cta}</HeroDemoButton>
+        {isApplicationProduct(product.slug)
+          ? <HeroDemoButton href={providerApplicationHref(product.slug)} size="sm" className="mt-6">{PROVIDER_SETUP_CTA}</HeroDemoButton>
+          : <HeroDemoButton href="#demo" size="sm" className="mt-6">{CTA[product.slug] ?? product.cta}</HeroDemoButton>}
       </div>
     </section>
   )

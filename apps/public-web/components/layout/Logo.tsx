@@ -15,7 +15,7 @@ import { cx } from '@hid/ui'
  * accessible names are the design's own.
  */
 
-const LOGO_ALT = 'Health ID — Health Identity Directory'
+const LOGO_ALT = 'Health ID: Health Identity Directory'
 const MARK_ALT = 'Health ID'
 
 /** Intrinsic size of the lockup, so `height` alone drives the rendered width. */
@@ -28,7 +28,7 @@ interface LockupProps {
   readonly className?: string
 }
 
-/** The supplied lockup image, unlinked — for places the design shows it bare. */
+/** The supplied lockup image, unlinked, for places the design shows it bare. */
 export function LogoImage({ variant = 'nav', className }: LockupProps) {
   const height = variant === 'full' ? 44 : 26
 

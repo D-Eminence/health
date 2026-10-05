@@ -112,7 +112,7 @@ const DEFAULT_TIMEOUT_MS = 15_000
 
 /**
  * Per-error `Retry-After` hints. A WeakMap keeps the value off the public error
- * surface — it is transport bookkeeping, not something a caller should branch on.
+ * surface; it is transport bookkeeping, not something a caller should branch on.
  */
 const retryAfterByError = new WeakMap<HidApiError, number | null>()
 

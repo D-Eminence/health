@@ -2,7 +2,7 @@
  * Copy for the pages behind the navigation: solutions, company, contact and
  * resources.
  *
- * Written to the same rule as the rest of the site — say what the platform
+ * Written to the same rule as the rest of the site: say what the platform
  * does, and claim nothing it cannot honour. The resource pages in particular
  * describe this website and the platform as they actually are, because a
  * security or privacy page that overstates is worse than no page at all.
@@ -79,7 +79,7 @@ export const ABOUT_PAGE = {
   lede: 'Health ID is creating the digital infrastructure that helps healthcare organizations identify patients, manage care, digitize legacy records, and connect healthcare services across one ecosystem.',
   paragraphs: [
     'Healthcare information is usually organised around the institution that holds it. A patient seen at three facilities becomes three records, and the clinician in front of them sees only the part their own system holds.',
-    'Health ID inverts that. The identity belongs to the patient, and facilities work against it — so registration, clinical records, investigations, prescriptions and outreach registration all contribute to one connected history.',
+    'Health ID inverts that. The identity belongs to the patient, and facilities work against it. Registration, clinical records, investigations, prescriptions and outreach registration all contribute to one connected history.',
     'We work with hospitals, clinics, diagnostic centres, pharmacies and public health programmes. Facilities with existing software keep it and connect through Health ID API; facilities on paper start with Health ID Migrate.',
   ],
   principles: [
@@ -125,25 +125,29 @@ export const SECURITY_PAGE = {
   title: 'Security and access.',
   lede: 'Health information is only useful if it can be trusted. Access to patient information is controlled by role, purpose and authorised scope, and important actions remain attributable.',
   websiteNote:
-    'The public pages do not show clinical records. Pricing and demo requests use the Health ID gateway, and the demo form asks only for business contact details.',
+    'The public pages do not show clinical records. Pricing, demo requests and organization applications use the Health ID gateway. The application asks for a CAC registration identifier and administrator contact details.',
 } as const
 
 export const PRIVACY_PAGE = {
   eyebrow: 'Resources',
   title: 'Privacy on this website.',
-  lede: 'This notice covers this website only — the public pages you are reading. It is not the notice that governs the patient information held in the Health ID platform, which is provided to patients and to facilities separately.',
+  lede: 'This notice covers this website only: the public pages you are reading. It is not the notice that governs the patient information held in the Health ID platform, which is provided to patients and to facilities separately.',
   points: [
     {
       title: 'Public browsing and forms',
-      body: 'Public pages do not request your clinical records. Pricing is read from the Health ID gateway. When you submit the demo form, your contact details and message are sent to Health ID.',
+      body: 'Public pages do not request your clinical records. Pricing is read from the Health ID gateway. Demo requests and organization applications are sent to Health ID when you submit their forms.',
     },
     {
       title: 'Demo requests',
       body: 'The demo form sends the contact details and message you provide to Health ID so the team can respond. A bot check runs in configured environments.',
     },
     {
+      title: 'Organization applications',
+      body: 'The facility setup form sends the product, facility type, CAC registration identifier and proposed administrator contact to Health ID for verification and review. Completing missing organization details requires an email code. An application does not create a staff account.',
+    },
+    {
       title: 'Please do not send patient information',
-      body: 'The demo form asks for your organisation, name and how to reply. Do not include patient details in its message field or in any email to us.',
+      body: 'The demo and facility setup forms do not request patient details. Do not include patient information in a demo message or in any email to us.',
     },
     {
       title: 'Clinical information is different',

@@ -4,6 +4,7 @@ import { isHidApiError } from '@hid/http'
 import type { EnrollmentProgress } from '../api'
 import { GoogleButton } from '../GoogleButton'
 import { Turnstile } from '../Turnstile'
+import { BrandLogo } from '../BrandLogo'
 import { useSession } from '../session'
 
 type Stage = 'nin' | 'contact' | 'otp' | 'password' | 'complete'
@@ -131,7 +132,7 @@ export function Enrollment() {
 
   return <main className="patient-auth-page">
     <section className="patient-auth-card patient-enroll-card" aria-labelledby="enroll-title">
-      <Link to="/" className="patient-auth-brand">H<span>ID</span></Link>
+      <Link to="/" className="patient-auth-brand"><BrandLogo /></Link>
       <p className="patient-eyebrow">Patient enrollment</p>
       <h1 id="enroll-title" className="patient-page-title">Get your Health ID.</h1>
       <p className="patient-page-copy">Verify your identity, confirm a contact, and activate your account.</p>

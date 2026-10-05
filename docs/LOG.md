@@ -1,6 +1,6 @@
 # Integration log
 
-## 2026-10-04 — unified portal integration
+## 2026-10-04: unified portal integration
 
 - Audited the frontend against `hid-system` commit `c4b5445`. `Dashboard.zip`,
   `HID.html` and `hid-1.0` were used as visual/workflow references; backend

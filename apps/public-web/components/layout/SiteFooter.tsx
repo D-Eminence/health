@@ -45,8 +45,6 @@ export interface SiteFooterProps {
 }
 
 export function SiteFooter(_: SiteFooterProps) {
-  const year = new Date().getFullYear()
-
   return (
     <footer className="health-footer">
       <Wrap className="health-footer-wrap">
@@ -75,8 +73,8 @@ export function SiteFooter(_: SiteFooterProps) {
         </nav>
 
         <div className="health-footer-bottom">
-          <p>© {year} Health ID. All rights reserved.</p>
-          <p className="health-footer-tagline">One Health Identity. Connected Care. Accessible Records.</p>
+          <p>© 2026 Health Identity Directory Technologies Ltd. All rights reserved.</p>
+          <p className="health-footer-tagline">One Identity. Connected Records. Better Care.</p>
           <Link href={ROUTES.chooser}>Change your experience <span aria-hidden="true">↗</span></Link>
         </div>
       </Wrap>

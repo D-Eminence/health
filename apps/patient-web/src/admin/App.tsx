@@ -4,6 +4,7 @@ import { isHidApiError } from '@hid/http'
 import { adminApi, type AdminActor, type AdminSession } from './api'
 import { environment } from './env'
 import { Turnstile } from './Turnstile'
+import { BrandLogo } from '../BrandLogo'
 import {
   ApplicationsPage, AuditPage, ControlsPage, DemosPage, FacilitiesPage,
   IntegrationsPage, OperationsPage, OverviewPage, PricingPage, PrincipalsPage, ReviewsPage,
@@ -93,8 +94,8 @@ export function App() {
     catch (reason) { setEntryError(reason instanceof Error ? reason.message : 'Sign-out could not be completed.') }
   }
 
-  if (checking) return <main className="admin-message" role="status">Checking your platform session…</main>
-  if (checkError) return <main className="admin-message" role="alert"><h1>Session unavailable</h1>
+  if (checking) return <main className="admin-message" role="status"><BrandLogo className="admin-state-logo" />Checking your platform session…</main>
+  if (checkError) return <main className="admin-message" role="alert"><BrandLogo className="admin-state-logo" /><h1>Session unavailable</h1>
     <p>{checkError}</p><button type="button" className="admin-primary" onClick={() => setCheckRevision(value => value + 1)}>Try again</button></main>
   if (!session) return <AdminSignIn onSubmit={signIn} error={entryError} />
   const actor = session.actor
@@ -103,7 +104,7 @@ export function App() {
     <div className="admin-app">
       <a className="admin-skip" href="#admin-main">Skip to content</a>
       <aside className="admin-sidebar" aria-label="Platform administration">
-        <div className="admin-brand"><span className="admin-brand-mark">H</span><span>Health ID <small>Platform</small></span></div>
+        <div className="admin-brand"><BrandLogo /><small>Platform</small></div>
         <nav className="admin-nav" aria-label="Platform areas">
           {NAVIGATION.filter(item => has(actor, item.permission)).map(item => (
             <NavLink key={item.path} to={item.path} className={({ isActive }) => `admin-nav-link${isActive ? ' active' : ''}`}>
@@ -115,7 +116,7 @@ export function App() {
           <button type="button" onClick={() => void signOut()}>Sign out</button></div>
       </aside>
       <div className="admin-main-wrap">
-        <header className="admin-mobile-header"><Link to="/admin/overview" className="admin-mobile-logo">Health ID · Platform</Link>
+        <header className="admin-mobile-header"><Link to="/admin/overview" className="admin-mobile-logo"><BrandLogo /><span>Platform</span></Link>
           <button type="button" onClick={() => void signOut()}>Sign out</button></header>
         <nav className="admin-mobile-nav" aria-label="Platform areas">
           {NAVIGATION.filter(item => has(actor, item.permission)).map(item => <NavLink key={item.path} to={item.path}>{item.title}</NavLink>)}
@@ -163,6 +164,7 @@ function AdminSignIn({ onSubmit, error }: { onSubmit: (email: string, password: 
   }
 
   return <main className="admin-auth"><form className="admin-auth-card" onSubmit={event => void submit(event)}>
+    <BrandLogo className="admin-auth-logo" />
     <p className="admin-eyebrow">Health ID platform</p><h1>Administration sign in</h1>
     <p>Access is limited to accounts with platform permissions.</p>
     <label>Email<input type="email" autoComplete="username" required value={email} onChange={event => setEmail(event.target.value)} /></label>

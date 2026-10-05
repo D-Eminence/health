@@ -5,6 +5,7 @@ import { Card, Display, Section, SectionHeader, TextLink, Wrap } from '@hid/ui'
 import { HeroDemoButton } from '@/components/shared/HeroDemoButton'
 import { PRICING } from '@/content/provider'
 import { formatPublicPrice, readPublicPrices, type PublicPrice } from '@/lib/commercial-api'
+import { isApplicationProduct, providerApplicationHref, PROVIDER_SETUP_CTA } from '@/lib/provider-application'
 
 const PRODUCT_NAMES: Record<PublicPrice['product_slug'], string> = {
   identity: 'Health ID Identity',
@@ -81,7 +82,9 @@ export function PricingSection({ headingAs = 'h1' }: { headingAs?: 'h1' | 'h2' }
                       </li>
                     ))}
                   </ul>
-                  <HeroDemoButton className="mt-auto w-full">Book a demo</HeroDemoButton>
+                  {isApplicationProduct(slug)
+                    ? <HeroDemoButton href={providerApplicationHref(slug)} className="mt-auto w-full">{PROVIDER_SETUP_CTA}</HeroDemoButton>
+                    : <HeroDemoButton className="mt-auto w-full">Book a demo</HeroDemoButton>}
                 </Card>
               </li>
             ))}

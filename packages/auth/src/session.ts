@@ -7,8 +7,8 @@
  *     to `localStorage`, `sessionStorage`, IndexedDB or a cookie readable by
  *     script. A closed tab is a cleared session; that is the intended trade.
  *
- *  2. The only thing that persists is a portal hint — which of the three
- *     entrances the person last used — so returning users land on the right
+ *  2. The only thing that persists is a portal hint: which of the three
+ *     entrances the person last used, so returning users land on the right
  *     sign-in screen. It is a single enum value and identifies nobody.
  *
  * Token *refresh* is the authentication provider's job, not this module's. This

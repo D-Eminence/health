@@ -4,12 +4,13 @@
 :root { --font-inter: Inter; --font-forum: Forum; }
 body { margin: 0; }
 #root { min-height: 100svh; }
-.staff-centered { min-height: 100svh; display: grid; place-items: center; padding: 24px; color: var(--color-muted); }
+.staff-centered { min-height: 100svh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px; padding: 24px; color: var(--color-muted); }
+.staff-state-logo { display: block; width: auto; height: 32px; }
 .staff-app { min-height: 100svh; background: var(--color-page); }
 .staff-topbar { height: 62px; display: flex; align-items: center; justify-content: space-between; gap: 20px; border-bottom: 1px solid var(--color-line); padding: 0 clamp(16px, 2vw, 28px); background: var(--color-surface); position: sticky; top: 0; z-index: var(--z-sticky); }
-.staff-brand { display: inline-flex; align-items: center; gap: 10px; color: var(--color-ink); font-weight: 650; font-size: 16px; text-decoration: none; white-space: nowrap; }
-.staff-brand small { display: block; color: var(--color-muted); font-size: 10px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; line-height: 1.1; }
-.staff-brand-mark { width: 32px; height: 32px; display: grid; place-items: center; background: var(--color-brand); color: white; border-radius: var(--radius-control); font-family: var(--font-display); font-size: 22px; font-weight: 400; }
+.staff-brand { display: inline-flex; align-items: center; gap: 10px; color: var(--color-ink); text-decoration: none; white-space: nowrap; }
+.staff-brand img { display: block; width: auto; height: 29px; }
+.staff-brand small { color: var(--color-muted); font-size: 10px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; line-height: 1.1; }
 .staff-topbar-actions { display: flex; align-items: center; gap: 14px; }
 .staff-user { color: var(--color-muted); font-size: 13px; max-width: 230px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .staff-layout { display: grid; grid-template-columns: var(--sidebar-expanded) minmax(0,1fr); min-height: calc(100svh - 62px); }

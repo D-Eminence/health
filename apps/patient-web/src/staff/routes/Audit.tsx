@@ -96,7 +96,7 @@ export function FacilityAudit() {
         <td>{event.action}</td>
         <td><Badge tone={outcomeTone(event.outcome)}>{event.outcome}</Badge></td>
         <td>{event.actorType}</td>
-        <td>{event.resourceType ?? '—'}</td>
+        <td>{event.resourceType ?? 'Not recorded'}</td>
         <td><code>{event.correlationId}</code></td>
       </tr>)}</tbody>
     </table></Card>}

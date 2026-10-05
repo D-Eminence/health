@@ -21,9 +21,9 @@ function label(value: string) {
 }
 
 function date(value: string | null | undefined) {
-  if (!value) return '—'
+  if (!value) return 'Not available'
   const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? '—' : new Intl.DateTimeFormat('en-NG', {
+  return Number.isNaN(parsed.getTime()) ? 'Not available' : new Intl.DateTimeFormat('en-NG', {
     dateStyle: 'medium', timeStyle: 'short',
   }).format(parsed)
 }
@@ -367,7 +367,7 @@ export function OperationsPage() {
         <p className="admin-result-count">Checked {date(result.checkedAt)}</p>
         <Table headings={['Service', 'State', 'Detail', 'Checked']}>
           {result.services.map(item => <tr key={item.service}><td><strong>{item.service}</strong></td>
-            <td><Status value={item.state} /></td><td>{item.code ? label(item.code) : '—'}</td>
+            <td><Status value={item.state} /></td><td>{item.code ? label(item.code) : 'Not available'}</td>
             <td>{date(item.checkedAt)}</td></tr>)}
         </Table>
       </>}</ResourceView>
@@ -471,7 +471,7 @@ export function DemosPage({ actor }: { actor: AdminActor }) {
     <ResourceView resource={resource} empty={result => result.items.length === 0}>{result => <Table headings={['Contact', 'Organization', 'Product', 'Submitted', 'Status', 'Action']}>
       {result.items.map(item => <tr key={item.id}>
         <td><strong>{item.contactName}</strong><small>{item.contactEmail}</small></td>
-        <td>{item.organizationName || '—'}</td><td>{label(item.productCode)}</td><td>{date(item.createdAt)}</td>
+        <td>{item.organizationName || 'Not provided'}</td><td>{label(item.productCode)}</td><td>{date(item.createdAt)}</td>
         <td><Status value={item.status} /></td>
         <td>{has(actor, 'platform.demo.manage') ? <DemoAction request={item} reload={resource.reload} /> : 'View only'}</td>
       </tr>)}

@@ -3,6 +3,7 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { GoogleButton } from '../GoogleButton'
 import { Turnstile } from '../Turnstile'
+import { BrandLogo } from '../BrandLogo'
 import { useSession } from '../session'
 import { usePatientResource } from './usePatientResource'
 
@@ -16,7 +17,7 @@ const links = [
 ] as const
 
 function date(value: string | null | undefined) {
-  if (!value) return '—'
+  if (!value) return 'Not available'
   const parsed = new Date(value)
   return Number.isNaN(parsed.getTime()) ? value : new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium' }).format(parsed)
 }
@@ -41,7 +42,7 @@ export function PortalShell() {
 
   return <div className="patient-app">
     <header className="patient-app-header"><div className="patient-app-header-inner">
-      <NavLink to="/" className="patient-app-logo" aria-label="Health ID home">H<span>ID</span></NavLink>
+      <NavLink to="/" className="patient-app-logo" aria-label="Health ID home"><BrandLogo /></NavLink>
       <span className="patient-header-title">Patient portal</span>
       <button type="button" className="patient-signout" onClick={() => void logout()} disabled={signingOut}>{signingOut ? 'Signing out…' : 'Sign out'}</button>
     </div></header>
@@ -91,10 +92,10 @@ export function ProfilePage() {
       <div><dt>Health ID</dt><dd className="patient-code">{profile.data.hid}</dd></div>
       <div><dt>Full name</dt><dd>{profile.data.fullName}</dd></div>
       <div><dt>Date of birth</dt><dd>{date(profile.data.dateOfBirth)}</dd></div>
-      <div><dt>Gender</dt><dd>{profile.data.gender || '—'}</dd></div>
-      <div><dt>State</dt><dd>{profile.data.state || '—'}</dd></div>
-      <div><dt>Country</dt><dd>{profile.data.country || '—'}</dd></div>
-      <div><dt>Identity assurance</dt><dd>{profile.data.assuranceState || '—'}</dd></div>
+      <div><dt>Gender</dt><dd>{profile.data.gender || 'Not provided'}</dd></div>
+      <div><dt>State</dt><dd>{profile.data.state || 'Not provided'}</dd></div>
+      <div><dt>Country</dt><dd>{profile.data.country || 'Not provided'}</dd></div>
+      <div><dt>Identity assurance</dt><dd>{profile.data.assuranceState || 'Not available'}</dd></div>
     </dl></div>}
     {profile.data && !profile.loading && !profile.error && <div className="patient-card"><h2>NIN verification</h2>
       <p className="patient-field-hint">Repeat verification for a NIN already linked to your account. An eligible migrated account may link a matching NIN. The service checks your account and compares your verified profile details before recording the result.</p>
@@ -168,7 +169,7 @@ export function AccessPage() {
       </ul>)}</div>
     <div className="patient-card"><h2>Access history</h2><LoadState loading={history.loading} error={history.error} retry={history.reload} />
       {history.data && !history.loading && !history.error && (history.data.items.length === 0 ? <p className="patient-empty">No access grants are recorded.</p> : <ul className="patient-list">
-        {history.data.items.map(item => <li key={item.consentGrantId}><div><strong>{item.facilityName}</strong><span>{item.scope} · {item.purpose}</span><span>{date(item.startsAt)} – {date(item.expiresAt)} · {item.status}</span></div></li>)}
+        {history.data.items.map(item => <li key={item.consentGrantId}><div><strong>{item.facilityName}</strong><span>{item.scope} · {item.purpose}</span><span>{date(item.startsAt)} to {date(item.expiresAt)} · {item.status}</span></div></li>)}
       </ul>)}</div>
   </section>
 }

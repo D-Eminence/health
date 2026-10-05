@@ -117,7 +117,7 @@ export const PATIENT_FAQ = {
 
 export const PATIENT_CTA = {
   title: 'Start building the health history that stays with you.',
-  body: 'Create your Health ID and keep your medical information connected as your care continues — wherever you receive it.',
+  body: 'Create your Health ID and keep your medical information connected as your care continues, wherever you receive it.',
   action: 'Get your Health ID',
   secondary: 'I already have a Health ID',
   footnote: 'Your records remain subject to the relevant access controls.',

@@ -146,11 +146,11 @@ describe('demo request', () => {
   })
 
   it('maps the form to the backend contract without including URL queries', () => {
-    const body = toDemoSubmission(valid, { sourcePage: '/products/ehr', sourceSection: 'hero', ctaLabel: 'Book demo' }, 'token')
+    const body = toDemoSubmission(valid, { sourcePage: '/contact', sourceSection: 'contact-card', ctaLabel: 'Book a demo' }, 'token')
     expect(body).toMatchObject({
       contactName: 'Amaka Eze', contactEmail: 'amaka@example.com', productCode: 'ehr',
       organizationName: 'Prime Hospital', turnstileAction: 'book-demo', turnstileToken: 'token',
-      sourcePage: '/products/ehr',
+      sourcePage: '/contact',
     })
     expect(JSON.stringify(body)).not.toContain('pageUrl')
   })

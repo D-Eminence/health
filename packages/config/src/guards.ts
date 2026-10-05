@@ -60,7 +60,7 @@ export interface PublicEnvironmentViolation {
 
 /**
  * Returns every reason the supplied record is unsafe to inline into a bundle.
- * An empty array means no known violation — not a proof of safety.
+ * An empty array means no known violation, not a proof of safety.
  */
 export function findPublicEnvironmentViolations(
   raw: Readonly<Record<string, string | undefined>>,

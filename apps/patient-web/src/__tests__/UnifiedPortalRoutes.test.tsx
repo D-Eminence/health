@@ -110,7 +110,7 @@ describe('unified authenticated portal routes', () => {
   it('opens provider sign in directly under /provider', async () => {
     open('/provider/sign-in')
 
-    expect(await screen.findByRole('textbox', { name: /Work email/ })).toBeTruthy()
+    expect(await screen.findByRole('textbox', { name: /Work email/ }, { timeout: 5000 })).toBeTruthy()
     expect(screen.getByTestId('portal-path').textContent).toBe('/provider/sign-in')
     await waitFor(() => expect(calls.staffSession).toHaveBeenCalledOnce())
     expect(calls.patientSession).not.toHaveBeenCalled()

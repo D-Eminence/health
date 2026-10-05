@@ -53,7 +53,7 @@ async function walk(directory, filter) {
 /**
  * Packages that would let a frontend bypass the Health ID Gateway. Any of these
  * appearing as a dependency means the boundary has moved, not that a build
- * broke — so it fails loudly rather than being warned about.
+ * broke, so it fails loudly rather than being warned about.
  */
 const FORBIDDEN_DEPENDENCIES = [
   '@supabase/supabase-js',
@@ -119,7 +119,7 @@ const envFiles = (await walk(root, name => name.startsWith('.env'))).filter(
 
 for (const path of envFiles) {
   notes.push(
-    `${relative(root, path)} is present locally — confirm .gitignore excludes it before committing`,
+    `${relative(root, path)} is present locally; confirm .gitignore excludes it before committing`,
   )
 }
 

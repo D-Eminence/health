@@ -7,6 +7,7 @@ import { SiteFooter } from '@/components/layout/SiteFooter'
 import { DemoDialog } from '@/components/shared/DemoDialog'
 import { BackToTop } from '@/components/shared/BackToTop'
 import { HeroDemoButton } from '@/components/shared/HeroDemoButton'
+import { ROUTES } from '@/content/site'
 import { CtaBand } from '@/components/shared/CtaBand'
 import { HealthIcon } from '@/components/shared/HealthIcon'
 import { HealthIDModuleShowcase } from '@/components/product/HealthIDModuleShowcase'
@@ -41,7 +42,7 @@ export default function AboutPage() {
           <Eyebrow>About Health ID</Eyebrow>
           <Display as="h1" id="about-title">Building the infrastructure for connected healthcare.</Display>
           <p className="about-prose">Health ID is creating the digital infrastructure that helps healthcare organizations identify patients, manage care, digitize legacy records, and connect healthcare services across one ecosystem.</p>
-          <p className="about-brand-line">One Health Identity. Connected Care. Accessible Records.</p>
+          <p className="about-brand-line">One Identity. Connected Records. Better Care.</p>
           <div className="flex flex-wrap gap-3"><HeroDemoButton href="/products">Explore our products</HeroDemoButton><HeroDemoButton variant="secondary">Book a demo</HeroDemoButton></div>
         </div>
         <div className="about-ecosystem" aria-label="Health identity connects records, care, and healthcare services">
@@ -146,7 +147,7 @@ export default function AboutPage() {
         <span className="about-caption">The goal is simple</span><p className="about-vision-brand">One Health Identity.<br />Connected Care.<br />Accessible Records.</p>
       </div></Wrap></Section>
 
-      <Section id="about-cta" rhythm="tight"><Wrap><CtaBand title="Build a more connected healthcare operation." lede="Whether you’re moving from paper, replacing fragmented tools, adding a laboratory or pharmacy system, or connecting an existing healthcare product, Health ID gives you a path forward." primary={{ label: 'Book a Demo', href: '#demo' }} secondary={{ label: 'Explore Health ID', href: '/products' }} /></Wrap></Section>
+      <Section id="about-cta" rhythm="tight"><Wrap><CtaBand title="Build a more connected healthcare operation." lede="Whether you’re moving from paper, replacing fragmented tools, adding a laboratory or pharmacy system, or connecting an existing healthcare product, Health ID gives you a path forward." primary={{ label: 'Setup Your Facility', href: ROUTES.providerApplication }} secondary={{ label: 'Explore Health ID', href: '/products' }} /></Wrap></Section>
       </div>
     </main>
     <SiteFooter /><BackToTop /><DemoDialog />

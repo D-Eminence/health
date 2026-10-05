@@ -95,7 +95,7 @@ export function CareJourney() {
                   data-index={index}
                   data-active={isActive}
                 >
-                  <p className="hikmah-story-label">{details.number} <span aria-hidden="true">—</span> {labels[index]}</p>
+                  <p className="hikmah-story-label">{details.number} <span aria-hidden="true">:</span> {labels[index]}</p>
                   <h3>{moment.where}</h3>
                   <p>{moment.body}</p>
                   {index === 2 ? <span className="hikmah-story-status">Access approved by Hikmah</span> : null}
@@ -106,7 +106,7 @@ export function CareJourney() {
           </div>
 
           <div className="hikmah-mobile-story" aria-live="polite">
-            <p className="hikmah-story-label">{detail.number} <span aria-hidden="true">—</span> {labels[activeIndex]}</p>
+            <p className="hikmah-story-label">{detail.number} <span aria-hidden="true">:</span> {labels[activeIndex]}</p>
             <h3>{current.where}</h3>
             <p>{current.body}</p>
             {activeIndex === 2 ? <span className="hikmah-story-status">Access approved by Hikmah</span> : null}

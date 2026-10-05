@@ -3,6 +3,7 @@ import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { Button, Field, Input } from '@hid/ui'
 import { getEnvironment } from '../env'
 import { useStaff } from '../App'
+import { BrandLogo } from '../../BrandLogo'
 
 function TurnstileChallenge({ onToken, resetKey }: { onToken: (token: string) => void; resetKey: number }) {
   const siteKey = getEnvironment().turnstileSiteKey
@@ -66,7 +67,7 @@ export function SignIn() {
 
   return <div className="staff-auth-page">
     <main className="staff-auth">
-      <div className="staff-brand"><span className="staff-brand-mark">H</span><span>Health ID <small>Provider</small></span></div>
+      <div className="staff-brand"><BrandLogo /><small>Provider</small></div>
       <p className="staff-eyebrow">Secure clinical workspace</p>
       <h1>Welcome back.</h1>
       <p>Sign in with the staff account assigned to your facility. Your permissions and facility are verified by Health ID.</p>

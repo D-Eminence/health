@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { Turnstile } from '../Turnstile'
+import { BrandLogo } from '../BrandLogo'
 import { useSession } from '../session'
 
 type Step = 'start' | 'code' | 'password' | 'complete'
@@ -59,7 +60,7 @@ export function Recovery() {
   }
 
   return <main className="patient-auth-page"><section className="patient-auth-card" aria-labelledby="recovery-title">
-    <Link to="/sign-in" className="patient-auth-brand">H<span>ID</span></Link>
+    <Link to="/sign-in" className="patient-auth-brand"><BrandLogo /></Link>
     <p className="patient-eyebrow">Account recovery</p><h1 id="recovery-title" className="patient-page-title">Reset your password.</h1>
     {error && <p role="alert" className="patient-inline-error">{error}</p>}
     {step === 'start' && <form onSubmit={start} className="patient-form"><p className="patient-page-copy">Enter your email or Health ID. We will send a code to your verified contact.</p>
