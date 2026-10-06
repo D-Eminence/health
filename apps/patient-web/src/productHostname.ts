@@ -7,7 +7,13 @@ export const STAFF_PRODUCT_ROUTES = {
 } as const
 
 export const PLATFORM_ADMIN_HOSTNAME = 'admin.healthidentitydirectory.com'
+export const STAGING_ADMIN_HOSTNAME = 'admin.staging.healthidentitydirectory.com'
 export const PLATFORM_ADMIN_ROUTE = '/admin/overview'
+
+const STAFF_LOGIN_ACTIONS = {
+  ehr: 'ehr-login', lab: 'lab-login', pharmacy: 'pharmacy-login',
+  migrate: 'ocr-login', outreach: 'outreach-login',
+} as const
 
 export type StaffProductKey = keyof typeof STAFF_PRODUCT_ROUTES
 
@@ -25,6 +31,12 @@ const STAFF_PRODUCT_HOSTNAMES: Record<string, StaffProduct> = {
   'outreach.healthidentitydirectory.com': { key: 'outreach', hostname: 'outreach.healthidentitydirectory.com', route: STAFF_PRODUCT_ROUTES.outreach },
 }
 
+// Exact aliases only: an unrelated hostname must not select a product portal.
+for (const product of Object.values(STAFF_PRODUCT_HOSTNAMES)) {
+  const hostname = product.hostname.replace('.healthidentitydirectory.com', '.staging.healthidentitydirectory.com')
+  STAFF_PRODUCT_HOSTNAMES[hostname] = { ...product, hostname }
+}
+
 function normalizeHostname(hostname: string): string {
   return hostname.trim().toLowerCase().replace(/\.+$/, '')
 }
@@ -38,7 +50,33 @@ export function isStaffProductRoute(pathname: string): boolean {
 }
 
 export function isPlatformAdminHostname(hostname: string): boolean {
-  return normalizeHostname(hostname) === PLATFORM_ADMIN_HOSTNAME
+  return [PLATFORM_ADMIN_HOSTNAME, STAGING_ADMIN_HOSTNAME].includes(normalizeHostname(hostname))
+}
+
+/** The widget and login request use the same action accepted by Identity. */
+export function resolveStaffLoginAction(hostname: string) {
+  const product = resolveStaffProductHostname(hostname)
+  return product ? STAFF_LOGIN_ACTIONS[product.key] : 'staff-login'
+}
+
+/** Staff reset is accepted on the canonical portal origin, not product hosts. */
+export function resolveStaffRecoveryUrl(hostname: string): string {
+  const product = resolveStaffProductHostname(hostname)
+  if (!product) return '/provider/recover'
+  const canonical = product.hostname.includes('.staging.')
+    ? 'staging.healthidentitydirectory.com' : 'www.healthidentitydirectory.com'
+  return `https://${canonical}/provider/recover?returnTo=${product.key}`
+}
+
+/** A recovery return can name only a known product, never an arbitrary URL. */
+export function resolveRecoverySignInUrl(hostname: string, search: string): string {
+  const normalized = normalizeHostname(hostname)
+  if (!['staging.healthidentitydirectory.com', 'www.healthidentitydirectory.com'].includes(normalized)) return '/provider/sign-in'
+  const key = new URLSearchParams(search).get('returnTo')
+  const staging = normalized === 'staging.healthidentitydirectory.com'
+  const product = Object.values(STAFF_PRODUCT_HOSTNAMES).find(item => item.key === key
+    && item.hostname.includes('.staging.') === staging)
+  return product ? `https://${product.hostname}/provider/sign-in` : '/provider/sign-in'
 }
 
 export function isPlatformAdminRoute(pathname: string): boolean {

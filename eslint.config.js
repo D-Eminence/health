@@ -40,6 +40,7 @@ export default tseslint.config(
       '**/node_modules/**',
       '**/dist/**',
       '**/.next/**',
+      '**/out/**',
       '**/coverage/**',
       '**/*.tsbuildinfo',
       // Historical sketches outside the npm workspaces are not shipped frontend code.
@@ -117,7 +118,7 @@ export default tseslint.config(
   },
   {
     // Build tooling runs in Node and reports to a terminal.
-    files: ['scripts/**/*.mjs', '*.config.{js,ts,mjs}', 'apps/*/*.config.{ts,mjs}'],
+    files: ['scripts/**/*.mjs', 'infra/cloudflare/**/*.mjs', '*.config.{js,ts,mjs}', 'apps/*/*.config.{ts,mjs}'],
     rules: { 'no-restricted-syntax': 'off', 'no-undef': 'off' },
   },
 )

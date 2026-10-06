@@ -1,5 +1,6 @@
 import { createApiClient, uploadPresignedObject } from '@hid/http'
 import { createRegisteredBrowserClient } from '@hid/api'
+import { resolveStaffLoginAction } from '../productHostname'
 import { getEnvironment } from './env'
 
 export interface Facility {
@@ -395,7 +396,7 @@ function encounterPath(patientId: string, encounterId: string) {
 export const staffApi = {
   login: (email: string, password: string, turnstileToken?: string) =>
     client.post<StaffSession>('/api/v1/auth/login', {
-      email, password, turnstileToken, turnstileAction: 'staff-login',
+      email, password, turnstileToken, turnstileAction: resolveStaffLoginAction(window.location.hostname),
     }, { auth: 'none' }),
   session: () => client.get<StaffSession>('/api/v1/auth/session', { auth: 'optional' }),
   refresh: () => client.post<StaffSession>('/api/v1/auth/refresh'),

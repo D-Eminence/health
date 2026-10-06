@@ -5,6 +5,8 @@ out/
 build/
 coverage/
 *.tsbuildinfo
+__pycache__/
+*.pyc
 
 # Environment files: only *.example may be committed.
 .env

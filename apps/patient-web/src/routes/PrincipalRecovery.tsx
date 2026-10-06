@@ -4,13 +4,15 @@ import { isHidApiError } from '@hid/http'
 import { Turnstile } from '../Turnstile'
 import { BrandLogo } from '../BrandLogo'
 import { createPrincipalRecoveryApi, type RecoveryAudience } from '../recoveryApi'
+import { resolveRecoverySignInUrl } from '../productHostname'
 
 type Step = 'start' | 'code' | 'password' | 'complete'
 
 /** Recovery uses only component memory for the challenge and completion token. */
 export function PrincipalRecovery({ audience }: { audience: RecoveryAudience }) {
   const api = useMemo(() => createPrincipalRecoveryApi(audience), [audience])
-  const signInPath = audience === 'staff' ? '/provider/sign-in' : '/admin/sign-in'
+  const signInPath = audience === 'staff'
+    ? resolveRecoverySignInUrl(window.location.hostname, window.location.search) : '/admin/sign-in'
   const accountLabel = audience === 'staff' ? 'Provider' : 'Platform'
   const [step, setStep] = useState<Step>('start')
   const [identifier, setIdentifier] = useState('')

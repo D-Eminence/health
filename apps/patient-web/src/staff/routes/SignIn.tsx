@@ -4,7 +4,7 @@ import { Button, Field, Input } from '@hid/ui'
 import { getEnvironment } from '../env'
 import { useStaff } from '../App'
 import { BrandLogo } from '../../BrandLogo'
-import { isStaffProductRoute, resolveStaffProductHostname } from '../../productHostname'
+import { isStaffProductRoute, resolveStaffProductHostname, resolveStaffLoginAction, resolveStaffRecoveryUrl } from '../../productHostname'
 
 function getStaffLandingPath(search: string): string {
   const requested = new URLSearchParams(search).get('returnTo')
@@ -25,7 +25,7 @@ function TurnstileChallenge({ onToken, resetKey }: { onToken: (token: string) =>
       if (!active || !host.current || !window.turnstile) return
       widgetId = window.turnstile.render(host.current, {
         sitekey: siteKey,
-        action: 'staff-login',
+        action: resolveStaffLoginAction(window.location.hostname),
         callback: onToken,
         'expired-callback': () => onToken(''),
         'error-callback': () => { onToken(''); setError('Human verification could not load. Refresh the page and try again.') },
@@ -87,7 +87,7 @@ export function SignIn() {
         {error && <p className="staff-error" role="alert">{error}</p>}
         <Button type="submit" disabled={busy || !!siteKey && !token}>{busy ? 'Signing in…' : 'Sign in'}</Button>
       </form>
-      <p className="staff-muted"><Link to="/provider/recover">Forgot your password?</Link> For a new staff account, contact your facility administrator.</p>
+      <p className="staff-muted"><Link to={resolveStaffRecoveryUrl(window.location.hostname)}>Forgot your password?</Link> For a new staff account, contact your facility administrator.</p>
     </main>
     <aside className="staff-auth-aside" aria-label="About secure access">
       <p className="staff-eyebrow">One connected care record</p>
