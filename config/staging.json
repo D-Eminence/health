@@ -16,7 +16,7 @@
               },
     "chat":  {
                  "supportChatEnabled":  true,
-                 "patientChatEnabled":  false,
+                 "patientChatEnabled":  true,
                  "supportContact":  "mailto:support@healthidentitydirectory.com"
              }
 }

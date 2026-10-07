@@ -206,17 +206,17 @@ workflow. A patient dependency must not hold a ready support release.
 
 ### 7. Build, publish and deploy the frontend release
 
-- [ ] Enable support on its intended hosts. Enable the patient flag only after
+- [x] Enable support on its intended hosts. Enable the patient flag only after
   backend activation and synthetic authorization/grounding checks pass.
-- [ ] Commit the reviewed frontend changes on the existing staging integration
+- [x] Commit the reviewed frontend changes on the existing staging integration
   branch; use `staging-frontends.yml` to produce the source-bound eight archives
   and manifest. No new Dockerfile or separate build pipeline is needed.
-- [ ] Validate exact source, CI outcome, configuration/lockfile/edge digests and
+- [x] Validate exact source, CI outcome, configuration/lockfile/edge digests and
   archive hashes; publish to the existing encrypted versioned release bucket.
-- [ ] Deploy the affected `web` and `public` Workers using a new receipt label;
+- [x] Deploy the affected `web` and `public` Workers using a new receipt label;
   retain prior versions and preserve other portal releases. CI can build all
   eight artifacts without requiring all eight deployments.
-- [ ] Verify HTTPS, asset hashes, public/deep-link routes, API proxy/security
+- [x] Verify HTTPS, asset hashes, public/deep-link routes, API proxy/security
   headers and unchanged sign-in/session behavior. Roll back affected Workers or
   disable the feature if verification fails.
 
@@ -229,7 +229,7 @@ workflow. A patient dependency must not hold a ready support release.
   or password bypass; obtain owner participation if a test session is unavailable.
 - [ ] Confirm another patient's records cannot be accessed and patient chat is
   unavailable to signed-out, staff and admin contexts. Check metadata-only logs.
-- [ ] Record the release SHA, CI run, image/task references, Worker version IDs,
+- [x] Record the release SHA, CI run, image/task references, Worker version IDs,
   synthetic checks and actual browser results; update the root tracker.
 
 Done means each chatbot has its visible UI, working deployed API connection and
@@ -294,8 +294,12 @@ recorded acceptance. An API-only check does not close browser acceptance.
 - A real generation attempt reached Bedrock but returned
   `ResourceNotFoundException` (HTTP 404). Fresh AWS model availability readback:
   authorization, entitlement and region AVAILABLE; agreement NOT_AVAILABLE.
-  The EU inference profile is ACTIVE. Requested owner authorization for the
-  one-time model agreement before accepting license terms/usage charges.
+  The EU inference profile is ACTIVE. After the owner's instruction to carry on,
+  agreement creation returned `AccessDeniedException`: the Anthropic first-use
+  form has not been submitted. Automatic approval review rejected submitting the
+  exact form without explicit authorization for its company/use-case payload and
+  paid model agreement. An explicit approval question is pending; no form was
+  submitted, no agreement created and no runtime Marketplace privilege added.
   Generation/grounding, changed-source and revocation acceptance remain open.
   Receipt: `../../tmp/staging-chat-ai-20261007/ChatSynthetic.latest.json`
   (task runner retains per-task receipts). No substitute model was selected.
@@ -304,7 +308,7 @@ recorded acceptance. An API-only check does not close browser acceptance.
 - Browser inventory reports no available browsers in this tool session. Browser
   acceptance is not claimed; owner participation remains the precise handoff.
 - Patient frontend flag stays off until synthetic model/RLS checks pass.
-  Support publication and affected Worker deployments follow now; patient activation
+  Support is now published and deployed on both intended hosts. Patient activation
   waits for model access and generation checks. Browser acceptance remains open.
 
 Acceptance distinction: the synthetic runtime evaluator calls published classes
@@ -320,3 +324,93 @@ Authorized patient browser acceptance remains a separate final check.
 
 The original planning phase changed documents only. The implementation phase
 now includes frontend code, checks and the scoped Bedrock/EHR rollout above.
+
+### Published staging release - 2026-10-07
+
+- Released frontend source: `4bac5c132d70645ad5bd28f6a1f5f1368b0e88bf`,
+  branch `staging-frontend-20261006`.
+- GitHub Actions [run 37670095660](https://github.com/D-Eminence/Health-id/actions/runs/37670095660)
+  succeeded: **275 tests in 35 files**, typecheck/lint/boundaries, 30 edge tests,
+  four release tests, dependency audit, eight static builds and Worker dry runs.
+- Exact artifact ID `11504346849`; archive digest
+  `sha256:64eb7cc91c56b0723a4da3acb211a852335a82fe7cd1fc57da91c009640d66b9`.
+  Manifest digest `899a8a35211d52ce1ab22b96add983d4488644ea3cee3c012ef7ce45f6486885`.
+  Eight archives and manifest were published to the existing KMS-encrypted,
+  versioned `hid-migration-source-1da62383fb59593cb2679f3ce9` bucket under
+  `frontend-releases/4bac5c132d70645ad5bd28f6a1f5f1368b0e88bf/`.
+- Deployed only the patient and public Workers. Support enabled on those hosts;
+  patient flag false; both flags false on all other host artifacts.
+
+| Host | Active Worker version (100%) | Prior rollback version |
+| --- | --- | --- |
+| `staging.healthidentitydirectory.com` | `6537e270-3f2b-471c-a75d-c346aae0c729` | `c9662430-595e-49d3-acd2-10abf9556926` |
+| `www.staging.healthidentitydirectory.com` | `584a471f-30d2-4cc2-a134-3476ef54c7ff` | `04771943-1110-4d25-90af-9833529084bb` |
+
+- Strict live deployment verification passed **31 checks**: accepted application
+  bytes/bootstrap assets, HTTPS/security headers, public routes, portal links,
+  deep-link handling, pricing API and anonymous session behavior.
+- After release, all five chat API checks passed: FAQ and contact fallback on
+  both hosts and anonymous patient chat denied with 401. No identifying data or
+  clinical notes were sent to public support.
+- The initial public-route check exposed Cloudflare rolling out another analytics
+  script version. Application bytes were unchanged. Corrected the root verifier
+  to strip only either of the **two exact HID-zone scripts**, never arbitrary
+  HTML/scripts. Five verifier regression tests passed, including rejection of
+  changed application bytes, another zone token and duplicate/mixed insertions.
+  No application rebuild was required for this verifier-only correction.
+- Terraform validation passed; its existing `failure_threshold` Cloud Map
+  deprecation warning does not block this release. Formatted only staging inputs.
+- Receipts: `../../tmp/staging-chat-20261007/` (`ci.latest.json`,
+  `ci-checks.latest.json`, `artifact-download.latest.json`, `publication.latest.json`,
+  `deployment-progress.json`, `worker-rollback-targets.json`,
+  `verification-web-public.json`) and `../../tmp/staging-chat-routes.latest.json`.
+  AI rollout/model status is under `../../tmp/staging-chat-ai-20261007/`.
+- This post-release plan update is a local documentation change after artifact
+  admission. The released source SHA above remains the release reference.
+  Terraform source was not pushed; no backend image was rebuilt.
+
+### Remaining work and exact resumption order
+
+1. Obtain explicit authorization for the queued Anthropic first-use form and
+   paid model agreement. The prepared helper is
+   `../../infra/terraform/scripts/activate-staging-chat-model.py`; do not run it
+   before that approval. Recheck agreement AVAILABLE after activation.
+2. Rerun `test-staging-chat-runtime.py` under the actual EHR task's Bedrock IAM
+   and restricted DB role. Finish generation/grounding, unsupported-question,
+   injection, changed-source, revoked-authorization and empty-history checks.
+   Correct an observed failure; do not replace the approved model or bypass RLS.
+3. After model checks pass, enable `chat.patientChatEnabled` in staging config;
+   commit and build via the same CI, then publish/deploy only the `web` Worker
+   using a new receipt label. The healthy support release remains independent.
+4. Browser acceptance on both support hosts and a controlled authenticated
+   patient account remains unperformed: this session exposes no available browser.
+   Owner can check Support chat with ?What is Health ID?? and an unknown FAQ,
+   keyboard open/close/reset and phone layout; record actual results. For patient
+   chat, use authorized controlled notes/accounts and verify reply/citations,
+   empty history, reload/logout/session expiry and cross-patient denial. Never
+   supply passwords in chat or repurpose customer accounts for test fixtures.
+
+**Status:** support implementation, CI publication, scoped deployment and API
+acceptance complete; support browser acceptance open. Patient UI implementation
+and AI infrastructure activation complete; model access/acceptance, enabled
+frontend release and patient browser acceptance open. Overall plan remains open.
+
+### Model activation and patient release continuation - 2026-10-07
+
+The owner completed model activation in the AWS console. Read-only verification
+confirmed Sonnet 4.6 agreement AVAILABLE, AUTHORIZED and entitlement AVAILABLE.
+No first-use form or model agreement was submitted by the automation.
+
+The synthetic runtime task `86d017d3fd5849a3b26a4db27af8d6dc` passed all eight
+checks: actual forced RLS cross-patient denial; compiled actor/identity binding;
+grounded answer and citation; unsupported question without invented measurement;
+untrusted record instructions ignored; changed source denied before return;
+empty released history; revoked authorization denied before return.
+All fixtures rolled back; no customer records changed or persistent sessions
+created. These checks do not claim signed-in HTTP/browser acceptance.
+Receipt: `../../tmp/staging-chat-ai-20261007/ChatSynthetic.latest.json`.
+
+Enabled the patient frontend flag for staging after successful model checks.
+New source-bound CI publication and patient Worker deployment are in progress.
+The earlier model-access blocker and its pending form authorization are resolved
+by the owner's console activation. Browser acceptance remains open.
