@@ -118,7 +118,7 @@ export function RecordsPage() {
   const { api } = useSession()
   const records = usePatientResource(api.records)
   return <section className="patient-section"><p className="patient-eyebrow">Care history</p><h1 className="patient-page-title">Health records</h1>
-    <p className="patient-page-copy">Completed encounters and signed clinical notes available to your patient account.</p>
+    <p className="patient-page-copy">Your completed encounters, clinical notes, vitals, diagnoses, prescriptions, laboratory requests and uploaded clinical documents.</p>
     <LoadState loading={records.loading} error={records.error} retry={records.reload} />
     {records.data && !records.loading && !records.error && <>
       <div className="patient-card"><h2>Encounters</h2>{records.data.encounters.length === 0 ? <p className="patient-empty">No completed encounters are available.</p> : <ul className="patient-list">
@@ -127,7 +127,22 @@ export function RecordsPage() {
       <div className="patient-card"><h2>Clinical notes</h2>{records.data.notes.length === 0 ? <p className="patient-empty">No signed clinical notes are available.</p> : <ul className="patient-list">
         {records.data.notes.map(item => <li key={item.id} className="patient-note"><div><strong>{item.title || item.noteType}</strong><span>{date(item.signedAt)} · {item.status}</span></div><p>{item.content}</p></li>)}
       </ul>}</div>
-      <p className="patient-field-hint">Up to {records.data.limit} of the most recent records are returned by the service.</p>
+      <div className="patient-card"><h2>Vitals</h2>{records.data.vitals.length === 0 ? <p className="patient-empty">No vitals are available.</p> : <ul className="patient-list">
+        {records.data.vitals.map(item => <li key={item.id}><div><strong>{date(item.recordedAt)}</strong><span>{item.temperatureC != null ? `Temp ${item.temperatureC}°C` : ''}{item.pulseBpm != null ? ` · Pulse ${item.pulseBpm}` : ''}{item.oxygenSaturationPercent != null ? ` · SpO₂ ${item.oxygenSaturationPercent}%` : ''}</span></div></li>)}
+      </ul>}</div>
+      <div className="patient-card"><h2>Diagnoses</h2>{records.data.diagnoses.length === 0 ? <p className="patient-empty">No diagnoses are available.</p> : <ul className="patient-list">
+        {records.data.diagnoses.map(item => <li key={item.id}><div><strong>{item.display}</strong><span>{item.codeSystem}: {item.code} · {item.clinicalStatus} · {item.verificationStatus}</span></div>{item.notes && <p>{item.notes}</p>}</li>)}
+      </ul>}</div>
+      <div className="patient-card"><h2>Prescriptions</h2>{records.data.prescriptions.length === 0 ? <p className="patient-empty">No prescriptions are available.</p> : <ul className="patient-list">
+        {records.data.prescriptions.map(item => <li key={item.id}><div><strong>{item.medicationDisplay}</strong><span>{item.doseQuantity != null ? `${item.doseQuantity} ${item.doseUnit || ''}` : ''}{item.frequency ? ` · ${item.frequency}` : ''} · {item.status}</span></div><p>{item.instructions}</p></li>)}
+      </ul>}</div>
+      <div className="patient-card"><h2>Laboratory requests</h2>{records.data.labRequests.length === 0 ? <p className="patient-empty">No laboratory requests are available.</p> : <ul className="patient-list">
+        {records.data.labRequests.map(item => <li key={item.id}><div><strong>{item.testDisplay}</strong><span>{item.priority} · {item.status} · {date(item.createdAt)}</span></div>{item.clinicalInformation && <p>{item.clinicalInformation}</p>}</li>)}
+      </ul>}</div>
+      <div className="patient-card"><h2>Clinical documents</h2>{records.data.documents.length === 0 ? <p className="patient-empty">No clinical documents are available.</p> : <ul className="patient-list">
+        {records.data.documents.map(item => <li key={item.id}><div><strong>{item.fileName}</strong><span>{item.mediaType} · {item.sizeBytes != null ? `${item.sizeBytes.toLocaleString()} bytes` : 'Size unavailable'} · {date(item.createdAt)}</span></div></li>)}
+      </ul>}</div>
+      <p className="patient-field-hint">The record aggregate is scoped to your authenticated patient identity and audited by the backend.</p>
     </>}
   </section>
 }
@@ -139,6 +154,8 @@ export function AccessPage() {
   const [working, setWorking] = useState<string | null>(null)
   const [denying, setDenying] = useState<string | null>(null)
   const [reason, setReason] = useState('')
+  const [revoking, setRevoking] = useState<string | null>(null)
+  const [revokeReason, setRevokeReason] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
 
@@ -150,10 +167,23 @@ export function AccessPage() {
       else await api.denyAccess(id, reason.trim())
       setDenying(null); setReason('')
       setNotice(`Request ${decision === 'approve' ? 'approved' : 'denied'}.`)
-      requests.reload()
-      history.reload()
+      requests.reload(); history.reload()
     } catch (cause) { setError(isHidApiError(cause) ? cause.message : 'The request could not be updated.') }
     finally { setWorking(null) }
+  }
+
+  const revoke = async (grantId: string) => {
+    if (revoking || revokeReason.trim().length < 3) return
+    setRevoking(grantId); setError(null); setNotice(null)
+    try {
+      await api.revokeAccess(grantId, revokeReason.trim())
+      setRevoking(null); setRevokeReason('')
+      setNotice('Access grant revoked.')
+      history.reload()
+    } catch (cause) {
+      setError(isHidApiError(cause) ? cause.message : 'The access grant could not be revoked.')
+      setRevoking(null)
+    }
   }
 
   return <section className="patient-section"><p className="patient-eyebrow">Consent</p><h1 className="patient-page-title">Access and consent</h1>
@@ -169,7 +199,13 @@ export function AccessPage() {
       </ul>)}</div>
     <div className="patient-card"><h2>Access history</h2><LoadState loading={history.loading} error={history.error} retry={history.reload} />
       {history.data && !history.loading && !history.error && (history.data.items.length === 0 ? <p className="patient-empty">No access grants are recorded.</p> : <ul className="patient-list">
-        {history.data.items.map(item => <li key={item.consentGrantId}><div><strong>{item.facilityName}</strong><span>{item.scope} · {item.purpose}</span><span>{date(item.startsAt)} to {date(item.expiresAt)} · {item.status}</span></div></li>)}
+        {history.data.items.map(item => <li key={item.consentGrantId}><div><strong>{item.facilityName}</strong><span>{item.scope} · {item.purpose}</span><span>{date(item.startsAt)} to {date(item.expiresAt)} · {item.status}</span></div>
+          {item.status.toLowerCase() === 'active' && <div className="patient-decision-actions">
+            {revoking === item.consentGrantId
+              ? <form className="patient-deny-form" onSubmit={event => { event.preventDefault(); void revoke(item.consentGrantId) }}><label>Reason for revocation<input required minLength={3} maxLength={500} value={revokeReason} onChange={event => setRevokeReason(event.target.value)} /></label><button type="submit" disabled={revokeReason.trim().length < 3}>Confirm revocation</button></form>
+              : <button type="button" className="patient-secondary-button" onClick={() => setRevoking(item.consentGrantId)}>Revoke access</button>}
+          </div>}
+        </li>)}
       </ul>)}</div>
   </section>
 }
