@@ -28,7 +28,7 @@ export default async function ProviderApplyPage({ searchParams }: {
             <Display as="h1" id="provider-apply-title" className="mt-4">Setup Your Facility</Display>
             <p className="mt-4 text-base/relaxed text-muted">Set up a new hospital, clinic, laboratory, pharmacy, or other healthcare facility. Start with CAC verification and complete your administrator account from the secure Provider Portal.</p>
             <p className="mt-3 text-sm text-muted">Already have staff access? <a className="font-semibold text-brand underline underline-offset-4" href={APP_ENTRY.staffSignIn}>Sign in to the provider portal</a>.</p>
-            <div className="mt-8 rounded-(--radius-panel) border border-line bg-surface p-6 sm:p-8>
+            <div className="mt-8 rounded-(--radius-panel) border border-line bg-surface p-6 sm:p-8">
               <h2 className="font-display text-2xl text-ink">Create your provider account</h2>
               <p className="mt-3 text-sm/relaxed text-muted">Start with your CAC registration number. Health ID verifies it through the official registry, confirms your administrator email, and creates your provider account when the organization passes the automated checks.</p>
               <a href={APP_ENTRY.providerSignUp}
