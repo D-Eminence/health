@@ -24,6 +24,9 @@
     "build:staging": "python scripts/build-staging.py",
     "test:release": "python -m unittest discover -s scripts -p test_staging_release.py"
   },
+  "overrides": {
+    "sharp": "0.35.5"
+  },
   "devDependencies": {
     "@eslint/js": "^9.39.0",
     "@testing-library/dom": "^10.4.1",
