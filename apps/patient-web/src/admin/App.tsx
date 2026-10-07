@@ -47,15 +47,7 @@ export function App() {
     let active = true
     setChecking(true)
     setCheckError(null)
-    const restore = async () => {
-      try { return await adminApi.session() }
-      catch (error) {
-        if (!isHidApiError(error) || error.status !== 401) throw error
-        await adminApi.refresh()
-        return adminApi.session()
-      }
-    }
-    void restore().then(value => {
+    void adminApi.session().then(value => {
       if (!active) return
       if (has(value.actor, 'platform.admin.access')) setSession(value)
       else { setSession(null); setEntryError('This account has no platform administration access.') }

@@ -80,6 +80,64 @@ describe('hid-system cookie transport', () => {
     })
   })
 
+  it.each(['/api/v1/auth/session', '/api/v1/admin/session'])('does not refresh anonymous bootstrap %s', async (path) => {
+    vi.stubGlobal('document', { cookie: '' })
+    const refreshSession = vi.fn()
+    const onUnauthorized = vi.fn()
+    const { client, calls } = harness([new Response('{}', { status: 401 })], { refreshSession, onUnauthorized })
+    await expect(client.get(path)).rejects.toMatchObject({ status: 401 })
+    expect(refreshSession).not.toHaveBeenCalled()
+    expect(onUnauthorized).toHaveBeenCalledOnce()
+    expect(calls).toHaveLength(1)
+  })
+
+  it('restores auth/session bootstrap through the same single refresh path', async () => {
+    vi.stubGlobal('document', { cookie: 'hid_access_csrf=csrf-value' })
+    const refreshSession = vi.fn(async () => { await fixture.client.post('/api/v1/auth/refresh') })
+    const fixture = harness([
+      new Response('{}', { status: 401 }), new Response('{}'),
+      new Response(JSON.stringify({ actor: { kind: 'staff' } })),
+    ], { refreshSession })
+    await expect(fixture.client.get('/api/v1/auth/session', { auth: 'optional' })).resolves.toEqual({ actor: { kind: 'staff' } })
+    expect(refreshSession).toHaveBeenCalledOnce()
+    expect(fixture.calls.map(call => new URL(call.url).pathname)).toEqual([
+      '/api/v1/auth/session', '/api/v1/auth/refresh', '/api/v1/auth/session',
+    ])
+  })
+
+  it('returns the original unauthorized result when stale refresh CSRF is rejected', async () => {
+    vi.stubGlobal('document', { cookie: 'hid_access_csrf=stale-value' })
+    const refreshSession = vi.fn(async () => { await fixture.client.post('/api/v1/auth/refresh') })
+    const fixture = harness([
+      new Response('{}', { status: 401 }),
+      new Response(JSON.stringify({ code: 'CSRF_VALIDATION_FAILED', detail: 'Refresh CSRF validation failed' }), { status: 403 }),
+    ], { refreshSession })
+    await expect(fixture.client.get('/api/v1/auth/session')).rejects.toMatchObject({ status: 401 })
+    expect(refreshSession).toHaveBeenCalledOnce()
+    expect(fixture.calls).toHaveLength(2)
+  })
+
+  it('preserves CSRF rejection of a protected write without refreshing or repeating it', async () => {
+    vi.stubGlobal('document', { cookie: 'hid_access_csrf=stale-value' })
+    const refreshSession = vi.fn()
+    const { client, calls } = harness([
+      new Response(JSON.stringify({ code: 'CSRF_VALIDATION_FAILED' }), { status: 403 }),
+    ], { refreshSession })
+    await expect(client.post('/api/v1/identity/me/access-pin', {})).rejects.toMatchObject({ status: 403, code: 'CSRF_VALIDATION_FAILED' })
+    expect(refreshSession).not.toHaveBeenCalled()
+    expect(calls).toHaveLength(1)
+  })
+
+  it.each([403, 503])('does not hide a refresh failure with status %s', async (status) => {
+    vi.stubGlobal('document', { cookie: 'hid_access_csrf=csrf-value' })
+    const refreshSession = vi.fn(async () => { await fixture.client.post('/api/v1/auth/refresh') })
+    const fixture = harness([
+      new Response('{}', { status: 401 }), new Response('{}', { status }),
+    ], { refreshSession })
+    await expect(fixture.client.get('/api/v1/auth/session')).rejects.toMatchObject({ status })
+    expect(fixture.calls).toHaveLength(2)
+  })
+
   it('redacts patient UUIDs from transport logs', async () => {
     const warn = vi.fn()
     const patientId = '123e4567-e89b-42d3-a456-426614174000'

@@ -52,12 +52,7 @@ function StaffProvider({ children }: { children: ReactNode }) {
   const refresh = useCallback(async () => {
     setState({ status: 'loading', session: null })
     try {
-      let session: StaffSession
-      try { session = await staffApi.session() }
-      catch (error) {
-        if (!isHidApiError(error) || error.status !== 401) throw error
-        session = await staffApi.refresh()
-      }
+      const session = await staffApi.session()
       if (session.actor.kind === 'patient') throw new Error('This account does not have a staff session.')
       setState({ status: 'ready', session })
     } catch (error) {

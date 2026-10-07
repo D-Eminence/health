@@ -233,6 +233,10 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
   let responseCsrfToken: string | null = null
   let refreshInFlight: Promise<void> | null = null
 
+  function csrfToken(): string | null {
+    return options.getCsrfToken?.() ?? readCookie(options.csrfCookieName ?? 'hid_access_csrf') ?? responseCsrfToken
+  }
+
   async function resolveHeaders(spec: RequestSpec, requestId: string): Promise<Headers> {
     const headers = new Headers(await options.getDefaultHeaders?.())
 
@@ -256,8 +260,7 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
       // The backend decides whether the session is present and authorized.
       headers.delete('Authorization')
       if (!['GET', 'HEAD', 'OPTIONS'].includes(spec.method)) {
-        const csrf = options.getCsrfToken?.() ?? readCookie(options.csrfCookieName ?? 'hid_access_csrf')
-          ?? responseCsrfToken
+        const csrf = csrfToken()
         if (csrf) headers.set('X-CSRF-Token', csrf)
       }
     } else if (requirement !== 'none') {
@@ -383,7 +386,9 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
         return await attempt<T>(spec, url, requestId)
       } catch (error) {
         if (cookieMode && options.refreshSession && !refreshed
-          && spec.auth !== 'none' && !spec.path.startsWith('/api/v1/auth/')
+          && spec.auth !== 'none'
+          && (spec.path === '/api/v1/auth/session' || !spec.path.startsWith('/api/v1/auth/'))
+          && csrfToken()
           && error instanceof HidApiError && error.status === 401) {
           refreshed = true
           try {
@@ -392,7 +397,12 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
             await refreshInFlight
             continue
           } catch (refreshError) {
-            if (!(refreshError instanceof HidApiError) || refreshError.status !== 401) {
+            // A stale/missing refresh cookie cannot restore a session. Preserve
+            // the original 401 so anonymous entry can reach sign-in. This does
+            // not suppress CSRF failures from the original protected request.
+            if (!(refreshError instanceof HidApiError)
+              || (refreshError.status !== 401
+                && !(refreshError.status === 403 && refreshError.code === 'CSRF_VALIDATION_FAILED'))) {
               throw refreshError
             }
           }
