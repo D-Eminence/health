@@ -66,3 +66,5 @@ export type {
   TextLinkProps,
   WrapProps,
 } from './primitives'
+export { SupportChat } from './SupportChat'
+export type { SupportChatProps } from './SupportChat'

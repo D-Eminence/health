@@ -1,4 +1,5 @@
 import type { ApiClient } from '@hid/http'
+import { createEhrService, createSupportService } from '@hid/api'
 
 /** Contracts read from hid-system c4b5445 Identity and EHR controllers. */
 export interface PatientSession {
@@ -97,6 +98,8 @@ export function createPatientApi(client: ApiClient) {
       ...(body === undefined ? {} : { body }), ...options })
 
   return {
+    chat: createEhrService({ app: 'patient-web', client }).chat,
+    supportChat: createSupportService({ app: 'patient-web', client }).chat,
     session: () => call<PatientSession>('GET', 'auth/session'),
     refresh: () => call<PatientSession>('POST', 'auth/refresh'),
     login: (email: string, password: string, turnstileToken: string) =>

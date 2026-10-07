@@ -34,8 +34,15 @@ def validate_config(config):
         raise ValueError('Exact staging frontend hosts required')
     if config.get('api_origin') != 'https://api.staging.healthidentitydirectory.com' or config.get('portal_origin') != 'https://staging.healthidentitydirectory.com':
         raise ValueError('Exact staging API/portal required')
-    if set(config) != {'environment', 'hosts', 'api_origin', 'portal_origin', 'turnstile_site_key', 'google_client_id'}:
+    if set(config) != {'environment', 'hosts', 'api_origin', 'portal_origin', 'turnstile_site_key', 'google_client_id', 'chat'}:
         raise ValueError('Unexpected configuration fields')
+    chat = config.get('chat')
+    if not isinstance(chat, dict) or set(chat) != {'supportChatEnabled', 'patientChatEnabled', 'supportContact'}:
+        raise ValueError('Exact chat configuration required')
+    if type(chat['supportChatEnabled']) is not bool or type(chat['patientChatEnabled']) is not bool:
+        raise ValueError('Chat flags must be booleans')
+    if chat['supportContact'] != 'mailto:support@healthidentitydirectory.com':
+        raise ValueError('Approved support contact required')
     if not re.fullmatch(r'0x[A-Za-z0-9_-]+', config.get('turnstile_site_key', '')) or not config.get('google_client_id', '').endswith('.apps.googleusercontent.com'):
         raise ValueError('Public identity configuration required')
 
@@ -60,7 +67,15 @@ def archive_files(archive):
         return files
 
 
+def chat_features(config, app):
+    return {'supportChatEnabled': config['chat']['supportChatEnabled'] and app in ('web', 'public'),
+            'patientChatEnabled': config['chat']['patientChatEnabled'] and app == 'web',
+            'supportContact': config['chat']['supportContact']}
+
+
 def verify_manifest(manifest, folder, source_commit, config_path, lock_path, edge_path):
+    config = json.loads(pathlib.Path(config_path).read_text())
+    validate_config(config)
     if manifest.get('schema_version') != 1 or manifest.get('environment') != 'staging' or manifest.get('source_repository') != 'D-Eminence/Health-id':
         raise ValueError('Unexpected frontend component')
     if not re.fullmatch(r'[a-f0-9]{40}', source_commit) or manifest.get('source_commit') != source_commit:
@@ -72,6 +87,8 @@ def verify_manifest(manifest, folder, source_commit, config_path, lock_path, edg
         raise ValueError('Exactly eight frontend artifacts required')
     for entry in entries:
         app = entry['app']
+        if entry.get('chat_features') != chat_features(config, app):
+            raise ValueError('Artifact chat configuration differs')
         if entry.get('hostname') != HOSTS[app] or entry.get('archive') != app + '.zip':
             raise ValueError('Artifact destination differs')
         path = folder / entry['archive']

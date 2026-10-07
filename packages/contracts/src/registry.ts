@@ -1,6 +1,6 @@
 /** Browser routes verified against hid-system c4b5445. Paths include /api/v1. */
 export type HidService = 'auth' | 'enrollment' | 'identity' | 'access' | 'ehr' | 'files'
-  | 'notifications' | 'lab' | 'pharmacy' | 'ocr' | 'outreach' | 'admin' | 'commercial' | 'platform'
+  | 'notifications' | 'lab' | 'pharmacy' | 'ocr' | 'outreach' | 'admin' | 'commercial' | 'platform' | 'support'
 export type EndpointMethod = 'GET' | 'POST' | 'PATCH' | 'DELETE'
 export type EndpointAuth = { readonly kind: 'public' | 'authenticated' }
 export type ContractStatus = 'surface-verified'
@@ -32,6 +32,8 @@ const one = (method: EndpointMethod, ...permissions: string[]): Partial<Record<E
   ({ [method]: permissions })
 
 export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
+  r('support.chat','support','/api/v1/support/chat',P,true),
+  r('ehr.patientChat','ehr','/api/v1/ehr/me/chat',P),
   r('auth.patientLogin','auth','/api/v1/auth/patient/login',P,true),
   r('auth.staffLogin','auth','/api/v1/auth/login',P,true),
   r('auth.googleNonce','auth','/api/v1/auth/google/nonce',G,true),

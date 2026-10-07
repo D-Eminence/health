@@ -1,0 +1,8 @@
+import { getEnvironment } from './env'
+
+/** The shared portal bundle is also served on provider/admin domains. */
+export function patientChatHost(hostname = window.location.hostname): boolean {
+  return hostname === 'staging.healthidentitydirectory.com'
+    || (getEnvironment().name === 'local' && ['localhost', '127.0.0.1'].includes(hostname))
+}
+export const patientChatEnabled = () => getEnvironment().patientChatEnabled && patientChatHost()

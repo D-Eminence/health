@@ -16,6 +16,7 @@ import { assertEndpointAllowed, findEndpoint, type EndpointMethod, type HidApp, 
 
 /** Options every service method accepts, so cancellation is never an afterthought. */
 export interface CallOptions {
+  readonly timeoutMs?: number
   /** Abort the request when the component unmounts or the user navigates away. */
   readonly signal?: AbortSignal
   /** Facility, purpose, If-Match and idempotency headers required by a route. */
@@ -90,6 +91,7 @@ export function createServiceBinding(context: ServiceContext, service: HidServic
       ...(options.query ? { query: options.query } : {}),
       ...(options.body !== undefined ? { body: options.body } : {}),
       ...(options.signal ? { signal: options.signal } : {}),
+      ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
       ...(options.headers ? { headers: options.headers } : {}),
     }
 

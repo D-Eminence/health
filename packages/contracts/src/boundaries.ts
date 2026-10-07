@@ -43,13 +43,13 @@ export const APP_BOUNDARIES = {
   'public-web': {
     app: 'public-web',
     purpose: 'Public information and the entry point into patient or provider sign-up.',
-    services: ['auth', 'enrollment', 'commercial', 'platform'],
+    services: ['auth', 'enrollment', 'commercial', 'platform', 'support'],
     handlesPhi: true,
   },
   'patient-web': {
     app: 'patient-web',
     purpose: 'A patient viewing and managing their own health information and consent.',
-    services: ['auth', 'enrollment', 'identity', 'ehr', 'access', 'notifications'],
+    services: ['auth', 'enrollment', 'identity', 'ehr', 'access', 'notifications', 'support'],
     handlesPhi: true,
   },
   'staff-web': {
@@ -115,7 +115,7 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       'enrollment.verifyContact', 'enrollment.activate'],
     identity: ['identity.me', 'identity.accessHistory', 'identity.accessPin', 'identity.verifyNin'],
     access: ['access.patientRequests', 'access.approve', 'access.deny'],
-    ehr: ['ehr.myRecords'],
+    ehr: ['ehr.myRecords', 'ehr.patientChat'],
   },
   'staff-web': {
     auth: ['auth.staffLogin', 'auth.session', 'auth.refresh', 'auth.logout', 'auth.facility',
@@ -165,6 +165,9 @@ export function canUseService(app: HidApp, service: HidService): boolean {
  * time a user reaches an unusual screen.
  */
 export function assertEndpointAllowed(app: HidApp, endpointName: string): void {
+  if (endpointName === 'ehr.patientChat' && app !== 'patient-web') {
+    throw new BoundaryViolationError('Patient record chat is available only to the patient application.')
+  }
   const descriptor = findEndpoint(endpointName)
 
   if (!descriptor) {

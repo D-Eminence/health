@@ -3,6 +3,9 @@ import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { PATIENT_ROUTE } from '@hid/auth'
 import { RequireAccess } from './RequireAccess'
 import { SessionProvider } from './session'
+import { PatientSupport } from './PatientSupport'
+import { patientChatEnabled } from './chatFeatures'
+import { PatientChat } from './routes/Chat'
 import { Overview } from './routes/Overview'
 import { SignIn } from './routes/SignIn'
 import { Enrollment } from './routes/Enrollment'
@@ -32,6 +35,7 @@ function PatientRoutes() {
         <Route index element={<Overview />} />
         <Route path="profile" element={<ProfilePage />} />
         <Route path="records" element={<RecordsPage />} />
+        {patientChatEnabled() && <Route path="chat" element={<PatientChat />} />}
         <Route path="access" element={<AccessPage />} />
         <Route path="notifications" element={<NotificationsPage />} />
         <Route path="settings" element={<SettingsPage />} />
@@ -64,6 +68,6 @@ export function App() {
     <Route path="/admin/recover" element={<PrincipalRecovery audience="admin" />} />
     <Route path="/provider/*" element={<Suspense fallback={<main role="status">Opening provider workspace…</main>}><StaffApp /></Suspense>} />
     <Route path="/admin/*" element={<Suspense fallback={<main role="status">Opening platform workspace…</main>}><AdminApp /></Suspense>} />
-    <Route path="/*" element={<SessionProvider><PatientRoutes /></SessionProvider>} />
+    <Route path="/*" element={<SessionProvider><PatientRoutes /><PatientSupport /></SessionProvider>} />
   </Routes></ProductHostnameGate>
 }

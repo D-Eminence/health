@@ -52,3 +52,5 @@ export type {
   RecoveryOtpStart,
   RecoveryOtpVerified,
 } from './wire'
+export { chatQuestion, parseSupportChat, parsePatientChat } from './chat'
+export type { SupportChatReply, PatientChatReply, PatientChatSource } from './chat'

@@ -5,6 +5,7 @@ import { GoogleButton } from '../GoogleButton'
 import { Turnstile } from '../Turnstile'
 import { BrandLogo } from '../BrandLogo'
 import { useSession } from '../session'
+import { patientChatEnabled } from '../chatFeatures'
 import { usePatientResource } from './usePatientResource'
 
 const links = [
@@ -47,6 +48,7 @@ export function PortalShell() {
       <button type="button" className="patient-signout" onClick={() => void logout()} disabled={signingOut}>{signingOut ? 'Signing out…' : 'Sign out'}</button>
     </div></header>
     <div className="patient-app-body"><nav className="patient-side-nav" aria-label="Patient pages">
+      {patientChatEnabled() && <NavLink to="/chat" className="patient-nav-link">Ask about your records</NavLink>}
       {links.map(link => <NavLink key={link.to} to={link.to} end={'end' in link ? link.end : false} className={({ isActive }) => isActive ? 'patient-nav-link active' : 'patient-nav-link'}>{link.label}</NavLink>)}
     </nav><main className="patient-main" id="main">{error && <p role="alert" className="patient-inline-error">{error}</p>}<Outlet /></main></div>
   </div>

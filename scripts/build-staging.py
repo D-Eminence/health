@@ -5,7 +5,7 @@ import os
 import pathlib
 import subprocess
 import zipfile
-from staging_release import ROOT, HOSTS, archive_files, digest, tree_digest, validate_config
+from staging_release import ROOT, HOSTS, archive_files, chat_features, digest, tree_digest, validate_config
 
 
 def run(*args, env=None):
@@ -35,6 +35,9 @@ def main():
         env.update({prefix + 'ENVIRONMENT': 'staging', prefix + 'API_BASE_URL': 'https://' + host,
                     prefix + 'APP_ORIGIN': 'https://' + host,
                     prefix + 'TURNSTILE_SITE_KEY': config['turnstile_site_key'],
+                    prefix + 'SUPPORT_CHAT_ENABLED': str(config['chat']['supportChatEnabled'] and app in ['web', 'public']).lower(),
+                    prefix + 'PATIENT_CHAT_ENABLED': str(config['chat']['patientChatEnabled'] and app == 'web').lower(),
+                    prefix + 'SUPPORT_CONTACT': config['chat']['supportContact'],
                     'NEXT_TELEMETRY_DISABLED': '1'})
         if public:
             env[prefix + 'PORTAL_ORIGIN'] = config['portal_origin']
@@ -55,7 +58,8 @@ def main():
                     z.write(path, path.relative_to(assets).as_posix())
         files = archive_files(archive)
         entries.append({'app': app, 'hostname': host, 'archive': archive.name,
-                        'sha256': digest(archive), 'size_bytes': archive.stat().st_size, 'files': files})
+                        'sha256': digest(archive), 'size_bytes': archive.stat().st_size, 'files': files,
+                        'chat_features': chat_features(config, app)})
         print(json.dumps({'built': app, 'files': len(files), 'sha256': digest(archive)}), flush=True)
     manifest = {'schema_version': 1, 'environment': 'staging', 'source_repository': 'D-Eminence/Health-id',
                 'source_commit': source, 'source_branch': run(*git, 'branch', '--show-current'),

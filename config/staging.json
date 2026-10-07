@@ -1,17 +1,22 @@
 {
-  "environment": "staging",
-  "api_origin": "https://api.staging.healthidentitydirectory.com",
-  "portal_origin": "https://staging.healthidentitydirectory.com",
-  "turnstile_site_key": "0x4AAAAAAE_uqBcWRLakgoCm",
-  "google_client_id": "690536667193-l90c5cqm86g5pt5o93dpvplms2h507l6.apps.googleusercontent.com",
-  "hosts": {
-    "admin": "admin.staging.healthidentitydirectory.com",
-    "web": "staging.healthidentitydirectory.com",
-    "ehr": "ehr.staging.healthidentitydirectory.com",
-    "lab": "lab.staging.healthidentitydirectory.com",
-    "pharmacy": "pharmacy.staging.healthidentitydirectory.com",
-    "ocr": "migrate.staging.healthidentitydirectory.com",
-    "outreach": "outreach.staging.healthidentitydirectory.com",
-    "public": "www.staging.healthidentitydirectory.com"
-  }
+    "environment":  "staging",
+    "api_origin":  "https://api.staging.healthidentitydirectory.com",
+    "portal_origin":  "https://staging.healthidentitydirectory.com",
+    "turnstile_site_key":  "0x4AAAAAAE_uqBcWRLakgoCm",
+    "google_client_id":  "690536667193-l90c5cqm86g5pt5o93dpvplms2h507l6.apps.googleusercontent.com",
+    "hosts":  {
+                  "admin":  "admin.staging.healthidentitydirectory.com",
+                  "web":  "staging.healthidentitydirectory.com",
+                  "ehr":  "ehr.staging.healthidentitydirectory.com",
+                  "lab":  "lab.staging.healthidentitydirectory.com",
+                  "pharmacy":  "pharmacy.staging.healthidentitydirectory.com",
+                  "ocr":  "migrate.staging.healthidentitydirectory.com",
+                  "outreach":  "outreach.staging.healthidentitydirectory.com",
+                  "public":  "www.staging.healthidentitydirectory.com"
+              },
+    "chat":  {
+                 "supportChatEnabled":  true,
+                 "patientChatEnabled":  false,
+                 "supportContact":  "mailto:support@healthidentitydirectory.com"
+             }
 }
