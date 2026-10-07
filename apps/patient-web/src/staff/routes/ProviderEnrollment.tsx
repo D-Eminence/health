@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { Button, Card, Field, Input, Select } from '@hid/ui'
 import { BrandLogo } from '../BrandLogo'
@@ -55,10 +55,7 @@ export function ProviderEnrollment() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
-  if (state.status === 'ready') {
-    navigate('/provider', { replace: true })
-    return null
-  }
+  if (state.status === 'ready') return <Navigate to="/provider" replace />
 
   function setType(value: OrganizationType) {
     setOrganizationType(value)
