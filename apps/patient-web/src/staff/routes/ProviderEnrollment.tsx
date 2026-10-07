@@ -1,11 +1,10 @@
 import { useState, type FormEvent } from 'react'
-import { Link, Navigate, useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { Field, Input, Select } from '@hid/ui'
 import { BrandLogo } from '../BrandLogo'
 import { Turnstile } from '../Turnstile'
 import { providerEnrollmentApi } from '../api'
-import { useStaff } from '../App'
 
 type Product = 'ehr' | 'migrate' | 'laboratory' | 'pharmacy'
 type OrganizationType = 'clinic' | 'hospital' | 'laboratory' | 'pharmacy' | 'other'
@@ -40,7 +39,6 @@ function errorMessage(reason: unknown): string {
 
 export function ProviderEnrollment() {
   const navigate = useNavigate()
-  const { state } = useStaff()
   const [stage, setStage] = useState<'details' | 'otp' | 'password'>('details')
   const [organizationType, setOrganizationType] = useState<OrganizationType>('hospital')
   const [productCode, setProductCode] = useState<Product>('ehr')
@@ -54,8 +52,6 @@ export function ProviderEnrollment() {
   const [resetKey, setResetKey] = useState(0)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-
-  if (state.status === 'ready') return <Navigate to="/provider" replace />
 
   function setType(value: OrganizationType) {
     setOrganizationType(value)
