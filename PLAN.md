@@ -414,3 +414,72 @@ Enabled the patient frontend flag for staging after successful model checks.
 New source-bound CI publication and patient Worker deployment are in progress.
 The earlier model-access blocker and its pending form authorization are resolved
 by the owner's console activation. Browser acceptance remains open.
+
+### Patient chatbot deployed - 2026-10-07
+
+- Source: `af81ab0aa8346392cb23e4da814cbefd07ce4883`, existing frontend
+  staging branch. Terraform source was not pushed; no backend image rebuilt.
+- GitHub Actions run `37678093847` succeeded: frontend check suite, boundary
+  audit, edge tests, release tests, dependency audit, eight staging builds and
+  compiled Worker validation. Four release checks also passed locally.
+- Verified artifact `11507184927`, SHA-256
+  `4198dba329536702f3fae65b210f76c5772a565901bdd710a47b37c6f776646c`.
+  Published to the existing versioned staging release bucket.
+- Enabled patient chat and deployed only `staging.healthidentitydirectory.com`.
+  Five strict live deployment checks passed; signed-in acceptance is not claimed.
+  Support API FAQ/contact checks on both hosts and anonymous patient denial
+  also passed.
+- Preparation initially rejected leftover assets from the previous local release.
+  Cleared only generated extraction folders, re-extracted accepted archives and
+  reran strict preparation successfully. No validation was relaxed.
+- Rollback and deployment receipts: `../../tmp/staging-patient-chat-20261007/`.
+- Model access, synthetic runtime acceptance and enabled patient release are now
+  complete. The remaining chatbot work is actual browser acceptance on support
+  and an authorized signed-in patient account. No customer data was modified.
+
+This is a local post-release evidence update. The deployed source SHA remains
+the one above. Earlier model-access blockers are historical and resolved.
+
+### Patient chatbot release completed - 2026-10-07
+
+- Owner activated Sonnet 4.6 in the console; agreement AVAILABLE and authorization
+  verified. All eight actual restricted-role synthetic runtime checks passed;
+  fixtures rolled back, no customer records changed, no persistent sessions.
+- Frontend source `af81ab0aa8346392cb23e4da814cbefd07ce4883`; CI run `37678093847`
+  succeeded with frontend/boundary/edge/release/audit checks, all eight builds and
+  Worker validation. Four release tests passed locally.
+- Verified artifact `11507184927`, SHA-256
+  `4198dba329536702f3fae65b210f76c5772a565901bdd710a47b37c6f776646c`.
+  Published to the existing versioned staging release bucket.
+- Patient chat enabled; deployed only `staging.healthidentitydirectory.com`.
+  Five strict live deployment checks passed. Support FAQ/contact API checks on
+  both hosts and anonymous patient denial passed.
+- Preparation caught stale files from the previous local artifact extraction.
+  Cleared only generated accepted-assets directories, re-extracted the verified
+  archives and reran strict validation successfully; no validation relaxed.
+- Receipts and rollback: `tmp/staging-patient-chat-20261007/` at workspace root.
+- Terraform remains unpushed; backend image unchanged. This documentation update
+  follows artifact admission; deployed source SHA remains the one above.
+
+Model access, runtime acceptance and patient deployment are complete. The only
+remaining chatbot acceptance work is actual support browser checks and an
+authorized signed-in patient check. Earlier model/form blockers are resolved.
+
+### Support widget visual correction - 2026-10-07
+
+Owner requested correction of the bare support interface shown in the browser.
+Scope: shared SupportChat markup and shared tokens.css only; position above the
+bottom-right launcher, branded header, close/reset controls, welcome state,
+message bubbles, scrollable history, composer, privacy/footer, phone layout and
+visible keyboard focus. Keep existing public FAQ behavior and patient chat
+contracts unchanged. Preserve native dialog keyboard handling and text-only
+message rendering. Fix focus restoration after the modal actually closes.
+Validation: focused conversation/accessibility tests, typecheck and lint, existing
+CI suite and strict deployment checks. Release the public and patient Workers;
+Terraform remains unpushed. Browser visual inspection needs the owner because the
+computer-use connection failed with a Windows sandbox setup error in this session.
+- Implementation complete in SupportChat.tsx and shared tokens.css. All 13 focused
+  chat tests passed with a single thread (the default Windows worker timed out).
+  Typecheck and edited-component ESLint passed; git diff whitespace check passed.
+  Broad local ESLint also scanned generated build assets; clean-source CI remains
+  the full lint gate. Source-bound release/public+patient deployment pending.

@@ -20,13 +20,19 @@ export function SupportChat({ contact, send }: SupportChatProps) {
   const dialog = useRef<HTMLDialogElement>(null)
   const launcher = useRef<HTMLButtonElement>(null)
   const input = useRef<HTMLInputElement>(null)
+  const history = useRef<HTMLDivElement>(null)
+  const previouslyOpen = useRef(false)
   const id = useId()
   useEffect(() => () => { flight.current?.abort() }, [])
   useEffect(() => {
     if (open) { dialog.current?.showModal(); input.current?.focus() }
-    else { dialog.current?.close() }
+    else { dialog.current?.close(); if (previouslyOpen.current) launcher.current?.focus() }
+    previouslyOpen.current = open
   }, [open])
-  const close = () => { setOpen(false); launcher.current?.focus() }
+  useEffect(() => {
+    if (history.current) history.current.scrollTop = history.current.scrollHeight
+  }, [messages, busy, error, open])
+  const close = () => { setOpen(false) }
   const reset = () => {
     flight.current?.abort(); flight.current = null; session.current = undefined
     setMessages([]); setDraft(''); setError(null); setBusy(false); input.current?.focus()
@@ -53,30 +59,35 @@ export function SupportChat({ contact, send }: SupportChatProps) {
   }
   return <>
     <button ref={launcher} type="button" aria-haspopup="dialog" aria-expanded={open} aria-controls={id}
-      onClick={() => setOpen(true)} style={{ position: 'fixed', right: 20, bottom: 20, zIndex: 50,
-        background: '#0065b3', color: 'white', borderRadius: 24, padding: '12px 20px', border: 0 }}>
+      onClick={() => setOpen(true)} className="hid-chat-launcher">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M20 11.5a8 8 0 0 1-8 8H4l-1 2V11.5a8.5 8.5 0 1 1 17 0Z" /><path d="M7 9h10M7 13h6" /></svg>
       Support chat
     </button>
-    <dialog ref={dialog} id={id} aria-labelledby={`${id}-title`} onCancel={close}
-      style={{ width: 'min(420px, calc(100vw - 32px))', maxHeight: '85dvh', padding: 20,
-        borderRadius: 16, border: '1px solid #ccd5df', color: '#172a3a', background: 'white', overflowY: 'auto' }}>
-      <h2 id={`${id}-title`}>Support chat</h2>
-      <p>Ask about Health ID. Do not share medical records or personal identifiers here.</p>
-      <button type="button" onClick={close}>Close</button>{' '}
-      <button type="button" onClick={reset}>Start new chat</button>
-      <div role="log" aria-label="Support messages" aria-live="polite" aria-relevant="additions text">
-        {messages.map((message, index) => <p key={index} style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
-          <strong>{message.role}: </strong>{message.text}</p>)}
+    <dialog ref={dialog} id={id} aria-labelledby={`${id}-title`} aria-describedby={`${id}-privacy`} onCancel={close} className="hid-chat-panel">
+      <header className="hid-chat-header">
+        <div><p className="hid-chat-brand">HEALTH ID</p><h2 id={`${id}-title`}>Support chat</h2><p className="hid-chat-subtitle">A little help, right here.</p></div>
+        <button type="button" onClick={close} className="hid-chat-close" aria-label="Close">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
+        </button>
+      </header>
+      <div className="hid-chat-toolbar"><span>Account &amp; platform help</span><button type="button" onClick={reset}>Start new chat</button></div>
+      <div ref={history} className="hid-chat-history">
+        {messages.length === 0 && <div className="hid-chat-welcome"><span className="hid-chat-message-label">Health ID support</span><p>Hi there. How can we help?</p><p className="hid-chat-welcome-copy">Ask about signing in, your access PIN or finding your records.</p></div>}
+        <div role="log" aria-label="Support messages" aria-live="polite" aria-relevant="additions text" className="hid-chat-messages">
+          {messages.map((message, index) => <div key={index} className={`hid-chat-message ${message.role === 'You' ? 'hid-chat-message-user' : 'hid-chat-message-support'}`}>
+            <span className="hid-chat-message-label">{message.role === 'You' ? 'You' : 'Health ID support'}</span><p>{message.text}</p>
+          </div>)}
+        </div>
+        {busy && <p role="status" className="hid-chat-status">Support is replying…</p>}
+        {error && <p role="alert" className="hid-chat-error">{error}</p>}
       </div>
-      {busy && <p role="status">Support is replying…</p>}
-      {error && <p role="alert">{error}</p>}
-      <form onSubmit={event => void submit(event)}>
+      <form className="hid-chat-composer" onSubmit={event => void submit(event)}>
         <label htmlFor={`${id}-question`}>Your question</label>
-        <input ref={input} id={`${id}-question`} value={draft} maxLength={500} onChange={event => setDraft(event.target.value)}
-          disabled={busy} style={{ display: 'block', width: '100%', border: '1px solid #9babbc', padding: 8, margin: '8px 0' }} />
-        <button type="submit" disabled={busy || !draft.trim()}>Send</button>
+        <div className="hid-chat-input-row"><input ref={input} id={`${id}-question`} value={draft} maxLength={500} onChange={event => setDraft(event.target.value)}
+          disabled={busy} placeholder="Type your question…" autoComplete="off" />
+          <button type="submit" disabled={busy || !draft.trim()} aria-label="Send"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="m4 4 17 8-17 8 3-8-3-8ZM7 12h14" /></svg></button></div>
       </form>
-      <p><a href={contact}>Email support</a></p>
+      <footer className="hid-chat-footer"><p id={`${id}-privacy`}>Please don’t share medical records or personal identifiers here.</p><a href={contact}>Email support <span aria-hidden="true">↗</span></a></footer>
     </dialog>
   </>
 }
