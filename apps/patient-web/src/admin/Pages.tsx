@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import {
   adminApi,
   type AdminActor,
@@ -12,133 +12,10 @@ import {
   type Principal,
 } from './api'
 import { failure } from './problems'
-
-function has(actor: AdminActor, permission: string) {
-  return actor.platformPermissions.includes(permission)
-}
-
-function label(value: string) {
-  return value.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[_-]/g, ' ').replace(/^./, first => first.toUpperCase())
-}
-
-function date(value: string | null | undefined) {
-  if (!value) return 'Not available'
-  const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? 'Not available' : new Intl.DateTimeFormat('en-NG', {
-    dateStyle: 'medium', timeStyle: 'short',
-  }).format(parsed)
-}
-
-interface Resource<T> {
-  data: T | null
-  loading: boolean
-  error: string | null
-  reload: () => void
-}
-
-function useResource<T>(load: (signal?: AbortSignal) => Promise<T>, errorMessage: string): Resource<T> {
-  const [data, setData] = useState<T | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [revision, setRevision] = useState(0)
-
-  useEffect(() => {
-    const controller = new AbortController()
-    setLoading(true)
-    setError(null)
-    void load(controller.signal).then(value => {
-      if (!controller.signal.aborted) setData(value)
-    }).catch(reason => {
-      if (!controller.signal.aborted) setError(failure(reason, errorMessage))
-    }).finally(() => {
-      if (!controller.signal.aborted) setLoading(false)
-    })
-    return () => controller.abort()
-  }, [load, errorMessage, revision])
-
-  return { data, loading, error, reload: () => setRevision(value => value + 1) }
-}
-
-function Page({ eyebrow, title, description, children, action }: {
-  eyebrow: string; title: string; description: string; children: ReactNode; action?: ReactNode
-}) {
-  return <section className="admin-page">
-    <header className="admin-page-head">
-      <div><p className="admin-eyebrow">{eyebrow}</p><h1>{title}</h1><p>{description}</p></div>
-      {action}
-    </header>
-    {children}
-  </section>
-}
-
-function Refresh({ onClick, disabled = false }: { onClick: () => void; disabled?: boolean }) {
-  return <button type="button" className="admin-secondary" onClick={onClick} disabled={disabled}>Refresh</button>
-}
-
-function ResourceView<T>({ resource, empty, children }: {
-  resource: Resource<T>; empty?: (value: T) => boolean; children: (value: T) => ReactNode
-}) {
-  if (resource.loading) return <div className="admin-state" role="status">Loading current information…</div>
-  if (resource.error) return <div className="admin-state admin-state-error" role="alert">
-    <p>{resource.error}</p><Refresh onClick={resource.reload} />
-  </div>
-  if (!resource.data) return <div className="admin-state">No information was returned.</div>
-  if (empty?.(resource.data)) return <div className="admin-state">No items are available in this area.</div>
-  return <>{children(resource.data)}</>
-}
-
-function Status({ value }: { value: string }) {
-  return <span className="admin-status" data-state={value.toLowerCase()}>{label(value)}</span>
-}
-
-function Table({ headings, children }: { headings: string[]; children: ReactNode }) {
-  return <div className="admin-table-scroll"><table className="admin-table">
-    <thead><tr>{headings.map(heading => <th key={heading} scope="col">{heading}</th>)}</tr></thead>
-    <tbody>{children}</tbody>
-  </table></div>
-}
-
-interface Choice { value: string; title: string }
-
-function ActionForm({ title, options, onSubmit, disabled = false }: {
-  title: string; options?: Choice[]; disabled?: boolean
-  onSubmit: (choice: string, reason: string) => Promise<void>
-}) {
-  const [choice, setChoice] = useState(options?.[0]?.value ?? '')
-  const [reason, setReason] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
-
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (busy || disabled || reason.trim().length < 8 || (options && !choice)) return
-    setBusy(true); setError(null); setNotice(null)
-    try {
-      await onSubmit(choice, reason.trim())
-      setNotice('Saved. Current information is being refreshed.')
-      setReason('')
-    } catch (caught) {
-      setError(failure(caught, 'The change could not be saved. Try again.'))
-    } finally { setBusy(false) }
-  }
-
-  return <details className="admin-action">
-    <summary>{title}</summary>
-    <form onSubmit={event => void submit(event)} className="admin-action-form">
-      {options && <label>New value<select value={choice} onChange={event => setChoice(event.target.value)} required>
-        {options.map(option => <option key={option.value} value={option.value}>{option.title}</option>)}
-      </select></label>}
-      <label>Reason for this change<textarea required minLength={8} maxLength={500} rows={3}
-        value={reason} onChange={event => setReason(event.target.value)} /></label>
-      <button type="submit" className="admin-primary" disabled={busy || disabled || reason.trim().length < 8 || Boolean(options && !choice)}>
-        {busy ? 'Saving…' : 'Confirm change'}
-      </button>
-      {error && <p className="admin-error" role="alert">{error}</p>}
-      {notice && <p className="admin-success" role="status">{notice}</p>}
-    </form>
-  </details>
-}
+import { ApprovalRequestForm, ExportPanel, PrincipalSessions } from './PrincipalSecurity'
+import {
+  ActionForm, Page, Refresh, ResourceView, Status, Table, date, has, label, useGovernedSubmit, useResource,
+} from './ui'
 
 export function OverviewPage() {
   const resource = useResource(adminApi.overview, 'The platform overview could not be loaded.')
@@ -156,9 +33,9 @@ function FacilityStatusAction({ facility, reload }: { facility: Facility; reload
   return <ActionForm title="Change facility status" options={[
     { value: 'verified', title: 'Verified' }, { value: 'rejected', title: 'Rejected' },
     { value: 'suspended', title: 'Suspended' },
-  ].filter(option => option.value !== facility.status)} onSubmit={async (status, reason) => {
+  ].filter(option => option.value !== facility.status)} onSubmit={async (status, reason, idempotencyKey) => {
     await adminApi.command(`/api/v1/admin/facilities/${encodeURIComponent(facility.id)}/status`,
-      { status, reason }, { version: facility.version, idempotent: true })
+      { status, reason }, { version: facility.version, idempotencyKey })
     reload()
   }} />
 }
@@ -217,6 +94,7 @@ export function PrincipalsPage({ actor }: { actor: AdminActor }) {
         onChange={event => setInput(event.target.value)} placeholder="At least two characters" />
         <button className="admin-primary" type="submit" disabled={loading || input.trim().length < 2}>Search</button></div>
     </form>
+    {has(actor, 'platform.principal.export') && <ExportPanel query={query} />}
     {!query && !error && <div className="admin-state">Enter at least two characters to search.</div>}
     {loading && <div className="admin-state" role="status">Searching users…</div>}
     {error && !loading && <div className="admin-state admin-state-error" role="alert"><p>{error}</p>
@@ -246,36 +124,42 @@ function RoleAction({ principal, reload }: { principal: Principal; reload: () =>
   const [role, setRole] = useState<(typeof PLATFORM_ROLES)[number]>('support_admin')
   const [action, setAction] = useState<'grant' | 'revoke'>('grant')
   const [reason, setReason] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const governed = useGovernedSubmit()
+  // A one-step Super Admin grant is refused by the backend (two-person rule);
+  // that grant is made through an elevation request instead.
+  const roles = action === 'grant' ? PLATFORM_ROLES.filter(value => value !== 'platform_super_admin') : PLATFORM_ROLES
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (busy || reason.trim().length < 8) return
-    setBusy(true); setError(null)
-    try {
-      await adminApi.command(`/api/v1/admin/principals/${encodeURIComponent(principal.id)}/platform-roles`,
-        { roleCode: role, action, reason: reason.trim() },
-        { version: principal.version, idempotent: true })
-      setReason(''); reload()
-    } catch (caught) { setError(failure(caught, 'The role change could not be saved.')) }
-    finally { setBusy(false) }
+    if (governed.busy || reason.trim().length < 8) return
+    const done = await governed.submit(idempotencyKey => adminApi.command(
+      `/api/v1/admin/principals/${encodeURIComponent(principal.id)}/platform-roles`,
+      { roleCode: role, action, reason: reason.trim() }, { version: principal.version, idempotencyKey }),
+    'The role change could not be saved.')
+    if (done !== null) { setReason(''); reload() }
+  }
+
+  function changeAction(value: 'grant' | 'revoke') {
+    setAction(value)
+    if (value === 'grant' && role === 'platform_super_admin') setRole('support_admin')
   }
 
   return <details className="admin-action"><summary>Change platform role</summary>
     <form className="admin-action-form" onSubmit={event => void submit(event)}>
-      <label>Role<select value={role} onChange={event => setRole(event.target.value as (typeof PLATFORM_ROLES)[number])}>
-        {PLATFORM_ROLES.map(value => <option key={value} value={value}>{label(value)}</option>)}
-      </select></label>
-      <label>Action<select value={action} onChange={event => setAction(event.target.value as 'grant' | 'revoke')}>
+      <label>Action<select value={action} onChange={event => changeAction(event.target.value as 'grant' | 'revoke')}>
         <option value="grant">Grant</option><option value="revoke">Revoke</option>
       </select></label>
+      <label>Role<select value={role} onChange={event => setRole(event.target.value as (typeof PLATFORM_ROLES)[number])}>
+        {roles.map(value => <option key={value} value={value}>{label(value)}</option>)}
+      </select></label>
+      {action === 'grant' && <p className="admin-note">Super Admin is granted only through an elevation request that a
+        second Super Admin approves.</p>}
       <label>Reason for this change<textarea required minLength={8} maxLength={500} rows={3}
         value={reason} onChange={event => setReason(event.target.value)} /></label>
-      <button className="admin-primary" type="submit" disabled={busy || reason.trim().length < 8}>
-        {busy ? 'Saving…' : 'Confirm role change'}
+      <button className="admin-primary" type="submit" disabled={governed.busy || reason.trim().length < 8}>
+        {governed.busy ? 'Saving…' : 'Confirm role change'}
       </button>
-      {error && <p role="alert" className="admin-error">{error}</p>}
+      {governed.error && <p role="alert" className="admin-error">{governed.error}</p>}
     </form>
   </details>
 }
@@ -286,20 +170,26 @@ function PrincipalActions({ principal, actor, reload }: {
   const canStatus = has(actor, 'platform.principal.manage')
   const canRole = has(actor, 'platform.role.manage')
   const canRevoke = has(actor, 'platform.session.revoke')
-  if (!canStatus && !canRole && !canRevoke) return <>View only</>
+  const canResetMfa = has(actor, 'platform.mfa.reset')
+  const canElevate = canRole && !principal.platformRoles.includes('platform_super_admin')
+  if (!canStatus && !canRole && !canRevoke && !canResetMfa) return <>View only</>
   return <div className="admin-principal-actions">
     {canStatus && <ActionForm title="Change account status" options={[
       { value: 'active', title: 'Active' }, { value: 'disabled', title: 'Disabled' },
-    ].filter(option => option.value !== principal.status)} onSubmit={async (status, reason) => {
+    ].filter(option => option.value !== principal.status)} onSubmit={async (status, reason, idempotencyKey) => {
       await adminApi.command(`/api/v1/admin/principals/${encodeURIComponent(principal.id)}/status`,
-        { status, reason }, { version: principal.version, idempotent: true })
+        { status, reason }, { version: principal.version, idempotencyKey })
       reload()
     }} />}
     {canRole && <RoleAction principal={principal} reload={reload} />}
-    {canRevoke && principal.activeSessionCount > 0 && <ActionForm title="Revoke active sessions"
-      onSubmit={async (_, reason) => {
+    {canElevate && <ApprovalRequestForm kind="super-admin" principal={principal} />}
+    {canResetMfa && <ApprovalRequestForm kind="mfa-reset" principal={principal} />}
+    {canRevoke && <PrincipalSessions principal={principal} />}
+    {canRevoke && principal.activeSessionCount > 0 && <ActionForm title="Revoke all sessions"
+      note={<p className="admin-note">Signs this account out everywhere. Use it when an account may be compromised.</p>}
+      onSubmit={async (_, reason, idempotencyKey) => {
         await adminApi.command(`/api/v1/admin/principals/${encodeURIComponent(principal.id)}/sessions/revoke`,
-          { reason }, { idempotent: true })
+          { reason }, { idempotencyKey })
         reload()
       }} />}
   </div>
@@ -399,9 +289,9 @@ function PriceEditor({ price, reload }: { price: CommercialPrice; reload: () => 
   const [amount, setAmount] = useState(price.amount_minor === null ? '' : String(price.amount_minor))
   const [active, setActive] = useState(price.active)
   const [reason, setReason] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const governed = useGovernedSubmit()
+  const { busy, error } = governed
   const needsAmount = visibility === 'fixed' || visibility === 'starting_from'
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -409,17 +299,15 @@ function PriceEditor({ price, reload }: { price: CommercialPrice; reload: () => 
     if (busy || reason.trim().length < 8) return
     const amountMinor = needsAmount ? Number(amount) : null
     if (needsAmount && (!/^(0|[1-9]\d*)$/.test(amount) || !Number.isSafeInteger(amountMinor))) {
-      setError('Enter a valid whole number of minor currency units.'); return
+      governed.setError('Enter a valid whole number of minor currency units.'); return
     }
-    setBusy(true); setError(null); setNotice(null)
-    try {
-      await adminApi.command(`/api/v1/admin/pricing/products/${encodeURIComponent(price.product_slug)}/prices/${encodeURIComponent(price.context)}`,
-        { visibility, amountMinor, currency: price.currency, billingPeriod: price.billing_period,
-          unit: price.unit, active, reason: reason.trim() },
-        { version: price.version, idempotent: true })
-      setReason(''); setNotice('Pricing saved. Current catalog is being refreshed.'); reload()
-    } catch (caught) { setError(failure(caught, 'Pricing could not be updated.')) }
-    finally { setBusy(false) }
+    setNotice(null)
+    const done = await governed.submit(idempotencyKey => adminApi.command(
+      `/api/v1/admin/pricing/products/${encodeURIComponent(price.product_slug)}/prices/${encodeURIComponent(price.context)}`,
+      { visibility, amountMinor, currency: price.currency, billingPeriod: price.billing_period,
+        unit: price.unit, active, reason: reason.trim() },
+      { version: price.version, idempotencyKey }), 'Pricing could not be updated.')
+    if (done !== null) { setReason(''); setNotice('Pricing saved. Current catalog is being refreshed.'); reload() }
   }
 
   return <details className="admin-action"><summary>Edit price</summary><form className="admin-action-form" onSubmit={event => void submit(event)}>
@@ -447,9 +335,9 @@ export function PricingPage({ actor }: { actor: AdminActor }) {
         {canManage && <ActionForm title="Change product status" options={
           ['active', 'coming_soon', 'draft', 'retired'].filter(value => value !== product.status)
             .map(value => ({ value, title: label(value) }))
-        } onSubmit={async (status, reason) => {
+        } onSubmit={async (status, reason, idempotencyKey) => {
           await adminApi.command(`/api/v1/admin/pricing/products/${encodeURIComponent(product.slug)}`,
-            { name: product.name, status, reason }, { version: product.version, idempotent: true })
+            { name: product.name, status, reason }, { version: product.version, idempotencyKey })
           resource.reload()
         }} />}
         {catalog.prices.filter(price => price.product_slug === product.slug).length === 0
@@ -498,15 +386,15 @@ function IntegrationAction({ provider, reload, actor }: {
     .map(value => ({ value, title: label(value) }))
   return <div className="admin-action-row">
     {has(actor, 'platform.integration.manage') && options.length > 0 && <ActionForm title="Change provider state" options={options}
-      onSubmit={async (action, reason) => {
+      onSubmit={async (action, reason, idempotencyKey) => {
         await adminApi.command(`/api/v1/admin/integrations/${encodeURIComponent(provider.provider)}/${action}`,
-          { reason }, { version: provider.version, idempotent: true })
+          { reason }, { version: provider.version, idempotencyKey })
         reload()
       }} />}
     {has(actor, 'platform.integration.test') && provider.availableActions.includes('test') && <ActionForm title="Test connection"
-      onSubmit={async (_, reason) => {
+      onSubmit={async (_, reason, idempotencyKey) => {
         await adminApi.command(`/api/v1/admin/integrations/${encodeURIComponent(provider.provider)}/test`,
-          { reason }, { version: provider.version, idempotent: true })
+          { reason }, { version: provider.version, idempotencyKey })
         reload()
       }} />}
   </div>
@@ -518,14 +406,14 @@ function CapabilityAction({ capability, actor, reload }: {
   if (!has(actor, 'platform.integration.manage') || capability.eligibleProviders.length === 0) return null
   const options = capability.eligibleProviders.map(provider => ({ value: provider, title: label(provider) }))
   return <div className="admin-action-row">
-    <ActionForm title="Select active provider" options={options} onSubmit={async (provider, reason) => {
+    <ActionForm title="Select active provider" options={options} onSubmit={async (provider, reason, idempotencyKey) => {
       await adminApi.command(`/api/v1/admin/integrations/capabilities/${encodeURIComponent(capability.capability)}/selection`,
-        { provider, reason }, { version: capability.version, idempotent: true })
+        { provider, reason }, { version: capability.version, idempotencyKey })
       reload()
     }} />
-    <ActionForm title="Select fallback provider" options={options} onSubmit={async (provider, reason) => {
+    <ActionForm title="Select fallback provider" options={options} onSubmit={async (provider, reason, idempotencyKey) => {
       await adminApi.command(`/api/v1/admin/integrations/capabilities/${encodeURIComponent(capability.capability)}/fallback`,
-        { provider, reason }, { version: capability.version, idempotent: true })
+        { provider, reason }, { version: capability.version, idempotencyKey })
       reload()
     }} />
   </div>

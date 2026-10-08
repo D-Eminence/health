@@ -22,7 +22,7 @@ Vite authenticated portal. All signed-in workspaces share **one portal origin**:
 | --- | --- | --- |
 | `/`, `/sign-in`, `/enroll`, `/recover` | Patient | Enrollment, session/recovery, profile and NIN re-verification, records, access, notifications, settings |
 | `/provider/*`, `/provider/recover` | Provider | Session/facility selection, patient lookup and access, registration-case review, clinical work, laboratory, pharmacy, OCR, outreach, facility audit and recovery |
-| `/admin/*`, `/admin/recover` | Platform | Overview, controls, facilities, principals, applications, reviews, audit, operations, pricing, demos, integrations and recovery |
+| `/admin/*`, `/admin/recover` | Platform | MFA sign-in and enrolment, overview, controls, facilities, principals (with export, session review and two-person requests), approvals, applications, reviews, audit, operations, pricing, demos, integrations, security (MFA, recovery codes, sessions) and recovery |
 
 Each area restores the shared backend cookie session and applies its own
 permission checks. The backend remains the
@@ -97,7 +97,11 @@ own platform permissions and are platform-scoped: the admin client never sends
 `apps/patient-web/src/admin` is the authoritative Platform Admin UI; the
 `apps/admin` app in hid-system is legacy reference code. UI permission gates
 hide unavailable actions and render access errors, but do not replace server
-authorization.
+authorization. Since Stage 2B the admin UI signs in to the separate MFA-verified
+platform session (`/auth/admin/*`, `hid_access_admin*` cookies) and answers the
+backend's `STEP_UP_REQUIRED` with an authenticator confirmation before repeating
+the same command once; see
+[Phase 4 Stage 2B](./PHASE_4_STAGE_2B_FRONTEND_SECURITY.md).
 
 Clinical responses use `cache: 'no-store'`; screens show loading, empty and
 error states for backend reads. `@hid/observability` handles redaction for
