@@ -33,6 +33,30 @@ describe('registered browser client', () => {
     expect(fetchImpl).not.toHaveBeenCalled()
   })
 
+  it('lets only the staff portal call the accountless provider-enrollment routes', async () => {
+    const { client, fetchImpl } = harness('staff-web')
+    await client.post('/api/v1/identity/provider-enrollments', { turnstileAction: 'provider-enrollment' }, { auth: 'none' })
+    await client.post('/api/v1/identity/provider-enrollments/verify', { challengeId: 'c', code: '123456' }, { auth: 'none' })
+    await client.post('/api/v1/identity/provider-enrollments/activate', { password: 'x' }, { auth: 'none' })
+    expect(fetchImpl.mock.calls.map(call => new URL(String(call[0])).pathname)).toEqual([
+      '/api/v1/identity/provider-enrollments',
+      '/api/v1/identity/provider-enrollments/verify',
+      '/api/v1/identity/provider-enrollments/activate',
+    ])
+    await expect(client.get('/api/v1/identity/provider-enrollments')).rejects.toMatchObject({ code: 'WRONG_METHOD' })
+    // The staff grant is limited to provider enrollment, not patient enrollment.
+    await expect(client.post('/api/v1/identity/patient-enrollments', {}, { auth: 'none' }))
+      .rejects.toBeInstanceOf(BoundaryViolationError)
+
+    // public-web keeps its existing service-wide public enrollment grant.
+    for (const app of ['patient-web', 'admin-web'] as const) {
+      const other = harness(app)
+      await expect(other.client.post('/api/v1/identity/provider-enrollments', {}, { auth: 'none' }))
+        .rejects.toBeInstanceOf(BoundaryViolationError)
+      expect(other.fetchImpl).not.toHaveBeenCalled()
+    }
+  })
+
   it('rejects workload routes even when a dynamic browser route could match them', async () => {
     const { client, fetchImpl } = harness()
     await expect(client.get('/api/v1/lab/imports/from-ocr')).rejects.toMatchObject({ code: 'INTERNAL_ROUTE' })

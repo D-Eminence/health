@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+    branches: [main, phase-1-patient-core]
 
 jobs:
   verify:

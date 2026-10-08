@@ -4,7 +4,6 @@ import { ProviderNav } from '@/components/layout/SiteNav'
 import { SiteFooter } from '@/components/layout/SiteFooter'
 import { BackToTop } from '@/components/shared/BackToTop'
 import { DemoDialog } from '@/components/shared/DemoDialog'
-import { ProviderApplicationForm } from '@/components/provider/ProviderApplicationForm'
 import { APP_ENTRY } from '@/content/site'
 import { isApplicationProduct } from '@/lib/provider-application'
 
@@ -27,9 +26,17 @@ export default async function ProviderApplyPage({ searchParams }: {
           <div className="mx-auto max-w-[720px]">
             <p className="text-xs font-semibold uppercase tracking-[0.12em] text-brand">Organization onboarding</p>
             <Display as="h1" id="provider-apply-title" className="mt-4">Setup Your Facility</Display>
-            <p className="mt-4 text-base/relaxed text-muted">Apply for a new hospital, clinic, laboratory, pharmacy, or other healthcare facility. Your facility type and product are reviewed through the existing Health ID organization application process.</p>
+            <p className="mt-4 text-base/relaxed text-muted">Set up a new hospital, clinic, laboratory, pharmacy, or other healthcare facility. Start with CAC verification and complete your administrator account from the secure Provider Portal.</p>
             <p className="mt-3 text-sm text-muted">Already have staff access? <a className="font-semibold text-brand underline underline-offset-4" href={APP_ENTRY.staffSignIn}>Sign in to the provider portal</a>.</p>
-            <div className="mt-8"><ProviderApplicationForm product={product} /></div>
+            <div className="mt-8 rounded-(--radius-panel) border border-line bg-surface p-6 sm:p-8">
+              <h2 className="font-display text-2xl text-ink">Create your provider account</h2>
+              <p className="mt-3 text-sm/relaxed text-muted">Start with your CAC registration number. Health ID verifies it through the official registry, confirms your administrator email, and creates your provider account when the organization passes the automated checks.</p>
+              <a href={APP_ENTRY.providerSignUp}
+                className="mt-6 inline-flex min-h-11 items-center justify-center rounded-(--radius-control) bg-brand px-6 py-3 text-sm font-semibold text-white hover:bg-brand-dark">
+                Verify CAC and set up facility
+              </a>
+              <p className="mt-4 text-xs/relaxed text-muted">Existing organizations, duplicate CAC records, or other exceptions are sent to HID Team review instead of being activated automatically.</p>
+            </div>
           </div>
         </Wrap>
       </Section>

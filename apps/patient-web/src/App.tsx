@@ -12,6 +12,7 @@ import { AccessPage, NotificationsPage, PortalShell, ProfilePage, RecordsPage, S
 import { resolveStaffProductHostname, isPlatformAdminHostname, PLATFORM_ADMIN_ROUTE } from './productHostname'
 
 const StaffApp = lazy(async () => ({ default: (await import('./staff/App')).App }))
+const ProviderEnrollment = lazy(async () => ({ default: (await import('./staff/routes/ProviderEnrollment')).ProviderEnrollment }))
 const AdminApp = lazy(async () => ({ default: (await import('./admin/App')).App }))
 
 function PatientNotFound() {
@@ -61,6 +62,7 @@ function ProductHostnameGate({ children }: { children: React.ReactNode }) {
 export function App() {
   return <ProductHostnameGate><Routes>
     <Route path="/provider/recover" element={<PrincipalRecovery audience="staff" />} />
+    <Route path="/provider/enroll" element={<Suspense fallback={<main role="status">Opening provider enrollment…</main>}><ProviderEnrollment /></Suspense>} />
     <Route path="/admin/recover" element={<PrincipalRecovery audience="admin" />} />
     <Route path="/provider/*" element={<Suspense fallback={<main role="status">Opening provider workspace…</main>}><StaffApp /></Suspense>} />
     <Route path="/admin/*" element={<Suspense fallback={<main role="status">Opening platform workspace…</main>}><AdminApp /></Suspense>} />
