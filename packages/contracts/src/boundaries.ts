@@ -55,7 +55,7 @@ export const APP_BOUNDARIES = {
   'staff-web': {
     app: 'staff-web',
     purpose: 'Provider workflows: care, laboratory, pharmacy, OCR and outreach.',
-    services: ['auth', 'identity', 'ehr', 'access', 'files', 'lab', 'pharmacy', 'ocr', 'outreach'],
+    services: ['auth', 'enrollment', 'identity', 'ehr', 'access', 'files', 'lab', 'pharmacy', 'ocr', 'outreach'],
     handlesPhi: true,
   },
   'ehr-web': {
@@ -123,6 +123,7 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
   'staff-web': {
     auth: ['auth.staffLogin', 'auth.session', 'auth.refresh', 'auth.logout', 'auth.facility',
       'auth.otpStart', 'auth.otpVerify', 'auth.otpComplete'],
+    enrollment: ['enrollment.providerStart', 'enrollment.providerVerify', 'enrollment.providerActivate'],
     identity: ['identity.patientLookup', 'identity.authorization', 'identity.consentStatus',
       'identity.facilityAudit',
       'identity.registrationCapabilities', 'identity.resolveNin', 'identity.registrationCase',
