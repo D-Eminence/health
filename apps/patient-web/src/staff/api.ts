@@ -393,7 +393,7 @@ function encounterPath(patientId: string, encounterId: string) {
 }
 
 export interface ProviderEnrollmentStart {
-  applicationId?: string
+  accepted: true
   challengeId: string
   expiresInSeconds?: number
   resendAfterSeconds?: number
@@ -416,11 +416,14 @@ export const providerEnrollmentApi = {
     administratorName: string
     administratorEmail: string
     turnstileToken: string
-  }) => client.post<ProviderEnrollmentStart>('/api/v1/identity/provider-enrollments', input, { auth: 'none' }),
+  }) => client.post<ProviderEnrollmentStart>('/api/v1/identity/provider-enrollments',
+    { ...input, turnstileAction: 'provider-enrollment' }, { auth: 'none' }),
 
+  // The challenge travels only in the body: the gateway API is cross-origin and
+  // its CORS policy admits no enrollment-specific request header.
   verify: (challengeId: string, code: string) =>
     client.post<{ verified: true }>('/api/v1/identity/provider-enrollments/verify',
-      { challengeId, code }, { auth: 'none', headers: { 'x-hid-enrollment-challenge': challengeId } }),
+      { challengeId, code }, { auth: 'none' }),
 
   activate: (password: string) =>
     client.post<ProviderEnrollmentActivation>('/api/v1/identity/provider-enrollments/activate',
