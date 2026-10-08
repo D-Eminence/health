@@ -136,7 +136,7 @@ flat navigation were removed.
 | Demo requests | Existing and complete | `Pages.tsx`; filters | None |
 | Service health | Existing and complete | `Pages.tsx` | None |
 | Dashboard | Existing and complete | Uses only backend totals and list counts; no invented metrics | None |
-| Platform controls | Existing but incomplete (backend defect) | `runtime-grants.sql` revokes all platform functions from `hid_identity_api_runtime` and never grants `platform.admin_list_controls()` or `platform.admin_set_control(...)`. `GET /admin/controls` returns 500 against a migrated database (browser run). The page shows a safe error with a reference. | Backend: grant `EXECUTE` on both functions to the identity runtime, with a test |
+| Platform controls | Existing but incomplete (backend defects; fix proposed) | Two defects at hid-system `46fabe6`, both from migration 0039. (1) `runtime-grants.sql` never grants `EXECUTE` on `platform.admin_list_controls()` or `platform.admin_set_control(text,boolean,bigint,text)` to the Identity runtime, so `GET /admin/controls` returns 500. (2) `admin_set_control` fails on every call with `42702` (its output columns shadow `control_key` and `row_version`), so `POST /admin/controls` would return 500 even with the grant. Until the fix is deployed, the page shows a safe error with a reference. The draft fix, D-Eminence/hid-system#20, adds the grant and migration 0071 with SQL and runtime regression tests. With that fix applied locally, the browser run lists all 6 controls and pauses and restores one with step-up. | Backend owner: review and merge hid-system#20, then deploy it |
 | Demo requests beyond 100 | Existing but incomplete | The backend returns the newest 100 at most, with no cursor. The UI says so. | Backend: cursor or page |
 | Approvals beyond 200 | Existing but incomplete | `listApprovals` uses `limit 200` with no cursor. The overview shows "200+". | Backend: cursor or page |
 | Facility audit of platform actions | Existing but incomplete | Platform actions record the facility as the target, but audit has no target filter. The detail page lists facility-scoped events and says so. | Backend: a `resourceType`/`resourceId` filter on `/admin/audit/events` |
@@ -157,8 +157,9 @@ Two endpoints are deliberately unused:
 - `GET /admin/integrations/:provider`, because the list returns the same data;
 - the credential-reference command, which the backend always refuses.
 
-**Incomplete capabilities:** platform controls (backend grant), and the demo
-request, approval and facility-audit limits above.
+**Incomplete capabilities:** platform controls (backend defects; fix proposed in
+D-Eminence/hid-system#20, not merged), and the demo request, approval and
+facility-audit limits above.
 
 ## Security boundaries
 
@@ -227,6 +228,10 @@ request, approval and facility-audit limits above.
     controls defect, and the support-admin scope. All passed; the only
     browser errors were the expected `INTEGRATION_PAUSED` refusal and the
     controls 500s.
+  - **The same Stage 3 run against hid-system#20**, with migrations through
+    0071 and the fixed grants. All passed with no browser errors. The Platform
+    controls page listed all 6 controls, then paused and restored
+    `outreach_portal_enabled` with step-up, recording two control events.
   - **Stage 2B security run, repeated on this branch:** enrolment, step-up
     retry, self-approval refusal, two-person approval, export, revocation,
     recovery-code sign-in, expiry and sign-out. All passed, with no browser
@@ -236,7 +241,8 @@ request, approval and facility-audit limits above.
 
 ## Known limitations
 
-- Platform controls cannot load until the backend grant is fixed.
+- Platform controls cannot load or change anything until hid-system#20 (or an
+  equivalent backend fix) is merged and deployed.
 - The approval (200) and demo request (100) lists are capped by the backend.
 - Facility status changes appear in Audit (filter by action), but not on the
   facility page, until the backend can filter by target.
@@ -248,7 +254,7 @@ request, approval and facility-audit limits above.
 ## Next stage
 
 1. **Backend:**
-   - the platform controls runtime grant;
+   - review and merge the platform controls fix (D-Eminence/hid-system#20);
    - audit filtering by target;
    - per-user MFA state;
    - cursors for demo requests and approvals;
