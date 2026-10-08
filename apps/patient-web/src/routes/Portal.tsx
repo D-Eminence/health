@@ -6,6 +6,7 @@ import { Turnstile } from '../Turnstile'
 import { BrandLogo } from '../BrandLogo'
 import { useSession } from '../session'
 import { usePatientResource } from './usePatientResource'
+import { AccountDeletionCard, EmergencyContactsCard } from './AccountSafety'
 
 const links = [
   { to: '/', label: 'Overview', end: true },
@@ -154,7 +155,9 @@ export function AccessPage() {
   const [working, setWorking] = useState<string | null>(null)
   const [denying, setDenying] = useState<string | null>(null)
   const [reason, setReason] = useState('')
+  // Which grant's revocation form is open, separately from an in-flight request.
   const [revoking, setRevoking] = useState<string | null>(null)
+  const [revokeBusy, setRevokeBusy] = useState(false)
   const [revokeReason, setRevokeReason] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -173,8 +176,8 @@ export function AccessPage() {
   }
 
   const revoke = async (grantId: string) => {
-    if (revoking || revokeReason.trim().length < 3) return
-    setRevoking(grantId); setError(null); setNotice(null)
+    if (revokeBusy || revokeReason.trim().length < 3) return
+    setRevokeBusy(true); setError(null); setNotice(null)
     try {
       await api.revokeAccess(grantId, revokeReason.trim())
       setRevoking(null); setRevokeReason('')
@@ -182,8 +185,7 @@ export function AccessPage() {
       history.reload()
     } catch (cause) {
       setError(isHidApiError(cause) ? cause.message : 'The access grant could not be revoked.')
-      setRevoking(null)
-    }
+    } finally { setRevokeBusy(false) }
   }
 
   return <section className="patient-section"><p className="patient-eyebrow">Consent</p><h1 className="patient-page-title">Access and consent</h1>
@@ -199,10 +201,11 @@ export function AccessPage() {
       </ul>)}</div>
     <div className="patient-card"><h2>Access history</h2><LoadState loading={history.loading} error={history.error} retry={history.reload} />
       {history.data && !history.loading && !history.error && (history.data.items.length === 0 ? <p className="patient-empty">No access grants are recorded.</p> : <ul className="patient-list">
-        {history.data.items.map(item => <li key={item.consentGrantId}><div><strong>{item.facilityName}</strong><span>{item.scope} · {item.purpose}</span><span>{date(item.startsAt)} to {date(item.expiresAt)} · {item.status}</span></div>
-          {item.status.toLowerCase() === 'active' && <div className="patient-decision-actions">
+        {history.data.items.map(item => <li key={item.consentGrantId}><div><strong>{item.facilityName}</strong><span>{item.breakGlass ? 'Emergency access' : item.scope} · {item.purpose}</span><span>{date(item.startsAt)} to {date(item.expiresAt)} · {item.status}</span>
+          {item.breakGlass && <p>A provider used emergency access. It is time-limited, audited, and reviewed; it cannot be revoked here.</p>}</div>
+          {item.patientRevocable === true && <div className="patient-decision-actions">
             {revoking === item.consentGrantId
-              ? <form className="patient-deny-form" onSubmit={event => { event.preventDefault(); void revoke(item.consentGrantId) }}><label>Reason for revocation<input required minLength={3} maxLength={500} value={revokeReason} onChange={event => setRevokeReason(event.target.value)} /></label><button type="submit" disabled={revokeReason.trim().length < 3}>Confirm revocation</button></form>
+              ? <form className="patient-deny-form" onSubmit={event => { event.preventDefault(); void revoke(item.consentGrantId) }}><label>Reason for revocation<input required minLength={3} maxLength={500} value={revokeReason} onChange={event => setRevokeReason(event.target.value)} /></label><button type="submit" disabled={revokeBusy || revokeReason.trim().length < 3}>Confirm revocation</button></form>
               : <button type="button" className="patient-secondary-button" onClick={() => setRevoking(item.consentGrantId)}>Revoke access</button>}
           </div>}
         </li>)}
@@ -275,11 +278,13 @@ export function SettingsPage() {
         <button type="submit" className="patient-primary-button" disabled={busy || !/^\d{4,8}$/.test(pin)}>Save PIN</button></form>
       {profile.data.accessPinConfigured && <button type="button" className="patient-secondary-button" disabled={busy} onClick={() => void revokePin()}>Revoke Access PIN</button>}
     </div>}
+    <EmergencyContactsCard />
     {import.meta.env.VITE_HID_GOOGLE_CLIENT_ID && <div className="patient-card"><h2>Link a Google account</h2><p className="patient-field-hint">Confirm your existing Health ID credentials before linking.</p>
       <div className="patient-form"><label>Email or Health ID<input autoComplete="username" value={googlePrincipal} onChange={event => setGooglePrincipal(event.target.value)} /></label>
         <label>Current password<input type="password" autoComplete="current-password" value={googlePassword} onChange={event => setGooglePassword(event.target.value)} /></label>
         <Turnstile action="patient-login" onTokenChange={setGoogleToken} resetKey={googleReset} />
         <GoogleButton text="continue_with" disabled={busy || !googleToken || !googlePrincipal.trim() || !googlePassword} onCredential={linkGoogle} /></div>
     </div>}
+    <AccountDeletionCard />
   </section>
 }

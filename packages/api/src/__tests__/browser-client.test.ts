@@ -103,6 +103,30 @@ describe('registered browser client', () => {
     expect(staff.fetchImpl).toHaveBeenCalledTimes(1)
   })
 
+  it('grants Phase 3 patient-safety routes only to the patient portal', async () => {
+    const patient = harness('patient-web')
+    const grant = '60000000-0000-4000-8000-000000000001'
+    const contact = 'a0000000-0000-4000-8000-000000000001'
+    await patient.client.get('/api/v1/identity/me/account-deletion')
+    await patient.client.post('/api/v1/identity/me/account-deletion/confirm', {})
+    await patient.client.post(`/api/v1/identity/me/emergency-contacts/${contact}/verification/confirm`, {})
+    await patient.client.post(`/api/v1/identity/me/consent-grants/${grant}/revoke`, { reason: 'No longer needed' })
+    // The staff grant-close command is never reachable from the patient portal.
+    await expect(patient.client.post(`/api/v1/identity/consent-grants/${grant}/close`, { reason: 'x' }))
+      .rejects.toBeInstanceOf(BoundaryViolationError)
+    // Emergency-contact alert delivery is a workload route, not a browser route.
+    await expect(patient.client.post('/api/v1/notifications/emergency-contact-alert', {}))
+      .rejects.toMatchObject({ code: 'INTERNAL_ROUTE' })
+    expect(patient.fetchImpl).toHaveBeenCalledTimes(4)
+
+    const staff = harness('staff-web')
+    await expect(staff.client.get('/api/v1/identity/me/emergency-contacts'))
+      .rejects.toBeInstanceOf(BoundaryViolationError)
+    await expect(staff.client.post('/api/v1/identity/me/account-deletion', {}))
+      .rejects.toBeInstanceOf(BoundaryViolationError)
+    expect(staff.fetchImpl).not.toHaveBeenCalled()
+  })
+
   it('grants provider modules while isolating public and admin clients', async () => {
     const staff = harness('staff-web')
     await staff.client.get('/api/v1/lab/work-items')
