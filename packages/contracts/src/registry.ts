@@ -58,6 +58,15 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('identity.accessHistory','identity','/api/v1/identity/me/access-history',G),
   r('identity.accessPin','identity','/api/v1/identity/me/access-pin',['POST','DELETE']),
   r('identity.verifyNin','identity','/api/v1/identity/me/verification/nin',P),
+  // Phase 3 patient safety (hid-system phase-3-patient-safety, ADR-036).
+  r('identity.accountDeletion','identity','/api/v1/identity/me/account-deletion',GP),
+  r('identity.accountDeletionConfirm','identity','/api/v1/identity/me/account-deletion/confirm',P),
+  r('identity.accountDeletionCancel','identity','/api/v1/identity/me/account-deletion/cancel',P),
+  r('identity.emergencyContacts','identity','/api/v1/identity/me/emergency-contacts',GP),
+  r('identity.emergencyContact','identity','/api/v1/identity/me/emergency-contacts/:contactId',P),
+  r('identity.emergencyContactDeactivate','identity','/api/v1/identity/me/emergency-contacts/:contactId/deactivate',P),
+  r('identity.emergencyContactVerification','identity','/api/v1/identity/me/emergency-contacts/:contactId/verification',P),
+  r('identity.emergencyContactVerificationConfirm','identity','/api/v1/identity/me/emergency-contacts/:contactId/verification/confirm',P),
   r('identity.facilityAudit','identity','/api/v1/audit/events',G,false,one('GET','audit.read'),
     'Gateway routes this path to Identity. Requires healthcare-operations purpose and active facility.'),
   r('identity.patientLookup','identity','/api/v1/identity/patient-lookup',P,false,one('POST','identity.patient.read')),
@@ -82,6 +91,7 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('access.breakGlass','access','/api/v1/identity/break-glass',P,false,one('POST','identity.consent.write','identity.break-glass.write')),
   r('access.verifyPin','access','/api/v1/identity/standard-access/pin',P,false,one('POST','identity.patient-access-pin.verify')),
   r('access.closeOwnGrant','access','/api/v1/identity/consent-grants/:grantId/close',P,false,one('POST','identity.consent.write')),
+  r('access.revokeMyGrant','access','/api/v1/identity/me/consent-grants/:grantId/revoke',P),
   r('notifications.list','notifications','/api/v1/identity/me/notifications',G),
   r('notifications.read','notifications','/api/v1/identity/me/notifications/:notificationId/read',P),
 
@@ -196,6 +206,7 @@ export const NON_FRONTEND_ENDPOINTS: readonly string[] = [
   '/api/v1/ehr/internal/ocr/*', '/api/v1/lab/work-items/accept-ehr-order',
   '/api/v1/lab/imports/from-ocr', '/api/v1/pharmacy/work-items/accept-ehr-prescription',
   '/api/v1/pharmacy/imports/from-ocr', '/api/v1/notifications/otp',
+  '/api/v1/notifications/emergency-contact-alert',
   // This admin route exists but always returns INTEGRATION_CREDENTIAL_ROTATION_EXTERNAL.
   '/api/v1/admin/integrations/:provider/credential-reference',
 ]
