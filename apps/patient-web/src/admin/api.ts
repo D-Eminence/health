@@ -16,7 +16,8 @@ export interface Versioned { version: number }
 export interface Facility extends Versioned { id: string; name: string; code: string; organizationName: string; status: string; membershipCount: number }
 export interface Principal extends Versioned { id: string; email: string | null; displayName: string | null; status: string; platformRoles: string[]; activeSessionCount: number; memberships: Array<{ facilityName: string; role: string }> }
 export interface IdentityReview { id: string; maskedNin: string; facilityName: string; provider: string; status: string; candidateCount: number; updatedAt: string }
-export interface AuditEvent { eventId: string; occurredAt: string; action: string; outcome: string; actorSubject: string | null; correlationId: string }
+export interface AuditEvent { sequenceId: string; eventId: string; occurredAt: string; action: string; outcome: string; actorSubject: string | null; correlationId: string }
+export interface AuditEventPage { items: AuditEvent[]; nextBeforeSequenceId: string | null }
 export interface PlatformControl extends Versioned { controlKey: string; enabled: boolean; reason: string; updatedAt: string }
 export interface CommercialProduct extends Versioned { slug: string; name: string; status: 'active' | 'coming_soon' | 'draft' | 'retired' }
 export interface CommercialPrice extends Versioned { product_slug: string; context: string; visibility: 'fixed' | 'starting_from' | 'contact_sales' | 'custom_quote' | 'hidden'; amount_minor: number | null; currency: string; billing_period: string | null; unit: string | null; active: boolean }
@@ -40,6 +41,11 @@ function request<T>(path: string, options: Partial<RequestSpec> = {}): Promise<T
   if (!path.startsWith('/api/v1/admin/') && !path.startsWith('/api/v1/auth/')) {
     throw new Error('The admin application can call only its own backend routes.')
   }
+  // Platform administration is platform-scoped: the backend binds no facility
+  // to admin routes, so admin requests never carry a provider facility context.
+  if (Object.keys(options.headers ?? {}).some(name => name.toLowerCase() === 'x-facility-id')) {
+    throw new Error('Platform administration requests do not carry a facility.')
+  }
   return gateway().request<T>({ method: options.method ?? 'GET', path,
     ...(options.body !== undefined ? { body: options.body } : {}),
     ...(options.query ? { query: options.query } : {}),
@@ -62,7 +68,10 @@ export const adminApi = {
   facilities(signal?: AbortSignal) { return request<Page<Facility>>('/api/v1/admin/facilities', { signal, query: { page: 1, pageSize: 50 } }) },
   principals(query: string, signal?: AbortSignal) { return request<Page<Principal>>('/api/v1/admin/principals', { signal, query: { page: 1, pageSize: 50, query } }) },
   reviews(signal?: AbortSignal) { return request<Page<IdentityReview>>('/api/v1/admin/identity/reviews', { signal, query: { page: 1, pageSize: 50 } }) },
-  audit(signal?: AbortSignal) { return request<{ items: AuditEvent[] }>('/api/v1/admin/audit/events', { signal, query: { limit: 50 } }) },
+  audit(signal?: AbortSignal, beforeSequenceId?: string) {
+    return request<AuditEventPage>('/api/v1/admin/audit/events', { signal,
+      query: { limit: 50, ...(beforeSequenceId ? { beforeSequenceId } : {}) } })
+  },
   services(signal?: AbortSignal) { return request<{ checkedAt: string; services: ServiceState[] }>('/api/v1/admin/operations/services', { signal }) },
   events(signal?: AbortSignal) { return request<{ state: string; code: string | null; metrics: Record<string, number | boolean> | null; failures: unknown[] }>('/api/v1/admin/operations/events', { signal }) },
   pricing(signal?: AbortSignal) { return request<PricingCatalog>('/api/v1/admin/pricing', { signal }) },
