@@ -1,8 +1,8 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
-import { isHidApiError } from '@hid/http'
 import {
   adminApi,
   type AdminActor,
+  type AuditEvent,
   type CommercialPrice,
   type DemoRequest,
   type Facility,
@@ -11,6 +11,7 @@ import {
   type PlatformControl,
   type Principal,
 } from './api'
+import { failure } from './problems'
 
 function has(actor: AdminActor, permission: string) {
   return actor.platformPermissions.includes(permission)
@@ -26,17 +27,6 @@ function date(value: string | null | undefined) {
   return Number.isNaN(parsed.getTime()) ? 'Not available' : new Intl.DateTimeFormat('en-NG', {
     dateStyle: 'medium', timeStyle: 'short',
   }).format(parsed)
-}
-
-function failure(error: unknown, fallback: string) {
-  if (isHidApiError(error)) {
-    if (error.status === 409) return 'This item changed. Reload it and try again.'
-    if (error.status === 403) return 'Your account does not have permission for this action.'
-    if (error.status === 401) return 'Your session has expired. Sign in again to continue.'
-    if (error.status === 0 || error.status >= 500) return fallback
-    return error.message
-  }
-  return fallback
 }
 
 interface Resource<T> {
@@ -347,13 +337,35 @@ export function ReviewsPage() {
 
 export function AuditPage() {
   const resource = useResource(adminApi.audit, 'Audit events could not be loaded.')
+  const [older, setOlder] = useState<{ items: AuditEvent[]; next: string | null } | null>(null)
+  const [loadingOlder, setLoadingOlder] = useState(false)
+  const [olderError, setOlderError] = useState<string | null>(null)
+  useEffect(() => { setOlder(null); setOlderError(null) }, [resource.data])
+  const next = older ? older.next : resource.data?.nextBeforeSequenceId ?? null
+
+  async function loadOlder() {
+    if (!next || loadingOlder) return
+    setLoadingOlder(true); setOlderError(null)
+    try {
+      const page = await adminApi.audit(undefined, next)
+      setOlder(current => ({ items: [...(current?.items ?? []), ...page.items], next: page.nextBeforeSequenceId }))
+    } catch (caught) {
+      setOlderError(failure(caught, 'Older audit events could not be loaded.'))
+    } finally { setLoadingOlder(false) }
+  }
+
   return <Page eyebrow="Accountability" title="Audit" description="Recent platform events. The backend controls visibility and the returned history."
     action={<Refresh onClick={resource.reload} disabled={resource.loading} />}>
-    <ResourceView resource={resource} empty={result => result.items.length === 0}>{result => <Table headings={['Occurred', 'Action', 'Outcome', 'Actor', 'Correlation']}>
-      {result.items.map(item => <tr key={item.eventId}><td>{date(item.occurredAt)}</td>
-        <td>{label(item.action)}</td><td><Status value={item.outcome} /></td>
-        <td>{item.actorSubject || 'System'}</td><td><code>{item.correlationId}</code></td></tr>)}
-    </Table>}</ResourceView>
+    <ResourceView resource={resource} empty={result => result.items.length === 0}>{result => <>
+      <Table headings={['Occurred', 'Action', 'Outcome', 'Actor', 'Correlation']}>
+        {[...result.items, ...(older?.items ?? [])].map(item => <tr key={item.eventId}><td>{date(item.occurredAt)}</td>
+          <td>{label(item.action)}</td><td><Status value={item.outcome} /></td>
+          <td>{item.actorSubject || 'System'}</td><td><code>{item.correlationId}</code></td></tr>)}
+      </Table>
+      {olderError ? <p role="alert" className="admin-error">{olderError}</p> : null}
+      {next ? <button type="button" className="admin-secondary" onClick={() => void loadOlder()} disabled={loadingOlder}>
+        {loadingOlder ? 'Loading older events…' : 'Load older events'}</button> : null}
+    </>}</ResourceView>
   </Page>
 }
 
