@@ -113,7 +113,11 @@ function ProviderHistory({ provider }: { provider: IntegrationProvider }) {
 }
 
 function ProviderDetails({ provider }: { provider: IntegrationProvider }) {
-  const settings = Object.entries(provider.configuration ?? {})
+  // Only the allow-listed public settings are ever shown, whatever else a response carries.
+  const settings = (PROVIDER_SETTINGS[provider.provider] ?? []).flatMap(field => {
+    const value = provider.configuration?.[field.key]
+    return typeof value === 'string' && value ? [[field.key, value] as const] : []
+  })
   return <dl className="admin-detail-grid">
     <div><dt>Capabilities</dt><dd>{provider.capabilities?.length ? provider.capabilities.map(label).join(', ') : 'None'}</dd></div>
     <div><dt>In use for</dt><dd>{provider.activeCapabilities?.length ? provider.activeCapabilities.map(label).join(', ') : 'Nothing'}</dd></div>
