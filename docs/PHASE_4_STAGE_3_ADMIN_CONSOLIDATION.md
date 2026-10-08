@@ -136,7 +136,7 @@ flat navigation were removed.
 | Demo requests | Existing and complete | `Pages.tsx`; filters | None |
 | Service health | Existing and complete | `Pages.tsx` | None |
 | Dashboard | Existing and complete | Uses only backend totals and list counts; no invented metrics | None |
-| Platform controls | Existing but incomplete (backend defects; fix proposed) | Two defects at hid-system `46fabe6`, both from migration 0039. (1) `runtime-grants.sql` never grants `EXECUTE` on `platform.admin_list_controls()` or `platform.admin_set_control(text,boolean,bigint,text)` to the Identity runtime, so `GET /admin/controls` returns 500. (2) `admin_set_control` fails on every call with `42702` (its output columns shadow `control_key` and `row_version`), so `POST /admin/controls` would return 500 even with the grant. Until the fix is deployed, the page shows a safe error with a reference. The draft fix, D-Eminence/hid-system#20, adds the grant and migration 0071 with SQL and runtime regression tests. With that fix applied locally, the browser run lists all 6 controls and pauses and restores one with step-up. | Backend owner: review and merge hid-system#20, then deploy it |
+| Platform controls | Existing but incomplete (backend defects; fix merged, not deployed) | Two defects at hid-system `46fabe6`, both from migration 0039. (1) `runtime-grants.sql` never grants `EXECUTE` on `platform.admin_list_controls()` or `platform.admin_set_control(text,boolean,bigint,text)` to the Identity runtime, so `GET /admin/controls` returns 500. (2) `admin_set_control` fails on every call with `42702` (its output columns shadow `control_key` and `row_version`), so `POST /admin/controls` would return 500 even with the grant. Until the fix is deployed, the page shows a safe error with a reference. The fix, D-Eminence/hid-system#20, adds the grant and migration 0071 with SQL and runtime regression tests. It is merged into hid-system `phase-3-patient-safety` (`e0e6432`), but is not yet on hid-system `main` or deployed. With that fix applied locally, the browser run lists all 6 controls and pauses and restores one with step-up. | Backend owner: promote `phase-3-patient-safety` (hid-system#18) and deploy it |
 | Demo requests beyond 100 | Existing but incomplete | The backend returns the newest 100 at most, with no cursor. The UI says so. | Backend: cursor or page |
 | Approvals beyond 200 | Existing but incomplete | `listApprovals` uses `limit 200` with no cursor. The overview shows "200+". | Backend: cursor or page |
 | Facility audit of platform actions | Existing but incomplete | Platform actions record the facility as the target, but audit has no target filter. The detail page lists facility-scoped events and says so. | Backend: a `resourceType`/`resourceId` filter on `/admin/audit/events` |
@@ -157,9 +157,9 @@ Two endpoints are deliberately unused:
 - `GET /admin/integrations/:provider`, because the list returns the same data;
 - the credential-reference command, which the backend always refuses.
 
-**Incomplete capabilities:** platform controls (backend defects; fix proposed in
-D-Eminence/hid-system#20, not merged), and the demo request, approval and
-facility-audit limits above.
+**Incomplete capabilities:** platform controls (backend defects; the fix,
+D-Eminence/hid-system#20, is merged into `phase-3-patient-safety` but not
+deployed), and the demo request, approval and facility-audit limits above.
 
 ## Security boundaries
 
@@ -241,8 +241,8 @@ facility-audit limits above.
 
 ## Known limitations
 
-- Platform controls cannot load or change anything until hid-system#20 (or an
-  equivalent backend fix) is merged and deployed.
+- Platform controls cannot load or change anything until the hid-system#20 fix
+  (merged into `phase-3-patient-safety`) is promoted and deployed.
 - The approval (200) and demo request (100) lists are capped by the backend.
 - Facility status changes appear in Audit (filter by action), but not on the
   facility page, until the backend can filter by target.
@@ -254,7 +254,8 @@ facility-audit limits above.
 ## Next stage
 
 1. **Backend:**
-   - review and merge the platform controls fix (D-Eminence/hid-system#20);
+   - promote and deploy the platform controls fix (D-Eminence/hid-system#20,
+     merged into `phase-3-patient-safety`);
    - audit filtering by target;
    - per-user MFA state;
    - cursors for demo requests and approvals;

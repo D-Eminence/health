@@ -76,8 +76,8 @@
 - No backend, dependency or Stage 2 security change. Verified with component
   tests and local Chromium runs against the Stage 2A Identity API. These found
   two backend defects in platform controls (a missing runtime grant, and a
-  change command that always fails); a fix is proposed in
-  D-Eminence/hid-system#20 (draft). Details and gaps:
+  change command that always fails), fixed in D-Eminence/hid-system#20
+  (merged into `phase-3-patient-safety`, not deployed). Details and gaps:
   [Phase 4 Stage 3](./PHASE_4_STAGE_3_ADMIN_CONSOLIDATION.md).
 
 This log records implementation scope, not a release sign-off. The reference
