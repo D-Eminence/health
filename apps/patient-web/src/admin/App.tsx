@@ -199,6 +199,8 @@ export function SessionWarning() {
 
   useEffect(() => {
     const unsubscribe = onSessionWindow(() => setTick(value => value + 1))
+    // Re-read once: the window may have changed between this render and the subscription.
+    setTick(value => value + 1)
     const timer = setInterval(() => setTick(value => value + 1), 15_000)
     return () => { unsubscribe(); clearInterval(timer) }
   }, [])

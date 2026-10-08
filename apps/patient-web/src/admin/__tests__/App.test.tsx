@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
-import { App, SESSION_ENDED_MESSAGES } from '../App'
+import { useLayoutEffect } from 'react'
+import { App, SESSION_ENDED_MESSAGES, SessionWarning } from '../App'
 import { clearSessionWindow, recordSessionWindow, reportSessionEnded } from '../session-window'
 
 const api = vi.hoisted(() => ({
@@ -114,5 +115,17 @@ describe('platform administration session', () => {
     fireEvent.click(screen.getAllByRole('button', { name: 'Sign out' })[0]!)
     expect(await screen.findByText('You have signed out of platform administration.')).toBeTruthy()
     expect(api.logout).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('session warning', () => {
+  it('shows a window recorded after it rendered but before it subscribed', () => {
+    // A layout effect runs after the warning rendered and before its subscription effect.
+    function RecordDuringCommit() {
+      useLayoutEffect(() => recordSessionWindow({ idleExpiresAt: inMinutes(1), absoluteExpiresAt: inMinutes(300) }), [])
+      return null
+    }
+    render(<><SessionWarning /><RecordDuringCommit /></>)
+    expect(screen.getByText(/For security, your session ends at .* unless you continue working/)).toBeTruthy()
   })
 })
