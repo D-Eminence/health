@@ -392,6 +392,44 @@ function encounterPath(patientId: string, encounterId: string) {
   return `${patientPath(patientId)}/${encodeURIComponent(encounterId)}`
 }
 
+export interface ProviderEnrollmentStart {
+  accepted: true
+  challengeId: string
+  expiresInSeconds?: number
+  resendAfterSeconds?: number
+}
+
+export interface ProviderEnrollmentActivation {
+  activated: true
+  organizationId: string
+  facilityId: string
+  accountId: string
+  actor: StaffSession['actor']
+  expiresAt: string
+}
+
+export const providerEnrollmentApi = {
+  start: (input: {
+    productCode: 'ehr' | 'migrate' | 'laboratory' | 'pharmacy'
+    organizationType: 'clinic' | 'hospital' | 'laboratory' | 'pharmacy' | 'other'
+    cacRegistrationNumber: string
+    administratorName: string
+    administratorEmail: string
+    turnstileToken: string
+  }) => client.post<ProviderEnrollmentStart>('/api/v1/identity/provider-enrollments',
+    { ...input, turnstileAction: 'provider-enrollment' }, { auth: 'none' }),
+
+  // The challenge travels only in the body: the gateway API is cross-origin and
+  // its CORS policy admits no enrollment-specific request header.
+  verify: (challengeId: string, code: string) =>
+    client.post<{ verified: true }>('/api/v1/identity/provider-enrollments/verify',
+      { challengeId, code }, { auth: 'none' }),
+
+  activate: (password: string) =>
+    client.post<ProviderEnrollmentActivation>('/api/v1/identity/provider-enrollments/activate',
+      { password }, { auth: 'none' }),
+}
+
 export const staffApi = {
   login: (email: string, password: string, turnstileToken?: string) =>
     client.post<StaffSession>('/api/v1/auth/login', {

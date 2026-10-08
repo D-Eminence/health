@@ -92,8 +92,12 @@ cannot inspect the HttpOnly cookie to decide who is signed in.
 Staff requests include `X-Facility-ID` and `X-Purpose-Of-Use` with the selected
 facility context. The selected facility must belong to the authenticated
 session; the backend checks the header on each request. Admin routes use their
-own platform permissions. UI permission gates hide unavailable actions and
-render access errors, but do not replace server authorization.
+own platform permissions and are platform-scoped: the admin client never sends
+`X-Facility-ID`, and the backend binds no facility to them even if one is sent.
+`apps/patient-web/src/admin` is the authoritative Platform Admin UI; the
+`apps/admin` app in hid-system is legacy reference code. UI permission gates
+hide unavailable actions and render access errors, but do not replace server
+authorization.
 
 Clinical responses use `cache: 'no-store'`; screens show loading, empty and
 error states for backend reads. `@hid/observability` handles redaction for

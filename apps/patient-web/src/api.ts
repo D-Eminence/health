@@ -60,7 +60,69 @@ export interface PatientRecords {
 }
 
 export interface AccessHistory {
-  items: Array<{ consentGrantId: string; scope: string; purpose: string; status: string; startsAt: string; expiresAt: string; reason: string | null; facilityName: string }>
+  items: Array<{
+    consentGrantId: string; scope: string; purpose: string; status: string; startsAt: string; expiresAt: string
+    reason: string | null; facilityName: string
+    /** Emergency (break-glass) access; never revocable by the patient. */
+    breakGlass?: boolean
+    /** The backend decides whether this patient may revoke the grant. */
+    patientRevocable?: boolean
+  }>
+}
+
+export type AccountDeletionState =
+  | 'awaiting_confirmation' | 'pending' | 'blocked' | 'cancelled' | 'completed' | 'expired' | 'superseded'
+export type AccountDeletionBlockedReason = 'LEGAL_HOLD' | 'RETENTION_POLICY_UNAVAILABLE' | 'WORKFORCE_ACCOUNT'
+
+export interface AccountDeletionStatus {
+  waitingPeriodSeconds: number
+  confirmationTtlSeconds: number
+  request: {
+    requestId: string
+    state: AccountDeletionState
+    requestedAt: string
+    confirmationExpiresAt: string | null
+    scheduledFor: string | null
+    blockedReasonCode: AccountDeletionBlockedReason | null
+    cancelledAt: string | null
+    cancellable: boolean
+  } | null
+}
+
+export interface AccountDeletionRequested {
+  requestId: string
+  /** Single use and short lived; held in memory only. */
+  confirmationToken: string
+  confirmationExpiresAt: string
+  waitingPeriodSeconds: number
+}
+
+export interface AccountDeletionConfirmed {
+  requestId: string
+  state: 'pending' | 'blocked' | 'completed'
+  scheduledFor: string | null
+  blockedReasonCode: AccountDeletionBlockedReason | null
+}
+
+export const EMERGENCY_CONTACT_RELATIONSHIPS = [
+  'spouse', 'partner', 'parent', 'child', 'sibling', 'relative', 'guardian', 'caregiver', 'friend', 'other',
+] as const
+export type EmergencyContactRelationship = typeof EMERGENCY_CONTACT_RELATIONSHIPS[number]
+
+export interface EmergencyContact {
+  contactId: string
+  name: string
+  relationship: EmergencyContactRelationship
+  channel: 'email' | 'sms'
+  /** Masked by the backend; the full destination is never returned. */
+  destinationHint: string
+  status: 'unverified' | 'verified'
+  verifiedAt: string | null
+  notifyOnEmergencyAccess: boolean
+  eligibleForEmergencyNotification: boolean
+  version: number
+  pendingVerification: { expiresAt: string; deliveryOutcome: string } | null
+  lastNotification: { status: string; createdAt: string } | null
 }
 
 export interface AccessRequest {
@@ -135,9 +197,9 @@ export function createPatientApi(client: ApiClient) {
     verifyNin: (nin: string) => call<PatientNinVerification>('POST', 'identity/me/verification/nin', { nin }),
     records: (signal?: AbortSignal) => call<PatientRecords>('GET', 'ehr/me/records', undefined, { signal }),
     accessHistory: (signal?: AbortSignal) => call<AccessHistory>('GET', 'identity/me/access-history', undefined, { signal }),
-    revokeAccess: (grantId: string, reason: string) => call<unknown>(
-      'POST', `identity/consent-grants/${encodeURIComponent(grantId)}/close`, { reason },
-      { headers: { 'X-Purpose-Of-Use': 'direct-care' } }),
+    // Patient-owned revocation; the staff `consent-grants/:id/close` route is not a patient route.
+    revokeAccess: (grantId: string, reason: string) => call<{ consentGrantId: string; status: 'revoked'; replayed: boolean }>(
+      'POST', `identity/me/consent-grants/${encodeURIComponent(grantId)}/revoke`, { reason }),
     accessRequests: (signal?: AbortSignal) => call<AccessRequest[]>('GET', 'identity/me/access-requests', undefined,
       { signal, headers: { 'X-Purpose-Of-Use': 'direct-care' } }),
     approveAccess: (id: string) => call<unknown>('POST', `identity/access-requests/${encodeURIComponent(id)}/approve`, undefined,
@@ -148,6 +210,30 @@ export function createPatientApi(client: ApiClient) {
     markNotificationRead: (id: string) => call<{ id: string; readAt: string }>('POST', `identity/me/notifications/${encodeURIComponent(id)}/read`),
     setAccessPin: (pin: string) => call<{ configured: true }>('POST', 'identity/me/access-pin', { pin }),
     revokeAccessPin: () => call<{ revoked: true }>('DELETE', 'identity/me/access-pin'),
+    accountDeletionStatus: (signal?: AbortSignal) =>
+      call<AccountDeletionStatus>('GET', 'identity/me/account-deletion', undefined, { signal }),
+    requestAccountDeletion: () => call<AccountDeletionRequested>('POST', 'identity/me/account-deletion'),
+    confirmAccountDeletion: (requestId: string, confirmationToken: string, confirmation: string) =>
+      call<AccountDeletionConfirmed>('POST', 'identity/me/account-deletion/confirm', { requestId, confirmationToken, confirmation }),
+    cancelAccountDeletion: (requestId: string) =>
+      call<{ requestId: string; state: 'cancelled'; replayed: boolean }>('POST', 'identity/me/account-deletion/cancel', { requestId }),
+    emergencyContacts: (signal?: AbortSignal) =>
+      call<EmergencyContact[]>('GET', 'identity/me/emergency-contacts', undefined, { signal }),
+    addEmergencyContact: (input: { name: string; relationship: EmergencyContactRelationship; channel: 'email' | 'sms';
+      destination: string; notifyOnEmergencyAccess: boolean }) =>
+      call<EmergencyContact>('POST', 'identity/me/emergency-contacts', input),
+    updateEmergencyContact: (contactId: string, input: { expectedVersion: number; name?: string;
+      relationship?: EmergencyContactRelationship; notifyOnEmergencyAccess?: boolean }) =>
+      call<EmergencyContact>('POST', `identity/me/emergency-contacts/${encodeURIComponent(contactId)}`, input),
+    deactivateEmergencyContact: (contactId: string) =>
+      call<{ contactId: string; status: 'deactivated'; replayed: boolean }>(
+        'POST', `identity/me/emergency-contacts/${encodeURIComponent(contactId)}/deactivate`),
+    sendEmergencyContactVerification: (contactId: string) =>
+      call<{ challengeId: string; expiresAt: string; deliveryOutcome: string }>(
+        'POST', `identity/me/emergency-contacts/${encodeURIComponent(contactId)}/verification`),
+    confirmEmergencyContactVerification: (contactId: string, challengeId: string, code: string) =>
+      call<{ contactId: string; status: 'verified' }>(
+        'POST', `identity/me/emergency-contacts/${encodeURIComponent(contactId)}/verification/confirm`, { challengeId, code }),
   }
 }
 
