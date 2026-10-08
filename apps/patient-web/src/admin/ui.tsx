@@ -1,4 +1,5 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { newIdempotencyKey, type AdminActor } from './api'
 import { failure } from './problems'
 import { StepUpCancelledError, useStepUp } from './StepUp'
@@ -87,6 +88,45 @@ export function Table({ headings, children }: { headings: string[]; children: Re
     <thead><tr>{headings.map(heading => <th key={heading} scope="col">{heading}</th>)}</tr></thead>
     <tbody>{children}</tbody>
   </table></div>
+}
+
+/** Previous/next paging over the backend's page, pageSize and total. */
+export function Pager({ page, pageSize, total, onPage, disabled = false }: {
+  page: number; pageSize: number; total: number; onPage: (page: number) => void; disabled?: boolean
+}) {
+  const pages = Math.max(1, Math.ceil(total / pageSize))
+  if (pages <= 1) return null
+  return <nav className="admin-pager" aria-label="Pages">
+    <button type="button" className="admin-secondary" disabled={disabled || page <= 1} onClick={() => onPage(page - 1)}>Previous</button>
+    <span aria-current="page">Page {page} of {pages}</span>
+    <button type="button" className="admin-secondary" disabled={disabled || page >= pages} onClick={() => onPage(page + 1)}>Next</button>
+  </nav>
+}
+
+/**
+ * Filters kept in the URL, so a filtered view can be linked, reloaded and
+ * reopened after signing in again. Empty values are removed.
+ */
+export function useUrlFilters<K extends string>(keys: readonly K[]) {
+  const [params, setParams] = useSearchParams()
+  const values = Object.fromEntries(keys.map(key => [key, params.get(key) ?? ''])) as Record<K, string>
+  const update = useCallback((next: Partial<Record<K, string>>) => {
+    setParams(current => {
+      const updated = new URLSearchParams(current)
+      for (const [key, value] of Object.entries(next) as Array<[K, string | undefined]>) {
+        if (value) updated.set(key, value)
+        else updated.delete(key)
+      }
+      return updated
+    }, { replace: true })
+  }, [setParams])
+  return [values, update] as const
+}
+
+/** A positive page number from the URL, defaulting to the first page. */
+export function pageNumber(value: string): number {
+  const parsed = Number(value)
+  return Number.isSafeInteger(parsed) && parsed >= 1 ? parsed : 1
 }
 
 /** The message for a governed command that did not complete. */

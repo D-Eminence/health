@@ -7,6 +7,7 @@ import { clearSessionWindow, recordSessionWindow, reportSessionEnded } from '../
 
 const api = vi.hoisted(() => ({
   session: vi.fn(), mfaStatus: vi.fn(), logout: vi.fn(), refresh: vi.fn(), overview: vi.fn(),
+  approvals: vi.fn(), applications: vi.fn(), demos: vi.fn(), integrations: vi.fn(),
 }))
 vi.mock('../api', () => ({ adminApi: api, newIdempotencyKey: () => 'key-1' }))
 vi.mock('../env', () => ({ environment: () => ({ name: 'local', turnstileSiteKey: null, apiBaseUrl: 'https://gateway.example.test' }) }))
@@ -25,7 +26,12 @@ beforeEach(() => {
   vi.clearAllMocks()
   clearSessionWindow()
   api.mfaStatus.mockResolvedValue({ enrolled: true, session: null })
-  api.overview.mockResolvedValue({ activeAccounts: 3 })
+  api.overview.mockResolvedValue({ registeredPatients: 3, facilities: 2, verifiedFacilities: 1, suspendedFacilities: 0,
+    activeStaffMemberships: 4, pendingIdentityReviews: 0 })
+  api.approvals.mockResolvedValue({ items: [] })
+  api.applications.mockResolvedValue({ items: [] })
+  api.demos.mockResolvedValue({ items: [] })
+  api.integrations.mockResolvedValue({ items: [], capabilities: [] })
 })
 afterEach(() => clearSessionWindow())
 

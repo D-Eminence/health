@@ -4,7 +4,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { MemoryRouter } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
 import type { AdminActor, Principal } from '../api'
-import { PrincipalsPage } from '../Pages'
+import { PrincipalsPage } from '../Principals'
 import { ApprovalRequestForm, ExportPanel, PrincipalSessions } from '../PrincipalSecurity'
 import { StepUpProvider } from '../StepUp'
 
@@ -20,8 +20,9 @@ vi.mock('../api', () => ({ adminApi: mocks.api, newIdempotencyKey: () => `key-${
 vi.mock('../download', () => ({ saveFile: mocks.saveFile }))
 
 const problem = (status: number, code: string) => new HidApiError(status, 'Backend detail', { code })
-const principal: Principal = { id: 'account-2', email: 'ada@example.test', displayName: 'Ada Operator', status: 'active',
-  platformRoles: ['support_admin'], activeSessionCount: 1, memberships: [], version: 4 }
+const principal: Principal = { id: 'account-2', subject: 'staff:ada', email: 'ada@example.test', displayName: 'Ada Operator',
+  status: 'active', createdAt: '2026-09-01T09:00:00.000Z', platformRoles: ['support_admin'], activeSessionCount: 1,
+  memberships: [], version: 4 }
 
 function open(element: ReactElement) {
   render(<MemoryRouter><StepUpProvider>{element}</StepUpProvider></MemoryRouter>)

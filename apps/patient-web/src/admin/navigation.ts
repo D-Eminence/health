@@ -77,3 +77,16 @@ export function visibleNavigation(actor: AdminActor): NavigationSection[] {
   return NAVIGATION.map(section => ({ ...section, items: section.items.filter(item => item.visible(actor)) }))
     .filter(section => section.items.length > 0)
 }
+
+/**
+ * Capabilities the reference administration console describes but the backend
+ * does not provide yet. They are listed, not imitated: no page, data or action
+ * exists for them in this console.
+ */
+export const UNAVAILABLE_CAPABILITIES: ReadonlyArray<{ title: string; detail: string }> = [
+  { title: 'Organization directory', detail: 'No admin endpoint lists or opens organizations. Facilities show their organization, and applications create or link one.' },
+  { title: 'Support cases', detail: 'Support is account lookup, status and session revocation in Users & roles. There is no case, ticket or note service.' },
+  { title: 'Security event metrics', detail: 'No aggregate endpoint exists. Filter Audit by outcome (for example denied) instead.' },
+  { title: 'Legal holds and session-event review', detail: 'Not built in the backend yet (Stage 2A finding S7).' },
+  { title: 'Billing, subscriptions and invoices', detail: 'No platform billing contract exists.' },
+]

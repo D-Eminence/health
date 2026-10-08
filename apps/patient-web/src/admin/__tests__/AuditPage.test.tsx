@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
-import { AuditPage } from '../Pages'
+import { AuditPage } from '../Audit'
 
 const mocks = vi.hoisted(() => ({ audit: vi.fn() }))
 vi.mock('../api', () => ({ adminApi: { audit: mocks.audit } }))
@@ -17,11 +18,11 @@ describe('platform audit page', () => {
     mocks.audit.mockResolvedValueOnce({ items: [event('52', 'admin.audit.list')], nextBeforeSequenceId: '52' })
     mocks.audit.mockResolvedValueOnce({ items: [event('51', 'admin.account.disabled')], nextBeforeSequenceId: null })
 
-    render(<AuditPage />)
+    render(<MemoryRouter><AuditPage /></MemoryRouter>)
     expect(await screen.findByText('corr-52')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Load older events' }))
     expect(await screen.findByText('corr-51')).toBeTruthy()
-    expect(mocks.audit).toHaveBeenLastCalledWith(undefined, '52')
+    expect(mocks.audit).toHaveBeenLastCalledWith({}, '52')
     expect(screen.getByText('corr-52')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Load older events' })).toBeNull()
   })
@@ -30,7 +31,7 @@ describe('platform audit page', () => {
     mocks.audit.mockRejectedValueOnce(new HidApiError(503, 'unavailable', { code: 'SERVICE_UNAVAILABLE', requestId: 'corr-503' }))
     mocks.audit.mockResolvedValueOnce({ items: [event('60', 'admin.overview')], nextBeforeSequenceId: null })
 
-    render(<AuditPage />)
+    render(<MemoryRouter><AuditPage /></MemoryRouter>)
     expect(await screen.findByText('Audit events could not be loaded. Reference: corr-503')).toBeTruthy()
     fireEvent.click(screen.getAllByRole('button', { name: 'Refresh' }).at(-1)!)
     await waitFor(() => expect(screen.getByText('corr-60')).toBeTruthy())
