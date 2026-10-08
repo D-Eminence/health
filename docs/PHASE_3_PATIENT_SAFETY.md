@@ -58,3 +58,27 @@ New registry entries (`packages/contracts/src/registry.ts`) and patient grants
 `.github/workflows/ci.yml` now runs for pull requests targeting `main`,
 `phase-1-patient-core`, `phase-2-provider-reconciliation`, and
 `phase-3-patient-safety`. Required steps are unchanged.
+
+The `Dependency audit` step (`npm audit --audit-level=high`) fails on this
+branch and on its `phase-2-provider-reconciliation` base with the same findings:
+3 critical, 4 high and 1 moderate, in `next`, `vitest`, `tinypool`, `undici`,
+`sharp`, `source-map-js`, `brace-expansion` and `@vitest/mocker`. Phase 3 changes
+no `package.json` or `package-lock.json`. The failure is pre-existing and left
+unchanged; dependency upgrades are outside Phase 3.
+
+## Follow-up decisions
+
+The portal shows whatever the backend reports and makes none of these decisions.
+The authoritative list, with current fail-safe behavior and existing references,
+is in hid-system `docs/PHASE_3_PATIENT_SAFETY.md` §9:
+
+- the default deletion waiting period (backend default 14 days, configurable);
+- re-enrollment of a new login after deletion (no path exists);
+- whether emergency contacts stay eligible after the login is deleted (they
+  currently do);
+- notification suppression for deleted logins (devices are revoked; the external
+  Novu subscriber is not suppressed);
+- who places and releases legal holds;
+- retention periods (all record classes are `retain`; no period is set);
+- erasure or de-identification policy (not implemented; governance-gated);
+- approval of production emergency-contact notification (disabled).
