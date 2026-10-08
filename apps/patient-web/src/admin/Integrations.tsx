@@ -150,22 +150,30 @@ function IntegrationAction({ provider, reload, actor }: {
   </div>
 }
 
+/** Not a valid provider key (they start with a letter), so it cannot collide with one. */
+const NO_FALLBACK = '(none)'
+
 function CapabilityAction({ capability, actor, reload }: {
   capability: IntegrationCapability; actor: AdminActor; reload: () => void
 }) {
   if (!has(actor, 'platform.integration.manage') || capability.eligibleProviders.length === 0) return null
-  const options = capability.eligibleProviders.map(provider => ({ value: provider, title: label(provider) }))
+  const choices = (exclude: Array<string | null>) => capability.eligibleProviders
+    .filter(provider => !exclude.includes(provider)).map(provider => ({ value: provider, title: label(provider) }))
+  const active = choices([capability.activeProvider])
+  // The backend refuses a fallback equal to the active provider, and accepts no provider to remove the fallback.
+  const fallback = [...choices([capability.activeProvider, capability.fallbackProvider]),
+    ...(capability.fallbackProvider ? [{ value: NO_FALLBACK, title: 'No fallback' }] : [])]
   return <div className="admin-action-row">
-    <ActionForm title="Select active provider" options={options} onSubmit={async (provider, reason, idempotencyKey) => {
+    {active.length > 0 && <ActionForm title="Select active provider" options={active} onSubmit={async (provider, reason, idempotencyKey) => {
       await adminApi.command(`/api/v1/admin/integrations/capabilities/${encodeURIComponent(capability.capability)}/selection`,
         { provider, reason }, { version: capability.version, idempotencyKey })
       reload()
-    }} />
-    <ActionForm title="Select fallback provider" options={options} onSubmit={async (provider, reason, idempotencyKey) => {
+    }} />}
+    {fallback.length > 0 && <ActionForm title="Change fallback provider" options={fallback} onSubmit={async (provider, reason, idempotencyKey) => {
       await adminApi.command(`/api/v1/admin/integrations/capabilities/${encodeURIComponent(capability.capability)}/fallback`,
-        { provider, reason }, { version: capability.version, idempotencyKey })
+        { provider: provider === NO_FALLBACK ? null : provider, reason }, { version: capability.version, idempotencyKey })
       reload()
-    }} />
+    }} />}
   </div>
 }
 
