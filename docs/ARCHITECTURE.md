@@ -22,7 +22,7 @@ Vite authenticated portal. All signed-in workspaces share **one portal origin**:
 | --- | --- | --- |
 | `/`, `/sign-in`, `/enroll`, `/recover` | Patient | Enrollment, session/recovery, profile and NIN re-verification, records, access, notifications, settings |
 | `/provider/*`, `/provider/recover` | Provider | Session/facility selection, patient lookup and access, registration-case review, clinical work, laboratory, pharmacy, OCR, outreach, facility audit and recovery |
-| `/admin/*`, `/admin/recover` | Platform | MFA sign-in and enrolment, overview, controls, facilities, principals (with export, session review and two-person requests), approvals, applications, reviews, audit, operations, pricing, demos, integrations, security (MFA, recovery codes, sessions) and recovery |
+| `/admin/*`, `/admin/recover` | Platform | MFA sign-in and enrolment; overview (backend totals and waiting work); organization applications (verify, approve, reject); facilities (filters, paging and a linkable detail page); users and roles (with export, session review and two-person requests); approvals; identity reviews; audit (backend filters); my security (MFA, recovery codes, sessions); service health; integrations (settings, history, routes); platform controls; pricing; demo requests; and recovery |
 
 Each area restores the shared backend cookie session and applies its own
 permission checks. The backend remains the
@@ -94,8 +94,14 @@ facility context. The selected facility must belong to the authenticated
 session; the backend checks the header on each request. Admin routes use their
 own platform permissions and are platform-scoped: the admin client never sends
 `X-Facility-ID`, and the backend binds no facility to them even if one is sent.
-`apps/patient-web/src/admin` is the authoritative Platform Admin UI; the
-`apps/admin` app in hid-system is legacy reference code. UI permission gates
+`apps/patient-web/src/admin` is the authoritative Platform Admin UI. Since
+Stage 3, one navigation map (`navigation.ts`) drives the sidebar, the overview
+and the route guard, so an area and its sub-pages render, and request data,
+only for the permissions that list it. The `apps/admin` app in hid-system is
+legacy: it uses staff sign-in, which the Stage 2A admin endpoints no longer
+accept, yet hid-system still builds it and routes `admin.healthidentitydirectory.com`
+to it in Cloudflare (see
+[Phase 4 Stage 3](./PHASE_4_STAGE_3_ADMIN_CONSOLIDATION.md)). UI permission gates
 hide unavailable actions and render access errors, but do not replace server
 authorization. Since Stage 2B the admin UI signs in to the separate MFA-verified
 platform session (`/auth/admin/*`, `hid_access_admin*` cookies) and answers the

@@ -30,6 +30,11 @@ screen audit; its baseline status column predates the portal implementation.
 | Platform session end reason | Stage 2A returns `401 AUTHENTICATION_REQUIRED` for an expired and a revoked platform session alike, and `403 STEP_UP_REQUIRED` for a missing and an expired step-up. The admin UI explains a session end from the expiry the backend last reported. | If administrators need certainty, add distinct backend codes (for example session expired versus revoked) and map them. |
 | Export headers across origins | The principal export reports its row count, cap and truncation in `X-HID-Export-*`, which Identity's CORS `exposedHeaders` does not list. Same-origin `/api/v1` (the production design) can read them. | Add the headers to `exposedHeaders` if any deployment calls the API cross-origin. |
 | Authenticator QR code | Enrolment shows the setup key and an `otpauth://` link; no QR image, because that needs a vetted encoder or dependency. | Decide on a QR approach and add it without weakening the one-time display of the key. |
+| Platform controls runtime grant | At hid-system `46fabe6`, `runtime-grants.sql` revokes all platform functions from `hid_identity_api_runtime` and never grants `platform.admin_list_controls()` or `platform.admin_set_control(...)`. `GET /admin/controls` returned 500 in the Stage 3 browser run; the console shows a safe error with a reference. | Grant `EXECUTE` on both functions to the Identity runtime and cover listing and changing a control in the runtime verifier. |
+| Admin audit by target | Platform commands record their target (`resourceType`, `resourceId`), but `ListPlatformAuditDto` cannot filter by it. The facility page therefore lists facility-scoped events only. | Add a target filter to `/admin/audit/events`, then show platform changes on the facility page. |
+| Admin list caps | `GET /admin/approvals` returns at most 200 and `GET /admin/demo-requests` at most 100, with no cursor. The console marks the caps. | Add cursor or page parameters. |
+| Per-user MFA state | Principal rows have no MFA enrolment field. An MFA reset request for an unenrolled account fails with `MFA_NOT_ENROLLED`. | Return enrolment state in `/admin/principals` so the console can offer the reset only where it applies. |
+| Legacy admin app and hostname | hid-system `apps/admin` still builds and is routed by the `hid-admin` Cloudflare worker to `admin.healthidentitydirectory.com`, but it uses staff sign-in, which Stage 2A admin endpoints refuse. The Health-id portal claims the same hostname. | Retire the legacy app and route the hostname to the portal with same-origin `/api/v1` (backend and infrastructure owners). |
 
 ## Configuration and contract decisions
 
@@ -69,6 +74,10 @@ claim them:
 - **Commercial/admin:** subscription, trial, invoice, payment and global AI
   processing administration. The existing public prices, demo intake and
   platform administration routes do not imply these capabilities.
+- **Platform administration:** an organization directory, support cases or
+  notes, security event metrics, legal holds and session-event review. The
+  console lists these as unavailable (see
+  [Phase 4 Stage 3](./PHASE_4_STAGE_3_ADMIN_CONSOLIDATION.md)).
 
 Before adding any of these screens, agree a permissioned API with persistence,
 validation and audit behavior in `hid-system`. Static reference UI and browser

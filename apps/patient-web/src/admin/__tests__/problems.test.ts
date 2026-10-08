@@ -68,4 +68,17 @@ describe('admin failure messages', () => {
       .toBe('Audit events could not be loaded.')
     expect(failure(new Error('raw'), 'fallback')).toBe('fallback')
   })
+
+  it('explains integration and pricing refusals that are not edits by someone else', () => {
+    expect(failure(problem(409, 'INTEGRATION_UNCHANGED'), 'fallback')).toMatch(/^Nothing changed/)
+    expect(failure(problem(409, 'PRICING_UNCHANGED'), 'fallback')).toMatch(/^Nothing changed/)
+    expect(failure(problem(409, 'INTEGRATION_INFRASTRUCTURE_CONTROL'), 'fallback')).toMatch(/infrastructure configuration/)
+    expect(failure(problem(409, 'INTEGRATION_CONFIGURATION_EXTERNAL'), 'fallback')).toMatch(/deployment configuration/)
+    expect(failure(problem(409, 'INTEGRATION_CREDENTIAL_UNAVAILABLE'), 'fallback')).toMatch(/credentials are configured/)
+    expect(failure(problem(400, 'INTEGRATION_PROVIDER_INCOMPATIBLE'), 'fallback')).toMatch(/does not support this capability/)
+    expect(failure(problem(404, 'ADMIN_RESOURCE_NOT_FOUND'), 'fallback')).toMatch(/no longer exists/)
+    for (const code of ['INTEGRATION_UNCHANGED', 'PRICING_UNCHANGED', 'INTEGRATION_TEST_ALREADY_ATTEMPTED']) {
+      expect(failure(problem(409, code), 'fallback')).not.toBe('This item changed. Reload it and try again.')
+    }
+  })
 })

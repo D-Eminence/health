@@ -118,6 +118,45 @@ describe('platform administration session', () => {
   })
 })
 
+describe('consolidated admin routing', () => {
+  const SUPPORT = ['platform.admin.access', 'platform.principal.read', 'platform.session.revoke']
+
+  it('refuses deep links to areas the administrator cannot use, before any data request', async () => {
+    for (const path of ['/admin/facilities?status=suspended', '/admin/facilities/0f8c6d2e-4b1a-4c3d-9e5f-1a2b3c4d5e6f', '/admin/audit?actor=x']) {
+      api.session.mockResolvedValueOnce(actor(SUPPORT))
+      const view = render(<MemoryRouter initialEntries={[path]}><Routes><Route path="/admin/*" element={<App />} /></Routes></MemoryRouter>)
+      expect(await screen.findByRole('heading', { name: 'Access denied' })).toBeTruthy()
+      expect(screen.getByRole('link', { name: 'Go to overview' })).toBeTruthy()
+      view.unmount()
+    }
+  })
+
+  it('shows a not-found page for an unknown admin path', async () => {
+    api.session.mockResolvedValueOnce(actor(ALL))
+    open('/admin/no-such-area')
+    expect(await screen.findByRole('heading', { name: 'Page not found' })).toBeTruthy()
+  })
+
+  it('names the browser tab after the open area', async () => {
+    api.session.mockResolvedValueOnce(actor(ALL))
+    open('/admin/overview')
+    await screen.findByRole('heading', { name: 'Overview', level: 1 })
+    expect(document.title).toBe('Overview · Health ID Platform')
+  })
+
+  it('asks the overview only for the counts the administrator may open', async () => {
+    api.session.mockResolvedValueOnce(actor(SUPPORT))
+    open()
+    expect(await screen.findByRole('heading', { name: 'Platform totals' })).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: 'Waiting for attention' })).toBeNull()
+    expect(api.overview).toHaveBeenCalledTimes(1)
+    expect(api.approvals).not.toHaveBeenCalled()
+    expect(api.applications).not.toHaveBeenCalled()
+    expect(api.demos).not.toHaveBeenCalled()
+    expect(api.integrations).not.toHaveBeenCalled()
+  })
+})
+
 describe('session warning', () => {
   it('shows a window recorded after it rendered but before it subscribed', () => {
     // A layout effect runs after the warning rendered and before its subscription effect.
