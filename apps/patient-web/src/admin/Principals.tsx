@@ -4,7 +4,7 @@ import { adminApi, type AdminActor, type Page as ResultPage, type Principal } fr
 import { failure } from './problems'
 import { ApprovalRequestForm, ExportPanel, PrincipalSessions } from './PrincipalSecurity'
 import {
-  ActionForm, Page, Pager, Refresh, Status, Table, date, has, label, pageNumber, useGovernedSubmit, useUrlFilters,
+  ActionForm, Page, Pager, Refresh, Status, Table, date, has, label, pageNumber, useGovernedSubmit,
 } from './ui'
 
 /** `ListPrincipalsDto` statuses. */
@@ -15,9 +15,15 @@ const ACCOUNT_STATUSES = ['active', 'pending_reset', 'locked', 'disabled', 'dele
  * it shows identity and lifecycle data only (no clinical records), and every
  * change is a governed, audited backend command.
  */
+/**
+ * The search lives in page state, not the URL: a search term can be a name or
+ * an email address, which would otherwise stay in browser history and reach
+ * the frontend host's request logs on a reload.
+ */
 export function PrincipalsPage({ actor }: { actor: AdminActor }) {
-  const [filters, setFilters] = useUrlFilters(['query', 'status', 'page'] as const)
-  const [input, setInput] = useState(filters.query)
+  const [filters, setFilterState] = useState({ query: '', status: '', page: '' })
+  const setFilters = (next: Partial<typeof filters>) => setFilterState(current => ({ ...current, ...next }))
+  const [input, setInput] = useState('')
   const [revision, setRevision] = useState(0)
   const [loaded, setLoaded] = useState<{ search: string; page: ResultPage<Principal> } | null>(null)
   const [loading, setLoading] = useState(false)
