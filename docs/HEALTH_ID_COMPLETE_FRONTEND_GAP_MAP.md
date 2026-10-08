@@ -36,9 +36,9 @@ Audit baseline: `Health-id` `8903e68`, `hid-system` `c4b5445` on `hid-local-pre-
 | Access requests/consent | No view | Small consent simulation | Access controls | Local grant | Patient routes exist but fail facility context check | BACKEND GAP |
 | Access PIN set/revoke | No view | Outside hospital scope | PIN input | Local PIN | `POST`/`DELETE /identity/me/access-pin` | BUILD |
 | Patient sharing/invites | No view | Outside hospital scope | Share profile | Local share | No patient self-service share-create API | BACKEND GAP |
-| Patient revoke active staff grant | No view | Outside hospital scope | Revoke control | Local revoke | Patient approval/denial; staff close only | BACKEND GAP |
-| Emergency access explanation | No view | Outside hospital scope | Patient emergency info | Break-glass fixture | Staff audited break-glass endpoint | BUILD |
-| Account deletion | No view | Outside hospital scope | Account setting | No equivalent | No patient self-delete API | BACKEND GAP |
+| Patient revoke active staff grant | No view | Outside hospital scope | Revoke control | Local revoke | `POST /identity/me/consent-grants/:id/revoke` for patient-authorized grants only (Phase 3) | BUILT (Phase 3) |
+| Emergency access explanation | No view | Outside hospital scope | Patient emergency info | Break-glass fixture | Access history `breakGlass` label; verified emergency contacts (Phase 3) | BUILT (Phase 3) |
+| Account deletion | No view | Outside hospital scope | Account setting | No equivalent | `/identity/me/account-deletion` login deletion lifecycle (Phase 3) | BUILT (Phase 3) |
 | Provider sign in and bootstrap | No app | Simulated sign-in, recovery and MFA | Doctor auth/portal | Fake login | Cookie auth/session/refresh/logout | BUILD |
 | Organization/facility selection | No app | Simulated institution and branch switch | Facility picker | 9-step setup fixture | Session facilities and `POST /auth/facility` | BUILD |
 | Provider onboarding/application | No app | Simulated five-step registration | Hospital signup | Facility setup fixture | Application submit route has a database argument mismatch; completion is narrow | BACKEND GAP |

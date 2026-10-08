@@ -19,7 +19,7 @@ screen audit; its baseline status column predates the portal implementation.
 
 | Item | Current evidence | Needed to close |
 | --- | --- | --- |
-| Patient consent requests | Patient list/approve/deny routes call `consentContext()` and then `requireRequestContext()`, which requires a facility ID that a patient session does not carry. The frontend can send the routes, but this backend path blocks real use. | Give patient consent routes patient-scoped context without a facility requirement; test list, approve and deny with patient cookies and CSRF. |
+| Patient consent requests | Resolved on hid-system `phase-3-patient-safety`: list/approve/deny are session-bound patient commands without a facility requirement, the inbox and decision commands are granted to the Identity runtime, and the `0035` decision commands no longer fail as ambiguous. Verified over HTTP with patient cookies and CSRF in the synthetic rehearsal. | Merge and deploy the Phase 3 backend; confirm in staging. |
 | Emergency access to the detailed chart | Identity can create an audited break-glass grant with emergency purpose. EHR's ordinary encounter, vital, note, diagnosis, prescription and lab-request controllers call `clinicalContext()`, which accepts only `direct-care`. The distinct `GET /ehr/patients/:patientId/emergency-records` accepts `emergency` but returns only completed encounters and signed notes. | Define which detailed clinical reads, if any, an emergency grant permits; add explicit backend authorization and tests. Keep the frontend on the limited emergency summary until then. |
 | Provider organization application | `organization-applications.service.ts` passes five arguments to `identity.submit_organization_application`; migration `0046_organization_onboarding.sql` declares six required arguments. | Reconcile the function call and migration; prove a public application can be submitted and reviewed. |
 | Facility selection after reload | `/auth/facility` returns selected context but does not persist a new cookie; the provider portal must ask for a facility again after a reload. Browser storage outside the sanctioned auth hint is blocked by this repo's data policy. | Persist the authorized facility context in the backend session or return it from `/auth/session`, then verify reload and facility switching. |
@@ -46,8 +46,11 @@ The following remain backend contract work before an operational frontend can
 claim them:
 
 - **Patient account:** general self-profile editing, patient-created sharing or
-  invitations, patient revocation of an active staff grant, account deletion and
-  patient-authored structured history.
+  invitations, and patient-authored structured history. Patient revocation of a
+  grant the patient authorized, login/account deletion, and emergency contacts
+  are wired to the hid-system Phase 3 contract (see
+  [Phase 3 patient safety](PHASE_3_PATIENT_SAFETY.md)); revoking a workforce or
+  break-glass grant remains outside patient authority.
 - **Hospital operations:** appointments, triage queues, inpatient/ICU, maternity,
   surgery, radiology, claims and insurance, inventory, referrals, shifts/HR,
   quality, telemedicine, ambulance, blood bank, dental and procurement.
