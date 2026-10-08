@@ -9,6 +9,8 @@ import {
 const FACILITY_STATUSES = ['pending', 'verified', 'rejected', 'suspended'] as const
 /** `FacilityStatusCommandDto` targets. */
 const FACILITY_TRANSITIONS = ['verified', 'rejected', 'suspended'] as const
+/** The backend accepts only UUID v4 facility IDs. */
+const FACILITY_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 function FacilityStatusAction({ facility, reload }: { facility: Facility; reload: () => void }) {
   return <ActionForm title="Change facility status"
@@ -74,7 +76,9 @@ function FacilityAudit({ facilityId }: { facilityId: string }) {
   const load = useCallback((signal?: AbortSignal) => adminApi.audit({ facilityId }, undefined, signal), [facilityId])
   const resource = useResource(load, 'Audit events for this facility could not be loaded.')
   return <section className="admin-panel" aria-labelledby="admin-facility-audit-title">
-    <div className="admin-panel-head"><h2 id="admin-facility-audit-title">Recent audit events</h2>
+    <div className="admin-panel-head"><div><h2 id="admin-facility-audit-title">Activity inside this facility</h2>
+      <p>Audit events recorded in this facility&apos;s scope, such as staff activity. Platform changes to the facility,
+        including status changes, are recorded at platform scope; find them in Audit by action.</p></div>
       <Link to={`/admin/audit?facilityId=${encodeURIComponent(facilityId)}`}>Open in Audit</Link></div>
     <ResourceView resource={resource} empty={result => result.items.length === 0}>{result =>
       <Table headings={['Occurred', 'Action', 'Outcome', 'Actor']}>
@@ -87,6 +91,15 @@ function FacilityAudit({ facilityId }: { facilityId: string }) {
 /** One facility, linkable by ID. */
 export function FacilityDetailPage({ actor }: { actor: AdminActor }) {
   const { facilityId = '' } = useParams()
+  if (!FACILITY_ID.test(facilityId)) {
+    return <Page eyebrow="Facility" title="Facility not found" description="This link does not contain a valid facility ID.">
+      <p><Link to="/admin/facilities">← All facilities</Link></p>
+    </Page>
+  }
+  return <FacilityDetail facilityId={facilityId} actor={actor} />
+}
+
+function FacilityDetail({ facilityId, actor }: { facilityId: string; actor: AdminActor }) {
   const load = useCallback((signal?: AbortSignal) => adminApi.facility(facilityId, signal), [facilityId])
   const resource = useResource(load, 'This facility could not be loaded.')
   return <Page eyebrow="Facility" title={resource.data?.name ?? 'Facility'} description="The platform record for one facility."

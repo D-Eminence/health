@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { newIdempotencyKey, type AdminActor } from './api'
 import { failure } from './problems'
@@ -33,8 +33,12 @@ export function useResource<T>(load: (signal?: AbortSignal) => Promise<T>, error
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [revision, setRevision] = useState(0)
+  const loaded = useRef(load)
 
   useEffect(() => {
+    // A new query starts empty. A reload of the same query keeps the current
+    // data on screen, so forms and their confirmations are not unmounted.
+    if (loaded.current !== load) { loaded.current = load; setData(null) }
     const controller = new AbortController()
     setLoading(true)
     setError(null)
@@ -70,13 +74,16 @@ export function Refresh({ onClick, disabled = false }: { onClick: () => void; di
 export function ResourceView<T>({ resource, empty, children }: {
   resource: Resource<T>; empty?: (value: T) => boolean; children: (value: T) => ReactNode
 }) {
-  if (resource.loading) return <div className="admin-state" role="status">Loading current information…</div>
+  if (resource.loading && resource.data === null) return <div className="admin-state" role="status">Loading current information…</div>
   if (resource.error) return <div className="admin-state admin-state-error" role="alert">
     <p>{resource.error}</p><Refresh onClick={resource.reload} />
   </div>
   if (!resource.data) return <div className="admin-state">No information was returned.</div>
   if (empty?.(resource.data)) return <div className="admin-state">No items are available in this area.</div>
-  return <>{children(resource.data)}</>
+  return <>
+    {resource.loading && <p className="admin-note" role="status">Refreshing current information…</p>}
+    {children(resource.data)}
+  </>
 }
 
 export function Status({ value }: { value: string }) {

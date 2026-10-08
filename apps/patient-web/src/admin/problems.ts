@@ -51,6 +51,20 @@ const ADMIN_PROBLEMS: Readonly<Record<string, string>> = {
   // Platform availability.
   PLATFORM_PORTAL_DISABLED: 'Platform administration is temporarily disabled.',
   PLATFORM_MAINTENANCE: 'Health ID is in maintenance mode. Try again later.',
+
+  // Records, integrations and pricing. These 409s are refusals, not edits by
+  // someone else, so the generic "item changed" message would mislead.
+  ADMIN_RESOURCE_NOT_FOUND: 'This item no longer exists or is not available to you. Reload the list.',
+  INTEGRATION_NOT_FOUND: 'This integration or route no longer exists. Reload the page.',
+  INTEGRATION_UNCHANGED: 'Nothing changed: the integration already has these settings or this state.',
+  INTEGRATION_CONFIGURATION_EXTERNAL: 'This integration has no settings that can be edited here. They are managed in deployment configuration.',
+  INTEGRATION_CREDENTIAL_UNAVAILABLE: 'This integration cannot be enabled until its credentials are configured in the deployment.',
+  INTEGRATION_INFRASTRUCTURE_CONTROL: 'This integration is controlled by infrastructure configuration and cannot be changed here.',
+  INTEGRATION_TEST_UNSUPPORTED: 'This integration does not support a connection test.',
+  INTEGRATION_TEST_ALREADY_ATTEMPTED: 'A connection test was already attempted for this version. Reload before testing again.',
+  INTEGRATION_PROVIDER_INCOMPATIBLE: 'That provider does not support this capability or is not enabled. Enable it first.',
+  INTEGRATION_PAUSED: 'This integration is paused. Enable it in Integrations first.',
+  PRICING_UNCHANGED: 'Nothing changed: the catalog already has these values.',
 }
 
 export function problemCode(error: unknown): string | null {

@@ -19,18 +19,22 @@ export function PrincipalsPage({ actor }: { actor: AdminActor }) {
   const [filters, setFilters] = useUrlFilters(['query', 'status', 'page'] as const)
   const [input, setInput] = useState(filters.query)
   const [revision, setRevision] = useState(0)
-  const [result, setResult] = useState<ResultPage<Principal> | null>(null)
+  const [loaded, setLoaded] = useState<{ search: string; page: ResultPage<Principal> } | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const query = filters.query
   const page = pageNumber(filters.page)
+  // Results stay on screen while the same search reloads (after a change), so
+  // row actions keep their confirmations; a different search starts empty.
+  const search = JSON.stringify([query, page, filters.status])
+  const result = loaded?.search === search ? loaded.page : null
 
   useEffect(() => {
-    if (query.length < 2) { setResult(null); return }
+    if (query.length < 2) { setLoaded(null); return }
     const controller = new AbortController()
     setLoading(true); setError(null)
     void adminApi.principals(query, { page, ...(filters.status ? { status: filters.status } : {}) }, controller.signal).then(value => {
-      if (!controller.signal.aborted) setResult(value)
+      if (!controller.signal.aborted) setLoaded({ search: JSON.stringify([query, page, filters.status]), page: value })
     }).catch(reason => {
       if (!controller.signal.aborted) setError(failure(reason, 'Users could not be loaded.'))
     }).finally(() => {
@@ -39,7 +43,7 @@ export function PrincipalsPage({ actor }: { actor: AdminActor }) {
     return () => controller.abort()
   }, [query, page, filters.status, revision])
 
-  function search(event: FormEvent<HTMLFormElement>) {
+  function submitSearch(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const value = input.trim()
     if (value.length < 2) { setError('Enter at least two characters to search users.'); return }
@@ -51,7 +55,7 @@ export function PrincipalsPage({ actor }: { actor: AdminActor }) {
   return <Page eyebrow="People and access" title="Users and roles"
     description="Search by account name, email or subject. Results show identity and lifecycle data only, never clinical records."
     action={query ? <Refresh onClick={reload} disabled={loading} /> : null}>
-    <form className="admin-search" onSubmit={search} role="search" aria-label="User search">
+    <form className="admin-search" onSubmit={submitSearch} role="search" aria-label="User search">
       <label htmlFor="admin-principal-query">Search users</label>
       <div><input id="admin-principal-query" type="search" minLength={2} value={input}
         onChange={event => setInput(event.target.value)} placeholder="At least two characters" />
@@ -63,10 +67,11 @@ export function PrincipalsPage({ actor }: { actor: AdminActor }) {
     </form>
     {has(actor, 'platform.principal.export') && <ExportPanel query={query} />}
     {!query && !error && <div className="admin-state">Enter at least two characters to search.</div>}
-    {loading && <div className="admin-state" role="status">Searching users…</div>}
+    {loading && !result && <div className="admin-state" role="status">Searching users…</div>}
+    {loading && result && <p className="admin-note" role="status">Refreshing current information…</p>}
     {error && !loading && <div className="admin-state admin-state-error" role="alert"><p>{error}</p>
       {query && <Refresh onClick={reload} />}</div>}
-    {result && !loading && !error && (result.items.length === 0 ? <div className="admin-state">No users match “{query}”.</div> : <>
+    {result && !error && (result.items.length === 0 ? <div className="admin-state">No users match “{query}”.</div> : <>
       <p className="admin-result-count">Showing {result.items.length} of {result.total} matching users</p>
       <Table headings={['User', 'Status', 'Platform roles', 'Sessions', 'Facility memberships', 'Actions']}>
         {result.items.map(principal => <tr key={principal.id}>

@@ -80,12 +80,21 @@ export function OperationsPage() {
   </Page>
 }
 
-function PriceEditor({ price, reload }: { price: CommercialPrice; reload: () => void }) {
+/** The editor restarts from the server's values for each version; the confirmation outlives that reset. */
+function PriceEdit({ price, reload }: { price: CommercialPrice; reload: () => void }) {
+  const [notice, setNotice] = useState<string | null>(null)
+  return <>
+    <PriceEditor key={price.version} price={price} onEdit={() => setNotice(null)}
+      onSaved={() => { setNotice('Pricing saved. Current catalog is being refreshed.'); reload() }} />
+    {notice && <p role="status" className="admin-success">{notice}</p>}
+  </>
+}
+
+function PriceEditor({ price, onEdit, onSaved }: { price: CommercialPrice; onEdit: () => void; onSaved: () => void }) {
   const [visibility, setVisibility] = useState<CommercialPrice['visibility']>(price.visibility)
   const [amount, setAmount] = useState(price.amount_minor === null ? '' : String(price.amount_minor))
   const [active, setActive] = useState(price.active)
   const [reason, setReason] = useState('')
-  const [notice, setNotice] = useState<string | null>(null)
   const governed = useGovernedSubmit()
   const { busy, error } = governed
   const needsAmount = visibility === 'fixed' || visibility === 'starting_from'
@@ -97,13 +106,13 @@ function PriceEditor({ price, reload }: { price: CommercialPrice; reload: () => 
     if (needsAmount && (!/^(0|[1-9]\d*)$/.test(amount) || !Number.isSafeInteger(amountMinor))) {
       governed.setError('Enter a valid whole number of minor currency units.'); return
     }
-    setNotice(null)
+    onEdit()
     const done = await governed.submit(idempotencyKey => adminApi.command(
       `/api/v1/admin/pricing/products/${encodeURIComponent(price.product_slug)}/prices/${encodeURIComponent(price.context)}`,
       { visibility, amountMinor, currency: price.currency, billingPeriod: price.billing_period,
         unit: price.unit, active, reason: reason.trim() },
       { version: price.version, idempotencyKey }), 'Pricing could not be updated.')
-    if (done !== null) { setReason(''); setNotice('Pricing saved. Current catalog is being refreshed.'); reload() }
+    if (done !== null) onSaved()
   }
 
   return <details className="admin-action"><summary>Edit price</summary><form className="admin-action-form" onSubmit={event => void submit(event)}>
@@ -116,7 +125,7 @@ function PriceEditor({ price, reload }: { price: CommercialPrice; reload: () => 
     <label>Reason for this change<textarea minLength={8} maxLength={500} required rows={3}
       value={reason} onChange={event => setReason(event.target.value)} /></label>
     <button className="admin-primary" type="submit" disabled={busy || reason.trim().length < 8}>{busy ? 'Saving…' : 'Save price'}</button>
-    {error && <p role="alert" className="admin-error">{error}</p>}{notice && <p role="status" className="admin-success">{notice}</p>}
+    {error && <p role="alert" className="admin-error">{error}</p>}
   </form></details>
 }
 
@@ -143,7 +152,7 @@ export function PricingPage({ actor }: { actor: AdminActor }) {
               <div><strong>{label(price.context)}</strong><span>{label(price.visibility)} · {price.active ? 'Active' : 'Inactive'}</span>
                 <small>{price.amount_minor === null ? 'Amount available on request' : `${new Intl.NumberFormat('en-NG').format(price.amount_minor)} minor ${price.currency} units`}
                   {price.billing_period ? ` · ${label(price.billing_period)}` : ''}{price.unit ? ` · ${price.unit}` : ''}</small></div>
-              {canManage && <PriceEditor key={`${price.context}:${price.version}`} price={price} reload={resource.reload} />}
+              {canManage && <div><PriceEdit price={price} reload={resource.reload} /></div>}
             </div>)}</div>}
       </section>)}
     </div>}</ResourceView>

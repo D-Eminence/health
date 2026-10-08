@@ -26,12 +26,28 @@ const PROVIDER_SETTINGS: Readonly<Record<string, ReadonlyArray<{ key: string; ti
   ],
 }
 
-function ProviderSettingsForm({ provider, reload }: { provider: IntegrationProvider; reload: () => void }) {
+/**
+ * The form starts again from the server's values whenever the provider's
+ * version changes, so it never re-sends settings another administrator has
+ * since replaced. The confirmation lives outside it and survives that reset.
+ */
+function ProviderSettings({ provider, reload }: { provider: IntegrationProvider; reload: () => void }) {
+  const [notice, setNotice] = useState<string | null>(null)
+  if (!PROVIDER_SETTINGS[provider.provider]) return null
+  return <>
+    <ProviderSettingsForm key={provider.version} provider={provider} onEdit={() => setNotice(null)}
+      onSaved={() => { setNotice('Settings saved.'); reload() }} />
+    {notice && <p role="status" className="admin-success">{notice}</p>}
+  </>
+}
+
+function ProviderSettingsForm({ provider, onEdit, onSaved }: {
+  provider: IntegrationProvider; onEdit: () => void; onSaved: () => void
+}) {
   const fields = PROVIDER_SETTINGS[provider.provider] ?? []
   const [values, setValues] = useState<Record<string, string>>(() =>
     Object.fromEntries(fields.map(field => [field.key, provider.configuration?.[field.key] ?? ''])))
   const [reason, setReason] = useState('')
-  const [notice, setNotice] = useState<string | null>(null)
   const governed = useGovernedSubmit()
   const invalid = fields.filter(field => values[field.key] && !field.pattern.test(values[field.key]!.trim()))
   if (fields.length === 0) return null
@@ -39,12 +55,12 @@ function ProviderSettingsForm({ provider, reload }: { provider: IntegrationProvi
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (governed.busy || invalid.length > 0 || reason.trim().length < 8) return
-    setNotice(null)
+    onEdit()
     // The backend replaces the whole public configuration: empty fields are removed.
     const configuration = Object.fromEntries(Object.entries(values).map(([key, value]) => [key, value.trim()]).filter(([, value]) => value))
     const saved = await governed.submit(idempotencyKey => adminApi.configureIntegration(provider, configuration, reason.trim(), idempotencyKey),
       'The settings could not be saved.')
-    if (saved) { setReason(''); setNotice('Settings saved.'); reload() }
+    if (saved) onSaved()
   }
 
   return <details className="admin-action"><summary>Edit settings</summary>
@@ -64,7 +80,6 @@ function ProviderSettingsForm({ provider, reload }: { provider: IntegrationProvi
       <button type="submit" className="admin-primary" disabled={governed.busy || invalid.length > 0 || reason.trim().length < 8}>
         {governed.busy ? 'Saving…' : 'Save settings'}</button>
       {governed.error && <p role="alert" className="admin-error">{governed.error}</p>}
-      {notice && <p role="status" className="admin-success">{notice}</p>}
     </form>
   </details>
 }
@@ -163,7 +178,7 @@ export function IntegrationsPage({ actor }: { actor: AdminActor }) {
           <ProviderDetails provider={provider} />
           <IntegrationAction provider={provider} reload={resource.reload} actor={actor} />
           {has(actor, 'platform.integration.manage') && provider.availableActions.includes('configure')
-            && <ProviderSettingsForm key={provider.version} provider={provider} reload={resource.reload} />}
+            && <ProviderSettings provider={provider} reload={resource.reload} />}
           <ProviderHistory provider={provider} />
         </article>)}</div>}</section>
       <section className="admin-panel"><h2>Capability routing</h2>{catalog.capabilities.length === 0 ? <p className="admin-note">No capability routes are configured.</p> :
