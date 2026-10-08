@@ -89,6 +89,36 @@ describe('registered browser client', () => {
     expect(fetchImpl).not.toHaveBeenCalled()
   })
 
+  it('sends the principal export only as a download that states its reason', async () => {
+    const { client, fetchImpl } = harness('admin-web')
+    await client.request({ method: 'GET', path: '/api/v1/admin/principals/export', responseType: 'download',
+      query: { reason: 'Quarterly access review' } })
+    expect(new URL(String(fetchImpl.mock.calls[0]?.[0])).searchParams.get('reason')).toBe('Quarterly access review')
+    await expect(client.request({ method: 'GET', path: '/api/v1/admin/principals/export', responseType: 'download' }))
+      .rejects.toMatchObject({ code: 'REQUIRED_QUERY' })
+    await expect(client.request({ method: 'GET', path: '/api/v1/admin/overview', responseType: 'download' }))
+      .rejects.toMatchObject({ code: 'UNSUPPORTED_RESPONSE' })
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
+
+  it('gives platform administration its own sign-in routes and no staff session routes', async () => {
+    const admin = harness('admin-web')
+    for (const path of ['/api/v1/auth/admin/login', '/api/v1/auth/admin/mfa/verify', '/api/v1/auth/admin/mfa/enroll/start',
+      '/api/v1/auth/admin/mfa/enroll/activate', '/api/v1/auth/admin/refresh', '/api/v1/auth/admin/logout',
+      '/api/v1/admin/mfa/step-up', '/api/v1/admin/approvals/7a1c2f8e-58c4-4a51-9bd4-28f0d5f0f7f1/approve']) {
+      await admin.client.post(path, {})
+    }
+    for (const path of ['/api/v1/auth/login', '/api/v1/auth/refresh', '/api/v1/auth/logout']) {
+      await expect(admin.client.post(path, {})).rejects.toBeInstanceOf(BoundaryViolationError)
+    }
+    expect(admin.fetchImpl).toHaveBeenCalledTimes(8)
+
+    const staff = harness('staff-web')
+    await expect(staff.client.post('/api/v1/auth/admin/login', {})).rejects.toBeInstanceOf(BoundaryViolationError)
+    await expect(staff.client.get('/api/v1/admin/sessions')).rejects.toBeInstanceOf(BoundaryViolationError)
+    expect(staff.fetchImpl).not.toHaveBeenCalled()
+  })
+
   it('limits shared service routes to the patient or provider workflow', async () => {
     const patient = harness('patient-web')
     await patient.client.get('/api/v1/identity/me')

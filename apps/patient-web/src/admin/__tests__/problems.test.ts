@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { HidApiError } from '@hid/http'
-import { failure } from '../problems'
+import { failure, isProblem } from '../problems'
 
 const problem = (status: number, code: string, requestId?: string) =>
   new HidApiError(status, 'Backend detail', { code, ...(requestId ? { requestId } : {}) })
@@ -16,7 +16,49 @@ describe('admin failure messages', () => {
   it('keeps the existing status messages for other refusals', () => {
     expect(failure(problem(409, 'VERSION_CONFLICT'), 'fallback')).toBe('This item changed. Reload it and try again.')
     expect(failure(problem(403, 'PERMISSION_DENIED'), 'fallback')).toBe('Your account does not have permission for this action.')
-    expect(failure(problem(401, 'AUTHENTICATION_REQUIRED'), 'fallback')).toBe('Your session has expired. Sign in again to continue.')
+    expect(failure(problem(401, 'UNAUTHENTICATED'), 'fallback')).toBe('Your session has expired. Sign in again to continue.')
+  })
+
+  it('does not claim a session expired when the backend only says it is no longer accepted', () => {
+    // hid-system returns AUTHENTICATION_REQUIRED for an expired and a revoked session alike.
+    expect(failure(problem(401, 'AUTHENTICATION_REQUIRED'), 'fallback')).toBe('Your platform session has ended. Sign in again to continue.')
+    expect(failure(problem(403, 'PLATFORM_SESSION_REQUIRED'), 'fallback')).toMatch(/MFA-verified platform administration session/)
+    expect(failure(problem(403, 'PLATFORM_SESSION_SCOPE_DENIED'), 'fallback')).toMatch(/only for platform administration/)
+    expect(failure(problem(403, 'CSRF_VALIDATION_FAILED'), 'fallback')).toMatch(/security check for this session failed/)
+  })
+
+  it('maps every backend MFA, step-up and approval code the admin console can receive', () => {
+    const expected: Array<[number, string, RegExp]> = [
+      [403, 'MFA_REQUIRED', /enrolled authenticator is required/],
+      [401, 'MFA_INVALID_CODE', /not accepted\. Each code works only once/],
+      [400, 'MFA_CODE_REQUIRED', /either an authenticator code or a recovery code/],
+      [401, 'MFA_CHALLENGE_INVALID', /expired or ran out of attempts/],
+      [429, 'MFA_RATE_LIMITED', /locked for up to 15 minutes/],
+      [503, 'MFA_UNAVAILABLE', /temporarily unavailable/],
+      [409, 'MFA_NOT_ENROLLED', /no authenticator to reset/],
+      [403, 'STEP_UP_REQUIRED', /fresh authenticator confirmation \(they last 5 minutes\)\. It was not carried out/],
+      [400, 'REASON_REQUIRED', /reason of 8 to 500 characters/],
+      [428, 'IF_MATCH_REQUIRED', /Reload this item/],
+      [403, 'HIGH_RISK_POLICY_MISSING', /no security policy/],
+      [403, 'TWO_PERSON_APPROVAL_REQUIRED', /second Super Admin\. Create an elevation request/],
+      [403, 'SELF_APPROVAL_DENIED', /cannot decide a request you made/],
+      [403, 'APPROVER_INELIGIBLE', /another active Super Admin with an enrolled authenticator/],
+      [403, 'APPROVAL_CANCEL_DENIED', /Only the administrator who made this request/],
+      [409, 'APPROVAL_NOT_PENDING', /already been decided/],
+      [409, 'APPROVAL_ALREADY_PENDING', /already pending/],
+      [409, 'APPROVAL_EXPIRED', /expired after 24 hours and was not carried out/],
+      [409, 'TARGET_INELIGIBLE', /cannot receive this change/],
+      [423, 'PLATFORM_PORTAL_DISABLED', /temporarily disabled/],
+    ]
+    for (const [status, code, message] of expected) expect(failure(problem(status, code), 'fallback'), code).toMatch(message)
+  })
+
+  it('lets one screen explain a backend code more precisely without changing other screens', () => {
+    const exportRestricted = { PERMISSION_DENIED: 'Exports are restricted to Super Admins with the export permission.' }
+    expect(failure(problem(403, 'PERMISSION_DENIED'), 'fallback', exportRestricted)).toBe(exportRestricted.PERMISSION_DENIED)
+    expect(failure(problem(403, 'STEP_UP_REQUIRED'), 'fallback', exportRestricted)).toMatch(/fresh authenticator confirmation/)
+    expect(isProblem(problem(403, 'STEP_UP_REQUIRED'), 'STEP_UP_REQUIRED')).toBe(true)
+    expect(isProblem(new Error('STEP_UP_REQUIRED'), 'STEP_UP_REQUIRED')).toBe(false)
   })
 
   it('surfaces a server failure with its correlation reference and no backend detail', () => {

@@ -31,6 +31,26 @@
   mismatches, provider configuration gates and missing reference workflow contracts in
   [open questions](./OPEN-QUESTIONS.md).
 
+## 2026-10-08: Phase 4 Stage 2B platform admin security
+
+- Wired `apps/patient-web/src/admin` to the hid-system Stage 2A backend
+  (`phase-4-stage-2-backend-security` at `7cbbf98`).
+  - MFA sign-in, enrolment with one-time recovery codes, and recovery-code
+    sign-in.
+  - Step-up on `STEP_UP_REQUIRED`, which repeats the same command once.
+  - Two-person approvals.
+  - Own and per-account session management.
+  - A restricted, confirmed export.
+  - Backend problem codes mapped to messages; expiry warning and session-end
+    notices.
+- Shared transport:
+  - download responses;
+  - a refresh opt-out for one-time codes;
+  - a fix so a cancelled shared read no longer cancels it for another caller.
+- Verified with unit/component tests and a local Chromium run against the
+  Stage 2A Identity API. Details and remaining items:
+  [Phase 4 Stage 2B](./PHASE_4_STAGE_2B_FRONTEND_SECURITY.md).
+
 This log records implementation scope, not a release sign-off. The reference
 [gap map](./HEALTH_ID_COMPLETE_FRONTEND_GAP_MAP.md) is a baseline audit rather
 than a live completion tracker.

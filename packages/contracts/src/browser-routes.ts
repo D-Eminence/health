@@ -68,6 +68,7 @@ export function assertRegisteredBrowserRequest(
   method: string,
   path: string,
   query?: Query,
+  responseType: 'json' | 'download' = 'json',
 ): EndpointDescriptor {
   const segments = pathSegments(path)
   if (NON_FRONTEND_ENDPOINTS.some(pattern => matches(pattern, segments))) {
@@ -84,8 +85,11 @@ export function assertRegisteredBrowserRequest(
   if (!endpoint) {
     throw new BrowserRouteError('WRONG_METHOD', 'The request method is not allowed for this route.')
   }
-  if (endpoint.responseKind === 'download') {
+  if (endpoint.responseKind === 'download' && responseType !== 'download') {
     throw new BrowserRouteError('UNSUPPORTED_RESPONSE', 'This route needs a download transport.')
+  }
+  if (endpoint.responseKind !== 'download' && responseType === 'download') {
+    throw new BrowserRouteError('UNSUPPORTED_RESPONSE', 'This route returns JSON, not a download.')
   }
   const required = endpoint.requiredQuery?.[method as keyof typeof endpoint.requiredQuery] ?? []
   for (const key of required) {

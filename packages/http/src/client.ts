@@ -60,6 +60,24 @@ export interface RequestSpec {
   readonly dedupe?: boolean
   /** Extra headers for this call. Must never carry a secret. */
   readonly headers?: Readonly<Record<string, string>>
+  /**
+   * `download` resolves a successful response as a {@link DownloadResult}
+   * instead of parsing JSON. Failures still parse as problem details.
+   */
+  readonly responseType?: 'json' | 'download'
+  /**
+   * Whether a 401 should restore the cookie session and repeat the request.
+   * Defaults to always. A request that submits a one-time credential (such as
+   * an authenticator code) returns false for the backend's own rejection, so
+   * the same code is never sent twice.
+   */
+  readonly refreshOnUnauthorized?: (error: HidApiError) => boolean
+}
+
+/** A successful `download` response. Headers are those the browser may read. */
+export interface DownloadResult {
+  readonly blob: Blob
+  readonly headers: Headers
 }
 
 export interface ApiClientLogger {
@@ -109,6 +127,13 @@ export interface ApiClientOptions {
 }
 
 const DEFAULT_TIMEOUT_MS = 15_000
+
+/** A deduplicated read and the callers still waiting for it. */
+interface SharedRead {
+  readonly controller: AbortController
+  waiting: number
+  promise: Promise<unknown>
+}
 
 /**
  * Per-error `Retry-After` hints. A WeakMap keeps the value off the public error
@@ -228,7 +253,7 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
   const defaultTimeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
   const sleep = options.sleep ?? defaultSleep
   const logger = options.logger
-  const inflight = new Map<string, Promise<unknown>>()
+  const inflight = new Map<string, SharedRead>()
   const cookieMode = options.sessionMode === 'cookie'
   let responseCsrfToken: string | null = null
   let refreshInFlight: Promise<void> | null = null
@@ -238,7 +263,7 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
 
     for (const [key, value] of Object.entries(spec.headers ?? {})) headers.set(key, value)
 
-    headers.set('Accept', 'application/json')
+    headers.set('Accept', spec.responseType === 'download' ? '*/*' : 'application/json')
     if (cookieMode) {
       // These are on the hid-system CORS allow-list. X-HID-Client and
       // X-Request-ID are not, so adding them would block browser preflight.
@@ -324,6 +349,10 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
     const headerRequestId = response.headers.get('X-Correlation-ID')
       ?? response.headers.get('X-Request-ID')
     if (cookieMode) responseCsrfToken = response.headers.get('X-CSRF-Token') ?? responseCsrfToken
+    if (response.ok && spec.responseType === 'download') {
+      const download: DownloadResult = { blob: await response.blob(), headers: response.headers }
+      return download as T
+    }
     const rawBody = await response.text()
     const payload = parseJsonBody(rawBody)
 
@@ -384,7 +413,8 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
       } catch (error) {
         if (cookieMode && options.refreshSession && !refreshed
           && spec.auth !== 'none' && !spec.path.startsWith('/api/v1/auth/')
-          && error instanceof HidApiError && error.status === 401) {
+          && error instanceof HidApiError && error.status === 401
+          && (spec.refreshOnUnauthorized?.(error) ?? true)) {
           refreshed = true
           try {
             refreshInFlight ??= Promise.resolve().then(options.refreshSession)
@@ -424,7 +454,39 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
 
   function dedupeKey(spec: RequestSpec): string {
     return JSON.stringify([spec.method, spec.path, spec.query ?? null, spec.auth ?? 'required',
-      spec.headers ?? null])
+      spec.headers ?? null, spec.responseType ?? 'json'])
+  }
+
+  /**
+   * One caller's view of a shared read. The caller's own cancellation rejects
+   * only its view; the shared request is cancelled when no caller still waits.
+   */
+  function join<T>(key: string, shared: SharedRead, signal: AbortSignal | undefined, requestId: string): Promise<T> {
+    shared.waiting += 1
+    let settled = false
+    const leave = () => {
+      if (settled) return
+      settled = true
+      shared.waiting -= 1
+      if (shared.waiting > 0) return
+      // Abandoned: a later caller (for example a remounted component) starts afresh.
+      if (inflight.get(key) === shared) inflight.delete(key)
+      shared.controller.abort()
+    }
+    return new Promise<T>((resolve, reject) => {
+      const onAbort = () => {
+        leave()
+        reject(new HidApiError(0, 'The request was cancelled.', {
+          code: 'REQUEST_CANCELLED', requestId, retryable: false,
+        }))
+      }
+      if (signal?.aborted) { onAbort(); return }
+      signal?.addEventListener('abort', onAbort, { once: true })
+      shared.promise.then(
+        value => { signal?.removeEventListener('abort', onAbort); settled = true; resolve(value as T) },
+        (error: unknown) => { signal?.removeEventListener('abort', onAbort); settled = true; reject(error) },
+      )
+    })
   }
 
   const client: ApiClient = {
@@ -435,14 +497,20 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
       if (!canDedupe) return run<T>(spec)
 
       const key = dedupeKey(spec)
-      const existing = inflight.get(key)
-      if (existing) return existing as Promise<T>
-
-      const pending = run<T>(spec).finally(() => {
-        inflight.delete(key)
-      })
-      inflight.set(key, pending)
-      return pending
+      let shared = inflight.get(key)
+      if (!shared) {
+        const controller = new AbortController()
+        const entry: SharedRead = { controller, waiting: 0, promise: Promise.resolve() }
+        entry.promise = run<unknown>({ ...spec, signal: controller.signal }).finally(() => {
+          if (inflight.get(key) === entry) inflight.delete(key)
+        })
+        // Each caller observes the outcome through join(); this keeps an
+        // abandoned shared read from reporting an unhandled rejection.
+        entry.promise.catch(() => undefined)
+        inflight.set(key, entry)
+        shared = entry
+      }
+      return join<T>(key, shared, spec.signal, createRequestId())
     },
 
     get<T>(path: string, spec?: Omit<RequestSpec, 'method' | 'path' | 'body'>): Promise<T> {
