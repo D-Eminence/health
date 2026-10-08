@@ -1,9 +1,10 @@
 # Phase 4 Stage 2B: Platform Admin Security (frontend)
 
 Branch: `phase-4-stage-2-frontend-security` (base `main` at `1242f14`).
-Backend contract: hid-system `phase-4-stage-2-backend-security` at `7cbbf98`
-(PR D-Eminence/hid-system#19, `docs/PHASE_4_STAGE_2A_BACKEND_SECURITY.md`,
-ADR-038). That backend is not merged or deployed yet; this UI needs it.
+Backend contract: hid-system Stage 2A, `phase-4-stage-2-backend-security` at
+`7cbbf98` (`docs/PHASE_4_STAGE_2A_BACKEND_SECURITY.md`, ADR-038). PR
+D-Eminence/hid-system#19 merged it into `phase-3-patient-safety` (`46fabe6`, same
+tree). It is not yet on hid-system `main` or deployed; this UI needs it deployed.
 
 The admin UI in `apps/patient-web/src/admin` is only an interface. Whether a
 session is valid, whether MFA or a fresh step-up is needed, who may approve, and
