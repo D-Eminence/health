@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { Link, Navigate, NavLink, Route, Routes } from 'react-router-dom'
+import { Link, Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { adminApi, type AdminActor, type AdminSession } from './api'
 import { ApprovalsPage } from './Approvals'
@@ -13,29 +13,11 @@ import { SecurityPage } from './SecurityPage'
 import {
   clearSessionWindow, currentSessionWindow, onSessionEnded, onSessionWindow, reportSessionEnded, type SessionEndReason,
 } from './session-window'
+import { navigationItemFor, visibleNavigation } from './navigation'
 import { AdminSignIn } from './SignIn'
 import { StepUpProvider } from './StepUp'
 import { date, has } from './ui'
 import './style.css'
-
-/** Approvals are listed for these permissions (hid-system PlatformSecurityService.listApprovals). */
-const APPROVAL_PERMISSIONS = ['platform.role.manage', 'platform.mfa.reset', 'platform.audit.read']
-
-const NAVIGATION: ReadonlyArray<{ path: string; title: string; visible: (actor: AdminActor) => boolean }> = [
-  { path: '/admin/overview', title: 'Overview', visible: actor => has(actor, 'platform.admin.access') },
-  { path: '/admin/facilities', title: 'Facilities', visible: actor => has(actor, 'platform.facility.read') },
-  { path: '/admin/principals', title: 'Users & roles', visible: actor => has(actor, 'platform.principal.read') },
-  { path: '/admin/approvals', title: 'Approvals', visible: actor => APPROVAL_PERMISSIONS.some(code => has(actor, code)) },
-  { path: '/admin/applications', title: 'Applications', visible: actor => has(actor, 'platform.identity-review.read') },
-  { path: '/admin/reviews', title: 'Identity review', visible: actor => has(actor, 'platform.identity-review.read') },
-  { path: '/admin/audit', title: 'Audit', visible: actor => has(actor, 'platform.audit.read') },
-  { path: '/admin/operations', title: 'Operations', visible: actor => has(actor, 'platform.operations.read') },
-  { path: '/admin/pricing', title: 'Pricing', visible: actor => has(actor, 'platform.pricing.read') },
-  { path: '/admin/demos', title: 'Demo requests', visible: actor => has(actor, 'platform.demo.read') },
-  { path: '/admin/integrations', title: 'Integrations', visible: actor => has(actor, 'platform.integration.read') },
-  { path: '/admin/controls', title: 'Platform controls', visible: actor => has(actor, 'platform.control.read') },
-  { path: '/admin/security', title: 'Security', visible: actor => has(actor, 'platform.admin.access') },
-]
 
 export const SESSION_ENDED_MESSAGES: Readonly<Record<SessionEndReason, string>> = {
   expired: 'Your platform session expired after 15 minutes without activity or at its 8-hour limit. Sign in again to continue.',
@@ -44,11 +26,36 @@ export const SESSION_ENDED_MESSAGES: Readonly<Record<SessionEndReason, string>> 
 }
 const NO_ACCESS = 'This account has no platform administration access.'
 
-function Guard({ allowed, children }: { allowed: boolean; children: ReactNode }) {
-  return allowed ? <>{children}</> : (
-    <main className="admin-message" role="alert"><h1>Access denied</h1>
-      <p>Your platform account does not have permission for this area.</p></main>
-  )
+/**
+ * Guards an area with the same rule that shows it in the navigation. A
+ * forbidden page says so instead of looking empty; the backend still refuses
+ * the area's requests on its own.
+ */
+function Area({ path, actor, children }: { path: string; actor: AdminActor; children: ReactNode }) {
+  const item = navigationItemFor(path)
+  if (item?.visible(actor)) return <>{children}</>
+  return <section className="admin-message admin-forbidden" role="alert" aria-labelledby="admin-forbidden-title">
+    <h1 id="admin-forbidden-title">Access denied</h1>
+    <p>Your platform account does not have permission for {item ? item.title : 'this area'}. Ask a Super Admin if you
+      need it; access is granted through platform roles.</p>
+    <Link to="/admin/overview">Go to overview</Link>
+  </section>
+}
+
+function NotFound() {
+  return <section className="admin-message" aria-labelledby="admin-not-found-title">
+    <h1 id="admin-not-found-title">Page not found</h1>
+    <p>This platform page is unavailable.</p><Link to="/admin/overview">Go to overview</Link>
+  </section>
+}
+
+/** Names the browser tab after the current area. */
+function useAreaTitle() {
+  const location = useLocation()
+  useEffect(() => {
+    const item = navigationItemFor(location.pathname)
+    document.title = `${item ? item.title : 'Platform'} · Health ID Platform`
+  }, [location.pathname])
 }
 
 export function App() {
@@ -59,6 +66,7 @@ export function App() {
   const [notice, setNotice] = useState<string | null>(null)
   const [signOutError, setSignOutError] = useState<string | null>(null)
   const signedIn = useRef(false)
+  useAreaTitle()
 
   const end = useCallback((message: string | null) => {
     signedIn.current = false
@@ -119,8 +127,7 @@ export function App() {
     <p>{checkError}</p><button type="button" className="admin-primary" onClick={() => setCheckRevision(value => value + 1)}>Try again</button></main>
   if (!session) return <AdminSignIn onSignedIn={signedInNow} notice={notice} />
   const actor = session.actor
-  const navigation = NAVIGATION.filter(item => item.visible(actor))
-  const allowed = (permission: string) => has(actor, permission)
+  const sections = visibleNavigation(actor)
 
   return (
     <StepUpProvider>
@@ -129,11 +136,13 @@ export function App() {
         <aside className="admin-sidebar" aria-label="Platform administration">
           <div className="admin-brand"><BrandLogo /><small>Platform</small></div>
           <nav className="admin-nav" aria-label="Platform areas">
-            {navigation.map(item => (
-              <NavLink key={item.path} to={item.path} className={({ isActive }) => `admin-nav-link${isActive ? ' active' : ''}`}>
-                {item.title}
-              </NavLink>
-            ))}
+            {sections.map(section => <div className="admin-nav-section" key={section.title}>
+              <p className="admin-nav-heading">{section.title}</p>
+              <ul>{section.items.map(item => <li key={item.path}>
+                <NavLink to={item.path} className={({ isActive }) => `admin-nav-link${isActive ? ' active' : ''}`}>
+                  {item.title}
+                </NavLink></li>)}</ul>
+            </div>)}
           </nav>
           <div className="admin-sidebar-footer"><span>{actor.displayName || actor.email || 'Platform administrator'}</span>
             <button type="button" onClick={() => void signOut()}>Sign out</button></div>
@@ -142,7 +151,7 @@ export function App() {
           <header className="admin-mobile-header"><Link to="/admin/overview" className="admin-mobile-logo"><BrandLogo /><span>Platform</span></Link>
             <button type="button" onClick={() => void signOut()}>Sign out</button></header>
           <nav className="admin-mobile-nav" aria-label="Platform areas">
-            {navigation.map(item => <NavLink key={item.path} to={item.path}>{item.title}</NavLink>)}
+            {sections.flatMap(section => section.items).map(item => <NavLink key={item.path} to={item.path}>{item.title}</NavLink>)}
           </nav>
           <main id="admin-main" className="admin-main">
             <SessionWarning />
@@ -150,21 +159,20 @@ export function App() {
             <Routes>
               <Route index element={<Navigate to="/admin/overview" replace />} />
               <Route path="sign-in" element={<Navigate to="/admin/overview" replace />} />
-              <Route path="overview" element={<OverviewPage />} />
-              <Route path="facilities" element={<Guard allowed={allowed('platform.facility.read')}><FacilitiesPage actor={actor} /></Guard>} />
-              <Route path="principals" element={<Guard allowed={allowed('platform.principal.read')}><PrincipalsPage actor={actor} /></Guard>} />
-              <Route path="approvals" element={<Guard allowed={APPROVAL_PERMISSIONS.some(allowed)}><ApprovalsPage actor={actor} /></Guard>} />
-              <Route path="applications" element={<Guard allowed={allowed('platform.identity-review.read')}><ApplicationsPage actor={actor} /></Guard>} />
-              <Route path="reviews" element={<Guard allowed={allowed('platform.identity-review.read')}><ReviewsPage /></Guard>} />
-              <Route path="audit" element={<Guard allowed={allowed('platform.audit.read')}><AuditPage /></Guard>} />
-              <Route path="operations" element={<Guard allowed={allowed('platform.operations.read')}><OperationsPage /></Guard>} />
-              <Route path="pricing" element={<Guard allowed={allowed('platform.pricing.read')}><PricingPage actor={actor} /></Guard>} />
-              <Route path="demos" element={<Guard allowed={allowed('platform.demo.read')}><DemosPage actor={actor} /></Guard>} />
-              <Route path="integrations" element={<Guard allowed={allowed('platform.integration.read')}><IntegrationsPage actor={actor} /></Guard>} />
-              <Route path="controls" element={<Guard allowed={allowed('platform.control.read')}><ControlsPage actor={actor} /></Guard>} />
-              <Route path="security" element={<SecurityPage onSignOut={() => void signOut()} />} />
-              <Route path="*" element={<section className="admin-message"><h1>Page not found</h1>
-                <p>This platform page is unavailable.</p><Link to="/admin/overview">Go to overview</Link></section>} />
+              <Route path="overview" element={<Area path="/admin/overview" actor={actor}><OverviewPage /></Area>} />
+              <Route path="applications" element={<Area path="/admin/applications" actor={actor}><ApplicationsPage actor={actor} /></Area>} />
+              <Route path="facilities" element={<Area path="/admin/facilities" actor={actor}><FacilitiesPage actor={actor} /></Area>} />
+              <Route path="principals" element={<Area path="/admin/principals" actor={actor}><PrincipalsPage actor={actor} /></Area>} />
+              <Route path="approvals" element={<Area path="/admin/approvals" actor={actor}><ApprovalsPage actor={actor} /></Area>} />
+              <Route path="reviews" element={<Area path="/admin/reviews" actor={actor}><ReviewsPage /></Area>} />
+              <Route path="audit" element={<Area path="/admin/audit" actor={actor}><AuditPage /></Area>} />
+              <Route path="security" element={<Area path="/admin/security" actor={actor}><SecurityPage onSignOut={() => void signOut()} /></Area>} />
+              <Route path="operations" element={<Area path="/admin/operations" actor={actor}><OperationsPage /></Area>} />
+              <Route path="integrations" element={<Area path="/admin/integrations" actor={actor}><IntegrationsPage actor={actor} /></Area>} />
+              <Route path="controls" element={<Area path="/admin/controls" actor={actor}><ControlsPage actor={actor} /></Area>} />
+              <Route path="pricing" element={<Area path="/admin/pricing" actor={actor}><PricingPage actor={actor} /></Area>} />
+              <Route path="demos" element={<Area path="/admin/demos" actor={actor}><DemosPage actor={actor} /></Area>} />
+              <Route path="*" element={<NotFound />} />
             </Routes>
           </main>
         </div>

@@ -34,7 +34,7 @@ describe('platform administration session', () => {
     api.session.mockResolvedValueOnce(actor(ALL))
     open()
     expect(await screen.findByRole('heading', { name: 'Overview' })).toBeTruthy()
-    expect(screen.getAllByRole('link', { name: 'Security' }).length).toBeGreaterThan(0)
+    expect(screen.getAllByRole('link', { name: 'My security' }).length).toBeGreaterThan(0)
     expect(screen.getAllByRole('link', { name: 'Approvals' }).length).toBeGreaterThan(0)
     expect(api.mfaStatus).toHaveBeenCalledTimes(1)
   })
