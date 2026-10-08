@@ -51,6 +51,11 @@ export interface PatientNinVerification {
 export interface PatientRecords {
   encounters: Array<{ id: string; facilityId: string; encounterType: string; status: string; startedAt: string; endedAt: string | null }>
   notes: Array<{ id: string; encounterId: string; facilityId: string; noteType: string; title: string; status: string; revisionNo: number; content: string; signedAt: string | null }>
+  vitals: Array<{ id: string; encounterId: string; facilityId: string; recordedAt: string; heightCm: number | null; weightKg: number | null; temperatureC: number | null; pulseBpm: number | null; respiratoryRate: number | null; systolicMmhg: number | null; diastolicMmhg: number | null; oxygenSaturationPercent: number | null; source: string }>
+  diagnoses: Array<{ id: string; encounterId: string; facilityId: string; codeSystem: string; code: string; display: string; clinicalStatus: string; verificationStatus: string; onsetAt: string | null; abatementAt: string | null; notes: string | null }>
+  prescriptions: Array<{ id: string; encounterId: string; facilityId: string; medicationCodeSystem: string | null; medicationCode: string | null; medicationDisplay: string; doseQuantity: number | null; doseUnit: string | null; routeCode: string | null; frequency: string; instructions: string; startsOn: string | null; endsOn: string | null; status: string }>
+  labRequests: Array<{ id: string; encounterId: string; facilityId: string; testCodeSystem: string; testCode: string; testDisplay: string; priority: string; status: string; specimenTypeCode: string | null; clinicalInformation: string | null; externalOrderReference: string | null; createdAt: string }>
+  documents: Array<{ id: string; encounterId: string | null; facilityId: string; fileName: string; mediaType: string; sizeBytes: number | null; classification: string; status: string; createdAt: string }>
   limit: number
 }
 
@@ -130,6 +135,9 @@ export function createPatientApi(client: ApiClient) {
     verifyNin: (nin: string) => call<PatientNinVerification>('POST', 'identity/me/verification/nin', { nin }),
     records: (signal?: AbortSignal) => call<PatientRecords>('GET', 'ehr/me/records', undefined, { signal }),
     accessHistory: (signal?: AbortSignal) => call<AccessHistory>('GET', 'identity/me/access-history', undefined, { signal }),
+    revokeAccess: (grantId: string, reason: string) => call<unknown>(
+      'POST', `identity/consent-grants/${encodeURIComponent(grantId)}/close`, { reason },
+      { headers: { 'X-Purpose-Of-Use': 'direct-care' } }),
     accessRequests: (signal?: AbortSignal) => call<AccessRequest[]>('GET', 'identity/me/access-requests', undefined,
       { signal, headers: { 'X-Purpose-Of-Use': 'direct-care' } }),
     approveAccess: (id: string) => call<unknown>('POST', `identity/access-requests/${encodeURIComponent(id)}/approve`, undefined,
