@@ -64,6 +64,40 @@ describe('hid-system cookie transport', () => {
     expect(new Headers(fixture.calls[1]?.init.headers).get('X-CSRF-Token')).toBe('csrf-value')
   })
 
+  it('returns a download with its readable headers and still reads a refused download as a problem', async () => {
+    const { client, calls } = harness([
+      new Response('account_id,email\r\n', { headers: { 'Content-Type': 'text/csv', 'X-HID-Export-Row-Count': '0' } }),
+      new Response(JSON.stringify({ code: 'STEP_UP_REQUIRED', detail: 'Confirm', correlationId: 'corr-1' }),
+        { status: 403, headers: { 'Content-Type': 'application/problem+json' } }),
+    ])
+    const download = await client.request<{ blob: Blob; headers: Headers }>({ method: 'GET',
+      path: '/api/v1/admin/principals/export', query: { reason: 'Quarterly review' }, responseType: 'download' })
+    expect(await download.blob.text()).toBe('account_id,email\r\n')
+    expect(download.headers.get('X-HID-Export-Row-Count')).toBe('0')
+    expect(new Headers(calls[0]?.init.headers).get('Accept')).toBe('*/*')
+    await expect(client.request({ method: 'GET', path: '/api/v1/admin/principals/export',
+      query: { reason: 'Another review' }, responseType: 'download' })).rejects.toMatchObject({ status: 403, code: 'STEP_UP_REQUIRED' })
+  })
+
+  it('does not restore the session or resend a code the backend rejected', async () => {
+    const refreshSession = vi.fn(async () => undefined)
+    const { client, calls } = harness([
+      new Response(JSON.stringify({ code: 'MFA_INVALID_CODE', detail: 'The code is not valid' }), { status: 401 }),
+      new Response(JSON.stringify({ code: 'AUTHENTICATION_REQUIRED', detail: 'Expired' }), { status: 401 }),
+      new Response(JSON.stringify({ stepUpExpiresAt: '2026-10-08T12:05:00.000Z' })),
+    ], { refreshSession })
+    const keepCodeRejection = (error: { code: string }) => error.code !== 'MFA_INVALID_CODE'
+    await expect(client.request({ method: 'POST', path: '/api/v1/admin/mfa/step-up', body: { code: '123456' },
+      refreshOnUnauthorized: keepCodeRejection })).rejects.toMatchObject({ status: 401, code: 'MFA_INVALID_CODE' })
+    expect(calls).toHaveLength(1)
+    expect(refreshSession).not.toHaveBeenCalled()
+    // An expired access token is still restored once for the same kind of request.
+    await expect(client.request({ method: 'POST', path: '/api/v1/admin/mfa/step-up', body: { code: '654321' },
+      refreshOnUnauthorized: keepCodeRejection })).resolves.toEqual({ stepUpExpiresAt: '2026-10-08T12:05:00.000Z' })
+    expect(refreshSession).toHaveBeenCalledTimes(1)
+    expect(calls).toHaveLength(3)
+  })
+
   it('preserves domain data envelopes and reads Problem Details', async () => {
     const problem = { type: 'about:blank', title: 'Bad Request', status: 400,
       detail: 'One or more request fields are invalid.', code: 'VALIDATION_FAILED',

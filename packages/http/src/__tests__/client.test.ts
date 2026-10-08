@@ -298,6 +298,72 @@ describe('createApiClient: retries and deduplication', () => {
     expect(first).toEqual(second)
   })
 
+  function pendingFetch() {
+    const calls: RequestInit[] = []
+    let release: (response: Response) => void = () => undefined
+    const impl = ((_url: string, init?: RequestInit) => {
+      calls.push(init ?? {})
+      return new Promise<Response>((resolve, reject) => {
+        release = resolve
+        if (init?.signal?.aborted) reject(new DOMException('Aborted', 'AbortError'))
+        init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
+      })
+    }) as unknown as typeof fetch
+    return { calls, impl, release: (response: Response) => release(response) }
+  }
+
+  it('keeps a shared read alive for a caller that did not cancel', async () => {
+    // A remounted component (for example under React StrictMode) cancels the
+    // first read and immediately asks again for the same data.
+    const fetch = pendingFetch()
+    const client = createApiClient({ baseUrl: BASE_URL, clientId: 'test-web', fetchImpl: fetch.impl, sleep: async () => {} })
+    const first = new AbortController()
+    const firstRead = client.get('/patients-me', { auth: 'none', signal: first.signal })
+    const secondRead = client.get('/patients-me', { auth: 'none', signal: new AbortController().signal })
+    await vi.waitFor(() => expect(fetch.calls).toHaveLength(1))
+    first.abort()
+    await expect(firstRead).rejects.toMatchObject({ code: 'REQUEST_CANCELLED', retryable: false })
+    fetch.release(jsonResponse({ body: { data: { ok: true } } }))
+    await expect(secondRead).resolves.toEqual({ ok: true })
+    expect(fetch.calls).toHaveLength(1)
+  })
+
+  it('starts afresh for a caller that asks again right after the only caller cancelled', async () => {
+    // React StrictMode runs an effect, its cleanup, then the effect again.
+    const fetch = pendingFetch()
+    const client = createApiClient({ baseUrl: BASE_URL, clientId: 'test-web', fetchImpl: fetch.impl, sleep: async () => {} })
+    const first = new AbortController()
+    const firstRead = client.get('/patients-me', { auth: 'none', signal: first.signal })
+    first.abort()
+    const secondRead = client.get('/patients-me', { auth: 'none', signal: new AbortController().signal })
+    await expect(firstRead).rejects.toMatchObject({ code: 'REQUEST_CANCELLED' })
+    await vi.waitFor(() => expect(fetch.calls).toHaveLength(2))
+    fetch.release(jsonResponse({ body: { data: { ok: true } } }))
+    await expect(secondRead).resolves.toEqual({ ok: true })
+    expect(fetch.calls[0]?.signal?.aborted).toBe(true)
+  })
+
+  it('cancels a shared read once every caller has cancelled', async () => {
+    const fetch = pendingFetch()
+    const client = createApiClient({ baseUrl: BASE_URL, clientId: 'test-web', fetchImpl: fetch.impl, sleep: async () => {} })
+    const first = new AbortController()
+    const second = new AbortController()
+    const reads = [client.get('/patients-me', { auth: 'none', signal: first.signal }),
+      client.get('/patients-me', { auth: 'none', signal: second.signal })]
+    await vi.waitFor(() => expect(fetch.calls).toHaveLength(1))
+    first.abort()
+    expect(fetch.calls[0]?.signal?.aborted).toBe(false)
+    second.abort()
+    for (const read of reads) await expect(read).rejects.toMatchObject({ code: 'REQUEST_CANCELLED' })
+    expect(fetch.calls[0]?.signal?.aborted).toBe(true)
+    // A later read starts a fresh request.
+    const later = client.get('/patients-me', { auth: 'none' })
+    await vi.waitFor(() => expect(fetch.calls).toHaveLength(2))
+    fetch.release(jsonResponse({ body: { data: { fresh: true } } }))
+    await expect(later).resolves.toEqual({ fresh: true })
+    expect(fetch.calls).toHaveLength(2)
+  })
+
   it('keeps different queries separate', async () => {
     const { client, calls } = makeClient({}, [{ body: { data: {} } }])
 

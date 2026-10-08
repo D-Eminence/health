@@ -4,6 +4,7 @@ export type {
   ApiClientLogger,
   ApiClientOptions,
   AuthRequirement,
+  DownloadResult,
   HttpMethod,
   QueryValue,
   RequestSpec,

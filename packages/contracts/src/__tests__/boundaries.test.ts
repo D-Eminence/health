@@ -77,6 +77,21 @@ describe('application boundaries', () => {
     }
   })
 
+  it('registers the Stage 2A platform security routes with their backend permissions', () => {
+    expect(findEndpoint('auth.adminLogin')).toMatchObject({ path: '/api/v1/auth/admin/login', methods: ['POST'], auth: { kind: 'public' } })
+    expect(findEndpoint('auth.adminRefresh')?.path).toBe('/api/v1/auth/admin/refresh')
+    expect(findEndpoint('admin.mfaStepUp')?.path).toBe('/api/v1/admin/mfa/step-up')
+    expect(findEndpoint('admin.principalSessionRevoke')).toMatchObject({
+      path: '/api/v1/admin/principals/:accountId/sessions/:sessionId/revoke', permissions: { POST: ['platform.session.revoke'] } })
+    expect(findEndpoint('admin.superAdminRequest')?.permissions).toEqual({ POST: ['platform.role.manage'] })
+    expect(findEndpoint('admin.mfaResetRequest')?.permissions).toEqual({ POST: ['platform.mfa.reset'] })
+    expect(findEndpoint('admin.principalsExport')).toMatchObject({ responseKind: 'download',
+      permissions: { GET: ['platform.principal.export'] }, requiredQuery: { GET: ['reason'] } })
+    expect(() => assertEndpointAllowed('admin-web', 'auth.adminMfaEnrollActivate')).not.toThrow()
+    expect(() => assertEndpointAllowed('admin-web', 'auth.staffLogin')).toThrow(BoundaryViolationError)
+    expect(() => assertEndpointAllowed('patient-web', 'auth.adminLogin')).toThrow(BoundaryViolationError)
+  })
+
   it('refuses an admin endpoint in a patient application', () => {
     expect(() => assertEndpointAllowed('patient-web','admin.overview')).toThrow(BoundaryViolationError)
   })

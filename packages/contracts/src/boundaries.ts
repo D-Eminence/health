@@ -136,8 +136,10 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       'ehr.labRequests', 'ehr.labRequest'],
   },
   'admin-web': {
-    auth: ['auth.staffLogin', 'auth.session', 'auth.refresh', 'auth.logout',
-      'auth.otpStart', 'auth.otpVerify', 'auth.otpComplete'],
+    // Platform administration uses its own MFA-verified session (Stage 2A);
+    // staff sign-in, refresh and sign-out are not platform routes.
+    auth: ['auth.adminLogin', 'auth.adminMfaVerify', 'auth.adminMfaEnrollStart', 'auth.adminMfaEnrollActivate',
+      'auth.adminRefresh', 'auth.adminLogout', 'auth.otpStart', 'auth.otpVerify', 'auth.otpComplete'],
   },
 }
 
