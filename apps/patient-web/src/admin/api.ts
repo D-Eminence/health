@@ -14,20 +14,71 @@ export interface AdminActor {
 export interface AdminSession { actor: AdminActor }
 export interface Page<T> { items: T[]; page: number; pageSize: number; total: number }
 export interface Versioned { version: number }
-export interface Facility extends Versioned { id: string; name: string; code: string; organizationName: string; status: string; membershipCount: number }
-export interface Principal extends Versioned { id: string; email: string | null; displayName: string | null; status: string; platformRoles: string[]; activeSessionCount: number; memberships: Array<{ facilityName: string; role: string }> }
-export interface IdentityReview { id: string; maskedNin: string; facilityName: string; provider: string; status: string; candidateCount: number; updatedAt: string }
-export interface AuditEvent { sequenceId: string; eventId: string; occurredAt: string; action: string; outcome: string; actorSubject: string | null; correlationId: string }
+export interface Facility extends Versioned {
+  id: string; organizationId: string; organizationName: string; name: string; code: string; status: string
+  statusReason: string | null; statusChangedAt: string | null; createdAt: string; membershipCount: number
+}
+export interface PrincipalMembership { id: string; facilityId: string; facilityName: string; role: string; appRole: string; active: boolean }
+export interface Principal extends Versioned {
+  id: string; subject: string; email: string | null; displayName: string | null; status: string; createdAt: string
+  platformRoles: string[]; activeSessionCount: number; memberships: PrincipalMembership[]
+}
+export interface IdentityReview extends Versioned {
+  id: string; facilityId: string; facilityName: string; maskedNin: string; provider: string; status: string
+  candidateCount: number; createdAt: string; updatedAt: string
+}
+export interface AuditEvent {
+  sequenceId: string; eventId: string; occurredAt: string; correlationId: string; actorType: string | null
+  actorSubject: string | null; facilityId: string | null; action: string; outcome: string; resourceType: string | null
+  resourceId: string | null; purposeOfUse: string | null; reason: string | null; sourceSystem: string | null
+}
 export interface AuditEventPage { items: AuditEvent[]; nextBeforeSequenceId: string | null }
+/** Backend filters for the platform audit (exact matches; dates are ISO instants). */
+export interface AuditFilters {
+  actor?: string; facilityId?: string; action?: string; correlationId?: string
+  outcome?: 'success' | 'denied' | 'failure'; from?: string; to?: string
+}
 export interface PlatformControl extends Versioned { controlKey: string; enabled: boolean; reason: string; updatedAt: string }
 export interface CommercialProduct extends Versioned { slug: string; name: string; status: 'active' | 'coming_soon' | 'draft' | 'retired' }
 export interface CommercialPrice extends Versioned { product_slug: string; context: string; visibility: 'fixed' | 'starting_from' | 'contact_sales' | 'custom_quote' | 'hidden'; amount_minor: number | null; currency: string; billing_period: string | null; unit: string | null; active: boolean }
 export interface PricingCatalog { products: CommercialProduct[]; prices: CommercialPrice[] }
-export interface DemoRequest extends Versioned { id: string; contactName: string; contactEmail: string; organizationName: string | null; productCode: string; status: 'new' | 'contacted' | 'qualified' | 'closed'; createdAt: string }
-export interface OrganizationApplication extends Versioned { applicationId: string; productCode: string; organizationName: string | null; administratorEmail: string; status: string; verificationResult: string | null }
-export interface IntegrationProvider extends Versioned { provider: string; name: string; enabled: boolean; health: string; managementMode: string; availableActions: string[] }
+export type DemoStatus = 'new' | 'contacted' | 'qualified' | 'closed'
+export interface DemoRequest extends Versioned { id: string; contactName: string; contactEmail: string; organizationName: string | null; productCode: string; status: DemoStatus; createdAt: string }
+export type ApplicationStatus = 'pending_verification' | 'ready_for_review' | 'approved' | 'rejected'
+export interface OrganizationApplication extends Versioned {
+  applicationId: string; productCode: string; organizationName: string | null; organizationType: string | null
+  cacHint: string | null; administratorName: string | null; administratorEmail: string; status: ApplicationStatus | string
+  verificationResult: string | null; verifiedOrganizationName: string | null; verifiedEntityType: string | null
+  verifiedRegistrationDate: string | null; verifiedAddress: string | null; verifiedRegistryStatus: string | null
+  profileCompanyName: string | null; profileEntityType: string | null; profileRegistrationDate: string | null
+  profileAddress: string | null; profileRegistryStatus: string | null; profileState: string | null
+  fieldSources: Record<string, string | null> | null; createdAt: string; verifiedAt: string | null; reviewedAt: string | null
+}
+export interface IntegrationProvider extends Versioned {
+  provider: string; name: string; enabled: boolean; health: string; managementMode: string; availableActions: string[]
+  capabilities?: string[]; activeCapabilities?: string[]
+  operationGates?: Array<{ operation: string; state: string; detail: string }>
+  /** Non-secret settings only; the backend filters the stored configuration. */
+  configuration?: Record<string, string>
+  /** Credential state only; never a credential value. */
+  credential?: { state: string; rotationSupported: boolean }
+  lastTestedAt?: string | null; lastSuccessfulTestAt?: string | null; lastFailedTestAt?: string | null
+}
 export interface IntegrationCapability extends Versioned { capability: string; activeProvider: string | null; fallbackProvider: string | null; eligibleProviders: string[] }
 export interface IntegrationCatalog { items: IntegrationProvider[]; capabilities: IntegrationCapability[] }
+export interface IntegrationEvent {
+  eventId: string; action: string; occurredAt: string; actorAccountId: string | null; correlationId: string
+  capability: string | null; reason: string | null; outcome: string
+}
+/** `GET /admin/overview` (hid-system AdminService.overview). */
+export interface PlatformOverview {
+  registeredPatients: number; facilities: number; verifiedFacilities: number; suspendedFacilities: number
+  activeStaffMemberships: number; pendingIdentityReviews: number
+}
+export interface DeliveryFailure {
+  eventId: string | null; eventType: string | null; producer: string | null; attemptCount: number | null
+  errorCode: string | null; errorSummary: string | null; failedAt: string | null
+}
 export interface ServiceState { service: string; state: string; checkedAt: string; code: string | null }
 
 // Platform security contract: hid-system phase-4-stage-2-backend-security at
@@ -132,6 +183,13 @@ export function newIdempotencyKey(): string {
 
 const at = (base: string, ...segments: string[]) => [base, ...segments.map(encodeURIComponent)].join('/')
 
+/** Rows per page for paged admin lists (the backend allows up to 100). */
+export const PAGE_SIZE = 25
+/** Audit events per request (the backend allows up to 200). */
+export const AUDIT_PAGE_SIZE = 50
+/** The demo request list has no paging; the backend returns at most 100 of the newest. */
+export const DEMO_REQUEST_LIMIT = 100
+
 export const adminApi = {
   login(email: string, password: string, token: string) {
     return request<PlatformLoginChallenge>('/api/v1/auth/admin/login', { method: 'POST', auth: 'none',
@@ -206,21 +264,63 @@ export const adminApi = {
     return { blob: result.blob, rowCount: count === null ? null : Number(count), rowLimit: limit === null ? null : Number(limit),
       truncated: truncated === null ? null : truncated === 'true' }
   },
-  overview(signal?: AbortSignal) { return request<Record<string, number>>('/api/v1/admin/overview', { signal }) },
+  overview(signal?: AbortSignal) { return request<PlatformOverview>('/api/v1/admin/overview', { signal }) },
   controls(signal?: AbortSignal) { return request<PlatformControl[]>('/api/v1/admin/controls', { signal }) },
-  facilities(signal?: AbortSignal) { return request<Page<Facility>>('/api/v1/admin/facilities', { signal, query: { page: 1, pageSize: 50 } }) },
-  principals(query: string, signal?: AbortSignal) { return request<Page<Principal>>('/api/v1/admin/principals', { signal, query: { page: 1, pageSize: 50, query } }) },
-  reviews(signal?: AbortSignal) { return request<Page<IdentityReview>>('/api/v1/admin/identity/reviews', { signal, query: { page: 1, pageSize: 50 } }) },
-  audit(signal?: AbortSignal, beforeSequenceId?: string) {
+  facilities(filters: { page?: number; pageSize?: number; status?: string; query?: string } = {}, signal?: AbortSignal) {
+    return request<Page<Facility>>('/api/v1/admin/facilities', { signal, query: { page: filters.page ?? 1,
+      pageSize: filters.pageSize ?? PAGE_SIZE, status: filters.status, query: filters.query } })
+  },
+  facility(facilityId: string, signal?: AbortSignal) {
+    return request<Facility>(at('/api/v1/admin/facilities', facilityId), { signal })
+  },
+  principals(query: string, filters: { page?: number; status?: string } = {}, signal?: AbortSignal) {
+    return request<Page<Principal>>('/api/v1/admin/principals', { signal,
+      query: { page: filters.page ?? 1, pageSize: PAGE_SIZE, query, status: filters.status } })
+  },
+  reviews(filters: { page?: number; status?: string } = {}, signal?: AbortSignal) {
+    return request<Page<IdentityReview>>('/api/v1/admin/identity/reviews', { signal,
+      query: { page: filters.page ?? 1, pageSize: PAGE_SIZE, status: filters.status } })
+  },
+  audit(filters: AuditFilters = {}, beforeSequenceId?: string, signal?: AbortSignal) {
     return request<AuditEventPage>('/api/v1/admin/audit/events', { signal,
-      query: { limit: 50, ...(beforeSequenceId ? { beforeSequenceId } : {}) } })
+      query: { limit: AUDIT_PAGE_SIZE, ...filters, ...(beforeSequenceId ? { beforeSequenceId } : {}) } })
   },
   services(signal?: AbortSignal) { return request<{ checkedAt: string; services: ServiceState[] }>('/api/v1/admin/operations/services', { signal }) },
-  events(signal?: AbortSignal) { return request<{ state: string; code: string | null; metrics: Record<string, number | boolean> | null; failures: unknown[] }>('/api/v1/admin/operations/events', { signal }) },
+  events(signal?: AbortSignal) { return request<{ state: string; code: string | null; metrics: Record<string, number | boolean> | null; failures: DeliveryFailure[] }>('/api/v1/admin/operations/events', { signal }) },
   pricing(signal?: AbortSignal) { return request<PricingCatalog>('/api/v1/admin/pricing', { signal }) },
-  demos(signal?: AbortSignal) { return request<{ items: DemoRequest[] }>('/api/v1/admin/demo-requests', { signal, query: { limit: 50 } }) },
-  applications(signal?: AbortSignal) { return request<{ items: OrganizationApplication[] }>('/api/v1/admin/organization-applications', { signal }) },
+  demos(filters: { status?: DemoStatus; productCode?: string } = {}, signal?: AbortSignal) {
+    return request<{ items: DemoRequest[] }>('/api/v1/admin/demo-requests', { signal,
+      query: { limit: DEMO_REQUEST_LIMIT, status: filters.status, productCode: filters.productCode } })
+  },
+  applications(status?: ApplicationStatus, signal?: AbortSignal) {
+    return request<{ items: OrganizationApplication[] }>('/api/v1/admin/organization-applications', { signal,
+      ...(status ? { query: { status } } : {}) })
+  },
+  verifyApplicationCac(application: Pick<OrganizationApplication, 'applicationId' | 'version'>) {
+    return adminApi.command<{ status: string; version: number; state: string; profileState?: string }>(
+      at('/api/v1/admin/organization-applications', application.applicationId, 'verify-cac'), {}, { version: application.version })
+  },
+  approveApplication(application: Pick<OrganizationApplication, 'applicationId' | 'version'>, reason: string,
+    existing?: { organizationId: string; facilityId: string }) {
+    return adminApi.command<{ organizationId: string; facilityId: string; firstAdminAccountId: string; version: number; organizationReused: boolean }>(
+      at('/api/v1/admin/organization-applications', application.applicationId, 'approve'),
+      { reason, ...(existing ? { existingOrganizationId: existing.organizationId, existingFacilityId: existing.facilityId } : {}) },
+      { version: application.version })
+  },
+  rejectApplication(application: Pick<OrganizationApplication, 'applicationId' | 'version'>, reason: string) {
+    return adminApi.command<{ status: string; version: number }>(
+      at('/api/v1/admin/organization-applications', application.applicationId, 'reject'), { reason }, { version: application.version })
+  },
   integrations(signal?: AbortSignal) { return request<IntegrationCatalog>('/api/v1/admin/integrations', { signal }) },
+  integrationHistory(provider: string, signal?: AbortSignal) {
+    return request<{ items: IntegrationEvent[] }>(at('/api/v1/admin/integrations', provider, 'audit'), { signal })
+  },
+  configureIntegration(provider: Pick<IntegrationProvider, 'provider' | 'version'>, configuration: Record<string, string>,
+    reason: string, idempotencyKey: string) {
+    return adminApi.command<{ provider: string; enabled: boolean; configuration: Record<string, string>; version: number; replayed: boolean }>(
+      at('/api/v1/admin/integrations', provider.provider, 'configuration'), { configuration, reason },
+      { version: provider.version, idempotencyKey })
+  },
   /**
    * A governed admin command. Pass the submission's idempotency key so a retry
    * after step-up is the same command, never a second one.

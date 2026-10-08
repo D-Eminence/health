@@ -1,0 +1,148 @@
+import type { ReactElement } from 'react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
+import type { AdminActor } from '../api'
+import { AuditPage } from '../Audit'
+import { DemosPage, OperationsPage, ReviewsPage } from '../Pages'
+import { PrincipalsPage } from '../Principals'
+
+const mocks = vi.hoisted(() => ({
+  audit: vi.fn(), principals: vi.fn(), demos: vi.fn(), services: vi.fn(), events: vi.fn(), reviews: vi.fn(),
+}))
+vi.mock('../api', () => ({ adminApi: mocks, DEMO_REQUEST_LIMIT: 100, newIdempotencyKey: () => 'key-1' }))
+
+const FACILITY_ID = '0f8c6d2e-4b1a-4c3d-9e5f-1a2b3c4d5e6f'
+const actor = (permissions: string[]): AdminActor => ({ accountId: 'admin-1', subject: 'staff:1', displayName: 'Ada',
+  email: 'ada@example.test', platformRoles: [], platformPermissions: permissions })
+
+function Location() {
+  const location = useLocation()
+  return <output data-testid="location">{location.pathname + location.search}</output>
+}
+
+function open(path: string, element: ReactElement) {
+  const route = new URL(path, 'http://admin.test').pathname
+  render(<MemoryRouter initialEntries={[path]}><Routes><Route path={route} element={<>{element}<Location /></>} /></Routes></MemoryRouter>)
+}
+
+const location = () => decodeURIComponent(screen.getByTestId('location').textContent ?? '')
+
+beforeEach(() => vi.clearAllMocks())
+
+describe('audit filters', () => {
+  const event = { sequenceId: '7', eventId: 'event-7', occurredAt: '2026-10-08T12:00:00.000Z', correlationId: 'corr-7',
+    actorType: 'staff', actorSubject: 'staff:ada', facilityId: FACILITY_ID, action: 'admin.facility.status.request',
+    outcome: 'denied', resourceType: 'facility', resourceId: FACILITY_ID, purposeOfUse: 'operations', reason: 'Licence lapsed',
+    sourceSystem: 'hid' }
+
+  it('sends only valid filters from the link, with local times as instants', async () => {
+    mocks.audit.mockResolvedValue({ items: [event], nextBeforeSequenceId: null })
+    open('/admin/audit?actor=staff:ada&outcome=denied&facilityId=not-a-uuid&from=2026-10-01T09:00&to=bogus', <AuditPage />)
+    expect(await screen.findByText('corr-7')).toBeTruthy()
+    expect(mocks.audit).toHaveBeenCalledWith({ actor: 'staff:ada', outcome: 'denied',
+      from: new Date('2026-10-01T09:00').toISOString() }, undefined, expect.anything())
+  })
+
+  it('shows actor, target, scope, purpose and reason without inventing missing fields', async () => {
+    mocks.audit.mockResolvedValue({ items: [event, { ...event, sequenceId: '6', eventId: 'event-6', correlationId: 'corr-6',
+      actorSubject: null, actorType: null, facilityId: null, resourceType: null, resourceId: null, purposeOfUse: null, reason: null }],
+    nextBeforeSequenceId: null })
+    open('/admin/audit', <AuditPage />)
+    await screen.findByText('corr-7')
+    expect(screen.getByText('Licence lapsed')).toBeTruthy()
+    expect(screen.getByRole('link', { name: /Facility/ }).getAttribute('href')).toBe(`/admin/facilities/${FACILITY_ID}`)
+    expect(screen.getByText('System')).toBeTruthy()
+    expect(screen.getByText('Platform')).toBeTruthy()
+    expect(screen.getAllByText('Not recorded')).toHaveLength(2)
+  })
+
+  it('applies filters into the link and refuses a partial facility ID', async () => {
+    mocks.audit.mockResolvedValue({ items: [], nextBeforeSequenceId: null })
+    open('/admin/audit', <AuditPage />)
+    await waitFor(() => expect(mocks.audit).toHaveBeenCalledTimes(1))
+    fireEvent.change(screen.getByLabelText('Facility ID'), { target: { value: '0f8c' } })
+    expect(screen.getByText('Enter a full facility ID.')).toBeTruthy()
+    expect((screen.getByRole('button', { name: 'Apply filters' }) as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.change(screen.getByLabelText('Facility ID'), { target: { value: FACILITY_ID } })
+    fireEvent.change(screen.getByLabelText('Action'), { target: { value: ' admin.account.status ' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Apply filters' }))
+    await waitFor(() => expect(location()).toBe(`/admin/audit?action=admin.account.status&facilityId=${FACILITY_ID}`))
+    await waitFor(() => expect(mocks.audit).toHaveBeenLastCalledWith({ action: 'admin.account.status', facilityId: FACILITY_ID },
+      undefined, expect.anything()))
+    fireEvent.click(screen.getByRole('button', { name: 'Clear' }))
+    await waitFor(() => expect(location()).toBe('/admin/audit'))
+  })
+})
+
+describe('users and roles lookup', () => {
+  const principal = { id: 'account-2', subject: 'staff:ada', email: 'ada@example.test', displayName: 'Ada Operator', status: 'active',
+    createdAt: '2026-09-01T09:00:00.000Z', platformRoles: [], activeSessionCount: 0, version: 2,
+    memberships: [{ id: 'm-1', facilityId: FACILITY_ID, facilityName: 'Ikeja Clinic', role: 'nurse', appRole: 'provider', active: false }] }
+
+  function search(text: string) {
+    fireEvent.change(screen.getByLabelText('Search users'), { target: { value: text } })
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }))
+  }
+
+  it('searches with a status and pages, keeping the search term out of the URL', async () => {
+    mocks.principals.mockImplementation((_query: string, filters: { page: number }) =>
+      Promise.resolve({ items: [principal], page: filters.page, pageSize: 25, total: 26 }))
+    open('/admin/principals', <PrincipalsPage actor={actor(['platform.principal.read', 'platform.audit.read'])} />)
+    fireEvent.change(screen.getByLabelText('Account status'), { target: { value: 'active' } })
+    search('ada@example.test')
+    expect(await screen.findByText('Ada Operator')).toBeTruthy()
+    expect(mocks.principals).toHaveBeenLastCalledWith('ada@example.test', { page: 1, status: 'active' }, expect.anything())
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    expect(await screen.findByText('Page 2 of 2')).toBeTruthy()
+    expect(mocks.principals).toHaveBeenLastCalledWith('ada@example.test', { page: 2, status: 'active' }, expect.anything())
+    expect(location()).toBe('/admin/principals')
+    expect(screen.getByText('Ikeja Clinic · Nurse (inactive)')).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Activity in audit' }).getAttribute('href')).toBe('/admin/audit?actor=staff%3Aada')
+    expect(screen.getByText('View only')).toBeTruthy()
+  })
+
+  it('leaves out the audit link without audit access', async () => {
+    mocks.principals.mockResolvedValue({ items: [principal], page: 1, pageSize: 25, total: 1 })
+    open('/admin/principals', <PrincipalsPage actor={actor(['platform.principal.read'])} />)
+    search('ada')
+    await screen.findByText('Ada Operator')
+    expect(screen.queryByRole('link', { name: 'Activity in audit' })).toBeNull()
+  })
+})
+
+describe('demo requests, operations and identity reviews', () => {
+  it('filters demo requests by valid status and product from the link', async () => {
+    mocks.demos.mockResolvedValue({ items: [] })
+    open('/admin/demos?status=new&product=laboratory', <DemosPage actor={actor(['platform.demo.read'])} />)
+    await waitFor(() => expect(mocks.demos).toHaveBeenCalledWith({ status: 'new', productCode: 'laboratory' }, expect.anything()))
+    fireEvent.change(screen.getByLabelText('Product'), { target: { value: '' } })
+    await waitFor(() => expect(location()).toBe('/admin/demos?status=new'))
+  })
+
+  it('ignores unknown demo filters and says when the list is capped', async () => {
+    mocks.demos.mockResolvedValue({ items: Array.from({ length: 100 }, (_, index) => ({ id: `d-${index}`, contactName: `Contact ${index}`,
+      contactEmail: `c${index}@example.test`, organizationName: null, productCode: 'ehr', status: 'new',
+      createdAt: '2026-10-08T12:00:00.000Z', version: 1 })) })
+    open('/admin/demos?status=bogus', <DemosPage actor={actor(['platform.demo.read'])} />)
+    expect(await screen.findByText(/Showing the newest 100 requests/)).toBeTruthy()
+    expect(mocks.demos).toHaveBeenCalledWith({}, expect.anything())
+  })
+
+  it('lists event delivery failures as the dispatcher reports them', async () => {
+    mocks.services.mockResolvedValue({ checkedAt: '2026-10-08T12:00:00.000Z', services: [] })
+    mocks.events.mockResolvedValue({ state: 'degraded', code: null, metrics: { pending: 3 }, failures: [{ eventId: 'evt-1',
+      eventType: 'patient.registered', producer: 'identity-api', attemptCount: 5, errorCode: 'TARGET_TIMEOUT',
+      errorSummary: 'Timed out after 10s', failedAt: '2026-10-08T11:59:00.000Z' }] })
+    open('/admin/operations', <OperationsPage />)
+    expect(await screen.findByText('patient.registered')).toBeTruthy()
+    expect(screen.getByText('Timed out after 10s')).toBeTruthy()
+    expect(screen.getByText('5')).toBeTruthy()
+  })
+
+  it('pages identity reviews with the status from the link', async () => {
+    mocks.reviews.mockResolvedValue({ items: [], page: 3, pageSize: 25, total: 0 })
+    open('/admin/reviews?status=rejected&page=3', <ReviewsPage />)
+    await waitFor(() => expect(mocks.reviews).toHaveBeenCalledWith({ page: 3, status: 'rejected' }, expect.anything()))
+  })
+})

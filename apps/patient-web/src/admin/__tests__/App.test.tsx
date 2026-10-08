@@ -2,11 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
-import { App, SESSION_ENDED_MESSAGES } from '../App'
+import { useLayoutEffect } from 'react'
+import { App, SESSION_ENDED_MESSAGES, SessionWarning } from '../App'
 import { clearSessionWindow, recordSessionWindow, reportSessionEnded } from '../session-window'
 
 const api = vi.hoisted(() => ({
   session: vi.fn(), mfaStatus: vi.fn(), logout: vi.fn(), refresh: vi.fn(), overview: vi.fn(),
+  approvals: vi.fn(), applications: vi.fn(), demos: vi.fn(), integrations: vi.fn(),
 }))
 vi.mock('../api', () => ({ adminApi: api, newIdempotencyKey: () => 'key-1' }))
 vi.mock('../env', () => ({ environment: () => ({ name: 'local', turnstileSiteKey: null, apiBaseUrl: 'https://gateway.example.test' }) }))
@@ -25,7 +27,12 @@ beforeEach(() => {
   vi.clearAllMocks()
   clearSessionWindow()
   api.mfaStatus.mockResolvedValue({ enrolled: true, session: null })
-  api.overview.mockResolvedValue({ activeAccounts: 3 })
+  api.overview.mockResolvedValue({ registeredPatients: 3, facilities: 2, verifiedFacilities: 1, suspendedFacilities: 0,
+    activeStaffMemberships: 4, pendingIdentityReviews: 0 })
+  api.approvals.mockResolvedValue({ items: [] })
+  api.applications.mockResolvedValue({ items: [] })
+  api.demos.mockResolvedValue({ items: [] })
+  api.integrations.mockResolvedValue({ items: [], capabilities: [] })
 })
 afterEach(() => clearSessionWindow())
 
@@ -34,7 +41,7 @@ describe('platform administration session', () => {
     api.session.mockResolvedValueOnce(actor(ALL))
     open()
     expect(await screen.findByRole('heading', { name: 'Overview' })).toBeTruthy()
-    expect(screen.getAllByRole('link', { name: 'Security' }).length).toBeGreaterThan(0)
+    expect(screen.getAllByRole('link', { name: 'My security' }).length).toBeGreaterThan(0)
     expect(screen.getAllByRole('link', { name: 'Approvals' }).length).toBeGreaterThan(0)
     expect(api.mfaStatus).toHaveBeenCalledTimes(1)
   })
@@ -108,5 +115,56 @@ describe('platform administration session', () => {
     fireEvent.click(screen.getAllByRole('button', { name: 'Sign out' })[0]!)
     expect(await screen.findByText('You have signed out of platform administration.')).toBeTruthy()
     expect(api.logout).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('consolidated admin routing', () => {
+  const SUPPORT = ['platform.admin.access', 'platform.principal.read', 'platform.session.revoke']
+
+  it('refuses deep links to areas the administrator cannot use, before any data request', async () => {
+    for (const path of ['/admin/facilities?status=suspended', '/admin/facilities/0f8c6d2e-4b1a-4c3d-9e5f-1a2b3c4d5e6f', '/admin/audit?actor=x']) {
+      api.session.mockResolvedValueOnce(actor(SUPPORT))
+      const view = render(<MemoryRouter initialEntries={[path]}><Routes><Route path="/admin/*" element={<App />} /></Routes></MemoryRouter>)
+      expect(await screen.findByRole('heading', { name: 'Access denied' })).toBeTruthy()
+      expect(screen.getByRole('link', { name: 'Go to overview' })).toBeTruthy()
+      view.unmount()
+    }
+  })
+
+  it('shows a not-found page for an unknown admin path', async () => {
+    api.session.mockResolvedValueOnce(actor(ALL))
+    open('/admin/no-such-area')
+    expect(await screen.findByRole('heading', { name: 'Page not found' })).toBeTruthy()
+  })
+
+  it('names the browser tab after the open area', async () => {
+    api.session.mockResolvedValueOnce(actor(ALL))
+    open('/admin/overview')
+    await screen.findByRole('heading', { name: 'Overview', level: 1 })
+    expect(document.title).toBe('Overview · Health ID Platform')
+  })
+
+  it('asks the overview only for the counts the administrator may open', async () => {
+    api.session.mockResolvedValueOnce(actor(SUPPORT))
+    open()
+    expect(await screen.findByRole('heading', { name: 'Platform totals' })).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: 'Waiting for attention' })).toBeNull()
+    expect(api.overview).toHaveBeenCalledTimes(1)
+    expect(api.approvals).not.toHaveBeenCalled()
+    expect(api.applications).not.toHaveBeenCalled()
+    expect(api.demos).not.toHaveBeenCalled()
+    expect(api.integrations).not.toHaveBeenCalled()
+  })
+})
+
+describe('session warning', () => {
+  it('shows a window recorded after it rendered but before it subscribed', () => {
+    // A layout effect runs after the warning rendered and before its subscription effect.
+    function RecordDuringCommit() {
+      useLayoutEffect(() => recordSessionWindow({ idleExpiresAt: inMinutes(1), absoluteExpiresAt: inMinutes(300) }), [])
+      return null
+    }
+    render(<><SessionWarning /><RecordDuringCommit /></>)
+    expect(screen.getByText(/For security, your session ends at .* unless you continue working/)).toBeTruthy()
   })
 })

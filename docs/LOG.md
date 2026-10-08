@@ -51,6 +51,35 @@
   Stage 2A Identity API. Details and remaining items:
   [Phase 4 Stage 2B](./PHASE_4_STAGE_2B_FRONTEND_SECURITY.md).
 
+## 2026-10-08: Phase 4 Stage 3 admin consolidation
+
+- Consolidated `apps/patient-web/src/admin` as the one platform admin, with:
+  - a grouped navigation map that also guards routes and sub-pages;
+  - not-found and access-denied pages;
+  - one module per area.
+- Completed the backend-supported surfaces:
+  - an overview of backend totals and waiting work;
+  - application review (verify CAC, approve into a new or existing
+    organization, reject);
+  - facility filters, paging and detail;
+  - users and roles search and paging;
+  - the full audit filters and fields;
+  - integration settings, history and route choices;
+  - demo, review and delivery-failure views.
+- Hardening:
+  - confirmations survive the refresh after a change;
+  - 409 refusals are explained;
+  - settings are shown only for allow-listed keys;
+  - user search terms are kept out of URLs;
+  - the session warning no longer misses a window recorded just before it
+    subscribed.
+- No backend, dependency or Stage 2 security change. Verified with component
+  tests and local Chromium runs against the Stage 2A Identity API. These found
+  two backend defects in platform controls (a missing runtime grant, and a
+  change command that always fails), fixed in D-Eminence/hid-system#20
+  (merged into `phase-3-patient-safety`, not deployed). Details and gaps:
+  [Phase 4 Stage 3](./PHASE_4_STAGE_3_ADMIN_CONSOLIDATION.md).
+
 This log records implementation scope, not a release sign-off. The reference
 [gap map](./HEALTH_ID_COMPLETE_FRONTEND_GAP_MAP.md) is a baseline audit rather
 than a live completion tracker.
