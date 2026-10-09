@@ -455,12 +455,27 @@ export function Clinical() {
     return () => { active = false }
   }, [facility?.id, patientId, encounterId, selectedEncounter?.id, activeTab, activePatient?.purpose, recordScope])
 
+  // What the current grant permits, from the server (POST /identity/consent-status).
+  // A patient PIN or a read-only request authorizes reading only; changes stay
+  // hidden until the server reports write access, and whenever the check fails.
+  const accessScope = JSON.stringify([facility?.id, patientId])
+  const [writeAccess, setWriteAccess] = useState<{ scope: string; allowed: boolean; failed: boolean } | null>(null)
+  useEffect(() => {
+    if (!facility || !patientId || activePatient?.purpose !== 'direct-care') return
+    let active = true
+    void staffApi.consentStatus(facility.id, patientId)
+      .then(status => { if (active) setWriteAccess({ scope: accessScope, allowed: status.writeAllowed === true, failed: false }) })
+      .catch(() => { if (active) setWriteAccess({ scope: accessScope, allowed: false, failed: true }) })
+    return () => { active = false }
+  }, [facility?.id, patientId, activePatient?.purpose, accessScope])
+  const currentWriteAccess = writeAccess?.scope === accessScope ? writeAccess : null
+
   if (!activePatient || !facility) return <><div className="staff-page-head"><p className="staff-eyebrow">Clinical record</p><h1>Choose a patient first.</h1><p>Clinical records require a current backend authorization for the selected facility.</p></div><EmptyState title="No authorized patient" description="Open a patient using an approved request, patient PIN, or documented emergency access." action={<Link className="staff-text-link" to="/provider/patients">Go to patient access →</Link>} /></>
   if (activePatient.purpose === 'emergency') return <EmergencySummary facilityId={facility.id}
     patientId={activePatient.lookup.patient.patientId} patientName={activePatient.lookup.patient.fullName ?? activePatient.hid}
     verify={verify} />
   const selected = selectedEncounter
-  const canMutate = activePatient.purpose === 'direct-care'
+  const canMutate = activePatient.purpose === 'direct-care' && currentWriteAccess?.allowed === true
 
   async function createEncounter(input: { encounterType: string; status: string; startedAt: string; chiefComplaint: string }, key: string) {
     if (!facility || !patientId) return
@@ -473,7 +488,7 @@ export function Clinical() {
 
   async function createRecord(kind: RecordKind, body: object, key: string) {
     if (!facility || !patientId || !encounterId) return
-    if (!canMutate) throw new Error('Emergency access cannot be used to change a patient record.')
+    if (!canMutate) throw new Error('This access does not permit changes to the patient record.')
     setSuccess('')
     await verify()
     await staffApi.createRecord(facility.id, patientId, encounterId, kind, body, key)
@@ -525,6 +540,9 @@ export function Clinical() {
   return <>
     <div className="staff-page-head"><p className="staff-eyebrow">Clinical record · {facility.name}</p><h1>{activePatient.lookup.patient.fullName ?? activePatient.hid}</h1><p>HID {activePatient.hid} · Direct care access. The server rechecks authorization before changes.</p></div>
     <div className="staff-row staff-toolbar"><Badge tone="success">Authorized</Badge><Button tone="secondary" size="sm" onClick={() => void loadEncounters()} disabled={loading}>Refresh encounters</Button><Link className="staff-text-link" to="/provider/patients">Change patient →</Link></div>
+    {currentWriteAccess && !currentWriteAccess.allowed && <div className="staff-notice" role="status">{currentWriteAccess.failed
+      ? 'Write access could not be confirmed, so changes are unavailable. Refresh the page to try again.'
+      : 'Read-only access. This authorization does not include changes; ask the patient to approve a read-and-write request to add or change records.'}</div>}
     {error && <p className="staff-error" role="alert">{error}</p>}{success && <p className="staff-success" role="status">{success}</p>}
     <div className="staff-two-col staff-encounter-grid"><Card className="staff-card"><h2>Encounters</h2>{loading && <p role="status">Loading encounters…</p>}{!loading && scopedEncounters.length === 0 && <p>No encounters are available for this patient and facility.</p>}<div className="staff-list">{scopedEncounters.map(item => <button type="button" key={item.id} className={`staff-list-item staff-select-row${item.id === encounterId ? ' selected' : ''}`} onClick={() => setEncounterId(item.id)}><strong>{item.encounterType.replace('_', ' ')} · {item.status.replace('_', ' ')}</strong><p>{new Date(item.startedAt).toLocaleString()}</p><p>{item.chiefComplaint || 'No chief complaint provided'}</p></button>)}</div></Card>{permissions.includes('ehr.encounter.write') && canMutate && <EncounterForm onCreated={createEncounter} disabled={!facility} />}</div>
     {selected && <section className="staff-section"><div className="staff-page-head"><p className="staff-eyebrow">Selected encounter</p><h1>Care documentation</h1><p>{new Date(selected.startedAt).toLocaleString()} · {selected.status.replace('_', ' ')}</p></div><div className="staff-tabs" role="tablist" aria-label="Clinical record section">{visibleTabs.map(item => <button role="tab" aria-selected={activeTab === item.id} type="button" key={item.id} className={activeTab === item.id ? 'active' : ''} onClick={() => setTab(item.id)}>{item.label}</button>)}</div>

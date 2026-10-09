@@ -8,7 +8,7 @@ const calls = vi.hoisted(() => ({
   patientSession: vi.fn(), patientRefresh: vi.fn(), patientEnrollmentCurrent: vi.fn(), patientGoogleOnboarding: vi.fn(),
   staffSession: vi.fn(), staffRefresh: vi.fn(), staffSelectFacility: vi.fn(), staffLogout: vi.fn(),
   staffLookupPatient: vi.fn(), staffBreakGlass: vi.fn(), staffEmergencyRecords: vi.fn(),
-  staffEncounters: vi.fn(), staffRecords: vi.fn(), staffCreateRecord: vi.fn(),
+  staffEncounters: vi.fn(), staffRecords: vi.fn(), staffCreateRecord: vi.fn(), staffConsentStatus: vi.fn(),
   adminSession: vi.fn(), adminRefresh: vi.fn(),
 }))
 
@@ -26,7 +26,7 @@ vi.mock('../staff/api', () => ({
     selectFacility: calls.staffSelectFacility, logout: calls.staffLogout,
     lookupPatient: calls.staffLookupPatient, breakGlass: calls.staffBreakGlass,
     emergencyRecords: calls.staffEmergencyRecords, encounters: calls.staffEncounters,
-    records: calls.staffRecords, createRecord: calls.staffCreateRecord },
+    records: calls.staffRecords, createRecord: calls.staffCreateRecord, consentStatus: calls.staffConsentStatus },
   isAllowedPatientLookup: (value: { authorization?: { decision?: string } }) => value.authorization?.decision === 'allow',
 }))
 vi.mock('../admin/api', () => ({
@@ -62,6 +62,9 @@ beforeEach(() => {
   }], nextCursor: null })
   calls.staffRecords.mockResolvedValue({ items: [], nextCursor: null })
   calls.staffCreateRecord.mockResolvedValue({ id: 'request-1' })
+  // A read-and-write grant (POST /identity/consent-status), so the chart offers changes.
+  calls.staffConsentStatus.mockResolvedValue({ patientId: 'patient-1', facilityId: 'facility-1', purpose: 'direct-care',
+    readAllowed: true, writeAllowed: true })
   calls.staffBreakGlass.mockResolvedValue({ consentGrantId: 'grant-1', status: 'active' })
   calls.staffEmergencyRecords.mockResolvedValue({ encounters: [{
     id: 'encounter-1', encounterType: 'ambulatory', startedAt: '2026-01-01T12:00:00.000Z',

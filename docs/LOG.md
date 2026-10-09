@@ -80,6 +80,25 @@
   (merged into `phase-3-patient-safety`, not deployed). Details and gaps:
   [Phase 4 Stage 3](./PHASE_4_STAGE_3_ADMIN_CONSOLIDATION.md).
 
+## 2026-10-09: Phase 4 governed access for providers
+
+- Selected by an evidence-based capability audit of both repositories as the
+  highest-priority unfinished capability: providers could not see their own
+  access requests. Through hid-system `aa72e83` that route answered `403` for
+  every clinician because of a missing runtime grant. The backend fix is
+  D-Eminence/hid-system#26.
+- Access requests: status filter (sent to the backend), and plain wording for a
+  refusal (`CONSENT_COMMAND_DENIED`, facility errors), also on the dashboard tile.
+- Patient access: the grant that opened a record comes from the lookup's
+  `consentGrantId`, so a record opened from an approved request can be closed.
+  Before, only a PIN or emergency grant opened during the same page visit could.
+  The lookup types now match the backend (`consentGrantId`, `gender`, `version`).
+- Clinical record: change forms appear only when `POST /identity/consent-status`
+  reports `writeAllowed`, and stay hidden if the check fails. A patient PIN
+  grants reading only, so the forms used to fail with `403 CONSENT_REQUIRED`.
+- Component tests cover each behaviour; five of the seven fail on the previous
+  pages. No staging or browser acceptance against a deployed backend.
+
 This log records implementation scope, not a release sign-off. The reference
 [gap map](./HEALTH_ID_COMPLETE_FRONTEND_GAP_MAP.md) is a baseline audit rather
 than a live completion tracker.

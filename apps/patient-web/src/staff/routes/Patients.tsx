@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Badge, Button, Card, Field, Input, Select, Textarea } from '@hid/ui'
-import { isAllowedPatientLookup, staffApi, type GrantResult } from '../api'
+import { isAllowedPatientLookup, staffApi } from '../api'
 import { useStaff } from '../App'
 
 const HID_PATTERN = /^HID-[A-HJ-NP-Z2-9]{6,32}$/
@@ -20,8 +20,11 @@ export function Patients() {
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
-  const [grant, setGrant] = useState<GrantResult | null>(null)
   const normalized = hid.trim().toUpperCase()
+  // The grant that authorized the open record, however it was obtained (an
+  // approved request, the patient's PIN or emergency access), as the lookup
+  // reported it, so it can be closed after a reload or from a later visit.
+  const grantId = activePatient?.lookup.authorization.consentGrantId ?? null
 
   function clearFeedback() { setMessage(''); setError('') }
 
@@ -53,13 +56,11 @@ export function Patients() {
         setMessage(`Request ${request.accessRequestId} is ${request.status}. The patient must approve before records are available.`)
       } else if (mode === 'pin') {
         if (!/^\d{4,8}$/.test(pin.trim())) throw new Error('Enter the patient’s 4 to 8 digit access PIN.')
-        const approved = await staffApi.verifyPin(facility.id, normalized, pin.trim())
-        setGrant(approved)
+        await staffApi.verifyPin(facility.id, normalized, pin.trim())
         await openPatient('direct-care')
       } else {
         if (emergencyReason.trim().length < 8) throw new Error('Document the emergency reason in at least 8 characters.')
-        const approved = await staffApi.breakGlass(facility.id, normalized, emergencyReason.trim())
-        setGrant(approved)
+        await staffApi.breakGlass(facility.id, normalized, emergencyReason.trim())
         await openPatient('emergency')
       }
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'The access command failed.') }
@@ -67,16 +68,16 @@ export function Patients() {
   }
 
   async function closeGrant() {
-    if (!facility || !grant) return
+    if (!facility || !grantId) return
     clearFeedback(); setBusy(true)
-    try { await staffApi.closeGrant(facility.id, grant.consentGrantId, 'Clinician closed completed patient access'); setGrant(null); setActivePatient(null); setMessage('Access was closed by the backend.') }
+    try { await staffApi.closeGrant(facility.id, grantId, 'Clinician closed completed patient access'); setActivePatient(null); setMessage('Access was closed by the backend.') }
     catch (caught) { setError(caught instanceof Error ? caught.message : 'Grant could not be closed.') }
     finally { setBusy(false) }
   }
 
   return <>
     <div className="staff-page-head"><p className="staff-eyebrow">Governed access</p><h1>Open a patient record.</h1><p>Enter the patient’s Health ID. Their identity and records remain hidden until the backend authorizes this facility and purpose.</p></div>
-    {activePatient && <Card className="staff-card staff-current"><h2>{activePatient.purpose === 'emergency' ? 'Current emergency summary' : 'Current authorized record'}</h2><div className="staff-row"><strong>{activePatient.lookup.patient.fullName ?? activePatient.hid}</strong><Badge tone={activePatient.purpose === 'emergency' ? 'danger' : 'success'}>{activePatient.purpose === 'emergency' ? 'Emergency access' : 'Access allowed'}</Badge><Link to="/provider/clinical" className="staff-text-link">{activePatient.purpose === 'emergency' ? 'Open read-only emergency summary →' : 'Open clinical record →'}</Link></div>{grant && <Button tone="secondary" size="sm" onClick={() => void closeGrant()} disabled={busy}>Close my grant</Button>}</Card>}
+    {activePatient && <Card className="staff-card staff-current"><h2>{activePatient.purpose === 'emergency' ? 'Current emergency summary' : 'Current authorized record'}</h2><div className="staff-row"><strong>{activePatient.lookup.patient.fullName ?? activePatient.hid}</strong><Badge tone={activePatient.purpose === 'emergency' ? 'danger' : 'success'}>{activePatient.purpose === 'emergency' ? 'Emergency access' : 'Access allowed'}</Badge><Link to="/provider/clinical" className="staff-text-link">{activePatient.purpose === 'emergency' ? 'Open read-only emergency summary →' : 'Open clinical record →'}</Link></div>{grantId && <Button tone="secondary" size="sm" onClick={() => void closeGrant()} disabled={busy}>Close my grant</Button>}</Card>}
     <div className="staff-two-col">
       <Card className="staff-card"><h2>Check current access</h2><p>Already approved? Verify with the server before opening the chart.</p><form className="staff-form" onSubmit={event => void checkAccess(event)}><Field label="Health ID" htmlFor="patient-hid" required><Input id="patient-hid" autoComplete="off" placeholder="HID-…" value={hid} onChange={event => setHid(event.target.value.toUpperCase())} required /></Field><Button type="submit" disabled={busy || !facility || !HID_PATTERN.test(normalized) || !permissions.includes('identity.patient.read')}>Verify access</Button></form></Card>
       <Card className="staff-card"><h2>Obtain access</h2><div className="staff-tabs" role="tablist" aria-label="Access method"><button type="button" role="tab" aria-selected={mode === 'request'} className={mode === 'request' ? 'active' : ''} onClick={() => setMode('request')}>Request</button><button type="button" role="tab" aria-selected={mode === 'pin'} className={mode === 'pin' ? 'active' : ''} onClick={() => setMode('pin')}>Patient PIN</button><button type="button" role="tab" aria-selected={mode === 'emergency'} className={mode === 'emergency' ? 'active' : ''} onClick={() => setMode('emergency')}>Emergency</button></div>

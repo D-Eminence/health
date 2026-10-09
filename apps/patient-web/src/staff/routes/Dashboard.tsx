@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { Badge, Card } from '@hid/ui'
 import { staffApi, type AccessRequest } from '../api'
 import { useStaff } from '../App'
+import { accessRequestsError } from './AccessRequests'
 
 const modules = [
   { title: 'Patient access', to: '/provider/patients', permission: 'identity.patient.read', detail: 'Look up a Health ID after consent, patient PIN, or emergency authorization.' },
@@ -25,7 +26,7 @@ export function Dashboard() {
     if (!facility || !permissions.includes('identity.consent.write')) return
     let active = true
     void staffApi.listAccessRequests(facility.id).then(items => { if (active) setRequests(items) })
-      .catch(error => { if (active) setLoadError(error instanceof Error ? error.message : 'Access requests could not be loaded.') })
+      .catch(error => { if (active) setLoadError(accessRequestsError(error)) })
     return () => { active = false }
   }, [facility?.id])
 
