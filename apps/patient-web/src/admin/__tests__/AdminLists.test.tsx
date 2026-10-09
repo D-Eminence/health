@@ -169,7 +169,12 @@ describe('users and roles lookup', () => {
     await waitFor(() => expect(within(row).getByText('0')).toBeTruthy())
     expect(within(row).getByText('Saved. Current information is being refreshed.')).toBeTruthy()
     expect(within(row).getByText('This account has no active sessions.')).toBeTruthy()
-    expect((within(form).getByRole('button', { name: 'Confirm change' }) as HTMLButtonElement).disabled).toBe(true)
+    // With a valid new reason the form still cannot be sent: there is nothing left to revoke.
+    fireEvent.change(within(form).getByLabelText('Reason for this change'), { target: { value: 'Second attempt reason' } })
+    const confirm = within(form).getByRole('button', { name: 'Confirm change' }) as HTMLButtonElement
+    expect(confirm.disabled).toBe(true)
+    fireEvent.click(confirm)
+    expect(mocks.command).toHaveBeenCalledTimes(1)
     expect(mocks.command).toHaveBeenCalledWith('/api/v1/admin/principals/account-6/sessions/revoke',
       { reason: 'Reported lost laptop' }, { idempotencyKey: 'key-1' })
   })
