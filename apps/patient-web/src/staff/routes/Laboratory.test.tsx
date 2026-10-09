@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import type { LabAccession, LabExecution, LabResult, LabResultRevision, LabSpecimen, LabWorkItem, staffApi } from '../api'
@@ -41,6 +41,7 @@ const PATIENT = 'a0000000-0000-4000-8000-0000004f9c2e'
 const MASKED_PATIENT = '••••4f9c2e'
 const ACCESS_DENIED = 'Access denied. You are not authorized to view lab results for this patient. Results stay hidden until access is granted again.'
 const UNVERIFIED = 'Lab results are hidden because access to them could not be verified right now. Refresh to check again.'
+const SIGNED_OUT = 'Lab results are hidden because your session has ended. Sign in again to view them.'
 const TRANSCRIPTION_FIX = 'Transcription error corrected'
 
 const WORK_READ = ['lab.work-item.read']
@@ -1453,8 +1454,12 @@ describe('Laboratory result access denied', () => {
       ['a timeout (408)', () => new HidApiError(408, 'The request timed out.', { code: 'REQUEST_TIMEOUT' })],
       ['an unreadable response (502)', () => new HidApiError(502, 'The service returned an unreadable response.', { code: 'INVALID_RESPONSE' })],
       ['a server error (500)', () => new HidApiError(500, 'Unexpected server error', { code: 'SERVER_ERROR' })],
-      ['an ended session (401)', () => new HidApiError(401, 'Your session has ended.', { code: 'UNAUTHENTICATED' })],
       ['an error that is not an API error', () => new TypeError('Failed to fetch')],
+      // Answered on its merits, but still not a read that confirms access.
+      ['a bad request (400)', () => problem(400, 'BAD_REQUEST', 'Request could not be processed')],
+      ['a conflict (409)', () => problem(409, 'CONFLICT', 'Conflict')],
+      ['an unprocessable request (422)', () => problem(422, 'UNPROCESSABLE', 'Unprocessable')],
+      ['rate limiting (429)', () => problem(429, 'RATE_LIMITED', 'Too many requests')],
     ])('hides results already on screen when a refresh fails with %s', async (_label, failure) => {
       api.labExecutions.mockResolvedValueOnce(resultLoad()).mockRejectedValue(failure())
       const panel = await openExecutionPanel(permissions)
@@ -1655,10 +1660,9 @@ describe('Laboratory result access denied', () => {
       await refreshExecutions(first)
       await waitFor(() => expect(within(other).getByRole('alert').textContent).toBe(ACCESS_DENIED))
 
-      late.resolve({ items: [potassium()] })
-      // Let the late answer settle, then prove it restored nothing.
-      await waitFor(() => expect(within(other).queryByText('Loading executions…')).toBeNull())
-      await Promise.resolve()
+      // Let the late answer and everything it schedules run, then prove it restored nothing.
+      await act(async () => { late.resolve({ items: [potassium()] }) })
+      expect(within(other).queryByText('Loading executions…')).toBeNull()
       expect(within(other).getByRole('alert').textContent).toBe(ACCESS_DENIED)
       expectNoPotassium()
     })
@@ -1675,9 +1679,8 @@ describe('Laboratory result access denied', () => {
       await refreshExecutions(panel)
       await expectUnverified(panel)
 
-      verification.resolve(verifiedResult())
-      await waitFor(() => expect(api.verifyLabResult).toHaveBeenCalledTimes(1))
-      await Promise.resolve()
+      await act(async () => { verification.resolve(verifiedResult()) })
+      expect(api.verifyLabResult).toHaveBeenCalledTimes(1)
       expect(within(panel).getByRole('alert').textContent).toBe(UNVERIFIED)
       expect(within(panel).queryByText('This exact result version was verified.')).toBeNull()
       expectNoResultValues()
@@ -1708,9 +1711,8 @@ describe('Laboratory result access denied', () => {
       await refreshExecutions(panel)
       await expectUnverified(panel)
 
-      completion.resolve(execution())
-      await waitFor(() => expect(api.completeLabExecution).toHaveBeenCalledTimes(1))
-      await Promise.resolve()
+      await act(async () => { completion.resolve(execution()) })
+      expect(api.completeLabExecution).toHaveBeenCalledTimes(1)
       expect(within(panel).getByRole('alert').textContent).toBe(UNVERIFIED)
       expect(within(panel).queryByText('Analytical execution was completed.')).toBeNull()
       expect(within(panel).queryByText('Hemoglobin · LOINC 718-7')).toBeNull()
@@ -1737,7 +1739,220 @@ describe('Laboratory result access denied', () => {
       expect(api.verifyLabResult).toHaveBeenCalledWith(FACILITY, unverified, 'Independent review against QC run')
     })
 
+    it('shows the session-ended state, not a refresh hint, when a refresh fails because the session ended (401)', async () => {
+      api.labExecutions.mockResolvedValueOnce(resultLoad()).mockRejectedValue(new HidApiError(401, 'Please sign in to continue.', { code: 'UNAUTHENTICATED' }))
+      const panel = await openExecutionPanel(permissions)
+      await expectResultValuesShown(panel)
+
+      await refreshExecutions(panel)
+
+      await waitFor(() => expect(within(panel).getByRole('alert').textContent).toBe(SIGNED_OUT))
+      await executionsSettled(panel)
+      expectNoResultValues()
+      expectNoFullPatientId()
+      expect(screen.queryByText(UNVERIFIED)).toBeNull()
+    })
+
+    it.each([
+      ['a network failure', networkFailure, UNVERIFIED],
+      ['a timeout (408)', () => new HidApiError(408, 'The request timed out.', { code: 'REQUEST_TIMEOUT' }), UNVERIFIED],
+      ['a server error (500)', () => new HidApiError(500, 'Unexpected server error', { code: 'SERVER_ERROR' }), UNVERIFIED],
+      ['an unreadable response (502)', () => new HidApiError(502, 'The service returned an unreadable response.', { code: 'INVALID_RESPONSE' }), UNVERIFIED],
+      ['an ended session (401)', () => new HidApiError(401, 'Please sign in to continue.', { code: 'UNAUTHENTICATED' }), SIGNED_OUT],
+    ])('re-checks after a verification that fails with %s and hides results when the re-check fails too', async (_label, failure, message) => {
+      api.labExecutions.mockResolvedValueOnce(resultLoad()).mockRejectedValue(failure())
+      api.verifyLabResult.mockRejectedValue(failure())
+      const panel = await openExecutionPanel(actions)
+      await expectResultValuesShown(panel)
+
+      fireEvent.change(within(panel).getByRole('textbox', { name: 'Verification reason' }), { target: { value: 'Independent review against QC run' } })
+      fireEvent.click(within(panel).getByRole('button', { name: 'Verify result version' }))
+
+      await waitFor(() => expect(within(panel).getByRole('alert').textContent).toBe(message))
+      await executionsSettled(panel)
+      expect(api.labExecutions).toHaveBeenCalledTimes(2)
+      expectNoResultValues()
+    })
+
+    it('re-checks after a result entry fails with an outage and hides results when the re-check fails', async () => {
+      api.labExecutions.mockResolvedValueOnce({ items: [execution()] }).mockRejectedValue(identityUnavailable())
+      api.enterLabResult.mockRejectedValue(identityUnavailable())
+      const panel = await openExecutionPanel(actions)
+
+      fireEvent.click(await within(panel).findByText('Enter manual result'))
+      fireEvent.change(within(panel).getByRole('spinbutton', { name: 'Numeric value' }), { target: { value: '13.4' } })
+      fireEvent.click(within(panel).getByRole('button', { name: 'Record unverified result' }))
+
+      await expectUnverified(panel)
+      expect(api.labExecutions).toHaveBeenCalledTimes(2)
+      expect(document.body.innerHTML).not.toContain('13.4')
+    })
+
+    it('re-checks after a completion fails with a server error and hides the execution when the re-check fails', async () => {
+      api.labExecutions.mockResolvedValueOnce({ items: [inProgress()] }).mockRejectedValue(new HidApiError(500, 'Unexpected server error', { code: 'SERVER_ERROR' }))
+      api.completeLabExecution.mockRejectedValue(new HidApiError(500, 'Unexpected server error', { code: 'SERVER_ERROR' }))
+      const panel = await openExecutionPanel(actions)
+
+      fireEvent.click(await within(panel).findByRole('button', { name: 'Complete execution' }))
+
+      await expectUnverified(panel)
+      expect(api.labExecutions).toHaveBeenCalledTimes(2)
+    })
+
+    it.each([
+      ['refused (403)', executionAccessDenied, ACCESS_DENIED],
+      ['answered with an outage (503)', identityUnavailable, UNVERIFIED],
+    ])('re-checks when starting an execution is %s and hides every specimen when the re-check fails', async (_label, failure, message) => {
+      let otherLoads = 0, firstLoads = 0
+      api.labExecutions.mockImplementation(async (_facility, specimenId) => {
+        if (specimenId === 'specimen-2') { if (++otherLoads === 1) return { items: [] }; throw failure() }
+        if (++firstLoads === 1) return resultLoad()
+        throw failure()
+      })
+      api.startLabExecution.mockRejectedValue(failure())
+      await openAccession(actions, accession([specimen('received'), second]))
+      const [first, other] = panels()
+      expect(await within(first).findByText(visibleValue)).toBeTruthy()
+
+      fireEvent.change(await within(other).findByRole('textbox', { name: 'Reason' }), { target: { value: 'Begin analysis' } })
+      fireEvent.click(within(other).getByRole('button', { name: 'Start execution' }))
+
+      await waitFor(() => expect(within(first).getByRole('alert').textContent).toBe(message))
+      await waitFor(() => expect(within(other).getByRole('alert').textContent).toBe(message))
+      expect(otherLoads).toBe(2)
+      expectNoResultValues()
+    })
+
+    it('does not bring back an old start error when results return after a hide', async () => {
+      const notExecutable = 'Only the expected received specimen version can begin execution'
+      api.labExecutions.mockResolvedValueOnce({ items: [] }).mockRejectedValueOnce(identityUnavailable()).mockResolvedValue({ items: [] })
+      api.startLabExecution.mockRejectedValue(problem(412, 'SPECIMEN_NOT_EXECUTABLE', notExecutable))
+      const panel = await openExecutionPanel(actions)
+      fireEvent.change(await within(panel).findByRole('textbox', { name: 'Reason' }), { target: { value: 'Begin analysis' } })
+      fireEvent.click(within(panel).getByRole('button', { name: 'Start execution' }))
+      expect(await within(panel).findByText(notExecutable)).toBeTruthy()
+
+      await refreshExecutions(panel)
+      await expectUnverified(panel)
+      await refreshExecutions(panel)
+
+      expect(await within(panel).findByRole('button', { name: 'Start execution' })).toBeTruthy()
+      expect(within(panel).queryByText(notExecutable)).toBeNull()
+      expect(within(panel).queryByRole('alert')).toBeNull()
+    })
+
+    it('re-checks a history read refused after the history was closed', async () => {
+      let refuseHistory: (error: unknown) => void = () => undefined
+      api.labExecutions.mockResolvedValueOnce({ items: [execution({ result: releasedResult() })] }).mockRejectedValue(executionAccessDenied())
+      api.labResultHistory.mockReturnValue(new Promise<LabResult>((_resolve, reject) => { refuseHistory = reject }))
+      const panel = await openExecutionPanel(actions)
+      expect(await within(panel).findByText(visibleValue)).toBeTruthy()
+
+      fireEvent.click(within(panel).getByRole('button', { name: 'View result history' }))
+      fireEvent.click(within(panel).getByRole('button', { name: 'Hide result history' }))
+      await act(async () => { refuseHistory(executionAccessDenied()) })
+
+      await waitFor(() => expect(within(panel).getByRole('alert').textContent).toBe(ACCESS_DENIED))
+      await executionsSettled(panel)
+      expect(api.labExecutions).toHaveBeenCalledTimes(2)
+      expectNoResultValues()
+    })
+
+    describe('after a refused specimen step', () => {
+      // Collect, receive and reject act on the same patient's accession. A step that fails
+      // with a doubt reloads the accession, which unmounts every panel and re-reads it.
+      const custody = [...actions, 'lab.specimen.collect', 'lab.specimen.reject']
+      const pendingSpecimen = specimen('required', { id: 'specimen-2', specimenIdentifier: 'SPC-000124', specimenType: 'Serum' })
+
+      async function collectPendingSpecimen(card: HTMLElement) {
+        const step = within(card).getAllByRole('button', { name: 'Record step' })[0]
+        if (!step) throw new Error('Expected a specimen step form.')
+        fireEvent.click(step)
+      }
+
+      it('hides the results when the accession can no longer be read', async () => {
+        api.labExecutions.mockImplementation(async () => resultLoad())
+        api.transitionSpecimen.mockRejectedValue(operationRefused())
+        const card = await openAccession(custody, accession([specimen('received'), pendingSpecimen]))
+        expect(await within(card).findByText(visibleValue)).toBeTruthy()
+        api.labAccession.mockRejectedValue(operationRefused())
+
+        await collectPendingSpecimen(card)
+
+        await waitFor(() => expect(api.labAccession).toHaveBeenCalledTimes(2))
+        expect(await within(card).findByText('Lab operation is not authorized')).toBeTruthy()
+        expectNoResultValues()
+        expect(within(card).queryByRole('heading', { name: 'Analytical execution' })).toBeNull()
+      })
+
+      it('shows the results again only after a fresh read confirms access', async () => {
+        api.labExecutions.mockImplementation(async () => resultLoad())
+        api.transitionSpecimen.mockRejectedValue(identityUnavailable())
+        const card = await openAccession(custody, accession([specimen('received'), pendingSpecimen]))
+        expect(await within(card).findByText(visibleValue)).toBeTruthy()
+
+        await collectPendingSpecimen(card)
+
+        await waitFor(() => expect(api.labAccession).toHaveBeenCalledTimes(2))
+        await waitFor(() => expect(api.labExecutions).toHaveBeenCalledTimes(2))
+        expect(await within(card).findByText(visibleValue)).toBeTruthy()
+      })
+
+      it('does not reload for a step refused on its merits (412)', async () => {
+        api.labExecutions.mockImplementation(async () => resultLoad())
+        api.transitionSpecimen.mockRejectedValue(problem(412, 'VERSION_CONFLICT', 'Specimen changed since it was loaded'))
+        const card = await openAccession(custody, accession([specimen('received'), pendingSpecimen]))
+        expect(await within(card).findByText(visibleValue)).toBeTruthy()
+
+        await collectPendingSpecimen(card)
+
+        expect(await within(card).findByText('Specimen changed since it was loaded')).toBeTruthy()
+        // An explicit refresh is the second accession load, so the 412 caused no reload.
+        await clickWhenEnabled(within(card).getByRole('button', { name: 'Refresh accession' }))
+        await waitFor(() => expect(api.labAccession).toHaveBeenCalledTimes(2))
+      })
+    })
+
+    it('shows nothing from an action that answers while the confirming refresh is still in flight', async () => {
+      const completion = deferred<LabExecution>()
+      const confirming = deferred<{ items: LabExecution[] }>()
+      api.labExecutions.mockResolvedValueOnce({ items: [inProgress()] }).mockRejectedValueOnce(identityUnavailable())
+        .mockReturnValueOnce(confirming.promise)
+      api.completeLabExecution.mockReturnValue(completion.promise)
+      const panel = await openExecutionPanel(actions)
+
+      fireEvent.click(await within(panel).findByRole('button', { name: 'Complete execution' }))
+      await refreshExecutions(panel)
+      await expectUnverified(panel)
+      await refreshExecutions(panel)
+      await act(async () => { completion.resolve(execution({ result: unverifiedResult() })) })
+
+      expect(within(panel).queryByText('Hemoglobin · LOINC 718-7')).toBeNull()
+      expect(within(panel).queryByText('Analytical execution was completed.')).toBeNull()
+      expectNoResultValues()
+      await act(async () => { confirming.resolve({ items: [inProgress()] }) })
+      expect(await within(panel).findByText('Hemoglobin · LOINC 718-7')).toBeTruthy()
+    })
+
+    it('offers a member who cannot read executions a fresh start after the accession is refreshed', async () => {
+      const runner = [...ACCESSION_READ, 'lab.execution.start', 'lab.execution.complete']
+      api.startLabExecution.mockResolvedValue(inProgress())
+      api.completeLabExecution.mockRejectedValue(executionAccessDenied())
+      const card = await openAccession(runner, accession([specimen('received')]))
+      const panel = sectionOf('Analytical execution')
+      fireEvent.change(within(panel).getByRole('textbox', { name: 'Reason' }), { target: { value: 'Begin analysis' } })
+      fireEvent.click(within(panel).getByRole('button', { name: 'Start execution' }))
+      fireEvent.click(await within(panel).findByRole('button', { name: 'Complete execution' }))
+      await waitFor(() => expect(within(panel).getByRole('alert').textContent).toBe(ACCESS_DENIED))
+
+      await clickWhenEnabled(within(card).getByRole('button', { name: 'Refresh accession' }))
+
+      expect(await screen.findByRole('button', { name: 'Start execution' })).toBeTruthy()
+      expect(screen.queryByText(ACCESS_DENIED)).toBeNull()
+    })
+
     it('shows nothing of the patient\'s results or identity in the unavailable state', async () => {
+      const consoles = (['log', 'info', 'warn', 'error', 'debug'] as const).map(level => vi.spyOn(console, level).mockImplementation(() => undefined))
       const finding = 'Gram-positive cocci in clusters'
       api.labExecutions.mockResolvedValueOnce({ items: [
         execution({ result: unverifiedResult() }),
@@ -1755,6 +1970,9 @@ describe('Laboratory result access denied', () => {
         expect(document.body.innerHTML).not.toContain(fragment)
       }
       expect(screen.queryAllByDisplayValue(/Gram-positive|7\.1/)).toHaveLength(0)
+      // Nor in anything written to the console.
+      const written = JSON.stringify(consoles.flatMap(spy => spy.mock.calls))
+      for (const fragment of [PATIENT, '7.1', 'g/dL', 'Gram-positive']) expect(written).not.toContain(fragment)
     })
   })
 })
