@@ -1,7 +1,6 @@
-import { useCallback, useState, type FormEvent } from 'react'
+import { useCallback, useMemo, useState, type FormEvent } from 'react'
 import {
   adminApi,
-  DEMO_REQUEST_LIMIT,
   type AdminActor,
   type CommercialPrice,
   type DemoRequest,
@@ -9,8 +8,8 @@ import {
   type PlatformControl,
 } from './api'
 import {
-  ActionForm, Page, Pager, Refresh, ResourceView, Status, Table, date, has, label, pageNumber, useGovernedSubmit,
-  useResource, useUrlFilters,
+  ActionForm, LoadMore, Page, Pager, Refresh, ResourceView, Status, Table, date, has, label, pageNumber, useCursorPages,
+  useGovernedSubmit, useResource, useUrlFilters,
 } from './ui'
 
 /** `ListIdentityReviewsDto` statuses. */
@@ -173,9 +172,11 @@ export function DemosPage({ actor }: { actor: AdminActor }) {
   const [filters, setFilters] = useUrlFilters(['status', 'product'] as const)
   const status = DEMO_STATUSES.find(value => value === filters.status)
   const product = DEMO_PRODUCTS.find(value => value === filters.product)
-  const load = useCallback((signal?: AbortSignal) => adminApi.demos({ ...(status ? { status } : {}),
-    ...(product ? { productCode: product } : {}) }, signal), [status, product])
+  const query = useMemo(() => ({ ...(status ? { status } : {}), ...(product ? { productCode: product } : {}) }),
+    [status, product])
+  const load = useCallback((signal?: AbortSignal) => adminApi.demos(query, {}, signal), [query])
   const resource = useResource(load, 'Demo requests could not be loaded.')
+  const pages = useCursorPages(resource, cursor => adminApi.demos(query, { cursor }), 'More demo requests could not be loaded.')
   return <Page eyebrow="Commercial" title="Demo requests" description="Requests submitted through the public Health ID website."
     action={<Refresh onClick={resource.reload} disabled={resource.loading} />}>
     <div className="admin-filters">
@@ -188,18 +189,17 @@ export function DemosPage({ actor }: { actor: AdminActor }) {
         {DEMO_PRODUCTS.map(value => <option key={value} value={value}>{label(value)}</option>)}
       </select></label>
     </div>
-    <ResourceView resource={resource} empty={result => result.items.length === 0}>{result => <>
-      <p className="admin-result-count">{result.items.length >= DEMO_REQUEST_LIMIT
-        ? `Showing the newest ${DEMO_REQUEST_LIMIT} requests. The backend returns no more; narrow the filters to see others.`
-        : `Showing ${result.items.length} requests`}</p>
+    <ResourceView resource={resource} empty={result => result.items.length === 0}>{() => <>
+      <p className="admin-result-count">Showing {pages.items.length} requests, newest first{pages.hasMore ? '; more are available' : ''}</p>
       <Table headings={['Contact', 'Organization', 'Product', 'Submitted', 'Status', 'Action']}>
-      {result.items.map(item => <tr key={item.id}>
+      {pages.items.map(item => <tr key={item.id}>
         <td><strong>{item.contactName}</strong><small>{item.contactEmail}</small></td>
         <td>{item.organizationName || 'Not provided'}</td><td>{label(item.productCode)}</td><td>{date(item.createdAt)}</td>
         <td><Status value={item.status} /></td>
         <td>{has(actor, 'platform.demo.manage') ? <DemoAction request={item} reload={resource.reload} /> : 'View only'}</td>
       </tr>)}
-    </Table></>}</ResourceView>
+    </Table>
+      <LoadMore pages={pages} label="Load more requests" /></>}</ResourceView>
   </Page>
 }
 

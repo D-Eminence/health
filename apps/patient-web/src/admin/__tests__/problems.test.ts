@@ -53,6 +53,13 @@ describe('admin failure messages', () => {
     for (const [status, code, message] of expected) expect(failure(problem(status, code), 'fallback'), code).toMatch(message)
   })
 
+  it('names how a platform session ended, an expired step-up and a refused list position (Stage 4A)', () => {
+    expect(failure(new HidApiError(401, 'x', { code: 'PLATFORM_SESSION_EXPIRED' }), 'fallback')).toMatch(/expired after 15 minutes/)
+    expect(failure(new HidApiError(401, 'x', { code: 'PLATFORM_SESSION_REVOKED' }), 'fallback')).toMatch(/was ended/)
+    expect(failure(new HidApiError(403, 'x', { code: 'STEP_UP_EXPIRED' }), 'fallback')).toMatch(/more than 5 minutes old/)
+    expect(failure(new HidApiError(400, 'x', { code: 'ADMIN_INVALID_CURSOR' }), 'fallback')).toMatch(/Refresh the list/)
+  })
+
   it('lets one screen explain a backend code more precisely without changing other screens', () => {
     const exportRestricted = { PERMISSION_DENIED: 'Exports are restricted to Super Admins with the export permission.' }
     expect(failure(problem(403, 'PERMISSION_DENIED'), 'fallback', exportRestricted)).toBe(exportRestricted.PERMISSION_DENIED)

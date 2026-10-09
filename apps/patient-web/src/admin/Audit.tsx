@@ -4,9 +4,19 @@ import { adminApi, type AuditEvent, type AuditFilters } from './api'
 import { failure } from './problems'
 import { Page, Refresh, ResourceView, Status, Table, date, label, useResource, useUrlFilters } from './ui'
 
-const FILTER_KEYS = ['actor', 'action', 'outcome', 'facilityId', 'correlationId', 'from', 'to'] as const
+const FILTER_KEYS = ['actor', 'action', 'outcome', 'facilityId', 'resourceType', 'resourceId', 'correlationId', 'from', 'to'] as const
 const OUTCOMES = ['success', 'denied', 'failure'] as const
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+/** `ListPlatformAuditDto` target rules: a target ID needs its type. */
+const RESOURCE_TYPE = /^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$/
+const RESOURCE_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]*$/
+
+function validTarget(values: { resourceType: string; resourceId: string }) {
+  const type = values.resourceType.trim(); const id = values.resourceId.trim()
+  if (type && (type.length > 80 || !RESOURCE_TYPE.test(type))) return false
+  if (id && (!type || id.length > 255 || !RESOURCE_ID.test(id))) return false
+  return true
+}
 
 /** A local datetime-input value as an ISO instant, or undefined when empty or invalid. */
 function instant(value: string): string | undefined {
@@ -22,6 +32,8 @@ function toFilters(values: Record<(typeof FILTER_KEYS)[number], string>): AuditF
     ...(values.action ? { action: values.action } : {}),
     ...(outcome ? { outcome } : {}),
     ...(UUID.test(values.facilityId) ? { facilityId: values.facilityId } : {}),
+    ...(validTarget(values) && values.resourceType ? { resourceType: values.resourceType } : {}),
+    ...(validTarget(values) && values.resourceType && values.resourceId ? { resourceId: values.resourceId } : {}),
     ...(values.correlationId ? { correlationId: values.correlationId } : {}),
     ...(instant(values.from) ? { from: instant(values.from) } : {}),
     ...(instant(values.to) ? { to: instant(values.to) } : {}),
@@ -48,6 +60,7 @@ export function AuditPage() {
   useEffect(() => { setOlder(null); setOlderError(null) }, [resource.data])
   const next = older ? older.next : resource.data?.nextBeforeSequenceId ?? null
   const invalidFacility = Boolean(draft.facilityId) && !UUID.test(draft.facilityId)
+  const invalidTarget = !validTarget(draft)
 
   async function loadOlder() {
     if (!next || loadingOlder) return
@@ -62,7 +75,7 @@ export function AuditPage() {
 
   function apply(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (invalidFacility) return
+    if (invalidFacility || invalidTarget) return
     setValues(Object.fromEntries(FILTER_KEYS.map(name => [name, draft[name].trim()])))
   }
 
@@ -83,14 +96,18 @@ export function AuditPage() {
       <label>Outcome<select {...field('outcome')}><option value="">Any outcome</option>
         {OUTCOMES.map(value => <option key={value} value={value}>{label(value)}</option>)}</select></label>
       <label>Facility ID<input {...field('facilityId')} aria-invalid={invalidFacility} /></label>
+      <label>Target type<input {...field('resourceType')} placeholder="For example facility" aria-invalid={invalidTarget} /></label>
+      <label>Target ID<input {...field('resourceId')} aria-invalid={invalidTarget} /></label>
       <label>Correlation ID<input {...field('correlationId')} /></label>
       <label>From<input type="datetime-local" {...field('from')} /></label>
       <label>To<input type="datetime-local" {...field('to')} /></label>
       <div className="admin-action-row">
-        <button type="submit" className="admin-primary" disabled={invalidFacility}>Apply filters</button>
+        <button type="submit" className="admin-primary" disabled={invalidFacility || invalidTarget}>Apply filters</button>
         <button type="button" className="admin-secondary" onClick={clear}>Clear</button>
       </div>
       {invalidFacility && <p role="alert" className="admin-error">Enter a full facility ID.</p>}
+      {invalidTarget && <p role="alert" className="admin-error">Enter a target type such as facility (lower-case words
+        joined by hyphens) before a target ID; IDs use letters, digits, dots, colons, underscores and hyphens.</p>}
     </form>
     <ResourceView resource={resource} empty={result => result.items.length === 0}>{result => <>
       <Table headings={['Occurred', 'Action', 'Outcome', 'Actor', 'Target', 'Scope', 'Purpose', 'Correlation']}>

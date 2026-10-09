@@ -54,6 +54,29 @@ describe('step-up for high-risk actions', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 
+  it('treats an expired step-up like a missing one and says the last confirmation is too old (Stage 4A)', async () => {
+    const command = vi.fn<(key: string) => Promise<string>>()
+      .mockRejectedValueOnce(problem(403, 'STEP_UP_EXPIRED'))
+      .mockResolvedValueOnce('saved')
+    mocks.stepUp.mockResolvedValueOnce({ stepUpExpiresAt: '2026-10-08T12:05:00.000Z' })
+    render(<StepUpProvider><Command name="Change role" command={command} /></StepUpProvider>)
+    fireEvent.click(screen.getByRole('button', { name: 'Change role' }))
+    expect(await screen.findByRole('dialog')).toBeTruthy()
+    expect(screen.getByText('Your last confirmation in this session is more than 5 minutes old.')).toBeTruthy()
+    enterCode('123456')
+    expect(await screen.findByText('Change role done: saved')).toBeTruthy()
+    expect(command.mock.calls).toEqual([['submission-1'], ['submission-1']])
+  })
+
+  it('does not say a confirmation expired when the session has none', async () => {
+    const command = vi.fn<(key: string) => Promise<string>>().mockRejectedValueOnce(problem(403, 'STEP_UP_REQUIRED'))
+      .mockResolvedValueOnce('saved')
+    render(<StepUpProvider><Command name="Change status" command={command} /></StepUpProvider>)
+    fireEvent.click(screen.getByRole('button', { name: 'Change status' }))
+    expect(await screen.findByRole('dialog')).toBeTruthy()
+    expect(screen.queryByText(/more than 5 minutes old/)).toBeNull()
+  })
+
   it('does not carry out the action when the administrator cancels', async () => {
     const command = vi.fn<(key: string) => Promise<string>>().mockRejectedValue(problem(403, 'STEP_UP_REQUIRED'))
     render(<StepUpProvider><Command name="Revoke sessions" command={command} /></StepUpProvider>)

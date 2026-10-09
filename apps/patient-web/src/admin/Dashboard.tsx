@@ -1,6 +1,6 @@
 import { useCallback, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { adminApi, DEMO_REQUEST_LIMIT, type AdminActor, type PlatformOverview } from './api'
+import { adminApi, type AdminActor, type CursorPage, type PlatformOverview } from './api'
 import { APPROVAL_PERMISSIONS, UNAVAILABLE_CAPABILITIES, visibleNavigation } from './navigation'
 import { Page, Refresh, ResourceView, has, useResource, type Resource } from './ui'
 
@@ -16,9 +16,10 @@ const TOTALS: ReadonlyArray<{ key: keyof PlatformOverview; title: string; link?:
   { key: 'pendingIdentityReviews', title: 'Pending identity reviews', link: '/admin/reviews' },
 ]
 
-/** A count from a list the backend caps: shown as "100+" at the cap rather than as an exact total. */
-function capped(count: number, cap: number) {
-  return count >= cap ? `${number(cap)}+` : number(count)
+/** Waiting work is read one page at a time: "100+" when the list has more than this page. */
+const ATTENTION_PAGE = 100
+function counted(page: CursorPage<unknown>) {
+  return page.nextCursor ? `${number(page.items.length)}+` : number(page.items.length)
 }
 
 function AttentionTile<T>({ title, to, resource, children }: {
@@ -33,11 +34,10 @@ function AttentionTile<T>({ title, to, resource, children }: {
 }
 
 function PendingApprovals() {
-  const load = useCallback((signal?: AbortSignal) => adminApi.approvals('pending', signal), [])
+  const load = useCallback((signal?: AbortSignal) => adminApi.approvals('pending', { limit: ATTENTION_PAGE }, signal), [])
   const resource = useResource(load, 'Approvals could not be loaded.')
-  // The backend returns at most 200 requests per list.
   return <AttentionTile title="Pending approvals" to="/admin/approvals" resource={resource}>{value =>
-    <p><strong className="admin-attention-count">{capped(value.items.length, 200)}</strong> waiting for a second Super Admin</p>}
+    <p><strong className="admin-attention-count">{counted(value)}</strong> waiting for a second Super Admin</p>}
   </AttentionTile>
 }
 
@@ -53,10 +53,10 @@ function OpenApplications() {
 }
 
 function NewDemoRequests() {
-  const load = useCallback((signal?: AbortSignal) => adminApi.demos({ status: 'new' }, signal), [])
+  const load = useCallback((signal?: AbortSignal) => adminApi.demos({ status: 'new' }, { limit: ATTENTION_PAGE }, signal), [])
   const resource = useResource(load, 'Demo requests could not be loaded.')
   return <AttentionTile title="New demo requests" to="/admin/demos?status=new" resource={resource}>{value =>
-    <p><strong className="admin-attention-count">{capped(value.items.length, DEMO_REQUEST_LIMIT)}</strong> not yet contacted</p>}
+    <p><strong className="admin-attention-count">{counted(value)}</strong> not yet contacted</p>}
   </AttentionTile>
 }
 

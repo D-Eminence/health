@@ -92,12 +92,17 @@ describe('facility detail', () => {
     expect(mocks.api.facility).not.toHaveBeenCalled()
   })
 
-  it('shows the platform record and facility-scoped audit only to auditors', async () => {
+  it('shows the platform record, its platform changes by target and facility-scoped audit only to auditors', async () => {
     mocks.api.facility.mockResolvedValue(facility({ status: 'suspended', statusReason: 'Licence under review' }))
-    mocks.api.audit.mockResolvedValue({ items: [{ sequenceId: '9', eventId: 'event-9', occurredAt: '2026-10-08T12:00:00.000Z',
+    const facilityEvent = { sequenceId: '9', eventId: 'event-9', occurredAt: '2026-10-08T12:00:00.000Z',
       correlationId: 'corr-9', actorType: 'staff', actorSubject: 'staff:nurse', facilityId: FACILITY_ID,
       action: 'ehr.encounter.read', outcome: 'success', resourceType: null, resourceId: null, purposeOfUse: null,
-      reason: null, sourceSystem: null }], nextBeforeSequenceId: null })
+      reason: null, sourceSystem: null }
+    const platformEvent = { ...facilityEvent, sequenceId: '12', eventId: 'event-12', correlationId: 'corr-12',
+      actorSubject: 'staff:super', facilityId: null, action: 'admin.facility.suspended', resourceType: 'facility',
+      resourceId: FACILITY_ID, reason: 'Licence lapsed during inspection' }
+    mocks.api.audit.mockImplementation(async (filters: { resourceType?: string }) => ({
+      items: [filters.resourceType ? platformEvent : facilityEvent], nextBeforeSequenceId: null }))
     open(`/admin/facilities/${FACILITY_ID}`, <FacilityDetailPage actor={actor(['platform.audit.read'])} />, '/admin/facilities/:facilityId')
     expect(await screen.findByRole('heading', { name: 'Ikeja Clinic', level: 1 })).toBeTruthy()
     expect(screen.getByText('Licence under review')).toBeTruthy()
@@ -107,6 +112,14 @@ describe('facility detail', () => {
     expect(mocks.api.audit).toHaveBeenCalledWith({ facilityId: FACILITY_ID }, undefined, expect.anything())
     expect(within(activity).getByRole('link', { name: 'Open in Audit' }).getAttribute('href'))
       .toBe(`/admin/audit?facilityId=${FACILITY_ID}`)
+    // Platform commands carry no facility scope: they are found by their target (Stage 4A).
+    const changes = screen.getByRole('region', { name: 'Platform changes to this facility' })
+    expect(await within(changes).findByText('staff:super')).toBeTruthy()
+    expect(within(changes).getByText('Licence lapsed during inspection')).toBeTruthy()
+    expect(within(changes).queryByText('staff:nurse')).toBeNull()
+    expect(mocks.api.audit).toHaveBeenCalledWith({ resourceType: 'facility', resourceId: FACILITY_ID }, undefined, expect.anything())
+    expect(within(changes).getByRole('link', { name: 'Open in Audit' }).getAttribute('href'))
+      .toBe(`/admin/audit?resourceType=facility&resourceId=${FACILITY_ID}`)
   })
 
   it('leaves out facility audit for administrators without audit access', async () => {
@@ -114,6 +127,7 @@ describe('facility detail', () => {
     open(`/admin/facilities/${FACILITY_ID}`, <FacilityDetailPage actor={actor([])} />, '/admin/facilities/:facilityId')
     await screen.findByRole('heading', { name: 'Ikeja Clinic', level: 1 })
     expect(screen.queryByRole('region', { name: 'Activity inside this facility' })).toBeNull()
+    expect(screen.queryByRole('region', { name: 'Platform changes to this facility' })).toBeNull()
     expect(mocks.api.audit).not.toHaveBeenCalled()
   })
 })

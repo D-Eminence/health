@@ -22,10 +22,12 @@ import { StepUpProvider } from './StepUp'
 import { date, has } from './ui'
 import './style.css'
 
+/** The server's PLATFORM_SESSION_EXPIRED / PLATFORM_SESSION_REVOKED, or the reading of its reported expiry. */
 export const SESSION_ENDED_MESSAGES: Readonly<Record<SessionEndReason, string>> = {
   expired: 'Your platform session expired after 15 minutes without activity or at its 8-hour limit. Sign in again to continue.',
-  revoked: 'Your platform session was ended before it expired. It may have been revoked from another session or by another '
-    + 'administrator, or your authenticator was reset. Sign in again, and tell your security team if you did not expect this.',
+  revoked: 'Your platform session was ended before it expired: it was signed out or revoked from another session or by '
+    + 'another administrator, your account or roles changed, or your authenticator was reset. Sign in again, and tell your '
+    + 'security team if you did not expect this.',
 }
 const NO_ACCESS = 'This account has no platform administration access.'
 

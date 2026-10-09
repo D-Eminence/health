@@ -86,16 +86,16 @@ in `App.tsx`. Their capabilities were:
 | Area | What the console now does | Backend contract |
 | --- | --- | --- |
 | Navigation and routing | Grouped navigation. Permission-guarded routes, including sub-pages. Not-found and access-denied pages, the tab title, and deep links that survive a reload. | `GET /admin/session` permissions |
-| Overview | The six backend totals, each linked to its filtered area. Waiting-work tiles (pending approvals, open applications, new demo requests, integration health), each shown only with its read permission and computed from that area's own list. Capped lists show "100+" or "200+". Also the viewer's areas and the unavailable capabilities. | `GET /admin/overview`, `/admin/approvals`, `/admin/organization-applications`, `/admin/demo-requests`, `/admin/integrations` |
+| Overview | The six backend totals, each linked to its filtered area. Waiting-work tiles (pending approvals, open applications, new demo requests, integration health), each shown only with its read permission and computed from that area's own list. Since Stage 4B a count shows "N+" only when the backend reports another page (`nextCursor`), never from a fixed cap. Also the viewer's areas and the unavailable capabilities. | `GET /admin/overview`, `/admin/approvals`, `/admin/organization-applications`, `/admin/demo-requests`, `/admin/integrations` |
 | Applications | Status filter in the URL, plus registry and profile evidence side by side. Verify CAC, approve (new organization, or linked to an existing one through a facility search) and reject. Each needs step-up and `If-Match`, approve and reject need a reason, and refusals are explained. | `/admin/organization-applications` (list, `verify-cac`, `approve`, `reject`) |
-| Facilities | Status and name-or-code filters, and paging, all in the URL. A linkable facility page with its status action and the facility-scoped audit. Malformed links are refused without a request. | `GET /admin/facilities`, `GET /admin/facilities/:id`, `POST …/status`, `GET /admin/audit/events?facilityId=` |
-| Users and roles | Search with a status filter and paging. Shows the subject, creation date, inactive memberships and a link to the user's audit activity. The Stage 2 controls are moved unchanged: status, roles, Super Admin elevation, MFA reset, sessions and export. The search term stays out of the URL. | `/admin/principals` and the Stage 2A commands |
-| Approvals | Unchanged from Stage 2B, including the fix where each Approve or Reject button sends its own decision. | `/admin/approvals` |
-| Audit | Actor, action, outcome, facility, correlation and time filters, kept in the URL. Columns for target, scope (platform, or a facility link), purpose and reason. Cursor paging. Missing fields show "Not recorded" or "System"; nothing is invented. | `GET /admin/audit/events` (`ListPlatformAuditDto`) |
+| Facilities | Status and name-or-code filters, and paging, all in the URL. A linkable facility page with its status action, its platform changes (Stage 4B: audit by target, with reasons) and the facility-scoped audit. Malformed links are refused without a request. | `GET /admin/facilities`, `GET /admin/facilities/:id`, `POST …/status`, `GET /admin/audit/events?resourceType=facility&resourceId=` and `?facilityId=` |
+| Users and roles | Search with a status filter and paging. Shows the subject, creation date, inactive memberships, authenticator enrolment (Stage 4B) and a link to the user's audit activity. The Stage 2 controls: status, roles, Super Admin elevation, MFA reset (offered only for an enrolled administrator since Stage 4B), sessions and export. The search term stays out of the URL. | `/admin/principals` (`mfaEnrolled`) and the Stage 2A commands |
+| Approvals | Stage 2B decisions, including the fix where each Approve or Reject button sends its own decision. Since Stage 4B, cursor paging ("Load more requests") with no cap. | `/admin/approvals` (`limit`, `cursor`, `nextCursor`) |
+| Audit | Actor, action, outcome, facility, target type and ID (Stage 4B), correlation and time filters, kept in the URL. Columns for target, scope (platform, or a facility link), purpose and reason. Cursor paging. Missing fields show "Not recorded" or "System"; nothing is invented. | `GET /admin/audit/events` (`ListPlatformAuditDto`) |
 | Identity review | Read-only, with a status filter, paging and an opened date. | `GET /admin/identity/reviews` |
 | Integrations | Capabilities, the routes using each provider, credential state only, the last test, operation gates, and allow-listed non-secret settings. Governed settings editing. A per-provider change history. Route changes offer only valid providers and can remove a fallback. | `/admin/integrations` (list, `:provider/audit`, `:provider/configuration`, enable, pause, test, selection, fallback) |
 | Pricing | Unchanged, except that the "saved" confirmation now survives the refresh. | `/admin/pricing` |
-| Demo requests | Status and product filters in the URL, and a note when the backend's 100-row cap is reached. | `GET /admin/demo-requests` |
+| Demo requests | Status and product filters in the URL. Since Stage 4B, cursor paging ("Load more requests") replaces the 100-row cap. | `GET /admin/demo-requests` (`limit`, `cursor`, `nextCursor`) |
 | Service health | Service checks, delivery metrics and the delivery failure list. | `/admin/operations/services`, `/admin/operations/events` |
 | Session warning (Stage 2B fix) | The idle-expiry warning now shows a session window recorded between its render and its subscription. Before, such a window was missed until the 15-second tick. | `App.tsx` (`SessionWarning`) |
 | Refusal messages | The backend's 409 refusals now get their own messages. Previously they were reported as "This item changed". The codes covered are unchanged settings or pricing, infrastructure-controlled or external configuration, missing credentials, unsupported or repeated tests, and resources that no longer exist. | `problems.ts` |
@@ -137,16 +137,16 @@ flat navigation were removed.
 | Service health | Existing and complete | `Pages.tsx` | None |
 | Dashboard | Existing and complete | Uses only backend totals and list counts; no invented metrics | None |
 | Platform controls | Existing but incomplete (backend defects; fix merged, not deployed) | Two defects at hid-system `46fabe6`, both from migration 0039. (1) `runtime-grants.sql` never grants `EXECUTE` on `platform.admin_list_controls()` or `platform.admin_set_control(text,boolean,bigint,text)` to the Identity runtime, so `GET /admin/controls` returns 500. (2) `admin_set_control` fails on every call with `42702` (its output columns shadow `control_key` and `row_version`), so `POST /admin/controls` would return 500 even with the grant. Until the fix is deployed, the page shows a safe error with a reference. The fix, D-Eminence/hid-system#20, adds the grant and migration 0071 with SQL and runtime regression tests. It is merged into hid-system `phase-3-patient-safety` (`e0e6432`), but is not yet on hid-system `main` or deployed. With that fix applied locally, the browser run lists all 6 controls and pauses and restores one with step-up. | Backend owner: promote `phase-3-patient-safety` (hid-system#18) and deploy it |
-| Demo requests beyond 100 | Existing but incomplete | The backend returns the newest 100 at most, with no cursor. The UI says so. | Backend: cursor or page |
-| Approvals beyond 200 | Existing but incomplete | `listApprovals` uses `limit 200` with no cursor. The overview shows "200+". | Backend: cursor or page |
-| Facility audit of platform actions | Existing but incomplete | Platform actions record the facility as the target, but audit has no target filter. The detail page lists facility-scoped events and says so. | Backend: a `resourceType`/`resourceId` filter on `/admin/audit/events` |
-| Per-user MFA state | Missing backend | Principal rows carry no MFA enrolment. An MFA reset request for an unenrolled account is refused with `MFA_NOT_ENROLLED`. | Backend: add enrolment state to the principal list |
+| Demo requests beyond 100 | Done in Stage 4B | hid-system Stage 4A cursor (HID_SYSTEM_STAGE_4A_PR); "Load more requests" | None (no total; see open questions) |
+| Approvals beyond 200 | Done in Stage 4B | hid-system Stage 4A cursor; "Load more requests"; overview "N+" from `nextCursor` | None |
+| Facility audit of platform actions | Done in Stage 4B | hid-system Stage 4A target filter; "Platform changes to this facility" | None |
+| Per-user MFA state | Done in Stage 4B | hid-system Stage 4A `mfaEnrolled`; Authenticator column; reset offered only when enrolled | None |
 | Organization directory | Missing backend | No admin endpoint lists or opens organizations. Organizations appear through facilities and applications. | Backend: an organization list and detail contract |
 | Support cases, tickets and notes | Missing backend | No contract. Support is account lookup, status and session revocation. | Product and backend decision |
 | Security event metrics | Missing backend | No aggregate endpoint. Filter Audit by outcome instead. | Backend: an aggregate endpoint, if wanted |
 | Legal holds and session-event review | Missing backend | Stage 2A finding S7 | Backend |
 | Billing, subscriptions and invoices | Missing backend | No contract | Product and backend |
-| Expired versus revoked session codes | Missing backend | Recorded in [open questions](./OPEN-QUESTIONS.md) | Backend: distinct codes |
+| Expired versus revoked session codes | Done in Stage 4B | hid-system Stage 4A `PLATFORM_SESSION_EXPIRED`/`PLATFORM_SESSION_REVOKED` and `STEP_UP_EXPIRED`; the sign-in notice states the server's reason, and the step-up dialog opens for either step-up code | None |
 | Authenticator QR code | Deferred | Needs a vetted encoder or dependency (Stage 2B) | Decide an approach |
 | Integration credential rotation | Deferred (by design) | The backend always answers `INTEGRATION_CREDENTIAL_ROTATION_EXTERNAL`. Credentials stay in deployment configuration, and the UI shows their state only. | None unless policy changes |
 | Legacy hid-system admin app and hostname | Deferred (backend and infrastructure) | See "Retained legacy code" | Retire it and route the hostname to the portal |
@@ -158,8 +158,8 @@ Two endpoints are deliberately unused:
 - the credential-reference command, which the backend always refuses.
 
 **Incomplete capabilities:** platform controls (backend defects; the fix,
-D-Eminence/hid-system#20, is merged into `phase-3-patient-safety` but not
-deployed), and the demo request, approval and facility-audit limits above.
+D-Eminence/hid-system#20, is on hid-system `main` but not deployed). The demo
+request, approval and facility-audit limits were closed in Stage 4B (below).
 
 ## Security boundaries
 
@@ -243,9 +243,9 @@ deployed), and the demo request, approval and facility-audit limits above.
 
 - Platform controls cannot load or change anything until the hid-system#20 fix
   (merged into `phase-3-patient-safety`) is promoted and deployed.
-- The approval (200) and demo request (100) lists are capped by the backend.
-- Facility status changes appear in Audit (filter by action), but not on the
-  facility page, until the backend can filter by target.
+- Closed in Stage 4B: the approval and demo request caps, facility platform
+  changes, per-user MFA state and the session-end reason (backend Stage 4A, not
+  deployed).
 - The browser runs used a local synthetic database. There is still no staging
   environment ([open questions](./OPEN-QUESTIONS.md)).
 - The legacy hid-system admin app still claims the production admin hostname
@@ -253,13 +253,10 @@ deployed), and the demo request, approval and facility-audit limits above.
 
 ## Next stage
 
-1. **Backend:**
-   - promote and deploy the platform controls fix (D-Eminence/hid-system#20,
-     merged into `phase-3-patient-safety`);
-   - audit filtering by target;
-   - per-user MFA state;
-   - cursors for demo requests and approvals;
-   - distinct expired and revoked session codes.
+1. **Backend:** deploy hid-system `main` (the platform controls fix,
+   D-Eminence/hid-system#20, and Stage 4A, HID_SYSTEM_STAGE_4A_PR). Audit
+   by target, per-user MFA state, cursors and distinct session-end codes were
+   built in Stage 4A and wired here in Stage 4B.
 2. **Backend and infrastructure:** retire hid-system `apps/admin` and route
    `admin.healthidentitydirectory.com` to the Health-id portal (with
    same-origin `/api/v1`).
@@ -268,3 +265,21 @@ deployed), and the demo request, approval and facility-audit limits above.
    UI.
 4. **Staging:** promote and deploy Stage 2A with this frontend, then repeat
    the browser runs there.
+
+## Stage 4B: backend contract wiring
+
+Branch `phase-4-stage-4b-admin-contracts`, against hid-system Stage 4A
+(HID_SYSTEM_STAGE_4A_PR, `docs/PHASE_4_STAGE_4A_ADMIN_CONTRACTS.md` there).
+
+| Surface | Change |
+| --- | --- |
+| Facility detail | "Platform changes to this facility": the newest audit events whose target is the facility (`resourceType=facility&resourceId=`), with reasons and a link to the same search in Audit. "Activity inside this facility" keeps the facility-scoped events. |
+| Audit | Target type and target ID filters, kept in the URL. A target ID needs a type, and both follow the backend's patterns before any request. |
+| Users and roles | An Authenticator column (Enrolled or Not set up). The authenticator reset request is offered only for an enrolled administrator. |
+| Approvals, demo requests | Cursor paging: the first page, then "Load more requests" with the backend's opaque `nextCursor` for the same filters. A filter change or reload starts again from the first page. A refused cursor (`ADMIN_INVALID_CURSOR`) is explained. The "200+" and "newest 100" cap notices are gone. |
+| Overview | Pending approvals and new demo requests read one page of up to 100. The count shows "N+" only when the backend reports another page. |
+| Session end | `401 PLATFORM_SESSION_EXPIRED` or `PLATFORM_SESSION_REVOKED` ends the session with the server's reason. That includes the reason a refused refresh gives, which the shared client would otherwise drop. The expiry reading is kept only for a generic `401 AUTHENTICATION_REQUIRED`. Each code also has its own message. |
+| Step-up | The dialog opens for `STEP_UP_REQUIRED` and `STEP_UP_EXPIRED`, saying when the last confirmation is too old, and repeats the same submission once with the same idempotency key. |
+
+Tests: 26 new or updated component and API tests fail against `main`
+(`d5ce01c`) and pass on this branch; the full admin suite passes.

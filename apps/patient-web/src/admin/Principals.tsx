@@ -79,13 +79,14 @@ export function PrincipalsPage({ actor }: { actor: AdminActor }) {
       {query && <Refresh onClick={reload} />}</div>}
     {result && !error && (result.items.length === 0 ? <div className="admin-state">No users match “{query}”.</div> : <>
       <p className="admin-result-count">Showing {result.items.length} of {result.total} matching users</p>
-      <Table headings={['User', 'Status', 'Platform roles', 'Sessions', 'Facility memberships', 'Actions']}>
+      <Table headings={['User', 'Status', 'Platform roles', 'Authenticator', 'Sessions', 'Facility memberships', 'Actions']}>
         {result.items.map(principal => <tr key={principal.id}>
           <td><strong>{principal.displayName || principal.email || 'Account'}</strong><small>{principal.email || principal.id}</small>
             <small>{principal.subject} · created {date(principal.createdAt)}</small>
             {has(actor, 'platform.audit.read') && <small><Link to={`/admin/audit?actor=${encodeURIComponent(principal.subject)}`}>Activity in audit</Link></small>}</td>
           <td><Status value={principal.status} /></td>
           <td>{principal.platformRoles.length ? principal.platformRoles.map(label).join(', ') : 'None'}</td>
+          <td>{principal.mfaEnrolled ? 'Enrolled' : 'Not set up'}</td>
           <td>{principal.activeSessionCount}</td>
           <td>{principal.memberships.length ? principal.memberships.map(item =>
             `${item.facilityName} · ${label(item.role)}${item.active ? '' : ' (inactive)'}`).join('; ') : 'None'}</td>
@@ -153,7 +154,9 @@ function PrincipalActions({ principal, actor, reload }: {
   const canStatus = has(actor, 'platform.principal.manage')
   const canRole = has(actor, 'platform.role.manage')
   const canRevoke = has(actor, 'platform.session.revoke')
-  const canResetMfa = has(actor, 'platform.mfa.reset')
+  // A reset applies only to an administrator with an active authenticator; the
+  // backend still refuses one without (MFA_NOT_ENROLLED) if this list is stale.
+  const canResetMfa = has(actor, 'platform.mfa.reset') && principal.mfaEnrolled
   const canElevate = canRole && !principal.platformRoles.includes('platform_super_admin')
   if (!canStatus && !canRole && !canRevoke && !canResetMfa) return <>View only</>
   return <div className="admin-principal-actions">

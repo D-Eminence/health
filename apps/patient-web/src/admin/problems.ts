@@ -11,8 +11,11 @@ const ADMIN_PROBLEMS: Readonly<Record<string, string>> = {
   ADMIN_STATE_CONFLICT: 'This account is already in that state. Reload to see its current status.',
   LAST_SUPER_ADMIN: 'At least one active platform Super Admin must remain.',
 
-  // Sessions.
+  // Sessions. The backend names the end of a platform session it can attribute
+  // (Stage 4A) and gives every other refusal the generic code.
   AUTHENTICATION_REQUIRED: 'Your platform session has ended. Sign in again to continue.',
+  PLATFORM_SESSION_EXPIRED: 'Your platform session expired after 15 minutes without activity or at its 8-hour limit. Sign in again to continue.',
+  PLATFORM_SESSION_REVOKED: 'Your platform session was ended: it was signed out or revoked, your account or roles changed, or your authenticator was reset. Sign in again to continue.',
   PLATFORM_SESSION_REQUIRED: 'This needs an MFA-verified platform administration session. Sign in to platform administration again.',
   PLATFORM_SESSION_SCOPE_DENIED: 'A platform administration session can be used only for platform administration.',
   CSRF_VALIDATION_FAILED: 'The security check for this session failed. Sign in again to continue.',
@@ -28,9 +31,10 @@ const ADMIN_PROBLEMS: Readonly<Record<string, string>> = {
   MFA_UNAVAILABLE: 'Administrator MFA is temporarily unavailable, so platform sign-in cannot be completed. Contact platform operations.',
   MFA_NOT_ENROLLED: 'This administrator has no authenticator to reset.',
 
-  // Step-up and the high-risk policy. The backend returns STEP_UP_REQUIRED
-  // both when no confirmation exists and when it is older than 5 minutes.
+  // Step-up and the high-risk policy: STEP_UP_REQUIRED when this session has no
+  // confirmation, STEP_UP_EXPIRED when the last one is older than 5 minutes.
   STEP_UP_REQUIRED: 'This action needs a fresh authenticator confirmation (they last 5 minutes). It was not carried out.',
+  STEP_UP_EXPIRED: 'Your last authenticator confirmation is more than 5 minutes old. Confirm again; the action was not carried out.',
   REASON_REQUIRED: 'Enter a reason of 8 to 500 characters. It is recorded in the audit log.',
   IF_MATCH_REQUIRED: 'Reload this item before changing it.',
   IDEMPOTENCY_KEY_INVALID: 'This request could not be matched to a single submission. Try again.',
@@ -55,6 +59,7 @@ const ADMIN_PROBLEMS: Readonly<Record<string, string>> = {
   // Records, integrations and pricing. These 409s are refusals, not edits by
   // someone else, so the generic "item changed" message would mislead.
   ADMIN_RESOURCE_NOT_FOUND: 'This item no longer exists or is not available to you. Reload the list.',
+  ADMIN_INVALID_CURSOR: 'The next page could not be loaded because the list position is no longer valid. Refresh the list to start again.',
   INTEGRATION_NOT_FOUND: 'This integration or route no longer exists. Reload the page.',
   INTEGRATION_UNCHANGED: 'Nothing changed: the integration already has these settings or this state.',
   INTEGRATION_CONFIGURATION_EXTERNAL: 'This integration has no settings that can be edited here. They are managed in deployment configuration.',

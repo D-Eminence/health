@@ -45,7 +45,7 @@ describe('two-person approvals', () => {
     open()
 
     expect(await screen.findByRole('heading', { name: 'Grant Super Admin' })).toBeTruthy()
-    expect(mocks.approvals).toHaveBeenCalledWith('pending', expect.anything())
+    expect(mocks.approvals).toHaveBeenCalledWith('pending', {}, expect.anything())
     expect(screen.getByText('Chidi Operator')).toBeTruthy()
     decide('Approve')
     fireEvent.change(await screen.findByLabelText('Authenticator code'), { target: { value: '123456' } })
@@ -118,9 +118,43 @@ describe('two-person approvals', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Expired' }))
     expect(await screen.findByRole('heading', { name: 'Reset authenticator' })).toBeTruthy()
-    expect(mocks.approvals).toHaveBeenLastCalledWith('expired', expect.anything())
+    expect(mocks.approvals).toHaveBeenLastCalledWith('expired', {}, expect.anything())
     expect(screen.getByText(/expired 24 hours after it was made and was\s+never carried out/)).toBeTruthy()
     expect(screen.queryByLabelText('Reason for your decision')).toBeNull()
+  })
+
+  it('pages beyond the first page with the backend cursor, for the same status, with no cap', async () => {
+    mocks.approvals.mockResolvedValueOnce({ items: [request()], nextCursor: 'cursor-page-2' })
+      .mockResolvedValueOnce({ items: [request({ id: 'request-2', targetDisplayName: 'Dayo Second' })], nextCursor: 'cursor-page-3' })
+      .mockResolvedValueOnce({ items: [request({ id: 'request-3', targetDisplayName: 'Efe Third' })], nextCursor: null })
+    open()
+    expect(await screen.findByText('Showing 1 requests, newest first; more are available')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Load more requests' }))
+    expect(await screen.findByText('Dayo Second')).toBeTruthy()
+    expect(mocks.approvals).toHaveBeenLastCalledWith('pending', { cursor: 'cursor-page-2' })
+    fireEvent.click(screen.getByRole('button', { name: 'Load more requests' }))
+    expect(await screen.findByText('Efe Third')).toBeTruthy()
+    expect(mocks.approvals).toHaveBeenLastCalledWith('pending', { cursor: 'cursor-page-3' })
+    expect(screen.getAllByRole('article')).toHaveLength(3)
+    expect(screen.getByText('Showing 3 requests, newest first')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Load more requests' })).toBeNull()
+    expect(document.body.textContent).not.toMatch(/200\+/)
+  })
+
+  it('starts again from the first page when the status changes, and explains a refused cursor', async () => {
+    mocks.approvals.mockResolvedValueOnce({ items: [request()], nextCursor: 'cursor-pending' })
+      .mockRejectedValueOnce(problem(400, 'ADMIN_INVALID_CURSOR'))
+      .mockResolvedValueOnce({ items: [request({ id: 'request-7', status: 'approved', targetDisplayName: 'Gbenga Approved' })],
+        nextCursor: null })
+    open()
+    await screen.findByRole('article')
+    fireEvent.click(screen.getByRole('button', { name: 'Load more requests' }))
+    expect(await screen.findByText(/list position is no longer valid\. Refresh the list to start again/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Approved' }))
+    expect(await screen.findByText('Gbenga Approved')).toBeTruthy()
+    expect(mocks.approvals).toHaveBeenLastCalledWith('approved', {}, expect.anything())
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Load more requests' })).toBeNull()
   })
 
   it('tells an administrator who is not a Super Admin that the server decides eligibility', async () => {

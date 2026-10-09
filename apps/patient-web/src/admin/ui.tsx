@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { newIdempotencyKey, type AdminActor } from './api'
+import { newIdempotencyKey, type AdminActor, type CursorPage } from './api'
 import { failure } from './problems'
 import { StepUpCancelledError, useStepUp } from './StepUp'
 
@@ -108,6 +108,45 @@ export function Pager({ page, pageSize, total, onPage, disabled = false }: {
     <span aria-current="page">Page {page} of {pages}</span>
     <button type="button" className="admin-secondary" disabled={disabled || page >= pages} onClick={() => onPage(page + 1)}>Next</button>
   </nav>
+}
+
+/**
+ * Further pages of a cursor-paged list, appended below its first page. The
+ * first page comes from `resource`; any reload or filter change starts again
+ * from it. `loadPage` must use the same filters, because a cursor is bound to
+ * them; the backend refuses any other cursor with ADMIN_INVALID_CURSOR.
+ */
+export function useCursorPages<T>(resource: Resource<CursorPage<T>>,
+  loadPage: (cursor: string) => Promise<CursorPage<T>>, errorMessage: string) {
+  const [more, setMore] = useState<{ items: T[]; next: string | null } | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  useEffect(() => { setMore(null); setError(null) }, [resource.data])
+  const next = more ? more.next : resource.data?.nextCursor ?? null
+  const items = resource.data ? [...resource.data.items, ...(more?.items ?? [])] : []
+
+  async function loadMore() {
+    if (!next || loading) return
+    setLoading(true); setError(null)
+    try {
+      const page = await loadPage(next)
+      setMore(current => ({ items: [...(current?.items ?? []), ...page.items], next: page.nextCursor }))
+    } catch (caught) {
+      setError(failure(caught, errorMessage))
+    } finally { setLoading(false) }
+  }
+
+  return { items, hasMore: next !== null, loading, error, loadMore }
+}
+
+export function LoadMore({ pages, label: title }: {
+  pages: { hasMore: boolean; loading: boolean; error: string | null; loadMore: () => Promise<void> }; label: string
+}) {
+  return <>
+    {pages.error ? <p role="alert" className="admin-error">{pages.error}</p> : null}
+    {pages.hasMore ? <button type="button" className="admin-secondary" onClick={() => void pages.loadMore()}
+      disabled={pages.loading}>{pages.loading ? 'Loading…' : title}</button> : null}
+  </>
 }
 
 /**
