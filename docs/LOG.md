@@ -110,6 +110,23 @@
   0074, then the role bootstrap at once, then Identity. It also lists the
   staging browser check of the full request, approve, close and revoke loop.
 
+## 2026-10-09: Phase 4 Stage 6 OCR backend (no portal code change)
+
+- hid-system D-Eminence/hid-system#30 (migration 0075) affects the provider
+  portal's OCR pages without any change here:
+  - patient confirmation and publication had always failed under the
+    least-privilege OCR runtime, because row-level security refused their
+    outbox insert. They now commit;
+  - a second confirmation of the same job version answers
+    `409 OCR_PATIENT_ALREADY_CONFIRMED`, which the confirmation form shows as
+    an error;
+  - the job lookup by document, the validation list and the publication list
+    are now audited and linked to the patient on the server.
+- Response shapes are unchanged, and every OCR call already sends
+  `X-Facility-ID` and `X-Purpose-Of-Use`. Verification was local only (unit,
+  SQL and synthetic rehearsal in hid-system). The staging OCR check is S4b of
+  the hid-system release checklist.
+
 This log records implementation scope, not a release sign-off. The reference
 [gap map](./HEALTH_ID_COMPLETE_FRONTEND_GAP_MAP.md) is a baseline audit rather
 than a live completion tracker.

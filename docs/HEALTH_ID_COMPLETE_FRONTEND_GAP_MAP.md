@@ -82,8 +82,8 @@ Audit baseline: `Health-id` `8903e68`, `hid-system` `c4b5445` on `hid-local-pre-
 | Migrate access/status | Boundary only | Outside hospital scope | Access gate/dashboard | OCR concept | OCR jobs and status endpoints | BUILD |
 | Migrate capture/OCR extraction | Boundary only | Outside hospital scope | Capture/upload | Records scan concept | OCR job creation and extraction | BUILD |
 | Migrate bulk import/project matching | Boundary only | Outside hospital scope | Import/matching | Records scan concept | No bulk import or project matching API | BACKEND GAP |
-| Migrate validation/QA | Boundary only | Outside hospital scope | Validation/QA | Document review concept | OCR validations and patient confirmation | BUILD |
-| Migrate processing/review | Boundary only | Outside hospital scope | Processing/review | Document review concept | OCR retry, validation and publication | BUILD |
+| Migrate validation/QA | Boundary only | Outside hospital scope | Validation/QA | Document review concept | OCR validations and patient confirmation. Before hid-system migration 0075 (D-Eminence/hid-system#30) every confirmation failed under the least-privilege OCR runtime: its outbox insert was refused by row-level security. A second confirmation of the same job version now answers `409 OCR_PATIENT_ALREADY_CONFIRMED` | BUILD |
+| Migrate processing/review | Boundary only | Outside hospital scope | Processing/review | Document review concept | OCR retry, validation and publication. Publication request, success and failure had the same outbox failure until 0075. Validation and publication lists are audited and patient-linked from D-Eminence/hid-system#30 | BUILD |
 | Migrate job publication result | Boundary only | Outside hospital scope | Completed/folders | Fixture records | OCR publication lookup by validation | BUILD |
 | Migrate global completed records | Boundary only | Outside hospital scope | Completed/folders | Fixture records | No global completed-record index | BACKEND GAP |
 | Migrate project/team operations | Boundary only | Outside hospital scope | Projects/team/operations | No equivalent | No project/team lifecycle API | BACKEND GAP |

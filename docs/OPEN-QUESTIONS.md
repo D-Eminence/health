@@ -74,6 +74,10 @@ claim them:
 - **Migrate:** bulk import, project matching, project/team lifecycle, a global
   completed-record index and intelligence analytics. OCR job, extraction,
   validation, patient confirmation and publication are supported routes.
+  Patient confirmation and publication work under the least-privilege OCR
+  runtime only from hid-system migration 0075 (D-Eminence/hid-system#30);
+  before it, their outbox insert was refused. No staging run of the OCR
+  pipeline exists yet (hid-system release checklist S4b).
 - **Commercial/admin:** subscription, trial, invoice, payment and global AI
   processing administration. The existing public prices, demo intake and
   platform administration routes do not imply these capabilities.
