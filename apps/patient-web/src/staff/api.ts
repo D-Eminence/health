@@ -59,6 +59,10 @@ export interface ResolveNinInput {
   gender?: 'female' | 'male' | 'intersex' | 'other' | 'unknown'
 }
 
+/** `ListStaffAccessRequestsDto` statuses. */
+export const ACCESS_REQUEST_STATUSES = ['pending', 'approved', 'denied', 'revoked', 'expired'] as const
+export type AccessRequestStatus = (typeof ACCESS_REQUEST_STATUSES)[number]
+
 export interface AccessRequest {
   accessRequestId: string
   patientId: string
@@ -81,6 +85,7 @@ export interface GrantResult {
   expiresAt: string
 }
 
+/** `POST /identity/patient-lookup` patient fields (identity.service.ts). */
 export interface PatientSummary {
   patientId: string
   hid: string
@@ -88,15 +93,28 @@ export interface PatientSummary {
   firstName?: string
   lastName?: string
   dateOfBirth?: string
-  sex?: string
-  bloodGroup?: string
-  mrn?: string
-  status?: string
+  gender?: string
+  version?: number
 }
 
+/**
+ * `POST /identity/patient-lookup` answers only an allowed lookup; a refusal is
+ * a 403. `consentGrantId` is the grant that authorized it (patient approval,
+ * patient PIN or emergency access), which its clinician may close.
+ */
 export type PatientLookup =
   | { authorization: { decision: 'deny'; expiresAt?: string }; patient?: never }
-  | { authorization: { decision: 'allow'; expiresAt?: string; consentId?: string; breakGlass?: boolean }; patient: PatientSummary }
+  | { authorization: { decision: 'allow'; expiresAt?: string; consentGrantId?: string | null; breakGlass?: boolean; scope?: string }; patient: PatientSummary }
+
+/** `POST /identity/consent-status`: what the current grant permits at this facility. */
+export interface ConsentStatus {
+  patientId: string
+  facilityId: string
+  purpose: string
+  readAllowed: boolean
+  writeAllowed: boolean
+  expiresAt?: string
+}
 
 export function isAllowedPatientLookup(lookup: PatientLookup): lookup is Extract<PatientLookup, { patient: PatientSummary }> {
   return lookup.authorization.decision === 'allow' && !!lookup.patient
@@ -486,8 +504,12 @@ export const staffApi = {
   lookupPatient: (facilityId: string, hid: string, purpose: 'direct-care' | 'emergency' = 'direct-care') =>
     client.post<PatientLookup>('/api/v1/identity/patient-lookup', { hid: hid.trim().toUpperCase(), purpose },
       { headers: facilityHeaders(facilityId, purpose) }),
-  listAccessRequests: (facilityId: string) =>
-    client.get<AccessRequest[]>('/api/v1/identity/access-requests', { headers: facilityHeaders(facilityId) }),
+  listAccessRequests: (facilityId: string, status?: AccessRequestStatus) =>
+    client.get<AccessRequest[]>('/api/v1/identity/access-requests',
+      { ...(status ? { query: { status } } : {}), headers: facilityHeaders(facilityId) }),
+  consentStatus: (facilityId: string, patientId: string) =>
+    client.post<ConsentStatus>('/api/v1/identity/consent-status', { patientId, purpose: 'direct-care' },
+      { headers: facilityHeaders(facilityId) }),
   requestAccess: (facilityId: string, hid: string, scope: 'read_records' | 'write_records', reason: string, durationMinutes: number) =>
     client.post<AccessRequest>('/api/v1/identity/access-requests', { hid: hid.trim().toUpperCase(), scope, reason, durationMinutes },
       { headers: facilityHeaders(facilityId) }),
