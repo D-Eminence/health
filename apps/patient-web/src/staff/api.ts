@@ -59,9 +59,11 @@ export interface ResolveNinInput {
   gender?: 'female' | 'male' | 'intersex' | 'other' | 'unknown'
 }
 
-/** `ListStaffAccessRequestsDto` statuses. */
+/** `ListStaffAccessRequestsDto` statuses: the request's own status. */
 export const ACCESS_REQUEST_STATUSES = ['pending', 'approved', 'denied', 'revoked', 'expired'] as const
-export type AccessRequestStatus = (typeof ACCESS_REQUEST_STATUSES)[number]
+/** Outcome filters an Identity build with hid-system 0074 also accepts. */
+export const ACCESS_OUTCOME_FILTERS = ['active', 'closed'] as const
+export type AccessRequestStatus = (typeof ACCESS_REQUEST_STATUSES)[number] | (typeof ACCESS_OUTCOME_FILTERS)[number]
 
 export interface AccessRequest {
   accessRequestId: string
