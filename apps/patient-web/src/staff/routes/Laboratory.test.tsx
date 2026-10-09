@@ -1190,7 +1190,8 @@ describe('Laboratory result access denied', () => {
     })
 
     it('keeps the values and shows the refusal when the re-check is still authorized', async () => {
-      api.labExecutions.mockResolvedValue({ items: [execution({ result: unverifiedResult() })] })
+      // A fresh response object on every load, as from the network.
+      api.labExecutions.mockImplementation(async () => ({ items: [execution({ result: unverifiedResult() })] }))
       api.verifyLabResult.mockRejectedValue(executionAccessDenied())
       const panel = await openExecutionPanel(actions)
       await expectResultValuesShown(panel)
@@ -1250,22 +1251,37 @@ describe('Laboratory result access denied', () => {
       expect(api.labResultHistory).toHaveBeenCalledWith(FACILITY, 'result-1')
     })
 
-    it('keeps the values when the history is not released yet (404) and the re-check is authorized', async () => {
-      api.labExecutions.mockResolvedValue({ items: [execution({ result: unverifiedResult() })] })
+    it('keeps the values without a re-check when the history is not released yet (404)', async () => {
+      // Released-result readers get 404 until a version is released. A fresh response
+      // object on every load, as from the network, would also expose a refetch loop.
+      api.labExecutions.mockImplementation(async () => ({ items: [execution({ result: unverifiedResult() })] }))
       api.labResultHistory.mockRejectedValue(problem(404, 'LAB_RESULT_NOT_FOUND', 'Lab result was not found'))
       const panel = await openExecutionPanel(actions)
       await expectResultValuesShown(panel)
 
       fireEvent.click(within(panel).getByRole('button', { name: 'View result history' }))
 
+      expect((await within(panel).findByRole('alert')).textContent).toBe('Lab result was not found')
+      // A later explicit refresh is the second load, so the 404 caused no re-check.
+      await refreshExecutions(panel)
       await waitFor(() => expect(api.labExecutions).toHaveBeenCalledTimes(2))
       await executionsSettled(panel)
-      expect((await within(panel).findByRole('alert')).textContent).toBe('Lab result was not found')
       expect(screen.queryByText(ACCESS_DENIED)).toBeNull()
       expect(within(panel).getByText(visibleValue)).toBeTruthy()
-      // The reload does not refetch the history, so the re-check cannot loop.
       expect(api.labResultHistory).toHaveBeenCalledTimes(1)
       expect(api.labExecutions).toHaveBeenCalledTimes(2)
+    })
+
+    it('hides the values when the history of a released result is no longer visible (404)', async () => {
+      api.labExecutions.mockResolvedValueOnce({ items: [execution({ result: releasedResult() })] }).mockRejectedValue(specimenNotFound())
+      api.labResultHistory.mockRejectedValue(problem(404, 'LAB_RESULT_NOT_FOUND', 'Lab result was not found'))
+      const panel = await openExecutionPanel(actions)
+      expect(await within(panel).findByText(visibleValue)).toBeTruthy()
+
+      fireEvent.click(within(panel).getByRole('button', { name: 'View result history' }))
+
+      await expectAccessEnded(panel)
+      expect(api.labResultHistory).toHaveBeenCalledWith(FACILITY, 'result-1')
     })
 
     it('hides the execution when a refused completion means read access has ended', async () => {
@@ -1293,6 +1309,112 @@ describe('Laboratory result access denied', () => {
       await expectAccessEnded(panel)
       expect(api.enterLabResult).toHaveBeenCalledTimes(1)
       expect(document.body.innerHTML).not.toContain('13.4')
+    })
+
+    it('hides the values of every specimen of the patient once one panel finds access has ended', async () => {
+      const second = specimen('received', { id: 'specimen-2', specimenIdentifier: 'SPC-000124', specimenType: 'Serum' })
+      const potassium = execution({ id: 'execution-2', specimenId: 'specimen-2', test: { codeSystem: 'LOINC', code: '2823-3', name: 'Potassium' },
+        result: unverifiedResult({ id: 'result-2', executionId: 'execution-2', revisions: [revision({ numericValue: 9.9, unit: 'mmol/L', referenceRange: '3.5-5.1' })] }) })
+      let firstPanelLoads = 0
+      api.labExecutions.mockImplementation(async (_facility, specimenId) => {
+        if (specimenId === 'specimen-2') return { items: [potassium] }
+        if (++firstPanelLoads === 1) return { items: [execution({ result: unverifiedResult() })] }
+        throw executionAccessDenied()
+      })
+      api.verifyLabResult.mockRejectedValue(executionAccessDenied())
+      await openAccession(actions, accession([specimen('received'), second]))
+      const [first, other] = screen.getAllByRole('heading', { name: 'Analytical execution' }).map(heading => heading.parentElement as HTMLElement)
+      if (!first || !other) throw new Error('Expected one execution panel per received specimen.')
+      expect(await within(first).findByText(visibleValue)).toBeTruthy()
+      expect(await within(other).findByText('9.9 mmol/L · low')).toBeTruthy()
+
+      fireEvent.change(within(first).getAllByRole('textbox', { name: 'Verification reason' })[0] as HTMLElement, { target: { value: verificationReason } })
+      fireEvent.click(within(first).getByRole('button', { name: 'Verify result version' }))
+
+      await waitFor(() => expect(within(first).getByRole('alert').textContent).toBe(ACCESS_DENIED))
+      await waitFor(() => expect(within(other).getByRole('alert').textContent).toBe(ACCESS_DENIED))
+      expectNoResultValues()
+      expect(document.body.innerHTML).not.toContain('9.9')
+      expect(document.body.innerHTML).not.toContain('3.5-5.1')
+      expect(screen.queryAllByDisplayValue(/9\.9/)).toHaveLength(0)
+      // Hiding a sibling's values needs no further request, so nothing can loop.
+      expect(api.labExecutions.mock.calls.filter(([, id]) => id === 'specimen-2')).toHaveLength(1)
+    })
+
+    it('shows every specimen again after a refresh of the accession once access returns', async () => {
+      const second = specimen('received', { id: 'specimen-2', specimenIdentifier: 'SPC-000124', specimenType: 'Serum' })
+      const potassium = execution({ id: 'execution-2', specimenId: 'specimen-2', test: { codeSystem: 'LOINC', code: '2823-3', name: 'Potassium' },
+        result: unverifiedResult({ id: 'result-2', executionId: 'execution-2', revisions: [revision({ numericValue: 9.9, unit: 'mmol/L', referenceRange: '3.5-5.1' })] }) })
+      let refused = true
+      api.labExecutions.mockImplementation(async (_facility, specimenId) => {
+        if (specimenId === 'specimen-2') return { items: [potassium] }
+        if (refused) throw executionAccessDenied()
+        return { items: [execution({ result: unverifiedResult() })] }
+      })
+      const card = await openAccession(actions, accession([specimen('received'), second]))
+      await waitFor(() => expect(screen.getAllByText(ACCESS_DENIED)).toHaveLength(2))
+      expect(document.body.innerHTML).not.toContain('9.9')
+
+      refused = false
+      await clickWhenEnabled(within(card).getByRole('button', { name: 'Refresh accession' }))
+
+      expect(await screen.findByText(visibleValue)).toBeTruthy()
+      expect(await screen.findByText('9.9 mmol/L · low')).toBeTruthy()
+      expect(screen.queryByText(ACCESS_DENIED)).toBeNull()
+
+      // Access ends again: the refresh reset the shared signal, so both hide again.
+      refused = true
+      const [first] = screen.getAllByRole('heading', { name: 'Analytical execution' }).map(heading => heading.parentElement as HTMLElement)
+      if (!first) throw new Error('Expected the first execution panel.')
+      await refreshExecutions(first)
+      await waitFor(() => expect(screen.getAllByText(ACCESS_DENIED)).toHaveLength(2))
+      expectNoResultValues()
+      expect(document.body.innerHTML).not.toContain('9.9')
+    })
+
+    describe('for a member who can run executions but not read them', () => {
+      // Without lab.execution.read the panel cannot reload, so it cannot re-check.
+      const runner = [...ACCESSION_READ, 'lab.execution.start', 'lab.execution.complete', 'lab.result.enter', 'lab.result.released.read']
+
+      async function startAndComplete() {
+        api.startLabExecution.mockResolvedValue(inProgress())
+        await openAccession(runner, accession([specimen('received')]))
+        const panel = sectionOf('Analytical execution')
+        fireEvent.change(within(panel).getByRole('textbox', { name: 'Reason' }), { target: { value: 'Begin analysis' } })
+        fireEvent.click(within(panel).getByRole('button', { name: 'Start execution' }))
+        expect(await within(panel).findByText('Hemoglobin · LOINC 718-7')).toBeTruthy()
+        return panel
+      }
+
+      it('hides the execution at once when an action is refused', async () => {
+        api.completeLabExecution.mockRejectedValue(executionAccessDenied())
+        const panel = await startAndComplete()
+
+        fireEvent.click(within(panel).getByRole('button', { name: 'Complete execution' }))
+
+        await waitFor(() => expect(within(panel).getByRole('alert').textContent).toBe(ACCESS_DENIED))
+        expect(within(panel).queryByText('Hemoglobin · LOINC 718-7')).toBeNull()
+        expect(api.labExecutions).not.toHaveBeenCalled()
+      })
+
+      it('keeps the result when its history is not released yet (404)', async () => {
+        api.completeLabExecution.mockResolvedValue(execution())
+        api.enterLabResult.mockResolvedValue(unverifiedResult())
+        api.labResultHistory.mockRejectedValue(problem(404, 'LAB_RESULT_NOT_FOUND', 'Lab result was not found'))
+        const panel = await startAndComplete()
+        fireEvent.click(within(panel).getByRole('button', { name: 'Complete execution' }))
+        fireEvent.click(await within(panel).findByText('Enter manual result'))
+        fireEvent.change(within(panel).getByRole('spinbutton', { name: 'Numeric value' }), { target: { value: '7.1' } })
+        fireEvent.click(within(panel).getByRole('button', { name: 'Record unverified result' }))
+        expect(await within(panel).findByText(visibleValue)).toBeTruthy()
+
+        fireEvent.click(within(panel).getByRole('button', { name: 'View result history' }))
+
+        expect((await within(panel).findByRole('alert')).textContent).toBe('Lab result was not found')
+        expect(screen.queryByText(ACCESS_DENIED)).toBeNull()
+        expect(within(panel).getByText(visibleValue)).toBeTruthy()
+        expect(api.labExecutions).not.toHaveBeenCalled()
+      })
     })
   })
 })

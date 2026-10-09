@@ -214,16 +214,22 @@ function ResultHistory({ facilityId, result, onRefused }: { facilityId: string; 
   const [history, setHistory] = useState<LabResult | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  // Released-result readers get 404 until a version is released; that is not a refusal.
+  const unreleased = result.currentReleasedVersion == null
   useEffect(() => {
     if (!open) return
     let active = true
     setLoading(true); setError('')
     void staffApi.labResultHistory(facilityId, result.id)
       .then(value => { if (active) setHistory(value) })
-      .catch(caught => { if (active) { setError(errorText(caught, 'Result history could not be loaded.')); onRefused(caught) } })
+      .catch(caught => {
+        if (!active) return
+        setError(errorText(caught, 'Result history could not be loaded.'))
+        if (!(unreleased && isHidApiError(caught) && caught.status === 404)) onRefused(caught)
+      })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
-  }, [facilityId, result.id, result.currentVersion, open, revision, onRefused])
+  }, [facilityId, result.id, result.currentVersion, unreleased, open, revision, onRefused])
   return <div className="staff-stack"><Button tone="secondary" size="sm" onClick={() => setOpen(value => !value)}>{open ? 'Hide result history' : 'View result history'}</Button>
     {open && <><Button tone="secondary" size="sm" onClick={() => setRevision(value => value + 1)} disabled={loading}>Refresh history</Button>
       {loading && <p role="status">Loading result history…</p>}
@@ -277,7 +283,10 @@ function labResultsAccessEnded(error: unknown) {
 
 const LAB_RESULTS_ACCESS_DENIED = 'Access denied. You are not authorized to view lab results for this patient. Results stay hidden until access is granted again.'
 
-function ExecutionPanel({ facilityId, specimen, permissions }: { facilityId: string; specimen: LabSpecimen; permissions: string[] }) {
+function ExecutionPanel({ facilityId, specimen, permissions, resultsHidden, onAccessEnded }: {
+  facilityId: string; specimen: LabSpecimen; permissions: string[];
+  resultsHidden: boolean; onAccessEnded: () => void
+}) {
   const canRead = permissions.includes('lab.execution.read')
   const canStart = permissions.includes('lab.execution.start')
   const [items, setItems] = useState<LabExecution[] | null>(null)
@@ -286,6 +295,10 @@ function ExecutionPanel({ facilityId, specimen, permissions }: { facilityId: str
   const [notice, setNotice] = useState('')
   const [busy, setBusy] = useState(false)
   const [revision, setRevision] = useState(0)
+  const hideResults = useCallback(() => { setItems(null); setNotice(''); setError(LAB_RESULTS_ACCESS_DENIED) }, [])
+  // Every specimen in the accession belongs to the same patient, so the others hide too.
+  const endAccess = useCallback(() => { hideResults(); onAccessEnded() }, [hideResults, onAccessEnded])
+  useEffect(() => { if (resultsHidden) hideResults() }, [resultsHidden, hideResults])
   useEffect(() => {
     if (!canRead) return
     let active = true
@@ -294,19 +307,19 @@ function ExecutionPanel({ facilityId, specimen, permissions }: { facilityId: str
       .then(value => { if (active) setItems(value.items) })
       .catch(caught => {
         if (!active) return
-        if (!labResultsAccessEnded(caught)) return setError(errorText(caught, 'Lab executions could not be loaded.'))
-        setItems(null); setNotice(''); setError(LAB_RESULTS_ACCESS_DENIED)
+        if (labResultsAccessEnded(caught)) endAccess()
+        else setError(errorText(caught, 'Lab executions could not be loaded.'))
       })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
-  }, [canRead, facilityId, specimen.id, revision])
+  }, [canRead, facilityId, specimen.id, revision, endAccess])
   // A refused action may only refuse that write (for example under break-glass) or
   // may mean read access has ended. Reload to find out: a refused reload hides the values.
   const recheckAccess = useCallback((caught: unknown) => {
     if (!labResultsAccessEnded(caught)) return
     if (canRead) setRevision(current => current + 1)
-    else { setItems(null); setNotice(''); setError(LAB_RESULTS_ACCESS_DENIED) }
-  }, [canRead])
+    else endAccess()
+  }, [canRead, endAccess])
   function changedExecution(value: LabExecution, message: string) {
     setItems(previous => [...(previous ?? []).filter(item => item.id !== value.id), value])
     setNotice(message)
@@ -350,9 +363,11 @@ function AccessionView({ facilityId, id, permissions, onChanged }: { facilityId:
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const [revision, setRevision] = useState(0)
+  const [resultsHidden, setResultsHidden] = useState(false)
+  const hideResults = useCallback(() => setResultsHidden(true), [])
   useEffect(() => {
     let active = true
-    setAccession(null); setError(''); setLoading(true)
+    setAccession(null); setError(''); setLoading(true); setResultsHidden(false)
     void staffApi.labAccession(facilityId, id).then(value => { if (active) setAccession(value) })
       .catch(caught => { if (active) setError(errorText(caught, 'Accession could not be loaded.')) })
       .finally(() => { if (active) setLoading(false) })
@@ -361,7 +376,7 @@ function AccessionView({ facilityId, id, permissions, onChanged }: { facilityId:
   return <Card className="staff-card"><h2>Specimen accession</h2>
     {loading && <p role="status">Loading accession…</p>}
     {error && <p className="staff-error" role="alert">{error}</p>}
-    {accession && <><p>Accession {accession.accessionNumber}</p><div className="staff-list">{accession.specimens.map(specimen => <div className="staff-stack" key={`${specimen.id}-${specimen.status}`}><SpecimenAction facilityId={facilityId} accessionId={id} specimen={specimen} permissions={permissions} onChanged={() => { setRevision(value => value + 1); onChanged() }} />{specimen.status === 'received' && (permissions.includes('lab.execution.read') || permissions.includes('lab.execution.start')) && <ExecutionPanel facilityId={facilityId} specimen={specimen} permissions={permissions} />}</div>)}</div></>}
+    {accession && <><p>Accession {accession.accessionNumber}</p><div className="staff-list">{accession.specimens.map(specimen => <div className="staff-stack" key={`${specimen.id}-${specimen.status}`}><SpecimenAction facilityId={facilityId} accessionId={id} specimen={specimen} permissions={permissions} onChanged={() => { setRevision(value => value + 1); onChanged() }} />{specimen.status === 'received' && (permissions.includes('lab.execution.read') || permissions.includes('lab.execution.start')) && <ExecutionPanel facilityId={facilityId} specimen={specimen} permissions={permissions} resultsHidden={resultsHidden} onAccessEnded={hideResults} />}</div>)}</div></>}
     <div className="staff-row"><Button tone="secondary" size="sm" onClick={() => setRevision(value => value + 1)} disabled={loading}>Refresh accession</Button></div>
   </Card>
 }
