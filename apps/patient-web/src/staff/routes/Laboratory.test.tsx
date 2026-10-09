@@ -1153,4 +1153,146 @@ describe('Laboratory result access denied', () => {
     expect(await within(panel).findByText(visibleValue)).toBeTruthy()
     expect(within(panel).queryByRole('alert')).toBeNull()
   })
+
+  describe('after a refused Lab action', () => {
+    // A 403 or 404 from an action may mean read access has ended too, or only that
+    // this write is not allowed (for example under break-glass). The page re-checks
+    // by reloading the executions: the values stay only if that reload is authorized.
+    const actions = [...permissions, 'lab.result.release', 'lab.execution.complete']
+    const verificationReason = 'Independent review against QC run'
+
+    async function verify(panel: HTMLElement) {
+      fireEvent.change(within(panel).getByRole('textbox', { name: 'Verification reason' }), { target: { value: verificationReason } })
+      fireEvent.click(within(panel).getByRole('button', { name: 'Verify result version' }))
+    }
+
+    async function expectAccessEnded(panel: HTMLElement) {
+      await waitFor(() => expect(within(panel).getByRole('alert').textContent).toBe(ACCESS_DENIED))
+      await executionsSettled(panel)
+      expect(api.labExecutions).toHaveBeenCalledTimes(2)
+      expect(api.labExecutions).toHaveBeenLastCalledWith(FACILITY, 'specimen-1')
+      expect(screen.queryByText(RESULT_ACCESS_REFUSED)).toBeNull()
+      expectNoResultValues()
+      expect(within(panel).queryByText('Hemoglobin · LOINC 718-7')).toBeNull()
+    }
+
+    it('hides the values when a refused verification means read access has ended', async () => {
+      const unverified = unverifiedResult()
+      api.labExecutions.mockResolvedValueOnce({ items: [execution({ result: unverified })] }).mockRejectedValue(executionAccessDenied())
+      api.verifyLabResult.mockRejectedValue(executionAccessDenied())
+      const panel = await openExecutionPanel(actions)
+      await expectResultValuesShown(panel)
+
+      await verify(panel)
+
+      await expectAccessEnded(panel)
+      expect(api.verifyLabResult).toHaveBeenCalledWith(FACILITY, unverified, verificationReason)
+    })
+
+    it('keeps the values and shows the refusal when the re-check is still authorized', async () => {
+      api.labExecutions.mockResolvedValue({ items: [execution({ result: unverifiedResult() })] })
+      api.verifyLabResult.mockRejectedValue(executionAccessDenied())
+      const panel = await openExecutionPanel(actions)
+      await expectResultValuesShown(panel)
+
+      await verify(panel)
+
+      await waitFor(() => expect(api.labExecutions).toHaveBeenCalledTimes(2))
+      await executionsSettled(panel)
+      expect((await within(panel).findByRole('alert')).textContent).toBe(RESULT_ACCESS_REFUSED)
+      expect(screen.queryByText(ACCESS_DENIED)).toBeNull()
+      expect(within(panel).getByText(visibleValue)).toBeTruthy()
+      expect(within(panel).queryByText('This exact result version was verified.')).toBeNull()
+      expect(api.verifyLabResult).toHaveBeenCalledTimes(1)
+      expect(api.labExecutions).toHaveBeenCalledTimes(2)
+    })
+
+    it('hides the values when a refused release is followed by a hidden specimen (404)', async () => {
+      const verified = verifiedResult()
+      api.labExecutions.mockResolvedValueOnce({ items: [execution({ result: verified })] }).mockRejectedValue(specimenNotFound())
+      api.releaseLabResult.mockRejectedValue(problem(404, 'LAB_RESULT_NOT_FOUND', 'Lab result was not found'))
+      const panel = await openExecutionPanel(actions)
+      await expectResultValuesShown(panel)
+
+      fireEvent.change(within(panel).getByRole('textbox', { name: 'Release reason' }), { target: { value: 'Clinically reviewed for release' } })
+      fireEvent.click(within(panel).getByRole('button', { name: 'Release result version' }))
+
+      await expectAccessEnded(panel)
+      expect(api.releaseLabResult).toHaveBeenCalledWith(FACILITY, verified, 'Clinically reviewed for release')
+      expect(screen.queryByText('Lab result was not found')).toBeNull()
+    })
+
+    it('hides the values when a refused correction means read access has ended', async () => {
+      api.labExecutions.mockResolvedValueOnce({ items: [execution({ result: unverifiedResult() })] }).mockRejectedValue(executionAccessDenied())
+      api.correctLabResult.mockRejectedValue(executionAccessDenied())
+      const panel = await openExecutionPanel(actions)
+      await expectResultValuesShown(panel)
+
+      fireEvent.click(within(panel).getByText('Correct or amend result'))
+      fireEvent.change(within(panel).getByRole('spinbutton', { name: 'Numeric value' }), { target: { value: '7.4' } })
+      fireEvent.change(within(panel).getByRole('textbox', { name: 'Reason' }), { target: { value: TRANSCRIPTION_FIX } })
+      fireEvent.click(within(panel).getByRole('button', { name: 'Record new revision' }))
+
+      await expectAccessEnded(panel)
+      expect(api.correctLabResult).toHaveBeenCalledTimes(1)
+      expect(document.body.innerHTML).not.toContain('7.4')
+    })
+
+    it('hides the values when a refused history read means read access has ended', async () => {
+      api.labExecutions.mockResolvedValueOnce({ items: [execution({ result: unverifiedResult() })] }).mockRejectedValue(executionAccessDenied())
+      api.labResultHistory.mockRejectedValue(executionAccessDenied())
+      const panel = await openExecutionPanel(actions)
+      await expectResultValuesShown(panel)
+
+      fireEvent.click(within(panel).getByRole('button', { name: 'View result history' }))
+
+      await expectAccessEnded(panel)
+      expect(api.labResultHistory).toHaveBeenCalledWith(FACILITY, 'result-1')
+    })
+
+    it('keeps the values when the history is not released yet (404) and the re-check is authorized', async () => {
+      api.labExecutions.mockResolvedValue({ items: [execution({ result: unverifiedResult() })] })
+      api.labResultHistory.mockRejectedValue(problem(404, 'LAB_RESULT_NOT_FOUND', 'Lab result was not found'))
+      const panel = await openExecutionPanel(actions)
+      await expectResultValuesShown(panel)
+
+      fireEvent.click(within(panel).getByRole('button', { name: 'View result history' }))
+
+      await waitFor(() => expect(api.labExecutions).toHaveBeenCalledTimes(2))
+      await executionsSettled(panel)
+      expect((await within(panel).findByRole('alert')).textContent).toBe('Lab result was not found')
+      expect(screen.queryByText(ACCESS_DENIED)).toBeNull()
+      expect(within(panel).getByText(visibleValue)).toBeTruthy()
+      // The reload does not refetch the history, so the re-check cannot loop.
+      expect(api.labResultHistory).toHaveBeenCalledTimes(1)
+      expect(api.labExecutions).toHaveBeenCalledTimes(2)
+    })
+
+    it('hides the execution when a refused completion means read access has ended', async () => {
+      const running = inProgress()
+      api.labExecutions.mockResolvedValueOnce({ items: [running] }).mockRejectedValue(executionAccessDenied())
+      api.completeLabExecution.mockRejectedValue(executionAccessDenied())
+      const panel = await openExecutionPanel(actions)
+
+      fireEvent.click(await within(panel).findByRole('button', { name: 'Complete execution' }))
+
+      await expectAccessEnded(panel)
+      expect(api.completeLabExecution).toHaveBeenCalledWith(FACILITY, running, '')
+      expect(within(panel).queryByRole('button', { name: 'Complete execution' })).toBeNull()
+    })
+
+    it('hides the execution when a refused result entry means read access has ended', async () => {
+      api.labExecutions.mockResolvedValueOnce({ items: [execution()] }).mockRejectedValue(executionAccessDenied())
+      api.enterLabResult.mockRejectedValue(executionAccessDenied())
+      const panel = await openExecutionPanel(actions)
+
+      fireEvent.click(await within(panel).findByText('Enter manual result'))
+      fireEvent.change(within(panel).getByRole('spinbutton', { name: 'Numeric value' }), { target: { value: '13.4' } })
+      fireEvent.click(within(panel).getByRole('button', { name: 'Record unverified result' }))
+
+      await expectAccessEnded(panel)
+      expect(api.enterLabResult).toHaveBeenCalledTimes(1)
+      expect(document.body.innerHTML).not.toContain('13.4')
+    })
+  })
 })

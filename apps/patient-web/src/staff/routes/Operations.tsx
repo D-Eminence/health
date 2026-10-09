@@ -125,9 +125,9 @@ function resultValue(form: FormData, resultType: 'numeric' | 'text'): LabResultV
   return { resultType, textValue, ...shared }
 }
 
-function ResultEntry({ facilityId, execution, result, onChanged }: {
+function ResultEntry({ facilityId, execution, result, onChanged, onRefused }: {
   facilityId: string; execution: LabExecution; result: LabResult | null;
-  onChanged: (value: LabResult, message: string) => void
+  onChanged: (value: LabResult, message: string) => void; onRefused: (error: unknown) => void
 }) {
   const current = result?.revisions.find(revision => revision.version === result.currentVersion)
   const [resultType, setResultType] = useState<'numeric' | 'text'>(current?.resultType ?? 'numeric')
@@ -149,7 +149,7 @@ function ResultEntry({ facilityId, execution, result, onChanged }: {
           String(form.get('revisionKind')) === 'amendment' ? 'amendment' : 'correction')
         : await staffApi.enterLabResult(facilityId, execution, value)
       onChanged(updated, result ? 'A new unverified result revision was recorded.' : 'An unverified result was recorded.')
-    } catch (caught) { setError(errorText(caught, 'Result could not be recorded. Refresh before retrying.')) }
+    } catch (caught) { setError(errorText(caught, 'Result could not be recorded. Refresh before retrying.')); onRefused(caught) }
     finally { setBusy(false) }
   }
   return <details className="staff-list-item"><summary>{result ? 'Correct or amend result' : 'Enter manual result'}</summary>
@@ -171,9 +171,9 @@ function ResultEntry({ facilityId, execution, result, onChanged }: {
   </details>
 }
 
-function ResultGovernance({ facilityId, result, action, onChanged }: {
+function ResultGovernance({ facilityId, result, action, onChanged, onRefused }: {
   facilityId: string; result: LabResult; action: 'verify' | 'release';
-  onChanged: (value: LabResult, message: string) => void
+  onChanged: (value: LabResult, message: string) => void; onRefused: (error: unknown) => void
 }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -187,7 +187,7 @@ function ResultGovernance({ facilityId, result, action, onChanged }: {
         ? await staffApi.verifyLabResult(facilityId, result, reason)
         : await staffApi.releaseLabResult(facilityId, result, reason)
       onChanged(value, action === 'verify' ? 'This exact result version was verified.' : 'This exact verified result version was released.')
-    } catch (caught) { setError(errorText(caught, 'Decision could not be recorded. Refresh before retrying.')) }
+    } catch (caught) { setError(errorText(caught, 'Decision could not be recorded. Refresh before retrying.')); onRefused(caught) }
     finally { setBusy(false) }
   }
   return <form className="staff-form" onSubmit={event => void submit(event)}>
@@ -208,7 +208,7 @@ function RevisionList({ revisions }: { revisions: LabResultRevision[] }) {
   </div>)}</div>
 }
 
-function ResultHistory({ facilityId, result }: { facilityId: string; result: LabResult }) {
+function ResultHistory({ facilityId, result, onRefused }: { facilityId: string; result: LabResult; onRefused: (error: unknown) => void }) {
   const [open, setOpen] = useState(false)
   const [revision, setRevision] = useState(0)
   const [history, setHistory] = useState<LabResult | null>(null)
@@ -220,10 +220,10 @@ function ResultHistory({ facilityId, result }: { facilityId: string; result: Lab
     setLoading(true); setError('')
     void staffApi.labResultHistory(facilityId, result.id)
       .then(value => { if (active) setHistory(value) })
-      .catch(caught => { if (active) setError(errorText(caught, 'Result history could not be loaded.')) })
+      .catch(caught => { if (active) { setError(errorText(caught, 'Result history could not be loaded.')); onRefused(caught) } })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
-  }, [facilityId, result.id, result.currentVersion, open, revision])
+  }, [facilityId, result.id, result.currentVersion, open, revision, onRefused])
   return <div className="staff-stack"><Button tone="secondary" size="sm" onClick={() => setOpen(value => !value)}>{open ? 'Hide result history' : 'View result history'}</Button>
     {open && <><Button tone="secondary" size="sm" onClick={() => setRevision(value => value + 1)} disabled={loading}>Refresh history</Button>
       {loading && <p role="status">Loading result history…</p>}
@@ -233,10 +233,10 @@ function ResultHistory({ facilityId, result }: { facilityId: string; result: Lab
   </div>
 }
 
-function ExecutionCard({ facilityId, execution, permissions, onExecutionChanged, onResultChanged }: {
+function ExecutionCard({ facilityId, execution, permissions, onExecutionChanged, onResultChanged, onRefused }: {
   facilityId: string; execution: LabExecution; permissions: string[];
   onExecutionChanged: (value: LabExecution, message: string) => void;
-  onResultChanged: (value: LabResult, message: string) => void
+  onResultChanged: (value: LabResult, message: string) => void; onRefused: (error: unknown) => void
 }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -247,7 +247,7 @@ function ExecutionCard({ facilityId, execution, permissions, onExecutionChanged,
     const notes = String(new FormData(event.currentTarget).get('notes') ?? '').trim()
     setBusy(true); setError('')
     try { onExecutionChanged(await staffApi.completeLabExecution(facilityId, execution, notes), 'Analytical execution was completed.') }
-    catch (caught) { setError(errorText(caught, 'Execution could not be completed. Refresh before retrying.')) }
+    catch (caught) { setError(errorText(caught, 'Execution could not be completed. Refresh before retrying.')); onRefused(caught) }
     finally { setBusy(false) }
   }
   const canCorrect = Boolean(result && permissions.includes('lab.result.correct') &&
@@ -258,13 +258,13 @@ function ExecutionCard({ facilityId, execution, permissions, onExecutionChanged,
     {execution.method && <p>Method: {execution.method}</p>}
     {execution.status === 'in_progress' && permissions.includes('lab.execution.complete') && <form className="staff-form" onSubmit={event => void complete(event)}><Field label="Completion notes" htmlFor={`lab-completion-${execution.id}`}><Textarea id={`lab-completion-${execution.id}`} name="notes" maxLength={1000} /></Field><Button type="submit" size="sm" disabled={busy}>{busy ? 'Completing…' : 'Complete execution'}</Button></form>}
     {error && <p className="staff-error" role="alert">{error}</p>}
-    {execution.status === 'completed' && !result && permissions.includes('lab.result.enter') && <ResultEntry facilityId={facilityId} execution={execution} result={null} onChanged={onResultChanged} />}
+    {execution.status === 'completed' && !result && permissions.includes('lab.result.enter') && <ResultEntry facilityId={facilityId} execution={execution} result={null} onChanged={onResultChanged} onRefused={onRefused} />}
     {result && <><div className="staff-row"><strong>Manual result · version {result.currentVersion}</strong><Badge tone={result.status === 'released' ? 'success' : 'warning'}>{result.status.replaceAll('_', ' ')}</Badge></div>
       {current && <p>{current.resultType === 'numeric' ? current.numericValue == null ? 'Not recorded' : `${current.numericValue} ${current.unit ?? ''}` : current.textValue ?? 'Not recorded'} · {current.abnormalFlag.replaceAll('_', ' ')}</p>}
-      {canCorrect && <ResultEntry key={`${result.id}-${result.currentVersion}`} facilityId={facilityId} execution={execution} result={result} onChanged={onResultChanged} />}
-      {result.status === 'entered_unverified' && permissions.includes('lab.result.verify') && <ResultGovernance facilityId={facilityId} result={result} action="verify" onChanged={onResultChanged} />}
-      {result.status === 'verified_not_released' && permissions.includes('lab.result.release') && <ResultGovernance facilityId={facilityId} result={result} action="release" onChanged={onResultChanged} />}
-      {permissions.includes('lab.result.released.read') && <ResultHistory facilityId={facilityId} result={result} />}
+      {canCorrect && <ResultEntry key={`${result.id}-${result.currentVersion}`} facilityId={facilityId} execution={execution} result={result} onChanged={onResultChanged} onRefused={onRefused} />}
+      {result.status === 'entered_unverified' && permissions.includes('lab.result.verify') && <ResultGovernance facilityId={facilityId} result={result} action="verify" onChanged={onResultChanged} onRefused={onRefused} />}
+      {result.status === 'verified_not_released' && permissions.includes('lab.result.release') && <ResultGovernance facilityId={facilityId} result={result} action="release" onChanged={onResultChanged} onRefused={onRefused} />}
+      {permissions.includes('lab.result.released.read') && <ResultHistory facilityId={facilityId} result={result} onRefused={onRefused} />}
     </>}
   </div>
 }
@@ -274,6 +274,8 @@ function ExecutionCard({ facilityId, execution, permissions, onExecutionChanged,
 function labResultsAccessEnded(error: unknown) {
   return isHidApiError(error) && (error.status === 403 || error.status === 404)
 }
+
+const LAB_RESULTS_ACCESS_DENIED = 'Access denied. You are not authorized to view lab results for this patient. Results stay hidden until access is granted again.'
 
 function ExecutionPanel({ facilityId, specimen, permissions }: { facilityId: string; specimen: LabSpecimen; permissions: string[] }) {
   const canRead = permissions.includes('lab.execution.read')
@@ -293,12 +295,18 @@ function ExecutionPanel({ facilityId, specimen, permissions }: { facilityId: str
       .catch(caught => {
         if (!active) return
         if (!labResultsAccessEnded(caught)) return setError(errorText(caught, 'Lab executions could not be loaded.'))
-        setItems(null); setNotice('')
-        setError('Access denied. You are not authorized to view lab results for this patient. Results stay hidden until access is granted again.')
+        setItems(null); setNotice(''); setError(LAB_RESULTS_ACCESS_DENIED)
       })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
   }, [canRead, facilityId, specimen.id, revision])
+  // A refused action may only refuse that write (for example under break-glass) or
+  // may mean read access has ended. Reload to find out: a refused reload hides the values.
+  const recheckAccess = useCallback((caught: unknown) => {
+    if (!labResultsAccessEnded(caught)) return
+    if (canRead) setRevision(current => current + 1)
+    else { setItems(null); setNotice(''); setError(LAB_RESULTS_ACCESS_DENIED) }
+  }, [canRead])
   function changedExecution(value: LabExecution, message: string) {
     setItems(previous => [...(previous ?? []).filter(item => item.id !== value.id), value])
     setNotice(message)
@@ -326,7 +334,7 @@ function ExecutionPanel({ facilityId, specimen, permissions }: { facilityId: str
     {notice && <p className="staff-success" role="status">{notice}</p>}
     {canRead && <Button tone="secondary" size="sm" onClick={() => setRevision(value => value + 1)} disabled={loading}>Refresh executions</Button>}
     {items?.map(execution => <ExecutionCard key={execution.id} facilityId={facilityId} execution={execution} permissions={permissions}
-      onExecutionChanged={changedExecution} onResultChanged={(value, message) => changedResult(execution.id, value, message)} />)}
+      onExecutionChanged={changedExecution} onResultChanged={(value, message) => changedResult(execution.id, value, message)} onRefused={recheckAccess} />)}
     {canStart && !loading && !error && (items?.length === 0 || (!canRead && !items)) && <form className="staff-form" onSubmit={event => void start(event)}>
       <p className="staff-muted">Begin analysis for this received specimen. The backend checks the exact specimen version and patient authorization.</p>
       <Field label="Method" htmlFor={`lab-method-${specimen.id}`}><Input id={`lab-method-${specimen.id}`} name="method" maxLength={240} /></Field>
