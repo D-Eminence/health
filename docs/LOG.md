@@ -98,6 +98,11 @@
   grants reading only, so the forms used to fail with `403 CONSENT_REQUIRED`.
 - Component tests cover each behaviour; five of the seven fail on the previous
   pages. No staging or browser acceptance against a deployed backend.
+- Access requests also show what became of each approval: the grant's outcome
+  (active until a time, expired, closed by you, revoked), how access was given
+  (patient approval or PIN), and **Close access** for an active grant. These
+  fields come from hid-system migration 0074; with an earlier Identity build
+  the page shows the request status as before.
 
 This log records implementation scope, not a release sign-off. The reference
 [gap map](./HEALTH_ID_COMPLETE_FRONTEND_GAP_MAP.md) is a baseline audit rather

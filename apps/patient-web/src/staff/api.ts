@@ -59,9 +59,11 @@ export interface ResolveNinInput {
   gender?: 'female' | 'male' | 'intersex' | 'other' | 'unknown'
 }
 
-/** `ListStaffAccessRequestsDto` statuses. */
+/** `ListStaffAccessRequestsDto` statuses: the request's own status. */
 export const ACCESS_REQUEST_STATUSES = ['pending', 'approved', 'denied', 'revoked', 'expired'] as const
-export type AccessRequestStatus = (typeof ACCESS_REQUEST_STATUSES)[number]
+/** Outcome filters an Identity build with hid-system 0074 also accepts. */
+export const ACCESS_OUTCOME_FILTERS = ['active', 'closed'] as const
+export type AccessRequestStatus = (typeof ACCESS_REQUEST_STATUSES)[number] | (typeof ACCESS_OUTCOME_FILTERS)[number]
 
 export interface AccessRequest {
   accessRequestId: string
@@ -75,6 +77,16 @@ export interface AccessRequest {
   approvedAt?: string | null
   deniedAt?: string | null
   deniedReason?: string | null
+  /**
+   * The outcome of an approval (hid-system 0074): the grant made from the
+   * request, its expiry, and an effective status ('active', 'expired',
+   * 'closed' by this clinician or 'revoked'; otherwise the request status).
+   * Absent from an Identity build before 0074.
+   */
+  consentGrantId?: string | null
+  grantExpiresAt?: string | null
+  effectiveStatus?: string
+  authorizationMethod?: 'patient_access_pin' | 'patient_approval' | null
 }
 
 export interface GrantResult {
