@@ -296,12 +296,12 @@ const LAB_RESULTS_HIDDEN: Record<LabResultsHiddenReason, string> = {
   signedOut: 'Lab results are hidden because your session has ended. Sign in again to view them.',
 }
 
-/** Raised by one specimen's panel for every specimen of the accession; `seq` makes each raise a new signal. */
-interface LabResultsHiddenSignal { reason: LabResultsHiddenReason; seq: number }
+/** Sent to every specimen panel of the accession; `seq` makes each raise a new signal. */
+interface LabResultsSignal { reason: LabResultsHiddenReason; seq: number }
 
-function ExecutionPanel({ facilityId, specimen, permissions, accessionRevision, resultsHidden, onResultsHidden }: {
-  facilityId: string; specimen: LabSpecimen; permissions: string[]; accessionRevision: number;
-  resultsHidden: LabResultsHiddenSignal | null; onResultsHidden: (reason: LabResultsHiddenReason) => void
+function ExecutionPanel({ facilityId, specimen, permissions, recheck, resultsHidden, onResultsHidden }: {
+  facilityId: string; specimen: LabSpecimen; permissions: string[];
+  recheck: LabResultsSignal | null; resultsHidden: LabResultsSignal | null; onResultsHidden: (reason: LabResultsHiddenReason) => void
 }) {
   const canRead = permissions.includes('lab.execution.read')
   const canStart = permissions.includes('lab.execution.start')
@@ -323,6 +323,9 @@ function ExecutionPanel({ facilityId, specimen, permissions, accessionRevision, 
   // Every specimen in the accession belongs to the same patient, so the others hide too.
   const endAccess = useCallback((reason: LabResultsHiddenReason) => { hideResults(reason); onResultsHidden(reason) }, [hideResults, onResultsHidden])
   useEffect(() => { if (resultsHidden) hideResults(resultsHidden.reason) }, [resultsHidden, hideResults])
+  // A specimen step failed with a doubt. A reader re-reads below; without
+  // lab.execution.read there is nothing to confirm access with, so hide at once.
+  useEffect(() => { if (recheck && !canRead) hideResults(recheck.reason) }, [recheck, canRead, hideResults])
   useEffect(() => {
     if (!canRead) return
     const current = ++request.current
@@ -335,8 +338,7 @@ function ExecutionPanel({ facilityId, specimen, permissions, accessionRevision, 
       // Only a successful read confirms access, so any failure hides what is on screen.
       .catch(caught => { if (request.current === current) endAccess(labResultsReadDoubt(caught) ?? 'unverified') })
     return () => { request.current += 1 }
-    // Every reload of the accession also re-reads the results, whether or not this panel remounts.
-  }, [canRead, facilityId, specimen.id, revision, accessionRevision, endAccess])
+  }, [canRead, facilityId, specimen.id, revision, recheck, endAccess])
   // A failed action may only refuse that write (for example under break-glass), or may
   // mean read access ended or cannot be confirmed. Reload to find out: a failed reload
   // hides the values. Without lab.execution.read there is no reload, so hide at once.
@@ -389,32 +391,39 @@ function ExecutionPanel({ facilityId, specimen, permissions, accessionRevision, 
 }
 
 function AccessionView({ facilityId, id, permissions, onChanged }: { facilityId: string; id: string; permissions: string[]; onChanged: () => void }) {
-  const [accession, setAccession] = useState<LabAccession | null>(null)
+  // An accession is shown only for the reload it came from, so a reload removes every
+  // specimen row at once and each panel reads its results once, when it mounts again.
+  const [loaded, setLoaded] = useState<{ revision: number; accession: LabAccession } | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const [revision, setRevision] = useState(0)
-  const [resultsHidden, setResultsHidden] = useState<LabResultsHiddenSignal | null>(null)
+  const [recheck, setRecheck] = useState<LabResultsSignal | null>(null)
+  const [resultsHidden, setResultsHidden] = useState<LabResultsSignal | null>(null)
+  const accession = loaded?.revision === revision ? loaded.accession : null
+  const reload = useCallback(() => { setRevision(value => value + 1); setRecheck(null); setResultsHidden(null) }, [])
   // A new signal for every hide, so a panel restored by its own refresh hides again.
   const hideResults = useCallback((reason: LabResultsHiddenReason) =>
     setResultsHidden(previous => ({ reason, seq: (previous?.seq ?? 0) + 1 })), [])
-  // A specimen step that fails with a doubt reloads the accession, and with it every
-  // panel re-reads its results; a failed read hides them as usual.
+  // A specimen step that fails with a doubt re-checks in place: the accession is read
+  // again and every panel re-reads its results, while the step keeps its error and input.
+  // A failed read hides the results as usual; a failed accession read removes it all.
   const specimenRefused = useCallback((caught: unknown) => {
-    if (labResultsReadDoubt(caught)) setRevision(value => value + 1)
+    const doubt = labResultsReadDoubt(caught)
+    if (doubt) setRecheck(previous => ({ reason: doubt, seq: (previous?.seq ?? 0) + 1 }))
   }, [])
   useEffect(() => {
     let active = true
-    setAccession(null); setError(''); setLoading(true); setResultsHidden(null)
-    void staffApi.labAccession(facilityId, id).then(value => { if (active) setAccession(value) })
-      .catch(caught => { if (active) setError(errorText(caught, 'Accession could not be loaded.')) })
+    setError(''); setLoading(true)
+    void staffApi.labAccession(facilityId, id).then(value => { if (active) setLoaded({ revision, accession: value }) })
+      .catch(caught => { if (active) { setLoaded(null); setError(errorText(caught, 'Accession could not be loaded.')) } })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
-  }, [facilityId, id, revision])
+  }, [facilityId, id, revision, recheck])
   return <Card className="staff-card"><h2>Specimen accession</h2>
     {loading && <p role="status">Loading accession…</p>}
     {error && <p className="staff-error" role="alert">{error}</p>}
-    {accession && <><p>Accession {accession.accessionNumber}</p><div className="staff-list">{accession.specimens.map(specimen => <div className="staff-stack" key={`${specimen.id}-${specimen.status}`}><SpecimenAction facilityId={facilityId} accessionId={id} specimen={specimen} permissions={permissions} onChanged={() => { setRevision(value => value + 1); onChanged() }} onRefused={specimenRefused} />{specimen.status === 'received' && (permissions.includes('lab.execution.read') || permissions.includes('lab.execution.start')) && <ExecutionPanel facilityId={facilityId} specimen={specimen} permissions={permissions} accessionRevision={revision} resultsHidden={resultsHidden} onResultsHidden={hideResults} />}</div>)}</div></>}
-    <div className="staff-row"><Button tone="secondary" size="sm" onClick={() => setRevision(value => value + 1)} disabled={loading}>Refresh accession</Button></div>
+    {accession && <><p>Accession {accession.accessionNumber}</p><div className="staff-list">{accession.specimens.map(specimen => <div className="staff-stack" key={`${specimen.id}-${specimen.status}`}><SpecimenAction facilityId={facilityId} accessionId={id} specimen={specimen} permissions={permissions} onChanged={() => { reload(); onChanged() }} onRefused={specimenRefused} />{specimen.status === 'received' && (permissions.includes('lab.execution.read') || permissions.includes('lab.execution.start')) && <ExecutionPanel facilityId={facilityId} specimen={specimen} permissions={permissions} recheck={recheck} resultsHidden={resultsHidden} onResultsHidden={hideResults} />}</div>)}</div></>}
+    <div className="staff-row"><Button tone="secondary" size="sm" onClick={reload} disabled={loading}>Refresh accession</Button></div>
   </Card>
 }
 

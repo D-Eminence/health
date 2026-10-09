@@ -543,6 +543,9 @@ describe('Laboratory analytical execution', () => {
 
     expect((await within(panel).findByRole('alert')).textContent).toBe('Enter a reason to begin execution.')
     expect(api.startLabExecution).not.toHaveBeenCalled()
+    // The form stays, so the reason can be typed without a refresh.
+    expect(within(panel).getByRole('button', { name: 'Start execution' })).toBeTruthy()
+    expect(within(panel).getByRole('textbox', { name: 'Reason' })).toBeTruthy()
   })
 
   it('shows the API error when the execution cannot be started', async () => {
@@ -1514,6 +1517,36 @@ describe('Laboratory result access denied', () => {
       expect(within(panel).getByText(visibleValue)).toBeTruthy()
     })
 
+    it('keeps every specimen\'s results, also while the re-check is in flight, when a refused write is followed by a confirming read', async () => {
+      // Break-glass: the write is refused but the read is allowed. Nothing may hide, not even briefly.
+      const confirming = deferred<{ items: LabExecution[] }>()
+      let firstLoads = 0
+      api.labExecutions.mockImplementation(async (_facility, specimenId) => {
+        if (specimenId === 'specimen-2') return { items: [potassium()] }
+        return ++firstLoads === 1 ? resultLoad() : confirming.promise
+      })
+      api.verifyLabResult.mockRejectedValue(executionAccessDenied())
+      await openAccession(actions, accession([specimen('received'), second]))
+      const [first, other] = panels()
+      expect(await within(first).findByText(visibleValue)).toBeTruthy()
+      expect(await within(other).findByText('9.9 mmol/L · low')).toBeTruthy()
+
+      fireEvent.change(within(first).getByRole('textbox', { name: 'Verification reason' }), { target: { value: 'Independent review against QC run' } })
+      fireEvent.click(within(first).getByRole('button', { name: 'Verify result version' }))
+
+      await waitFor(() => expect(firstLoads).toBe(2))
+      expect(within(first).getByText(visibleValue)).toBeTruthy()
+      expect(within(other).getByText('9.9 mmol/L · low')).toBeTruthy()
+      await act(async () => { confirming.resolve(resultLoad()) })
+      await executionsSettled(first)
+      expect(within(first).getByRole('alert').textContent).toBe(RESULT_ACCESS_REFUSED)
+      expect(within(first).getByText(visibleValue)).toBeTruthy()
+      expect(within(other).getByText('9.9 mmol/L · low')).toBeTruthy()
+      expect(within(other).queryByRole('alert')).toBeNull()
+      expect(screen.queryByText(ACCESS_DENIED)).toBeNull()
+      expect(api.labExecutions.mock.calls.filter(([, id]) => id === 'specimen-2')).toHaveLength(1)
+    })
+
     it('does not re-check, or hide, for a refusal answered on its merits (409)', async () => {
       // If this wrongly re-checked, the failing reload below would hide the values.
       api.labExecutions.mockResolvedValueOnce({ items: [execution({ result: verifiedResult() })] }).mockRejectedValue(identityUnavailable())
@@ -1665,6 +1698,63 @@ describe('Laboratory result access denied', () => {
       expect(within(other).queryByText('Loading executions…')).toBeNull()
       expect(within(other).getByRole('alert').textContent).toBe(ACCESS_DENIED)
       expectNoPotassium()
+    })
+
+    it('ignores the failure of a read that a newer, confirming read has replaced', async () => {
+      // Only the newest read decides. An older one failing late must not hide what it confirmed.
+      let failSuperseded: (error: unknown) => void = () => undefined
+      api.labExecutions.mockResolvedValueOnce(resultLoad())
+        .mockReturnValueOnce(new Promise((_resolve, reject) => { failSuperseded = reject }))
+        .mockResolvedValue(resultLoad())
+      api.verifyLabResult.mockRejectedValue(identityUnavailable())
+      const panel = await openExecutionPanel(actions)
+      await expectResultValuesShown(panel)
+
+      await refreshExecutions(panel)
+      await waitFor(() => expect(api.labExecutions).toHaveBeenCalledTimes(2))
+      fireEvent.change(within(panel).getByRole('textbox', { name: 'Verification reason' }), { target: { value: 'Independent review against QC run' } })
+      fireEvent.click(within(panel).getByRole('button', { name: 'Verify result version' }))
+      await waitFor(() => expect(api.labExecutions).toHaveBeenCalledTimes(3))
+      await executionsSettled(panel)
+
+      await act(async () => { failSuperseded(identityUnavailable()) })
+      expect(within(panel).getByText(visibleValue)).toBeTruthy()
+      expect(screen.queryByText(UNVERIFIED)).toBeNull()
+      expect(api.labExecutions).toHaveBeenCalledTimes(3)
+    })
+
+    it('keeps a sibling hidden when its superseded refresh and then its completion answer after the hide', async () => {
+      // The sibling's late refresh confirms nothing, so the completion after it must not show values either.
+      const superseded = deferred<{ items: LabExecution[] }>()
+      const completion = deferred<LabExecution>()
+      let firstLoads = 0, otherLoads = 0
+      api.labExecutions.mockImplementation((_facility, specimenId) => {
+        if (specimenId === 'specimen-2') {
+          otherLoads += 1
+          if (otherLoads === 1) return Promise.resolve({ items: [execution({ ...potassium(), status: 'in_progress', completedAt: null, version: 1, result: null })] })
+          return otherLoads === 2 ? superseded.promise : new Promise(() => undefined)
+        }
+        if (++firstLoads === 1) return Promise.resolve(resultLoad())
+        return Promise.reject(executionAccessDenied())
+      })
+      api.completeLabExecution.mockReturnValue(completion.promise)
+      await openAccession(actions, accession([specimen('received'), second]))
+      const [first, other] = panels()
+      expect(await within(first).findByText(visibleValue)).toBeTruthy()
+
+      fireEvent.click(await within(other).findByRole('button', { name: 'Complete execution' }))
+      await refreshExecutions(other)
+      await waitFor(() => expect(otherLoads).toBe(2))
+      await refreshExecutions(first)
+      await waitFor(() => expect(within(other).getByRole('alert').textContent).toBe(ACCESS_DENIED))
+
+      await act(async () => { superseded.resolve({ items: [potassium()] }) })
+      await act(async () => { completion.resolve(potassium()) })
+      expect(within(other).getByRole('alert').textContent).toBe(ACCESS_DENIED)
+      expect(within(other).queryByText('Potassium · LOINC 2823-3')).toBeNull()
+      expect(within(other).queryByText('Analytical execution was completed.')).toBeNull()
+      expectNoPotassium()
+      expect(otherLoads).toBe(2)
     })
 
     it('ignores an action result that answers after the results were hidden', async () => {
@@ -1823,6 +1913,25 @@ describe('Laboratory result access denied', () => {
       expectNoResultValues()
     })
 
+    it.each([
+      ['refused (403)', executionAccessDenied],
+      ['answered with an outage (503)', identityUnavailable],
+    ])('keeps the start error and the start form when starting is %s and the re-check confirms access', async (_label, failure) => {
+      api.labExecutions.mockImplementation(async () => ({ items: [] }))
+      api.startLabExecution.mockRejectedValue(failure())
+      const panel = await openExecutionPanel(actions)
+
+      fireEvent.change(await within(panel).findByRole('textbox', { name: 'Reason' }), { target: { value: 'Begin analysis' } })
+      fireEvent.click(within(panel).getByRole('button', { name: 'Start execution' }))
+
+      await waitFor(() => expect(api.labExecutions).toHaveBeenCalledTimes(2))
+      await executionsSettled(panel)
+      expect((await within(panel).findByRole('alert')).textContent).toBe(failure().message)
+      expect(within(panel).getByRole('button', { name: 'Start execution' })).toBeTruthy()
+      expect(screen.queryByText(ACCESS_DENIED)).toBeNull()
+      expect(screen.queryByText(UNVERIFIED)).toBeNull()
+    })
+
     it('does not bring back an old start error when results return after a hide', async () => {
       const notExecutable = 'Only the expected received specimen version can begin execution'
       api.labExecutions.mockResolvedValueOnce({ items: [] }).mockRejectedValueOnce(identityUnavailable()).mockResolvedValue({ items: [] })
@@ -1860,42 +1969,119 @@ describe('Laboratory result access denied', () => {
 
     describe('after a refused specimen step', () => {
       // Collect, receive and reject act on the same patient's accession. A step that fails
-      // with a doubt reloads the accession, which unmounts every panel and re-reads it.
+      // with a doubt re-reads the accession in place and every panel re-reads its results,
+      // while the step keeps its error and what was typed into it.
       const custody = [...actions, 'lab.specimen.collect', 'lab.specimen.reject']
       const pendingSpecimen = specimen('required', { id: 'specimen-2', specimenIdentifier: 'SPC-000124', specimenType: 'Serum' })
+      const notes = 'Tube label checked twice'
+
+      /** Answers on a later task, as the network does, so React never merges the reload into one render. */
+      function later<T>(answer: () => T): Promise<Awaited<T>> {
+        return new Promise((resolve, reject) => setTimeout(() => { try { resolve(answer() as Awaited<T>) } catch (caught) { reject(caught) } }, 0))
+      }
 
       async function collectPendingSpecimen(card: HTMLElement) {
+        fireEvent.change(within(card).getByRole('textbox', { name: 'Notes or condition' }), { target: { value: notes } })
         const step = within(card).getAllByRole('button', { name: 'Record step' })[0]
         if (!step) throw new Error('Expected a specimen step form.')
         fireEvent.click(step)
       }
 
+      /** The pending specimen's step form still shows its error and the notes typed into it. */
+      function expectStepFailureShown(card: HTMLElement, message: string) {
+        const form = formOf(within(card).getByRole('button', { name: 'Record step' }))
+        expect(within(form).getByRole('alert').textContent).toBe(message)
+        expect(valueOf(within(form).getByRole('textbox', { name: 'Notes or condition' }))).toBe(notes)
+      }
+
+      async function accessionSettled(card: HTMLElement) {
+        await waitFor(() => expect(within(card).queryByText('Loading accession…')).toBeNull())
+      }
+
+      it.each([
+        ['refused (403), as for a break-glass reader', operationRefused],
+        ['answered with an outage (503)', identityUnavailable],
+        ['lost to a network failure', networkFailure],
+      ])('keeps the step error, the typed notes and the re-read results when a step is %s and the re-check confirms access', async (_label, failure) => {
+        let firstLoads = 0
+        api.labExecutions.mockImplementation(async () => ++firstLoads === 1 ? resultLoad() : { items: [execution({ result: correctionOf(unverifiedResult()) })] })
+        api.transitionSpecimen.mockRejectedValue(failure())
+        const card = await openAccession(custody, accession([specimen('received'), pendingSpecimen]))
+        expect(await within(card).findByText(visibleValue)).toBeTruthy()
+        api.labAccession.mockImplementation(() => later(() => accession([specimen('received'), pendingSpecimen])))
+
+        await collectPendingSpecimen(card)
+
+        await waitFor(() => expect(api.labAccession).toHaveBeenCalledTimes(2))
+        // The panel re-read once, and shows what that read returned.
+        expect(await within(card).findByText('7.4 g/dL · low')).toBeTruthy()
+        await accessionSettled(card)
+        await executionsSettled(card)
+        expect(api.labExecutions).toHaveBeenCalledTimes(2)
+        expectStepFailureShown(card, failure().message)
+        expect(screen.queryByText(UNVERIFIED)).toBeNull()
+        expect(screen.queryByText(ACCESS_DENIED)).toBeNull()
+      })
+
+      it('hides the results, and keeps the step error, when the re-read of the results fails', async () => {
+        api.labExecutions.mockResolvedValueOnce(resultLoad()).mockRejectedValue(identityUnavailable())
+        api.transitionSpecimen.mockRejectedValue(operationRefused())
+        const card = await openAccession(custody, accession([specimen('received'), pendingSpecimen]))
+        expect(await within(card).findByText(visibleValue)).toBeTruthy()
+        api.labAccession.mockImplementation(() => later(() => accession([specimen('received'), pendingSpecimen])))
+
+        await collectPendingSpecimen(card)
+
+        const panel = sectionOf('Analytical execution')
+        await expectUnverified(panel)
+        await accessionSettled(card)
+        expect(api.labExecutions).toHaveBeenCalledTimes(2)
+        expectStepFailureShown(card, 'Lab operation is not authorized')
+      })
+
       it('hides the results when the accession can no longer be read', async () => {
+        const accessionGone = 'Lab accession was not found'
         api.labExecutions.mockImplementation(async () => resultLoad())
         api.transitionSpecimen.mockRejectedValue(operationRefused())
         const card = await openAccession(custody, accession([specimen('received'), pendingSpecimen]))
         expect(await within(card).findByText(visibleValue)).toBeTruthy()
-        api.labAccession.mockRejectedValue(operationRefused())
+        api.labAccession.mockImplementation(() => later(() => { throw problem(404, 'LAB_ACCESSION_NOT_FOUND', accessionGone) }))
 
         await collectPendingSpecimen(card)
 
-        await waitFor(() => expect(api.labAccession).toHaveBeenCalledTimes(2))
-        expect(await within(card).findByText('Lab operation is not authorized')).toBeTruthy()
+        await waitFor(() => expect(within(card).getByRole('alert').textContent).toBe(accessionGone))
+        expect(api.labAccession).toHaveBeenCalledTimes(2)
         expectNoResultValues()
         expect(within(card).queryByRole('heading', { name: 'Analytical execution' })).toBeNull()
+        expect(within(card).queryByText('Venous blood · SPC-000123')).toBeNull()
       })
 
-      it('shows the results again only after a fresh read confirms access', async () => {
-        api.labExecutions.mockImplementation(async () => resultLoad())
+      it('hides results at once for a member who cannot re-read them', async () => {
+        const runner = [...ACCESSION_READ, 'lab.execution.start', 'lab.specimen.collect']
+        api.startLabExecution.mockResolvedValue(inProgress())
         api.transitionSpecimen.mockRejectedValue(identityUnavailable())
-        const card = await openAccession(custody, accession([specimen('received'), pendingSpecimen]))
-        expect(await within(card).findByText(visibleValue)).toBeTruthy()
+        const card = await openAccession(runner, accession([specimen('received'), pendingSpecimen]))
+        const panel = sectionOf('Analytical execution')
+        fireEvent.change(within(panel).getByRole('textbox', { name: 'Reason' }), { target: { value: 'Begin analysis' } })
+        fireEvent.click(within(panel).getByRole('button', { name: 'Start execution' }))
+        expect(await within(panel).findByText('Hemoglobin · LOINC 718-7')).toBeTruthy()
+        api.labAccession.mockImplementation(() => later(() => accession([specimen('received'), pendingSpecimen])))
 
         await collectPendingSpecimen(card)
 
-        await waitFor(() => expect(api.labAccession).toHaveBeenCalledTimes(2))
-        await waitFor(() => expect(api.labExecutions).toHaveBeenCalledTimes(2))
-        expect(await within(card).findByText(visibleValue)).toBeTruthy()
+        await waitFor(() => expect(within(panel).getByRole('alert').textContent).toBe(UNVERIFIED))
+        await accessionSettled(card)
+        expect(within(panel).queryByText('Hemoglobin · LOINC 718-7')).toBeNull()
+        expect(api.labExecutions).not.toHaveBeenCalled()
+        expectStepFailureShown(card, IDENTITY_UNAVAILABLE)
+
+        // An explicit refresh starts over: the panel mounts afresh and offers a start again.
+        await clickWhenEnabled(within(card).getByRole('button', { name: 'Refresh accession' }))
+        expect(await within(card).findByRole('button', { name: 'Start execution' })).toBeTruthy()
+        await accessionSettled(card)
+        await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+        expect(within(card).getByRole('button', { name: 'Start execution' })).toBeTruthy()
+        expect(screen.queryByText(UNVERIFIED)).toBeNull()
       })
 
       it('does not reload for a step refused on its merits (412)', async () => {
@@ -1907,9 +2093,31 @@ describe('Laboratory result access denied', () => {
         await collectPendingSpecimen(card)
 
         expect(await within(card).findByText('Specimen changed since it was loaded')).toBeTruthy()
+        expect(api.labExecutions).toHaveBeenCalledTimes(1)
         // An explicit refresh is the second accession load, so the 412 caused no reload.
         await clickWhenEnabled(within(card).getByRole('button', { name: 'Refresh accession' }))
         await waitFor(() => expect(api.labAccession).toHaveBeenCalledTimes(2))
+      })
+
+      it.each([
+        ['Refresh accession', async (card: HTMLElement) => { await clickWhenEnabled(within(card).getByRole('button', { name: 'Refresh accession' })) }],
+        ['a recorded step', async (card: HTMLElement) => { api.transitionSpecimen.mockResolvedValue(pendingSpecimen); await collectPendingSpecimen(card) }],
+      ])('reads each specimen\'s results once when the accession reloads after %s', async (_label, reload) => {
+        api.labExecutions.mockImplementation(async (_facility, specimenId) => specimenId === 'specimen-2' ? { items: [potassium()] } : resultLoad())
+        const card = await openAccession(custody, accession([specimen('received'), second, specimen('required', { id: 'specimen-3', specimenIdentifier: 'SPC-000125', specimenType: 'Plasma' })]))
+        expect(await within(card).findByText(visibleValue)).toBeTruthy()
+        expect(await within(card).findByText('9.9 mmol/L · low')).toBeTruthy()
+        api.labAccession.mockImplementation(() => later(() => accession([specimen('received'), second, specimen('required', { id: 'specimen-3', specimenIdentifier: 'SPC-000125', specimenType: 'Plasma' })])))
+
+        await reload(card)
+
+        await waitFor(() => expect(api.labAccession).toHaveBeenCalledTimes(2))
+        await accessionSettled(card)
+        expect(await within(card).findByText(visibleValue)).toBeTruthy()
+        expect(await within(card).findByText('9.9 mmol/L · low')).toBeTruthy()
+        for (const panel of panels()) await executionsSettled(panel)
+        expect(api.labExecutions.mock.calls.filter(([, id]) => id === 'specimen-1')).toHaveLength(2)
+        expect(api.labExecutions.mock.calls.filter(([, id]) => id === 'specimen-2')).toHaveLength(2)
       })
     })
 
@@ -1948,6 +2156,9 @@ describe('Laboratory result access denied', () => {
       await clickWhenEnabled(within(card).getByRole('button', { name: 'Refresh accession' }))
 
       expect(await screen.findByRole('button', { name: 'Start execution' })).toBeTruthy()
+      // The remounted panel's effects have all run, and none of them hid it again.
+      await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+      expect(screen.getByRole('button', { name: 'Start execution' })).toBeTruthy()
       expect(screen.queryByText(ACCESS_DENIED)).toBeNull()
     })
 
