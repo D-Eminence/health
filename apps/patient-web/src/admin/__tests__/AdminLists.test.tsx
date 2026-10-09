@@ -153,6 +153,41 @@ describe('users and roles lookup', () => {
     expect(within(unreported).getByText('Request authenticator reset')).toBeTruthy()
   })
 
+  it('keeps the "Revoke all sessions" confirmation after the reload reports no sessions left', async () => {
+    const withSessions = { ...principal, id: 'account-6', displayName: 'Efe Sessions', subject: 'staff:efe', activeSessionCount: 2 }
+    mocks.principals.mockResolvedValueOnce({ items: [withSessions], page: 1, pageSize: 25, total: 1 })
+      .mockResolvedValueOnce({ items: [{ ...withSessions, activeSessionCount: 0 }], page: 1, pageSize: 25, total: 1 })
+    mocks.command.mockResolvedValueOnce({ accountId: 'account-6', revokedCount: 2, replayed: false })
+    open('/admin/principals', <StepUpProvider><PrincipalsPage actor={actor(['platform.principal.read', 'platform.session.revoke'])} />
+    </StepUpProvider>)
+    search('efe')
+    const row = (await screen.findByText('Efe Sessions')).closest('tr')!
+    const form = within(row).getByText('Revoke all sessions').closest('details')!
+    fireEvent.change(within(form).getByLabelText('Reason for this change'), { target: { value: 'Reported lost laptop' } })
+    fireEvent.click(within(form).getByRole('button', { name: 'Confirm change' }))
+    await waitFor(() => expect(mocks.principals).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(within(row).getByText('0')).toBeTruthy())
+    expect(within(row).getByText('Saved. Current information is being refreshed.')).toBeTruthy()
+    expect(within(row).getByText('This account has no active sessions.')).toBeTruthy()
+    // With a valid new reason the form still cannot be sent: there is nothing left to revoke.
+    fireEvent.change(within(form).getByLabelText('Reason for this change'), { target: { value: 'Second attempt reason' } })
+    const confirm = within(form).getByRole('button', { name: 'Confirm change' }) as HTMLButtonElement
+    expect(confirm.disabled).toBe(true)
+    fireEvent.click(confirm)
+    expect(mocks.command).toHaveBeenCalledTimes(1)
+    expect(mocks.command).toHaveBeenCalledWith('/api/v1/admin/principals/account-6/sessions/revoke',
+      { reason: 'Reported lost laptop' }, { idempotencyKey: 'key-1' })
+  })
+
+  it('offers "Revoke all sessions" only for an account with active sessions', async () => {
+    mocks.principals.mockResolvedValue({ items: [{ ...principal, activeSessionCount: 0 }], page: 1, pageSize: 25, total: 1 })
+    open('/admin/principals', <StepUpProvider><PrincipalsPage actor={actor(['platform.principal.read', 'platform.session.revoke'])} />
+    </StepUpProvider>)
+    search('ada')
+    const row = (await screen.findByText('Ada Operator')).closest('tr')!
+    expect(within(row).queryByText('Revoke all sessions')).toBeNull()
+  })
+
   it('leaves out the audit link without audit access', async () => {
     mocks.principals.mockResolvedValue({ items: [principal], page: 1, pageSize: 25, total: 1 })
     open('/admin/principals', <PrincipalsPage actor={actor(['platform.principal.read'])} />)

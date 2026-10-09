@@ -158,6 +158,9 @@ function PrincipalActions({ principal, actor, reload }: {
   // backend still refuses one without (MFA_NOT_ENROLLED) if this list is stale.
   // It stays offered when the backend does not report enrolment (before Stage 4A).
   const canResetMfa = has(actor, 'platform.mfa.reset') && principal.mfaEnrolled !== false
+  // After "Revoke all sessions" succeeds, the reload reports no sessions; the
+  // form stays (disabled) so its confirmation is not removed with it.
+  const [revokedAll, setRevokedAll] = useState(false)
   const canElevate = canRole && !principal.platformRoles.includes('platform_super_admin')
   if (!canStatus && !canRole && !canRevoke && !canResetMfa) return <>View only</>
   return <div className="admin-principal-actions">
@@ -172,11 +175,15 @@ function PrincipalActions({ principal, actor, reload }: {
     {canElevate && <ApprovalRequestForm kind="super-admin" principal={principal} />}
     {canResetMfa && <ApprovalRequestForm kind="mfa-reset" principal={principal} />}
     {canRevoke && <PrincipalSessions principal={principal} />}
-    {canRevoke && principal.activeSessionCount > 0 && <ActionForm title="Revoke all sessions"
-      note={<p className="admin-note">Signs this account out everywhere. Use it when an account may be compromised.</p>}
+    {canRevoke && (principal.activeSessionCount > 0 || revokedAll) && <ActionForm title="Revoke all sessions"
+      disabled={principal.activeSessionCount === 0}
+      note={<p className="admin-note">{principal.activeSessionCount > 0
+        ? 'Signs this account out everywhere. Use it when an account may be compromised.'
+        : 'This account has no active sessions.'}</p>}
       onSubmit={async (_, reason, idempotencyKey) => {
         await adminApi.command(`/api/v1/admin/principals/${encodeURIComponent(principal.id)}/sessions/revoke`,
           { reason }, { idempotencyKey })
+        setRevokedAll(true)
         reload()
       }} />}
   </div>
