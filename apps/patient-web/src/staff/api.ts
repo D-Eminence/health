@@ -75,6 +75,16 @@ export interface AccessRequest {
   approvedAt?: string | null
   deniedAt?: string | null
   deniedReason?: string | null
+  /**
+   * The outcome of an approval (hid-system 0074): the grant made from the
+   * request, its expiry, and an effective status ('active', 'expired',
+   * 'closed' by this clinician or 'revoked'; otherwise the request status).
+   * Absent from an Identity build before 0074.
+   */
+  consentGrantId?: string | null
+  grantExpiresAt?: string | null
+  effectiveStatus?: string
+  authorizationMethod?: 'patient_access_pin' | 'patient_approval' | null
 }
 
 export interface GrantResult {

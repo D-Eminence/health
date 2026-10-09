@@ -83,6 +83,45 @@ describe('the clinician’s access requests', () => {
   })
 })
 
+describe('what became of each approval (hid-system 0074)', () => {
+  const outcome = (n: number, effectiveStatus: string, extra: Record<string, unknown> = {}) => ({
+    ...request('approved', n), effectiveStatus, consentGrantId: `c0000000-0000-4000-8000-00000000000${n}`,
+    grantExpiresAt: '2026-10-09T09:00:00.000Z', authorizationMethod: 'patient_approval', ...extra,
+  })
+
+  it('reports each outcome and how access was given', async () => {
+    api.listAccessRequests.mockResolvedValue([
+      outcome(1, 'active'), outcome(2, 'expired'), outcome(3, 'closed'), outcome(4, 'revoked'),
+      outcome(5, 'active', { authorizationMethod: 'patient_access_pin' }),
+    ])
+    render(<AccessRequests />)
+    expect((await screen.findAllByText('Access active')).length).toBe(2)
+    for (const label of ['Access expired', 'Closed by you', 'Access revoked', 'Patient PIN']) {
+      expect(screen.getByText(label)).toBeTruthy()
+    }
+    // Only an active grant can be closed.
+    expect(screen.getAllByRole('button', { name: 'Close access' })).toHaveLength(2)
+  })
+
+  it('closes an active grant and reloads the list', async () => {
+    api.listAccessRequests.mockResolvedValueOnce([outcome(1, 'active')]).mockResolvedValue([outcome(1, 'closed')])
+    api.closeGrant.mockResolvedValue({})
+    render(<AccessRequests />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Close access' }))
+    await waitFor(() => expect(api.closeGrant).toHaveBeenCalledWith('facility-1', 'c0000000-0000-4000-8000-000000000001',
+      'Clinician closed completed patient access'))
+    expect(await screen.findByText('Closed by you')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Close access' })).toBeNull()
+  })
+
+  it('falls back to the request status from an Identity build without outcomes', async () => {
+    api.listAccessRequests.mockResolvedValue([request('approved')])
+    render(<AccessRequests />)
+    expect(await screen.findByText('Approved')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Close access' })).toBeNull()
+  })
+})
+
 describe('closing the grant that opened a record', () => {
   it('offers it for a record opened from an approved request, and closes that grant', async () => {
     staff.activePatient = { hid: 'HID-ABCDEF', purpose: 'direct-care', lookup: allowedLookup('c0000000-0000-4000-8000-000000000001') }
