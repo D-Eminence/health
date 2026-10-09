@@ -597,9 +597,10 @@ export const staffApi = {
     client.post<LabAccession>(`/api/v1/lab/work-items/${encodeURIComponent(workItemId)}/accession`,
       { requirements: [{ specimenType }], reason },
       { headers: { ...facilityHeaders(facilityId), ...keyHeaders() } }),
+  // Read afresh like the Lab result reads below: a failed specimen step re-reads it to confirm access.
   labAccession: (facilityId: string, accessionId: string) =>
     client.get<LabAccession>(`/api/v1/lab/accessions/${encodeURIComponent(accessionId)}`,
-      { headers: facilityHeaders(facilityId) }),
+      { headers: facilityHeaders(facilityId), dedupe: false }),
   transitionSpecimen: (facilityId: string, accessionId: string, specimen: LabSpecimen, action: 'collect' | 'receive' | 'reject', detail: string) =>
     client.post<LabSpecimen>(`/api/v1/lab/accessions/${encodeURIComponent(accessionId)}/specimens/${encodeURIComponent(specimen.id)}/${action}`,
       action === 'collect' ? { expectedVersion: specimen.version, collectedAt: new Date().toISOString(), notes: detail } :

@@ -2039,6 +2039,101 @@ describe('Laboratory result access denied', () => {
         expectStepFailureShown(card, 'Lab operation is not authorized')
       })
 
+      it('keeps the results on screen while the re-check reads them again', async () => {
+        const confirming = deferred<{ items: LabExecution[] }>()
+        api.labExecutions.mockResolvedValueOnce(resultLoad()).mockReturnValueOnce(confirming.promise)
+        api.transitionSpecimen.mockRejectedValue(operationRefused())
+        const card = await openAccession(custody, accession([specimen('received'), pendingSpecimen]))
+        expect(await within(card).findByText(visibleValue)).toBeTruthy()
+        api.labAccession.mockImplementation(() => later(() => accession([specimen('received'), pendingSpecimen])))
+
+        await collectPendingSpecimen(card)
+
+        await waitFor(() => expect(api.labExecutions).toHaveBeenCalledTimes(2))
+        expect(within(card).getByText(visibleValue)).toBeTruthy()
+        await act(async () => { confirming.resolve(resultLoad()) })
+        await accessionSettled(card)
+        expect(within(card).getByText(visibleValue)).toBeTruthy()
+        expect(screen.queryByText(ACCESS_DENIED)).toBeNull()
+      })
+
+      it('re-checks again when a later step fails too, and hides the results when that re-check fails', async () => {
+        api.labExecutions.mockResolvedValueOnce(resultLoad()).mockResolvedValueOnce(resultLoad()).mockRejectedValue(identityUnavailable())
+        api.transitionSpecimen.mockRejectedValue(operationRefused())
+        const card = await openAccession(custody, accession([specimen('received'), pendingSpecimen]))
+        expect(await within(card).findByText(visibleValue)).toBeTruthy()
+        api.labAccession.mockImplementation(() => later(() => accession([specimen('received'), pendingSpecimen])))
+        await collectPendingSpecimen(card)
+        await waitFor(() => expect(api.labExecutions).toHaveBeenCalledTimes(2))
+        await accessionSettled(card)
+        await executionsSettled(card)
+        expect(within(card).getByText(visibleValue)).toBeTruthy()
+
+        await clickWhenEnabled(within(card).getByRole('button', { name: 'Record step' }))
+
+        await expectUnverified(sectionOf('Analytical execution'))
+        await accessionSettled(card)
+        expect(api.labAccession).toHaveBeenCalledTimes(3)
+        expect(api.labExecutions).toHaveBeenCalledTimes(3)
+        expectStepFailureShown(card, 'Lab operation is not authorized')
+      })
+
+      it('shows what the server recorded when a step went through but its answer was lost', async () => {
+        api.labExecutions.mockImplementation(async () => resultLoad())
+        api.transitionSpecimen.mockRejectedValue(networkFailure())
+        const card = await openAccession([...custody, 'lab.specimen.receive'], accession([specimen('received'), pendingSpecimen]))
+        expect(await within(card).findByText(visibleValue)).toBeTruthy()
+        api.labAccession.mockImplementation(() => later(() => accession([specimen('received'), { ...pendingSpecimen, status: 'collected', version: 3 }])))
+
+        await collectPendingSpecimen(card)
+
+        expect(await within(card).findByText('collected')).toBeTruthy()
+        await accessionSettled(card)
+        expect(within(card).queryByText('required')).toBeNull()
+        expect(optionLabels(within(card).getByRole('combobox', { name: 'Next step' }))).toEqual(['Mark received', 'Reject specimen'])
+        expect(within(card).getByText(visibleValue)).toBeTruthy()
+      })
+
+      it.each([
+        ['the newer re-read is refused and the older one confirms late', false],
+        ['the newer re-read confirms and the older one fails late', true],
+      ])('lets only the newest accession re-read decide when %s', async (_label, newerConfirms) => {
+        const accessionGone = 'Lab accession was not found'
+        const third = specimen('required', { id: 'specimen-3', specimenIdentifier: 'SPC-000125', specimenType: 'Plasma' })
+        const current = () => accession([specimen('received'), pendingSpecimen, third])
+        const reads: Array<{ resolve: (value: LabAccession) => void; reject: (error: unknown) => void }> = []
+        api.labExecutions.mockImplementation(async () => resultLoad())
+        api.transitionSpecimen.mockRejectedValue(identityUnavailable())
+        const card = await openAccession(custody, current())
+        expect(await within(card).findByText(visibleValue)).toBeTruthy()
+        api.labAccession.mockImplementation(() => new Promise<LabAccession>((resolve, reject) => { reads.push({ resolve, reject }) }))
+
+        // Two steps fail one after the other, so two re-reads of the accession are in flight.
+        for (const step of within(card).getAllByRole('button', { name: 'Record step' })) {
+          const before = api.labAccession.mock.calls.length
+          fireEvent.click(step)
+          await waitFor(() => expect(api.labAccession).toHaveBeenCalledTimes(before + 1))
+        }
+        const [older, newer] = reads
+        if (!older || !newer) throw new Error('Expected two accession re-reads in flight.')
+
+        if (newerConfirms) {
+          await act(async () => { newer.resolve(current()) })
+          await act(async () => { older.reject(problem(404, 'LAB_ACCESSION_NOT_FOUND', accessionGone)) })
+          expect(within(card).getByText('Venous blood · SPC-000123')).toBeTruthy()
+          expect(within(card).queryByText(accessionGone)).toBeNull()
+          expect(await within(card).findByText(visibleValue)).toBeTruthy()
+        } else {
+          await act(async () => { newer.reject(problem(404, 'LAB_ACCESSION_NOT_FOUND', accessionGone)) })
+          expect(within(card).getByRole('alert').textContent).toBe(accessionGone)
+          await act(async () => { older.resolve(current()) })
+          expect(within(card).getByRole('alert').textContent).toBe(accessionGone)
+          expect(within(card).queryByText('Venous blood · SPC-000123')).toBeNull()
+          expectNoResultValues()
+        }
+        expect(api.labAccession).toHaveBeenCalledTimes(3)
+      })
+
       it('hides the results when the accession can no longer be read', async () => {
         const accessionGone = 'Lab accession was not found'
         api.labExecutions.mockImplementation(async () => resultLoad())
@@ -2056,10 +2151,14 @@ describe('Laboratory result access denied', () => {
         expect(within(card).queryByText('Venous blood · SPC-000123')).toBeNull()
       })
 
-      it('hides results at once for a member who cannot re-read them', async () => {
+      it.each([
+        ['refused (403)', operationRefused, ACCESS_DENIED],
+        ['refused because the session ended (401)', () => new HidApiError(401, 'Please sign in to continue.', { code: 'UNAUTHENTICATED' }), SIGNED_OUT],
+        ['answered with an outage (503)', identityUnavailable, UNVERIFIED],
+      ])('hides results at once, with the reason, for a member who cannot re-read them when a step is %s', async (_label, failure, message) => {
         const runner = [...ACCESSION_READ, 'lab.execution.start', 'lab.specimen.collect']
         api.startLabExecution.mockResolvedValue(inProgress())
-        api.transitionSpecimen.mockRejectedValue(identityUnavailable())
+        api.transitionSpecimen.mockRejectedValue(failure())
         const card = await openAccession(runner, accession([specimen('received'), pendingSpecimen]))
         const panel = sectionOf('Analytical execution')
         fireEvent.change(within(panel).getByRole('textbox', { name: 'Reason' }), { target: { value: 'Begin analysis' } })
@@ -2069,11 +2168,11 @@ describe('Laboratory result access denied', () => {
 
         await collectPendingSpecimen(card)
 
-        await waitFor(() => expect(within(panel).getByRole('alert').textContent).toBe(UNVERIFIED))
+        await waitFor(() => expect(within(panel).getByRole('alert').textContent).toBe(message))
         await accessionSettled(card)
         expect(within(panel).queryByText('Hemoglobin · LOINC 718-7')).toBeNull()
         expect(api.labExecutions).not.toHaveBeenCalled()
-        expectStepFailureShown(card, IDENTITY_UNAVAILABLE)
+        expectStepFailureShown(card, failure().message)
 
         // An explicit refresh starts over: the panel mounts afresh and offers a start again.
         await clickWhenEnabled(within(card).getByRole('button', { name: 'Refresh accession' }))
@@ -2081,7 +2180,44 @@ describe('Laboratory result access denied', () => {
         await accessionSettled(card)
         await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
         expect(within(card).getByRole('button', { name: 'Start execution' })).toBeTruthy()
+        expect(screen.queryByText(message)).toBeNull()
+      })
+
+      it.each([
+        ['a step failed with an outage', 'step'],
+        ['a completion was refused', 'completion'],
+      ])('offers a member who cannot read executions a fresh start once a step is recorded, after %s hid the panel', async (_label, hiddenBy) => {
+        const runner = [...ACCESSION_READ, 'lab.execution.start', 'lab.execution.complete', 'lab.specimen.collect']
+        api.startLabExecution.mockResolvedValue(inProgress())
+        const collected = { ...pendingSpecimen, status: 'collected', version: 3 }
+        api.completeLabExecution.mockRejectedValue(executionAccessDenied())
+        const card = await openAccession(runner, accession([specimen('received'), pendingSpecimen]))
+        const panel = sectionOf('Analytical execution')
+        fireEvent.change(within(panel).getByRole('textbox', { name: 'Reason' }), { target: { value: 'Begin analysis' } })
+        fireEvent.click(within(panel).getByRole('button', { name: 'Start execution' }))
+        expect(await within(panel).findByText('Hemoglobin · LOINC 718-7')).toBeTruthy()
+        api.labAccession.mockImplementation(() => later(() => accession([specimen('received'), pendingSpecimen])))
+        if (hiddenBy === 'step') {
+          api.transitionSpecimen.mockRejectedValueOnce(identityUnavailable())
+          await collectPendingSpecimen(card)
+          await waitFor(() => expect(within(panel).getByRole('alert').textContent).toBe(UNVERIFIED))
+          await accessionSettled(card)
+        } else {
+          fireEvent.click(within(panel).getByRole('button', { name: 'Complete execution' }))
+          await waitFor(() => expect(within(panel).getByRole('alert').textContent).toBe(ACCESS_DENIED))
+        }
+        api.transitionSpecimen.mockResolvedValue(collected)
+        api.labAccession.mockImplementation(() => later(() => accession([specimen('received'), collected])))
+
+        await clickWhenEnabled(within(card).getByRole('button', { name: 'Record step' }))
+
+        expect(await within(card).findByText('collected')).toBeTruthy()
+        expect(await within(card).findByRole('button', { name: 'Start execution' })).toBeTruthy()
+        await accessionSettled(card)
+        await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+        expect(within(card).getByRole('button', { name: 'Start execution' })).toBeTruthy()
         expect(screen.queryByText(UNVERIFIED)).toBeNull()
+        expect(screen.queryByText(ACCESS_DENIED)).toBeNull()
       })
 
       it('does not reload for a step refused on its merits (412)', async () => {

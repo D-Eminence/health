@@ -6,9 +6,9 @@ afterEach(() => { vi.unstubAllGlobals(); vi.resetModules() })
 
 /**
  * The HTTP client merges identical GETs that are in flight together. Lab result
- * reads must not: after the Laboratory page hides results it re-reads them to
- * confirm access, and that confirmation has to be a request of its own, never
- * an answer to one sent before the results were hidden.
+ * and accession reads must not: after the Laboratory page hides results, or a
+ * specimen step fails, it reads them again to confirm access, and that
+ * confirmation has to be a request of its own, never an answer to one sent before.
  */
 describe('Lab result reads', () => {
   function stubFetch(body: unknown) {
@@ -31,6 +31,19 @@ describe('Lab result reads', () => {
 
     await expect(Promise.all([earlier, later])).resolves.toEqual([{ items: [] }, { items: [] }])
     for (const [url] of fetch.mock.calls) expect(new URL(String(url)).pathname).toBe('/api/v1/lab/specimens/specimen-1/executions')
+  })
+
+  it('sends a new request for each accession read, even while an identical one is in flight', async () => {
+    const { fetch, settleAll } = stubFetch({ id: 'accession-1', specimens: [] })
+    const { staffApi } = await import('./api')
+
+    const earlier = staffApi.labAccession('facility-1', 'accession-1')
+    const later = staffApi.labAccession('facility-1', 'accession-1')
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(2))
+    settleAll()
+
+    await Promise.all([earlier, later])
+    for (const [url] of fetch.mock.calls) expect(new URL(String(url)).pathname).toBe('/api/v1/lab/accessions/accession-1')
   })
 
   it('sends a new request for each result-history read, even while an identical one is in flight', async () => {
