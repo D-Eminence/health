@@ -316,3 +316,31 @@ Stage 4A, with less:
 - the facility's platform changes and the Audit target filters are refused
   (`400`) until Stage 4A is deployed; the rest of each page works;
 - a session end gets the generic message, as in Stage 3.
+
+## Stage 5: end-to-end verification and release readiness
+
+Branch `phase-4-stage-5-admin-verification`. The combined release checklist and
+its evidence are in hid-system `docs/PHASE_4_STAGE_5_RELEASE_READINESS.md`.
+
+**Browser run.** The console was built from this repository and served by its
+`vite preview` proxy. Chromium drove it against the hid-system Identity API on a
+local synthetic database, all as a non-root user. These were checked:
+
+- platform sign-in, with first-time authenticator enrolment, then password and TOTP;
+- `STEP_UP_REQUIRED` on facility suspension;
+- `STEP_UP_EXPIRED` on facility restoration, with the "more than 5 minutes" note;
+- both facility changes listed under the facility's platform changes;
+- approvals and demo-request cursor paging over two pages;
+- the authenticator reset offered only for enrolled administrators;
+- the revoked and expired session notices, both in session and after a reload.
+
+All checks pass with this branch. Against `main` (`a180cea`), one check fails,
+and that is the fix below. Staging was not run, because there is no staging
+environment yet.
+
+| Surface | Change |
+| --- | --- |
+| Users and roles | After **Revoke all sessions** succeeds, the reload reports no sessions. The form used to disappear with its "Saved" confirmation, so an administrator responding to a compromised account saw no confirmation. The form now stays, disabled, and says the account has no active sessions. It is still not offered for an account that had none. |
+
+Tests: one new component test fails against `main` and passes here; the full
+admin suite passes.
