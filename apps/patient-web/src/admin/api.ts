@@ -1,7 +1,7 @@
 import { createApiClient, isHidApiError, NO_RETRY, type DownloadResult, type HidApiError, type RequestSpec } from '@hid/http'
 import { createRegisteredBrowserClient } from '@hid/api'
 import { environment } from './env'
-import { recordSessionWindow, reportSessionEnded } from './session-window'
+import { recordServerSessionEnd, recordSessionWindow, reportSessionEnded, serverSessionEnd } from './session-window'
 
 export interface AdminActor {
   accountId: string
@@ -13,6 +13,11 @@ export interface AdminActor {
 }
 export interface AdminSession { actor: AdminActor }
 export interface Page<T> { items: T[]; page: number; pageSize: number; total: number }
+/**
+ * One page of a cursor-paged list (approvals, demo requests). `nextCursor` is
+ * opaque and bound to the list and its filters; null on the last page.
+ */
+export interface CursorPage<T> { items: T[]; nextCursor: string | null }
 export interface Versioned { version: number }
 export interface Facility extends Versioned {
   id: string; organizationId: string; organizationName: string; name: string; code: string; status: string
@@ -22,6 +27,11 @@ export interface PrincipalMembership { id: string; facilityId: string; facilityN
 export interface Principal extends Versioned {
   id: string; subject: string; email: string | null; displayName: string | null; status: string; createdAt: string
   platformRoles: string[]; activeSessionCount: number; memberships: PrincipalMembership[]
+  /**
+   * An active authenticator exists. A display hint: the reset command still
+   * decides. Absent from an Identity build before hid-system Stage 4A.
+   */
+  mfaEnrolled?: boolean
 }
 export interface IdentityReview extends Versioned {
   id: string; facilityId: string; facilityName: string; maskedNin: string; provider: string; status: string
@@ -37,6 +47,8 @@ export interface AuditEventPage { items: AuditEvent[]; nextBeforeSequenceId: str
 export interface AuditFilters {
   actor?: string; facilityId?: string; action?: string; correlationId?: string
   outcome?: 'success' | 'denied' | 'failure'; from?: string; to?: string
+  /** The audited target, for example `facility`; `resourceId` needs it. */
+  resourceType?: string; resourceId?: string
 }
 export interface PlatformControl extends Versioned { controlKey: string; enabled: boolean; reason: string; updatedAt: string }
 export interface CommercialProduct extends Versioned { slug: string; name: string; status: 'active' | 'coming_soon' | 'draft' | 'retired' }
@@ -82,7 +94,8 @@ export interface DeliveryFailure {
 export interface ServiceState { service: string; state: string; checkedAt: string; code: string | null }
 
 // Platform security contract: hid-system phase-4-stage-2-backend-security at
-// 7cbbf98 (ADR-038). Field names and values are the backend's.
+// 7cbbf98 (ADR-038), with the Stage 4A contracts (hid-system
+// docs/PHASE_4_STAGE_4A_ADMIN_CONTRACTS.md). Field names and values are the backend's.
 
 /** Password accepted: the backend has set an httpOnly MFA challenge cookie. */
 export interface PlatformLoginChallenge { status: 'mfa_required' | 'mfa_enrollment_required'; expiresAt: string }
@@ -161,15 +174,19 @@ async function request<T>(path: string, options: Partial<RequestSpec> = {}): Pro
   } catch (error) {
     // A protected request still unauthenticated after the client's one refresh,
     // or refused for lacking an MFA-verified platform session, means the server
-    // no longer accepts this platform session.
+    // no longer accepts this platform session. The server says whether it
+    // expired or was revoked when it can (Stage 4A).
     if (isHidApiError(error) && options.auth !== 'none' && !SIGN_IN_PATHS.some(prefix => path.startsWith(prefix))
-      && ((error.status === 401 && error.code === 'AUTHENTICATION_REQUIRED')
+      && ((error.status === 401 && SESSION_END_CODES.has(error.code))
         || (error.status === 403 && error.code === 'PLATFORM_SESSION_REQUIRED'))) {
-      reportSessionEnded()
+      reportSessionEnded(serverSessionEnd(error.code))
     }
     throw error
   }
 }
+
+/** 401 codes meaning the server no longer accepts this platform session. */
+const SESSION_END_CODES = new Set(['AUTHENTICATION_REQUIRED', 'PLATFORM_SESSION_EXPIRED', 'PLATFORM_SESSION_REVOKED'])
 
 function grant(value: PlatformSessionGrant): PlatformSessionGrant {
   recordSessionWindow({ idleExpiresAt: value.idleExpiresAt })
@@ -187,8 +204,17 @@ const at = (base: string, ...segments: string[]) => [base, ...segments.map(encod
 export const PAGE_SIZE = 25
 /** Audit events per request (the backend allows up to 200). */
 export const AUDIT_PAGE_SIZE = 50
-/** The demo request list has no paging; the backend returns at most 100 of the newest. */
-export const DEMO_REQUEST_LIMIT = 100
+/** Rows per page for the cursor-paged demo-request list (the backend allows up to 100). */
+export const CURSOR_PAGE_SIZE = 50
+
+/**
+ * An Identity build before hid-system Stage 4A returns `{ items }` without
+ * `nextCursor`: its list is the backend's capped first page, with no further page.
+ */
+async function cursorPage<T>(page: Promise<CursorPage<T>>): Promise<CursorPage<T>> {
+  const value = await page
+  return { items: value.items, nextCursor: value.nextCursor ?? null }
+}
 
 export const adminApi = {
   login(email: string, password: string, token: string) {
@@ -209,7 +235,14 @@ export const adminApi = {
   },
   session() { return request<AdminSession>('/api/v1/admin/session') },
   async refresh() {
-    return grant(await request<PlatformSessionGrant>('/api/v1/auth/admin/refresh', { method: 'POST', auth: 'optional' }))
+    try {
+      return grant(await request<PlatformSessionGrant>('/api/v1/auth/admin/refresh', { method: 'POST', auth: 'optional' }))
+    } catch (error) {
+      // The shared client reports the original request's 401 after a failed
+      // refresh, so keep the refresh's own reason for the session-end notice.
+      if (isHidApiError(error) && error.status === 401) recordServerSessionEnd(serverSessionEnd(error.code))
+      throw error
+    }
   },
   logout() { return request<void>('/api/v1/auth/admin/logout', { method: 'POST' }) },
   async mfaStatus(signal?: AbortSignal) {
@@ -238,8 +271,16 @@ export const adminApi = {
       at('/api/v1/admin/principals', accountId, 'sessions', sessionId, 'revoke'),
       { method: 'POST', body: input, headers: { 'Idempotency-Key': idempotencyKey } })
   },
-  approvals(status: ApprovalStatus | null, signal?: AbortSignal) {
-    return request<{ items: ApprovalRequest[] }>('/api/v1/admin/approvals', { signal, ...(status ? { query: { status } } : {}) })
+  /**
+   * Newest first, one page per call (the backend's default of 50 rows unless
+   * `limit` is given); pass the previous page's `nextCursor` with the same
+   * status. `limit` and `cursor` are sent only when given, because an Identity
+   * build before Stage 4A refuses any parameter but `status`.
+   */
+  approvals(status: ApprovalStatus | null, page: { cursor?: string; limit?: number } = {}, signal?: AbortSignal) {
+    return cursorPage(request<CursorPage<ApprovalRequest>>('/api/v1/admin/approvals', { signal, query: {
+      ...(status ? { status } : {}), ...(page.limit ? { limit: page.limit } : {}),
+      ...(page.cursor ? { cursor: page.cursor } : {}) } }))
   },
   requestSuperAdmin(accountId: string, reason: string, idempotencyKey: string) {
     return request<ApprovalRequested>(at('/api/v1/admin/principals', accountId, 'super-admin-requests'),
@@ -288,9 +329,12 @@ export const adminApi = {
   services(signal?: AbortSignal) { return request<{ checkedAt: string; services: ServiceState[] }>('/api/v1/admin/operations/services', { signal }) },
   events(signal?: AbortSignal) { return request<{ state: string; code: string | null; metrics: Record<string, number | boolean> | null; failures: DeliveryFailure[] }>('/api/v1/admin/operations/events', { signal }) },
   pricing(signal?: AbortSignal) { return request<PricingCatalog>('/api/v1/admin/pricing', { signal }) },
-  demos(filters: { status?: DemoStatus; productCode?: string } = {}, signal?: AbortSignal) {
-    return request<{ items: DemoRequest[] }>('/api/v1/admin/demo-requests', { signal,
-      query: { limit: DEMO_REQUEST_LIMIT, status: filters.status, productCode: filters.productCode } })
+  /** Newest first, one page per call; pass the previous page's `nextCursor` with the same filters. */
+  demos(filters: { status?: DemoStatus; productCode?: string } = {}, page: { cursor?: string; limit?: number } = {},
+    signal?: AbortSignal) {
+    return cursorPage(request<CursorPage<DemoRequest>>('/api/v1/admin/demo-requests', { signal,
+      query: { limit: page.limit ?? CURSOR_PAGE_SIZE, status: filters.status, productCode: filters.productCode,
+        ...(page.cursor ? { cursor: page.cursor } : {}) } }))
   },
   applications(status?: ApplicationStatus, signal?: AbortSignal) {
     return request<{ items: OrganizationApplication[] }>('/api/v1/admin/organization-applications', { signal,

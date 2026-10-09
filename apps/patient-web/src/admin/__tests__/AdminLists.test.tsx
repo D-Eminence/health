@@ -1,16 +1,18 @@
 import type { ReactElement } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import type { AdminActor } from '../api'
 import { AuditPage } from '../Audit'
 import { DemosPage, OperationsPage, ReviewsPage } from '../Pages'
 import { PrincipalsPage } from '../Principals'
+import { StepUpProvider } from '../StepUp'
 
 const mocks = vi.hoisted(() => ({
-  audit: vi.fn(), principals: vi.fn(), demos: vi.fn(), services: vi.fn(), events: vi.fn(), reviews: vi.fn(),
+  audit: vi.fn(), principals: vi.fn(), demos: vi.fn(), services: vi.fn(), events: vi.fn(), reviews: vi.fn(), command: vi.fn(),
+  stepUp: vi.fn(),
 }))
-vi.mock('../api', () => ({ adminApi: mocks, DEMO_REQUEST_LIMIT: 100, newIdempotencyKey: () => 'key-1' }))
+vi.mock('../api', () => ({ adminApi: mocks, newIdempotencyKey: () => 'key-1' }))
 
 const FACILITY_ID = '0f8c6d2e-4b1a-4c3d-9e5f-1a2b3c4d5e6f'
 const actor = (permissions: string[]): AdminActor => ({ accountId: 'admin-1', subject: 'staff:1', displayName: 'Ada',
@@ -55,6 +57,33 @@ describe('audit filters', () => {
     expect(screen.getByText('System')).toBeTruthy()
     expect(screen.getByText('Platform')).toBeTruthy()
     expect(screen.getAllByText('Not recorded')).toHaveLength(2)
+  })
+
+  it('sends a target filter from the link, and only a target ID that has a valid type', async () => {
+    mocks.audit.mockResolvedValue({ items: [event], nextBeforeSequenceId: null })
+    open(`/admin/audit?resourceType=facility&resourceId=${FACILITY_ID}`, <AuditPage />)
+    expect(await screen.findByText('corr-7')).toBeTruthy()
+    expect(mocks.audit).toHaveBeenCalledWith({ resourceType: 'facility', resourceId: FACILITY_ID }, undefined, expect.anything())
+    cleanup()
+    vi.clearAllMocks()
+    mocks.audit.mockResolvedValue({ items: [event], nextBeforeSequenceId: null })
+    open(`/admin/audit?resourceId=${FACILITY_ID}&resourceType=Not%20A%20Type`, <AuditPage />)
+    expect(await screen.findByText('corr-7')).toBeTruthy()
+    expect(mocks.audit).toHaveBeenCalledWith({}, undefined, expect.anything())
+  })
+
+  it('refuses a target ID without a target type before searching', async () => {
+    mocks.audit.mockResolvedValue({ items: [], nextBeforeSequenceId: null })
+    open('/admin/audit', <AuditPage />)
+    await waitFor(() => expect(mocks.audit).toHaveBeenCalledTimes(1))
+    fireEvent.change(screen.getByLabelText('Target ID'), { target: { value: FACILITY_ID } })
+    expect(screen.getByText(/Enter a target type such as facility/)).toBeTruthy()
+    expect((screen.getByRole('button', { name: 'Apply filters' }) as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.change(screen.getByLabelText('Target type'), { target: { value: 'facility' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Apply filters' }))
+    await waitFor(() => expect(location()).toBe(`/admin/audit?resourceType=facility&resourceId=${FACILITY_ID}`))
+    await waitFor(() => expect(mocks.audit).toHaveBeenLastCalledWith({ resourceType: 'facility', resourceId: FACILITY_ID },
+      undefined, expect.anything()))
   })
 
   it('applies filters into the link and refuses a partial facility ID', async () => {
@@ -102,6 +131,28 @@ describe('users and roles lookup', () => {
     expect(screen.getByText('View only')).toBeTruthy()
   })
 
+  it('shows authenticator enrolment and offers an MFA reset only for enrolled administrators', async () => {
+    mocks.principals.mockResolvedValue({ items: [
+      { ...principal, id: 'account-3', displayName: 'Bayo Enrolled', subject: 'staff:bayo', mfaEnrolled: true },
+      { ...principal, id: 'account-4', displayName: 'Chika Unenrolled', subject: 'staff:chika', mfaEnrolled: false },
+      // An Identity build before Stage 4A does not report enrolment: the reset stays offered and the backend decides.
+      { ...principal, id: 'account-5', displayName: 'Dele Unreported', subject: 'staff:dele', mfaEnrolled: undefined },
+    ], page: 1, pageSize: 25, total: 3 })
+    open('/admin/principals', <StepUpProvider><PrincipalsPage actor={actor(['platform.principal.read', 'platform.mfa.reset'])} />
+    </StepUpProvider>)
+    search('example')
+    const enrolled = (await screen.findByText('Bayo Enrolled')).closest('tr')!
+    const unenrolled = screen.getByText('Chika Unenrolled').closest('tr')!
+    expect(within(enrolled).getByText('Enrolled')).toBeTruthy()
+    expect(within(unenrolled).getByText('Not set up')).toBeTruthy()
+    expect(within(enrolled).getByText('Request authenticator reset')).toBeTruthy()
+    expect(within(unenrolled).queryByText('Request authenticator reset')).toBeNull()
+    expect(within(unenrolled).getByText('View only')).toBeTruthy()
+    const unreported = screen.getByText('Dele Unreported').closest('tr')!
+    expect(within(unreported).getByText('Not reported')).toBeTruthy()
+    expect(within(unreported).getByText('Request authenticator reset')).toBeTruthy()
+  })
+
   it('leaves out the audit link without audit access', async () => {
     mocks.principals.mockResolvedValue({ items: [principal], page: 1, pageSize: 25, total: 1 })
     open('/admin/principals', <PrincipalsPage actor={actor(['platform.principal.read'])} />)
@@ -113,20 +164,50 @@ describe('users and roles lookup', () => {
 
 describe('demo requests, operations and identity reviews', () => {
   it('filters demo requests by valid status and product from the link', async () => {
-    mocks.demos.mockResolvedValue({ items: [] })
+    mocks.demos.mockResolvedValue({ items: [], nextCursor: null })
     open('/admin/demos?status=new&product=laboratory', <DemosPage actor={actor(['platform.demo.read'])} />)
-    await waitFor(() => expect(mocks.demos).toHaveBeenCalledWith({ status: 'new', productCode: 'laboratory' }, expect.anything()))
+    await waitFor(() => expect(mocks.demos).toHaveBeenCalledWith({ status: 'new', productCode: 'laboratory' }, {}, expect.anything()))
     fireEvent.change(screen.getByLabelText('Product'), { target: { value: '' } })
     await waitFor(() => expect(location()).toBe('/admin/demos?status=new'))
   })
 
-  it('ignores unknown demo filters and says when the list is capped', async () => {
-    mocks.demos.mockResolvedValue({ items: Array.from({ length: 100 }, (_, index) => ({ id: `d-${index}`, contactName: `Contact ${index}`,
-      contactEmail: `c${index}@example.test`, organizationName: null, productCode: 'ehr', status: 'new',
-      createdAt: '2026-10-08T12:00:00.000Z', version: 1 })) })
+  it('ignores unknown demo filters and pages beyond the first page with the backend cursor', async () => {
+    const demo = (index: number) => ({ id: `d-${index}`, contactName: `Contact ${index}`, contactEmail: `c${index}@example.test`,
+      organizationName: null, productCode: 'ehr', status: 'new', createdAt: '2026-10-08T12:00:00.000Z', version: 1 })
+    mocks.demos.mockResolvedValueOnce({ items: Array.from({ length: 50 }, (_, index) => demo(index)), nextCursor: 'cursor-2' })
+      .mockResolvedValueOnce({ items: [demo(50), demo(51)], nextCursor: null })
     open('/admin/demos?status=bogus', <DemosPage actor={actor(['platform.demo.read'])} />)
-    expect(await screen.findByText(/Showing the newest 100 requests/)).toBeTruthy()
-    expect(mocks.demos).toHaveBeenCalledWith({}, expect.anything())
+    expect(await screen.findByText('Showing 50 requests, newest first; more are available')).toBeTruthy()
+    expect(mocks.demos).toHaveBeenCalledWith({}, {}, expect.anything())
+    expect(screen.queryByText(/newest 100/)).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Load more requests' }))
+    expect(await screen.findByText('Contact 51')).toBeTruthy()
+    expect(mocks.demos).toHaveBeenLastCalledWith({}, { cursor: 'cursor-2' }, expect.any(AbortSignal))
+    expect(screen.getByText('Showing 52 requests, newest first')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Load more requests' })).toBeNull()
+  })
+
+  it('confirms a status change on a row from a later page after the list starts again', async () => {
+    const demo = (index: number) => ({ id: `d-${index}`, contactName: `Contact ${index}`, contactEmail: `c${index}@example.test`,
+      organizationName: null, productCode: 'ehr', status: 'new', createdAt: '2026-10-08T12:00:00.000Z', version: 1 })
+    mocks.demos.mockResolvedValueOnce({ items: [demo(0)], nextCursor: 'cursor-2' })
+      .mockResolvedValueOnce({ items: [demo(1)], nextCursor: null })
+      .mockResolvedValueOnce({ items: [demo(0)], nextCursor: 'cursor-2b' })
+    mocks.command.mockResolvedValueOnce({ status: 'contacted', version: 2 })
+    open('/admin/demos', <StepUpProvider><DemosPage actor={actor(['platform.demo.read', 'platform.demo.manage'])} /></StepUpProvider>)
+    await screen.findByText('Contact 0')
+    fireEvent.click(screen.getByRole('button', { name: 'Load more requests' }))
+    const row = (await screen.findByText('Contact 1')).closest('tr')!
+    fireEvent.change(within(row).getByLabelText('Reason for this change'), { target: { value: 'Called back and booked a demo' } })
+    fireEvent.click(within(row).getByRole('button', { name: 'Confirm change' }))
+    expect(await screen.findByText('The request from Contact 1 is now contacted.')).toBeTruthy()
+    // The reload starts again from the first page, which removes the row; the confirmation stays.
+    await waitFor(() => expect(screen.queryByText('Contact 1')).toBeNull())
+    expect(screen.getByText('The request from Contact 1 is now contacted.')).toBeTruthy()
+    expect(mocks.command).toHaveBeenCalledWith('/api/v1/admin/demo-requests/d-1/status',
+      { status: 'contacted', reason: 'Called back and booked a demo' }, { version: 1 })
+    fireEvent.change(screen.getByLabelText('Status'), { target: { value: 'new' } })
+    await waitFor(() => expect(screen.queryByText('The request from Contact 1 is now contacted.')).toBeNull())
   })
 
   it('lists event delivery failures as the dispatcher reports them', async () => {

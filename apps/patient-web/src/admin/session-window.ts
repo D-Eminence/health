@@ -10,6 +10,8 @@ export type SessionEndReason = 'expired' | 'revoked'
 interface SessionWindow { idleExpiresAt: number | null; absoluteExpiresAt: number | null }
 
 let state: SessionWindow = { idleExpiresAt: null, absoluteExpiresAt: null }
+/** The reason the server last gave for refusing this session (Stage 4A), until a new session starts. */
+let serverReason: SessionEndReason | null = null
 const windowListeners = new Set<(value: Readonly<SessionWindow>) => void>()
 const endListeners = new Set<(reason: SessionEndReason | null) => void>()
 
@@ -20,6 +22,7 @@ function instant(value: string | undefined): number | null {
 }
 
 export function recordSessionWindow(input: { idleExpiresAt?: string; absoluteExpiresAt?: string }): void {
+  serverReason = null
   state = {
     idleExpiresAt: instant(input.idleExpiresAt) ?? state.idleExpiresAt,
     absoluteExpiresAt: instant(input.absoluteExpiresAt) ?? state.absoluteExpiresAt,
@@ -28,6 +31,7 @@ export function recordSessionWindow(input: { idleExpiresAt?: string; absoluteExp
 }
 
 export function clearSessionWindow(): void {
+  serverReason = null
   state = { idleExpiresAt: null, absoluteExpiresAt: null }
   for (const listener of windowListeners) listener(state)
 }
@@ -36,12 +40,24 @@ export function currentSessionWindow(): Readonly<SessionWindow> {
   return state
 }
 
+/** The reason a backend problem code states: 401 PLATFORM_SESSION_EXPIRED or PLATFORM_SESSION_REVOKED. */
+export function serverSessionEnd(code: string | null | undefined): SessionEndReason | null {
+  if (code === 'PLATFORM_SESSION_EXPIRED') return 'expired'
+  if (code === 'PLATFORM_SESSION_REVOKED') return 'revoked'
+  return null
+}
+
+/** Keeps the server's reason from a refused refresh for the next session-end report. */
+export function recordServerSessionEnd(reason: SessionEndReason | null): void {
+  if (reason) serverReason = reason
+}
+
 /**
- * Why the server no longer accepts the session. `expired` when its last
- * reported idle or absolute expiry has passed; `revoked` when it was refused
- * before then (revoked, signed out elsewhere, or MFA reset). The backend
- * returns the same 401 for all of these, so this is the closest truthful
- * reading; null when this page never held a platform session.
+ * Why the server no longer accepts the session, read from the expiry it last
+ * reported: `expired` when its idle or absolute expiry has passed; `revoked`
+ * when it was refused before then. Used only when the server gave no reason
+ * (a generic 401, for example with no session cookie left); null when this
+ * page never held a platform session.
  */
 export function sessionEndReason(now = Date.now()): SessionEndReason | null {
   const { idleExpiresAt, absoluteExpiresAt } = state
@@ -52,9 +68,11 @@ export function sessionEndReason(now = Date.now()): SessionEndReason | null {
   return 'revoked'
 }
 
-export function reportSessionEnded(): void {
-  const reason = sessionEndReason()
-  for (const listener of endListeners) listener(reason)
+/** The server's own reason wins over the expiry reading. */
+export function reportSessionEnded(reason: SessionEndReason | null = null): void {
+  const value = reason ?? serverReason ?? sessionEndReason()
+  serverReason = null
+  for (const listener of endListeners) listener(value)
 }
 
 export function onSessionEnded(listener: (reason: SessionEndReason | null) => void): () => void {

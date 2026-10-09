@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  clearSessionWindow, currentSessionWindow, onSessionEnded, recordSessionWindow, reportSessionEnded, sessionEndReason,
+  clearSessionWindow, currentSessionWindow, onSessionEnded, recordServerSessionEnd, recordSessionWindow, reportSessionEnded,
+  serverSessionEnd, sessionEndReason,
 } from '../session-window'
 
 afterEach(() => clearSessionWindow())
@@ -23,6 +24,31 @@ describe('platform session window', () => {
     expect(sessionEndReason(Date.parse('2026-10-08T12:15:00.000Z'))).toBe('expired')
     recordSessionWindow({ idleExpiresAt: '2026-10-08T21:00:00.000Z' })
     expect(sessionEndReason(Date.parse('2026-10-08T20:00:01.000Z'))).toBe('expired')
+  })
+
+  it('maps only the server session-end codes to a reason (Stage 4A)', () => {
+    expect(serverSessionEnd('PLATFORM_SESSION_EXPIRED')).toBe('expired')
+    expect(serverSessionEnd('PLATFORM_SESSION_REVOKED')).toBe('revoked')
+    expect(serverSessionEnd('AUTHENTICATION_REQUIRED')).toBeNull()
+    expect(serverSessionEnd(undefined)).toBeNull()
+  })
+
+  it('prefers the reason the server gave over the expiry reading, once, until a new session', () => {
+    const listener = vi.fn()
+    const unsubscribe = onSessionEnded(listener)
+    recordSessionWindow({ idleExpiresAt: '2000-01-01T00:00:00.000Z' })
+    reportSessionEnded('revoked')
+    expect(listener).toHaveBeenLastCalledWith('revoked')
+    recordServerSessionEnd('revoked')
+    reportSessionEnded()
+    expect(listener).toHaveBeenLastCalledWith('revoked')
+    reportSessionEnded()
+    expect(listener).toHaveBeenLastCalledWith('expired')
+    recordServerSessionEnd('expired')
+    recordSessionWindow({ idleExpiresAt: '2999-01-01T00:00:00.000Z' })
+    reportSessionEnded()
+    expect(listener).toHaveBeenLastCalledWith('revoked')
+    unsubscribe()
   })
 
   it('notifies listeners with the reason until they unsubscribe', () => {

@@ -106,6 +106,61 @@ describe('platform admin API', () => {
     expect(ended).toHaveBeenLastCalledWith('expired')
   })
 
+  it('ends the session with the reason the server gives, from the request or from the refused refresh (Stage 4A)', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-08T12:00:00.000Z'))
+    recordFetch([
+      json(grant('2026-10-08T12:15:00.000Z')),
+      // Before the idle expiry, yet the server says the session expired.
+      json({ code: 'PLATFORM_SESSION_EXPIRED' }, 401), json({ code: 'PLATFORM_SESSION_EXPIRED' }, 401),
+      json(grant('2026-10-08T12:15:00.000Z')),
+      // The access cookie is gone (generic 401); the refresh itself says why.
+      json({ code: 'AUTHENTICATION_REQUIRED' }, 401), json({ code: 'PLATFORM_SESSION_REVOKED' }, 401),
+    ])
+    const { adminApi } = await import('../api')
+    const { onSessionEnded } = await import('../session-window')
+    const ended = vi.fn()
+    onSessionEnded(ended)
+    await adminApi.verifyMfa({ code: '123456' })
+    await expect(adminApi.overview()).rejects.toMatchObject({ status: 401, code: 'PLATFORM_SESSION_EXPIRED' })
+    expect(ended).toHaveBeenLastCalledWith('expired')
+    await adminApi.verifyMfa({ code: '654321' })
+    vi.setSystemTime(new Date('2026-10-08T12:20:00.000Z'))
+    await expect(adminApi.overview()).rejects.toMatchObject({ status: 401 })
+    // After the reported idle expiry the reading alone would say expired; the server said revoked.
+    expect(ended).toHaveBeenLastCalledWith('revoked')
+    expect(ended).toHaveBeenCalledTimes(2)
+  })
+
+  it('pages approvals and demo requests with the backend cursor and limit', async () => {
+    const requests = recordFetch([json({ items: [], nextCursor: null }), json({ items: [], nextCursor: null }),
+      json({ items: [], nextCursor: null }), json({ items: [], nextCursor: null })])
+    const { adminApi } = await import('../api')
+    await adminApi.approvals('pending')
+    await adminApi.approvals(null, { cursor: 'opaque-cursor' })
+    await adminApi.approvals('approved', { limit: 20 })
+    await adminApi.demos({ status: 'new' }, { cursor: 'next-demo', limit: 100 })
+    expect(requests.map(request => `${request.url.pathname}?${request.url.searchParams.toString()}`)).toEqual([
+      // The backend's default page of 50; only parameters the caller gives are sent.
+      '/api/v1/admin/approvals?status=pending',
+      '/api/v1/admin/approvals?cursor=opaque-cursor',
+      '/api/v1/admin/approvals?status=approved&limit=20',
+      '/api/v1/admin/demo-requests?limit=100&status=new&cursor=next-demo',
+    ])
+  })
+
+  it('reads a list from an Identity build before Stage 4A as its last page', async () => {
+    const approval = { id: 'approval-1' }
+    const demo = { id: 'demo-1' }
+    const requests = recordFetch([json({ items: [approval] }), json({ items: [demo] })])
+    const { adminApi } = await import('../api')
+    // Before Stage 4A, /admin/approvals refuses every parameter but `status` and neither list returns `nextCursor`.
+    await expect(adminApi.approvals('pending')).resolves.toEqual({ items: [approval], nextCursor: null })
+    await expect(adminApi.demos()).resolves.toEqual({ items: [demo], nextCursor: null })
+    expect(Object.fromEntries(requests[0]!.url.searchParams)).toEqual({ status: 'pending' })
+    expect(Object.fromEntries(requests[1]!.url.searchParams)).toEqual({ limit: '50' })
+  })
+
   it('does not treat a rejected sign-in or authenticator code as a session ending', async () => {
     recordFetch([
       json({ code: 'AUTHENTICATION_REQUIRED', detail: 'Invalid credentials' }, 401),

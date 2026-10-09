@@ -16,9 +16,13 @@ const StepUpContext = createContext<RunWithStepUp | null>(null)
 
 interface Pending { promise: Promise<void>; resolve: () => void; reject: (error: Error) => void }
 
+/** The backend's step-up refusals: none in this session, or one older than 5 minutes (Stage 4A). */
+const STEP_UP_CODES = ['STEP_UP_REQUIRED', 'STEP_UP_EXPIRED'] as const
+
 /**
  * Step-up for high-risk actions. The backend alone decides when a fresh
- * authenticator confirmation is needed (403 STEP_UP_REQUIRED) and records it
+ * authenticator confirmation is needed (403 STEP_UP_REQUIRED, or
+ * STEP_UP_EXPIRED when the last one is older than 5 minutes) and records it
  * when the code is correct. The client keeps no assurance state of its own: it
  * asks for a code only after the backend refused, and then repeats the same
  * submission once. Callers keep the submission's idempotency key in the
@@ -27,10 +31,12 @@ interface Pending { promise: Promise<void>; resolve: () => void; reject: (error:
  */
 export function StepUpProvider({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false)
+  const [expired, setExpired] = useState(false)
   const pending = useRef<Pending | null>(null)
 
-  const confirm = useCallback(() => {
+  const confirm = useCallback((afterExpiry: boolean) => {
     if (!pending.current) {
+      setExpired(afterExpiry)
       let resolve!: () => void
       let reject!: (error: Error) => void
       const promise = new Promise<void>((onResolve, onReject) => { resolve = onResolve; reject = onReject })
@@ -44,8 +50,8 @@ export function StepUpProvider({ children }: { children: ReactNode }) {
     try {
       return await action()
     } catch (error) {
-      if (!isProblem(error, 'STEP_UP_REQUIRED')) throw error
-      await confirm()
+      if (!STEP_UP_CODES.some(code => isProblem(error, code))) throw error
+      await confirm(isProblem(error, 'STEP_UP_EXPIRED'))
       return action()
     }
   }, [confirm])
@@ -66,7 +72,7 @@ export function StepUpProvider({ children }: { children: ReactNode }) {
 
   return <StepUpContext.Provider value={run}>
     {children}
-    {open && <StepUpDialog onConfirmed={() => settle(true)} onCancel={() => settle(false)} />}
+    {open && <StepUpDialog expired={expired} onConfirmed={() => settle(true)} onCancel={() => settle(false)} />}
   </StepUpContext.Provider>
 }
 
@@ -76,7 +82,7 @@ export function useStepUp(): RunWithStepUp {
   return run
 }
 
-function StepUpDialog({ onConfirmed, onCancel }: { onConfirmed: () => void; onCancel: () => void }) {
+function StepUpDialog({ expired, onConfirmed, onCancel }: { expired: boolean; onConfirmed: () => void; onCancel: () => void }) {
   const [code, setCode] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -101,6 +107,7 @@ function StepUpDialog({ onConfirmed, onCancel }: { onConfirmed: () => void; onCa
       <h2 id="admin-step-up-title">Confirm it’s you</h2>
       <p>This is a high-risk action. The server requires a code from your authenticator app from the last
         5 minutes before it carries it out. Nothing has been changed yet.</p>
+      {expired && <p className="admin-note">Your last confirmation in this session is more than 5 minutes old.</p>}
       <p className="admin-note">Recovery codes cannot confirm high-risk actions.</p>
       <label>Authenticator code<input value={code} onChange={event => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
         inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" required autoFocus /></label>

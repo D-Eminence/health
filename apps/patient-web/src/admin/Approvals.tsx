@@ -2,7 +2,7 @@ import { useCallback, useState, type FormEvent } from 'react'
 import {
   adminApi, type AdminActor, type ApprovalDecided, type ApprovalDecision, type ApprovalRequest, type ApprovalStatus,
 } from './api'
-import { Page, Refresh, ResourceView, Status, date, label, useGovernedSubmit, useResource } from './ui'
+import { LoadMore, Page, Refresh, ResourceView, Status, date, label, useCursorPages, useGovernedSubmit, useResource } from './ui'
 
 const FILTERS: Array<{ value: ApprovalStatus | null; title: string }> = [
   { value: 'pending', title: 'Pending' }, { value: null, title: 'All' }, { value: 'approved', title: 'Approved' },
@@ -101,8 +101,10 @@ function ApprovalCard({ request, actor, onDecided }: {
 /** Two-person approvals. The backend decides who may request, approve, reject or cancel. */
 export function ApprovalsPage({ actor }: { actor: AdminActor }) {
   const [filter, setFilter] = useState<ApprovalStatus | null>('pending')
-  const load = useCallback((signal?: AbortSignal) => adminApi.approvals(filter, signal), [filter])
+  const load = useCallback((signal?: AbortSignal) => adminApi.approvals(filter, {}, signal), [filter])
   const resource = useResource(load, 'Approval requests could not be loaded.')
+  const pages = useCursorPages(resource, (cursor, signal) => adminApi.approvals(filter, { cursor }, signal),
+    'More approval requests could not be loaded.')
   const [notice, setNotice] = useState<string | null>(null)
 
   return <Page eyebrow="Two-person control" title="Approvals"
@@ -114,9 +116,11 @@ export function ApprovalsPage({ actor }: { actor: AdminActor }) {
         onClick={() => { setNotice(null); setFilter(item.value) }}>{item.title}</button>)}
     </div>
     {notice && <p role="status" className="admin-success">{notice}</p>}
-    <ResourceView resource={resource} empty={result => result.items.length === 0}>{result => <div className="admin-stack">
-      {result.items.map(request => <ApprovalCard key={`${request.id}:${request.version}`} request={request} actor={actor}
+    <ResourceView resource={resource} empty={result => result.items.length === 0}>{() => <div className="admin-stack">
+      <p className="admin-result-count">Showing {pages.items.length} requests, newest first{pages.hasMore ? '; more are available' : ''}</p>
+      {pages.items.map(request => <ApprovalCard key={`${request.id}:${request.version}`} request={request} actor={actor}
         onDecided={message => { setNotice(message); resource.reload() }} />)}
+      <LoadMore pages={pages} label="Load more requests" />
     </div>}</ResourceView>
   </Page>
 }

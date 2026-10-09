@@ -8,7 +8,7 @@ import { OverviewPage } from '../Dashboard'
 const mocks = vi.hoisted(() => ({
   overview: vi.fn(), approvals: vi.fn(), applications: vi.fn(), demos: vi.fn(), integrations: vi.fn(),
 }))
-vi.mock('../api', () => ({ adminApi: mocks, DEMO_REQUEST_LIMIT: 100 }))
+vi.mock('../api', () => ({ adminApi: mocks }))
 
 const actor = (permissions: string[]): AdminActor => ({ accountId: 'admin-1', subject: 'staff:1', displayName: 'Ada',
   email: 'ada@example.test', platformRoles: [], platformPermissions: ['platform.admin.access', ...permissions] })
@@ -26,10 +26,10 @@ beforeEach(() => {
   vi.clearAllMocks()
   mocks.overview.mockResolvedValue({ registeredPatients: 1200, facilities: 29, verifiedFacilities: 12, suspendedFacilities: 1,
     activeStaffMemberships: 40, pendingIdentityReviews: 3 })
-  mocks.approvals.mockResolvedValue({ items: [{ id: 'a' }, { id: 'b' }] })
+  mocks.approvals.mockResolvedValue({ items: [{ id: 'a' }, { id: 'b' }], nextCursor: null })
   mocks.applications.mockResolvedValue({ items: [{ status: 'ready_for_review' }, { status: 'pending_verification' },
     { status: 'pending_verification' }, { status: 'approved' }] })
-  mocks.demos.mockResolvedValue({ items: Array.from({ length: 100 }, (_, index) => ({ id: String(index) })) })
+  mocks.demos.mockResolvedValue({ items: Array.from({ length: 100 }, (_, index) => ({ id: String(index) })), nextCursor: 'more' })
   mocks.integrations.mockResolvedValue({ items: [{ enabled: true, health: 'failed' }, { enabled: true, health: 'healthy' },
     { enabled: false, health: 'unknown' }], capabilities: [] })
 })
@@ -43,15 +43,26 @@ describe('platform overview', () => {
     expect(screen.queryByRole('link', { name: 'Registered patients' })).toBeNull()
   })
 
-  it('counts waiting work from the lists the administrator can open, marking capped lists', async () => {
+  it('counts waiting work from the lists the administrator can open, marking lists with more pages', async () => {
     open(ALL)
     await screen.findByText('1,200')
     expect(await within(tile('Pending approvals')).findByText('2')).toBeTruthy()
     expect(await within(tile('Organization applications')).findByText(/awaiting CAC verification/)).toBeTruthy()
     expect(tile('Organization applications').textContent).toContain('1 ready for review · 2 awaiting CAC verification')
+    // "+" only when the backend says there is another page, never from a fixed cap.
     expect(await within(tile('New demo requests')).findByText('100+')).toBeTruthy()
-    expect(mocks.demos).toHaveBeenCalledWith({ status: 'new' }, expect.anything())
+    expect(mocks.demos).toHaveBeenCalledWith({ status: 'new' }, { limit: 100 }, expect.anything())
+    // The backend's default approvals page: an Identity build before Stage 4A refuses `limit` there.
+    expect(mocks.approvals).toHaveBeenCalledWith('pending', {}, expect.anything())
     expect(tile('Integrations').textContent).toContain('1 with a failed last test · 2 of 3 enabled')
+  })
+
+  it('shows an exact count for a full page with no further page, and N+ when one follows', async () => {
+    mocks.approvals.mockResolvedValue({ items: Array.from({ length: 100 }, (_, index) => ({ id: String(index) })), nextCursor: null })
+    mocks.demos.mockResolvedValue({ items: [{ id: 'd' }], nextCursor: 'more' })
+    open(ALL)
+    expect(await within(tile('Pending approvals')).findByText('100')).toBeTruthy()
+    expect(await within(tile('New demo requests')).findByText('1+')).toBeTruthy()
   })
 
   it('keeps the rest of the overview when one count fails', async () => {

@@ -22,7 +22,7 @@ vi.mock('../download', () => ({ saveFile: mocks.saveFile }))
 const problem = (status: number, code: string) => new HidApiError(status, 'Backend detail', { code })
 const principal: Principal = { id: 'account-2', subject: 'staff:ada', email: 'ada@example.test', displayName: 'Ada Operator',
   status: 'active', createdAt: '2026-09-01T09:00:00.000Z', platformRoles: ['support_admin'], activeSessionCount: 1,
-  memberships: [], version: 4 }
+  memberships: [], version: 4, mfaEnrolled: true }
 
 function open(element: ReactElement) {
   render(<MemoryRouter><StepUpProvider>{element}</StepUpProvider></MemoryRouter>)

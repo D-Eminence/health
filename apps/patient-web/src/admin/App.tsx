@@ -14,7 +14,8 @@ import { PrincipalsPage } from './Principals'
 import { failure } from './problems'
 import { SecurityPage } from './SecurityPage'
 import {
-  clearSessionWindow, currentSessionWindow, onSessionEnded, onSessionWindow, reportSessionEnded, type SessionEndReason,
+  clearSessionWindow, currentSessionWindow, onSessionEnded, onSessionWindow, reportSessionEnded, serverSessionEnd,
+  type SessionEndReason,
 } from './session-window'
 import { navigationItemFor, visibleNavigation } from './navigation'
 import { AdminSignIn } from './SignIn'
@@ -22,10 +23,12 @@ import { StepUpProvider } from './StepUp'
 import { date, has } from './ui'
 import './style.css'
 
+/** The server's PLATFORM_SESSION_EXPIRED / PLATFORM_SESSION_REVOKED, or the reading of its reported expiry. */
 export const SESSION_ENDED_MESSAGES: Readonly<Record<SessionEndReason, string>> = {
   expired: 'Your platform session expired after 15 minutes without activity or at its 8-hour limit. Sign in again to continue.',
-  revoked: 'Your platform session was ended before it expired. It may have been revoked from another session or by another '
-    + 'administrator, or your authenticator was reset. Sign in again, and tell your security team if you did not expect this.',
+  revoked: 'Your platform session was ended before it expired: it was signed out or revoked from another session or by '
+    + 'another administrator, your account or roles changed, or your authenticator was reset. Sign in again, and tell your '
+    + 'security team if you did not expect this.',
 }
 const NO_ACCESS = 'This account has no platform administration access.'
 
@@ -69,6 +72,7 @@ export function App() {
   const [notice, setNotice] = useState<string | null>(null)
   const [signOutError, setSignOutError] = useState<string | null>(null)
   const signedIn = useRef(false)
+  const checkingSession = useRef(false)
   useAreaTitle()
 
   const end = useCallback((message: string | null) => {
@@ -79,8 +83,11 @@ export function App() {
   }, [])
 
   // The server stopped accepting this platform session (401 after refresh).
+  // While the page checks for a session (a reload or a new tab), only a reason
+  // the server gave is shown: a first visit gets no session-ended notice.
   useEffect(() => onSessionEnded(reason => {
     if (signedIn.current) end(reason ? SESSION_ENDED_MESSAGES[reason] : 'Your platform session has ended. Sign in again to continue.')
+    else if (checkingSession.current && reason) setNotice(SESSION_ENDED_MESSAGES[reason])
   }), [end])
 
   const open = useCallback((value: AdminSession) => {
@@ -94,6 +101,7 @@ export function App() {
 
   useEffect(() => {
     let active = true
+    checkingSession.current = true
     setChecking(true)
     setCheckError(null)
     // A missing or expired access token is restored once by the API client's refresh.
@@ -105,8 +113,8 @@ export function App() {
       setSession(null)
       if (isHidApiError(error) && error.status === 403) setNotice(failure(error, NO_ACCESS))
       else if (!isHidApiError(error) || error.status !== 401) setCheckError('We could not check your platform session. Try again.')
-    }).finally(() => { if (active) setChecking(false) })
-    return () => { active = false }
+    }).finally(() => { if (active) { checkingSession.current = false; setChecking(false) } })
+    return () => { active = false; checkingSession.current = false }
   }, [checkRevision, open])
 
   async function signedInNow() {
@@ -120,7 +128,11 @@ export function App() {
     setSignOutError(null)
     try { await adminApi.logout(); end('You have signed out of platform administration.') }
     catch (reason) {
-      if (isHidApiError(reason) && reason.status === 401) { end('You have signed out of platform administration.'); return }
+      if (isHidApiError(reason) && reason.status === 401) {
+        // An expired or revoked session was already ended with the server's reason, which is kept.
+        if (!serverSessionEnd(reason.code)) end('You have signed out of platform administration.')
+        return
+      }
       setSignOutError(failure(reason, 'Sign-out could not be completed.'))
     }
   }
