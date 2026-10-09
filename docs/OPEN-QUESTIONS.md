@@ -77,8 +77,11 @@ claim them:
   validation, patient confirmation and publication are supported routes.
   Patient confirmation and publication work under the least-privilege OCR
   runtime only from hid-system migration 0075 (D-Eminence/hid-system#30);
-  before it, their outbox insert was refused. No staging run of the OCR
-  pipeline exists yet (hid-system release checklist S4b).
+  before it, their outbox insert was refused. From migration 0076 a patient
+  confirmation also needs a database owner that can read the source document
+  (hid-system release checklist P8); otherwise it fails rather than accepting
+  any patient. No staging run of the OCR pipeline exists yet (hid-system
+  release checklist S4b).
 - **Commercial/admin:** subscription, trial, invoice, payment and global AI
   processing administration. The existing public prices, demo intake and
   platform administration routes do not imply these capabilities.
