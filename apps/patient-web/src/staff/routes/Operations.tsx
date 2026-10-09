@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
+import { isHidApiError } from '@hid/http'
 import { Badge, Button, Card, EmptyState, Field, Input, Select, Textarea } from '@hid/ui'
 import { staffApi, type LabAbnormalFlag, type LabAccession, type LabExecution, type LabResult, type LabResultRevision, type LabResultValue, type LabSpecimen, type LabWorkItem, type OcrExtraction, type OcrJob, type OcrPublication, type OcrTargetDomain, type OcrValidation, type OutreachCampaign, type OutreachCampaignMember, type OutreachCase, type PharmacyWorkItem } from '../api'
 import { useStaff } from '../App'
@@ -268,6 +269,12 @@ function ExecutionCard({ facilityId, execution, permissions, onExecutionChanged,
   </div>
 }
 
+// A refusal, or a specimen that is no longer visible, means patient authorization
+// no longer covers these results: drop any values already on screen.
+function labResultsAccessEnded(error: unknown) {
+  return isHidApiError(error) && (error.status === 403 || error.status === 404)
+}
+
 function ExecutionPanel({ facilityId, specimen, permissions }: { facilityId: string; specimen: LabSpecimen; permissions: string[] }) {
   const canRead = permissions.includes('lab.execution.read')
   const canStart = permissions.includes('lab.execution.start')
@@ -283,7 +290,12 @@ function ExecutionPanel({ facilityId, specimen, permissions }: { facilityId: str
     setLoading(true); setError('')
     void staffApi.labExecutions(facilityId, specimen.id)
       .then(value => { if (active) setItems(value.items) })
-      .catch(caught => { if (active) setError(errorText(caught, 'Lab executions could not be loaded.')) })
+      .catch(caught => {
+        if (!active) return
+        if (!labResultsAccessEnded(caught)) return setError(errorText(caught, 'Lab executions could not be loaded.'))
+        setItems(null); setNotice('')
+        setError('Access denied. You are not authorized to view lab results for this patient. Results stay hidden until access is granted again.')
+      })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
   }, [canRead, facilityId, specimen.id, revision])
