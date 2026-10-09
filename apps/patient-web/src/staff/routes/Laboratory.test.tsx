@@ -1,3 +1,4 @@
+import { Profiler } from 'react'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
@@ -137,12 +138,15 @@ async function clickWhenEnabled(button: HTMLElement) {
   fireEvent.click(button)
 }
 
-/** Renders the page, opens the accessioned work item and waits for its specimens. */
-async function openAccession(permissions: string[], value: LabAccession) {
+/**
+ * Renders the page, opens the accessioned work item and waits for its specimens.
+ * `onCommit` runs after every React commit, once the DOM holds what was committed.
+ */
+async function openAccession(permissions: string[], value: LabAccession, onCommit?: () => void) {
   staff.permissions = permissions
   api.labWorkItems.mockResolvedValue({ items: [accessionedItem] })
   api.labAccession.mockResolvedValue(value)
-  render(<Laboratory />)
+  render(onCommit ? <Profiler id="laboratory" onRender={onCommit}><Laboratory /></Profiler> : <Laboratory />)
   fireEvent.click(await screen.findByRole('button', { name: 'Open accession' }))
   const card = sectionOf('Specimen accession')
   await within(card).findByText('Venous blood · SPC-000123')
@@ -1698,6 +1702,164 @@ describe('Laboratory result access denied', () => {
       expect(within(other).queryByText('Loading executions…')).toBeNull()
       expect(within(other).getByRole('alert').textContent).toBe(ACCESS_DENIED)
       expectNoPotassium()
+    })
+
+    describe('when a sibling\'s read is in flight as another specimen hides the results', () => {
+      // A hide must void every sibling read already sent, at once: no commit may show a
+      // sibling's values once the denial is on screen, not even for the one render before
+      // the siblings' own effects run. Every commit is recorded to prove it.
+      async function siblingsLoaded() {
+        const commits: string[] = []
+        let refuseFirst: (error: unknown) => void = () => undefined
+        const otherRefresh = deferred<{ items: LabExecution[] }>()
+        let firstLoads = 0, otherLoads = 0
+        api.labExecutions.mockImplementation((_facility, specimenId) => {
+          if (specimenId === 'specimen-2') {
+            otherLoads += 1
+            return otherLoads === 1 ? Promise.resolve({ items: [potassium()] }) : otherLoads === 2 ? otherRefresh.promise : Promise.resolve({ items: [potassium()] })
+          }
+          firstLoads += 1
+          return firstLoads === 1 ? Promise.resolve(resultLoad()) : new Promise((_resolve, reject) => { refuseFirst = reject })
+        })
+        await openAccession(actions, accession([specimen('received'), second]), () => { commits.push(document.body.innerHTML) })
+        const [first, other] = panels()
+        expect(await within(first).findByText(visibleValue)).toBeTruthy()
+        expect(await within(other).findByText('9.9 mmol/L · low')).toBeTruthy()
+
+        // The sibling's refresh is sent and stays in flight; then the first panel refreshes too.
+        await refreshExecutions(other)
+        await waitFor(() => expect(otherLoads).toBe(2))
+        await refreshExecutions(first)
+        await waitFor(() => expect(firstLoads).toBe(2))
+        return { commits, first, other, otherRefresh, refuseFirst: (error: unknown) => refuseFirst(error), otherLoads: () => otherLoads }
+      }
+
+      /** No commit from the first one that shows the denial onwards holds a value of either specimen. */
+      function expectNothingShownSinceTheHide(commits: string[]) {
+        const hiddenFrom = commits.findIndex(html => html.includes(ACCESS_DENIED))
+        expect(hiddenFrom).toBeGreaterThanOrEqual(0)
+        for (const html of commits.slice(hiddenFrom)) {
+          for (const fragment of ['9.9', '3.5-5.1', '7.1', '12.0-15.5']) expect(html).not.toContain(fragment)
+        }
+      }
+
+      it.each([
+        ['after the hide, before any effect has run', 'after'],
+        ['just before the hide, in the same render', 'before'],
+      ])('never shows the sibling\'s values when its read answers %s, and shows them again only after a fresh read', async (_label, order) => {
+        const { commits, first, other, otherRefresh, refuseFirst, otherLoads } = await siblingsLoaded()
+
+        await act(async () => {
+          if (order === 'after') {
+            refuseFirst(executionAccessDenied())
+            // Let the refusal's handlers run and request the hide; nothing renders inside act.
+            for (let tick = 0; tick < 5; tick += 1) await Promise.resolve()
+            otherRefresh.resolve({ items: [potassium()] })
+          } else {
+            otherRefresh.resolve({ items: [potassium()] })
+            refuseFirst(executionAccessDenied())
+          }
+        })
+
+        expect(within(first).getByRole('alert').textContent).toBe(ACCESS_DENIED)
+        expect(within(other).getByRole('alert').textContent).toBe(ACCESS_DENIED)
+        expectNothingShownSinceTheHide(commits)
+        expectNoResultValues()
+        expectNoPotassium()
+        expect(otherLoads()).toBe(2)
+
+        // Only a fresh read, sent after the hide and answered, shows the sibling's values again.
+        const beforeRefresh = commits.length
+        await refreshExecutions(other)
+        expect(await within(other).findByText('9.9 mmol/L · low')).toBeTruthy()
+        expect(otherLoads()).toBe(3)
+        expect(within(other).queryByRole('alert')).toBeNull()
+        expect(within(first).getByRole('alert').textContent).toBe(ACCESS_DENIED)
+        expectNoResultValues()
+        const restoredAt = commits.findIndex((html, index) => index >= beforeRefresh && html.includes('9.9 mmol/L'))
+        expect(restoredAt).toBeGreaterThanOrEqual(beforeRefresh)
+      })
+
+      it('ignores a sibling\'s action that answers after the hide, before any effect has run', async () => {
+        const commits: string[] = []
+        let refuseFirst: (error: unknown) => void = () => undefined
+        const completion = deferred<LabExecution>()
+        let firstLoads = 0, otherLoads = 0
+        const runningPotassium = () => execution({ ...potassium(), status: 'in_progress', completedAt: null, version: 1, result: null })
+        api.labExecutions.mockImplementation((_facility, specimenId) => {
+          if (specimenId === 'specimen-2') { otherLoads += 1; return Promise.resolve({ items: [runningPotassium()] }) }
+          firstLoads += 1
+          return firstLoads === 1 ? Promise.resolve(resultLoad()) : new Promise((_resolve, reject) => { refuseFirst = reject })
+        })
+        api.completeLabExecution.mockReturnValue(completion.promise)
+        await openAccession(actions, accession([specimen('received'), second]), () => { commits.push(document.body.innerHTML) })
+        const [first, other] = panels()
+        expect(await within(first).findByText(visibleValue)).toBeTruthy()
+        fireEvent.click(await within(other).findByRole('button', { name: 'Complete execution' }))
+        await refreshExecutions(first)
+        await waitFor(() => expect(firstLoads).toBe(2))
+        const hideAt = commits.length
+
+        await act(async () => {
+          refuseFirst(executionAccessDenied())
+          for (let tick = 0; tick < 5; tick += 1) await Promise.resolve()
+          completion.resolve(potassium())
+        })
+
+        expect(within(other).getByRole('alert').textContent).toBe(ACCESS_DENIED)
+        for (const html of commits.slice(hideAt)) {
+          for (const fragment of ['9.9', 'Analytical execution was completed.']) expect(html).not.toContain(fragment)
+        }
+        expectNothingShownSinceTheHide(commits.slice(hideAt))
+        // The late answer neither shows anything nor sets off a read of its own.
+        expect(otherLoads).toBe(1)
+      })
+
+      it('never shows a sibling\'s answer that arrives after a hide, when nothing of the sibling was on screen', async () => {
+        // Both panels were hidden once; the first was restored by its own refresh and the sibling's
+        // refresh is in flight, showing nothing. A second refusal must void that read at once.
+        const commits: string[] = []
+        let refuseFirst: (error: unknown) => void = () => undefined
+        const otherRefresh = deferred<{ items: LabExecution[] }>()
+        let firstLoads = 0, otherLoads = 0
+        api.labExecutions.mockImplementation((_facility, specimenId) => {
+          if (specimenId === 'specimen-2') {
+            otherLoads += 1
+            return otherLoads === 2 ? otherRefresh.promise : Promise.resolve({ items: [potassium()] })
+          }
+          firstLoads += 1
+          if (firstLoads === 2) return Promise.reject(executionAccessDenied())
+          if (firstLoads === 4) return new Promise((_resolve, reject) => { refuseFirst = reject })
+          return Promise.resolve(resultLoad())
+        })
+        await openAccession(actions, accession([specimen('received'), second]), () => { commits.push(document.body.innerHTML) })
+        const [first, other] = panels()
+        expect(await within(other).findByText('9.9 mmol/L · low')).toBeTruthy()
+        await refreshExecutions(first)
+        await waitFor(() => expect(screen.getAllByText(ACCESS_DENIED)).toHaveLength(2))
+        await refreshExecutions(first)
+        expect(await within(first).findByText(visibleValue)).toBeTruthy()
+        await refreshExecutions(other)
+        await waitFor(() => expect(otherLoads).toBe(2))
+        await refreshExecutions(first)
+        await waitFor(() => expect(firstLoads).toBe(4))
+        const hideAt = commits.length
+
+        await act(async () => {
+          refuseFirst(executionAccessDenied())
+          for (let tick = 0; tick < 5; tick += 1) await Promise.resolve()
+          otherRefresh.resolve({ items: [potassium()] })
+        })
+
+        expect(commits.length).toBeGreaterThan(hideAt)
+        for (const html of commits.slice(hideAt)) {
+          for (const fragment of ['9.9', '3.5-5.1']) expect(html).not.toContain(fragment)
+        }
+        expect(within(other).getByRole('alert').textContent).toBe(ACCESS_DENIED)
+        expectNothingShownSinceTheHide(commits.slice(hideAt))
+        expectNoPotassium()
+        expect(otherLoads).toBe(2)
+      })
     })
 
     it('ignores the failure of a read that a newer, confirming read has replaced', async () => {
