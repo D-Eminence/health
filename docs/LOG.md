@@ -129,8 +129,8 @@
 
 ## 2026-10-09: Phase 4 Stage 7 backend (no portal code change)
 
-- D-Eminence/hid-system#32 (migration 0076) changes two backend behaviours that
-  the portal already handles:
+- D-Eminence/hid-system#32 (migration 0076) changes three backend behaviours
+  that the portal already handles:
   - **Admin console MFA.** A sign-in, step-up, recovery-code regeneration or
     enrolment could deadlock with a second Super Admin's approval of an MFA reset
     of the same account, and then failed with `500`. It now waits for the
@@ -139,6 +139,12 @@
     `403 PLATFORM_SESSION_REQUIRED`, for a step-up or regeneration. The console
     already restarts sign-in on the first (`SignIn.tsx`) and treats the second
     as an ended platform session (`admin/api.ts`).
+  - **Parallel MFA attempts.** MFA requests of one administrator now run one at
+    a time. Parallel second-factor attempts, such as a double-submitted
+    step-up, are checked against the failure limit one after another, so the
+    limit holds; past it the console shows its existing `MFA_RATE_LIMITED`
+    message (`admin/problems.ts`). A second password step supersedes the
+    first's challenge, as a sequential one already did.
   - **OCR patient confirmation and validation.** The database now refuses a
     confirmation or validation when it cannot read a compared value (the source
     document, the extraction, or the session's account or membership). It also
