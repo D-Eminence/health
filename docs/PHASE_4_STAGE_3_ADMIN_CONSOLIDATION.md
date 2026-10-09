@@ -137,7 +137,7 @@ flat navigation were removed.
 | Service health | Existing and complete | `Pages.tsx` | None |
 | Dashboard | Existing and complete | Uses only backend totals and list counts; no invented metrics | None |
 | Platform controls | Existing but incomplete (backend defects; fix merged, not deployed) | Two defects at hid-system `46fabe6`, both from migration 0039. (1) `runtime-grants.sql` never grants `EXECUTE` on `platform.admin_list_controls()` or `platform.admin_set_control(text,boolean,bigint,text)` to the Identity runtime, so `GET /admin/controls` returns 500. (2) `admin_set_control` fails on every call with `42702` (its output columns shadow `control_key` and `row_version`), so `POST /admin/controls` would return 500 even with the grant. Until the fix is deployed, the page shows a safe error with a reference. The fix, D-Eminence/hid-system#20, adds the grant and migration 0071 with SQL and runtime regression tests. It is merged into hid-system `phase-3-patient-safety` (`e0e6432`), but is not yet on hid-system `main` or deployed. With that fix applied locally, the browser run lists all 6 controls and pauses and restores one with step-up. | Backend owner: promote `phase-3-patient-safety` (hid-system#18) and deploy it |
-| Demo requests beyond 100 | Done in Stage 4B | hid-system Stage 4A cursor (HID_SYSTEM_STAGE_4A_PR); "Load more requests" | None (no total; see open questions) |
+| Demo requests beyond 100 | Done in Stage 4B | hid-system Stage 4A cursor (D-Eminence/hid-system#24); "Load more requests" | None (no total; see open questions) |
 | Approvals beyond 200 | Done in Stage 4B | hid-system Stage 4A cursor; "Load more requests"; overview "N+" from `nextCursor` | None |
 | Facility audit of platform actions | Done in Stage 4B | hid-system Stage 4A target filter; "Platform changes to this facility" | None |
 | Per-user MFA state | Done in Stage 4B | hid-system Stage 4A `mfaEnrolled`; Authenticator column; reset offered only when enrolled | None |
@@ -254,7 +254,7 @@ request, approval and facility-audit limits were closed in Stage 4B (below).
 ## Next stage
 
 1. **Backend:** deploy hid-system `main` (the platform controls fix,
-   D-Eminence/hid-system#20, and Stage 4A, HID_SYSTEM_STAGE_4A_PR). Audit
+   D-Eminence/hid-system#20, and Stage 4A, D-Eminence/hid-system#24). Audit
    by target, per-user MFA state, cursors and distinct session-end codes were
    built in Stage 4A and wired here in Stage 4B.
 2. **Backend and infrastructure:** retire hid-system `apps/admin` and route
@@ -269,7 +269,7 @@ request, approval and facility-audit limits were closed in Stage 4B (below).
 ## Stage 4B: backend contract wiring
 
 Branch `phase-4-stage-4b-admin-contracts`, against hid-system Stage 4A
-(HID_SYSTEM_STAGE_4A_PR, `docs/PHASE_4_STAGE_4A_ADMIN_CONTRACTS.md` there).
+(D-Eminence/hid-system#24, `docs/PHASE_4_STAGE_4A_ADMIN_CONTRACTS.md` there).
 
 | Surface | Change |
 | --- | --- |
@@ -283,3 +283,9 @@ Branch `phase-4-stage-4b-admin-contracts`, against hid-system Stage 4A
 
 Tests: 26 new or updated component and API tests fail against `main`
 (`d5ce01c`) and pass on this branch; the full admin suite passes.
+
+Release: deploy this console together with, or before, the hid-system Stage 4A
+Identity build. The Stage 3 console does not open the step-up dialog on
+`STEP_UP_EXPIRED`, so with the new backend its high-risk actions would be
+refused after the first five-minute window (hid-system
+`docs/PHASE_4_STAGE_4A_ADMIN_CONTRACTS.md` §7).
