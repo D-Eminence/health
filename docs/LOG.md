@@ -127,6 +127,30 @@
   SQL and synthetic rehearsal in hid-system). The staging OCR check is S4b of
   the hid-system release checklist.
 
+## 2026-10-09: Phase 4 Stage 7 backend (no portal code change)
+
+- D-Eminence/hid-system#32 (migration 0076) changes two backend behaviours that
+  the portal already handles:
+  - **Admin console MFA.** A sign-in, step-up, recovery-code regeneration or
+    enrolment could deadlock with a second Super Admin's approval of an MFA reset
+    of the same account, and then failed with `500`. It now waits for the
+    approval and is refused with
+    `401 MFA_CHALLENGE_INVALID`, for a sign-in or enrolment, or
+    `403 PLATFORM_SESSION_REQUIRED`, for a step-up or regeneration. The console
+    already restarts sign-in on the first (`SignIn.tsx`) and treats the second
+    as an ended platform session (`admin/api.ts`).
+  - **OCR patient confirmation and validation.** The database now refuses a
+    confirmation or validation when it cannot read a compared value (the source
+    document, the extraction, or the session's account or membership). It also
+    refuses a confirmation that names another member than the signed-in one.
+    The portal always sends the signed-in member's own context, so its requests
+    are unchanged. Under a database owner that cannot read the source document
+    (hid-system release checklist P8), every confirmation now fails (`500`),
+    where before one for any patient was accepted.
+- Verification was local only: unit tests, a two-connection race in the
+  Identity runtime verifier, a SQL suite and the synthetic rehearsal in
+  hid-system. No staging run exists.
+
 This log records implementation scope, not a release sign-off. The reference
 [gap map](./HEALTH_ID_COMPLETE_FRONTEND_GAP_MAP.md) is a baseline audit rather
 than a live completion tracker.
