@@ -74,11 +74,11 @@ Audit baseline: `Health-id` `8903e68`, `hid-system` `c4b5445` on `hid-local-pre-
 | Telemedicine | No app | Simulated hospital catalogue | Limited | Telemedicine fixture | No telemedicine API | BACKEND GAP |
 | Ambulance | No app | Simulated hospital catalogue | Limited | Ambulance fixture | No ambulance API | BACKEND GAP |
 | Blood bank | No app | Simulated hospital catalogue | Limited | Blood bank fixture | No blood-bank API | BACKEND GAP |
-| Lab work item/accession | Boundary only | Simulated hospital catalogue | Lab product | Lab fixture | Lab work item/accession API | BUILD |
-| Lab specimen custody | Boundary only | Simulated hospital catalogue | Limited | Lab fixture | Collect/receive/reject APIs | BUILD |
-| Lab execution/result | Boundary only | Simulated hospital catalogue | Limited | Lab fixture | Start/complete/verify/release/history APIs; specimen execution list lacks per-patient authorization before returning result revisions | BUILD |
-| Pharmacy work items | Boundary only | Simulated hospital catalogue | Pharmacy product | Pharmacy fixture | Pharmacy work item API | BUILD |
-| Pharmacy dispensing/reversal | Boundary only | Simulated hospital catalogue | Limited | Dispensing fixture | Dispense/reversal API | BUILD |
+| Lab work item/accession | Boundary only | Simulated hospital catalogue | Lab product | Lab fixture | Lab work item/accession API | BUILT (provider portal `/provider/laboratory`; component tests in `apps/patient-web/src/staff/routes/Laboratory.test.tsx`; no browser or staging run) |
+| Lab specimen custody | Boundary only | Simulated hospital catalogue | Limited | Lab fixture | Collect/receive/reject APIs | BUILT (provider portal `/provider/laboratory`; component tests; no browser or staging run) |
+| Lab execution/result | Boundary only | Simulated hospital catalogue | Limited | Lab fixture | Start/complete/verify/release/history APIs. D-Eminence/hid-system#31 (open, not yet merged or deployed) makes the specimen execution list authorize the specimen's patient with Identity | BUILT (provider portal `/provider/laboratory`; a 403 or 404 on a specimen's execution list shows an access-denied state and removes the result values of every specimen in that accession; a refused action re-checks by reloading the list; component tests; no browser or staging run) |
+| Pharmacy work items | Boundary only | Simulated hospital catalogue | Pharmacy product | Pharmacy fixture | Pharmacy work item API | BUILT (provider portal `/provider/pharmacy`; component tests in `apps/patient-web/src/staff/routes/Pharmacy.test.tsx`; no browser or staging run) |
+| Pharmacy dispensing/reversal | Boundary only | Simulated hospital catalogue | Limited | Dispensing fixture | Dispense/reversal API | BUILT (provider portal `/provider/pharmacy`; component tests; no browser or staging run) |
 | Migrate access/status | Boundary only | Outside hospital scope | Access gate/dashboard | OCR concept | OCR jobs and status endpoints | BUILD |
 | Migrate capture/OCR extraction | Boundary only | Outside hospital scope | Capture/upload | Records scan concept | OCR job creation and extraction | BUILD |
 | Migrate bulk import/project matching | Boundary only | Outside hospital scope | Import/matching | Records scan concept | No bulk import or project matching API | BACKEND GAP |
