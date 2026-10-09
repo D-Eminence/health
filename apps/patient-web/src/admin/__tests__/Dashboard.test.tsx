@@ -52,7 +52,8 @@ describe('platform overview', () => {
     // "+" only when the backend says there is another page, never from a fixed cap.
     expect(await within(tile('New demo requests')).findByText('100+')).toBeTruthy()
     expect(mocks.demos).toHaveBeenCalledWith({ status: 'new' }, { limit: 100 }, expect.anything())
-    expect(mocks.approvals).toHaveBeenCalledWith('pending', { limit: 100 }, expect.anything())
+    // The backend's default approvals page: an Identity build before Stage 4A refuses `limit` there.
+    expect(mocks.approvals).toHaveBeenCalledWith('pending', {}, expect.anything())
     expect(tile('Integrations').textContent).toContain('1 with a failed last test · 2 of 3 enabled')
   })
 

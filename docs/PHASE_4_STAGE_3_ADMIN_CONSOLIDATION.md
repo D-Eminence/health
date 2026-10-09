@@ -136,7 +136,7 @@ flat navigation were removed.
 | Demo requests | Existing and complete | `Pages.tsx`; filters | None |
 | Service health | Existing and complete | `Pages.tsx` | None |
 | Dashboard | Existing and complete | Uses only backend totals and list counts; no invented metrics | None |
-| Platform controls | Existing but incomplete (backend defects; fix merged, not deployed) | Two defects at hid-system `46fabe6`, both from migration 0039. (1) `runtime-grants.sql` never grants `EXECUTE` on `platform.admin_list_controls()` or `platform.admin_set_control(text,boolean,bigint,text)` to the Identity runtime, so `GET /admin/controls` returns 500. (2) `admin_set_control` fails on every call with `42702` (its output columns shadow `control_key` and `row_version`), so `POST /admin/controls` would return 500 even with the grant. Until the fix is deployed, the page shows a safe error with a reference. The fix, D-Eminence/hid-system#20, adds the grant and migration 0071 with SQL and runtime regression tests. It is merged into hid-system `phase-3-patient-safety` (`e0e6432`), but is not yet on hid-system `main` or deployed. With that fix applied locally, the browser run lists all 6 controls and pauses and restores one with step-up. | Backend owner: promote `phase-3-patient-safety` (hid-system#18) and deploy it |
+| Platform controls | Existing but incomplete (backend defects; fix merged, not deployed) | Two defects at hid-system `46fabe6`, both from migration 0039. (1) `runtime-grants.sql` never grants `EXECUTE` on `platform.admin_list_controls()` or `platform.admin_set_control(text,boolean,bigint,text)` to the Identity runtime, so `GET /admin/controls` returns 500. (2) `admin_set_control` fails on every call with `42702` (its output columns shadow `control_key` and `row_version`), so `POST /admin/controls` would return 500 even with the grant. Until the fix is deployed, the page shows a safe error with a reference. The fix, D-Eminence/hid-system#20, adds the grant and migration 0071 with SQL and runtime regression tests. It reached hid-system `main` through D-Eminence/hid-system#18 (`3dd5176`) and is not deployed. With that fix applied locally, the browser run lists all 6 controls and pauses and restores one with step-up. | Backend owner: deploy hid-system `main` |
 | Demo requests beyond 100 | Done in Stage 4B | hid-system Stage 4A cursor (D-Eminence/hid-system#24); "Load more requests" | None (no total; see open questions) |
 | Approvals beyond 200 | Done in Stage 4B | hid-system Stage 4A cursor; "Load more requests"; overview "N+" from `nextCursor` | None |
 | Facility audit of platform actions | Done in Stage 4B | hid-system Stage 4A target filter; "Platform changes to this facility" | None |
@@ -242,7 +242,7 @@ request, approval and facility-audit limits were closed in Stage 4B (below).
 ## Known limitations
 
 - Platform controls cannot load or change anything until the hid-system#20 fix
-  (merged into `phase-3-patient-safety`) is promoted and deployed.
+  (on hid-system `main` since D-Eminence/hid-system#18) is deployed.
 - Closed in Stage 4B: the approval and demo request caps, facility platform
   changes, per-user MFA state and the session-end reason (backend Stage 4A, not
   deployed).
@@ -263,29 +263,56 @@ request, approval and facility-audit limits were closed in Stage 4B (below).
 3. **Product:** decide on the organization directory, support cases, security
    metrics, legal holds and billing. Then build backend contracts before any
    UI.
-4. **Staging:** promote and deploy Stage 2A with this frontend, then repeat
-   the browser runs there.
+4. **Staging:** deploy hid-system `main` (Stage 2A and 4A) with this
+   frontend, then repeat the browser runs there.
 
 ## Stage 4B: backend contract wiring
 
 Branch `phase-4-stage-4b-admin-contracts`, against hid-system Stage 4A
-(D-Eminence/hid-system#24, `docs/PHASE_4_STAGE_4A_ADMIN_CONTRACTS.md` there).
+(D-Eminence/hid-system#24, merged into hid-system `main` at `deb6fba`;
+`docs/PHASE_4_STAGE_4A_ADMIN_CONTRACTS.md` there).
 
 | Surface | Change |
 | --- | --- |
-| Facility detail | "Platform changes to this facility": the newest audit events whose target is the facility (`resourceType=facility&resourceId=`), with reasons and a link to the same search in Audit. "Activity inside this facility" keeps the facility-scoped events. |
+| Facility detail | "Platform changes to this facility": the newest audit events whose target is the facility (`resourceType=facility&resourceId=`), with reasons and a link to the same search in Audit. "Activity inside this facility" keeps the facility-scoped events. Both reload with the facility, after a status change or Refresh. |
 | Audit | Target type and target ID filters, kept in the URL. A target ID needs a type, and both follow the backend's patterns before any request. |
-| Users and roles | An Authenticator column (Enrolled or Not set up). The authenticator reset request is offered only for an enrolled administrator. |
-| Approvals, demo requests | Cursor paging: the first page, then "Load more requests" with the backend's opaque `nextCursor` for the same filters. A filter change or reload starts again from the first page. A refused cursor (`ADMIN_INVALID_CURSOR`) is explained. The "200+" and "newest 100" cap notices are gone. |
-| Overview | Pending approvals and new demo requests read one page of up to 100. The count shows "N+" only when the backend reports another page. |
-| Session end | `401 PLATFORM_SESSION_EXPIRED` or `PLATFORM_SESSION_REVOKED` ends the session with the server's reason. That includes the reason a refused refresh gives, which the shared client would otherwise drop. The expiry reading is kept only for a generic `401 AUTHENTICATION_REQUIRED`. Each code also has its own message. |
+| Users and roles | An Authenticator column (Enrolled, Not set up, or Not reported by an older backend). The authenticator reset request is not offered for an administrator the backend reports as not enrolled. |
+| Approvals, demo requests | Cursor paging: the first page, then "Load more requests" with the backend's opaque `nextCursor` for the same filters. A filter change or reload starts again from the first page; a page still loading for the previous list is cancelled and never added to the new one. A refused cursor (`ADMIN_INVALID_CURSOR`) is explained. A demo request's status change is confirmed at the top of the page, so the confirmation stays when the reload removes a row loaded with "Load more". The "200+" and "newest 100" cap notices are gone. |
+| Overview | New demo requests read one page of up to 100, pending approvals the backend's default page of 50. The count shows "N+" only when the backend reports another page. |
+| Session end | `401 PLATFORM_SESSION_EXPIRED` or `PLATFORM_SESSION_REVOKED` ends the session with the server's reason. That includes the reason a refused refresh gives, which the shared client would otherwise drop, the reason given when the console is reloaded or opened in a new tab, and a session found ended when signing out. The expiry reading is kept only for a generic `401 AUTHENTICATION_REQUIRED`, and a first visit gets no notice. Each code also has its own message. |
 | Step-up | The dialog opens for `STEP_UP_REQUIRED` and `STEP_UP_EXPIRED`, saying when the last confirmation is too old, and repeats the same submission once with the same idempotency key. |
 
 Tests: 26 new or updated component and API tests fail against `main`
-(`d5ce01c`) and pass on this branch; the full admin suite passes.
+(`d5ce01c`) and pass on this branch. An adversarial review of the first
+version (`5897534`) confirmed five defects, fixed here; 15 tests fail without
+those fixes:
+
+- the server's session-end reason was dropped on a reload or in a new tab;
+- signing out of a revoked session replaced the revoked notice;
+- a "Load more" page that arrived after a filter change or reload was added
+  to the new list, with a cursor for the old filters;
+- the facility's platform changes did not reload after a status change;
+- the console could not run against the Identity build before Stage 4A
+  (below).
+
+The same review found demo-request confirmations lost when a later-page row
+was changed (fixed as above) and stale wording about hid-system `main`
+(corrected). It also reported that a hand-edited link with spaces around a
+target filter is sent untrimmed; that is unchanged, because the backend's
+`400` is shown and "Apply filters" trims the values.
 
 Release: deploy this console together with, or before, the hid-system Stage 4A
-Identity build. The Stage 3 console does not open the step-up dialog on
-`STEP_UP_EXPIRED`, so with the new backend its high-risk actions would be
-refused after the first five-minute window (hid-system
-`docs/PHASE_4_STAGE_4A_ADMIN_CONTRACTS.md` §7).
+Identity build (hid-system `docs/PHASE_4_STAGE_4A_ADMIN_CONTRACTS.md` §7). The
+Stage 3 console does not open the step-up dialog on `STEP_UP_EXPIRED`, so with
+the new backend its high-risk actions would be refused after the first
+five-minute window. This console also works with the Identity build before
+Stage 4A, with less:
+
+- approvals send only `status`, which that build requires, and show its single
+  page of at most 200;
+- demo requests show the newest 50, with no further page;
+- principals show the authenticator as "Not reported" and keep the reset
+  request offered, as in Stage 3;
+- the facility's platform changes and the Audit target filters are refused
+  (`400`) until Stage 4A is deployed; the rest of each page works;
+- a session end gets the generic message, as in Stage 3.

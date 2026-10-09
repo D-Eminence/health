@@ -86,7 +86,7 @@ export function PrincipalsPage({ actor }: { actor: AdminActor }) {
             {has(actor, 'platform.audit.read') && <small><Link to={`/admin/audit?actor=${encodeURIComponent(principal.subject)}`}>Activity in audit</Link></small>}</td>
           <td><Status value={principal.status} /></td>
           <td>{principal.platformRoles.length ? principal.platformRoles.map(label).join(', ') : 'None'}</td>
-          <td>{principal.mfaEnrolled ? 'Enrolled' : 'Not set up'}</td>
+          <td>{principal.mfaEnrolled === undefined ? 'Not reported' : principal.mfaEnrolled ? 'Enrolled' : 'Not set up'}</td>
           <td>{principal.activeSessionCount}</td>
           <td>{principal.memberships.length ? principal.memberships.map(item =>
             `${item.facilityName} · ${label(item.role)}${item.active ? '' : ' (inactive)'}`).join('; ') : 'None'}</td>
@@ -156,7 +156,8 @@ function PrincipalActions({ principal, actor, reload }: {
   const canRevoke = has(actor, 'platform.session.revoke')
   // A reset applies only to an administrator with an active authenticator; the
   // backend still refuses one without (MFA_NOT_ENROLLED) if this list is stale.
-  const canResetMfa = has(actor, 'platform.mfa.reset') && principal.mfaEnrolled
+  // It stays offered when the backend does not report enrolment (before Stage 4A).
+  const canResetMfa = has(actor, 'platform.mfa.reset') && principal.mfaEnrolled !== false
   const canElevate = canRole && !principal.platformRoles.includes('platform_super_admin')
   if (!canStatus && !canRole && !canRevoke && !canResetMfa) return <>View only</>
   return <div className="admin-principal-actions">

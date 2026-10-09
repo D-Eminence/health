@@ -9,7 +9,8 @@ import { PrincipalsPage } from '../Principals'
 import { StepUpProvider } from '../StepUp'
 
 const mocks = vi.hoisted(() => ({
-  audit: vi.fn(), principals: vi.fn(), demos: vi.fn(), services: vi.fn(), events: vi.fn(), reviews: vi.fn(),
+  audit: vi.fn(), principals: vi.fn(), demos: vi.fn(), services: vi.fn(), events: vi.fn(), reviews: vi.fn(), command: vi.fn(),
+  stepUp: vi.fn(),
 }))
 vi.mock('../api', () => ({ adminApi: mocks, newIdempotencyKey: () => 'key-1' }))
 
@@ -134,7 +135,9 @@ describe('users and roles lookup', () => {
     mocks.principals.mockResolvedValue({ items: [
       { ...principal, id: 'account-3', displayName: 'Bayo Enrolled', subject: 'staff:bayo', mfaEnrolled: true },
       { ...principal, id: 'account-4', displayName: 'Chika Unenrolled', subject: 'staff:chika', mfaEnrolled: false },
-    ], page: 1, pageSize: 25, total: 2 })
+      // An Identity build before Stage 4A does not report enrolment: the reset stays offered and the backend decides.
+      { ...principal, id: 'account-5', displayName: 'Dele Unreported', subject: 'staff:dele', mfaEnrolled: undefined },
+    ], page: 1, pageSize: 25, total: 3 })
     open('/admin/principals', <StepUpProvider><PrincipalsPage actor={actor(['platform.principal.read', 'platform.mfa.reset'])} />
     </StepUpProvider>)
     search('example')
@@ -145,6 +148,9 @@ describe('users and roles lookup', () => {
     expect(within(enrolled).getByText('Request authenticator reset')).toBeTruthy()
     expect(within(unenrolled).queryByText('Request authenticator reset')).toBeNull()
     expect(within(unenrolled).getByText('View only')).toBeTruthy()
+    const unreported = screen.getByText('Dele Unreported').closest('tr')!
+    expect(within(unreported).getByText('Not reported')).toBeTruthy()
+    expect(within(unreported).getByText('Request authenticator reset')).toBeTruthy()
   })
 
   it('leaves out the audit link without audit access', async () => {
@@ -176,9 +182,32 @@ describe('demo requests, operations and identity reviews', () => {
     expect(screen.queryByText(/newest 100/)).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Load more requests' }))
     expect(await screen.findByText('Contact 51')).toBeTruthy()
-    expect(mocks.demos).toHaveBeenLastCalledWith({}, { cursor: 'cursor-2' })
+    expect(mocks.demos).toHaveBeenLastCalledWith({}, { cursor: 'cursor-2' }, expect.any(AbortSignal))
     expect(screen.getByText('Showing 52 requests, newest first')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Load more requests' })).toBeNull()
+  })
+
+  it('confirms a status change on a row from a later page after the list starts again', async () => {
+    const demo = (index: number) => ({ id: `d-${index}`, contactName: `Contact ${index}`, contactEmail: `c${index}@example.test`,
+      organizationName: null, productCode: 'ehr', status: 'new', createdAt: '2026-10-08T12:00:00.000Z', version: 1 })
+    mocks.demos.mockResolvedValueOnce({ items: [demo(0)], nextCursor: 'cursor-2' })
+      .mockResolvedValueOnce({ items: [demo(1)], nextCursor: null })
+      .mockResolvedValueOnce({ items: [demo(0)], nextCursor: 'cursor-2b' })
+    mocks.command.mockResolvedValueOnce({ status: 'contacted', version: 2 })
+    open('/admin/demos', <StepUpProvider><DemosPage actor={actor(['platform.demo.read', 'platform.demo.manage'])} /></StepUpProvider>)
+    await screen.findByText('Contact 0')
+    fireEvent.click(screen.getByRole('button', { name: 'Load more requests' }))
+    const row = (await screen.findByText('Contact 1')).closest('tr')!
+    fireEvent.change(within(row).getByLabelText('Reason for this change'), { target: { value: 'Called back and booked a demo' } })
+    fireEvent.click(within(row).getByRole('button', { name: 'Confirm change' }))
+    expect(await screen.findByText('The request from Contact 1 is now contacted.')).toBeTruthy()
+    // The reload starts again from the first page, which removes the row; the confirmation stays.
+    await waitFor(() => expect(screen.queryByText('Contact 1')).toBeNull())
+    expect(screen.getByText('The request from Contact 1 is now contacted.')).toBeTruthy()
+    expect(mocks.command).toHaveBeenCalledWith('/api/v1/admin/demo-requests/d-1/status',
+      { status: 'contacted', reason: 'Called back and booked a demo' }, { version: 1 })
+    fireEvent.change(screen.getByLabelText('Status'), { target: { value: 'new' } })
+    await waitFor(() => expect(screen.queryByText('The request from Contact 1 is now contacted.')).toBeNull())
   })
 
   it('lists event delivery failures as the dispatcher reports them', async () => {

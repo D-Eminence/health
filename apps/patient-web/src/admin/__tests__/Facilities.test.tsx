@@ -122,6 +122,31 @@ describe('facility detail', () => {
       .toBe(`/admin/audit?resourceType=facility&resourceId=${FACILITY_ID}`)
   })
 
+  it('reloads the platform changes with the facility, after a status change and on refresh', async () => {
+    const change = { sequenceId: '9', eventId: 'event-9', occurredAt: '2026-10-08T12:00:00.000Z', correlationId: 'corr-9',
+      actorType: 'platform', actorSubject: 'staff:super', facilityId: null, action: 'admin.facility.status.verified',
+      outcome: 'success', resourceType: 'facility', resourceId: FACILITY_ID, purposeOfUse: 'operations',
+      reason: 'Documents reviewed and accepted', sourceSystem: 'hid' }
+    let targetReads = 0
+    mocks.api.audit.mockImplementation(async (filters: { resourceType?: string }) =>
+      ({ items: filters.resourceType && targetReads++ > 0 ? [change] : [], nextBeforeSequenceId: null }))
+    mocks.api.facility.mockResolvedValueOnce(facility()).mockResolvedValue(facility({ status: 'verified', version: 4 }))
+    mocks.api.command.mockResolvedValueOnce({ status: 'verified', version: 4 })
+    open(`/admin/facilities/${FACILITY_ID}`, <FacilityDetailPage actor={actor(['platform.facility.manage', 'platform.audit.read'])} />,
+      '/admin/facilities/:facilityId')
+    const changes = () => screen.getByRole('region', { name: 'Platform changes to this facility' })
+    await screen.findByRole('heading', { name: 'Ikeja Clinic', level: 1 })
+    expect(await within(changes()).findByText('No items are available in this area.')).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('New value'), { target: { value: 'verified' } })
+    fireEvent.change(screen.getByLabelText('Reason for this change'), { target: { value: 'Documents reviewed and accepted' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm change' }))
+    await waitFor(() => expect(within(changes()).getByText('staff:super')).toBeTruthy())
+    expect(within(changes()).getByText('Documents reviewed and accepted')).toBeTruthy()
+    expect(targetReads).toBe(2)
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    await waitFor(() => expect(targetReads).toBe(3))
+  })
+
   it('leaves out facility audit for administrators without audit access', async () => {
     mocks.api.facility.mockResolvedValue(facility())
     open(`/admin/facilities/${FACILITY_ID}`, <FacilityDetailPage actor={actor([])} />, '/admin/facilities/:facilityId')

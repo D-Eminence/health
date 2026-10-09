@@ -27,8 +27,11 @@ export interface PrincipalMembership { id: string; facilityId: string; facilityN
 export interface Principal extends Versioned {
   id: string; subject: string; email: string | null; displayName: string | null; status: string; createdAt: string
   platformRoles: string[]; activeSessionCount: number; memberships: PrincipalMembership[]
-  /** An active authenticator exists. A display hint: the reset command still decides. */
-  mfaEnrolled: boolean
+  /**
+   * An active authenticator exists. A display hint: the reset command still
+   * decides. Absent from an Identity build before hid-system Stage 4A.
+   */
+  mfaEnrolled?: boolean
 }
 export interface IdentityReview extends Versioned {
   id: string; facilityId: string; facilityName: string; maskedNin: string; provider: string; status: string
@@ -201,8 +204,17 @@ const at = (base: string, ...segments: string[]) => [base, ...segments.map(encod
 export const PAGE_SIZE = 25
 /** Audit events per request (the backend allows up to 200). */
 export const AUDIT_PAGE_SIZE = 50
-/** Rows per page for the cursor-paged approvals and demo-request lists (the backend allows up to 100). */
+/** Rows per page for the cursor-paged demo-request list (the backend allows up to 100). */
 export const CURSOR_PAGE_SIZE = 50
+
+/**
+ * An Identity build before hid-system Stage 4A returns `{ items }` without
+ * `nextCursor`: its list is the backend's capped first page, with no further page.
+ */
+async function cursorPage<T>(page: Promise<CursorPage<T>>): Promise<CursorPage<T>> {
+  const value = await page
+  return { items: value.items, nextCursor: value.nextCursor ?? null }
+}
 
 export const adminApi = {
   login(email: string, password: string, token: string) {
@@ -259,10 +271,16 @@ export const adminApi = {
       at('/api/v1/admin/principals', accountId, 'sessions', sessionId, 'revoke'),
       { method: 'POST', body: input, headers: { 'Idempotency-Key': idempotencyKey } })
   },
-  /** Newest first, one page per call; pass the previous page's `nextCursor` with the same status. */
+  /**
+   * Newest first, one page per call (the backend's default of 50 rows unless
+   * `limit` is given); pass the previous page's `nextCursor` with the same
+   * status. `limit` and `cursor` are sent only when given, because an Identity
+   * build before Stage 4A refuses any parameter but `status`.
+   */
   approvals(status: ApprovalStatus | null, page: { cursor?: string; limit?: number } = {}, signal?: AbortSignal) {
-    return request<CursorPage<ApprovalRequest>>('/api/v1/admin/approvals', { signal, query: {
-      ...(status ? { status } : {}), limit: page.limit ?? CURSOR_PAGE_SIZE, ...(page.cursor ? { cursor: page.cursor } : {}) } })
+    return cursorPage(request<CursorPage<ApprovalRequest>>('/api/v1/admin/approvals', { signal, query: {
+      ...(status ? { status } : {}), ...(page.limit ? { limit: page.limit } : {}),
+      ...(page.cursor ? { cursor: page.cursor } : {}) } }))
   },
   requestSuperAdmin(accountId: string, reason: string, idempotencyKey: string) {
     return request<ApprovalRequested>(at('/api/v1/admin/principals', accountId, 'super-admin-requests'),
@@ -314,9 +332,9 @@ export const adminApi = {
   /** Newest first, one page per call; pass the previous page's `nextCursor` with the same filters. */
   demos(filters: { status?: DemoStatus; productCode?: string } = {}, page: { cursor?: string; limit?: number } = {},
     signal?: AbortSignal) {
-    return request<CursorPage<DemoRequest>>('/api/v1/admin/demo-requests', { signal,
+    return cursorPage(request<CursorPage<DemoRequest>>('/api/v1/admin/demo-requests', { signal,
       query: { limit: page.limit ?? CURSOR_PAGE_SIZE, status: filters.status, productCode: filters.productCode,
-        ...(page.cursor ? { cursor: page.cursor } : {}) } })
+        ...(page.cursor ? { cursor: page.cursor } : {}) } }))
   },
   applications(status?: ApplicationStatus, signal?: AbortSignal) {
     return request<{ items: OrganizationApplication[] }>('/api/v1/admin/organization-applications', { signal,

@@ -158,13 +158,17 @@ export function PricingPage({ actor }: { actor: AdminActor }) {
   </Page>
 }
 
-function DemoAction({ request, reload }: { request: DemoRequest; reload: () => void }) {
+/**
+ * The confirmation is page-level because the reload starts the list again from
+ * its first page, which removes a row loaded with "Load more".
+ */
+function DemoAction({ request, onSaved }: { request: DemoRequest; onSaved: (message: string) => void }) {
   return <ActionForm title="Change status" options={DEMO_STATUSES
     .filter(value => value !== request.status).map(value => ({ value, title: label(value) }))}
     onSubmit={async (status, reason) => {
       await adminApi.command(`/api/v1/admin/demo-requests/${encodeURIComponent(request.id)}/status`,
         { status, reason }, { version: request.version })
-      reload()
+      onSaved(`The request from ${request.contactName} is now ${label(status).toLowerCase()}.`)
     }} />
 }
 
@@ -176,19 +180,23 @@ export function DemosPage({ actor }: { actor: AdminActor }) {
     [status, product])
   const load = useCallback((signal?: AbortSignal) => adminApi.demos(query, {}, signal), [query])
   const resource = useResource(load, 'Demo requests could not be loaded.')
-  const pages = useCursorPages(resource, cursor => adminApi.demos(query, { cursor }), 'More demo requests could not be loaded.')
+  const pages = useCursorPages(resource, (cursor, signal) => adminApi.demos(query, { cursor }, signal),
+    'More demo requests could not be loaded.')
+  const [notice, setNotice] = useState<string | null>(null)
+  const saved = (message: string) => { setNotice(message); resource.reload() }
   return <Page eyebrow="Commercial" title="Demo requests" description="Requests submitted through the public Health ID website."
     action={<Refresh onClick={resource.reload} disabled={resource.loading} />}>
     <div className="admin-filters">
-      <label>Status<select value={filters.status} onChange={event => setFilters({ status: event.target.value })}>
+      <label>Status<select value={filters.status} onChange={event => { setNotice(null); setFilters({ status: event.target.value }) }}>
         <option value="">Any status</option>
         {DEMO_STATUSES.map(value => <option key={value} value={value}>{label(value)}</option>)}
       </select></label>
-      <label>Product<select value={filters.product} onChange={event => setFilters({ product: event.target.value })}>
+      <label>Product<select value={filters.product} onChange={event => { setNotice(null); setFilters({ product: event.target.value }) }}>
         <option value="">Any product</option>
         {DEMO_PRODUCTS.map(value => <option key={value} value={value}>{label(value)}</option>)}
       </select></label>
     </div>
+    {notice && <p role="status" className="admin-success">{notice}</p>}
     <ResourceView resource={resource} empty={result => result.items.length === 0}>{() => <>
       <p className="admin-result-count">Showing {pages.items.length} requests, newest first{pages.hasMore ? '; more are available' : ''}</p>
       <Table headings={['Contact', 'Organization', 'Product', 'Submitted', 'Status', 'Action']}>
@@ -196,7 +204,7 @@ export function DemosPage({ actor }: { actor: AdminActor }) {
         <td><strong>{item.contactName}</strong><small>{item.contactEmail}</small></td>
         <td>{item.organizationName || 'Not provided'}</td><td>{label(item.productCode)}</td><td>{date(item.createdAt)}</td>
         <td><Status value={item.status} /></td>
-        <td>{has(actor, 'platform.demo.manage') ? <DemoAction request={item} reload={resource.reload} /> : 'View only'}</td>
+        <td>{has(actor, 'platform.demo.manage') ? <DemoAction request={item} onSaved={saved} /> : 'View only'}</td>
       </tr>)}
     </Table>
       <LoadMore pages={pages} label="Load more requests" /></>}</ResourceView>

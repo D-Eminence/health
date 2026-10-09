@@ -110,33 +110,44 @@ export function Pager({ page, pageSize, total, onPage, disabled = false }: {
   </nav>
 }
 
+interface MorePages<T> { first: CursorPage<T>; items: T[]; next: string | null; loading: boolean; error: string | null }
+
 /**
  * Further pages of a cursor-paged list, appended below its first page. The
  * first page comes from `resource`; any reload or filter change starts again
- * from it. `loadPage` must use the same filters, because a cursor is bound to
- * them; the backend refuses any other cursor with ADMIN_INVALID_CURSOR.
+ * from it. Appended pages belong to the first page they extend: a page that
+ * arrives after the list was reloaded or refiltered is dropped, never added to
+ * the new list. `loadPage` must use the same filters, because a cursor is bound
+ * to them; the backend refuses any other cursor with ADMIN_INVALID_CURSOR.
  */
 export function useCursorPages<T>(resource: Resource<CursorPage<T>>,
-  loadPage: (cursor: string) => Promise<CursorPage<T>>, errorMessage: string) {
-  const [more, setMore] = useState<{ items: T[]; next: string | null } | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  useEffect(() => { setMore(null); setError(null) }, [resource.data])
-  const next = more ? more.next : resource.data?.nextCursor ?? null
-  const items = resource.data ? [...resource.data.items, ...(more?.items ?? [])] : []
+  loadPage: (cursor: string, signal: AbortSignal) => Promise<CursorPage<T>>, errorMessage: string) {
+  const first = resource.data
+  const [state, setState] = useState<MorePages<T> | null>(null)
+  const more = state && state.first === first ? state : null
+  const request = useRef<AbortController | null>(null)
+  // A new first page (or leaving the page) cancels a load for the previous one.
+  useEffect(() => () => request.current?.abort(), [first])
+  const next = more ? more.next : first?.nextCursor ?? null
+  const items = first ? [...first.items, ...(more?.items ?? [])] : []
 
   async function loadMore() {
-    if (!next || loading) return
-    setLoading(true); setError(null)
+    if (!first || !next || more?.loading) return
+    const controller = new AbortController()
+    request.current = controller
+    setState({ first, items: more?.items ?? [], next, loading: true, error: null })
+    const settle = (change: (current: MorePages<T>) => MorePages<T>) => {
+      if (!controller.signal.aborted) setState(current => current?.first === first ? change(current) : current)
+    }
     try {
-      const page = await loadPage(next)
-      setMore(current => ({ items: [...(current?.items ?? []), ...page.items], next: page.nextCursor }))
+      const page = await loadPage(next, controller.signal)
+      settle(current => ({ ...current, items: [...current.items, ...page.items], next: page.nextCursor ?? null, loading: false }))
     } catch (caught) {
-      setError(failure(caught, errorMessage))
-    } finally { setLoading(false) }
+      settle(current => ({ ...current, loading: false, error: failure(caught, errorMessage) }))
+    }
   }
 
-  return { items, hasMore: next !== null, loading, error, loadMore }
+  return { items, hasMore: next !== null, loading: more?.loading ?? false, error: more?.error ?? null, loadMore }
 }
 
 export function LoadMore({ pages, label: title }: {

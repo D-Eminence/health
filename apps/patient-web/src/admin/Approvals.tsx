@@ -103,7 +103,7 @@ export function ApprovalsPage({ actor }: { actor: AdminActor }) {
   const [filter, setFilter] = useState<ApprovalStatus | null>('pending')
   const load = useCallback((signal?: AbortSignal) => adminApi.approvals(filter, {}, signal), [filter])
   const resource = useResource(load, 'Approval requests could not be loaded.')
-  const pages = useCursorPages(resource, cursor => adminApi.approvals(filter, { cursor }),
+  const pages = useCursorPages(resource, (cursor, signal) => adminApi.approvals(filter, { cursor }, signal),
     'More approval requests could not be loaded.')
   const [notice, setNotice] = useState<string | null>(null)
 

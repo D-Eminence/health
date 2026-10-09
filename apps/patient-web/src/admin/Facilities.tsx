@@ -117,8 +117,11 @@ export function FacilityDetailPage({ actor }: { actor: AdminActor }) {
 function FacilityDetail({ facilityId, actor }: { facilityId: string; actor: AdminActor }) {
   const load = useCallback((signal?: AbortSignal) => adminApi.facility(facilityId, signal), [facilityId])
   const resource = useResource(load, 'This facility could not be loaded.')
+  // A refresh or status change reloads the audit excerpts too: the change is audited with it.
+  const [revision, setRevision] = useState(0)
+  const reload = () => { resource.reload(); setRevision(value => value + 1) }
   return <Page eyebrow="Facility" title={resource.data?.name ?? 'Facility'} description="The platform record for one facility."
-    action={<Refresh onClick={resource.reload} disabled={resource.loading} />}>
+    action={<Refresh onClick={reload} disabled={resource.loading} />}>
     <p><Link to="/admin/facilities">← All facilities</Link></p>
     <ResourceView resource={resource}>{facility => <div className="admin-stack">
       <section className="admin-panel">
@@ -131,9 +134,9 @@ function FacilityDetail({ facilityId, actor }: { facilityId: string; actor: Admi
           <div><dt>Created</dt><dd>{date(facility.createdAt)}</dd></div>
           <div><dt>Active staff memberships</dt><dd>{facility.membershipCount}</dd></div>
         </dl>
-        {has(actor, 'platform.facility.manage') && <FacilityStatusAction facility={facility} reload={resource.reload} />}
+        {has(actor, 'platform.facility.manage') && <FacilityStatusAction facility={facility} reload={reload} />}
       </section>
-      {has(actor, 'platform.audit.read') && <FacilityAudit facilityId={facility.id} />}
+      {has(actor, 'platform.audit.read') && <FacilityAudit key={revision} facilityId={facility.id} />}
     </div>}</ResourceView>
   </Page>
 }

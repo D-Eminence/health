@@ -134,16 +134,31 @@ describe('platform admin API', () => {
 
   it('pages approvals and demo requests with the backend cursor and limit', async () => {
     const requests = recordFetch([json({ items: [], nextCursor: null }), json({ items: [], nextCursor: null }),
-      json({ items: [], nextCursor: null })])
+      json({ items: [], nextCursor: null }), json({ items: [], nextCursor: null })])
     const { adminApi } = await import('../api')
     await adminApi.approvals('pending')
     await adminApi.approvals(null, { cursor: 'opaque-cursor' })
+    await adminApi.approvals('approved', { limit: 20 })
     await adminApi.demos({ status: 'new' }, { cursor: 'next-demo', limit: 100 })
     expect(requests.map(request => `${request.url.pathname}?${request.url.searchParams.toString()}`)).toEqual([
-      '/api/v1/admin/approvals?status=pending&limit=50',
-      '/api/v1/admin/approvals?limit=50&cursor=opaque-cursor',
+      // The backend's default page of 50; only parameters the caller gives are sent.
+      '/api/v1/admin/approvals?status=pending',
+      '/api/v1/admin/approvals?cursor=opaque-cursor',
+      '/api/v1/admin/approvals?status=approved&limit=20',
       '/api/v1/admin/demo-requests?limit=100&status=new&cursor=next-demo',
     ])
+  })
+
+  it('reads a list from an Identity build before Stage 4A as its last page', async () => {
+    const approval = { id: 'approval-1' }
+    const demo = { id: 'demo-1' }
+    const requests = recordFetch([json({ items: [approval] }), json({ items: [demo] })])
+    const { adminApi } = await import('../api')
+    // Before Stage 4A, /admin/approvals refuses every parameter but `status` and neither list returns `nextCursor`.
+    await expect(adminApi.approvals('pending')).resolves.toEqual({ items: [approval], nextCursor: null })
+    await expect(adminApi.demos()).resolves.toEqual({ items: [demo], nextCursor: null })
+    expect(Object.fromEntries(requests[0]!.url.searchParams)).toEqual({ status: 'pending' })
+    expect(Object.fromEntries(requests[1]!.url.searchParams)).toEqual({ limit: '50' })
   })
 
   it('does not treat a rejected sign-in or authenticator code as a session ending', async () => {

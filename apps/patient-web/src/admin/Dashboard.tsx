@@ -16,7 +16,11 @@ const TOTALS: ReadonlyArray<{ key: keyof PlatformOverview; title: string; link?:
   { key: 'pendingIdentityReviews', title: 'Pending identity reviews', link: '/admin/reviews' },
 ]
 
-/** Waiting work is read one page at a time: "100+" when the list has more than this page. */
+/**
+ * Waiting work is read one page at a time: "N+" when the list has more than
+ * that page. Demo requests ask for 100 rows; approvals use the backend's
+ * default page of 50, because an Identity build before Stage 4A refuses `limit` there.
+ */
 const ATTENTION_PAGE = 100
 function counted(page: CursorPage<unknown>) {
   return page.nextCursor ? `${number(page.items.length)}+` : number(page.items.length)
@@ -34,7 +38,7 @@ function AttentionTile<T>({ title, to, resource, children }: {
 }
 
 function PendingApprovals() {
-  const load = useCallback((signal?: AbortSignal) => adminApi.approvals('pending', { limit: ATTENTION_PAGE }, signal), [])
+  const load = useCallback((signal?: AbortSignal) => adminApi.approvals('pending', {}, signal), [])
   const resource = useResource(load, 'Approvals could not be loaded.')
   return <AttentionTile title="Pending approvals" to="/admin/approvals" resource={resource}>{value =>
     <p><strong className="admin-attention-count">{counted(value)}</strong> waiting for a second Super Admin</p>}

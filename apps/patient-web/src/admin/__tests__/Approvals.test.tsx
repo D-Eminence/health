@@ -131,10 +131,10 @@ describe('two-person approvals', () => {
     expect(await screen.findByText('Showing 1 requests, newest first; more are available')).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Load more requests' }))
     expect(await screen.findByText('Dayo Second')).toBeTruthy()
-    expect(mocks.approvals).toHaveBeenLastCalledWith('pending', { cursor: 'cursor-page-2' })
+    expect(mocks.approvals).toHaveBeenLastCalledWith('pending', { cursor: 'cursor-page-2' }, expect.any(AbortSignal))
     fireEvent.click(screen.getByRole('button', { name: 'Load more requests' }))
     expect(await screen.findByText('Efe Third')).toBeTruthy()
-    expect(mocks.approvals).toHaveBeenLastCalledWith('pending', { cursor: 'cursor-page-3' })
+    expect(mocks.approvals).toHaveBeenLastCalledWith('pending', { cursor: 'cursor-page-3' }, expect.any(AbortSignal))
     expect(screen.getAllByRole('article')).toHaveLength(3)
     expect(screen.getByText('Showing 3 requests, newest first')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Load more requests' })).toBeNull()
@@ -155,6 +155,48 @@ describe('two-person approvals', () => {
     expect(mocks.approvals).toHaveBeenLastCalledWith('approved', {}, expect.anything())
     expect(screen.queryByRole('alert')).toBeNull()
     expect(screen.queryByRole('button', { name: 'Load more requests' })).toBeNull()
+  })
+
+  it('drops a page that arrives after the status changed, and cancels its request', async () => {
+    let answer!: (page: unknown) => void
+    mocks.approvals.mockResolvedValueOnce({ items: [request()], nextCursor: 'cursor-pending' })
+      .mockReturnValueOnce(new Promise(resolve => { answer = resolve }))
+      .mockResolvedValueOnce({ items: [request({ id: 'request-7', status: 'approved', targetDisplayName: 'Gbenga Approved' })],
+        nextCursor: null })
+    open()
+    await screen.findByRole('article')
+    fireEvent.click(screen.getByRole('button', { name: 'Load more requests' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Approved' }))
+    expect(await screen.findByText('Gbenga Approved')).toBeTruthy()
+    const signal = mocks.approvals.mock.calls[1]![2] as AbortSignal
+    expect(signal.aborted).toBe(true)
+    answer({ items: [request({ id: 'request-2', targetDisplayName: 'Pending Two' })], nextCursor: 'cursor-pending-3' })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(screen.queryByText('Pending Two')).toBeNull()
+    expect(screen.getAllByRole('article')).toHaveLength(1)
+    expect(screen.getByText('Showing 1 requests, newest first')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Load more requests' })).toBeNull()
+  })
+
+  it('pages a refreshed list with its own cursor, never with a page loaded for the list before it', async () => {
+    let answer!: (page: unknown) => void
+    mocks.approvals.mockResolvedValueOnce({ items: [request()], nextCursor: 'cursor-old' })
+      .mockReturnValueOnce(new Promise(resolve => { answer = resolve }))
+      .mockResolvedValueOnce({ items: [request({ id: 'request-0', targetDisplayName: 'Newest Request' }), request()],
+        nextCursor: 'cursor-new' })
+      .mockResolvedValueOnce({ items: [request({ id: 'request-2', targetDisplayName: 'Dayo Second' })], nextCursor: null })
+    open()
+    await screen.findByRole('article')
+    fireEvent.click(screen.getByRole('button', { name: 'Load more requests' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    expect(await screen.findByText('Newest Request')).toBeTruthy()
+    answer({ items: [request({ id: 'request-2', targetDisplayName: 'Dayo Second' })], nextCursor: null })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(screen.queryByText('Dayo Second')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Load more requests' }))
+    expect(await screen.findByText('Dayo Second')).toBeTruthy()
+    expect(mocks.approvals).toHaveBeenLastCalledWith('pending', { cursor: 'cursor-new' }, expect.any(AbortSignal))
+    expect(screen.getAllByRole('article')).toHaveLength(3)
   })
 
   it('tells an administrator who is not a Super Admin that the server decides eligibility', async () => {
