@@ -103,6 +103,12 @@
   (patient approval or PIN), and **Close access** for an active grant. These
   fields come from hid-system migration 0074; with an earlier Identity build
   the page shows the request status as before.
+- Merged to `main`, not deployed: D-Eminence/Health-id#18 and
+  D-Eminence/Health-id#19 here, and D-Eminence/hid-system#26 and
+  D-Eminence/hid-system#28 in the backend. The hid-system release checklist
+  (`docs/PHASE_4_STAGE_5_RELEASE_READINESS.md`) lists the deployment order:
+  0074, then the role bootstrap at once, then Identity. It also lists the
+  staging browser check of the full request, approve, close and revoke loop.
 
 This log records implementation scope, not a release sign-off. The reference
 [gap map](./HEALTH_ID_COMPLETE_FRONTEND_GAP_MAP.md) is a baseline audit rather
