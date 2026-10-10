@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react'
 import { Link } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { Badge, Button, Card, EmptyState, Field, Input, Select, Textarea } from '@hid/ui'
@@ -78,7 +78,7 @@ function AccessionForm({ facilityId, item, onCreated }: { facilityId: string; it
 
 type SpecimenActionKind = 'collect' | 'receive' | 'reject'
 
-function SpecimenAction({ facilityId, accessionId, specimen, permissions, onChanged }: { facilityId: string; accessionId: string; specimen: LabSpecimen; permissions: string[]; onChanged: () => void }) {
+function SpecimenAction({ facilityId, accessionId, specimen, permissions, onChanged, onRefused }: { facilityId: string; accessionId: string; specimen: LabSpecimen; permissions: string[]; onChanged: () => void; onRefused: (error: unknown) => void }) {
   const actions: SpecimenActionKind[] = specimen.status === 'required'
     ? ['collect', 'reject'] : specimen.status === 'collected' ? ['receive', 'reject'] : []
   const allowed = actions.filter(action => permissions.includes(`lab.specimen.${action}`))
@@ -91,7 +91,7 @@ function SpecimenAction({ facilityId, accessionId, specimen, permissions, onChan
     if (action === 'reject' && !detail) return setError('Enter a rejection reason.')
     setBusy(true); setError('')
     try { await staffApi.transitionSpecimen(facilityId, accessionId, specimen, action, detail); onChanged() }
-    catch (caught) { setError(errorText(caught, 'Specimen could not be updated. Refresh and try again.')) }
+    catch (caught) { setError(errorText(caught, 'Specimen could not be updated. Refresh and try again.')); onRefused(caught) }
     finally { setBusy(false) }
   }
   return <div className="staff-list-item"><div className="staff-row"><strong>{specimen.specimenType} · {specimen.specimenIdentifier}</strong><Badge tone={specimen.status === 'received' ? 'success' : specimen.status === 'rejected' ? 'danger' : 'warning'}>{specimen.status}</Badge></div>
@@ -223,8 +223,8 @@ function ResultHistory({ facilityId, result, onRefused }: { facilityId: string; 
     void staffApi.labResultHistory(facilityId, result.id)
       .then(value => { if (active) setHistory(value) })
       .catch(caught => {
-        if (!active) return
-        setError(errorText(caught, 'Result history could not be loaded.'))
+        if (active) setError(errorText(caught, 'Result history could not be loaded.'))
+        // Even after the history was closed, a refusal says something about read access.
         if (!(unreleased && isHidApiError(caught) && caught.status === 404)) onRefused(caught)
       })
       .finally(() => { if (active) setLoading(false) })
@@ -275,58 +275,105 @@ function ExecutionCard({ facilityId, execution, permissions, onExecutionChanged,
   </div>
 }
 
-// A refusal, or a specimen that is no longer visible, means patient authorization
-// no longer covers these results: drop any values already on screen.
-function labResultsAccessEnded(error: unknown) {
-  return isHidApiError(error) && (error.status === 403 || error.status === 404)
+type LabResultsHiddenReason = 'denied' | 'unverified' | 'signedOut'
+
+// Whether an error leaves read access to these results in doubt. A refusal, or a
+// record that is no longer visible, means access ended. No answer at all (outage,
+// network failure, timeout, server error) means it could not be confirmed, and an
+// ended session (401, after the client's own refresh failed) means the person must
+// sign in again. A request answered on its merits (400, 409, 412, 422, 429) means none of these.
+function labResultsReadDoubt(error: unknown): LabResultsHiddenReason | null {
+  if (!isHidApiError(error)) return 'unverified'
+  if (error.status === 403 || error.status === 404) return 'denied'
+  if (error.status === 401) return 'signedOut'
+  if (error.status === 0 || error.status === 408 || error.status >= 500) return 'unverified'
+  return null
 }
 
-const LAB_RESULTS_ACCESS_DENIED = 'Access denied. You are not authorized to view lab results for this patient. Results stay hidden until access is granted again.'
+const LAB_RESULTS_HIDDEN: Record<LabResultsHiddenReason, string> = {
+  denied: 'Access denied. You are not authorized to view lab results for this patient. Results stay hidden until access is granted again.',
+  unverified: 'Lab results are hidden because access to them could not be verified right now. Refresh to check again.',
+  signedOut: 'Lab results are hidden because your session has ended. Sign in again to view them.',
+}
 
-function ExecutionPanel({ facilityId, specimen, permissions, resultsHidden, onAccessEnded }: {
-  facilityId: string; specimen: LabSpecimen; permissions: string[];
-  resultsHidden: boolean; onAccessEnded: () => void
+/** Sent to every specimen panel of the accession; `seq` makes each raise a new signal. */
+interface LabResultsSignal { reason: LabResultsHiddenReason; seq: number }
+
+function ExecutionPanel({ facilityId, specimen, permissions, generation, recheck, resultsHidden, onResultsHidden }: {
+  facilityId: string; specimen: LabSpecimen; permissions: string[]; generation: RefObject<number>;
+  recheck: LabResultsSignal | null; resultsHidden: LabResultsSignal | null; onResultsHidden: (reason: LabResultsHiddenReason) => void
 }) {
   const canRead = permissions.includes('lab.execution.read')
   const canStart = permissions.includes('lab.execution.start')
-  const [items, setItems] = useState<LabExecution[] | null>(null)
+  // Results are kept with the accession generation they were confirmed in and shown only while
+  // it is current. A hide anywhere in the accession starts a new generation at once, so these
+  // values leave in the same render as the hide, before this panel's own effects have run.
+  // Reading the ref here is sound: each new generation comes with a new hide signal, which
+  // re-renders every panel, and a value newer than the last commit can only hide more.
+  const [results, setResults] = useState<{ items: LabExecution[]; generation: number } | null>(null)
+  const items = results && results.generation === generation.current ? results.items : null
+  // The generation in which this panel's values were last confirmed: by its own successful
+  // read, or, for a member who cannot read, when it mounted.
+  const confirmed = useRef(generation.current)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [startError, setStartError] = useState('')
   const [busy, setBusy] = useState(false)
   const [revision, setRevision] = useState(0)
-  const hideResults = useCallback(() => { setItems(null); setNotice(''); setError(LAB_RESULTS_ACCESS_DENIED) }, [])
+  // Each execution-list request is numbered. Hiding the results retires every request
+  // already in flight, so an answer that arrives later cannot bring values back.
+  const request = useRef(0)
+  const hidden = useRef(false)
+  const hideResults = useCallback((reason: LabResultsHiddenReason) => {
+    request.current += 1; hidden.current = true
+    setResults(null); setNotice(''); setStartError(''); setLoading(false); setError(LAB_RESULTS_HIDDEN[reason])
+  }, [])
   // Every specimen in the accession belongs to the same patient, so the others hide too.
-  const endAccess = useCallback(() => { hideResults(); onAccessEnded() }, [hideResults, onAccessEnded])
-  useEffect(() => { if (resultsHidden) hideResults() }, [resultsHidden, hideResults])
+  const endAccess = useCallback((reason: LabResultsHiddenReason) => { hideResults(reason); onResultsHidden(reason) }, [hideResults, onResultsHidden])
+  useEffect(() => { if (resultsHidden) hideResults(resultsHidden.reason) }, [resultsHidden, hideResults])
+  // A specimen step failed with a doubt. A reader re-reads below; without
+  // lab.execution.read there is nothing to confirm access with, so hide at once.
+  useEffect(() => { if (recheck && !canRead) hideResults(recheck.reason) }, [recheck, canRead, hideResults])
   useEffect(() => {
     if (!canRead) return
-    let active = true
+    const current = ++request.current
+    const sent = generation.current
     setLoading(true); setError('')
     void staffApi.labExecutions(facilityId, specimen.id)
-      .then(value => { if (active) setItems(value.items) })
-      .catch(caught => {
-        if (!active) return
-        if (labResultsAccessEnded(caught)) endAccess()
-        else setError(errorText(caught, 'Lab executions could not be loaded.'))
+      .then(value => {
+        // A newer request, or a hide anywhere in the accession since this one was sent, voids it.
+        if (request.current !== current || generation.current !== sent) return
+        hidden.current = false; confirmed.current = sent
+        setResults({ items: value.items, generation: sent }); setLoading(false)
       })
-      .finally(() => { if (active) setLoading(false) })
-    return () => { active = false }
-  }, [canRead, facilityId, specimen.id, revision, endAccess])
-  // A refused action may only refuse that write (for example under break-glass) or
-  // may mean read access has ended. Reload to find out: a refused reload hides the values.
+      // Only a successful read confirms access, so any failure hides what is on screen.
+      .catch(caught => { if (request.current === current) endAccess(labResultsReadDoubt(caught) ?? 'unverified') })
+    return () => { request.current += 1 }
+  }, [canRead, facilityId, specimen.id, generation, revision, recheck, endAccess])
+  // A failed action may only refuse that write (for example under break-glass), or may
+  // mean read access ended or cannot be confirmed. Reload to find out: a failed reload
+  // hides the values. Without lab.execution.read there is no reload, so hide at once.
   const recheckAccess = useCallback((caught: unknown) => {
-    if (!labResultsAccessEnded(caught)) return
+    const doubt = labResultsReadDoubt(caught)
+    if (!doubt) return
     if (canRead) setRevision(current => current + 1)
-    else endAccess()
+    else endAccess(doubt)
   }, [canRead, endAccess])
+  // An action that answers after the results were hidden, here or anywhere in the accession,
+  // must not bring them back.
+  const stale = () => hidden.current || generation.current !== confirmed.current
   function changedExecution(value: LabExecution, message: string) {
-    setItems(previous => [...(previous ?? []).filter(item => item.id !== value.id), value])
+    if (stale()) return
+    const confirmedIn = confirmed.current
+    setResults(previous => ({ items: [...(previous?.items ?? []).filter(item => item.id !== value.id), value], generation: confirmedIn }))
     setNotice(message)
     if (canRead) setRevision(current => current + 1)
   }
   function changedResult(executionId: string, value: LabResult, message: string) {
-    setItems(previous => previous?.map(item => item.id === executionId ? { ...item, result: value } : item) ?? null)
+    if (stale()) return
+    const confirmedIn = confirmed.current
+    setResults(previous => previous && { items: previous.items.map(item => item.id === executionId ? { ...item, result: value } : item), generation: confirmedIn })
     setNotice(message)
     if (canRead) setRevision(current => current + 1)
   }
@@ -335,10 +382,10 @@ function ExecutionPanel({ facilityId, specimen, permissions, resultsHidden, onAc
     const form = new FormData(event.currentTarget)
     const reason = String(form.get('reason') ?? '').trim()
     const method = String(form.get('method') ?? '').trim()
-    if (!reason) return setError('Enter a reason to begin execution.')
-    setBusy(true); setError(''); setNotice('')
+    if (!reason) return setStartError('Enter a reason to begin execution.')
+    setBusy(true); setStartError(''); setNotice('')
     try { changedExecution(await staffApi.startLabExecution(facilityId, specimen, reason, method), 'Analytical execution started.') }
-    catch (caught) { setError(errorText(caught, 'Execution could not be started. Refresh the specimen first.')) }
+    catch (caught) { setStartError(errorText(caught, 'Execution could not be started. Refresh the specimen first.')); recheckAccess(caught) }
     finally { setBusy(false) }
   }
   return <div className="staff-list-item staff-stack"><h3>Analytical execution</h3>
@@ -352,6 +399,7 @@ function ExecutionPanel({ facilityId, specimen, permissions, resultsHidden, onAc
       <p className="staff-muted">Begin analysis for this received specimen. The backend checks the exact specimen version and patient authorization.</p>
       <Field label="Method" htmlFor={`lab-method-${specimen.id}`}><Input id={`lab-method-${specimen.id}`} name="method" maxLength={240} /></Field>
       <Field label="Reason" htmlFor={`lab-start-reason-${specimen.id}`} required><Textarea id={`lab-start-reason-${specimen.id}`} name="reason" maxLength={500} required /></Field>
+      {startError && <p className="staff-error" role="alert">{startError}</p>}
       <Button type="submit" size="sm" disabled={busy}>{busy ? 'Starting…' : 'Start execution'}</Button>
     </form>}
     {canRead && !loading && !error && items?.length === 0 && !canStart && <p className="staff-muted">No execution has started for this specimen.</p>}
@@ -359,25 +407,45 @@ function ExecutionPanel({ facilityId, specimen, permissions, resultsHidden, onAc
 }
 
 function AccessionView({ facilityId, id, permissions, onChanged }: { facilityId: string; id: string; permissions: string[]; onChanged: () => void }) {
-  const [accession, setAccession] = useState<LabAccession | null>(null)
+  // An accession is shown only for the reload it came from, so a reload removes every
+  // specimen row at once and each panel reads its results once, when it mounts again.
+  const [loaded, setLoaded] = useState<{ revision: number; accession: LabAccession } | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const [revision, setRevision] = useState(0)
-  const [resultsHidden, setResultsHidden] = useState(false)
-  const hideResults = useCallback(() => setResultsHidden(true), [])
+  const [recheck, setRecheck] = useState<LabResultsSignal | null>(null)
+  const [resultsHidden, setResultsHidden] = useState<LabResultsSignal | null>(null)
+  // The generation of this accession's results, shared with its own panels only. A hide starts
+  // a new one synchronously, so every read or write a sibling still has in flight is void
+  // before it can answer, and values from an earlier generation no longer render.
+  const generation = useRef(0)
+  const accession = loaded?.revision === revision ? loaded.accession : null
+  const reload = useCallback(() => { setRevision(value => value + 1); setRecheck(null); setResultsHidden(null) }, [])
+  // A new signal for every hide, so a panel restored by its own refresh hides again.
+  const hideResults = useCallback((reason: LabResultsHiddenReason) => {
+    generation.current += 1
+    setResultsHidden(previous => ({ reason, seq: (previous?.seq ?? 0) + 1 }))
+  }, [])
+  // A specimen step that fails with a doubt re-checks in place: the accession is read
+  // again and every panel re-reads its results, while the step keeps its error and input.
+  // A failed read hides the results as usual; a failed accession read removes it all.
+  const specimenRefused = useCallback((caught: unknown) => {
+    const doubt = labResultsReadDoubt(caught)
+    if (doubt) setRecheck(previous => ({ reason: doubt, seq: (previous?.seq ?? 0) + 1 }))
+  }, [])
   useEffect(() => {
     let active = true
-    setAccession(null); setError(''); setLoading(true); setResultsHidden(false)
-    void staffApi.labAccession(facilityId, id).then(value => { if (active) setAccession(value) })
-      .catch(caught => { if (active) setError(errorText(caught, 'Accession could not be loaded.')) })
+    setError(''); setLoading(true)
+    void staffApi.labAccession(facilityId, id).then(value => { if (active) setLoaded({ revision, accession: value }) })
+      .catch(caught => { if (active) { setLoaded(null); setError(errorText(caught, 'Accession could not be loaded.')) } })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
-  }, [facilityId, id, revision])
+  }, [facilityId, id, revision, recheck])
   return <Card className="staff-card"><h2>Specimen accession</h2>
     {loading && <p role="status">Loading accession…</p>}
     {error && <p className="staff-error" role="alert">{error}</p>}
-    {accession && <><p>Accession {accession.accessionNumber}</p><div className="staff-list">{accession.specimens.map(specimen => <div className="staff-stack" key={`${specimen.id}-${specimen.status}`}><SpecimenAction facilityId={facilityId} accessionId={id} specimen={specimen} permissions={permissions} onChanged={() => { setRevision(value => value + 1); onChanged() }} />{specimen.status === 'received' && (permissions.includes('lab.execution.read') || permissions.includes('lab.execution.start')) && <ExecutionPanel facilityId={facilityId} specimen={specimen} permissions={permissions} resultsHidden={resultsHidden} onAccessEnded={hideResults} />}</div>)}</div></>}
-    <div className="staff-row"><Button tone="secondary" size="sm" onClick={() => setRevision(value => value + 1)} disabled={loading}>Refresh accession</Button></div>
+    {accession && <><p>Accession {accession.accessionNumber}</p><div className="staff-list">{accession.specimens.map(specimen => <div className="staff-stack" key={`${specimen.id}-${specimen.status}`}><SpecimenAction facilityId={facilityId} accessionId={id} specimen={specimen} permissions={permissions} onChanged={() => { reload(); onChanged() }} onRefused={specimenRefused} />{specimen.status === 'received' && (permissions.includes('lab.execution.read') || permissions.includes('lab.execution.start')) && <ExecutionPanel facilityId={facilityId} specimen={specimen} permissions={permissions} generation={generation} recheck={recheck} resultsHidden={resultsHidden} onResultsHidden={hideResults} />}</div>)}</div></>}
+    <div className="staff-row"><Button tone="secondary" size="sm" onClick={reload} disabled={loading}>Refresh accession</Button></div>
   </Card>
 }
 

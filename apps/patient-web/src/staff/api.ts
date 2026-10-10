@@ -597,18 +597,21 @@ export const staffApi = {
     client.post<LabAccession>(`/api/v1/lab/work-items/${encodeURIComponent(workItemId)}/accession`,
       { requirements: [{ specimenType }], reason },
       { headers: { ...facilityHeaders(facilityId), ...keyHeaders() } }),
+  // Read afresh like the Lab result reads below: a failed specimen step re-reads it to confirm access.
   labAccession: (facilityId: string, accessionId: string) =>
     client.get<LabAccession>(`/api/v1/lab/accessions/${encodeURIComponent(accessionId)}`,
-      { headers: facilityHeaders(facilityId) }),
+      { headers: facilityHeaders(facilityId), dedupe: false }),
   transitionSpecimen: (facilityId: string, accessionId: string, specimen: LabSpecimen, action: 'collect' | 'receive' | 'reject', detail: string) =>
     client.post<LabSpecimen>(`/api/v1/lab/accessions/${encodeURIComponent(accessionId)}/specimens/${encodeURIComponent(specimen.id)}/${action}`,
       action === 'collect' ? { expectedVersion: specimen.version, collectedAt: new Date().toISOString(), notes: detail } :
         action === 'receive' ? { expectedVersion: specimen.version, receivedAt: new Date().toISOString(), condition: detail } :
           { expectedVersion: specimen.version, reason: detail },
       { headers: { ...facilityHeaders(facilityId), ...keyHeaders() } }),
+  // Lab result reads are never merged with an identical read already in flight: the
+  // Laboratory page re-reads them to confirm access, and that needs a request of its own.
   labExecutions: (facilityId: string, specimenId: string) =>
     client.get<{ items: LabExecution[] }>(`/api/v1/lab/specimens/${encodeURIComponent(specimenId)}/executions`,
-      { headers: facilityHeaders(facilityId) }),
+      { headers: facilityHeaders(facilityId), dedupe: false }),
   startLabExecution: (facilityId: string, specimen: LabSpecimen, reason: string, method?: string) =>
     client.post<LabExecution>(`/api/v1/lab/specimens/${encodeURIComponent(specimen.id)}/executions`,
       { expectedSpecimenVersion: specimen.version, startedAt: new Date().toISOString(), reason,
@@ -639,7 +642,7 @@ export const staffApi = {
       { headers: { ...facilityHeaders(facilityId), ...keyHeaders() } }),
   labResultHistory: (facilityId: string, resultId: string) =>
     client.get<LabResult>(`/api/v1/lab/results/${encodeURIComponent(resultId)}/history`,
-      { headers: facilityHeaders(facilityId) }),
+      { headers: facilityHeaders(facilityId), dedupe: false }),
   pharmacyWorkItems: (facilityId: string) =>
     client.get<{ items: PharmacyWorkItem[] }>('/api/v1/pharmacy/work-items', { headers: facilityHeaders(facilityId) }),
   dispense: (facilityId: string, item: PharmacyWorkItem, quantityDispensed: number, quantityUnit: string, reason: string) =>
