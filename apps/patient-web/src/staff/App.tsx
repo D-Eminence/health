@@ -82,22 +82,22 @@ function StaffProvider({ children }: { children: ReactNode }) {
   }, [currentPeriod])
 
   // A protected request in the current session was refused with 401. That alone
-  // does not prove the session ended, so the server is asked. Reports that arrive
-  // while it answers are asked about once more afterwards, since its answer may
-  // predate them. Reports from an earlier session, or while none is in use
-  // (loading, signed out, already ended), change nothing.
-  const asking = useRef<'no' | 'yes' | 'again'>('no')
+  // does not prove the session ended, so the server is asked. Reports from the
+  // same session that arrive while it answers are asked about once more
+  // afterwards, since its answer may predate them. Reports from an earlier
+  // session, or while none is in use (loading, signed out, already ended), change nothing.
+  const asking = useRef<{ sentIn: number; again: boolean } | null>(null)
   useEffect(() => {
     function ask(sentIn: number) {
       const actor = currentSession.current?.actor
       if (status.current !== 'ready' || !actor || sentIn !== staffSessionGeneration()) return
-      if (asking.current !== 'no') { asking.current = 'again'; return }
-      asking.current = 'yes'
-      void staffApi.sessionHasEnded(actor.id).then(ended => {
-        const again = asking.current === 'again'
-        asking.current = 'no'
+      if (asking.current?.sentIn === sentIn) { asking.current.again = true; return }
+      const question = { sentIn, again: false }
+      asking.current = question
+      void staffApi.sessionHasEnded(actor.id, sentIn).then(ended => {
+        if (asking.current === question) asking.current = null
         if (status.current !== 'ready' || sentIn !== staffSessionGeneration()) return
-        if (!ended) { if (again) ask(sentIn); return }
+        if (!ended) { if (question.again) ask(sentIn); return }
         startStaffSessionGeneration()
         startPeriod()
         setState({ status: 'ended', session: null })
@@ -149,11 +149,9 @@ function StaffProvider({ children }: { children: ReactNode }) {
   }
 
   async function signOut() {
-    const sentIn = staffSessionGeneration()
+    // No next session can start meanwhile: signing in waits for a sign-out in progress.
+    // So a sign-out answered while the session-ended screen shows also completes, as asked.
     await staffApi.logout()
-    // A sign-out answered once the next session started leaves that session alone.
-    // One answered while the session-ended screen shows still completes, as asked.
-    if (status.current !== 'ended' && (status.current !== 'ready' || staffSessionGeneration() !== sentIn)) return
     startStaffSessionGeneration()
     startPeriod()
     setState({ status: 'signed-out', session: null })

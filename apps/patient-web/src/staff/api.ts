@@ -1,7 +1,7 @@
 import { createApiClient, HidApiError, isHidApiError, uploadPresignedObject, type ApiClient, type RequestSpec } from '@hid/http'
 import { createRegisteredBrowserClient } from '@hid/api'
 import { getEnvironment } from './env'
-import { endsStaffSession, reportStaffSessionEnded, staffSessionGeneration } from './session'
+import { endsStaffSession, reportStaffSessionEnded, staffSessionGeneration, staffSessionSignal } from './session'
 
 export interface Facility {
   id: string
@@ -409,25 +409,43 @@ const transport = createApiClient({
   refreshSession: async () => { await refreshStaffSession() },
 })
 
+/** A signal aborted when either one is. */
+function eitherAborted(first: AbortSignal | undefined, second: AbortSignal): AbortSignal {
+  if (!first) return second
+  if (first.aborted || second.aborted) return AbortSignal.abort()
+  const both = new AbortController()
+  const abort = () => both.abort()
+  first.addEventListener('abort', abort, { once: true })
+  second.addEventListener('abort', abort, { once: true })
+  return both.signal
+}
+
 /**
- * Reports a protected staff request still refused with 401 after the client's
- * refresh, naming the session it was sent in; the provider then asks the server
- * whether that session really ended. Sign-in and the session, refresh, sign-out
- * and facility calls under /api/v1/auth/ are left to their callers, which know
- * what a 401 there means.
+ * Ties each staff request to the session it was sent in. A protected request
+ * still refused with 401 after the client's refresh is reported, naming that
+ * session; the provider then asks the server whether it really ended. Sign-in
+ * and the session, refresh, sign-out and facility calls under /api/v1/auth/ are
+ * left to their callers, which know what a 401 there means.
  */
 function reportingSessionEnd(inner: ApiClient): ApiClient {
   const outer: ApiClient = {
     baseUrl: inner.baseUrl,
     async request<T>(spec: RequestSpec): Promise<T> {
       const sentIn = staffSessionGeneration()
-      // A request whose session has since ended is never restored and repeated:
-      // by the time its 401 arrives the browser may hold the next person's session.
-      const own: RequestSpec = { ...spec, refreshOnUnauthorized: error =>
-        staffSessionGeneration() === sentIn && (spec.refreshOnUnauthorized?.(error) ?? true) }
+      const protectedCall = spec.auth !== 'none' && !spec.path.startsWith('/api/v1/auth/')
+      const own: RequestSpec = {
+        ...spec,
+        // A request whose session has since ended is never restored and repeated:
+        // by the time its 401 arrives the browser may hold the next person's session.
+        refreshOnUnauthorized: error => staffSessionGeneration() === sentIn && (spec.refreshOnUnauthorized?.(error) ?? true),
+        // It is also cancelled when its session ends, so the next session's identical
+        // read never joins it. Calls under /api/v1/auth/ run to completion: an
+        // abandoned refresh could leave the browser holding a used refresh token.
+        ...(protectedCall ? { signal: eitherAborted(spec.signal, staffSessionSignal()) } : {}),
+      }
       try { return await inner.request<T>(own) }
       catch (error) {
-        if (spec.auth !== 'none' && !spec.path.startsWith('/api/v1/auth/') && endsStaffSession(error)) reportStaffSessionEnded(sentIn)
+        if (protectedCall && endsStaffSession(error)) reportStaffSessionEnded(sentIn)
         throw error
       }
     },
@@ -483,6 +501,18 @@ async function withRestoredSession<T>(call: () => Promise<T>): Promise<T> {
 const SIGN_OUT_ATTEMPTS = 3
 
 /**
+ * The sign-out in progress, if any. Signing in waits for it: its answer clears
+ * the browser's session cookies, which by then could be the new session's.
+ */
+let leaving: Promise<unknown> = Promise.resolve()
+
+function signOut(): Promise<void> {
+  const signingOut = signOutStaffSession()
+  leaving = signingOut.catch(() => undefined)
+  return signingOut
+}
+
+/**
  * Ends the session on the server. It resolves only once no session remains:
  * the server confirmed the sign-out, or refused to restore the session at all.
  * A 401 after a refresh the server accepted proves nothing (another refresh in
@@ -504,18 +534,20 @@ async function signOutStaffSession(): Promise<void> {
 }
 
 /**
- * Whether the session `actorId` held has really ended, after a request found it
- * refused. The server is asked directly, restoring the session once if only the
- * access token expired. A session the server still accepts, or a question the
- * server could not answer, ends nothing; cookies that now belong to another
- * account (signed in from another tab) end this one.
+ * Whether the session `actorId` held in generation `sentIn` has really ended,
+ * after a request found it refused. The server is asked directly, restoring the
+ * session once if only the access token expired. A session the server still
+ * accepts, or a question the server could not answer, ends nothing; cookies
+ * that now belong to another account (signed in from another tab) end this one.
+ * Once the generation has changed the answer no longer matters, and the session
+ * is never restored with cookies that may belong to the next one.
  */
-async function staffSessionHasEnded(actorId: string): Promise<boolean> {
+async function staffSessionHasEnded(actorId: string, sentIn: number): Promise<boolean> {
   let session: StaffSession
   // A read of its own: one already in flight may have reached the server before the refusal.
   try { session = await client.get<StaffSession>('/api/v1/auth/session', { auth: 'optional', dedupe: false }) }
   catch (error) {
-    if (!endsStaffSession(error)) return false
+    if (!endsStaffSession(error) || staffSessionGeneration() !== sentIn) return false
     try { session = await refreshStaffSession() }
     catch (refused) { return endsStaffSession(refused) }
   }
@@ -575,13 +607,15 @@ export const providerEnrollmentApi = {
 }
 
 export const staffApi = {
-  login: (email: string, password: string, turnstileToken?: string) =>
-    client.post<StaffSession>('/api/v1/auth/login', {
+  login: async (email: string, password: string, turnstileToken?: string) => {
+    await leaving
+    return client.post<StaffSession>('/api/v1/auth/login', {
       email, password, turnstileToken, turnstileAction: 'staff-login',
-    }, { auth: 'none' }),
+    }, { auth: 'none' })
+  },
   session: () => client.get<StaffSession>('/api/v1/auth/session', { auth: 'optional' }),
   refresh: () => refreshStaffSession(),
-  logout: signOutStaffSession,
+  logout: signOut,
   sessionHasEnded: staffSessionHasEnded,
   selectFacility: async (facilityId: string) => {
     const sentIn = staffSessionGeneration()

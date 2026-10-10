@@ -11,16 +11,26 @@ const listeners = new Set<(generation: number) => void>()
 /**
  * Counts the sessions this page has held. The provider starts a new generation
  * whenever a session starts or ends, so an answer to a request sent in an
- * earlier one can be recognised and ignored.
+ * earlier one can be recognised and ignored. Starting one also cancels the
+ * protected requests still in flight from the last, through `staffSessionSignal`.
  */
 let generation = 0
+let generationEnd = new AbortController()
 
 export function staffSessionGeneration(): number {
   return generation
 }
 
+/** Aborted when the current generation ends. */
+export function staffSessionSignal(): AbortSignal {
+  return generationEnd.signal
+}
+
 export function startStaffSessionGeneration(): void {
   generation += 1
+  const ended = generationEnd
+  generationEnd = new AbortController()
+  ended.abort()
 }
 
 /** Calls `listener` each time a request sent in `generation` is refused as if the session had ended. */
