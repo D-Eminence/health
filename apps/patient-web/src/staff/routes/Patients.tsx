@@ -35,8 +35,8 @@ export function Patients() {
       setActivePatient(null)
       throw new Error('The backend has not granted access to this patient. Request approval, verify their PIN, or use documented emergency access when justified.')
     }
-    setActivePatient({ hid: candidate, lookup, purpose })
-    navigate('/provider/clinical')
+    // A lookup answered after the session or facility changed opens nothing.
+    if (setActivePatient({ hid: candidate, lookup, purpose })) navigate('/provider/clinical')
   }
 
   async function checkAccess(event: FormEvent<HTMLFormElement>) {

@@ -1,9 +1,10 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
-import { NavLink, Navigate, Outlet, Route, Routes, useNavigate } from 'react-router-dom'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { NavLink, Navigate, Outlet, Route, Routes, useHref, useLinkClickHandler, useLocation, useNavigate } from 'react-router-dom'
 import { BrandLogo } from '../BrandLogo'
-import { Badge, Button, EmptyState, Select } from '@hid/ui'
+import { Badge, Button, ButtonLink, EmptyState, Select } from '@hid/ui'
 import { isHidApiError } from '@hid/http'
 import { staffApi, type PatientLookup, type StaffSession } from './api'
+import { onStaffSessionEnded, staffSignInPath } from './session'
 import { SignIn } from './routes/SignIn'
 import { Dashboard } from './routes/Dashboard'
 import { Patients } from './routes/Patients'
@@ -19,6 +20,8 @@ type SessionState =
   | { status: 'loading'; session: null }
   | { status: 'error'; session: null; error: string }
   | { status: 'signed-out'; session: null }
+  /** The server stopped accepting the session while it was in use (expired, revoked or ended elsewhere). */
+  | { status: 'ended'; session: null }
   | { status: 'ready'; session: StaffSession }
 
 export interface ActivePatient {
@@ -32,9 +35,15 @@ interface StaffContextValue {
   activePatient: ActivePatient | null
   login(email: string, password: string, turnstileToken?: string): Promise<void>
   refresh(): Promise<void>
-  selectFacility(id: string): Promise<void>
+  /** Resolves false, changing nothing, when the session ended while the switch was answered. */
+  selectFacility(id: string): Promise<boolean>
   signOut(): Promise<void>
-  setActivePatient(patient: ActivePatient | null): void
+  /**
+   * Sets the patient open in this session. Returns false, changing nothing, when
+   * the session or facility the caller's page belonged to has since ended, so a
+   * late answer can neither reopen a patient nor move to their record.
+   */
+  setActivePatient(patient: ActivePatient | null): boolean
 }
 
 const StaffContext = createContext<StaffContextValue | null>(null)
@@ -46,10 +55,39 @@ export function useStaff() {
 }
 
 function StaffProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<SessionState>({ status: 'loading', session: null })
-  const [activePatient, setActivePatient] = useState<ActivePatient | null>(null)
+  const [state, setSessionState] = useState<SessionState>({ status: 'loading', session: null })
+  // The status as of the last change, read synchronously by the session-end listener.
+  const status = useRef<SessionState['status']>('loading')
+  const setState = useCallback((next: SessionState) => { status.current = next.status; setSessionState(next) }, [])
+  // Each session, sign-out and facility starts a new period. A patient set by a page
+  // from an earlier period is ignored, whenever its answer arrives.
+  const period = useRef(0)
+  const [currentPeriod, setCurrentPeriod] = useState(0)
+  const [activePatient, setActivePatientValue] = useState<ActivePatient | null>(null)
+  const startPeriod = useCallback(() => {
+    period.current += 1
+    setCurrentPeriod(period.current)
+    setActivePatientValue(null)
+  }, [])
+  const setActivePatient = useMemo(() => {
+    const owner = currentPeriod
+    return (patient: ActivePatient | null) => {
+      if (period.current !== owner || status.current !== 'ready') return false
+      setActivePatientValue(patient)
+      return true
+    }
+  }, [currentPeriod])
+
+  // A protected request found the session ended. Only a session in use can end:
+  // reports while it loads, after sign-out or after it already ended change nothing.
+  useEffect(() => onStaffSessionEnded(() => {
+    if (status.current !== 'ready') return
+    startPeriod()
+    setState({ status: 'ended', session: null })
+  }), [setState, startPeriod])
 
   const refresh = useCallback(async () => {
+    startPeriod()
     setState({ status: 'loading', session: null })
     try {
       let session: StaffSession
@@ -67,35 +105,61 @@ function StaffProvider({ children }: { children: ReactNode }) {
         setState({ status: 'error', session: null, error: error instanceof Error ? error.message : 'Session could not be verified.' })
       }
     }
-  }, [])
+  }, [setState, startPeriod])
 
   useEffect(() => { void refresh() }, [refresh])
 
   async function login(email: string, password: string, turnstileToken?: string) {
     const session = await staffApi.login(email, password, turnstileToken)
     if (session.actor.kind === 'patient') throw new Error('A staff account is required for this portal.')
-    setActivePatient(null)
+    startPeriod()
     setState({ status: 'ready', session })
   }
 
   async function selectFacility(id: string) {
     const session = await staffApi.selectFacility(id)
-    setActivePatient(null)
+    // The switch may have been answered after the session ended; it does not restart it.
+    if (status.current !== 'ready') return false
+    startPeriod()
     setState({ status: 'ready', session })
+    return true
   }
 
   async function signOut() {
     await staffApi.logout()
-    setActivePatient(null)
+    startPeriod()
     setState({ status: 'signed-out', session: null })
   }
 
-  const value = useMemo<StaffContextValue>(() => ({ state, activePatient, login, refresh, selectFacility, signOut, setActivePatient }), [state, activePatient, refresh])
+  const value = useMemo<StaffContextValue>(() => ({ state, activePatient, login, refresh, selectFacility, signOut, setActivePatient }), [state, activePatient, refresh, setActivePatient])
   return <StaffContext.Provider value={value}>{children}</StaffContext.Provider>
+}
+
+/**
+ * Shown in place of the whole workspace once the server stops accepting the
+ * session. The workspace and every page under it are gone, with whatever
+ * patient information they held. The wording is fixed: it carries no server
+ * detail, and the backend gives staff clients no reason to name.
+ */
+function SessionEnded() {
+  const location = useLocation()
+  const signIn = staffSignInPath(location.pathname)
+  const href = useHref(signIn)
+  const follow = useLinkClickHandler(signIn)
+  const heading = useRef<HTMLHeadingElement>(null)
+  useEffect(() => { heading.current?.focus() }, [])
+  return <div className="staff-centered"><BrandLogo className="staff-state-logo" />
+    <section className="staff-session-ended" role="alert" aria-labelledby="staff-session-ended-title">
+      <h1 id="staff-session-ended-title" ref={heading} tabIndex={-1}>Your session has ended</h1>
+      <p>For your security, the provider workspace was closed and the patient information it showed was cleared. Sign in again to continue.</p>
+      <ButtonLink href={href} onClick={follow}>Sign in again</ButtonLink>
+    </section>
+  </div>
 }
 
 function Gate({ children }: { children: ReactNode }) {
   const { state, refresh } = useStaff()
+  if (state.status === 'ended') return <SessionEnded />
   if (state.status === 'loading') return <div className="staff-centered" role="status"><BrandLogo className="staff-state-logo" />Checking your secure session…</div>
   if (state.status === 'error') return <div className="staff-centered"><BrandLogo className="staff-state-logo" /><EmptyState title="Session unavailable" description={state.error} action={<Button onClick={() => void refresh()}>Try again</Button>} /></div>
   if (state.status === 'signed-out') {
@@ -136,7 +200,7 @@ function Shell() {
   async function chooseFacility(id: string) {
     setFacilityError('')
     setSwitching(true)
-    try { await selectFacility(id); navigate('/provider') }
+    try { if (await selectFacility(id)) navigate('/provider') }
     catch (error) { setFacilityError(error instanceof Error ? error.message : 'Facility could not be selected.') }
     finally { setSwitching(false) }
   }
