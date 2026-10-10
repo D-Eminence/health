@@ -1,7 +1,7 @@
 import { createApiClient, HidApiError, isHidApiError, uploadPresignedObject, type ApiClient, type RequestSpec } from '@hid/http'
 import { createRegisteredBrowserClient } from '@hid/api'
 import { getEnvironment } from './env'
-import { endsStaffSession, reportStaffSessionEnded } from './session'
+import { endsStaffSession, reportStaffSessionEnded, staffSessionGeneration } from './session'
 
 export interface Facility {
   id: string
@@ -410,18 +410,20 @@ const transport = createApiClient({
 })
 
 /**
- * Reports the end of the session when a protected staff request is refused with
- * a 401 that the client could not cure by refreshing. Sign-in and the session,
- * refresh, sign-out and facility calls under /api/v1/auth/ are left to their
- * callers, which know what a 401 there means.
+ * Reports a protected staff request still refused with 401 after the client's
+ * refresh, naming the session it was sent in; the provider then asks the server
+ * whether that session really ended. Sign-in and the session, refresh, sign-out
+ * and facility calls under /api/v1/auth/ are left to their callers, which know
+ * what a 401 there means.
  */
 function reportingSessionEnd(inner: ApiClient): ApiClient {
   const outer: ApiClient = {
     baseUrl: inner.baseUrl,
     async request<T>(spec: RequestSpec): Promise<T> {
+      const sentIn = staffSessionGeneration()
       try { return await inner.request<T>(spec) }
       catch (error) {
-        if (spec.auth !== 'none' && !spec.path.startsWith('/api/v1/auth/') && endsStaffSession(error)) reportStaffSessionEnded()
+        if (spec.auth !== 'none' && !spec.path.startsWith('/api/v1/auth/') && endsStaffSession(error)) reportStaffSessionEnded(sentIn)
         throw error
       }
     },
@@ -459,15 +461,60 @@ function refreshStaffSession(): Promise<StaffSession> {
 /**
  * Runs a call under /api/v1/auth/ that the client does not refresh for. A 401
  * there may only mean the 15-minute access token expired, so the session is
- * restored once and the call repeated; a session that cannot be restored has ended.
+ * restored once and the call repeated. A call from a session that has since
+ * ended is never repeated: the cookies the browser holds now belong to the next one.
  */
 async function withRestoredSession<T>(call: () => Promise<T>): Promise<T> {
+  const sentIn = staffSessionGeneration()
   try { return await call() }
   catch (error) {
-    if (!endsStaffSession(error)) throw error
+    if (!endsStaffSession(error) || staffSessionGeneration() !== sentIn) throw error
     await refreshStaffSession()
+    if (staffSessionGeneration() !== sentIn) throw error
     return call()
   }
+}
+
+/** How many times sign-out restores the session before it reports that it could not finish. */
+const SIGN_OUT_ATTEMPTS = 3
+
+/**
+ * Ends the session on the server. It resolves only once no session remains:
+ * the server confirmed the sign-out, or refused to restore the session at all.
+ * A 401 after a refresh the server accepted proves nothing (another refresh in
+ * this tab may have rotated the session meanwhile), so the session is restored
+ * and the sign-out sent again. A sign-out from a session that has since ended
+ * does nothing, so it can never end the next one.
+ */
+async function signOutStaffSession(): Promise<void> {
+  const sentIn = staffSessionGeneration()
+  for (let attempt = 1; ; attempt += 1) {
+    try { await client.post<null>('/api/v1/auth/logout'); return }
+    catch (error) { if (!endsStaffSession(error)) throw error }
+    if (staffSessionGeneration() !== sentIn) return
+    if (attempt === SIGN_OUT_ATTEMPTS) throw new Error('Sign-out could not be completed. Try again.')
+    try { await refreshStaffSession() }
+    catch (refused) { if (endsStaffSession(refused)) return; throw refused }
+    if (staffSessionGeneration() !== sentIn) return
+  }
+}
+
+/**
+ * Whether the session `actorId` held has really ended, after a request found it
+ * refused. The server is asked directly, restoring the session once if only the
+ * access token expired. A session the server still accepts, or a question the
+ * server could not answer, ends nothing; cookies that now belong to another
+ * account (signed in from another tab) end this one.
+ */
+async function staffSessionHasEnded(actorId: string): Promise<boolean> {
+  let session: StaffSession
+  try { session = await client.get<StaffSession>('/api/v1/auth/session', { auth: 'optional' }) }
+  catch (error) {
+    if (!endsStaffSession(error)) return false
+    try { session = await refreshStaffSession() }
+    catch (refused) { return endsStaffSession(refused) }
+  }
+  return session.actor.id !== actorId
 }
 
 function facilityHeaders(facilityId: string, purpose: 'direct-care' | 'emergency' | 'healthcare-operations' = 'direct-care') {
@@ -529,14 +576,12 @@ export const staffApi = {
     }, { auth: 'none' }),
   session: () => client.get<StaffSession>('/api/v1/auth/session', { auth: 'optional' }),
   refresh: () => refreshStaffSession(),
-  /** Ends the session on the server, restoring it first if only the access token expired. Resolves once no session remains. */
-  logout: async () => {
-    try { await withRestoredSession(() => client.post<null>('/api/v1/auth/logout')) }
-    catch (error) { if (!endsStaffSession(error)) throw error }
-  },
+  logout: signOutStaffSession,
+  sessionHasEnded: staffSessionHasEnded,
   selectFacility: async (facilityId: string) => {
+    const sentIn = staffSessionGeneration()
     try { return await withRestoredSession(() => client.post<StaffSession>('/api/v1/auth/facility', { facilityId })) }
-    catch (error) { if (endsStaffSession(error)) reportStaffSessionEnded(); throw error }
+    catch (error) { if (endsStaffSession(error)) reportStaffSessionEnded(sentIn); throw error }
   },
 
   facilityAudit: async (facilityId: string, beforeSequenceId?: string): Promise<FacilityAuditPage> => {

@@ -4,7 +4,7 @@ import { BrandLogo } from '../BrandLogo'
 import { Badge, Button, ButtonLink, EmptyState, Select } from '@hid/ui'
 import { isHidApiError } from '@hid/http'
 import { staffApi, type PatientLookup, type StaffSession } from './api'
-import { onStaffSessionEnded, staffSignInPath } from './session'
+import { onStaffSessionEnded, staffSessionGeneration, staffSignInPath, startStaffSessionGeneration } from './session'
 import { SignIn } from './routes/SignIn'
 import { Dashboard } from './routes/Dashboard'
 import { Patients } from './routes/Patients'
@@ -56,9 +56,12 @@ export function useStaff() {
 
 function StaffProvider({ children }: { children: ReactNode }) {
   const [state, setSessionState] = useState<SessionState>({ status: 'loading', session: null })
-  // The status as of the last change, read synchronously by the session-end listener.
+  // The state as of the last change, read synchronously by the session-end listener.
   const status = useRef<SessionState['status']>('loading')
-  const setState = useCallback((next: SessionState) => { status.current = next.status; setSessionState(next) }, [])
+  const currentSession = useRef<StaffSession | null>(null)
+  const setState = useCallback((next: SessionState) => {
+    status.current = next.status; currentSession.current = next.session; setSessionState(next)
+  }, [])
   // Each session, sign-out and facility starts a new period. A patient set by a page
   // from an earlier period is ignored, whenever its answer arrives.
   const period = useRef(0)
@@ -78,15 +81,24 @@ function StaffProvider({ children }: { children: ReactNode }) {
     }
   }, [currentPeriod])
 
-  // A protected request found the session ended. Only a session in use can end:
-  // reports while it loads, after sign-out or after it already ended change nothing.
-  useEffect(() => onStaffSessionEnded(() => {
-    if (status.current !== 'ready') return
-    startPeriod()
-    setState({ status: 'ended', session: null })
+  // A protected request in the current session was refused with 401. That alone
+  // does not prove the session ended, so the server is asked (reports arriving
+  // together share one question, as the client merges identical reads). Reports
+  // from an earlier session, or while none is in use (loading, signed out,
+  // already ended), change nothing.
+  useEffect(() => onStaffSessionEnded(sentIn => {
+    const actor = currentSession.current?.actor
+    if (status.current !== 'ready' || !actor || sentIn !== staffSessionGeneration()) return
+    void staffApi.sessionHasEnded(actor.id).then(ended => {
+      if (!ended || status.current !== 'ready' || sentIn !== staffSessionGeneration()) return
+      startStaffSessionGeneration()
+      startPeriod()
+      setState({ status: 'ended', session: null })
+    })
   }), [setState, startPeriod])
 
   const refresh = useCallback(async () => {
+    startStaffSessionGeneration()
     startPeriod()
     setState({ status: 'loading', session: null })
     try {
@@ -112,21 +124,27 @@ function StaffProvider({ children }: { children: ReactNode }) {
   async function login(email: string, password: string, turnstileToken?: string) {
     const session = await staffApi.login(email, password, turnstileToken)
     if (session.actor.kind === 'patient') throw new Error('A staff account is required for this portal.')
+    startStaffSessionGeneration()
     startPeriod()
     setState({ status: 'ready', session })
   }
 
   async function selectFacility(id: string) {
+    const owner = period.current
     const session = await staffApi.selectFacility(id)
-    // The switch may have been answered after the session ended; it does not restart it.
-    if (status.current !== 'ready') return false
+    // A switch answered after its session ended, or after another change, applies to nothing now.
+    if (period.current !== owner || status.current !== 'ready') return false
     startPeriod()
     setState({ status: 'ready', session })
     return true
   }
 
   async function signOut() {
+    const owner = period.current
     await staffApi.logout()
+    // A sign-out answered after its session ended must not sign out the next one.
+    if (period.current !== owner) return
+    startStaffSessionGeneration()
     startPeriod()
     setState({ status: 'signed-out', session: null })
   }
