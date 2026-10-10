@@ -421,7 +421,11 @@ function reportingSessionEnd(inner: ApiClient): ApiClient {
     baseUrl: inner.baseUrl,
     async request<T>(spec: RequestSpec): Promise<T> {
       const sentIn = staffSessionGeneration()
-      try { return await inner.request<T>(spec) }
+      // A request whose session has since ended is never restored and repeated:
+      // by the time its 401 arrives the browser may hold the next person's session.
+      const own: RequestSpec = { ...spec, refreshOnUnauthorized: error =>
+        staffSessionGeneration() === sentIn && (spec.refreshOnUnauthorized?.(error) ?? true) }
+      try { return await inner.request<T>(own) }
       catch (error) {
         if (spec.auth !== 'none' && !spec.path.startsWith('/api/v1/auth/') && endsStaffSession(error)) reportStaffSessionEnded(sentIn)
         throw error
@@ -508,7 +512,8 @@ async function signOutStaffSession(): Promise<void> {
  */
 async function staffSessionHasEnded(actorId: string): Promise<boolean> {
   let session: StaffSession
-  try { session = await client.get<StaffSession>('/api/v1/auth/session', { auth: 'optional' }) }
+  // A read of its own: one already in flight may have reached the server before the refusal.
+  try { session = await client.get<StaffSession>('/api/v1/auth/session', { auth: 'optional', dedupe: false }) }
   catch (error) {
     if (!endsStaffSession(error)) return false
     try { session = await refreshStaffSession() }

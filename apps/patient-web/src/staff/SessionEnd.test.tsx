@@ -250,6 +250,42 @@ describe('a refused request while the server still accepts the session', () => {
   })
 })
 
+describe('asking the server', () => {
+  it('asks again when another refusal arrives while an earlier answer is on its way', async () => {
+    const firstAnswer = deferredResponse()
+    const calls = serve({
+      [SESSION]: [json(staffSession()), firstAnswer.answer, confirmedEnd.session()],
+      [REQUESTS]: [ended(), ended()], [FACILITY]: [ended()],
+      [REFRESH]: [json(staffSession()), refreshRefused(), confirmedEnd.refresh()],
+    })
+    await open('/provider')
+    // The overview's retry is refused as a refresh rotates the session: the server is asked.
+    await waitFor(() => expect(calls.filter(call => call === SESSION)).toHaveLength(2))
+    // Then the session is revoked: a facility switch is refused and cannot be restored.
+    fireEvent.change(screen.getByRole('combobox', { name: 'Working at' }), { target: { value: 'facility-2' } })
+    await waitFor(() => expect(calls.filter(call => call === REFRESH)).toHaveLength(2))
+
+    // The first answer was read before the revocation and still accepts the session.
+    await act(async () => { firstAnswer.respond(json(staffSession())) })
+
+    await expectSessionEnded()
+    expect(calls.filter(call => call === SESSION)).toHaveLength(3)
+  })
+
+  it('counts a refusal of a request sent before a facility switch', async () => {
+    const read = deferredResponse()
+    serve({ [SESSION]: [json(staffSession()), confirmedEnd.session()], [REQUESTS]: [read.answer, json([])], [FACILITY]: [json(atIkeja())],
+      [REFRESH]: [refreshRefused(), confirmedEnd.refresh()] })
+    await open('/provider')
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Working at' }), { target: { value: 'facility-2' } })
+    expect(await screen.findByText(/^Working at Ikeja Clinic\./)).toBeTruthy()
+
+    await act(async () => { read.respond(ended()) })
+
+    await expectSessionEnded()
+  })
+})
+
 describe('an action or refresh refused because the session ended', () => {
   it('shows the session-ended screen when an access request is refused', async () => {
     const calls = serve({ [SESSION]: [json(staffSession()), confirmedEnd.session()], [REQUEST_ACCESS]: [ended()], [REFRESH]: [refreshRefused(), confirmedEnd.refresh()] })
@@ -466,28 +502,69 @@ describe('late answers after the session ended', () => {
     if (when === 'after the next sign-in') {
       expect(screen.getByRole('button', { name: 'Sign out' })).toBeTruthy()
       expect((screen.getByRole('combobox', { name: 'Working at' }) as HTMLSelectElement).value).toBe('facility-1')
+    } else if (action === 'sign-out') {
+      // The person asked to sign out and the session is gone: they reach sign-in.
+      expect(await screen.findByRole('heading', { name: 'Welcome back.' })).toBeTruthy()
     } else {
       await expectSessionEnded()
     }
   })
 
-  it('do not end the next session when a request from the ended one is refused after sign-in', async () => {
+  it('do not end the next session, or repeat the request as its account, when a request from the ended one is refused after sign-in', async () => {
     const lookup = deferredResponse()
-    const calls = serve({ [SESSION]: [json(staffSession()), confirmedEnd.session()], [LOOKUP]: [lookup.answer, ended()], [FACILITY]: [ended()],
-      [REFRESH]: [refreshRefused(), confirmedEnd.refresh(), json(staffSession())], [LOGIN]: [json(staffSession())] })
+    const calls = serve({ [SESSION]: [json(staffSession()), confirmedEnd.session()], [LOOKUP]: [lookup.answer, allowedLookup()], [FACILITY]: [ended()],
+      [REFRESH]: [refreshRefused(), confirmedEnd.refresh(), json(staffSession('staff-2', 'Bola Nurse'))], [LOGIN]: [json(staffSession('staff-2', 'Bola Nurse'))] })
     await open('/provider/patients')
     await openPatientRecord()
     fireEvent.change(screen.getByRole('combobox', { name: 'Working at' }), { target: { value: 'facility-2' } })
     await expectSessionEnded()
     await signInAgain('/provider/patients')
+    const before = calls.length
 
     await act(async () => { lookup.respond(ended()) })
     await settle()
 
     expect(screen.queryByText(SESSION_ENDED)).toBeNull()
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeTruthy()
-    // No confirmation was needed: the refusal belonged to the ended session.
-    expect(calls.filter(call => call === SESSION)).toHaveLength(2)
+    // Neither restored with the next account's session and sent again, nor questioned.
+    expect(calls.slice(before)).toEqual([])
+    expect(document.body.innerHTML).not.toContain(PATIENT_NAME)
+  })
+
+  it('do not repeat an emergency access from the ended session as the next account', async () => {
+    const emergency = deferredResponse()
+    const BREAK_GLASS = 'POST /api/v1/identity/break-glass'
+    const calls = serve({ [SESSION]: [json(staffSession()), confirmedEnd.session()], [BREAK_GLASS]: [emergency.answer, json({ grantId: 'grant-9' })],
+      [REFRESH]: [confirmedEnd.refresh(), json(staffSession('staff-2', 'Bola Nurse'))], [LOGIN]: [json(staffSession('staff-2', 'Bola Nurse'))] })
+    await open('/provider/patients')
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Health ID' }), { target: { value: PATIENT_HID } })
+    fireEvent.click(screen.getByRole('tab', { name: 'Emergency' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Emergency reason' }), { target: { value: 'Unconscious on arrival' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Activate emergency access' }))
+    await waitFor(() => expect(calls).toContain(BREAK_GLASS))
+    await endSessionNow()
+    await signInAgain('/provider/patients')
+    const before = calls.length
+
+    await act(async () => { emergency.respond(ended()) })
+    await settle()
+
+    expect(calls.slice(before)).toEqual([])
+    expect(screen.getByRole('button', { name: 'Sign out' })).toBeTruthy()
+  })
+
+  it('finish a deliberate sign-out that the server confirms while the session-ended screen shows', async () => {
+    const leaving = deferredResponse()
+    serve({ [SESSION]: [json(staffSession()), confirmedEnd.session()], [REQUESTS]: [json([])], [LOGOUT]: [leaving.answer], [REFRESH]: [confirmedEnd.refresh()] })
+    await open('/provider')
+    expect(await screen.findByText('0 pending requests')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
+    await endSessionNow()
+
+    await act(async () => { leaving.respond(signedOut()) })
+
+    expect(await screen.findByRole('heading', { name: 'Welcome back.' })).toBeTruthy()
+    expect(screen.queryByText(SESSION_ENDED)).toBeNull()
   })
 
   it('do not turn a deliberate sign-out into a session-ended screen', async () => {
@@ -689,6 +766,18 @@ describe('signing out', () => {
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeTruthy()
     expect(screen.queryByRole('heading', { name: 'Welcome back.' })).toBeNull()
     expect(authCalls(calls)).toEqual([LOGOUT, REFRESH, LOGOUT, REFRESH, LOGOUT])
+  })
+
+  it('completes when a facility switch is answered while it runs', async () => {
+    const switched = deferredResponse()
+    const leaving = deferredResponse()
+    await openAndSignOut({ [FACILITY]: [switched.answer], [LOGOUT]: [leaving.answer] })
+    fireEvent.change(screen.getByRole('combobox', { name: 'Working at' }), { target: { value: 'facility-2' } })
+
+    await act(async () => { switched.respond(json(atIkeja())) })
+    await act(async () => { leaving.respond(signedOut()) })
+
+    expect(await screen.findByRole('heading', { name: 'Welcome back.' })).toBeTruthy()
   })
 
   it('signs out when the server had already ended the session', async () => {

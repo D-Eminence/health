@@ -82,20 +82,29 @@ function StaffProvider({ children }: { children: ReactNode }) {
   }, [currentPeriod])
 
   // A protected request in the current session was refused with 401. That alone
-  // does not prove the session ended, so the server is asked (reports arriving
-  // together share one question, as the client merges identical reads). Reports
-  // from an earlier session, or while none is in use (loading, signed out,
-  // already ended), change nothing.
-  useEffect(() => onStaffSessionEnded(sentIn => {
-    const actor = currentSession.current?.actor
-    if (status.current !== 'ready' || !actor || sentIn !== staffSessionGeneration()) return
-    void staffApi.sessionHasEnded(actor.id).then(ended => {
-      if (!ended || status.current !== 'ready' || sentIn !== staffSessionGeneration()) return
-      startStaffSessionGeneration()
-      startPeriod()
-      setState({ status: 'ended', session: null })
-    })
-  }), [setState, startPeriod])
+  // does not prove the session ended, so the server is asked. Reports that arrive
+  // while it answers are asked about once more afterwards, since its answer may
+  // predate them. Reports from an earlier session, or while none is in use
+  // (loading, signed out, already ended), change nothing.
+  const asking = useRef<'no' | 'yes' | 'again'>('no')
+  useEffect(() => {
+    function ask(sentIn: number) {
+      const actor = currentSession.current?.actor
+      if (status.current !== 'ready' || !actor || sentIn !== staffSessionGeneration()) return
+      if (asking.current !== 'no') { asking.current = 'again'; return }
+      asking.current = 'yes'
+      void staffApi.sessionHasEnded(actor.id).then(ended => {
+        const again = asking.current === 'again'
+        asking.current = 'no'
+        if (status.current !== 'ready' || sentIn !== staffSessionGeneration()) return
+        if (!ended) { if (again) ask(sentIn); return }
+        startStaffSessionGeneration()
+        startPeriod()
+        setState({ status: 'ended', session: null })
+      })
+    }
+    return onStaffSessionEnded(ask)
+  }, [setState, startPeriod])
 
   const refresh = useCallback(async () => {
     startStaffSessionGeneration()
@@ -140,10 +149,11 @@ function StaffProvider({ children }: { children: ReactNode }) {
   }
 
   async function signOut() {
-    const owner = period.current
+    const sentIn = staffSessionGeneration()
     await staffApi.logout()
-    // A sign-out answered after its session ended must not sign out the next one.
-    if (period.current !== owner) return
+    // A sign-out answered once the next session started leaves that session alone.
+    // One answered while the session-ended screen shows still completes, as asked.
+    if (status.current !== 'ended' && (status.current !== 'ready' || staffSessionGeneration() !== sentIn)) return
     startStaffSessionGeneration()
     startPeriod()
     setState({ status: 'signed-out', session: null })
