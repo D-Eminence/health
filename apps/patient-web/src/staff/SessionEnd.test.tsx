@@ -62,15 +62,27 @@ const REQUEST_ACCESS = 'POST /api/v1/identity/access-requests'
 const ENCOUNTERS = `GET /api/v1/ehr/patients/${PATIENT_ID}/encounters`
 const LAB_WORK = 'GET /api/v1/lab/work-items'
 
-/** Answers each `METHOD /path` from its own queue, in order, and records the calls. */
+/**
+ * Answers each `METHOD /path` from its own queue, in order, and records the calls.
+ * Like a browser's fetch it never sends a request already cancelled, and a request
+ * cancelled on its way rejects at once, whenever the server would have answered.
+ */
 function serve(routes: Record<string, Answer[]>) {
   const calls: string[] = []
   vi.stubGlobal('fetch', vi.fn(async (url: string | URL | Request, init: RequestInit) => {
     const route = `${String(init.method)} ${new URL(String(url)).pathname}`
+    const cancelled = () => new DOMException('The operation was aborted.', 'AbortError')
+    const signal = init.signal
+    if (signal?.aborted) throw cancelled()
     calls.push(route)
     const next = routes[route]?.shift()
-    if (!next) return json({ code: 'UNEXPECTED_REQUEST', detail: route }, 418)
-    return typeof next === 'function' ? next() : next
+    const answer = Promise.resolve(!next ? json({ code: 'UNEXPECTED_REQUEST', detail: route }, 418) : typeof next === 'function' ? next() : next)
+    if (!signal) return answer
+    return new Promise<Response>((resolve, reject) => {
+      const abort = () => reject(cancelled())
+      signal.addEventListener('abort', abort, { once: true })
+      answer.then(response => { signal.removeEventListener('abort', abort); resolve(response) }, reject)
+    })
   }))
   return calls
 }
@@ -539,7 +551,7 @@ describe('late answers after the session ended', () => {
   it.each([
     ['facility switch', 'while the session-ended screen shows'],
     ['sign-out', 'while the session-ended screen shows'],
-    ['facility switch', 'after the next sign-in'],
+    ['facility switch', 'as the next sign-in waits for it'],
     ['sign-out', 'as the next sign-in waits for it'],
   ] as const)('do not repeat a %s with cookies that belong to someone else when its restore answers %s', async (action, when) => {
     const { route, start } = actions[action]
@@ -552,7 +564,6 @@ describe('late answers after the session ended', () => {
     await waitFor(() => expect(calls).toContain(REFRESH))
     // The browser now holds another account's session (signed in from another tab): this one has ended.
     await endSessionNow()
-    if (when === 'after the next sign-in') await signInAgain('/provider')
     if (when === 'as the next sign-in waits for it') {
       fireEvent.click(screen.getByRole('link', { name: 'Sign in again' }))
       await signIn()
@@ -568,8 +579,6 @@ describe('late answers after the session ended', () => {
     if (when === 'as the next sign-in waits for it') {
       await waitFor(() => expect(where()).toBe('/provider'))
       expect(await screen.findByRole('button', { name: 'Sign out' })).toBeTruthy()
-    } else if (when === 'after the next sign-in') {
-      expect(screen.getByRole('button', { name: 'Sign out' })).toBeTruthy()
       expect((screen.getByRole('combobox', { name: 'Working at' }) as HTMLSelectElement).value).toBe('facility-1')
     } else if (action === 'sign-out') {
       // The person asked to sign out and the session is gone: they reach sign-in.
@@ -579,31 +588,49 @@ describe('late answers after the session ended', () => {
     }
   })
 
-  it('do not repeat as the next account a request sent while the session-ended screen showed', async () => {
-    const emergency = deferredResponse()
+  it('do not send, restore or repeat as the next account a request made while the session-ended screen showed', async () => {
     const lookup = deferredResponse()
-    const BREAK_GLASS = 'POST /api/v1/identity/break-glass'
-    const calls = serve({ [SESSION]: [json(staffSession()), confirmedEnd.session()], [BREAK_GLASS]: [emergency.answer],
-      [LOOKUP]: [lookup.answer, allowedLookup()], [REFRESH]: [confirmedEnd.refresh(), json(staffSession('staff-2', 'Bola Nurse'))],
-      [LOGIN]: [json(staffSession('staff-2', 'Bola Nurse'))] })
+    const calls = serve({ [SESSION]: [json(staffSession()), confirmedEnd.session()], [LOOKUP]: [lookup.answer, allowedLookup()],
+      [REFRESH]: [confirmedEnd.refresh(), json(staffSession('staff-2', 'Bola Nurse'))], [LOGIN]: [json(staffSession('staff-2', 'Bola Nurse'))] })
     await open('/provider/patients')
-    fireEvent.change(await screen.findByRole('textbox', { name: 'Health ID' }), { target: { value: PATIENT_HID } })
-    fireEvent.click(screen.getByRole('tab', { name: 'Emergency' }))
-    fireEvent.change(screen.getByRole('textbox', { name: 'Emergency reason' }), { target: { value: 'Unconscious on arrival' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Activate emergency access' }))
-    await waitFor(() => expect(calls).toContain(BREAK_GLASS))
+    expect(await screen.findByRole('button', { name: 'Sign out' })).toBeTruthy()
     await endSessionNow()
-    // The emergency access answers while the notice shows; the page goes on to look the patient up.
-    await act(async () => { emergency.respond(json({ grantId: 'grant-9' })) })
+    // A page of the ended session carries on (say, after an earlier step answered) and looks a patient up.
+    const { staffApi } = await import('./api')
+    const late = staffApi.lookupPatient('facility-1', PATIENT_HID).then(() => 'answered', (error: { code?: string }) => error.code)
     await waitFor(() => expect(calls).toContain(LOOKUP))
     await signInAgain('/provider/patients')
-    const before = calls.length
 
     await act(async () => { lookup.respond(ended()) })
     await settle()
 
-    expect(calls.slice(before)).toEqual([])
-    expect(document.body.innerHTML).not.toContain(PATIENT_NAME)
+    // Cancelled when the next session started: never restored with its cookies or sent again.
+    expect(await late).toBe('REQUEST_CANCELLED')
+    expect(calls.filter(call => call === LOOKUP)).toHaveLength(1)
+    expect(calls.filter(call => call === REFRESH)).toHaveLength(1)
+  })
+
+  it('do not repeat a write once the restore that would retry it shows the session belongs to another account', async () => {
+    const restore = deferredResponse()
+    const BREAK_GLASS = 'POST /api/v1/identity/break-glass'
+    const calls = serve({ [SESSION]: [json(staffSession()), ended()], [BREAK_GLASS]: [ended(), json({ grantId: 'grant-9' })],
+      [REFRESH]: [restore.answer] })
+    await open('/provider/patients')
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Health ID' }), { target: { value: PATIENT_HID } })
+    fireEvent.click(screen.getByRole('tab', { name: 'Emergency' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Emergency reason' }), { target: { value: 'Unconscious on arrival' } })
+    // The server is already being asked about this session, and restoring it is on its way.
+    const { reportStaffSessionEnded } = await import('./session')
+    act(() => reportStaffSessionEnded())
+    await waitFor(() => expect(calls).toContain(REFRESH))
+    fireEvent.click(screen.getByRole('button', { name: 'Activate emergency access' }))
+    await waitFor(() => expect(calls).toContain(BREAK_GLASS))
+
+    // The restore both requests share yields another account's session (signed in from another tab).
+    await act(async () => { restore.respond(json(staffSession('staff-2', 'Bola Nurse'))) })
+
+    await expectSessionEnded()
+    expect(calls.filter(call => call === BREAK_GLASS)).toHaveLength(1)
   })
 
   it('give the next account a read of its own, never one still in flight from the account before', async () => {
@@ -922,6 +949,48 @@ describe('signing out', () => {
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeTruthy()
     expect(screen.queryByRole('heading', { name: 'Welcome back.' })).toBeNull()
     expect(authCalls(calls)).toEqual([LOGOUT])
+  })
+
+  it('lets a later sign-in through after a sign-out that failed', async () => {
+    serve({ [SESSION]: [json(staffSession()), confirmedEnd.session()], [REQUESTS]: [json([]), json([])],
+      [LOGOUT]: [problem(503, 'UPSTREAM_UNAVAILABLE', 'The service could not complete the request.')],
+      [REFRESH]: [confirmedEnd.refresh()], [LOGIN]: [json(staffSession())] })
+    await open('/provider')
+    expect(await screen.findByText('0 pending requests')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
+    expect(await screen.findByRole('alert')).toBeTruthy()
+    await endSessionNow()
+
+    await signInAgain('/provider')
+  })
+
+  it('leaves the session\'s requests running when the sign-out fails', async () => {
+    const read = deferredResponse()
+    serve({ [SESSION]: [json(staffSession())], [REQUESTS]: [read.answer], [LOGOUT]: [problem(503, 'UPSTREAM_UNAVAILABLE', 'The service could not complete the request.')] })
+    await open('/provider')
+    fireEvent.click(await screen.findByRole('button', { name: 'Sign out' }))
+    expect(await screen.findByRole('alert')).toBeTruthy()
+
+    await act(async () => { read.respond(json([])) })
+
+    expect(await screen.findByText('0 pending requests')).toBeTruthy()
+  })
+
+  it('signs in only once a refresh still in flight has answered, whose answer can clear the session cookies', async () => {
+    const restore = deferredResponse()
+    const calls = serve({ [SESSION]: [json(staffSession())], [REQUESTS]: [ended()], [REFRESH]: [restore.answer], [LOGOUT]: [signedOut()],
+      [LOGIN]: [json(staffSession())] })
+    await open('/provider')
+    await waitFor(() => expect(calls).toContain(REFRESH))
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
+    await signIn()
+    await settle()
+    expect(calls).not.toContain(LOGIN)
+
+    await act(async () => { restore.respond(refreshRefused()) })
+
+    await waitFor(() => expect(where()).toBe('/provider'))
+    expect(calls.indexOf(LOGIN)).toBeGreaterThan(calls.indexOf(REFRESH))
   })
 
   it('keeps the workspace and says so when the session cannot be restored to sign out (503)', async () => {

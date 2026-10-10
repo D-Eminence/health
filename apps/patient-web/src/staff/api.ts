@@ -501,8 +501,9 @@ async function withRestoredSession<T>(call: () => Promise<T>): Promise<T> {
 const SIGN_OUT_ATTEMPTS = 3
 
 /**
- * The sign-out in progress, if any. Signing in waits for it: its answer clears
- * the browser's session cookies, which by then could be the new session's.
+ * The sign-out in progress, if any. Signing in waits for it, and for a refresh
+ * still in flight: either answer can clear the browser's session cookies, which
+ * by then could be the new session's.
  */
 let leaving: Promise<unknown> = Promise.resolve()
 
@@ -608,7 +609,7 @@ export const providerEnrollmentApi = {
 
 export const staffApi = {
   login: async (email: string, password: string, turnstileToken?: string) => {
-    await leaving
+    await Promise.all([leaving, refreshing?.catch(() => undefined)])
     return client.post<StaffSession>('/api/v1/auth/login', {
       email, password, turnstileToken, turnstileAction: 'staff-login',
     }, { auth: 'none' })
