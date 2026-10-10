@@ -4,7 +4,10 @@ import { BrandLogo } from '../BrandLogo'
 import { Badge, Button, ButtonLink, EmptyState, Select } from '@hid/ui'
 import { isHidApiError } from '@hid/http'
 import { staffApi, type PatientLookup, type StaffSession } from './api'
-import { onStaffSessionEnded, staffSessionGeneration, staffSignInPath, startStaffSessionGeneration } from './session'
+import {
+  announceStaffSessionChange, onOtherTabSessionChange, onStaffSessionEnded, setStaffSessionActor, staffSessionGeneration,
+  staffSignInPath, startStaffSessionGeneration,
+} from './session'
 import { SignIn } from './routes/SignIn'
 import { Dashboard } from './routes/Dashboard'
 import { Patients } from './routes/Patients'
@@ -30,8 +33,20 @@ export interface ActivePatient {
   purpose: 'direct-care' | 'emergency'
 }
 
+/**
+ * Why the workspace is locked while the session is ready: the server is being
+ * asked whether the session still holds, or could not say.
+ */
+type SessionLock = 'checking' | 'unconfirmed' | null
+
+/** A tab back in view after this long asks the server before it shows the workspace again. */
+const RECHECK_AFTER_HIDDEN_MS = 60_000
+
 interface StaffContextValue {
   state: SessionState
+  lock: SessionLock
+  /** Asks the server again whether the session holds, locking the workspace meanwhile. */
+  checkSession(): void
   activePatient: ActivePatient | null
   login(email: string, password: string, turnstileToken?: string): Promise<void>
   refresh(): Promise<void>
@@ -61,7 +76,11 @@ function StaffProvider({ children }: { children: ReactNode }) {
   const currentSession = useRef<StaffSession | null>(null)
   const setState = useCallback((next: SessionState) => {
     status.current = next.status; currentSession.current = next.session; setSessionState(next)
+    setStaffSessionActor(next.status === 'ready' ? next.session.actor.id : null)
   }, [])
+  const [lock, setLock] = useState<SessionLock>(null)
+  // Leaving the provider portal (for the patient portal, in the same page) leaves no session in use.
+  useEffect(() => () => setStaffSessionActor(null), [])
   // Each session, sign-out and facility starts a new period. A patient set by a page
   // from an earlier period is ignored, whenever its answer arrives.
   const period = useRef(0)
@@ -82,44 +101,81 @@ function StaffProvider({ children }: { children: ReactNode }) {
   }, [currentPeriod])
 
   // A protected request in the current session was refused with 401. That alone
-  // does not prove the session ended, so the server is asked. Reports from the
-  // same session that arrive while it answers are asked about once more
-  // afterwards, since its answer may predate them. Reports from an earlier
-  // session, or while none is in use (loading, signed out, already ended), change nothing.
+  // does not prove the session ended, so the server is asked; but the refusal is
+  // reason enough to lock the workspace at once, hiding every patient it shows,
+  // until the server answers. A session it still accepts gets the workspace back
+  // as it was; one it cannot vouch for stays locked. Reports from the same session
+  // that arrive while it answers are asked about once more afterwards, since its
+  // answer may predate them. Reports from an earlier session, or while none is in
+  // use (loading, signed out, already ended), change nothing.
   const asking = useRef<{ sentIn: number; again: boolean } | null>(null)
-  useEffect(() => {
-    function ask(sentIn: number) {
-      const actor = currentSession.current?.actor
-      if (status.current !== 'ready' || !actor || sentIn !== staffSessionGeneration()) return
-      if (asking.current?.sentIn === sentIn) { asking.current.again = true; return }
-      const question = { sentIn, again: false }
-      asking.current = question
-      void staffApi.sessionHasEnded(actor.id, sentIn).then(ended => {
-        if (asking.current === question) asking.current = null
-        if (status.current !== 'ready' || sentIn !== staffSessionGeneration()) return
-        if (!ended) { if (question.again) ask(sentIn); return }
+  const ask = useCallback((sentIn: number) => {
+    const actor = currentSession.current?.actor
+    if (status.current !== 'ready' || !actor || sentIn !== staffSessionGeneration()) return
+    setLock('checking')
+    if (asking.current?.sentIn === sentIn) { asking.current.again = true; return }
+    const question = { sentIn, again: false }
+    asking.current = question
+    void staffApi.checkSession(actor.id, sentIn).catch(() => 'unknown' as const).then(answer => {
+      if (asking.current === question) asking.current = null
+      if (status.current !== 'ready' || sentIn !== staffSessionGeneration()) return
+      if (answer === 'ended') {
         startStaffSessionGeneration()
         startPeriod()
+        setLock(null)
         setState({ status: 'ended', session: null })
-      })
-    }
-    return onStaffSessionEnded(ask)
+        announceStaffSessionChange()
+      } else if (question.again) ask(sentIn)
+      else setLock(answer === 'alive' ? null : 'unconfirmed')
+    })
   }, [setState, startPeriod])
+  useEffect(() => onStaffSessionEnded(ask), [ask])
+
+  // Nothing else reveals a session that ended while this tab sent no request: a
+  // sign-in, sign-out or end in another tab, or time away. The workspace is locked
+  // and the server asked when another tab says its session changed, when the page
+  // comes back from the back/forward cache, and when the tab is back in view after
+  // a while hidden.
+  useEffect(() => {
+    const recheck = () => ask(staffSessionGeneration())
+    let hiddenSince: number | null = null
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') { hiddenSince ??= Date.now(); return }
+      if (hiddenSince !== null && Date.now() - hiddenSince >= RECHECK_AFTER_HIDDEN_MS) recheck()
+      hiddenSince = null
+    }
+    const onPageShow = (event: PageTransitionEvent) => { if (event.persisted) recheck() }
+    const stopListening = onOtherTabSessionChange(recheck)
+    document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('pageshow', onPageShow)
+    return () => {
+      stopListening()
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('pageshow', onPageShow)
+    }
+  }, [ask])
 
   const refresh = useCallback(async () => {
     startStaffSessionGeneration()
+    const sentIn = staffSessionGeneration()
     startPeriod()
+    setLock(null)
     setState({ status: 'loading', session: null })
+    // A sign-in or sign-out made while the session is read owns the state by the
+    // time a late answer arrives: that answer is about the browser's earlier session.
+    const current = () => staffSessionGeneration() === sentIn
     try {
       let session: StaffSession
       try { session = await staffApi.session() }
       catch (error) {
-        if (!isHidApiError(error) || error.status !== 401) throw error
+        if (!isHidApiError(error) || error.status !== 401 || !current()) throw error
         session = await staffApi.refresh()
       }
+      if (!current()) return
       if (session.actor.kind === 'patient') throw new Error('This account does not have a staff session.')
       setState({ status: 'ready', session })
     } catch (error) {
+      if (!current()) return
       if (isHidApiError(error) && error.status === 401) {
         setState({ status: 'signed-out', session: null })
       } else {
@@ -135,7 +191,9 @@ function StaffProvider({ children }: { children: ReactNode }) {
     if (session.actor.kind === 'patient') throw new Error('A staff account is required for this portal.')
     startStaffSessionGeneration()
     startPeriod()
+    setLock(null)
     setState({ status: 'ready', session })
+    announceStaffSessionChange()
   }
 
   async function selectFacility(id: string) {
@@ -154,10 +212,14 @@ function StaffProvider({ children }: { children: ReactNode }) {
     await staffApi.logout()
     startStaffSessionGeneration()
     startPeriod()
+    setLock(null)
     setState({ status: 'signed-out', session: null })
+    announceStaffSessionChange()
   }
 
-  const value = useMemo<StaffContextValue>(() => ({ state, activePatient, login, refresh, selectFacility, signOut, setActivePatient }), [state, activePatient, refresh, setActivePatient])
+  const checkSession = useCallback(() => ask(staffSessionGeneration()), [ask])
+  const value = useMemo<StaffContextValue>(() => ({ state, lock, checkSession, activePatient, login, refresh, selectFacility, signOut, setActivePatient }),
+    [state, lock, checkSession, activePatient, refresh, setActivePatient])
   return <StaffContext.Provider value={value}>{children}</StaffContext.Provider>
 }
 
@@ -165,7 +227,8 @@ function StaffProvider({ children }: { children: ReactNode }) {
  * Shown in place of the whole workspace once the server stops accepting the
  * session. The workspace and every page under it are gone, with whatever
  * patient information they held. The wording is fixed: it carries no server
- * detail, and the backend gives staff clients no reason to name.
+ * detail, and the backend gives staff clients no reason to name. It is announced
+ * once, as focus moves to its heading; it is not also a live region.
  */
 function SessionEnded() {
   const location = useLocation()
@@ -175,7 +238,7 @@ function SessionEnded() {
   const heading = useRef<HTMLHeadingElement>(null)
   useEffect(() => { heading.current?.focus() }, [])
   return <div className="staff-centered"><BrandLogo className="staff-state-logo" />
-    <section className="staff-session-ended" role="alert" aria-labelledby="staff-session-ended-title">
+    <section className="staff-session-ended" aria-labelledby="staff-session-ended-title">
       <h1 id="staff-session-ended-title" ref={heading} tabIndex={-1}>Your session has ended</h1>
       <p>For your security, the provider workspace was closed and the patient information it showed was cleared. Sign in again to continue.</p>
       <ButtonLink href={href} onClick={follow}>Sign in again</ButtonLink>
@@ -183,8 +246,43 @@ function SessionEnded() {
   </div>
 }
 
+/**
+ * Shown over the locked workspace while the server is asked whether the session
+ * holds, or once it could not say. The workspace stays hidden throughout; the
+ * clinician can ask again or sign out. Announced, like the ended screen, by the
+ * focus moving to its heading.
+ */
+function SessionCheck({ unconfirmed }: { unconfirmed: boolean }) {
+  const { checkSession, signOut } = useStaff()
+  const [signingOut, setSigningOut] = useState(false)
+  const [error, setError] = useState('')
+  const heading = useRef<HTMLHeadingElement>(null)
+  useEffect(() => { heading.current?.focus() }, [unconfirmed])
+
+  async function leave() {
+    if (signingOut) return
+    setError('')
+    setSigningOut(true)
+    try { await signOut() }
+    catch (caught) { setError(caught instanceof Error ? caught.message : 'Sign-out could not be completed.') }
+    finally { setSigningOut(false) }
+  }
+
+  return <div className="staff-centered"><BrandLogo className="staff-state-logo" />
+    <section className="staff-session-ended" aria-labelledby="staff-session-check-title">
+      <h1 id="staff-session-check-title" ref={heading} tabIndex={-1}>{unconfirmed ? 'We could not confirm your session' : 'Checking your session…'}</h1>
+      <p>{unconfirmed
+        ? 'For your security, the provider workspace stays hidden until Health ID confirms your session. Try again, or sign out.'
+        : 'For your security, the provider workspace is hidden while Health ID confirms your session.'}</p>
+      {unconfirmed && <Button onClick={checkSession}>Try again</Button>}
+      <Button tone="quiet" onClick={() => void leave()} disabled={signingOut}>{signingOut ? 'Signing out…' : 'Sign out'}</Button>
+      {error && <p role="alert" className="staff-error">{error}</p>}
+    </section>
+  </div>
+}
+
 function Gate({ children }: { children: ReactNode }) {
-  const { state, refresh } = useStaff()
+  const { state, lock, refresh } = useStaff()
   if (state.status === 'ended') return <SessionEnded />
   if (state.status === 'loading') return <div className="staff-centered" role="status"><BrandLogo className="staff-state-logo" />Checking your secure session…</div>
   if (state.status === 'error') return <div className="staff-centered"><BrandLogo className="staff-state-logo" /><EmptyState title="Session unavailable" description={state.error} action={<Button onClick={() => void refresh()}>Try again</Button>} /></div>
@@ -194,7 +292,9 @@ function Gate({ children }: { children: ReactNode }) {
     return <Navigate to={signInPath} replace />
   }
   if (state.session.actor.facilities.length === 0) return <div className="staff-centered"><BrandLogo className="staff-state-logo" /><EmptyState title="No facility assignment" description="Your account has no active facility membership. Ask your organization administrator for access." /></div>
-  return <>{children}</>
+  // Locked, the workspace is hidden and inert but stays mounted: nothing reloads,
+  // and a session the server still accepts gets it back as it was.
+  return <>{lock && <SessionCheck unconfirmed={lock === 'unconfirmed'} />}<div hidden={lock !== null} inert={lock !== null}>{children}</div></>
 }
 
 const navigation = [

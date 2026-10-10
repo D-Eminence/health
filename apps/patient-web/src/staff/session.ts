@@ -33,6 +33,46 @@ export function startStaffSessionGeneration(): void {
   ended.abort()
 }
 
+/**
+ * The account of the session in use, or null while none is (loading, signed out,
+ * ended). A refresh that answers for another account has not restored this
+ * session: the browser's cookies now belong to someone else.
+ */
+let actor: string | null = null
+
+export function staffSessionActor(): string | null {
+  return actor
+}
+
+export function setStaffSessionActor(id: string | null): void {
+  actor = id
+}
+
+/**
+ * The portal's other tabs share this tab's cookies. Each tells the others when
+ * its session changes (signed in, signed out or ended), naming nothing; a tab
+ * that hears it asks the server itself. A channel never hears its own messages.
+ */
+let tabs: BroadcastChannel | null = null
+let tabListeners = 0
+
+export function onOtherTabSessionChange(listener: () => void): () => void {
+  if (typeof BroadcastChannel === 'undefined') return () => undefined
+  const channel = tabs ??= new BroadcastChannel('hid-staff-session')
+  const receive = () => listener()
+  channel.addEventListener('message', receive)
+  tabListeners += 1
+  return () => {
+    channel.removeEventListener('message', receive)
+    tabListeners -= 1
+    if (tabListeners === 0 && tabs === channel) { channel.close(); tabs = null }
+  }
+}
+
+export function announceStaffSessionChange(): void {
+  tabs?.postMessage('changed')
+}
+
 /** Calls `listener` each time a request sent in `generation` is refused as if the session had ended. */
 export function onStaffSessionEnded(listener: (generation: number) => void): () => void {
   listeners.add(listener)
