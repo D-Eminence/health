@@ -1,7 +1,10 @@
 import { createApiClient, HidApiError, isHidApiError, uploadPresignedObject, type ApiClient, type RequestSpec } from '@hid/http'
 import { createRegisteredBrowserClient } from '@hid/api'
 import { getEnvironment } from './env'
-import { endsStaffSession, reportStaffSessionEnded, staffSessionActor, staffSessionGeneration, staffSessionSignal } from './session'
+import {
+  endsStaffSession, nextStaffSessionChange, refusedAsPatient, reportStaffSessionEnded, staffSessionActor, staffSessionGeneration,
+  staffSessionReadyFor, staffSessionSignal, untilStaffSessionReady,
+} from './session'
 
 export interface Facility {
   id: string
@@ -433,6 +436,11 @@ function reportingSessionEnd(inner: ApiClient): ApiClient {
     async request<T>(spec: RequestSpec): Promise<T> {
       const sentIn = staffSessionGeneration()
       const protectedCall = spec.auth !== 'none' && !spec.path.startsWith('/api/v1/auth/')
+      // A protected request goes out only while its session is ready: one made while
+      // the session is being checked, could not be confirmed, or the page is away
+      // waits, and is never sent if that session ends. Readiness is read again, as
+      // it leaves, after every wait. Calls under /api/v1/auth/ are what settles it.
+      if (protectedCall) while (!staffSessionReadyFor(sentIn)) await nextStaffSessionChange()
       const own: RequestSpec = {
         ...spec,
         // A request whose session has since ended, or sent while none is in use (the
@@ -447,7 +455,8 @@ function reportingSessionEnd(inner: ApiClient): ApiClient {
       }
       try { return await inner.request<T>(own) }
       catch (error) {
-        if (protectedCall && endsStaffSession(error)) reportStaffSessionEnded(sentIn)
+        // A 403 is reported only when it says the session is a patient's; the server is then asked.
+        if (protectedCall && (endsStaffSession(error) || refusedAsPatient(error))) reportStaffSessionEnded(sentIn)
         throw error
       }
     },
@@ -766,18 +775,16 @@ export const staffApi = {
     client.get<{ url: string; expiresAt: string | null }>(`/api/v1/ehr/documents/${encodeURIComponent(documentId)}/download`,
       { headers: facilityHeaders(facilityId) }),
   async uploadDocument(facilityId: string, patientId: string, encounterId: string, file: File) {
-    // Every step runs only while the session the upload started in lasts: the storage
-    // PUT is cancelled with it, and no later step is sent once it has ended, so a
-    // document is never completed as the next account.
+    // Every step runs only while the session the upload started in is ready: each
+    // waits while that session is checked, unconfirmed or away, and the upload is
+    // abandoned once it has ended (another account signed in, or signed out), so
+    // a document is never completed as the next account. The storage PUT is
+    // cancelled with the session. The server's own ownership check is separate.
     const sentIn = staffSessionGeneration()
     const signal = staffSessionSignal()
-    const stillInSession = () => {
-      if (staffSessionGeneration() !== sentIn) throw new HidApiError(0, 'The upload was stopped because your session ended.',
-        { code: 'REQUEST_CANCELLED', retryable: false })
-    }
     const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer())
     const sha256Hex = [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('')
-    stillInSession()
+    await untilStaffSessionReady(sentIn)
     const intent = await client.post<{
       document: { id: string }
       upload: { method: 'PUT'; url: string; requiredHeaders: Record<string, string>; expiresInSeconds: number }
@@ -785,8 +792,9 @@ export const staffApi = {
       patientId, encounterId, fileName: file.name, mediaType: file.type, sizeBytes: file.size,
       sha256Hex, classification: 'phi', retentionClass: 'clinical-10y',
     }, { headers: { ...facilityHeaders(facilityId), ...keyHeaders() } })
+    await untilStaffSessionReady(sentIn)
     await uploadPresignedObject({ url: intent.upload.url, body: file, requiredHeaders: intent.upload.requiredHeaders, signal })
-    stillInSession()
+    await untilStaffSessionReady(sentIn)
     await client.post(`/api/v1/ehr/documents/${encodeURIComponent(intent.document.id)}/complete`, undefined,
       { headers: facilityHeaders(facilityId) })
     return intent.document.id

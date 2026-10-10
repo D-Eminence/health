@@ -1,4 +1,5 @@
-import { isHidApiError } from '@hid/http'
+import { HidApiError, isHidApiError } from '@hid/http'
+import { SESSION_CHANGE_CHANNEL } from '../sessionChange'
 
 /**
  * The end of the provider's staff session, as the staff API finds it. hid-system
@@ -31,6 +32,52 @@ export function startStaffSessionGeneration(): void {
   const ended = generationEnd
   generationEnd = new AbortController()
   ended.abort()
+  wakeWaiting()
+}
+
+/**
+ * Whether the session in use is ready for protected requests: in use, confirmed,
+ * and its workspace unlocked. While it is being checked, could not be confirmed,
+ * or the page is away, a protected request waits; if that session ends meanwhile
+ * the request is never sent.
+ */
+let ready = false
+let waiting: Array<() => void> = []
+
+function wakeWaiting(): void {
+  const woken = waiting
+  waiting = []
+  for (const resume of woken) resume()
+}
+
+export function setStaffSessionReady(value: boolean): void {
+  ready = value
+  wakeWaiting()
+}
+
+/**
+ * Whether the session of generation `sentIn` is ready now. Throws a cancellation
+ * once that session has ended: whatever was waiting on it is abandoned.
+ */
+export function staffSessionReadyFor(sentIn: number): boolean {
+  if (generation !== sentIn) {
+    throw new HidApiError(0, 'Stopped because the session it belonged to ended.', { code: 'REQUEST_CANCELLED', retryable: false })
+  }
+  return ready
+}
+
+/** Resolves at the next change of readiness or of session. */
+export function nextStaffSessionChange(): Promise<void> {
+  return new Promise(resolve => { waiting.push(resolve) })
+}
+
+/**
+ * Waits until the session of generation `sentIn` is ready; rejects, cancelled,
+ * once it has ended. A step that follows another (an upload's completion, opening
+ * a patient after a PIN check) calls it just before it acts.
+ */
+export async function untilStaffSessionReady(sentIn: number): Promise<void> {
+  while (!staffSessionReadyFor(sentIn)) await nextStaffSessionChange()
 }
 
 /**
@@ -49,16 +96,17 @@ export function setStaffSessionActor(id: string | null): void {
 }
 
 /**
- * The portal's other tabs share this tab's cookies. Each tells the others when
- * its session changes (signed in, signed out or ended), naming nothing; a tab
- * that hears it asks the server itself. A channel never hears its own messages.
+ * The origin's other tabs share this tab's cookies. Each tells the others when
+ * its session changes (a staff or patient sign-in, a sign-out, a session end),
+ * naming nothing; a tab that hears it asks the server itself. This tab announces
+ * on the channel it listens with, since a channel never hears its own messages.
  */
 let tabs: BroadcastChannel | null = null
 let tabListeners = 0
 
 export function onOtherTabSessionChange(listener: () => void): () => void {
   if (typeof BroadcastChannel === 'undefined') return () => undefined
-  const channel = tabs ??= new BroadcastChannel('hid-staff-session')
+  const channel = tabs ??= new BroadcastChannel(SESSION_CHANGE_CHANNEL)
   const receive = () => listener()
   channel.addEventListener('message', receive)
   tabListeners += 1
@@ -95,6 +143,18 @@ export function reportStaffSessionEnded(sentIn: number = generation): void {
  */
 export function endsStaffSession(error: unknown): boolean {
   return isHidApiError(error) && error.status === 401
+}
+
+/**
+ * Whether a 403 says the request's session is a patient's. Identity and EHR
+ * answer a staff route with PATIENT_SCOPE_DENIED only after verifying a valid
+ * patient session (hid-system security.guard and remote-security.guard): the
+ * browser's shared cookies now belong to a patient who signed in on this origin.
+ * The provider then asks the server, as for a 401; it never signs out on the
+ * 403 alone. No other 403 says anything about whose session it is.
+ */
+export function refusedAsPatient(error: unknown): boolean {
+  return isHidApiError(error) && error.status === 403 && error.code === 'PATIENT_SCOPE_DENIED'
 }
 
 /**

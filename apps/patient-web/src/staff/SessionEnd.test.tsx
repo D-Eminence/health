@@ -1,6 +1,6 @@
 import { Profiler } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 
 /**
@@ -62,7 +62,8 @@ const signedOut = () => new Response(null, { status: 204 })
 /** Answers after `ms`, as the network does, so React never merges the answers into one render. */
 const later = (ms: number, answer: () => Response) => () => new Promise<Response>(resolve => setTimeout(() => resolve(answer()), ms))
 
-const PERMISSIONS = ['identity.patient.read', 'identity.consent.write', 'identity.break-glass.write', 'ehr.encounter.read', 'lab.work-item.read']
+const PERMISSIONS = ['identity.patient.read', 'identity.consent.write', 'identity.break-glass.write', 'identity.patient-access-pin.verify',
+  'ehr.encounter.read', 'ehr.document.read', 'lab.work-item.read']
 const facility = (id = 'facility-1', name = 'Lagos General') => ({ id, membershipId: `member-${id}`, organizationId: 'org-1', name, roles: ['clinician'], permissions: PERMISSIONS, isPrimary: id === 'facility-1' })
 const staffSession = (id = 'staff-1', displayName = 'Ada Clinician') => ({
   actor: { kind: 'staff', id, email: 'ada@example.test', displayName, roles: ['clinician'], permissions: [],
@@ -70,6 +71,10 @@ const staffSession = (id = 'staff-1', displayName = 'Ada Clinician') => ({
   expiresAt: '2026-10-10T12:00:00.000Z',
 })
 const atIkeja = () => ({ ...staffSession(), actor: { ...staffSession().actor, facility: facility('facility-2', 'Ikeja Clinic') } })
+/** A patient's session, as /auth/session answers once a patient signed in on this browser (the cookies are shared). */
+const patientSession = () => ({ actor: { kind: 'patient', id: 'patient-subject-1', subject: 'patient-subject-1', patientId: PATIENT_ID, accountId: 'account-9' } })
+/** Identity and EHR refuse a staff route with this when the request's valid session is a patient's. */
+const patientScopeDenied = () => problem(403, 'PATIENT_SCOPE_DENIED', 'This operation requires workforce authorization')
 const allowedLookup = () => json({ authorization: { decision: 'allow', consentGrantId: 'grant-1', scope: 'read_records' },
   patient: { patientId: PATIENT_ID, hid: PATIENT_HID, fullName: PATIENT_NAME } })
 
@@ -83,6 +88,7 @@ const LOOKUP = 'POST /api/v1/identity/patient-lookup'
 const REQUEST_ACCESS = 'POST /api/v1/identity/access-requests'
 const ENCOUNTERS = `GET /api/v1/ehr/patients/${PATIENT_ID}/encounters`
 const LAB_WORK = 'GET /api/v1/lab/work-items'
+const PIN = 'POST /api/v1/identity/standard-access/pin'
 const UPLOAD_INTENT = 'POST /api/v1/ehr/documents/upload-intents'
 const STORAGE_PUT = 'PUT /bucket/document-1'
 const COMPLETE = 'POST /api/v1/ehr/documents/document-1/complete'
@@ -187,6 +193,41 @@ async function expectWorkspaceLocked(heading: string = CHECKING) {
   expect(shown(PATIENT_HID)).toBe(false)
   expect(shown('Valid authentication is required')).toBe(false)
   expect(screen.getByRole('button', { name: 'Sign out' })).toBeTruthy()
+}
+
+/**
+ * The page's visibility and the clock, under the test's control. `pageHide` and
+ * `pageShow` model the back/forward cache, with the visibility change that comes
+ * with each (in the order least favourable to the portal on the way back, and as
+ * separate tasks, so each may render on its own).
+ */
+function pageLifecycle() {
+  let visibility: DocumentVisibilityState = 'visible'
+  vi.spyOn(document, 'visibilityState', 'get').mockImplementation(() => visibility)
+  let now = 1_000_000
+  vi.spyOn(Date, 'now').mockImplementation(() => now)
+  const become = (next: DocumentVisibilityState) => { visibility = next; document.dispatchEvent(new Event('visibilitychange')) }
+  return {
+    hide: () => act(() => become('hidden')),
+    show: () => act(() => become('visible')),
+    wait: (seconds: number) => { now += seconds * 1000 },
+    pageHide: (persisted = true) => act(() => { visibility = 'hidden'; window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted })) }),
+    pageShow: () => {
+      act(() => become('visible'))
+      act(() => { window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })) })
+    },
+    focus: () => act(() => { visibility = 'visible'; window.dispatchEvent(new FocusEvent('focus')) }),
+  }
+}
+
+/** Opens a patient's clinical record through the Patients page; the name and HID show. */
+async function openWithPatient(routes: Record<string, Answer[]>) {
+  const calls = serve({ [LOOKUP]: [allowedLookup(), allowedLookup()], [ENCOUNTERS]: [json({ items: [] })], ...routes })
+  await open('/provider/patients')
+  await openPatientRecord()
+  await waitFor(() => expect(where()).toBe('/provider/clinical'))
+  await waitFor(() => expect(shown(PATIENT_NAME)).toBe(true))
+  return calls
 }
 
 /** The workspace open and usable, with no check showing. */
@@ -645,8 +686,7 @@ describe('late answers after the session ended', () => {
   })
 
   it('do not send, restore or repeat as the next account a request made while the session-ended screen showed', async () => {
-    const lookup = deferredResponse()
-    const calls = serve({ [SESSION]: [json(staffSession()), confirmedEnd.session()], [LOOKUP]: [lookup.answer, allowedLookup()],
+    const calls = serve({ [SESSION]: [json(staffSession()), confirmedEnd.session()], [LOOKUP]: [allowedLookup()],
       [REFRESH]: [confirmedEnd.refresh(), json(staffSession('staff-2', 'Bola Nurse'))], [LOGIN]: [json(staffSession('staff-2', 'Bola Nurse'))] })
     await open('/provider/patients')
     expect(await screen.findByRole('button', { name: 'Sign out' })).toBeTruthy()
@@ -654,15 +694,13 @@ describe('late answers after the session ended', () => {
     // A page of the ended session carries on (say, after an earlier step answered) and looks a patient up.
     const { staffApi } = await import('./api')
     const late = staffApi.lookupPatient('facility-1', PATIENT_HID).then(() => 'answered', (error: { code?: string }) => error.code)
-    await waitFor(() => expect(calls).toContain(LOOKUP))
+    await settle()
+    expect(calls).not.toContain(LOOKUP)
     await signInAgain('/provider/patients')
 
-    await act(async () => { lookup.respond(ended()) })
-    await settle()
-
-    // Cancelled when the next session started: never restored with its cookies or sent again.
+    // Held while no session was ready, and cancelled when the next one started: never sent with its cookies.
     expect(await late).toBe('REQUEST_CANCELLED')
-    expect(calls.filter(call => call === LOOKUP)).toHaveLength(1)
+    expect(calls).not.toContain(LOOKUP)
     expect(calls.filter(call => call === REFRESH)).toHaveLength(1)
   })
 
@@ -1174,7 +1212,7 @@ describe('another account in the same browser', () => {
     expect(calls.filter(call => call.startsWith('POST /api/v1/auth/'))).toEqual([LOGOUT, REFRESH])
   })
 
-  it('never restores a request sent while the session-ended screen shows', async () => {
+  it('never sends a request made while the session-ended screen shows', async () => {
     const calls = serve({ [SESSION]: [json(staffSession()), confirmedEnd.session()], [LOOKUP]: [ended(), allowedLookup()],
       [REFRESH]: [confirmedEnd.refresh(), json(staffSession('staff-2', 'Bola Nurse'))] })
     await open('/provider/patients')
@@ -1182,12 +1220,12 @@ describe('another account in the same browser', () => {
     await endSessionNow()
     const before = calls.length
 
-    // A page of the ended session carries on (say, after an earlier step answered) and is refused.
+    // A page of the ended session carries on (say, after an earlier step answered) and looks a patient up.
     const { staffApi } = await import('./api')
-    const late = await staffApi.lookupPatient('facility-1', PATIENT_HID).then(() => 'answered', (error: { status?: number }) => error.status)
+    void staffApi.lookupPatient('facility-1', PATIENT_HID).catch(() => undefined)
+    await settle()
 
-    expect(late).toBe(401)
-    expect(calls.slice(before)).toEqual([LOOKUP])
+    expect(calls.slice(before)).toEqual([])
   })
 })
 
@@ -1248,7 +1286,7 @@ describe('other tabs and returning to the tab', () => {
 
   it('locks the workspace and asks the server when another tab signs out', async () => {
     const asked = deferredResponse()
-    await openPatient({ [SESSION]: [json(staffSession()), asked.answer], [REFRESH]: [refreshCookieGone()], [ENCOUNTERS]: [json([])] })
+    await openPatient({ [SESSION]: [json(staffSession()), asked.answer], [REFRESH]: [refreshCookieGone()], [ENCOUNTERS]: [json({ items: [] })] })
 
     fromAnotherTab()
 
@@ -1306,5 +1344,365 @@ describe('other tabs and returning to the tab', () => {
     switchTab(61)
 
     await expectSessionEnded()
+  })
+})
+
+describe('leaving the page and coming back', () => {
+  it('locks the workspace as soon as the page is hidden, and opens it again after a brief absence without asking the server', async () => {
+    const page = pageLifecycle()
+    const calls = await openWithPatient({ [SESSION]: [json(staffSession())] })
+
+    const refresh = screen.getByRole('button', { name: 'Refresh encounters' })
+    refresh.focus()
+
+    page.hide()
+    page.hide()
+    await expectWorkspaceLocked()
+
+    page.wait(5)
+    page.show()
+    await expectWorkspaceOpen()
+    expect(shown(PATIENT_NAME)).toBe(true)
+    expect(calls.filter(call => call === SESSION)).toHaveLength(1)
+    // Focus goes back where it was before the workspace locked.
+    expect(document.activeElement).toBe(refresh)
+  })
+
+  it('opens a page left without the event that brings it back on its next focus, as on a brief return', async () => {
+    const page = pageLifecycle()
+    const calls = await openWithPatient({ [SESSION]: [json(staffSession())] })
+
+    page.pageHide(false)
+    await expectWorkspaceLocked()
+    page.wait(3)
+    page.focus()
+
+    await expectWorkspaceOpen()
+    expect(calls.filter(call => call === SESSION)).toHaveLength(1)
+  })
+
+  it('asks the server before it opens the workspace again after a minute or more hidden', async () => {
+    const page = pageLifecycle()
+    const asked = deferredResponse()
+    const calls = await openWithPatient({ [SESSION]: [json(staffSession()), asked.answer] })
+
+    page.hide()
+    page.wait(61)
+    page.show()
+
+    await expectWorkspaceLocked()
+    expect(calls.filter(call => call === SESSION)).toHaveLength(2)
+    await act(async () => { asked.respond(json(staffSession())) })
+    await expectWorkspaceOpen()
+    expect(shown(PATIENT_NAME)).toBe(true)
+  })
+
+  it('locks on pagehide, and asks the server when restored from the back/forward cache, however brief the absence', async () => {
+    const page = pageLifecycle()
+    const asked = deferredResponse()
+    const calls = serve({ [SESSION]: [json(staffSession()), asked.answer], [LOOKUP]: [allowedLookup(), allowedLookup()], [ENCOUNTERS]: [json({ items: [] })] })
+    const commits = await open('/provider/patients')
+    await openPatientRecord()
+    await waitFor(() => expect(shown(PATIENT_NAME)).toBe(true))
+
+    page.pageHide()
+    await expectWorkspaceLocked()
+    const lockedAt = commits.length
+
+    page.wait(2)
+    page.pageShow()
+
+    await expectWorkspaceLocked()
+    // Not even one render of the workspace in between: the restored page is checked before it opens.
+    for (const html of commits.slice(lockedAt)) expect(html).toContain(CHECKING)
+    expect(calls.filter(call => call === SESSION)).toHaveLength(2)
+    await act(async () => { asked.respond(json(staffSession())) })
+    await expectWorkspaceOpen()
+  })
+
+  it('does not open the workspace on an answer that arrives while the page is hidden', async () => {
+    const page = pageLifecycle()
+    const asked = deferredResponse()
+    const calls = await openWithPatient({ [SESSION]: [json(staffSession()), asked.answer] })
+    const { reportStaffSessionEnded } = await import('./session')
+    act(() => reportStaffSessionEnded())
+    await expectWorkspaceLocked()
+
+    page.hide()
+    await act(async () => { asked.respond(json(staffSession())) })
+    await settle()
+    expect(document.querySelector('[inert]')?.hasAttribute('hidden')).toBe(true)
+
+    page.wait(5)
+    page.show()
+    await expectWorkspaceOpen()
+    expect(calls.filter(call => call === SESSION)).toHaveLength(2)
+  })
+
+  it('lets a later account change decide over an earlier answer still on its way', async () => {
+    const earlier = deferredResponse()
+    const calls = await openWithPatient({ [SESSION]: [json(staffSession()), earlier.answer, json(patientSession())] })
+    const { reportStaffSessionEnded } = await import('./session')
+    act(() => reportStaffSessionEnded())
+    await expectWorkspaceLocked()
+
+    // A patient signs in on another tab while the earlier question is still on its way.
+    fromAnotherTab()
+    await act(async () => { earlier.respond(json(staffSession())) })
+
+    await expectSessionEnded()
+    expect(calls.filter(call => call === SESSION)).toHaveLength(3)
+  })
+
+  it('stops listening once the provider portal is closed', async () => {
+    const page = pageLifecycle()
+    const calls = serve({ [SESSION]: [json(staffSession())], [REQUESTS]: [json([])] })
+    await open('/provider')
+    expect(await screen.findByText('0 pending requests')).toBeTruthy()
+    cleanup()
+    const before = calls.length
+
+    page.hide()
+    page.wait(61)
+    page.show()
+    page.pageShow()
+    fromAnotherTab()
+    await settle()
+
+    expect(calls.slice(before)).toEqual([])
+    expect(TabChannel.open.size).toBe(0)
+  })
+})
+
+describe('a patient account in the same browser', () => {
+  it('asks the server when a staff request is refused for a patient session, and ends the workspace once it shows one', async () => {
+    const calls = serve({ [SESSION]: [json(staffSession()), json(patientSession())], [LOOKUP]: [allowedLookup(), allowedLookup()],
+      [ENCOUNTERS]: [patientScopeDenied()] })
+    await open('/provider/patients')
+    await openPatientRecord()
+
+    await expectSessionEnded()
+    // Nothing restored or repeated: the refusal is a 403, and the browser's session is a patient's.
+    expect(calls).not.toContain(REFRESH)
+    expect(calls.filter(call => call === ENCOUNTERS)).toHaveLength(1)
+  })
+
+  it('keeps the workspace when the server still holds this staff session after a patient-scope refusal', async () => {
+    const calls = serve({ [SESSION]: [json(staffSession()), json(staffSession())], [LOOKUP]: [patientScopeDenied()] })
+    await open('/provider/patients')
+    await openPatientRecord()
+
+    expect((await screen.findByRole('alert')).textContent).toBe('This operation requires workforce authorization')
+    await expectWorkspaceOpen()
+    expect(calls.filter(call => call === SESSION)).toHaveLength(2)
+  })
+
+  it.each([
+    ['PATIENT_ACCESS_DENIED', 'Patient access is not authorized'],
+    ['FACILITY_ACCESS_DENIED', 'The actor is not active at this facility'],
+    ['PERMISSION_DENIED', 'Permission denied'],
+    ['CSRF_VALIDATION_FAILED', 'CSRF validation failed'],
+    ['ORIGIN_DENIED', 'Origin is not allowed'],
+  ])('does not take an unrelated 403 (%s) as a sign of another account', async (code, detail) => {
+    const calls = serve({ [SESSION]: [json(staffSession())], [LOOKUP]: [problem(403, code, detail)] })
+    await open('/provider/patients')
+    await openPatientRecord()
+
+    expect((await screen.findByRole('alert')).textContent).toBe(detail)
+    await expectWorkspaceOpen()
+    expect(calls.filter(call => call === SESSION)).toHaveLength(1)
+    expect(calls).not.toContain(REFRESH)
+  })
+
+  it('locks the workspace when a patient signs in on another tab, and ends it once the server shows the patient session', async () => {
+    const asked = deferredResponse()
+    await openWithPatient({ [SESSION]: [json(staffSession()), asked.answer] })
+
+    fromAnotherTab()
+
+    await expectWorkspaceLocked()
+    await act(async () => { asked.respond(json(patientSession())) })
+    await expectSessionEnded()
+  })
+})
+
+describe('protected steps that follow another while the session is checked', () => {
+  const intent = () => json({ document: { id: 'document-1' },
+    upload: { method: 'PUT', url: 'https://storage.example.test/bucket/document-1', requiredHeaders: {}, expiresInSeconds: 300 } })
+
+  async function startUpload(routes: Record<string, Answer[]>) {
+    const stored = deferredResponse()
+    const calls = serve({ [REQUESTS]: [json([])], [UPLOAD_INTENT]: [intent()], [STORAGE_PUT]: [stored.answer], [COMPLETE]: [json({ id: 'document-1', status: 'uploaded' })], ...routes })
+    await open('/provider')
+    expect(await screen.findByText('0 pending requests')).toBeTruthy()
+    const { staffApi } = await import('./api')
+    const upload = staffApi.uploadDocument('facility-1', PATIENT_ID, 'encounter-1', new File(['%PDF-1.7'], 'scan.pdf', { type: 'application/pdf' }))
+      .then(() => 'completed', (error: { code?: string }) => error.code)
+    await waitFor(() => expect(calls).toContain(STORAGE_PUT))
+    return { calls, upload, stored }
+  }
+
+  it('completes an upload only once the server confirms the session', async () => {
+    const asked = deferredResponse()
+    const { calls, upload, stored } = await startUpload({ [SESSION]: [json(staffSession()), asked.answer] })
+    const { reportStaffSessionEnded } = await import('./session')
+    act(() => reportStaffSessionEnded())
+
+    await act(async () => { stored.respond(new Response(null, { status: 200 })) })
+    await settle()
+    expect(calls).not.toContain(COMPLETE)
+
+    await act(async () => { asked.respond(json(staffSession())) })
+    expect(await upload).toBe('completed')
+    expect(calls.filter(call => call === COMPLETE)).toHaveLength(1)
+  })
+
+  it('abandons an upload whose storage step finished after a second account became active', async () => {
+    const asked = deferredResponse()
+    const { calls, upload, stored } = await startUpload({ [SESSION]: [json(staffSession()), asked.answer] })
+
+    // Another staff member signs in on another tab while the file is being stored.
+    fromAnotherTab()
+    await act(async () => { stored.respond(new Response(null, { status: 200 })) })
+    await settle()
+    expect(calls).not.toContain(COMPLETE)
+    await act(async () => { asked.respond(json(staffSession('staff-2', 'Bola Nurse'))) })
+
+    await expectSessionEnded()
+    expect(await upload).toBe('REQUEST_CANCELLED')
+    expect(calls).not.toContain(COMPLETE)
+  })
+
+  it('never completes an upload while the session cannot be confirmed, nor after the clinician signs out', async () => {
+    const { calls, upload, stored } = await startUpload({ [SESSION]: [json(staffSession()), json({})], [LOGOUT]: [signedOut()] })
+    const { reportStaffSessionEnded } = await import('./session')
+    act(() => reportStaffSessionEnded())
+    await expectWorkspaceLocked(UNCONFIRMED)
+
+    await act(async () => { stored.respond(new Response(null, { status: 200 })) })
+    await settle()
+    expect(calls).not.toContain(COMPLETE)
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
+
+    expect(await screen.findByRole('heading', { name: 'Welcome back.' })).toBeTruthy()
+    expect(await upload).toBe('REQUEST_CANCELLED')
+    expect(calls).not.toContain(COMPLETE)
+  })
+
+  it('never stores the file once a second account became active while the upload was being prepared', async () => {
+    const prepared = deferredResponse()
+    const asked = deferredResponse()
+    const calls = serve({ [SESSION]: [json(staffSession()), asked.answer], [REQUESTS]: [json([])], [UPLOAD_INTENT]: [prepared.answer] })
+    await open('/provider')
+    expect(await screen.findByText('0 pending requests')).toBeTruthy()
+    const { staffApi } = await import('./api')
+    const upload = staffApi.uploadDocument('facility-1', PATIENT_ID, 'encounter-1', new File(['%PDF-1.7'], 'scan.pdf', { type: 'application/pdf' }))
+      .then(() => 'completed', (error: { code?: string }) => error.code)
+    await waitFor(() => expect(calls).toContain(UPLOAD_INTENT))
+
+    fromAnotherTab()
+    await expectWorkspaceLocked()
+    await act(async () => { prepared.respond(intent()) })
+    await settle()
+    // The storage link answers no cookie, so only the portal can hold the file back.
+    expect(calls).not.toContain(STORAGE_PUT)
+    await act(async () => { asked.respond(json(staffSession('staff-2', 'Bola Nurse'))) })
+
+    await expectSessionEnded()
+    expect(await upload).toBe('REQUEST_CANCELLED')
+    expect(calls).not.toContain(STORAGE_PUT)
+    expect(calls).not.toContain(COMPLETE)
+  })
+
+  const DOCUMENTS = 'GET /api/v1/ehr/documents'
+  const DOWNLOAD = 'GET /api/v1/ehr/documents/document-9/download'
+  const LINK = 'https://storage.example.test/bucket/document-9'
+
+  async function startDownload(routes: Record<string, Answer[]>) {
+    const downloaded = deferredResponse()
+    const opened = vi.spyOn(window, 'open').mockReturnValue(null)
+    const encounter = { id: 'encounter-1', patientId: PATIENT_ID, facilityId: 'facility-1', encounterType: 'outpatient', status: 'in_progress',
+      startedAt: '2026-10-10T09:00:00.000Z', chiefComplaint: null, rowVersion: 1 }
+    const document = { id: 'document-9', patientId: PATIENT_ID, encounterId: 'encounter-1', fileName: 'referral.pdf', mediaType: 'application/pdf',
+      sizeBytes: 2048, status: 'uploaded', scanStatus: 'clean', createdAt: '2026-10-10T09:05:00.000Z' }
+    const calls = await openWithPatient({ [LOOKUP]: [allowedLookup(), allowedLookup(), allowedLookup()], [ENCOUNTERS]: [json({ items: [encounter] })],
+      [DOCUMENTS]: [json({ items: [document] })], [DOWNLOAD]: [downloaded.answer], ...routes })
+    fireEvent.click(await screen.findByRole('button', { name: 'Open file' }))
+    await waitFor(() => expect(calls).toContain(DOWNLOAD))
+    return { opened, downloaded }
+  }
+
+  it('opens a downloaded document only once the server confirms the session', async () => {
+    const asked = deferredResponse()
+    const { opened, downloaded } = await startDownload({ [SESSION]: [json(staffSession()), asked.answer] })
+    fromAnotherTab()
+    await expectWorkspaceLocked()
+
+    await act(async () => { downloaded.respond(json({ url: LINK, expiresAt: null })) })
+    await settle()
+    expect(opened).not.toHaveBeenCalled()
+
+    await act(async () => { asked.respond(json(staffSession())) })
+    await expectWorkspaceOpen()
+    await waitFor(() => expect(opened).toHaveBeenCalledWith(LINK, '_blank', 'noopener,noreferrer'))
+  })
+
+  it('never opens a downloaded document once a second account is active', async () => {
+    const asked = deferredResponse()
+    const { opened, downloaded } = await startDownload({ [SESSION]: [json(staffSession()), asked.answer] })
+    fromAnotherTab()
+    await expectWorkspaceLocked()
+
+    await act(async () => { downloaded.respond(json({ url: LINK, expiresAt: null })) })
+    await act(async () => { asked.respond(json(staffSession('staff-2', 'Bola Nurse'))) })
+
+    await expectSessionEnded()
+    await settle()
+    expect(opened).not.toHaveBeenCalled()
+  })
+
+  async function verifyPin(routes: Record<string, Answer[]>) {
+    const pinned = deferredResponse()
+    const calls = serve({ [PIN]: [pinned.answer], [LOOKUP]: [allowedLookup(), allowedLookup()], [ENCOUNTERS]: [json({ items: [] })], ...routes })
+    await open('/provider/patients')
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Health ID' }), { target: { value: PATIENT_HID } })
+    fireEvent.click(screen.getByRole('tab', { name: 'Patient PIN' }))
+    fireEvent.change(screen.getByLabelText(/^Patient access PIN/), { target: { value: '4821' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Verify PIN and open' }))
+    await waitFor(() => expect(calls).toContain(PIN))
+    return { calls, pinned }
+  }
+
+  it('opens the patient after PIN verification only once the server confirms the session', async () => {
+    const asked = deferredResponse()
+    const { calls, pinned } = await verifyPin({ [SESSION]: [json(staffSession()), asked.answer] })
+    fromAnotherTab()
+    await expectWorkspaceLocked()
+
+    await act(async () => { pinned.respond(json({ grantId: 'grant-7' })) })
+    await settle()
+    expect(calls).not.toContain(LOOKUP)
+
+    await act(async () => { asked.respond(json(staffSession())) })
+    await waitFor(() => expect(where()).toBe('/provider/clinical'))
+    await expectWorkspaceOpen()
+    expect(shown(PATIENT_NAME)).toBe(true)
+  })
+
+  it('never opens the patient after PIN verification once a second account is active', async () => {
+    const asked = deferredResponse()
+    const { calls, pinned } = await verifyPin({ [SESSION]: [json(staffSession()), asked.answer] })
+    fromAnotherTab()
+    await expectWorkspaceLocked()
+
+    await act(async () => { pinned.respond(json({ grantId: 'grant-7' })) })
+    await settle()
+    expect(calls).not.toContain(LOOKUP)
+    await act(async () => { asked.respond(json(staffSession('staff-2', 'Bola Nurse'))) })
+
+    await expectSessionEnded()
+    await settle()
+    expect(calls).not.toContain(LOOKUP)
+    expect(document.body.innerHTML).not.toContain(PATIENT_NAME)
   })
 })

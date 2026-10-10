@@ -5,8 +5,8 @@ import { Badge, Button, ButtonLink, EmptyState, Select } from '@hid/ui'
 import { isHidApiError } from '@hid/http'
 import { staffApi, type PatientLookup, type StaffSession } from './api'
 import {
-  announceStaffSessionChange, onOtherTabSessionChange, onStaffSessionEnded, setStaffSessionActor, staffSessionGeneration,
-  staffSignInPath, startStaffSessionGeneration,
+  announceStaffSessionChange, onOtherTabSessionChange, onStaffSessionEnded, setStaffSessionActor, setStaffSessionReady,
+  staffSessionGeneration, staffSignInPath, startStaffSessionGeneration,
 } from './session'
 import { SignIn } from './routes/SignIn'
 import { Dashboard } from './routes/Dashboard'
@@ -34,10 +34,12 @@ export interface ActivePatient {
 }
 
 /**
- * Why the workspace is locked while the session is ready: the server is being
- * asked whether the session still holds, or could not say.
+ * Why the workspace is locked while the session is ready: the page is away
+ * (hidden, or in the back/forward cache), the server is being asked whether the
+ * session still holds, or it could not say. Locked, the workspace is hidden and
+ * inert, and protected requests wait (see `staffSessionReadyFor`).
  */
-type SessionLock = 'checking' | 'unconfirmed' | null
+type SessionLock = 'away' | 'checking' | 'unconfirmed' | null
 
 /** A tab back in view after this long asks the server before it shows the workspace again. */
 const RECHECK_AFTER_HIDDEN_MS = 60_000
@@ -74,13 +76,30 @@ function StaffProvider({ children }: { children: ReactNode }) {
   // The state as of the last change, read synchronously by the session-end listener.
   const status = useRef<SessionState['status']>('loading')
   const currentSession = useRef<StaffSession | null>(null)
+  const [lock, setLockState] = useState<SessionLock>(null)
+  const lockRef = useRef<SessionLock>(null)
+  // Readiness for protected requests follows the state and the lock at once, not after a render.
   const setState = useCallback((next: SessionState) => {
     status.current = next.status; currentSession.current = next.session; setSessionState(next)
     setStaffSessionActor(next.status === 'ready' ? next.session.actor.id : null)
+    setStaffSessionReady(next.status === 'ready' && lockRef.current === null)
   }, [])
-  const [lock, setLock] = useState<SessionLock>(null)
+  // Where focus was when the workspace locked, given back when it opens again.
+  const focusBeforeLock = useRef<HTMLElement | null>(null)
+  const setLock = useCallback((next: SessionLock) => {
+    if (next !== null && lockRef.current === null && document.activeElement instanceof HTMLElement) focusBeforeLock.current = document.activeElement
+    lockRef.current = next
+    setLockState(next)
+    setStaffSessionReady(status.current === 'ready' && next === null)
+  }, [])
+  useEffect(() => {
+    if (lock !== null) return
+    const focused = focusBeforeLock.current
+    focusBeforeLock.current = null
+    if (focused?.isConnected) focused.focus()
+  }, [lock])
   // Leaving the provider portal (for the patient portal, in the same page) leaves no session in use.
-  useEffect(() => () => setStaffSessionActor(null), [])
+  useEffect(() => () => { setStaffSessionActor(null); setStaffSessionReady(false) }, [])
   // Each session, sign-out and facility starts a new period. A patient set by a page
   // from an earlier period is ignored, whenever its answer arrives.
   const period = useRef(0)
@@ -109,6 +128,8 @@ function StaffProvider({ children }: { children: ReactNode }) {
   // answer may predate them. Reports from an earlier session, or while none is in
   // use (loading, signed out, already ended), change nothing.
   const asking = useRef<{ sentIn: number; again: boolean } | null>(null)
+  // Since when, in which session, and whether into the back/forward cache, the page is away.
+  const away = useRef<{ since: number; sentIn: number; cached: boolean } | null>(null)
   const ask = useCallback((sentIn: number) => {
     const actor = currentSession.current?.actor
     if (status.current !== 'ready' || !actor || sentIn !== staffSessionGeneration()) return
@@ -122,45 +143,75 @@ function StaffProvider({ children }: { children: ReactNode }) {
       if (answer === 'ended') {
         startStaffSessionGeneration()
         startPeriod()
-        setLock(null)
+        away.current = null
         setState({ status: 'ended', session: null })
+        setLock(null)
         announceStaffSessionChange()
       } else if (question.again) ask(sentIn)
-      else setLock(answer === 'alive' ? null : 'unconfirmed')
+      // An answer that arrives while the page is away opens nothing: the page is
+      // judged again as it comes back.
+      else if (answer === 'alive') setLock(away.current?.sentIn === sentIn ? 'away' : null)
+      else setLock('unconfirmed')
     })
-  }, [setState, startPeriod])
+  }, [setState, setLock, startPeriod])
   useEffect(() => onStaffSessionEnded(ask), [ask])
 
   // Nothing else reveals a session that ended while this tab sent no request: a
-  // sign-in, sign-out or end in another tab, or time away. The workspace is locked
-  // and the server asked when another tab says its session changed, when the page
-  // comes back from the back/forward cache, and when the tab is back in view after
-  // a while hidden.
+  // sign-in, sign-out or end in another tab (staff or patient), or time away. The
+  // workspace is locked as soon as the page is hidden or put in the back/forward
+  // cache, so it is not what shows when the page is seen again, and as soon as
+  // another tab says its session changed; the server is then asked before it opens.
   useEffect(() => {
     const recheck = () => ask(staffSessionGeneration())
-    let hiddenSince: number | null = null
-    const onVisibility = () => {
-      if (document.visibilityState === 'hidden') { hiddenSince ??= Date.now(); return }
-      if (hiddenSince !== null && Date.now() - hiddenSince >= RECHECK_AFTER_HIDDEN_MS) recheck()
-      hiddenSince = null
+    // Idempotent: a page already away stays away from when it first left, and a
+    // stronger lock (checking, unconfirmed) is kept.
+    const leave = (cached: boolean) => {
+      if (status.current !== 'ready') return
+      const left = away.current
+      away.current = { since: left?.since ?? Date.now(), sentIn: left?.sentIn ?? staffSessionGeneration(), cached: (left?.cached ?? false) || cached }
+      if (lockRef.current === null) setLock('away')
     }
-    const onPageShow = (event: PageTransitionEvent) => { if (event.persisted) recheck() }
+    // Back in view. A brief absence of the same session, with nothing heard
+    // meanwhile, opens the workspace again without asking; a return after a minute
+    // or more, a page restored from the back/forward cache and one whose session
+    // changed while it was away are asked about first.
+    const back = (restored: boolean) => {
+      const left = away.current
+      away.current = null
+      if (status.current !== 'ready') return
+      // A restore whose visibility change already asked has nothing more to ask.
+      if (!left) { if (restored && lockRef.current === null) recheck(); return }
+      const brief = !restored && !left.cached && left.sentIn === staffSessionGeneration()
+        && Date.now() - left.since < RECHECK_AFTER_HIDDEN_MS
+      if (!brief) recheck()
+      else if (lockRef.current === 'away') setLock(null)
+    }
+    const onVisibility = () => { if (document.visibilityState === 'hidden') leave(false); else back(false) }
+    const onPageHide = (event: PageTransitionEvent) => leave(event.persisted)
+    const onPageShow = (event: PageTransitionEvent) => back(event.persisted)
+    // A page left away without the event that brings it back opens on the next focus, as on a return.
+    const onFocus = () => { if (away.current && document.visibilityState === 'visible') back(false) }
     const stopListening = onOtherTabSessionChange(recheck)
     document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('pagehide', onPageHide)
     window.addEventListener('pageshow', onPageShow)
+    window.addEventListener('focus', onFocus)
     return () => {
       stopListening()
       document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('pagehide', onPageHide)
       window.removeEventListener('pageshow', onPageShow)
+      window.removeEventListener('focus', onFocus)
     }
-  }, [ask])
+  }, [ask, setLock])
 
   const refresh = useCallback(async () => {
     startStaffSessionGeneration()
     const sentIn = staffSessionGeneration()
     startPeriod()
-    setLock(null)
+    away.current = null
     setState({ status: 'loading', session: null })
+    setLock(null)
     // A sign-in or sign-out made while the session is read owns the state by the
     // time a late answer arrives: that answer is about the browser's earlier session.
     const current = () => staffSessionGeneration() === sentIn
@@ -182,7 +233,7 @@ function StaffProvider({ children }: { children: ReactNode }) {
         setState({ status: 'error', session: null, error: error instanceof Error ? error.message : 'Session could not be verified.' })
       }
     }
-  }, [setState, startPeriod])
+  }, [setState, setLock, startPeriod])
 
   useEffect(() => { void refresh() }, [refresh])
 
@@ -191,6 +242,7 @@ function StaffProvider({ children }: { children: ReactNode }) {
     if (session.actor.kind === 'patient') throw new Error('A staff account is required for this portal.')
     startStaffSessionGeneration()
     startPeriod()
+    away.current = null
     setLock(null)
     setState({ status: 'ready', session })
     announceStaffSessionChange()
@@ -212,8 +264,9 @@ function StaffProvider({ children }: { children: ReactNode }) {
     await staffApi.logout()
     startStaffSessionGeneration()
     startPeriod()
-    setLock(null)
+    away.current = null
     setState({ status: 'signed-out', session: null })
+    setLock(null)
     announceStaffSessionChange()
   }
 
