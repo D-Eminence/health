@@ -814,7 +814,7 @@ export function Clinical() {
     if (!selected || !facility || !patientId || !canMutate) return
     const expectedRowVersion = rowVersion(selected.rowVersion)
     if (!expectedRowVersion) throw new Error('Reload the encounter before changing its status.')
-    setSuccess('')
+    setSuccess(''); setError('')
     await verify()
     let updated: Encounter
     try {
@@ -829,6 +829,7 @@ export function Clinical() {
       const current = await staffApi.encounter(facility.id, patientId, selected.id).catch(() => null)
       if (!current) throw caught
       setSelection(chosen => chosen?.id === current.id ? current : chosen)
+      setEncounters(items => items.map(item => item.id === current.id ? current : item))
       setError('This encounter changed since it was loaded and now shows its current status. Choose the change again if it is still needed.')
       return
     }

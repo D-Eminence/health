@@ -306,6 +306,53 @@ describe('paging the encounter list', () => {
     expect((await screen.findByRole('alert')).textContent).toContain('changed since it was loaded')
   })
 
+  it('updates the list row too after a conflict, so choosing it again keeps the current version', async () => {
+    api.updateEncounter.mockRejectedValueOnce(new HidApiError(412, 'Encounter changed since it was loaded', { code: 'VERSION_CONFLICT' }))
+      .mockResolvedValue({ ...E1, status: 'in_progress', rowVersion: 3 })
+    api.encounter.mockResolvedValue({ ...E1, status: 'on_hold', rowVersion: 2 })
+    render(<MemoryRouter><Clinical /></MemoryRouter>)
+    await screen.findByText(/Fever/)
+    let form = screen.getByText('Encounter status').closest('form')!
+    fireEvent.change(within(form).getByLabelText(label('Reason for change')), { target: { value: 'Awaiting results' } })
+    fireEvent.click(within(form).getByRole('button', { name: 'Update status' }))
+    await screen.findByText(new Date(E1.startedAt).toLocaleString() + ' · on hold')
+
+    expect(screen.getByRole('button', { name: /Fever/ }).textContent).toContain('on hold')
+    fireEvent.click(screen.getByRole('button', { name: /Fever/ }))
+    expect(screen.getByText(new Date(E1.startedAt).toLocaleString() + ' · on hold')).toBeTruthy()
+    form = screen.getByText('Encounter status').closest('form')!
+    fireEvent.change(within(form).getByLabelText(label('Reason for change')), { target: { value: 'Results are back' } })
+    fireEvent.click(within(form).getByRole('button', { name: 'Update status' }))
+    await waitFor(() => expect(api.updateEncounter).toHaveBeenLastCalledWith('facility-1', PATIENT, E1.id,
+      expect.objectContaining({ expectedRowVersion: 2 })))
+  })
+
+  it('announces a second conflict afresh, and clears the conflict before another try', async () => {
+    const conflict = () => new HidApiError(412, 'Encounter changed since it was loaded', { code: 'VERSION_CONFLICT' })
+    api.updateEncounter.mockRejectedValueOnce(conflict()).mockRejectedValueOnce(conflict())
+      .mockRejectedValueOnce(new HidApiError(503, 'Service unavailable', { code: 'SERVICE_UNAVAILABLE' }))
+    api.encounter.mockResolvedValueOnce({ ...E1, status: 'on_hold', rowVersion: 2 }).mockResolvedValueOnce({ ...E1, status: 'in_progress', rowVersion: 3 })
+    render(<MemoryRouter><Clinical /></MemoryRouter>)
+    await screen.findByText(/Fever/)
+    const submit = (reason: string) => {
+      const form = screen.getByText('Encounter status').closest('form')!
+      fireEvent.change(within(form).getByLabelText(label('Reason for change')), { target: { value: reason } })
+      fireEvent.click(within(form).getByRole('button', { name: 'Update status' }))
+    }
+
+    submit('Awaiting results')
+    const first = await screen.findByText(/changed since it was loaded and now shows/)
+    submit('Awaiting results again')
+    await waitFor(() => expect(api.updateEncounter).toHaveBeenCalledTimes(2))
+    const second = await screen.findByText(/changed since it was loaded and now shows/)
+    expect(second).not.toBe(first)
+
+    submit('Third try')
+    await waitFor(() => expect(api.updateEncounter).toHaveBeenCalledTimes(3))
+    await screen.findByText('Service unavailable')
+    expect(screen.queryByText(/changed since it was loaded and now shows/)).toBeNull()
+  })
+
   it('documents a new encounter even when the list cannot be read again after it is started', async () => {
     const created = encounter(4, 'Chest pain')
     api.createEncounter.mockResolvedValue(created)
