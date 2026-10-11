@@ -5,7 +5,7 @@ import {
   endsStaffSession, nextStaffSessionChange, refusedAsPatient, reportStaffSessionEnded, staffSessionActor, staffSessionGeneration,
   staffSessionReadyFor, staffSessionSignal, untilStaffSessionReady,
 } from './session'
-import { inRefreshTurn, refreshInTurn } from '../sessionRefreshTurn'
+import { inRefreshTurn, refreshInTurn, signOutInTurn } from '../sessionRefreshTurn'
 import { staffLoginAction } from '../productHostname'
 
 export interface Facility {
@@ -619,13 +619,28 @@ async function signOutStaffSession(confirmFirst: boolean): Promise<void> {
     if (found === 'unknown') throw new Error('Sign-out could not be completed. Try again.')
   }
   for (let attempt = 1; ; attempt += 1) {
-    try { await client.post<null>('/api/v1/auth/logout'); return }
+    try { await signOutInTurn(() => noOtherAccount(staffSessionActor()), () => client.post<null>('/api/v1/auth/logout')); return }
     catch (error) { if (!endsStaffSession(error)) throw error }
     if (staffSessionGeneration() !== sentIn) return
     if (attempt === SIGN_OUT_ATTEMPTS) throw new Error('Sign-out could not be completed. Try again.')
     try { await restoreStaffSession() }
     catch (refused) { if (endsStaffSession(refused)) return; throw refused }
     if (staffSessionGeneration() !== sentIn) return
+  }
+}
+
+/**
+ * Whether the browser may still hold this account's session: false only when
+ * the server names another account, staff or patient. A session the server does
+ * not accept may still be this one, waiting for its access token to be restored.
+ */
+async function noOtherAccount(actorId: string | null): Promise<boolean> {
+  try {
+    const session = await client.get<StaffSession | null>('/api/v1/auth/session', { auth: 'optional', dedupe: false })
+    return typeof session?.actor?.id !== 'string' || (actorId !== null && isSessionOf(session, actorId))
+  } catch (error) {
+    if (endsStaffSession(error)) return true
+    throw error
   }
 }
 

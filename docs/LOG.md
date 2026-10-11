@@ -293,3 +293,25 @@ than a live completion tracker.
   on refresh; the portals will send it once that is deployed.
 - Component tests only. No browser, staging or deployed-backend run; Web Locks
   and `BroadcastChannel` are stubbed in the tests.
+
+## 2026-10-11: sign-out in the session turn
+
+- Found by the final review of D-Eminence/Health-id#34; the gap predates it.
+  hid-system's logout always clears the session cookies in its answer
+  (`auth.controller.ts`), and ends whichever session the cookies carry. A
+  sign-out in one window answered after a sign-in in another, so the new
+  sign-in was lost and that window showed "Your session has ended".
+- Staff and patient sign-outs now take the same Web Locks turn as refreshes and
+  sign-ins (`signOutInTurn`). A sign-out that had to wait first asks the server
+  whose session the browser holds, and sends the logout only while it is still
+  this account's. Another account signed in meanwhile, staff or patient, is
+  left alone: logout would otherwise end it. A sign-out that cannot ask is not
+  sent, and the page reports it as failed, as it does any failed sign-out.
+- Recorded in [open questions](./OPEN-QUESTIONS.md): a sign-out that waited for
+  another window's sign-in leaves the session it meant to end alive on the
+  server until its idle limit, though it is no longer in this browser.
+- The patient sign-out tests now mock the environment as one object, as the
+  real getter caches it; a new object each render had rebuilt the client and
+  checked the session again on every render.
+- Component and unit tests only, with fake Web Locks. No browser, multi-window,
+  staging or deployed-backend run.

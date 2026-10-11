@@ -1,5 +1,5 @@
-import type { ApiClient } from '@hid/http'
-import { inRefreshTurn, refreshInTurn } from './sessionRefreshTurn'
+import { isHidApiError, type ApiClient } from '@hid/http'
+import { inRefreshTurn, refreshInTurn, signOutInTurn } from './sessionRefreshTurn'
 
 /** Contracts read from hid-system c4b5445 Identity and EHR controllers. */
 export interface PatientSession {
@@ -172,7 +172,12 @@ export function createPatientApi(client: ApiClient) {
     // A sign-in waits for another window's refresh, whose answer would otherwise replace its cookies.
     login: (email: string, password: string, turnstileToken: string) =>
       inRefreshTurn(() => call<PatientSession>('POST', 'auth/patient/login', { email, password, turnstileAction: 'patient-login', turnstileToken })),
-    logout: () => call<void>('POST', 'auth/logout'),
+    // Signing out takes the same turn. One that had to wait ends the session only
+    // if the browser still holds this patient's: another window may have signed in.
+    logout: (subject: string | undefined) => signOutInTurn(() => call<PatientSession | null>('GET', 'auth/session').then(
+      session => !session?.actor || (session.actor.kind !== 'staff' && subject !== undefined && session.actor.subject === subject),
+      (error: unknown) => { if (isHidApiError(error) && error.status === 401) return true; throw error }),
+    () => call<void>('POST', 'auth/logout')),
     googleNonce: () => call<{ nonce: string }>('GET', 'auth/google/nonce'),
     googleExchange: (idToken: string, turnstileToken: string, intent: 'sign_in' | 'enroll') =>
       inRefreshTurn(() => call<PatientSession | { stage: 'GOOGLE_AUTHENTICATED_PENDING_IDENTITY'; expiresAt: string }>(

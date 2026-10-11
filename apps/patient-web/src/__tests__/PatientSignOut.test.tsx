@@ -2,9 +2,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, render, screen, waitFor } from '@testing-library/react'
 import { SessionProvider, useSession } from '../session'
 
-vi.mock('../env', () => ({ getEnvironment: () => ({ name: 'local', apiBaseUrl: 'http://localhost:3000', turnstileSiteKey: null }) }))
+// One environment object, as the real getter caches it: a new one each render would
+// rebuild the client and check the session again on every render.
+const environment = vi.hoisted(() => ({ name: 'local', apiBaseUrl: 'http://localhost:3000', turnstileSiteKey: null }))
+vi.mock('../env', () => ({ getEnvironment: () => environment }))
 
-afterEach(() => { vi.unstubAllGlobals() })
+afterEach(() => { vi.unstubAllGlobals(); Reflect.deleteProperty(navigator, 'locks') })
 
 const LOGOUT = 'POST /api/v1/auth/logout'
 const REFRESH = 'POST /api/v1/auth/refresh'
@@ -46,6 +49,20 @@ async function signedInAs(subject: string, routes: Record<string, Array<() => Re
   return calls
 }
 
+/** Another window of the portal holding the session turn until released. */
+function lockHeldElsewhere() {
+  let release: () => void = () => {}
+  const held = new Promise<void>(done => { release = done })
+  Object.defineProperty(navigator, 'locks', { configurable: true, value: { request: vi.fn(async (_name: string, ...rest: unknown[]) => {
+    const callback = rest.at(-1) as (lock: object | null) => Promise<unknown>
+    const options = rest.length > 1 ? rest[0] as { ifAvailable?: boolean } : {}
+    if (options.ifAvailable) return callback(null)
+    await held
+    return callback({})
+  }) } })
+  return { release }
+}
+
 async function signOut() {
   await act(async () => { screen.getByRole('button', { name: 'Sign out' }).click() })
   await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('anonymous'))
@@ -76,6 +93,24 @@ describe('patient sign-out', () => {
     await waitFor(() => expect(calls).toContain(REFRESH))
     await act(async () => { await Promise.resolve() })
     expect(calls.filter(call => call === LOGOUT)).toHaveLength(1)
+  })
+
+  it.each([
+    ['still holds this patient\'s session', 'subject-a', [LOGOUT]],
+    ['now holds another patient\'s session', 'subject-b', []],
+  ])('waits for another window\'s turn, then signs out only while the browser %s', async (_label, holder, sent) => {
+    let inBrowser = 'subject-a'
+    const calls = await signedInAs('subject-a', {
+      'GET /api/v1/auth/session': Array.from({ length: 5 }, () => () => patient(inBrowser)), [LOGOUT]: [noContent] })
+    const before = calls.length
+    const other = lockHeldElsewhere()
+    await act(async () => { screen.getByRole('button', { name: 'Sign out' }).click() })
+    expect(calls.slice(before)).toEqual([])
+
+    inBrowser = holder
+    other.release()
+    await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('anonymous'))
+    expect(calls.slice(before)).toEqual(['GET /api/v1/auth/session', ...sent])
   })
 
   it('signs out locally when no session is left to restore', async () => {

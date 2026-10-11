@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { inRefreshTurn, refreshInTurn } from './sessionRefreshTurn'
+import { inRefreshTurn, refreshInTurn, signOutInTurn } from './sessionRefreshTurn'
 
 /** Web Locks as browsers implement them for one exclusive lock: granted in turn, or refused with ifAvailable. */
 function fakeLocks() {
@@ -84,5 +84,89 @@ describe('a sign-in across windows', () => {
     finishRefresh('refreshed')
     await refresh
     await expect(signedIn).resolves.toBe('signed in')
+  })
+})
+
+/**
+ * hid-system's logout clears the session cookies in its answer, and ends
+ * whichever session the cookies carry when it arrives at the server.
+ */
+describe('a sign-out across windows', () => {
+  it('is sent at once where the browser has no Web Locks', async () => {
+    const stillOurs = vi.fn(async () => true)
+    const signOut = vi.fn(async () => undefined)
+    await signOutInTurn(stillOurs, signOut)
+    expect(signOut).toHaveBeenCalledTimes(1)
+    expect(stillOurs).not.toHaveBeenCalled()
+  })
+
+  it('holds the turn until it is answered, so a sign-in in another window cannot have its cookies cleared', async () => {
+    fakeLocks()
+    let finishSignOut: () => void = () => {}
+    const signedOut = signOutInTurn(async () => true, () => new Promise<void>(done => { finishSignOut = done }))
+    await Promise.resolve()
+    const signIn = vi.fn(async () => 'signed in')
+    const signedIn = inRefreshTurn(signIn)
+    await Promise.resolve()
+    expect(signIn).not.toHaveBeenCalled()
+
+    finishSignOut()
+    await signedOut
+    await expect(signedIn).resolves.toBe('signed in')
+  })
+
+  it('is sent at once, asking nothing, when no other window holds the turn', async () => {
+    fakeLocks()
+    const stillOurs = vi.fn(async () => true)
+    const signOut = vi.fn(async () => undefined)
+    await signOutInTurn(stillOurs, signOut)
+    expect(signOut).toHaveBeenCalledTimes(1)
+    expect(stillOurs).not.toHaveBeenCalled()
+  })
+
+  it('that had to wait is sent while the browser still holds this session', async () => {
+    fakeLocks()
+    let finishSignIn: () => void = () => {}
+    const signIn = inRefreshTurn(() => new Promise<void>(done => { finishSignIn = done }))
+    await Promise.resolve()
+    const stillOurs = vi.fn(async () => true)
+    const signOut = vi.fn(async () => undefined)
+    const signedOut = signOutInTurn(stillOurs, signOut)
+    await Promise.resolve()
+    expect(stillOurs).not.toHaveBeenCalled()
+
+    finishSignIn()
+    await signIn
+    await signedOut
+    expect(stillOurs).toHaveBeenCalledTimes(1)
+    expect(signOut).toHaveBeenCalledTimes(1)
+  })
+
+  it('that had to wait leaves alone a session another window signed in meanwhile', async () => {
+    fakeLocks()
+    let finishSignIn: () => void = () => {}
+    const signIn = inRefreshTurn(() => new Promise<void>(done => { finishSignIn = done }))
+    await Promise.resolve()
+    const signOut = vi.fn(async () => undefined)
+    const signedOut = signOutInTurn(async () => false, signOut)
+
+    finishSignIn()
+    await signIn
+    await signedOut
+    expect(signOut).not.toHaveBeenCalled()
+  })
+
+  it('that had to wait is not sent when the browser cannot be asked whose session it holds', async () => {
+    fakeLocks()
+    let finishSignIn: () => void = () => {}
+    const signIn = inRefreshTurn(() => new Promise<void>(done => { finishSignIn = done }))
+    await Promise.resolve()
+    const signOut = vi.fn(async () => undefined)
+    const signedOut = signOutInTurn(async () => { throw new Error('offline') }, signOut)
+
+    finishSignIn()
+    await signIn
+    await expect(signedOut).rejects.toThrow('offline')
+    expect(signOut).not.toHaveBeenCalled()
   })
 })

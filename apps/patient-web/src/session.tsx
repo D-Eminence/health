@@ -118,7 +118,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     signOut: async () => {
       const signedIn = store.getState().principal?.subjectId
       try {
-        await api.logout()
+        await api.logout(signedIn)
       } catch (error) {
         if (!isHidApiError(error) || error.status !== 401) throw error
         // Logout needs the 15-minute access token. After a longer idle the
@@ -135,7 +135,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           }
           throw refreshError
         }
-        if (signedIn !== undefined && restored?.actor?.subject === signedIn) await api.logout()
+        if (signedIn !== undefined && restored?.actor?.subject === signedIn) await api.logout(signedIn)
       }
       store.clear()
       announceSessionChange()

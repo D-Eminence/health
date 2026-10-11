@@ -58,3 +58,39 @@ describe('a staff sign-in while another window refreshes', () => {
     expect(calls).toEqual(['POST /api/v1/auth/login'])
   })
 })
+
+describe('a staff sign-out while another window signs in', () => {
+  async function signOutAfterAnotherWindow(holder: unknown) {
+    const other = lockHeldElsewhere()
+    const calls: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string | URL | Request, init: RequestInit) => {
+      const route = `${String(init.method)} ${new URL(String(url)).pathname}`
+      calls.push(route)
+      if (route === 'POST /api/v1/auth/logout') return new Response(null, { status: 204 })
+      return new Response(JSON.stringify(holder), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    }))
+    const { setStaffSessionActor } = await import('./session')
+    const { staffApi } = await import('./api')
+    setStaffSessionActor('staff-1')
+
+    const signedOut = staffApi.logout()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(calls).toEqual([])
+    other.release()
+    await signedOut
+    return calls
+  }
+
+  it('signs out once its turn comes while the browser still holds this session', async () => {
+    const calls = await signOutAfterAnotherWindow({ actor: { id: 'staff-1', kind: 'staff' } })
+    expect(calls).toEqual(['GET /api/v1/auth/session', 'POST /api/v1/auth/logout'])
+  })
+
+  it.each([
+    ['another staff account', { actor: { id: 'staff-2', kind: 'staff' } }],
+    ['a patient', { actor: { id: 'staff-1', kind: 'patient' } }],
+  ])('leaves alone the session of %s signed in meanwhile', async (_label, holder) => {
+    const calls = await signOutAfterAnotherWindow(holder)
+    expect(calls).toEqual(['GET /api/v1/auth/session'])
+  })
+})
