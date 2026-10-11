@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { refreshInTurn } from './sessionRefreshTurn'
+import { inRefreshTurn, refreshInTurn } from './sessionRefreshTurn'
 
 /** Web Locks as browsers implement them for one exclusive lock: granted in turn, or refused with ifAvailable. */
 function fakeLocks() {
@@ -63,5 +63,26 @@ describe('a session refresh across windows', () => {
     finishFirst('first refresh')
     await first
     await expect(second).resolves.toBe('second refresh')
+  })
+})
+
+describe('a sign-in across windows', () => {
+  it('is sent at once where the browser has no Web Locks', async () => {
+    await expect(inRefreshTurn(async () => 'signed in')).resolves.toBe('signed in')
+  })
+
+  it('waits for a refresh another window has in flight, so that refresh cannot land on the new session', async () => {
+    fakeLocks()
+    let finishRefresh: (value: string) => void = () => {}
+    const refresh = refreshInTurn(async () => null, () => new Promise<string>(done => { finishRefresh = done }))
+    await Promise.resolve()
+    const signIn = vi.fn(async () => 'signed in')
+    const signedIn = inRefreshTurn(signIn)
+    await Promise.resolve()
+    expect(signIn).not.toHaveBeenCalled()
+
+    finishRefresh('refreshed')
+    await refresh
+    await expect(signedIn).resolves.toBe('signed in')
   })
 })

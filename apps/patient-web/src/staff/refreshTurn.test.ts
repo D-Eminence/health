@@ -38,3 +38,23 @@ describe('a staff session refresh while another window refreshes', () => {
     expect(calls).toEqual(['GET /api/v1/auth/session'])
   })
 })
+
+describe('a staff sign-in while another window refreshes', () => {
+  it('is sent only once that refresh has finished', async () => {
+    const other = lockHeldElsewhere()
+    const calls: string[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string | URL | Request, init: RequestInit) => {
+      calls.push(`${String(init.method)} ${new URL(String(url)).pathname}`)
+      return new Response(JSON.stringify({ actor: { id: 'staff-1', kind: 'staff' } }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    }))
+    const { staffApi } = await import('./api')
+
+    const signedIn = staffApi.login('ada@example.test', 'correct horse battery staple', 'turnstile-token')
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(calls).toEqual([])
+    other.release()
+
+    await signedIn
+    expect(calls).toEqual(['POST /api/v1/auth/login'])
+  })
+})

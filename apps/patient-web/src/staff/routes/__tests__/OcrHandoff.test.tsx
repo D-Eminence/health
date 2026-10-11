@@ -30,7 +30,7 @@ vi.mock('../../api', () => ({
 }))
 vi.mock('../../App', () => ({
   useStaff: () => ({
-    state: { status: 'ready', session: { actor: { displayName: 'Ada Clinician', facility: {
+    state: { status: 'ready', session: { actor: { id: 'staff-1', displayName: 'Ada Clinician', facility: {
       id: 'facility-1', membershipId: 'member-1', name: 'General Hospital', roles: ['doctor'], permissions: staff.permissions,
     } } } },
     activePatient: staff.activePatient,
@@ -41,6 +41,9 @@ vi.mock('../../App', () => ({
 const PATIENT = 'a0000000-0000-4000-8000-000000000001'
 const DOCUMENT = 'd0000000-0000-4000-8000-000000000001'
 const CREATE = { name: 'Create extraction job' }
+
+/** What a clinical document's "Extract with OCR" link hands over, for staff-1 at facility-1. */
+const handoff = () => ({ ocrDocumentId: DOCUMENT, ocrPatientId: PATIENT, actorId: 'staff-1', facilityId: 'facility-1' })
 
 function ShowState() {
   const state = useLocation().state as Record<string, unknown> | null
@@ -84,11 +87,28 @@ describe('creating an OCR job for a document', () => {
 
   it('starts from the document and patient handed over by a clinical document', async () => {
     api.findOcrJob.mockResolvedValue({ job: null })
-    render(<MemoryRouter initialEntries={[{ pathname: '/provider/ocr', state: { ocrDocumentId: DOCUMENT, ocrPatientId: PATIENT } }]}><Ocr /></MemoryRouter>)
+    render(<MemoryRouter initialEntries={[{ pathname: '/provider/ocr', state: handoff() }]}><Ocr /></MemoryRouter>)
     expect((screen.getByLabelText(/^Document ID/) as HTMLInputElement).value).toBe(DOCUMENT)
     fireEvent.click(screen.getByRole('button', { name: 'Find job' }))
     await screen.findByRole('button', CREATE)
     expect((screen.getByLabelText(/^Patient ID/) as HTMLInputElement).value).toBe(PATIENT)
+  })
+
+  // The handoff lives in the browser history entry, which outlives the session
+  // and the facility that made it: Back, Forward and a reload all bring it back.
+  it.each([
+    ['another account', { actorId: 'staff-2' }],
+    ['another facility', { facilityId: 'facility-2' }],
+    ['no account', { actorId: undefined }],
+  ])('ignores a handoff made by %s', async (_label, other) => {
+    render(<MemoryRouter initialEntries={[{ pathname: '/provider/ocr', state: { ...handoff(), ...other } }]}><Ocr /></MemoryRouter>)
+    expect((screen.getByLabelText(/^Document ID/) as HTMLInputElement).value).toBe('')
+  })
+
+  it('uses a handoff once, clearing it from the history entry', async () => {
+    render(<MemoryRouter initialEntries={[{ pathname: '/provider/ocr', state: handoff() }]}><ShowState /><Ocr /></MemoryRouter>)
+    expect((screen.getByLabelText(/^Document ID/) as HTMLInputElement).value).toBe(DOCUMENT)
+    await waitFor(() => expect(screen.getByTestId('handoff').textContent).toBe('null'))
   })
 })
 
@@ -124,7 +144,7 @@ describe('a clinical document', () => {
     expect(links).toHaveLength(1)
     expect(links[0]!.getAttribute('href')).toBe('/provider/ocr')
     fireEvent.click(links[0]!)
-    await waitFor(() => expect(JSON.parse(screen.getByTestId('handoff').textContent!)).toEqual({ ocrDocumentId: DOCUMENT, ocrPatientId: PATIENT }))
+    await waitFor(() => expect(JSON.parse(screen.getByTestId('handoff').textContent!)).toEqual(handoff()))
   })
 
   it('offers no OCR link without OCR read permission', async () => {

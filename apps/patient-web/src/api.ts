@@ -1,5 +1,5 @@
 import type { ApiClient } from '@hid/http'
-import { refreshInTurn } from './sessionRefreshTurn'
+import { inRefreshTurn, refreshInTurn } from './sessionRefreshTurn'
 
 /** Contracts read from hid-system c4b5445 Identity and EHR controllers. */
 export interface PatientSession {
@@ -169,13 +169,14 @@ export function createPatientApi(client: ApiClient) {
     // Windows of the portal take turns to refresh; one that waited reads the session first.
     refresh: () => refreshInTurn(() => call<PatientSession>('GET', 'auth/session').then(session => session?.actor ? session : null, () => null),
       () => call<PatientSession>('POST', 'auth/refresh')),
+    // A sign-in waits for another window's refresh, whose answer would otherwise replace its cookies.
     login: (email: string, password: string, turnstileToken: string) =>
-      call<PatientSession>('POST', 'auth/patient/login', { email, password, turnstileAction: 'patient-login', turnstileToken }),
+      inRefreshTurn(() => call<PatientSession>('POST', 'auth/patient/login', { email, password, turnstileAction: 'patient-login', turnstileToken })),
     logout: () => call<void>('POST', 'auth/logout'),
     googleNonce: () => call<{ nonce: string }>('GET', 'auth/google/nonce'),
     googleExchange: (idToken: string, turnstileToken: string, intent: 'sign_in' | 'enroll') =>
-      call<PatientSession | { stage: 'GOOGLE_AUTHENTICATED_PENDING_IDENTITY'; expiresAt: string }>(
-        'POST', 'auth/oidc/exchange', { idToken, turnstileToken, turnstileAction: 'patient-login', intent }),
+      inRefreshTurn(() => call<PatientSession | { stage: 'GOOGLE_AUTHENTICATED_PENDING_IDENTITY'; expiresAt: string }>(
+        'POST', 'auth/oidc/exchange', { idToken, turnstileToken, turnstileAction: 'patient-login', intent })),
     googleOnboarding: () => call<{ stage: 'GOOGLE_AUTHENTICATED_PENDING_IDENTITY'; expiresAt: string }>('GET', 'auth/google/onboarding'),
     googleLink: (idToken: string, principal: string, password: string, turnstileToken: string) =>
       call<{ linked: true }>('POST', 'auth/google/link', { idToken, principal, password, turnstileToken, turnstileAction: 'patient-login' }),

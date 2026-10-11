@@ -18,3 +18,13 @@ export async function refreshInTurn<T>(current: () => Promise<T | null>, refresh
     return locks.request(LOCK, async () => (await current()) ?? refresh())
   })
 }
+
+/**
+ * Runs a sign-in in the same turn as refreshes. A refresh another window has in
+ * flight would otherwise answer after the sign-in and replace the new session's
+ * cookies with the rotated old ones.
+ */
+export async function inRefreshTurn<T>(task: () => Promise<T>): Promise<T> {
+  const locks = typeof navigator === 'undefined' ? undefined : navigator.locks
+  return locks ? locks.request(LOCK, task) : task()
+}

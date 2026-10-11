@@ -5,7 +5,7 @@ import {
   endsStaffSession, nextStaffSessionChange, refusedAsPatient, reportStaffSessionEnded, staffSessionActor, staffSessionGeneration,
   staffSessionReadyFor, staffSessionSignal, untilStaffSessionReady,
 } from './session'
-import { refreshInTurn } from '../sessionRefreshTurn'
+import { inRefreshTurn, refreshInTurn } from '../sessionRefreshTurn'
 import { staffLoginAction } from '../productHostname'
 
 export interface Facility {
@@ -713,9 +713,10 @@ export const providerEnrollmentApi = {
 export const staffApi = {
   login: async (email: string, password: string, turnstileToken?: string) => {
     await Promise.all([leaving, refreshing?.catch(() => undefined)])
-    return client.post<StaffSession>('/api/v1/auth/login', {
+    // Nor may another window's refresh answer after it: its cookies would replace this sign-in's.
+    return inRefreshTurn(() => client.post<StaffSession>('/api/v1/auth/login', {
       email, password, turnstileToken, turnstileAction: staffLoginAction(window.location.hostname),
-    }, { auth: 'none' })
+    }, { auth: 'none' }))
   },
   session: () => client.get<StaffSession>('/api/v1/auth/session', { auth: 'optional' }),
   refresh: () => refreshStaffSession(),
