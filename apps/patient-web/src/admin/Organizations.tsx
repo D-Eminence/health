@@ -98,9 +98,14 @@ function ApplicationReview({ application, actor, onReviewed }: {
       }
       const approved = await adminApi.approveApplication(application, reason.trim(),
         existing ? { organizationId: existing.organizationId, facilityId: existing.id } : undefined)
+      // An administrator account created here has no password (hid-system 0048
+      // creates it as pending_reset), and sign-in refuses it until one is set.
+      // Account recovery sets a password and activates it.
       return approved.organizationReused
-        ? 'Application approved and linked to the existing organization. The administrator account was created or linked.'
-        : 'Application approved. A new organization, facility and administrator account were created.'
+        ? 'Application approved and linked to the existing organization. The administrator account was created or linked. '
+          + 'A new administrator has no password yet: ask them to set one with “Forgot your password?” on the provider sign-in page.'
+        : 'Application approved. A new organization, facility and administrator account were created. '
+          + 'The administrator has no password yet: ask them to set one with “Forgot your password?” on the provider sign-in page.'
     }, 'The review could not be completed.', REVIEW_PROBLEMS)
     setPending(null)
     if (result) { setReason(''); onReviewed(result) }

@@ -82,6 +82,8 @@ describe('organization applications', () => {
     fireEvent.change(within(item).getByLabelText('Reason for your decision'), { target: { value: 'Registry evidence matches the profile' } })
     fireEvent.click(within(item).getByRole('button', { name: 'Approve application' }))
     expect(await screen.findByText(/linked to the existing organization/)).toBeTruthy()
+    // A newly created administrator has no password until account recovery sets one.
+    expect(screen.getByText(/set one with “Forgot your password\?” on the provider sign-in page/)).toBeTruthy()
     expect(mocks.api.approveApplication).toHaveBeenCalledWith(expect.objectContaining({ applicationId: 'app-1' }),
       'Registry evidence matches the profile', { organizationId: 'org-9', facilityId: 'facility-9' })
   })
