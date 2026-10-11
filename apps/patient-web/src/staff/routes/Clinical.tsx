@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNod
 import { Link } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { Badge, Button, Card, EmptyState, Field, Input, Select, Textarea } from '@hid/ui'
-import { isAllowedPatientLookup, staffApi, type ClinicalRecord, type DocumentRecord, type EmergencyRecords, type Encounter, type NoteRevision, type RecordKind } from '../api'
+import { isAllowedPatientLookup, staffApi, type ClinicalRecord, type DiagnosisUpdate, type DocumentRecord, type EmergencyRecords, type Encounter, type NoteRevision, type RecordKind, type StatusRecordKind, type VitalCorrection, type VitalMeasurement, type VitalMeasurements } from '../api'
 import { useStaff } from '../App'
 
 const tabs: Array<{ id: RecordKind | 'documents'; label: string; permission: string }> = [
@@ -12,6 +12,22 @@ const tabs: Array<{ id: RecordKind | 'documents'; label: string; permission: str
   { id: 'prescriptions', label: 'Prescriptions', permission: 'ehr.prescription.read' },
   { id: 'lab-requests', label: 'Lab requests', permission: 'ehr.lab-request.read' },
   { id: 'documents', label: 'Documents', permission: 'ehr.document.read' },
+]
+
+/**
+ * Each vital as EHR's VitalMeasurementsDto accepts it (hid-system
+ * ehr/shared/clinical.dto.ts): whole numbers or a number of decimal places, and
+ * a range. The browser refuses anything else before it is sent.
+ */
+const VITAL_FIELDS: ReadonlyArray<readonly [name: VitalMeasurement, label: string, step: string, min: string, max: string]> = [
+  ['systolicMmhg', 'Systolic BP (mmHg)', '1', '30', '350'],
+  ['diastolicMmhg', 'Diastolic BP (mmHg)', '1', '10', '250'],
+  ['pulseBpm', 'Pulse (bpm)', '1', '10', '350'],
+  ['temperatureC', 'Temperature (°C)', '0.1', '20', '50'],
+  ['respiratoryRate', 'Respirations / min', '1', '1', '100'],
+  ['oxygenSaturationPercent', 'SpO₂ (%)', '0.01', '0', '100'],
+  ['weightKg', 'Weight (kg)', '0.001', '0.2', '700'],
+  ['heightCm', 'Height (cm)', '0.01', '20', '300'],
 ]
 
 const writePermissions: Record<RecordKind | 'documents', string> = {
@@ -49,6 +65,19 @@ const noteTransitions: Readonly<Record<string, readonly StatusOption[]>> = {
   signed: [{ value: 'entered_in_error', label: 'Mark entered in error' }],
   amended: [{ value: 'entered_in_error', label: 'Mark entered in error' }],
 }
+// EHR allows draft → active too, but that PATCH never reaches Lab, and no change
+// to a request Lab has accepted is passed to Lab: only a draft is offered changes.
+const labRequestTransitions: Readonly<Record<string, readonly StatusOption[]>> = {
+  draft: [{ value: 'cancelled', label: 'Cancel' }, { value: 'entered_in_error', label: 'Mark entered in error' }],
+}
+const diagnosisClinicalStatuses: readonly StatusOption[] = [
+  { value: 'active', label: 'Active' }, { value: 'recurrence', label: 'Recurrence' }, { value: 'relapse', label: 'Relapse' },
+  { value: 'inactive', label: 'Inactive' }, { value: 'remission', label: 'Remission' }, { value: 'resolved', label: 'Resolved' },
+]
+const diagnosisVerificationStatuses: readonly StatusOption[] = [
+  { value: 'unconfirmed', label: 'Unconfirmed' }, { value: 'provisional', label: 'Provisional' },
+  { value: 'differential', label: 'Differential' }, { value: 'confirmed', label: 'Confirmed' }, { value: 'refuted', label: 'Refuted' },
+]
 
 function rowVersion(value: unknown): number | null {
   const parsed = Number(value)
@@ -64,6 +93,20 @@ function Detail({ label, value }: { label: string; value: ReactNode }) {
   return <div className="staff-detail"><span>{label}</span><strong>{value}</strong></div>
 }
 
+type VitalValues = Readonly<Record<string, unknown>>
+
+function vitalSummary(values: VitalValues) {
+  return [
+    values.systolicMmhg != null && values.diastolicMmhg != null ? `BP ${values.systolicMmhg}/${values.diastolicMmhg} mmHg` : '',
+    values.temperatureC != null ? `${values.temperatureC} °C` : '',
+    values.pulseBpm != null ? `${values.pulseBpm} bpm` : '',
+    values.respiratoryRate != null ? `${values.respiratoryRate} breaths/min` : '',
+    values.oxygenSaturationPercent != null ? `SpO₂ ${values.oxygenSaturationPercent}%` : '',
+    values.weightKg != null ? `${values.weightKg} kg` : '',
+    values.heightCm != null ? `${values.heightCm} cm` : '',
+  ].filter(Boolean).join(' · ')
+}
+
 function recordTitle(tab: RecordKind, record: ClinicalRecord) {
   if (tab === 'clinical-notes') return String(record.title ?? 'Clinical note')
   if (tab === 'vitals') return 'Vitals recorded'
@@ -74,13 +117,8 @@ function recordTitle(tab: RecordKind, record: ClinicalRecord) {
 
 function recordDetail(tab: RecordKind, record: ClinicalRecord) {
   if (tab === 'clinical-notes') return `Status: ${String(record.status ?? 'unknown')}`
-  if (tab === 'vitals') return [
-    record.systolicMmhg != null && record.diastolicMmhg != null ? `BP ${record.systolicMmhg}/${record.diastolicMmhg} mmHg` : '',
-    record.temperatureC != null ? `${record.temperatureC} °C` : '',
-    record.pulseBpm != null ? `${record.pulseBpm} bpm` : '',
-    record.oxygenSaturationPercent != null ? `SpO₂ ${record.oxygenSaturationPercent}%` : '',
-  ].filter(Boolean).join(' · ')
-  if (tab === 'diagnoses') return `${String(record.codeSystem ?? '')} · ${String(record.code ?? '')} · ${String(record.clinicalStatus ?? '')}`
+  if (tab === 'vitals') return vitalSummary(record)
+  if (tab === 'diagnoses') return `${String(record.codeSystem ?? '')} · ${String(record.code ?? '')} · ${String(record.clinicalStatus ?? '')} · ${String(record.verificationStatus ?? '').replaceAll('_', ' ')}`
   if (tab === 'prescriptions') return `${String(record.frequency ?? '')} · ${String(record.status ?? '')}`
   return `${String(record.testCode ?? '')} · ${String(record.priority ?? '')} · ${String(record.status ?? '')}`
 }
@@ -154,14 +192,11 @@ function RecordForm({ tab, onCreated, disabled }: { tab: RecordKind; onCreated: 
   }
   return <Card className="staff-card"><h2>Add {tabs.find(item => item.id === tab)?.label.toLowerCase()}</h2><form className="staff-form" onSubmit={event => void submit(event)}>
     {tab === 'clinical-notes' && <><Field label="Note type" htmlFor="note-type" required><Input id="note-type" name="noteType" placeholder="Consultation" required /></Field><Field label="Title" htmlFor="note-title" required><Input id="note-title" name="title" required /></Field><Field label="Clinical note" htmlFor="note-content" required><Textarea id="note-content" name="content" minLength={1} required /></Field><p className="staff-muted">Notes are saved as drafts. Signing needs its own reviewed action.</p></>}
-    {tab === 'vitals' && <div className="staff-form-row">{[
-      ['systolicMmhg', 'Systolic BP (mmHg)'], ['diastolicMmhg', 'Diastolic BP (mmHg)'], ['pulseBpm', 'Pulse (bpm)'],
-      ['temperatureC', 'Temperature (°C)'], ['respiratoryRate', 'Respirations / min'], ['oxygenSaturationPercent', 'SpO₂ (%)'],
-      ['weightKg', 'Weight (kg)'], ['heightCm', 'Height (cm)'],
-    ].map(([name, label]) => <Field key={name} label={label} htmlFor={`vital-${name}`}><Input id={`vital-${name}`} name={name} type="number" step="any" /></Field>)}</div>}
-    {tab === 'diagnoses' && <><div className="staff-form-row"><Field label="Code system" htmlFor="diagnosis-system" required><Input id="diagnosis-system" name="codeSystem" placeholder="ICD-10" required /></Field><Field label="Code" htmlFor="diagnosis-code" required><Input id="diagnosis-code" name="code" required /></Field></div><Field label="Display" htmlFor="diagnosis-display" required><Input id="diagnosis-display" name="display" required /></Field><div className="staff-form-row"><Field label="Clinical status" htmlFor="diagnosis-status"><Select id="diagnosis-status" name="clinicalStatus"><option value="active">Active</option><option value="recurrence">Recurrence</option><option value="relapse">Relapse</option><option value="inactive">Inactive</option><option value="remission">Remission</option><option value="resolved">Resolved</option></Select></Field><Field label="Verification" htmlFor="diagnosis-verification"><Select id="diagnosis-verification" name="verificationStatus"><option value="unconfirmed">Unconfirmed</option><option value="provisional">Provisional</option><option value="differential">Differential</option><option value="confirmed">Confirmed</option><option value="refuted">Refuted</option></Select></Field></div><Field label="Notes" htmlFor="diagnosis-notes"><Textarea id="diagnosis-notes" name="notes" /></Field></>}
+    {tab === 'vitals' && <div className="staff-form-row">{VITAL_FIELDS.map(([name, label, step, min, max]) =>
+      <Field key={name} label={label} htmlFor={`vital-${name}`}><Input id={`vital-${name}`} name={name} type="number" step={step} min={min} max={max} /></Field>)}</div>}
+    {tab === 'diagnoses' && <><div className="staff-form-row"><Field label="Code system" htmlFor="diagnosis-system" required><Input id="diagnosis-system" name="codeSystem" placeholder="ICD-10" required /></Field><Field label="Code" htmlFor="diagnosis-code" required><Input id="diagnosis-code" name="code" required /></Field></div><Field label="Display" htmlFor="diagnosis-display" required><Input id="diagnosis-display" name="display" required /></Field><div className="staff-form-row"><Field label="Clinical status" htmlFor="diagnosis-status"><Select id="diagnosis-status" name="clinicalStatus">{diagnosisClinicalStatuses.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</Select></Field><Field label="Verification" htmlFor="diagnosis-verification"><Select id="diagnosis-verification" name="verificationStatus">{diagnosisVerificationStatuses.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</Select></Field></div><Field label="Notes" htmlFor="diagnosis-notes"><Textarea id="diagnosis-notes" name="notes" /></Field></>}
     {tab === 'prescriptions' && <><Field label="Medication" htmlFor="medication" required><Input id="medication" name="medicationDisplay" required /></Field><div className="staff-form-row"><Field label="Dose quantity" htmlFor="dose-quantity"><Input id="dose-quantity" name="doseQuantity" type="number" min="0" step="any" /></Field><Field label="Dose unit" htmlFor="dose-unit"><Input id="dose-unit" name="doseUnit" placeholder="mg" /></Field></div><div className="staff-form-row"><Field label="Route code" htmlFor="route-code"><Input id="route-code" name="routeCode" placeholder="oral" /></Field><Field label="Frequency" htmlFor="frequency" required><Input id="frequency" name="frequency" placeholder="Twice daily" required /></Field></div><Field label="Instructions" htmlFor="instructions" required><Textarea id="instructions" name="instructions" required /></Field><p className="staff-muted">This creates an EHR draft. Pharmacy acceptance and dispensing are separate backend actions.</p></>}
-    {tab === 'lab-requests' && <><div className="staff-form-row"><Field label="Test code system" htmlFor="test-system" required><Input id="test-system" name="testCodeSystem" placeholder="LOINC" required /></Field><Field label="Test code" htmlFor="test-code" required><Input id="test-code" name="testCode" required /></Field></div><Field label="Test display" htmlFor="test-display" required><Input id="test-display" name="testDisplay" required /></Field><div className="staff-form-row"><Field label="Priority" htmlFor="test-priority"><Select id="test-priority" name="priority"><option value="routine">Routine</option><option value="urgent">Urgent</option><option value="asap">As soon as possible</option><option value="stat">Stat</option></Select></Field><Field label="Specimen type code" htmlFor="specimen-code"><Input id="specimen-code" name="specimenTypeCode" /></Field></div><Field label="Clinical information" htmlFor="test-information"><Textarea id="test-information" name="clinicalInformation" /></Field><Field label="Request handling" htmlFor="lab-request-status" required><Select id="lab-request-status" name="status" defaultValue="draft" required><option value="draft">Save EHR draft</option><option value="active">Create active request and send to Lab</option></Select></Field><p className="staff-muted">Active creation asks Lab to accept the order. If acceptance is not confirmed, review the request list before retrying. Changing an existing draft to active does not send it to Lab; that backend handoff is still missing.</p></>}
+    {tab === 'lab-requests' && <><div className="staff-form-row"><Field label="Test code system" htmlFor="test-system" required><Input id="test-system" name="testCodeSystem" placeholder="LOINC" required /></Field><Field label="Test code" htmlFor="test-code" required><Input id="test-code" name="testCode" required /></Field></div><Field label="Test display" htmlFor="test-display" required><Input id="test-display" name="testDisplay" required /></Field><div className="staff-form-row"><Field label="Priority" htmlFor="test-priority"><Select id="test-priority" name="priority"><option value="routine">Routine</option><option value="urgent">Urgent</option><option value="asap">As soon as possible</option><option value="stat">Stat</option></Select></Field><Field label="Specimen type code" htmlFor="specimen-code"><Input id="specimen-code" name="specimenTypeCode" /></Field></div><Field label="Clinical information" htmlFor="test-information"><Textarea id="test-information" name="clinicalInformation" /></Field><Field label="Request handling" htmlFor="lab-request-status" required><Select id="lab-request-status" name="status" defaultValue="draft" required><option value="draft">Save EHR draft</option><option value="active">Create active request and send to Lab</option></Select></Field><p className="staff-muted">Active creation asks Lab to accept the order. If acceptance is not confirmed, review the request list before retrying. A draft stays in the EHR: it cannot be sent to Lab later, because that backend handoff is still missing, so create an active request to order the test.</p></>}
     {error && <p className="staff-error" role="alert">{error}</p>}<Button type="submit" disabled={busy || disabled}>{busy ? 'Saving…' : tab === 'lab-requests' ? 'Create lab request' : tab === 'vitals' || tab === 'diagnoses' ? 'Save record' : 'Save draft'}</Button>
   </form></Card>
 }
@@ -227,6 +262,134 @@ function ReasonActionForm({ id, title, actionLabel, minLength = 3, disabled, onA
     {error && <p className="staff-error" role="alert">{error}</p>}
     <Button type="submit" tone="secondary" size="sm" disabled={busy || disabled}>{busy ? 'Working…' : actionLabel}</Button>
   </form>
+}
+
+type DiagnosisChanges = Omit<DiagnosisUpdate, 'expectedRowVersion' | 'changeReason'>
+
+/** Sends only what was changed: EHR's UpdateDiagnosisDto names no other field. */
+function DiagnosisUpdateForm({ id, diagnosis, disabled, onUpdate }: {
+  id: string; diagnosis: ClinicalRecord; disabled: boolean
+  onUpdate: (changes: DiagnosisChanges, reason: string) => Promise<void>
+}) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const submitting = useRef(false)
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (submitting.current || disabled) return
+    const form = new FormData(event.currentTarget)
+    const clinicalStatus = text(form, 'clinicalStatus')
+    const verificationStatus = text(form, 'verificationStatus')
+    const notes = text(form, 'notes')
+    const reason = text(form, 'reason')
+    const changes: DiagnosisChanges = {
+      ...(clinicalStatus !== String(diagnosis.clinicalStatus ?? '') ? { clinicalStatus } : {}),
+      ...(verificationStatus !== String(diagnosis.verificationStatus ?? '') ? { verificationStatus } : {}),
+      ...(notes !== String(diagnosis.notes ?? '').trim() ? { notes } : {}),
+    }
+    if (Object.keys(changes).length === 0) { setError('Change the clinical status, verification or notes before saving.'); return }
+    if (reason.length < 3) { setError('Give a reason of at least 3 characters.'); return }
+    submitting.current = true; setBusy(true); setError('')
+    try { await onUpdate(changes, reason) }
+    catch (caught) { setError(errorMessage(caught, 'The diagnosis could not be changed.')) }
+    finally { submitting.current = false; setBusy(false) }
+  }
+  return <form className="staff-form" onSubmit={event => void submit(event)}>
+    <strong>Change this diagnosis</strong>
+    <div className="staff-form-row">
+      <Field label="Clinical status" htmlFor={`${id}-clinical`}><Select id={`${id}-clinical`} name="clinicalStatus" defaultValue={String(diagnosis.clinicalStatus ?? '')}>{diagnosisClinicalStatuses.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</Select></Field>
+      <Field label="Verification" htmlFor={`${id}-verification`}><Select id={`${id}-verification`} name="verificationStatus" defaultValue={String(diagnosis.verificationStatus ?? '')}>{[...diagnosisVerificationStatuses, { value: 'entered_in_error', label: 'Entered in error' }].map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</Select></Field>
+    </div>
+    <Field label="Notes" htmlFor={`${id}-notes`}><Textarea id={`${id}-notes`} name="notes" maxLength={4000} defaultValue={String(diagnosis.notes ?? '')} /></Field>
+    <Field label="Reason for change" htmlFor={`${id}-reason`} required><Input id={`${id}-reason`} name="reason" minLength={3} maxLength={500} required /></Field>
+    <p className="staff-muted">Every change is kept in the record history. A diagnosis marked entered in error accepts no further change here.</p>
+    {error && <p className="staff-error" role="alert">{error}</p>}
+    <Button type="submit" tone="secondary" size="sm" disabled={busy || disabled}>{busy ? 'Updating…' : 'Update diagnosis'}</Button>
+  </form>
+}
+
+type VitalCorrect = (replacementValues: VitalMeasurements, reason: string, key: string) => Promise<void>
+
+function VitalCorrectionForm({ id, current, disabled, onCorrect }: {
+  id: string; current: VitalValues; disabled: boolean; onCorrect: VitalCorrect
+}) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const submitting = useRef(false)
+  const attempt = useRef<{ signature: string; key: string } | null>(null)
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (submitting.current || disabled) return
+    const form = new FormData(event.currentTarget)
+    const values: VitalMeasurements = {}
+    for (const [name] of VITAL_FIELDS) {
+      const value = number(form, name)
+      if (value !== undefined) values[name] = value
+    }
+    const reason = text(form, 'reason')
+    const problem = Object.keys(values).length === 0 ? 'Enter at least one vital measurement.'
+      : (values.systolicMmhg === undefined) !== (values.diastolicMmhg === undefined) ? 'Enter both systolic and diastolic blood pressure, or leave both blank.'
+      : VITAL_FIELDS.every(([name]) => values[name] === (current[name] == null ? undefined : Number(current[name]))) ? 'Change at least one value before saving a correction.'
+      : reason.length < 3 ? 'Give a reason of at least 3 characters.' : ''
+    if (problem) { setError(problem); return }
+    // A retry of the same correction reuses its key, so EHR cannot append it twice.
+    const signature = JSON.stringify([values, reason])
+    if (attempt.current?.signature !== signature) attempt.current = { signature, key: crypto.randomUUID() }
+    submitting.current = true; setBusy(true); setError('')
+    try { await onCorrect(values, reason, attempt.current.key); attempt.current = null }
+    catch (caught) { setError(errorMessage(caught, 'The correction could not be saved.')) }
+    finally { submitting.current = false; setBusy(false) }
+  }
+  return <form className="staff-form" onSubmit={event => void submit(event)}>
+    <p className="staff-muted">The values below become the current vitals; what was recorded is kept. A measurement left blank is not part of the corrected vitals.</p>
+    <div className="staff-form-row">{VITAL_FIELDS.map(([name, label, step, min, max]) =>
+      <Field key={name} label={label} htmlFor={`${id}-${name}`}><Input id={`${id}-${name}`} name={name} type="number" step={step} min={min} max={max}
+        defaultValue={current[name] == null ? '' : String(current[name])} /></Field>)}</div>
+    <Field label="Reason for correction" htmlFor={`${id}-reason`} required><Input id={`${id}-reason`} name="reason" minLength={3} maxLength={500} required /></Field>
+    {error && <p className="staff-error" role="alert">{error}</p>}
+    <Button type="submit" tone="secondary" size="sm" disabled={busy || disabled}>{busy ? 'Saving…' : 'Save correction'}</Button>
+  </form>
+}
+
+/**
+ * A vital is never edited: EHR appends a correction and the list row keeps the
+ * recorded values. Where a correction exists its values are shown as current,
+ * and if it cannot be read the recorded values are not passed off as current.
+ */
+function VitalPanel({ facilityId, patientId, encounterId, vital, canCorrect, disabled, onCorrect }: {
+  facilityId: string; patientId: string; encounterId: string; vital: ClinicalRecord
+  canCorrect: boolean; disabled: boolean; onCorrect: VitalCorrect
+}) {
+  const correctionNo = Number(vital.currentCorrectionNo ?? 0)
+  const corrected = correctionNo > 0
+  const [latest, setLatest] = useState<VitalCorrection | null>(null)
+  const [loadError, setLoadError] = useState('')
+  const [open, setOpen] = useState(false)
+  useEffect(() => {
+    if (!corrected) return
+    let active = true
+    void staffApi.vitalCorrections(facilityId, patientId, encounterId, vital.id).then(items => {
+      if (!active) return
+      const current = items.find(item => item.correctionNo === correctionNo)
+      if (current) setLatest(current)
+      else setLoadError('The current correction was not returned.')
+    }).catch(caught => { if (active) setLoadError(errorMessage(caught, 'Corrections could not be loaded.')) })
+    return () => { active = false }
+  }, [facilityId, patientId, encounterId, vital.id, corrected, correctionNo])
+  const current: VitalValues | null = corrected ? latest?.replacementValues ?? null : vital
+  return <>
+    {!corrected && <p>{vitalSummary(vital)}</p>}
+    {corrected && !latest && !loadError && <p role="status">Loading the correction…</p>}
+    {latest && <><Detail label={`Corrected (correction ${latest.correctionNo})`} value={vitalSummary(latest.replacementValues)} />
+      <Detail label="Reason" value={latest.reason} />
+      <Detail label="Corrected at" value={latest.createdAt ? new Date(latest.createdAt).toLocaleString() : ''} /></>}
+    {loadError && <p className="staff-error" role="alert">These vitals were corrected, but the correction could not be loaded, so the values below are as first recorded and may not be current. {loadError}</p>}
+    {corrected && <Detail label="Originally recorded" value={vitalSummary(vital)} />}
+    {canCorrect && current && <>
+      <Button tone="secondary" size="sm" aria-expanded={open} onClick={() => setOpen(value => !value)}>{open ? 'Close correction' : 'Correct these vitals'}</Button>
+      {open && <VitalCorrectionForm id={`vital-${vital.id}`} current={current} disabled={disabled} onCorrect={onCorrect} />}
+    </>}
+  </>
 }
 
 function NotePanel({ facilityId, patientId, encounterId, note, canWrite, verify, onStatus, onChanged }: {
@@ -525,7 +688,19 @@ export function Clinical() {
     setSuccess('Encounter status updated.')
   }
 
-  async function changeRecordStatus(record: ClinicalRecord, kind: RecordKind, status: string, reason: string) {
+  // Once a change is saved, a failed reload must not read as a failed change.
+  async function reloadAfterChange(kind: RecordKind) {
+    if (!facility || !patientId || !encounterId) return
+    try {
+      const result = await staffApi.records(facility.id, patientId, encounterId, kind)
+      setRecords(result.items)
+      setRecordsFor(JSON.stringify([facility.id, patientId, encounterId, kind]))
+    } catch (caught) {
+      setError(`The change was saved, but the records could not be reloaded. ${errorMessage(caught, '')}`.trim())
+    }
+  }
+
+  async function changeRecordStatus(record: ClinicalRecord, kind: StatusRecordKind, status: string, reason: string) {
     if (!facility || !patientId || !encounterId || !canMutate) return
     const expectedRowVersion = rowVersion(record.rowVersion)
     if (!expectedRowVersion) throw new Error('Reload the record before changing its status.')
@@ -533,10 +708,33 @@ export function Clinical() {
     await verify()
     await staffApi.updateRecord(facility.id, patientId, encounterId, kind, record.id,
       { expectedRowVersion, changeReason: reason, status })
-    const result = await staffApi.records(facility.id, patientId, encounterId, kind)
-    setRecords(result.items)
-    setRecordsFor(JSON.stringify([facility.id, patientId, encounterId, kind]))
-    setSuccess(kind === 'clinical-notes' ? 'Clinical note status updated.' : 'Prescription status updated.')
+    setSuccess(kind === 'clinical-notes' ? 'Clinical note status updated.'
+      : kind === 'lab-requests' ? 'Lab request status updated.' : 'Prescription status updated.')
+    await reloadAfterChange(kind)
+  }
+
+  async function updateDiagnosis(record: ClinicalRecord, changes: DiagnosisChanges, reason: string) {
+    if (!facility || !patientId || !encounterId || !canMutate) return
+    const expectedRowVersion = rowVersion(record.rowVersion)
+    if (!expectedRowVersion) throw new Error('Reload the diagnosis before changing it.')
+    setSuccess('')
+    await verify()
+    await staffApi.updateDiagnosis(facility.id, patientId, encounterId, record.id,
+      { expectedRowVersion, changeReason: reason, ...changes })
+    setSuccess('Diagnosis updated.')
+    await reloadAfterChange('diagnoses')
+  }
+
+  async function correctVital(record: ClinicalRecord, replacementValues: VitalMeasurements, reason: string, key: string) {
+    if (!facility || !patientId || !encounterId || !canMutate) return
+    const expectedRowVersion = rowVersion(record.rowVersion)
+    if (!expectedRowVersion) throw new Error('Reload the vitals before correcting them.')
+    setSuccess('')
+    await verify()
+    await staffApi.correctVital(facility.id, patientId, encounterId, record.id,
+      { expectedRowVersion, changeReason: reason, replacementValues }, key)
+    setSuccess('Vital correction saved.')
+    await reloadAfterChange('vitals')
   }
 
   async function handoffPrescription(record: ClinicalRecord, reason: string, key: string) {
@@ -562,17 +760,30 @@ export function Clinical() {
         <Card className="staff-card"><StatusActionForm key={`${selected.id}-${selected.rowVersion}`} id={`encounter-${selected.id}`} title="Encounter status"
           choices={encounterTransitions[selected.status]!} disabled={loading} onChange={changeEncounterStatus} /></Card>}
       {!activeTab ? <p className="staff-muted">Your current facility role does not grant access to encounter records.</p>
-        : activeTab === 'documents' ? <Documents key={selected.id} patientId={patientId!} encounterId={selected.id} facilityId={facility.id} canWrite={canMutate && permissions.includes(writePermissions.documents)} canOcr={permissions.includes('ocr.job.read')} verify={verify} /> : <div className="staff-two-col"><Card className="staff-card"><h2>{tabs.find(item => item.id === activeTab)?.label}</h2>{recordsLoading && <p role="status">Loading records…</p>}{!recordsLoading && visibleRecords.length === 0 && <p>No {tabs.find(item => item.id === activeTab)?.label.toLowerCase()} for this encounter.</p>}<div className="staff-list">{visibleRecords.map(record => <div className="staff-list-item staff-stack" key={record.id}><strong>{recordTitle(activeTab, record)}</strong><p>{recordDetail(activeTab, record)}</p><Detail label="Recorded" value={record.createdAt ? new Date(record.createdAt).toLocaleString() : ''} />
+        : activeTab === 'documents' ? <Documents key={selected.id} patientId={patientId!} encounterId={selected.id} facilityId={facility.id} canWrite={canMutate && permissions.includes(writePermissions.documents)} canOcr={permissions.includes('ocr.job.read')} verify={verify} /> : <div className="staff-two-col"><Card className="staff-card"><h2>{tabs.find(item => item.id === activeTab)?.label}</h2>{recordsLoading && <p role="status">Loading records…</p>}{!recordsLoading && visibleRecords.length === 0 && <p>No {tabs.find(item => item.id === activeTab)?.label.toLowerCase()} for this encounter.</p>}<div className="staff-list">{visibleRecords.map(record => <div className="staff-list-item staff-stack" key={record.id}><strong>{recordTitle(activeTab, record)}</strong>
+        {activeTab === 'diagnoses' && record.verificationStatus === 'entered_in_error' && <Badge tone="warning">Entered in error</Badge>}
+        {activeTab === 'vitals' ? <VitalPanel key={`${record.id}-${String(record.rowVersion)}`} facilityId={facility.id} patientId={patientId!} encounterId={selected.id}
+          vital={record} canCorrect={canMutate && permissions.includes('ehr.vital.write')} disabled={recordsLoading}
+          onCorrect={(values, reason, key) => correctVital(record, values, reason, key)} /> : <p>{recordDetail(activeTab, record)}</p>}
+        <Detail label="Recorded" value={record.createdAt ? new Date(record.createdAt).toLocaleString() : ''} />
         {activeTab === 'clinical-notes' && <NotePanel facilityId={facility.id} patientId={patientId!} encounterId={selected.id}
           note={record} canWrite={canMutate && permissions.includes('ehr.note.write')} verify={verify}
           onStatus={(status, reason) => changeRecordStatus(record, 'clinical-notes', status, reason)}
           onChanged={async () => { setRecords((await staffApi.records(facility.id, patientId!, selected.id, 'clinical-notes')).items); setRecordsFor(JSON.stringify([facility.id, patientId, selected.id, 'clinical-notes'])) }} />}
         {activeTab === 'prescriptions' && canMutate && permissions.includes('ehr.prescription.write') && (prescriptionTransitions[String(record.status)]?.length ?? 0) > 0 &&
           <StatusActionForm key={`${record.id}-${record.rowVersion}`} id={`prescription-${record.id}`} title="Prescription status" choices={prescriptionTransitions[String(record.status)]!}
-            disabled={recordsLoading} onChange={(status, reason) => changeRecordStatus(record, activeTab, status, reason)} />}
+            disabled={recordsLoading} onChange={(status, reason) => changeRecordStatus(record, 'prescriptions', status, reason)} />}
         {activeTab === 'prescriptions' && record.status === 'active' && canMutate && permissions.includes('pharmacy.work-item.accept') &&
           <ReasonActionForm key={`${record.id}-${record.rowVersion}`} id={`handoff-${record.id}`} title="Send active prescription to Pharmacy" actionLabel="Send to Pharmacy"
             minLength={8} disabled={recordsLoading} onAction={(reason, key) => handoffPrescription(record, reason, key)} />}
+        {activeTab === 'diagnoses' && canMutate && permissions.includes('ehr.diagnosis.write') && record.verificationStatus !== 'entered_in_error' &&
+          <DiagnosisUpdateForm key={`${record.id}-${String(record.rowVersion)}`} id={`diagnosis-${record.id}`} diagnosis={record}
+            disabled={recordsLoading} onUpdate={(changes, reason) => updateDiagnosis(record, changes, reason)} />}
+        {activeTab === 'lab-requests' && canMutate && permissions.includes('ehr.lab-request.write') && (labRequestTransitions[String(record.status)]?.length ?? 0) > 0 &&
+          <StatusActionForm key={`${record.id}-${String(record.rowVersion)}`} id={`lab-request-${record.id}`} title="Lab request status" choices={labRequestTransitions[String(record.status)]!}
+            disabled={recordsLoading} onChange={(status, reason) => changeRecordStatus(record, 'lab-requests', status, reason)} />}
+        {activeTab === 'lab-requests' && canMutate && permissions.includes('ehr.lab-request.write') && (record.status === 'active' || record.status === 'on_hold') &&
+          <p className="staff-muted">Lab may already be working on this request. Status changes made here are not passed to Lab, so none are offered; contact the laboratory to stop or correct it.</p>}
       </div>)}</div></Card>{canMutate && permissions.includes(writePermissions[activeTab]) && <RecordForm key={activeTab} tab={activeTab} onCreated={createRecord} disabled={!selected} />}</div>}
     </section>}
   </>
