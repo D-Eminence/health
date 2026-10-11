@@ -256,3 +256,40 @@ than a live completion tracker.
   reloads the job and says so. The job status shows when its source patient
   was confirmed.
 - Component tests only. No browser, staging or deployed-backend run.
+
+## 2026-10-11: staff session landing (#25, #30)
+
+- Checked against hid-system `main` at `54f79d2`. A staff session that ends,
+  expires or is revoked gets only a generic `401 AUTHENTICATION_REQUIRED`, every
+  refresh rotates the session, a refresh token presented twice revokes the whole
+  session (`token.service.ts`), and logout ends whichever session the cookies
+  carry.
+- Lands D-Eminence/Health-id#25 (session end) and D-Eminence/Health-id#30
+  (session lock) through D-Eminence/Health-id#34, with `main` merged in. The
+  provider portal confirms a refused session with the server before acting,
+  locks the workspace while it asks, ends it cleanly once the server confirms,
+  and keeps each session's requests to itself. It locks when the page is hidden
+  or left, and hears sign-ins and sign-outs from other tabs and the patient
+  portal. The full behaviour is in [open questions](./OPEN-QUESTIONS.md),
+  "Staff session end".
+- Fixed in review before landing:
+  - Refreshes take turns across windows, with the patient portal's, where the
+    browser supports Web Locks. A window that waited reads the session the
+    other refresh left before refreshing again, so two windows do not present
+    the same refresh token.
+  - Signing in (staff, patient password, patient Google) waits its turn, so
+    another window's refresh cannot replace the new session's cookies.
+  - Sign-out from a locked workspace asks the server first and signs out only a
+    session that is still this account's.
+  - A session change announced while the portal is still opening is checked
+    once the workspace opens, instead of being missed.
+  - A document handed from an encounter's Documents to OCR opens there only
+    for the same account and facility, and only once, so it is not reapplied
+    by back or forward navigation or after another account signs in.
+- Recorded in [open questions](./OPEN-QUESTIONS.md): logout cannot be limited
+  to the session the portal means to end, so a sign-in in another window
+  between the check and the logout is still signed out. hid-system branch
+  `claude/session-logout-and-refresh-kind` (unmerged) proposes `X-HID-Client`
+  on refresh; the portals will send it once that is deployed.
+- Component tests only. No browser, staging or deployed-backend run; Web Locks
+  and `BroadcastChannel` are stubbed in the tests.
