@@ -49,8 +49,12 @@ export function Enrollment() {
     setCheckError(false)
     void Promise.allSettled([api.enrollmentCurrent(), api.googleOnboarding()]).then(([progress, google]) => {
       if (!active) return
-      const unavailable = [progress, google].some(result => result.status === 'rejected'
-        && (!isHidApiError(result.reason) || ![401, 404].includes(result.reason.status)))
+      // Only the enrollment's own progress must be known before starting. A failed
+      // check for a pending Google sign-up (for example a browser that sends no
+      // Referer, which that check needs when no Origin is sent) counts as none
+      // pending: an enrollment that requires Google still says so.
+      const unavailable = progress.status === 'rejected'
+        && (!isHidApiError(progress.reason) || ![401, 404].includes(progress.reason.status))
       if (unavailable) {
         setCheckError(true)
         setChecking(false)

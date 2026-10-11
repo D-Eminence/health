@@ -49,3 +49,21 @@ describe('linking Google to an enrollment in progress', () => {
     expect(screen.getByText('Google identity confirmed for this enrollment.')).toBeTruthy()
   })
 })
+
+describe('checking for an enrollment in progress', () => {
+  it('starts enrollment when only the Google sign-up check fails', async () => {
+    api.enrollmentCurrent.mockRejectedValue(new HidApiError(404, 'No enrollment'))
+    api.googleOnboarding.mockRejectedValue(new HidApiError(403, 'Request origin is not allowed', { code: 'ORIGIN_DENIED' }))
+    render(<MemoryRouter><Enrollment /></MemoryRouter>)
+    expect(await screen.findByLabelText('National Identification Number')).toBeTruthy()
+    expect(screen.queryByText(/could not check for an enrollment in progress/)).toBeNull()
+  })
+
+  it('does not start while the enrollment’s own progress is unknown', async () => {
+    api.enrollmentCurrent.mockRejectedValue(new HidApiError(503, 'Unavailable'))
+    api.googleOnboarding.mockRejectedValue(new HidApiError(404, 'No Google onboarding'))
+    render(<MemoryRouter><Enrollment /></MemoryRouter>)
+    expect(await screen.findByText(/could not check for an enrollment in progress/)).toBeTruthy()
+    expect(screen.queryByLabelText('National Identification Number')).toBeNull()
+  })
+})
