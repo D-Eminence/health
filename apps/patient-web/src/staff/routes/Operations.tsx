@@ -582,18 +582,30 @@ function OcrReview({ facilityId, job, extractions, onChanged }: { facilityId: st
   </form></Card>
 }
 
-function OcrConfirmation({ facilityId, job, onChanged }: { facilityId: string; job: OcrJob; onChanged: () => Promise<void> }) {
+// OCR takes one patient confirmation per job version. A retry of the same
+// confirmation reuses its key, so OCR answers with the one it recorded; if the
+// job was confirmed already, it is reloaded rather than left with a dead form.
+function OcrConfirmation({ facilityId, job, onChanged }: { facilityId: string; job: OcrJob; onChanged: (notice?: string) => Promise<void> }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const attempt = useRef<{ signature: string; key: string } | null>(null)
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const form = new FormData(event.currentTarget)
     const patientId = String(form.get('patientId') ?? '').trim()
     const reason = String(form.get('reason') ?? '').trim()
     if (reason.length < 8) return setError('Enter a patient confirmation reason of at least 8 characters.')
+    const signature = JSON.stringify([patientId, reason])
+    if (attempt.current?.signature !== signature) attempt.current = { signature, key: crypto.randomUUID() }
     setBusy(true); setError('')
-    try { await staffApi.confirmOcrPatient(facilityId, job, patientId, reason); await onChanged() }
-    catch (caught) { setError(errorText(caught, 'Patient confirmation could not be recorded.')) }
+    try { await staffApi.confirmOcrPatient(facilityId, job, patientId, reason, attempt.current.key); attempt.current = null; await onChanged() }
+    catch (caught) {
+      if (isHidApiError(caught) && caught.code === 'OCR_PATIENT_ALREADY_CONFIRMED') {
+        await onChanged('The source patient of this job was already confirmed, so the job was reloaded.')
+        return
+      }
+      setError(errorText(caught, 'Patient confirmation could not be recorded.'))
+    }
     finally { setBusy(false) }
   }
   return <Card className="staff-card"><h2>Confirm source patient</h2><p>Confirm the canonical patient against the clinical source document before publication. The backend verifies an exact match and write authorization.</p><form className="staff-form" onSubmit={event => void submit(event)}><Field label="Canonical patient ID" htmlFor="ocr-confirm-patient" required><Input id="ocr-confirm-patient" name="patientId" defaultValue={job.patientId ?? ''} required /></Field><Field label="Confirmation reason" htmlFor="ocr-confirm-reason" required><Textarea id="ocr-confirm-reason" name="reason" minLength={8} maxLength={500} required /></Field>{error && <p className="staff-error" role="alert">{error}</p>}<Button type="submit" disabled={busy}>{busy ? 'Confirming…' : 'Confirm source patient'}</Button></form></Card>
@@ -645,11 +657,12 @@ export function Ocr() {
   const [searched, setSearched] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
   const [lookupRevision, setLookupRevision] = useState(0)
   const visibleJob = jobFacilityId === facilityId ? job : null
   const canRetryJob = visibleJob?.status === 'failed' &&
     (visibleJob.attemptCount === undefined || visibleJob.maxAttempts === undefined || visibleJob.attemptCount < visibleJob.maxAttempts)
-  useEffect(() => { setJob(null); setExtractions(null); setValidations(null); setSearched(false); setError('') }, [facilityId])
+  useEffect(() => { setJob(null); setExtractions(null); setValidations(null); setSearched(false); setError(''); setNotice('') }, [facilityId])
   useEffect(() => {
     if (!facilityId || !visibleJob?.id || !canRead) return
     let active = true
@@ -663,7 +676,7 @@ export function Ocr() {
     event?.preventDefault()
     if (!facilityId) return
     if (!documentId.trim()) return setError('Enter a document ID.')
-    setBusy(true); setError(''); setSearched(false); setExtractions(null); setValidations(null)
+    setBusy(true); setError(''); setNotice(''); setSearched(false); setExtractions(null); setValidations(null)
     try { const result = await staffApi.findOcrJob(facilityId, documentId.trim()); setJob(result.job); setJobFacilityId(facilityId); setSearched(true); setLookupRevision(value => value + 1) }
     catch (caught) { setJob(null); setError(errorText(caught, 'OCR job could not be found.')) }
     finally { setBusy(false) }
@@ -697,8 +710,9 @@ export function Ocr() {
       {/* Only after a lookup has answered that no job exists: a failed or missing lookup must not invite a duplicate job. */}
       {searched && !visibleJob && permissions.includes('ocr.job.write') && <div className="staff-stack"><p>Create an extraction job for a verified patient document.</p><Field label="Patient ID" htmlFor="ocr-patient" required><Input id="ocr-patient" value={patientId} onChange={event => setPatientId(event.target.value)} placeholder="Patient UUID" /></Field><Button onClick={() => void create()} disabled={busy || !documentId.trim() || !patientId.trim()}>{busy ? 'Creating…' : 'Create extraction job'}</Button></div>}
       {error && <p className="staff-error" role="alert">{error}</p>}
+      {notice && <p className="staff-notice" role="status">{notice}</p>}
     </Card>
-      {visibleJob ? <Card className="staff-card"><h2>Job status</h2><div className="staff-row"><Badge tone={visibleJob.status === 'failed' ? 'danger' : visibleJob.status === 'validated' ? 'success' : 'information'}>{visibleJob.status.replaceAll('_', ' ')}</Badge><span className="staff-muted">Version {visibleJob.version ?? 'unknown'}</span></div><p>Provider {visibleJob.provider} · Document {shortId(visibleJob.documentId)}</p><Button tone="secondary" size="sm" onClick={() => void lookup()} disabled={busy}>Refresh status</Button>
+      {visibleJob ? <Card className="staff-card"><h2>Job status</h2><div className="staff-row"><Badge tone={visibleJob.status === 'failed' ? 'danger' : visibleJob.status === 'validated' ? 'success' : 'information'}>{visibleJob.status.replaceAll('_', ' ')}</Badge><span className="staff-muted">Version {visibleJob.version ?? 'unknown'}</span></div><p>Provider {visibleJob.provider} · Document {shortId(visibleJob.documentId)}</p>{visibleJob.patientConfirmation && <p>Source patient confirmed {dateText(visibleJob.patientConfirmation.confirmedAt)}</p>}<Button tone="secondary" size="sm" onClick={() => void lookup()} disabled={busy}>Refresh status</Button>
         {canRetryJob && permissions.includes('ocr.job.write') && <form className="staff-form" onSubmit={event => void retry(event)}><Field label="Retry reason" htmlFor="ocr-retry-reason" required><Textarea id="ocr-retry-reason" name="reason" minLength={8} maxLength={500} required /></Field><Button size="sm" type="submit" disabled={busy || !visibleJob.version}>{busy ? 'Retrying…' : 'Retry job'}</Button></form>}
         {visibleJob.status === 'failed' && !canRetryJob && <p className="staff-muted">The extraction attempt limit has been reached. This job cannot be retried.</p>}
         {extractions === null && <p className="staff-muted" role="status">Loading extractions…</p>}
@@ -707,7 +721,7 @@ export function Ocr() {
       </Card> : <Card className="staff-card"><h2>Document review</h2><p>Use the document ID from an authorized clinical record. OCR jobs are scoped to that source; this backend has no facility-wide OCR job list.</p></Card>}
     </div>
     {visibleJob?.status === 'awaiting_validation' && permissions.includes('ocr.validation.write') && extractions && <div className="staff-section"><OcrReview key={`${visibleJob.id}-${visibleJob.version}`} facilityId={facilityId} job={visibleJob} extractions={extractions} onChanged={() => lookup()} /></div>}
-    {visibleJob?.status === 'validated' && !visibleJob.patientConfirmation && permissions.includes('ocr.patient.confirm') && <div className="staff-section"><OcrConfirmation key={`${visibleJob.id}-${visibleJob.version}`} facilityId={facilityId} job={visibleJob} onChanged={() => lookup()} /></div>}
+    {visibleJob?.status === 'validated' && !visibleJob.patientConfirmation && permissions.includes('ocr.patient.confirm') && <div className="staff-section"><OcrConfirmation key={`${visibleJob.id}-${visibleJob.version}`} facilityId={facilityId} job={visibleJob} onChanged={async message => { await lookup(); if (message) setNotice(message) }} /></div>}
     {visibleJob && validations && validations.length > 0 && <div className="staff-section"><h2>Review and publication history</h2><div className="staff-list">{validations.map(validation => <OcrPublicationCard key={validation.id} facilityId={facilityId} validation={validation} confirmationId={visibleJob.patientConfirmation?.id} canPublish={permissions.includes('ocr.publication.write')} onChanged={() => lookup()} />)}</div></div>}
   </>
 }

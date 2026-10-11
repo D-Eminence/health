@@ -185,3 +185,17 @@ than a live completion tracker.
     clinical document links to OCR, handing over its IDs in router state, not
     in the URL.
 - Component tests only. No browser, staging or deployed-backend run.
+
+## 2026-10-11: OCR patient confirmation retry
+
+- Checked against hid-system `main` at `54f79d2` (`ocr.service.ts`
+  `confirmPatient`). OCR takes one patient confirmation per job version, and
+  answers a second with `409 OCR_PATIENT_ALREADY_CONFIRMED`. It replays a
+  confirmation sent again with the same `Idempotency-Key`.
+- The portal sent a new key on every attempt, so a retry after a confirmation
+  that had been recorded (for example, when the response was lost) was refused
+  with that 409 and the form stayed. A retry of the same confirmation now
+  reuses its key, and if the job turns out to be confirmed already the page
+  reloads the job and says so. The job status shows when its source patient
+  was confirmed.
+- Component tests only. No browser, staging or deployed-backend run.
