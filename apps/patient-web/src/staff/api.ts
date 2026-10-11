@@ -553,9 +553,9 @@ function isSessionOf(session: StaffSession | null | undefined, actorId: string):
  * Restores this tab's session after a 401. A refresh that answers for another
  * account (signed in from another tab, staff or patient) has not restored it: it
  * counts as the 401 of an ended session, so nothing is repeated as that account.
+ * A sign-out names the account it started for, which outlives the workspace.
  */
-async function restoreStaffSession(): Promise<StaffSession> {
-  const actorId = staffSessionActor()
+async function restoreStaffSession(actorId = staffSessionActor()): Promise<StaffSession> {
   const restored = await refreshStaffSession()
   if (actorId !== null && !isSessionOf(restored, actorId)) throw sessionEnded()
   return restored
@@ -624,7 +624,7 @@ async function signOutStaffSession(confirmFirst: boolean): Promise<void> {
     catch (error) { if (!endsStaffSession(error)) throw error }
     if (staffSessionGeneration() !== sentIn) return
     if (attempt === SIGN_OUT_ATTEMPTS) throw new Error('Sign-out could not be completed. Try again.')
-    try { await restoreStaffSession() }
+    try { await restoreStaffSession(actorId) }
     catch (refused) { if (endsStaffSession(refused)) return; throw refused }
     if (staffSessionGeneration() !== sentIn) return
   }

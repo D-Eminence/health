@@ -168,6 +168,28 @@ describe('a staff sign-out while another window signs in', () => {
   })
 })
 
+describe('a staff sign-out whose workspace closes while it waits', () => {
+  it('still leaves alone another account found when a refused check restores the session', async () => {
+    // Leaving the provider portal clears the account it shows; the restore still checks against the one being signed out.
+    const other = turnHeldUntilReleased()
+    const calls = serve({
+      [SESSION]: [() => json({ status: 401, code: 'AUTHENTICATION_REQUIRED' }, 401)],
+      [REFRESH]: [() => json(staff('staff-2'))],
+      [LOGOUT]: [() => new Response(null, { status: 204 })],
+    })
+    const { setStaffSessionActor } = await import('./session')
+    const { staffApi } = await import('./api')
+    setStaffSessionActor('staff-1')
+
+    const signedOut = staffApi.logout()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    setStaffSessionActor(null)
+    other.release()
+    await signedOut
+    expect(calls).toEqual([SESSION, REFRESH])
+  })
+})
+
 describe('provider enrollment activation while another window signs out', () => {
   it('waits its turn, so that sign-out cannot clear or end the new session', async () => {
     const other = lockHeldElsewhere()

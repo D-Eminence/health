@@ -351,7 +351,8 @@ than a live completion tracker.
   do. The patient portal now recognises its own session by `kind: 'patient'`
   and the subject, in the new check and in the existing restore after an idle
   sign-out, so it never ends a staff session of the same person (one account
-  can hold both). The provider sign-out names its account when it starts, so
+  can hold both). The provider sign-out names its account when it starts, and
+  checks the session against it and against any session it restores, so
   leaving the workspace while it waits does not drop it.
 - Recorded in [open questions](./OPEN-QUESTIONS.md): a sign-out that waited for
   another window's sign-in leaves the session it meant to end alive on the

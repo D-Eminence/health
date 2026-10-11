@@ -67,6 +67,14 @@ function lockHeldElsewhere() {
   return { release }
 }
 
+/** Web Locks with no other window holding the session turn. */
+function freeTurn() {
+  Object.defineProperty(navigator, 'locks', { configurable: true, value: { request: vi.fn(async (_name: string, ...rest: unknown[]) => {
+    const callback = rest.at(-1) as (lock: object | null) => Promise<unknown>
+    return callback({})
+  }) } })
+}
+
 async function signOut() {
   await act(async () => { screen.getByRole('button', { name: 'Sign out' }).click() })
   await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('anonymous'))
@@ -118,12 +126,15 @@ describe('patient sign-out', () => {
   })
 
   it.each([
-    ['another patient', () => patient('subject-b')],
-    ['the same person\'s staff session', () => staff('subject-a')],
-  ])('asks first even when no other window holds the turn, and leaves alone %s signed in from another window', async (_label, holder) => {
+    ['another patient', 'a free turn', () => patient('subject-b'), freeTurn],
+    ['the same person\'s staff session', 'a free turn', () => staff('subject-a'), freeTurn],
+    ['another patient', 'no Web Locks', () => patient('subject-b'), () => {}],
+    ['the same person\'s staff session', 'no Web Locks', () => staff('subject-a'), () => {}],
+  ])('asks first, and leaves alone %s signed in from another window, with %s', async (_label, _turn, holder, setUpTurn) => {
     // The patient portal does not hear other windows sign in, so this window may be out of date.
     const calls = await signedInAs('subject-a', { [SESSION]: [() => patient('subject-a'), holder], [LOGOUT]: [noContent] })
     const before = calls.length
+    setUpTurn()
     await signOut()
     expect(calls.slice(before)).toEqual([SESSION])
   })
