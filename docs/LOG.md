@@ -185,3 +185,26 @@ than a live completion tracker.
     clinical document links to OCR, handing over its IDs in router state, not
     in the URL.
 - Component tests only. No browser, staging or deployed-backend run.
+
+## 2026-10-11: EHR clinical corrections
+
+- Checked against hid-system `main` at `54f79d2` (`ehr/shared/clinical.dto.ts`
+  and the diagnoses, vitals and lab-requests services and migrations).
+- A diagnosis can be changed: clinical status, verification (including entered
+  in error) and notes, with the loaded row version and a reason. Only changed
+  fields are sent, because `UpdateDiagnosisDto` has no `status` and EHR refuses
+  unknown fields. A diagnosis marked entered in error offers no further change.
+- Vitals can be corrected. EHR appends a correction and keeps the recorded
+  values, so the record shows the latest correction as current and the
+  recorded values beneath it. A correction is prefilled with the current values
+  and a retry reuses its idempotency key. If the correction cannot be read, the
+  record says so and offers no further correction.
+- A lab request's status can change only while it is a draft (cancel, mark
+  entered in error). EHR does not pass status changes to Lab, so nothing is
+  offered for an active or on-hold request, and draft to active is not offered
+  because it never reaches Lab.
+- Recorded the backend gaps in [open questions](./OPEN-QUESTIONS.md): changes
+  to a request Lab has accepted, and corrected vitals in the patient's record.
+- Builds on D-Eminence/Health-id#29 (vitals input limits), merged into this
+  branch.
+- Component tests only. No browser, staging or deployed-backend run.
