@@ -1,6 +1,7 @@
 import { createApiClient, uploadPresignedObject } from '@hid/http'
 import { createRegisteredBrowserClient } from '@hid/api'
 import { getEnvironment } from './env'
+import { staffLoginAction } from '../productHostname'
 
 export interface Facility {
   id: string
@@ -499,7 +500,7 @@ export const providerEnrollmentApi = {
 export const staffApi = {
   login: (email: string, password: string, turnstileToken?: string) =>
     client.post<StaffSession>('/api/v1/auth/login', {
-      email, password, turnstileToken, turnstileAction: 'staff-login',
+      email, password, turnstileToken, turnstileAction: staffLoginAction(window.location.hostname),
     }, { auth: 'none' }),
   session: () => client.get<StaffSession>('/api/v1/auth/session', { auth: 'optional' }),
   refresh: () => client.post<StaffSession>('/api/v1/auth/refresh'),

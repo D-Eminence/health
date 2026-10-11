@@ -4,6 +4,7 @@ import {
   isPlatformAdminRoute,
   isStaffProductRoute,
   resolveStaffProductHostname,
+  staffLoginAction,
 } from './productHostname'
 
 describe('resolveStaffProductHostname', () => {
@@ -58,4 +59,29 @@ describe('platform admin hostname', () => {
     expect(isPlatformAdminRoute('/admin/facilities')).toBe(true)
     expect(isPlatformAdminRoute('/provider/clinical')).toBe(false)
   })
+})
+
+/** hid-system's Turnstile allowlist accepts only these actions on each staff product host. */
+describe('staffLoginAction', () => {
+  it.each([
+    ['ehr.healthidentitydirectory.com', 'staff-login'],
+    ['lab.healthidentitydirectory.com', 'lab-login'],
+    ['pharmacy.healthidentitydirectory.com', 'pharmacy-login'],
+    ['migrate.healthidentitydirectory.com', 'ocr-login'],
+    ['outreach.healthidentitydirectory.com', 'outreach-login'],
+    ['ehr.staging.healthidentitydirectory.com', 'staff-login'],
+    ['lab.staging.healthidentitydirectory.com', 'lab-login'],
+    ['pharmacy.staging.healthidentitydirectory.com', 'pharmacy-login'],
+    ['migrate.staging.healthidentitydirectory.com', 'ocr-login'],
+    ['outreach.staging.healthidentitydirectory.com', 'outreach-login'],
+    ['MIGRATE.HEALTHIDENTITYDIRECTORY.COM.', 'ocr-login'],
+  ])('signs in on %s with %s', (hostname, action) => {
+    expect(staffLoginAction(hostname)).toBe(action)
+  })
+
+  it.each(['www.healthidentitydirectory.com', 'staging.healthidentitydirectory.com', 'localhost',
+    'migrate.example.com', 'evil-migrate.healthidentitydirectory.com', 'migrate.healthidentitydirectory.com.evil.test'])(
+    'uses the general staff action on %s', hostname => {
+      expect(staffLoginAction(hostname)).toBe('staff-login')
+    })
 })
