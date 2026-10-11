@@ -3,7 +3,8 @@
 This repository contains the public website and one authenticated portal for the
 Health ID platform. It consumes the existing `hid-system` gateway and services;
 it does not contain the clinical backend or a database. The integration was
-checked against `hid-system` commit `c4b5445`. The supplied `Dashboard.zip`,
+first checked against `hid-system` commit `c4b5445`; later work was checked
+against `hid-system` `main`, most recently at `54f79d2`. The supplied `Dashboard.zip`,
 `HID.html` and `hid-1.0` are workflow and visual references, not API contracts.
 
 | App | Local origin | Purpose |

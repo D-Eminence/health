@@ -1,7 +1,8 @@
 # Frontend architecture
 
 This document describes the code in this repository and the `hid-system`
-gateway/API audited at commit `c4b5445`. It supersedes the earlier plan based on
+gateway/API, first audited at commit `c4b5445` and most recently checked
+against `main` at `54f79d2`. It supersedes the earlier plan based on
 the historical `hid-unified` Supabase functions. `hid-1.0`, `Dashboard.zip` and
 `HID.html` informed visual and workflow coverage; their local fixtures do not
 define API behavior. The [gap map](./HEALTH_ID_COMPLETE_FRONTEND_GAP_MAP.md)
@@ -27,9 +28,13 @@ Vite authenticated portal. All signed-in workspaces share **one portal origin**:
 Each area restores the shared backend cookie session and applies its own
 permission checks. The backend remains the
 authority for access control. Unsupported modules from the reference material
-are not represented by local fixture data or simulated mutations. Provider
-application submission is still blocked by a backend database call defect
-tracked in [open questions](./OPEN-QUESTIONS.md).
+are not represented by local fixture data or simulated mutations. The public site's
+`/provider/apply` page sends providers to the portal's `/provider/enroll`,
+which uses the self-service provider-enrollment routes. A form that submits
+`POST /api/v1/identity/organization-applications` exists
+(`ProviderApplicationForm`), but no page uses it. At hid-system `main`
+(`54f79d2`) that route's five-argument database call matches migration
+`0052_authoritative_cac_identity.sql`; no live submission has been run.
 
 The public site can link to a separately hosted portal through
 `NEXT_PUBLIC_HID_PORTAL_ORIGIN`. That variable names the one portal origin for
@@ -127,11 +132,19 @@ cross-origin call to the gateway is not an equivalent session deployment. The
 public site also needs a production `/api/v1/*` route for pricing and demo
 requests; its Next.js rewrite is development-only.
 
-The backend's current Turnstile service permits all three portal login actions
-(`patient-login`, `staff-login`, `admin-login`) together only on
+The backend's current Turnstile service permits all three general login
+actions (`patient-login`, `staff-login`, `admin-login`) together, and
+enrollment and patient and staff recovery, only on
 `www.healthidentitydirectory.com` or `staging.healthidentitydirectory.com`.
-Hosting the unified portal on another hostname requires a backend Turnstile
-allowlist/configuration change. No staging environment exists yet, and no live
+Each staff product host accepts only its own login action (`lab-login`,
+`pharmacy-login`, `ocr-login` on `migrate`, `outreach-login`); `ehr` accepts
+`ehr-login` and `staff-login`. Staff sign-in sends the current host's action,
+and `staff-login` on `ehr` and elsewhere (`staffLoginAction` in
+`apps/patient-web/src/productHostname.ts`). The `admin` host accepts
+`admin-login` and `admin-reset`. The admin approval message sends a new
+administrator to `/provider/recover` on `www` (or `staging`) to set a password.
+Hosting patient sign-in, enrollment or patient and staff recovery on another
+hostname requires a backend Turnstile allowlist/configuration change. No staging environment exists yet, and no live
 end-to-end acceptance has been run. Backend defects and deployment decisions
 are listed in [open questions](./OPEN-QUESTIONS.md).
 
