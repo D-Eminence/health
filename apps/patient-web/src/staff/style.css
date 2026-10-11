@@ -43,6 +43,8 @@ body { margin: 0; }
 .staff-list-item { border: 1px solid var(--color-line); border-radius: var(--radius-card); padding: 12px 14px; background: var(--color-surface); }
 .staff-list-item strong { color: var(--color-ink); font-size: 13px; }
 .staff-list-item p { color: var(--color-muted); margin: 4px 0 0; font-size: 12px; }
+.staff-select-row { width: 100%; text-align: left; cursor: pointer; }
+.staff-select-row.selected { border-color: var(--color-brand); background: var(--color-brand-tint); box-shadow: inset 3px 0 0 var(--color-brand); }
 .staff-muted { color: var(--color-muted); font-size: 13px; }
 .staff-error { color: var(--color-critical) !important; font-size: 12px !important; margin: 0; }
 .staff-success { color: var(--color-positive) !important; font-size: 12px !important; margin: 0; }

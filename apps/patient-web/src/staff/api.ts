@@ -573,6 +573,9 @@ export const staffApi = {
 
   encounters: (facilityId: string, patientId: string, page: PageRequest = {}) =>
     client.get<Page<Encounter>>(patientPath(patientId), { ...pageQuery(page), headers: facilityHeaders(facilityId) }),
+  // One encounter, read afresh: the documented one may be on a page not shown.
+  encounter: (facilityId: string, patientId: string, encounterId: string) =>
+    client.get<Encounter>(encounterPath(patientId, encounterId), { headers: facilityHeaders(facilityId), dedupe: false }),
   emergencyRecords: (facilityId: string, patientId: string) =>
     client.get<EmergencyRecords>(`/api/v1/ehr/patients/${encodeURIComponent(patientId)}/emergency-records`,
       { headers: facilityHeaders(facilityId, 'emergency') }),

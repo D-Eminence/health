@@ -97,6 +97,8 @@ async function readPage<T>(read: (cursor: string | undefined, fresh: boolean) =>
 }
 
 type ListNotice = { readonly scope: string; readonly text: string; readonly alert: boolean }
+// Dimmed, and without the secondary tone's hover and press look, while unavailable.
+const UNAVAILABLE = 'aria-disabled:opacity-45 aria-disabled:cursor-not-allowed aria-disabled:hover:border-line-strong aria-disabled:hover:bg-surface aria-disabled:hover:text-ink aria-disabled:active:bg-surface'
 
 function Notice({ notice, scope }: { notice: ListNotice | null; scope: string }) {
   if (notice?.scope !== scope) return null
@@ -117,10 +119,10 @@ function Pager({ label, position, busy, onShow }: {
   const previousOff = busy || cursors.length < 2
   const nextOff = busy || !next
   return <nav className="staff-row" aria-label={label}>
-    <Button tone="secondary" size="sm" aria-disabled={previousOff} className="aria-disabled:opacity-45"
+    <Button tone="secondary" size="sm" aria-disabled={previousOff} className={UNAVAILABLE}
       onClick={() => { if (!previousOff) onShow(cursors.slice(0, -1)) }}>Previous page</Button>
     <span className="staff-muted" role="status">{`Page ${cursors.length}`}</span>
-    <Button tone="secondary" size="sm" aria-disabled={nextOff} className="aria-disabled:opacity-45"
+    <Button tone="secondary" size="sm" aria-disabled={nextOff} className={UNAVAILABLE}
       onClick={() => { if (!nextOff && next) onShow([...cursors, next]) }}>Next page</Button>
   </nav>
 }
@@ -614,6 +616,8 @@ export function Clinical() {
   // changes it; paging the list does not, so a draft stays with its encounter.
   const [selection, setSelection] = useState<Encounter | null>(null)
   const encounterId = selection?.id ?? ''
+  const selectionShown = useRef<Encounter | null>(null)
+  useEffect(() => { selectionShown.current = selection }, [selection])
   const [tab, setTab] = useState<RecordKind | 'documents'>('clinical-notes')
   const [records, setRecords] = useState<ClinicalRecord[]>([])
   const [recordsFor, setRecordsFor] = useState('')
@@ -677,6 +681,7 @@ export function Clinical() {
     const wanted = request.cursors === 'shown' ? before : request.cursors ?? FIRST_PAGE
     encounterRequested.current = wanted
     setLoading(true); setError('')
+    if (request.paging) setEncounterNotice(null)
     try {
       await verify()
       const { page, cursors, restarted } = await readPage(
@@ -691,6 +696,15 @@ export function Clinical() {
         if (!chosen) return page.items[0] ?? null
         return page.items.find(item => item.id === chosen.id) ?? chosen
       })
+      // A refresh or a re-read after a change brings the documented encounter up
+      // to date even when it is on another page: its status and version are the
+      // ones the next change is checked against.
+      const documented = selectionShown.current
+      if (request.fresh && !request.select && documented?.patientId === patientId && documented.facilityId === facility.id
+        && !page.items.some(item => item.id === documented.id)) {
+        const current = await staffApi.encounter(facility.id, patientId, documented.id).catch(() => null)
+        if (current && sequence === loadSequence.current) setSelection(selected => selected?.id === current.id ? current : selected)
+      }
     } catch (caught) {
       if (sequence !== loadSequence.current) return
       encounterRequested.current = before
@@ -749,6 +763,7 @@ export function Clinical() {
     if (!facility || !patientId) return
     await verify()
     const result = await staffApi.createEncounter(facility.id, patientId, input, key)
+    if (result?.id) setSelection(result)
     await loadEncounters({ fresh: true, select: result })
     setSuccess('Encounter created by the backend.')
   }
@@ -767,7 +782,7 @@ export function Clinical() {
     const wanted = cursors !== 'shown' ? cursors : before.scope === scope ? before.cursors : FIRST_PAGE
     recordRequested.current = { scope, cursors: wanted }
     setRecordsLoading(true)
-    if (!afterChange) setError('')
+    if (!afterChange) { setError(''); setRecordNotice(null) }
     try {
       const { page, cursors: shown, restarted } = await readPage(
         (cursor, fresh) => staffApi.records(facility.id, patientId, encounterId, kind, { cursor, fresh }), wanted, afterChange)
@@ -801,10 +816,22 @@ export function Clinical() {
     if (!expectedRowVersion) throw new Error('Reload the encounter before changing its status.')
     setSuccess('')
     await verify()
-    const updated = await staffApi.updateEncounter(facility.id, patientId, selected.id, {
-      expectedRowVersion, changeReason: reason, status,
-      ...(status === 'completed' ? { endedAt: isoNow() } : {}),
-    })
+    let updated: Encounter
+    try {
+      updated = await staffApi.updateEncounter(facility.id, patientId, selected.id, {
+        expectedRowVersion, changeReason: reason, status,
+        ...(status === 'completed' ? { endedAt: isoNow() } : {}),
+      })
+    } catch (caught) {
+      // Someone changed the encounter first: show it as it is now (the status
+      // form is rebuilt for it) and say why the change was not made.
+      if (!isHidApiError(caught) || (caught.status !== 409 && caught.status !== 412)) throw caught
+      const current = await staffApi.encounter(facility.id, patientId, selected.id).catch(() => null)
+      if (!current) throw caught
+      setSelection(chosen => chosen?.id === current.id ? current : chosen)
+      setError('This encounter changed since it was loaded and now shows its current status. Choose the change again if it is still needed.')
+      return
+    }
     // The changed encounter may not be on the page shown; it stays documented as changed.
     if (updated?.id) setSelection(current => current?.id === updated.id ? updated : current)
     await loadEncounters({ cursors: 'shown', fresh: true })
@@ -868,7 +895,8 @@ export function Clinical() {
     <div className="staff-two-col staff-encounter-grid"><Card className="staff-card"><h2>Encounters</h2>{loading && <p role="status">Loading encounters…</p>}
       <Notice notice={encounterNotice} scope={encounterScope} />
       <Pager label="Encounter pages" position={encounterPosition} busy={loading} onShow={cursors => void loadEncounters({ cursors, paging: true })} />
-      {!loading && scopedEncounters.length === 0 && <p>No encounters are available for this patient and facility.</p>}<div className="staff-list">{scopedEncounters.map(item => <button type="button" key={item.id} className={`staff-list-item staff-select-row${item.id === encounterId ? ' selected' : ''}`} onClick={() => setSelection(item)}><strong>{item.encounterType.replace('_', ' ')} · {item.status.replace('_', ' ')}</strong><p>{new Date(item.startedAt).toLocaleString()}</p><p>{item.chiefComplaint || 'No chief complaint provided'}</p></button>)}</div>
+      {selected && !scopedEncounters.some(item => item.id === selected.id) && <p className="staff-muted">The encounter being documented, {selected.encounterType.replace('_', ' ')} started {new Date(selected.startedAt).toLocaleString()}, is on another page.</p>}
+      {!loading && scopedEncounters.length === 0 && <p>No encounters are available for this patient and facility.</p>}<div className="staff-list">{scopedEncounters.map(item => <button type="button" key={item.id} className={`staff-list-item staff-select-row${item.id === encounterId ? ' selected' : ''}`} aria-current={item.id === encounterId ? 'true' : undefined} onClick={() => setSelection(item)}><strong>{item.encounterType.replace('_', ' ')} · {item.status.replace('_', ' ')}</strong><p>{new Date(item.startedAt).toLocaleString()}</p><p>{item.chiefComplaint || 'No chief complaint provided'}</p></button>)}</div>
 </Card>{permissions.includes('ehr.encounter.write') && canMutate && <EncounterForm onCreated={createEncounter} disabled={!facility} />}</div>
     {selected && <section className="staff-section"><div className="staff-page-head"><p className="staff-eyebrow">Selected encounter</p><h1>Care documentation</h1><p>{new Date(selected.startedAt).toLocaleString()} · {selected.status.replace('_', ' ')}</p></div><div className="staff-tabs" role="tablist" aria-label="Clinical record section">{visibleTabs.map(item => <button role="tab" aria-selected={activeTab === item.id} type="button" key={item.id} className={activeTab === item.id ? 'active' : ''} onClick={() => setTab(item.id)}>{item.label}</button>)}</div>
       {canMutate && permissions.includes('ehr.encounter.write') && (encounterTransitions[selected.status]?.length ?? 0) > 0 &&

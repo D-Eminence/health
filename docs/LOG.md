@@ -228,7 +228,10 @@ than a live completion tracker.
 - Paging never changes the encounter being documented: only choosing a row or
   starting an encounter does. A new encounter is documented even when its start
   time puts it past the first page. An unsaved record draft is cleared when
-  another encounter is chosen, instead of being saved against it.
+  another encounter is chosen, instead of being saved against it. The list marks
+  the encounter being documented and says when it is on another page; a refresh,
+  or a status change refused because the encounter changed meanwhile, reads that
+  encounter again, so its status and version stay current.
 - The pager sits above the list. Its buttons are marked unavailable rather than
   disabled, so the one pressed keeps keyboard focus, and the page reached is
   announced. A failed page read is reported beside the list.

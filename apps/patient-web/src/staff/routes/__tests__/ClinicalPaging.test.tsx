@@ -14,7 +14,7 @@ import { Clinical } from '../Clinical'
  */
 const api = vi.hoisted(() => ({
   lookupPatient: vi.fn(), consentStatus: vi.fn(), encounters: vi.fn(), records: vi.fn(), createRecord: vi.fn(),
-  createEncounter: vi.fn(), updateEncounter: vi.fn(), updateDiagnosis: vi.fn(), updateRecord: vi.fn(),
+  createEncounter: vi.fn(), updateEncounter: vi.fn(), encounter: vi.fn(), updateDiagnosis: vi.fn(), updateRecord: vi.fn(),
   vitalCorrections: vi.fn(), correctVital: vi.fn(),
 }))
 const staff = vi.hoisted(() => ({ activePatient: null as unknown }))
@@ -259,6 +259,66 @@ describe('paging the encounter list', () => {
     expect(screen.getByText(new Date(E1.startedAt).toLocaleString() + ' · on hold')).toBeTruthy()
   })
 
+  it('marks the encounter being documented, and says when it is on another page', async () => {
+    render(<MemoryRouter><Clinical /></MemoryRouter>)
+    await screen.findByText(/Fever/)
+    expect(screen.getByRole('button', { name: /Fever/ }).getAttribute('aria-current')).toBe('true')
+    expect(screen.getByRole('button', { name: /Cough/ }).getAttribute('aria-current')).toBeNull()
+
+    fireEvent.click(pageButton('Encounter pages', 'Next page'))
+    await screen.findByText(/Headache/)
+    expect(screen.getByText(/being documented, .* is on another page/).textContent).toContain(new Date(E1.startedAt).toLocaleString())
+  })
+
+  it('brings the encounter being documented up to date on a refresh, even from another page', async () => {
+    const changed = { ...E1, status: 'on_hold', rowVersion: 2 }
+    api.encounter.mockResolvedValue(changed)
+    api.updateEncounter.mockResolvedValue({ ...changed, status: 'in_progress', rowVersion: 3 })
+    render(<MemoryRouter><Clinical /></MemoryRouter>)
+    await screen.findByText(/Fever/)
+    fireEvent.click(pageButton('Encounter pages', 'Next page'))
+    await screen.findByText(/Headache/)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh encounters' }))
+    expect(await screen.findByText(new Date(E1.startedAt).toLocaleString() + ' · on hold')).toBeTruthy()
+    expect(api.encounter).toHaveBeenCalledWith('facility-1', PATIENT, E1.id)
+
+    const form = screen.getByText('Encounter status').closest('form')!
+    fireEvent.change(within(form).getByLabelText(label('Reason for change')), { target: { value: 'Results are back' } })
+    fireEvent.click(within(form).getByRole('button', { name: 'Update status' }))
+    await waitFor(() => expect(api.updateEncounter).toHaveBeenCalledWith('facility-1', PATIENT, E1.id,
+      expect.objectContaining({ expectedRowVersion: 2, status: 'in_progress' })))
+  })
+
+  it('reloads the encounter when its status change meets a newer version', async () => {
+    api.updateEncounter.mockRejectedValue(new HidApiError(412, 'Encounter changed since it was loaded', { code: 'VERSION_CONFLICT' }))
+    api.encounter.mockResolvedValue({ ...E1, status: 'on_hold', rowVersion: 2 })
+    render(<MemoryRouter><Clinical /></MemoryRouter>)
+    await screen.findByText(/Fever/)
+    fireEvent.click(pageButton('Encounter pages', 'Next page'))
+    await screen.findByText(/Headache/)
+
+    const form = screen.getByText('Encounter status').closest('form')!
+    fireEvent.change(within(form).getByLabelText(label('Reason for change')), { target: { value: 'Awaiting results' } })
+    fireEvent.click(within(form).getByRole('button', { name: 'Update status' }))
+
+    expect(await screen.findByText(new Date(E1.startedAt).toLocaleString() + ' · on hold')).toBeTruthy()
+    expect((await screen.findByRole('alert')).textContent).toContain('changed since it was loaded')
+  })
+
+  it('documents a new encounter even when the list cannot be read again after it is started', async () => {
+    const created = encounter(4, 'Chest pain')
+    api.createEncounter.mockResolvedValue(created)
+    render(<MemoryRouter><Clinical /></MemoryRouter>)
+    await screen.findByText(/Fever/)
+    api.encounters.mockRejectedValueOnce(new HidApiError(503, 'Service unavailable', { code: 'SERVICE_UNAVAILABLE' }))
+    fireEvent.change(screen.getByLabelText(/^Chief complaint/), { target: { value: 'Chest pain' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Start encounter' }))
+
+    await waitFor(() => expect(lastRecordList()).toEqual(['facility-1', PATIENT, created.id, 'vitals']))
+    expect(screen.getByText(new Date(created.startedAt).toLocaleString() + ' · in progress')).toBeTruthy()
+  })
+
   it('goes back to the first page, and says so, when the backend no longer accepts the cursor', async () => {
     render(<MemoryRouter><Clinical /></MemoryRouter>)
     await screen.findByText(/Fever/)
@@ -332,6 +392,21 @@ describe('paging an encounter record list', () => {
     expect(pager('Record pages').closest('.staff-card')!.contains(alert)).toBe(true)
     expect(screen.getByText('Malaria')).toBeTruthy()
     expect(pageShown('Record pages')).toBe('Page 1')
+  })
+
+  it('clears a failed page read while the page is asked for again, so a second failure is announced afresh', async () => {
+    await openDiagnoses()
+    holdRecordReads((kind, page) => kind === 'diagnoses' && page?.cursor === RECORD_2)
+      .reject(new HidApiError(503, 'Service unavailable', { code: 'SERVICE_UNAVAILABLE' }))
+    fireEvent.click(pageButton('Record pages', 'Next page'))
+    const first = await screen.findByRole('alert')
+
+    const retry = holdRecordReads((kind, page) => kind === 'diagnoses' && page?.cursor === RECORD_2)
+    fireEvent.click(pageButton('Record pages', 'Next page'))
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
+    await act(async () => { retry.reject(new HidApiError(503, 'Service unavailable', { code: 'SERVICE_UNAVAILABLE' })) })
+    const second = await screen.findByRole('alert')
+    expect(second).not.toBe(first)
   })
 
   it('stays on the page after a diagnosis change there, re-reading that page afresh', async () => {
