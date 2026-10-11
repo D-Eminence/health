@@ -208,3 +208,26 @@ than a live completion tracker.
 - Builds on D-Eminence/Health-id#29 (vitals input limits), merged into this
   branch.
 - Component tests only. No browser, staging or deployed-backend run.
+
+## 2026-10-11: clinical record paging
+
+- Checked against hid-system `main` at `54f79d2`. Encounters and each
+  encounter's notes, vitals, diagnoses, prescriptions and lab requests come 50
+  to a page, newest first, with an opaque `nextCursor` and no total. Documents,
+  note revisions and vital corrections are not paged by the backend.
+- The clinical record showed only the first 50 of each. It now pages encounters
+  and record lists the way the reference design (`Dashboard.zip`, record lists
+  in `src/workflows.tsx`) does: "Previous page", "Page N" and "Next page" in a
+  navigation landmark, shown only when there is more than one page and disabled
+  at either end. The backend gives no total, so there is no "of M".
+- A change re-reads the page shown, as a request of its own, so it never takes
+  the answer of a read started before the change. A new encounter or record
+  goes back to the first page, where it is. Changing the patient, facility,
+  encounter or tab starts at the first page. A cursor the backend no longer
+  accepts starts the list again, and says so.
+- Fixed a race found on the way: a re-read after a change that finished after
+  the clinician had moved to another tab replaced that tab's rows.
+- Recorded in [open questions](./OPEN-QUESTIONS.md) that EHR's cursor keeps only
+  milliseconds, so rows within the same millisecond as a page's last row can be
+  skipped.
+- Component tests only. No browser, staging or deployed-backend run.

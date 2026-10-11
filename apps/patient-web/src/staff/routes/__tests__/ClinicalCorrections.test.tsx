@@ -107,7 +107,7 @@ describe('changing a diagnosis', () => {
     expect(api.lookupPatient.mock.invocationCallOrder[0]).toBeLessThan(api.updateDiagnosis.mock.invocationCallOrder[0]!)
     expect(api.updateRecord).not.toHaveBeenCalled()
     expect(await screen.findByText('Diagnosis updated.')).toBeTruthy()
-    expect(api.records).toHaveBeenCalledWith('facility-1', PATIENT, ENCOUNTER, 'diagnoses')
+    expect(api.records).toHaveBeenCalledWith('facility-1', PATIENT, ENCOUNTER, 'diagnoses', { cursor: undefined, fresh: true })
   })
 
   it('sends changed notes and clinical status together', async () => {
