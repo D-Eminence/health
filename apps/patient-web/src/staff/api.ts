@@ -728,10 +728,10 @@ export const staffApi = {
     client.post<OcrJob & { validationId: string; validationVersion: number }>(`/api/v1/ocr/jobs/${encodeURIComponent(job.id)}/validation`,
       { ...input, expectedVersion: job.version, purpose: 'healthcare-operations' },
       { headers: { ...facilityHeaders(facilityId, 'healthcare-operations'), ...keyHeaders() } }),
-  confirmOcrPatient: (facilityId: string, job: OcrJob, patientId: string, reason: string) =>
+  confirmOcrPatient: (facilityId: string, job: OcrJob, patientId: string, reason: string, idempotencyKey?: string) =>
     client.post<{ id: string; jobId: string; patientId: string; version: number }>(`/api/v1/ocr/jobs/${encodeURIComponent(job.id)}/patient-confirmation`,
       { patientId, expectedJobVersion: job.version, method: 'source_document', reason, purpose: 'healthcare-operations' },
-      { headers: { ...facilityHeaders(facilityId, 'healthcare-operations'), ...keyHeaders() } }),
+      { headers: { ...facilityHeaders(facilityId, 'healthcare-operations'), ...keyHeaders(idempotencyKey) } }),
   ocrPublications: (facilityId: string, validationId: string) =>
     client.get<{ items: OcrPublication[] }>(`/api/v1/ocr/validations/${encodeURIComponent(validationId)}/publications`,
       { headers: facilityHeaders(facilityId) }),
