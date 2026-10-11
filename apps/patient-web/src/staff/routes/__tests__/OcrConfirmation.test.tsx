@@ -94,6 +94,29 @@ describe('confirming the source patient of an OCR job', () => {
     expect(screen.queryByRole('alert')).toBeNull()
   })
 
+  it('does not claim the job was reloaded when the reload fails', async () => {
+    api.confirmOcrPatient.mockRejectedValueOnce(new HidApiError(409, 'This OCR job version already has a patient confirmation',
+      { code: 'OCR_PATIENT_ALREADY_CONFIRMED' }))
+    const button = await confirmationForm()
+    api.findOcrJob.mockRejectedValue(new HidApiError(503, 'Service unavailable', { code: 'SERVICE_UNAVAILABLE' }))
+    fireEvent.click(button)
+
+    expect((await screen.findByRole('alert')).textContent).toContain('Service unavailable')
+    expect(screen.queryByText(/so the job was reloaded/)).toBeNull()
+  })
+
+  it('clears the reload notice once another document is entered', async () => {
+    api.confirmOcrPatient.mockRejectedValueOnce(new HidApiError(409, 'This OCR job version already has a patient confirmation',
+      { code: 'OCR_PATIENT_ALREADY_CONFIRMED' }))
+    const button = await confirmationForm()
+    api.findOcrJob.mockResolvedValue({ job: confirmed })
+    fireEvent.click(button)
+    await screen.findByText(/so the job was reloaded/)
+
+    fireEvent.change(screen.getByLabelText(/^Document ID/), { target: { value: 'd0000000-0000-4000-8000-000000000002' } })
+    expect(screen.queryByText(/so the job was reloaded/)).toBeNull()
+  })
+
   it('keeps any other refusal on the form', async () => {
     api.confirmOcrPatient.mockRejectedValueOnce(new HidApiError(409, 'Confirmed patient does not match the canonical source document patient',
       { code: 'OCR_PATIENT_MISMATCH' }))
