@@ -1,4 +1,5 @@
 import type { ApiClient } from '@hid/http'
+import { refreshInTurn } from './sessionRefreshTurn'
 
 /** Contracts read from hid-system c4b5445 Identity and EHR controllers. */
 export interface PatientSession {
@@ -165,7 +166,9 @@ export function createPatientApi(client: ApiClient) {
 
   return {
     session: () => call<PatientSession>('GET', 'auth/session'),
-    refresh: () => call<PatientSession>('POST', 'auth/refresh'),
+    // Windows of the portal take turns to refresh; one that waited reads the session first.
+    refresh: () => refreshInTurn(() => call<PatientSession>('GET', 'auth/session').then(session => session?.actor ? session : null, () => null),
+      () => call<PatientSession>('POST', 'auth/refresh')),
     login: (email: string, password: string, turnstileToken: string) =>
       call<PatientSession>('POST', 'auth/patient/login', { email, password, turnstileAction: 'patient-login', turnstileToken }),
     logout: () => call<void>('POST', 'auth/logout'),

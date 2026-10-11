@@ -137,6 +137,10 @@ function StaffProvider({ children }: { children: ReactNode }) {
   // answer may predate them. Reports from an earlier session, or while none is in
   // use (loading, signed out, already ended), change nothing.
   const asking = useRef<{ sentIn: number; again: boolean } | null>(null)
+  // A change another tab announced while this tab's session was still being read
+  // or signed in: that answer may predate it, so the session is asked about once
+  // it is ready.
+  const heardWhileOpening = useRef(false)
   const ask = useCallback((sentIn: number) => {
     const actor = currentSession.current?.actor
     if (status.current !== 'ready' || !actor || sentIn !== staffSessionGeneration()) return
@@ -165,6 +169,11 @@ function StaffProvider({ children }: { children: ReactNode }) {
     })
   }, [setState, setLock, startPeriod])
   useEffect(() => onStaffSessionEnded(ask), [ask])
+  const askIfHeardWhileOpening = useCallback(() => {
+    if (!heardWhileOpening.current) return
+    heardWhileOpening.current = false
+    ask(staffSessionGeneration())
+  }, [ask])
 
   // Nothing else reveals a session that ended while this tab sent no request: a
   // sign-in, sign-out or end in another tab (staff or patient), or time away. The
@@ -204,7 +213,10 @@ function StaffProvider({ children }: { children: ReactNode }) {
     const onPageShow = (event: PageTransitionEvent) => back(event.persisted)
     // A page left away without the event that brings it back opens on the next focus, as on a return.
     const onFocus = () => { if (away.current && document.visibilityState === 'visible') back(false) }
-    const stopListening = onOtherTabSessionChange(recheck)
+    const stopListening = onOtherTabSessionChange(() => {
+      if (status.current === 'ready') recheck()
+      else heardWhileOpening.current = true
+    })
     document.addEventListener('visibilitychange', onVisibility)
     window.addEventListener('pagehide', onPageHide)
     window.addEventListener('pageshow', onPageShow)
@@ -220,6 +232,7 @@ function StaffProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(async () => {
     startStaffSessionGeneration()
+    heardWhileOpening.current = false
     const sentIn = staffSessionGeneration()
     startPeriod()
     away.current = null
@@ -238,6 +251,7 @@ function StaffProvider({ children }: { children: ReactNode }) {
       if (!current()) return
       if (session.actor.kind === 'patient') throw new Error('This account does not have a staff session.')
       setState({ status: 'ready', session })
+      askIfHeardWhileOpening()
     } catch (error) {
       if (!current()) return
       if (isHidApiError(error) && error.status === 401) {
@@ -246,11 +260,12 @@ function StaffProvider({ children }: { children: ReactNode }) {
         setState({ status: 'error', session: null, error: error instanceof Error ? error.message : 'Session could not be verified.' })
       }
     }
-  }, [setState, setLock, startPeriod])
+  }, [setState, setLock, startPeriod, askIfHeardWhileOpening])
 
   useEffect(() => { void refresh() }, [refresh])
 
   async function login(email: string, password: string, turnstileToken?: string) {
+    heardWhileOpening.current = false
     const session = await staffApi.login(email, password, turnstileToken)
     if (session.actor.kind === 'patient') throw new Error('A staff account is required for this portal.')
     startStaffSessionGeneration()
@@ -259,6 +274,7 @@ function StaffProvider({ children }: { children: ReactNode }) {
     setLock(null)
     setState({ status: 'ready', session })
     announceStaffSessionChange()
+    askIfHeardWhileOpening()
   }
 
   async function selectFacility(id: string) {
@@ -274,7 +290,8 @@ function StaffProvider({ children }: { children: ReactNode }) {
   async function signOut() {
     // No next session can start meanwhile: signing in waits for a sign-out in progress.
     // So a sign-out answered while the session-ended screen shows also completes, as asked.
-    await staffApi.logout()
+    // From a workspace locked for a check, the server is asked first whose session the browser holds.
+    await staffApi.logout(lockRef.current === 'checking' || lockRef.current === 'unconfirmed')
     startStaffSessionGeneration()
     startPeriod()
     away.current = null

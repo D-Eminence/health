@@ -333,7 +333,8 @@ describe('a refused request while the server still accepts the session', () => {
 
   it('does not end the next session when the server answers after the clinician signed out and in again', async () => {
     const asked = deferredResponse()
-    serve({ [SESSION]: [json(staffSession()), asked.answer], [REQUESTS]: [ended()], [REFRESH]: [refreshRefused(), refreshRefused()],
+    // Sign-out from the lock screen first asks whose session the browser holds: this one, so it signs out.
+    serve({ [SESSION]: [json(staffSession()), asked.answer, json(staffSession())], [REQUESTS]: [ended()], [REFRESH]: [refreshRefused(), refreshRefused()],
       [LOGOUT]: [signedOut()], [LOGIN]: [json(staffSession())] })
     await open('/provider')
     await waitFor(() => expect(screen.getByRole('button', { name: 'Sign out' })).toBeTruthy())
@@ -397,7 +398,8 @@ describe('asking the server', () => {
   ])('asks about the next session even while a question about the previous one is %s', async (_label, answerFirst) => {
     const previous = deferredResponse()
     const calls = serve({
-      [SESSION]: [json(staffSession()), previous.answer, confirmedEnd.session()],
+      // The third answer is sign-out's own check from the lock screen.
+      [SESSION]: [json(staffSession()), previous.answer, json(staffSession()), confirmedEnd.session()],
       [REQUESTS]: [ended(), ended(), json([])],
       [REFRESH]: [json(staffSession()), confirmedEnd.refresh()],
       [LOGOUT]: [signedOut()], [LOGIN]: [json(staffSession())],
@@ -420,7 +422,8 @@ describe('asking the server', () => {
   it('never restores the next session to answer a question about the previous one', async () => {
     const previous = deferredResponse()
     const calls = serve({
-      [SESSION]: [json(staffSession()), previous.answer],
+      // The third answer is sign-out's own check from the lock screen.
+      [SESSION]: [json(staffSession()), previous.answer, json(staffSession())],
       [REQUESTS]: [ended(), ended(), json([])],
       [REFRESH]: [json(staffSession())],
       [LOGOUT]: [signedOut()], [LOGIN]: [json(staffSession('staff-2', 'Bola Nurse'))],
@@ -1155,7 +1158,8 @@ describe('the workspace while the server is asked', () => {
   })
 
   it('lets the clinician sign out while the session cannot be confirmed', async () => {
-    serve({ [SESSION]: [json(staffSession()), json({})], [REQUESTS]: [ended()], [REFRESH]: [refreshRefused()], [LOGOUT]: [signedOut()] })
+    // Sign-out first asks again, and the server now confirms this session.
+    serve({ [SESSION]: [json(staffSession()), json({}), json(staffSession())], [REQUESTS]: [ended()], [REFRESH]: [refreshRefused()], [LOGOUT]: [signedOut()] })
     await open('/provider')
     await expectWorkspaceLocked(UNCONFIRMED)
 
@@ -1574,7 +1578,8 @@ describe('protected steps that follow another while the session is checked', () 
   })
 
   it('never completes an upload while the session cannot be confirmed, nor after the clinician signs out', async () => {
-    const { calls, upload, stored } = await startUpload({ [SESSION]: [json(staffSession()), json({})], [LOGOUT]: [signedOut()] })
+    // The third answer is sign-out's own check from the lock screen.
+    const { calls, upload, stored } = await startUpload({ [SESSION]: [json(staffSession()), json({}), json(staffSession())], [LOGOUT]: [signedOut()] })
     const { reportStaffSessionEnded } = await import('./session')
     act(() => reportStaffSessionEnded())
     await expectWorkspaceLocked(UNCONFIRMED)
@@ -1861,5 +1866,65 @@ describe('a browser that refuses the session-change channel', () => {
     page.wait(5)
     page.show()
     await expectWorkspaceOpen()
+  })
+})
+
+describe('the session review before landing', () => {
+  it('checks the workspace when another tab signed in while this tab was still opening', async () => {
+    const opening = deferredResponse()
+    const calls = serve({ [SESSION]: [opening.answer, json(staffSession('staff-2', 'Bola Nurse'))], [REQUESTS]: [json([])] })
+    await open('/provider')
+    await waitFor(() => expect(calls).toEqual([SESSION]))
+
+    fromAnotherTab()
+    await act(async () => { opening.respond(json(staffSession())) })
+
+    await waitFor(() => expect(calls.filter(call => call === SESSION)).toHaveLength(2))
+    await expectSessionEnded()
+    expect(calls).not.toContain(REQUESTS)
+  })
+
+  it('never ends another account’s session from the lock screen', async () => {
+    const question = deferredResponse()
+    const calls = serve({ [SESSION]: [json(staffSession()), question.answer, json(staffSession('staff-2', 'Bola Nurse'))],
+      [REQUESTS]: [json([])], [LOGOUT]: [signedOut()] })
+    await open('/provider')
+    expect(await screen.findByText('0 pending requests')).toBeTruthy()
+    fromAnotherTab()
+    await expectWorkspaceLocked()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
+
+    expect(await screen.findByRole('heading', { name: 'Welcome back.' })).toBeTruthy()
+    expect(calls).not.toContain(LOGOUT)
+  })
+
+  it('does not sign out blindly from the lock screen when the session cannot be confirmed', async () => {
+    const unavailable = () => problem(503, 'UPSTREAM_UNAVAILABLE', 'The service could not complete the request.')
+    const calls = serve({ [SESSION]: [json(staffSession()), unavailable(), unavailable()], [REQUESTS]: [json([])], [LOGOUT]: [signedOut()] })
+    await open('/provider')
+    expect(await screen.findByText('0 pending requests')).toBeTruthy()
+    fromAnotherTab()
+    await expectWorkspaceLocked(UNCONFIRMED)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
+
+    expect((await screen.findByRole('alert')).textContent).toContain('Sign-out could not be completed')
+    expect(calls).not.toContain(LOGOUT)
+  })
+
+  it('signs out from the lock screen once the check finds this session', async () => {
+    const question = deferredResponse()
+    const calls = serve({ [SESSION]: [json(staffSession()), question.answer, json(staffSession())],
+      [REQUESTS]: [json([])], [LOGOUT]: [signedOut()] })
+    await open('/provider')
+    expect(await screen.findByText('0 pending requests')).toBeTruthy()
+    fromAnotherTab()
+    await expectWorkspaceLocked()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }))
+
+    expect(await screen.findByRole('heading', { name: 'Welcome back.' })).toBeTruthy()
+    expect(calls.filter(call => call === LOGOUT)).toHaveLength(1)
   })
 })

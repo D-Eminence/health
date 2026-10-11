@@ -5,6 +5,7 @@ import {
   endsStaffSession, nextStaffSessionChange, refusedAsPatient, reportStaffSessionEnded, staffSessionActor, staffSessionGeneration,
   staffSessionReadyFor, staffSessionSignal, untilStaffSessionReady,
 } from './session'
+import { refreshInTurn } from '../sessionRefreshTurn'
 
 export interface Facility {
   id: string
@@ -480,13 +481,18 @@ let refreshing: Promise<StaffSession> | null = null
 /**
  * Restores the session once for every caller waiting on it: two refreshes sent
  * together with the same cookie would make the server end the whole session.
- * Without the refresh cookie (dropped by the browser at the idle or absolute
- * limit, or cleared by a sign-out elsewhere) the server answers 403
- * CSRF_VALIDATION_FAILED; nothing can restore the session then, so it is
+ * The portal's other windows take turns with this one (refreshInTurn); one that
+ * waited for another first reads the session, which that window has usually
+ * restored already. Without the refresh cookie (dropped by the browser at the
+ * idle or absolute limit, or cleared by a sign-out elsewhere) the server answers
+ * 403 CSRF_VALIDATION_FAILED; nothing can restore the session then, so it is
  * reported as the ended session it is.
  */
 function refreshStaffSession(): Promise<StaffSession> {
-  refreshing ??= client.post<StaffSession>('/api/v1/auth/refresh')
+  refreshing ??= refreshInTurn(
+    () => client.get<StaffSession>('/api/v1/auth/session', { auth: 'optional', dedupe: false })
+      .then(session => typeof session?.actor?.id === 'string' ? session : null, () => null),
+    () => client.post<StaffSession>('/api/v1/auth/refresh'))
     .catch((error: unknown) => {
       if (isHidApiError(error) && error.status === 403 && error.code === 'CSRF_VALIDATION_FAILED') throw sessionEnded(error)
       throw error
@@ -545,8 +551,8 @@ const SIGN_OUT_ATTEMPTS = 3
  */
 let leaving: Promise<unknown> = Promise.resolve()
 
-function signOut(): Promise<void> {
-  const signingOut = signOutStaffSession()
+function signOut(confirmFirst = false): Promise<void> {
+  const signingOut = signOutStaffSession(confirmFirst)
   leaving = signingOut.catch(() => undefined)
   return signingOut
 }
@@ -561,8 +567,20 @@ function signOut(): Promise<void> {
  * restore finds another account's session in the browser: this session is
  * already gone from it.
  */
-async function signOutStaffSession(): Promise<void> {
+async function signOutStaffSession(confirmFirst: boolean): Promise<void> {
   const sentIn = staffSessionGeneration()
+  // From a workspace locked while its session is checked, the browser may already
+  // hold another account's session (signed in from another tab): logout ends
+  // whichever session the cookies carry. The server is asked first. A browser
+  // that no longer holds this session has nothing of it to end; one the server
+  // cannot answer for is not signed out blindly.
+  if (confirmFirst) {
+    const actorId = staffSessionActor()
+    if (actorId === null) return
+    const found = await checkStaffSession(actorId, sentIn)
+    if (staffSessionGeneration() !== sentIn || found === 'ended') return
+    if (found === 'unknown') throw new Error('Sign-out could not be completed. Try again.')
+  }
   for (let attempt = 1; ; attempt += 1) {
     try { await client.post<null>('/api/v1/auth/logout'); return }
     catch (error) { if (!endsStaffSession(error)) throw error }
