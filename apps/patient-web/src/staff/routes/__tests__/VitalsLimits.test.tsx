@@ -48,25 +48,27 @@ function valid(label: string, value: string): boolean {
   return input.checkValidity()
 }
 
+// One row per VitalMeasurementsDto field: values EHR accepts, then values it refuses
+// (outside the range, or one decimal place too many).
+const LIMITS: ReadonlyArray<readonly [label: string, accepted: readonly string[], refused: readonly string[]]> = [
+  ['Systolic BP (mmHg)', ['30', '120', '350'], ['29', '351', '120.5']],
+  ['Diastolic BP (mmHg)', ['10', '80', '250'], ['9', '251', '80.5']],
+  ['Pulse (bpm)', ['10', '72', '350'], ['9', '351', '72.5']],
+  ['Temperature (°C)', ['20', '36.6', '50'], ['19.9', '50.1', '36.65']],
+  ['Respirations / min', ['1', '16', '100'], ['0', '101', '16.5']],
+  ['SpO₂ (%)', ['0', '97.25', '100'], ['-0.01', '100.01', '97.255']],
+  ['Weight (kg)', ['0.2', '70.125', '700'], ['0.199', '700.001', '70.1255']],
+  ['Height (cm)', ['20', '172.55', '300'], ['19.99', '300.01', '172.555']],
+]
+
 describe('the vitals form', () => {
   it('accepts only what EHR accepts for each measurement', async () => {
     render(<MemoryRouter><Clinical /></MemoryRouter>)
     await screen.findByLabelText('Pulse (bpm)')
 
-    expect(valid('Pulse (bpm)', '72')).toBe(true)
-    expect(valid('Pulse (bpm)', '72.5')).toBe(false)
-    expect(valid('Pulse (bpm)', '9')).toBe(false)
-    expect(valid('Systolic BP (mmHg)', '120.5')).toBe(false)
-    expect(valid('Diastolic BP (mmHg)', '80')).toBe(true)
-    expect(valid('Respirations / min', '16.5')).toBe(false)
-    expect(valid('Temperature (°C)', '36.6')).toBe(true)
-    expect(valid('Temperature (°C)', '36.65')).toBe(false)
-    expect(valid('Temperature (°C)', '51')).toBe(false)
-    expect(valid('SpO₂ (%)', '97.25')).toBe(true)
-    expect(valid('SpO₂ (%)', '101')).toBe(false)
-    expect(valid('Weight (kg)', '70.125')).toBe(true)
-    expect(valid('Weight (kg)', '70.1255')).toBe(false)
-    expect(valid('Height (cm)', '172.55')).toBe(true)
-    expect(valid('Height (cm)', '19')).toBe(false)
+    for (const [label, accepted, refused] of LIMITS) {
+      for (const value of accepted) expect(valid(label, value), `${label} ${value}`).toBe(true)
+      for (const value of refused) expect(valid(label, value), `${label} ${value}`).toBe(false)
+    }
   })
 })
