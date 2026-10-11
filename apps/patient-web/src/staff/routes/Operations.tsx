@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { Badge, Button, Card, EmptyState, Field, Input, Select, Textarea } from '@hid/ui'
 import { staffApi, type LabAbnormalFlag, type LabAccession, type LabExecution, type LabResult, type LabResultRevision, type LabResultValue, type LabSpecimen, type LabWorkItem, type OcrExtraction, type OcrJob, type OcrPublication, type OcrTargetDomain, type OcrValidation, type OutreachCampaign, type OutreachCampaignMember, type OutreachCase, type PharmacyWorkItem } from '../api'
@@ -634,8 +634,10 @@ function OcrPublicationCard({ facilityId, validation, confirmationId, canPublish
 export function Ocr() {
   const { facilityId, permissions } = useFacilityAccess()
   const canRead = permissions.includes('ocr.job.read')
-  const [documentId, setDocumentId] = useState('')
-  const [patientId, setPatientId] = useState('')
+  // A clinical document's "Extract with OCR" link hands over its IDs in router state, never in the URL.
+  const handoff = useLocation().state as { ocrDocumentId?: unknown; ocrPatientId?: unknown } | null
+  const [documentId, setDocumentId] = useState(() => typeof handoff?.ocrDocumentId === 'string' ? handoff.ocrDocumentId : '')
+  const [patientId, setPatientId] = useState(() => typeof handoff?.ocrPatientId === 'string' ? handoff.ocrPatientId : '')
   const [job, setJob] = useState<OcrJob | null>(null)
   const [jobFacilityId, setJobFacilityId] = useState('')
   const [extractions, setExtractions] = useState<OcrExtraction[] | null>(null)
@@ -692,7 +694,8 @@ export function Ocr() {
     <PageHead eyebrow="Governed document processing" title="Document OCR">Find a job by its clinical document ID. The document must be available and virus scan clean before extraction can begin.</PageHead>
     <div className="staff-two-col"><Card className="staff-card"><h2>Find document job</h2><form className="staff-form" onSubmit={event => void lookup(event)}><Field label="Document ID" htmlFor="ocr-document" required><Input id="ocr-document" value={documentId} onChange={event => { setDocumentId(event.target.value); setSearched(false); setJob(null) }} placeholder="Document UUID" required /></Field><Button type="submit" disabled={busy}>{busy ? 'Checking…' : 'Find job'}</Button></form>
       {searched && !visibleJob && <p className="staff-muted">No OCR job exists for this document.</p>}
-      {!visibleJob && permissions.includes('ocr.job.write') && <div className="staff-stack"><p>Create an extraction job for a verified patient document.</p><Field label="Patient ID" htmlFor="ocr-patient" required><Input id="ocr-patient" value={patientId} onChange={event => setPatientId(event.target.value)} placeholder="Patient UUID" /></Field><Button onClick={() => void create()} disabled={busy || !documentId.trim() || !patientId.trim()}>{busy ? 'Creating…' : 'Create extraction job'}</Button></div>}
+      {/* Only after a lookup has answered that no job exists: a failed or missing lookup must not invite a duplicate job. */}
+      {searched && !visibleJob && permissions.includes('ocr.job.write') && <div className="staff-stack"><p>Create an extraction job for a verified patient document.</p><Field label="Patient ID" htmlFor="ocr-patient" required><Input id="ocr-patient" value={patientId} onChange={event => setPatientId(event.target.value)} placeholder="Patient UUID" /></Field><Button onClick={() => void create()} disabled={busy || !documentId.trim() || !patientId.trim()}>{busy ? 'Creating…' : 'Create extraction job'}</Button></div>}
       {error && <p className="staff-error" role="alert">{error}</p>}
     </Card>
       {visibleJob ? <Card className="staff-card"><h2>Job status</h2><div className="staff-row"><Badge tone={visibleJob.status === 'failed' ? 'danger' : visibleJob.status === 'validated' ? 'success' : 'information'}>{visibleJob.status.replaceAll('_', ' ')}</Badge><span className="staff-muted">Version {visibleJob.version ?? 'unknown'}</span></div><p>Provider {visibleJob.provider} · Document {shortId(visibleJob.documentId)}</p><Button tone="secondary" size="sm" onClick={() => void lookup()} disabled={busy}>Refresh status</Button>
