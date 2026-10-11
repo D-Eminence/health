@@ -205,3 +205,30 @@ describe('record changes follow the grant', () => {
     expect(screen.queryByRole('button', { name: 'Start encounter' })).toBeNull()
   })
 })
+
+describe('an open record whose access has ended', () => {
+  beforeEach(() => {
+    staff.activePatient = { hid: 'HID-ABCDEF', purpose: 'direct-care', lookup: allowedLookup('c0000000-0000-4000-8000-000000000001') }
+    api.consentStatus.mockResolvedValue({ patientId: PATIENT, facilityId: 'facility-1', purpose: 'direct-care',
+      readAllowed: true, writeAllowed: true })
+  })
+
+  // Identity refuses the lookup once a grant has expired, been revoked or closed
+  // (403), or the patient is unavailable (404); it never answers with a deny decision.
+  it.each([
+    [403, 'Patient access is not authorized'],
+    [404, 'Patient was not found or is not available'],
+  ])('closes the record when the access check is refused with %i', async (status, message) => {
+    api.lookupPatient.mockRejectedValue(new HidApiError(status, message))
+    render(<MemoryRouter><Clinical /></MemoryRouter>)
+    await waitFor(() => expect(staff.setActivePatient).toHaveBeenCalledWith(null))
+    expect(await screen.findByText(/Patient access has ended/)).toBeTruthy()
+  })
+
+  it('keeps the record open when the access check could not be made', async () => {
+    api.lookupPatient.mockRejectedValue(new HidApiError(503, 'Identity is unavailable', { code: 'IDENTITY_SERVICE_UNAVAILABLE' }))
+    render(<MemoryRouter><Clinical /></MemoryRouter>)
+    expect(await screen.findByText('Identity is unavailable')).toBeTruthy()
+    expect(staff.setActivePatient).not.toHaveBeenCalled()
+  })
+})

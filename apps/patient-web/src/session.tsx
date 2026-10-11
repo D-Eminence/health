@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { createApiClient, isHidApiError } from '@hid/http'
+import { createApiClient, HidApiError, isHidApiError } from '@hid/http'
 import { createRegisteredBrowserClient } from '@hid/api'
 import { createLogger } from '@hid/observability'
 import { createSessionStore, type AuthPrincipal, type SessionState } from '@hid/auth'
@@ -50,7 +50,20 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         baseContext: { app: 'patient-web', environment: environment.name } }),
       // Protected requests try a refresh before the final 401 clears the session.
       onUnauthorized: () => { if (store.getState().status === 'authenticated') store.clear() },
-      refreshSession: async () => { await patientApi?.refresh() },
+      refreshSession: async () => {
+        try {
+          await patientApi?.refresh()
+        } catch (error) {
+          // With no refresh cookie left (expired, or cleared by a sign-out in
+          // another tab) the backend refuses the refresh with 403
+          // CSRF_VALIDATION_FAILED. The session has ended, as for a 401, so the
+          // patient returns to sign-in instead of seeing that refusal on the page.
+          if (isHidApiError(error) && error.status === 403) {
+            throw new HidApiError(401, 'Your session has ended. Sign in again.', { code: 'AUTHENTICATION_REQUIRED', retryable: false, cause: error })
+          }
+          throw error
+        }
+      },
     }), 'patient-web')
     patientApi = createPatientApi(client)
     return patientApi
@@ -103,7 +116,27 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       store.setAuthenticated(patientPrincipal(session))
     },
     signOut: async () => {
-      await api.logout()
+      const signedIn = store.getState().principal?.subjectId
+      try {
+        await api.logout()
+      } catch (error) {
+        if (!isHidApiError(error) || error.status !== 401) throw error
+        // Logout needs the 15-minute access token. After a longer idle the
+        // session is restored once so the server ends it, but only if it is
+        // still this patient's: another account's session is never revoked.
+        let restored: PatientSession
+        try {
+          restored = await api.refresh()
+        } catch (refreshError) {
+          // A refused refresh leaves no session in this browser to end.
+          if (isHidApiError(refreshError) && (refreshError.status === 401 || refreshError.status === 403)) {
+            store.clear()
+            return
+          }
+          throw refreshError
+        }
+        if (signedIn !== undefined && restored?.actor?.subject === signedIn) await api.logout()
+      }
       store.clear()
       announceSessionChange()
     },

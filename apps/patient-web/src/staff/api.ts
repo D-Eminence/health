@@ -6,6 +6,7 @@ import {
   staffSessionReadyFor, staffSessionSignal, untilStaffSessionReady,
 } from './session'
 import { refreshInTurn } from '../sessionRefreshTurn'
+import { staffLoginAction } from '../productHostname'
 
 export interface Facility {
   id: string
@@ -139,6 +140,17 @@ export function isAllowedPatientLookup(lookup: PatientLookup): lookup is Extract
 
 export interface Page<T> { items: T[]; nextCursor: string | null }
 
+/**
+ * One page of an EHR timeline (TimelineQueryDto): its opaque cursor, or none for
+ * the first. `fresh` reads after a change: the HTTP client merges identical GETs
+ * in flight, and one started before the change would answer with the old rows.
+ */
+export interface PageRequest { readonly cursor?: string; readonly fresh?: boolean }
+
+function pageQuery(page: PageRequest) {
+  return { query: { limit: 50, ...(page.cursor ? { cursor: page.cursor } : {}) }, ...(page.fresh ? { dedupe: false } : {}) }
+}
+
 /** Only fields needed for the provider review are retained from the audit response. */
 export interface FacilityAuditEvent {
   sequenceId: string
@@ -174,6 +186,31 @@ export interface ClinicalRecord {
   encounterId: string
   createdAt: string
   [key: string]: unknown
+}
+
+export type StatusRecordKind = 'clinical-notes' | 'prescriptions' | 'lab-requests'
+
+export type VitalMeasurement = 'systolicMmhg' | 'diastolicMmhg' | 'pulseBpm' | 'temperatureC'
+  | 'respiratoryRate' | 'oxygenSaturationPercent' | 'weightKg' | 'heightCm'
+export type VitalMeasurements = Partial<Record<VitalMeasurement, number>>
+
+/** An appended correction: its values replace the vital's, which stay as recorded. */
+export interface VitalCorrection {
+  id: string
+  vitalId: string
+  correctionNo: number
+  replacementValues: VitalMeasurements
+  reason: string
+  createdAt: string
+}
+
+/** EHR UpdateDiagnosisDto: the fields it names, and only those. */
+export interface DiagnosisUpdate {
+  expectedRowVersion: number
+  changeReason: string
+  clinicalStatus?: string
+  verificationStatus?: string
+  notes?: string
 }
 
 export interface NoteRevision {
@@ -677,7 +714,7 @@ export const staffApi = {
   login: async (email: string, password: string, turnstileToken?: string) => {
     await Promise.all([leaving, refreshing?.catch(() => undefined)])
     return client.post<StaffSession>('/api/v1/auth/login', {
-      email, password, turnstileToken, turnstileAction: 'staff-login',
+      email, password, turnstileToken, turnstileAction: staffLoginAction(window.location.hostname),
     }, { auth: 'none' })
   },
   session: () => client.get<StaffSession>('/api/v1/auth/session', { auth: 'optional' }),
@@ -759,8 +796,11 @@ export const staffApi = {
     client.post<GrantResult>(`/api/v1/identity/consent-grants/${encodeURIComponent(grantId)}/close`, { reason },
       { headers: facilityHeaders(facilityId) }),
 
-  encounters: (facilityId: string, patientId: string) =>
-    client.get<Page<Encounter>>(patientPath(patientId), { query: { limit: 50 }, headers: facilityHeaders(facilityId) }),
+  encounters: (facilityId: string, patientId: string, page: PageRequest = {}) =>
+    client.get<Page<Encounter>>(patientPath(patientId), { ...pageQuery(page), headers: facilityHeaders(facilityId) }),
+  // One encounter, read afresh: the documented one may be on a page not shown.
+  encounter: (facilityId: string, patientId: string, encounterId: string) =>
+    client.get<Encounter>(encounterPath(patientId, encounterId), { headers: facilityHeaders(facilityId), dedupe: false }),
   emergencyRecords: (facilityId: string, patientId: string) =>
     client.get<EmergencyRecords>(`/api/v1/ehr/patients/${encodeURIComponent(patientId)}/emergency-records`,
       { headers: facilityHeaders(facilityId, 'emergency') }),
@@ -771,16 +811,29 @@ export const staffApi = {
     input: { expectedRowVersion: number; changeReason: string; status: string; endedAt?: string }) =>
     client.request<Encounter>({ method: 'PATCH', path: encounterPath(patientId, encounterId), body: input,
       headers: facilityHeaders(facilityId) }),
-  records: (facilityId: string, patientId: string, encounterId: string, kind: RecordKind) =>
-    client.get<Page<ClinicalRecord>>(`${encounterPath(patientId, encounterId)}/${kind}`, { query: { limit: 50 }, headers: facilityHeaders(facilityId) }),
+  records: (facilityId: string, patientId: string, encounterId: string, kind: RecordKind, page: PageRequest = {}) =>
+    client.get<Page<ClinicalRecord>>(`${encounterPath(patientId, encounterId)}/${kind}`, { ...pageQuery(page), headers: facilityHeaders(facilityId) }),
   createRecord: (facilityId: string, patientId: string, encounterId: string, kind: RecordKind, input: object, idempotencyKey?: string) =>
     client.post<ClinicalRecord>(`${encounterPath(patientId, encounterId)}/${kind}`, input,
       { headers: { ...facilityHeaders(facilityId), ...keyHeaders(idempotencyKey) } }),
-  updateRecord: (facilityId: string, patientId: string, encounterId: string, kind: RecordKind,
+  // A status PATCH: diagnoses have no status field and vitals are corrected, never patched.
+  updateRecord: (facilityId: string, patientId: string, encounterId: string, kind: StatusRecordKind,
     recordId: string, input: { expectedRowVersion: number; changeReason: string; status: string }) =>
     client.request<ClinicalRecord>({ method: 'PATCH',
       path: `${encounterPath(patientId, encounterId)}/${kind}/${encodeURIComponent(recordId)}`,
       body: input, headers: facilityHeaders(facilityId) }),
+  updateDiagnosis: (facilityId: string, patientId: string, encounterId: string, diagnosisId: string,
+    input: DiagnosisUpdate) =>
+    client.request<ClinicalRecord>({ method: 'PATCH',
+      path: `${encounterPath(patientId, encounterId)}/diagnoses/${encodeURIComponent(diagnosisId)}`,
+      body: input, headers: facilityHeaders(facilityId) }),
+  vitalCorrections: (facilityId: string, patientId: string, encounterId: string, vitalId: string) =>
+    client.get<VitalCorrection[]>(`${encounterPath(patientId, encounterId)}/vitals/${encodeURIComponent(vitalId)}/corrections`,
+      { headers: facilityHeaders(facilityId) }),
+  correctVital: (facilityId: string, patientId: string, encounterId: string, vitalId: string,
+    input: { expectedRowVersion: number; changeReason: string; replacementValues: VitalMeasurements }, idempotencyKey?: string) =>
+    client.post<VitalCorrection>(`${encounterPath(patientId, encounterId)}/vitals/${encodeURIComponent(vitalId)}/corrections`, input,
+      { headers: { ...facilityHeaders(facilityId), ...keyHeaders(idempotencyKey) } }),
   acceptPrescription: (facilityId: string, patientId: string, encounterId: string,
     prescriptionId: string, expectedRowVersion: number, reason: string, idempotencyKey?: string) =>
     client.post<unknown>(`${encounterPath(patientId, encounterId)}/prescriptions/${encodeURIComponent(prescriptionId)}/pharmacy-work-item`,

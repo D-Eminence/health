@@ -4,7 +4,7 @@ import { Button, Field, Input } from '@hid/ui'
 import { getEnvironment } from '../env'
 import { useStaff } from '../App'
 import { BrandLogo } from '../../BrandLogo'
-import { resolveStaffProductHostname } from '../../productHostname'
+import { resolveStaffProductHostname, staffLoginAction } from '../../productHostname'
 import { staffReturnPath } from '../session'
 
 function getStaffLandingPath(search: string): string {
@@ -25,7 +25,7 @@ function TurnstileChallenge({ onToken, resetKey }: { onToken: (token: string) =>
       if (!active || !host.current || !window.turnstile) return
       widgetId = window.turnstile.render(host.current, {
         sitekey: siteKey,
-        action: 'staff-login',
+        action: staffLoginAction(window.location.hostname),
         callback: onToken,
         'expired-callback': () => onToken(''),
         'error-callback': () => { onToken(''); setError('Human verification could not load. Refresh the page and try again.') },

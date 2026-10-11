@@ -160,3 +160,86 @@
 This log records implementation scope, not a release sign-off. The reference
 [gap map](./HEALTH_ID_COMPLETE_FRONTEND_GAP_MAP.md) is a baseline audit rather
 than a live completion tracker.
+
+## 2026-10-11: launch-readiness review (patient portal, EHR, Migrate/OCR)
+
+- Compared every browser route in the registry with hid-system `main` at
+  `54f79d2`: all 172 exist (the two gateway health checks are served by
+  nginx). Request bodies for patient, EHR and OCR calls match their DTOs under
+  the services' strict validation.
+- Recorded the launch blockers found in hid-system in
+  [open questions](./OPEN-QUESTIONS.md): patient-scoped reads refused for cookie
+  sessions, the OCR purpose of use, the OCR runtime locks, OCR review and
+  publication retry, and logout after an idle period.
+- Fixed in this repository (branch `claude/launch-readiness-fixes`):
+  - Patient sign-out after more than 15 minutes idle ends the server session.
+    It restores the session once and repeats the logout, but never for another
+    account.
+  - Linking Google during enrollment keeps the patient at the step they had
+    reached, instead of sending them back to the contact step.
+  - A clinical record closes when the access check is refused with 403 or 404,
+    as when a grant has expired, been revoked or been closed. Before, the chart
+    stayed open with each action failing.
+  - OCR: a job is offered for creation only after a lookup has answered that
+    none exists, so a failed lookup cannot create a duplicate. A clean
+    clinical document links to OCR, handing over its IDs in router state, not
+    in the URL.
+- Component tests only. No browser, staging or deployed-backend run.
+
+## 2026-10-11: EHR clinical corrections
+
+- Checked against hid-system `main` at `54f79d2` (`ehr/shared/clinical.dto.ts`
+  and the diagnoses, vitals and lab-requests services and migrations).
+- A diagnosis can be changed: clinical status, verification (including entered
+  in error) and notes, with the loaded row version and a reason. Only changed
+  fields are sent, because `UpdateDiagnosisDto` has no `status` and EHR refuses
+  unknown fields. A diagnosis marked entered in error offers no further change.
+- Vitals can be corrected. EHR appends a correction and keeps the recorded
+  values, so the record shows the latest correction as current and the
+  recorded values beneath it. A correction is prefilled with the current values
+  and a retry reuses its idempotency key. If the correction cannot be read, the
+  record says so and offers no further correction.
+- A lab request's status can change only while it is a draft (cancel, mark
+  entered in error). EHR does not pass status changes to Lab, so nothing is
+  offered for an active or on-hold request, and draft to active is not offered
+  because it never reaches Lab.
+- Recorded the backend gaps in [open questions](./OPEN-QUESTIONS.md): changes
+  to a request Lab has accepted, and corrected vitals in the patient's record.
+- Builds on D-Eminence/Health-id#29 (vitals input limits), merged into this
+  branch.
+- Component tests only. No browser, staging or deployed-backend run.
+
+## 2026-10-11: clinical record paging
+
+- Checked against hid-system `main` at `54f79d2`. Encounters and each
+  encounter's notes, vitals, diagnoses, prescriptions and lab requests come 50
+  to a page, newest first, with an opaque `nextCursor` and no total. Documents,
+  note revisions and vital corrections are not paged by the backend.
+- The clinical record showed only the first 50 of each. It now pages encounters
+  and record lists the way the reference design (`Dashboard.zip`, record lists
+  in `src/workflows.tsx`) does: "Previous page", "Page N" and "Next page" in a
+  navigation landmark, shown only when there is more than one page and disabled
+  at either end. The backend gives no total, so there is no "of M".
+- A change re-reads the page shown, as a request of its own, so it never takes
+  the answer of a read started before the change. A new encounter or record
+  goes back to the first page, where it is. Changing the patient, facility,
+  encounter or tab starts at the first page. A cursor the backend no longer
+  accepts starts the list again, and says so.
+- Paging never changes the encounter being documented: only choosing a row or
+  starting an encounter does. A new encounter is documented even when its start
+  time puts it past the first page. An unsaved record draft is cleared when
+  another encounter is chosen, instead of being saved against it. The list marks
+  the encounter being documented and says when it is on another page; a refresh,
+  or a status change refused because the encounter changed meanwhile, reads that
+  encounter again, so its status and version stay current.
+- The pager sits above the list. Its buttons are marked unavailable rather than
+  disabled, so the one pressed keeps keyboard focus, and the page reached is
+  announced. A failed page read is reported beside the list.
+- Fixed a race found on the way: a re-read after a change that finished after
+  the clinician had moved to another tab replaced that tab's rows. A re-read
+  after a change reads the page last asked for, so a page move made while the
+  change was saving is not undone.
+- Recorded in [open questions](./OPEN-QUESTIONS.md) that EHR's cursor keeps only
+  milliseconds, so rows within the same millisecond as a page's last row can be
+  skipped.
+- Component tests only. No browser, staging or deployed-backend run.
