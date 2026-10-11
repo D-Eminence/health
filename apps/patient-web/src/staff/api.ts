@@ -171,6 +171,31 @@ export interface ClinicalRecord {
   [key: string]: unknown
 }
 
+export type StatusRecordKind = 'clinical-notes' | 'prescriptions' | 'lab-requests'
+
+export type VitalMeasurement = 'systolicMmhg' | 'diastolicMmhg' | 'pulseBpm' | 'temperatureC'
+  | 'respiratoryRate' | 'oxygenSaturationPercent' | 'weightKg' | 'heightCm'
+export type VitalMeasurements = Partial<Record<VitalMeasurement, number>>
+
+/** An appended correction: its values replace the vital's, which stay as recorded. */
+export interface VitalCorrection {
+  id: string
+  vitalId: string
+  correctionNo: number
+  replacementValues: VitalMeasurements
+  reason: string
+  createdAt: string
+}
+
+/** EHR UpdateDiagnosisDto: the fields it names, and only those. */
+export interface DiagnosisUpdate {
+  expectedRowVersion: number
+  changeReason: string
+  clinicalStatus?: string
+  verificationStatus?: string
+  notes?: string
+}
+
 export interface NoteRevision {
   id: string
   revisionNo: number
@@ -552,11 +577,24 @@ export const staffApi = {
   createRecord: (facilityId: string, patientId: string, encounterId: string, kind: RecordKind, input: object, idempotencyKey?: string) =>
     client.post<ClinicalRecord>(`${encounterPath(patientId, encounterId)}/${kind}`, input,
       { headers: { ...facilityHeaders(facilityId), ...keyHeaders(idempotencyKey) } }),
-  updateRecord: (facilityId: string, patientId: string, encounterId: string, kind: RecordKind,
+  // A status PATCH: diagnoses have no status field and vitals are corrected, never patched.
+  updateRecord: (facilityId: string, patientId: string, encounterId: string, kind: StatusRecordKind,
     recordId: string, input: { expectedRowVersion: number; changeReason: string; status: string }) =>
     client.request<ClinicalRecord>({ method: 'PATCH',
       path: `${encounterPath(patientId, encounterId)}/${kind}/${encodeURIComponent(recordId)}`,
       body: input, headers: facilityHeaders(facilityId) }),
+  updateDiagnosis: (facilityId: string, patientId: string, encounterId: string, diagnosisId: string,
+    input: DiagnosisUpdate) =>
+    client.request<ClinicalRecord>({ method: 'PATCH',
+      path: `${encounterPath(patientId, encounterId)}/diagnoses/${encodeURIComponent(diagnosisId)}`,
+      body: input, headers: facilityHeaders(facilityId) }),
+  vitalCorrections: (facilityId: string, patientId: string, encounterId: string, vitalId: string) =>
+    client.get<VitalCorrection[]>(`${encounterPath(patientId, encounterId)}/vitals/${encodeURIComponent(vitalId)}/corrections`,
+      { headers: facilityHeaders(facilityId) }),
+  correctVital: (facilityId: string, patientId: string, encounterId: string, vitalId: string,
+    input: { expectedRowVersion: number; changeReason: string; replacementValues: VitalMeasurements }, idempotencyKey?: string) =>
+    client.post<VitalCorrection>(`${encounterPath(patientId, encounterId)}/vitals/${encodeURIComponent(vitalId)}/corrections`, input,
+      { headers: { ...facilityHeaders(facilityId), ...keyHeaders(idempotencyKey) } }),
   acceptPrescription: (facilityId: string, patientId: string, encounterId: string,
     prescriptionId: string, expectedRowVersion: number, reason: string, idempotencyKey?: string) =>
     client.post<unknown>(`${encounterPath(patientId, encounterId)}/prescriptions/${encodeURIComponent(prescriptionId)}/pharmacy-work-item`,
