@@ -14,6 +14,22 @@ const tabs: Array<{ id: RecordKind | 'documents'; label: string; permission: str
   { id: 'documents', label: 'Documents', permission: 'ehr.document.read' },
 ]
 
+/**
+ * Each vital as EHR's VitalMeasurementsDto accepts it (hid-system
+ * ehr/shared/clinical.dto.ts): whole numbers or a number of decimal places, and
+ * a range. The browser refuses anything else before it is sent.
+ */
+const VITAL_FIELDS: ReadonlyArray<readonly [name: string, label: string, step: string, min: string, max: string]> = [
+  ['systolicMmhg', 'Systolic BP (mmHg)', '1', '30', '350'],
+  ['diastolicMmhg', 'Diastolic BP (mmHg)', '1', '10', '250'],
+  ['pulseBpm', 'Pulse (bpm)', '1', '10', '350'],
+  ['temperatureC', 'Temperature (°C)', '0.1', '20', '50'],
+  ['respiratoryRate', 'Respirations / min', '1', '1', '100'],
+  ['oxygenSaturationPercent', 'SpO₂ (%)', '0.01', '0', '100'],
+  ['weightKg', 'Weight (kg)', '0.001', '0.2', '700'],
+  ['heightCm', 'Height (cm)', '0.01', '20', '300'],
+]
+
 const writePermissions: Record<RecordKind | 'documents', string> = {
   'clinical-notes': 'ehr.note.write',
   vitals: 'ehr.vital.write',
@@ -154,11 +170,8 @@ function RecordForm({ tab, onCreated, disabled }: { tab: RecordKind; onCreated: 
   }
   return <Card className="staff-card"><h2>Add {tabs.find(item => item.id === tab)?.label.toLowerCase()}</h2><form className="staff-form" onSubmit={event => void submit(event)}>
     {tab === 'clinical-notes' && <><Field label="Note type" htmlFor="note-type" required><Input id="note-type" name="noteType" placeholder="Consultation" required /></Field><Field label="Title" htmlFor="note-title" required><Input id="note-title" name="title" required /></Field><Field label="Clinical note" htmlFor="note-content" required><Textarea id="note-content" name="content" minLength={1} required /></Field><p className="staff-muted">Notes are saved as drafts. Signing needs its own reviewed action.</p></>}
-    {tab === 'vitals' && <div className="staff-form-row">{[
-      ['systolicMmhg', 'Systolic BP (mmHg)'], ['diastolicMmhg', 'Diastolic BP (mmHg)'], ['pulseBpm', 'Pulse (bpm)'],
-      ['temperatureC', 'Temperature (°C)'], ['respiratoryRate', 'Respirations / min'], ['oxygenSaturationPercent', 'SpO₂ (%)'],
-      ['weightKg', 'Weight (kg)'], ['heightCm', 'Height (cm)'],
-    ].map(([name, label]) => <Field key={name} label={label} htmlFor={`vital-${name}`}><Input id={`vital-${name}`} name={name} type="number" step="any" /></Field>)}</div>}
+    {tab === 'vitals' && <div className="staff-form-row">{VITAL_FIELDS.map(([name, label, step, min, max]) =>
+      <Field key={name} label={label} htmlFor={`vital-${name}`}><Input id={`vital-${name}`} name={name} type="number" step={step} min={min} max={max} /></Field>)}</div>}
     {tab === 'diagnoses' && <><div className="staff-form-row"><Field label="Code system" htmlFor="diagnosis-system" required><Input id="diagnosis-system" name="codeSystem" placeholder="ICD-10" required /></Field><Field label="Code" htmlFor="diagnosis-code" required><Input id="diagnosis-code" name="code" required /></Field></div><Field label="Display" htmlFor="diagnosis-display" required><Input id="diagnosis-display" name="display" required /></Field><div className="staff-form-row"><Field label="Clinical status" htmlFor="diagnosis-status"><Select id="diagnosis-status" name="clinicalStatus"><option value="active">Active</option><option value="recurrence">Recurrence</option><option value="relapse">Relapse</option><option value="inactive">Inactive</option><option value="remission">Remission</option><option value="resolved">Resolved</option></Select></Field><Field label="Verification" htmlFor="diagnosis-verification"><Select id="diagnosis-verification" name="verificationStatus"><option value="unconfirmed">Unconfirmed</option><option value="provisional">Provisional</option><option value="differential">Differential</option><option value="confirmed">Confirmed</option><option value="refuted">Refuted</option></Select></Field></div><Field label="Notes" htmlFor="diagnosis-notes"><Textarea id="diagnosis-notes" name="notes" /></Field></>}
     {tab === 'prescriptions' && <><Field label="Medication" htmlFor="medication" required><Input id="medication" name="medicationDisplay" required /></Field><div className="staff-form-row"><Field label="Dose quantity" htmlFor="dose-quantity"><Input id="dose-quantity" name="doseQuantity" type="number" min="0" step="any" /></Field><Field label="Dose unit" htmlFor="dose-unit"><Input id="dose-unit" name="doseUnit" placeholder="mg" /></Field></div><div className="staff-form-row"><Field label="Route code" htmlFor="route-code"><Input id="route-code" name="routeCode" placeholder="oral" /></Field><Field label="Frequency" htmlFor="frequency" required><Input id="frequency" name="frequency" placeholder="Twice daily" required /></Field></div><Field label="Instructions" htmlFor="instructions" required><Textarea id="instructions" name="instructions" required /></Field><p className="staff-muted">This creates an EHR draft. Pharmacy acceptance and dispensing are separate backend actions.</p></>}
     {tab === 'lab-requests' && <><div className="staff-form-row"><Field label="Test code system" htmlFor="test-system" required><Input id="test-system" name="testCodeSystem" placeholder="LOINC" required /></Field><Field label="Test code" htmlFor="test-code" required><Input id="test-code" name="testCode" required /></Field></div><Field label="Test display" htmlFor="test-display" required><Input id="test-display" name="testDisplay" required /></Field><div className="staff-form-row"><Field label="Priority" htmlFor="test-priority"><Select id="test-priority" name="priority"><option value="routine">Routine</option><option value="urgent">Urgent</option><option value="asap">As soon as possible</option><option value="stat">Stat</option></Select></Field><Field label="Specimen type code" htmlFor="specimen-code"><Input id="specimen-code" name="specimenTypeCode" /></Field></div><Field label="Clinical information" htmlFor="test-information"><Textarea id="test-information" name="clinicalInformation" /></Field><Field label="Request handling" htmlFor="lab-request-status" required><Select id="lab-request-status" name="status" defaultValue="draft" required><option value="draft">Save EHR draft</option><option value="active">Create active request and send to Lab</option></Select></Field><p className="staff-muted">Active creation asks Lab to accept the order. If acceptance is not confirmed, review the request list before retrying. Changing an existing draft to active does not send it to Lab; that backend handoff is still missing.</p></>}
