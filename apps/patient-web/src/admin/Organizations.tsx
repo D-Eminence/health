@@ -1,6 +1,7 @@
 import { useCallback, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { adminApi, type AdminActor, type ApplicationStatus, type Facility, type OrganizationApplication } from './api'
+import { environment } from './env'
 import { failure } from './problems'
 import {
   Page, Refresh, ResourceView, Status, date, has, label, useGovernedSubmit, useResource, useUrlFilters,
@@ -98,14 +99,14 @@ function ApplicationReview({ application, actor, onReviewed }: {
       }
       const approved = await adminApi.approveApplication(application, reason.trim(),
         existing ? { organizationId: existing.organizationId, facilityId: existing.id } : undefined)
-      // An administrator account created here has no password (hid-system 0048
-      // creates it as pending_reset), and sign-in refuses it until one is set.
-      // Account recovery sets a password and activates it.
+      // hid-system 0048 links an approval into an existing organization only to
+      // its active administrator. A new organization's administrator is created
+      // pending_reset: sign-in refuses it until account recovery sets a password.
       return approved.organizationReused
-        ? 'Application approved and linked to the existing organization. The administrator account was created or linked. '
-          + 'A new administrator has no password yet: ask them to set one with “Forgot your password?” on the provider sign-in page.'
+        ? 'Application approved and linked to the existing organization and its active administrator, who signs in as before.'
         : 'Application approved. A new organization, facility and administrator account were created. '
-          + 'The administrator has no password yet: ask them to set one with “Forgot your password?” on the provider sign-in page.'
+          + `The administrator has no password yet: ask them to set one at ${staffRecoveryUrl()}. `
+          + 'Password setup does not work yet on the product sites (ehr., lab., pharmacy., migrate., outreach.).'
     }, 'The review could not be completed.', REVIEW_PROBLEMS)
     setPending(null)
     if (result) { setReason(''); onReviewed(result) }
@@ -153,6 +154,16 @@ function ApplicationCard({ application, actor, onReviewed }: {
 }
 
 /** Organization applications. The backend has no organization directory, so organizations are reached through these and facilities. */
+// Staff password setup ('staff-reset' Turnstile) is accepted only on the main
+// site: www in production, staging on staging (hid-system turnstile.service.ts).
+function staffRecoveryUrl(): string {
+  let name = 'local'
+  try { name = environment().name } catch { /* A configuration problem is reported where the API is used. */ }
+  const origin = name === 'production' ? 'https://www.healthidentitydirectory.com'
+    : name === 'staging' ? 'https://staging.healthidentitydirectory.com' : window.location.origin
+  return `${origin}/provider/recover`
+}
+
 export function ApplicationsPage({ actor }: { actor: AdminActor }) {
   const [filters, setFilters] = useUrlFilters(['status'] as const)
   const status = APPLICATION_STATUSES.find(value => value === filters.status)
