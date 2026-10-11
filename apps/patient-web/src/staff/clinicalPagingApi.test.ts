@@ -36,6 +36,20 @@ describe('EHR list pages', () => {
     expect(Object.fromEntries(url!.searchParams)).toEqual({ limit: '50', cursor: 'ZGlhZ25vc2VzLXBhZ2UtMg' })
   })
 
+  it('asks for an encounter page by its cursor', async () => {
+    const { fetch, settleAll } = stubFetch()
+    const { staffApi } = await import('./api')
+
+    const read = staffApi.encounters('facility-1', 'patient-1', { cursor: 'ZW5jb3VudGVyLXBhZ2UtMg' })
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1))
+    settleAll()
+    await read
+
+    const [url] = urls(fetch)
+    expect(url!.pathname).toBe('/api/v1/ehr/patients/patient-1/encounters')
+    expect(Object.fromEntries(url!.searchParams)).toEqual({ limit: '50', cursor: 'ZW5jb3VudGVyLXBhZ2UtMg' })
+  })
+
   it('asks for the first encounter page without a cursor', async () => {
     const { fetch, settleAll } = stubFetch()
     const { staffApi } = await import('./api')

@@ -225,8 +225,17 @@ than a live completion tracker.
   goes back to the first page, where it is. Changing the patient, facility,
   encounter or tab starts at the first page. A cursor the backend no longer
   accepts starts the list again, and says so.
+- Paging never changes the encounter being documented: only choosing a row or
+  starting an encounter does. A new encounter is documented even when its start
+  time puts it past the first page. An unsaved record draft is cleared when
+  another encounter is chosen, instead of being saved against it.
+- The pager sits above the list. Its buttons are marked unavailable rather than
+  disabled, so the one pressed keeps keyboard focus, and the page reached is
+  announced. A failed page read is reported beside the list.
 - Fixed a race found on the way: a re-read after a change that finished after
-  the clinician had moved to another tab replaced that tab's rows.
+  the clinician had moved to another tab replaced that tab's rows. A re-read
+  after a change reads the page last asked for, so a page move made while the
+  change was saving is not undone.
 - Recorded in [open questions](./OPEN-QUESTIONS.md) that EHR's cursor keeps only
   milliseconds, so rows within the same millisecond as a page's last row can be
   skipped.

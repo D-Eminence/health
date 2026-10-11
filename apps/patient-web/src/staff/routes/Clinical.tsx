@@ -96,16 +96,32 @@ async function readPage<T>(read: (cursor: string | undefined, fresh: boolean) =>
   }
 }
 
-/** The reference design's record pages: shown only when there is more than one page. */
-function Pager({ label, position, disabled, onShow }: {
-  label: string; position: PagePosition | null; disabled: boolean; onShow: (cursors: Cursors) => void
+type ListNotice = { readonly scope: string; readonly text: string; readonly alert: boolean }
+
+function Notice({ notice, scope }: { notice: ListNotice | null; scope: string }) {
+  if (notice?.scope !== scope) return null
+  return <p className={notice.alert ? 'staff-error' : 'staff-notice'} role={notice.alert ? 'alert' : 'status'}>{notice.text}</p>
+}
+
+/**
+ * The reference design's record pages, above the list and shown only when there
+ * is more than one page. A button that cannot act is marked unavailable rather
+ * than disabled, so the one just pressed keeps focus while its page loads and at
+ * either end; the page reached is announced.
+ */
+function Pager({ label, position, busy, onShow }: {
+  label: string; position: PagePosition | null; busy: boolean; onShow: (cursors: Cursors) => void
 }) {
   if (!position || (position.cursors.length < 2 && !position.next)) return null
   const { cursors, next } = position
+  const previousOff = busy || cursors.length < 2
+  const nextOff = busy || !next
   return <nav className="staff-row" aria-label={label}>
-    <Button tone="secondary" size="sm" disabled={disabled || cursors.length < 2} onClick={() => onShow(cursors.slice(0, -1))}>Previous page</Button>
-    <span className="staff-muted">{`Page ${cursors.length}`}</span>
-    <Button tone="secondary" size="sm" disabled={disabled || !next} onClick={() => { if (next) onShow([...cursors, next]) }}>Next page</Button>
+    <Button tone="secondary" size="sm" aria-disabled={previousOff} className="aria-disabled:opacity-45"
+      onClick={() => { if (!previousOff) onShow(cursors.slice(0, -1)) }}>Previous page</Button>
+    <span className="staff-muted" role="status">{`Page ${cursors.length}`}</span>
+    <Button tone="secondary" size="sm" aria-disabled={nextOff} className="aria-disabled:opacity-45"
+      onClick={() => { if (!nextOff && next) onShow([...cursors, next]) }}>Next page</Button>
   </nav>
 }
 
@@ -593,20 +609,27 @@ export function Clinical() {
   const permissions = facility?.permissions ?? []
   const [encounters, setEncounters] = useState<Encounter[]>([])
   const [encounterPages, setEncounterPages] = useState<PagePosition | null>(null)
-  const [encounterNotice, setEncounterNotice] = useState<{ scope: string; text: string } | null>(null)
-  const [encounterId, setEncounterId] = useState('')
+  const [encounterNotice, setEncounterNotice] = useState<ListNotice | null>(null)
+  // The encounter being documented. Only choosing a row or starting an encounter
+  // changes it; paging the list does not, so a draft stays with its encounter.
+  const [selection, setSelection] = useState<Encounter | null>(null)
+  const encounterId = selection?.id ?? ''
   const [tab, setTab] = useState<RecordKind | 'documents'>('clinical-notes')
   const [records, setRecords] = useState<ClinicalRecord[]>([])
   const [recordsFor, setRecordsFor] = useState('')
   const [recordPages, setRecordPages] = useState<PagePosition | null>(null)
-  const [recordNotice, setRecordNotice] = useState<{ scope: string; text: string } | null>(null)
+  const [recordNotice, setRecordNotice] = useState<ListNotice | null>(null)
   const [loading, setLoading] = useState(false)
   const [recordsLoading, setRecordsLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const loadSequence = useRef(0)
-  // Every records read takes a number; only the latest may show its rows.
+  // Every records read takes a number; only the latest may show its rows. The
+  // page last asked for is what a re-read after a change reads again, so a page
+  // move made while the change was saving is not undone.
   const recordLoad = useRef(0)
+  const recordRequested = useRef<{ scope: string; cursors: Cursors }>({ scope: '', cursors: FIRST_PAGE })
+  const encounterRequested = useRef<Cursors>(FIRST_PAGE)
   const patientId = activePatient?.lookup.patient.patientId
   const visibleTabs = tabs.filter(item => permissions.includes(item.permission))
   const activeTab = visibleTabs.some(item => item.id === tab) ? tab : visibleTabs[0]?.id
@@ -618,7 +641,7 @@ export function Clinical() {
   const recordPosition = recordPages?.scope === recordScope ? recordPages : null
   const visibleRecords = recordsFor === recordScope ? records : []
   const scopedEncounters = encounters.filter(item => item.patientId === patientId && item.facilityId === facility?.id)
-  const selectedEncounter = scopedEncounters.find(item => item.id === encounterId)
+  const selectedEncounter = selection && selection.patientId === patientId && selection.facilityId === facility?.id ? selection : undefined
 
   const verify = useCallback(async () => {
     if (!facility || !activePatient) throw new Error('Open a patient through governed access first.')
@@ -643,29 +666,43 @@ export function Clinical() {
   // Loads one page of encounters, the first unless told otherwise. The page and
   // its rows change together, once the page has been read; the selection stays
   // on an encounter of the page shown.
-  const loadEncounters = useCallback(async (request: { cursors?: Cursors; fresh?: boolean; select?: string } = {}) => {
+  // Loads one page of encounters: the first, the page asked for, or ('shown') the
+  // page last asked for. The page and its rows change together, once read. The
+  // selection keeps its encounter, refreshed from the page when it is there.
+  const loadEncounters = useCallback(async (request: { cursors?: Cursors | 'shown'; fresh?: boolean; select?: Encounter; paging?: boolean } = {}) => {
     if (!facility || !patientId || activePatient?.purpose === 'emergency') return
     const sequence = ++loadSequence.current
     const scope = JSON.stringify([facility.id, patientId])
+    const before = encounterRequested.current
+    const wanted = request.cursors === 'shown' ? before : request.cursors ?? FIRST_PAGE
+    encounterRequested.current = wanted
     setLoading(true); setError('')
     try {
       await verify()
       const { page, cursors, restarted } = await readPage(
-        (cursor, fresh) => staffApi.encounters(facility.id, patientId, { cursor, fresh }), request.cursors ?? FIRST_PAGE, request.fresh ?? false)
+        (cursor, fresh) => staffApi.encounters(facility.id, patientId, { cursor, fresh }), wanted, request.fresh ?? false)
       if (sequence !== loadSequence.current) return
+      encounterRequested.current = cursors
       setEncounters(page.items)
       setEncounterPages({ scope, cursors, next: page.nextCursor ?? null })
-      setEncounterNotice(restarted ? { scope, text: RESTARTED } : null)
-      setEncounterId(current => {
-        const wanted = request.select ?? current
-        return page.items.some(item => item.id === wanted) ? wanted : page.items[0]?.id ?? ''
+      setEncounterNotice(restarted ? { scope, text: RESTARTED, alert: false } : null)
+      setSelection(current => {
+        const chosen = request.select ?? current
+        if (!chosen) return page.items[0] ?? null
+        return page.items.find(item => item.id === chosen.id) ?? chosen
       })
-    } catch (caught) { if (sequence === loadSequence.current) setError(errorMessage(caught, 'Encounters could not be loaded.')) }
+    } catch (caught) {
+      if (sequence !== loadSequence.current) return
+      encounterRequested.current = before
+      if (request.paging) setEncounterNotice({ scope, text: `The page could not be loaded. ${errorMessage(caught, '')}`.trim(), alert: true })
+      else setError(errorMessage(caught, 'Encounters could not be loaded.'))
+    }
     finally { if (sequence === loadSequence.current) setLoading(false) }
   }, [facility?.id, patientId, activePatient?.purpose, verify])
 
   useEffect(() => {
-    setEncounters([]); setEncounterPages(null); setEncounterNotice(null); setEncounterId(''); setRecords([]); setRecordsFor(''); setSuccess('')
+    encounterRequested.current = FIRST_PAGE
+    setEncounters([]); setEncounterPages(null); setEncounterNotice(null); setSelection(null); setRecords([]); setRecordsFor(''); setSuccess('')
     void loadEncounters()
     return () => { loadSequence.current += 1 }
   }, [loadEncounters])
@@ -673,6 +710,7 @@ export function Clinical() {
     if (!facility || !patientId || !selectedEncounter || !activeTab || activeTab === 'documents' || activePatient?.purpose === 'emergency') return
     const sequence = ++recordLoad.current
     const scope = recordScope
+    recordRequested.current = { scope, cursors: FIRST_PAGE }
     setRecords([]); setRecordsFor(''); setRecordPages(null); setRecordNotice(null); setRecordsLoading(true); setError('')
     void staffApi.records(facility.id, patientId, encounterId, activeTab).then(result => {
       if (sequence !== recordLoad.current) return
@@ -705,39 +743,43 @@ export function Clinical() {
   const selected = selectedEncounter
   const canMutate = activePatient.purpose === 'direct-care' && currentWriteAccess?.allowed === true
 
-  const encounterCursors = encounterPosition?.cursors ?? FIRST_PAGE
-  const recordCursors = recordPosition?.cursors ?? FIRST_PAGE
-
-  // A new encounter starts now, so it heads the first page.
+  // A new encounter starts now, so it usually heads the first page; it is the
+  // one documented next even when it does not (a backdated start).
   async function createEncounter(input: { encounterType: string; status: string; startedAt: string; chiefComplaint: string }, key: string) {
     if (!facility || !patientId) return
     await verify()
     const result = await staffApi.createEncounter(facility.id, patientId, input, key)
-    await loadEncounters({ fresh: true, select: result.id })
+    await loadEncounters({ fresh: true, select: result })
     setSuccess('Encounter created by the backend.')
   }
 
-  // Reads a page of the records list shown. A read for a list no longer shown
-  // (the clinician moved to another tab or encounter) is not made: it would
-  // replace that list's rows. After a change the read is fresh, and a failure
-  // keeps the rows and says the change was saved.
-  async function loadRecords(kind: RecordKind, cursors: Cursors, afterChange: boolean) {
+  // Reads a page of the records list shown: the page asked for, or ('shown') the
+  // page last asked for. A read for a list no longer shown (the clinician moved
+  // to another tab or encounter) is not made: it would replace that list's rows.
+  // After a change the read is fresh, and a failure keeps the rows and says the
+  // change was saved; a failed page move is reported beside the list.
+  async function loadRecords(kind: RecordKind, cursors: Cursors | 'shown', afterChange: boolean) {
     if (!facility || !patientId || !encounterId) return
     const scope = JSON.stringify([facility.id, patientId, encounterId, kind])
     if (scope !== recordScopeShown.current) return
     const sequence = ++recordLoad.current
+    const before = recordRequested.current
+    const wanted = cursors !== 'shown' ? cursors : before.scope === scope ? before.cursors : FIRST_PAGE
+    recordRequested.current = { scope, cursors: wanted }
     setRecordsLoading(true)
     if (!afterChange) setError('')
     try {
       const { page, cursors: shown, restarted } = await readPage(
-        (cursor, fresh) => staffApi.records(facility.id, patientId, encounterId, kind, { cursor, fresh }), cursors, afterChange)
+        (cursor, fresh) => staffApi.records(facility.id, patientId, encounterId, kind, { cursor, fresh }), wanted, afterChange)
       if (sequence !== recordLoad.current) return
+      recordRequested.current = { scope, cursors: shown }
       setRecords(page.items); setRecordsFor(scope); setRecordPages({ scope, cursors: shown, next: page.nextCursor ?? null })
-      setRecordNotice(restarted ? { scope, text: RESTARTED } : null)
+      setRecordNotice(restarted ? { scope, text: RESTARTED, alert: false } : null)
     } catch (caught) {
       if (sequence !== recordLoad.current) return
-      setError(afterChange ? `The change was saved, but the records could not be reloaded. ${errorMessage(caught, '')}`.trim()
-        : errorMessage(caught, 'Records could not be loaded.'))
+      recordRequested.current = before
+      if (afterChange) setError(`The change was saved, but the records could not be reloaded. ${errorMessage(caught, '')}`.trim())
+      else setRecordNotice({ scope, text: `The page could not be loaded. ${errorMessage(caught, '')}`.trim(), alert: true })
     } finally { if (sequence === recordLoad.current) setRecordsLoading(false) }
   }
 
@@ -759,11 +801,13 @@ export function Clinical() {
     if (!expectedRowVersion) throw new Error('Reload the encounter before changing its status.')
     setSuccess('')
     await verify()
-    await staffApi.updateEncounter(facility.id, patientId, selected.id, {
+    const updated = await staffApi.updateEncounter(facility.id, patientId, selected.id, {
       expectedRowVersion, changeReason: reason, status,
       ...(status === 'completed' ? { endedAt: isoNow() } : {}),
     })
-    await loadEncounters({ cursors: encounterCursors, fresh: true })
+    // The changed encounter may not be on the page shown; it stays documented as changed.
+    if (updated?.id) setSelection(current => current?.id === updated.id ? updated : current)
+    await loadEncounters({ cursors: 'shown', fresh: true })
     setSuccess('Encounter status updated.')
   }
 
@@ -777,7 +821,7 @@ export function Clinical() {
       { expectedRowVersion, changeReason: reason, status })
     setSuccess(kind === 'clinical-notes' ? 'Clinical note status updated.'
       : kind === 'lab-requests' ? 'Lab request status updated.' : 'Prescription status updated.')
-    await loadRecords(kind, recordCursors, true)
+    await loadRecords(kind, 'shown', true)
   }
 
   async function updateDiagnosis(record: ClinicalRecord, changes: DiagnosisChanges, reason: string) {
@@ -789,7 +833,7 @@ export function Clinical() {
     await staffApi.updateDiagnosis(facility.id, patientId, encounterId, record.id,
       { expectedRowVersion, changeReason: reason, ...changes })
     setSuccess('Diagnosis updated.')
-    await loadRecords('diagnoses', recordCursors, true)
+    await loadRecords('diagnoses', 'shown', true)
   }
 
   async function correctVital(record: ClinicalRecord, replacementValues: VitalMeasurements, reason: string, key: string) {
@@ -801,7 +845,7 @@ export function Clinical() {
     await staffApi.correctVital(facility.id, patientId, encounterId, record.id,
       { expectedRowVersion, changeReason: reason, replacementValues }, key)
     setSuccess('Vital correction saved.')
-    await loadRecords('vitals', recordCursors, true)
+    await loadRecords('vitals', 'shown', true)
   }
 
   async function handoffPrescription(record: ClinicalRecord, reason: string, key: string) {
@@ -816,20 +860,25 @@ export function Clinical() {
 
   return <>
     <div className="staff-page-head"><p className="staff-eyebrow">Clinical record · {facility.name}</p><h1>{activePatient.lookup.patient.fullName ?? activePatient.hid}</h1><p>HID {activePatient.hid} · Direct care access. The server rechecks authorization before changes.</p></div>
-    <div className="staff-row staff-toolbar"><Badge tone="success">Authorized</Badge><Button tone="secondary" size="sm" onClick={() => void loadEncounters({ cursors: encounterCursors, fresh: true })} disabled={loading}>Refresh encounters</Button><Link className="staff-text-link" to="/provider/patients">Change patient →</Link></div>
+    <div className="staff-row staff-toolbar"><Badge tone="success">Authorized</Badge><Button tone="secondary" size="sm" onClick={() => void loadEncounters({ cursors: 'shown', fresh: true })} disabled={loading}>Refresh encounters</Button><Link className="staff-text-link" to="/provider/patients">Change patient →</Link></div>
     {currentWriteAccess && !currentWriteAccess.allowed && <div className="staff-notice" role="status">{currentWriteAccess.failed
       ? 'Write access could not be confirmed, so changes are unavailable. Refresh the page to try again.'
       : 'Read-only access. This authorization does not include changes; ask the patient to approve a read-and-write request to add or change records.'}</div>}
     {error && <p className="staff-error" role="alert">{error}</p>}{success && <p className="staff-success" role="status">{success}</p>}
-    <div className="staff-two-col staff-encounter-grid"><Card className="staff-card"><h2>Encounters</h2>{loading && <p role="status">Loading encounters…</p>}{!loading && scopedEncounters.length === 0 && <p>No encounters are available for this patient and facility.</p>}<div className="staff-list">{scopedEncounters.map(item => <button type="button" key={item.id} className={`staff-list-item staff-select-row${item.id === encounterId ? ' selected' : ''}`} onClick={() => setEncounterId(item.id)}><strong>{item.encounterType.replace('_', ' ')} · {item.status.replace('_', ' ')}</strong><p>{new Date(item.startedAt).toLocaleString()}</p><p>{item.chiefComplaint || 'No chief complaint provided'}</p></button>)}</div>
-      {encounterNotice?.scope === encounterScope && <p className="staff-notice" role="status">{encounterNotice.text}</p>}
-      <Pager label="Encounter pages" position={encounterPosition} disabled={loading} onShow={cursors => void loadEncounters({ cursors })} /></Card>{permissions.includes('ehr.encounter.write') && canMutate && <EncounterForm onCreated={createEncounter} disabled={!facility} />}</div>
+    <div className="staff-two-col staff-encounter-grid"><Card className="staff-card"><h2>Encounters</h2>{loading && <p role="status">Loading encounters…</p>}
+      <Notice notice={encounterNotice} scope={encounterScope} />
+      <Pager label="Encounter pages" position={encounterPosition} busy={loading} onShow={cursors => void loadEncounters({ cursors, paging: true })} />
+      {!loading && scopedEncounters.length === 0 && <p>No encounters are available for this patient and facility.</p>}<div className="staff-list">{scopedEncounters.map(item => <button type="button" key={item.id} className={`staff-list-item staff-select-row${item.id === encounterId ? ' selected' : ''}`} onClick={() => setSelection(item)}><strong>{item.encounterType.replace('_', ' ')} · {item.status.replace('_', ' ')}</strong><p>{new Date(item.startedAt).toLocaleString()}</p><p>{item.chiefComplaint || 'No chief complaint provided'}</p></button>)}</div>
+</Card>{permissions.includes('ehr.encounter.write') && canMutate && <EncounterForm onCreated={createEncounter} disabled={!facility} />}</div>
     {selected && <section className="staff-section"><div className="staff-page-head"><p className="staff-eyebrow">Selected encounter</p><h1>Care documentation</h1><p>{new Date(selected.startedAt).toLocaleString()} · {selected.status.replace('_', ' ')}</p></div><div className="staff-tabs" role="tablist" aria-label="Clinical record section">{visibleTabs.map(item => <button role="tab" aria-selected={activeTab === item.id} type="button" key={item.id} className={activeTab === item.id ? 'active' : ''} onClick={() => setTab(item.id)}>{item.label}</button>)}</div>
       {canMutate && permissions.includes('ehr.encounter.write') && (encounterTransitions[selected.status]?.length ?? 0) > 0 &&
         <Card className="staff-card"><StatusActionForm key={`${selected.id}-${selected.rowVersion}`} id={`encounter-${selected.id}`} title="Encounter status"
           choices={encounterTransitions[selected.status]!} disabled={loading} onChange={changeEncounterStatus} /></Card>}
       {!activeTab ? <p className="staff-muted">Your current facility role does not grant access to encounter records.</p>
-        : activeTab === 'documents' ? <Documents key={selected.id} patientId={patientId!} encounterId={selected.id} facilityId={facility.id} canWrite={canMutate && permissions.includes(writePermissions.documents)} canOcr={permissions.includes('ocr.job.read')} verify={verify} /> : <div className="staff-two-col"><Card className="staff-card"><h2>{tabs.find(item => item.id === activeTab)?.label}</h2>{recordsLoading && <p role="status">Loading records…</p>}{!recordsLoading && visibleRecords.length === 0 && <p>No {tabs.find(item => item.id === activeTab)?.label.toLowerCase()} for this encounter.</p>}<div className="staff-list">{visibleRecords.map(record => <div className="staff-list-item staff-stack" key={record.id}><strong>{recordTitle(activeTab, record)}</strong>
+        : activeTab === 'documents' ? <Documents key={selected.id} patientId={patientId!} encounterId={selected.id} facilityId={facility.id} canWrite={canMutate && permissions.includes(writePermissions.documents)} canOcr={permissions.includes('ocr.job.read')} verify={verify} /> : <div className="staff-two-col"><Card className="staff-card"><h2>{tabs.find(item => item.id === activeTab)?.label}</h2>{recordsLoading && <p role="status">Loading records…</p>}
+        <Notice notice={recordNotice} scope={recordScope} />
+        <Pager label="Record pages" position={recordPosition} busy={recordsLoading} onShow={cursors => void loadRecords(activeTab, cursors, false)} />
+        {!recordsLoading && visibleRecords.length === 0 && <p>No {tabs.find(item => item.id === activeTab)?.label.toLowerCase()} for this encounter.</p>}<div className="staff-list">{visibleRecords.map(record => <div className="staff-list-item staff-stack" key={record.id}><strong>{recordTitle(activeTab, record)}</strong>
         {activeTab === 'diagnoses' && record.verificationStatus === 'entered_in_error' && <Badge tone="warning">Entered in error</Badge>}
         {activeTab === 'vitals' ? <VitalPanel key={`${record.id}-${String(record.rowVersion)}`} facilityId={facility.id} patientId={patientId!} encounterId={selected.id}
           vital={record} canCorrect={canMutate && permissions.includes('ehr.vital.write')} disabled={recordsLoading}
@@ -838,7 +887,7 @@ export function Clinical() {
         {activeTab === 'clinical-notes' && <NotePanel facilityId={facility.id} patientId={patientId!} encounterId={selected.id}
           note={record} canWrite={canMutate && permissions.includes('ehr.note.write')} verify={verify}
           onStatus={(status, reason) => changeRecordStatus(record, 'clinical-notes', status, reason)}
-          onChanged={() => loadRecords('clinical-notes', recordCursors, true)} />}
+          onChanged={() => loadRecords('clinical-notes', 'shown', true)} />}
         {activeTab === 'prescriptions' && canMutate && permissions.includes('ehr.prescription.write') && (prescriptionTransitions[String(record.status)]?.length ?? 0) > 0 &&
           <StatusActionForm key={`${record.id}-${record.rowVersion}`} id={`prescription-${record.id}`} title="Prescription status" choices={prescriptionTransitions[String(record.status)]!}
             disabled={recordsLoading} onChange={(status, reason) => changeRecordStatus(record, 'prescriptions', status, reason)} />}
@@ -853,9 +902,7 @@ export function Clinical() {
             disabled={recordsLoading} onChange={(status, reason) => changeRecordStatus(record, 'lab-requests', status, reason)} />}
         {activeTab === 'lab-requests' && canMutate && permissions.includes('ehr.lab-request.write') && (record.status === 'active' || record.status === 'on_hold') &&
           <p className="staff-muted">Lab may already be working on this request. Status changes made here are not passed to Lab, so none are offered; contact the laboratory to stop or correct it.</p>}
-      </div>)}</div>
-        {recordNotice?.scope === recordScope && <p className="staff-notice" role="status">{recordNotice.text}</p>}
-        <Pager label="Record pages" position={recordPosition} disabled={recordsLoading} onShow={cursors => void loadRecords(activeTab, cursors, false)} /></Card>{canMutate && permissions.includes(writePermissions[activeTab]) && <RecordForm key={activeTab} tab={activeTab} onCreated={createRecord} disabled={!selected} />}</div>}
+      </div>)}</div></Card>{canMutate && permissions.includes(writePermissions[activeTab]) && <RecordForm key={`${selected.id}-${activeTab}`} tab={activeTab} onCreated={createRecord} disabled={!selected} />}</div>}
     </section>}
   </>
 }
