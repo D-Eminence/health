@@ -156,6 +156,18 @@ describe('a sign-out across windows', () => {
     expect(signOut).not.toHaveBeenCalled()
   })
 
+  it.each([
+    ['no other window holds the turn', () => { fakeLocks() }],
+    ['the browser has no Web Locks', () => {}],
+  ])('asks first when told to always ask, even when %s', async (_label, setUp) => {
+    setUp()
+    const signOut = vi.fn(async () => undefined)
+    await signOutInTurn(async () => false, signOut, { alwaysAsk: true })
+    expect(signOut).not.toHaveBeenCalled()
+    await signOutInTurn(async () => true, signOut, { alwaysAsk: true })
+    expect(signOut).toHaveBeenCalledTimes(1)
+  })
+
   it('that had to wait is not sent when the browser cannot be asked whose session it holds', async () => {
     fakeLocks()
     let finishSignIn: () => void = () => {}

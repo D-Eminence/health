@@ -135,7 +135,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           }
           throw refreshError
         }
-        if (signedIn !== undefined && restored?.actor?.subject === signedIn) await api.logout(signedIn)
+        if (signedIn !== undefined && restored?.actor?.kind === 'patient' && restored.actor.subject === signedIn) await api.logout(signedIn)
       }
       store.clear()
       announceSessionChange()

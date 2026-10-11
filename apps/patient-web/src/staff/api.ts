@@ -606,20 +606,21 @@ function signOut(confirmFirst = false): Promise<void> {
  */
 async function signOutStaffSession(confirmFirst: boolean): Promise<void> {
   const sentIn = staffSessionGeneration()
+  // The account this sign-out is for, named now: leaving the workspace clears it.
+  const actorId = staffSessionActor()
   // From a workspace locked while its session is checked, the browser may already
   // hold another account's session (signed in from another tab): logout ends
   // whichever session the cookies carry. The server is asked first. A browser
   // that no longer holds this session has nothing of it to end; one the server
   // cannot answer for is not signed out blindly.
   if (confirmFirst) {
-    const actorId = staffSessionActor()
     if (actorId === null) return
     const found = await checkStaffSession(actorId, sentIn)
     if (staffSessionGeneration() !== sentIn || found === 'ended') return
     if (found === 'unknown') throw new Error('Sign-out could not be completed. Try again.')
   }
   for (let attempt = 1; ; attempt += 1) {
-    try { await signOutInTurn(() => noOtherAccount(staffSessionActor()), () => client.post<null>('/api/v1/auth/logout')); return }
+    try { await signOutInTurn(() => stillThisAccount(actorId), () => client.post<null>('/api/v1/auth/logout')); return }
     catch (error) { if (!endsStaffSession(error)) throw error }
     if (staffSessionGeneration() !== sentIn) return
     if (attempt === SIGN_OUT_ATTEMPTS) throw new Error('Sign-out could not be completed. Try again.')
@@ -630,18 +631,14 @@ async function signOutStaffSession(confirmFirst: boolean): Promise<void> {
 }
 
 /**
- * Whether the browser may still hold this account's session: false only when
- * the server names another account, staff or patient. A session the server does
- * not accept may still be this one, waiting for its access token to be restored.
+ * Whether the browser still holds this account's session. A refused question
+ * (a 401 also comes from a server that could not check) is thrown, and handled
+ * as a refused sign-out: the session is restored, and its account confirmed,
+ * before the sign-out is sent again.
  */
-async function noOtherAccount(actorId: string | null): Promise<boolean> {
-  try {
-    const session = await client.get<StaffSession | null>('/api/v1/auth/session', { auth: 'optional', dedupe: false })
-    return typeof session?.actor?.id !== 'string' || (actorId !== null && isSessionOf(session, actorId))
-  } catch (error) {
-    if (endsStaffSession(error)) return true
-    throw error
-  }
+async function stillThisAccount(actorId: string | null): Promise<boolean> {
+  const session = await client.get<StaffSession | null>('/api/v1/auth/session', { auth: 'optional', dedupe: false })
+  return actorId !== null && isSessionOf(session, actorId)
 }
 
 /**
@@ -720,9 +717,10 @@ export const providerEnrollmentApi = {
     client.post<{ verified: true }>('/api/v1/identity/provider-enrollments/verify',
       { challengeId, code }, { auth: 'none' }),
 
-  activate: (password: string) =>
+  // Activation signs the new administrator in, so it takes the session turn as sign-ins do.
+  activate: (password: string) => inRefreshTurn(() =>
     client.post<ProviderEnrollmentActivation>('/api/v1/identity/provider-enrollments/activate',
-      { password }, { auth: 'none' }),
+      { password }, { auth: 'none' })),
 }
 
 export const staffApi = {

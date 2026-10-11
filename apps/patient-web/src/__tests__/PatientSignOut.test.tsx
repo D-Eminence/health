@@ -21,6 +21,9 @@ const patient = (subject: string) => json({
 const problem = (status: number, code: string) => json({ status, code, title: code, detail: code }, status)
 const accessExpired = () => problem(401, 'AUTHENTICATION_REQUIRED')
 const noContent = () => new Response(null, { status: 204 })
+// hid-system's staff actor carries no `kind`; one account can hold a patient and a staff session.
+const staff = (subject: string) => json({ actor: { id: subject, subject, accountId: `account-${subject}`, roles: [], permissions: [] } })
+const SESSION = 'GET /api/v1/auth/session'
 
 /** Serves each route's answers in order and records every request, as `METHOD /path`. */
 function serve(routes: Record<string, Array<() => Response>>) {
@@ -43,7 +46,8 @@ function Probe() {
 }
 
 async function signedInAs(subject: string, routes: Record<string, Array<() => Response>>) {
-  const calls = serve({ 'GET /api/v1/auth/session': [() => patient(subject)], ...routes })
+  // The page reads the session when it opens, and a sign-out asks again.
+  const calls = serve({ [SESSION]: Array.from({ length: 3 }, () => () => patient(subject)), ...routes })
   render(<SessionProvider><Probe /></SessionProvider>)
   await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('authenticated'))
   return calls
@@ -111,6 +115,46 @@ describe('patient sign-out', () => {
     other.release()
     await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('anonymous'))
     expect(calls.slice(before)).toEqual(['GET /api/v1/auth/session', ...sent])
+  })
+
+  it.each([
+    ['another patient', () => patient('subject-b')],
+    ['the same person\'s staff session', () => staff('subject-a')],
+  ])('asks first even when no other window holds the turn, and leaves alone %s signed in from another window', async (_label, holder) => {
+    // The patient portal does not hear other windows sign in, so this window may be out of date.
+    const calls = await signedInAs('subject-a', { [SESSION]: [() => patient('subject-a'), holder], [LOGOUT]: [noContent] })
+    const before = calls.length
+    await signOut()
+    expect(calls.slice(before)).toEqual([SESSION])
+  })
+
+  it('leaves alone the same person\'s staff session signed in while it waited its turn', async () => {
+    const calls = await signedInAs('subject-a', { [SESSION]: [() => patient('subject-a'), () => staff('subject-a')], [LOGOUT]: [noContent] })
+    const before = calls.length
+    const other = lockHeldElsewhere()
+    await act(async () => { screen.getByRole('button', { name: 'Sign out' }).click() })
+    other.release()
+    await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('anonymous'))
+    expect(calls.slice(before)).toEqual([SESSION])
+  })
+
+  it('treats a refused check as it does a refused sign-out: restores this session and only then signs out', async () => {
+    // A 401 there is not proof the session is this patient's: the server also sends it when it cannot check.
+    const calls = await signedInAs('subject-a', {
+      [SESSION]: [() => patient('subject-a'), accessExpired, () => patient('subject-a')],
+      [REFRESH]: [() => patient('subject-a')], [LOGOUT]: [noContent] })
+    const before = calls.length
+    await signOut()
+    await waitFor(() => expect(calls).toContain(LOGOUT))
+    expect(calls.slice(before)).toEqual([SESSION, REFRESH, SESSION, LOGOUT])
+  })
+
+  it('never revokes the same person\'s staff session restored by the refresh', async () => {
+    const calls = await signedInAs('subject-a', { [LOGOUT]: [accessExpired, noContent], [REFRESH]: [() => staff('subject-a')] })
+    await signOut()
+    await waitFor(() => expect(calls).toContain(REFRESH))
+    await act(async () => { await Promise.resolve() })
+    expect(calls.filter(call => call === LOGOUT)).toHaveLength(1)
   })
 
   it('signs out locally when no session is left to restore', async () => {
