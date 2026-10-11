@@ -70,3 +70,20 @@ it('says nothing when a patient sign-in fails', async () => {
 
   expect(TabChannel.posted).toEqual([])
 })
+
+it.each([
+  ['the channel cannot be opened', class { constructor() { throw new DOMException('The operation is insecure.', 'SecurityError') } }],
+  ['a message cannot be posted', class { postMessage() { throw new DOMException('The operation is insecure.', 'SecurityError') } close() {} }],
+])('still signs in and signs out when %s', async (_label, Refusing) => {
+  vi.stubGlobal('BroadcastChannel', Refusing)
+  api.login.mockResolvedValue(patient)
+  api.logout.mockResolvedValue(undefined)
+  render(<SessionProvider><Probe /></SessionProvider>)
+
+  fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+  await waitFor(() => expect(screen.getByRole('status').textContent).toBe('authenticated'))
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Sign out' })) })
+  await waitFor(() => expect(screen.getByRole('status').textContent).toBe('anonymous'))
+  act(() => { fireEvent.click(screen.getByRole('button', { name: 'Google' })) })
+  expect(screen.getByRole('status').textContent).toBe('authenticated')
+})

@@ -72,6 +72,13 @@ export interface RequestSpec {
    * the same code is never sent twice.
    */
   readonly refreshOnUnauthorized?: (error: HidApiError) => boolean
+  /**
+   * Awaited immediately before every attempt is sent, retries and the repeat
+   * after a refresh included. A caller can hold the request (for example while
+   * its session is being checked) or end it by rejecting; the rejection is not
+   * retried when its error says it is not retryable.
+   */
+  readonly beforeAttempt?: () => Promise<void>
 }
 
 /** A successful `download` response. Headers are those the browser may read. */
@@ -302,6 +309,10 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
   }
 
   async function attempt<T>(spec: RequestSpec, url: URL, requestId: string): Promise<T> {
+    // Awaited before every attempt: the first, each retry after a backoff, and
+    // the repeat after a refresh. A rejection ends the request. Headers (the CSRF
+    // token among them) are read only after it, since a wait can outlast a refresh.
+    await spec.beforeAttempt?.()
     const headers = await resolveHeaders(spec, requestId)
     const timeoutMs = spec.timeoutMs ?? defaultTimeoutMs
     const attemptSignal = createAttemptSignal(timeoutMs, spec.signal)

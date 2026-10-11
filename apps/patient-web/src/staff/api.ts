@@ -451,7 +451,14 @@ function reportingSessionEnd(inner: ApiClient): ApiClient {
         // It is also cancelled when its session ends, so the next session's identical
         // read never joins it. Calls under /api/v1/auth/ run to completion: an
         // abandoned refresh could leave the browser holding a used refresh token.
-        ...(protectedCall ? { signal: eitherAborted(spec.signal, staffSessionSignal()) } : {}),
+        ...(protectedCall ? {
+          signal: eitherAborted(spec.signal, staffSessionSignal()),
+          // The HTTP client sends some requests again on its own: a read after a
+          // backoff, and any request after a refresh. Each attempt waits for its
+          // session again as it leaves, so none goes out while the session is
+          // being checked, could not be confirmed, or the page is away.
+          beforeAttempt: async () => { await spec.beforeAttempt?.(); await untilStaffSessionReady(sentIn) },
+        } : {}),
       }
       try { return await inner.request<T>(own) }
       catch (error) {

@@ -85,14 +85,18 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     // tabs use, a provider's among them: they are told, naming no one.
     signIn: async (email, password, turnstileToken) => {
       const session = await api.login(email, password, turnstileToken)
-      announceSessionChange()
-      store.setAuthenticated(patientPrincipal(session))
-      setSessionError(null)
+      // The cookies changed whatever this page makes of the answer; the page's own
+      // state changes first, so an announcement can never stand in its way.
+      try {
+        store.setAuthenticated(patientPrincipal(session))
+        setSessionError(null)
+      } finally { announceSessionChange() }
     },
     acceptGoogleSession: session => {
-      announceSessionChange()
-      store.setAuthenticated(patientPrincipal(session))
-      setSessionError(null)
+      try {
+        store.setAuthenticated(patientPrincipal(session))
+        setSessionError(null)
+      } finally { announceSessionChange() }
     },
     refresh: async () => {
       const session = await api.refresh()
@@ -100,8 +104,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     },
     signOut: async () => {
       await api.logout()
-      announceSessionChange()
       store.clear()
+      announceSessionChange()
     },
   }), [state, api, sessionError, store])
 

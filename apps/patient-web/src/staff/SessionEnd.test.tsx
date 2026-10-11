@@ -1706,3 +1706,160 @@ describe('protected steps that follow another while the session is checked', () 
     expect(document.body.innerHTML).not.toContain(PATIENT_NAME)
   })
 })
+
+describe('requests the HTTP client sends again on its own', () => {
+  const AUDIT = 'GET /api/v1/audit/events'
+  const auditPage = () => json({ items: [], nextBeforeSequenceId: null })
+  const unavailable = () => new Response(JSON.stringify({ status: 503, code: 'SERVICE_UNAVAILABLE', detail: 'Try again' }),
+    { status: 503, headers: { 'Content-Type': 'application/problem+json', 'Retry-After': '0' } })
+
+  async function readStarted(routes: Record<string, Answer[]>) {
+    const calls = serve({ [REQUESTS]: [json([])], ...routes })
+    await open('/provider')
+    expect(await screen.findByText('0 pending requests')).toBeTruthy()
+    const { staffApi } = await import('./api')
+    const read = staffApi.facilityAudit('facility-1').then(() => 'ok', (error: { code?: string }) => error.code)
+    await waitFor(() => expect(calls).toContain(AUDIT))
+    return { calls, read }
+  }
+
+  it('holds a read retried after a backoff while the session is checked, and sends it once confirmed', async () => {
+    const first = deferredResponse()
+    const asked = deferredResponse()
+    const { calls, read } = await readStarted({ [SESSION]: [json(staffSession()), asked.answer], [AUDIT]: [first.answer, auditPage] })
+    fromAnotherTab()
+    await expectWorkspaceLocked()
+
+    await act(async () => { first.respond(unavailable()) })
+    await settle()
+    expect(calls.filter(call => call === AUDIT)).toHaveLength(1)
+
+    await act(async () => { asked.respond(json(staffSession())) })
+    expect(await read).toBe('ok')
+    expect(calls.filter(call => call === AUDIT)).toHaveLength(2)
+  })
+
+  it('never sends a retried read once a second account is active', async () => {
+    const first = deferredResponse()
+    const asked = deferredResponse()
+    const { calls, read } = await readStarted({ [SESSION]: [json(staffSession()), asked.answer], [AUDIT]: [first.answer, auditPage] })
+    fromAnotherTab()
+    await expectWorkspaceLocked()
+    await act(async () => { first.respond(unavailable()) })
+    await act(async () => { asked.respond(json(staffSession('staff-2', 'Bola Nurse'))) })
+
+    await expectSessionEnded()
+    expect(await read).toBe('REQUEST_CANCELLED')
+    expect(calls.filter(call => call === AUDIT)).toHaveLength(1)
+  })
+
+  it('holds the repeat after a refresh while the session is checked', async () => {
+    const refreshed = deferredResponse()
+    const asked = deferredResponse()
+    const { calls, read } = await readStarted({ [SESSION]: [json(staffSession()), asked.answer], [AUDIT]: [ended, auditPage],
+      [REFRESH]: [refreshed.answer] })
+    await waitFor(() => expect(calls).toContain(REFRESH))
+    fromAnotherTab()
+    await expectWorkspaceLocked()
+
+    await act(async () => { refreshed.respond(json(staffSession())) })
+    await settle()
+    expect(calls.filter(call => call === AUDIT)).toHaveLength(1)
+
+    await act(async () => { asked.respond(json(staffSession())) })
+    expect(await read).toBe('ok')
+    expect(calls.filter(call => call === AUDIT)).toHaveLength(2)
+  })
+})
+
+describe('a page hidden before its session is ready', () => {
+  const sessionCalls = (calls: string[]) => calls.filter(call => call === SESSION).length
+  const workspaceHidden = () => document.querySelector('[inert]')?.hasAttribute('hidden') === true
+
+  it('locks a session read while the page is hidden, and asks the server when it comes back after a long absence', async () => {
+    const page = pageLifecycle()
+    const opening = deferredResponse()
+    const asked = deferredResponse()
+    const calls = serve({ [SESSION]: [opening.answer, asked.answer], [REQUESTS]: [json([])] })
+    await open('/provider')
+    page.hide()
+    await act(async () => { opening.respond(json(staffSession())) })
+    await waitFor(() => expect(workspaceHidden()).toBe(true))
+
+    page.wait(3600)
+    page.show()
+    await expectWorkspaceLocked()
+    expect(sessionCalls(calls)).toBe(2)
+    await act(async () => { asked.respond(json(staffSession())) })
+    await expectWorkspaceOpen()
+  })
+
+  it('locks a sign-in answered while the page is hidden', async () => {
+    const page = pageLifecycle()
+    const signingIn = deferredResponse()
+    const asked = deferredResponse()
+    const calls = serve({ [SESSION]: [ended(), asked.answer], [REFRESH]: [refreshRefused()], [LOGIN]: [signingIn.answer], [REQUESTS]: [json([])] })
+    await open('/provider/sign-in')
+    await signIn()
+    await waitFor(() => expect(calls).toContain(LOGIN))
+    page.hide()
+    await act(async () => { signingIn.respond(json(staffSession())) })
+    await waitFor(() => expect(workspaceHidden()).toBe(true))
+
+    page.wait(3600)
+    page.show()
+    await expectWorkspaceLocked()
+    expect(sessionCalls(calls)).toBe(2)
+    await act(async () => { asked.respond(json(staffSession())) })
+    await expectWorkspaceOpen()
+  })
+
+  it('keeps the workspace locked when the server answers while the page is still hidden', async () => {
+    const page = pageLifecycle()
+    const opening = deferredResponse()
+    const asked = deferredResponse()
+    serve({ [SESSION]: [opening.answer, asked.answer], [REQUESTS]: [json([])] })
+    await open('/provider')
+    page.hide()
+    await act(async () => { opening.respond(json(staffSession())) })
+    fromAnotherTab()
+    await act(async () => { asked.respond(json(staffSession())) })
+    await settle()
+
+    expect(document.visibilityState).toBe('hidden')
+    expect(workspaceHidden()).toBe(true)
+  })
+
+  it('treats a back/forward-cache restore reported while still hidden as no return', async () => {
+    const page = pageLifecycle()
+    const asked = deferredResponse()
+    const calls = await openWithPatient({ [SESSION]: [json(staffSession()), asked.answer] })
+    page.pageHide()
+    await expectWorkspaceLocked()
+    act(() => { window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })) })
+    await settle()
+    expect(sessionCalls(calls)).toBe(1)
+    expect(workspaceHidden()).toBe(true)
+
+    page.show()
+    await expectWorkspaceLocked()
+    expect(sessionCalls(calls)).toBe(2)
+    await act(async () => { asked.respond(json(staffSession())) })
+    await expectWorkspaceOpen()
+  })
+})
+
+describe('a browser that refuses the session-change channel', () => {
+  it('still opens the portal and locks it when the page is hidden', async () => {
+    vi.stubGlobal('BroadcastChannel', class { constructor() { throw new DOMException('The operation is insecure.', 'SecurityError') } })
+    const page = pageLifecycle()
+    serve({ [SESSION]: [json(staffSession())], [REQUESTS]: [json([])] })
+    await open('/provider')
+    expect(await screen.findByText('0 pending requests')).toBeTruthy()
+    page.hide()
+    await expectWorkspaceLocked()
+    page.wait(5)
+    page.show()
+    await expectWorkspaceOpen()
+  })
+})

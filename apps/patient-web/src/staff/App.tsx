@@ -78,12 +78,6 @@ function StaffProvider({ children }: { children: ReactNode }) {
   const currentSession = useRef<StaffSession | null>(null)
   const [lock, setLockState] = useState<SessionLock>(null)
   const lockRef = useRef<SessionLock>(null)
-  // Readiness for protected requests follows the state and the lock at once, not after a render.
-  const setState = useCallback((next: SessionState) => {
-    status.current = next.status; currentSession.current = next.session; setSessionState(next)
-    setStaffSessionActor(next.status === 'ready' ? next.session.actor.id : null)
-    setStaffSessionReady(next.status === 'ready' && lockRef.current === null)
-  }, [])
   // Where focus was when the workspace locked, given back when it opens again.
   const focusBeforeLock = useRef<HTMLElement | null>(null)
   const setLock = useCallback((next: SessionLock) => {
@@ -92,6 +86,21 @@ function StaffProvider({ children }: { children: ReactNode }) {
     setLockState(next)
     setStaffSessionReady(status.current === 'ready' && next === null)
   }, [])
+  // Since when, in which session, and whether into the back/forward cache, the page is away.
+  const away = useRef<{ since: number; sentIn: number; cached: boolean } | null>(null)
+  // Readiness for protected requests follows the state and the lock at once, not after a render.
+  const setState = useCallback((next: SessionState) => {
+    status.current = next.status; currentSession.current = next.session; setSessionState(next)
+    setStaffSessionActor(next.status === 'ready' ? next.session.actor.id : null)
+    // A session that becomes ready while the page is hidden (opened in the
+    // background, or signed in or restored while away) is away from the start:
+    // locked, and judged as it comes back like any other absence.
+    if (next.status === 'ready' && document.visibilityState === 'hidden') {
+      away.current ??= { since: Date.now(), sentIn: staffSessionGeneration(), cached: false }
+      if (lockRef.current === null) setLock('away')
+    }
+    setStaffSessionReady(next.status === 'ready' && lockRef.current === null)
+  }, [setLock])
   useEffect(() => {
     if (lock !== null) return
     const focused = focusBeforeLock.current
@@ -128,8 +137,6 @@ function StaffProvider({ children }: { children: ReactNode }) {
   // answer may predate them. Reports from an earlier session, or while none is in
   // use (loading, signed out, already ended), change nothing.
   const asking = useRef<{ sentIn: number; again: boolean } | null>(null)
-  // Since when, in which session, and whether into the back/forward cache, the page is away.
-  const away = useRef<{ since: number; sentIn: number; cached: boolean } | null>(null)
   const ask = useCallback((sentIn: number) => {
     const actor = currentSession.current?.actor
     if (status.current !== 'ready' || !actor || sentIn !== staffSessionGeneration()) return
@@ -148,9 +155,12 @@ function StaffProvider({ children }: { children: ReactNode }) {
         setLock(null)
         announceStaffSessionChange()
       } else if (question.again) ask(sentIn)
-      // An answer that arrives while the page is away opens nothing: the page is
-      // judged again as it comes back.
-      else if (answer === 'alive') setLock(away.current?.sentIn === sentIn ? 'away' : null)
+      // An answer that arrives while the page is away, or still hidden, opens
+      // nothing: the page is judged again as it comes back.
+      else if (answer === 'alive') {
+        if (document.visibilityState === 'hidden' && !away.current) away.current = { since: Date.now(), sentIn, cached: false }
+        setLock(away.current?.sentIn === sentIn ? 'away' : null)
+      }
       else setLock('unconfirmed')
     })
   }, [setState, setLock, startPeriod])
@@ -176,6 +186,9 @@ function StaffProvider({ children }: { children: ReactNode }) {
     // or more, a page restored from the back/forward cache and one whose session
     // changed while it was away are asked about first.
     const back = (restored: boolean) => {
+      // A restore reported while the page is still hidden is not a return: the
+      // page stays away until it is seen.
+      if (document.visibilityState === 'hidden') return
       const left = away.current
       away.current = null
       if (status.current !== 'ready') return

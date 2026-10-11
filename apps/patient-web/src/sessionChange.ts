@@ -9,8 +9,12 @@ export const SESSION_CHANGE_CHANNEL = 'hid-session-change'
 /** Tells this origin's other tabs that the browser's session changed. */
 export function announceSessionChange(): void {
   if (typeof BroadcastChannel === 'undefined') return
-  const channel = new BroadcastChannel(SESSION_CHANGE_CHANNEL)
-  // Delivery is queued as the message is posted, so closing at once loses nothing.
-  channel.postMessage('changed')
-  channel.close()
+  // Best effort: a browser that refuses the channel (for example with storage
+  // blocked) only loses the announcement, never the sign-in or sign-out.
+  try {
+    const channel = new BroadcastChannel(SESSION_CHANGE_CHANNEL)
+    // Delivery is queued as the message is posted, so closing at once loses nothing.
+    channel.postMessage('changed')
+    channel.close()
+  } catch { /* nothing to announce on */ }
 }
