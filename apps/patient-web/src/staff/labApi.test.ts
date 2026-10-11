@@ -5,6 +5,16 @@ vi.mock('./env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.
 afterEach(() => { vi.unstubAllGlobals(); vi.resetModules() })
 
 /**
+ * The staff API with a session in use and ready, as the provider portal sets it
+ * once signed in: protected requests wait for that, and these tests have no portal.
+ */
+async function signedInStaffApi() {
+  const { setStaffSessionReady } = await import('./session')
+  setStaffSessionReady(true)
+  return import('./api')
+}
+
+/**
  * The HTTP client merges identical GETs that are in flight together. Lab result
  * and accession reads must not: after the Laboratory page hides results, or a
  * specimen step fails, it reads them again to confirm access, and that
@@ -22,7 +32,7 @@ describe('Lab result reads', () => {
 
   it('sends a new request for each specimen execution-list read, even while an identical one is in flight', async () => {
     const { fetch, settleAll } = stubFetch({ items: [] })
-    const { staffApi } = await import('./api')
+    const { staffApi } = await signedInStaffApi()
 
     const earlier = staffApi.labExecutions('facility-1', 'specimen-1')
     const later = staffApi.labExecutions('facility-1', 'specimen-1')
@@ -35,7 +45,7 @@ describe('Lab result reads', () => {
 
   it('sends a new request for each accession read, even while an identical one is in flight', async () => {
     const { fetch, settleAll } = stubFetch({ id: 'accession-1', specimens: [] })
-    const { staffApi } = await import('./api')
+    const { staffApi } = await signedInStaffApi()
 
     const earlier = staffApi.labAccession('facility-1', 'accession-1')
     const later = staffApi.labAccession('facility-1', 'accession-1')
@@ -48,7 +58,7 @@ describe('Lab result reads', () => {
 
   it('sends a new request for each result-history read, even while an identical one is in flight', async () => {
     const { fetch, settleAll } = stubFetch({ id: 'result-1', revisions: [] })
-    const { staffApi } = await import('./api')
+    const { staffApi } = await signedInStaffApi()
 
     const earlier = staffApi.labResultHistory('facility-1', 'result-1')
     const later = staffApi.labResultHistory('facility-1', 'result-1')

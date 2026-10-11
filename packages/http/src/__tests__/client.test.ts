@@ -386,3 +386,37 @@ describe('createApiClient: retries and deduplication', () => {
     expect(calls).toHaveLength(2)
   })
 })
+
+describe('beforeAttempt', () => {
+  it('runs before every attempt, the retries after a backoff included', async () => {
+    const order: string[] = []
+    const { client, fetchImpl } = makeClient({}, [{ status: 503, body: { code: 'SERVICE_UNAVAILABLE' } }, { body: { ok: true } }])
+    ;(fetchImpl as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(async () => {
+      order.push('fetch-1')
+      return jsonResponse({ status: 503, body: { code: 'SERVICE_UNAVAILABLE' } })
+    }).mockImplementationOnce(async () => {
+      order.push('fetch-2')
+      return jsonResponse({ body: { ok: true } })
+    })
+
+    await expect(client.get('/records', { auth: 'none', beforeAttempt: async () => { order.push('before') } })).resolves.toEqual({ ok: true })
+    expect(order).toEqual(['before', 'fetch-1', 'before', 'fetch-2'])
+  })
+
+  it('ends the request without sending it when it rejects, and does not retry', async () => {
+    const { client, calls } = makeClient()
+    const stopped = new HidApiError(0, 'Stopped', { code: 'REQUEST_CANCELLED', retryable: false })
+
+    await expect(client.get('/records', { auth: 'none', beforeAttempt: async () => { throw stopped } })).rejects.toBe(stopped)
+    expect(calls).toHaveLength(0)
+  })
+})
+
+describe('beforeAttempt and the CSRF token', () => {
+  it('reads the CSRF token after the wait, so a token rotated meanwhile is the one sent', async () => {
+    let csrf = 'token-before'
+    const { client, calls } = makeClient({ sessionMode: 'cookie', getCsrfToken: () => csrf })
+    await client.post('/records-create', { a: 1 }, { auth: 'none', beforeAttempt: async () => { csrf = 'token-after' } })
+    expect(new Headers(calls[0]!.init.headers).get('X-CSRF-Token')).toBe('token-after')
+  })
+})

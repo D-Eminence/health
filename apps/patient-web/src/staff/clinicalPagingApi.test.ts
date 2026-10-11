@@ -4,6 +4,16 @@ vi.mock('./env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.
 // The staff client binds fetch when its module loads, so each test loads it afresh.
 afterEach(() => { vi.unstubAllGlobals(); vi.resetModules() })
 
+/**
+ * The staff API with a session in use and ready, as the provider portal sets it
+ * once signed in: protected requests wait for that, and these tests have no portal.
+ */
+async function signedInStaffApi() {
+  const { setStaffSessionReady } = await import('./session')
+  setStaffSessionReady(true)
+  return import('./api')
+}
+
 function stubFetch() {
   const settle: Array<() => void> = []
   const fetch = vi.fn((_url: string | URL | Request, _init?: RequestInit) => new Promise<Response>(resolve => {
@@ -24,7 +34,7 @@ const urls = (fetch: ReturnType<typeof stubFetch>['fetch']) => fetch.mock.calls.
 describe('EHR list pages', () => {
   it('asks for a record page by its cursor', async () => {
     const { fetch, settleAll } = stubFetch()
-    const { staffApi } = await import('./api')
+    const { staffApi } = await signedInStaffApi()
 
     const read = staffApi.records('facility-1', 'patient-1', 'encounter-1', 'diagnoses', { cursor: 'ZGlhZ25vc2VzLXBhZ2UtMg' })
     await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1))
@@ -38,7 +48,7 @@ describe('EHR list pages', () => {
 
   it('asks for an encounter page by its cursor', async () => {
     const { fetch, settleAll } = stubFetch()
-    const { staffApi } = await import('./api')
+    const { staffApi } = await signedInStaffApi()
 
     const read = staffApi.encounters('facility-1', 'patient-1', { cursor: 'ZW5jb3VudGVyLXBhZ2UtMg' })
     await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1))
@@ -52,7 +62,7 @@ describe('EHR list pages', () => {
 
   it('asks for the first encounter page without a cursor', async () => {
     const { fetch, settleAll } = stubFetch()
-    const { staffApi } = await import('./api')
+    const { staffApi } = await signedInStaffApi()
 
     const read = staffApi.encounters('facility-1', 'patient-1')
     await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1))
@@ -64,7 +74,7 @@ describe('EHR list pages', () => {
 
   it('sends a fresh read of its own even while an identical read is in flight', async () => {
     const { fetch, settleAll } = stubFetch()
-    const { staffApi } = await import('./api')
+    const { staffApi } = await signedInStaffApi()
 
     const earlier = staffApi.records('facility-1', 'patient-1', 'encounter-1', 'diagnoses')
     const later = staffApi.records('facility-1', 'patient-1', 'encounter-1', 'diagnoses', { fresh: true })

@@ -7,6 +7,16 @@ afterEach(() => {
   document.cookie = 'hid_access_csrf=; expires=Thu, 01 Jan 1970 00:00:00 GMT'
 })
 
+/**
+ * The staff API with a session in use and ready, as the provider portal sets it
+ * once signed in: protected requests wait for that, and these tests have no portal.
+ */
+async function signedInStaffApi() {
+  const { setStaffSessionReady } = await import('./session')
+  setStaffSessionReady(true)
+  return import('./api')
+}
+
 interface Recorded { url: URL; headers: Headers; method: string; body: unknown }
 
 function recordFetch(body: unknown) {
@@ -31,7 +41,7 @@ describe('EHR correction requests', () => {
   it('patches a diagnosis with only the fields given, its version and the reason', async () => {
     document.cookie = 'hid_access_csrf=csrf-1'
     const requests = recordFetch({ id: 'diagnosis-1' })
-    const { staffApi } = await import('./api')
+    const { staffApi } = await signedInStaffApi()
 
     await staffApi.updateDiagnosis('facility-1', 'patient-1', 'encounter-1', 'diagnosis-1',
       { expectedRowVersion: 3, changeReason: 'Confirmed by culture', verificationStatus: 'confirmed' })
@@ -47,7 +57,7 @@ describe('EHR correction requests', () => {
   it('appends a vital correction with its replacement values and the submission key', async () => {
     document.cookie = 'hid_access_csrf=csrf-1'
     const requests = recordFetch({ id: 'correction-1', correctionNo: 1 })
-    const { staffApi } = await import('./api')
+    const { staffApi } = await signedInStaffApi()
 
     await staffApi.correctVital('facility-1', 'patient-1', 'encounter-1', 'vital-1', {
       expectedRowVersion: 1, changeReason: 'Pulse misread', replacementValues: { pulseBpm: 78 },
@@ -62,7 +72,7 @@ describe('EHR correction requests', () => {
 
   it('reads a vital correction history for the facility', async () => {
     const requests = recordFetch([])
-    const { staffApi } = await import('./api')
+    const { staffApi } = await signedInStaffApi()
 
     await expect(staffApi.vitalCorrections('facility-1', 'patient-1', 'encounter-1', 'vital-1')).resolves.toEqual([])
 

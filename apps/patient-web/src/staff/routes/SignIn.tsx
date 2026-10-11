@@ -4,12 +4,12 @@ import { Button, Field, Input } from '@hid/ui'
 import { getEnvironment } from '../env'
 import { useStaff } from '../App'
 import { BrandLogo } from '../../BrandLogo'
-import { isStaffProductRoute, resolveStaffProductHostname, staffLoginAction } from '../../productHostname'
+import { resolveStaffProductHostname, staffLoginAction } from '../../productHostname'
+import { staffReturnPath } from '../session'
 
 function getStaffLandingPath(search: string): string {
-  const requested = new URLSearchParams(search).get('returnTo')
-  if (requested && isStaffProductRoute(requested)) return requested
-  return resolveStaffProductHostname(window.location.hostname)?.route ?? '/provider'
+  return staffReturnPath(new URLSearchParams(search).get('returnTo'))
+    ?? resolveStaffProductHostname(window.location.hostname)?.route ?? '/provider'
 }
 
 function TurnstileChallenge({ onToken, resetKey }: { onToken: (token: string) => void; resetKey: number }) {

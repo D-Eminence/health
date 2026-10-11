@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { Badge, Button, Card, EmptyState, Field, Input, Select, Textarea } from '@hid/ui'
 import { staffApi, type LabAbnormalFlag, type LabAccession, type LabExecution, type LabResult, type LabResultRevision, type LabResultValue, type LabSpecimen, type LabWorkItem, type OcrExtraction, type OcrJob, type OcrPublication, type OcrTargetDomain, type OcrValidation, type OutreachCampaign, type OutreachCampaignMember, type OutreachCase, type PharmacyWorkItem } from '../api'
@@ -645,9 +645,21 @@ function OcrPublicationCard({ facilityId, validation, confirmationId, canPublish
 
 export function Ocr() {
   const { facilityId, permissions } = useFacilityAccess()
+  const { state: staffState } = useStaff()
+  const actorId = staffState.status === 'ready' ? staffState.session.actor.id : undefined
   const canRead = permissions.includes('ocr.job.read')
   // A clinical document's "Extract with OCR" link hands over its IDs in router state, never in the URL.
-  const handoff = useLocation().state as { ocrDocumentId?: unknown; ocrPatientId?: unknown } | null
+  // The history entry holding them outlives the session and the facility that made it (Back, Forward
+  // and a reload bring it back), so they count only for that account and facility, and only once.
+  const location = useLocation()
+  const navigate = useNavigate()
+  const [handoff] = useState(() => {
+    const given = location.state as { ocrDocumentId?: unknown; ocrPatientId?: unknown; actorId?: unknown; facilityId?: unknown } | null
+    return given && actorId !== undefined && given.actorId === actorId && given.facilityId === facilityId ? given : null
+  })
+  useEffect(() => {
+    if (location.state != null) navigate(location.pathname + location.search, { replace: true, state: null })
+  }, [])
   const [documentId, setDocumentId] = useState(() => typeof handoff?.ocrDocumentId === 'string' ? handoff.ocrDocumentId : '')
   const [patientId, setPatientId] = useState(() => typeof handoff?.ocrPatientId === 'string' ? handoff.ocrPatientId : '')
   const [job, setJob] = useState<OcrJob | null>(null)

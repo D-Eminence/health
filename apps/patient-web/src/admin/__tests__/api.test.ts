@@ -230,6 +230,9 @@ describe('platform admin API', () => {
 
   it('keeps sending facility context for provider workflows', async () => {
     const requests = recordFetch()
+    // Protected staff requests wait for a ready session, as the provider portal sets once signed in.
+    const { setStaffSessionReady } = await import('../../staff/session')
+    setStaffSessionReady(true)
     const { staffApi } = await import('../../staff/api')
     await staffApi.facilityAudit('facility-1')
     expect(requests[0]!.url.pathname).toBe('/api/v1/audit/events')

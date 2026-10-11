@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { Badge, Button, Card, Field, Input, Select, Textarea } from '@hid/ui'
 import { isAllowedPatientLookup, staffApi } from '../api'
 import { useStaff } from '../App'
+import { staffSessionGeneration, untilStaffSessionReady } from '../session'
 
 const HID_PATTERN = /^HID-[A-HJ-NP-Z2-9]{6,32}$/
 
@@ -35,8 +36,8 @@ export function Patients() {
       setActivePatient(null)
       throw new Error('The backend has not granted access to this patient. Request approval, verify their PIN, or use documented emergency access when justified.')
     }
-    setActivePatient({ hid: candidate, lookup, purpose })
-    navigate('/provider/clinical')
+    // A lookup answered after the session or facility changed opens nothing.
+    if (setActivePatient({ hid: candidate, lookup, purpose })) navigate('/provider/clinical')
   }
 
   async function checkAccess(event: FormEvent<HTMLFormElement>) {
@@ -48,6 +49,9 @@ export function Patients() {
 
   async function submitAccess(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); clearFeedback(); setBusy(true)
+    // The record opens after the grant only while the session that obtained it is
+    // ready: it waits while that session is checked, and never opens once it ended.
+    const sentIn = staffSessionGeneration()
     try {
       if (!facility) throw new Error('Select a facility first.')
       if (mode === 'request') {
@@ -57,10 +61,12 @@ export function Patients() {
       } else if (mode === 'pin') {
         if (!/^\d{4,8}$/.test(pin.trim())) throw new Error('Enter the patient’s 4 to 8 digit access PIN.')
         await staffApi.verifyPin(facility.id, normalized, pin.trim())
+        await untilStaffSessionReady(sentIn)
         await openPatient('direct-care')
       } else {
         if (emergencyReason.trim().length < 8) throw new Error('Document the emergency reason in at least 8 characters.')
         await staffApi.breakGlass(facility.id, normalized, emergencyReason.trim())
+        await untilStaffSessionReady(sentIn)
         await openPatient('emergency')
       }
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'The access command failed.') }

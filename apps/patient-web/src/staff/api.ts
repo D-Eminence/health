@@ -1,6 +1,11 @@
-import { createApiClient, uploadPresignedObject } from '@hid/http'
+import { createApiClient, HidApiError, isHidApiError, uploadPresignedObject, type ApiClient, type RequestSpec } from '@hid/http'
 import { createRegisteredBrowserClient } from '@hid/api'
 import { getEnvironment } from './env'
+import {
+  endsStaffSession, nextStaffSessionChange, refusedAsPatient, reportStaffSessionEnded, staffSessionActor, staffSessionGeneration,
+  staffSessionReadyFor, staffSessionSignal, untilStaffSessionReady,
+} from './session'
+import { inRefreshTurn, refreshInTurn } from '../sessionRefreshTurn'
 import { staffLoginAction } from '../productHostname'
 
 export interface Facility {
@@ -438,12 +443,220 @@ export interface OutreachCampaignMember {
   createdAt: string
 }
 
-const client = createRegisteredBrowserClient(createApiClient({
+const transport = createApiClient({
   baseUrl: getEnvironment().apiBaseUrl,
   clientId: 'staff-web',
   sessionMode: 'cookie',
-  refreshSession: async () => { await staffApi.refresh() },
-}), 'staff-web')
+  refreshSession: async () => { await restoreStaffSession() },
+})
+
+/** A signal aborted when either one is. */
+function eitherAborted(first: AbortSignal | undefined, second: AbortSignal): AbortSignal {
+  if (!first) return second
+  if (first.aborted || second.aborted) return AbortSignal.abort()
+  const both = new AbortController()
+  const abort = () => both.abort()
+  first.addEventListener('abort', abort, { once: true })
+  second.addEventListener('abort', abort, { once: true })
+  return both.signal
+}
+
+/**
+ * Ties each staff request to the session it was sent in. A protected request
+ * still refused with 401 after the client's refresh is reported, naming that
+ * session; the provider then asks the server whether it really ended. Sign-in
+ * and the session, refresh, sign-out and facility calls under /api/v1/auth/ are
+ * left to their callers, which know what a 401 there means.
+ */
+function reportingSessionEnd(inner: ApiClient): ApiClient {
+  const outer: ApiClient = {
+    baseUrl: inner.baseUrl,
+    async request<T>(spec: RequestSpec): Promise<T> {
+      const sentIn = staffSessionGeneration()
+      const protectedCall = spec.auth !== 'none' && !spec.path.startsWith('/api/v1/auth/')
+      // A protected request goes out only while its session is ready: one made while
+      // the session is being checked, could not be confirmed, or the page is away
+      // waits, and is never sent if that session ends. Readiness is read again, as
+      // it leaves, after every wait. Calls under /api/v1/auth/ are what settles it.
+      if (protectedCall) while (!staffSessionReadyFor(sentIn)) await nextStaffSessionChange()
+      const own: RequestSpec = {
+        ...spec,
+        // A request whose session has since ended, or sent while none is in use (the
+        // session-ended screen), is never restored and repeated: by the time its 401
+        // arrives the browser may hold the next person's session.
+        refreshOnUnauthorized: error => staffSessionGeneration() === sentIn && staffSessionActor() !== null
+          && (spec.refreshOnUnauthorized?.(error) ?? true),
+        // It is also cancelled when its session ends, so the next session's identical
+        // read never joins it. Calls under /api/v1/auth/ run to completion: an
+        // abandoned refresh could leave the browser holding a used refresh token.
+        ...(protectedCall ? {
+          signal: eitherAborted(spec.signal, staffSessionSignal()),
+          // The HTTP client sends some requests again on its own: a read after a
+          // backoff, and any request after a refresh. Each attempt waits for its
+          // session again as it leaves, so none goes out while the session is
+          // being checked, could not be confirmed, or the page is away.
+          beforeAttempt: async () => { await spec.beforeAttempt?.(); await untilStaffSessionReady(sentIn) },
+        } : {}),
+      }
+      try { return await inner.request<T>(own) }
+      catch (error) {
+        // A 403 is reported only when it says the session is a patient's; the server is then asked.
+        if (protectedCall && (endsStaffSession(error) || refusedAsPatient(error))) reportStaffSessionEnded(sentIn)
+        throw error
+      }
+    },
+    get: (path, spec) => outer.request({ ...spec, method: 'GET', path }),
+    post: (path, body, spec) => outer.request({ ...spec, method: 'POST', path, body }),
+  }
+  return outer
+}
+
+const client = createRegisteredBrowserClient(reportingSessionEnd(transport), 'staff-web')
+
+let refreshing: Promise<StaffSession> | null = null
+
+/**
+ * Restores the session once for every caller waiting on it: two refreshes sent
+ * together with the same cookie would make the server end the whole session.
+ * The portal's other windows take turns with this one (refreshInTurn); one that
+ * waited for another first reads the session, which that window has usually
+ * restored already. Without the refresh cookie (dropped by the browser at the
+ * idle or absolute limit, or cleared by a sign-out elsewhere) the server answers
+ * 403 CSRF_VALIDATION_FAILED; nothing can restore the session then, so it is
+ * reported as the ended session it is.
+ */
+function refreshStaffSession(): Promise<StaffSession> {
+  refreshing ??= refreshInTurn(
+    () => client.get<StaffSession>('/api/v1/auth/session', { auth: 'optional', dedupe: false })
+      .then(session => typeof session?.actor?.id === 'string' ? session : null, () => null),
+    () => client.post<StaffSession>('/api/v1/auth/refresh'))
+    .catch((error: unknown) => {
+      if (isHidApiError(error) && error.status === 403 && error.code === 'CSRF_VALIDATION_FAILED') throw sessionEnded(error)
+      throw error
+    })
+    .finally(() => { refreshing = null })
+  return refreshing
+}
+
+function sessionEnded(cause?: HidApiError): HidApiError {
+  return new HidApiError(401, 'Your session has ended. Sign in again to continue.',
+    { code: 'AUTHENTICATION_REQUIRED', requestId: cause?.requestId, retryable: false, cause })
+}
+
+/** Whether `session` is a staff session of `actorId`. An answer without an actor is no one's. */
+function isSessionOf(session: StaffSession | null | undefined, actorId: string): boolean {
+  const actor = session?.actor
+  return typeof actor?.id === 'string' && actor.kind !== 'patient' && actor.id === actorId
+}
+
+/**
+ * Restores this tab's session after a 401. A refresh that answers for another
+ * account (signed in from another tab, staff or patient) has not restored it: it
+ * counts as the 401 of an ended session, so nothing is repeated as that account.
+ */
+async function restoreStaffSession(): Promise<StaffSession> {
+  const actorId = staffSessionActor()
+  const restored = await refreshStaffSession()
+  if (actorId !== null && !isSessionOf(restored, actorId)) throw sessionEnded()
+  return restored
+}
+
+/**
+ * Runs a call under /api/v1/auth/ that the client does not refresh for. A 401
+ * there may only mean the 15-minute access token expired, so the session is
+ * restored once and the call repeated. A call from a session that has since
+ * ended is never repeated: the cookies the browser holds now belong to the next one.
+ */
+async function withRestoredSession<T>(call: () => Promise<T>): Promise<T> {
+  const sentIn = staffSessionGeneration()
+  try { return await call() }
+  catch (error) {
+    if (!endsStaffSession(error) || staffSessionGeneration() !== sentIn) throw error
+    await restoreStaffSession()
+    if (staffSessionGeneration() !== sentIn) throw error
+    return call()
+  }
+}
+
+/** How many times sign-out restores the session before it reports that it could not finish. */
+const SIGN_OUT_ATTEMPTS = 3
+
+/**
+ * The sign-out in progress, if any. Signing in waits for it, and for a refresh
+ * still in flight: either answer can clear the browser's session cookies, which
+ * by then could be the new session's.
+ */
+let leaving: Promise<unknown> = Promise.resolve()
+
+function signOut(confirmFirst = false): Promise<void> {
+  const signingOut = signOutStaffSession(confirmFirst)
+  leaving = signingOut.catch(() => undefined)
+  return signingOut
+}
+
+/**
+ * Ends the session on the server. It resolves only once no session remains:
+ * the server confirmed the sign-out, or refused to restore the session at all.
+ * A 401 after a refresh the server accepted proves nothing (another refresh in
+ * this tab may have rotated the session meanwhile), so the session is restored
+ * and the sign-out sent again. A sign-out from a session that has since ended
+ * does nothing, so it can never end the next one, and neither does one whose
+ * restore finds another account's session in the browser: this session is
+ * already gone from it.
+ */
+async function signOutStaffSession(confirmFirst: boolean): Promise<void> {
+  const sentIn = staffSessionGeneration()
+  // From a workspace locked while its session is checked, the browser may already
+  // hold another account's session (signed in from another tab): logout ends
+  // whichever session the cookies carry. The server is asked first. A browser
+  // that no longer holds this session has nothing of it to end; one the server
+  // cannot answer for is not signed out blindly.
+  if (confirmFirst) {
+    const actorId = staffSessionActor()
+    if (actorId === null) return
+    const found = await checkStaffSession(actorId, sentIn)
+    if (staffSessionGeneration() !== sentIn || found === 'ended') return
+    if (found === 'unknown') throw new Error('Sign-out could not be completed. Try again.')
+  }
+  for (let attempt = 1; ; attempt += 1) {
+    try { await client.post<null>('/api/v1/auth/logout'); return }
+    catch (error) { if (!endsStaffSession(error)) throw error }
+    if (staffSessionGeneration() !== sentIn) return
+    if (attempt === SIGN_OUT_ATTEMPTS) throw new Error('Sign-out could not be completed. Try again.')
+    try { await restoreStaffSession() }
+    catch (refused) { if (endsStaffSession(refused)) return; throw refused }
+    if (staffSessionGeneration() !== sentIn) return
+  }
+}
+
+/**
+ * What the server says about a session after one of its requests was refused:
+ * it has ended, it is still accepted, or the server could not say.
+ */
+export type StaffSessionCheck = 'ended' | 'alive' | 'unknown'
+
+/**
+ * Whether the session `actorId` held in generation `sentIn` has really ended,
+ * after a request found it refused. The server is asked directly, restoring the
+ * session once if only the access token expired. Cookies that now belong to
+ * another account (signed in from another tab, staff or patient) end this one.
+ * A question the server could not answer, or an answer without an account,
+ * confirms nothing. Once the generation has changed the answer no longer
+ * matters, and the session is never restored with cookies that may belong to
+ * the next one.
+ */
+async function checkStaffSession(actorId: string, sentIn: number): Promise<StaffSessionCheck> {
+  let session: StaffSession
+  // A read of its own: one already in flight may have reached the server before the refusal.
+  try { session = await client.get<StaffSession>('/api/v1/auth/session', { auth: 'optional', dedupe: false }) }
+  catch (error) {
+    if (!endsStaffSession(error) || staffSessionGeneration() !== sentIn) return 'unknown'
+    try { session = await refreshStaffSession() }
+    catch (refused) { return endsStaffSession(refused) ? 'ended' : 'unknown' }
+  }
+  if (typeof session?.actor?.id !== 'string') return 'unknown'
+  return isSessionOf(session, actorId) ? 'alive' : 'ended'
+}
 
 function facilityHeaders(facilityId: string, purpose: 'direct-care' | 'emergency' | 'healthcare-operations' = 'direct-care') {
   return { 'X-Facility-ID': facilityId, 'X-Purpose-Of-Use': purpose }
@@ -498,15 +711,27 @@ export const providerEnrollmentApi = {
 }
 
 export const staffApi = {
-  login: (email: string, password: string, turnstileToken?: string) =>
-    client.post<StaffSession>('/api/v1/auth/login', {
+  login: async (email: string, password: string, turnstileToken?: string) => {
+    await Promise.all([leaving, refreshing?.catch(() => undefined)])
+    // Nor may another window's refresh answer after it: its cookies would replace this sign-in's.
+    return inRefreshTurn(() => client.post<StaffSession>('/api/v1/auth/login', {
       email, password, turnstileToken, turnstileAction: staffLoginAction(window.location.hostname),
-    }, { auth: 'none' }),
+    }, { auth: 'none' }))
+  },
   session: () => client.get<StaffSession>('/api/v1/auth/session', { auth: 'optional' }),
-  refresh: () => client.post<StaffSession>('/api/v1/auth/refresh'),
-  logout: () => client.post<null>('/api/v1/auth/logout'),
-  selectFacility: (facilityId: string) =>
-    client.post<StaffSession>('/api/v1/auth/facility', { facilityId }),
+  refresh: () => refreshStaffSession(),
+  logout: signOut,
+  checkSession: checkStaffSession,
+  selectFacility: async (facilityId: string) => {
+    const sentIn = staffSessionGeneration()
+    const actorId = staffSessionActor()
+    try {
+      const session = await withRestoredSession(() => client.post<StaffSession>('/api/v1/auth/facility', { facilityId }))
+      // A switch answered for another account (signed in from another tab) is not this session's to adopt.
+      if (actorId !== null && !isSessionOf(session, actorId)) throw sessionEnded()
+      return session
+    } catch (error) { if (endsStaffSession(error)) reportStaffSessionEnded(sentIn); throw error }
+  },
 
   facilityAudit: async (facilityId: string, beforeSequenceId?: string): Promise<FacilityAuditPage> => {
     const page = await client.get<FacilityAuditPage>('/api/v1/audit/events', {
@@ -629,8 +854,16 @@ export const staffApi = {
     client.get<{ url: string; expiresAt: string | null }>(`/api/v1/ehr/documents/${encodeURIComponent(documentId)}/download`,
       { headers: facilityHeaders(facilityId) }),
   async uploadDocument(facilityId: string, patientId: string, encounterId: string, file: File) {
+    // Every step runs only while the session the upload started in is ready: each
+    // waits while that session is checked, unconfirmed or away, and the upload is
+    // abandoned once it has ended (another account signed in, or signed out), so
+    // a document is never completed as the next account. The storage PUT is
+    // cancelled with the session. The server's own ownership check is separate.
+    const sentIn = staffSessionGeneration()
+    const signal = staffSessionSignal()
     const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer())
     const sha256Hex = [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('')
+    await untilStaffSessionReady(sentIn)
     const intent = await client.post<{
       document: { id: string }
       upload: { method: 'PUT'; url: string; requiredHeaders: Record<string, string>; expiresInSeconds: number }
@@ -638,7 +871,9 @@ export const staffApi = {
       patientId, encounterId, fileName: file.name, mediaType: file.type, sizeBytes: file.size,
       sha256Hex, classification: 'phi', retentionClass: 'clinical-10y',
     }, { headers: { ...facilityHeaders(facilityId), ...keyHeaders() } })
-    await uploadPresignedObject({ url: intent.upload.url, body: file, requiredHeaders: intent.upload.requiredHeaders })
+    await untilStaffSessionReady(sentIn)
+    await uploadPresignedObject({ url: intent.upload.url, body: file, requiredHeaders: intent.upload.requiredHeaders, signal })
+    await untilStaffSessionReady(sentIn)
     await client.post(`/api/v1/ehr/documents/${encodeURIComponent(intent.document.id)}/complete`, undefined,
       { headers: facilityHeaders(facilityId) })
     return intent.document.id

@@ -6,6 +6,7 @@ import { createLogger } from '@hid/observability'
 import { createSessionStore, type AuthPrincipal, type SessionState } from '@hid/auth'
 import { createPatientApi, type PatientApi, type PatientSession } from './api'
 import { getEnvironment } from './env'
+import { announceSessionChange } from './sessionChange'
 
 interface SessionContextValue {
   readonly state: SessionState
@@ -93,14 +94,22 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const value = useMemo<SessionContextValue>(() => ({
     state, api, sessionError,
     retrySessionCheck: () => { setSessionError(null); setCheckKey(value => value + 1) },
+    // A patient sign-in or sign-out replaces the session cookies this origin's other
+    // tabs use, a provider's among them: they are told, naming no one.
     signIn: async (email, password, turnstileToken) => {
       const session = await api.login(email, password, turnstileToken)
-      store.setAuthenticated(patientPrincipal(session))
-      setSessionError(null)
+      // The cookies changed whatever this page makes of the answer; the page's own
+      // state changes first, so an announcement can never stand in its way.
+      try {
+        store.setAuthenticated(patientPrincipal(session))
+        setSessionError(null)
+      } finally { announceSessionChange() }
     },
     acceptGoogleSession: session => {
-      store.setAuthenticated(patientPrincipal(session))
-      setSessionError(null)
+      try {
+        store.setAuthenticated(patientPrincipal(session))
+        setSessionError(null)
+      } finally { announceSessionChange() }
     },
     refresh: async () => {
       const session = await api.refresh()
@@ -129,6 +138,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         if (signedIn !== undefined && restored?.actor?.subject === signedIn) await api.logout()
       }
       store.clear()
+      announceSessionChange()
     },
   }), [state, api, sessionError, store])
 
