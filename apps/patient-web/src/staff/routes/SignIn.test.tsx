@@ -3,10 +3,14 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { SignIn } from './SignIn'
 
-const calls = vi.hoisted(() => ({ login: vi.fn() }))
+const calls = vi.hoisted(() => ({ login: vi.fn(), loginAction: vi.fn((_hostname: string) => 'staff-login') }))
 
 vi.mock('../App', () => ({ useStaff: () => ({ state: { status: 'signed-out' }, login: calls.login }) }))
 vi.mock('../env', () => ({ getEnvironment: () => ({ turnstileSiteKey: 'test-site-key' }) }))
+vi.mock('../../productHostname', async importOriginal => ({
+  ...await importOriginal<Record<string, unknown>>(),
+  staffLoginAction: calls.loginAction,
+}))
 
 beforeEach(() => { vi.clearAllMocks() })
 afterEach(() => vi.unstubAllGlobals())
@@ -39,4 +43,16 @@ it('renews the consumed provider login challenge while preserving credentials on
 
   act(() => challengeCallbacks[1]?.('fresh-token'))
   await waitFor(() => expect(screen.getByRole('button', { name: 'Sign in' })).toHaveProperty('disabled', false))
+})
+
+it('asks the challenge for the sign-in action of the host the portal is served on', async () => {
+  calls.loginAction.mockReturnValue('ocr-login')
+  const renderChallenge = vi.fn((_host: HTMLElement, _options: Record<string, unknown>) => 'widget-1')
+  vi.stubGlobal('turnstile', { render: renderChallenge, remove: vi.fn(), reset: vi.fn() })
+
+  render(<MemoryRouter><SignIn /></MemoryRouter>)
+  await waitFor(() => expect(renderChallenge).toHaveBeenCalledTimes(1))
+
+  expect(renderChallenge.mock.calls[0]?.[1]).toMatchObject({ action: 'ocr-login' })
+  expect(calls.loginAction).toHaveBeenCalledWith(window.location.hostname)
 })

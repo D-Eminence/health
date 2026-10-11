@@ -81,9 +81,25 @@ describe('organization applications', () => {
     expect(mocks.api.facilities).toHaveBeenCalledWith({ query: 'Ikeja', pageSize: 10 })
     fireEvent.change(within(item).getByLabelText('Reason for your decision'), { target: { value: 'Registry evidence matches the profile' } })
     fireEvent.click(within(item).getByRole('button', { name: 'Approve application' }))
-    expect(await screen.findByText(/linked to the existing organization/)).toBeTruthy()
+    const message = await screen.findByText(/linked to the existing organization/)
+    // hid-system 0048 links only to an already active administrator: nothing to set up.
+    expect(message.textContent).not.toMatch(/password/i)
     expect(mocks.api.approveApplication).toHaveBeenCalledWith(expect.objectContaining({ applicationId: 'app-1' }),
       'Registry evidence matches the profile', { organizationId: 'org-9', facilityId: 'facility-9' })
+  })
+
+  it('tells the reviewer where a new administrator sets a password', async () => {
+    mocks.api.applications.mockResolvedValue({ items: [application()] })
+    mocks.api.approveApplication.mockResolvedValueOnce({ organizationId: 'org-1', facilityId: 'facility-1',
+      firstAdminAccountId: 'account-1', version: 6, organizationReused: false })
+    open()
+    const item = await card('Ikeja Care Ltd')
+    fireEvent.change(within(item).getByLabelText('Reason for your decision'), { target: { value: 'Registry evidence matches the profile' } })
+    fireEvent.click(within(item).getByRole('button', { name: 'Approve application' }))
+    const message = await screen.findByText(/A new organization, facility and administrator account were created/)
+    // The administrator is created pending_reset; recovery works only on the main site.
+    expect(message.textContent).toContain(`${window.location.origin}/provider/recover`)
+    expect(message.textContent).toContain('does not work yet on the product sites')
   })
 
   it('explains a CAC verification refusal from the backend', async () => {
