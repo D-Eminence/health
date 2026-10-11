@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
+import { isHidApiError } from '@hid/http'
 import { Badge, Button, Card, EmptyState, Field, Input, Select, Textarea } from '@hid/ui'
 import { isAllowedPatientLookup, staffApi, type ClinicalRecord, type DocumentRecord, type EmergencyRecords, type Encounter, type NoteRevision, type RecordKind } from '../api'
 import { useStaff } from '../App'
@@ -315,7 +316,7 @@ function NotePanel({ facilityId, patientId, encounterId, note, canWrite, verify,
   </div>
 }
 
-function Documents({ patientId, encounterId, facilityId, canWrite, verify }: { patientId: string; encounterId: string; facilityId: string; canWrite: boolean; verify: () => Promise<void> }) {
+function Documents({ patientId, encounterId, facilityId, canWrite, canOcr, verify }: { patientId: string; encounterId: string; facilityId: string; canWrite: boolean; canOcr: boolean; verify: () => Promise<void> }) {
   const [items, setItems] = useState<DocumentRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -338,7 +339,7 @@ function Documents({ patientId, encounterId, facilityId, canWrite, verify }: { p
     try { await verify(); const result = await staffApi.documentDownload(facilityId, id); window.open(result.url, '_blank', 'noopener,noreferrer') }
     catch (caught) { setError(caught instanceof Error ? caught.message : 'Document could not be opened.') }
   }
-  return <div className="staff-two-col"><Card className="staff-card"><h2>Documents</h2>{loading && <p role="status">Loading documents…</p>}{!loading && items.length === 0 && <p>No documents for this encounter.</p>}<div className="staff-list">{items.map(item => <div className="staff-list-item" key={item.id}><strong>{item.fileName}</strong><p>{item.mediaType} · {Math.ceil(item.sizeBytes / 1024)} KiB · scan: {item.scanStatus}</p><Button tone="secondary" size="sm" onClick={() => void download(item.id)} disabled={item.scanStatus !== 'clean'}>Open file</Button></div>)}</div></Card>{canWrite && <Card className="staff-card"><h2>Upload a document</h2><p>Files are scanned before download becomes available.</p><form className="staff-form" onSubmit={event => void upload(event)}><Field label="Clinical document" htmlFor="clinical-document"><Input id="clinical-document" name="document" type="file" accept=".pdf,.jpg,.jpeg,.png,.tif,.tiff" required /></Field><Button type="submit" disabled={busy}>{busy ? 'Uploading…' : 'Upload document'}</Button></form></Card>}{error && <p role="alert" className="staff-error">{error}</p>}</div>
+  return <div className="staff-two-col"><Card className="staff-card"><h2>Documents</h2>{loading && <p role="status">Loading documents…</p>}{!loading && items.length === 0 && <p>No documents for this encounter.</p>}<div className="staff-list">{items.map(item => <div className="staff-list-item" key={item.id}><strong>{item.fileName}</strong><p>{item.mediaType} · {Math.ceil(item.sizeBytes / 1024)} KiB · scan: {item.scanStatus}</p><Button tone="secondary" size="sm" onClick={() => void download(item.id)} disabled={item.scanStatus !== 'clean'}>Open file</Button>{canOcr && item.scanStatus === 'clean' && <Link to="/provider/ocr" state={{ ocrDocumentId: item.id, ocrPatientId: patientId }} className="staff-text-link">Extract with OCR</Link>}</div>)}</div></Card>{canWrite && <Card className="staff-card"><h2>Upload a document</h2><p>Files are scanned before download becomes available.</p><form className="staff-form" onSubmit={event => void upload(event)}><Field label="Clinical document" htmlFor="clinical-document"><Input id="clinical-document" name="document" type="file" accept=".pdf,.jpg,.jpeg,.png,.tif,.tiff" required /></Field><Button type="submit" disabled={busy}>{busy ? 'Uploading…' : 'Upload document'}</Button></form></Card>}{error && <p role="alert" className="staff-error">{error}</p>}</div>
 }
 
 function EmergencySummary({ facilityId, patientId, patientName, verify }: {
@@ -417,7 +418,18 @@ export function Clinical() {
 
   const verify = useCallback(async () => {
     if (!facility || !activePatient) throw new Error('Open a patient through governed access first.')
-    const result = await staffApi.lookupPatient(facility.id, activePatient.hid, activePatient.purpose)
+    let result: Awaited<ReturnType<typeof staffApi.lookupPatient>>
+    try {
+      result = await staffApi.lookupPatient(facility.id, activePatient.hid, activePatient.purpose)
+    } catch (caught) {
+      // The backend refuses a lookup once access has ended (403) or the patient is
+      // unavailable (404); it never answers with a deny decision. The record closes.
+      if (isHidApiError(caught) && (caught.status === 403 || caught.status === 404)) {
+        setActivePatient(null)
+        throw new Error('Patient access has ended. Reopen the record through governed access.')
+      }
+      throw caught
+    }
     if (!isAllowedPatientLookup(result) || result.patient.patientId !== patientId) {
       setActivePatient(null)
       throw new Error('Patient access has ended. Reopen the record through governed access.')
@@ -550,7 +562,7 @@ export function Clinical() {
         <Card className="staff-card"><StatusActionForm key={`${selected.id}-${selected.rowVersion}`} id={`encounter-${selected.id}`} title="Encounter status"
           choices={encounterTransitions[selected.status]!} disabled={loading} onChange={changeEncounterStatus} /></Card>}
       {!activeTab ? <p className="staff-muted">Your current facility role does not grant access to encounter records.</p>
-        : activeTab === 'documents' ? <Documents key={selected.id} patientId={patientId!} encounterId={selected.id} facilityId={facility.id} canWrite={canMutate && permissions.includes(writePermissions.documents)} verify={verify} /> : <div className="staff-two-col"><Card className="staff-card"><h2>{tabs.find(item => item.id === activeTab)?.label}</h2>{recordsLoading && <p role="status">Loading records…</p>}{!recordsLoading && visibleRecords.length === 0 && <p>No {tabs.find(item => item.id === activeTab)?.label.toLowerCase()} for this encounter.</p>}<div className="staff-list">{visibleRecords.map(record => <div className="staff-list-item staff-stack" key={record.id}><strong>{recordTitle(activeTab, record)}</strong><p>{recordDetail(activeTab, record)}</p><Detail label="Recorded" value={record.createdAt ? new Date(record.createdAt).toLocaleString() : ''} />
+        : activeTab === 'documents' ? <Documents key={selected.id} patientId={patientId!} encounterId={selected.id} facilityId={facility.id} canWrite={canMutate && permissions.includes(writePermissions.documents)} canOcr={permissions.includes('ocr.job.read')} verify={verify} /> : <div className="staff-two-col"><Card className="staff-card"><h2>{tabs.find(item => item.id === activeTab)?.label}</h2>{recordsLoading && <p role="status">Loading records…</p>}{!recordsLoading && visibleRecords.length === 0 && <p>No {tabs.find(item => item.id === activeTab)?.label.toLowerCase()} for this encounter.</p>}<div className="staff-list">{visibleRecords.map(record => <div className="staff-list-item staff-stack" key={record.id}><strong>{recordTitle(activeTab, record)}</strong><p>{recordDetail(activeTab, record)}</p><Detail label="Recorded" value={record.createdAt ? new Date(record.createdAt).toLocaleString() : ''} />
         {activeTab === 'clinical-notes' && <NotePanel facilityId={facility.id} patientId={patientId!} encounterId={selected.id}
           note={record} canWrite={canMutate && permissions.includes('ehr.note.write')} verify={verify}
           onStatus={(status, reason) => changeRecordStatus(record, 'clinical-notes', status, reason)}

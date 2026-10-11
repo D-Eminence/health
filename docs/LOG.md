@@ -160,3 +160,28 @@
 This log records implementation scope, not a release sign-off. The reference
 [gap map](./HEALTH_ID_COMPLETE_FRONTEND_GAP_MAP.md) is a baseline audit rather
 than a live completion tracker.
+
+## 2026-10-11: launch-readiness review (patient portal, EHR, Migrate/OCR)
+
+- Compared every browser route in the registry with hid-system `main` at
+  `54f79d2`: all 172 exist (the two gateway health checks are served by
+  nginx). Request bodies for patient, EHR and OCR calls match their DTOs under
+  the services' strict validation.
+- Recorded the launch blockers found in hid-system in
+  [open questions](./OPEN-QUESTIONS.md): patient-scoped reads refused for cookie
+  sessions, the OCR purpose of use, the OCR runtime locks, OCR review and
+  publication retry, and logout after an idle period.
+- Fixed in this repository (branch `claude/launch-readiness-fixes`):
+  - Patient sign-out after more than 15 minutes idle ends the server session.
+    It restores the session once and repeats the logout, but never for another
+    account.
+  - Linking Google during enrollment keeps the patient at the step they had
+    reached, instead of sending them back to the contact step.
+  - A clinical record closes when the access check is refused with 403 or 404,
+    as when a grant has expired, been revoked or been closed. Before, the chart
+    stayed open with each action failing.
+  - OCR: a job is offered for creation only after a lookup has answered that
+    none exists, so a failed lookup cannot create a duplicate. A clean
+    clinical document links to OCR, handing over its IDs in router state, not
+    in the URL.
+- Component tests only. No browser, staging or deployed-backend run.

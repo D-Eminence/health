@@ -94,7 +94,27 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       store.setAuthenticated(patientPrincipal(session))
     },
     signOut: async () => {
-      await api.logout()
+      const signedIn = store.getState().principal?.subjectId
+      try {
+        await api.logout()
+      } catch (error) {
+        if (!isHidApiError(error) || error.status !== 401) throw error
+        // Logout needs the 15-minute access token. After a longer idle the
+        // session is restored once so the server ends it, but only if it is
+        // still this patient's: another account's session is never revoked.
+        let restored: PatientSession
+        try {
+          restored = await api.refresh()
+        } catch (refreshError) {
+          // A refused refresh leaves no session in this browser to end.
+          if (isHidApiError(refreshError) && (refreshError.status === 401 || refreshError.status === 403)) {
+            store.clear()
+            return
+          }
+          throw refreshError
+        }
+        if (signedIn !== undefined && restored?.actor?.subject === signedIn) await api.logout()
+      }
       store.clear()
     },
   }), [state, api, sessionError, store])

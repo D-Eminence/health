@@ -125,7 +125,9 @@ export function Enrollment() {
       const result = await api.googleExchange(idToken, googleTurnstileToken, 'enroll')
       if ('actor' in result) { acceptGoogleSession(result); navigate('/', { replace: true }); return }
       setGooglePending(true)
-      if (stage !== 'nin') applyProgress(await api.enrollmentBindGoogle())
+      // Binding answers only that it bound; the enrollment's own progress is read
+      // again, so a patient already past the contact step is not sent back to it.
+      if (stage !== 'nin') { await api.enrollmentBindGoogle(); applyProgress(await api.enrollmentCurrent()) }
     } catch (reason) { displayError(reason) }
     finally { setGoogleTurnstileToken(null); setGoogleResetKey(value => value + 1); setBusy(false) }
   }

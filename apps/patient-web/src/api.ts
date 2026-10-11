@@ -180,7 +180,7 @@ export function createPatientApi(client: ApiClient) {
     enrollmentStart: (nin: string, turnstileToken: string, idempotencyKey: string) =>
       call<EnrollmentProgress>('POST', 'identity/patient-enrollments', { nin, turnstileAction: 'patient-enrollment', turnstileToken },
         { headers: { 'Idempotency-Key': idempotencyKey } }),
-    enrollmentBindGoogle: () => call<EnrollmentProgress>('POST', 'identity/patient-enrollments/google'),
+    enrollmentBindGoogle: () => call<{ bound: true }>('POST', 'identity/patient-enrollments/google'),
     enrollmentContact: (channel: 'email' | 'phone', contact: string) =>
       call<{ challengeId: string; expiresInSeconds: number; resendAfterSeconds: number }>('POST', 'identity/patient-enrollments/contact', { channel, contact }),
     enrollmentVerify: (challengeId: string, code: string) =>
