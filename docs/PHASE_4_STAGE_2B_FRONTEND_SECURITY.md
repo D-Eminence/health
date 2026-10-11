@@ -4,7 +4,7 @@ Branch: `phase-4-stage-2-frontend-security` (base `main` at `1242f14`).
 Backend contract: hid-system Stage 2A, `phase-4-stage-2-backend-security` at
 `7cbbf98` (`docs/PHASE_4_STAGE_2A_BACKEND_SECURITY.md`, ADR-038). PR
 D-Eminence/hid-system#19 merged it into `phase-3-patient-safety` (`46fabe6`, same
-tree). It is not yet on hid-system `main` or deployed; this UI needs it deployed.
+tree). It is not yet on hid-system `main` or deployed; this UI needs it deployed. (Since changed: it reached hid-system `main` through D-Eminence/hid-system#18, `3dd5176`.)
 
 The admin UI in `apps/patient-web/src/admin` is only an interface. Whether a
 session is valid, whether MFA or a fresh step-up is needed, who may approve, and
@@ -38,7 +38,7 @@ session, refresh or logout routes (`APP_ROUTE_GRANTS`).
 ## Session end and expiry
 
 The backend returns the same `401 AUTHENTICATION_REQUIRED` for an expired and a
-revoked platform session. The client records the idle and absolute expiry the
+revoked platform session (since changed: hid-system Stage 4A answers `401 PLATFORM_SESSION_EXPIRED` or `PLATFORM_SESSION_REVOKED` for a session the caller provably held, and the sign-in screen states that reason; the reading below is used only when the server gives no reason, such as a generic `401 AUTHENTICATION_REQUIRED`). The client records the idle and absolute expiry the
 backend reports (sign-in, refresh and `GET /admin/mfa`) in memory only. When a
 protected request is still refused after the client's one refresh, the
 sign-in screen says:
@@ -56,7 +56,7 @@ the banner says only a new sign-in will help.
 
 `StepUpProvider` wraps the signed-in workspace. When the backend refuses a
 command with `403 STEP_UP_REQUIRED` (missing or older than 5 minutes; the backend
-does not distinguish), a dialog explains that nothing has changed yet and asks
+does not distinguish; since changed: hid-system Stage 4A answers `STEP_UP_EXPIRED` for one older than 5 minutes, and the dialog opens for either code), a dialog explains that nothing has changed yet and asks
 for an authenticator code (`POST /admin/mfa/step-up`). After the backend accepts
 it, the same submission is repeated once:
 
@@ -132,7 +132,7 @@ never retried automatically, because each one is audited.
 
 The `X-HID-Export-*` headers report the row count, cap and truncation. The
 backend does not list them in CORS `exposedHeaders`, so a cross-origin
-deployment cannot read them. The production design is same-origin `/api/v1`,
+deployment cannot read them (since changed: hid-system Stage 4A lists them in `exposedHeaders`). The production design is same-origin `/api/v1`,
 where they are readable; otherwise the UI says the count was not shared.
 
 ## Shared changes
@@ -200,7 +200,7 @@ export permission".
 
 - **QR code**: enrolment uses the setup key and `otpauth://` link. A QR image
   needs a vetted encoder or dependency, which this stage did not add.
-- **Backend contract gaps**:
+- **Backend contract gaps** (since closed by hid-system Stage 4A; the session and step-up codes and the MFA state were wired here in Stage 4B, and the export headers needed no change here; see [Phase 4 Stage 3](./PHASE_4_STAGE_3_ADMIN_CONSOLIDATION.md)):
   - no distinct codes for expired versus revoked sessions or expired versus
     missing step-up;
   - export headers not CORS-exposed;

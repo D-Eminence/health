@@ -294,6 +294,38 @@ than a live completion tracker.
 - Component tests only. No browser, staging or deployed-backend run; Web Locks
   and `BroadcastChannel` are stubbed in the tests.
 
+## 2026-10-11: Markdown audit against `main`
+
+- Checked every Markdown file in the repository against `main` at `101cd62`,
+  and backend claims against hid-system `main` at `54f79d2`. Each stale claim
+  was checked a second time before it was changed. Dated records (this log and
+  the phase reports) keep their original text, with a "since changed" note
+  where they read as current.
+- The provider organization application has no backend argument mismatch:
+  hid-system migration `0052_authoritative_cac_identity.sql` replaced the
+  six-argument function with the five-argument one the service calls. The
+  architecture notes, gap map and open questions said submission was blocked.
+  The public `/provider/apply` page sends providers to the portal's
+  `/provider/enroll`; the form that submits an application directly is not on
+  any page.
+- The gap map now marks as built what `main` has: patient and provider
+  sign-in and sessions, Google sign-in and enrollment, the single portal, the
+  clinical record (encounters, vitals with corrections, notes with revisions,
+  diagnoses, prescriptions and lab requests, all paged), and OCR validation and
+  patient confirmation. It no longer says patient grant revocation, account
+  deletion and consent decisions lack patient-scoped routes.
+- The architecture notes describe the per-host Turnstile actions hid-system
+  accepts and the action staff sign-in sends; README and architecture name the
+  hid-system commits the integration was checked against.
+- Open questions now say the patient consent fixes are on hid-system `main`
+  (not deployed), the staff sign-in host action is on `main`, and neither
+  portal sends `X-HID-Client` yet. The Stage 2B report notes the backend gaps
+  hid-system Stage 4A has since closed.
+- `apps/public-web/AGENTS.md` again matches the block `next dev` writes, so
+  running it no longer rewrites the file. The motion README lists the
+  components that exist and drops the removed tilt card.
+- Docs only; no code change.
+
 ## 2026-10-11: sign-out in the session turn
 
 - Found by the final review of D-Eminence/Health-id#34; the gap predates it.
