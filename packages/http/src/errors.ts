@@ -112,3 +112,15 @@ export function fallbackMessageForStatus(status: number): string {
   if (status >= 500) return 'The service is temporarily unavailable. Please try again shortly.'
   return 'Something went wrong. Please try again.'
 }
+
+/**
+ * Identity's answer when a refresh names the other Health ID app (hid-system
+ * #39): the browser's cookies hold a staff sign-in and the patient portal asked
+ * to refresh it, or the other way round. Nothing was rotated and the cookies
+ * were kept. It is not an expired session, and nobody should be signed out over it.
+ */
+export const SESSION_CLIENT_MISMATCH = 'SESSION_CLIENT_MISMATCH'
+
+export function isSessionClientMismatch(value: unknown): value is HidApiError {
+  return isHidApiError(value) && value.status === 403 && value.code === SESSION_CLIENT_MISMATCH
+}

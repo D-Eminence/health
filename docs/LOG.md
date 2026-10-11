@@ -208,3 +208,39 @@ than a live completion tracker.
 - Builds on D-Eminence/Health-id#29 (vitals input limits), merged into this
   branch.
 - Component tests only. No browser, staging or deployed-backend run.
+
+## 2026-10-11: session refresh names its app (hid-system #39)
+
+- Checked against hid-system PR #39 at `38576cb`, which is open, not merged or
+  deployed. `POST /api/v1/auth/refresh` reads `X-HID-Client`: `staff-web`
+  refreshing a patient sign-in, or `patient-web` a staff one, is answered 403
+  `SESSION_CLIENT_MISMATCH`, with nothing rotated and the cookies kept. Only
+  Identity's CORS allow-list admits the header.
+- The cookie client sends its `clientId` as `X-HID-Client` on that refresh and
+  on no other request, and only from a page on the gateway's own origin. Until
+  #39 is deployed, Identity ignores it on a same-origin request, but a
+  cross-origin refresh carrying it would fail its preflight, so a cross-origin
+  page leaves it off and Identity refreshes as it did before #39. A deployment
+  that serves the portal and the gateway on different origins therefore gets no
+  mismatch check until this is revisited after #39 is deployed everywhere.
+- That refusal is not an expired session. The session provider of the refused
+  app forgets its sign-in locally, with no logout request, and remembers that
+  the browser's sign-in belongs to the other app until its own next sign-in.
+  Patient routes then say the browser is signed in to the provider workspace
+  and offer patient sign-in; the provider workspace says it is signed in to the
+  patient portal and offers provider sign-in. Either sign-in link opens the
+  form. Neither notice links into the other app: on a shared device that
+  sign-in is someone else's. The header names the app and proves nothing:
+  Identity reads the sign-in's kind from its own record.
+- #39 does not check the app on logout. From #39, a cookie logout without a
+  live access token ends whichever sign-in the refresh cookie names, so Sign
+  out in a stale patient tab ends a provider sign-in made since in the same
+  browser, and the reverse. The patient sign-out's "never revoke another
+  account's session" fallback only runs on the pre-#39 401. Needs a backend
+  change: logout should honour `X-HID-Client` as refresh does.
+- D-Eminence/Health-id#27 ends the patient session on a refused refresh, by
+  turning the refresh's 403 into a 401. It now leaves `SESSION_CLIENT_MISMATCH`
+  as it is, so the refused request reports the mismatch, not an ended session.
+  Open D-Eminence/Health-id#25 and #30 (the provider session check reads the
+  403 as unconfirmed) need to treat this code the same way.
+- Transport and component tests only. No browser, staging or deployed-backend run.

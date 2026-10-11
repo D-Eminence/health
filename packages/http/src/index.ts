@@ -1,4 +1,4 @@
-export { createApiClient, createRequestId } from './client'
+export { createApiClient, createRequestId, onSessionClientMismatch } from './client'
 export type {
   ApiClient,
   ApiClientLogger,
@@ -8,6 +8,7 @@ export type {
   HttpMethod,
   QueryValue,
   RequestSpec,
+  SessionClientMismatch,
 } from './client'
 export {
   HidApiError,
@@ -15,6 +16,8 @@ export {
   fallbackMessageForStatus,
   isHidApiError,
   isRetryableStatus,
+  isSessionClientMismatch,
+  SESSION_CLIENT_MISMATCH,
 } from './errors'
 export type { HidApiErrorOptions, HidErrorCode } from './errors'
 export {

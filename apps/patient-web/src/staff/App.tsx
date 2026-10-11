@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState, t
 import { NavLink, Navigate, Outlet, Route, Routes, useNavigate } from 'react-router-dom'
 import { BrandLogo } from '../BrandLogo'
 import { Badge, Button, EmptyState, Select } from '@hid/ui'
-import { isHidApiError } from '@hid/http'
+import { isHidApiError, isSessionClientMismatch, onSessionClientMismatch } from '@hid/http'
 import { staffApi, type PatientLookup, type StaffSession } from './api'
 import { SignIn } from './routes/SignIn'
 import { Dashboard } from './routes/Dashboard'
@@ -13,6 +13,7 @@ import { FacilityAudit } from './routes/Audit'
 import { Clinical } from './routes/Clinical'
 import { Laboratory, Pharmacy, Ocr, Outreach, MigrateGap } from './routes/Operations'
 import { resolveStaffProductHostname } from '../productHostname'
+import { SessionHeldByPatientPortal } from './SessionHeldByPatientPortal'
 import './style.css'
 
 type SessionState =
@@ -30,6 +31,12 @@ export interface ActivePatient {
 interface StaffContextValue {
   state: SessionState
   activePatient: ActivePatient | null
+  /**
+   * Identity refused the workspace's refresh because the browser's sign-in
+   * belongs to the patient portal (403 SESSION_CLIENT_MISMATCH, hid-system
+   * #39). Cleared by the next staff sign-in.
+   */
+  heldByPatientPortal: boolean
   login(email: string, password: string, turnstileToken?: string): Promise<void>
   refresh(): Promise<void>
   selectFacility(id: string): Promise<void>
@@ -48,6 +55,18 @@ export function useStaff() {
 function StaffProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<SessionState>({ status: 'loading', session: null })
   const [activePatient, setActivePatient] = useState<ActivePatient | null>(null)
+  const [heldByPatientPortal, setHeldByPatientPortal] = useState(false)
+
+  // A patient signed in in this browser, replacing the staff cookies. That is
+  // not an expired staff session, and nothing is signed out: the workspace
+  // forgets its session and patient locally, so sign-in opens, and
+  // SessionHeldByPatientPortal says where the browser's sign-in belongs.
+  useEffect(() => onSessionClientMismatch(event => {
+    if (event.clientId !== 'staff-web') return
+    setHeldByPatientPortal(true)
+    setActivePatient(null)
+    setState({ status: 'signed-out', session: null })
+  }), [])
 
   const refresh = useCallback(async () => {
     setState({ status: 'loading', session: null })
@@ -59,9 +78,10 @@ function StaffProvider({ children }: { children: ReactNode }) {
         session = await staffApi.refresh()
       }
       if (session.actor.kind === 'patient') throw new Error('This account does not have a staff session.')
+      setHeldByPatientPortal(false)
       setState({ status: 'ready', session })
     } catch (error) {
-      if (isHidApiError(error) && error.status === 401) {
+      if ((isHidApiError(error) && error.status === 401) || isSessionClientMismatch(error)) {
         setState({ status: 'signed-out', session: null })
       } else {
         setState({ status: 'error', session: null, error: error instanceof Error ? error.message : 'Session could not be verified.' })
@@ -75,6 +95,7 @@ function StaffProvider({ children }: { children: ReactNode }) {
     const session = await staffApi.login(email, password, turnstileToken)
     if (session.actor.kind === 'patient') throw new Error('A staff account is required for this portal.')
     setActivePatient(null)
+    setHeldByPatientPortal(false)
     setState({ status: 'ready', session })
   }
 
@@ -90,7 +111,7 @@ function StaffProvider({ children }: { children: ReactNode }) {
     setState({ status: 'signed-out', session: null })
   }
 
-  const value = useMemo<StaffContextValue>(() => ({ state, activePatient, login, refresh, selectFacility, signOut, setActivePatient }), [state, activePatient, refresh])
+  const value = useMemo<StaffContextValue>(() => ({ state, activePatient, heldByPatientPortal, login, refresh, selectFacility, signOut, setActivePatient }), [state, activePatient, heldByPatientPortal, refresh])
   return <StaffContext.Provider value={value}>{children}</StaffContext.Provider>
 }
 
@@ -179,7 +200,7 @@ function Shell() {
 export function App() {
   return <StaffProvider><Routes>
     <Route path="sign-in" element={<SignIn />} />
-    <Route element={<Gate><Shell /></Gate>}>
+    <Route element={<SessionHeldByPatientPortal><Gate><Shell /></Gate></SessionHeldByPatientPortal>}>
       <Route index element={<Dashboard />} />
       <Route path="patients" element={<Patients />} />
       <Route path="registration" element={<Registration />} />

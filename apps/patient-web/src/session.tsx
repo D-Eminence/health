@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { createApiClient, HidApiError, isHidApiError } from '@hid/http'
+import { createApiClient, HidApiError, isHidApiError, isSessionClientMismatch, onSessionClientMismatch } from '@hid/http'
 import { createRegisteredBrowserClient } from '@hid/api'
 import { createLogger } from '@hid/observability'
 import { createSessionStore, type AuthPrincipal, type SessionState } from '@hid/auth'
@@ -11,6 +11,12 @@ interface SessionContextValue {
   readonly state: SessionState
   readonly api: PatientApi
   readonly sessionError: string | null
+  /**
+   * Identity refused this app's refresh because the browser's sign-in now
+   * belongs to the provider workspace (403 SESSION_CLIENT_MISMATCH,
+   * hid-system #39). Cleared by the next patient sign-in.
+   */
+  readonly sessionHeldByOtherApp: boolean
   readonly retrySessionCheck: () => void
   readonly signIn: (email: string, password: string, turnstileToken: string) => Promise<void>
   readonly acceptGoogleSession: (session: PatientSession) => void
@@ -36,8 +42,19 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<SessionState>(store.getState())
   const [sessionError, setSessionError] = useState<string | null>(null)
   const [checkKey, setCheckKey] = useState(0)
+  const [sessionHeldByOtherApp, setSessionHeldByOtherApp] = useState(false)
 
   useEffect(() => store.subscribe(setState), [store])
+
+  // The provider workspace signed in in this browser, replacing the patient's
+  // cookies. That is not an expired session, and nothing is signed out: this
+  // tab forgets the patient locally, so sign-in opens, and the route guard
+  // says where the browser's sign-in belongs.
+  useEffect(() => onSessionClientMismatch(event => {
+    if (event.clientId !== 'patient-web') return
+    setSessionHeldByOtherApp(true)
+    store.clear()
+  }), [store])
 
   const api = useMemo(() => {
     let patientApi: PatientApi | null = null
@@ -57,7 +74,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           // another tab) the backend refuses the refresh with 403
           // CSRF_VALIDATION_FAILED. The session has ended, as for a 401, so the
           // patient returns to sign-in instead of seeing that refusal on the page.
-          if (isHidApiError(error) && error.status === 403) {
+          // A refusal because the provider workspace holds the browser's sign-in
+          // (SESSION_CLIENT_MISMATCH) has not ended anything and stays as it is.
+          if (isHidApiError(error) && error.status === 403 && !isSessionClientMismatch(error)) {
             throw new HidApiError(401, 'Your session has ended. Sign in again.', { code: 'AUTHENTICATION_REQUIRED', retryable: false, cause: error })
           }
           throw error
@@ -76,6 +95,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         if (active) {
           store.setAuthenticated(patientPrincipal(session))
           setSessionError(null)
+          setSessionHeldByOtherApp(false)
         }
       } catch (error) {
         if (!active) return
@@ -91,20 +111,23 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [api, store, checkKey])
 
   const value = useMemo<SessionContextValue>(() => ({
-    state, api, sessionError,
+    state, api, sessionError, sessionHeldByOtherApp,
     retrySessionCheck: () => { setSessionError(null); setCheckKey(value => value + 1) },
     signIn: async (email, password, turnstileToken) => {
       const session = await api.login(email, password, turnstileToken)
       store.setAuthenticated(patientPrincipal(session))
       setSessionError(null)
+      setSessionHeldByOtherApp(false)
     },
     acceptGoogleSession: session => {
       store.setAuthenticated(patientPrincipal(session))
       setSessionError(null)
+      setSessionHeldByOtherApp(false)
     },
     refresh: async () => {
       const session = await api.refresh()
       store.setAuthenticated(patientPrincipal(session))
+      setSessionHeldByOtherApp(false)
     },
     signOut: async () => {
       const signedIn = store.getState().principal?.subjectId
@@ -112,9 +135,11 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         await api.logout()
       } catch (error) {
         if (!isHidApiError(error) || error.status !== 401) throw error
-        // Logout needs the 15-minute access token. After a longer idle the
-        // session is restored once so the server ends it, but only if it is
-        // still this patient's: another account's session is never revoked.
+        // Before hid-system #39, logout needs the 15-minute access token. After
+        // a longer idle the session is restored once so the server ends it,
+        // but only if it is still this patient's: another account's session is
+        // never revoked here. From #39, logout ends the sign-in its refresh
+        // cookie names without this check (see docs/LOG.md, 2026-10-11).
         let restored: PatientSession
         try {
           restored = await api.refresh()
@@ -130,7 +155,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       }
       store.clear()
     },
-  }), [state, api, sessionError, store])
+  }), [state, api, sessionError, sessionHeldByOtherApp, store])
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>
 }
@@ -147,6 +172,7 @@ export function createTestSessionValue(principal: AuthPrincipal | null, api: Pat
     state: principal ? { status: 'authenticated', principal } : { status: 'anonymous', principal: null },
     api,
     sessionError: null,
+    sessionHeldByOtherApp: false,
     retrySessionCheck: () => {},
     signIn: async () => {},
     acceptGoogleSession: () => {},

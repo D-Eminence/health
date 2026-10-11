@@ -8,7 +8,7 @@
  */
 
 import type { ReactNode } from 'react'
-import { Navigate } from 'react-router-dom'
+import { Link, Navigate } from 'react-router-dom'
 import { evaluateAccess, type AccessRequirement } from '@hid/auth'
 import { useSession } from './session'
 import { BrandLogo } from './BrandLogo'
@@ -19,8 +19,26 @@ export interface RequireAccessProps {
 }
 
 export function RequireAccess({ requirement, children }: RequireAccessProps) {
-  const { state, sessionError, retrySessionCheck } = useSession()
+  const { state, sessionError, sessionHeldByOtherApp, retrySessionCheck } = useSession()
   const decision = evaluateAccess(state, requirement)
+
+  if (sessionHeldByOtherApp) {
+    // The provider workspace signed in in this browser, replacing the patient's
+    // sign-in, and Identity refused to refresh it for this app. That is not an
+    // expired session: say so, and sign nobody out. There is deliberately no
+    // link into the provider workspace: on a shared device it belongs to
+    // someone else.
+    return (
+      <main className="patient-page">
+        <BrandLogo className="patient-state-logo" />
+        <div role="alert" className="patient-access-state">
+          <p>This browser is signed in to the Health ID provider workspace.</p>
+          <p>Your patient account cannot continue here while it is. Signing in as a patient here signs this browser out of the provider workspace.</p>
+          <p><Link className="patient-primary-button" to="/sign-in">Sign in as a patient</Link></p>
+        </div>
+      </main>
+    )
+  }
 
   switch (decision.outcome) {
     case 'allow':

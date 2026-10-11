@@ -17,6 +17,7 @@ import {
   HidApiError,
   fallbackMessageForStatus,
   isRetryableStatus,
+  isSessionClientMismatch,
 } from './errors'
 import { isLowSignalMessage, parseErrorEnvelope, parseJsonBody, unwrapData } from './envelope'
 import {
@@ -119,7 +120,11 @@ export interface ApiClientOptions {
   readonly onUnauthorized?: (error: HidApiError) => void
   /** Restore a cookie session once before rejecting a protected request with 401. */
   readonly refreshSession?: () => Promise<void>
-  /** Identifies the calling application in `X-HID-Client`, e.g. `patient-web`. */
+  /**
+   * Identifies the calling application in `X-HID-Client`, e.g. `patient-web`:
+   * on every bearer request, and in cookie mode only on a session refresh from
+   * a page on the gateway's own origin.
+   */
   readonly clientId: string
   /** Injected in tests to make backoff deterministic. */
   readonly sleep?: (ms: number, signal?: AbortSignal) => Promise<void>
@@ -127,6 +132,42 @@ export interface ApiClientOptions {
 }
 
 const DEFAULT_TIMEOUT_MS = 15_000
+
+/** The cookie session refresh; the only cookie request that names its app. */
+const SESSION_REFRESH_PATH = '/api/v1/auth/refresh'
+
+function isSessionRefresh(spec: RequestSpec): boolean {
+  return spec.method === 'POST' && spec.path === SESSION_REFRESH_PATH
+}
+
+/**
+ * Whether the page making a request is on another origin than the request, so
+ * the browser first checks any custom header against the service's CORS
+ * allow-list. Outside a browser there is no page and no such check.
+ */
+function crossOriginFromPage(url: URL): boolean {
+  const pageOrigin = (globalThis as { location?: { origin?: unknown } }).location?.origin
+  return typeof pageOrigin === 'string' && pageOrigin !== url.origin
+}
+
+/** A cookie refresh this app made was refused because the sign-in belongs to the other app. */
+export interface SessionClientMismatch {
+  /** The app whose refresh was refused, as named by its `clientId`. */
+  readonly clientId: string
+  readonly error: HidApiError
+}
+
+const sessionClientMismatchListeners = new Set<(event: SessionClientMismatch) => void>()
+
+/**
+ * Hears every refresh refused with SESSION_CLIENT_MISMATCH, by any client of
+ * any app, so an app's session provider can show where the browser's sign-in
+ * belongs instead of treating it as expired. Returns the unsubscribe function.
+ */
+export function onSessionClientMismatch(listener: (event: SessionClientMismatch) => void): () => void {
+  sessionClientMismatchListeners.add(listener)
+  return () => { sessionClientMismatchListeners.delete(listener) }
+}
 
 /** A deduplicated read and the callers still waiting for it. */
 interface SharedRead {
@@ -258,16 +299,22 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
   let responseCsrfToken: string | null = null
   let refreshInFlight: Promise<void> | null = null
 
-  async function resolveHeaders(spec: RequestSpec, requestId: string): Promise<Headers> {
+  async function resolveHeaders(spec: RequestSpec, url: URL, requestId: string): Promise<Headers> {
     const headers = new Headers(await options.getDefaultHeaders?.())
 
     for (const [key, value] of Object.entries(spec.headers ?? {})) headers.set(key, value)
 
     headers.set('Accept', spec.responseType === 'download' ? '*/*' : 'application/json')
     if (cookieMode) {
-      // These are on the hid-system CORS allow-list. X-HID-Client and
-      // X-Request-ID are not, so adding them would block browser preflight.
+      // X-Correlation-ID is on every hid-system service's CORS allow-list;
+      // X-Request-ID is on none. X-HID-Client is on Identity's from hid-system
+      // #39 and no other service's, so it goes only on the refresh, where
+      // Identity reads it to refuse rotating the other app's sign-in, and only
+      // from a page on the gateway's own origin: a cross-origin refresh naming
+      // the app would fail its preflight wherever #39 is not deployed. Without
+      // the header Identity refreshes as it did before #39.
       headers.set('X-Correlation-ID', requestId)
+      if (isSessionRefresh(spec) && !crossOriginFromPage(url)) headers.set('X-HID-Client', options.clientId)
     } else {
       headers.set('X-Request-ID', requestId)
       headers.set('X-HID-Client', options.clientId)
@@ -302,7 +349,7 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
   }
 
   async function attempt<T>(spec: RequestSpec, url: URL, requestId: string): Promise<T> {
-    const headers = await resolveHeaders(spec, requestId)
+    const headers = await resolveHeaders(spec, url, requestId)
     const timeoutMs = spec.timeoutMs ?? defaultTimeoutMs
     const attemptSignal = createAttemptSignal(timeoutMs, spec.signal)
 
@@ -374,6 +421,14 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
 
       // Attach transport hints the retry loop needs without widening HidApiError.
       retryAfterByError.set(error, parseRetryAfter(response.headers.get('Retry-After')))
+
+      if (cookieMode && isSessionRefresh(spec) && isSessionClientMismatch(error)) {
+        const event: SessionClientMismatch = { clientId: options.clientId, error }
+        for (const listener of [...sessionClientMismatchListeners]) {
+          // A listener's own failure must not change how this request fails.
+          try { listener(event) } catch { /* ignored */ }
+        }
+      }
 
       logger?.warn('api request failed', {
         method: spec.method,
