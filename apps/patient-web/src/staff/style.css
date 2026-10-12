@@ -78,9 +78,8 @@ body { margin: 0; }
 .staff-facility-confirm { display: grid; gap: 8px; }
 .staff-facility-confirm p { margin: 0; color: var(--color-ink); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
 .staff-layout-single { grid-template-columns: minmax(0, 1fr); }
-.staff-facility-choice { display: grid; gap: 14px; max-width: 560px; }
-.staff-facility-choice h1 { margin: 0; }
-.staff-facility-choice p { margin: 0; line-height: 1.5; overflow-wrap: anywhere; }
+.staff-facility-choice { max-width: 560px; }
+.staff-facility-choice p { overflow-wrap: anywhere; }
 .staff-facility-choice fieldset { display: grid; gap: 8px; margin: 0; padding: 0; border: 0; min-width: 0; }
 .staff-facility-choice legend { margin-bottom: 6px; font-weight: 650; }
 .staff-choice { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 12px; border: 1px solid var(--color-line); border-radius: 8px; overflow-wrap: anywhere; cursor: pointer; }

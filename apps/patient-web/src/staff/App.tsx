@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { NavLink, Navigate, Outlet, Route, Routes, useHref, useLinkClickHandler, useLocation, useNavigate } from 'react-router-dom'
 import { BrandLogo } from '../BrandLogo'
-import { Badge, Button, ButtonLink, EmptyState, Select } from '@hid/ui'
+import { Badge, Button, ButtonLink, Card, EmptyState, Select } from '@hid/ui'
 import { isHidApiError } from '@hid/http'
 import { staffApi, type PatientLookup, type StaffSession } from './api'
 import { facilityChoiceNeeded, type FacilityChoiceReason } from './facilitySelection'
@@ -499,10 +499,12 @@ function FacilityChoice({ reason, onChosen }: { reason: FacilityQuestion; onChos
     finally { setBusy(false) }
   }
 
-  return <section className="staff-card staff-facility-choice" aria-labelledby="staff-facility-choice-title">
-    <h1 id="staff-facility-choice-title" ref={heading} tabIndex={-1} aria-describedby="staff-facility-choice-why">Where are you working?</h1>
-    <p id="staff-facility-choice-why">{FACILITY_CHOICE_WHY[reason]} Choose where you are working before you continue. Patient access, records and requests use the facility you choose, and you can switch later from “Working at”.</p>
-    <form className="staff-form" noValidate onSubmit={event => void choose(event)}>
+  return <section className="staff-facility-choice" aria-labelledby="staff-facility-choice-title">
+    <div className="staff-page-head">
+      <h1 id="staff-facility-choice-title" ref={heading} tabIndex={-1} aria-describedby="staff-facility-choice-why">Where are you working?</h1>
+      <p id="staff-facility-choice-why">{FACILITY_CHOICE_WHY[reason]} Choose where you are working before you continue. Patient access, records and requests use the facility you choose, and you can switch later from “Working at”.</p>
+    </div>
+    <Card className="staff-card"><form className="staff-form" noValidate onSubmit={event => void choose(event)}>
       <fieldset disabled={busy} aria-describedby={['staff-facility-choice-why', missing > 0 && 'staff-facility-choice-missing', error && 'staff-facility-choice-error'].filter(Boolean).join(' ')}>
         <legend>Facility</legend>
         {facilities.map(facility => <label key={facility.id} className="staff-choice">
@@ -514,7 +516,7 @@ function FacilityChoice({ reason, onChosen }: { reason: FacilityQuestion; onChos
       {error && <p id="staff-facility-choice-error" role="alert" className="staff-error">{error}</p>}
       {/* Kept enabled while it runs, so focus stays on it; a second press does nothing. */}
       <Button type="submit" aria-disabled={busy || undefined}>{busy ? 'Saving…' : 'Continue'}</Button>
-    </form>
+    </form></Card>
   </section>
 }
 

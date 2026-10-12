@@ -431,6 +431,19 @@ describe('the shell while the question shows', () => {
     expect(screen.getByRole('link', { name: 'Health ID provider home' })).toBeTruthy()
   })
 
+  it('looks like the portal\'s pages: a page heading, and the options on a card', async () => {
+    serve({ [SESSION]: [session(LAGOS, 'reselect')] })
+    await open('/provider')
+    const heading = await question()
+    expect(heading.closest('.staff-page-head')).not.toBeNull()
+    expect(heading.closest('.staff-page-head')!.contains(screen.getByText(/The facility you chose for this sign-in is no longer available/))).toBe(true)
+    // The options sit on the same card surface as every other card of the portal.
+    const { Card } = await import('@hid/ui')
+    const reference = render(<Card className="staff-card">{null}</Card>).container.firstElementChild!
+    const card = screen.getByRole('group', { name: 'Facility' }).closest('.staff-card')!
+    expect([...reference.classList].filter(name => !card.classList.contains(name))).toEqual([])
+  })
+
   it('shows no refusal of a switch made before the question once the sidebar is back', async () => {
     // A switch to Lagos General is refused (that membership ended); then a check finds Ikeja Clinic gone too.
     serve({ [SESSION]: [session(IKEJA, 'selected', [LAGOS, IKEJA, YABA]), session(YABA, 'reselect', [YABA])],
