@@ -18,6 +18,7 @@ import { Clinical } from './routes/Clinical'
 import { Laboratory, Pharmacy, Ocr, Outreach, MigrateGap } from './routes/Operations'
 import { resolveStaffProductHostname } from '../productHostname'
 import { revealFocusedLink } from '../navStrip'
+import { useFocusOnPageChange } from './pageFocus'
 import './style.css'
 
 type SessionState =
@@ -401,6 +402,8 @@ function Shell() {
   const [switching, setSwitching] = useState(false)
   const [signingOut, setSigningOut] = useState(false)
   const navigate = useNavigate()
+  const main = useRef<HTMLElement>(null)
+  useFocusOnPageChange(main)
   if (state.status !== 'ready') return null
   const { actor } = state.session
   const currentFacility = actor.facility
@@ -445,7 +448,7 @@ function Shell() {
         <nav className="staff-nav" onFocus={revealFocusedLink}>{visible.map(item => <NavLink key={item.to} to={item.to} end={item.to === '/provider'} className={({ isActive }) => `staff-nav-link${isActive ? ' active' : ''}`}>{item.label}{item.to === '/provider/clinical' && !activePatient && <span className="staff-nav-meta">Select patient</span>}</NavLink>)}</nav>
         <div className="staff-sidebar-footer"><Badge tone="information">{actor.roles.join(', ') || 'Staff'}</Badge><p>Access is limited to your active facility and server permissions.</p></div>
       </aside>
-      <main className="staff-main">{signOutError && <p role="alert" className="staff-error">{signOutError}</p>}<Outlet /></main>
+      <main ref={main} className="staff-main">{signOutError && <p role="alert" className="staff-error">{signOutError}</p>}<Outlet /></main>
     </div>
   </div>
 }

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNod
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { Badge, Button, Card, EmptyState, Field, Input, Select, Textarea } from '@hid/ui'
-import { staffApi, type LabAbnormalFlag, type LabAccession, type LabExecution, type LabResult, type LabResultRevision, type LabResultValue, type LabSpecimen, type LabWorkItem, type OcrExtraction, type OcrJob, type OcrPublication, type OcrTargetDomain, type OcrValidation, type OutreachCampaign, type OutreachCampaignMember, type OutreachCase, type PharmacyWorkItem } from '../api'
+import { staffApi, type LabAbnormalFlag, type LabAccession, type LabExecution, type LabResult, type LabResultRevision, type LabResultValue, type LabSpecimen, type LabWorkItem, type OcrExtraction, type OcrJob, type OcrPublication, type OcrTargetDomain, type OcrValidation, type OcrValidationInput, type OutreachCampaign, type OutreachCampaignMember, type OutreachCase, type PharmacyWorkItem } from '../api'
 import { useStaff } from '../App'
 
 function errorText(error: unknown, fallback: string) {
@@ -525,60 +525,97 @@ const publicationOperations = {
   PHARMACY: 'create_imported_medication_evidence', DOCUMENT_ONLY: 'retain_validated_document',
 } as const
 
-function jsonObject(value: FormDataEntryValue | null, label: string): Record<string, unknown> {
+/** A field the page refused before sending, named by its control's id. */
+interface FieldProblem { readonly field: string; readonly message: string }
+
+class FieldInputError extends Error {
+  constructor(readonly field: string, message: string) { super(message) }
+}
+
+function jsonObject(value: FormDataEntryValue | null, label: string, field: string): Record<string, unknown> {
   let parsed: unknown
-  try { parsed = JSON.parse(String(value ?? '')) } catch { throw new Error(`${label} must be valid JSON.`) }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error(`${label} must be a JSON object.`)
+  try { parsed = JSON.parse(String(value ?? '')) } catch { throw new FieldInputError(field, `${label} must be valid JSON.`) }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new FieldInputError(field, `${label} must be a JSON object.`)
   return parsed as Record<string, unknown>
 }
 
-function jsonObjectArray(value: FormDataEntryValue | null, label: string): Record<string, unknown>[] {
+function jsonObjectArray(value: FormDataEntryValue | null, label: string, field: string): Record<string, unknown>[] {
   let parsed: unknown
-  try { parsed = JSON.parse(String(value ?? '')) } catch { throw new Error(`${label} must be valid JSON.`) }
-  if (!Array.isArray(parsed) || parsed.some(item => !item || typeof item !== 'object' || Array.isArray(item))) throw new Error(`${label} must be a JSON array of objects.`)
+  try { parsed = JSON.parse(String(value ?? '')) } catch { throw new FieldInputError(field, `${label} must be valid JSON.`) }
+  if (!Array.isArray(parsed) || parsed.some(item => !item || typeof item !== 'object' || Array.isArray(item))) throw new FieldInputError(field, `${label} must be a JSON array of objects.`)
   return parsed as Record<string, unknown>[]
 }
 
-function OcrReview({ facilityId, job, extractions, onChanged }: { facilityId: string; job: OcrJob; extractions: OcrExtraction[]; onChanged: () => Promise<void> }) {
+/** Marks the refused control invalid and ties it to its error, which Field renders as `${id}-error`. */
+function problemProps(problem: FieldProblem | null, id: string) {
+  return problem?.field === id ? { invalid: true, 'aria-describedby': `${id}-error` } : {}
+}
+
+function problemText(problem: FieldProblem | null, id: string) {
+  return problem?.field === id ? problem.message : undefined
+}
+
+/**
+ * Focuses the element with an id once the render showing it has committed. A
+ * step's control is disabled while its request runs, which takes focus from it,
+ * so a refused request gives focus back only once the control is enabled again.
+ */
+function useFocusById() {
+  const [request, setRequest] = useState<{ id: string } | null>(null)
+  useEffect(() => { if (request) document.getElementById(request.id)?.focus() }, [request])
+  return useCallback((id: string) => setRequest({ id }), [])
+}
+
+function OcrReview({ facilityId, job, extractions, onChanged }: { facilityId: string; job: OcrJob; extractions: OcrExtraction[]; onChanged: (disposition: 'validated' | 'rejected') => Promise<void> }) {
   const [extractionId, setExtractionId] = useState(extractions.at(-1)?.id ?? '')
   const [disposition, setDisposition] = useState<'validated' | 'rejected'>('validated')
   const [domain, setDomain] = useState<OcrTargetDomain>('DOCUMENT_ONLY')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [problem, setProblem] = useState<FieldProblem | null>(null)
+  const focus = useFocusById()
   const selected = extractions.find(item => item.id === extractionId)
+  // Read in the order the fields appear, so the first refused one is the one focused.
+  function read(form: FormData): OcrValidationInput {
+    if (!selected) throw new FieldInputError('ocr-review-extraction', 'Choose an extraction to review.')
+    const validatedPayload = jsonObject(form.get('validatedPayload'), 'Reviewed payload', 'ocr-reviewed-payload')
+    const acceptedFields = jsonObject(form.get('acceptedFields'), 'Accepted fields', 'ocr-accepted-fields')
+    const rejectedFields = jsonObjectArray(form.get('rejectedFields'), 'Rejected fields', 'ocr-rejected-fields')
+    const corrections = jsonObjectArray(form.get('corrections'), 'Corrections', 'ocr-corrections')
+    const reason = String(form.get('reason') ?? '').trim()
+    if (reason.length < 8) throw new FieldInputError('ocr-review-reason', 'Enter a review reason of at least 8 characters.')
+    const targetDomain = disposition === 'rejected' ? 'UNCLASSIFIED' : domain
+    return { extractionId: selected.id, validatedPayload, acceptedFields, rejectedFields, corrections,
+      disposition, targetDomain, candidateType: candidateTypes[targetDomain], reason }
+  }
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const form = new FormData(event.currentTarget)
-    const reason = String(form.get('reason') ?? '').trim()
-    if (reason.length < 8) return setError('Enter a review reason of at least 8 characters.')
-    if (!selected) return setError('Choose an extraction to review.')
-    setBusy(true); setError('')
+    setError(''); setProblem(null)
+    let input: OcrValidationInput
+    try { input = read(new FormData(event.currentTarget)) }
+    catch (caught) {
+      if (!(caught instanceof FieldInputError)) throw caught
+      setProblem({ field: caught.field, message: caught.message }); focus(caught.field); return
+    }
+    setBusy(true)
     try {
-      const targetDomain = disposition === 'rejected' ? 'UNCLASSIFIED' : domain
-      await staffApi.validateOcrJob(facilityId, job, {
-        extractionId: selected.id,
-        validatedPayload: jsonObject(form.get('validatedPayload'), 'Reviewed payload'),
-        acceptedFields: jsonObject(form.get('acceptedFields'), 'Accepted fields'),
-        rejectedFields: jsonObjectArray(form.get('rejectedFields'), 'Rejected fields'),
-        corrections: jsonObjectArray(form.get('corrections'), 'Corrections'),
-        disposition, targetDomain, candidateType: candidateTypes[targetDomain], reason,
-      })
-      await onChanged()
-    } catch (caught) { setError(errorText(caught, 'Review could not be recorded. Refresh the job and try again.')) }
+      await staffApi.validateOcrJob(facilityId, job, input)
+      await onChanged(input.disposition)
+    } catch (caught) { setError(errorText(caught, 'Review could not be recorded. Refresh the job and try again.')); focus('ocr-review-submit') }
     finally { setBusy(false) }
   }
   if (!extractions.length) return <p className="staff-muted">An extraction must be available before review.</p>
-  return <Card className="staff-card"><h2>Review extraction</h2><p>Inspect the source text and explicitly classify the candidate. Only validated evidence can be published.</p><form className="staff-form" onSubmit={event => void submit(event)}>
-    <Field label="Extraction" htmlFor="ocr-review-extraction"><Select id="ocr-review-extraction" value={extractionId} onChange={event => setExtractionId(event.target.value)}>{extractions.map(item => <option key={item.id} value={item.id}>Version {item.version} · {item.provider}</option>)}</Select></Field>
+  return <Card className="staff-card"><h2>Review extraction</h2><p>Inspect the source text and explicitly classify the candidate. Only validated evidence can be published.</p><form className="staff-form" noValidate onSubmit={event => void submit(event)}>
+    <Field label="Extraction" htmlFor="ocr-review-extraction" error={problemText(problem, 'ocr-review-extraction')}><Select id="ocr-review-extraction" value={extractionId} onChange={event => setExtractionId(event.target.value)} {...problemProps(problem, 'ocr-review-extraction')}>{extractions.map(item => <option key={item.id} value={item.id}>Version {item.version} · {item.provider}</option>)}</Select></Field>
     <Field label="Review decision" htmlFor="ocr-review-decision"><Select id="ocr-review-decision" value={disposition} onChange={event => setDisposition(event.target.value as 'validated' | 'rejected')}><option value="validated">Validate candidate</option><option value="rejected">Reject candidate</option></Select></Field>
     {disposition === 'validated' && <Field label="Owning domain" htmlFor="ocr-review-domain"><Select id="ocr-review-domain" value={domain} onChange={event => setDomain(event.target.value as OcrTargetDomain)}><option value="DOCUMENT_ONLY">Retain validated document</option><option value="EHR">Clinical note</option><option value="LAB">Historical lab evidence</option><option value="PHARMACY">Historical medication evidence</option></Select></Field>}
-    <Field label="Reviewed payload (JSON object)" htmlFor="ocr-reviewed-payload" required><Textarea key={`payload-${selected?.id}`} id="ocr-reviewed-payload" name="validatedPayload" rows={7} spellCheck={false} defaultValue={JSON.stringify(selected?.structuredPayload && typeof selected.structuredPayload === 'object' && !Array.isArray(selected.structuredPayload) ? selected.structuredPayload : {}, null, 2)} required /></Field>
-    <Field label="Accepted fields (JSON object)" htmlFor="ocr-accepted-fields" required><Textarea id="ocr-accepted-fields" name="acceptedFields" rows={6} spellCheck={false} defaultValue="{}" required /></Field>
+    <Field label="Reviewed payload (JSON object)" htmlFor="ocr-reviewed-payload" error={problemText(problem, 'ocr-reviewed-payload')} required><Textarea key={`payload-${selected?.id}`} id="ocr-reviewed-payload" name="validatedPayload" rows={7} spellCheck={false} defaultValue={JSON.stringify(selected?.structuredPayload && typeof selected.structuredPayload === 'object' && !Array.isArray(selected.structuredPayload) ? selected.structuredPayload : {}, null, 2)} required {...problemProps(problem, 'ocr-reviewed-payload')} /></Field>
+    <Field label="Accepted fields (JSON object)" htmlFor="ocr-accepted-fields" error={problemText(problem, 'ocr-accepted-fields')} required><Textarea id="ocr-accepted-fields" name="acceptedFields" rows={6} spellCheck={false} defaultValue="{}" required {...problemProps(problem, 'ocr-accepted-fields')} /></Field>
     <p className="staff-muted">EHR requires encounterId, noteType, title, and content. Lab requires observations. Pharmacy requires medicationText. Document retention can use an empty object.</p>
-    <div className="staff-form-row"><Field label="Rejected fields (JSON array)" htmlFor="ocr-rejected-fields" required><Textarea id="ocr-rejected-fields" name="rejectedFields" spellCheck={false} defaultValue="[]" required /></Field><Field label="Corrections (JSON array)" htmlFor="ocr-corrections" required><Textarea id="ocr-corrections" name="corrections" spellCheck={false} defaultValue="[]" required /></Field></div>
-    <Field label="Review reason" htmlFor="ocr-review-reason" required><Textarea id="ocr-review-reason" name="reason" minLength={8} maxLength={500} required /></Field>
+    <div className="staff-form-row"><Field label="Rejected fields (JSON array)" htmlFor="ocr-rejected-fields" error={problemText(problem, 'ocr-rejected-fields')} required><Textarea id="ocr-rejected-fields" name="rejectedFields" spellCheck={false} defaultValue="[]" required {...problemProps(problem, 'ocr-rejected-fields')} /></Field><Field label="Corrections (JSON array)" htmlFor="ocr-corrections" error={problemText(problem, 'ocr-corrections')} required><Textarea id="ocr-corrections" name="corrections" spellCheck={false} defaultValue="[]" required {...problemProps(problem, 'ocr-corrections')} /></Field></div>
+    <Field label="Review reason" htmlFor="ocr-review-reason" error={problemText(problem, 'ocr-review-reason')} required><Textarea id="ocr-review-reason" name="reason" minLength={8} maxLength={500} required {...problemProps(problem, 'ocr-review-reason')} /></Field>
     {error && <p className="staff-error" role="alert">{error}</p>}
-    <Button type="submit" disabled={busy}>{busy ? 'Recording review…' : disposition === 'rejected' ? 'Reject extraction' : 'Validate extraction'}</Button>
+    <Button id="ocr-review-submit" type="submit" disabled={busy}>{busy ? 'Recording review…' : disposition === 'rejected' ? 'Reject extraction' : 'Validate extraction'}</Button>
   </form></Card>
 }
 
@@ -588,16 +625,21 @@ function OcrReview({ facilityId, job, extractions, onChanged }: { facilityId: st
 function OcrConfirmation({ facilityId, job, onChanged }: { facilityId: string; job: OcrJob; onChanged: (notice?: string) => Promise<void> }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [problem, setProblem] = useState<FieldProblem | null>(null)
+  const focus = useFocusById()
   const attempt = useRef<{ signature: string; key: string } | null>(null)
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const form = new FormData(event.currentTarget)
     const patientId = String(form.get('patientId') ?? '').trim()
     const reason = String(form.get('reason') ?? '').trim()
-    if (reason.length < 8) return setError('Enter a patient confirmation reason of at least 8 characters.')
+    setError(''); setProblem(null)
+    const refused = !patientId ? { field: 'ocr-confirm-patient', message: 'Enter the canonical patient ID.' }
+      : reason.length < 8 ? { field: 'ocr-confirm-reason', message: 'Enter a patient confirmation reason of at least 8 characters.' } : null
+    if (refused) { setProblem(refused); focus(refused.field); return }
     const signature = JSON.stringify([patientId, reason])
     if (attempt.current?.signature !== signature) attempt.current = { signature, key: crypto.randomUUID() }
-    setBusy(true); setError('')
+    setBusy(true)
     try { await staffApi.confirmOcrPatient(facilityId, job, patientId, reason, attempt.current.key); attempt.current = null; await onChanged() }
     catch (caught) {
       if (isHidApiError(caught) && caught.code === 'OCR_PATIENT_ALREADY_CONFIRMED') {
@@ -605,10 +647,11 @@ function OcrConfirmation({ facilityId, job, onChanged }: { facilityId: string; j
         return
       }
       setError(errorText(caught, 'Patient confirmation could not be recorded.'))
+      focus('ocr-confirm-submit')
     }
     finally { setBusy(false) }
   }
-  return <Card className="staff-card"><h2>Confirm source patient</h2><p>Confirm the canonical patient against the clinical source document before publication. The backend verifies an exact match and write authorization.</p><form className="staff-form" onSubmit={event => void submit(event)}><Field label="Canonical patient ID" htmlFor="ocr-confirm-patient" required><Input id="ocr-confirm-patient" name="patientId" defaultValue={job.patientId ?? ''} required /></Field><Field label="Confirmation reason" htmlFor="ocr-confirm-reason" required><Textarea id="ocr-confirm-reason" name="reason" minLength={8} maxLength={500} required /></Field>{error && <p className="staff-error" role="alert">{error}</p>}<Button type="submit" disabled={busy}>{busy ? 'Confirming…' : 'Confirm source patient'}</Button></form></Card>
+  return <Card className="staff-card"><h2 id="ocr-confirm-title" tabIndex={-1}>Confirm source patient</h2><p>Confirm the canonical patient against the clinical source document before publication. The backend verifies an exact match and write authorization.</p><form className="staff-form" noValidate onSubmit={event => void submit(event)}><Field label="Canonical patient ID" htmlFor="ocr-confirm-patient" error={problemText(problem, 'ocr-confirm-patient')} required><Input id="ocr-confirm-patient" name="patientId" defaultValue={job.patientId ?? ''} required {...problemProps(problem, 'ocr-confirm-patient')} /></Field><Field label="Confirmation reason" htmlFor="ocr-confirm-reason" error={problemText(problem, 'ocr-confirm-reason')} required><Textarea id="ocr-confirm-reason" name="reason" minLength={8} maxLength={500} required {...problemProps(problem, 'ocr-confirm-reason')} /></Field>{error && <p className="staff-error" role="alert">{error}</p>}<Button id="ocr-confirm-submit" type="submit" disabled={busy}>{busy ? 'Confirming…' : 'Confirm source patient'}</Button></form></Card>
 }
 
 function OcrPublicationCard({ facilityId, validation, confirmationId, canPublish, onChanged }: { facilityId: string; validation: OcrValidation; confirmationId: string | undefined; canPublish: boolean; onChanged: () => Promise<void> }) {
@@ -616,6 +659,8 @@ function OcrPublicationCard({ facilityId, validation, confirmationId, canPublish
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [revision, setRevision] = useState(0)
+  const focus = useFocusById()
+  const publishId = `ocr-publish-${validation.id}`
   useEffect(() => {
     let active = true
     void staffApi.ocrPublications(facilityId, validation.id).then(result => { if (active) setPublications(result.items) })
@@ -629,7 +674,7 @@ function OcrPublicationCard({ facilityId, validation, confirmationId, canPublish
       await staffApi.publishOcrValidation(facilityId, validation, confirmationId, publicationOperations[validation.targetDomain])
       setRevision(value => value + 1)
       await onChanged()
-    } catch (caught) { setError(errorText(caught, 'Validated evidence could not be published.')) }
+    } catch (caught) { setError(errorText(caught, 'Validated evidence could not be published.')); focus(publishId) }
     finally { setBusy(false) }
   }
   return <div className="staff-list-item"><div className="staff-row"><strong>Review {validation.version} · {validation.targetDomain}</strong><Badge tone={validation.disposition === 'validated' ? 'success' : 'danger'}>{validation.disposition}</Badge></div><p>{validation.reason} · {dateText(validation.reviewedAt)}</p>
@@ -639,9 +684,16 @@ function OcrPublicationCard({ facilityId, validation, confirmationId, canPublish
       <p>Publication: <Badge tone={publication.status === 'published' ? 'success' : publication.status === 'failed' ? 'danger' : 'information'}>{publication.status}</Badge>{publication.failureCode ? ` · ${publication.failureCode}` : ''}</p>
       {publication.targetResourceId && <p>Published {publication.targetResourceType ?? publication.targetDomain.toLowerCase()} record: <code>{publication.targetResourceId}</code></p>}
     </div>)}
-    {canPublish && confirmationId && validation.disposition === 'validated' && validation.targetDomain !== 'UNCLASSIFIED' && publications?.length === 0 && <Button size="sm" onClick={() => void publish()} disabled={busy}>{busy ? 'Publishing…' : `Publish to ${validation.targetDomain.replace('_', ' ')}`}</Button>}
+    {canPublish && confirmationId && validation.disposition === 'validated' && validation.targetDomain !== 'UNCLASSIFIED' && publications?.length === 0 && <Button id={publishId} size="sm" onClick={() => void publish()} disabled={busy}>{busy ? 'Publishing…' : `Publish to ${validation.targetDomain.replace('_', ' ')}`}</Button>}
   </div>
 }
+
+/**
+ * Where focus goes once a step's answer has rendered, the first of `targets`
+ * shown, and what the status region then says. `confirmNext` adds the next step
+ * when that step is the source patient confirmation now shown.
+ */
+interface StepFocus { readonly targets: readonly string[]; readonly notice?: string; readonly confirmNext?: boolean }
 
 export function Ocr() {
   const { facilityId, permissions } = useFacilityAccess()
@@ -669,12 +721,16 @@ export function Ocr() {
   const [searched, setSearched] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [retryError, setRetryError] = useState('')
+  const [problem, setProblem] = useState<FieldProblem | null>(null)
   const [notice, setNotice] = useState('')
+  const [stepFocus, setStepFocus] = useState<StepFocus | null>(null)
+  const focus = useFocusById()
   const [lookupRevision, setLookupRevision] = useState(0)
   const visibleJob = jobFacilityId === facilityId ? job : null
   const canRetryJob = visibleJob?.status === 'failed' &&
     (visibleJob.attemptCount === undefined || visibleJob.maxAttempts === undefined || visibleJob.attemptCount < visibleJob.maxAttempts)
-  useEffect(() => { setJob(null); setExtractions(null); setValidations(null); setSearched(false); setError(''); setNotice('') }, [facilityId])
+  useEffect(() => { setJob(null); setExtractions(null); setValidations(null); setSearched(false); setError(''); setRetryError(''); setProblem(null); setNotice(''); setStepFocus(null) }, [facilityId])
   useEffect(() => {
     if (!facilityId || !visibleJob?.id || !canRead) return
     let active = true
@@ -683,24 +739,52 @@ export function Ocr() {
       .catch(caught => { if (active) setError(errorText(caught, 'OCR review evidence could not be loaded.')) })
     return () => { active = false }
   }, [facilityId, visibleJob?.id, canRead, lookupRevision])
+  // After a step, focus moves to where the work continues once it has rendered: the
+  // job's review evidence is read after the job, and the next step shows only then.
+  useEffect(() => {
+    if (!stepFocus) return
+    if (visibleJob && canRead && (extractions === null || validations === null) && !error) return
+    const target = stepFocus.targets.map(id => document.getElementById(id)).find(element => element !== null)
+    setStepFocus(null)
+    if (stepFocus.notice) setNotice(stepFocus.confirmNext && target?.id === 'ocr-confirm-title' ? `${stepFocus.notice} Confirm the source patient next.` : stepFocus.notice)
+    target?.focus()
+  }, [stepFocus, visibleJob, canRead, extractions, validations, error])
 
   // True once the job has been read again.
   async function lookup(event?: FormEvent<HTMLFormElement>): Promise<boolean> {
     event?.preventDefault()
-    if (!facilityId) return false
-    if (!documentId.trim()) { setError('Enter a document ID.'); return false }
-    setBusy(true); setError(''); setNotice(''); setSearched(false); setExtractions(null); setValidations(null)
+    if (!facilityId || !documentId.trim()) return false
+    setBusy(true); setError(''); setRetryError(''); setNotice(''); setSearched(false); setExtractions(null); setValidations(null)
     try { const result = await staffApi.findOcrJob(facilityId, documentId.trim()); setJob(result.job); setJobFacilityId(facilityId); setSearched(true); setLookupRevision(value => value + 1); return true }
     catch (caught) { setJob(null); setError(errorText(caught, 'OCR job could not be found.')); return false }
     finally { setBusy(false) }
+  }
+
+  // Finding a job keeps focus on Find job, which is disabled while the lookup runs.
+  async function find(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setProblem(null)
+    if (!documentId.trim()) { setProblem({ field: 'ocr-document', message: 'Enter a document ID.' }); focus('ocr-document'); return }
+    await lookup()
+    focus('ocr-find-submit')
+  }
+
+  /** A step recorded, then the job read again: focus and say where the work goes on. */
+  async function afterStep(targets: readonly string[], notice: string | undefined, confirmNext = false) {
+    const reloaded = await lookup()
+    setStepFocus(reloaded ? { targets, notice, confirmNext } : { targets: ['ocr-find-submit'], notice })
   }
 
   async function create() {
     if (!facilityId) return
     if (!documentId.trim() || !patientId.trim()) return setError('Enter both the document and patient IDs.')
     setBusy(true); setError(''); setNotice(''); setExtractions(null); setValidations(null)
-    try { const created = await staffApi.createOcrJob(facilityId, documentId.trim(), patientId.trim()); setJob(created); setJobFacilityId(facilityId); setSearched(true); setLookupRevision(value => value + 1) }
-    catch (caught) { setError(errorText(caught, 'OCR job could not be created.')) }
+    try {
+      const created = await staffApi.createOcrJob(facilityId, documentId.trim(), patientId.trim())
+      setJob(created); setJobFacilityId(facilityId); setSearched(true); setLookupRevision(value => value + 1)
+      setStepFocus({ targets: ['ocr-job-title'], notice: 'Extraction job created.' })
+    }
+    catch (caught) { setError(errorText(caught, 'OCR job could not be created.')); focus('ocr-create-submit') }
     finally { setBusy(false) }
   }
 
@@ -708,34 +792,45 @@ export function Ocr() {
     event.preventDefault()
     if (!facilityId || !visibleJob) return
     const reason = String(new FormData(event.currentTarget).get('reason') ?? '').trim()
-    if (reason.length < 8) return setError('Enter a reason of at least 8 characters.')
+    setProblem(null); setRetryError('')
+    if (reason.length < 8) { setProblem({ field: 'ocr-retry-reason', message: 'Enter a reason of at least 8 characters.' }); focus('ocr-retry-reason'); return }
     setBusy(true); setError(''); setNotice('')
-    try { setJob(await staffApi.retryOcrJob(facilityId, visibleJob, reason)); setLookupRevision(value => value + 1) }
-    catch (caught) { setError(errorText(caught, 'OCR job could not be retried.')) }
+    try {
+      setJob(await staffApi.retryOcrJob(facilityId, visibleJob, reason)); setLookupRevision(value => value + 1)
+      setStepFocus({ targets: ['ocr-job-title'], notice: 'Retry requested.' })
+    }
+    catch (caught) { setRetryError(errorText(caught, 'OCR job could not be retried.')); focus('ocr-retry-submit') }
     finally { setBusy(false) }
   }
 
   if (!facilityId || !canRead) return <EmptyState title="Document OCR unavailable" description="This facility membership needs OCR job read permission." />
   return <>
     <PageHead eyebrow="Governed document processing" title="Document OCR">Find a job by its clinical document ID. The document must be available and virus scan clean before extraction can begin.</PageHead>
-    <div className="staff-two-col"><Card className="staff-card"><h2>Find document job</h2><form className="staff-form" onSubmit={event => void lookup(event)}><Field label="Document ID" htmlFor="ocr-document" required><Input id="ocr-document" value={documentId} onChange={event => { setDocumentId(event.target.value); setSearched(false); setJob(null); setNotice('') }} placeholder="Document UUID" required /></Field><Button type="submit" disabled={busy}>{busy ? 'Checking…' : 'Find job'}</Button></form>
+    <div className="staff-two-col"><Card className="staff-card"><h2>Find document job</h2><form className="staff-form" noValidate onSubmit={event => void find(event)}><Field label="Document ID" htmlFor="ocr-document" error={problemText(problem, 'ocr-document')} required><Input id="ocr-document" value={documentId} onChange={event => { setDocumentId(event.target.value); setSearched(false); setJob(null); setNotice(''); setProblem(null) }} placeholder="Document UUID" required {...problemProps(problem, 'ocr-document')} /></Field><Button id="ocr-find-submit" type="submit" disabled={busy}>{busy ? 'Checking…' : 'Find job'}</Button></form>
       {searched && !visibleJob && <p className="staff-muted">No OCR job exists for this document.</p>}
       {/* Only after a lookup has answered that no job exists: a failed or missing lookup must not invite a duplicate job. */}
-      {searched && !visibleJob && permissions.includes('ocr.job.write') && <div className="staff-stack"><p>Create an extraction job for a verified patient document.</p><Field label="Patient ID" htmlFor="ocr-patient" required><Input id="ocr-patient" value={patientId} onChange={event => setPatientId(event.target.value)} placeholder="Patient UUID" /></Field><Button onClick={() => void create()} disabled={busy || !documentId.trim() || !patientId.trim()}>{busy ? 'Creating…' : 'Create extraction job'}</Button></div>}
+      {searched && !visibleJob && permissions.includes('ocr.job.write') && <div className="staff-stack"><p>Create an extraction job for a verified patient document.</p><Field label="Patient ID" htmlFor="ocr-patient" required><Input id="ocr-patient" value={patientId} onChange={event => setPatientId(event.target.value)} placeholder="Patient UUID" /></Field><Button id="ocr-create-submit" onClick={() => void create()} disabled={busy || !documentId.trim() || !patientId.trim()}>{busy ? 'Creating…' : 'Create extraction job'}</Button></div>}
       {error && <p className="staff-error" role="alert">{error}</p>}
-      {notice && <p className="staff-notice" role="status">{notice}</p>}
+      {/* Mounted throughout, so a message put in it is announced. */}
+      <div id="ocr-status" role="status">{notice && <p className="staff-notice">{notice}</p>}</div>
     </Card>
-      {visibleJob ? <Card className="staff-card"><h2>Job status</h2><div className="staff-row"><Badge tone={visibleJob.status === 'failed' ? 'danger' : visibleJob.status === 'validated' ? 'success' : 'information'}>{visibleJob.status.replaceAll('_', ' ')}</Badge><span className="staff-muted">Version {visibleJob.version ?? 'unknown'}</span></div><p>Provider {visibleJob.provider} · Document {shortId(visibleJob.documentId)}</p>{visibleJob.patientConfirmation && <p>Source patient confirmed {dateText(visibleJob.patientConfirmation.confirmedAt)}</p>}<Button tone="secondary" size="sm" onClick={() => void lookup()} disabled={busy}>Refresh status</Button>
-        {canRetryJob && permissions.includes('ocr.job.write') && <form className="staff-form" onSubmit={event => void retry(event)}><Field label="Retry reason" htmlFor="ocr-retry-reason" required><Textarea id="ocr-retry-reason" name="reason" minLength={8} maxLength={500} required /></Field><Button size="sm" type="submit" disabled={busy || !visibleJob.version}>{busy ? 'Retrying…' : 'Retry job'}</Button></form>}
+      {visibleJob ? <Card className="staff-card"><h2 id="ocr-job-title" tabIndex={-1}>Job status</h2><div className="staff-row"><Badge tone={visibleJob.status === 'failed' ? 'danger' : visibleJob.status === 'validated' ? 'success' : 'information'}>{visibleJob.status.replaceAll('_', ' ')}</Badge><span className="staff-muted">Version {visibleJob.version ?? 'unknown'}</span></div><p>Provider {visibleJob.provider} · Document {shortId(visibleJob.documentId)}</p>{visibleJob.patientConfirmation && <p>Source patient confirmed {dateText(visibleJob.patientConfirmation.confirmedAt)}</p>}<Button id="ocr-refresh-submit" tone="secondary" size="sm" onClick={() => void lookup().then(reloaded => focus(reloaded ? 'ocr-refresh-submit' : 'ocr-find-submit'))} disabled={busy}>Refresh status</Button>
+        {canRetryJob && permissions.includes('ocr.job.write') && <form className="staff-form" noValidate onSubmit={event => void retry(event)}><Field label="Retry reason" htmlFor="ocr-retry-reason" error={problemText(problem, 'ocr-retry-reason')} required><Textarea id="ocr-retry-reason" name="reason" minLength={8} maxLength={500} required {...problemProps(problem, 'ocr-retry-reason')} /></Field>{retryError && <p className="staff-error" role="alert">{retryError}</p>}<Button id="ocr-retry-submit" size="sm" type="submit" disabled={busy || !visibleJob.version}>{busy ? 'Retrying…' : 'Retry job'}</Button></form>}
         {visibleJob.status === 'failed' && !canRetryJob && <p className="staff-muted">The extraction attempt limit has been reached. This job cannot be retried.</p>}
         {extractions === null && <p className="staff-muted" role="status">Loading extractions…</p>}
         {extractions?.length === 0 && <p className="staff-muted">No extraction is available yet.</p>}
         {extractions?.map(extraction => <div className="staff-list-item" key={extraction.id}><div className="staff-row"><strong>Extraction {extraction.version}</strong><Badge tone="neutral">{extraction.provider}</Badge></div>{extraction.confidence != null && <p>Confidence {Math.round(extraction.confidence * 100)}%</p>}{extraction.rawText && <details><summary>Review extracted text</summary><pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', maxHeight: 300, overflowY: 'auto', fontSize: 12 }}>{extraction.rawText}</pre></details>}</div>)}
       </Card> : <Card className="staff-card"><h2>Document review</h2><p>Use the document ID from an authorized clinical record. OCR jobs are scoped to that source; this backend has no facility-wide OCR job list.</p></Card>}
     </div>
-    {visibleJob?.status === 'awaiting_validation' && permissions.includes('ocr.validation.write') && extractions && <div className="staff-section"><OcrReview key={`${visibleJob.id}-${visibleJob.version}`} facilityId={facilityId} job={visibleJob} extractions={extractions} onChanged={async () => { await lookup() }} /></div>}
-    {visibleJob?.status === 'validated' && !visibleJob.patientConfirmation && permissions.includes('ocr.patient.confirm') && <div className="staff-section"><OcrConfirmation key={`${visibleJob.id}-${visibleJob.version}`} facilityId={facilityId} job={visibleJob} onChanged={async message => { if (await lookup() && message) setNotice(message) }} /></div>}
-    {visibleJob && validations && validations.length > 0 && <div className="staff-section"><h2>Review and publication history</h2><div className="staff-list">{validations.map(validation => <OcrPublicationCard key={validation.id} facilityId={facilityId} validation={validation} confirmationId={visibleJob.patientConfirmation?.id} canPublish={permissions.includes('ocr.publication.write')} onChanged={async () => { await lookup() }} />)}</div></div>}
+    {visibleJob?.status === 'awaiting_validation' && permissions.includes('ocr.validation.write') && extractions && <div className="staff-section"><OcrReview key={`${visibleJob.id}-${visibleJob.version}`} facilityId={facilityId} job={visibleJob} extractions={extractions} onChanged={disposition => disposition === 'validated'
+      ? afterStep(['ocr-confirm-title', 'ocr-job-title'], 'Review recorded.', true)
+      : afterStep(['ocr-job-title'], 'Rejection recorded.')} /></div>}
+    {visibleJob?.status === 'validated' && !visibleJob.patientConfirmation && permissions.includes('ocr.patient.confirm') && <div className="staff-section"><OcrConfirmation key={`${visibleJob.id}-${visibleJob.version}`} facilityId={facilityId} job={visibleJob} onChanged={async message => {
+      // An answer that the job was confirmed already is said only once the job has been read again.
+      if (message) { const reloaded = await lookup(); setStepFocus({ targets: reloaded ? ['ocr-history-title', 'ocr-job-title'] : ['ocr-find-submit'], notice: reloaded ? message : undefined }); return }
+      await afterStep(['ocr-history-title', 'ocr-job-title'], 'Source patient confirmed.')
+    }} /></div>}
+    {visibleJob && validations && validations.length > 0 && <div className="staff-section"><h2 id="ocr-history-title" tabIndex={-1}>Review and publication history</h2><div className="staff-list">{validations.map(validation => <OcrPublicationCard key={validation.id} facilityId={facilityId} validation={validation} confirmationId={visibleJob.patientConfirmation?.id} canPublish={permissions.includes('ocr.publication.write')} onChanged={() => afterStep(['ocr-history-title', 'ocr-job-title'], 'Publication recorded.')} />)}</div></div>}
   </>
 }
 
