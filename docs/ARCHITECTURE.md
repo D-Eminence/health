@@ -2,11 +2,15 @@
 
 This document describes the code in this repository and the `hid-system`
 gateway/API, first audited at commit `c4b5445` and most recently checked
-against `main` at `54f79d2`. It supersedes the earlier plan based on
+against `main` at `6b49a06` on 2026-10-12 (with open D-Eminence/hid-system#47
+at `1c18e91`). It supersedes the earlier plan based on
 the historical `hid-unified` Supabase functions. `hid-1.0`, `Dashboard.zip` and
 `HID.html` informed visual and workflow coverage; their local fixtures do not
 define API behavior. The [gap map](./HEALTH_ID_COMPLETE_FRONTEND_GAP_MAP.md)
 records that baseline audit and should not be read as today's completion list.
+The hid-system work this frontend depends on is in the
+[backend hand-off](./BACKEND_OWNER_HANDOFF.md), cited by item id (A1, B1, C1,
+D1, E1, F1 and so on) here and in [open questions](./OPEN-QUESTIONS.md).
 
 ## Deployment shape
 
@@ -30,11 +34,11 @@ permission checks. The backend remains the
 authority for access control. Unsupported modules from the reference material
 are not represented by local fixture data or simulated mutations. The public site's
 `/provider/apply` page sends providers to the portal's `/provider/enroll`,
-which uses the self-service provider-enrollment routes. A form that submits
-`POST /api/v1/identity/organization-applications` exists
-(`ProviderApplicationForm`), but no page uses it. At hid-system `main`
-(`54f79d2`) that route's five-argument database call matches migration
-`0052_authoritative_cac_identity.sql`; no live submission has been run.
+which uses the self-service provider-enrollment routes, and `/provider/complete`
+uses the completion routes. The public site has no organization application
+form: the unused `ProviderApplicationForm` was removed, so no screen calls
+`POST /api/v1/identity/organization-applications`, though the route stays
+registered.
 
 The public site can link to a separately hosted portal through
 `NEXT_PUBLIC_HID_PORTAL_ORIGIN`. That variable names the one portal origin for
@@ -64,25 +68,53 @@ permission on every protected request.
 The public pricing page reads `GET /api/v1/commercial/pricing`, and the demo form
 submits to `POST /api/v1/commercial/demo-requests` with Turnstile and an
 idempotency key. A `null` price is a quote, not an amount that the frontend can
-invent. Patient, provider and admin requests use the actual Identity, EHR,
-Access, Lab, Pharmacy, OCR, Outreach and Admin endpoints registered for their
-routes. The laboratory workspace covers work items, accession, specimen
+invent; a catalogue row for a product the site does not present is left out,
+and a malformed row refuses the whole catalogue. The demo form holds the
+contact role to the 2 to 120 characters `CreateDemoRequestDto` accepts and
+reuses one `Idempotency-Key` when a submission is retried. Patient, provider
+and admin requests use the actual Identity, EHR, Access, Lab, Pharmacy, OCR,
+Outreach and Admin endpoints registered for their routes. The laboratory workspace covers work items, accession, specimen
 custody, analytical execution, result revisions, verification, release and
 history. The clinical workspace can create active EHR lab requests and hand
-active prescriptions to Pharmacy. See [open questions](./OPEN-QUESTIONS.md)
-for contract limits and backend defects.
+active prescriptions to Pharmacy. EHR passes neither a later prescription or
+lab-request change nor an encounter's status to Pharmacy or Lab (hand-off A1,
+A3), so the clinical record warns at those status forms, or offers no change
+once Lab may be working on a request. The Lab and Pharmacy lists say when they
+reach the backend's cap of the 200 oldest work items (A2). See
+[open questions](./OPEN-QUESTIONS.md) for contract limits and backend defects.
 
-Break-glass access is audited by Identity. EHR has a dedicated emergency
-summary route for completed encounters and signed notes. Its ordinary
-encounter and related clinical routes require `direct-care`, so an emergency
-grant does not open the detailed chart; that policy gap is tracked in
-[open questions](./OPEN-QUESTIONS.md).
+Retry keys for OCR publications (one `Idempotency-Key` per publication request)
+and Outreach registration cases (the case's `localCommandId` with its temporary
+patient ID) live in component memory only, never in browser storage. A retry
+after a lost answer replays the same command; a reload loses the key, and OCR
+offers no other way to resume (hand-off B5). Outreach campaign management is
+not offered: Identity refuses `outreach.campaign.write` until campaign
+governance is decided (ADR-045; hand-off B10, E5), so the portal lists
+campaigns and members read-only and says so.
+
+Break-glass access is audited by Identity, and the portal offers it only to a
+role holding every permission the grant and the summary need. EHR's dedicated
+emergency summary route returns this facility's completed encounters and
+signed notes (50 each) and its vitals, diagnoses, prescriptions, lab requests
+and uploaded documents (100 each). The route requires only `ehr.encounter.read`
+and `ehr.note.read`, so the portal shows each further section only to a role
+holding its read permission, lists documents without opening them, and leaves
+out vitals, which EHR sends without corrections. That hiding is display, not
+access control: every section reaches the browser until EHR filters it
+(hand-off A11). The ordinary encounter and related clinical routes require
+`direct-care`, so an emergency grant does not open the detailed chart; that
+policy gap is tracked in [open questions](./OPEN-QUESTIONS.md) (hand-off B1,
+E1).
 
 The frontend does not call a database directly. `scripts/check-boundaries.mjs`
 checks repository imports and forbidden dependencies, and ESLint restricts
 direct network calls outside the transport layer. The public browser still
 loads the approved Turnstile and optional Google identity scripts for those
-flows; they are not gateway business APIs.
+flows; they are not gateway business APIs. A signed object-storage link from
+EHR is used only after `assertSignedStorageUrl` (`@hid/http`) accepts it:
+`https` with no user name or password, or `http` to this machine in the local
+environment. The document upload's storage PUT and `window.open` for a download
+both check it first.
 
 ## Authentication and patient data
 
@@ -101,9 +133,33 @@ the client's own `clientId`; a caller cannot change it). hid-system #39 then
 refuses the other portal's sign-in with `403 SESSION_CLIENT_MISMATCH`, rotating
 and ending nothing, and each portal ends only its own session.
 
+Each patient tab is bound to the patient it shows. Both portals announce sign-in
+and sign-out on one `BroadcastChannel`, `hid-session-change`
+(`src/sessionChange.ts`), and both listen on it. A patient tab asks
+`GET /auth/session` at once on an announcement, on a return to view after 60
+seconds or more hidden or after an announcement heard while away, and once on a
+back/forward-cache restore; a 401 there is restored once through refresh, in
+its Web Locks turn, before the answer is judged. The tab stays signed in only
+for a patient session with its own subject: another account's session signs it
+out, an outage changes nothing, and a provider's session found in the shared
+cookies means signed out, not an error. `refreshSession` restores only the
+patient shown. Session questions judge their own 401
+(`RequestSpec.reportUnauthorized: false` in `@hid/http`) instead of passing it
+to the client's global sign-out.
+
+The platform console's workspace is bound to the administrator who opened it,
+held in memory only. A refresh or session read that answers for another
+administrator ends the workspace with a notice and is refused as a 401, so no
+request is repeated as them. Admin tabs announce on their own channel,
+`hid-admin-session-change`, because platform cookies are separate, and re-check
+`GET /admin/session` on an announcement, a return after 60 seconds or more, or a
+back/forward-cache restore; sign-out first asks whose session the cookies carry
+(see [Phase 4 Stage 2B](./PHASE_4_STAGE_2B_FRONTEND_SECURITY.md)).
+
 Staff requests include `X-Facility-ID` and `X-Purpose-Of-Use` with the selected
-facility context. The selected facility must belong to the authenticated
-session; the backend checks the header on each request. Admin routes use their
+facility context; patient self-service requests carry neither. The selected
+facility must belong to the authenticated session; the backend checks the
+header on each request. Admin routes use their
 own platform permissions and are platform-scoped: the admin client never sends
 `X-Facility-ID`, and the backend binds no facility to them even if one is sent.
 `apps/patient-web/src/admin` is the authoritative Platform Admin UI. Since
@@ -123,20 +179,35 @@ the same command once; see
 
 Clinical responses use `cache: 'no-store'`; screens show loading, empty and
 error states for backend reads. `@hid/observability` handles redaction for
-diagnostics, and public variables are checked for secret-like names and values.
+diagnostics. Public variables are checked for secret-like names and values at
+build time: the portal's `vite.config.ts` runs `assertPublicEnvironment` over
+the resolved `VITE_HID_` variables and refuses to build or serve, and the public
+site checks when `RootLayout` calls `getEnvironment()` during `next build`. The
+portal reads each public variable by name from one record
+(`apps/patient-web/src/publicEnvironment.ts`), so only those reach the bundle.
 Clinical request/response bodies are not intended for logs, public URLs or
 browser persistence. Provider facility selection is held in portal memory and
 sent as `X-Facility-ID` on scoped calls. Choosing a facility in the list only
 proposes it; Switch facility confirms it. The portal keeps nothing about the
 facility in browser storage. With hid-system's per-sign-in facility contract
-(D-Eminence/hid-system#47: ADR-046, migration 0080; open, not merged or deployed), Identity keeps the
-facility a sign-in chose and reports `facilitySelection` on staff session reads
-and refresh, so a reload shows the facility chosen. While it is unresolved
-(`reselect`: the chosen facility is no longer available; or `default` for
-someone with more than one facility) the portal opens no page and asks where the
-person is working, with nothing preselected. An Identity without that contract
-reports no field: the portal then shows the facility `/auth/session` resolves
-(the primary one, else the first by name), as before.
+(D-Eminence/hid-system#47: ADR-046, migration 0080; open, not merged or
+deployed; hand-off C1), Identity keeps the facility a sign-in chose and reports
+`facilitySelection` on staff sign-in, session reads and refresh, so a reload
+shows the facility chosen. While it is unresolved (`reselect`: the chosen
+facility is no longer available; `default` for someone with more than one
+facility; or a value the portal does not know) the portal opens no page, shows
+no sidebar, and asks where the person is working, with nothing preselected. An
+Identity without that contract reports no field (`null` counts the same): the
+portal then uses the facility `/auth/session` resolves (the primary one, else
+the first by name) at load and sign-in, as before. So the chooser, merged into
+`main`, works with hid-system `main` today and needs nothing from #47 to run.
+Either way, a tab keeps its in-memory facility across a refresh or session check
+only while it is still among `actor.facilities`. When it is gone, the tab closes
+the open page and patient and asks again; it never adopts the facility the
+answer reports. The staff transport cancels any protected request whose
+`X-Facility-ID` is no longer one of the session's facilities
+(`setStaffSessionFacilities` and `assertStaffSessionFacility` in
+`staff/session.ts`).
 
 ## Production requirements
 
@@ -145,7 +216,11 @@ production origin must forward its own `/api/v1/*` requests to the gateway.
 That forwarding must preserve cookies, CSRF and request headers. A direct
 cross-origin call to the gateway is not an equivalent session deployment. The
 public site also needs a production `/api/v1/*` route for pricing and demo
-requests; its Next.js rewrite is development-only.
+requests; its Next.js rewrite is development-only (hand-off D1).
+
+The portal build publishes no source maps (`build.sourcemap: false`, guarded by
+`apps/patient-web/src/__tests__/buildConfig.test.ts`): hid-system's frontend
+worker serves every asset unfiltered, so a map would be public.
 
 This portal is not deployed. hid-system's Cloudflare configuration
 (`infra/cloudflare/workers/*/wrangler.json` at `522fb2e`) serves `www` and
@@ -154,7 +229,13 @@ hid-system app. The provider recovery links on product hosts point to
 `/provider/recover` on www. hid-system's own `apps/web` has the same fixed route
 since D-Eminence/hid-system#41 (merged into hid-system `main` at `63201b1`, not
 yet released), so the links work with today's hosting once a release carries
-it, or once this portal serves www.
+it, or once this portal serves www. On the `ehr`, `lab`, `pharmacy`,
+`migrate`, `outreach` and `admin` hosts, in production and under `.staging.`,
+exactly as hid-system's `infra/cloudflare/src/frontend-worker.mjs` names them,
+`/` opens that product's workspace (`STAFF_PRODUCT_HOSTNAMES`,
+`isPlatformAdminHostname` in `productHostname.ts`); only listed hosts match, and
+the `ocr` hosts, hid-system's legacy redirects to `migrate`, are not mapped. The
+Vite dev and preview servers answer the same hosts.
 
 The backend's current Turnstile service permits all three general login
 actions (`patient-login`, `staff-login`, `admin-login`) together, and
@@ -179,6 +260,27 @@ hostname requires a backend Turnstile allowlist/configuration change. No staging
 end-to-end acceptance has been run. Backend defects and deployment decisions
 are listed in [open questions](./OPEN-QUESTIONS.md).
 
+## Shared interface contract
+
+`packages/ui` holds the design tokens (`tokens.css`) and the shared
+components. A `Field` gives its error, otherwise its hint, to the one `Input`,
+`Select` or `Textarea` inside it as `aria-describedby`, joined with the
+caller's own ids, and an error sets `aria-invalid` and the critical border.
+That context is why these controls live in the `'use client'` module
+`Field.tsx`: the public site's server components cannot use a React context,
+and any `@hid/ui` module using a client-only React API must say `'use client'`
+(`FieldDescription.test.tsx`). Form-control boundaries use
+`--color-line-control` (3:1 on every light surface), status text the
+`--color-positive-ink` and `--color-caution-ink` tokens (4.5:1 alone, or on
+their own tint over white, `surface-sunk`, `surface-tint` or `brand-tint`), and
+small text `--color-faint`; cards and dividers keep
+`--color-line-strong`, and icons and fills the bright status colours. Shared
+controls show focus with an outline, brand or critical. The ratios are computed
+from the token values (`ColourContrast.test.tsx` in both apps). Focus after
+actions and page changes is shared by both portals (`src/pageFocus.ts`), and
+provider forms tie each refused value to its field
+(`staff/useFieldProblems.tsx`).
+
 ## Repository and verification
 
 | Path | Role |
@@ -191,7 +293,7 @@ are listed in [open questions](./OPEN-QUESTIONS.md).
 | `packages/api` | Service clients and browser route guards |
 | `packages/auth` | Principal and access models |
 | `packages/observability` | Redacted diagnostics |
-| `packages/ui` | Shared tokens and components |
+| `packages/ui` | Shared tokens and components; `Field`, `Input`, `Select` and `Textarea` in the `'use client'` module `Field.tsx` |
 
 The root scripts provide `typecheck`, `lint`, `test`, `audit:boundaries`,
 `build:public-web` and `build:patient-web`. These are local code checks. A

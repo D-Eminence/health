@@ -52,6 +52,30 @@ Two minutes before the reported idle expiry a banner offers **Stay signed in**,
 which refreshes the session. Nothing refreshes on a timer. At the 8-hour limit
 the banner says only a new sign-in will help.
 
+Since changed (the admin and public PR, 2026-10-12): a workspace belongs to the
+administrator who opened it. The console holds that account in memory only,
+set on open and cleared on end. A refresh that answers for another
+administrator ends the workspace with the **switched** notice ("Platform
+administration in this browser is now signed in as another administrator…")
+and is refused as a 401, so the original request is never repeated as them; a
+closed workspace restores no session. Admin tabs announce each sign-in and
+sign-out on their own `BroadcastChannel`, `hid-admin-session-change`, separate
+from the patient and staff channel because admin cookies are separate. A
+sign-in is announced as soon as MFA verification or enrolment sets the cookies,
+even if the workspace then fails to open. On an announcement, a return after 60
+seconds or more hidden, or a back/forward-cache restore, a tab re-reads
+`GET /admin/session`: another administrator ends the workspace (switched); a
+refused session ends it through the client's 401, with the server's reason or
+the expiry reading above, so a sign-out in another tab reads as "ended before
+it expired"; an outage changes nothing. `POST /auth/admin/logout` revokes
+whichever session the cookies carry and needs no step-up, so sign-out first
+asks `GET /admin/session`, refreshing a lapsed access token on the way.
+Another administrator's session is left alone: the workspace closes with the
+switched notice and no logout is sent. A refused session ends the workspace
+with the server's reason, and a check the server cannot answer keeps the
+workspace and says sign-out could not be completed. The race that remains and
+the audit volume of these reads are in [open questions](./OPEN-QUESTIONS.md).
+
 ## Step-up for high-risk actions
 
 `StepUpProvider` wraps the signed-in workspace. When the backend refuses a
@@ -66,7 +90,11 @@ it, the same submission is repeated once:
 - Cancelling reports that the action was not carried out.
 - A rejected or rate-limited code keeps the dialog open with the backend's
   reason, and an authenticator code is never resent automatically
-  (`refreshOnUnauthorized`).
+  (`refreshOnUnauthorized`). (Since changed, found by the 2026-10-12 audit:
+  hid-system answers a wrong step-up code with `401 MFA_INVALID_CODE` and a
+  changed factor with `401 MFA_CHALLENGE_INVALID`. The console keeps only the
+  first from triggering a refresh, so the second still refreshes and repeats
+  once; backend hand-off A20 asks for 403s.)
 - If step-up is still required after confirming, the refusal is shown; there
   is no loop.
 - Concurrent actions share one confirmation.
@@ -126,7 +154,10 @@ panel explains, before anything is sent:
 - the excluded fields.
 
 The administrator chooses an optional search/status filter, gives a reason and
-ticks a per-export confirmation. The CSV is fetched through the shared client's
+ticks a per-export confirmation. (Since changed, found by the 2026-10-12 audit:
+the search term and the export reason travel in the API request's query
+string, which gateway and edge access logs record; backend hand-off A24 and
+D7.) The CSV is fetched through the shared client's
 `download` response type and saved without being retained. A failed export is
 never retried automatically, because each one is audited.
 
@@ -151,6 +182,10 @@ where they are readable; otherwise the UI says the count was not shared.
     cleanup, or leaving and re-entering a page) cancelled the shared request
     for the next caller, and admin pages loaded on mount showed "could not be
     loaded" in development.
+- Since changed (2026-10-12): the cursor-paged lists (approvals, demo
+  requests) no longer drop a "Load more" page requested before the first
+  page's effects ran; `useCursorPages` cancels only a load for the page being
+  replaced.
 
 ## Error codes
 
@@ -163,6 +198,14 @@ where they are readable; otherwise the UI says the count was not shared.
 | Approval | `TWO_PERSON_APPROVAL_REQUIRED`, `SELF_APPROVAL_DENIED`, `APPROVER_INELIGIBLE`, `APPROVAL_CANCEL_DENIED`, `APPROVAL_NOT_PENDING`, `APPROVAL_ALREADY_PENDING`, `APPROVAL_EXPIRED`, `TARGET_INELIGIBLE` |
 | Session | `AUTHENTICATION_REQUIRED`, `PLATFORM_SESSION_REQUIRED`, `PLATFORM_SESSION_SCOPE_DENIED`, `CSRF_VALIDATION_FAILED`, `ORIGIN_DENIED` |
 | Availability | `PLATFORM_PORTAL_DISABLED`, `PLATFORM_MAINTENANCE` |
+
+Since changed (2026-10-12): the map names `IDEMPOTENCY_KEY_REQUIRED`, the code
+Identity's admin commands send, with `IDEMPOTENCY_CONFLICT` and
+`IDEMPOTENCY_KEY_REUSED`; `IDEMPOTENCY_KEY_INVALID`, which only patient
+enrollment sends, is no longer in it. Behind hid-system's gateway a `503
+PLATFORM_MAINTENANCE` (like `MFA_UNAVAILABLE`) currently arrives as `503
+UPSTREAM_UNAVAILABLE`, so its own message cannot show until backend hand-off A8
+ships.
 
 A screen may explain a code more precisely: on the export panel
 `PERMISSION_DENIED` reads as "Exports are restricted to Super Admins with the
@@ -213,4 +256,5 @@ export permission".
   - the legacy `platform_admin` role.
 - **Deployment**: merge and deploy the Stage 2A backend with
   `MFA_SECRET_KEY_B64`. Until then platform sign-in fails, because the staff
-  sign-in route is no longer granted to the admin app.
+  sign-in route is no longer granted to the admin app. (Since changed: merged
+  into hid-system `main`, not released; backend hand-off C2 and D4.)

@@ -341,7 +341,8 @@ than a live completion tracker.
   Another account signed in meanwhile, staff or patient, is left alone: logout
   would otherwise end it. The provider portal asks when its sign-out had to
   wait; the patient portal, which does not hear other windows sign in, always
-  asks.
+  asks. (Since changed: the patient portal now listens on the same channel and
+  still always asks before signing out; see the 2026-10-12 readiness series.)
 - A refused question is handled as a refused sign-out: the session is restored,
   and its account confirmed, before the logout is sent again. hid-system also
   answers 401 when it cannot check a session, so a 401 is not taken as this
@@ -533,7 +534,8 @@ than a live completion tracker.
     and takes focus. This also fixes OCR-A11Y-02 (medium).
   - The provider workspace moves focus to a new page's heading when a page
     change takes away the control the user was on: Back, Forward, or a
-    document's Extract with OCR (`staff/pageFocus.ts`).
+    document's Extract with OCR (`staff/pageFocus.ts`; since moved to
+    `src/pageFocus.ts`, shared by both portals).
   - Tests: `OcrFocus.test.tsx` (31; 21 of the first 26 fail on `main`, and the
     five added after review fail before their fix; four refused-request cases
     need a real browser, because jsdom keeps focus on a disabled control).
@@ -758,7 +760,8 @@ code and password), PA-10 (the contact cleared for another code) and PA-12
   Health ID", "Get your Health ID · Health ID", "Reset your password · Health ID",
   and "… · Health ID Provider" or "… Platform"), and give the earlier title back
   when they close. Patient portal pages and provider pages keep one title
-  (PR-06, PEHR-05 below).
+  (PR-06, PEHR-05 below). (Since changed: every patient and provider page now
+  names its tab; see the 2026-10-12 readiness series.)
 - No request, contract or backend change. The Turnstile, the challenge and the
   verification token are handled as before.
 - **Tests:** `apps/patient-web/src/__tests__/AuthStepFocus.test.tsx`, 21 cases.
@@ -784,7 +787,8 @@ code and password), PA-10 (the contact cleared for another code) and PA-12
   - the titles.
   No other browser, assistive technology or device. This is not a claim of WCAG
   conformance.
-- **Remaining confirmed findings (28), by audit id, most severe first:**
+- **Remaining confirmed findings (28), by audit id, most severe first** (since
+  changed: all 28 are fixed in source by the 2026-10-12 readiness series):
   - Medium:
     - PA-07, OCR-A11Y-05, PEHR-08: input borders 1.28:1.
     - A11Y-BR-05, OCR-A11Y-03, PEHR-07, A11Y-BR-06: success and warning badges
@@ -836,7 +840,8 @@ release.
   decision and deploy order (0080 and the role bootstrap before that Identity
   takes traffic). D-Eminence/Health-id#42 (draft) reads its
   `facilitySelection` and waits on it and on the product decision of when to
-  ask.
+  ask. (Since changed: #42 merged into Health-id `main` before #47, since it
+  works without the field; see the 2026-10-12 readiness series.)
 - **Backend follow-ups found and not fixed:** patient-only routes
   (`GET /identity/me`, EHR `GET /ehr/me/records`) answer `503` to a staff
   sign-in instead of `403 PATIENT_SESSION_REQUIRED`; Identity's own
@@ -889,3 +894,219 @@ release.
   with two facilities and with one, `selected` on reload, no field, a later
   switch, and a refresh that reports another tab's choice. 7 fail before the
   change; the other 5 guard what must not change.
+- **Since changed, before #42 merged** (see the 2026-10-12 readiness series):
+  the whole sidebar, not only "Working at", is left out while the portal asks;
+  any `facilitySelection` value it does not know asks too, with `null` or no
+  field as before; a refresh or session check never moves a tab to another
+  facility, and when it finds the tab's own facility gone, the tab closes the
+  open page and patient, cancels requests still naming it, and asks again,
+  with or without the field; and `FacilityChoice.test.tsx` has 40 cases.
+
+## 2026-10-12: readiness series (visual system, facility chooser, provider clinical, OCR and Outreach, patient portal, admin and public)
+
+An audit of Health-id `main` at `c880421` against hid-system `main` at
+`6b49a06` (read-only) recorded 340 findings: 91 frontend-actionable, 113
+backend, 16 infrastructure, 32 product decisions, 41 stale doc statements, 43
+already resolved and 4 not defects. A second reviewer confirmed 290, refuted 2
+and left 1 uncertain (47 needed no verdict). The frontend findings were fixed
+in six PRs; the backend, infrastructure and product items went to the
+hid-system owner as the [backend hand-off](./BACKEND_OWNER_HANDOFF.md); this
+entry's docs PR records both. hid-system was not changed.
+
+- **#44, visual system (`claude/a11y-visual-system`, merged).**
+  - Tokens (`packages/ui/src/tokens.css`): `--color-line-control` `#898989` for
+    form-control boundaries (3.50:1 on white, 3.29 on `surface-sunk`, 3.24 on
+    `surface-tint`; was `#e3e3e3`, 1.28:1); `--color-positive-ink` `#007a39`
+    and `--color-caution-ink` `#8f5f00` for status text (Badge success 4.89:1
+    and warning 5.06:1 on their tints over white, at least 4.52:1 over the
+    other light surfaces a badge sits on; `.staff-success` 5.46:1);
+    `--color-faint` `#7b7b7b` to `#6f6f6f` (5.02:1 on white down to 4.53:1 on
+    `surface-hover`), also used for patient and admin placeholders. The dark
+    palette has the new tokens; the unused `--color-soft` is gone.
+  - Shared `Input`, `Select` and `Textarea` show a focus outline, brand or
+    critical, since an invalid control is red at rest. A `Field` gives its
+    error, otherwise its hint, to its control as `aria-describedby`, and an
+    error sets `aria-invalid` and the critical border. The controls moved to
+    the `'use client'` module `Field.tsx`, because a context in
+    `primitives.tsx` fails `next build`.
+  - Provider links are underlined in the brand colour; workspace modules are
+    cards; section headings, toolbars and details have rules.
+  - Public site: the demo dialog's and `/about`'s own controls use
+    `line-control`; the search shortcut hint is 6.43:1; a refused demo service
+    or notes field is marked invalid. Commit `d5e0aa2` says it fixed the
+    `/provider/apply` application form; that form was never rendered, the
+    change was reverted (`01475ba`), and the admin and public PR deletes it.
+  - Fixes PA-07, PA-08, PEHR-06, PEHR-07, PEHR-08, PEHR-12, PEHR-14,
+    OCR-A11Y-03, OCR-A11Y-05, OCR-A11Y-08, A11Y-BR-05, A11Y-BR-06 and
+    A11Y-BR-07. Tests: `ColourContrast.test.tsx` (both apps),
+    `StaffLinkStyles.test.ts`, `FieldDescription.test.tsx`; 44 of the first
+    48 contrast cases, 8 link cases and 9 Field cases failed on `main` first.
+- **#42, facility chooser (`claude/facility-selection`, merged).** While the
+  facility is unresolved (`reselect`, `default` with more than one facility,
+  or a `facilitySelection` value the portal does not know) no page and no
+  sidebar show, and the question offers the person's facilities with nothing
+  preselected; it takes focus once the workspace opens, holds its options
+  while the choice saves, and words a `403 FACILITY_ACCESS_DENIED` as "You are
+  no longer active at" the facility's name. Without the field (hid-system `main` today)
+  load and sign-in are as before. With or without it, a refresh or session
+  check that finds the tab's facility gone closes the open page and patient,
+  cancels protected requests still naming it (any header case), and asks
+  again. It merged before hid-system#47 for that reason. Tests:
+  `FacilityChoice.test.tsx` (40 cases; 27 of the first 34 fail on `c880421`),
+  `staff/session.test.ts` (3), `NarrowLayout.test.ts`.
+- **#45, provider clinical (`claude/provider-clinical-readiness`, merged).**
+  - Emergency summary: the sections EHR returns beyond encounters and notes
+    (diagnoses, prescriptions, lab requests, documents) show only with each
+    one's read permission, current entries first, with a truncation notice
+    per section; documents are listed, never opened; vitals are left out
+    because EHR sends them uncorrected; prescription dates show as calendar
+    days. Emergency access and the PIN are offered only when the role can then
+    open the record, Close my grant only with `identity.consent.write`, and a
+    PIN typed with spaces is read as Identity reads it.
+  - Safety warnings (hand-off A1, A3): an encounter's status form says its
+    orders are not cancelled and Pharmacy and the Laboratory are not told; an
+    active or on-hold prescription's status form says Pharmacy is not told and
+    may still dispense the version it was sent; the lab-request form says a
+    draft is never sent to the Laboratory.
+  - Pharmacy's dispensing card shows route and instructions (PHARM-01). The
+    Lab and Pharmacy lists say, at 200 items, that newer ones cannot be
+    reached (A2). EHR forms mirror the DTO limits and name refused fields
+    (EHR-FORMS-01). Document links must be `https` before an upload or
+    download opens them (SEC-SIGNED-URL-SCHEME), and sizes sent as text are
+    read as numbers (EHR-DOCS-01).
+  - Accessibility: PEHR-04, PEHR-05, PEHR-09 with A11Y-BR-08, PEHR-10,
+    PEHR-13, NEW-PEHR-ACTION-FOCUS (the provider counterpart of OCR-A11Y-01
+    and PR-03), NEW-PEHR-DETAIL-RUNON and NEW-LAB-HISTORY-EXPANDED. Refresh
+    buttons keep focus while their read runs.
+  - Tests: `EmergencySummary`, `PatientAccess`, `ClinicalNotes`,
+    `Prescriptions`, `ClinicalDocuments`, `RefreshFocus`,
+    `FieldProblemsPerForm` and `OperationsActionFocus`.
+- **#46, OCR and Outreach (`claude/ocr-outreach-readiness`, open).**
+  - OCR publication keeps one Idempotency-Key per request in page memory
+    (never browser storage), reads the history again after any refusal, and
+    offers Retry publication with the same key after OCR's 15 s wait, or to
+    resume a pending or processing publication; a publication names what it
+    made, and imported Lab or Pharmacy evidence is read on request (OCR-02,
+    OCR-04, GAP-L86, GAP-L87). OCR IDs are checked as UUIDs at their fields.
+  - Outreach campaigns are read-only, saying campaign management is not yet
+    available, because Identity refuses `outreach.campaign.write` (ADR-045;
+    OUTREACH-01, GAP-L93). A registration case is resent with the same
+    `localCommandId` and temporary ID, its fields checked after trimming
+    (OUTREACH-02, GAP-L94).
+  - Accessibility: OCR-A11Y-06, OCR-A11Y-09 (OCR and workspace state screens,
+    the platform console's session screens included, are main landmarks;
+    OCR's and the provider workspace's have an h1), NEW-OCR-CREATE-DISABLED,
+    NEW-OCR-RAWTEXT-SCROLL, NEW-OCR-REVIEW-HINT and NEW-PEHR-REQUIRED-MISMATCH.
+    A field refused from Enter in that field is announced as an alert.
+  - Tests: `OcrPublication`, `OcrFields`, `Outreach`, `OcrConfirmation`,
+    `OcrStateScreens`, `ocrOutreachApi`.
+- **Patient portal PR (`claude/patient-portal-readiness`).**
+  - Overview, records (every vital the aggregate returns, with units),
+    notifications in words, the Access PIN's rules, and the NIN's 11 digits
+    stated and tied to their fields. Every page names its tab. Focus after
+    actions, Try again and page changes reaches what loaded; success notices
+    are status regions mounted once; repeated buttons name their item.
+  - The patient's own access decisions send no `X-Purpose-Of-Use`
+    (PW-PATIENT-PURPOSE-HEADER). A provider's sign-in in the shared cookies
+    leaves the portal signed out, not in error (PW-STAFF-SESSION-IN-PATIENT-PORTAL).
+    Each tab is bound to the patient it shows (SEC-PATIENT-XTAB): it listens
+    on `hid-session-change`, re-checks after a minute away or an announcement,
+    restores only its own patient, and blames another tab only with evidence.
+    `@hid/http` gained `RequestSpec.reportUnauthorized` so session questions
+    judge their own 401.
+  - Accessibility: PR-03, PR-04, PR-05, PR-06, PR-07, PR-08, PA-11,
+    NEW-PORTAL-STATUS-NOTICES, NEW-ENROLL-NIN-FORMAT,
+    NEW-PATIENT-LINK-PAGE-FOCUS, NEW-PATIENT-STATE-NO-H1,
+    NEW-UNSTATED-INPUT-RULES and NEW-AMBIGUOUS-ACTION-NAMES. Its verifier
+    narrowed NEW-PATIENT-STATE-NO-H1 to the session check; the wrong-portal
+    and not-permitted screens cannot be reached from the patient session and
+    are unchanged.
+  - `staff/pageFocus.ts` moved to `src/pageFocus.ts`, shared by both portals;
+    `ItemName` is in `src/ItemName.tsx`.
+- **Admin and public PR (`claude/admin-public-readiness`).**
+  - Public site: the demo role is held to 2 to 120 characters and focus goes
+    to the first field to correct; the pricing parser leaves out a product the
+    site does not present and still refuses a malformed row
+    (PUB-PRICING-FAIL-CLOSED); the completion form checks the DTO's minimums
+    and shows only the refusals hid-system words for the applicant
+    (PUB-FORM-VALIDATION-DRIFT); the unused `ProviderApplicationForm` is
+    removed and the portal's enrollment screen has a component test.
+  - Console: the workspace is bound to the administrator who opened it
+    (SEC-ADMIN-XTAB): a refresh for another administrator ends it, admin tabs
+    announce on `hid-admin-session-change` as soon as the cookies change and
+    re-check after 60 s away or a back/forward-cache restore, sign-out first
+    asks whose session the cookies carry, and a closed workspace restores no
+    session. `IDEMPOTENCY_KEY_REQUIRED` is mapped (ADMIN-IDEMPOTENCY-CODE).
+    Controls and pricing writes have component tests; the admin suite is
+    deterministic, and a "Load more" page clicked early is no longer dropped.
+  - Build: the staging product and admin hosts open their workspaces, and the
+    Vite dev and preview servers answer them; the portal build refuses a
+    secret-like public variable (SEC-VITE-ENV-BUILD-GUARD) and reads each one
+    by name from one record; it publishes no source maps
+    (SEC-PUBLIC-SOURCEMAPS).
+- **Accessibility outcome.** All 28 confirmed findings left after the third
+  batch are fixed in source: 13 by #44, 6 by #45, 2 by #46 and 7 by the
+  patient portal PR. So are the 13 NEW-* findings the audit added: 6 by the
+  patient portal PR, 3 by #45 and 4 by #46. Remaining confirmed findings: 0.
+  Checked for this entry against the combined tree (`9bff952`): the token
+  values, the link and Field rules, a title for every patient and provider
+  page, one h1 on the clinical record with a working tab set, a main landmark
+  and h1 on each OCR and provider state screen and on the patient session
+  check, the stated input rules, the Google button's disabled state and the
+  OCR fields. Contrast is computed from the source token values (WCAG 2
+  relative luminance), and the rest is checked in jsdom component tests. No
+  browser, screen reader or other assistive technology was run in this
+  series; this is not a claim of WCAG conformance. Residuals that are not
+  audit findings (the console's session check has a main landmark but no h1,
+  four provider layout classes without a rule, OCR step buttons using native
+  `disabled`, a danger badge on tinted surfaces) are in
+  [open questions](./OPEN-QUESTIONS.md).
+- **Evidence.** Each branch ran `audit:boundaries`, `typecheck`, `lint`,
+  `npm test` and the portal build on its final head:
+  - #44 at `2f79377`: 87 files, 1157 tests. Its public-site Turbopack build
+    could not run in the worktree (linked `node_modules`); the webpack build
+    of the same tree passed.
+  - #42 at `336d1e7`: 84 files, 1079 tests.
+  - #45 at `cd55b33`: 102 files, 1231 tests.
+  - #46 at `a29c252`: 89 files, 1113 tests; the public-site build passed at
+    `2765940`, since the branch changes `packages/ui`.
+  - Patient portal PR at `292aee7`: 1152 tests; 12 of 13 full-suite runs
+    passed. The one failure captured was an admin list test under load, in
+    code this PR does not touch, not checked against its base.
+  - Admin and public PR at `88435bd`: 87 files, 1110 tests; both builds pass,
+    the portal's `dist` holds no `.map` file, a build with
+    `VITE_HID_STRIPE_SECRET=x` stops naming the key, and an unused variable is
+    not inlined.
+  - Combined tree `9bff952`, all six PRs joined by three integration merges
+    whose conflicts kept both sides' behaviour: `audit:boundaries`,
+    `typecheck`, `lint`, 130 files and 1684 tests, and both builds pass.
+  - Every behaviour change has a test that failed on the code before it.
+    Each PR had an adversarial review. The review text the provider and
+    facility batches received was cut off part-way, so any finding after the
+    cut was not seen.
+- **Backend dependencies** ([hand-off](./BACKEND_OWNER_HANDOFF.md) ids): the
+  warnings and the cap notice stand in for A1, A3 and A2; the emergency summary
+  waits on A11 and on decisions E1 and then B1; OCR resume on B5, OCR's purpose
+  on E3 and B4; Outreach writes on E5 and B10; Lab and Pharmacy queues on E2
+  and B2; onboarded organizations on E4 and B3; the facility chooser on C1 and
+  E7 (#47, open); everything merged on hid-system `main` but unreleased (#31
+  and #33 to #46) on C2; hosting, Turnstile hosts, staging and secrets on D1 to D4.
+  Items found after the hand-off was written are in open questions, "Found
+  during the readiness series".
+- **Not verified.** No staging environment exists, so nothing ran against a
+  deployed backend, staging or production. No browser or assistive-technology
+  run was made in this series (the headless Chromium runs in the earlier
+  batches are not repeated). #46 and the two new PRs were not merged when
+  this was written; their counts are from their branches and the combined
+  tree.
+- **Docs.** New `BACKEND_OWNER_HANDOFF.md`. The gap map, open questions,
+  architecture notes and the Stage 2B and Stage 3 reports are brought in line
+  with the combined tree and hid-system `6b49a06`, including every statement
+  in `docs/` that the audit's 41 doc-only findings named. Outside `docs/` and
+  unchanged here: the `c4b5445` baseline comments in
+  `packages/contracts/src/registry.ts`, `packages/api/src/services.ts` and
+  `apps/patient-web/src/api.ts` (the audit re-checked the registry's Identity,
+  admin and commercial routes against `6b49a06`, and each is still served,
+  the two gateway health routes by nginx), the #42 pull request description, and
+  hid-system's own `INTERFACE_CONTRACT.md`. Earlier entries in this log keep
+  their text, with "since changed" notes where they read as current.
