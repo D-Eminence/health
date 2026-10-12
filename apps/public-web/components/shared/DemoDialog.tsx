@@ -173,7 +173,7 @@ export function DemoDialog() {
             <select name="service" value={request.service}
               onChange={event => { setRequest(current => ({ ...current, service: event.target.value as DemoRequest['service'] })); submissionKeyRef.current = null }}
               aria-invalid={Boolean(errors.service)}
-              className="h-[38px] rounded-(--radius-control) border border-line-strong bg-surface px-3 text-[14px] text-ink">
+              className="h-[38px] rounded-(--radius-control) border border-line-control bg-surface px-3 text-[14px] text-ink">
               <option value="">Select a service</option>
               {DEMO_PRODUCTS.map(product => <option key={product.code} value={product.code}>{product.label}</option>)}
             </select>
@@ -228,7 +228,7 @@ export function DemoDialog() {
               rows={3}
               value={request.notes}
               onChange={update('notes')}
-              className="min-h-28 resize-y rounded-(--radius-control) border border-line-strong bg-surface px-3 py-2.5 text-[14px] text-ink focus:border-brand focus:outline-2 focus:outline-offset-0 focus:outline-brand"
+              className="min-h-28 resize-y rounded-(--radius-control) border border-line-control bg-surface px-3 py-2.5 text-[14px] text-ink focus:border-brand focus:outline-2 focus:outline-offset-0 focus:outline-brand"
             />
             {errors.notes ? <span className="text-[12px] font-medium text-critical">{errors.notes}</span> : null}
             <span className="text-[12px] text-faint">
@@ -298,7 +298,7 @@ function Field({
         aria-describedby={error ? errorId : undefined}
         className={cx(
           'h-[38px] rounded-(--radius-control) border bg-surface px-3 py-2.5 text-[14px] text-ink focus:outline-2 focus:outline-offset-0 focus:outline-brand',
-          error ? 'border-critical' : 'border-line-strong focus:border-brand',
+          error ? 'border-critical' : 'border-line-control focus:border-brand',
         )}
       />
       {error ? (

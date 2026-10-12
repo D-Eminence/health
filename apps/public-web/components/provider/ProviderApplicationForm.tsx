@@ -11,7 +11,7 @@ import {
   type ApplicationProductCode, type OrganizationType,
 } from '@/lib/provider-application'
 
-const fieldClass = 'min-h-11 w-full rounded-(--radius-control) border border-line-strong bg-surface px-3 py-2 text-sm text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand'
+const fieldClass = 'min-h-11 w-full rounded-(--radius-control) border border-line-control bg-surface px-3 py-2 text-sm text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand'
 const labelClass = 'flex flex-col gap-1.5 text-sm font-semibold text-ink'
 
 export function ProviderApplicationForm({ product }: { product?: string }) {
