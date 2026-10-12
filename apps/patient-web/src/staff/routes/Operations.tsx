@@ -46,6 +46,15 @@ function useFacilityList<T>(facilityId: string | undefined, enabled: boolean, lo
   return { items: result.facilityId === facilityId ? result.items : null, loading: result.facilityId !== facilityId || result.loading, error: result.facilityId === facilityId ? result.error : '', refresh }
 }
 
+// Lab and Pharmacy list at most this many work items, oldest accepted first, and
+// offer no further page (lab-work-items.service.ts list, pharmacy.service.ts listWorkItems).
+const WORK_LIST_CAP = 200
+
+function WorkListCap({ count }: { count: number }) {
+  if (count < WORK_LIST_CAP) return null
+  return <p className="staff-notice">Showing the first {WORK_LIST_CAP} work items, oldest accepted first; newer items may be missing. Complete or refresh work to see more.</p>
+}
+
 function ListState({ loading, error, empty, retry, hasItems }: { loading: boolean; error: string; empty: string; retry: () => void; hasItems: boolean }) {
   return <>
     {error && <p className="staff-error" role="alert">{error}</p>}
@@ -230,7 +239,7 @@ function ResultHistory({ facilityId, result, onRefused }: { facilityId: string; 
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
   }, [facilityId, result.id, result.currentVersion, unreleased, open, revision, onRefused])
-  return <div className="staff-stack"><Button tone="secondary" size="sm" onClick={() => setOpen(value => !value)}>{open ? 'Hide result history' : 'View result history'}</Button>
+  return <div className="staff-stack"><Button tone="secondary" size="sm" aria-expanded={open} onClick={() => setOpen(value => !value)}>{open ? 'Hide result history' : 'View result history'}</Button>
     {open && <><Button tone="secondary" size="sm" onClick={() => setRevision(value => value + 1)} disabled={loading}>Refresh history</Button>
       {loading && <p role="status">Loading result history…</p>}
       {error && <p className="staff-error" role="alert">{error}</p>}
@@ -460,6 +469,7 @@ export function Laboratory() {
     <PageHead eyebrow="Provider workspace" title="Laboratory">Accepted EHR test orders at this facility. A separate accession records the specimen chain of custody.</PageHead>
     <div className="staff-row staff-toolbar"><Button tone="secondary" size="sm" onClick={() => void list.refresh()} disabled={list.loading}>Refresh work</Button></div>
     <ListState loading={list.loading} error={list.error} empty="No accepted lab work" retry={() => void list.refresh()} hasItems={Boolean(list.items?.length)} />
+    <WorkListCap count={list.items?.length ?? 0} />
     {list.items && list.items.length > 0 && <div className="staff-two-col"><div className="staff-list">{list.items.map(item => <div className="staff-list-item" key={item.id}><div className="staff-row"><strong>{item.testName ?? 'Lab test'}</strong><Badge tone={item.accessionId ? 'information' : 'warning'}>{item.accessionId ? 'Accessioned' : item.status}</Badge></div><p>Patient {shortId(item.patientId)} · Accepted {dateText(item.acceptedAt)}</p>{item.accessionNumber && <p>Accession {item.accessionNumber}</p>}{(item.accessionId ? permissions.includes('lab.accession.read') : permissions.includes('lab.accession.create')) && <Button tone="secondary" size="sm" onClick={() => setSelection({ facilityId, item })}>{item.accessionId ? 'Open accession' : 'Prepare accession'}</Button>}</div>)}</div>
       {selected?.accessionId && permissions.includes('lab.accession.read') ? <AccessionView key={`${facilityId}-${selected.accessionId}`} facilityId={facilityId} id={selected.accessionId} permissions={permissions} onChanged={() => void list.refresh()} /> : selected && permissions.includes('lab.accession.create') ? <AccessionForm facilityId={facilityId} item={selected} onCreated={accession => { setSelection({ facilityId, item: { ...selected, accessionId: accession.id, accessionNumber: accession.accessionNumber } }); void list.refresh() }} /> : <Card className="staff-card"><h2>Choose work</h2><p>Open an accession or prepare a specimen for an accepted order.</p></Card>}
     </div>}
@@ -496,6 +506,8 @@ function PharmacyAction({ facilityId, item, permissions, onChanged }: { facility
   const canDispense = !item.dispensing && permissions.includes('pharmacy.dispensing.create')
   const canReverse = Boolean(item.dispensing && !item.dispensing.reversed && permissions.includes('pharmacy.dispensing.reverse') && permissions.includes('pharmacy.dispensing.read'))
   return <div className="staff-list-item"><div className="staff-row"><strong>{item.medication.display}</strong><Badge tone={item.dispensing?.reversed ? 'warning' : item.dispensing ? 'success' : 'information'}>{item.dispensing?.reversed ? 'Reversed' : item.dispensing ? 'Dispensed' : 'Accepted'}</Badge></div><p>Patient {shortId(item.patientId)} · {item.doseQuantity == null ? 'Dose not recorded' : `${item.doseQuantity} ${item.doseUnit ?? ''}`} · {item.frequency ?? 'Frequency not recorded'}</p>
+    <p>{item.routeCode ? `Route: ${item.routeCode}` : 'Route not recorded'}</p>
+    {item.instructions && <p className="staff-note-content">{item.instructions}</p>}
     {canDispense && <form className="staff-form" onSubmit={event => void submit(event)}><div className="staff-form-row"><Field label="Quantity dispensed" htmlFor={`pharmacy-quantity-${item.id}`} required><Input id={`pharmacy-quantity-${item.id}`} name="quantity" type="number" min="0.0001" step="0.0001" required /></Field><Field label="Unit" htmlFor={`pharmacy-unit-${item.id}`} required><Input id={`pharmacy-unit-${item.id}`} name="unit" maxLength={80} defaultValue={item.doseUnit ?? ''} required /></Field></div><Field label="Reason" htmlFor={`pharmacy-reason-${item.id}`} required><Textarea id={`pharmacy-reason-${item.id}`} name="reason" minLength={8} maxLength={500} required /></Field><Button type="submit" size="sm" disabled={busy}>{busy ? 'Recording…' : 'Record full dispensing'}</Button></form>}
     {canReverse && <form className="staff-form" onSubmit={event => void submit(event, true)}><Field label="Reversal reason" htmlFor={`pharmacy-reversal-${item.id}`} required><Textarea id={`pharmacy-reversal-${item.id}`} name="reason" minLength={8} maxLength={500} required /></Field><Button type="submit" tone="secondary" size="sm" disabled={busy}>{busy ? 'Recording…' : 'Reverse dispensing'}</Button></form>}
     {error && <p className="staff-error" role="alert">{error}</p>}{success && <p className="staff-success" role="status">{success}</p>}
@@ -511,6 +523,7 @@ export function Pharmacy() {
     <PageHead eyebrow="Provider workspace" title="Pharmacy">Accepted prescriptions and full dispensing records for the active facility. The server checks patient authorization before dispensing or reversal.</PageHead>
     <div className="staff-row staff-toolbar"><Button tone="secondary" size="sm" onClick={() => void list.refresh()} disabled={list.loading}>Refresh work</Button></div>
     <ListState loading={list.loading} error={list.error} empty="No accepted prescriptions" retry={() => void list.refresh()} hasItems={Boolean(list.items?.length)} />
+    <WorkListCap count={list.items?.length ?? 0} />
     {list.items && list.items.length > 0 && <div className="staff-list">{list.items.map(item => <PharmacyAction key={item.id} facilityId={facilityId} item={item} permissions={permissions} onChanged={() => void list.refresh()} />)}</div>}
   </>
 }

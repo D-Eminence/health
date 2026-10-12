@@ -2485,3 +2485,34 @@ describe('Laboratory result access denied', () => {
     })
   })
 })
+
+describe('the result history toggle says whether the history is open', () => {
+  it('reports aria-expanded false while closed and true once opened', async () => {
+    api.labExecutions.mockResolvedValue({ items: [execution({ result: releasedResult() })] })
+    api.labResultHistory.mockResolvedValue(releasedResult())
+    const panel = await openExecutionPanel([...EXECUTION_READ, 'lab.result.released.read'])
+    const toggle = await within(panel).findByRole('button', { name: 'View result history' })
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    fireEvent.click(toggle)
+    expect(within(panel).getByRole('button', { name: 'Hide result history' }).getAttribute('aria-expanded')).toBe('true')
+    await within(panel).findByText('Version 1')
+  })
+})
+
+describe('the Laboratory work list says when the backend cut it short', () => {
+  // Lab lists at most 200 work items, oldest accepted first (lab-work-items.service.ts list).
+  const many = (count: number) => Array.from({ length: count }, (_, n) => workItem({ id: `work-item-${n}` }))
+
+  it('notes that newer items may be missing when the list holds 200', async () => {
+    api.labWorkItems.mockResolvedValue({ items: many(200) })
+    render(<Laboratory />)
+    expect((await screen.findByText(/Showing the first 200 work items/)).textContent).toMatch(/newer items may be missing/)
+  })
+
+  it('says nothing of the kind for a shorter list', async () => {
+    api.labWorkItems.mockResolvedValue({ items: many(12) })
+    render(<Laboratory />)
+    await screen.findAllByText('Haemoglobin')
+    expect(screen.queryByText(/Showing the first 200 work items/)).toBeNull()
+  })
+})

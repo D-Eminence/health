@@ -405,15 +405,20 @@ export type LabResultValue = {
   abnormalFlag?: LabAbnormalFlag
 }
 
+/** A Pharmacy work item as hid-system pharmacy.service.ts projectWorkItem() returns it. */
 export interface PharmacyWorkItem {
   id: string
   patientId: string
   version: number
   acceptedAt: string
-  medication: { display: string }
+  medication: { display: string; codeSystem?: string | null; code?: string | null }
   doseQuantity?: number | null
   doseUnit?: string | null
+  routeCode?: string | null
   frequency?: string
+  instructions?: string | null
+  /** The EHR prescription version Pharmacy accepted. */
+  sourceEhrPrescriptionVersion?: number
   dispensing?: { id: string; reversed: boolean } | null
 }
 

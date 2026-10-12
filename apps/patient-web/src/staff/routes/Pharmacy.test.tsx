@@ -819,3 +819,44 @@ describe('dispensing reversal', () => {
     expect(within(await findItem(METFORMIN)).getByRole('button', { name: 'Reverse dispensing' })).toBeTruthy()
   })
 })
+
+describe('what the dispensing card shows of the prescription (PHARM-01)', () => {
+  it('shows the prescription’s instructions and route, which the work item carries, before dispensing', async () => {
+    staff.permissions = [WORK_ITEM_READ, DISPENSING_CREATE]
+    api.pharmacyWorkItems.mockResolvedValue({ items: [{ ...accepted, routeCode: 'oral', instructions: 'Take with food.\nFinish the course.' }] })
+    render(<Pharmacy />)
+    const item = await findItem(AMOXICILLIN)
+    expect(within(item).getByText(/Route: oral/)).toBeTruthy()
+    const instructions = within(item).getByText(/Take with food\./)
+    expect(instructions.textContent).toBe('Take with food.\nFinish the course.')
+    // Read before the form that records the dispensing.
+    const form = within(item).getByRole('button', { name: 'Record full dispensing' }).closest('form')!
+    expect(instructions.compareDocumentPosition(form) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('says when no route was recorded', async () => {
+    api.pharmacyWorkItems.mockResolvedValue({ items: [{ ...accepted, routeCode: null, instructions: 'Take with food.' }] })
+    render(<Pharmacy />)
+    const item = await findItem(AMOXICILLIN)
+    expect(within(item).getByText(/Route not recorded/)).toBeTruthy()
+  })
+})
+
+describe('the work list says when the backend cut it short', () => {
+  // Pharmacy lists at most 200 work items, oldest accepted first (pharmacy.service.ts listWorkItems).
+  const many = (count: number) => Array.from({ length: count }, (_, n) => ({ ...accepted, id: `work-item-${n}` }))
+
+  it('notes that newer items may be missing when the list holds 200', async () => {
+    api.pharmacyWorkItems.mockResolvedValue({ items: many(200) })
+    render(<Pharmacy />)
+    expect(await screen.findByText(/Showing the first 200 work items/)).toBeTruthy()
+    expect(screen.getByText(/Showing the first 200 work items/).textContent).toMatch(/newer items may be missing/)
+  })
+
+  it('says nothing of the kind for a shorter list', async () => {
+    api.pharmacyWorkItems.mockResolvedValue({ items: many(199) })
+    render(<Pharmacy />)
+    await screen.findAllByText(AMOXICILLIN)
+    expect(screen.queryByText(/Showing the first 200 work items/)).toBeNull()
+  })
+})
