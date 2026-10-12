@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 
@@ -21,7 +21,21 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 vi.mock('./env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.example.test', turnstileSiteKey: null }) }))
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.resetModules() })
 
+/** The portal's other tabs, as BroadcastChannel would connect them; `fromAnotherTab` delivers what another tab announces. */
+class TabChannel extends EventTarget {
+  static open = new Set<TabChannel>()
+  constructor(readonly name: string) { super(); TabChannel.open.add(this) }
+  postMessage() { /* this tab's own announcements reach no other tab here */ }
+  close() { TabChannel.open.delete(this) }
+}
+beforeEach(() => { TabChannel.open.clear(); vi.stubGlobal('BroadcastChannel', TabChannel) })
+function fromAnotherTab() {
+  act(() => { for (const channel of TabChannel.open) channel.dispatchEvent(new MessageEvent('message', { data: 'changed' })) })
+}
+
 const SESSION = 'GET /api/v1/auth/session'
+const REFRESH = 'POST /api/v1/auth/refresh'
+const LOGIN = 'POST /api/v1/auth/login'
 const FACILITY = 'POST /api/v1/auth/facility'
 const REQUESTS = 'GET /api/v1/identity/access-requests'
 
@@ -66,7 +80,16 @@ async function open(path: string) {
 
 const question = () => screen.findByRole('heading', { level: 1, name: 'Where are you working?' })
 const option = (name: string) => screen.getByRole('radio', { name }) as HTMLInputElement
-const pageRequests = (sent: Sent[]) => sent.filter(call => call.route !== SESSION && call.route !== FACILITY)
+/** Every request outside /api/v1/auth/: what a page sends, at a facility. */
+const pageRequests = (sent: Sent[]) => sent.filter(call => !call.route.includes(' /api/v1/auth/'))
+/** A protected route, or the refresh endpoint, refusing a request without a usable session. */
+const unauthenticated = () => problem(401, 'AUTHENTICATION_REQUIRED', 'Valid authentication is required')
+
+async function signIn() {
+  fireEvent.change(await screen.findByRole('textbox', { name: 'Work email' }), { target: { value: 'ada@example.test' } })
+  fireEvent.change(screen.getByLabelText(/^Password/), { target: { value: 'correct horse battery staple' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+}
 
 describe('a facility chosen earlier that is no longer available (reselect)', () => {
   it('opens no page and asks, with nothing chosen for the user, then works at the facility chosen', async () => {
@@ -146,10 +169,12 @@ describe('a facility chosen earlier that is no longer available (reselect)', () 
     const sent = serve({ [SESSION]: [session(LAGOS, 'reselect')], [FACILITY]: [session(IKEJA, 'selected')] })
     await open('/provider/clinical')
     await question()
-    expect(screen.queryByText(/Select a patient/i)).toBeNull()
+    // The clinical page (with no patient open, it asks for one) is not there alongside the question.
+    expect(screen.queryByRole('heading', { name: 'Choose a patient first.' })).toBeNull()
     fireEvent.click(option('Ikeja Clinic'))
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
-    await waitFor(() => expect(screen.queryByRole('heading', { name: 'Where are you working?' })).toBeNull())
+    expect(await screen.findByRole('heading', { level: 1, name: 'Choose a patient first.' })).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: 'Where are you working?' })).toBeNull()
     expect(screen.getByTestId('where').textContent).toBe('/provider/clinical')
     expect(pageRequests(sent)).toEqual([])
   })
@@ -204,12 +229,12 @@ describe('a facility chosen for this sign-in (selected), and an Identity without
     expect(sent.filter(call => call.route === FACILITY).map(call => call.body)).toEqual([{ facilityId: 'facility-2' }])
   })
 
-  it('keeps this tab at its facility when a later session read reports another tab\'s choice', async () => {
+  it('keeps this tab at its facility when a refresh reports another tab\'s choice', async () => {
     // The choice belongs to the sign-in, so another tab's switch is what the server reports next.
-    // A tab adopts a session only on load, sign-in or its own choice: a refresh or check does not move it.
-    const sent = serve({ [SESSION]: [session(LAGOS, 'selected'), session(IKEJA, 'selected'), session(IKEJA, 'selected')],
-      'POST /api/v1/auth/refresh': [session(IKEJA, 'selected')],
-      [REQUESTS]: [() => problem(401, 'AUTHENTICATION_REQUIRED', 'Valid authentication is required'), () => json([]), () => json([])] })
+    // A tab adopts a session only on load, sign-in or its own choice: a refresh does not move it.
+    const sent = serve({ [SESSION]: [session(LAGOS, 'selected')],
+      [REFRESH]: [session(IKEJA, 'selected')],
+      [REQUESTS]: [unauthenticated, () => json([]), () => json([])] })
     await open('/provider')
     expect(await screen.findByText(/Working at Lagos General\./)).toBeTruthy()
     await waitFor(() => expect(sent.filter(call => call.route === REQUESTS).length).toBeGreaterThan(1))
@@ -217,7 +242,54 @@ describe('a facility chosen for this sign-in (selected), and an Identity without
     expect(screen.getByText(/Working at Lagos General\./)).toBeTruthy()
     expect((screen.getByRole('combobox', { name: 'Working at' }) as HTMLSelectElement).value).toBe('facility-1')
     expect(sent.filter(call => call.route === REQUESTS).every(call => call.facility === 'facility-1')).toBe(true)
+    expect(sent.filter(call => call.route === REFRESH)).toHaveLength(1)
     expect(sent.filter(call => call.route === FACILITY)).toEqual([])
+  })
+
+  it('keeps this tab at its facility when a session check reports another tab\'s choice', async () => {
+    // Another tab announces a change; this tab asks the server, which reports that tab's switch.
+    const sent = serve({ [SESSION]: [session(LAGOS, 'selected'), session(IKEJA, 'selected')], [REQUESTS]: [() => json([]), () => json([])] })
+    await open('/provider')
+    expect(await screen.findByText('0 pending requests')).toBeTruthy()
+
+    fromAnotherTab()
+    expect(await screen.findByRole('heading', { name: 'Checking your session…' })).toBeTruthy()
+
+    await waitFor(() => expect(screen.queryByText('Checking your session…')).toBeNull())
+    expect(sent.filter(call => call.route === SESSION)).toHaveLength(2)
+    expect(screen.getByText(/Working at Lagos General\./)).toBeTruthy()
+    expect((screen.getByRole('combobox', { name: 'Working at' }) as HTMLSelectElement).value).toBe('facility-1')
+    expect(screen.queryByRole('heading', { name: 'Where are you working?' })).toBeNull()
+    expect(sent.filter(call => call.route === FACILITY)).toEqual([])
+    expect(pageRequests(sent).every(call => call.facility === 'facility-1')).toBe(true)
+  })
+})
+
+describe('the other ways a session arrives', () => {
+  it('asks after a sign-in, which reports no facility chosen yet, before any page opens', async () => {
+    const sent = serve({ [SESSION]: [unauthenticated], [REFRESH]: [unauthenticated], [LOGIN]: [session(LAGOS, 'default')],
+      [FACILITY]: [session(IKEJA, 'selected')], [REQUESTS]: [() => json([])] })
+    await open('/provider/sign-in')
+    await signIn()
+    await question()
+    expect(screen.getByText(/You work at more than one facility\./)).toBeTruthy()
+    expect(screen.queryByText(/Good to see you/)).toBeNull()
+    expect(pageRequests(sent)).toEqual([])
+
+    fireEvent.click(option('Ikeja Clinic'))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(await screen.findByText(/Working at Ikeja Clinic\./)).toBeTruthy()
+    await waitFor(() => expect(pageRequests(sent).length).toBeGreaterThan(0))
+    expect(pageRequests(sent).every(call => call.facility === 'facility-2')).toBe(true)
+  })
+
+  it('asks after a reload whose session read is refused and restored by a refresh', async () => {
+    // The access token expired while the page was closed: the read is refused, and the refresh's answer is adopted.
+    const sent = serve({ [SESSION]: [unauthenticated], [REFRESH]: [session(LAGOS, 'reselect')] })
+    await open('/provider')
+    await question()
+    expect(screen.getByText(/The facility you chose for this sign-in is no longer available to you\./)).toBeTruthy()
+    expect(sent.map(call => call.route)).toEqual([SESSION, REFRESH])
   })
 })
 
