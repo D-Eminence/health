@@ -67,6 +67,19 @@ async function press(button: HTMLElement) {
   await act(async () => { fireEvent.click(button) })
 }
 const focused = () => document.activeElement
+
+/**
+ * The hover and press styles of `button`'s tone (hover:bg-…, active:bg-…) that it
+ * does not hold while unavailable: each needs one for the same property under
+ * aria-disabled, or a button that cannot act still looks as if it could.
+ */
+function unheldLook(button: HTMLElement) {
+  const classes = button.className.split(/\s+/)
+  const change = (state: string, utility: string) => `${state}:${utility.split('-')[0]}`
+  const held = new Set(classes.flatMap(name => { const [, state, utility] = /^aria-disabled:(hover|active):(.+)$/.exec(name) ?? []; return state && utility ? [change(state, utility)] : [] }))
+  return classes.flatMap(name => { const [, state, utility] = /^(hover|active):(.+)$/.exec(name) ?? []; return state && utility ? [change(state, utility)] : [] })
+    .filter(item => !held.has(item))
+}
 function region(id: string) {
   const element = document.getElementById(id)
   if (!element) throw new Error(`Expected the status region ${id} to be mounted before the step.`)
@@ -86,7 +99,9 @@ describe('patient access', () => {
     render(<MemoryRouter><Patients /></MemoryRouter>)
     const status = region('patients-status')
     expect(status.textContent).toBe('')
-    await press(screen.getByRole('button', { name: 'Close my grant' }))
+    const close = screen.getByRole('button', { name: 'Close my grant' })
+    expect(unheldLook(close)).toEqual([])
+    await press(close)
     await waitFor(() => expect(focused()).toBe(screen.getByRole('heading', { level: 1, name: 'Open a patient record.' })))
     expect(screen.queryByRole('button', { name: 'Close my grant' })).toBeNull()
     expect(status.isConnected).toBe(true)
@@ -120,6 +135,7 @@ describe('access requests', () => {
     api.closeGrant.mockResolvedValue({})
     render(<AccessRequests />)
     const close = await screen.findByRole('button', { name: 'Close access' })
+    expect(unheldLook(close)).toEqual([])
     const status = region('access-requests-status')
     expect(status.textContent).toBe('')
     await press(close)

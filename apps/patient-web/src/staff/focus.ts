@@ -8,6 +8,10 @@ import { useStaff } from './App'
  * Its handler ignores a press meanwhile. Dimmed, as a disabled one is.
  */
 export const BUSY = 'aria-disabled:opacity-45 aria-disabled:cursor-not-allowed'
+/** BUSY for a secondary button, without its tone's hover and press look while unavailable. */
+export const UNAVAILABLE = `${BUSY} aria-disabled:hover:border-line-strong aria-disabled:hover:bg-surface aria-disabled:hover:text-ink aria-disabled:active:bg-surface`
+/** BUSY for a quiet button, without its tone's hover and press look while unavailable. */
+export const QUIET_UNAVAILABLE = `${BUSY} aria-disabled:hover:bg-transparent aria-disabled:active:bg-transparent`
 
 /** Whether focus has nowhere the user chose: on the page itself, or on `target` already. */
 export function focusIsLost(target: HTMLElement | null): boolean {

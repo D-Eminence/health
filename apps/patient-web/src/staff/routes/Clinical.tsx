@@ -6,7 +6,7 @@ import { isAllowedPatientLookup, staffApi, type ClinicalRecord, type DiagnosisUp
 import { useStaff } from '../App'
 import { getEnvironment } from '../env'
 import { refusalText } from '../fieldProblem'
-import { BUSY, useFocusById } from '../focus'
+import { BUSY, QUIET_UNAVAILABLE, UNAVAILABLE, useFocusById } from '../focus'
 import { GroupError, useFieldProblems } from '../useFieldProblems'
 import { staffSessionGeneration, untilStaffSessionReady } from '../session'
 
@@ -111,8 +111,6 @@ async function readPage<T>(read: (cursor: string | undefined, fresh: boolean) =>
 }
 
 type ListNotice = { readonly scope: string; readonly text: string; readonly alert: boolean }
-// Dimmed, and without the secondary tone's hover and press look, while unavailable.
-const UNAVAILABLE = 'aria-disabled:opacity-45 aria-disabled:cursor-not-allowed aria-disabled:hover:border-line-strong aria-disabled:hover:bg-surface aria-disabled:hover:text-ink aria-disabled:active:bg-surface'
 
 function Notice({ notice, scope }: { notice: ListNotice | null; scope: string }) {
   if (notice?.scope !== scope) return null
@@ -571,7 +569,7 @@ function NotePanel({ facilityId, patientId, encounterId, note, canWrite, verify,
       {open ? 'Hide note content' : 'Review note content'}
     </Button>
     {open && <>
-      <Button tone="quiet" size="sm" aria-disabled={loading || undefined} className={BUSY}
+      <Button tone="quiet" size="sm" aria-disabled={loading || undefined} className={QUIET_UNAVAILABLE}
         onClick={() => { if (loading) return; setNotice(''); setRevision(value => value + 1) }}>Refresh revisions</Button>
       {/* Mounted while the note is open, so what a revision records is announced; it says so through the read that follows. */}
       <div id={`note-${note.id}-status-region`} role="status">{notice ? <p className="staff-success">{notice}</p> : loading && <p>Loading note revisions…</p>}</div>

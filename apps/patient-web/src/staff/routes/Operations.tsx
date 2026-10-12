@@ -5,7 +5,7 @@ import { Badge, Button, Card, EmptyState, Field, Input, Select, Textarea } from 
 import { staffApi, type LabAbnormalFlag, type LabAccession, type LabExecution, type LabResult, type LabResultRevision, type LabResultValue, type LabSpecimen, type LabWorkItem, type OcrExtraction, type OcrJob, type OcrPublication, type OcrTargetDomain, type OcrValidation, type OcrValidationInput, type OutreachCampaign, type OutreachCampaignMember, type OutreachCase, type PharmacyWorkItem } from '../api'
 import { useStaff } from '../App'
 import { FieldInputError, problemProps, problemText, refusalText, type FieldProblem } from '../fieldProblem'
-import { BUSY, focusIsLost, useFocusById } from '../focus'
+import { BUSY, focusIsLost, UNAVAILABLE, useFocusById } from '../focus'
 import { GroupError, useFieldProblems } from '../useFieldProblems'
 
 // A refusal's message, with each field a 400 VALIDATION_FAILED names.
@@ -64,9 +64,9 @@ function WorkListCap({ count }: { count: number }) {
   return <p className="staff-notice">This list can show only the {WORK_LIST_CAP} oldest accepted work items. Any item accepted after them is not shown and cannot be reached from this page: completing work or refreshing the list does not bring it into view. Contact your facility administrator about orders not listed here.</p>
 }
 
-/** A list's refresh: focusable while its read runs (BUSY), when a second press does nothing. */
+/** A list's refresh: focusable while its read runs (UNAVAILABLE), when a second press does nothing. */
 function RefreshButton({ loading, onRefresh, children }: { loading: boolean; onRefresh: () => Promise<void>; children: ReactNode }) {
-  return <Button tone="secondary" size="sm" aria-disabled={loading || undefined} className={BUSY} onClick={() => { if (!loading) void onRefresh() }}>{children}</Button>
+  return <Button tone="secondary" size="sm" aria-disabled={loading || undefined} className={UNAVAILABLE} onClick={() => { if (!loading) void onRefresh() }}>{children}</Button>
 }
 
 function ListState({ loading, error, empty, retry, hasItems }: { loading: boolean; error: string; empty: string; retry: () => void; hasItems: boolean }) {
@@ -276,7 +276,7 @@ function ResultHistory({ facilityId, result, onRefused }: { facilityId: string; 
     return () => { active = false }
   }, [facilityId, result.id, result.currentVersion, unreleased, open, revision, onRefused])
   return <div className="staff-stack"><Button tone="secondary" size="sm" aria-expanded={open} onClick={() => setOpen(value => !value)}>{open ? 'Hide result history' : 'View result history'}</Button>
-    {open && <><Button tone="secondary" size="sm" aria-disabled={loading || undefined} className={BUSY} onClick={() => { if (!loading) setRevision(value => value + 1) }}>Refresh history</Button>
+    {open && <><Button tone="secondary" size="sm" aria-disabled={loading || undefined} className={UNAVAILABLE} onClick={() => { if (!loading) setRevision(value => value + 1) }}>Refresh history</Button>
       {loading && <p role="status">Loading result history…</p>}
       {error && <p className="staff-error" role="alert">{error}</p>}
       {!loading && !error && history && <RevisionList revisions={history.revisions} />}
@@ -448,7 +448,7 @@ function ExecutionPanel({ facilityId, specimen, permissions, generation, recheck
     {/* Mounted throughout, so what a step records is announced; it says so through the read that follows. */}
     <div id={`lab-executions-status-${specimen.id}`} role="status">{notice ? <p className="staff-success">{notice}</p> : loading && <p>Loading executions…</p>}</div>
     {error && <p className="staff-error" role="alert">{error}</p>}
-    {canRead && <Button tone="secondary" size="sm" aria-disabled={loading || undefined} className={BUSY} onClick={() => { if (loading) return; setNotice(''); setRevision(value => value + 1) }}>Refresh executions</Button>}
+    {canRead && <Button tone="secondary" size="sm" aria-disabled={loading || undefined} className={UNAVAILABLE} onClick={() => { if (loading) return; setNotice(''); setRevision(value => value + 1) }}>Refresh executions</Button>}
     {items?.map(execution => <ExecutionCard key={execution.id} facilityId={facilityId} execution={execution} permissions={permissions}
       onStarted={stepStarted} onExecutionChanged={changedExecution} onResultChanged={(value, message) => changedResult(execution.id, value, message)} onRefused={recheckAccess} />)}
     {canStart && !loading && !error && (items?.length === 0 || (!canRead && !items)) && <form className="staff-form" onSubmit={event => void start(event)}>
@@ -527,7 +527,7 @@ function AccessionView({ facilityId, id, permissions, created, onChanged }: { fa
     <div id="lab-accession-status" role="status">{notice ? <p className="staff-success">{notice}</p> : loading && <p>Loading accession…</p>}</div>
     {error && <p className="staff-error" role="alert">{error}</p>}
     {accession && <><p>Accession {accession.accessionNumber}</p><div className="staff-list">{accession.specimens.map(specimen => <div className="staff-stack" key={`${specimen.id}-${specimen.status}`}><SpecimenAction facilityId={facilityId} accessionId={id} specimen={specimen} permissions={permissions} onStarted={() => setNotice('')} onChanged={message => { specimenChanged(specimen, message); onChanged() }} onRefused={specimenRefused} />{specimen.status === 'received' && (permissions.includes('lab.execution.read') || permissions.includes('lab.execution.start')) && <ExecutionPanel facilityId={facilityId} specimen={specimen} permissions={permissions} generation={generation} recheck={recheck} resultsHidden={resultsHidden} onResultsHidden={hideResults} />}</div>)}</div></>}
-    <div className="staff-row"><Button id="lab-accession-refresh" tone="secondary" size="sm" aria-disabled={loading || undefined} className={BUSY} onClick={() => { if (loading) return; setNotice(''); reload() }}>Refresh accession</Button></div>
+    <div className="staff-row"><Button id="lab-accession-refresh" tone="secondary" size="sm" aria-disabled={loading || undefined} className={UNAVAILABLE} onClick={() => { if (loading) return; setNotice(''); reload() }}>Refresh accession</Button></div>
   </Card>
 }
 
@@ -593,7 +593,7 @@ function PharmacyAction({ facilityId, item, permissions, onChanged }: { facility
     <p>{item.routeCode ? `Route: ${item.routeCode}` : 'Route not recorded'}</p>
     {item.instructions && <p className="staff-note-content">{item.instructions}</p>}
     {canDispense && <form className="staff-form" onSubmit={event => void submit(event)}><div className="staff-form-row"><Field label="Quantity dispensed" htmlFor={`pharmacy-quantity-${item.id}`} error={problems.error(`pharmacy-quantity-${item.id}`)} required><Input id={`pharmacy-quantity-${item.id}`} name="quantity" type="number" min="0.0001" step="0.0001" required {...problems.control(`pharmacy-quantity-${item.id}`)} /></Field><Field label="Unit" htmlFor={`pharmacy-unit-${item.id}`} error={problems.error(`pharmacy-unit-${item.id}`)} required><Input id={`pharmacy-unit-${item.id}`} name="unit" maxLength={80} defaultValue={item.doseUnit ?? ''} required {...problems.control(`pharmacy-unit-${item.id}`)} /></Field></div><Field label="Reason" htmlFor={`pharmacy-reason-${item.id}`} error={problems.error(`pharmacy-reason-${item.id}`)} required><Textarea id={`pharmacy-reason-${item.id}`} name="reason" minLength={8} maxLength={500} required {...problems.control(`pharmacy-reason-${item.id}`)} /></Field><Button type="submit" size="sm" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Recording…' : 'Record full dispensing'}</Button></form>}
-    {canReverse && <form className="staff-form" onSubmit={event => void submit(event, true)}><Field label="Reversal reason" htmlFor={`pharmacy-reversal-${item.id}`} error={problems.error(`pharmacy-reversal-${item.id}`)} required><Textarea id={`pharmacy-reversal-${item.id}`} name="reason" minLength={8} maxLength={500} required {...problems.control(`pharmacy-reversal-${item.id}`)} /></Field><Button type="submit" tone="secondary" size="sm" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Recording…' : 'Reverse dispensing'}</Button></form>}
+    {canReverse && <form className="staff-form" onSubmit={event => void submit(event, true)}><Field label="Reversal reason" htmlFor={`pharmacy-reversal-${item.id}`} error={problems.error(`pharmacy-reversal-${item.id}`)} required><Textarea id={`pharmacy-reversal-${item.id}`} name="reason" minLength={8} maxLength={500} required {...problems.control(`pharmacy-reversal-${item.id}`)} /></Field><Button type="submit" tone="secondary" size="sm" aria-disabled={busy || undefined} className={UNAVAILABLE}>{busy ? 'Recording…' : 'Reverse dispensing'}</Button></form>}
     {error && <p className="staff-error" role="alert">{error}</p>}
     {/* Mounted throughout, so what was recorded is announced. */}
     <div id={`pharmacy-status-${item.id}`} role="status">{success && <p className="staff-success">{success}</p>}</div>
@@ -970,7 +970,7 @@ function CampaignCard({ facilityId, membershipId, campaign, permissions, onChang
   }
   return <div className="staff-list-item"><div className="staff-row"><strong id={`campaign-${campaign.id}-title`} tabIndex={-1}>{campaign.name}</strong><Badge tone={campaign.status === 'active' ? 'success' : 'neutral'}>{campaign.status}</Badge></div><p>{campaign.services.join(', ')} · Starts {dateText(campaign.startsAt)}</p>
     {canRead && <details><summary>Members</summary><ListState loading={members.loading} error={members.error} empty="No members" retry={() => void members.refresh()} hasItems={Boolean(members.items?.length)} />{members.items?.map(member => <p key={member.id}>{member.role.replaceAll('_', ' ')} · Membership {shortId(member.membershipId)}</p>)}</details>}
-    {canWrite && campaign.status !== 'closed' && <form className="staff-form" onSubmit={event => void transition(event)}><Field label={campaign.status === 'planned' ? 'Activation reason' : 'Closure reason'} htmlFor={`campaign-reason-${campaign.id}`} error={statusProblems.error(`campaign-reason-${campaign.id}`)} required><Input id={`campaign-reason-${campaign.id}`} name="reason" minLength={8} maxLength={500} required {...statusProblems.control(`campaign-reason-${campaign.id}`)} /></Field>{startsInFuture && <p className="staff-muted">Activation is available after the start time. Refresh the campaign then.</p>}<Button type="submit" tone="secondary" size="sm" disabled={startsInFuture} aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Updating…' : campaign.status === 'planned' ? 'Activate campaign' : 'Close campaign'}</Button></form>}
+    {canWrite && campaign.status !== 'closed' && <form className="staff-form" onSubmit={event => void transition(event)}><Field label={campaign.status === 'planned' ? 'Activation reason' : 'Closure reason'} htmlFor={`campaign-reason-${campaign.id}`} error={statusProblems.error(`campaign-reason-${campaign.id}`)} required><Input id={`campaign-reason-${campaign.id}`} name="reason" minLength={8} maxLength={500} required {...statusProblems.control(`campaign-reason-${campaign.id}`)} /></Field>{startsInFuture && <p className="staff-muted">Activation is available after the start time. Refresh the campaign then.</p>}<Button type="submit" tone="secondary" size="sm" disabled={startsInFuture} aria-disabled={busy || undefined} className={UNAVAILABLE}>{busy ? 'Updating…' : campaign.status === 'planned' ? 'Activate campaign' : 'Close campaign'}</Button></form>}
     {canWrite && <details><summary>Add campaign member</summary><form className="staff-form" onSubmit={event => void addMember(event)}><Field label="Facility membership ID" htmlFor={`campaign-member-${campaign.id}`} error={memberProblems.error(`campaign-member-${campaign.id}`)} required><Input id={`campaign-member-${campaign.id}`} name="membershipId" placeholder="Membership UUID" required {...memberProblems.control(`campaign-member-${campaign.id}`)} /></Field><Field label="Campaign role" htmlFor={`campaign-role-${campaign.id}`}><Select id={`campaign-role-${campaign.id}`} name="role"><option value="enumerator">Enumerator</option><option value="health_worker">Health worker</option><option value="admin">Admin</option></Select></Field><Button type="submit" size="sm" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Adding…' : 'Add member'}</Button></form></details>}
     {error && <p className="staff-error" role="alert">{error}</p>}
     {/* Mounted throughout, so what was recorded is announced. */}

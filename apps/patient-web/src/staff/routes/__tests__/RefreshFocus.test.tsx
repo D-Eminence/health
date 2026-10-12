@@ -72,9 +72,23 @@ function deferred<T>() {
 }
 
 /**
+ * The hover and press styles of `button`'s tone (hover:bg-…, active:bg-…) that it
+ * does not hold while unavailable: each needs one for the same property under
+ * aria-disabled, or a button that cannot act still looks as if it could.
+ */
+function unheldLook(button: HTMLElement) {
+  const classes = button.className.split(/\s+/)
+  const change = (state: string, utility: string) => `${state}:${utility.split('-')[0]}`
+  const held = new Set(classes.flatMap(name => { const [, state, utility] = /^aria-disabled:(hover|active):(.+)$/.exec(name) ?? []; return state && utility ? [change(state, utility)] : [] }))
+  return classes.flatMap(name => { const [, state, utility] = /^(hover|active):(.+)$/.exec(name) ?? []; return state && utility ? [change(state, utility)] : [] })
+    .filter(item => !held.has(item))
+}
+
+/**
  * Presses `button` from the keyboard while `read` answers later: it keeps focus,
- * marked unavailable rather than disabled, a second press reads nothing more, and
- * once `read` has answered with `answer` it is available again, still focused.
+ * marked unavailable rather than disabled and without its hover and press look, a
+ * second press reads nothing more, and once `read` has answered with `answer` it
+ * is available again, still focused.
  */
 async function expectRefreshKeepsFocus(button: HTMLElement, read: Mock, answer: unknown) {
   const reading = deferred<unknown>()
@@ -85,6 +99,7 @@ async function expectRefreshKeepsFocus(button: HTMLElement, read: Mock, answer: 
   await waitFor(() => expect(read.mock.calls.length).toBe(before + 1))
   expect(button.getAttribute('aria-disabled')).toBe('true')
   expect((button as HTMLButtonElement).disabled).toBe(false)
+  expect(unheldLook(button)).toEqual([])
   expect(document.activeElement).toBe(button)
   await act(async () => { fireEvent.click(button) })
   expect(read.mock.calls.length).toBe(before + 1)

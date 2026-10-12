@@ -3,7 +3,7 @@ import { isHidApiError } from '@hid/http'
 import { Badge, Button, Card, EmptyState, Field, Select } from '@hid/ui'
 import { ACCESS_OUTCOME_FILTERS, ACCESS_REQUEST_STATUSES, staffApi, type AccessRequest, type AccessRequestStatus } from '../api'
 import { useStaff } from '../App'
-import { BUSY, useFocusById } from '../focus'
+import { UNAVAILABLE, useFocusById } from '../focus'
 
 /** How a request ended up, from its effective status (hid-system 0074) or, before that, its own status. */
 const OUTCOMES: Record<string, { label: string; tone: 'success' | 'warning' | 'danger' | 'neutral' }> = {
@@ -113,7 +113,7 @@ export function AccessRequests() {
         {filters.map(value => <option key={value} value={value}>{FILTER_LABELS[value]}</option>)}
       </Select></Field>
       {/* Focusable while the list is read, when a second press does nothing. */}
-      <Button tone="secondary" size="sm" aria-disabled={loading || undefined} className={BUSY} onClick={() => { if (!loading) void load() }}>Refresh</Button>
+      <Button tone="secondary" size="sm" aria-disabled={loading || undefined} className={UNAVAILABLE} onClick={() => { if (!loading) void load() }}>Refresh</Button>
     </div>
     {error && <p className="staff-error" role="alert">{error}</p>}
     {/* Mounted throughout, so what a close says is announced. */}
@@ -125,7 +125,7 @@ export function AccessRequests() {
       {request.status === 'denied' && request.deniedReason && <small className="staff-muted"> {request.deniedReason}</small>}
       {request.effectiveStatus === 'active' && request.consentGrantId && <Button tone="secondary" size="sm"
         onClick={() => void closeAccess(request)} disabled={closing !== null && closing !== request.accessRequestId}
-        aria-disabled={closing === request.accessRequestId || undefined} className={BUSY}>{closing === request.accessRequestId ? 'Closing…' : 'Close access'}</Button>}</td></tr>)}</tbody></table></Card>}
+        aria-disabled={closing === request.accessRequestId || undefined} className={UNAVAILABLE}>{closing === request.accessRequestId ? 'Closing…' : 'Close access'}</Button>}</td></tr>)}</tbody></table></Card>}
     {requests && requests.length === 100 && <p className="staff-muted">Showing the 100 most recent requests.</p>}
   </>
 }
