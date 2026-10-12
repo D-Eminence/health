@@ -91,6 +91,27 @@ describe('ProviderCompletionForm', () => {
     expect(saveProfile).not.toHaveBeenCalled()
   })
 
+  // The summary alert's text does not change on a second failed attempt, so it
+  // is not announced again; the first field to correct takes focus each time.
+  it('moves focus to the first field to correct on every failed attempt', async () => {
+    getProfile.mockReset().mockResolvedValue(profile)
+    render(<ProviderCompletionForm initialProduct="laboratory" />)
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Registered address' }), { target: { value: 'abc' } })
+    const entityType = screen.getByRole('textbox', { name: 'Legal entity type' })
+    fireEvent.change(entityType, { target: { value: 'X' } })
+    const submit = screen.getByRole('button', { name: 'Save missing details' })
+
+    submit.focus()
+    fireEvent.click(submit)
+    await waitFor(() => expect(document.activeElement).toBe(entityType))
+
+    submit.focus()
+    fireEvent.click(submit)
+    await waitFor(() => expect(document.activeElement).toBe(entityType))
+    expect(entityType.getAttribute('aria-describedby')).toBe('completion-entityType-error')
+    expect(saveProfile).not.toHaveBeenCalled()
+  })
+
   it('shows the reason the backend gave for refusing the details', async () => {
     getProfile.mockReset().mockResolvedValue(profile)
     saveProfile.mockReset().mockRejectedValueOnce(new HidApiError(409, 'Application changed; reload before retrying',

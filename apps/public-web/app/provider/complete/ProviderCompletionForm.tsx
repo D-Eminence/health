@@ -121,8 +121,12 @@ export function ProviderCompletionForm({ initialProduct }: { readonly initialPro
     setError('')
     const found = validateOrganizationProfileEntries(entries)
     setFieldErrors(found)
-    if (Object.keys(found).length > 0) {
+    const first = PROFILE_FIELDS.find(({ name }) => found[name])
+    if (first) {
       setError('Check the details marked below.')
+      // The summary reads the same on every attempt, so it is not announced again.
+      // The first field to correct takes focus once it is marked, and its error is read with it.
+      requestAnimationFrame(() => document.getElementById(`completion-${first.name}`)?.focus())
       return
     }
     setBusy(true)
