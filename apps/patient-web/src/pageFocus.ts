@@ -7,7 +7,8 @@ import { useLocation } from 'react-router-dom'
  * leave focus on the document, and a keyboard or screen reader user would start
  * again from the top. Focus moves to the new page's heading instead, or to the
  * main region while the page has none. A control still on screen, such as the
- * navigation link just followed, keeps focus, and the first page shown is left
+ * navigation link just followed, keeps focus (a button disabled as the page
+ * changed does not: see focusLost), and the first page shown is left
  * as the browser opened it. `locked` holds the change while the provider
  * workspace is locked. Used by the patient portal and the provider workspace.
  */
@@ -19,8 +20,7 @@ export function useFocusOnPageChange(main: RefObject<HTMLElement | null>, locked
     // check) is taken up when the workspace opens again.
     if (locked || shown.current === pathname) return
     shown.current = pathname
-    const active = document.activeElement
-    if (active instanceof HTMLElement && active !== document.body && active.isConnected) return
+    if (!focusLost()) return
     focusPageHeading(main.current)
   }, [pathname, main, locked])
 }

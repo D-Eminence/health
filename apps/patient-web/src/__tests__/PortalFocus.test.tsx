@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { act, fireEvent, screen, waitFor } from '@testing-library/react'
+import { useRef } from 'react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
 import type { AccessRequest, EmergencyContact } from '../api'
 import { AccessPage, NotificationsPage, PortalShell, RecordsPage, SettingsPage } from '../routes/Portal'
 import { Overview } from '../routes/Overview'
 import { AccountDeletionCard, EmergencyContactsCard } from '../routes/AccountSafety'
+import { useFocusOnPageChange } from '../pageFocus'
 import { json, press, pressOnArrival, problem, profile, renderPortal, type Handler } from './portalHarness'
 
 /**
@@ -250,6 +253,26 @@ describe('pages that load once', () => {
 
     expect((await screen.findByRole('alert')).textContent).toContain('Sign-out is unavailable right now.')
     await waitFor(() => expect(focused()).toBe(signOut))
+  })
+})
+
+describe('a change of page', () => {
+  it('moves focus to the new page\'s heading when it was left on a button disabled as the page changed', async () => {
+    // Chromium moves focus off a control as it is disabled; an engine that keeps it
+    // there leaves the person on a control that does nothing.
+    function Shell() {
+      const main = useRef<HTMLElement>(null)
+      const navigate = useNavigate()
+      const next = useLocation().pathname === '/next'
+      useFocusOnPageChange(main)
+      return <><button type="button" disabled={next} onClick={() => navigate('/next')}>Continue</button>
+        <main ref={main}><h1>{next ? 'Next page' : 'First page'}</h1></main></>
+    }
+    render(<MemoryRouter><Shell /></MemoryRouter>)
+    const button = screen.getByRole('button', { name: 'Continue' })
+    await press(button)
+    expect((button as HTMLButtonElement).disabled).toBe(true)
+    await waitFor(() => expect(focused()).toBe(screen.getByRole('heading', { name: 'Next page' })))
   })
 })
 
