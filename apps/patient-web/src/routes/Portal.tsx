@@ -5,6 +5,7 @@ import { GoogleButton } from '../GoogleButton'
 import { Turnstile } from '../Turnstile'
 import { BrandLogo } from '../BrandLogo'
 import { useSession } from '../session'
+import type { PatientRecords } from '../api'
 import { usePatientResource } from './usePatientResource'
 import { AccountDeletionCard, EmergencyContactsCard } from './AccountSafety'
 import { revealFocusedLink } from '../navStrip'
@@ -22,6 +23,19 @@ function date(value: string | null | undefined) {
   if (!value) return 'Not available'
   const parsed = new Date(value)
   return Number.isNaN(parsed.getTime()) ? value : new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium' }).format(parsed)
+}
+
+/** Every measurement in a vitals entry, so one holding only blood pressure is not shown as a bare date. */
+function vitalsSummary(item: PatientRecords['vitals'][number]) {
+  return [
+    item.systolicMmhg != null && item.diastolicMmhg != null ? `BP ${item.systolicMmhg}/${item.diastolicMmhg} mmHg` : '',
+    item.temperatureC != null ? `Temp ${item.temperatureC}°C` : '',
+    item.pulseBpm != null ? `Pulse ${item.pulseBpm}` : '',
+    item.respiratoryRate != null ? `Respiratory rate ${item.respiratoryRate}` : '',
+    item.oxygenSaturationPercent != null ? `SpO₂ ${item.oxygenSaturationPercent}%` : '',
+    item.weightKg != null ? `Weight ${item.weightKg} kg` : '',
+    item.heightCm != null ? `Height ${item.heightCm} cm` : '',
+  ].filter(Boolean).join(' · ')
 }
 
 function LoadState({ loading, error, retry }: { loading: boolean; error: string | null; retry: () => void }) {
@@ -130,7 +144,7 @@ export function RecordsPage() {
         {records.data.notes.map(item => <li key={item.id} className="patient-note"><div><strong>{item.title || item.noteType}</strong><span>{date(item.signedAt)} · {item.status}</span></div><p>{item.content}</p></li>)}
       </ul>}</div>
       <div className="patient-card"><h2>Vitals</h2>{records.data.vitals.length === 0 ? <p className="patient-empty">No vitals are available.</p> : <ul className="patient-list">
-        {records.data.vitals.map(item => <li key={item.id}><div><strong>{date(item.recordedAt)}</strong><span>{item.temperatureC != null ? `Temp ${item.temperatureC}°C` : ''}{item.pulseBpm != null ? ` · Pulse ${item.pulseBpm}` : ''}{item.oxygenSaturationPercent != null ? ` · SpO₂ ${item.oxygenSaturationPercent}%` : ''}</span></div></li>)}
+        {records.data.vitals.map(item => <li key={item.id}><div><strong>{date(item.recordedAt)}</strong><span>{vitalsSummary(item)}</span></div></li>)}
       </ul>}</div>
       <div className="patient-card"><h2>Diagnoses</h2>{records.data.diagnoses.length === 0 ? <p className="patient-empty">No diagnoses are available.</p> : <ul className="patient-list">
         {records.data.diagnoses.map(item => <li key={item.id}><div><strong>{item.display}</strong><span>{item.codeSystem}: {item.code} · {item.clinicalStatus} · {item.verificationStatus}</span></div>{item.notes && <p>{item.notes}</p>}</li>)}
