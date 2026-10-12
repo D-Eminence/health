@@ -315,7 +315,9 @@ function StaffProvider({ children }: { children: ReactNode }) {
     // A switch answered after its session ended, or after another change, applies to nothing now.
     if (period.current !== owner || status.current !== 'ready') return false
     startPeriod()
-    setState({ status: 'ready', session })
+    // Identity accepted this tab's own choice: an answer for the facility sent is that choice, whatever
+    // selection it reports. Asking again straight away would leave the person no way on.
+    setState({ status: 'ready', session: session.actor.facility?.id === id ? { ...session, facilitySelection: 'selected' } : session })
     return true
   }
 

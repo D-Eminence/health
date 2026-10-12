@@ -461,6 +461,32 @@ describe('the question while a choice is saved or refused', () => {
     expect(option('Ikeja Clinic').matches(':disabled')).toBe(false)
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Continue' }))
   })
+
+  it('works at the facility chosen whatever selection the answer to the choice reports, rather than ask again', async () => {
+    // Identity accepted the choice for the facility sent: asking again straight after would leave no way on.
+    const sent = serve({ [SESSION]: [session(LAGOS, 'reselect')], [FACILITY]: [session(IKEJA, 'something-new')], [REQUESTS]: [() => json([])] })
+    await open('/provider')
+    await question()
+    fireEvent.click(option('Ikeja Clinic'))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(await screen.findByText(/Working at Ikeja Clinic\./)).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: 'Where are you working?' })).toBeNull()
+    await waitFor(() => expect(pageRequests(sent).length).toBeGreaterThan(0))
+    expect(pageRequests(sent).every(call => call.facility === 'facility-2')).toBe(true)
+  })
+
+  it('still asks when the answer to the choice reports another facility than the one chosen, with a selection it does not know', async () => {
+    const sent = serve({ [SESSION]: [session(LAGOS, 'reselect')], [FACILITY]: [session(LAGOS, 'something-new')] })
+    await open('/provider')
+    await question()
+    fireEvent.click(option('Ikeja Clinic'))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    expect(await screen.findByText(/The facility for this sign-in is not confirmed\./)).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Where are you working?' })).toBeTruthy()
+    expect(pageRequests(sent)).toEqual([])
+  })
 })
 
 describe('the facility this tab works at, found gone mid-session', () => {
