@@ -10,8 +10,17 @@ import { BUSY, focusIsLost, UNAVAILABLE, useFocusById } from '../focus'
 import { useFieldProblems } from '../useFieldProblems'
 import { RevisionList } from '../labRevisions'
 
+/**
+ * OCR's answer when EHR, Lab or Pharmacy refused OCR's own workload identity
+ * (hid-system #60, ocr-api owning-service-auth.ts): a fault between services, not
+ * a refusal of the user, which a publication stores as the retryable
+ * OWNING_SERVICE_UNAVAILABLE. Its detail is technical, so it is said plainly.
+ */
+const SERVICE_AUTH_UNAVAILABLE: ReadonlySet<string> = new Set(['EHR_SERVICE_AUTH_UNAVAILABLE', 'LAB_SERVICE_AUTH_UNAVAILABLE', 'PHARMACY_SERVICE_AUTH_UNAVAILABLE'])
+
 // A refusal's message, with each field a 400 VALIDATION_FAILED names.
 function errorText(error: unknown, fallback: string) {
+  if (isHidApiError(error) && SERVICE_AUTH_UNAVAILABLE.has(error.code)) return 'A connection between Health ID services failed; retry in about 15 seconds.'
   return refusalText(error, fallback)
 }
 
@@ -760,7 +769,8 @@ const PUBLICATION_RETRY_WAIT = 'OCR allows another attempt about 15 seconds afte
 interface PublicationAttempt { readonly key: string; retryAt: number }
 
 function publicationRefusal(caught: unknown) {
-  if (isHidApiError(caught) && caught.code === 'OCR_PUBLICATION_IN_PROGRESS') return 'OCR did not start another attempt: one is still running, or it is too soon after the last one.'
+  // OCR answers it also after the last attempt (INTERFACE_CONTRACT.md, OCR publication).
+  if (isHidApiError(caught) && caught.code === 'OCR_PUBLICATION_IN_PROGRESS') return 'OCR did not start another attempt: one is still running, it is too soon after the last one, or no attempts remain.'
   if (isHidApiError(caught) && caught.code === 'OCR_PUBLICATION_TERMINAL') return 'The owning service refused this publication, so it cannot be retried.'
   return errorText(caught, 'Validated evidence could not be published.')
 }
@@ -867,8 +877,8 @@ function OcrPublicationStatus({ facilityId, publication, permissions, canPublish
 // resumes the publication it recorded under that key. A refusal reads the history
 // again: the page then offers only what OCR would take, and says a publication was
 // recorded when the history shows one, though its answer was lost.
-function OcrPublicationCard({ facilityId, validation, confirmationId, permissions, publicationAttempts, onChanged }: {
-  facilityId: string; validation: OcrValidation; confirmationId: string | undefined; permissions: readonly string[];
+function OcrPublicationCard({ actorId, facilityId, validation, confirmationId, permissions, publicationAttempts, onChanged }: {
+  actorId: string | undefined; facilityId: string; validation: OcrValidation; confirmationId: string | undefined; permissions: readonly string[];
   publicationAttempts: Map<string, PublicationAttempt>; onChanged: () => Promise<void>
 }) {
   const [publications, setPublications] = useState<OcrPublication[] | null>(null)
@@ -881,9 +891,11 @@ function OcrPublicationCard({ facilityId, validation, confirmationId, permission
   const publishId = `ocr-publish-${validation.id}`
   const retryId = `ocr-publish-retry-${validation.id}`
   const operation = validation.disposition === 'validated' && validation.targetDomain !== 'UNCLASSIFIED' ? publicationOperations[validation.targetDomain] : undefined
-  // What a press sends, and so what its key is held for.
-  const request = permissions.includes('ocr.publication.write') && confirmationId && operation
-    ? JSON.stringify([facilityId, validation.id, validation.version, confirmationId, operation]) : undefined
+  // What a press sends, and so what its key is held for. OCR finds a publication by facility, requesting
+  // account and key, so the key belongs to this validation and this requester: another account signed in
+  // here holds none for it.
+  const request = actorId && permissions.includes('ocr.publication.write') && confirmationId && operation
+    ? JSON.stringify([actorId, facilityId, validation.id, validation.version, confirmationId, operation]) : undefined
   useEffect(() => {
     let active = true
     void staffApi.ocrPublications(facilityId, validation.id).then(result => { if (active) setPublications(result.items) })
@@ -1133,7 +1145,7 @@ export function Ocr() {
       if (message) { const reloaded = await lookup(); setStepFocus({ targets: reloaded ? ['ocr-history-title', 'ocr-job-title'] : ['ocr-find-submit'], notice: reloaded ? message : undefined }); return }
       await afterStep(['ocr-history-title', 'ocr-job-title'], 'Source patient confirmed.')
     }} /></div>}
-    {visibleJob && validations && validations.length > 0 && <div className="staff-section"><h2 id="ocr-history-title" tabIndex={-1}>Review and publication history</h2><div className="staff-list">{validations.map(validation => <OcrPublicationCard key={validation.id} facilityId={facilityId} validation={validation} confirmationId={visibleJob.patientConfirmation?.id} permissions={permissions} publicationAttempts={publicationAttempts.current} onChanged={() => afterStep(['ocr-history-title', 'ocr-job-title'], 'Publication recorded.')} />)}</div></div>}
+    {visibleJob && validations && validations.length > 0 && <div className="staff-section"><h2 id="ocr-history-title" tabIndex={-1}>Review and publication history</h2><div className="staff-list">{validations.map(validation => <OcrPublicationCard key={validation.id} actorId={actorId} facilityId={facilityId} validation={validation} confirmationId={visibleJob.patientConfirmation?.id} permissions={permissions} publicationAttempts={publicationAttempts.current} onChanged={() => afterStep(['ocr-history-title', 'ocr-job-title'], 'Publication recorded.')} />)}</div></div>}
   </>
 }
 
