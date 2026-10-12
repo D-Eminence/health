@@ -15,8 +15,6 @@ import type {
   HTMLAttributes,
   InputHTMLAttributes,
   ReactNode,
-  SelectHTMLAttributes,
-  TextareaHTMLAttributes,
 } from 'react'
 
 /** Joins class names, dropping anything falsy. */
@@ -247,88 +245,14 @@ export function TextLink({ className, children, ...rest }: TextLinkProps) {
 // Forms and feedback
 // ---------------------------------------------------------------------------
 
-const CONTROL_BASE =
-  'w-full rounded-(--radius-control) border border-line-strong bg-surface px-3 py-2.5 font-sans text-[14px] leading-[1.25] text-ink placeholder:text-faint transition-[border-color,box-shadow,background-color] duration-150 focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/25 disabled:cursor-not-allowed disabled:bg-surface-tint disabled:text-muted disabled:opacity-70'
-
-export interface FieldProps extends HTMLAttributes<HTMLDivElement> {
-  readonly label: ReactNode
-  readonly htmlFor: string
-  readonly hint?: ReactNode
-  readonly error?: ReactNode
-  readonly required?: boolean
-  readonly children: ReactNode
-}
-
-/** Labels, help and error copy stay consistently associated with controls. */
-export function Field({
-  label,
-  htmlFor,
-  hint,
-  error,
-  required = false,
-  children,
-  className,
-  ...rest
-}: FieldProps) {
-  return (
-    <div className={cx('grid gap-1.5', className)} {...rest}>
-      <label htmlFor={htmlFor} className="text-[13px] font-medium leading-[1.25] text-ink">
-        {label}
-        {required ? <span aria-hidden="true" className="ml-1 text-critical">*</span> : null}
-      </label>
-      {children}
-      {error ? <p id={`${htmlFor}-error`} className="text-[12px] leading-[1.45] text-critical">{error}</p> : null}
-      {!error && hint ? <p id={`${htmlFor}-hint`} className="text-[12px] leading-[1.45] text-muted">{hint}</p> : null}
-    </div>
-  )
-}
-
-export interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
-  readonly invalid?: boolean
-}
-
-export function Input({ invalid = false, className, ...rest }: InputProps) {
-  return (
-    <input
-      aria-invalid={invalid || undefined}
-      className={cx(CONTROL_BASE, invalid && 'border-critical focus:border-critical focus:ring-critical/20', className)}
-      {...rest}
-    />
-  )
-}
-
-export interface TextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
-  readonly invalid?: boolean
-}
-
-export function Textarea({ invalid = false, className, ...rest }: TextareaProps) {
-  return (
-    <textarea
-      aria-invalid={invalid || undefined}
-      className={cx(CONTROL_BASE, 'min-h-28 resize-y leading-[1.45]', invalid && 'border-critical focus:border-critical focus:ring-critical/20', className)}
-      {...rest}
-    />
-  )
-}
-
-export interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
-  readonly invalid?: boolean
-}
-
-export function Select({ invalid = false, className, children, ...rest }: SelectProps) {
-  return (
-    <select
-      aria-invalid={invalid || undefined}
-      className={cx(CONTROL_BASE, 'h-[38px] py-0', invalid && 'border-critical focus:border-critical focus:ring-critical/20', className)}
-      {...rest}
-    >
-      {children}
-    </select>
-  )
-}
+// Field, Input, Textarea and Select live in Field.tsx, a client module: Field
+// reaches its control through context, which React's server build lacks.
 
 export interface SearchFieldProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'type'> {
-  /** Accessible name; use a visible Field label where search context is not self-evident. */
+  /**
+   * Accessible name; use a visible Field label where search context is not self-evident.
+   * It does not read that Field's hint or error: pass aria-describedby.
+   */
   readonly label: string
   readonly startAdornment?: ReactNode
   readonly endAdornment?: ReactNode
@@ -337,7 +261,7 @@ export interface SearchFieldProps extends Omit<InputHTMLAttributes<HTMLInputElem
 /** A 44px search shell that keeps icon controls inside one integrated input. */
 export function SearchField({ label, startAdornment, endAdornment, className, ...rest }: SearchFieldProps) {
   return (
-    <div className="relative flex h-11 w-full items-center rounded-(--radius-pill) border border-line-strong bg-surface transition-[border-color,box-shadow] duration-150 focus-within:border-brand focus-within:ring-2 focus-within:ring-brand/25">
+    <div className="relative flex h-11 w-full items-center rounded-(--radius-pill) border border-line-control bg-surface transition-[border-color,box-shadow] duration-150 focus-within:border-brand focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-brand focus-within:ring-2 focus-within:ring-brand/25">
       {startAdornment ? <span aria-hidden="true" className="ml-3.5 flex shrink-0 text-muted">{startAdornment}</span> : null}
       <input
         type="search"
@@ -382,8 +306,8 @@ export function Badge({ tone = 'neutral', className, children, ...rest }: BadgeP
   const tones: Record<BadgeTone, string> = {
     neutral: 'border-line-strong bg-surface-tint text-muted',
     information: 'border-brand-border bg-brand-tint text-brand',
-    success: 'border-positive/20 bg-positive/10 text-positive',
-    warning: 'border-caution/20 bg-caution/10 text-caution',
+    success: 'border-positive/20 bg-positive/10 text-positive-ink',
+    warning: 'border-caution/20 bg-caution/10 text-caution-ink',
     danger: 'border-critical/20 bg-critical/10 text-critical',
   }
 
@@ -406,14 +330,16 @@ export interface EmptyStateProps extends Omit<HTMLAttributes<HTMLDivElement>, 't
   readonly description?: ReactNode
   readonly icon?: ReactNode
   readonly action?: ReactNode
+  /** The title's heading level: h1 where the empty state is the whole page, h2 (the default) inside one. */
+  readonly titleAs?: 'h1' | 'h2'
 }
 
 /** A restrained, useful empty state; no mandatory illustration or decoration. */
-export function EmptyState({ title, description, icon, action, className, ...rest }: EmptyStateProps) {
+export function EmptyState({ title, description, icon, action, titleAs: Title = 'h2', className, ...rest }: EmptyStateProps) {
   return (
     <div className={cx('flex min-h-48 flex-col items-start justify-center rounded-(--radius-card) border-[0.5px] border-line bg-surface-sunk p-5', className)} {...rest}>
       {icon ? <span aria-hidden="true" className="mb-3 text-brand">{icon}</span> : null}
-      <h2 className="text-[18px] font-medium leading-[1.25] text-ink">{title}</h2>
+      <Title className="text-[18px] font-medium leading-[1.25] text-ink">{title}</Title>
       {description ? <p className="mt-2 max-w-[52ch] text-[14px] leading-[1.45] text-muted">{description}</p> : null}
       {action ? <div className="mt-4">{action}</div> : null}
     </div>

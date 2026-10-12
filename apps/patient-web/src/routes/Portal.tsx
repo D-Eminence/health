@@ -34,6 +34,12 @@ function dateTime(value: string) {
   return Number.isNaN(parsed.getTime()) ? value : new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeStyle: 'short' }).format(parsed)
 }
 
+/** A size EHR sends as a number or, for a bigint column, as text. */
+function bytes(value: number | string | null) {
+  const count = value == null || value === '' ? NaN : Number(value)
+  return Number.isFinite(count) && count >= 0 ? `${count.toLocaleString('en-NG')} bytes` : 'Size unavailable'
+}
+
 /** Every measurement in a vitals entry, so one holding only blood pressure is not shown as a bare date. */
 function vitalsSummary(item: PatientRecords['vitals'][number]) {
   return [
@@ -213,7 +219,7 @@ export function RecordsPage() {
         {records.data.labRequests.map(item => <li key={item.id}><div><strong>{item.testDisplay}</strong><span>{item.priority} · {item.status} · {date(item.createdAt)}</span></div>{item.clinicalInformation && <p>{item.clinicalInformation}</p>}</li>)}
       </ul>}</div>
       <div className="patient-card"><h2>Clinical documents</h2>{records.data.documents.length === 0 ? <p className="patient-empty">No clinical documents are available.</p> : <ul className="patient-list">
-        {records.data.documents.map(item => <li key={item.id}><div><strong>{item.fileName}</strong><span>{item.mediaType} · {item.sizeBytes != null ? `${item.sizeBytes.toLocaleString()} bytes` : 'Size unavailable'} · {date(item.createdAt)}</span></div></li>)}
+        {records.data.documents.map(item => <li key={item.id}><div><strong>{item.fileName}</strong><span>{item.mediaType} · {bytes(item.sizeBytes)} · {date(item.createdAt)}</span></div></li>)}
       </ul>}</div>
       <p className="patient-field-hint">The record aggregate is scoped to your authenticated patient identity and audited by the backend.</p>
     </>}

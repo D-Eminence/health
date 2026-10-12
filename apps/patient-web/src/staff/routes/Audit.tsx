@@ -53,7 +53,7 @@ export function FacilityAudit() {
     return () => { active = false }
   }, [facilityId, allowed, cursor, reload])
 
-  if (!facility || !allowed) return <EmptyState title="Audit access unavailable" description="Your active facility membership needs audit.read permission to review its events." />
+  if (!facility || !allowed) return <EmptyState titleAs="h1" title="Audit access unavailable" description="Your active facility membership needs audit.read permission to review its events." />
 
   const query = search.trim().toLocaleLowerCase()
   const visible = page?.items.filter(event =>

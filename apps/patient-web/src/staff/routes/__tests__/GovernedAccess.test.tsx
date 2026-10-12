@@ -168,6 +168,27 @@ describe('closing the grant that opened a record', () => {
     expect(staff.setActivePatient).toHaveBeenCalledWith(null)
   })
 
+  // POST /identity/consent-grants/:grantId/close requires identity.consent.write
+  // (hid-system identity consent.controller.ts; contracts registry access.closeOwnGrant).
+  it('is unavailable to a role without identity.consent.write, and says why', () => {
+    staff.permissions = ['identity.patient.read', 'identity.patient-access-pin.verify', 'ehr.encounter.read', 'ehr.note.read']
+    staff.activePatient = { hid: 'HID-ABCDEF', purpose: 'direct-care', lookup: allowedLookup('c0000000-0000-4000-8000-000000000001') }
+    render(<MemoryRouter><Patients /></MemoryRouter>)
+    const close = screen.getByRole('button', { name: 'Close my grant' }) as HTMLButtonElement
+    expect(close.disabled).toBe(true)
+    expect(document.getElementById(close.getAttribute('aria-describedby') ?? '')?.textContent).toMatch(/identity\.consent\.write/)
+    fireEvent.click(close)
+    expect(api.closeGrant).not.toHaveBeenCalled()
+  })
+
+  it('is available, with nothing to explain, to a role with identity.consent.write', () => {
+    staff.activePatient = { hid: 'HID-ABCDEF', purpose: 'direct-care', lookup: allowedLookup('c0000000-0000-4000-8000-000000000001') }
+    render(<MemoryRouter><Patients /></MemoryRouter>)
+    const close = screen.getByRole('button', { name: 'Close my grant' }) as HTMLButtonElement
+    expect(close.disabled).toBe(false)
+    expect(close.getAttribute('aria-describedby')).toBeNull()
+  })
+
   it('does not offer it when the lookup names no grant', () => {
     staff.activePatient = { hid: 'HID-ABCDEF', purpose: 'direct-care', lookup: allowedLookup(null) }
     render(<MemoryRouter><Patients /></MemoryRouter>)

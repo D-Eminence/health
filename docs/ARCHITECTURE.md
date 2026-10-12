@@ -127,9 +127,16 @@ diagnostics, and public variables are checked for secret-like names and values.
 Clinical request/response bodies are not intended for logs, public URLs or
 browser persistence. Provider facility selection is held in portal memory and
 sent as `X-Facility-ID` on scoped calls. Choosing a facility in the list only
-proposes it; Switch facility confirms it. The backend's `/auth/facility` response
-does not persist the selection, so after a reload the portal shows the facility
-`/auth/session` resolves: the primary one, else the first by name.
+proposes it; Switch facility confirms it. The portal keeps nothing about the
+facility in browser storage. With hid-system's per-sign-in facility contract
+(D-Eminence/hid-system#47: ADR-046, migration 0080; open, not merged or deployed), Identity keeps the
+facility a sign-in chose and reports `facilitySelection` on staff session reads
+and refresh, so a reload shows the facility chosen. While it is unresolved
+(`reselect`: the chosen facility is no longer available; or `default` for
+someone with more than one facility) the portal opens no page and asks where the
+person is working, with nothing preselected. An Identity without that contract
+reports no field: the portal then shows the facility `/auth/session` resolves
+(the primary one, else the first by name), as before.
 
 ## Production requirements
 

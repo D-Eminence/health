@@ -2,8 +2,8 @@ import { createApiClient, HidApiError, isHidApiError, uploadPresignedObject, typ
 import { createRegisteredBrowserClient } from '@hid/api'
 import { getEnvironment } from './env'
 import {
-  endsStaffSession, nextStaffSessionChange, refusedAsPatient, reportStaffSessionEnded, staffSessionActor, staffSessionGeneration,
-  staffSessionReadyFor, staffSessionSignal, untilStaffSessionReady,
+  assertStaffSessionFacility, endsStaffSession, nextStaffSessionChange, refusedAsPatient, reportStaffSessionEnded, reportStaffSessionRead,
+  staffSessionActor, staffSessionGeneration, staffSessionReadyFor, staffSessionSignal, untilStaffSessionReady,
 } from './session'
 import { inRefreshTurn, refreshInTurn, signOutInTurn } from '../sessionRefreshTurn'
 import { heldByOtherPortal } from '../sessionChange'
@@ -31,9 +31,22 @@ export interface Actor {
   facility?: Facility
 }
 
+/**
+ * Where the facility a staff session reports comes from (hid-system ADR-046,
+ * migration 0080): 'selected', the facility this sign-in chose with
+ * POST /auth/facility; 'default', none chosen, so the server's default (the
+ * primary facility, else the first by name); 'reselect', the facility chosen
+ * earlier is no longer one of the actor's active facilities, so the default is
+ * reported instead. An Identity without that contract sends no field. A value
+ * not named here (a later contract) is not taken as a choice made: the portal
+ * asks (see facilitySelection.ts).
+ */
+export type FacilitySelection = 'selected' | 'default' | 'reselect'
+
 export interface StaffSession {
   actor: Actor
   expiresAt?: string
+  facilitySelection?: FacilitySelection
 }
 
 export interface RegistrationCapabilities {
@@ -222,6 +235,15 @@ export interface NoteRevision {
   createdAt: string
 }
 
+/**
+ * GET /ehr/patients/:patientId/emergency-records (hid-system
+ * patient-records.service.ts read()): this facility's completed encounters and
+ * signed notes, 50 of each, and its diagnoses, prescriptions, lab requests and
+ * uploaded documents, 100 of each and in every status. EHR also returns vitals,
+ * as first recorded and without corrections, and one `limit`, 100, which is not
+ * each section's cap; neither is read here. pg sends numeric and bigint columns
+ * as strings.
+ */
 export interface EmergencyRecords {
   encounters: Array<{
     id: string
@@ -242,16 +264,74 @@ export interface EmergencyRecords {
     content: string
     signedAt: string | null
   }>
-  limit: number
+  diagnoses: Array<{
+    id: string
+    encounterId: string
+    facilityId: string
+    codeSystem: string
+    code: string
+    display: string
+    clinicalStatus: string
+    verificationStatus: string
+    onsetAt: string | null
+    abatementAt: string | null
+    notes: string | null
+  }>
+  prescriptions: Array<{
+    id: string
+    encounterId: string
+    facilityId: string
+    medicationCodeSystem: string | null
+    medicationCode: string | null
+    medicationDisplay: string
+    doseQuantity: number | string | null
+    doseUnit: string | null
+    routeCode: string | null
+    frequency: string
+    instructions: string
+    // pg date columns, sent as the instant of midnight where EHR runs (2026-10-11T23:00:00.000Z an hour east of UTC).
+    startsOn: string | null
+    endsOn: string | null
+    status: string
+  }>
+  labRequests: Array<{
+    id: string
+    encounterId: string
+    facilityId: string
+    testCodeSystem: string
+    testCode: string
+    testDisplay: string
+    priority: string
+    status: string
+    specimenTypeCode: string | null
+    clinicalInformation: string | null
+    externalOrderReference: string | null
+    createdAt: string
+  }>
+  documents: Array<{
+    id: string
+    encounterId: string | null
+    facilityId: string
+    fileName: string
+    mediaType: string
+    sizeBytes: number | string | null
+    classification: string
+    status: string
+    createdAt: string
+  }>
 }
 
+/**
+ * A clinical document as EHR's list returns it (document.service.ts list):
+ * size_bytes is selected as text.
+ */
 export interface DocumentRecord {
   id: string
   patientId: string
   encounterId: string
   fileName: string
   mediaType: string
-  sizeBytes: number
+  sizeBytes: number | string
   status: string
   scanStatus: string
   createdAt: string
@@ -343,6 +423,7 @@ export type LabResultValue = {
   abnormalFlag?: LabAbnormalFlag
 }
 
+/** A Pharmacy work item as hid-system pharmacy.service.ts projectWorkItem() returns it. */
 export interface PharmacyWorkItem {
   id: string
   patientId: string
@@ -351,7 +432,9 @@ export interface PharmacyWorkItem {
   medication: { display: string }
   doseQuantity?: number | null
   doseUnit?: string | null
+  routeCode?: string | null
   frequency?: string
+  instructions?: string | null
   dispensing?: { id: string; reversed: boolean } | null
 }
 
@@ -402,6 +485,38 @@ export interface OcrPublication {
   targetResourceType?: string | null
   targetResourceId?: string | null
   failureCode?: string | null
+  failureSummary?: string | null
+  attemptCount?: number
+  maxAttempts?: number
+}
+/** Lab evidence imported from a document (GET /api/v1/lab/imports/:importId), such as an OCR publication made. */
+export interface LabImport {
+  id: string
+  /** accepted, entered_in_error or amended (hid-system lab migration 0017). */
+  status: string
+  externalLabName?: string | null
+  reportedAt?: string | null
+  observations: Array<{
+    id: string
+    ordinal: number
+    testCode?: string | null
+    testName: string
+    value?: string | null
+    valueText?: string | null
+    unit?: string | null
+    referenceRange?: string | null
+    abnormalFlag?: string | null
+    status?: string
+  }>
+}
+/** Historical medication evidence imported from a document (GET /api/v1/pharmacy/imports/:importId). */
+export interface PharmacyImport {
+  id: string
+  medicationText: string
+  strengthText?: string | null
+  doseText?: string | null
+  frequencyText?: string | null
+  historicalContext?: string | null
 }
 export interface OcrValidationInput {
   extractionId: string
@@ -448,7 +563,10 @@ const transport = createApiClient({
   baseUrl: getEnvironment().apiBaseUrl,
   clientId: 'staff-web',
   sessionMode: 'cookie',
-  refreshSession: async () => { await restoreStaffSession() },
+  refreshSession: async () => {
+    const sentIn = staffSessionGeneration()
+    reportStaffSessionRead(await restoreStaffSession(), sentIn)
+  },
 })
 
 /** A signal aborted when either one is. */
@@ -495,8 +613,12 @@ function reportingSessionEnd(inner: ApiClient): ApiClient {
           // The HTTP client sends some requests again on its own: a read after a
           // backoff, and any request after a refresh. Each attempt waits for its
           // session again as it leaves, so none goes out while the session is
-          // being checked, could not be confirmed, or the page is away.
-          beforeAttempt: async () => { await spec.beforeAttempt?.(); await untilStaffSessionReady(sentIn) },
+          // being checked, could not be confirmed, or the page is away; nor for a
+          // facility found gone meanwhile (see setStaffSessionFacilities).
+          beforeAttempt: async () => {
+            await spec.beforeAttempt?.(); await untilStaffSessionReady(sentIn)
+            assertStaffSessionFacility(spec.headers)
+          },
         } : {}),
       }
       try { return await inner.request<T>(own) }
@@ -676,7 +798,9 @@ async function checkStaffSession(actorId: string, sentIn: number): Promise<Staff
     catch (refused) { return endsStaffSession(refused) ? 'ended' : 'unknown' }
   }
   if (typeof session?.actor?.id !== 'string') return 'unknown'
-  return isSessionOf(session, actorId) ? 'alive' : 'ended'
+  if (!isSessionOf(session, actorId)) return 'ended'
+  reportStaffSessionRead(session, sentIn)
+  return 'alive'
 }
 
 function facilityHeaders(facilityId: string, purpose: 'direct-care' | 'emergency' | 'healthcare-operations' = 'direct-care') {
@@ -872,8 +996,9 @@ export const staffApi = {
     client.get<Page<DocumentRecord>>('/api/v1/ehr/documents', {
       query: { patientId, encounterId }, headers: facilityHeaders(facilityId),
     }),
+  // A signed storage link valid for expiresInSeconds (s3-storage.provider.ts createDownload).
   documentDownload: (facilityId: string, documentId: string) =>
-    client.get<{ url: string; expiresAt: string | null }>(`/api/v1/ehr/documents/${encodeURIComponent(documentId)}/download`,
+    client.get<{ url: string; expiresInSeconds: number }>(`/api/v1/ehr/documents/${encodeURIComponent(documentId)}/download`,
       { headers: facilityHeaders(facilityId) }),
   async uploadDocument(facilityId: string, patientId: string, encounterId: string, file: File) {
     // Every step runs only while the session the upload started in is ready: each
@@ -894,7 +1019,8 @@ export const staffApi = {
       sha256Hex, classification: 'phi', retentionClass: 'clinical-10y',
     }, { headers: { ...facilityHeaders(facilityId), ...keyHeaders() } })
     await untilStaffSessionReady(sentIn)
-    await uploadPresignedObject({ url: intent.upload.url, body: file, requiredHeaders: intent.upload.requiredHeaders, signal })
+    await uploadPresignedObject({ url: intent.upload.url, body: file, requiredHeaders: intent.upload.requiredHeaders, signal,
+      allowLocalHttp: getEnvironment().name === 'local' })
     await untilStaffSessionReady(sentIn)
     await client.post(`/api/v1/ehr/documents/${encodeURIComponent(intent.document.id)}/complete`, undefined,
       { headers: facilityHeaders(facilityId) })
@@ -992,41 +1118,39 @@ export const staffApi = {
   ocrPublications: (facilityId: string, validationId: string) =>
     client.get<{ items: OcrPublication[] }>(`/api/v1/ocr/validations/${encodeURIComponent(validationId)}/publications`,
       { headers: facilityHeaders(facilityId) }),
+  // OCR resumes a publication its owning service could not take only when the request
+  // that started it is sent again with the same key, so the caller holds the key.
   publishOcrValidation: (facilityId: string, validation: OcrValidation, patientConfirmationId: string,
-    targetOperation: 'create_imported_clinical_note' | 'create_imported_lab_evidence' | 'create_imported_medication_evidence' | 'retain_validated_document') =>
+    targetOperation: 'create_imported_clinical_note' | 'create_imported_lab_evidence' | 'create_imported_medication_evidence' | 'retain_validated_document',
+    idempotencyKey: string) =>
     client.post<OcrPublication>(`/api/v1/ocr/validations/${encodeURIComponent(validation.id)}/publications`,
       { validationVersion: validation.version, patientConfirmationId, targetOperation, purpose: 'direct-care' },
-      { headers: { ...facilityHeaders(facilityId), ...keyHeaders() } }),
+      { headers: { ...facilityHeaders(facilityId), ...keyHeaders(idempotencyKey) } }),
   retryOcrJob: (facilityId: string, job: OcrJob, reason: string) =>
     client.post<OcrJob>(`/api/v1/ocr/jobs/${encodeURIComponent(job.id)}/retry`,
       { expectedVersion: job.version, reason, purpose: 'healthcare-operations' },
       { headers: facilityHeaders(facilityId, 'healthcare-operations') }),
+  // What a Lab or Pharmacy publication made, read from the domain that owns it.
+  labImport: (facilityId: string, importId: string) =>
+    client.get<LabImport>(`/api/v1/lab/imports/${encodeURIComponent(importId)}`, { headers: facilityHeaders(facilityId) }),
+  pharmacyImport: (facilityId: string, importId: string) =>
+    client.get<PharmacyImport>(`/api/v1/pharmacy/imports/${encodeURIComponent(importId)}`, { headers: facilityHeaders(facilityId) }),
 
   outreachCampaigns: (facilityId: string) =>
     client.get<OutreachCampaign[]>('/api/v1/outreach/registration-cases/campaigns', { headers: facilityHeaders(facilityId) }),
   outreachCampaignMembers: (facilityId: string, campaignId: string) =>
     client.get<OutreachCampaignMember[]>(`/api/v1/outreach/registration-cases/campaigns/${encodeURIComponent(campaignId)}/members`,
       { headers: facilityHeaders(facilityId) }),
-  updateOutreachCampaignStatus: (facilityId: string, campaign: OutreachCampaign, status: 'active' | 'closed', reason: string) =>
-    client.post<OutreachCampaign>(`/api/v1/outreach/registration-cases/campaigns/${encodeURIComponent(campaign.id)}/status`,
-      { status, reason }, { headers: { ...facilityHeaders(facilityId), 'If-Match': String(campaign.rowVersion) } }),
-  addOutreachCampaignMember: (facilityId: string, campaignId: string, membershipId: string,
-    role: OutreachCampaignMember['role']) =>
-    client.post<OutreachCampaignMember>(`/api/v1/outreach/registration-cases/campaigns/${encodeURIComponent(campaignId)}/members`,
-      { membershipId, role }, { headers: facilityHeaders(facilityId) }),
   outreachCases: (facilityId: string) =>
     client.get<OutreachCase[]>('/api/v1/outreach/registration-cases', { headers: facilityHeaders(facilityId) }),
   linkExistingOutreachCase: (facilityId: string, registrationCase: OutreachCase, canonicalPatientId: string, reason: string) =>
     client.post<OutreachCase>(`/api/v1/outreach/registration-cases/${encodeURIComponent(registrationCase.id)}/link-existing`,
       { canonicalPatientId, expectedVersion: registrationCase.rowVersion, reason },
       { headers: { ...facilityHeaders(facilityId), ...keyHeaders() } }),
-  createOutreachCampaign: (facilityId: string, input: { name: string; services: string[]; startsAt: string }) =>
-    client.post<OutreachCampaign>('/api/v1/outreach/registration-cases/campaigns', input,
-      { headers: facilityHeaders(facilityId) }),
-  createOutreachCase: (facilityId: string, input: { campaignId?: string; fullName: string; sex: string; ageYears: number; phone?: string; operationalNotes?: string }) => {
-    const localCommandId = crypto.randomUUID()
-    return client.post<OutreachCase>('/api/v1/outreach/registration-cases',
-      { ...input, localCommandId, temporaryPatientId: `tmp_${crypto.randomUUID()}` },
-      { headers: { ...facilityHeaders(facilityId), 'Idempotency-Key': localCommandId } })
-  },
+  // Outreach answers a command sent again (its localCommandId is also its Idempotency-Key)
+  // with the case it made, so the caller names the command and resends it for the same case.
+  createOutreachCase: (facilityId: string, input: { campaignId?: string; fullName: string; sex: string; ageYears: number; phone?: string; operationalNotes?: string },
+    command: { localCommandId: string; temporaryPatientId: string }) =>
+    client.post<OutreachCase>('/api/v1/outreach/registration-cases', { ...input, ...command },
+      { headers: { ...facilityHeaders(facilityId), 'Idempotency-Key': command.localCommandId } }),
 }

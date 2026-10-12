@@ -200,7 +200,9 @@ describe('OCR-A11Y-01: validation failures keep focus at the refused field', () 
     await press(screen.getByRole('button', { name: 'Validate extraction' }))
     await waitFor(() => expect(focused()).toBe(payload))
     expect(payload.getAttribute('aria-invalid')).toBe('true')
-    expect(document.getElementById(payload.getAttribute('aria-describedby') ?? '')?.textContent).toBe('Reviewed payload must be valid JSON.')
+    // Described first by its error; what the owning domains require follows it (NEW-OCR-REVIEW-HINT).
+    const [describedFirstBy] = (payload.getAttribute('aria-describedby') ?? '').split(' ')
+    expect(document.getElementById(describedFirstBy ?? '')?.textContent).toBe('Reviewed payload must be valid JSON.')
     expect(api.validateOcrJob).not.toHaveBeenCalled()
     // The value typed is kept.
     expect((payload as HTMLTextAreaElement).value).toBe('{not json')
@@ -237,6 +239,17 @@ describe('OCR-A11Y-01: validation failures keep focus at the refused field', () 
     await press(screen.getByRole('button', { name: 'Confirm source patient' }))
     await waitFor(() => expect(focused()).toBe(patient))
     expect(document.getElementById(patient.getAttribute('aria-describedby') ?? '')?.textContent).toBe('Enter the canonical patient ID.')
+    expect(api.confirmOcrPatient).not.toHaveBeenCalled()
+  })
+
+  it('confirm: a patient ID that is not a UUID takes focus with its error, and nothing is sent', async () => {
+    await findJob(validated)
+    const patient = await screen.findByLabelText(/^Canonical patient ID/)
+    fireEvent.change(patient, { target: { value: 'HID-ABCDEF' } })
+    fireEvent.change(screen.getByLabelText(/^Confirmation reason/), { target: { value: 'Name and date of birth match' } })
+    await press(screen.getByRole('button', { name: 'Confirm source patient' }))
+    await waitFor(() => expect(focused()).toBe(patient))
+    expect(document.getElementById(patient.getAttribute('aria-describedby') ?? '')?.textContent).toBe('Enter a valid canonical patient ID (a UUID).')
     expect(api.confirmOcrPatient).not.toHaveBeenCalled()
   })
 

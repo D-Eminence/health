@@ -342,7 +342,9 @@ describe('unified authenticated portal routes', () => {
     const facility = {
       id: 'facility-1', membershipId: 'membership-1', organizationId: 'organization-1',
       name: 'Example Clinic', roles: ['clinician'],
-      permissions: ['identity.patient.read', 'identity.break-glass.write', 'ehr.encounter.read'],
+      // POST /identity/break-glass requires identity.consent.write as well as identity.break-glass.write;
+      // the emergency summary it opens, ehr.encounter.read and ehr.note.read.
+      permissions: ['identity.patient.read', 'identity.consent.write', 'identity.break-glass.write', 'ehr.encounter.read', 'ehr.note.read'],
       isPrimary: true,
     }
     calls.staffSession.mockResolvedValue({ actor: {
@@ -352,7 +354,7 @@ describe('unified authenticated portal routes', () => {
 
     open('/provider/patients')
     fireEvent.change(await screen.findByRole('textbox', { name: 'Health ID' }), { target: { value: 'HID-ABC234' } })
-    fireEvent.click(screen.getByRole('tab', { name: 'Emergency' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Emergency' }))
     fireEvent.change(screen.getByRole('textbox', { name: 'Emergency reason' }), {
       target: { value: 'Patient cannot consent during emergency care' },
     })
