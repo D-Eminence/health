@@ -402,6 +402,9 @@ export interface OcrPublication {
   targetResourceType?: string | null
   targetResourceId?: string | null
   failureCode?: string | null
+  failureSummary?: string | null
+  attemptCount?: number
+  maxAttempts?: number
 }
 export interface OcrValidationInput {
   extractionId: string
@@ -992,11 +995,14 @@ export const staffApi = {
   ocrPublications: (facilityId: string, validationId: string) =>
     client.get<{ items: OcrPublication[] }>(`/api/v1/ocr/validations/${encodeURIComponent(validationId)}/publications`,
       { headers: facilityHeaders(facilityId) }),
+  // OCR resumes a publication its owning service could not take only when the request
+  // that started it is sent again with the same key, so the caller holds the key.
   publishOcrValidation: (facilityId: string, validation: OcrValidation, patientConfirmationId: string,
-    targetOperation: 'create_imported_clinical_note' | 'create_imported_lab_evidence' | 'create_imported_medication_evidence' | 'retain_validated_document') =>
+    targetOperation: 'create_imported_clinical_note' | 'create_imported_lab_evidence' | 'create_imported_medication_evidence' | 'retain_validated_document',
+    idempotencyKey: string) =>
     client.post<OcrPublication>(`/api/v1/ocr/validations/${encodeURIComponent(validation.id)}/publications`,
       { validationVersion: validation.version, patientConfirmationId, targetOperation, purpose: 'direct-care' },
-      { headers: { ...facilityHeaders(facilityId), ...keyHeaders() } }),
+      { headers: { ...facilityHeaders(facilityId), ...keyHeaders(idempotencyKey) } }),
   retryOcrJob: (facilityId: string, job: OcrJob, reason: string) =>
     client.post<OcrJob>(`/api/v1/ocr/jobs/${encodeURIComponent(job.id)}/retry`,
       { expectedVersion: job.version, reason, purpose: 'healthcare-operations' },

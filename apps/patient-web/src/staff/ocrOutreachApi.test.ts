@@ -1,0 +1,61 @@
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { OcrValidation } from './api'
+
+vi.mock('./env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.example.test' }) }))
+// The staff client binds fetch when its module loads, so each test loads it afresh.
+afterEach(() => {
+  vi.unstubAllGlobals(); vi.resetModules()
+  document.cookie = 'hid_access_csrf=; expires=Thu, 01 Jan 1970 00:00:00 GMT'
+})
+
+/**
+ * The staff API with a session in use and ready, as the provider portal sets it
+ * once signed in: protected requests wait for that, and these tests have no portal.
+ */
+async function signedInStaffApi() {
+  const { setStaffSessionReady } = await import('./session')
+  setStaffSessionReady(true)
+  return import('./api')
+}
+
+interface Recorded { url: URL; headers: Headers; method: string; body: unknown }
+
+function recordFetch(body: unknown) {
+  const requests: Recorded[] = []
+  vi.stubGlobal('fetch', vi.fn(async (url: string | URL | Request, init: RequestInit) => {
+    requests.push({ url: new URL(String(url)), headers: new Headers(init.headers), method: String(init.method),
+      body: init.body ? JSON.parse(String(init.body)) : undefined })
+    return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  }))
+  return requests
+}
+
+const validation: OcrValidation = { id: 'validation-1', jobId: 'job-1', extractionId: 'extraction-1', version: 2, disposition: 'validated',
+  targetDomain: 'EHR', candidateType: 'clinical_note', acceptedFields: {}, rejectedFields: [], corrections: [],
+  reason: 'Matches the source document', reviewedAt: '2026-10-12T09:30:00.000Z' }
+
+/**
+ * OCR resumes a publication that failed for want of its owning service only when
+ * the request that started it is sent again with the same Idempotency-Key
+ * (hid-system ocr.service.ts createPublication), so the caller names the key.
+ */
+describe('OCR publication requests', () => {
+  it('sends the key the caller holds, each time', async () => {
+    document.cookie = 'hid_access_csrf=csrf-1'
+    const requests = recordFetch({ id: 'publication-1', status: 'published' })
+    const { staffApi } = await signedInStaffApi()
+
+    await staffApi.publishOcrValidation('facility-1', validation, 'confirmation-1', 'create_imported_clinical_note', 'publication-key-1')
+    await staffApi.publishOcrValidation('facility-1', validation, 'confirmation-1', 'create_imported_clinical_note', 'publication-key-1')
+
+    expect(requests).toHaveLength(2)
+    for (const request of requests) {
+      expect(request.method).toBe('POST')
+      expect(request.url.pathname).toBe('/api/v1/ocr/validations/validation-1/publications')
+      expect(request.headers.get('idempotency-key')).toBe('publication-key-1')
+      expect(request.headers.get('x-facility-id')).toBe('facility-1')
+      expect(request.body).toEqual({ validationVersion: 2, patientConfirmationId: 'confirmation-1',
+        targetOperation: 'create_imported_clinical_note', purpose: 'direct-care' })
+    }
+  })
+})

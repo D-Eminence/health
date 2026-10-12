@@ -670,37 +670,108 @@ function OcrConfirmation({ facilityId, job, onChanged }: { facilityId: string; j
   return <Card className="staff-card"><h2 id="ocr-confirm-title" tabIndex={-1}>Confirm source patient</h2><p>Confirm the canonical patient against the clinical source document before publication. The backend verifies an exact match and write authorization.</p><form className="staff-form" noValidate onSubmit={event => void submit(event)}><Field label="Canonical patient ID" htmlFor="ocr-confirm-patient" error={problemText(problem, 'ocr-confirm-patient')} required><Input id="ocr-confirm-patient" name="patientId" defaultValue={job.patientId ?? ''} required {...problemProps(problem, 'ocr-confirm-patient')} /></Field><Field label="Confirmation reason" htmlFor="ocr-confirm-reason" error={problemText(problem, 'ocr-confirm-reason')} required><Textarea id="ocr-confirm-reason" name="reason" minLength={8} maxLength={500} required {...problemProps(problem, 'ocr-confirm-reason')} /></Field>{error && <p className="staff-error" role="alert">{error}</p>}<Button id="ocr-confirm-submit" type="submit" disabled={busy}>{busy ? 'Confirming…' : 'Confirm source patient'}</Button></form></Card>
 }
 
-function OcrPublicationCard({ facilityId, validation, confirmationId, canPublish, onChanged }: { facilityId: string; validation: OcrValidation; confirmationId: string | undefined; canPublish: boolean; onChanged: () => Promise<void> }) {
+/** Publication failures OCR attempts again; any other failure is final (hid-system ocr.service.ts RETRYABLE_PUBLICATION_FAILURES). */
+const RETRYABLE_PUBLICATION_FAILURES: readonly string[] = ['OWNING_SERVICE_UNAVAILABLE', 'REQUEST_IN_PROGRESS']
+
+function attemptsLeft(publication: OcrPublication) {
+  return publication.attemptCount == null || publication.maxAttempts == null || publication.attemptCount < publication.maxAttempts
+}
+
+/** A failed publication OCR attempts again, but only for the request that started it, sent again with its key. */
+function retryable(publication: OcrPublication) {
+  return publication.status === 'failed' && RETRYABLE_PUBLICATION_FAILURES.includes(publication.failureCode ?? '') && attemptsLeft(publication)
+}
+
+function publicationRefusal(caught: unknown) {
+  if (isHidApiError(caught) && caught.code === 'OCR_PUBLICATION_IN_PROGRESS') return 'OCR did not start another attempt: one is still running, or it is too soon after the last one.'
+  if (isHidApiError(caught) && caught.code === 'OCR_PUBLICATION_TERMINAL') return 'The owning service refused this publication, so it cannot be retried.'
+  return errorText(caught, 'Validated evidence could not be published.')
+}
+
+function OcrPublicationStatus({ publication, retryHere }: { publication: OcrPublication; retryHere: boolean }) {
+  const failed = publication.status === 'failed'
+  const attempts = failed && publication.attemptCount != null && publication.maxAttempts != null ? ` · Attempt ${publication.attemptCount} of ${publication.maxAttempts}` : ''
+  return <div className="staff-stack">
+    <p>Publication: <Badge tone={publication.status === 'published' ? 'success' : failed ? 'danger' : 'information'}>{publication.status}</Badge>{publication.failureCode ? ` · ${publication.failureCode}` : ''}{attempts}</p>
+    {failed && publication.failureSummary && <p>{publication.failureSummary}</p>}
+    {failed && <p className="staff-muted">{!RETRYABLE_PUBLICATION_FAILURES.includes(publication.failureCode ?? '') ? 'It cannot be retried.'
+      : !attemptsLeft(publication) ? 'The publication attempt limit has been reached. It cannot be retried.'
+        : retryHere ? 'OCR allows another attempt a short time after a failure.'
+          : 'It can be retried only from the page where Publish was pressed, before that page is reloaded or left.'}</p>}
+    {(publication.status === 'pending' || publication.status === 'processing') && <p className="staff-muted">OCR has not finished this publication. Refresh the job status to see whether it has.</p>}
+    {publication.targetResourceId && <p>Published {publication.targetResourceType ?? publication.targetDomain.toLowerCase()} record: <code>{publication.targetResourceId}</code></p>}
+  </div>
+}
+
+// OCR keeps one publication per review. The page sends each publication request
+// with one key, held in `publicationKeys` (memory only, never browser storage), so a
+// press after a lost answer or a refusal sends the same request again, and OCR
+// resumes the publication it recorded under that key. A refusal reads the history
+// again: the page then offers only what OCR would take.
+function OcrPublicationCard({ facilityId, validation, confirmationId, permissions, publicationKeys, onChanged }: {
+  facilityId: string; validation: OcrValidation; confirmationId: string | undefined; permissions: readonly string[];
+  publicationKeys: Map<string, string>; onChanged: () => Promise<void>
+}) {
   const [publications, setPublications] = useState<OcrPublication[] | null>(null)
+  const [historyError, setHistoryError] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  const [revision, setRevision] = useState(0)
   const focus = useFocusById()
   const publishId = `ocr-publish-${validation.id}`
+  const retryId = `ocr-publish-retry-${validation.id}`
+  const operation = validation.disposition === 'validated' && validation.targetDomain !== 'UNCLASSIFIED' ? publicationOperations[validation.targetDomain] : undefined
+  // What a press sends, and so what its key is held for.
+  const request = permissions.includes('ocr.publication.write') && confirmationId && operation
+    ? JSON.stringify([facilityId, validation.id, validation.version, confirmationId, operation]) : undefined
   useEffect(() => {
     let active = true
     void staffApi.ocrPublications(facilityId, validation.id).then(result => { if (active) setPublications(result.items) })
-      .catch(caught => { if (active) setError(errorText(caught, 'Publication history could not be loaded.')) })
+      .catch(caught => { if (active) setHistoryError(errorText(caught, 'Publication history could not be loaded.')) })
     return () => { active = false }
-  }, [facilityId, validation.id, revision])
+  }, [facilityId, validation.id])
+
+  /** The control that takes publication further: Publish before any request, Retry publication for this page's own request. */
+  function next(items: readonly OcrPublication[] | null) {
+    if (!request || !items) return null
+    if (items.length === 0) return publishId
+    return publicationKeys.has(request) && items.some(retryable) ? retryId : null
+  }
+
+  // Reads the history again, keeping what it showed until the answer arrives.
+  async function reload(): Promise<OcrPublication[] | null> {
+    try { const { items } = await staffApi.ocrPublications(facilityId, validation.id); setPublications(items); setHistoryError(''); return items }
+    catch (caught) { setHistoryError(errorText(caught, 'Publication history could not be loaded.')); return null }
+  }
+
   async function publish() {
-    if (!confirmationId || validation.targetDomain === 'UNCLASSIFIED') return
+    if (!request || !confirmationId || !operation) return
+    let key = publicationKeys.get(request)
+    if (!key) { key = crypto.randomUUID(); publicationKeys.set(request, key) }
     setBusy(true); setError('')
     try {
-      await staffApi.publishOcrValidation(facilityId, validation, confirmationId, publicationOperations[validation.targetDomain])
-      setRevision(value => value + 1)
-      await onChanged()
-    } catch (caught) { setError(errorText(caught, 'Validated evidence could not be published.')); focus(publishId, true) }
+      const publication = await staffApi.publishOcrValidation(facilityId, validation, confirmationId, operation, key)
+      if (publication.status === 'published') { publicationKeys.delete(request); await onChanged(); return }
+      // Any other answer published nothing: show what OCR holds.
+      focus(next(await reload()) ?? 'ocr-history-title', true)
+    } catch (caught) {
+      // That publication was requested with another key, so this request cannot resume it.
+      const alreadyPublished = isHidApiError(caught) && caught.code === 'OCR_ALREADY_PUBLISHED'
+      if (alreadyPublished) publicationKeys.delete(request)
+      setError(alreadyPublished ? 'This review already has a publication request.' : publicationRefusal(caught))
+      const items = await reload()
+      if (alreadyPublished && items) setError('This review already has a publication request, shown below.')
+      focus(next(items) ?? 'ocr-history-title', true)
+    }
     finally { setBusy(false) }
   }
+  const action = next(publications)
   return <div className="staff-list-item"><div className="staff-row"><strong>Review {validation.version} · {validation.targetDomain}</strong><Badge tone={validation.disposition === 'validated' ? 'success' : 'danger'}>{validation.disposition}</Badge></div><p>{validation.reason} · {dateText(validation.reviewedAt)}</p>
     {error && <p className="staff-error" role="alert">{error}</p>}
-    {publications === null && !error && <p className="staff-muted" role="status">Loading publication history…</p>}
-    {publications?.map(publication => <div key={publication.id} className="staff-stack">
-      <p>Publication: <Badge tone={publication.status === 'published' ? 'success' : publication.status === 'failed' ? 'danger' : 'information'}>{publication.status}</Badge>{publication.failureCode ? ` · ${publication.failureCode}` : ''}</p>
-      {publication.targetResourceId && <p>Published {publication.targetResourceType ?? publication.targetDomain.toLowerCase()} record: <code>{publication.targetResourceId}</code></p>}
-    </div>)}
-    {canPublish && confirmationId && validation.disposition === 'validated' && validation.targetDomain !== 'UNCLASSIFIED' && publications?.length === 0 && <Button id={publishId} size="sm" onClick={() => void publish()} disabled={busy}>{busy ? 'Publishing…' : `Publish to ${validation.targetDomain.replace('_', ' ')}`}</Button>}
+    {historyError && <p className="staff-error" role="alert">{historyError}</p>}
+    {publications === null && !historyError && <p className="staff-muted" role="status">Loading publication history…</p>}
+    {publications?.map(publication => <OcrPublicationStatus key={publication.id} publication={publication} retryHere={action === retryId} />)}
+    {action === publishId && <Button id={publishId} size="sm" onClick={() => void publish()} disabled={busy}>{busy ? 'Publishing…' : `Publish to ${validation.targetDomain.replace('_', ' ')}`}</Button>}
+    {action === retryId && <Button id={retryId} size="sm" onClick={() => void publish()} disabled={busy}>{busy ? 'Retrying…' : 'Retry publication'}</Button>}
   </div>
 }
 
@@ -743,6 +814,10 @@ export function Ocr() {
   const [stepFocus, setStepFocus] = useState<StepFocus | null>(null)
   const focus = useFocusById()
   const [lookupRevision, setLookupRevision] = useState(0)
+  // Each publication request's Idempotency-Key, by request. Here, not in the card, so a
+  // read of the job again (which remounts the cards) keeps it; in memory only, so it
+  // lasts until this page is reloaded or left.
+  const publicationKeys = useRef(new Map<string, string>())
   const visibleJob = jobFacilityId === facilityId ? job : null
   const canRetryJob = visibleJob?.status === 'failed' &&
     (visibleJob.attemptCount === undefined || visibleJob.maxAttempts === undefined || visibleJob.attemptCount < visibleJob.maxAttempts)
@@ -851,7 +926,7 @@ export function Ocr() {
       if (message) { const reloaded = await lookup(); setStepFocus({ targets: reloaded ? ['ocr-history-title', 'ocr-job-title'] : ['ocr-find-submit'], notice: reloaded ? message : undefined }); return }
       await afterStep(['ocr-history-title', 'ocr-job-title'], 'Source patient confirmed.')
     }} /></div>}
-    {visibleJob && validations && validations.length > 0 && <div className="staff-section"><h2 id="ocr-history-title" tabIndex={-1}>Review and publication history</h2><div className="staff-list">{validations.map(validation => <OcrPublicationCard key={validation.id} facilityId={facilityId} validation={validation} confirmationId={visibleJob.patientConfirmation?.id} canPublish={permissions.includes('ocr.publication.write')} onChanged={() => afterStep(['ocr-history-title', 'ocr-job-title'], 'Publication recorded.')} />)}</div></div>}
+    {visibleJob && validations && validations.length > 0 && <div className="staff-section"><h2 id="ocr-history-title" tabIndex={-1}>Review and publication history</h2><div className="staff-list">{validations.map(validation => <OcrPublicationCard key={validation.id} facilityId={facilityId} validation={validation} confirmationId={visibleJob.patientConfirmation?.id} permissions={permissions} publicationKeys={publicationKeys.current} onChanged={() => afterStep(['ocr-history-title', 'ocr-job-title'], 'Publication recorded.')} />)}</div></div>}
   </>
 }
 
