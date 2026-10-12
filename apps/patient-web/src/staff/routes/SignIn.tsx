@@ -4,7 +4,7 @@ import { Button, Field, Input } from '@hid/ui'
 import { getEnvironment } from '../env'
 import { useStaff } from '../App'
 import { BrandLogo } from '../../BrandLogo'
-import { resolveStaffProductHostname, staffLoginAction } from '../../productHostname'
+import { resolveStaffProductHostname, STAFF_RECOVERY_PATH, staffLoginAction, staffRecoveryHref } from '../../productHostname'
 import { staffReturnPath } from '../session'
 
 function getStaffLandingPath(search: string): string {
@@ -87,7 +87,7 @@ export function SignIn() {
         {error && <p className="staff-error" role="alert">{error}</p>}
         <Button type="submit" disabled={busy || !!siteKey && !token}>{busy ? 'Signing in…' : 'Sign in'}</Button>
       </form>
-      <p className="staff-muted"><Link to="/provider/recover">Forgot your password?</Link> For a new staff account, contact your facility administrator.</p>
+      <RecoveryLink />
     </main>
     <aside className="staff-auth-aside" aria-label="About secure access">
       <p className="staff-eyebrow">One connected care record</p>
@@ -96,4 +96,18 @@ export function SignIn() {
       <div className="staff-steps"><div className="staff-step"><span>1</span>Choose your active facility.</div><div className="staff-step"><span>2</span>Request governed patient access.</div><div className="staff-step"><span>3</span>Record care within an authorized encounter.</div></div>
     </aside>
   </div>
+}
+
+/**
+ * hid-system accepts a staff password reset only on the main site, so a staff
+ * product site links to the main site's recovery page and says so.
+ */
+function RecoveryLink() {
+  const href = staffRecoveryHref(window.location.hostname)
+  const central = href !== STAFF_RECOVERY_PATH
+  return <p className="staff-muted">
+    {central ? <a href={href}>Forgot your password?</a> : <Link to={href}>Forgot your password?</Link>}
+    {central && ' Password resets are done on the main Health ID site.'}
+    {' '}For a new staff account, contact your facility administrator.
+  </p>
 }

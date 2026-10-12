@@ -99,7 +99,8 @@ describe('organization applications', () => {
     const message = await screen.findByText(/A new organization, facility and administrator account were created/)
     // The administrator is created pending_reset; recovery works only on the main site.
     expect(message.textContent).toContain(`${window.location.origin}/provider/recover`)
-    expect(message.textContent).toContain('does not work yet on the product sites')
+    expect(message.textContent).toContain('Password setup is done only on the main site')
+    expect(message.textContent).not.toContain('does not work yet')
   })
 
   it('explains a CAC verification refusal from the backend', async () => {

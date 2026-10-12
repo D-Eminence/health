@@ -2,6 +2,7 @@ import { useCallback, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { adminApi, type AdminActor, type ApplicationStatus, type Facility, type OrganizationApplication } from './api'
 import { environment } from './env'
+import { MAIN_SITE_ORIGINS, STAFF_RECOVERY_PATH } from '../productHostname'
 import { failure } from './problems'
 import {
   Page, Refresh, ResourceView, Status, date, has, label, useGovernedSubmit, useResource, useUrlFilters,
@@ -106,7 +107,7 @@ function ApplicationReview({ application, actor, onReviewed }: {
         ? 'Application approved and linked to the existing organization and its active administrator, who signs in as before.'
         : 'Application approved. A new organization, facility and administrator account were created. '
           + `The administrator has no password yet: ask them to set one at ${staffRecoveryUrl()}. `
-          + 'Password setup does not work yet on the product sites (ehr., lab., pharmacy., migrate., outreach.).'
+          + 'Password setup is done only on the main site; the product sites (ehr., lab., pharmacy., migrate., outreach.) link there.'
     }, 'The review could not be completed.', REVIEW_PROBLEMS)
     setPending(null)
     if (result) { setReason(''); onReviewed(result) }
@@ -159,9 +160,8 @@ function ApplicationCard({ application, actor, onReviewed }: {
 function staffRecoveryUrl(): string {
   let name = 'local'
   try { name = environment().name } catch { /* A configuration problem is reported where the API is used. */ }
-  const origin = name === 'production' ? 'https://www.healthidentitydirectory.com'
-    : name === 'staging' ? 'https://staging.healthidentitydirectory.com' : window.location.origin
-  return `${origin}/provider/recover`
+  const origin = name === 'production' || name === 'staging' ? MAIN_SITE_ORIGINS[name] : window.location.origin
+  return `${origin}${STAFF_RECOVERY_PATH}`
 }
 
 export function ApplicationsPage({ actor }: { actor: AdminActor }) {

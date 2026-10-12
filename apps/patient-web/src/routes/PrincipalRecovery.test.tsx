@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { PrincipalRecovery } from './PrincipalRecovery'
@@ -18,8 +18,12 @@ vi.mock('../Turnstile', () => ({
   </button>,
 }))
 
-function open(audience: 'staff' | 'admin') {
-  render(<MemoryRouter><PrincipalRecovery audience={audience} /></MemoryRouter>)
+const jsdom = (globalThis as unknown as { jsdom: { reconfigure(options: { url: string }): void } }).jsdom
+const servedFrom = window.location.href
+afterEach(() => { jsdom.reconfigure({ url: servedFrom }) })
+
+function open(audience: 'staff' | 'admin', path = '/') {
+  render(<MemoryRouter initialEntries={[path]}><PrincipalRecovery audience={audience} /></MemoryRouter>)
 }
 
 beforeEach(() => { vi.clearAllMocks() })
@@ -58,6 +62,51 @@ describe('staff and admin password recovery', () => {
     await waitFor(() => expect(screen.getByText('Password reset complete.')).toBeTruthy())
     expect(calls.complete).toHaveBeenCalledWith('challenge-1', 'verification-token', 'long-enough-password')
     expect(screen.getByRole('link', { name: 'Sign in' }).getAttribute('href')).toBe('/provider/sign-in')
+  })
+
+  it('follows no return address given in the link, so it cannot send anyone to another site', async () => {
+    // Product sites link here without one; a crafted link must not turn this page into a redirect.
+    calls.start.mockResolvedValueOnce({ accepted: true, challengeId: 'challenge-1' })
+    calls.verify.mockResolvedValueOnce({ verified: true, challengeId: 'challenge-1', verificationToken: 'verified' })
+    calls.complete.mockResolvedValueOnce({ completed: true })
+    open('staff', '/provider/recover?returnTo=https%3A%2F%2Fevil.example%2Fsign-in&next=%2F%2Fevil.example')
+
+    for (const link of screen.getAllByRole('link')) expect(link.getAttribute('href')).toBe('/provider/sign-in')
+    fireEvent.change(screen.getByLabelText('Work email'), { target: { value: 'nurse@example.test' } })
+    fireEvent.click(screen.getByRole('button', { name: /Complete staff-reset security check/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Send recovery code' }))
+    fireEvent.change(await screen.findByLabelText('Recovery code'), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Verify code' }))
+    fireEvent.change(await screen.findByLabelText('New password'), { target: { value: 'correct horse battery' } })
+    fireEvent.change(screen.getByLabelText('Confirm new password'), { target: { value: 'correct horse battery' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Reset password' }))
+
+    await screen.findByText('Password reset complete.')
+    for (const link of screen.getAllByRole('link')) expect(link.getAttribute('href')).toBe('/provider/sign-in')
+  })
+
+  it.each([
+    ['lab.healthidentitydirectory.com', 'https://www.healthidentitydirectory.com/provider/recover'],
+    ['ehr.healthidentitydirectory.com', 'https://www.healthidentitydirectory.com/provider/recover'],
+    ['outreach.staging.healthidentitydirectory.com', 'https://staging.healthidentitydirectory.com/provider/recover'],
+    ['admin.healthidentitydirectory.com', 'https://www.healthidentitydirectory.com/provider/recover'],
+  ])('opened directly on %s, sends staff to the main site instead of a reset hid-system refuses there', (hostname, href) => {
+    // A bookmark, history or a typed address can still reach this page on a product site.
+    jsdom.reconfigure({ url: `https://${hostname}/provider/recover` })
+    open('staff', '/provider/recover')
+
+    expect(screen.queryByLabelText('Work email')).toBeNull()
+    expect(screen.queryByRole('button', { name: /security check/ })).toBeNull()
+    expect(screen.getByText(/Password resets are done on the main Health ID site/)).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Reset your password on the main site' }).getAttribute('href')).toBe(href)
+    expect(calls.start).not.toHaveBeenCalled()
+  })
+
+  it('keeps the platform reset on the admin site, which accepts it', () => {
+    jsdom.reconfigure({ url: 'https://admin.healthidentitydirectory.com/admin/recover' })
+    open('admin', '/admin/recover')
+    expect(screen.getByLabelText('Work email')).toBeTruthy()
+    expect(screen.getByRole('button', { name: /Complete admin-reset security check/ })).toBeTruthy()
   })
 
   it('uses the admin reset action and returns to platform sign in', () => {

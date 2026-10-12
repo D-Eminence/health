@@ -54,6 +54,34 @@ export function staffLoginAction(hostname: string): StaffLoginAction {
   return product ? STAFF_LOGIN_ACTIONS[product as StaffProductKey] : 'staff-login'
 }
 
+/** The portal's staff password-recovery page. */
+export const STAFF_RECOVERY_PATH = '/provider/recover'
+
+/**
+ * The main site of each deployment: the only host where hid-system accepts the
+ * staff password-reset check, `staff-reset` (turnstile.service.ts: www in
+ * production, staging on staging). Staff product hosts accept only their own
+ * sign-in action, and the admin site only admin-login and admin-reset, so a
+ * staff recovery started there is refused.
+ */
+export const MAIN_SITE_ORIGINS = {
+  production: 'https://www.healthidentitydirectory.com',
+  staging: 'https://staging.healthidentitydirectory.com',
+} as const
+
+/**
+ * Where staff reset a forgotten password. On a staff product host (ehr, lab,
+ * pharmacy, migrate, outreach) or the admin site, in production or staging,
+ * that is the main site's recovery page; anywhere else it is this site's own.
+ * The address is one of three fixed values: nothing from the hostname is copied
+ * into it, and it carries no return address.
+ */
+export function staffRecoveryHref(hostname: string): string {
+  const productHost = /^(?:ehr|lab|pharmacy|migrate|outreach|admin)\.(staging\.)?healthidentitydirectory\.com$/.exec(normalizeHostname(hostname))
+  if (!productHost) return STAFF_RECOVERY_PATH
+  return `${productHost[1] ? MAIN_SITE_ORIGINS.staging : MAIN_SITE_ORIGINS.production}${STAFF_RECOVERY_PATH}`
+}
+
 export function isStaffProductRoute(pathname: string): boolean {
   return Object.values(STAFF_PRODUCT_ROUTES).includes(pathname as (typeof STAFF_PRODUCT_ROUTES)[StaffProductKey])
 }

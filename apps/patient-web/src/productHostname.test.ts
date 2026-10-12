@@ -4,7 +4,9 @@ import {
   isPlatformAdminRoute,
   isStaffProductRoute,
   resolveStaffProductHostname,
+  STAFF_RECOVERY_PATH,
   staffLoginAction,
+  staffRecoveryHref,
 } from './productHostname'
 
 describe('resolveStaffProductHostname', () => {
@@ -84,4 +86,56 @@ describe('staffLoginAction', () => {
     'uses the general staff action on %s', hostname => {
       expect(staffLoginAction(hostname)).toBe('staff-login')
     })
+})
+
+/**
+ * hid-system accepts the staff password-reset check ('staff-reset') only on the
+ * main site: www in production, staging on staging (turnstile.service.ts). A
+ * staff product host therefore sends staff to the main site's recovery page.
+ */
+describe('staffRecoveryHref', () => {
+  const WWW = 'https://www.healthidentitydirectory.com/provider/recover'
+  const STAGING = 'https://staging.healthidentitydirectory.com/provider/recover'
+
+  it.each([
+    ['lab.healthidentitydirectory.com', WWW],
+    ['pharmacy.healthidentitydirectory.com', WWW],
+    ['migrate.healthidentitydirectory.com', WWW],
+    ['outreach.healthidentitydirectory.com', WWW],
+    ['ehr.healthidentitydirectory.com', WWW],
+    ['lab.staging.healthidentitydirectory.com', STAGING],
+    ['pharmacy.staging.healthidentitydirectory.com', STAGING],
+    ['migrate.staging.healthidentitydirectory.com', STAGING],
+    ['outreach.staging.healthidentitydirectory.com', STAGING],
+    ['ehr.staging.healthidentitydirectory.com', STAGING],
+    ['LAB.HEALTHIDENTITYDIRECTORY.COM.', WWW],
+    // The admin site accepts only admin-login and admin-reset, so a staff reset is refused there too.
+    ['admin.healthidentitydirectory.com', WWW],
+    ['admin.staging.healthidentitydirectory.com', STAGING],
+  ])('sends staff on %s to the main site recovery page', (hostname, href) => {
+    expect(staffRecoveryHref(hostname)).toBe(href)
+  })
+
+  it.each([
+    'www.healthidentitydirectory.com',
+    'staging.healthidentitydirectory.com',
+    'localhost',
+    '127.0.0.1',
+  ])('keeps recovery on %s, the main site or a local build', hostname => {
+    expect(staffRecoveryHref(hostname)).toBe(STAFF_RECOVERY_PATH)
+  })
+
+  it.each([
+    'lab.healthidentitydirectory.com.evil.example',
+    'evil-lab.healthidentitydirectory.com',
+    'lab.evil.healthidentitydirectory.com',
+    'lab.healthidentitydirectory.co',
+    'lab.staging.staging.healthidentitydirectory.com',
+    'https://lab.healthidentitydirectory.com',
+    'lab.healthidentitydirectory.com/provider/recover?next=https://evil.example',
+    '',
+  ])('never builds an address from an unrecognised host (%s)', hostname => {
+    // Only three fixed destinations exist; nothing in the hostname is copied into the link.
+    expect(staffRecoveryHref(hostname)).toBe(STAFF_RECOVERY_PATH)
+  })
 })

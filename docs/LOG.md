@@ -362,3 +362,32 @@ than a live completion tracker.
   checked the session again on every render.
 - Component and unit tests only, with fake Web Locks. No browser, multi-window,
   staging or deployed-backend run.
+
+## 2026-10-12: provider password recovery from product sites
+
+- Checked against hid-system `main` at `54f79d2` (`turnstile.service.ts`).
+  `staff-reset`, the check that starts a staff password reset, is accepted only
+  on `www.healthidentitydirectory.com` and `staging.healthidentitydirectory.com`.
+  Each staff product host accepts only its own sign-in action, so the
+  "Forgot your password?" link on the provider sign-in page, which stayed on
+  the product host, led to a recovery page the backend refuses. That applied to
+  `ehr` as well as `lab`, `pharmacy`, `migrate` and `outreach`.
+- Decided: recovery stays on the main site, and the backend allowlist is
+  unchanged. On a staff product host, in production or staging, the link now
+  goes to the main site's `/provider/recover` and says resets are done there.
+  The admin site gets the same link: it accepts only `admin-login` and
+  `admin-reset`. Elsewhere (www, staging, local) it stays on the site.
+  `/provider/recover` opened directly on a product or admin host (a bookmark,
+  history) shows that notice and link instead of a form the backend refuses,
+  and the admin approval message no longer says product-site setup is coming. The link is built only
+  from fixed addresses (`staffRecoveryHref` in `productHostname.ts`, shared with
+  the admin approval message and the route), copies nothing from the hostname
+  and carries no return address. The recovery page follows no return address
+  either, and after a reset its sign-in link stays on the main site.
+- The recovery flow itself (requests, Turnstile action, success and failure)
+  is unchanged. The gap map's password recovery row, still marked BUILD, now
+  says BUILT.
+- Component and unit tests only. hid-system's Cloudflare configuration serves
+  www with its own `apps/web` today, not this portal, so the links cannot be
+  checked live until the portal is deployed there. No browser, staging or
+  production run.

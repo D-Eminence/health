@@ -4,6 +4,7 @@ import { isHidApiError } from '@hid/http'
 import { Turnstile } from '../Turnstile'
 import { BrandLogo } from '../BrandLogo'
 import { createPrincipalRecoveryApi, type RecoveryAudience } from '../recoveryApi'
+import { STAFF_RECOVERY_PATH, staffRecoveryHref } from '../productHostname'
 
 type Step = 'start' | 'code' | 'password' | 'complete'
 
@@ -23,6 +24,20 @@ export function PrincipalRecovery({ audience }: { audience: RecoveryAudience }) 
   const [turnstileResetKey, setTurnstileResetKey] = useState(0)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // hid-system refuses a staff reset everywhere but the main site. Opened on a
+  // product or admin site (a bookmark, history), the page points there instead.
+  const mainSiteRecovery = audience === 'staff' ? staffRecoveryHref(window.location.hostname) : STAFF_RECOVERY_PATH
+  if (mainSiteRecovery !== STAFF_RECOVERY_PATH) {
+    return <main className="patient-auth-page"><section className="patient-auth-card" aria-labelledby="principal-recovery-title">
+      <Link to={signInPath} className="patient-auth-brand"><BrandLogo /></Link>
+      <p className="patient-eyebrow">{accountLabel} account recovery</p>
+      <h1 id="principal-recovery-title" className="patient-page-title">Reset your password.</h1>
+      <p className="patient-page-copy">Password resets are done on the main Health ID site.</p>
+      <a className="patient-primary-button" href={mainSiteRecovery}>Reset your password on the main site</a>
+      <p className="patient-auth-footer"><Link to={signInPath}>Back to {accountLabel.toLowerCase()} sign in</Link></p>
+    </section></main>
+  }
 
   async function run(operation: () => Promise<void>) {
     setBusy(true)
