@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { valueAt } from './cssRules'
 
 /**
  * jsdom lays nothing out, so these guard the stylesheet rules that keep the
@@ -10,59 +11,12 @@ import { describe, expect, it } from 'vitest'
  * records the measurements. Each check reads the value that wins at a width: the
  * last declaration, in source order, among the rules that apply there.
  */
-interface Rule { selectors: string[]; body: string; context: string[] }
-
-/** Splits a selector list on its top-level commas, keeping `:is(a, b)` whole. */
-function splitSelectors(list: string): string[] {
-  const selectors: string[] = []
-  let depth = 0
-  let start = 0
-  for (let index = 0; index < list.length; index += 1) {
-    if (list[index] === '(') depth += 1
-    else if (list[index] === ')') depth -= 1
-    else if (list[index] === ',' && depth === 0) { selectors.push(list.slice(start, index).trim()); start = index + 1 }
-  }
-  selectors.push(list.slice(start).trim())
-  return selectors
-}
-
-function parse(css: string, context: string[] = []): Rule[] {
-  const source = css.replace(/\/\*[\s\S]*?\*\//g, '')
-  const rules: Rule[] = []
-  let index = 0
-  for (;;) {
-    const open = source.indexOf('{', index)
-    if (open < 0) break
-    const before = source.slice(index, open)
-    const prelude = before.slice(before.lastIndexOf(';') + 1).trim()
-    let depth = 1
-    let end = open + 1
-    while (end < source.length && depth > 0) { if (source[end] === '{') depth += 1; else if (source[end] === '}') depth -= 1; end += 1 }
-    const body = source.slice(open + 1, end - 1)
-    if (/^@(media|layer|supports)\b/.test(prelude)) rules.push(...parse(body, [...context, prelude]))
-    else rules.push({ selectors: splitSelectors(prelude), body, context })
-    index = end
-  }
-  return rules
-}
-
-/** Whether every media condition (max-width and min-width in px) holds at a viewport width. */
-function appliesAt(context: string[], width: number): boolean {
-  return context.filter(prelude => prelude.startsWith('@media')).every(prelude =>
-    [...prelude.matchAll(/\((max|min)-width:\s*(\d+)px\)/g)].every(([, bound, px]) => bound === 'max' ? width <= Number(px) : width >= Number(px)))
-}
-
-function valueAt(css: string, selector: string, property: string, width: number): string | undefined {
-  return parse(css)
-    .filter(rule => rule.selectors.includes(selector) && appliesAt(rule.context, width))
-    .flatMap(rule => [...rule.body.matchAll(new RegExp(`(?:^|;|\\s)${property}\\s*:\\s*([^;]+)`, 'g'))].map(match => match[1]!.trim()))
-    .at(-1)
-}
 
 // A path, not a URL: jsdom replaces the global URL class, which Node's file API refuses.
 const here = dirname(fileURLToPath(import.meta.url))
 const portalCss = readFileSync(resolve(here, '../index.css'), 'utf8')
 const staffCss = readFileSync(resolve(here, '../staff/style.css'), 'utf8')
+const tokensCss = readFileSync(resolve(here, '../../../../packages/ui/src/tokens.css'), 'utf8')
 const PHONE = 320
 const DESKTOP = 1280
 
@@ -108,6 +62,42 @@ describe('keyboard focus under the sticky headers', () => {
     const staffTopbar = Number.parseFloat(valueAt(staffCss, '.staff-topbar', 'height', PHONE)!)
     expect(padding).toBeGreaterThan(Math.max(patientHeader, staffTopbar, 56))
     expect(valueAt(portalCss, 'html', 'scroll-padding-top', DESKTOP)).toBe(valueAt(portalCss, 'html', 'scroll-padding-top', PHONE))
+  })
+})
+
+/** WCAG 2 contrast ratio of two #rrggbb colours. */
+function contrast(first: string, second: string): number {
+  const luminance = (hex: string) => {
+    const [r, g, b] = [1, 3, 5].map(at => Number.parseInt(hex.slice(at, at + 2), 16) / 255)
+      .map(channel => channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4)
+    return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!
+  }
+  const [light, dark] = [luminance(first), luminance(second)].sort((a, b) => b - a)
+  return (light! + 0.05) / (dark! + 0.05)
+}
+
+describe('the facility question', () => {
+  it.each([PHONE, DESKTOP])('fills the workspace at %ipx, with no sidebar track beside it', width => {
+    // While the facility is chosen the sidebar is gone and the question is the layout's only child; on the
+    // sidebar's grid it fell into the sidebar-width first track.
+    expect(valueAt(staffCss, ['.staff-layout', '.staff-layout-single'], 'grid-template-columns', width)).toBe('minmax(0, 1fr)')
+  })
+})
+
+describe('the facility question while its choice is saved', () => {
+  // Its options are disabled meanwhile (the fieldset). Each shows it, as a disabled field of @hid/ui does
+  // (not-allowed, tinted, muted), not only its small radio, and its name stays readable in either theme.
+  const disabledOption = '.staff-facility-choice fieldset:disabled .staff-choice'
+
+  it('shows each option as unavailable, and still readable', () => {
+    expect(valueAt(staffCss, disabledOption, 'cursor', DESKTOP)).toBe('not-allowed')
+    expect(valueAt(staffCss, disabledOption, 'color', DESKTOP)).toBe('var(--color-muted)')
+    expect(valueAt(staffCss, disabledOption, 'background', DESKTOP)).toBe('var(--color-surface-tint)')
+    for (const theme of ['@theme', "[data-theme='dark']"]) {
+      const text = valueAt(tokensCss, theme, '--color-muted', DESKTOP)!
+      const fill = valueAt(tokensCss, theme, '--color-surface-tint', DESKTOP)!
+      expect(contrast(text, fill), theme).toBeGreaterThanOrEqual(4.5)
+    }
   })
 })
 

@@ -24,6 +24,12 @@ function date(value: string | null | undefined) {
   return Number.isNaN(parsed.getTime()) ? value : new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium' }).format(parsed)
 }
 
+/** A size EHR sends as a number or, for a bigint column, as text. */
+function bytes(value: number | string | null) {
+  const count = value == null || value === '' ? NaN : Number(value)
+  return Number.isFinite(count) && count >= 0 ? `${count.toLocaleString('en-NG')} bytes` : 'Size unavailable'
+}
+
 function LoadState({ loading, error, retry }: { loading: boolean; error: string | null; retry: () => void }) {
   if (loading) return <div className="patient-card patient-loading" role="status">Loading your information…</div>
   if (error) return <div className="patient-card" role="alert"><p>{error}</p><button type="button" onClick={retry}>Try again</button></div>
@@ -142,7 +148,7 @@ export function RecordsPage() {
         {records.data.labRequests.map(item => <li key={item.id}><div><strong>{item.testDisplay}</strong><span>{item.priority} · {item.status} · {date(item.createdAt)}</span></div>{item.clinicalInformation && <p>{item.clinicalInformation}</p>}</li>)}
       </ul>}</div>
       <div className="patient-card"><h2>Clinical documents</h2>{records.data.documents.length === 0 ? <p className="patient-empty">No clinical documents are available.</p> : <ul className="patient-list">
-        {records.data.documents.map(item => <li key={item.id}><div><strong>{item.fileName}</strong><span>{item.mediaType} · {item.sizeBytes != null ? `${item.sizeBytes.toLocaleString()} bytes` : 'Size unavailable'} · {date(item.createdAt)}</span></div></li>)}
+        {records.data.documents.map(item => <li key={item.id}><div><strong>{item.fileName}</strong><span>{item.mediaType} · {bytes(item.sizeBytes)} · {date(item.createdAt)}</span></div></li>)}
       </ul>}</div>
       <p className="patient-field-hint">The record aggregate is scoped to your authenticated patient identity and audited by the backend.</p>
     </>}

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createApiClient } from '../client'
-import { uploadPresignedObject } from '../upload'
+import { HidApiError } from '../errors'
+import { assertSignedStorageUrl, uploadPresignedObject } from '../upload'
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -201,6 +202,23 @@ describe('presigned document upload', () => {
     expect(new Headers(calls[0]?.headers).get('x-amz-checksum-sha256')).toBe('checksum')
   })
 
+  it('refuses plain http to this machine unless the caller allows it (a local environment)', async () => {
+    const fetchImpl = vi.fn(async () => new Response(null, { status: 200 }))
+    await expect(uploadPresignedObject({ url: 'http://localhost:4566/bucket/signed',
+      body: new Blob(['data']), requiredHeaders: {}, fetchImpl })).rejects.toMatchObject({ code: 'INVALID_UPLOAD_URL' })
+    expect(fetchImpl).not.toHaveBeenCalled()
+    await uploadPresignedObject({ url: 'http://localhost:4566/bucket/signed', allowLocalHttp: true,
+      body: new Blob(['data']), requiredHeaders: {}, fetchImpl })
+    expect(fetchImpl).toHaveBeenCalledOnce()
+  })
+
+  it('refuses a link that is not a URL as an invalid link, not a TypeError', async () => {
+    const fetchImpl = vi.fn()
+    await expect(uploadPresignedObject({ url: 'not a url',
+      body: new Blob(['data']), requiredHeaders: {}, fetchImpl })).rejects.toMatchObject({ code: 'INVALID_UPLOAD_URL' })
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
   it('refuses an insecure remote upload URL', async () => {
     const fetchImpl = vi.fn()
     await expect(uploadPresignedObject({ url: 'http://storage.example.org/signed',
@@ -208,5 +226,36 @@ describe('presigned document upload', () => {
       code: 'INVALID_UPLOAD_URL',
     })
     expect(fetchImpl).not.toHaveBeenCalled()
+  })
+})
+
+describe('signed storage links', () => {
+  it.each([
+    'https://storage.example.org/bucket/key?X-Amz-Signature=abc',
+  ])('accepts %s', url => {
+    expect(assertSignedStorageUrl(url).href).toBe(url)
+  })
+
+  it.each([
+    'javascript:alert(1)',
+    'data:text/html,<script>alert(1)</script>',
+    'blob:https://storage.example.org/1',
+    'ftp://storage.example.org/key',
+    'http://storage.example.org/key',
+    'https://user:secret@storage.example.org/key',
+    'not a url',
+  ])('refuses %s', url => {
+    expect(() => assertSignedStorageUrl(url, { allowLocalHttp: true })).toThrow(HidApiError)
+  })
+
+  it.each(['http://localhost:4566/key', 'http://127.0.0.1:9000/key', 'http://[::1]:9000/key'])(
+    'accepts plain http to this machine (%s) only when allowed', url => {
+      expect(() => assertSignedStorageUrl(url)).toThrow(HidApiError)
+      expect(assertSignedStorageUrl(url, { allowLocalHttp: true }).href).toBe(url)
+    })
+
+  it('names its refusal with the code and message the caller gives', () => {
+    expect(() => assertSignedStorageUrl('javascript:alert(1)', { code: 'INVALID_DOWNLOAD_URL', message: 'Document could not be opened.' }))
+      .toThrow(expect.objectContaining({ code: 'INVALID_DOWNLOAD_URL', message: 'Document could not be opened.' }))
   })
 })

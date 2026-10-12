@@ -258,7 +258,11 @@ describe('linking a registration case to an existing patient', () => {
     fireEvent.change(screen.getByLabelText(/^Canonical patient ID/), { target: { value: PATIENT } })
     fireEvent.change(screen.getByLabelText(/^Resolution reason/), { target: { value: ' short  ' } })
     fireEvent.submit(screen.getByRole('button', { name: 'Link existing patient' }).closest('form')!)
-    expect((await screen.findByRole('alert')).textContent).toBe('Enter a canonical patient ID and a reason of at least 8 characters.')
+    // Refused at the reason field (PEHR-04), which takes focus, so its description says why.
+    const reason = screen.getByLabelText(/^Resolution reason/)
+    await waitFor(() => expect(document.activeElement).toBe(reason))
+    expect(reason.getAttribute('aria-invalid')).toBe('true')
+    expect(document.getElementById(reason.getAttribute('aria-describedby') ?? '')?.textContent).toBe('Enter a canonical patient ID and a reason of at least 8 characters.')
     expect(api.linkExistingOutreachCase).not.toHaveBeenCalled()
   })
 

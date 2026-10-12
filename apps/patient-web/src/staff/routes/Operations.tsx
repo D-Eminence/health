@@ -5,10 +5,17 @@ import { Badge, Button, Card, EmptyState, Field, Input, Select, Textarea } from 
 import { staffApi, type LabAbnormalFlag, type LabAccession, type LabExecution, type LabResult, type LabResultRevision, type LabResultValue, type LabImport, type LabSpecimen, type LabWorkItem, type OcrExtraction, type OcrJob, type OcrPublication, type OcrTargetDomain, type OcrValidation, type OcrValidationInput, type OutreachCampaign, type OutreachCase, type PharmacyImport, type PharmacyWorkItem } from '../api'
 import { useStaff } from '../App'
 import { describedBy } from '../../authSteps'
+import { FieldInputError, problemProps, problemText, refusal, refusalText, type FieldProblem } from '../fieldProblem'
+import { BUSY, focusIsLost, UNAVAILABLE, useFocusById } from '../focus'
+import { useFieldProblems } from '../useFieldProblems'
 
+// A refusal's message, with each field a 400 VALIDATION_FAILED names.
 function errorText(error: unknown, fallback: string) {
-  return error instanceof Error ? error.message : fallback
+  return refusalText(error, fallback)
 }
+
+// OCR takes document and patient IDs only as version 4 UUIDs (ocr-api DTOs, @IsUUID('4')).
+const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 function shortId(value: string) { return `••••${value.slice(-6)}` }
 
@@ -47,6 +54,22 @@ function useFacilityList<T>(facilityId: string | undefined, enabled: boolean, lo
   return { items: result.facilityId === facilityId ? result.items : null, loading: result.facilityId !== facilityId || result.loading, error: result.facilityId === facilityId ? result.error : '', refresh }
 }
 
+// Lab and Pharmacy list at most this many work items, oldest accepted first, and
+// offer no further page (lab-work-items.service.ts list, pharmacy.service.ts listWorkItems).
+// Neither filters by status, so a completed or dispensed item stays in the list:
+// once a facility has this many, a newer one cannot be reached from here.
+const WORK_LIST_CAP = 200
+
+function WorkListCap({ count }: { count: number }) {
+  if (count < WORK_LIST_CAP) return null
+  return <p className="staff-notice">This list can show only the {WORK_LIST_CAP} oldest accepted work items. Any item accepted after them is not shown and cannot be reached from this page: completing work or refreshing the list does not bring it into view. Contact your facility administrator about orders not listed here.</p>
+}
+
+/** A list's refresh: focusable while its read runs (UNAVAILABLE), when a second press does nothing. */
+function RefreshButton({ loading, onRefresh, children }: { loading: boolean; onRefresh: () => Promise<void>; children: ReactNode }) {
+  return <Button tone="secondary" size="sm" aria-disabled={loading || undefined} className={UNAVAILABLE} onClick={() => { if (!loading) void onRefresh() }}>{children}</Button>
+}
+
 function ListState({ loading, error, empty, retry, hasItems }: { loading: boolean; error: string; empty: string; retry: () => void; hasItems: boolean }) {
   return <>
     {error && <p className="staff-error" role="alert">{error}</p>}
@@ -58,92 +81,110 @@ function ListState({ loading, error, empty, retry, hasItems }: { loading: boolea
 function AccessionForm({ facilityId, item, onCreated }: { facilityId: string; item: LabWorkItem; onCreated: (accession: LabAccession) => void }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const problems = useFieldProblems()
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    // The button stays focusable while the request runs; a second press does nothing.
+    if (busy) return
     const form = new FormData(event.currentTarget)
     const specimenType = String(form.get('specimenType') ?? '').trim()
     const reason = String(form.get('reason') ?? '').trim()
-    if (!specimenType || !reason) return setError('Enter a specimen type and clinical reason.')
-    setBusy(true); setError('')
+    setError(''); problems.clear()
+    if (!specimenType || !reason) return problems.refuse(!specimenType ? 'lab-specimen-type' : 'lab-accession-reason', 'Enter a specimen type and clinical reason.')
+    setBusy(true)
     try { onCreated(await staffApi.createLabAccession(facilityId, item.id, specimenType, reason)) }
     catch (caught) { setError(errorText(caught, 'Accession could not be created.')) }
     finally { setBusy(false) }
   }
   return <Card className="staff-card"><h2>Create specimen accession</h2><p>{item.testName ?? 'Accepted lab order'} · Patient {shortId(item.patientId)}</p><form className="staff-form" onSubmit={event => void submit(event)}>
-    <Field label="Specimen type" htmlFor="lab-specimen-type" required><Input id="lab-specimen-type" name="specimenType" maxLength={240} placeholder="Blood, urine, swab…" required /></Field>
-    <Field label="Reason" htmlFor="lab-accession-reason" required><Textarea id="lab-accession-reason" name="reason" maxLength={500} required /></Field>
+    <Field label="Specimen type" htmlFor="lab-specimen-type" error={problems.error('lab-specimen-type')} required><Input id="lab-specimen-type" name="specimenType" maxLength={240} placeholder="Blood, urine, swab…" required {...problems.control('lab-specimen-type')} /></Field>
+    <Field label="Reason" htmlFor="lab-accession-reason" error={problems.error('lab-accession-reason')} required><Textarea id="lab-accession-reason" name="reason" maxLength={500} required {...problems.control('lab-accession-reason')} /></Field>
     {error && <p className="staff-error" role="alert">{error}</p>}
-    <Button type="submit" disabled={busy}>{busy ? 'Creating…' : 'Create accession'}</Button>
+    <Button type="submit" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Creating…' : 'Create accession'}</Button>
   </form></Card>
 }
 
 type SpecimenActionKind = 'collect' | 'receive' | 'reject'
 
-function SpecimenAction({ facilityId, accessionId, specimen, permissions, onChanged, onRefused }: { facilityId: string; accessionId: string; specimen: LabSpecimen; permissions: string[]; onChanged: () => void; onRefused: (error: unknown) => void }) {
+const SPECIMEN_STEP_DONE: Record<SpecimenActionKind, string> = {
+  collect: 'Specimen marked collected.', receive: 'Specimen marked received.', reject: 'Specimen rejected.',
+}
+
+function SpecimenAction({ facilityId, accessionId, specimen, permissions, onStarted, onChanged, onRefused }: { facilityId: string; accessionId: string; specimen: LabSpecimen; permissions: string[]; onStarted: () => void; onChanged: (message: string) => void; onRefused: (error: unknown) => void }) {
   const actions: SpecimenActionKind[] = specimen.status === 'required'
     ? ['collect', 'reject'] : specimen.status === 'collected' ? ['receive', 'reject'] : []
   const allowed = actions.filter(action => permissions.includes(`lab.specimen.${action}`))
   const [action, setAction] = useState<SpecimenActionKind>(allowed[0] ?? 'collect')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const problems = useFieldProblems()
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (busy) return
     const detail = String(new FormData(event.currentTarget).get('detail') ?? '').trim()
-    if (action === 'reject' && !detail) return setError('Enter a rejection reason.')
-    setBusy(true); setError('')
-    try { await staffApi.transitionSpecimen(facilityId, accessionId, specimen, action, detail); onChanged() }
+    setError(''); problems.clear()
+    if (action === 'reject' && !detail) return problems.refuse(`lab-detail-${specimen.id}`, 'Enter a rejection reason.')
+    setBusy(true); onStarted()
+    try { await staffApi.transitionSpecimen(facilityId, accessionId, specimen, action, detail); onChanged(SPECIMEN_STEP_DONE[action]) }
     catch (caught) { setError(errorText(caught, 'Specimen could not be updated. Refresh and try again.')); onRefused(caught) }
     finally { setBusy(false) }
   }
-  return <div className="staff-list-item"><div className="staff-row"><strong>{specimen.specimenType} · {specimen.specimenIdentifier}</strong><Badge tone={specimen.status === 'received' ? 'success' : specimen.status === 'rejected' ? 'danger' : 'warning'}>{specimen.status}</Badge></div>
+  return <div className="staff-list-item"><div className="staff-row"><strong id={`lab-specimen-${specimen.id}-title`} tabIndex={-1}>{specimen.specimenType} · {specimen.specimenIdentifier}</strong><Badge tone={specimen.status === 'received' ? 'success' : specimen.status === 'rejected' ? 'danger' : 'warning'}>{specimen.status}</Badge></div>
     {allowed.length > 0 && <form className="staff-form" onSubmit={event => void submit(event)}>
       <Field label="Next step" htmlFor={`lab-action-${specimen.id}`}><Select id={`lab-action-${specimen.id}`} value={action} onChange={event => setAction(event.target.value as SpecimenActionKind)}>{allowed.map(value => <option key={value} value={value}>{value === 'collect' ? 'Mark collected' : value === 'receive' ? 'Mark received' : 'Reject specimen'}</option>)}</Select></Field>
-      <Field label={action === 'reject' ? 'Rejection reason' : 'Notes or condition'} htmlFor={`lab-detail-${specimen.id}`} required={action === 'reject'}><Input id={`lab-detail-${specimen.id}`} name="detail" maxLength={action === 'collect' ? 1000 : 500} required={action === 'reject'} /></Field>
+      <Field label={action === 'reject' ? 'Rejection reason' : 'Notes or condition'} htmlFor={`lab-detail-${specimen.id}`} error={problems.error(`lab-detail-${specimen.id}`)} required={action === 'reject'}><Input id={`lab-detail-${specimen.id}`} name="detail" maxLength={action === 'collect' ? 1000 : 500} required={action === 'reject'} {...problems.control(`lab-detail-${specimen.id}`)} /></Field>
       {error && <p className="staff-error" role="alert">{error}</p>}
-      <Button type="submit" size="sm" disabled={busy}>{busy ? 'Saving…' : 'Record step'}</Button>
+      <Button type="submit" size="sm" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Saving…' : 'Record step'}</Button>
     </form>}
   </div>
 }
 
 const abnormalFlags: readonly LabAbnormalFlag[] = ['unknown', 'normal', 'high', 'low', 'abnormal', 'critical_candidate']
 
-function resultValue(form: FormData, resultType: 'numeric' | 'text'): LabResultValue {
+/** The result entered under `id` (an execution's), or a FieldInputError naming the field refused. */
+function resultValue(form: FormData, resultType: 'numeric' | 'text', id: string): LabResultValue {
   const unit = String(form.get('unit') ?? '').trim()
   const referenceRange = String(form.get('referenceRange') ?? '').trim()
   const flag = String(form.get('abnormalFlag') ?? 'unknown')
-  if (!abnormalFlags.includes(flag as LabAbnormalFlag)) throw new Error('Choose a valid result flag.')
+  if (!abnormalFlags.includes(flag as LabAbnormalFlag)) throw new FieldInputError(`lab-flag-${id}`, 'Choose a valid result flag.')
   const shared = {
     ...(unit ? { unit } : {}), ...(referenceRange ? { referenceRange } : {}),
     abnormalFlag: flag as LabAbnormalFlag,
   }
   if (resultType === 'numeric') {
     const raw = String(form.get('numericValue') ?? '').trim()
-    if (!raw || !Number.isFinite(Number(raw))) throw new Error('Enter a valid numeric result.')
+    if (!raw || !Number.isFinite(Number(raw))) throw new FieldInputError(`lab-numeric-${id}`, 'Enter a valid numeric result.')
     return { resultType, numericValue: Number(raw), ...shared }
   }
   const textValue = String(form.get('textValue') ?? '').trim()
-  if (!textValue) throw new Error('Enter the text result.')
+  if (!textValue) throw new FieldInputError(`lab-text-${id}`, 'Enter the text result.')
   return { resultType, textValue, ...shared }
 }
 
-function ResultEntry({ facilityId, execution, result, onChanged, onRefused }: {
-  facilityId: string; execution: LabExecution; result: LabResult | null;
+function ResultEntry({ facilityId, execution, result, onStarted, onChanged, onRefused }: {
+  facilityId: string; execution: LabExecution; result: LabResult | null; onStarted: () => void;
   onChanged: (value: LabResult, message: string) => void; onRefused: (error: unknown) => void
 }) {
   const current = result?.revisions.find(revision => revision.version === result.currentVersion)
   const [resultType, setResultType] = useState<'numeric' | 'text'>(current?.resultType ?? 'numeric')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const problems = useFieldProblems()
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (busy) return
     const form = new FormData(event.currentTarget)
-    setError('')
+    setError(''); problems.clear()
     let value: LabResultValue
-    try { value = resultValue(form, resultType) }
-    catch (caught) { setError(errorText(caught, 'Enter a valid result.')); return }
+    try { value = resultValue(form, resultType, execution.id) }
+    catch (caught) {
+      if (caught instanceof FieldInputError) problems.refuse(caught.field, caught.message)
+      else setError(errorText(caught, 'Enter a valid result.'))
+      return
+    }
     const reason = String(form.get('reason') ?? '').trim()
-    if (result && !reason) return setError('Explain the correction or amendment.')
-    setBusy(true)
+    if (result && !reason) return problems.refuse(`lab-result-reason-${execution.id}`, 'Explain the correction or amendment.')
+    setBusy(true); onStarted()
     try {
       const updated = result
         ? await staffApi.correctLabResult(facilityId, execution, result, value, reason,
@@ -158,31 +199,35 @@ function ResultEntry({ facilityId, execution, result, onChanged, onRefused }: {
     <form className="staff-form" onSubmit={event => void submit(event)}>
       <Field label="Result type" htmlFor={`lab-result-type-${execution.id}`}><Select id={`lab-result-type-${execution.id}`} value={resultType} onChange={event => setResultType(event.target.value as 'numeric' | 'text')}><option value="numeric">Numeric</option><option value="text">Text</option></Select></Field>
       {resultType === 'numeric'
-        ? <Field label="Numeric value" htmlFor={`lab-numeric-${execution.id}`} required><Input id={`lab-numeric-${execution.id}`} name="numericValue" type="number" step="any" defaultValue={current?.resultType === 'numeric' ? current.numericValue ?? '' : ''} required /></Field>
-        : <Field label="Text value" htmlFor={`lab-text-${execution.id}`} required><Textarea id={`lab-text-${execution.id}`} name="textValue" maxLength={4000} defaultValue={current?.resultType === 'text' ? current.textValue ?? '' : ''} required /></Field>}
+        ? <Field label="Numeric value" htmlFor={`lab-numeric-${execution.id}`} error={problems.error(`lab-numeric-${execution.id}`)} required><Input id={`lab-numeric-${execution.id}`} name="numericValue" type="number" step="any" defaultValue={current?.resultType === 'numeric' ? current.numericValue ?? '' : ''} required {...problems.control(`lab-numeric-${execution.id}`)} /></Field>
+        : <Field label="Text value" htmlFor={`lab-text-${execution.id}`} error={problems.error(`lab-text-${execution.id}`)} required><Textarea id={`lab-text-${execution.id}`} name="textValue" maxLength={4000} defaultValue={current?.resultType === 'text' ? current.textValue ?? '' : ''} required {...problems.control(`lab-text-${execution.id}`)} /></Field>}
       <div className="staff-form-row">
         <Field label="Unit" htmlFor={`lab-unit-${execution.id}`}><Input id={`lab-unit-${execution.id}`} name="unit" maxLength={80} defaultValue={current?.unit ?? ''} /></Field>
         <Field label="Reference range" htmlFor={`lab-range-${execution.id}`}><Input id={`lab-range-${execution.id}`} name="referenceRange" maxLength={240} defaultValue={current?.referenceRange ?? ''} /></Field>
       </div>
-      <Field label="Abnormal flag" htmlFor={`lab-flag-${execution.id}`}><Select id={`lab-flag-${execution.id}`} name="abnormalFlag" defaultValue={current?.abnormalFlag ?? 'unknown'}>{abnormalFlags.map(flag => <option key={flag} value={flag}>{flag.replaceAll('_', ' ')}</option>)}</Select></Field>
-      {result && <><Field label="Revision type" htmlFor={`lab-revision-kind-${execution.id}`}><Select id={`lab-revision-kind-${execution.id}`} name="revisionKind"><option value="correction">Correction</option><option value="amendment">Amendment</option></Select></Field><Field label="Reason" htmlFor={`lab-result-reason-${execution.id}`} required><Textarea id={`lab-result-reason-${execution.id}`} name="reason" maxLength={500} required /></Field></>}
+      <Field label="Abnormal flag" htmlFor={`lab-flag-${execution.id}`} error={problems.error(`lab-flag-${execution.id}`)}><Select id={`lab-flag-${execution.id}`} name="abnormalFlag" defaultValue={current?.abnormalFlag ?? 'unknown'} {...problems.control(`lab-flag-${execution.id}`)}>{abnormalFlags.map(flag => <option key={flag} value={flag}>{flag.replaceAll('_', ' ')}</option>)}</Select></Field>
+      {result && <><Field label="Revision type" htmlFor={`lab-revision-kind-${execution.id}`}><Select id={`lab-revision-kind-${execution.id}`} name="revisionKind"><option value="correction">Correction</option><option value="amendment">Amendment</option></Select></Field><Field label="Reason" htmlFor={`lab-result-reason-${execution.id}`} error={problems.error(`lab-result-reason-${execution.id}`)} required><Textarea id={`lab-result-reason-${execution.id}`} name="reason" maxLength={500} required {...problems.control(`lab-result-reason-${execution.id}`)} /></Field></>}
       {error && <p className="staff-error" role="alert">{error}</p>}
-      <Button type="submit" size="sm" disabled={busy}>{busy ? 'Recording…' : result ? 'Record new revision' : 'Record unverified result'}</Button>
+      <Button type="submit" size="sm" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Recording…' : result ? 'Record new revision' : 'Record unverified result'}</Button>
     </form>
   </details>
 }
 
-function ResultGovernance({ facilityId, result, action, onChanged, onRefused }: {
-  facilityId: string; result: LabResult; action: 'verify' | 'release';
+function ResultGovernance({ facilityId, result, action, onStarted, onChanged, onRefused }: {
+  facilityId: string; result: LabResult; action: 'verify' | 'release'; onStarted: () => void;
   onChanged: (value: LabResult, message: string) => void; onRefused: (error: unknown) => void
 }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const problems = useFieldProblems()
+  const reasonId = `lab-${action}-reason-${result.id}`
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (busy) return
     const reason = String(new FormData(event.currentTarget).get('reason') ?? '').trim()
-    if (!reason) return setError('Enter a reason for this decision.')
-    setBusy(true); setError('')
+    setError(''); problems.clear()
+    if (!reason) return problems.refuse(reasonId, 'Enter a reason for this decision.')
+    setBusy(true); onStarted()
     try {
       const value = action === 'verify'
         ? await staffApi.verifyLabResult(facilityId, result, reason)
@@ -193,9 +238,9 @@ function ResultGovernance({ facilityId, result, action, onChanged, onRefused }: 
   }
   return <form className="staff-form" onSubmit={event => void submit(event)}>
     <p className="staff-muted">{action === 'verify' ? 'Verify version ' + result.currentVersion + ' after independent review. The person who entered it cannot verify it.' : 'Release verified version ' + result.currentVersion + ' to authorized readers.'}</p>
-    <Field label={`${action === 'verify' ? 'Verification' : 'Release'} reason`} htmlFor={`lab-${action}-reason-${result.id}`} required><Textarea id={`lab-${action}-reason-${result.id}`} name="reason" maxLength={500} required /></Field>
+    <Field label={`${action === 'verify' ? 'Verification' : 'Release'} reason`} htmlFor={reasonId} error={problems.error(reasonId)} required><Textarea id={reasonId} name="reason" maxLength={500} required {...problems.control(reasonId)} /></Field>
     {error && <p className="staff-error" role="alert">{error}</p>}
-    <Button type="submit" size="sm" disabled={busy}>{busy ? 'Recording…' : action === 'verify' ? 'Verify result version' : 'Release result version'}</Button>
+    <Button type="submit" size="sm" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Recording…' : action === 'verify' ? 'Verify result version' : 'Release result version'}</Button>
   </form>
 }
 
@@ -231,8 +276,8 @@ function ResultHistory({ facilityId, result, onRefused }: { facilityId: string; 
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
   }, [facilityId, result.id, result.currentVersion, unreleased, open, revision, onRefused])
-  return <div className="staff-stack"><Button tone="secondary" size="sm" onClick={() => setOpen(value => !value)}>{open ? 'Hide result history' : 'View result history'}</Button>
-    {open && <><Button tone="secondary" size="sm" onClick={() => setRevision(value => value + 1)} disabled={loading}>Refresh history</Button>
+  return <div className="staff-stack"><Button tone="secondary" size="sm" aria-expanded={open} onClick={() => setOpen(value => !value)}>{open ? 'Hide result history' : 'View result history'}</Button>
+    {open && <><Button tone="secondary" size="sm" aria-disabled={loading || undefined} className={UNAVAILABLE} onClick={() => { if (!loading) setRevision(value => value + 1) }}>Refresh history</Button>
       {loading && <p role="status">Loading result history…</p>}
       {error && <p className="staff-error" role="alert">{error}</p>}
       {!loading && !error && history && <RevisionList revisions={history.revisions} />}
@@ -240,8 +285,8 @@ function ResultHistory({ facilityId, result, onRefused }: { facilityId: string; 
   </div>
 }
 
-function ExecutionCard({ facilityId, execution, permissions, onExecutionChanged, onResultChanged, onRefused }: {
-  facilityId: string; execution: LabExecution; permissions: string[];
+function ExecutionCard({ facilityId, execution, permissions, onStarted, onExecutionChanged, onResultChanged, onRefused }: {
+  facilityId: string; execution: LabExecution; permissions: string[]; onStarted: () => void;
   onExecutionChanged: (value: LabExecution, message: string) => void;
   onResultChanged: (value: LabResult, message: string) => void; onRefused: (error: unknown) => void
 }) {
@@ -251,8 +296,9 @@ function ExecutionCard({ facilityId, execution, permissions, onExecutionChanged,
   const current = result?.revisions.find(revision => revision.version === result.currentVersion)
   async function complete(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (busy) return
     const notes = String(new FormData(event.currentTarget).get('notes') ?? '').trim()
-    setBusy(true); setError('')
+    setBusy(true); setError(''); onStarted()
     try { onExecutionChanged(await staffApi.completeLabExecution(facilityId, execution, notes), 'Analytical execution was completed.') }
     catch (caught) { setError(errorText(caught, 'Execution could not be completed. Refresh before retrying.')); onRefused(caught) }
     finally { setBusy(false) }
@@ -260,17 +306,17 @@ function ExecutionCard({ facilityId, execution, permissions, onExecutionChanged,
   const canCorrect = Boolean(result && permissions.includes('lab.result.correct') &&
     (result.currentReleasedVersion !== result.currentVersion || permissions.includes('lab.result.revise-released')))
   return <div className="staff-list-item staff-stack">
-    <div className="staff-row"><strong>{execution.test.name} · {execution.test.codeSystem} {execution.test.code}</strong><Badge tone={execution.status === 'completed' ? 'success' : 'information'}>{execution.status.replaceAll('_', ' ')}</Badge></div>
+    <div className="staff-row"><strong id={`lab-execution-${execution.id}-title`} tabIndex={-1}>{execution.test.name} · {execution.test.codeSystem} {execution.test.code}</strong><Badge tone={execution.status === 'completed' ? 'success' : 'information'}>{execution.status.replaceAll('_', ' ')}</Badge></div>
     <p>Started {dateText(execution.startedAt)}{execution.completedAt ? ` · Completed ${dateText(execution.completedAt)}` : ''} · Version {execution.version}</p>
     {execution.method && <p>Method: {execution.method}</p>}
-    {execution.status === 'in_progress' && permissions.includes('lab.execution.complete') && <form className="staff-form" onSubmit={event => void complete(event)}><Field label="Completion notes" htmlFor={`lab-completion-${execution.id}`}><Textarea id={`lab-completion-${execution.id}`} name="notes" maxLength={1000} /></Field><Button type="submit" size="sm" disabled={busy}>{busy ? 'Completing…' : 'Complete execution'}</Button></form>}
+    {execution.status === 'in_progress' && permissions.includes('lab.execution.complete') && <form className="staff-form" onSubmit={event => void complete(event)}><Field label="Completion notes" htmlFor={`lab-completion-${execution.id}`}><Textarea id={`lab-completion-${execution.id}`} name="notes" maxLength={1000} /></Field><Button type="submit" size="sm" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Completing…' : 'Complete execution'}</Button></form>}
     {error && <p className="staff-error" role="alert">{error}</p>}
-    {execution.status === 'completed' && !result && permissions.includes('lab.result.enter') && <ResultEntry facilityId={facilityId} execution={execution} result={null} onChanged={onResultChanged} onRefused={onRefused} />}
+    {execution.status === 'completed' && !result && permissions.includes('lab.result.enter') && <ResultEntry facilityId={facilityId} execution={execution} result={null} onStarted={onStarted} onChanged={onResultChanged} onRefused={onRefused} />}
     {result && <><div className="staff-row"><strong>Manual result · version {result.currentVersion}</strong><Badge tone={result.status === 'released' ? 'success' : 'warning'}>{result.status.replaceAll('_', ' ')}</Badge></div>
       {current && <p>{current.resultType === 'numeric' ? current.numericValue == null ? 'Not recorded' : `${current.numericValue} ${current.unit ?? ''}` : current.textValue ?? 'Not recorded'} · {current.abnormalFlag.replaceAll('_', ' ')}</p>}
-      {canCorrect && <ResultEntry key={`${result.id}-${result.currentVersion}`} facilityId={facilityId} execution={execution} result={result} onChanged={onResultChanged} onRefused={onRefused} />}
-      {result.status === 'entered_unverified' && permissions.includes('lab.result.verify') && <ResultGovernance facilityId={facilityId} result={result} action="verify" onChanged={onResultChanged} onRefused={onRefused} />}
-      {result.status === 'verified_not_released' && permissions.includes('lab.result.release') && <ResultGovernance facilityId={facilityId} result={result} action="release" onChanged={onResultChanged} onRefused={onRefused} />}
+      {canCorrect && <ResultEntry key={`${result.id}-${result.currentVersion}`} facilityId={facilityId} execution={execution} result={result} onStarted={onStarted} onChanged={onResultChanged} onRefused={onRefused} />}
+      {result.status === 'entered_unverified' && permissions.includes('lab.result.verify') && <ResultGovernance facilityId={facilityId} result={result} action="verify" onStarted={onStarted} onChanged={onResultChanged} onRefused={onRefused} />}
+      {result.status === 'verified_not_released' && permissions.includes('lab.result.release') && <ResultGovernance facilityId={facilityId} result={result} action="release" onStarted={onStarted} onChanged={onResultChanged} onRefused={onRefused} />}
       {permissions.includes('lab.result.released.read') && <ResultHistory facilityId={facilityId} result={result} onRefused={onRefused} />}
     </>}
   </div>
@@ -320,8 +366,11 @@ function ExecutionPanel({ facilityId, specimen, permissions, generation, recheck
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [startError, setStartError] = useState('')
+  const startProblems = useFieldProblems()
   const [busy, setBusy] = useState(false)
   const [revision, setRevision] = useState(0)
+  // A step removes the form that made it; focus goes to its execution, if it was lost.
+  const focus = useFocusById()
   // Each execution-list request is numbered. Hiding the results retires every request
   // already in flight, so an answer that arrives later cannot bring values back.
   const request = useRef(0)
@@ -364,11 +413,15 @@ function ExecutionPanel({ facilityId, specimen, permissions, generation, recheck
   // An action that answers after the results were hidden, here or anywhere in the accession,
   // must not bring them back.
   const stale = () => hidden.current || generation.current !== confirmed.current
+  // A step clears what the last one said, so the region changes even when the next
+  // records the same thing (a second execution completed, a second result verified).
+  const stepStarted = useCallback(() => setNotice(''), [])
   function changedExecution(value: LabExecution, message: string) {
     if (stale()) return
     const confirmedIn = confirmed.current
     setResults(previous => ({ items: [...(previous?.items ?? []).filter(item => item.id !== value.id), value], generation: confirmedIn }))
     setNotice(message)
+    focus(`lab-execution-${value.id}-title`, true)
     if (canRead) setRevision(current => current + 1)
   }
   function changedResult(executionId: string, value: LabResult, message: string) {
@@ -376,44 +429,58 @@ function ExecutionPanel({ facilityId, specimen, permissions, generation, recheck
     const confirmedIn = confirmed.current
     setResults(previous => previous && { items: previous.items.map(item => item.id === executionId ? { ...item, result: value } : item), generation: confirmedIn })
     setNotice(message)
+    focus(`lab-execution-${executionId}-title`, true)
     if (canRead) setRevision(current => current + 1)
   }
   async function start(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (busy) return
     const form = new FormData(event.currentTarget)
     const reason = String(form.get('reason') ?? '').trim()
     const method = String(form.get('method') ?? '').trim()
-    if (!reason) return setStartError('Enter a reason to begin execution.')
-    setBusy(true); setStartError(''); setNotice('')
+    setStartError(''); startProblems.clear()
+    if (!reason) return startProblems.refuse(`lab-start-reason-${specimen.id}`, 'Enter a reason to begin execution.')
+    setBusy(true); setNotice('')
     try { changedExecution(await staffApi.startLabExecution(facilityId, specimen, reason, method), 'Analytical execution started.') }
     catch (caught) { setStartError(errorText(caught, 'Execution could not be started. Refresh the specimen first.')); recheckAccess(caught) }
     finally { setBusy(false) }
   }
   return <div className="staff-list-item staff-stack"><h3>Analytical execution</h3>
-    {loading && <p role="status">Loading executions…</p>}
+    {/* Mounted throughout, so what a step records is announced; it says so through the read that follows. */}
+    <div id={`lab-executions-status-${specimen.id}`} role="status">{notice ? <p className="staff-success">{notice}</p> : loading && <p>Loading executions…</p>}</div>
     {error && <p className="staff-error" role="alert">{error}</p>}
-    {notice && <p className="staff-success" role="status">{notice}</p>}
-    {canRead && <Button tone="secondary" size="sm" onClick={() => setRevision(value => value + 1)} disabled={loading}>Refresh executions</Button>}
+    {canRead && <Button tone="secondary" size="sm" aria-disabled={loading || undefined} className={UNAVAILABLE} onClick={() => { if (loading) return; setNotice(''); setRevision(value => value + 1) }}>Refresh executions</Button>}
     {items?.map(execution => <ExecutionCard key={execution.id} facilityId={facilityId} execution={execution} permissions={permissions}
-      onExecutionChanged={changedExecution} onResultChanged={(value, message) => changedResult(execution.id, value, message)} onRefused={recheckAccess} />)}
+      onStarted={stepStarted} onExecutionChanged={changedExecution} onResultChanged={(value, message) => changedResult(execution.id, value, message)} onRefused={recheckAccess} />)}
     {canStart && !loading && !error && (items?.length === 0 || (!canRead && !items)) && <form className="staff-form" onSubmit={event => void start(event)}>
       <p className="staff-muted">Begin analysis for this received specimen. The backend checks the exact specimen version and patient authorization.</p>
       <Field label="Method" htmlFor={`lab-method-${specimen.id}`}><Input id={`lab-method-${specimen.id}`} name="method" maxLength={240} /></Field>
-      <Field label="Reason" htmlFor={`lab-start-reason-${specimen.id}`} required><Textarea id={`lab-start-reason-${specimen.id}`} name="reason" maxLength={500} required /></Field>
+      <Field label="Reason" htmlFor={`lab-start-reason-${specimen.id}`} error={startProblems.error(`lab-start-reason-${specimen.id}`)} required><Textarea id={`lab-start-reason-${specimen.id}`} name="reason" maxLength={500} required {...startProblems.control(`lab-start-reason-${specimen.id}`)} /></Field>
       {startError && <p className="staff-error" role="alert">{startError}</p>}
-      <Button type="submit" size="sm" disabled={busy}>{busy ? 'Starting…' : 'Start execution'}</Button>
+      <Button type="submit" size="sm" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Starting…' : 'Start execution'}</Button>
     </form>}
     {canRead && !loading && !error && items?.length === 0 && !canStart && <p className="staff-muted">No execution has started for this specimen.</p>}
   </div>
 }
 
-function AccessionView({ facilityId, id, permissions, onChanged }: { facilityId: string; id: string; permissions: string[]; onChanged: () => void }) {
+function AccessionView({ facilityId, id, permissions, created, onChanged }: { facilityId: string; id: string; permissions: string[]; created?: string; onChanged: () => void }) {
   // An accession is shown only for the reload it came from, so a reload removes every
   // specimen row at once and each panel reads its results once, when it mounts again.
   const [loaded, setLoaded] = useState<{ revision: number; accession: LabAccession } | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const [revision, setRevision] = useState(0)
+  // What the last step recorded, said in a region mounted throughout. A step clears
+  // it when it starts, so a second step that records the same thing is said again.
+  const [notice, setNotice] = useState('')
+  // The region comes with the accession, which replaces the form that created it, and
+  // one inserted already holding its text may not be announced: the creation is said
+  // once the accession's first read has settled, whether or not that read succeeded.
+  const creation = useRef(created)
+  // A specimen step reloads the accession, which removes every specimen row until it is
+  // read again; focus goes to the specimen's next step, or the specimen, once it is shown.
+  const [focusAfterRead, setFocusAfterRead] = useState<readonly string[] | null>(null)
+  const focus = useFocusById()
   const [recheck, setRecheck] = useState<LabResultsSignal | null>(null)
   const [resultsHidden, setResultsHidden] = useState<LabResultsSignal | null>(null)
   // The generation of this accession's results, shared with its own panels only. A hide starts
@@ -435,18 +502,33 @@ function AccessionView({ facilityId, id, permissions, onChanged }: { facilityId:
     if (doubt) setRecheck(previous => ({ reason: doubt, seq: (previous?.seq ?? 0) + 1 }))
   }, [])
   useEffect(() => {
+    if (!focusAfterRead || (!accession && !error)) return
+    setFocusAfterRead(null)
+    focus(accession ? focusAfterRead : 'lab-accession-refresh', true)
+  }, [focusAfterRead, accession, error, focus])
+  function specimenChanged(specimen: LabSpecimen, message: string) {
+    setNotice(message)
+    setFocusAfterRead([`lab-action-${specimen.id}`, `lab-specimen-${specimen.id}-title`, 'lab-accession-title'])
+    reload()
+  }
+  useEffect(() => {
     let active = true
     setError(''); setLoading(true)
     void staffApi.labAccession(facilityId, id).then(value => { if (active) setLoaded({ revision, accession: value }) })
       .catch(caught => { if (active) { setLoaded(null); setError(errorText(caught, 'Accession could not be loaded.')) } })
-      .finally(() => { if (active) setLoading(false) })
+      .finally(() => {
+        if (!active) return
+        setLoading(false)
+        if (creation.current) { setNotice(creation.current); creation.current = undefined }
+      })
     return () => { active = false }
   }, [facilityId, id, revision, recheck])
-  return <Card className="staff-card"><h2>Specimen accession</h2>
-    {loading && <p role="status">Loading accession…</p>}
+  return <Card className="staff-card"><h2 id="lab-accession-title" tabIndex={-1}>Specimen accession</h2>
+    {/* Mounted throughout, so what a step records is announced; it says so through the read that follows. */}
+    <div id="lab-accession-status" role="status">{notice ? <p className="staff-success">{notice}</p> : loading && <p>Loading accession…</p>}</div>
     {error && <p className="staff-error" role="alert">{error}</p>}
-    {accession && <><p>Accession {accession.accessionNumber}</p><div className="staff-list">{accession.specimens.map(specimen => <div className="staff-stack" key={`${specimen.id}-${specimen.status}`}><SpecimenAction facilityId={facilityId} accessionId={id} specimen={specimen} permissions={permissions} onChanged={() => { reload(); onChanged() }} onRefused={specimenRefused} />{specimen.status === 'received' && (permissions.includes('lab.execution.read') || permissions.includes('lab.execution.start')) && <ExecutionPanel facilityId={facilityId} specimen={specimen} permissions={permissions} generation={generation} recheck={recheck} resultsHidden={resultsHidden} onResultsHidden={hideResults} />}</div>)}</div></>}
-    <div className="staff-row"><Button tone="secondary" size="sm" onClick={reload} disabled={loading}>Refresh accession</Button></div>
+    {accession && <><p>Accession {accession.accessionNumber}</p><div className="staff-list">{accession.specimens.map(specimen => <div className="staff-stack" key={`${specimen.id}-${specimen.status}`}><SpecimenAction facilityId={facilityId} accessionId={id} specimen={specimen} permissions={permissions} onStarted={() => setNotice('')} onChanged={message => { specimenChanged(specimen, message); onChanged() }} onRefused={specimenRefused} />{specimen.status === 'received' && (permissions.includes('lab.execution.read') || permissions.includes('lab.execution.start')) && <ExecutionPanel facilityId={facilityId} specimen={specimen} permissions={permissions} generation={generation} recheck={recheck} resultsHidden={resultsHidden} onResultsHidden={hideResults} />}</div>)}</div></>}
+    <div className="staff-row"><Button id="lab-accession-refresh" tone="secondary" size="sm" aria-disabled={loading || undefined} className={UNAVAILABLE} onClick={() => { if (loading) return; setNotice(''); reload() }}>Refresh accession</Button></div>
   </Card>
 }
 
@@ -454,28 +536,42 @@ export function Laboratory() {
   const { facilityId, permissions } = useFacilityAccess()
   const canRead = permissions.includes('lab.work-item.read')
   const list = useFacilityList(facilityId, canRead, useCallback(async id => (await staffApi.labWorkItems(id)).items, []))
-  const [selection, setSelection] = useState<{ facilityId: string; item: LabWorkItem } | null>(null)
+  const [selection, setSelection] = useState<{ facilityId: string; item: LabWorkItem; created?: string } | null>(null)
   const selected = selection && selection.facilityId === facilityId ? selection.item : null
+  // A created accession replaces the form that made it: focus goes to the accession.
+  const focus = useFocusById()
   if (!facilityId || !canRead) return <EmptyState titleAs="h1" title="Laboratory unavailable" description="This facility membership needs lab work-item read permission." />
   return <>
     <PageHead eyebrow="Provider workspace" title="Laboratory">Accepted EHR test orders at this facility. A separate accession records the specimen chain of custody.</PageHead>
-    <div className="staff-row staff-toolbar"><Button tone="secondary" size="sm" onClick={() => void list.refresh()} disabled={list.loading}>Refresh work</Button></div>
+    <div className="staff-row staff-toolbar"><RefreshButton loading={list.loading} onRefresh={list.refresh}>Refresh work</RefreshButton></div>
     <ListState loading={list.loading} error={list.error} empty="No accepted lab work" retry={() => void list.refresh()} hasItems={Boolean(list.items?.length)} />
+    <WorkListCap count={list.items?.length ?? 0} />
     {list.items && list.items.length > 0 && <div className="staff-two-col"><div className="staff-list">{list.items.map(item => <div className="staff-list-item" key={item.id}><div className="staff-row"><strong>{item.testName ?? 'Lab test'}</strong><Badge tone={item.accessionId ? 'information' : 'warning'}>{item.accessionId ? 'Accessioned' : item.status}</Badge></div><p>Patient {shortId(item.patientId)} · Accepted {dateText(item.acceptedAt)}</p>{item.accessionNumber && <p>Accession {item.accessionNumber}</p>}{(item.accessionId ? permissions.includes('lab.accession.read') : permissions.includes('lab.accession.create')) && <Button tone="secondary" size="sm" onClick={() => setSelection({ facilityId, item })}>{item.accessionId ? 'Open accession' : 'Prepare accession'}</Button>}</div>)}</div>
-      {selected?.accessionId && permissions.includes('lab.accession.read') ? <AccessionView key={`${facilityId}-${selected.accessionId}`} facilityId={facilityId} id={selected.accessionId} permissions={permissions} onChanged={() => void list.refresh()} /> : selected && permissions.includes('lab.accession.create') ? <AccessionForm facilityId={facilityId} item={selected} onCreated={accession => { setSelection({ facilityId, item: { ...selected, accessionId: accession.id, accessionNumber: accession.accessionNumber } }); void list.refresh() }} /> : <Card className="staff-card"><h2>Choose work</h2><p>Open an accession or prepare a specimen for an accepted order.</p></Card>}
+      {selected?.accessionId && permissions.includes('lab.accession.read') ? <AccessionView key={`${facilityId}-${selected.accessionId}`} facilityId={facilityId} id={selected.accessionId} permissions={permissions} created={selection?.created} onChanged={() => void list.refresh()} /> : selected && permissions.includes('lab.accession.create') ? <AccessionForm facilityId={facilityId} item={selected} onCreated={accession => { setSelection({ facilityId, item: { ...selected, accessionId: accession.id, accessionNumber: accession.accessionNumber }, created: `Accession ${accession.accessionNumber} created.` }); focus('lab-accession-title', true); void list.refresh() }} /> : <Card className="staff-card"><h2>Choose work</h2><p>Open an accession or prepare a specimen for an accepted order.</p></Card>}
     </div>}
   </>
 }
 
-function PharmacyAction({ facilityId, item, permissions, onChanged }: { facilityId: string; item: PharmacyWorkItem; permissions: string[]; onChanged: () => void }) {
+function PharmacyAction({ facilityId, item, permissions, onChanged }: { facilityId: string; item: PharmacyWorkItem; permissions: string[]; onChanged: () => Promise<void> }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  // Recording removes the form once the work list is read again: focus goes to the prescription.
+  const focus = useFocusById()
+  const problems = useFieldProblems()
   async function submit(event: FormEvent<HTMLFormElement>, reverse = false) {
-    event.preventDefault(); setError(''); setSuccess('')
+    event.preventDefault()
+    // The button stays focusable while the request runs; a second press does nothing.
+    if (busy) return
+    setError(''); setSuccess(''); problems.clear()
     const form = new FormData(event.currentTarget)
     const reason = String(form.get('reason') ?? '').trim()
-    if (reason.length < 8) return setError('Enter a reason of at least 8 characters.')
+    if (reason.length < 8) return problems.refuse(reverse ? `pharmacy-reversal-${item.id}` : `pharmacy-reason-${item.id}`, 'Enter a reason of at least 8 characters.')
+    const quantity = Number(form.get('quantity'))
+    const unit = String(form.get('unit') ?? '').trim()
+    if (!reverse && (!Number.isFinite(quantity) || quantity <= 0 || !unit)) {
+      return problems.refuse(!Number.isFinite(quantity) || quantity <= 0 ? `pharmacy-quantity-${item.id}` : `pharmacy-unit-${item.id}`, 'Enter a positive quantity and unit.')
+    }
     setBusy(true)
     try {
       if (reverse) {
@@ -484,22 +580,24 @@ function PharmacyAction({ facilityId, item, permissions, onChanged }: { facility
         await staffApi.reverseDispensing(facilityId, current.id, current.version, reason)
         setSuccess('Dispensing reversal recorded.')
       } else {
-        const quantity = Number(form.get('quantity'))
-        const unit = String(form.get('unit') ?? '').trim()
-        if (!Number.isFinite(quantity) || quantity <= 0 || !unit) throw new Error('Enter a positive quantity and unit.')
         await staffApi.dispense(facilityId, item, quantity, unit, reason)
         setSuccess('Dispensing recorded.')
       }
-      onChanged()
+      await onChanged()
+      focus(`pharmacy-${item.id}-title`, true)
     } catch (caught) { setError(errorText(caught, 'Pharmacy action could not be recorded.')) }
     finally { setBusy(false) }
   }
   const canDispense = !item.dispensing && permissions.includes('pharmacy.dispensing.create')
   const canReverse = Boolean(item.dispensing && !item.dispensing.reversed && permissions.includes('pharmacy.dispensing.reverse') && permissions.includes('pharmacy.dispensing.read'))
-  return <div className="staff-list-item"><div className="staff-row"><strong>{item.medication.display}</strong><Badge tone={item.dispensing?.reversed ? 'warning' : item.dispensing ? 'success' : 'information'}>{item.dispensing?.reversed ? 'Reversed' : item.dispensing ? 'Dispensed' : 'Accepted'}</Badge></div><p>Patient {shortId(item.patientId)} · {item.doseQuantity == null ? 'Dose not recorded' : `${item.doseQuantity} ${item.doseUnit ?? ''}`} · {item.frequency ?? 'Frequency not recorded'}</p>
-    {canDispense && <form className="staff-form" onSubmit={event => void submit(event)}><div className="staff-form-row"><Field label="Quantity dispensed" htmlFor={`pharmacy-quantity-${item.id}`} required><Input id={`pharmacy-quantity-${item.id}`} name="quantity" type="number" min="0.0001" step="0.0001" required /></Field><Field label="Unit" htmlFor={`pharmacy-unit-${item.id}`} required><Input id={`pharmacy-unit-${item.id}`} name="unit" maxLength={80} defaultValue={item.doseUnit ?? ''} required /></Field></div><Field label="Reason" htmlFor={`pharmacy-reason-${item.id}`} required><Textarea id={`pharmacy-reason-${item.id}`} name="reason" minLength={8} maxLength={500} required /></Field><Button type="submit" size="sm" disabled={busy}>{busy ? 'Recording…' : 'Record full dispensing'}</Button></form>}
-    {canReverse && <form className="staff-form" onSubmit={event => void submit(event, true)}><Field label="Reversal reason" htmlFor={`pharmacy-reversal-${item.id}`} required><Textarea id={`pharmacy-reversal-${item.id}`} name="reason" minLength={8} maxLength={500} required /></Field><Button type="submit" tone="secondary" size="sm" disabled={busy}>{busy ? 'Recording…' : 'Reverse dispensing'}</Button></form>}
-    {error && <p className="staff-error" role="alert">{error}</p>}{success && <p className="staff-success" role="status">{success}</p>}
+  return <div className="staff-list-item"><div className="staff-row"><strong id={`pharmacy-${item.id}-title`} tabIndex={-1}>{item.medication.display}</strong><Badge tone={item.dispensing?.reversed ? 'warning' : item.dispensing ? 'success' : 'information'}>{item.dispensing?.reversed ? 'Reversed' : item.dispensing ? 'Dispensed' : 'Accepted'}</Badge></div><p>Patient {shortId(item.patientId)} · {item.doseQuantity == null ? 'Dose not recorded' : `${item.doseQuantity} ${item.doseUnit ?? ''}`} · {item.frequency ?? 'Frequency not recorded'}</p>
+    <p>{item.routeCode ? `Route: ${item.routeCode}` : 'Route not recorded'}</p>
+    {item.instructions && <p className="staff-note-content">{item.instructions}</p>}
+    {canDispense && <form className="staff-form" onSubmit={event => void submit(event)}><div className="staff-form-row"><Field label="Quantity dispensed" htmlFor={`pharmacy-quantity-${item.id}`} error={problems.error(`pharmacy-quantity-${item.id}`)} required><Input id={`pharmacy-quantity-${item.id}`} name="quantity" type="number" min="0.0001" step="0.0001" required {...problems.control(`pharmacy-quantity-${item.id}`)} /></Field><Field label="Unit" htmlFor={`pharmacy-unit-${item.id}`} error={problems.error(`pharmacy-unit-${item.id}`)} required><Input id={`pharmacy-unit-${item.id}`} name="unit" maxLength={80} defaultValue={item.doseUnit ?? ''} required {...problems.control(`pharmacy-unit-${item.id}`)} /></Field></div><Field label="Reason" htmlFor={`pharmacy-reason-${item.id}`} error={problems.error(`pharmacy-reason-${item.id}`)} required><Textarea id={`pharmacy-reason-${item.id}`} name="reason" minLength={8} maxLength={500} required {...problems.control(`pharmacy-reason-${item.id}`)} /></Field><Button type="submit" size="sm" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Recording…' : 'Record full dispensing'}</Button></form>}
+    {canReverse && <form className="staff-form" onSubmit={event => void submit(event, true)}><Field label="Reversal reason" htmlFor={`pharmacy-reversal-${item.id}`} error={problems.error(`pharmacy-reversal-${item.id}`)} required><Textarea id={`pharmacy-reversal-${item.id}`} name="reason" minLength={8} maxLength={500} required {...problems.control(`pharmacy-reversal-${item.id}`)} /></Field><Button type="submit" tone="secondary" size="sm" aria-disabled={busy || undefined} className={UNAVAILABLE}>{busy ? 'Recording…' : 'Reverse dispensing'}</Button></form>}
+    {error && <p className="staff-error" role="alert">{error}</p>}
+    {/* Mounted throughout, so what was recorded is announced. */}
+    <div id={`pharmacy-status-${item.id}`} role="status">{success && <p className="staff-success">{success}</p>}</div>
   </div>
 }
 
@@ -510,9 +608,10 @@ export function Pharmacy() {
   if (!facilityId || !canRead) return <EmptyState titleAs="h1" title="Pharmacy unavailable" description="This facility membership needs pharmacy work-item read permission." />
   return <>
     <PageHead eyebrow="Provider workspace" title="Pharmacy">Accepted prescriptions and full dispensing records for the active facility. The server checks patient authorization before dispensing or reversal.</PageHead>
-    <div className="staff-row staff-toolbar"><Button tone="secondary" size="sm" onClick={() => void list.refresh()} disabled={list.loading}>Refresh work</Button></div>
+    <div className="staff-row staff-toolbar"><RefreshButton loading={list.loading} onRefresh={list.refresh}>Refresh work</RefreshButton></div>
     <ListState loading={list.loading} error={list.error} empty="No accepted prescriptions" retry={() => void list.refresh()} hasItems={Boolean(list.items?.length)} />
-    {list.items && list.items.length > 0 && <div className="staff-list">{list.items.map(item => <PharmacyAction key={item.id} facilityId={facilityId} item={item} permissions={permissions} onChanged={() => void list.refresh()} />)}</div>}
+    <WorkListCap count={list.items?.length ?? 0} />
+    {list.items && list.items.length > 0 && <div className="staff-list">{list.items.map(item => <PharmacyAction key={item.id} facilityId={facilityId} item={item} permissions={permissions} onChanged={list.refresh} />)}</div>}
   </>
 }
 
@@ -526,31 +625,6 @@ const publicationOperations = {
   PHARMACY: 'create_imported_medication_evidence', DOCUMENT_ONLY: 'retain_validated_document',
 } as const
 
-/**
- * A field the page refused before sending, named by its control's id. `alert`, a new number for each
- * refusal, when it was refused from Enter in the field itself.
- */
-interface FieldProblem { readonly field: string; readonly message: string; readonly alert?: number }
-
-let refusals = 0
-
-/**
- * A refusal to show at its field. Focus then moves to the field, so its description says why; refused
- * from Enter in the field itself, focus cannot move and nothing would be said, so the message is an
- * alert there instead, new for each refusal (as both, it would be said twice).
- */
-function refusal(problem: FieldProblem): FieldProblem {
-  const active = document.activeElement
-  return active instanceof HTMLElement && active.id === problem.field ? { ...problem, alert: ++refusals } : problem
-}
-
-/** OCR takes document and patient IDs only as UUID v4 (hid-system OCR DTOs: IsUUID('4')), and names no field when it refuses one. */
-const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-
-class FieldInputError extends Error {
-  constructor(readonly field: string, message: string) { super(message) }
-}
-
 function jsonObject(value: FormDataEntryValue | null, label: string, field: string): Record<string, unknown> {
   let parsed: unknown
   try { parsed = JSON.parse(String(value ?? '')) } catch { throw new FieldInputError(field, `${label} must be valid JSON.`) }
@@ -563,43 +637,6 @@ function jsonObjectArray(value: FormDataEntryValue | null, label: string, field:
   try { parsed = JSON.parse(String(value ?? '')) } catch { throw new FieldInputError(field, `${label} must be valid JSON.`) }
   if (!Array.isArray(parsed) || parsed.some(item => !item || typeof item !== 'object' || Array.isArray(item))) throw new FieldInputError(field, `${label} must be a JSON array of objects.`)
   return parsed as Record<string, unknown>[]
-}
-
-/** Marks the refused control invalid and ties it to its error, which Field renders as `${id}-error`. */
-function problemProps(problem: FieldProblem | null, id: string) {
-  return problem?.field === id ? { invalid: true, 'aria-describedby': `${id}-error` } : {}
-}
-
-function problemText(problem: FieldProblem | null, id: string): ReactNode {
-  if (problem?.field !== id) return undefined
-  return problem.alert ? <span key={problem.alert} role="alert">{problem.message}</span> : problem.message
-}
-
-/** Whether focus has nowhere the user chose: on the page itself, or on `target` already. */
-function focusIsLost(target: HTMLElement | null): boolean {
-  const active = document.activeElement
-  return !(active instanceof HTMLElement) || active === document.body || !active.isConnected || active === target
-}
-
-/**
- * Focuses the element with an id once the render showing it has committed. A
- * step's control is disabled while its request runs, which takes focus from it,
- * so a refused request gives focus back (`ifLost`) only once the control is
- * enabled again, and only if focus was lost: a user who went to another field
- * while it ran keeps it there. A request made while the workspace is locked
- * waits until it opens again: until then focus is on the session check, which
- * is not the user's choice, and nothing in the hidden workspace can take it.
- */
-function useFocusById() {
-  const { lock } = useStaff()
-  const [request, setRequest] = useState<{ id: string; ifLost: boolean } | null>(null)
-  useEffect(() => {
-    if (!request || lock != null) return
-    setRequest(null)
-    const target = document.getElementById(request.id)
-    if (!request.ifLost || focusIsLost(target)) target?.focus()
-  }, [request, lock])
-  return useCallback((id: string, ifLost = false) => setRequest({ id, ifLost }), [])
 }
 
 function OcrReview({ facilityId, job, extractions, onChanged }: { facilityId: string; job: OcrJob; extractions: OcrExtraction[]; onChanged: (disposition: 'validated' | 'rejected') => Promise<void> }) {
@@ -1117,21 +1154,30 @@ function OutreachCaseCard({ facilityId, item, canLink, onChanged }: { facilityId
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  // A link resolves the case, which removes its form: focus goes to the case.
+  const focus = useFocusById()
+  const problems = useFieldProblems()
   async function linkExisting(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (busy) return
     const element = event.currentTarget
     const form = new FormData(element)
     const patientId = String(form.get('patientId') ?? '').trim()
     const reason = String(form.get('reason') ?? '').trim()
-    if (!patientId || reason.length < 8) return setError('Enter a canonical patient ID and a reason of at least 8 characters.')
-    setBusy(true); setError(''); setSuccess('')
-    try { await staffApi.linkExistingOutreachCase(facilityId, item, patientId, reason); setSuccess('Existing patient linked.'); await onChanged() }
+    setError(''); problems.clear()
+    if (!patientId || reason.length < 8) {
+      return problems.refuse(!patientId ? `outreach-patient-${item.id}` : `outreach-reason-${item.id}`, 'Enter a canonical patient ID and a reason of at least 8 characters.')
+    }
+    setBusy(true); setSuccess('')
+    try { await staffApi.linkExistingOutreachCase(facilityId, item, patientId, reason); setSuccess('Existing patient linked.'); await onChanged(); focus(`outreach-case-${item.id}-title`, true) }
     catch (caught) { setError(errorText(caught, 'Patient could not be linked. Verify access and refresh the case.')) }
     finally { setBusy(false) }
   }
-  return <div className="staff-list-item"><div className="staff-row"><strong>{item.fullName ?? 'Registrant'}</strong><Badge tone={item.status === 'identity_resolved' ? 'success' : 'warning'}>{item.status.replaceAll('_', ' ')}</Badge></div><p>Case {shortId(item.id)} · {item.ageYears == null ? 'Age not recorded' : `${item.ageYears} years`} · {item.sex ?? 'Unknown'} · {dateText(item.createdAt)}</p>{item.temporaryPatientId && <p>Temporary ID {shortId(item.temporaryPatientId)}</p>}
-    {canLink && item.status === 'identity_resolution_pending' && <details><summary>Link verified existing patient</summary><form className="staff-form" onSubmit={event => void linkExisting(event)}><Field label="Canonical patient ID" htmlFor={`outreach-patient-${item.id}`} required><Input id={`outreach-patient-${item.id}`} name="patientId" placeholder="Patient UUID" required /></Field><Field label="Resolution reason" htmlFor={`outreach-reason-${item.id}`} required><Textarea id={`outreach-reason-${item.id}`} name="reason" minLength={8} maxLength={1000} required /></Field><p className="staff-muted">The server checks your exact patient authorization and the case version.</p><Button type="submit" size="sm" disabled={busy}>{busy ? 'Linking…' : 'Link existing patient'}</Button></form></details>}
-    {error && <p className="staff-error" role="alert">{error}</p>}{success && <p className="staff-success" role="status">{success}</p>}
+  return <div className="staff-list-item"><div className="staff-row"><strong id={`outreach-case-${item.id}-title`} tabIndex={-1}>{item.fullName ?? 'Registrant'}</strong><Badge tone={item.status === 'identity_resolved' ? 'success' : 'warning'}>{item.status.replaceAll('_', ' ')}</Badge></div><p>Case {shortId(item.id)} · {item.ageYears == null ? 'Age not recorded' : `${item.ageYears} years`} · {item.sex ?? 'Unknown'} · {dateText(item.createdAt)}</p>{item.temporaryPatientId && <p>Temporary ID {shortId(item.temporaryPatientId)}</p>}
+    {canLink && item.status === 'identity_resolution_pending' && <details><summary>Link verified existing patient</summary><form className="staff-form" onSubmit={event => void linkExisting(event)}><Field label="Canonical patient ID" htmlFor={`outreach-patient-${item.id}`} error={problems.error(`outreach-patient-${item.id}`)} required><Input id={`outreach-patient-${item.id}`} name="patientId" placeholder="Patient UUID" required {...problems.control(`outreach-patient-${item.id}`)} /></Field><Field label="Resolution reason" htmlFor={`outreach-reason-${item.id}`} error={problems.error(`outreach-reason-${item.id}`)} required><Textarea id={`outreach-reason-${item.id}`} name="reason" minLength={8} maxLength={1000} required {...problems.control(`outreach-reason-${item.id}`)} /></Field><p className="staff-muted">The server checks your exact patient authorization and the case version.</p><Button type="submit" size="sm" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Linking…' : 'Link existing patient'}</Button></form></details>}
+    {error && <p className="staff-error" role="alert">{error}</p>}
+    {/* Mounted throughout, so what was recorded is announced. */}
+    <div id={`outreach-case-status-${item.id}`} role="status">{success && <p className="staff-success">{success}</p>}</div>
   </div>
 }
 
@@ -1144,8 +1190,8 @@ export function Outreach() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
-  const [problem, setProblem] = useState<FieldProblem | null>(null)
-  const focus = useFocusById()
+  // The case form's refusals, each at its field.
+  const caseProblems = useFieldProblems()
   // The case last sent, with its command: its localCommandId (also its Idempotency-Key) and
   // temporary patient ID. Sending the same case again, after a lost answer or a refusal,
   // sends the same command, which Outreach answers with the case it made; a different case,
@@ -1164,7 +1210,7 @@ export function Outreach() {
 
   async function createCase(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!facilityId) return
+    if (!facilityId || busy) return
     const element = event.currentTarget
     const form = new FormData(element)
     const campaignId = String(form.get('campaignId') ?? '') || undefined
@@ -1174,17 +1220,15 @@ export function Outreach() {
     const ageYears = Number(age)
     const phone = String(form.get('phone') ?? '').trim() || undefined
     const operationalNotes = String(form.get('operationalNotes') ?? '').trim() || undefined
-    // The last answer no longer applies, nor does a field refused before (setProblem, below).
-    setError(''); setSuccess('')
+    // The last answer no longer applies, nor does a field refused before.
+    setError(''); setSuccess(''); caseProblems.clear()
     // The form checks its own fields, in the order shown, as CreateRegistrationCaseDto does. A phone number
     // and operational notes are taken at 3 characters or more, or none, as sent: trimmed, which a native
     // minLength does not check.
-    const refused = !fullName ? { field: 'outreach-case-name', message: 'Enter the registrant\'s full name.' }
-      : !age || !Number.isInteger(ageYears) || ageYears < 0 || ageYears > 130 ? { field: 'outreach-case-age', message: 'Enter an age in whole years, from 0 to 130.' }
-      : phone !== undefined && phone.length < 3 ? { field: 'outreach-case-phone', message: 'Enter a phone number of at least 3 characters, or leave it blank.' }
-      : operationalNotes !== undefined && operationalNotes.length < 3 ? { field: 'outreach-case-notes', message: 'Enter operational notes of at least 3 characters, or leave them blank.' } : null
-    setProblem(refused && refusal(refused))
-    if (refused) { focus(refused.field); return }
+    if (!fullName) return caseProblems.refuse('outreach-case-name', 'Enter the registrant\'s full name.')
+    if (!age || !Number.isInteger(ageYears) || ageYears < 0 || ageYears > 130) return caseProblems.refuse('outreach-case-age', 'Enter an age in whole years, from 0 to 130.')
+    if (phone !== undefined && phone.length < 3) return caseProblems.refuse('outreach-case-phone', 'Enter a phone number of at least 3 characters, or leave it blank.')
+    if (operationalNotes !== undefined && operationalNotes.length < 3) return caseProblems.refuse('outreach-case-notes', 'Enter operational notes of at least 3 characters, or leave them blank.')
     const input = { campaignId, fullName, sex, ageYears, phone, operationalNotes }
     const signature = JSON.stringify([facilityId, input])
     if (caseAttempt.current?.signature !== signature) {
@@ -1199,12 +1243,14 @@ export function Outreach() {
   if (!facilityId || (!canReadCases && !canReadCampaigns)) return <EmptyState titleAs="h1" title="Outreach unavailable" description="This facility membership needs outreach campaign or registration read permission." />
   return <>
     <PageHead eyebrow="Community care" title="Outreach">View facility campaigns and manage registration cases. A temporary registration is pending identity resolution until the backend links it to a verified patient.</PageHead>
-    {error && <p className="staff-error" role="alert">{error}</p>}{success && <p className="staff-success" role="status">{success}</p>}
+    {error && <p className="staff-error" role="alert">{error}</p>}
+    {/* Mounted throughout, so what was created is announced. */}
+    <div id="outreach-status" role="status">{success && <p className="staff-success">{success}</p>}</div>
     <div className="staff-two-col"><div className="staff-stack">
-      {canReadCampaigns && <Card className="staff-card"><div className="staff-row"><h2>Campaigns</h2><Button tone="secondary" size="sm" onClick={() => void campaigns.refresh()} disabled={campaigns.loading}>Refresh</Button></div><p className="staff-notice">Campaign management is not yet available. Campaigns and their members can be viewed here, but not created, activated, closed or given members.</p><ListState loading={campaigns.loading} error={campaigns.error} empty="No campaigns" retry={() => void campaigns.refresh()} hasItems={Boolean(campaigns.items?.length)} />{campaigns.items?.map((campaign: OutreachCampaign) => <CampaignCard key={campaign.id} facilityId={facilityId} membershipId={membershipId} campaign={campaign} onMembershipChange={recordMembership} />)}</Card>}
+      {canReadCampaigns && <Card className="staff-card"><div className="staff-row"><h2>Campaigns</h2><RefreshButton loading={campaigns.loading} onRefresh={campaigns.refresh}>Refresh</RefreshButton></div><p className="staff-notice">Campaign management is not yet available. Campaigns and their members can be viewed here, but not created, activated, closed or given members.</p><ListState loading={campaigns.loading} error={campaigns.error} empty="No campaigns" retry={() => void campaigns.refresh()} hasItems={Boolean(campaigns.items?.length)} />{campaigns.items?.map((campaign: OutreachCampaign) => <CampaignCard key={campaign.id} facilityId={facilityId} membershipId={membershipId} campaign={campaign} onMembershipChange={recordMembership} />)}</Card>}
     </div><div className="staff-stack">
-      {canReadCases && <Card className="staff-card"><div className="staff-row"><h2>Registration cases</h2><Button tone="secondary" size="sm" onClick={() => void cases.refresh()} disabled={cases.loading}>Refresh</Button></div><ListState loading={cases.loading} error={cases.error} empty="No registration cases" retry={() => void cases.refresh()} hasItems={Boolean(cases.items?.length)} />{cases.items?.map((item: OutreachCase) => <OutreachCaseCard key={item.id} facilityId={facilityId} item={item} canLink={permissions.includes('outreach.registration.write')} onChanged={cases.refresh} />)}</Card>}
-      {permissions.includes('outreach.registration.write') && <Card className="staff-card"><h2>New registration case</h2><form className="staff-form" noValidate onSubmit={event => void createCase(event)}>{canReadCampaigns && <Field label="Campaign" htmlFor="outreach-case-campaign" hint="Only active registration campaigns containing your facility membership appear here. A case may also be created without a campaign."><Select id="outreach-case-campaign" name="campaignId"><option value="">No campaign</option>{campaigns.items?.filter(campaign => campaign.status === 'active' && campaign.services.includes('registration') && eligibleCampaigns.facilityId === facilityId && eligibleCampaigns.ids.has(campaign.id)).map(campaign => <option key={campaign.id} value={campaign.id}>{campaign.name}</option>)}</Select></Field>}<Field label="Full name" htmlFor="outreach-case-name" error={problemText(problem, 'outreach-case-name')} required><Input id="outreach-case-name" name="fullName" maxLength={200} required {...problemProps(problem, 'outreach-case-name')} /></Field><div className="staff-form-row"><Field label="Sex" htmlFor="outreach-case-sex" required><Select id="outreach-case-sex" name="sex" required><option value="unknown">Unknown</option><option value="female">Female</option><option value="male">Male</option><option value="other">Other</option></Select></Field><Field label="Age (years)" htmlFor="outreach-case-age" error={problemText(problem, 'outreach-case-age')} required><Input id="outreach-case-age" name="ageYears" type="number" min="0" max="130" required {...problemProps(problem, 'outreach-case-age')} /></Field></div><Field label="Phone (optional)" htmlFor="outreach-case-phone" error={problemText(problem, 'outreach-case-phone')}><Input id="outreach-case-phone" name="phone" minLength={3} maxLength={32} {...problemProps(problem, 'outreach-case-phone')} /></Field><Field label="Operational notes" htmlFor="outreach-case-notes" error={problemText(problem, 'outreach-case-notes')}><Textarea id="outreach-case-notes" name="operationalNotes" minLength={3} maxLength={2000} {...problemProps(problem, 'outreach-case-notes')} /></Field><Button type="submit" disabled={busy}>{busy ? 'Creating…' : 'Create case'}</Button></form></Card>}
+      {canReadCases && <Card className="staff-card"><div className="staff-row"><h2>Registration cases</h2><RefreshButton loading={cases.loading} onRefresh={cases.refresh}>Refresh</RefreshButton></div><ListState loading={cases.loading} error={cases.error} empty="No registration cases" retry={() => void cases.refresh()} hasItems={Boolean(cases.items?.length)} />{cases.items?.map((item: OutreachCase) => <OutreachCaseCard key={item.id} facilityId={facilityId} item={item} canLink={permissions.includes('outreach.registration.write')} onChanged={cases.refresh} />)}</Card>}
+      {permissions.includes('outreach.registration.write') && <Card className="staff-card"><h2>New registration case</h2><form className="staff-form" noValidate onSubmit={event => void createCase(event)}>{canReadCampaigns && <Field label="Campaign" htmlFor="outreach-case-campaign" hint="Only active registration campaigns containing your facility membership appear here. A case may also be created without a campaign."><Select id="outreach-case-campaign" name="campaignId"><option value="">No campaign</option>{campaigns.items?.filter(campaign => campaign.status === 'active' && campaign.services.includes('registration') && eligibleCampaigns.facilityId === facilityId && eligibleCampaigns.ids.has(campaign.id)).map(campaign => <option key={campaign.id} value={campaign.id}>{campaign.name}</option>)}</Select></Field>}<Field label="Full name" htmlFor="outreach-case-name" error={caseProblems.error('outreach-case-name')} required><Input id="outreach-case-name" name="fullName" maxLength={200} required {...caseProblems.control('outreach-case-name')} /></Field><div className="staff-form-row"><Field label="Sex" htmlFor="outreach-case-sex" required><Select id="outreach-case-sex" name="sex" required><option value="unknown">Unknown</option><option value="female">Female</option><option value="male">Male</option><option value="other">Other</option></Select></Field><Field label="Age (years)" htmlFor="outreach-case-age" error={caseProblems.error('outreach-case-age')} required><Input id="outreach-case-age" name="ageYears" type="number" min="0" max="130" required {...caseProblems.control('outreach-case-age')} /></Field></div><Field label="Phone (optional)" htmlFor="outreach-case-phone" error={caseProblems.error('outreach-case-phone')}><Input id="outreach-case-phone" name="phone" minLength={3} maxLength={32} {...caseProblems.control('outreach-case-phone')} /></Field><Field label="Operational notes" htmlFor="outreach-case-notes" error={caseProblems.error('outreach-case-notes')}><Textarea id="outreach-case-notes" name="operationalNotes" minLength={3} maxLength={2000} {...caseProblems.control('outreach-case-notes')} /></Field><Button type="submit" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Creating…' : 'Create case'}</Button></form></Card>}
     </div></div>
   </>
 }

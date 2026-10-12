@@ -55,6 +55,8 @@ const ACCESS_DENIED = 'Pharmacy access is not authorized'
 const WORK_ITEM_VERSION_CONFLICT = 'Dispensing must bind to the exact accepted work-item version'
 const DISPENSING_VERSION_CONFLICT = 'Reversal must bind to the exact dispensing version'
 const WORK_UNAVAILABLE = 'Pharmacy work is temporarily unavailable.'
+// What the work list says once it holds as many items as the backend sends.
+const WORK_LIST_CAP_NOTICE = 'This list can show only the 200 oldest accepted work items. Any item accepted after them is not shown and cannot be reached from this page: completing work or refreshing the list does not bring it into view. Contact your facility administrator about orders not listed here.'
 const workUnavailable = () => new HidApiError(503, WORK_UNAVAILABLE, { code: 'PHARMACY_SERVICE_UNAVAILABLE' })
 
 /** Accepted, not yet dispensed. */
@@ -100,6 +102,28 @@ async function findItem(medication: string): Promise<HTMLElement> {
   const item = title.closest<HTMLElement>('.staff-list-item')
   if (!item) throw new Error(`No work-item entry for ${medication}`)
   return item
+}
+
+/**
+ * What a work item's status region says. The region is mounted with the item,
+ * empty, so that what is recorded later is announced (NEW-PEHR-ACTION-FOCUS).
+ */
+function confirmation(item: HTMLElement) {
+  return within(item).getByRole('status').textContent
+}
+
+/**
+ * The error a refused field is described by, or null while it is not marked
+ * invalid: a value refused before sending is reported at its field (PEHR-04).
+ */
+function refusal(control: HTMLElement) {
+  if (control.getAttribute('aria-invalid') !== 'true') return null
+  return document.getElementById(control.getAttribute('aria-describedby') ?? '')?.textContent ?? ''
+}
+
+/** The status messages on the page: a work item's region says nothing until something is recorded. */
+function statusesSaying() {
+  return screen.queryAllByRole('status').map(status => status.textContent).filter(Boolean)
 }
 
 function fillDispensing(item: HTMLElement, values: { quantity?: string; unit?: string; reason?: string }) {
@@ -178,7 +202,8 @@ describe('accepted prescription work list', () => {
 
     expect(screen.getByRole('heading', { name: 'Pharmacy' })).toBeTruthy()
     expect(screen.getByRole('status').textContent).toBe('Loading…')
-    expect(screen.getByRole('button', { name: 'Refresh work' }).hasAttribute('disabled')).toBe(true)
+    // Unavailable while the list is read, yet focusable (NEW-PEHR-ACTION-FOCUS).
+    expect(screen.getByRole('button', { name: 'Refresh work' }).getAttribute('aria-disabled')).toBe('true')
     expect(screen.queryByRole('alert')).toBeNull()
     expect(screen.queryByRole('heading', { name: 'No accepted prescriptions' })).toBeNull()
     expect(api.pharmacyWorkItems).toHaveBeenCalledTimes(1)
@@ -187,7 +212,7 @@ describe('accepted prescription work list', () => {
     await act(async () => { load.resolve({ items: [accepted] }) })
 
     expect(await screen.findByText(AMOXICILLIN)).toBeTruthy()
-    expect(screen.queryByRole('status')).toBeNull()
+    expect(statusesSaying()).toEqual([])
     expect(screen.getByRole('button', { name: 'Refresh work' }).hasAttribute('disabled')).toBe(false)
   })
 
@@ -258,9 +283,9 @@ describe('accepted prescription work list', () => {
     const refresh = screen.getByRole('button', { name: 'Refresh work' })
     fireEvent.click(refresh)
 
-    expect(refresh.hasAttribute('disabled')).toBe(true)
+    expect(refresh.getAttribute('aria-disabled')).toBe('true')
     expect(screen.getByText(AMOXICILLIN)).toBeTruthy()
-    expect(screen.queryByRole('status')).toBeNull()
+    expect(statusesSaying()).toEqual([])
     expect(screen.queryByText('Loading…')).toBeNull()
 
     await act(async () => { reload.resolve({ items: [accepted, dispensed] }) })
@@ -370,7 +395,7 @@ describe('active facility', () => {
     fillDispensing(item, { quantity: '12', reason: 'Twelve tablets dispensed at the counter' })
     fireEvent.click(within(item).getByRole('button', { name: 'Record full dispensing' }))
 
-    expect((await within(item).findByRole('status')).textContent).toBe('Dispensing recorded.')
+    await waitFor(() => expect(confirmation(item)).toBe('Dispensing recorded.'))
     expect(api.dispense).toHaveBeenCalledWith(FACILITY_2, otherFacilityItem, 12, 'tablet', 'Twelve tablets dispensed at the counter')
     await waitFor(() => expect(api.pharmacyWorkItems).toHaveBeenCalledTimes(3))
     expect(api.pharmacyWorkItems).toHaveBeenLastCalledWith(FACILITY_2)
@@ -432,11 +457,11 @@ describe('full dispensing', () => {
 
     expect(api.dispense).toHaveBeenCalledTimes(1)
     expect(api.dispense).toHaveBeenCalledWith(FACILITY, accepted, 21, 'capsule', 'Full seven-day course dispensed at the counter')
-    expect(within(item).getByRole('button', { name: 'Recording…' }).hasAttribute('disabled')).toBe(true)
+    expect(within(item).getByRole('button', { name: 'Recording…' }).getAttribute('aria-disabled')).toBe('true')
 
     await act(async () => { recording.resolve({ id: 'dispensing-9' }) })
 
-    expect((await within(item).findByRole('status')).textContent).toBe('Dispensing recorded.')
+    await waitFor(() => expect(confirmation(item)).toBe('Dispensing recorded.'))
     expect(within(item).queryByRole('alert')).toBeNull()
     await waitFor(() => expect(within(item).getByText('Dispensed')).toBeTruthy())
     expect(within(item).queryByRole('button', { name: 'Record full dispensing' })).toBeNull()
@@ -453,7 +478,7 @@ describe('full dispensing', () => {
     fireEvent.click(within(item).getByRole('button', { name: 'Record full dispensing' }))
 
     expect(api.dispense).toHaveBeenCalledWith(FACILITY, accepted, 1.5, 'blister pack', 'Dispensed in original blister packs')
-    expect((await within(item).findByRole('status')).textContent).toBe('Dispensing recorded.')
+    await waitFor(() => expect(confirmation(item)).toBe('Dispensing recorded.'))
     await waitFor(() => expect(api.pharmacyWorkItems).toHaveBeenCalledTimes(2))
   })
 
@@ -465,8 +490,8 @@ describe('full dispensing', () => {
     fillDispensing(item, { quantity: '21', reason: '  Counter  ' })
     fireEvent.click(within(item).getByRole('button', { name: 'Record full dispensing' }))
 
-    expect(within(item).getByRole('alert').textContent).toBe('Enter a reason of at least 8 characters.')
-    expect(within(item).queryByRole('status')).toBeNull()
+    expect(refusal(within(item).getByRole('textbox', { name: 'Reason' }))).toBe('Enter a reason of at least 8 characters.')
+    expect(confirmation(item)).toBe('')
     expect(api.dispense).not.toHaveBeenCalled()
     expect(api.pharmacyWorkItems).toHaveBeenCalledTimes(1)
   })
@@ -479,7 +504,7 @@ describe('full dispensing', () => {
     fireEvent.click(within(item).getByRole('button', { name: 'Record full dispensing' }))
 
     expect(api.dispense).toHaveBeenCalledWith(FACILITY, accepted, 21, 'capsule', 'Complete')
-    expect((await within(item).findByRole('status')).textContent).toBe('Dispensing recorded.')
+    await waitFor(() => expect(confirmation(item)).toBe('Dispensing recorded.'))
     expect(within(item).queryByRole('alert')).toBeNull()
   })
 
@@ -494,8 +519,8 @@ describe('full dispensing', () => {
     if (!form) throw new Error('Dispensing form not found')
     fireEvent.submit(form)
 
-    expect(within(item).getByRole('alert').textContent).toBe('Enter a positive quantity and unit.')
-    expect(within(item).queryByRole('status')).toBeNull()
+    expect(refusal(within(item).getByRole('spinbutton', { name: 'Quantity dispensed' }))).toBe('Enter a positive quantity and unit.')
+    expect(confirmation(item)).toBe('')
     expect(within(item).getByRole('button', { name: 'Record full dispensing' }).hasAttribute('disabled')).toBe(false)
     expect(api.dispense).not.toHaveBeenCalled()
     expect(api.pharmacyWorkItems).toHaveBeenCalledTimes(1)
@@ -508,8 +533,8 @@ describe('full dispensing', () => {
     fillDispensing(item, { quantity: '21', unit: '   ', reason: 'Full course dispensed at counter' })
     fireEvent.click(within(item).getByRole('button', { name: 'Record full dispensing' }))
 
-    expect(within(item).getByRole('alert').textContent).toBe('Enter a positive quantity and unit.')
-    expect(within(item).queryByRole('status')).toBeNull()
+    expect(refusal(within(item).getByRole('textbox', { name: 'Unit' }))).toBe('Enter a positive quantity and unit.')
+    expect(confirmation(item)).toBe('')
     expect(api.dispense).not.toHaveBeenCalled()
     expect(api.pharmacyWorkItems).toHaveBeenCalledTimes(1)
   })
@@ -545,7 +570,7 @@ describe('full dispensing', () => {
     fireEvent.click(within(item).getByRole('button', { name: 'Record full dispensing' }))
 
     expect((await within(item).findByRole('alert')).textContent).toBe('Pharmacy action could not be recorded.')
-    expect(within(item).queryByRole('status')).toBeNull()
+    expect(confirmation(item)).toBe('')
   })
 
   it('dispenses against the refreshed work item when retrying after a version conflict', async () => {
@@ -567,13 +592,13 @@ describe('full dispensing', () => {
 
     const refresh = screen.getByRole('button', { name: 'Refresh work' })
     fireEvent.click(refresh)
-    expect(refresh.hasAttribute('disabled')).toBe(true)
-    await waitFor(() => expect(refresh.hasAttribute('disabled')).toBe(false))
+    expect(refresh.getAttribute('aria-disabled')).toBe('true')
+    await waitFor(() => expect(refresh.getAttribute('aria-disabled')).toBeNull())
     expect(api.pharmacyWorkItems).toHaveBeenCalledTimes(2)
 
     fireEvent.click(within(item).getByRole('button', { name: 'Record full dispensing' }))
 
-    expect((await within(item).findByRole('status')).textContent).toBe('Dispensing recorded.')
+    await waitFor(() => expect(confirmation(item)).toBe('Dispensing recorded.'))
     expect(within(item).queryByRole('alert')).toBeNull()
     expect(api.dispense).toHaveBeenCalledTimes(2)
     expect(api.dispense).toHaveBeenNthCalledWith(1, FACILITY, accepted, 21, 'capsule', reason)
@@ -592,7 +617,7 @@ describe('full dispensing', () => {
     fillDispensing(item, { quantity: '21', reason: 'Full course dispensed at counter' })
     fireEvent.click(within(item).getByRole('button', { name: 'Record full dispensing' }))
 
-    expect((await within(item).findByRole('status')).textContent).toBe('Dispensing recorded.')
+    await waitFor(() => expect(confirmation(item)).toBe('Dispensing recorded.'))
     expect((await screen.findByRole('alert')).textContent).toBe(WORK_UNAVAILABLE)
     expect(within(item).queryByRole('alert')).toBeNull()
     expect(screen.getByText(AMOXICILLIN)).toBeTruthy()
@@ -657,11 +682,11 @@ describe('dispensing reversal', () => {
     expect(api.reverseDispensing).toHaveBeenCalledWith(FACILITY, 'dispensing-2', 5, 'Medication returned unopened by the patient')
     // The re-read happens first; -1 makes a missing reversal call fail the comparison.
     expect(api.dispensing.mock.invocationCallOrder[0]).toBeLessThan(api.reverseDispensing.mock.invocationCallOrder[0] ?? -1)
-    expect(within(item).getByRole('button', { name: 'Recording…' }).hasAttribute('disabled')).toBe(true)
+    expect(within(item).getByRole('button', { name: 'Recording…' }).getAttribute('aria-disabled')).toBe('true')
 
     await act(async () => { reversing.resolve({ id: 'reversal-1' }) })
 
-    expect((await within(item).findByRole('status')).textContent).toBe('Dispensing reversal recorded.')
+    await waitFor(() => expect(confirmation(item)).toBe('Dispensing reversal recorded.'))
     expect(within(item).queryByRole('alert')).toBeNull()
     await waitFor(() => expect(within(item).getByText('Reversed')).toBeTruthy())
     expect(within(item).queryByRole('button', { name: 'Reverse dispensing' })).toBeNull()
@@ -687,7 +712,7 @@ describe('dispensing reversal', () => {
 
     fireEvent.click(within(item).getByRole('button', { name: 'Reverse dispensing' }))
 
-    expect((await within(item).findByRole('status')).textContent).toBe('Dispensing reversal recorded.')
+    await waitFor(() => expect(confirmation(item)).toBe('Dispensing reversal recorded.'))
     expect(within(item).queryByRole('alert')).toBeNull()
     expect(api.dispensing).toHaveBeenCalledTimes(2)
     expect(api.dispensing).toHaveBeenNthCalledWith(1, FACILITY, 'dispensing-2')
@@ -704,8 +729,8 @@ describe('dispensing reversal', () => {
     fillReversal(item, '   Recall   ')
     fireEvent.click(within(item).getByRole('button', { name: 'Reverse dispensing' }))
 
-    expect(within(item).getByRole('alert').textContent).toBe('Enter a reason of at least 8 characters.')
-    expect(within(item).queryByRole('status')).toBeNull()
+    expect(refusal(within(item).getByRole('textbox', { name: 'Reversal reason' }))).toBe('Enter a reason of at least 8 characters.')
+    expect(confirmation(item)).toBe('')
     expect(api.dispensing).not.toHaveBeenCalled()
     expect(api.reverseDispensing).not.toHaveBeenCalled()
     expect(api.pharmacyWorkItems).toHaveBeenCalledTimes(1)
@@ -718,7 +743,7 @@ describe('dispensing reversal', () => {
     fillReversal(item, ' Returned ')
     fireEvent.click(within(item).getByRole('button', { name: 'Reverse dispensing' }))
 
-    expect((await within(item).findByRole('status')).textContent).toBe('Dispensing reversal recorded.')
+    await waitFor(() => expect(confirmation(item)).toBe('Dispensing reversal recorded.'))
     expect(api.reverseDispensing).toHaveBeenCalledWith(FACILITY, 'dispensing-2', 5, 'Returned')
     expect(within(item).queryByRole('alert')).toBeNull()
   })
@@ -773,7 +798,7 @@ describe('dispensing reversal', () => {
 
     fillDispensing(item, { quantity: '21', reason: 'Full course dispensed at counter' })
     fireEvent.click(within(item).getByRole('button', { name: 'Record full dispensing' }))
-    expect((await within(item).findByRole('status')).textContent).toBe('Dispensing recorded.')
+    await waitFor(() => expect(confirmation(item)).toBe('Dispensing recorded.'))
     await within(item).findByRole('button', { name: 'Reverse dispensing' })
     expectNoFullPatientIds()
 
@@ -781,7 +806,7 @@ describe('dispensing reversal', () => {
     fireEvent.click(within(item).getByRole('button', { name: 'Reverse dispensing' }))
 
     expect((await within(item).findByRole('alert')).textContent).toBe(ACCESS_DENIED)
-    expect(within(item).queryByRole('status')).toBeNull()
+    expect(confirmation(item)).toBe('')
     expect(within(item).queryByText('Dispensing recorded.')).toBeNull()
     expect(api.dispensing).toHaveBeenCalledWith(FACILITY, 'dispensing-9')
     expect(api.reverseDispensing).toHaveBeenCalledWith(FACILITY, 'dispensing-9', 1, reason)
@@ -817,5 +842,47 @@ describe('dispensing reversal', () => {
     // Positive controls: with the same permissions the other items offer their forms.
     expect(within(await findItem(AMOXICILLIN)).getByRole('button', { name: 'Record full dispensing' })).toBeTruthy()
     expect(within(await findItem(METFORMIN)).getByRole('button', { name: 'Reverse dispensing' })).toBeTruthy()
+  })
+})
+
+describe('what the dispensing card shows of the prescription (PHARM-01)', () => {
+  it('shows the prescription’s instructions and route, which the work item carries, before dispensing', async () => {
+    staff.permissions = [WORK_ITEM_READ, DISPENSING_CREATE]
+    api.pharmacyWorkItems.mockResolvedValue({ items: [{ ...accepted, routeCode: 'oral', instructions: 'Take with food.\nFinish the course.' }] })
+    render(<Pharmacy />)
+    const item = await findItem(AMOXICILLIN)
+    expect(within(item).getByText(/Route: oral/)).toBeTruthy()
+    const instructions = within(item).getByText(/Take with food\./)
+    expect(instructions.textContent).toBe('Take with food.\nFinish the course.')
+    // Read before the form that records the dispensing.
+    const form = within(item).getByRole('button', { name: 'Record full dispensing' }).closest('form')!
+    expect(instructions.compareDocumentPosition(form) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it('says when no route was recorded', async () => {
+    api.pharmacyWorkItems.mockResolvedValue({ items: [{ ...accepted, routeCode: null, instructions: 'Take with food.' }] })
+    render(<Pharmacy />)
+    const item = await findItem(AMOXICILLIN)
+    expect(within(item).getByText(/Route not recorded/)).toBeTruthy()
+  })
+})
+
+describe('the work list says when the backend cut it short', () => {
+  // Pharmacy lists at most 200 work items, oldest accepted first, every one ever accepted
+  // (work items are insert-only) and no further page (pharmacy.service.ts listWorkItems):
+  // dispensing never makes room.
+  const many = (count: number) => Array.from({ length: count }, (_, n) => ({ ...accepted, id: `work-item-${n}` }))
+
+  it('says that newer items cannot be reached from this page, and whom to ask, when the list holds 200', async () => {
+    api.pharmacyWorkItems.mockResolvedValue({ items: many(200) })
+    render(<Pharmacy />)
+    expect((await screen.findByText(/oldest accepted work items/)).textContent).toBe(WORK_LIST_CAP_NOTICE)
+  })
+
+  it('says nothing of the kind for a shorter list', async () => {
+    api.pharmacyWorkItems.mockResolvedValue({ items: many(199) })
+    render(<Pharmacy />)
+    await screen.findAllByText(AMOXICILLIN)
+    expect(screen.queryByText(/oldest accepted work items/)).toBeNull()
   })
 })
