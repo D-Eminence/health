@@ -163,7 +163,8 @@ export function EmergencyContactsCard() {
           <button type="submit" disabled={busy || !/^\d{6}$/.test(code)}>Verify contact</button></form>}
         {editing?.contactId === contact.contactId && <form className="patient-form patient-contact-form" onSubmit={saveEdit}>
           <label>Name<input id={`contact-name-${contact.contactId}`} autoFocus required minLength={2} maxLength={120} value={editing.name}
-            onChange={event => setEditing({ ...editing, name: event.target.value })} /></label>
+            onChange={event => setEditing({ ...editing, name: event.target.value })} aria-describedby={`contact-name-hint-${contact.contactId}`} /></label>
+          <p id={`contact-name-hint-${contact.contactId}`} className="patient-field-hint">At least 2 characters.</p>
           <label>Relationship<select value={editing.relationship}
             onChange={event => setEditing({ ...editing, relationship: event.target.value as EmergencyContactRelationship })}>
             {EMERGENCY_CONTACT_RELATIONSHIPS.map(value => <option key={value} value={value}>{RELATIONSHIP_LABELS[value]}</option>)}</select></label>
@@ -180,11 +181,14 @@ export function EmergencyContactsCard() {
           <button id={`contact-confirm-remove-${contact.contactId}`} type="button" className="patient-secondary-button" disabled={busy} onClick={() => remove(contact.contactId)}>Confirm removal</button>
           <button type="button" disabled={busy} onClick={() => { setRemoving(null); focusAfter(byId(`contact-remove-${contact.contactId}`)) }}>Keep contact</button></div>}
       </li>)}</ul>)}
+    <p id="emergency-contacts-limit" className="patient-field-hint">You can add up to 5 emergency contacts.</p>
     {!adding ? <button ref={addButton} type="button" className="patient-secondary-button" disabled={busy || (contacts.data?.length ?? 0) >= 5}
+      aria-describedby="emergency-contacts-limit"
       onClick={() => setAdding(true)}>Add emergency contact</button>
       : <form className="patient-form patient-contact-form" onSubmit={add}>
         <label>Contact name<input ref={addName} autoFocus required minLength={2} maxLength={120} autoComplete="off" value={draft.name}
-          onChange={event => setDraft({ ...draft, name: event.target.value })} /></label>
+          onChange={event => setDraft({ ...draft, name: event.target.value })} aria-describedby="contact-name-hint" /></label>
+        <p id="contact-name-hint" className="patient-field-hint">At least 2 characters.</p>
         <label>Relationship<select value={draft.relationship}
           onChange={event => setDraft({ ...draft, relationship: event.target.value as EmergencyContactRelationship })}>
           {EMERGENCY_CONTACT_RELATIONSHIPS.map(value => <option key={value} value={value}>{RELATIONSHIP_LABELS[value]}</option>)}</select></label>

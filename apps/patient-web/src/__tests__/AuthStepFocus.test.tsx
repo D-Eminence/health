@@ -287,6 +287,11 @@ describe('patient enrollment', () => {
     await press('Verify NIN')
   }
 
+  it('says the NIN is 11 digits in the field\'s description, not only in its placeholder', async () => {
+    open()
+    expect(described(await screen.findByLabelText('National Identification Number'))).toContain('Your NIN is 11 digits.')
+  })
+
   it('a NIN that cannot be verified: focus returns to the NIN field, marked invalid and described by the error', async () => {
     api.enrollmentStart.mockRejectedValue(new HidApiError(422, 'The NIN could not be verified', { code: 'NIN_NOT_VERIFIED' }))
     open()

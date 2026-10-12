@@ -10,7 +10,7 @@ import { usePatientResource } from './usePatientResource'
 import { useActionFocus, useRetryFocus } from './actionFocus'
 import { AccountDeletionCard, EmergencyContactsCard } from './AccountSafety'
 import { revealFocusedLink } from '../navStrip'
-import { useDocumentTitle, useStepFocus } from '../authSteps'
+import { describedBy, isFieldProblem, useDocumentTitle, useStepFocus } from '../authSteps'
 import { useFocusOnPageChange } from '../pageFocus'
 
 const links = [
@@ -108,6 +108,10 @@ export function ProfilePage() {
   const [verifying, setVerifying] = useState(false)
   const [verificationError, setVerificationError] = useState<string | null>(null)
   const [verificationNotice, setVerificationNotice] = useState<string | null>(null)
+  // A refusal about the NIN is tied to its field (PR-08), and is an alert only when
+  // focus is already in the field (Enter) or it is not about the field, as in enrollment.
+  const [ninFieldError, setNinFieldError] = useState(false)
+  const [errorAlert, setErrorAlert] = useState(true)
   const heading = useRef<HTMLHeadingElement>(null)
   // After a verification, sent or refused, focus goes back to the NIN field.
   const ninFocus = useStepFocus()
@@ -118,7 +122,8 @@ export function ProfilePage() {
   const verifyNin = async (event: FormEvent) => {
     event.preventDefault()
     if (verifying || !eligibleAssurance || !completeIdentity || !/^\d{11}$/.test(nin)) return
-    setVerifying(true); setVerificationError(null); setVerificationNotice(null)
+    const fromField = ninFocus.onTarget()
+    setVerifying(true); setVerificationError(null); setVerificationNotice(null); setNinFieldError(false); setErrorAlert(true)
     try {
       const result = await api.verifyNin(nin)
       if (result.state === 'verified') {
@@ -127,13 +132,16 @@ export function ProfilePage() {
         await profile.reload()
       } else if (result.state === 'not_verified') {
         setVerificationError('This NIN could not be verified against your Health ID profile. Check the number and try again.')
+        setNinFieldError(true); setErrorAlert(fromField)
       } else if (result.state === 'incomplete') {
         setVerificationError('The identity provider could not complete this verification. Try again later.')
       } else {
         setVerificationError('NIN verification is temporarily unavailable. Try again later.')
       }
     } catch (cause) {
+      const aboutField = isFieldProblem(cause)
       setVerificationError(isHidApiError(cause) ? cause.message : 'NIN verification could not be completed. Try again.')
+      setNinFieldError(aboutField); setErrorAlert(!aboutField || fromField)
     } finally { setVerifying(false); ninFocus.focus() }
   }
 
@@ -153,14 +161,16 @@ export function ProfilePage() {
       <p className="patient-field-hint">Repeat verification for a NIN already linked to your account. An eligible migrated account may link a matching NIN. The service checks your account and compares your verified profile details before recording the result.</p>
       {!eligibleAssurance ? <p className="patient-field-hint">This account is not eligible for self-service NIN verification. Identity review is required.</p>
         : !completeIdentity ? <p className="patient-field-hint">A complete name and birth date are required before NIN verification can be requested.</p>
-          : <form className="patient-form patient-inline-form" onSubmit={event => void verifyNin(event)}>
+          : <><p id="profile-nin-hint" className="patient-field-hint">Your NIN is 11 digits.</p>
+          <form className="patient-form patient-inline-form" onSubmit={event => void verifyNin(event)}>
             <label>National Identification Number<input ref={ninFocus.target} type="text" inputMode="numeric" autoComplete="off" spellCheck={false}
               pattern="[0-9]{11}" minLength={11} maxLength={11} required value={nin}
-              onChange={event => { setNin(event.target.value.replace(/\D/g, '').slice(0, 11)); setVerificationError(null); setVerificationNotice(null) }} /></label>
+              aria-invalid={ninFieldError || undefined} aria-describedby={describedBy('profile-nin-hint', ninFieldError && 'profile-nin-error')}
+              onChange={event => { setNin(event.target.value.replace(/\D/g, '').slice(0, 11)); setVerificationError(null); setVerificationNotice(null); setNinFieldError(false) }} /></label>
             <button type="submit" className="patient-primary-button" disabled={verifying || !/^\d{11}$/.test(nin)}>
               {verifying ? 'Verifying…' : 'Verify NIN'}</button>
-          </form>}
-      {verificationError && <p role="alert" className="patient-inline-error">{verificationError}</p>}
+          </form></>}
+      {verificationError && <p id="profile-nin-error" role={errorAlert ? 'alert' : undefined} className="patient-inline-error">{verificationError}</p>}
       <div role="status">{verificationNotice && <p className="patient-inline-success">{verificationNotice}</p>}</div>
     </div>}
   </section>
@@ -268,7 +278,9 @@ export function AccessPage() {
         {requests.data.map(item => <li key={item.accessRequestId} className="patient-access-item"><div><strong>{item.facilityName}</strong><span>{item.scope} · {date(item.requestedAt)} · {item.status}</span><p>{item.reason}</p></div>
           {item.status.toLowerCase() === 'pending' && <div className="patient-decision-actions"><button id={`approve-${item.accessRequestId}`} type="button" className="patient-primary-button" disabled={!!working || requests.loading} onClick={() => void decide(item.accessRequestId, 'approve')}>Approve</button>
             <button id={`deny-${item.accessRequestId}`} type="button" className="patient-secondary-button" disabled={!!working || requests.loading} onClick={() => openDenial(item.accessRequestId)}>Deny</button></div>}
-          {denying === item.accessRequestId && <form className="patient-deny-form" onSubmit={event => { event.preventDefault(); void decide(item.accessRequestId, 'deny') }}><label>Reason for denial<input id={`deny-reason-${item.accessRequestId}`} autoFocus required minLength={3} maxLength={500} value={reason} onChange={event => setReason(event.target.value)} /></label><button type="submit" disabled={!!working || requests.loading || reason.trim().length < 3}>Confirm denial</button>
+          {denying === item.accessRequestId && <form className="patient-deny-form" onSubmit={event => { event.preventDefault(); void decide(item.accessRequestId, 'deny') }}><label>Reason for denial<input id={`deny-reason-${item.accessRequestId}`} autoFocus required minLength={3} maxLength={500} value={reason} onChange={event => setReason(event.target.value)}
+              aria-describedby={`deny-reason-hint-${item.accessRequestId}`} /></label>
+            <p id={`deny-reason-hint-${item.accessRequestId}`} className="patient-field-hint">At least 3 characters.</p><button type="submit" disabled={!!working || requests.loading || reason.trim().length < 3}>Confirm denial</button>
             <button type="button" className="patient-secondary-button" disabled={!!working} onClick={() => cancelDenial(item.accessRequestId)}>Cancel</button></form>}
         </li>)}
       </ul>)}</div>
@@ -279,7 +291,9 @@ export function AccessPage() {
           {item.breakGlass && <p>A provider used emergency access. It is time-limited, audited, and reviewed; it cannot be revoked here.</p>}</div>
           {item.patientRevocable === true && <div className="patient-decision-actions">
             {revoking === item.consentGrantId
-              ? <form className="patient-deny-form" onSubmit={event => { event.preventDefault(); void revoke(item.consentGrantId) }}><label>Reason for revocation<input id={`revoke-reason-${item.consentGrantId}`} autoFocus required minLength={3} maxLength={500} value={revokeReason} onChange={event => setRevokeReason(event.target.value)} /></label><button type="submit" disabled={revokeBusy || history.loading || revokeReason.trim().length < 3}>Confirm revocation</button>
+              ? <form className="patient-deny-form" onSubmit={event => { event.preventDefault(); void revoke(item.consentGrantId) }}><label>Reason for revocation<input id={`revoke-reason-${item.consentGrantId}`} autoFocus required minLength={3} maxLength={500} value={revokeReason} onChange={event => setRevokeReason(event.target.value)}
+                  aria-describedby={`revoke-reason-hint-${item.consentGrantId}`} /></label>
+                <p id={`revoke-reason-hint-${item.consentGrantId}`} className="patient-field-hint">At least 3 characters.</p><button type="submit" disabled={revokeBusy || history.loading || revokeReason.trim().length < 3}>Confirm revocation</button>
                 <button type="button" className="patient-secondary-button" disabled={revokeBusy} onClick={() => cancelRevocation(item.consentGrantId)}>Cancel</button></form>
               : <button id={`revoke-${item.consentGrantId}`} type="button" className="patient-secondary-button" disabled={history.loading} onClick={() => openRevocation(item.consentGrantId)}>Revoke access</button>}
           </div>}
@@ -326,23 +340,30 @@ export function SettingsPage() {
   const [googlePassword, setGooglePassword] = useState('')
   const [googleToken, setGoogleToken] = useState<string | null>(null)
   const [googleReset, setGoogleReset] = useState(0)
+  // A refused PIN is tied to its field (PR-07), as a refused NIN is on the profile.
+  const [pinFieldError, setPinFieldError] = useState(false)
+  const [errorAlert, setErrorAlert] = useState(true)
   const heading = useRef<HTMLHeadingElement>(null)
   const pinHeading = useRef<HTMLHeadingElement>(null)
-  const pinInput = useRef<HTMLInputElement>(null)
+  // Save PIN is disabled once the field is cleared, so focus goes back to the field.
+  const pinFocus = useStepFocus()
   const revokePinButton = useRef<HTMLButtonElement>(null)
   const focusAfter = useActionFocus()
 
   const configurePin = async (event: FormEvent) => {
     event.preventDefault(); if (busy || !/^\d{4,8}$/.test(pin)) return
-    setBusy(true); setError(null); setNotice(null)
+    const fromField = pinFocus.onTarget()
+    setBusy(true); setError(null); setNotice(null); setPinFieldError(false); setErrorAlert(true)
     try { await api.setAccessPin(pin); setPin(''); setNotice('Access PIN configured.'); await profile.reload() }
-    catch (cause) { setError(isHidApiError(cause) ? cause.message : 'Access PIN could not be updated.') }
-    // Save PIN is disabled once the field is cleared, so focus goes to the field.
-    finally { setBusy(false); focusAfter(() => pinInput.current) }
+    catch (cause) {
+      const aboutField = isFieldProblem(cause)
+      setError(isHidApiError(cause) ? cause.message : 'Access PIN could not be updated.')
+      setPinFieldError(aboutField); setErrorAlert(!aboutField || fromField)
+    } finally { setBusy(false); pinFocus.focus() }
   }
   const revokePin = async () => {
     if (busy) return
-    setBusy(true); setError(null); setNotice(null)
+    setBusy(true); setError(null); setNotice(null); setPinFieldError(false); setErrorAlert(true)
     try { await api.revokeAccessPin(); setNotice('Access PIN revoked.'); await profile.reload(); focusAfter(() => pinHeading.current) }
     catch (cause) {
       setError(isHidApiError(cause) ? cause.message : 'Access PIN could not be revoked.')
@@ -351,20 +372,21 @@ export function SettingsPage() {
   }
   const linkGoogle = async (idToken: string) => {
     if (!googleToken || !googlePrincipal.trim() || !googlePassword) return
-    setBusy(true); setError(null); setNotice(null)
+    setBusy(true); setError(null); setNotice(null); setPinFieldError(false); setErrorAlert(true)
     try { await api.googleLink(idToken, googlePrincipal.trim(), googlePassword, googleToken); setGooglePassword(''); setNotice('Google identity linked.') }
     catch (cause) { setError(isHidApiError(cause) ? cause.message : 'Google identity could not be linked.') }
     finally { setGoogleToken(null); setGoogleReset(value => value + 1); setBusy(false) }
   }
 
   return <section className="patient-section"><p className="patient-eyebrow">Account</p><h1 ref={heading} tabIndex={-1} className="patient-page-title">Settings</h1>
-    {error && <p role="alert" className="patient-inline-error">{error}</p>}
+    {error && <p id="settings-error" role={errorAlert ? 'alert' : undefined} className="patient-inline-error">{error}</p>}
     <div role="status">{notice && <p className="patient-inline-success">{notice}</p>}</div>
     <LoadState loading={profile.loading} error={profile.error} retry={profile.reload} hasData={profile.data !== null} focusTarget={heading} />
     {profile.data && !profile.error && <div className="patient-card" aria-busy={profile.loading || undefined}><h2 ref={pinHeading} tabIndex={-1}>Access PIN</h2>
-      <p className="patient-field-hint">A provider must still have the right role and purpose to use this PIN. You must have signed in recently to change it.</p>
+      <p id="access-pin-hint" className="patient-field-hint">Your PIN is 4 to 8 digits. A provider must still have the right role and purpose to use this PIN. You must have signed in recently to change it.</p>
       <p>Status: <strong>{profile.data.accessPinConfigured ? 'Configured' : 'Not configured'}</strong></p>
-      <form onSubmit={event => void configurePin(event)} className="patient-form patient-inline-form"><label>{profile.data.accessPinConfigured ? 'Replace PIN' : 'Set PIN'}<input ref={pinInput} required type="password" inputMode="numeric" autoComplete="new-password" pattern="[0-9]{4,8}" minLength={4} maxLength={8} value={pin} onChange={event => setPin(event.target.value.replace(/\D/g, '').slice(0, 8))} /></label>
+      <form onSubmit={event => void configurePin(event)} className="patient-form patient-inline-form"><label>{profile.data.accessPinConfigured ? 'Replace PIN' : 'Set PIN'}<input ref={pinFocus.target} required type="password" inputMode="numeric" autoComplete="new-password" pattern="[0-9]{4,8}" minLength={4} maxLength={8} value={pin} onChange={event => setPin(event.target.value.replace(/\D/g, '').slice(0, 8))}
+        aria-invalid={pinFieldError || undefined} aria-describedby={describedBy('access-pin-hint', pinFieldError && 'settings-error')} /></label>
         <button type="submit" className="patient-primary-button" disabled={busy || !/^\d{4,8}$/.test(pin)}>Save PIN</button></form>
       {profile.data.accessPinConfigured && <button ref={revokePinButton} type="button" className="patient-secondary-button" disabled={busy || profile.loading} onClick={() => void revokePin()}>Revoke Access PIN</button>}
     </div>}

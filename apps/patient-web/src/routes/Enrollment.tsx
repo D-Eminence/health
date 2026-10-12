@@ -184,7 +184,7 @@ export function Enrollment() {
       {!checking && !checkError && stage === 'nin' && <form onSubmit={event => void submitNin(event)} className="patient-form">
         <label>National Identification Number<input ref={stepFocus.target} required inputMode="numeric" autoComplete="off" value={nin} onChange={event => setNin(event.target.value.replace(/\D/g, '').slice(0, 11))} pattern="[0-9]{11}" maxLength={11} placeholder="11 digits"
           aria-invalid={invalid} aria-describedby={describedBy('enroll-nin-hint', errorId)} /></label>
-        <p id="enroll-nin-hint" className="patient-field-hint">Your NIN is verified by the existing Health ID identity service. It is not stored in this browser.</p>
+        <p id="enroll-nin-hint" className="patient-field-hint">Your NIN is 11 digits. It is verified by the existing Health ID identity service. It is not stored in this browser.</p>
         <Turnstile action="patient-enrollment" onTokenChange={setTurnstileToken} resetKey={resetKey} />
         <button type="submit" className="patient-primary-button" disabled={busy || !turnstileToken || nin.length !== 11 || (googleRequired && !googlePending)}>{busy ? 'Verifying…' : 'Verify NIN'}</button>
       </form>}
