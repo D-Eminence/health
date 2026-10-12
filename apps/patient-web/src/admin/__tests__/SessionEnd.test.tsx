@@ -107,6 +107,11 @@ describe('a workspace bound to the administrator who opened it', () => {
   const grantFor = (accountId: string) => json({ actor: { ...actor(accountId), kind: 'platform', sessionId: `session-${accountId}` },
     expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(), idleExpiresAt: new Date(Date.now() + 15 * 60_000).toISOString() })
   const mfa = () => json({ enrolled: true, factorType: 'totp', activatedAt: null, lastUsedAt: null, recoveryCodesRemaining: 10, session: null })
+  /** The MFA status of a live session, which reports its idle and absolute expiry. */
+  const mfaOfLiveSession = () => json({ enrolled: true, factorType: 'totp', activatedAt: null, lastUsedAt: null,
+    recoveryCodesRemaining: 10, session: { mfaVerifiedAt: new Date().toISOString(), mfaMethod: 'totp', stepUpExpiresAt: null,
+      idleExpiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
+      absoluteExpiresAt: new Date(Date.now() + 8 * 60 * 60_000).toISOString() } })
   const overview = () => json({ registeredPatients: 7, facilities: 0, verifiedFacilities: 0, suspendedFacilities: 0,
     activeStaffMemberships: 0, pendingIdentityReviews: 0 })
   const unavailable = () => json({ code: 'SERVICE_UNAVAILABLE', detail: 'The service could not complete the request.' }, 503)
@@ -138,6 +143,20 @@ describe('a workspace bound to the administrator who opened it', () => {
     return { calls, messages }
   }
 
+  /**
+   * The console's questions about whose session the browser holds, from here
+   * on. `settled(n)` waits until n were asked and every answer was handled,
+   * whatever the server said, so a check that nothing changed is not run early.
+   */
+  async function sessionChecks() {
+    const { adminApi } = await import('../api')
+    const asked = vi.spyOn(adminApi, 'session')
+    return async function settled(count: number) {
+      await waitFor(() => expect(asked).toHaveBeenCalledTimes(count), { timeout: 4000 })
+      await act(async () => { await Promise.allSettled(asked.mock.results.map(result => result.value as Promise<unknown>)) })
+    }
+  }
+
   it('does not repeat a request as another administrator whose session a refresh returned', async () => {
     const { calls, messages } = await openAs({ [SESSION]: [sessionOf('admin-1')],
       [OVERVIEW]: [refused('AUTHENTICATION_REQUIRED'), overview()], [REFRESH]: [grantFor('admin-2')] })
@@ -164,21 +183,29 @@ describe('a workspace bound to the administrator who opened it', () => {
     expect(screen.queryByText('Admin admin-1')).toBeNull()
   })
 
+  // The other tab's sign-out cleared the platform cookies, so neither request
+  // reaches a session: both answer the generic 401 (hid-system
+  // platform-auth.controller.ts refresh, with no refresh cookie). The notice is
+  // read from the expiry the live session last reported.
   it('ends the workspace when another tab signs this administrator out', async () => {
-    const { messages } = await openAs({ [SESSION]: [sessionOf('admin-1'), refused('AUTHENTICATION_REQUIRED')],
-      [OVERVIEW]: [overview()], [REFRESH]: [refused('PLATFORM_SESSION_REVOKED')] })
+    const { messages } = await openAs({ [MFA]: [mfaOfLiveSession()],
+      [SESSION]: [sessionOf('admin-1'), refused('AUTHENTICATION_REQUIRED')],
+      [OVERVIEW]: [overview()], [REFRESH]: [refused('AUTHENTICATION_REQUIRED')] })
     expect(await screen.findByText('7')).toBeTruthy()
+    const { currentSessionWindow } = await import('../session-window')
+    await waitFor(() => expect(currentSessionWindow().idleExpiresAt).not.toBeNull())
     fromAnotherTab()
     expect(await screen.findByText(messages.revoked)).toBeTruthy()
     expect(screen.getByRole('heading', { name: 'Administration sign in' })).toBeTruthy()
+    expect(screen.queryByText('Admin admin-1')).toBeNull()
   })
 
   it('keeps the workspace when the browser still holds the same administrator', async () => {
-    const { calls } = await openAs({ [SESSION]: [sessionOf('admin-1'), sessionOf('admin-1')], [OVERVIEW]: [overview()] })
+    await openAs({ [SESSION]: [sessionOf('admin-1'), sessionOf('admin-1')], [OVERVIEW]: [overview()] })
     expect(await screen.findByText('7')).toBeTruthy()
+    const settled = await sessionChecks()
     fromAnotherTab()
-    await waitFor(() => expect(calls.filter(call => call === SESSION)).toHaveLength(2))
-    await new Promise(resolve => setTimeout(resolve, 20))
+    await settled(1)
     expect(screen.getByRole('heading', { name: 'Overview' })).toBeTruthy()
     expect(screen.queryByRole('heading', { name: 'Administration sign in' })).toBeNull()
   })
@@ -187,9 +214,10 @@ describe('a workspace bound to the administrator who opened it', () => {
     const { calls } = await openAs({ [SESSION]: [sessionOf('admin-1'), unavailable(), unavailable(), unavailable()],
       [OVERVIEW]: [overview()] })
     expect(await screen.findByText('7')).toBeTruthy()
+    const settled = await sessionChecks()
     fromAnotherTab()
-    await waitFor(() => expect(calls.filter(call => call === SESSION)).toHaveLength(4), { timeout: 4000 })
-    await new Promise(resolve => setTimeout(resolve, 20))
+    await settled(1)
+    expect(calls.filter(call => call === SESSION)).toHaveLength(4)
     expect(screen.getByRole('heading', { name: 'Overview' })).toBeTruthy()
     expect(screen.queryByRole('heading', { name: 'Administration sign in' })).toBeNull()
   })
