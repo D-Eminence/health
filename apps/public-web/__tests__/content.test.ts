@@ -110,6 +110,32 @@ describe('pricing', () => {
       { product_slug: 'ehr', context: 'core', visibility: 'fixed', amount_minor: null, currency: 'NGN', billing_period: null, unit: null },
     ] })).toThrow(/Pricing is temporarily unavailable/)
   })
+
+  // hid-system allows any product slug matching ^[a-z][a-z0-9-]{1,63}$ and lists
+  // every active product, so a product added by a later migration appears here.
+  it('keeps the products it knows when the catalogue lists one it does not', () => {
+    const prices = parsePublicPrices({ data: [
+      { product_slug: 'ehr', context: 'core', visibility: 'contact_sales', amount_minor: null, currency: 'NGN', billing_period: null, unit: null },
+      { product_slug: 'insurance', context: 'core', visibility: 'fixed', amount_minor: 990000, currency: 'NGN', billing_period: 'monthly', unit: 'facility' },
+    ] })
+    expect(prices).toEqual([
+      { product_slug: 'ehr', context: 'core', visibility: 'contact_sales', amount_minor: null, currency: 'NGN', billing_period: null, unit: null },
+    ])
+  })
+
+  it('still refuses the whole catalogue when a row it cannot trust is malformed, whatever its product', () => {
+    for (const malformed of [
+      { product_slug: 'insurance', context: 'core', visibility: 'fixed', amount_minor: null, currency: 'NGN', billing_period: null, unit: null },
+      { product_slug: 'insurance', context: 'core', visibility: 'fixed', amount_minor: 100, currency: 'naira', billing_period: null, unit: null },
+      { product_slug: 42, context: 'core', visibility: 'contact_sales', amount_minor: null, currency: 'NGN', billing_period: null, unit: null },
+      { product_slug: 'ehr', context: 'core', visibility: 'free', amount_minor: null, currency: 'NGN', billing_period: null, unit: null },
+    ]) {
+      expect(() => parsePublicPrices({ data: [
+        { product_slug: 'pharmacy', context: 'standalone', visibility: 'custom_quote', amount_minor: null, currency: 'NGN', billing_period: null, unit: null },
+        malformed,
+      ] })).toThrow(/Pricing is temporarily unavailable/)
+    }
+  })
 })
 
 describe('demo request', () => {

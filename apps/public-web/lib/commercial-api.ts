@@ -41,15 +41,21 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-/** The backend starts with quote prices. A missing or null amount is never guessed. */
+const PRICED_PRODUCTS: readonly string[] = ['identity', 'ehr', 'laboratory', 'pharmacy', 'migrate', 'outreach', 'api']
+
+/**
+ * The backend starts with quote prices. A missing or null amount is never guessed.
+ * A malformed row refuses the whole catalogue. A well-formed row for a product
+ * this site does not present (one a later migration added) is left out, so it
+ * cannot hide the prices of the products the site does present.
+ */
 export function parsePublicPrices(value: unknown): PublicPrice[] {
   if (!isObject(value) || !Array.isArray(value.data)) throw new Error('Pricing is temporarily unavailable.')
-  return value.data.map((item: unknown) => {
+  return value.data.flatMap((item: unknown) => {
     if (!isObject(item) || typeof item.product_slug !== 'string'
       || typeof item.context !== 'string' || typeof item.visibility !== 'string'
       || typeof item.currency !== 'string' || !/^[A-Z]{3}$/.test(item.currency)
       || !['fixed', 'starting_from', 'contact_sales', 'custom_quote'].includes(item.visibility)
-      || !['identity', 'ehr', 'laboratory', 'pharmacy', 'migrate', 'outreach', 'api'].includes(item.product_slug)
       || !(item.amount_minor === null || (Number.isSafeInteger(item.amount_minor) && Number(item.amount_minor) >= 0))
       || !(item.billing_period === null || typeof item.billing_period === 'string')
       || !(item.unit === null || typeof item.unit === 'string')) {
@@ -58,7 +64,7 @@ export function parsePublicPrices(value: unknown): PublicPrice[] {
     if (['fixed', 'starting_from'].includes(item.visibility) !== (item.amount_minor !== null)) {
       throw new Error('Pricing is temporarily unavailable.')
     }
-    return item as unknown as PublicPrice
+    return PRICED_PRODUCTS.includes(item.product_slug) ? [item as unknown as PublicPrice] : []
   })
 }
 
