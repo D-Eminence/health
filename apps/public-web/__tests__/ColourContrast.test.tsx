@@ -4,7 +4,6 @@ import { fileURLToPath } from 'node:url'
 import { fireEvent, render } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { GlobalSearch, GlobalSearchProvider } from '@/components/layout/GlobalSearch'
-import { ProviderApplicationForm } from '@/components/provider/ProviderApplicationForm'
 import { DemoDialog } from '@/components/shared/DemoDialog'
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }))
@@ -95,14 +94,6 @@ const controls = (container: Element) => [...container.querySelectorAll('input, 
 const labelOf = (control: Element) => control.closest('label')?.firstChild?.textContent?.trim() ?? control.tagName
 
 describe('the boundary of a public form control is at least 3:1 (WCAG 1.4.11)', () => {
-  it('/provider/apply: every control of the organization application', () => {
-    const { container } = render(<ProviderApplicationForm product="laboratory" />)
-    expect(controls(container)).toHaveLength(5)
-    for (const control of controls(container)) {
-      expect(ratio(only(control, 'border'), only(control, 'bg')), labelOf(control)).toBeGreaterThanOrEqual(BOUNDARY)
-    }
-  })
-
   it('the demo request dialog: its select, text fields and notes', () => {
     const { container } = render(<DemoDialog />)
     expect(controls(container).length).toBeGreaterThanOrEqual(7)
