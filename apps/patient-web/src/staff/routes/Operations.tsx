@@ -734,6 +734,8 @@ const publishedAs: Partial<Record<OcrTargetDomain, string>> = {
 function observationText(item: LabImport['observations'][number]) {
   const result = [item.value && `${item.value}${item.unit ? ` ${item.unit}` : ''}`, item.valueText].filter(Boolean).join(' · ')
   const flag = item.abnormalFlag && item.abnormalFlag !== 'normal' && item.abnormalFlag !== 'unknown' ? `flagged ${item.abnormalFlag}` : ''
+  // Defensive: Lab stores every imported observation as 'reported' today (hid-system ehr-api migration
+  // 0017, lab.imported_observations), but a status it may add later is said, never hidden.
   const status = item.status && item.status !== 'reported' ? item.status.replaceAll('_', ' ') : ''
   return [result ? `${item.testName}: ${result}` : item.testName, item.referenceRange && `reference ${item.referenceRange}`, flag, status].filter(Boolean).join(' · ')
 }
@@ -763,9 +765,13 @@ function ImportedEvidence({ facilityId, domain, importId }: { facilityId: string
   }
   const lab = open ? evidence?.lab : undefined
   const medication = open ? evidence?.medication : undefined
+  const status = !open ? '' : !evidence ? 'Loading imported evidence…'
+    : lab ? `Imported lab evidence loaded: ${lab.observations.length} observation${lab.observations.length === 1 ? '' : 's'}.`
+      : medication ? 'Imported medication evidence loaded.' : ''
   // A disclosure: its name stays the same, and aria-expanded says whether it is open.
-  return <div className="staff-stack"><Button tone="secondary" size="sm" aria-expanded={open} onClick={toggle}>Imported {domain} evidence</Button>
-    {open && !evidence && <p className="staff-muted" role="status">Loading imported evidence…</p>}
+  return <div className="staff-stack"><div><Button tone="secondary" size="sm" aria-expanded={open} onClick={toggle}>Imported {domain} evidence</Button>
+    {/* Mounted throughout, so what is put in it is announced; with the button, so it takes no space while empty. */}
+    <div role="status">{status && <p className="staff-muted">{status}</p>}</div></div>
     {open && evidence?.error && <p className="staff-error" role="alert">{evidence.error}</p>}
     {lab && <>{lab.status && lab.status !== 'accepted' && <p>Import status: {lab.status.replaceAll('_', ' ')}</p>}{lab.externalLabName && <p>Reported by {lab.externalLabName}</p>}<ul className="staff-stack">{lab.observations.map(item => <li key={item.id}>{observationText(item)}</li>)}</ul></>}
     {medication && <><p><strong>{medication.medicationText}</strong></p>

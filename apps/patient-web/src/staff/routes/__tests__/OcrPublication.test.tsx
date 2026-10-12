@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
@@ -436,6 +436,38 @@ describe('OCR-04: what a publication produced', () => {
     expect(screen.getByText('Reported by Central Laboratory')).toBeTruthy()
     expect(screen.queryByText('Loading imported evidence…')).toBeNull()
     expect(api.labImport).toHaveBeenCalledTimes(1)
+  })
+
+  // A region added with its message may not be announced, so one is mounted with the disclosure throughout.
+  it('says in one status region, there before the read, that the evidence is loading and then that it loaded', async () => {
+    permissions.value = ['ocr.job.read', 'lab.import.read', 'pharmacy.import.read']
+    lab()
+    let answer: (value: unknown) => void = () => {}
+    api.labImport.mockReturnValueOnce(new Promise(resolve => { answer = resolve }))
+    await openJob()
+    const view = await screen.findByRole('button', { name: 'Imported lab evidence' })
+    const region = within(view.closest('.staff-stack') as HTMLElement).getByRole('status')
+    expect(region.textContent).toBe('')
+    await press(view)
+    expect(region.textContent).toBe('Loading imported evidence…')
+    await act(async () => { answer({ id: IMPORT, status: 'accepted', observations: [
+      { id: 'observation-1', ordinal: 1, testName: 'Haemoglobin', value: '12.1', unit: 'g/dL', abnormalFlag: 'normal', status: 'reported' },
+      { id: 'observation-2', ordinal: 2, testName: 'Platelets', value: '95', unit: '10^9/L', abnormalFlag: 'low', status: 'reported' },
+    ] }) })
+    expect(region.isConnected).toBe(true)
+    expect(region.textContent).toBe('Imported lab evidence loaded: 2 observations.')
+  })
+
+  it('says imported medication evidence loaded in its status region', async () => {
+    permissions.value = ['ocr.job.read', 'pharmacy.import.read']
+    pharmacy()
+    api.pharmacyImport.mockResolvedValue({ id: IMPORT, activityStatus: 'unknown', medicationText: 'Amoxicillin capsules' })
+    await openJob()
+    const view = await screen.findByRole('button', { name: 'Imported medication evidence' })
+    const region = within(view.closest('.staff-stack') as HTMLElement).getByRole('status')
+    await press(view)
+    await screen.findByText('Amoxicillin capsules')
+    expect(region.textContent).toBe('Imported medication evidence loaded.')
   })
 
   it('reads imported evidence again when opened after a read that failed', async () => {
