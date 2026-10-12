@@ -65,11 +65,13 @@ describe('Outreach registration case limits (EHR-FORMS-01)', () => {
     fireEvent.change(within(form).getByRole('spinbutton', { name: /Age/ }), { target: { value: '40' } })
     fireEvent.change(within(form).getByRole('textbox', { name: /Operational notes/ }), { target: { value: ' ok ' } })
     fireEvent.click(within(form).getByRole('button', { name: 'Create case' }))
-    expect(await screen.findByText(/Operational notes need at least 3 characters/)).toBeTruthy()
+    expect(await screen.findByText('Enter operational notes of at least 3 characters, or leave them blank.')).toBeTruthy()
     expect(api.createOutreachCase).not.toHaveBeenCalled()
 
     fireEvent.change(within(form).getByRole('textbox', { name: /Operational notes/ }), { target: { value: '   ' } })
     fireEvent.click(within(form).getByRole('button', { name: 'Create case' }))
-    await waitFor(() => expect(api.createOutreachCase).toHaveBeenCalledWith('facility-1', expect.objectContaining({ fullName: 'Ada Example', operationalNotes: undefined })))
+    // The case goes with its command (OUTREACH-02): a localCommandId and a temporary patient ID.
+    await waitFor(() => expect(api.createOutreachCase).toHaveBeenCalledWith('facility-1', expect.objectContaining({ fullName: 'Ada Example', operationalNotes: undefined }),
+      expect.objectContaining({ localCommandId: expect.any(String), temporaryPatientId: expect.any(String) })))
   })
 })

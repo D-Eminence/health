@@ -1,7 +1,32 @@
+import { createElement, type ReactNode } from 'react'
 import { isHidApiError } from '@hid/http'
 
-/** A field the page refused before sending, named by its control's id. */
-export interface FieldProblem { readonly field: string; readonly message: string }
+/**
+ * A field the page refused before sending, named by its control's id. `alert`, a new number for each
+ * refusal, when it was refused from Enter in the field itself.
+ */
+export interface FieldProblem { readonly field: string; readonly message: string; readonly alert?: number }
+
+/**
+ * Whether focus is already in `field` (a control, or a group of controls a rule covers) or on `focusId`,
+ * its control: a refusal made from there cannot move focus to say why.
+ */
+export function focusIsWithin(field: string, focusId: string = field): boolean {
+  const active = document.activeElement
+  return active instanceof HTMLElement && (active.id === focusId || document.getElementById(field)?.contains(active) === true)
+}
+
+let refusals = 0
+
+/**
+ * A refusal to show at its field. Focus then moves to the field, so its description says why; refused
+ * from Enter in the field itself, focus cannot move and nothing would be said, so the message is an
+ * alert there instead, new for each refusal (as both, it would be said twice). useFieldProblems does the
+ * same for the forms that use it.
+ */
+export function refusal(problem: FieldProblem): FieldProblem {
+  return focusIsWithin(problem.field) ? { ...problem, alert: ++refusals } : problem
+}
 
 export class FieldInputError extends Error {
   constructor(readonly field: string, message: string) { super(message) }
@@ -12,8 +37,10 @@ export function problemProps(problem: FieldProblem | null, id: string) {
   return problem?.field === id ? { invalid: true, 'aria-describedby': `${id}-error` } : {}
 }
 
-export function problemText(problem: FieldProblem | null, id: string) {
-  return problem?.field === id ? problem.message : undefined
+/** Field's `error` while `id` is refused: an alert, new for each refusal, when refused from within the field. */
+export function problemText(problem: FieldProblem | null, id: string): ReactNode {
+  if (problem?.field !== id) return undefined
+  return problem.alert ? createElement('span', { key: problem.alert, role: 'alert' }, problem.message) : problem.message
 }
 
 /** One request field a service refused, by its DTO name, and why. */

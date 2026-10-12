@@ -1,5 +1,5 @@
 import { useCallback, useState, type ReactNode } from 'react'
-import { refusalSentences, refusedFields } from './fieldProblem'
+import { focusIsWithin, refusalSentences, refusedFields } from './fieldProblem'
 import { useFocusById } from './focus'
 
 interface Shown { readonly field: string; readonly message: string; readonly alert: boolean }
@@ -22,8 +22,7 @@ export function useFieldProblems() {
   const [shown, setShown] = useState<{ readonly items: readonly Shown[]; readonly seq: number }>({ items: [], seq: 0 })
   /** Refuses `field` (a control's id, or a group's) and moves focus to `focusId`, that field's control. */
   const refuse = useCallback((field: string, message: string, focusId: string = field) => {
-    const active = document.activeElement
-    const alert = active instanceof HTMLElement && (active.id === focusId || document.getElementById(field)?.contains(active) === true)
+    const alert = focusIsWithin(field, focusId)
     setShown(previous => ({ items: [{ field, message, alert }], seq: previous.seq + 1 }))
     if (!alert) focus(focusId)
   }, [focus])

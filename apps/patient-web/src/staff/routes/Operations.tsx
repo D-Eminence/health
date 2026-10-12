@@ -2,11 +2,12 @@ import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNod
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { Badge, Button, Card, EmptyState, Field, Input, Select, Textarea } from '@hid/ui'
-import { staffApi, type LabAbnormalFlag, type LabAccession, type LabExecution, type LabResult, type LabResultRevision, type LabResultValue, type LabSpecimen, type LabWorkItem, type OcrExtraction, type OcrJob, type OcrPublication, type OcrTargetDomain, type OcrValidation, type OcrValidationInput, type OutreachCampaign, type OutreachCampaignMember, type OutreachCase, type PharmacyWorkItem } from '../api'
+import { staffApi, type LabAbnormalFlag, type LabAccession, type LabExecution, type LabResult, type LabResultRevision, type LabResultValue, type LabImport, type LabSpecimen, type LabWorkItem, type OcrExtraction, type OcrJob, type OcrPublication, type OcrTargetDomain, type OcrValidation, type OcrValidationInput, type OutreachCampaign, type OutreachCase, type PharmacyImport, type PharmacyWorkItem } from '../api'
 import { useStaff } from '../App'
-import { FieldInputError, problemProps, problemText, refusalText, type FieldProblem } from '../fieldProblem'
+import { describedBy } from '../../authSteps'
+import { FieldInputError, problemProps, problemText, refusal, refusalText, type FieldProblem } from '../fieldProblem'
 import { BUSY, focusIsLost, UNAVAILABLE, useFocusById } from '../focus'
-import { GroupError, useFieldProblems } from '../useFieldProblems'
+import { useFieldProblems } from '../useFieldProblems'
 
 // A refusal's message, with each field a 400 VALIDATION_FAILED names.
 function errorText(error: unknown, fallback: string) {
@@ -647,6 +648,8 @@ function OcrReview({ facilityId, job, extractions, onChanged }: { facilityId: st
   const [problem, setProblem] = useState<FieldProblem | null>(null)
   const focus = useFocusById()
   const selected = extractions.find(item => item.id === extractionId)
+  // A JSON field is described by its error, when refused, and by what the owning domains require.
+  const jsonFieldProps = (id: string) => ({ ...problemProps(problem, id), 'aria-describedby': describedBy(problem?.field === id && `${id}-error`, 'ocr-review-requirements') })
   // Read in the order the fields appear, so the first refused one is the one focused.
   function read(form: FormData): OcrValidationInput {
     if (!selected) throw new FieldInputError('ocr-review-extraction', 'Choose an extraction to review.')
@@ -667,7 +670,7 @@ function OcrReview({ facilityId, job, extractions, onChanged }: { facilityId: st
     try { input = read(new FormData(event.currentTarget)) }
     catch (caught) {
       if (!(caught instanceof FieldInputError)) throw caught
-      setProblem({ field: caught.field, message: caught.message }); focus(caught.field); return
+      setProblem(refusal({ field: caught.field, message: caught.message })); focus(caught.field); return
     }
     setBusy(true)
     try {
@@ -681,9 +684,9 @@ function OcrReview({ facilityId, job, extractions, onChanged }: { facilityId: st
     <Field label="Extraction" htmlFor="ocr-review-extraction" error={problemText(problem, 'ocr-review-extraction')}><Select id="ocr-review-extraction" value={extractionId} onChange={event => setExtractionId(event.target.value)} {...problemProps(problem, 'ocr-review-extraction')}>{extractions.map(item => <option key={item.id} value={item.id}>Version {item.version} · {item.provider}</option>)}</Select></Field>
     <Field label="Review decision" htmlFor="ocr-review-decision"><Select id="ocr-review-decision" value={disposition} onChange={event => setDisposition(event.target.value as 'validated' | 'rejected')}><option value="validated">Validate candidate</option><option value="rejected">Reject candidate</option></Select></Field>
     {disposition === 'validated' && <Field label="Owning domain" htmlFor="ocr-review-domain"><Select id="ocr-review-domain" value={domain} onChange={event => setDomain(event.target.value as OcrTargetDomain)}><option value="DOCUMENT_ONLY">Retain validated document</option><option value="EHR">Clinical note</option><option value="LAB">Historical lab evidence</option><option value="PHARMACY">Historical medication evidence</option></Select></Field>}
-    <Field label="Reviewed payload (JSON object)" htmlFor="ocr-reviewed-payload" error={problemText(problem, 'ocr-reviewed-payload')} required><Textarea key={`payload-${selected?.id}`} id="ocr-reviewed-payload" name="validatedPayload" rows={7} spellCheck={false} defaultValue={JSON.stringify(selected?.structuredPayload && typeof selected.structuredPayload === 'object' && !Array.isArray(selected.structuredPayload) ? selected.structuredPayload : {}, null, 2)} required {...problemProps(problem, 'ocr-reviewed-payload')} /></Field>
-    <Field label="Accepted fields (JSON object)" htmlFor="ocr-accepted-fields" error={problemText(problem, 'ocr-accepted-fields')} required><Textarea id="ocr-accepted-fields" name="acceptedFields" rows={6} spellCheck={false} defaultValue="{}" required {...problemProps(problem, 'ocr-accepted-fields')} /></Field>
-    <p className="staff-muted">EHR requires encounterId, noteType, title, and content. Lab requires observations. Pharmacy requires medicationText. Document retention can use an empty object.</p>
+    <Field label="Reviewed payload (JSON object)" htmlFor="ocr-reviewed-payload" error={problemText(problem, 'ocr-reviewed-payload')} required><Textarea key={`payload-${selected?.id}`} id="ocr-reviewed-payload" name="validatedPayload" rows={7} spellCheck={false} defaultValue={JSON.stringify(selected?.structuredPayload && typeof selected.structuredPayload === 'object' && !Array.isArray(selected.structuredPayload) ? selected.structuredPayload : {}, null, 2)} required {...jsonFieldProps('ocr-reviewed-payload')} /></Field>
+    <Field label="Accepted fields (JSON object)" htmlFor="ocr-accepted-fields" error={problemText(problem, 'ocr-accepted-fields')} required><Textarea id="ocr-accepted-fields" name="acceptedFields" rows={6} spellCheck={false} defaultValue="{}" required {...jsonFieldProps('ocr-accepted-fields')} /></Field>
+    <p id="ocr-review-requirements" className="staff-muted">EHR requires encounterId, noteType, title, and content. Lab requires observations. Pharmacy requires medicationText. Document retention can use an empty object.</p>
     <div className="staff-form-row"><Field label="Rejected fields (JSON array)" htmlFor="ocr-rejected-fields" error={problemText(problem, 'ocr-rejected-fields')} required><Textarea id="ocr-rejected-fields" name="rejectedFields" spellCheck={false} defaultValue="[]" required {...problemProps(problem, 'ocr-rejected-fields')} /></Field><Field label="Corrections (JSON array)" htmlFor="ocr-corrections" error={problemText(problem, 'ocr-corrections')} required><Textarea id="ocr-corrections" name="corrections" spellCheck={false} defaultValue="[]" required {...problemProps(problem, 'ocr-corrections')} /></Field></div>
     <Field label="Review reason" htmlFor="ocr-review-reason" error={problemText(problem, 'ocr-review-reason')} required><Textarea id="ocr-review-reason" name="reason" minLength={8} maxLength={500} required {...problemProps(problem, 'ocr-review-reason')} /></Field>
     {error && <p className="staff-error" role="alert">{error}</p>}
@@ -707,9 +710,9 @@ function OcrConfirmation({ facilityId, job, onChanged }: { facilityId: string; j
     const reason = String(form.get('reason') ?? '').trim()
     setError(''); setProblem(null)
     const refused = !patientId ? { field: 'ocr-confirm-patient', message: 'Enter the canonical patient ID.' }
-      : !UUID_V4.test(patientId) ? { field: 'ocr-confirm-patient', message: 'Enter the canonical patient ID as a UUID, such as 3f2b8c1e-5d4a-4b6f-9c2d-1e0f7a8b9c0d.' }
+      : !UUID_V4.test(patientId) ? { field: 'ocr-confirm-patient', message: 'Enter a valid canonical patient ID (a UUID).' }
       : reason.length < 8 ? { field: 'ocr-confirm-reason', message: 'Enter a patient confirmation reason of at least 8 characters.' } : null
-    if (refused) { setProblem(refused); focus(refused.field); return }
+    if (refused) { setProblem(refusal(refused)); focus(refused.field); return }
     const signature = JSON.stringify([patientId, reason])
     if (attempt.current?.signature !== signature) attempt.current = { signature, key: crypto.randomUUID() }
     setBusy(true)
@@ -727,37 +730,241 @@ function OcrConfirmation({ facilityId, job, onChanged }: { facilityId: string; j
   return <Card className="staff-card"><h2 id="ocr-confirm-title" tabIndex={-1}>Confirm source patient</h2><p>Confirm the canonical patient against the clinical source document before publication. The backend verifies an exact match and write authorization.</p><form className="staff-form" noValidate onSubmit={event => void submit(event)}><Field label="Canonical patient ID" htmlFor="ocr-confirm-patient" error={problemText(problem, 'ocr-confirm-patient')} required><Input id="ocr-confirm-patient" name="patientId" defaultValue={job.patientId ?? ''} required {...problemProps(problem, 'ocr-confirm-patient')} /></Field><Field label="Confirmation reason" htmlFor="ocr-confirm-reason" error={problemText(problem, 'ocr-confirm-reason')} required><Textarea id="ocr-confirm-reason" name="reason" minLength={8} maxLength={500} required {...problemProps(problem, 'ocr-confirm-reason')} /></Field>{error && <p className="staff-error" role="alert">{error}</p>}<Button id="ocr-confirm-submit" type="submit" disabled={busy}>{busy ? 'Confirming…' : 'Confirm source patient'}</Button></form></Card>
 }
 
-function OcrPublicationCard({ facilityId, validation, confirmationId, canPublish, onChanged }: { facilityId: string; validation: OcrValidation; confirmationId: string | undefined; canPublish: boolean; onChanged: () => Promise<void> }) {
+/** Publication failures OCR attempts again; any other failure is final (hid-system ocr.service.ts RETRYABLE_PUBLICATION_FAILURES). */
+const RETRYABLE_PUBLICATION_FAILURES: readonly string[] = ['OWNING_SERVICE_UNAVAILABLE', 'REQUEST_IN_PROGRESS']
+
+function attemptsLeft(publication: OcrPublication) {
+  return publication.attemptCount == null || publication.maxAttempts == null || publication.attemptCount < publication.maxAttempts
+}
+
+/**
+ * A publication OCR takes further, but only for the request that started it, sent again with its key: one
+ * not finished (pending, or processing, which OCR takes back once its claim expires) or one that failed for a
+ * reason OCR attempts again, while attempts remain. Nothing else does: no worker runs publications
+ * (hid-system ocr.service.ts executePublication).
+ */
+function resumable(publication: OcrPublication) {
+  return (publication.status === 'pending' || publication.status === 'processing'
+    || (publication.status === 'failed' && RETRYABLE_PUBLICATION_FAILURES.includes(publication.failureCode ?? ''))) && attemptsLeft(publication)
+}
+
+/** OCR's wait after a failed attempt before it takes the publication again (hid-system ocr.service.ts executePublication, next_attempt_at). */
+const PUBLICATION_RETRY_WAIT_MS = 15_000
+const PUBLICATION_RETRY_WAIT = 'OCR allows another attempt about 15 seconds after a failure.'
+
+/** A publication request this page sent: the Idempotency-Key it goes with, and when OCR takes a failed one again. */
+interface PublicationAttempt { readonly key: string; retryAt: number }
+
+function publicationRefusal(caught: unknown) {
+  if (isHidApiError(caught) && caught.code === 'OCR_PUBLICATION_IN_PROGRESS') return 'OCR did not start another attempt: one is still running, or it is too soon after the last one.'
+  if (isHidApiError(caught) && caught.code === 'OCR_PUBLICATION_TERMINAL') return 'The owning service refused this publication, so it cannot be retried.'
+  return errorText(caught, 'Validated evidence could not be published.')
+}
+
+const publishedAs: Partial<Record<OcrTargetDomain, string>> = {
+  EHR: 'Published as a clinical note in the patient\'s record.',
+  LAB: 'Published as imported lab evidence in the patient\'s record.',
+  PHARMACY: 'Published as imported medication evidence in the patient\'s record.',
+  DOCUMENT_ONLY: 'Kept as a validated document in the patient\'s record.',
+}
+
+function observationText(item: LabImport['observations'][number]) {
+  const result = [item.value && `${item.value}${item.unit ? ` ${item.unit}` : ''}`, item.valueText].filter(Boolean).join(' · ')
+  const flag = item.abnormalFlag && item.abnormalFlag !== 'normal' && item.abnormalFlag !== 'unknown' ? `flagged ${item.abnormalFlag}` : ''
+  // Defensive: Lab stores every imported observation as 'reported' today (hid-system ehr-api migration
+  // 0017, lab.imported_observations), but a status it may add later is said, never hidden.
+  const status = item.status && item.status !== 'reported' ? item.status.replaceAll('_', ' ') : ''
+  return [result ? `${item.testName}: ${result}` : item.testName, item.referenceRange && `reference ${item.referenceRange}`, flag, status].filter(Boolean).join(' · ')
+}
+
+/**
+ * Evidence a Lab or Pharmacy publication imported, read from its owning domain only when asked: each read
+ * is audited. What was imported does not change, so a read that succeeded is kept; one that failed is made
+ * again on the next opening.
+ */
+function ImportedEvidence({ facilityId, domain, importId }: { facilityId: string; domain: 'lab' | 'medication'; importId: string }) {
+  const [open, setOpen] = useState(false)
+  const [evidence, setEvidence] = useState<{ lab?: LabImport; medication?: PharmacyImport; error?: string } | null>(null)
+  const [reads, setReads] = useState(0)
+  useEffect(() => {
+    if (!reads) return
+    let active = true
+    const read = domain === 'lab' ? staffApi.labImport(facilityId, importId).then(lab => ({ lab }))
+      : staffApi.pharmacyImport(facilityId, importId).then(medication => ({ medication }))
+    void read.then(found => { if (active) setEvidence(found) })
+      .catch(caught => { if (active) setEvidence({ error: errorText(caught, 'Imported evidence could not be read.') }) })
+    return () => { active = false }
+  }, [facilityId, domain, importId, reads])
+  function toggle() {
+    // Cleared here, with the opening, so a refusal is never shown over the read that follows it.
+    if (!open && (reads === 0 || evidence?.error)) { setEvidence(null); setReads(value => value + 1) }
+    setOpen(!open)
+  }
+  const lab = open ? evidence?.lab : undefined
+  const medication = open ? evidence?.medication : undefined
+  const status = !open ? '' : !evidence ? 'Loading imported evidence…'
+    : lab ? `Imported lab evidence loaded: ${lab.observations.length} observation${lab.observations.length === 1 ? '' : 's'}.`
+      : medication ? 'Imported medication evidence loaded.' : ''
+  // A disclosure: its name stays the same, and aria-expanded says whether it is open.
+  return <div className="staff-stack"><div><Button tone="secondary" size="sm" aria-expanded={open} onClick={toggle}>Imported {domain} evidence</Button>
+    {/* Mounted throughout, so what is put in it is announced; with the button, so it takes no space while empty. */}
+    <div role="status">{status && <p className="staff-muted">{status}</p>}</div></div>
+    {open && evidence?.error && <p className="staff-error" role="alert">{evidence.error}</p>}
+    {lab && <>{lab.status && lab.status !== 'accepted' && <p>Import status: {lab.status.replaceAll('_', ' ')}</p>}{lab.externalLabName && <p>Reported by {lab.externalLabName}</p>}<ul className="staff-stack">{lab.observations.map(item => <li key={item.id}>{observationText(item)}</li>)}</ul></>}
+    {medication && <><p><strong>{medication.medicationText}</strong></p>
+      {(medication.strengthText || medication.doseText || medication.frequencyText) && <p>{[medication.strengthText, medication.doseText, medication.frequencyText].filter(Boolean).join(' · ')}</p>}
+      {medication.historicalContext && <p className="staff-muted">{medication.historicalContext}</p>}</>}
+  </div>
+}
+
+/** What a publication made: named, and readable where its owning domain lets this role read it. Never its raw ID. */
+function PublishedEvidence({ facilityId, publication, permissions }: { facilityId: string; publication: OcrPublication; permissions: readonly string[] }) {
+  const importId = publication.targetResourceId
+  const domain = publication.targetResourceType === 'lab-imported-evidence' && permissions.includes('lab.import.read') ? 'lab'
+    : publication.targetResourceType === 'pharmacy-imported-medication-evidence' && permissions.includes('pharmacy.import.read') ? 'medication' : null
+  return <>
+    <p>{publishedAs[publication.targetDomain] ?? 'Published.'}</p>
+    {domain && importId && <ImportedEvidence facilityId={facilityId} domain={domain} importId={importId} />}
+  </>
+}
+
+/**
+ * A publication as OCR holds it, and what can take it further. `canPublish`: this viewer may publish this
+ * review now (ocr.publication.write, with the job's current patient confirmation); `retryHere`: this page
+ * holds the key of the request that made it, and offers Retry publication.
+ */
+function OcrPublicationStatus({ facilityId, publication, permissions, canPublish, retryHere }: {
+  facilityId: string; publication: OcrPublication; permissions: readonly string[]; canPublish: boolean; retryHere: boolean
+}) {
+  const failed = publication.status === 'failed'
+  const attempts = failed && publication.attemptCount != null && publication.maxAttempts != null ? ` · Attempt ${publication.attemptCount} of ${publication.maxAttempts}` : ''
+  const unfinished = 'OCR has not finished this publication. Refresh the job status to see whether it has.'
+  const failedText = !RETRYABLE_PUBLICATION_FAILURES.includes(publication.failureCode ?? '') ? 'It cannot be retried.'
+    : !attemptsLeft(publication) ? 'The publication attempt limit has been reached. It cannot be retried.'
+      : retryHere ? PUBLICATION_RETRY_WAIT
+        : canPublish ? 'It can be retried only from the page where Publish was pressed, before that page is reloaded or left.' : ''
+  // OCR claims a publication again only while attempts remain (ocr.service.ts executePublication), whichever page asks.
+  const unfinishedText = !attemptsLeft(publication) ? `${unfinished} This is its last attempt: if it has stopped, it cannot be resumed.`
+    : retryHere ? 'OCR has not finished this publication. If it has stopped, Retry publication resumes it; if it is still running, OCR says so.'
+      : canPublish ? `${unfinished} If it has stopped, it can be resumed only from the page where Publish was pressed, before that page is reloaded or left.`
+        : unfinished
+  return <div className="staff-stack">
+    <p>Publication: <Badge tone={publication.status === 'published' ? 'success' : failed ? 'danger' : 'information'}>{publication.status}</Badge>{publication.failureCode ? ` · ${publication.failureCode}` : ''}{attempts}</p>
+    {failed && publication.failureSummary && <p>{publication.failureSummary}</p>}
+    {failed && failedText && <p className="staff-muted">{failedText}</p>}
+    {(publication.status === 'pending' || publication.status === 'processing') && <p className="staff-muted">{unfinishedText}</p>}
+    {publication.status === 'published' && <PublishedEvidence facilityId={facilityId} publication={publication} permissions={permissions} />}
+  </div>
+}
+
+// OCR keeps one publication per review. The page sends each publication request
+// with one key, held in `publicationAttempts` (memory only, never browser storage), so
+// a press after a lost answer or a refusal sends the same request again, and OCR
+// resumes the publication it recorded under that key. A refusal reads the history
+// again: the page then offers only what OCR would take, and says a publication was
+// recorded when the history shows one, though its answer was lost.
+function OcrPublicationCard({ facilityId, validation, confirmationId, permissions, publicationAttempts, onChanged }: {
+  facilityId: string; validation: OcrValidation; confirmationId: string | undefined; permissions: readonly string[];
+  publicationAttempts: Map<string, PublicationAttempt>; onChanged: () => Promise<void>
+}) {
   const [publications, setPublications] = useState<OcrPublication[] | null>(null)
+  const [historyError, setHistoryError] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  const [revision, setRevision] = useState(0)
+  // Counts changes to `publicationAttempts`, which `next` reads while rendering: each change renders again.
+  const [, setHeldKeys] = useState(0)
   const focus = useFocusById()
   const publishId = `ocr-publish-${validation.id}`
+  const retryId = `ocr-publish-retry-${validation.id}`
+  const operation = validation.disposition === 'validated' && validation.targetDomain !== 'UNCLASSIFIED' ? publicationOperations[validation.targetDomain] : undefined
+  // What a press sends, and so what its key is held for.
+  const request = permissions.includes('ocr.publication.write') && confirmationId && operation
+    ? JSON.stringify([facilityId, validation.id, validation.version, confirmationId, operation]) : undefined
   useEffect(() => {
     let active = true
     void staffApi.ocrPublications(facilityId, validation.id).then(result => { if (active) setPublications(result.items) })
-      .catch(caught => { if (active) setError(errorText(caught, 'Publication history could not be loaded.')) })
+      .catch(caught => { if (active) setHistoryError(errorText(caught, 'Publication history could not be loaded.')) })
     return () => { active = false }
-  }, [facilityId, validation.id, revision])
-  async function publish() {
-    if (!confirmationId || validation.targetDomain === 'UNCLASSIFIED') return
+  }, [facilityId, validation.id])
+
+  /**
+   * The control that takes publication further: Publish before any request, Retry publication for this
+   * page's own request. OCR does not say which request made a publication, so one is taken to be this
+   * page's while the page holds a key for the request. Were this page's press never to have reached OCR,
+   * and another request made it, OCR answers the retry 409 OCR_ALREADY_PUBLISHED, which drops the key.
+   */
+  function next(items: readonly OcrPublication[] | null) {
+    if (!request || !items) return null
+    if (items.length === 0) return publishId
+    return publicationAttempts.has(request) && items.some(resumable) ? retryId : null
+  }
+
+  /** Holds a request's key, or drops it, and renders what that changes. */
+  function hold(held: string, attempt: PublicationAttempt | null) {
+    if (attempt) publicationAttempts.set(held, attempt)
+    else publicationAttempts.delete(held)
+    setHeldKeys(value => value + 1)
+  }
+
+  // Reads the history again, keeping what it showed until the answer arrives.
+  async function reload(): Promise<OcrPublication[] | null> {
+    try { const { items } = await staffApi.ocrPublications(facilityId, validation.id); setPublications(items); setHistoryError(''); return items }
+    catch (caught) { setHistoryError(errorText(caught, 'Publication history could not be loaded.')); return null }
+  }
+
+  /** A publication the history read again shows, whatever answer was lost on the way: said, and the job read again. */
+  async function recorded(items: readonly OcrPublication[] | null) {
+    if (!request || !items?.some(item => item.status === 'published')) return false
+    hold(request, null)
+    await onChanged()
+    return true
+  }
+
+  async function publish(retrying = false) {
+    if (!request || !confirmationId || !operation) return
+    const held = publicationAttempts.get(request)
+    // A failed publication is taken again only after OCR's wait: a press before then would be refused, so nothing is sent.
+    const wait = retrying && held && publications?.some(item => item.status === 'failed') ? held.retryAt - Date.now() : 0
+    if (wait > 0) {
+      const seconds = Math.ceil(wait / 1000)
+      setError(`${PUBLICATION_RETRY_WAIT} Try again in ${seconds} second${seconds === 1 ? '' : 's'}.`)
+      return
+    }
+    const attempt = held ?? { key: crypto.randomUUID(), retryAt: 0 }
+    hold(request, attempt)
     setBusy(true); setError('')
     try {
-      await staffApi.publishOcrValidation(facilityId, validation, confirmationId, publicationOperations[validation.targetDomain])
-      setRevision(value => value + 1)
-      await onChanged()
-    } catch (caught) { setError(errorText(caught, 'Validated evidence could not be published.')); focus(publishId, true) }
+      const publication = await staffApi.publishOcrValidation(facilityId, validation, confirmationId, operation, attempt.key)
+      if (publication.status === 'published') { hold(request, null); await onChanged(); return }
+      // Any other answer published nothing: show what OCR holds.
+      const items = await reload()
+      if (await recorded(items)) return
+      focus(next(items ?? publications) ?? 'ocr-history-title', true)
+    } catch (caught) {
+      // That publication was requested with another key, so this request cannot resume it.
+      const alreadyPublished = isHidApiError(caught) && caught.code === 'OCR_ALREADY_PUBLISHED'
+      // The history shown is out of date then: it is not shown, nor Publish offered, until read again.
+      if (alreadyPublished) { hold(request, null); setPublications(null) }
+      // A failed attempt has OCR wait before the next: counted from this answer, which came after the failure.
+      // Read only when Retry publication is pressed, so it needs no render.
+      else attempt.retryAt = Date.now() + PUBLICATION_RETRY_WAIT_MS
+      const items = await reload()
+      if (await recorded(items)) return
+      // Said once the history has been read again, so one alert says what happened.
+      setError(alreadyPublished ? `This review already has a publication request${items ? ', shown below' : ''}.` : publicationRefusal(caught))
+      // Any other history that could not be read again still shows as it was.
+      focus(next(items ?? (alreadyPublished ? null : publications)) ?? 'ocr-history-title', true)
+    }
     finally { setBusy(false) }
   }
+  const action = next(publications)
   return <div className="staff-list-item"><div className="staff-row"><strong>Review {validation.version} · {validation.targetDomain}</strong><Badge tone={validation.disposition === 'validated' ? 'success' : 'danger'}>{validation.disposition}</Badge></div><p>{validation.reason} · {dateText(validation.reviewedAt)}</p>
     {error && <p className="staff-error" role="alert">{error}</p>}
-    {publications === null && !error && <p className="staff-muted" role="status">Loading publication history…</p>}
-    {publications?.map(publication => <div key={publication.id} className="staff-stack">
-      <p>Publication: <Badge tone={publication.status === 'published' ? 'success' : publication.status === 'failed' ? 'danger' : 'information'}>{publication.status}</Badge>{publication.failureCode ? ` · ${publication.failureCode}` : ''}</p>
-      {publication.targetResourceId && <p>Published {publication.targetResourceType ?? publication.targetDomain.toLowerCase()} record: <code>{publication.targetResourceId}</code></p>}
-    </div>)}
-    {canPublish && confirmationId && validation.disposition === 'validated' && validation.targetDomain !== 'UNCLASSIFIED' && publications?.length === 0 && <Button id={publishId} size="sm" onClick={() => void publish()} disabled={busy}>{busy ? 'Publishing…' : `Publish to ${validation.targetDomain.replace('_', ' ')}`}</Button>}
+    {historyError && <p className="staff-error" role="alert">{historyError}</p>}
+    {publications === null && !historyError && <p className="staff-muted" role="status">Loading publication history…</p>}
+    {publications?.map(publication => <OcrPublicationStatus key={publication.id} facilityId={facilityId} publication={publication} permissions={permissions} canPublish={request !== undefined} retryHere={action === retryId} />)}
+    {action === publishId && <Button id={publishId} size="sm" onClick={() => void publish()} disabled={busy}>{busy ? 'Publishing…' : `Publish to ${validation.targetDomain.replace('_', ' ')}`}</Button>}
+    {action === retryId && <Button id={retryId} size="sm" onClick={() => void publish(true)} disabled={busy}>{busy ? 'Retrying…' : 'Retry publication'}</Button>}
   </div>
 }
 
@@ -800,6 +1007,10 @@ export function Ocr() {
   const [stepFocus, setStepFocus] = useState<StepFocus | null>(null)
   const focus = useFocusById()
   const [lookupRevision, setLookupRevision] = useState(0)
+  // Each publication request's Idempotency-Key and OCR's wait, by request. Here, not in the
+  // card, so a read of the job again (which remounts the cards) keeps them; in memory only,
+  // so they last until this page is reloaded or left.
+  const publicationAttempts = useRef(new Map<string, PublicationAttempt>())
   const visibleJob = jobFacilityId === facilityId ? job : null
   const canRetryJob = visibleJob?.status === 'failed' &&
     (visibleJob.attemptCount === undefined || visibleJob.maxAttempts === undefined || visibleJob.attemptCount < visibleJob.maxAttempts)
@@ -841,11 +1052,11 @@ export function Ocr() {
   // Finding a job keeps focus on Find job, which is disabled while the lookup runs.
   async function find(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    setProblem(null)
-    if (!documentId.trim()) { setProblem({ field: 'ocr-document', message: 'Enter a document ID.' }); focus('ocr-document'); return }
-    if (!UUID_V4.test(documentId.trim())) {
-      setProblem({ field: 'ocr-document', message: 'Enter the document ID as a UUID, as the clinical record shows it.' }); focus('ocr-document'); return
-    }
+    // The last answer no longer applies, nor does a field refused before.
+    setProblem(null); setError(''); setNotice('')
+    const refused = !documentId.trim() ? { field: 'ocr-document', message: 'Enter a document ID.' }
+      : !UUID_V4.test(documentId.trim()) ? { field: 'ocr-document', message: 'Enter a valid document ID (a UUID).' } : null
+    if (refused) { setProblem(refusal(refused)); focus(refused.field); return }
     await lookup()
     focus('ocr-find-submit', true)
   }
@@ -858,12 +1069,15 @@ export function Ocr() {
 
   async function create() {
     if (!facilityId) return
-    if (!documentId.trim() || !patientId.trim()) return setError('Enter both the document and patient IDs.')
-    setProblem(null)
-    if (!UUID_V4.test(patientId.trim())) {
-      setProblem({ field: 'ocr-patient', message: 'Enter the patient ID as a UUID, such as 3f2b8c1e-5d4a-4b6f-9c2d-1e0f7a8b9c0d.' }); focus('ocr-patient'); return
-    }
-    setBusy(true); setError(''); setNotice(''); setExtractions(null); setValidations(null)
+    // The last answer no longer applies, nor does a field refused before (setProblem, below).
+    setError(''); setNotice('')
+    // Create extraction job stays available, so a missing ID is said at its field, which takes focus. The
+    // document ID needs no check here: Create is shown only once Find job has taken it, and editing it hides Create.
+    const refused = !patientId.trim() ? { field: 'ocr-patient', message: 'Enter the patient ID.' }
+      : !UUID_V4.test(patientId.trim()) ? { field: 'ocr-patient', message: 'Enter a valid patient ID (a UUID).' } : null
+    setProblem(refused && refusal(refused))
+    if (refused) { focus(refused.field); return }
+    setBusy(true); setExtractions(null); setValidations(null)
     try {
       const created = await staffApi.createOcrJob(facilityId, documentId.trim(), patientId.trim())
       setJob(created); setJobFacilityId(facilityId); setSearched(true); setLookupRevision(value => value + 1)
@@ -878,7 +1092,7 @@ export function Ocr() {
     if (!facilityId || !visibleJob) return
     const reason = String(new FormData(event.currentTarget).get('reason') ?? '').trim()
     setProblem(null); setRetryError('')
-    if (reason.length < 8) { setProblem({ field: 'ocr-retry-reason', message: 'Enter a reason of at least 8 characters.' }); focus('ocr-retry-reason'); return }
+    if (reason.length < 8) { setProblem(refusal({ field: 'ocr-retry-reason', message: 'Enter a reason of at least 8 characters.' })); focus('ocr-retry-reason'); return }
     setBusy(true); setError(''); setNotice('')
     try {
       setJob(await staffApi.retryOcrJob(facilityId, visibleJob, reason)); setLookupRevision(value => value + 1)
@@ -894,7 +1108,7 @@ export function Ocr() {
     <div className="staff-two-col"><Card className="staff-card"><h2>Find document job</h2><form className="staff-form" noValidate onSubmit={event => void find(event)}><Field label="Document ID" htmlFor="ocr-document" error={problemText(problem, 'ocr-document')} required><Input id="ocr-document" value={documentId} onChange={event => { setDocumentId(event.target.value); setSearched(false); setJob(null); setNotice(''); setProblem(null); setStepFocus(null) }} placeholder="Document UUID" required {...problemProps(problem, 'ocr-document')} /></Field><Button id="ocr-find-submit" type="submit" disabled={busy}>{busy ? 'Checking…' : 'Find job'}</Button></form>
       {searched && !visibleJob && <p className="staff-muted">No OCR job exists for this document.</p>}
       {/* Only after a lookup has answered that no job exists: a failed or missing lookup must not invite a duplicate job. */}
-      {searched && !visibleJob && permissions.includes('ocr.job.write') && <div className="staff-stack"><p>Create an extraction job for a verified patient document.</p><Field label="Patient ID" htmlFor="ocr-patient" error={problemText(problem, 'ocr-patient')} required><Input id="ocr-patient" value={patientId} onChange={event => { setPatientId(event.target.value); setProblem(null) }} placeholder="Patient UUID" {...problemProps(problem, 'ocr-patient')} /></Field><Button id="ocr-create-submit" onClick={() => void create()} disabled={busy || !documentId.trim() || !patientId.trim()}>{busy ? 'Creating…' : 'Create extraction job'}</Button></div>}
+      {searched && !visibleJob && permissions.includes('ocr.job.write') && <div className="staff-stack"><p>Create an extraction job for a verified patient document.</p><Field label="Patient ID" htmlFor="ocr-patient" error={problemText(problem, 'ocr-patient')} required><Input id="ocr-patient" value={patientId} onChange={event => { setPatientId(event.target.value); setProblem(null) }} placeholder="Patient UUID" required {...problemProps(problem, 'ocr-patient')} /></Field><Button id="ocr-create-submit" onClick={() => void create()} disabled={busy}>{busy ? 'Creating…' : 'Create extraction job'}</Button></div>}
       {error && <p className="staff-error" role="alert">{error}</p>}
       {/* Mounted throughout, so a message put in it is announced. */}
       <div id="ocr-status" role="status">{notice && <p className="staff-notice">{notice}</p>}</div>
@@ -904,7 +1118,7 @@ export function Ocr() {
         {visibleJob.status === 'failed' && !canRetryJob && <p className="staff-muted">The extraction attempt limit has been reached. This job cannot be retried.</p>}
         {extractions === null && <p className="staff-muted" role="status">Loading extractions…</p>}
         {extractions?.length === 0 && <p className="staff-muted">No extraction is available yet.</p>}
-        {extractions?.map(extraction => <div className="staff-list-item" key={extraction.id}><div className="staff-row"><strong>Extraction {extraction.version}</strong><Badge tone="neutral">{extraction.provider}</Badge></div>{extraction.confidence != null && <p>Confidence {Math.round(extraction.confidence * 100)}%</p>}{extraction.rawText && <details><summary>Review extracted text</summary><pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', maxHeight: 300, overflowY: 'auto', fontSize: 12 }}>{extraction.rawText}</pre></details>}</div>)}
+        {extractions?.map(extraction => <div className="staff-list-item" key={extraction.id}><div className="staff-row"><strong>Extraction {extraction.version}</strong><Badge tone="neutral">{extraction.provider}</Badge></div>{extraction.confidence != null && <p>Confidence {Math.round(extraction.confidence * 100)}%</p>}{extraction.rawText && <details><summary>Review extracted text</summary>{/* It scrolls, so it takes focus: a keyboard can then scroll it. */}<pre tabIndex={0} role="region" aria-label={`Extracted text, version ${extraction.version}`} style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', maxHeight: 300, overflowY: 'auto', fontSize: 12 }}>{extraction.rawText}</pre></details>}</div>)}
       </Card> : <Card className="staff-card"><h2>Document review</h2><p>Use the document ID from an authorized clinical record. OCR jobs are scoped to that source; this backend has no facility-wide OCR job list.</p></Card>}
     </div>
     {visibleJob?.status === 'awaiting_validation' && permissions.includes('ocr.validation.write') && extractions && <div className="staff-section"><OcrReview key={`${visibleJob.id}-${visibleJob.version}`} facilityId={facilityId} job={visibleJob} extractions={extractions} onChanged={disposition => disposition === 'validated'
@@ -915,66 +1129,24 @@ export function Ocr() {
       if (message) { const reloaded = await lookup(); setStepFocus({ targets: reloaded ? ['ocr-history-title', 'ocr-job-title'] : ['ocr-find-submit'], notice: reloaded ? message : undefined }); return }
       await afterStep(['ocr-history-title', 'ocr-job-title'], 'Source patient confirmed.')
     }} /></div>}
-    {visibleJob && validations && validations.length > 0 && <div className="staff-section"><h2 id="ocr-history-title" tabIndex={-1}>Review and publication history</h2><div className="staff-list">{validations.map(validation => <OcrPublicationCard key={validation.id} facilityId={facilityId} validation={validation} confirmationId={visibleJob.patientConfirmation?.id} canPublish={permissions.includes('ocr.publication.write')} onChanged={() => afterStep(['ocr-history-title', 'ocr-job-title'], 'Publication recorded.')} />)}</div></div>}
+    {visibleJob && validations && validations.length > 0 && <div className="staff-section"><h2 id="ocr-history-title" tabIndex={-1}>Review and publication history</h2><div className="staff-list">{validations.map(validation => <OcrPublicationCard key={validation.id} facilityId={facilityId} validation={validation} confirmationId={visibleJob.patientConfirmation?.id} permissions={permissions} publicationAttempts={publicationAttempts.current} onChanged={() => afterStep(['ocr-history-title', 'ocr-job-title'], 'Publication recorded.')} />)}</div></div>}
   </>
 }
 
-const outreachServices = [
-  ['registration', 'Registration'], ['vitals', 'Vitals'], ['vaccination', 'Vaccination'], ['lab_sample', 'Lab sample'], ['referral', 'Referral'],
-] as const
-
-function CampaignCard({ facilityId, membershipId, campaign, permissions, onChanged, onMembershipChange }: {
-  facilityId: string; membershipId: string | undefined; campaign: OutreachCampaign; permissions: string[];
-  onChanged: () => Promise<void>; onMembershipChange: (campaignId: string, isMember: boolean) => void
+// Identity does not authorize outreach.campaign.write until campaign governance is
+// decided (hid-system authorize-outreach.dto.ts, ADR-045): creating a campaign,
+// changing its status and adding a member all answer 400, so none is offered.
+// Shown only to a role that reads campaigns, which reads their members too.
+function CampaignCard({ facilityId, membershipId, campaign, onMembershipChange }: {
+  facilityId: string; membershipId: string | undefined; campaign: OutreachCampaign;
+  onMembershipChange: (campaignId: string, isMember: boolean) => void
 }) {
-  const canRead = permissions.includes('outreach.campaign.read')
-  const canWrite = permissions.includes('outreach.campaign.write')
-  const members = useFacilityList(facilityId, canRead, useCallback(id => staffApi.outreachCampaignMembers(id, campaign.id), [campaign.id]))
+  const members = useFacilityList(facilityId, true, useCallback(id => staffApi.outreachCampaignMembers(id, campaign.id), [campaign.id]))
   useEffect(() => {
     if (members.items) onMembershipChange(campaign.id, members.items.some(member => member.membershipId === membershipId))
   }, [campaign.id, membershipId, members.items, onMembershipChange])
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-  const [success, setSuccess] = useState('')
-  // Closing a campaign removes its form: focus goes to the campaign.
-  const focus = useFocusById()
-  // The status and member forms are shown together: each keeps its own refusals.
-  const statusProblems = useFieldProblems()
-  const memberProblems = useFieldProblems()
-  const startsInFuture = campaign.status === 'planned' && new Date(campaign.startsAt).getTime() > Date.now()
-  async function transition(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (busy) return
-    const reason = String(new FormData(event.currentTarget).get('reason') ?? '').trim()
-    const status = campaign.status === 'planned' ? 'active' : 'closed'
-    setError(''); statusProblems.clear()
-    if (reason.length < 8) return statusProblems.refuse(`campaign-reason-${campaign.id}`, 'Enter a status reason of at least 8 characters.')
-    setBusy(true); setSuccess('')
-    try { await staffApi.updateOutreachCampaignStatus(facilityId, campaign, status, reason); setSuccess(`Campaign ${status}.`); await onChanged(); focus(`campaign-${campaign.id}-title`, true) }
-    catch (caught) { setError(errorText(caught, 'Campaign status could not be updated. Refresh and try again.')) }
-    finally { setBusy(false) }
-  }
-  async function addMember(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (busy) return
-    const element = event.currentTarget
-    const form = new FormData(element)
-    const membershipId = String(form.get('membershipId') ?? '').trim()
-    const role = String(form.get('role') ?? 'enumerator') as OutreachCampaignMember['role']
-    setError(''); memberProblems.clear()
-    if (!membershipId) return memberProblems.refuse(`campaign-member-${campaign.id}`, 'Enter a facility membership ID.')
-    setBusy(true); setSuccess('')
-    try { await staffApi.addOutreachCampaignMember(facilityId, campaign.id, membershipId, role); setSuccess('Campaign member added.'); element.reset(); await members.refresh() }
-    catch (caught) { setError(errorText(caught, 'Campaign member could not be added.')) }
-    finally { setBusy(false) }
-  }
-  return <div className="staff-list-item"><div className="staff-row"><strong id={`campaign-${campaign.id}-title`} tabIndex={-1}>{campaign.name}</strong><Badge tone={campaign.status === 'active' ? 'success' : 'neutral'}>{campaign.status}</Badge></div><p>{campaign.services.join(', ')} · Starts {dateText(campaign.startsAt)}</p>
-    {canRead && <details><summary>Members</summary><ListState loading={members.loading} error={members.error} empty="No members" retry={() => void members.refresh()} hasItems={Boolean(members.items?.length)} />{members.items?.map(member => <p key={member.id}>{member.role.replaceAll('_', ' ')} · Membership {shortId(member.membershipId)}</p>)}</details>}
-    {canWrite && campaign.status !== 'closed' && <form className="staff-form" onSubmit={event => void transition(event)}><Field label={campaign.status === 'planned' ? 'Activation reason' : 'Closure reason'} htmlFor={`campaign-reason-${campaign.id}`} error={statusProblems.error(`campaign-reason-${campaign.id}`)} required><Input id={`campaign-reason-${campaign.id}`} name="reason" minLength={8} maxLength={500} required {...statusProblems.control(`campaign-reason-${campaign.id}`)} /></Field>{startsInFuture && <p className="staff-muted">Activation is available after the start time. Refresh the campaign then.</p>}<Button type="submit" tone="secondary" size="sm" disabled={startsInFuture} aria-disabled={busy || undefined} className={UNAVAILABLE}>{busy ? 'Updating…' : campaign.status === 'planned' ? 'Activate campaign' : 'Close campaign'}</Button></form>}
-    {canWrite && <details><summary>Add campaign member</summary><form className="staff-form" onSubmit={event => void addMember(event)}><Field label="Facility membership ID" htmlFor={`campaign-member-${campaign.id}`} error={memberProblems.error(`campaign-member-${campaign.id}`)} required><Input id={`campaign-member-${campaign.id}`} name="membershipId" placeholder="Membership UUID" required {...memberProblems.control(`campaign-member-${campaign.id}`)} /></Field><Field label="Campaign role" htmlFor={`campaign-role-${campaign.id}`}><Select id={`campaign-role-${campaign.id}`} name="role"><option value="enumerator">Enumerator</option><option value="health_worker">Health worker</option><option value="admin">Admin</option></Select></Field><Button type="submit" size="sm" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Adding…' : 'Add member'}</Button></form></details>}
-    {error && <p className="staff-error" role="alert">{error}</p>}
-    {/* Mounted throughout, so what was recorded is announced. */}
-    <div id={`outreach-campaign-status-${campaign.id}`} role="status">{success && <p className="staff-success">{success}</p>}</div>
+  return <div className="staff-list-item"><div className="staff-row"><strong>{campaign.name}</strong><Badge tone={campaign.status === 'active' ? 'success' : 'neutral'}>{campaign.status}</Badge></div><p>{campaign.services.join(', ')} · Starts {dateText(campaign.startsAt)}</p>
+    <details><summary>Members</summary><ListState loading={members.loading} error={members.error} empty="No members" retry={() => void members.refresh()} hasItems={Boolean(members.items?.length)} />{members.items?.map(member => <p key={member.id}>{member.role.replaceAll('_', ' ')} · Membership {shortId(member.membershipId)}</p>)}</details>
   </div>
 }
 
@@ -1018,9 +1190,13 @@ export function Outreach() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
-  // Each form keeps its own refusals: submitting one leaves the other's in place.
-  const campaignProblems = useFieldProblems()
+  // The case form's refusals, each at its field.
   const caseProblems = useFieldProblems()
+  // The case last sent, with its command: its localCommandId (also its Idempotency-Key) and
+  // temporary patient ID. Sending the same case again, after a lost answer or a refusal,
+  // sends the same command, which Outreach answers with the case it made; a different case,
+  // or the next one once this one is created, gets a new command. In memory only.
+  const caseAttempt = useRef<{ signature: string; command: { localCommandId: string; temporaryPatientId: string } } | null>(null)
   const [eligibleCampaigns, setEligibleCampaigns] = useState<{ facilityId: string; ids: Set<string> }>({ facilityId: '', ids: new Set() })
   const recordMembership = useCallback((campaignId: string, isMember: boolean) => {
     setEligibleCampaigns(previous => {
@@ -1032,24 +1208,6 @@ export function Outreach() {
     })
   }, [facilityId])
 
-  async function createCampaign(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (!facilityId || busy) return
-    const element = event.currentTarget
-    const form = new FormData(element)
-    const name = String(form.get('name') ?? '').trim()
-    const services = form.getAll('services').map(String)
-    const startTime = new Date(String(form.get('startsAt') ?? ''))
-    setError(''); campaignProblems.clear()
-    if (name.length < 2) return campaignProblems.refuse('outreach-campaign-name', 'Enter a campaign name and choose at least one service.')
-    if (services.length === 0) return campaignProblems.refuse('outreach-campaign-services', 'Enter a campaign name and choose at least one service.', `outreach-service-${outreachServices[0][0]}`)
-    if (Number.isNaN(startTime.getTime())) return campaignProblems.refuse('outreach-campaign-start', 'Enter a valid campaign start date.')
-    setBusy(true); setSuccess('')
-    try { await staffApi.createOutreachCampaign(facilityId, { name, services, startsAt: startTime.toISOString() }); setSuccess('Campaign created.'); element.reset(); await campaigns.refresh() }
-    catch (caught) { setError(errorText(caught, 'Campaign could not be created.')) }
-    finally { setBusy(false) }
-  }
-
   async function createCase(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!facilityId || busy) return
@@ -1058,31 +1216,41 @@ export function Outreach() {
     const campaignId = String(form.get('campaignId') ?? '') || undefined
     const fullName = String(form.get('fullName') ?? '').trim()
     const sex = String(form.get('sex') ?? 'unknown')
-    const ageYears = Number(form.get('ageYears'))
+    const age = String(form.get('ageYears') ?? '').trim()
+    const ageYears = Number(age)
     const phone = String(form.get('phone') ?? '').trim() || undefined
     const operationalNotes = String(form.get('operationalNotes') ?? '').trim() || undefined
-    setError(''); caseProblems.clear()
-    if (!fullName || !Number.isInteger(ageYears) || ageYears < 0 || ageYears > 130) return caseProblems.refuse(!fullName ? 'outreach-case-name' : 'outreach-case-age', 'Enter a name and a valid age.')
-    // CreateRegistrationCaseDto takes operational notes of 3 to 2000 characters, or none.
-    if (operationalNotes !== undefined && operationalNotes.length < 3) return caseProblems.refuse('outreach-case-notes', 'Operational notes need at least 3 characters, or leave them blank.')
-    setBusy(true); setSuccess('')
-    try { await staffApi.createOutreachCase(facilityId, { campaignId, fullName, sex, ageYears, phone, operationalNotes }); setSuccess('Registration case created for identity resolution.'); element.reset(); await cases.refresh() }
+    // The last answer no longer applies, nor does a field refused before.
+    setError(''); setSuccess(''); caseProblems.clear()
+    // The form checks its own fields, in the order shown, as CreateRegistrationCaseDto does. A phone number
+    // and operational notes are taken at 3 characters or more, or none, as sent: trimmed, which a native
+    // minLength does not check.
+    if (!fullName) return caseProblems.refuse('outreach-case-name', 'Enter the registrant\'s full name.')
+    if (!age || !Number.isInteger(ageYears) || ageYears < 0 || ageYears > 130) return caseProblems.refuse('outreach-case-age', 'Enter an age in whole years, from 0 to 130.')
+    if (phone !== undefined && phone.length < 3) return caseProblems.refuse('outreach-case-phone', 'Enter a phone number of at least 3 characters, or leave it blank.')
+    if (operationalNotes !== undefined && operationalNotes.length < 3) return caseProblems.refuse('outreach-case-notes', 'Enter operational notes of at least 3 characters, or leave them blank.')
+    const input = { campaignId, fullName, sex, ageYears, phone, operationalNotes }
+    const signature = JSON.stringify([facilityId, input])
+    if (caseAttempt.current?.signature !== signature) {
+      caseAttempt.current = { signature, command: { localCommandId: crypto.randomUUID(), temporaryPatientId: `tmp_${crypto.randomUUID()}` } }
+    }
+    setBusy(true)
+    try { await staffApi.createOutreachCase(facilityId, input, caseAttempt.current.command); caseAttempt.current = null; setSuccess('Registration case created for identity resolution.'); element.reset(); await cases.refresh() }
     catch (caught) { setError(errorText(caught, 'Registration case could not be created.')) }
     finally { setBusy(false) }
   }
 
   if (!facilityId || (!canReadCases && !canReadCampaigns)) return <EmptyState titleAs="h1" title="Outreach unavailable" description="This facility membership needs outreach campaign or registration read permission." />
   return <>
-    <PageHead eyebrow="Community care" title="Outreach">Manage facility campaigns and registration cases. A temporary registration is pending identity resolution until the backend links it to a verified patient.</PageHead>
+    <PageHead eyebrow="Community care" title="Outreach">View facility campaigns and manage registration cases. A temporary registration is pending identity resolution until the backend links it to a verified patient.</PageHead>
     {error && <p className="staff-error" role="alert">{error}</p>}
     {/* Mounted throughout, so what was created is announced. */}
     <div id="outreach-status" role="status">{success && <p className="staff-success">{success}</p>}</div>
     <div className="staff-two-col"><div className="staff-stack">
-      {canReadCampaigns && <Card className="staff-card"><div className="staff-row"><h2>Campaigns</h2><RefreshButton loading={campaigns.loading} onRefresh={campaigns.refresh}>Refresh</RefreshButton></div><ListState loading={campaigns.loading} error={campaigns.error} empty="No campaigns" retry={() => void campaigns.refresh()} hasItems={Boolean(campaigns.items?.length)} />{campaigns.items?.map((campaign: OutreachCampaign) => <CampaignCard key={campaign.id} facilityId={facilityId} membershipId={membershipId} campaign={campaign} permissions={permissions} onChanged={campaigns.refresh} onMembershipChange={recordMembership} />)}</Card>}
-      {permissions.includes('outreach.campaign.write') && <Card className="staff-card"><h2>New campaign</h2><form className="staff-form" onSubmit={event => void createCampaign(event)}><Field label="Campaign name" htmlFor="outreach-campaign-name" error={campaignProblems.error('outreach-campaign-name')} required><Input id="outreach-campaign-name" name="name" minLength={2} maxLength={200} required {...campaignProblems.control('outreach-campaign-name')} /></Field><Field label="Starts" htmlFor="outreach-campaign-start" error={campaignProblems.error('outreach-campaign-start')} required><Input id="outreach-campaign-start" name="startsAt" type="datetime-local" required {...campaignProblems.control('outreach-campaign-start')} /></Field><fieldset {...campaignProblems.group('outreach-campaign-services')}><legend>Services</legend>{outreachServices.map(([code, label]) => <label key={code} className="staff-row"><input id={`outreach-service-${code}`} type="checkbox" name="services" value={code} />{label}</label>)}<GroupError field="outreach-campaign-services">{campaignProblems.error('outreach-campaign-services')}</GroupError></fieldset><Button type="submit" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Creating…' : 'Create campaign'}</Button></form></Card>}
+      {canReadCampaigns && <Card className="staff-card"><div className="staff-row"><h2>Campaigns</h2><RefreshButton loading={campaigns.loading} onRefresh={campaigns.refresh}>Refresh</RefreshButton></div><p className="staff-notice">Campaign management is not yet available. Campaigns and their members can be viewed here, but not created, activated, closed or given members.</p><ListState loading={campaigns.loading} error={campaigns.error} empty="No campaigns" retry={() => void campaigns.refresh()} hasItems={Boolean(campaigns.items?.length)} />{campaigns.items?.map((campaign: OutreachCampaign) => <CampaignCard key={campaign.id} facilityId={facilityId} membershipId={membershipId} campaign={campaign} onMembershipChange={recordMembership} />)}</Card>}
     </div><div className="staff-stack">
       {canReadCases && <Card className="staff-card"><div className="staff-row"><h2>Registration cases</h2><RefreshButton loading={cases.loading} onRefresh={cases.refresh}>Refresh</RefreshButton></div><ListState loading={cases.loading} error={cases.error} empty="No registration cases" retry={() => void cases.refresh()} hasItems={Boolean(cases.items?.length)} />{cases.items?.map((item: OutreachCase) => <OutreachCaseCard key={item.id} facilityId={facilityId} item={item} canLink={permissions.includes('outreach.registration.write')} onChanged={cases.refresh} />)}</Card>}
-      {permissions.includes('outreach.registration.write') && <Card className="staff-card"><h2>New registration case</h2><form className="staff-form" onSubmit={event => void createCase(event)}>{canReadCampaigns && <Field label="Campaign" htmlFor="outreach-case-campaign" hint="Only active registration campaigns containing your facility membership appear here. A case may also be created without a campaign."><Select id="outreach-case-campaign" name="campaignId"><option value="">No campaign</option>{campaigns.items?.filter(campaign => campaign.status === 'active' && campaign.services.includes('registration') && eligibleCampaigns.facilityId === facilityId && eligibleCampaigns.ids.has(campaign.id)).map(campaign => <option key={campaign.id} value={campaign.id}>{campaign.name}</option>)}</Select></Field>}<Field label="Full name" htmlFor="outreach-case-name" error={caseProblems.error('outreach-case-name')} required><Input id="outreach-case-name" name="fullName" maxLength={200} required {...caseProblems.control('outreach-case-name')} /></Field><div className="staff-form-row"><Field label="Sex" htmlFor="outreach-case-sex" required><Select id="outreach-case-sex" name="sex"><option value="unknown">Unknown</option><option value="female">Female</option><option value="male">Male</option><option value="other">Other</option></Select></Field><Field label="Age (years)" htmlFor="outreach-case-age" error={caseProblems.error('outreach-case-age')} required><Input id="outreach-case-age" name="ageYears" type="number" min="0" max="130" required {...caseProblems.control('outreach-case-age')} /></Field></div><Field label="Phone (optional)" htmlFor="outreach-case-phone"><Input id="outreach-case-phone" name="phone" minLength={3} maxLength={32} /></Field><Field label="Operational notes" htmlFor="outreach-case-notes" error={caseProblems.error('outreach-case-notes')}><Textarea id="outreach-case-notes" name="operationalNotes" minLength={3} maxLength={2000} {...caseProblems.control('outreach-case-notes')} /></Field><Button type="submit" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Creating…' : 'Create case'}</Button></form></Card>}
+      {permissions.includes('outreach.registration.write') && <Card className="staff-card"><h2>New registration case</h2><form className="staff-form" noValidate onSubmit={event => void createCase(event)}>{canReadCampaigns && <Field label="Campaign" htmlFor="outreach-case-campaign" hint="Only active registration campaigns containing your facility membership appear here. A case may also be created without a campaign."><Select id="outreach-case-campaign" name="campaignId"><option value="">No campaign</option>{campaigns.items?.filter(campaign => campaign.status === 'active' && campaign.services.includes('registration') && eligibleCampaigns.facilityId === facilityId && eligibleCampaigns.ids.has(campaign.id)).map(campaign => <option key={campaign.id} value={campaign.id}>{campaign.name}</option>)}</Select></Field>}<Field label="Full name" htmlFor="outreach-case-name" error={caseProblems.error('outreach-case-name')} required><Input id="outreach-case-name" name="fullName" maxLength={200} required {...caseProblems.control('outreach-case-name')} /></Field><div className="staff-form-row"><Field label="Sex" htmlFor="outreach-case-sex" required><Select id="outreach-case-sex" name="sex" required><option value="unknown">Unknown</option><option value="female">Female</option><option value="male">Male</option><option value="other">Other</option></Select></Field><Field label="Age (years)" htmlFor="outreach-case-age" error={caseProblems.error('outreach-case-age')} required><Input id="outreach-case-age" name="ageYears" type="number" min="0" max="130" required {...caseProblems.control('outreach-case-age')} /></Field></div><Field label="Phone (optional)" htmlFor="outreach-case-phone" error={caseProblems.error('outreach-case-phone')}><Input id="outreach-case-phone" name="phone" minLength={3} maxLength={32} {...caseProblems.control('outreach-case-phone')} /></Field><Field label="Operational notes" htmlFor="outreach-case-notes" error={caseProblems.error('outreach-case-notes')}><Textarea id="outreach-case-notes" name="operationalNotes" minLength={3} maxLength={2000} {...caseProblems.control('outreach-case-notes')} /></Field><Button type="submit" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Creating…' : 'Create case'}</Button></form></Card>}
     </div></div>
   </>
 }
