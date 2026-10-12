@@ -229,14 +229,25 @@ describe('placeholder text is at least 4.5:1 (WCAG 1.4.3)', () => {
 })
 
 describe('status text is at least 4.5:1 (WCAG 1.4.3)', () => {
-  // Badges are placed on white cards, list items and the page; their fill is a tint over that.
-  it.each(['neutral', 'information', 'success', 'warning', 'danger'] as const)('the %s badge', tone => {
+  /** A badge's text against its fill, which is a tint over the surface the badge sits on. */
+  function badgeRatio(tone: 'neutral' | 'information' | 'success' | 'warning' | 'danger', surface: string): number {
     render(<Badge tone={tone}>Status</Badge>)
     const badge = screen.getByText('Status')
     const [fill] = utilities(badge, 'bg')
-    const background = over(token(fill!.name), fill!.alpha, token('surface'))
-    expect(ratio(only(badge, 'text'), background)).toBeGreaterThanOrEqual(TEXT)
+    return ratio(only(badge, 'text'), over(token(fill!.name), fill!.alpha, token(surface)))
+  }
+
+  // Badges are placed on white cards, list items, table cells and the page.
+  it.each(['neutral', 'information', 'success', 'warning', 'danger'] as const)('the %s badge', tone => {
+    expect(badgeRatio(tone, 'surface')).toBeGreaterThanOrEqual(TEXT)
   })
+
+  // The success and warning inks are new: hold them on the other light surfaces too, so a
+  // change to the palette that thins their margin fails here. (On surface-hover, success is 4.44:1.)
+  it.each((['success', 'warning'] as const).flatMap(tone => ['surface-sunk', 'surface-tint', 'brand-tint'].map(surface => [tone, surface] as const)))(
+    'the %s badge over --color-%s', (tone, surface) => {
+      expect(badgeRatio(tone, surface)).toBeGreaterThanOrEqual(TEXT)
+    })
 
   it.each(['.staff-success', '.staff-error'])('provider %s messages on a card', selector => {
     expect(ratio(declared(staffCss, selector, 'color'), token('surface'))).toBeGreaterThanOrEqual(TEXT)

@@ -43,7 +43,8 @@
   /* Semantic status. */
   --color-positive: #00a94f;
   --color-caution: #d89600;
-  /* Status text, alone or on its own 10% tint: 4.5:1. The bright values stay for icons and fills. */
+  /* Status text, alone or on its own 10% tint over white, surface-sunk, surface-tint or brand-tint:
+     4.5:1 (not over surface-hover). The bright values stay for icons and fills. */
   --color-positive-ink: #007a39;
   --color-caution-ink: #8f5f00;
   --color-critical: #ba3a35;
