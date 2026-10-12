@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { HidApiError } from '@hid/http'
 import { Ocr } from '../Operations'
 
 /**
@@ -113,6 +114,33 @@ describe('OCR IDs are UUIDs', () => {
     expect(patient.getAttribute('aria-invalid')).toBe('true')
     expect(descriptions(patient)).toEqual(['Enter a valid patient ID (a UUID).'])
     expect(api.createOcrJob).not.toHaveBeenCalled()
+  })
+
+  // The answer to the last attempt no longer applies once another is refused, as on the Outreach case form.
+  it('clears the last answer when a document ID is refused', async () => {
+    api.findOcrJob.mockRejectedValueOnce(new HidApiError(503, 'OCR is unavailable.', { code: 'SERVICE_UNAVAILABLE' }))
+    render(<MemoryRouter initialEntries={['/provider/ocr']}><Ocr /></MemoryRouter>)
+    const documentId = screen.getByLabelText(/^Document ID/)
+    fireEvent.change(documentId, { target: { value: DOCUMENT } })
+    await press(screen.getByRole('button', { name: 'Find job' }))
+    expect((await screen.findByRole('alert')).textContent).toBe('OCR is unavailable.')
+    fireEvent.change(documentId, { target: { value: 'DOC-2024-0001' } })
+    await press(screen.getByRole('button', { name: 'Find job' }))
+    await waitFor(() => expect(documentId.getAttribute('aria-invalid')).toBe('true'))
+    expect(screen.queryByText('OCR is unavailable.')).toBeNull()
+  })
+
+  it('clears the last answer when a patient ID is refused', async () => {
+    await findJob(null)
+    api.createOcrJob.mockRejectedValueOnce(new HidApiError(503, 'OCR is unavailable.', { code: 'SERVICE_UNAVAILABLE' }))
+    const patient = screen.getByLabelText(/^Patient ID/)
+    fireEvent.change(patient, { target: { value: PATIENT } })
+    await press(screen.getByRole('button', { name: 'Create extraction job' }))
+    expect((await screen.findByRole('alert')).textContent).toBe('OCR is unavailable.')
+    fireEvent.change(patient, { target: { value: 'HID-ABCDEF' } })
+    await press(screen.getByRole('button', { name: 'Create extraction job' }))
+    await waitFor(() => expect(patient.getAttribute('aria-invalid')).toBe('true'))
+    expect(screen.queryByText('OCR is unavailable.')).toBeNull()
   })
 
   it('takes an upper-case UUID, as OCR does', async () => {

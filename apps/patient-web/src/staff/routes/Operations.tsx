@@ -971,7 +971,8 @@ export function Ocr() {
   // Finding a job keeps focus on Find job, which is disabled while the lookup runs.
   async function find(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    setProblem(null)
+    // The last answer no longer applies, nor does a field refused before.
+    setProblem(null); setError(''); setNotice('')
     const refused = !documentId.trim() ? { field: 'ocr-document', message: 'Enter a document ID.' }
       : !UUID_V4.test(documentId.trim()) ? { field: 'ocr-document', message: 'Enter a valid document ID (a UUID).' } : null
     if (refused) { setProblem(refused); focus(refused.field); return }
@@ -987,14 +988,15 @@ export function Ocr() {
 
   async function create() {
     if (!facilityId) return
-    // Create extraction job stays available, so a missing ID is said at its field, which takes focus.
-    const refused = !documentId.trim() ? { field: 'ocr-document', message: 'Enter a document ID.' }
-      : !UUID_V4.test(documentId.trim()) ? { field: 'ocr-document', message: 'Enter a valid document ID (a UUID).' }
-      : !patientId.trim() ? { field: 'ocr-patient', message: 'Enter the patient ID.' }
+    // The last answer no longer applies, nor does a field refused before (setProblem, below).
+    setError(''); setNotice('')
+    // Create extraction job stays available, so a missing ID is said at its field, which takes focus. The
+    // document ID needs no check here: Create is shown only once Find job has taken it, and editing it hides Create.
+    const refused = !patientId.trim() ? { field: 'ocr-patient', message: 'Enter the patient ID.' }
       : !UUID_V4.test(patientId.trim()) ? { field: 'ocr-patient', message: 'Enter a valid patient ID (a UUID).' } : null
     setProblem(refused)
     if (refused) { focus(refused.field); return }
-    setBusy(true); setError(''); setNotice(''); setExtractions(null); setValidations(null)
+    setBusy(true); setExtractions(null); setValidations(null)
     try {
       const created = await staffApi.createOcrJob(facilityId, documentId.trim(), patientId.trim())
       setJob(created); setJobFacilityId(facilityId); setSearched(true); setLookupRevision(value => value + 1)
