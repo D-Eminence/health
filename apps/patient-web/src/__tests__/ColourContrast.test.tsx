@@ -155,6 +155,45 @@ describe('the boundary of a form control is at least 3:1 (WCAG 1.4.11)', () => {
   })
 })
 
+/**
+ * The colour of the outline an element draws in a state (`focus` or `focus-within`), from its
+ * width and colour utilities, or undefined when it draws none or switches the outline off.
+ */
+function stateOutline(element: Element, state: string): Rgb | undefined {
+  const classes = [...element.classList]
+  if (classes.some(name => name === 'outline-none' || name === `${state}:outline-none`)) return undefined
+  if (!classes.some(name => new RegExp(`^${state}:outline(?:-\\d+)?$`).test(name))) return undefined
+  return only(element, `${state}:outline`)
+}
+
+describe('a focused form control shows an outline of at least 3:1 (WCAG 2.4.7 and 1.4.11)', () => {
+  // A focused control's border turns brand (1.43:1 against its resting #898989) and gains a 25%
+  // halo (1.43:1 on white); an invalid control's border is red at rest and stays red, with a 20%
+  // halo (1.35:1). An outline is drawn where the surface showed, so its contrast with each surface
+  // is the contrast of the change. Programmatic focus on an invalid field (Patients, OCR) must show
+  // it too, so it belongs to :focus, not only :focus-visible.
+  const controls: [string, boolean, () => ReactElement][] = [false, true].flatMap(invalid => [
+    ['Input', invalid, () => <Input aria-label="Control" invalid={invalid} />],
+    ['Select', invalid, () => <Select aria-label="Control" invalid={invalid}><option>Any</option></Select>],
+    ['Textarea', invalid, () => <Textarea aria-label="Control" invalid={invalid} />],
+  ] as [string, boolean, () => ReactElement][])
+
+  it.each(controls)('@hid/ui %s (invalid: %s)', (_, _invalid, control) => {
+    const { container } = render(control())
+    const outline = stateOutline(container.firstElementChild!, 'focus')
+    expect(outline, 'an outline while focused').toBeDefined()
+    for (const surface of CONTROL_SURFACES) expect(ratio(outline!, token(surface)), surface).toBeGreaterThanOrEqual(BOUNDARY)
+  })
+
+  it('@hid/ui SearchField shell', () => {
+    render(<SearchField label="Search resources" />)
+    const shell = screen.getByRole('searchbox', { name: 'Search resources' }).parentElement!
+    const outline = stateOutline(shell, 'focus-within')
+    expect(outline, 'an outline while the search box is focused').toBeDefined()
+    for (const surface of CONTROL_SURFACES) expect(ratio(outline!, token(surface)), surface).toBeGreaterThanOrEqual(BOUNDARY)
+  })
+})
+
 describe('placeholder text is at least 4.5:1 (WCAG 1.4.3)', () => {
   it.each([
     ['Input', () => <Input aria-label="Control" placeholder="Document UUID" />],

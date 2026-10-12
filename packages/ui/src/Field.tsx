@@ -20,15 +20,20 @@ import type {
 import { cx } from './primitives'
 
 const CONTROL_BASE =
-  'w-full rounded-(--radius-control) border bg-surface px-3 py-2.5 font-sans text-[14px] leading-[1.25] text-ink placeholder:text-faint transition-[border-color,box-shadow,background-color] duration-150 focus:outline-none focus:ring-2 disabled:cursor-not-allowed disabled:bg-surface-tint disabled:text-muted disabled:opacity-70'
+  'w-full rounded-(--radius-control) border bg-surface px-3 py-2.5 font-sans text-[14px] leading-[1.25] text-ink placeholder:text-faint transition-[border-color,box-shadow,background-color] duration-150 focus:outline-2 focus:outline-offset-2 focus:ring-2 disabled:cursor-not-allowed disabled:bg-surface-tint disabled:text-muted disabled:opacity-70'
 
 /**
  * Border and focus colours by state. Never both: with two border colours on one
  * element, Tailwind's source order, not the state, decides which one shows.
+ *
+ * The outline is what shows focus. The border change and the halo are under 3:1
+ * against what they replace, and an invalid control's border is red at rest. It
+ * is on :focus, not only :focus-visible, so a field focused after a refused
+ * submit shows it too.
  */
 const controlState = (invalid: boolean) => invalid
-  ? 'border-critical focus:border-critical focus:ring-critical/20'
-  : 'border-line-control focus:border-brand focus:ring-brand/25'
+  ? 'border-critical focus:border-critical focus:outline-critical focus:ring-critical/20'
+  : 'border-line-control focus:border-brand focus:outline-brand focus:ring-brand/25'
 
 interface FieldState {
   /** The id of the error when there is one, otherwise of the hint. */

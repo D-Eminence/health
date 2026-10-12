@@ -258,7 +258,7 @@ export interface SearchFieldProps extends Omit<InputHTMLAttributes<HTMLInputElem
 /** A 44px search shell that keeps icon controls inside one integrated input. */
 export function SearchField({ label, startAdornment, endAdornment, className, ...rest }: SearchFieldProps) {
   return (
-    <div className="relative flex h-11 w-full items-center rounded-(--radius-pill) border border-line-control bg-surface transition-[border-color,box-shadow] duration-150 focus-within:border-brand focus-within:ring-2 focus-within:ring-brand/25">
+    <div className="relative flex h-11 w-full items-center rounded-(--radius-pill) border border-line-control bg-surface transition-[border-color,box-shadow] duration-150 focus-within:border-brand focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-brand focus-within:ring-2 focus-within:ring-brand/25">
       {startAdornment ? <span aria-hidden="true" className="ml-3.5 flex shrink-0 text-muted">{startAdornment}</span> : null}
       <input
         type="search"
