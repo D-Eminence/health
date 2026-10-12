@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useRef, useState, type FormEvent } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { GoogleButton } from '../GoogleButton'
@@ -9,6 +9,8 @@ import type { PatientNotification, PatientRecords } from '../api'
 import { usePatientResource } from './usePatientResource'
 import { AccountDeletionCard, EmergencyContactsCard } from './AccountSafety'
 import { revealFocusedLink } from '../navStrip'
+import { useDocumentTitle } from '../authSteps'
+import { useFocusOnPageChange } from '../pageFocus'
 
 const links = [
   { to: '/', label: 'Overview', end: true },
@@ -64,6 +66,8 @@ export function PortalShell() {
   const navigate = useNavigate()
   const [error, setError] = useState<string | null>(null)
   const [signingOut, setSigningOut] = useState(false)
+  const main = useRef<HTMLElement>(null)
+  useFocusOnPageChange(main)
   const logout = async () => {
     setSigningOut(true); setError(null)
     try { await signOut(); navigate('/sign-in', { replace: true }) }
@@ -79,12 +83,13 @@ export function PortalShell() {
     </div></header>
     <div className="patient-app-body"><nav className="patient-side-nav" aria-label="Patient pages" onFocus={revealFocusedLink}>
       {links.map(link => <NavLink key={link.to} to={link.to} end={'end' in link ? link.end : false} className={({ isActive }) => isActive ? 'patient-nav-link active' : 'patient-nav-link'}>{link.label}</NavLink>)}
-    </nav><main className="patient-main" id="main">{error && <p role="alert" className="patient-inline-error">{error}</p>}<Outlet /></main></div>
+    </nav><main ref={main} className="patient-main" id="main">{error && <p role="alert" className="patient-inline-error">{error}</p>}<Outlet /></main></div>
   </div>
 }
 
 export function ProfilePage() {
   const { api } = useSession()
+  useDocumentTitle('Your profile · Health ID')
   const profile = usePatientResource(api.profile)
   const [nin, setNin] = useState('')
   const [verifying, setVerifying] = useState(false)
@@ -147,6 +152,7 @@ export function ProfilePage() {
 
 export function RecordsPage() {
   const { api } = useSession()
+  useDocumentTitle('Health records · Health ID')
   const records = usePatientResource(api.records)
   return <section className="patient-section"><p className="patient-eyebrow">Care history</p><h1 className="patient-page-title">Health records</h1>
     <p className="patient-page-copy">Your completed encounters, clinical notes, vitals, diagnoses, prescriptions, laboratory requests and uploaded clinical documents.</p>
@@ -180,6 +186,7 @@ export function RecordsPage() {
 
 export function AccessPage() {
   const { api } = useSession()
+  useDocumentTitle('Access and consent · Health ID')
   const requests = usePatientResource(api.accessRequests)
   const history = usePatientResource(api.accessHistory)
   const [working, setWorking] = useState<string | null>(null)
@@ -245,6 +252,7 @@ export function AccessPage() {
 
 export function NotificationsPage() {
   const { api } = useSession()
+  useDocumentTitle('Notifications · Health ID')
   const notifications = usePatientResource(api.notifications)
   const [working, setWorking] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -266,6 +274,7 @@ export function NotificationsPage() {
 
 export function SettingsPage() {
   const { api } = useSession()
+  useDocumentTitle('Settings · Health ID')
   const profile = usePatientResource(api.profile)
   const [pin, setPin] = useState('')
   const [busy, setBusy] = useState(false)

@@ -8,8 +8,8 @@ import { useLocation } from 'react-router-dom'
  * again from the top. Focus moves to the new page's heading instead, or to the
  * main region while the page has none. A control still on screen, such as the
  * navigation link just followed, keeps focus, and the first page shown is left
- * as the browser opened it. `locked` holds the change while the workspace is
- * locked.
+ * as the browser opened it. `locked` holds the change while the provider
+ * workspace is locked. Used by the patient portal and the provider workspace.
  */
 export function useFocusOnPageChange(main: RefObject<HTMLElement | null>, locked = false): void {
   const { pathname } = useLocation()

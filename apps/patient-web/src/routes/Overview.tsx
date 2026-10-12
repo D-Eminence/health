@@ -1,9 +1,11 @@
 import { Link } from 'react-router-dom'
 import { useSession } from '../session'
 import { usePatientResource } from './usePatientResource'
+import { useDocumentTitle } from '../authSteps'
 
 export function Overview() {
   const { api } = useSession()
+  useDocumentTitle('Overview · Health ID')
   const profile = usePatientResource(api.profile)
 
   return <section className="patient-section">

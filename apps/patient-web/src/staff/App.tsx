@@ -18,7 +18,7 @@ import { Clinical } from './routes/Clinical'
 import { Laboratory, Pharmacy, Ocr, Outreach, MigrateGap } from './routes/Operations'
 import { resolveStaffProductHostname } from '../productHostname'
 import { revealFocusedLink } from '../navStrip'
-import { focusPageHeading, useFocusOnPageChange } from './pageFocus'
+import { focusPageHeading, useFocusOnPageChange } from '../pageFocus'
 import './style.css'
 
 type SessionState =
