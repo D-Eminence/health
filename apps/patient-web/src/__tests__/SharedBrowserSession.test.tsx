@@ -126,6 +126,13 @@ function fakeIdentity() {
     },
     /** The 15-minute access cookie lapses; the refresh cookie lasts hours. */
     expireAccess() { for (const signIn of signIns) signIn.accessLive = false },
+    /**
+     * The sign-in's own end, in no other tab: after 8 hours idle its refresh
+     * cookie lapses too, and the browser drops every cookie.
+     */
+    lapse() { for (const signIn of signIns) signIn.accessLive = false; clear() },
+    /** Identity ends the sign-in itself (revoked, or past its lifetime); the browser still sends its cookies. */
+    endOnServer() { const signIn = byRefresh(); if (signIn) { signIn.ended = true; signIn.accessLive = false } },
     install() {
       vi.stubGlobal('fetch', vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
         if (init?.signal?.aborted) throw new DOMException('The operation was aborted.', 'AbortError')
@@ -376,6 +383,39 @@ describe('a patient tab is bound to the patient it shows (SEC-PATIENT-XTAB)', ()
     expect(screen.getByText('HID-SUBJECT-P')).toBeTruthy()
   })
 
+  it.each([
+    ['its refresh cookie lapsed, so the refresh is refused with 403', 'lapse', 403],
+    ['Identity ended it, so the refresh is refused with 401', 'endOnServer', 401],
+  ] as const)('coming back into view after this patient\'s own sign-in ended (%s) signs this tab out, and does not say another tab did', async (_, end, refused) => {
+    const identity = fakeIdentity()
+    identity.install()
+    identity.signIn('patient')
+    await openRecordsTab()
+    identity[end]()
+
+    await act(async () => { becomeVisible() })
+    await waitFor(() => expect(patientStatus()).toBe('anonymous'))
+    const answered = (fetch as unknown as { mock: { results: { value: Promise<Response> }[] } }).mock.results
+    expect((await answered.at(-1)!.value).status).toBe(refused)
+    expect(identity.sent.at(-1)?.route).toBe('POST /api/v1/auth/refresh')
+    expect(screen.queryByText('HID-SUBJECT-P')).toBeNull()
+    expect(screen.queryByText('Signed out in another tab')).toBeNull()
+  })
+
+  it('coming back into view after a provider signed in elsewhere, once the access tokens expired, says the sign-in changed elsewhere', async () => {
+    const identity = fakeIdentity()
+    identity.install()
+    identity.signIn('patient')
+    await openRecordsTab()
+    identity.signIn('staff')
+    identity.expireAccess()
+
+    await act(async () => { becomeVisible() })
+    await waitFor(() => expect(patientStatus()).toBe('anonymous'))
+    expect(screen.getByText('Signed out in another tab')).toBeTruthy()
+    expect(identity.sent.filter(call => call.route === 'POST /api/v1/auth/refresh')).toEqual([{ route: 'POST /api/v1/auth/refresh', client: 'patient-web' }])
+  })
+
   it('coming back into view while the service cannot be reached keeps the tab', async () => {
     const identity = fakeIdentity()
     identity.install()
@@ -404,6 +444,23 @@ describe('a patient tab is bound to the patient it shows (SEC-PATIENT-XTAB)', ()
     expect((await screen.findByRole('alert')).textContent)
       .toBe('You were signed out because this browser\'s Health ID sign-in changed in another tab or window. Sign in again to continue.')
     expect(screen.getByRole('heading', { level: 1, name: 'Welcome back.' })).toBeTruthy()
+    expect(screen.queryByText('HID-SUBJECT-P')).toBeNull()
+  })
+
+  it('the portal leaves the patient\'s pages for sign-in when the patient\'s own sign-in ended, and blames no other tab', async () => {
+    const identity = fakeIdentity()
+    identity.install()
+    identity.signIn('patient')
+    const { App } = await import('../App')
+    render(<MemoryRouter initialEntries={['/']}><App /></MemoryRouter>)
+    expect(await screen.findByText('HID-SUBJECT-P')).toBeTruthy()
+
+    identity.lapse()
+    await act(async () => { becomeVisible() })
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Welcome back.' })).toBeTruthy()
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.queryByText(/another tab or window/)).toBeNull()
     expect(screen.queryByText('HID-SUBJECT-P')).toBeNull()
   })
 

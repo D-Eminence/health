@@ -19,7 +19,8 @@ interface SessionContextValue {
   readonly otherPortalSession: boolean
   /**
    * This tab's patient session ended because the browser's sign-in changed in
-   * another tab: a sign-out, or another account's sign-in. Sign-in says so.
+   * another tab: a sign-out another tab announced, or another account's sign-in.
+   * Sign-in says so. A sign-in that ended on its own (expired, revoked) is not this.
    */
   readonly signedOutElsewhere: boolean
   readonly retrySessionCheck: () => void
@@ -133,6 +134,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         store.setAuthenticated(patientPrincipal(session))
         setSessionError(null)
         setOtherPortalSession(false)
+        setSignedOutElsewhere(false)
       } catch (error) {
         if (!active) return
         if (isHidApiError(error) && error.status === 401) {
@@ -157,17 +159,26 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let asking = false
     let again = false
-    const end = (subject: string) => {
+    // Whether another tab announced a change since the question in progress, or
+    // the next one, began.
+    let heard = false
+    // `elsewhere` when the change is evident: another account's session, or a
+    // refused refresh after another tab announced a change. A refused refresh
+    // alone is also what this patient's own sign-in gives once it has expired or
+    // been revoked, with no other tab involved, and is not blamed on one.
+    const end = (subject: string, elsewhere: boolean) => {
       // Only the session asked about: a sign-in made in this tab meanwhile stays.
       if (store.getState().principal?.subjectId !== subject) return
-      setSignedOutElsewhere(true)
+      setSignedOutElsewhere(elsewhere)
       store.clear()
     }
     const ask = async (): Promise<void> => {
       const shown = store.getState().principal?.subjectId
-      if (store.getState().status !== 'authenticated' || shown === undefined) return
+      if (store.getState().status !== 'authenticated' || shown === undefined) { heard = false; return }
       if (asking) { again = true; return }
       asking = true
+      const announced = heard
+      heard = false
       judging.current += 1
       try {
         let session: PatientSession
@@ -176,11 +187,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           if (!isHidApiError(error) || error.status !== 401) return
           try { session = await api.refresh() }
           catch (refreshError) {
-            if (isHidApiError(refreshError) && (refreshError.status === 401 || refreshError.status === 403)) end(shown)
+            // A provider's sign-in, refused before rotation, is another account's.
+            if (heldByOtherPortal(refreshError)) end(shown, true)
+            else if (isHidApiError(refreshError) && (refreshError.status === 401 || refreshError.status === 403)) end(shown, announced || heard)
             return
           }
         }
-        if (!isPatientSessionOf(session, shown)) end(shown)
+        if (!isPatientSessionOf(session, shown)) end(shown, true)
       } finally {
         asking = false
         judging.current -= 1
@@ -190,7 +203,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
     const onVisibility = () => { if (document.visibilityState === 'visible') void ask() }
     const onPageShow = (event: PageTransitionEvent) => { if (event.persisted) void ask() }
-    const stopListening = onOtherTabSessionChange(() => { void ask() })
+    const stopListening = onOtherTabSessionChange(() => { heard = true; void ask() })
     document.addEventListener('visibilitychange', onVisibility)
     window.addEventListener('pageshow', onPageShow)
     return () => {
