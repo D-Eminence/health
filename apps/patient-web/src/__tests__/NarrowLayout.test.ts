@@ -100,6 +100,15 @@ describe('narrow screens', () => {
   })
 })
 
+describe('reading order', () => {
+  // A denial or revocation reason's rule comes after its field in the page, and
+  // before Confirm and Cancel; it is shown in that order too, at every width.
+  it.each([PHONE, 768, DESKTOP])('shows a reason\'s rule where it is read, between the field and the buttons, at %ipx', width => {
+    expect(valueAt(portalCss, '.patient-deny-form .patient-field-hint', 'order', width) ?? '0').toBe('0')
+    expect(valueAt(portalCss, '.patient-deny-form button', 'order', width) ?? '0').toBe('0')
+  })
+})
+
 describe('keyboard focus under the sticky headers', () => {
   it('scrolls a focused control clear of the tallest sticky header', () => {
     const padding = Number.parseFloat(valueAt(portalCss, 'html', 'scroll-padding-top', PHONE) ?? '0')
