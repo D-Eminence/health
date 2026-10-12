@@ -184,10 +184,12 @@ export function createPatientApi(client: ApiClient) {
     // still holds this patient's. The portal hears other windows sign in on the
     // session-change channel, but a browser without the channel, or an
     // announcement still on its way, says nothing, so it always asks. A refused
-    // question is handled as a refused sign-out.
-    logout: (subject: string | undefined) => signOutInTurn(() => call<PatientSession>('GET', 'auth/session').then(
+    // question is handled as a refused sign-out. The sign-out judges the 401 of
+    // either call (session.tsx restores the session and signs out again), so the
+    // tab is not signed out here while the server session may still be live.
+    logout: (subject: string | undefined) => signOutInTurn(() => call<PatientSession>('GET', 'auth/session', undefined, judged).then(
       session => session.actor?.kind === 'patient' && subject !== undefined && session.actor.subject === subject),
-    () => call<void>('POST', 'auth/logout'), { alwaysAsk: true }),
+    () => call<void>('POST', 'auth/logout', undefined, judged), { alwaysAsk: true }),
     googleNonce: () => call<{ nonce: string }>('GET', 'auth/google/nonce'),
     googleExchange: (idToken: string, turnstileToken: string, intent: 'sign_in' | 'enroll') =>
       inRefreshTurn(() => call<PatientSession | { stage: 'GOOGLE_AUTHENTICATED_PENDING_IDENTITY'; expiresAt: string }>(
