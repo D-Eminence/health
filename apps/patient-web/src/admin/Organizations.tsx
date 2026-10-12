@@ -107,7 +107,7 @@ function ApplicationReview({ application, actor, onReviewed }: {
         ? 'Application approved and linked to the existing organization and its active administrator, who signs in as before.'
         : 'Application approved. A new organization, facility and administrator account were created. '
           + `The administrator has no password yet: ask them to set one at ${staffRecoveryUrl()}. `
-          + 'Password setup does not work yet on the product sites (ehr., lab., pharmacy., migrate., outreach.).'
+          + 'Password setup is done only on the main site; the product sites (ehr., lab., pharmacy., migrate., outreach.) link there.'
     }, 'The review could not be completed.', REVIEW_PROBLEMS)
     setPending(null)
     if (result) { setReason(''); onReviewed(result) }

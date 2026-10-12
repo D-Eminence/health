@@ -2,24 +2,23 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { SignIn } from './SignIn'
-import type * as ProductHostname from '../../productHostname'
 
-const calls = vi.hoisted(() => ({ login: vi.fn(), loginAction: vi.fn((_hostname: string) => 'staff-login'), servedOn: { hostname: '' } }))
+const calls = vi.hoisted(() => ({ login: vi.fn(), loginAction: vi.fn((_hostname: string) => 'staff-login') }))
 
 vi.mock('../App', () => ({ useStaff: () => ({ state: { status: 'signed-out' }, login: calls.login }) }))
 vi.mock('../env', () => ({ getEnvironment: () => ({ turnstileSiteKey: 'test-site-key' }) }))
-vi.mock('../../productHostname', async importOriginal => {
-  const real = await importOriginal<typeof ProductHostname>()
-  return {
-    ...real,
-    staffLoginAction: calls.loginAction,
-    // The real mapping, for the host a test says the portal is served on (jsdom's own is localhost).
-    staffRecoveryHref: vi.fn((hostname: string) => real.staffRecoveryHref(calls.servedOn.hostname || hostname)),
-  }
-})
+vi.mock('../../productHostname', async importOriginal => ({
+  ...await importOriginal<Record<string, unknown>>(),
+  staffLoginAction: calls.loginAction,
+}))
 
-beforeEach(() => { vi.clearAllMocks(); calls.servedOn.hostname = '' })
-afterEach(() => vi.unstubAllGlobals())
+/** Serves the page from another host, as a product site would (jsdom's own is localhost). */
+const jsdom = (globalThis as unknown as { jsdom: { reconfigure(options: { url: string }): void } }).jsdom
+const servedFrom = window.location.href
+function serveFrom(hostname: string) { jsdom.reconfigure({ url: `https://${hostname}/provider/sign-in` }) }
+
+beforeEach(() => { vi.clearAllMocks() })
+afterEach(() => { vi.unstubAllGlobals(); jsdom.reconfigure({ url: servedFrom }) })
 
 it('renews the consumed provider login challenge while preserving credentials on failure', async () => {
   const challengeCallbacks: Array<(token: string) => void> = []
@@ -71,7 +70,7 @@ it.each([
   ['ehr.healthidentitydirectory.com', 'https://www.healthidentitydirectory.com/provider/recover'],
   ['lab.staging.healthidentitydirectory.com', 'https://staging.healthidentitydirectory.com/provider/recover'],
 ])('on %s, links password recovery to the main site, where hid-system accepts it', async (hostname, href) => {
-  calls.servedOn.hostname = hostname
+  serveFrom(hostname)
   vi.stubGlobal('turnstile', { render: vi.fn(() => 'widget-1'), remove: vi.fn(), reset: vi.fn() })
 
   render(<MemoryRouter><SignIn /></MemoryRouter>)

@@ -109,6 +109,9 @@ describe('staffRecoveryHref', () => {
     ['outreach.staging.healthidentitydirectory.com', STAGING],
     ['ehr.staging.healthidentitydirectory.com', STAGING],
     ['LAB.HEALTHIDENTITYDIRECTORY.COM.', WWW],
+    // The admin site accepts only admin-login and admin-reset, so a staff reset is refused there too.
+    ['admin.healthidentitydirectory.com', WWW],
+    ['admin.staging.healthidentitydirectory.com', STAGING],
   ])('sends staff on %s to the main site recovery page', (hostname, href) => {
     expect(staffRecoveryHref(hostname)).toBe(href)
   })
@@ -118,8 +121,7 @@ describe('staffRecoveryHref', () => {
     'staging.healthidentitydirectory.com',
     'localhost',
     '127.0.0.1',
-    'admin.healthidentitydirectory.com',
-  ])('keeps recovery on %s, where the check is accepted or the build is local', hostname => {
+  ])('keeps recovery on %s, the main site or a local build', hostname => {
     expect(staffRecoveryHref(hostname)).toBe(STAFF_RECOVERY_PATH)
   })
 

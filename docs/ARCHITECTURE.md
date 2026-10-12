@@ -144,11 +144,12 @@ and `staff-login` on `ehr` and elsewhere (`staffLoginAction` in
 `admin-login` and `admin-reset`. The admin approval message sends a new
 administrator to `/provider/recover` on `www` (or `staging`) to set a password,
 and the provider sign-in page on a staff product host (`ehr`, `lab`,
-`pharmacy`, `migrate`, `outreach`) links "Forgot your password?" to the same
-page and says resets are done on the main site (`staffRecoveryHref` in
-`productHostname.ts`). The link is one of three fixed addresses and carries no
-return address; after a reset, the recovery page's sign-in link stays on the
-main site.
+`pharmacy`, `migrate`, `outreach`) or the admin site links "Forgot your
+password?" to the same page and says resets are done on the main site
+(`staffRecoveryHref` in `productHostname.ts`). Opened directly on one of those
+hosts, `/provider/recover` shows that notice and link instead of a reset form.
+The address is one of three fixed values and carries no return address; after
+a reset, the recovery page's sign-in link stays on the main site.
 Hosting patient sign-in, enrollment or patient and staff recovery on another
 hostname requires a backend Turnstile allowlist/configuration change. No staging environment exists yet, and no live
 end-to-end acceptance has been run. Backend defects and deployment decisions

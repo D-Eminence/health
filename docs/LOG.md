@@ -375,7 +375,11 @@ than a live completion tracker.
 - Decided: recovery stays on the main site, and the backend allowlist is
   unchanged. On a staff product host, in production or staging, the link now
   goes to the main site's `/provider/recover` and says resets are done there.
-  Elsewhere (www, staging, local) it stays on the site. The link is built only
+  The admin site gets the same link: it accepts only `admin-login` and
+  `admin-reset`. Elsewhere (www, staging, local) it stays on the site.
+  `/provider/recover` opened directly on a product or admin host (a bookmark,
+  history) shows that notice and link instead of a form the backend refuses,
+  and the admin approval message no longer says product-site setup is coming. The link is built only
   from fixed addresses (`staffRecoveryHref` in `productHostname.ts`, shared with
   the admin approval message and the route), copies nothing from the hostname
   and carries no return address. The recovery page follows no return address
