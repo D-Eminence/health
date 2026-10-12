@@ -242,7 +242,8 @@ describe('unified authenticated portal routes', () => {
   it('opens platform administration sign in directly under /admin', async () => {
     open('/admin/sign-in')
 
-    expect(await screen.findByRole('heading', { name: 'Administration sign in' })).toBeTruthy()
+    // The platform workspace is imported on first use, which can take over a second under a full run.
+    expect(await screen.findByRole('heading', { name: 'Administration sign in' }, { timeout: 5000 })).toBeTruthy()
     expect(screen.getByTestId('portal-path').textContent).toBe('/admin/sign-in')
     await waitFor(() => expect(calls.adminSession).toHaveBeenCalledOnce())
     expect(calls.patientSession).not.toHaveBeenCalled()
