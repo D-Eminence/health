@@ -15,8 +15,6 @@ import type {
   HTMLAttributes,
   InputHTMLAttributes,
   ReactNode,
-  SelectHTMLAttributes,
-  TextareaHTMLAttributes,
 } from 'react'
 
 /** Joins class names, dropping anything falsy. */
@@ -247,93 +245,8 @@ export function TextLink({ className, children, ...rest }: TextLinkProps) {
 // Forms and feedback
 // ---------------------------------------------------------------------------
 
-const CONTROL_BASE =
-  'w-full rounded-(--radius-control) border bg-surface px-3 py-2.5 font-sans text-[14px] leading-[1.25] text-ink placeholder:text-faint transition-[border-color,box-shadow,background-color] duration-150 focus:outline-none focus:ring-2 disabled:cursor-not-allowed disabled:bg-surface-tint disabled:text-muted disabled:opacity-70'
-
-/**
- * Border and focus colours by state. Never both: with two border colours on one
- * element, Tailwind's source order, not the state, decides which one shows.
- */
-const controlState = (invalid: boolean) => invalid
-  ? 'border-critical focus:border-critical focus:ring-critical/20'
-  : 'border-line-control focus:border-brand focus:ring-brand/25'
-
-export interface FieldProps extends HTMLAttributes<HTMLDivElement> {
-  readonly label: ReactNode
-  readonly htmlFor: string
-  readonly hint?: ReactNode
-  readonly error?: ReactNode
-  readonly required?: boolean
-  readonly children: ReactNode
-}
-
-/** Labels, help and error copy stay consistently associated with controls. */
-export function Field({
-  label,
-  htmlFor,
-  hint,
-  error,
-  required = false,
-  children,
-  className,
-  ...rest
-}: FieldProps) {
-  return (
-    <div className={cx('grid gap-1.5', className)} {...rest}>
-      <label htmlFor={htmlFor} className="text-[13px] font-medium leading-[1.25] text-ink">
-        {label}
-        {required ? <span aria-hidden="true" className="ml-1 text-critical">*</span> : null}
-      </label>
-      {children}
-      {error ? <p id={`${htmlFor}-error`} className="text-[12px] leading-[1.45] text-critical">{error}</p> : null}
-      {!error && hint ? <p id={`${htmlFor}-hint`} className="text-[12px] leading-[1.45] text-muted">{hint}</p> : null}
-    </div>
-  )
-}
-
-export interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
-  readonly invalid?: boolean
-}
-
-export function Input({ invalid = false, className, ...rest }: InputProps) {
-  return (
-    <input
-      aria-invalid={invalid || undefined}
-      className={cx(CONTROL_BASE, controlState(invalid), className)}
-      {...rest}
-    />
-  )
-}
-
-export interface TextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
-  readonly invalid?: boolean
-}
-
-export function Textarea({ invalid = false, className, ...rest }: TextareaProps) {
-  return (
-    <textarea
-      aria-invalid={invalid || undefined}
-      className={cx(CONTROL_BASE, 'min-h-28 resize-y leading-[1.45]', controlState(invalid), className)}
-      {...rest}
-    />
-  )
-}
-
-export interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
-  readonly invalid?: boolean
-}
-
-export function Select({ invalid = false, className, children, ...rest }: SelectProps) {
-  return (
-    <select
-      aria-invalid={invalid || undefined}
-      className={cx(CONTROL_BASE, 'h-[38px] py-0', controlState(invalid), className)}
-      {...rest}
-    >
-      {children}
-    </select>
-  )
-}
+// Field, Input, Textarea and Select live in Field.tsx, a client module: Field
+// reaches its control through context, which React's server build lacks.
 
 export interface SearchFieldProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'type'> {
   /** Accessible name; use a visible Field label where search context is not self-evident. */
