@@ -556,9 +556,16 @@ function Shell() {
     if (shownPath.current !== pathname) setChoice(null)
     shownPath.current = pathname
   }, [pathname])
+  const choiceNeeded = state.status !== 'ready' ? null : state.facilityLost ? 'lost' : facilityChoiceNeeded(state.session)
+  // The sidebar goes while the facility is chosen, and with it the proposal and refusal of a switch made
+  // before: they were about a facility left behind, and are not shown, or announced, again when it is back.
+  useEffect(() => {
+    if (!choiceNeeded) return
+    setChoice(null)
+    setFacilityError('')
+  }, [choiceNeeded])
   if (state.status !== 'ready') return null
   const { actor } = state.session
-  const choiceNeeded = state.facilityLost ? 'lost' : facilityChoiceNeeded(state.session)
   const currentFacility = actor.facility
   const permissions = currentFacility?.permissions ?? []
   const visible = navigation.filter(item => !item.permission || permissions.includes(item.permission))

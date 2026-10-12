@@ -54,6 +54,7 @@ const PERMISSIONS = ['identity.patient.read', 'identity.consent.write', 'ehr.enc
 const facility = (id: string, name: string, isPrimary: boolean) => ({ id, membershipId: `member-${id}`, organizationId: 'org-1', name, roles: ['clinician'], permissions: PERMISSIONS, isPrimary })
 const LAGOS = facility('facility-1', 'Lagos General', true)
 const IKEJA = facility('facility-2', 'Ikeja Clinic', false)
+const YABA = facility('facility-3', 'Yaba Clinic', false)
 /** What Identity reports, including a value a later contract could add and a null no build sends today. */
 type Selection = 'selected' | 'default' | 'reselect' | 'something-new' | null | undefined
 const session = (current: typeof LAGOS, facilitySelection: Selection, facilities = [LAGOS, IKEJA]) => () => json({
@@ -402,6 +403,28 @@ describe('the shell while the question shows', () => {
     expect(within(navigation).getByRole('link', { name: 'Patient access' })).toBeTruthy()
     expect(within(navigation).getByRole('link', { name: /^Clinical record/ })).toBeTruthy()
     expect(screen.getAllByText('clinician').length).toBeGreaterThan(0)
+  })
+
+  it('shows no refusal of a switch made before the question once the sidebar is back', async () => {
+    // A switch to Lagos General is refused (that membership ended); then a check finds Ikeja Clinic gone too.
+    serve({ [SESSION]: [session(IKEJA, 'selected', [LAGOS, IKEJA, YABA]), session(YABA, 'reselect', [YABA])],
+      [FACILITY]: [() => problem(403, 'FACILITY_ACCESS_DENIED', 'The actor is not active at this facility'), session(YABA, 'selected', [YABA])],
+      [REQUESTS]: [() => json([]), () => json([])] })
+    await open('/provider')
+    expect(await screen.findByText(/Working at Ikeja Clinic\./)).toBeTruthy()
+    fireEvent.change(screen.getByRole('combobox', { name: 'Working at' }), { target: { value: 'facility-1' } })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Switch facility' })) })
+    expect(await screen.findByText('You are no longer active at Lagos General. Choose another facility.')).toBeTruthy()
+
+    fromAnotherTab()
+    await question()
+    fireEvent.click(option('Yaba Clinic'))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+
+    // The refusal was about a facility the sidebar no longer offers, and is not announced again out of context.
+    expect(await screen.findByText(/Working at Yaba Clinic\./)).toBeTruthy()
+    expect(screen.getByRole('combobox', { name: 'Working at' })).toBeTruthy()
+    expect(screen.queryByText(/no longer active at Lagos General/)).toBeNull()
   })
 })
 
