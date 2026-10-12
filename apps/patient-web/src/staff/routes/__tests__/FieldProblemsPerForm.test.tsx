@@ -69,6 +69,21 @@ describe('outreach', () => {
     expectRefused(name, NAME_REFUSED)
   })
 
+  it('a campaign’s member refusal stays at its field when the campaign’s status form is submitted', async () => {
+    api.outreachCampaigns.mockResolvedValue([{ id: 'campaign-1', name: 'Measles week', status: 'active', services: ['registration'],
+      startsAt: '2026-10-01T08:00:00.000Z', rowVersion: 1 }])
+    api.outreachCampaignMembers.mockResolvedValue([])
+    render(<Outreach />)
+    const member = await screen.findByLabelText(/^Facility membership ID/)
+    fireEvent.submit(member.closest('form')!)
+    await waitFor(() => expectRefused(member, 'Enter a facility membership ID.'))
+
+    const reason = screen.getByLabelText(/^Closure reason/)
+    fireEvent.submit(reason.closest('form')!)
+    await waitFor(() => expectRefused(reason, 'Enter a status reason of at least 8 characters.'))
+    expectRefused(member, 'Enter a facility membership ID.')
+  })
+
   // The services rule is described at their fieldset, which a screen reader does not
   // read again when focus moves within it: refused from Enter in a later service, it
   // is an alert there, and focus stays.

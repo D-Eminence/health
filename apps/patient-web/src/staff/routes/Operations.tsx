@@ -938,15 +938,17 @@ function CampaignCard({ facilityId, membershipId, campaign, permissions, onChang
   const [success, setSuccess] = useState('')
   // Closing a campaign removes its form: focus goes to the campaign.
   const focus = useFocusById()
-  const problems = useFieldProblems()
+  // The status and member forms are shown together: each keeps its own refusals.
+  const statusProblems = useFieldProblems()
+  const memberProblems = useFieldProblems()
   const startsInFuture = campaign.status === 'planned' && new Date(campaign.startsAt).getTime() > Date.now()
   async function transition(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (busy) return
     const reason = String(new FormData(event.currentTarget).get('reason') ?? '').trim()
     const status = campaign.status === 'planned' ? 'active' : 'closed'
-    setError(''); problems.clear()
-    if (reason.length < 8) return problems.refuse(`campaign-reason-${campaign.id}`, 'Enter a status reason of at least 8 characters.')
+    setError(''); statusProblems.clear()
+    if (reason.length < 8) return statusProblems.refuse(`campaign-reason-${campaign.id}`, 'Enter a status reason of at least 8 characters.')
     setBusy(true); setSuccess('')
     try { await staffApi.updateOutreachCampaignStatus(facilityId, campaign, status, reason); setSuccess(`Campaign ${status}.`); await onChanged(); focus(`campaign-${campaign.id}-title`, true) }
     catch (caught) { setError(errorText(caught, 'Campaign status could not be updated. Refresh and try again.')) }
@@ -959,8 +961,8 @@ function CampaignCard({ facilityId, membershipId, campaign, permissions, onChang
     const form = new FormData(element)
     const membershipId = String(form.get('membershipId') ?? '').trim()
     const role = String(form.get('role') ?? 'enumerator') as OutreachCampaignMember['role']
-    setError(''); problems.clear()
-    if (!membershipId) return problems.refuse(`campaign-member-${campaign.id}`, 'Enter a facility membership ID.')
+    setError(''); memberProblems.clear()
+    if (!membershipId) return memberProblems.refuse(`campaign-member-${campaign.id}`, 'Enter a facility membership ID.')
     setBusy(true); setSuccess('')
     try { await staffApi.addOutreachCampaignMember(facilityId, campaign.id, membershipId, role); setSuccess('Campaign member added.'); element.reset(); await members.refresh() }
     catch (caught) { setError(errorText(caught, 'Campaign member could not be added.')) }
@@ -968,8 +970,8 @@ function CampaignCard({ facilityId, membershipId, campaign, permissions, onChang
   }
   return <div className="staff-list-item"><div className="staff-row"><strong id={`campaign-${campaign.id}-title`} tabIndex={-1}>{campaign.name}</strong><Badge tone={campaign.status === 'active' ? 'success' : 'neutral'}>{campaign.status}</Badge></div><p>{campaign.services.join(', ')} · Starts {dateText(campaign.startsAt)}</p>
     {canRead && <details><summary>Members</summary><ListState loading={members.loading} error={members.error} empty="No members" retry={() => void members.refresh()} hasItems={Boolean(members.items?.length)} />{members.items?.map(member => <p key={member.id}>{member.role.replaceAll('_', ' ')} · Membership {shortId(member.membershipId)}</p>)}</details>}
-    {canWrite && campaign.status !== 'closed' && <form className="staff-form" onSubmit={event => void transition(event)}><Field label={campaign.status === 'planned' ? 'Activation reason' : 'Closure reason'} htmlFor={`campaign-reason-${campaign.id}`} error={problems.error(`campaign-reason-${campaign.id}`)} required><Input id={`campaign-reason-${campaign.id}`} name="reason" minLength={8} maxLength={500} required {...problems.control(`campaign-reason-${campaign.id}`)} /></Field>{startsInFuture && <p className="staff-muted">Activation is available after the start time. Refresh the campaign then.</p>}<Button type="submit" tone="secondary" size="sm" disabled={startsInFuture} aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Updating…' : campaign.status === 'planned' ? 'Activate campaign' : 'Close campaign'}</Button></form>}
-    {canWrite && <details><summary>Add campaign member</summary><form className="staff-form" onSubmit={event => void addMember(event)}><Field label="Facility membership ID" htmlFor={`campaign-member-${campaign.id}`} error={problems.error(`campaign-member-${campaign.id}`)} required><Input id={`campaign-member-${campaign.id}`} name="membershipId" placeholder="Membership UUID" required {...problems.control(`campaign-member-${campaign.id}`)} /></Field><Field label="Campaign role" htmlFor={`campaign-role-${campaign.id}`}><Select id={`campaign-role-${campaign.id}`} name="role"><option value="enumerator">Enumerator</option><option value="health_worker">Health worker</option><option value="admin">Admin</option></Select></Field><Button type="submit" size="sm" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Adding…' : 'Add member'}</Button></form></details>}
+    {canWrite && campaign.status !== 'closed' && <form className="staff-form" onSubmit={event => void transition(event)}><Field label={campaign.status === 'planned' ? 'Activation reason' : 'Closure reason'} htmlFor={`campaign-reason-${campaign.id}`} error={statusProblems.error(`campaign-reason-${campaign.id}`)} required><Input id={`campaign-reason-${campaign.id}`} name="reason" minLength={8} maxLength={500} required {...statusProblems.control(`campaign-reason-${campaign.id}`)} /></Field>{startsInFuture && <p className="staff-muted">Activation is available after the start time. Refresh the campaign then.</p>}<Button type="submit" tone="secondary" size="sm" disabled={startsInFuture} aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Updating…' : campaign.status === 'planned' ? 'Activate campaign' : 'Close campaign'}</Button></form>}
+    {canWrite && <details><summary>Add campaign member</summary><form className="staff-form" onSubmit={event => void addMember(event)}><Field label="Facility membership ID" htmlFor={`campaign-member-${campaign.id}`} error={memberProblems.error(`campaign-member-${campaign.id}`)} required><Input id={`campaign-member-${campaign.id}`} name="membershipId" placeholder="Membership UUID" required {...memberProblems.control(`campaign-member-${campaign.id}`)} /></Field><Field label="Campaign role" htmlFor={`campaign-role-${campaign.id}`}><Select id={`campaign-role-${campaign.id}`} name="role"><option value="enumerator">Enumerator</option><option value="health_worker">Health worker</option><option value="admin">Admin</option></Select></Field><Button type="submit" size="sm" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Adding…' : 'Add member'}</Button></form></details>}
     {error && <p className="staff-error" role="alert">{error}</p>}
     {/* Mounted throughout, so what was recorded is announced. */}
     <div id={`outreach-campaign-status-${campaign.id}`} role="status">{success && <p className="staff-success">{success}</p>}</div>
