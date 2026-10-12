@@ -560,6 +560,29 @@ describe('full dispensing', () => {
     expectNoFullPatientIds()
   })
 
+  // hid-system #48 (migration 0080): Pharmacy dispenses only while the EHR prescription is
+  // still active at the version it accepted. Work whose prescription changed stays listed as
+  // accepted, and nothing in the list tells it apart until a dispensing is refused.
+  it('marks work whose prescription changed as not dispensable, and offers no dispensing for it', async () => {
+    api.dispense.mockRejectedValueOnce(new HidApiError(409,
+      'The EHR prescription for this work item is no longer active at the version Pharmacy accepted; nothing was dispensed',
+      { code: 'PHARMACY_PRESCRIPTION_NOT_DISPENSABLE' }))
+    render(<Pharmacy />)
+    const item = await findItem(AMOXICILLIN)
+
+    fillDispensing(item, { quantity: '21', reason: 'Full course dispensed at counter' })
+    fireEvent.click(within(item).getByRole('button', { name: 'Record full dispensing' }))
+
+    const said = await within(item).findByRole('alert')
+    expect(said.textContent).toBe('Not dispensable: the prescription changed after Pharmacy accepted it; a new prescription and handoff are needed.')
+    expect(within(item).getByText('Not dispensable')).toBeTruthy()
+    expect(within(item).queryByRole('button', { name: 'Record full dispensing' })).toBeNull()
+    expect(within(item).queryByText('Dispensing recorded.')).toBeNull()
+    await waitFor(() => expect(document.activeElement?.id).toBe(`pharmacy-${accepted.id}-title`))
+    // The other work in the list is unchanged.
+    expect(within(await findItem(METFORMIN)).queryByText('Not dispensable')).toBeNull()
+  })
+
   it('shows a generic dispensing failure when the rejection carries no message', async () => {
     // Not an Error instance, so there is no message the page could show.
     api.dispense.mockRejectedValueOnce({ status: 0 })
@@ -877,6 +900,9 @@ describe('the work list says when the backend cut it short', () => {
     api.pharmacyWorkItems.mockResolvedValue({ items: many(200) })
     render(<Pharmacy />)
     expect((await screen.findByText(/oldest accepted work items/)).textContent).toBe(WORK_LIST_CAP_NOTICE)
+    // hid-system #48: work whose prescription changed cannot be dispensed but stays listed.
+    expect(screen.getByText(/whose prescription changed after Pharmacy accepted it/).textContent)
+      .toBe('Work whose prescription changed after Pharmacy accepted it cannot be dispensed, but it stays listed and counts toward these 200.')
   })
 
   it('says nothing of the kind for a shorter list', async () => {
@@ -884,5 +910,6 @@ describe('the work list says when the backend cut it short', () => {
     render(<Pharmacy />)
     await screen.findAllByText(AMOXICILLIN)
     expect(screen.queryByText(/oldest accepted work items/)).toBeNull()
+    expect(screen.queryByText(/counts toward these 200/)).toBeNull()
   })
 })

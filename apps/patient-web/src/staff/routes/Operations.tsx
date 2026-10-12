@@ -61,9 +61,10 @@ function useFacilityList<T>(facilityId: string | undefined, enabled: boolean, lo
 // once a facility has this many, a newer one cannot be reached from here.
 const WORK_LIST_CAP = 200
 
-function WorkListCap({ count }: { count: number }) {
+function WorkListCap({ count, children }: { count: number; children?: ReactNode }) {
   if (count < WORK_LIST_CAP) return null
-  return <p className="staff-notice">This list can show only the {WORK_LIST_CAP} oldest accepted work items. Any item accepted after them is not shown and cannot be reached from this page: completing work or refreshing the list does not bring it into view. Contact your facility administrator about orders not listed here.</p>
+  return <><p className="staff-notice">This list can show only the {WORK_LIST_CAP} oldest accepted work items. Any item accepted after them is not shown and cannot be reached from this page: completing work or refreshing the list does not bring it into view. Contact your facility administrator about orders not listed here.</p>
+    {children}</>
 }
 
 /** A list's refresh: focusable while its read runs (UNAVAILABLE), when a second press does nothing. */
@@ -547,6 +548,10 @@ function PharmacyAction({ facilityId, item, permissions, onChanged }: { facility
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  // hid-system #48 (migration 0080): work whose EHR prescription changed after Pharmacy
+  // accepted it stays listed as accepted, but can never be dispensed. The list cannot
+  // tell, so it is known only once a dispensing is refused (409 PHARMACY_PRESCRIPTION_NOT_DISPENSABLE).
+  const [undispensable, setUndispensable] = useState(false)
   // Recording removes the form once the work list is read again: focus goes to the prescription.
   const focus = useFocusById()
   const problems = useFieldProblems()
@@ -576,16 +581,23 @@ function PharmacyAction({ facilityId, item, permissions, onChanged }: { facility
       }
       await onChanged()
       focus(`pharmacy-${item.id}-title`, true)
-    } catch (caught) { setError(errorText(caught, 'Pharmacy action could not be recorded.')) }
+    } catch (caught) {
+      if (!reverse && isHidApiError(caught) && caught.code === 'PHARMACY_PRESCRIPTION_NOT_DISPENSABLE') {
+        // Its dispensing form goes, so the work continues at the prescription.
+        setUndispensable(true)
+        focus(`pharmacy-${item.id}-title`, true)
+      } else setError(errorText(caught, 'Pharmacy action could not be recorded.'))
+    }
     finally { setBusy(false) }
   }
-  const canDispense = !item.dispensing && permissions.includes('pharmacy.dispensing.create')
+  const canDispense = !item.dispensing && !undispensable && permissions.includes('pharmacy.dispensing.create')
   const canReverse = Boolean(item.dispensing && !item.dispensing.reversed && permissions.includes('pharmacy.dispensing.reverse') && permissions.includes('pharmacy.dispensing.read'))
-  return <div className="staff-list-item"><div className="staff-row"><strong id={`pharmacy-${item.id}-title`} tabIndex={-1}>{item.medication.display}</strong><Badge tone={item.dispensing?.reversed ? 'warning' : item.dispensing ? 'success' : 'information'}>{item.dispensing?.reversed ? 'Reversed' : item.dispensing ? 'Dispensed' : 'Accepted'}</Badge></div><p>Patient {shortId(item.patientId)} · {item.doseQuantity == null ? 'Dose not recorded' : `${item.doseQuantity} ${item.doseUnit ?? ''}`} · {item.frequency ?? 'Frequency not recorded'}</p>
+  return <div className="staff-list-item"><div className="staff-row"><strong id={`pharmacy-${item.id}-title`} tabIndex={-1}>{item.medication.display}</strong><Badge tone={item.dispensing?.reversed ? 'warning' : item.dispensing ? 'success' : undispensable ? 'danger' : 'information'}>{item.dispensing?.reversed ? 'Reversed' : item.dispensing ? 'Dispensed' : undispensable ? 'Not dispensable' : 'Accepted'}</Badge></div><p>Patient {shortId(item.patientId)} · {item.doseQuantity == null ? 'Dose not recorded' : `${item.doseQuantity} ${item.doseUnit ?? ''}`} · {item.frequency ?? 'Frequency not recorded'}</p>
     <p>{item.routeCode ? `Route: ${item.routeCode}` : 'Route not recorded'}</p>
     {item.instructions && <p className="staff-note-content">{item.instructions}</p>}
     {canDispense && <form className="staff-form" onSubmit={event => void submit(event)}><div className="staff-form-row"><Field label="Quantity dispensed" htmlFor={`pharmacy-quantity-${item.id}`} error={problems.error(`pharmacy-quantity-${item.id}`)} required><Input id={`pharmacy-quantity-${item.id}`} name="quantity" type="number" min="0.0001" step="0.0001" required {...problems.control(`pharmacy-quantity-${item.id}`)} /></Field><Field label="Unit" htmlFor={`pharmacy-unit-${item.id}`} error={problems.error(`pharmacy-unit-${item.id}`)} required><Input id={`pharmacy-unit-${item.id}`} name="unit" maxLength={80} defaultValue={item.doseUnit ?? ''} required {...problems.control(`pharmacy-unit-${item.id}`)} /></Field></div><Field label="Reason" htmlFor={`pharmacy-reason-${item.id}`} error={problems.error(`pharmacy-reason-${item.id}`)} required><Textarea id={`pharmacy-reason-${item.id}`} name="reason" minLength={8} maxLength={500} required {...problems.control(`pharmacy-reason-${item.id}`)} /></Field><Button type="submit" size="sm" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Recording…' : 'Record full dispensing'}</Button></form>}
     {canReverse && <form className="staff-form" onSubmit={event => void submit(event, true)}><Field label="Reversal reason" htmlFor={`pharmacy-reversal-${item.id}`} error={problems.error(`pharmacy-reversal-${item.id}`)} required><Textarea id={`pharmacy-reversal-${item.id}`} name="reason" minLength={8} maxLength={500} required {...problems.control(`pharmacy-reversal-${item.id}`)} /></Field><Button type="submit" tone="secondary" size="sm" aria-disabled={busy || undefined} className={UNAVAILABLE}>{busy ? 'Recording…' : 'Reverse dispensing'}</Button></form>}
+    {undispensable && !item.dispensing && <p className="staff-error" role="alert">Not dispensable: the prescription changed after Pharmacy accepted it; a new prescription and handoff are needed.</p>}
     {error && <p className="staff-error" role="alert">{error}</p>}
     {/* Mounted throughout, so what was recorded is announced. */}
     <div id={`pharmacy-status-${item.id}`} role="status">{success && <p className="staff-success">{success}</p>}</div>
@@ -601,7 +613,8 @@ export function Pharmacy() {
     <PageHead eyebrow="Provider workspace" title="Pharmacy">Accepted prescriptions and full dispensing records for the active facility. The server checks patient authorization before dispensing or reversal.</PageHead>
     <div className="staff-row staff-toolbar"><RefreshButton loading={list.loading} onRefresh={list.refresh}>Refresh work</RefreshButton></div>
     <ListState loading={list.loading} error={list.error} empty="No accepted prescriptions" retry={() => void list.refresh()} hasItems={Boolean(list.items?.length)} />
-    <WorkListCap count={list.items?.length ?? 0} />
+    {/* hid-system #48: work whose prescription changed stays listed as accepted (INTERFACE_CONTRACT.md, Pharmacy). */}
+    <WorkListCap count={list.items?.length ?? 0}><p className="staff-notice">Work whose prescription changed after Pharmacy accepted it cannot be dispensed, but it stays listed and counts toward these {WORK_LIST_CAP}.</p></WorkListCap>
     {list.items && list.items.length > 0 && <div className="staff-list">{list.items.map(item => <PharmacyAction key={item.id} facilityId={facilityId} item={item} permissions={permissions} onChanged={list.refresh} />)}</div>}
   </>
 }
