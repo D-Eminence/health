@@ -5,6 +5,7 @@ import { Badge, Button, Card, EmptyState, Field, Input, Select, Textarea } from 
 import { staffApi, type LabAbnormalFlag, type LabAccession, type LabExecution, type LabResult, type LabResultRevision, type LabResultValue, type LabSpecimen, type LabWorkItem, type OcrExtraction, type OcrJob, type OcrPublication, type OcrTargetDomain, type OcrValidation, type OcrValidationInput, type OutreachCampaign, type OutreachCampaignMember, type OutreachCase, type PharmacyWorkItem } from '../api'
 import { useStaff } from '../App'
 import { FieldInputError, problemProps, problemText, refusalText, type FieldProblem } from '../fieldProblem'
+import { BUSY, focusIsLost, useFocusById } from '../focus'
 
 // A refusal's message, with each field a 400 VALIDATION_FAILED names.
 function errorText(error: unknown, fallback: string) {
@@ -73,6 +74,8 @@ function AccessionForm({ facilityId, item, onCreated }: { facilityId: string; it
   const [error, setError] = useState('')
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    // The button stays focusable while the request runs; a second press does nothing.
+    if (busy) return
     const form = new FormData(event.currentTarget)
     const specimenType = String(form.get('specimenType') ?? '').trim()
     const reason = String(form.get('reason') ?? '').trim()
@@ -86,13 +89,17 @@ function AccessionForm({ facilityId, item, onCreated }: { facilityId: string; it
     <Field label="Specimen type" htmlFor="lab-specimen-type" required><Input id="lab-specimen-type" name="specimenType" maxLength={240} placeholder="Blood, urine, swab…" required /></Field>
     <Field label="Reason" htmlFor="lab-accession-reason" required><Textarea id="lab-accession-reason" name="reason" maxLength={500} required /></Field>
     {error && <p className="staff-error" role="alert">{error}</p>}
-    <Button type="submit" disabled={busy}>{busy ? 'Creating…' : 'Create accession'}</Button>
+    <Button type="submit" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Creating…' : 'Create accession'}</Button>
   </form></Card>
 }
 
 type SpecimenActionKind = 'collect' | 'receive' | 'reject'
 
-function SpecimenAction({ facilityId, accessionId, specimen, permissions, onChanged, onRefused }: { facilityId: string; accessionId: string; specimen: LabSpecimen; permissions: string[]; onChanged: () => void; onRefused: (error: unknown) => void }) {
+const SPECIMEN_STEP_DONE: Record<SpecimenActionKind, string> = {
+  collect: 'Specimen marked collected.', receive: 'Specimen marked received.', reject: 'Specimen rejected.',
+}
+
+function SpecimenAction({ facilityId, accessionId, specimen, permissions, onChanged, onRefused }: { facilityId: string; accessionId: string; specimen: LabSpecimen; permissions: string[]; onChanged: (message: string) => void; onRefused: (error: unknown) => void }) {
   const actions: SpecimenActionKind[] = specimen.status === 'required'
     ? ['collect', 'reject'] : specimen.status === 'collected' ? ['receive', 'reject'] : []
   const allowed = actions.filter(action => permissions.includes(`lab.specimen.${action}`))
@@ -101,19 +108,20 @@ function SpecimenAction({ facilityId, accessionId, specimen, permissions, onChan
   const [error, setError] = useState('')
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (busy) return
     const detail = String(new FormData(event.currentTarget).get('detail') ?? '').trim()
     if (action === 'reject' && !detail) return setError('Enter a rejection reason.')
     setBusy(true); setError('')
-    try { await staffApi.transitionSpecimen(facilityId, accessionId, specimen, action, detail); onChanged() }
+    try { await staffApi.transitionSpecimen(facilityId, accessionId, specimen, action, detail); onChanged(SPECIMEN_STEP_DONE[action]) }
     catch (caught) { setError(errorText(caught, 'Specimen could not be updated. Refresh and try again.')); onRefused(caught) }
     finally { setBusy(false) }
   }
-  return <div className="staff-list-item"><div className="staff-row"><strong>{specimen.specimenType} · {specimen.specimenIdentifier}</strong><Badge tone={specimen.status === 'received' ? 'success' : specimen.status === 'rejected' ? 'danger' : 'warning'}>{specimen.status}</Badge></div>
+  return <div className="staff-list-item"><div className="staff-row"><strong id={`lab-specimen-${specimen.id}-title`} tabIndex={-1}>{specimen.specimenType} · {specimen.specimenIdentifier}</strong><Badge tone={specimen.status === 'received' ? 'success' : specimen.status === 'rejected' ? 'danger' : 'warning'}>{specimen.status}</Badge></div>
     {allowed.length > 0 && <form className="staff-form" onSubmit={event => void submit(event)}>
       <Field label="Next step" htmlFor={`lab-action-${specimen.id}`}><Select id={`lab-action-${specimen.id}`} value={action} onChange={event => setAction(event.target.value as SpecimenActionKind)}>{allowed.map(value => <option key={value} value={value}>{value === 'collect' ? 'Mark collected' : value === 'receive' ? 'Mark received' : 'Reject specimen'}</option>)}</Select></Field>
       <Field label={action === 'reject' ? 'Rejection reason' : 'Notes or condition'} htmlFor={`lab-detail-${specimen.id}`} required={action === 'reject'}><Input id={`lab-detail-${specimen.id}`} name="detail" maxLength={action === 'collect' ? 1000 : 500} required={action === 'reject'} /></Field>
       {error && <p className="staff-error" role="alert">{error}</p>}
-      <Button type="submit" size="sm" disabled={busy}>{busy ? 'Saving…' : 'Record step'}</Button>
+      <Button type="submit" size="sm" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Saving…' : 'Record step'}</Button>
     </form>}
   </div>
 }
@@ -149,6 +157,7 @@ function ResultEntry({ facilityId, execution, result, onChanged, onRefused }: {
   const [error, setError] = useState('')
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (busy) return
     const form = new FormData(event.currentTarget)
     setError('')
     let value: LabResultValue
@@ -180,7 +189,7 @@ function ResultEntry({ facilityId, execution, result, onChanged, onRefused }: {
       <Field label="Abnormal flag" htmlFor={`lab-flag-${execution.id}`}><Select id={`lab-flag-${execution.id}`} name="abnormalFlag" defaultValue={current?.abnormalFlag ?? 'unknown'}>{abnormalFlags.map(flag => <option key={flag} value={flag}>{flag.replaceAll('_', ' ')}</option>)}</Select></Field>
       {result && <><Field label="Revision type" htmlFor={`lab-revision-kind-${execution.id}`}><Select id={`lab-revision-kind-${execution.id}`} name="revisionKind"><option value="correction">Correction</option><option value="amendment">Amendment</option></Select></Field><Field label="Reason" htmlFor={`lab-result-reason-${execution.id}`} required><Textarea id={`lab-result-reason-${execution.id}`} name="reason" maxLength={500} required /></Field></>}
       {error && <p className="staff-error" role="alert">{error}</p>}
-      <Button type="submit" size="sm" disabled={busy}>{busy ? 'Recording…' : result ? 'Record new revision' : 'Record unverified result'}</Button>
+      <Button type="submit" size="sm" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Recording…' : result ? 'Record new revision' : 'Record unverified result'}</Button>
     </form>
   </details>
 }
@@ -193,6 +202,7 @@ function ResultGovernance({ facilityId, result, action, onChanged, onRefused }: 
   const [error, setError] = useState('')
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (busy) return
     const reason = String(new FormData(event.currentTarget).get('reason') ?? '').trim()
     if (!reason) return setError('Enter a reason for this decision.')
     setBusy(true); setError('')
@@ -208,7 +218,7 @@ function ResultGovernance({ facilityId, result, action, onChanged, onRefused }: 
     <p className="staff-muted">{action === 'verify' ? 'Verify version ' + result.currentVersion + ' after independent review. The person who entered it cannot verify it.' : 'Release verified version ' + result.currentVersion + ' to authorized readers.'}</p>
     <Field label={`${action === 'verify' ? 'Verification' : 'Release'} reason`} htmlFor={`lab-${action}-reason-${result.id}`} required><Textarea id={`lab-${action}-reason-${result.id}`} name="reason" maxLength={500} required /></Field>
     {error && <p className="staff-error" role="alert">{error}</p>}
-    <Button type="submit" size="sm" disabled={busy}>{busy ? 'Recording…' : action === 'verify' ? 'Verify result version' : 'Release result version'}</Button>
+    <Button type="submit" size="sm" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Recording…' : action === 'verify' ? 'Verify result version' : 'Release result version'}</Button>
   </form>
 }
 
@@ -264,6 +274,7 @@ function ExecutionCard({ facilityId, execution, permissions, onExecutionChanged,
   const current = result?.revisions.find(revision => revision.version === result.currentVersion)
   async function complete(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (busy) return
     const notes = String(new FormData(event.currentTarget).get('notes') ?? '').trim()
     setBusy(true); setError('')
     try { onExecutionChanged(await staffApi.completeLabExecution(facilityId, execution, notes), 'Analytical execution was completed.') }
@@ -273,10 +284,10 @@ function ExecutionCard({ facilityId, execution, permissions, onExecutionChanged,
   const canCorrect = Boolean(result && permissions.includes('lab.result.correct') &&
     (result.currentReleasedVersion !== result.currentVersion || permissions.includes('lab.result.revise-released')))
   return <div className="staff-list-item staff-stack">
-    <div className="staff-row"><strong>{execution.test.name} · {execution.test.codeSystem} {execution.test.code}</strong><Badge tone={execution.status === 'completed' ? 'success' : 'information'}>{execution.status.replaceAll('_', ' ')}</Badge></div>
+    <div className="staff-row"><strong id={`lab-execution-${execution.id}-title`} tabIndex={-1}>{execution.test.name} · {execution.test.codeSystem} {execution.test.code}</strong><Badge tone={execution.status === 'completed' ? 'success' : 'information'}>{execution.status.replaceAll('_', ' ')}</Badge></div>
     <p>Started {dateText(execution.startedAt)}{execution.completedAt ? ` · Completed ${dateText(execution.completedAt)}` : ''} · Version {execution.version}</p>
     {execution.method && <p>Method: {execution.method}</p>}
-    {execution.status === 'in_progress' && permissions.includes('lab.execution.complete') && <form className="staff-form" onSubmit={event => void complete(event)}><Field label="Completion notes" htmlFor={`lab-completion-${execution.id}`}><Textarea id={`lab-completion-${execution.id}`} name="notes" maxLength={1000} /></Field><Button type="submit" size="sm" disabled={busy}>{busy ? 'Completing…' : 'Complete execution'}</Button></form>}
+    {execution.status === 'in_progress' && permissions.includes('lab.execution.complete') && <form className="staff-form" onSubmit={event => void complete(event)}><Field label="Completion notes" htmlFor={`lab-completion-${execution.id}`}><Textarea id={`lab-completion-${execution.id}`} name="notes" maxLength={1000} /></Field><Button type="submit" size="sm" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Completing…' : 'Complete execution'}</Button></form>}
     {error && <p className="staff-error" role="alert">{error}</p>}
     {execution.status === 'completed' && !result && permissions.includes('lab.result.enter') && <ResultEntry facilityId={facilityId} execution={execution} result={null} onChanged={onResultChanged} onRefused={onRefused} />}
     {result && <><div className="staff-row"><strong>Manual result · version {result.currentVersion}</strong><Badge tone={result.status === 'released' ? 'success' : 'warning'}>{result.status.replaceAll('_', ' ')}</Badge></div>
@@ -335,6 +346,8 @@ function ExecutionPanel({ facilityId, specimen, permissions, generation, recheck
   const [startError, setStartError] = useState('')
   const [busy, setBusy] = useState(false)
   const [revision, setRevision] = useState(0)
+  // A step removes the form that made it; focus goes to its execution, if it was lost.
+  const focus = useFocusById()
   // Each execution-list request is numbered. Hiding the results retires every request
   // already in flight, so an answer that arrives later cannot bring values back.
   const request = useRef(0)
@@ -382,6 +395,7 @@ function ExecutionPanel({ facilityId, specimen, permissions, generation, recheck
     const confirmedIn = confirmed.current
     setResults(previous => ({ items: [...(previous?.items ?? []).filter(item => item.id !== value.id), value], generation: confirmedIn }))
     setNotice(message)
+    focus(`lab-execution-${value.id}-title`, true)
     if (canRead) setRevision(current => current + 1)
   }
   function changedResult(executionId: string, value: LabResult, message: string) {
@@ -389,10 +403,12 @@ function ExecutionPanel({ facilityId, specimen, permissions, generation, recheck
     const confirmedIn = confirmed.current
     setResults(previous => previous && { items: previous.items.map(item => item.id === executionId ? { ...item, result: value } : item), generation: confirmedIn })
     setNotice(message)
+    focus(`lab-execution-${executionId}-title`, true)
     if (canRead) setRevision(current => current + 1)
   }
   async function start(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (busy) return
     const form = new FormData(event.currentTarget)
     const reason = String(form.get('reason') ?? '').trim()
     const method = String(form.get('method') ?? '').trim()
@@ -403,10 +419,10 @@ function ExecutionPanel({ facilityId, specimen, permissions, generation, recheck
     finally { setBusy(false) }
   }
   return <div className="staff-list-item staff-stack"><h3>Analytical execution</h3>
-    {loading && <p role="status">Loading executions…</p>}
+    {/* Mounted throughout, so what a step records is announced; it says so through the read that follows. */}
+    <div id={`lab-executions-status-${specimen.id}`} role="status">{notice ? <p className="staff-success">{notice}</p> : loading && <p>Loading executions…</p>}</div>
     {error && <p className="staff-error" role="alert">{error}</p>}
-    {notice && <p className="staff-success" role="status">{notice}</p>}
-    {canRead && <Button tone="secondary" size="sm" onClick={() => setRevision(value => value + 1)} disabled={loading}>Refresh executions</Button>}
+    {canRead && <Button tone="secondary" size="sm" onClick={() => { setNotice(''); setRevision(value => value + 1) }} disabled={loading}>Refresh executions</Button>}
     {items?.map(execution => <ExecutionCard key={execution.id} facilityId={facilityId} execution={execution} permissions={permissions}
       onExecutionChanged={changedExecution} onResultChanged={(value, message) => changedResult(execution.id, value, message)} onRefused={recheckAccess} />)}
     {canStart && !loading && !error && (items?.length === 0 || (!canRead && !items)) && <form className="staff-form" onSubmit={event => void start(event)}>
@@ -414,19 +430,25 @@ function ExecutionPanel({ facilityId, specimen, permissions, generation, recheck
       <Field label="Method" htmlFor={`lab-method-${specimen.id}`}><Input id={`lab-method-${specimen.id}`} name="method" maxLength={240} /></Field>
       <Field label="Reason" htmlFor={`lab-start-reason-${specimen.id}`} required><Textarea id={`lab-start-reason-${specimen.id}`} name="reason" maxLength={500} required /></Field>
       {startError && <p className="staff-error" role="alert">{startError}</p>}
-      <Button type="submit" size="sm" disabled={busy}>{busy ? 'Starting…' : 'Start execution'}</Button>
+      <Button type="submit" size="sm" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Starting…' : 'Start execution'}</Button>
     </form>}
     {canRead && !loading && !error && items?.length === 0 && !canStart && <p className="staff-muted">No execution has started for this specimen.</p>}
   </div>
 }
 
-function AccessionView({ facilityId, id, permissions, onChanged }: { facilityId: string; id: string; permissions: string[]; onChanged: () => void }) {
+function AccessionView({ facilityId, id, permissions, created, onChanged }: { facilityId: string; id: string; permissions: string[]; created?: string; onChanged: () => void }) {
   // An accession is shown only for the reload it came from, so a reload removes every
   // specimen row at once and each panel reads its results once, when it mounts again.
   const [loaded, setLoaded] = useState<{ revision: number; accession: LabAccession } | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const [revision, setRevision] = useState(0)
+  // What the last step recorded, said in a region mounted throughout.
+  const [notice, setNotice] = useState(created ?? '')
+  // A specimen step reloads the accession, which removes every specimen row until it is
+  // read again; focus goes to the specimen's next step, or the specimen, once it is shown.
+  const [focusAfterRead, setFocusAfterRead] = useState<readonly string[] | null>(null)
+  const focus = useFocusById()
   const [recheck, setRecheck] = useState<LabResultsSignal | null>(null)
   const [resultsHidden, setResultsHidden] = useState<LabResultsSignal | null>(null)
   // The generation of this accession's results, shared with its own panels only. A hide starts
@@ -448,6 +470,16 @@ function AccessionView({ facilityId, id, permissions, onChanged }: { facilityId:
     if (doubt) setRecheck(previous => ({ reason: doubt, seq: (previous?.seq ?? 0) + 1 }))
   }, [])
   useEffect(() => {
+    if (!focusAfterRead || (!accession && !error)) return
+    setFocusAfterRead(null)
+    focus(accession ? focusAfterRead : 'lab-accession-refresh', true)
+  }, [focusAfterRead, accession, error, focus])
+  function specimenChanged(specimen: LabSpecimen, message: string) {
+    setNotice(message)
+    setFocusAfterRead([`lab-action-${specimen.id}`, `lab-specimen-${specimen.id}-title`, 'lab-accession-title'])
+    reload()
+  }
+  useEffect(() => {
     let active = true
     setError(''); setLoading(true)
     void staffApi.labAccession(facilityId, id).then(value => { if (active) setLoaded({ revision, accession: value }) })
@@ -455,11 +487,12 @@ function AccessionView({ facilityId, id, permissions, onChanged }: { facilityId:
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
   }, [facilityId, id, revision, recheck])
-  return <Card className="staff-card"><h2>Specimen accession</h2>
-    {loading && <p role="status">Loading accession…</p>}
+  return <Card className="staff-card"><h2 id="lab-accession-title" tabIndex={-1}>Specimen accession</h2>
+    {/* Mounted throughout, so what a step records is announced; it says so through the read that follows. */}
+    <div id="lab-accession-status" role="status">{notice ? <p className="staff-success">{notice}</p> : loading && <p>Loading accession…</p>}</div>
     {error && <p className="staff-error" role="alert">{error}</p>}
-    {accession && <><p>Accession {accession.accessionNumber}</p><div className="staff-list">{accession.specimens.map(specimen => <div className="staff-stack" key={`${specimen.id}-${specimen.status}`}><SpecimenAction facilityId={facilityId} accessionId={id} specimen={specimen} permissions={permissions} onChanged={() => { reload(); onChanged() }} onRefused={specimenRefused} />{specimen.status === 'received' && (permissions.includes('lab.execution.read') || permissions.includes('lab.execution.start')) && <ExecutionPanel facilityId={facilityId} specimen={specimen} permissions={permissions} generation={generation} recheck={recheck} resultsHidden={resultsHidden} onResultsHidden={hideResults} />}</div>)}</div></>}
-    <div className="staff-row"><Button tone="secondary" size="sm" onClick={reload} disabled={loading}>Refresh accession</Button></div>
+    {accession && <><p>Accession {accession.accessionNumber}</p><div className="staff-list">{accession.specimens.map(specimen => <div className="staff-stack" key={`${specimen.id}-${specimen.status}`}><SpecimenAction facilityId={facilityId} accessionId={id} specimen={specimen} permissions={permissions} onChanged={message => { specimenChanged(specimen, message); onChanged() }} onRefused={specimenRefused} />{specimen.status === 'received' && (permissions.includes('lab.execution.read') || permissions.includes('lab.execution.start')) && <ExecutionPanel facilityId={facilityId} specimen={specimen} permissions={permissions} generation={generation} recheck={recheck} resultsHidden={resultsHidden} onResultsHidden={hideResults} />}</div>)}</div></>}
+    <div className="staff-row"><Button id="lab-accession-refresh" tone="secondary" size="sm" onClick={() => { setNotice(''); reload() }} disabled={loading}>Refresh accession</Button></div>
   </Card>
 }
 
@@ -467,8 +500,10 @@ export function Laboratory() {
   const { facilityId, permissions } = useFacilityAccess()
   const canRead = permissions.includes('lab.work-item.read')
   const list = useFacilityList(facilityId, canRead, useCallback(async id => (await staffApi.labWorkItems(id)).items, []))
-  const [selection, setSelection] = useState<{ facilityId: string; item: LabWorkItem } | null>(null)
+  const [selection, setSelection] = useState<{ facilityId: string; item: LabWorkItem; created?: string } | null>(null)
   const selected = selection && selection.facilityId === facilityId ? selection.item : null
+  // A created accession replaces the form that made it: focus goes to the accession.
+  const focus = useFocusById()
   if (!facilityId || !canRead) return <EmptyState titleAs="h1" title="Laboratory unavailable" description="This facility membership needs lab work-item read permission." />
   return <>
     <PageHead eyebrow="Provider workspace" title="Laboratory">Accepted EHR test orders at this facility. A separate accession records the specimen chain of custody.</PageHead>
@@ -476,17 +511,22 @@ export function Laboratory() {
     <ListState loading={list.loading} error={list.error} empty="No accepted lab work" retry={() => void list.refresh()} hasItems={Boolean(list.items?.length)} />
     <WorkListCap count={list.items?.length ?? 0} />
     {list.items && list.items.length > 0 && <div className="staff-two-col"><div className="staff-list">{list.items.map(item => <div className="staff-list-item" key={item.id}><div className="staff-row"><strong>{item.testName ?? 'Lab test'}</strong><Badge tone={item.accessionId ? 'information' : 'warning'}>{item.accessionId ? 'Accessioned' : item.status}</Badge></div><p>Patient {shortId(item.patientId)} · Accepted {dateText(item.acceptedAt)}</p>{item.accessionNumber && <p>Accession {item.accessionNumber}</p>}{(item.accessionId ? permissions.includes('lab.accession.read') : permissions.includes('lab.accession.create')) && <Button tone="secondary" size="sm" onClick={() => setSelection({ facilityId, item })}>{item.accessionId ? 'Open accession' : 'Prepare accession'}</Button>}</div>)}</div>
-      {selected?.accessionId && permissions.includes('lab.accession.read') ? <AccessionView key={`${facilityId}-${selected.accessionId}`} facilityId={facilityId} id={selected.accessionId} permissions={permissions} onChanged={() => void list.refresh()} /> : selected && permissions.includes('lab.accession.create') ? <AccessionForm facilityId={facilityId} item={selected} onCreated={accession => { setSelection({ facilityId, item: { ...selected, accessionId: accession.id, accessionNumber: accession.accessionNumber } }); void list.refresh() }} /> : <Card className="staff-card"><h2>Choose work</h2><p>Open an accession or prepare a specimen for an accepted order.</p></Card>}
+      {selected?.accessionId && permissions.includes('lab.accession.read') ? <AccessionView key={`${facilityId}-${selected.accessionId}`} facilityId={facilityId} id={selected.accessionId} permissions={permissions} created={selection?.created} onChanged={() => void list.refresh()} /> : selected && permissions.includes('lab.accession.create') ? <AccessionForm facilityId={facilityId} item={selected} onCreated={accession => { setSelection({ facilityId, item: { ...selected, accessionId: accession.id, accessionNumber: accession.accessionNumber }, created: `Accession ${accession.accessionNumber} created.` }); focus('lab-accession-title', true); void list.refresh() }} /> : <Card className="staff-card"><h2>Choose work</h2><p>Open an accession or prepare a specimen for an accepted order.</p></Card>}
     </div>}
   </>
 }
 
-function PharmacyAction({ facilityId, item, permissions, onChanged }: { facilityId: string; item: PharmacyWorkItem; permissions: string[]; onChanged: () => void }) {
+function PharmacyAction({ facilityId, item, permissions, onChanged }: { facilityId: string; item: PharmacyWorkItem; permissions: string[]; onChanged: () => Promise<void> }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  // Recording removes the form once the work list is read again: focus goes to the prescription.
+  const focus = useFocusById()
   async function submit(event: FormEvent<HTMLFormElement>, reverse = false) {
-    event.preventDefault(); setError(''); setSuccess('')
+    event.preventDefault()
+    // The button stays focusable while the request runs; a second press does nothing.
+    if (busy) return
+    setError(''); setSuccess('')
     const form = new FormData(event.currentTarget)
     const reason = String(form.get('reason') ?? '').trim()
     if (reason.length < 8) return setError('Enter a reason of at least 8 characters.')
@@ -504,18 +544,21 @@ function PharmacyAction({ facilityId, item, permissions, onChanged }: { facility
         await staffApi.dispense(facilityId, item, quantity, unit, reason)
         setSuccess('Dispensing recorded.')
       }
-      onChanged()
+      await onChanged()
+      focus(`pharmacy-${item.id}-title`, true)
     } catch (caught) { setError(errorText(caught, 'Pharmacy action could not be recorded.')) }
     finally { setBusy(false) }
   }
   const canDispense = !item.dispensing && permissions.includes('pharmacy.dispensing.create')
   const canReverse = Boolean(item.dispensing && !item.dispensing.reversed && permissions.includes('pharmacy.dispensing.reverse') && permissions.includes('pharmacy.dispensing.read'))
-  return <div className="staff-list-item"><div className="staff-row"><strong>{item.medication.display}</strong><Badge tone={item.dispensing?.reversed ? 'warning' : item.dispensing ? 'success' : 'information'}>{item.dispensing?.reversed ? 'Reversed' : item.dispensing ? 'Dispensed' : 'Accepted'}</Badge></div><p>Patient {shortId(item.patientId)} · {item.doseQuantity == null ? 'Dose not recorded' : `${item.doseQuantity} ${item.doseUnit ?? ''}`} · {item.frequency ?? 'Frequency not recorded'}</p>
+  return <div className="staff-list-item"><div className="staff-row"><strong id={`pharmacy-${item.id}-title`} tabIndex={-1}>{item.medication.display}</strong><Badge tone={item.dispensing?.reversed ? 'warning' : item.dispensing ? 'success' : 'information'}>{item.dispensing?.reversed ? 'Reversed' : item.dispensing ? 'Dispensed' : 'Accepted'}</Badge></div><p>Patient {shortId(item.patientId)} · {item.doseQuantity == null ? 'Dose not recorded' : `${item.doseQuantity} ${item.doseUnit ?? ''}`} · {item.frequency ?? 'Frequency not recorded'}</p>
     <p>{item.routeCode ? `Route: ${item.routeCode}` : 'Route not recorded'}</p>
     {item.instructions && <p className="staff-note-content">{item.instructions}</p>}
-    {canDispense && <form className="staff-form" onSubmit={event => void submit(event)}><div className="staff-form-row"><Field label="Quantity dispensed" htmlFor={`pharmacy-quantity-${item.id}`} required><Input id={`pharmacy-quantity-${item.id}`} name="quantity" type="number" min="0.0001" step="0.0001" required /></Field><Field label="Unit" htmlFor={`pharmacy-unit-${item.id}`} required><Input id={`pharmacy-unit-${item.id}`} name="unit" maxLength={80} defaultValue={item.doseUnit ?? ''} required /></Field></div><Field label="Reason" htmlFor={`pharmacy-reason-${item.id}`} required><Textarea id={`pharmacy-reason-${item.id}`} name="reason" minLength={8} maxLength={500} required /></Field><Button type="submit" size="sm" disabled={busy}>{busy ? 'Recording…' : 'Record full dispensing'}</Button></form>}
-    {canReverse && <form className="staff-form" onSubmit={event => void submit(event, true)}><Field label="Reversal reason" htmlFor={`pharmacy-reversal-${item.id}`} required><Textarea id={`pharmacy-reversal-${item.id}`} name="reason" minLength={8} maxLength={500} required /></Field><Button type="submit" tone="secondary" size="sm" disabled={busy}>{busy ? 'Recording…' : 'Reverse dispensing'}</Button></form>}
-    {error && <p className="staff-error" role="alert">{error}</p>}{success && <p className="staff-success" role="status">{success}</p>}
+    {canDispense && <form className="staff-form" onSubmit={event => void submit(event)}><div className="staff-form-row"><Field label="Quantity dispensed" htmlFor={`pharmacy-quantity-${item.id}`} required><Input id={`pharmacy-quantity-${item.id}`} name="quantity" type="number" min="0.0001" step="0.0001" required /></Field><Field label="Unit" htmlFor={`pharmacy-unit-${item.id}`} required><Input id={`pharmacy-unit-${item.id}`} name="unit" maxLength={80} defaultValue={item.doseUnit ?? ''} required /></Field></div><Field label="Reason" htmlFor={`pharmacy-reason-${item.id}`} required><Textarea id={`pharmacy-reason-${item.id}`} name="reason" minLength={8} maxLength={500} required /></Field><Button type="submit" size="sm" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Recording…' : 'Record full dispensing'}</Button></form>}
+    {canReverse && <form className="staff-form" onSubmit={event => void submit(event, true)}><Field label="Reversal reason" htmlFor={`pharmacy-reversal-${item.id}`} required><Textarea id={`pharmacy-reversal-${item.id}`} name="reason" minLength={8} maxLength={500} required /></Field><Button type="submit" tone="secondary" size="sm" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Recording…' : 'Reverse dispensing'}</Button></form>}
+    {error && <p className="staff-error" role="alert">{error}</p>}
+    {/* Mounted throughout, so what was recorded is announced. */}
+    <div id={`pharmacy-status-${item.id}`} role="status">{success && <p className="staff-success">{success}</p>}</div>
   </div>
 }
 
@@ -529,7 +572,7 @@ export function Pharmacy() {
     <div className="staff-row staff-toolbar"><Button tone="secondary" size="sm" onClick={() => void list.refresh()} disabled={list.loading}>Refresh work</Button></div>
     <ListState loading={list.loading} error={list.error} empty="No accepted prescriptions" retry={() => void list.refresh()} hasItems={Boolean(list.items?.length)} />
     <WorkListCap count={list.items?.length ?? 0} />
-    {list.items && list.items.length > 0 && <div className="staff-list">{list.items.map(item => <PharmacyAction key={item.id} facilityId={facilityId} item={item} permissions={permissions} onChanged={() => void list.refresh()} />)}</div>}
+    {list.items && list.items.length > 0 && <div className="staff-list">{list.items.map(item => <PharmacyAction key={item.id} facilityId={facilityId} item={item} permissions={permissions} onChanged={list.refresh} />)}</div>}
   </>
 }
 
@@ -555,33 +598,6 @@ function jsonObjectArray(value: FormDataEntryValue | null, label: string, field:
   try { parsed = JSON.parse(String(value ?? '')) } catch { throw new FieldInputError(field, `${label} must be valid JSON.`) }
   if (!Array.isArray(parsed) || parsed.some(item => !item || typeof item !== 'object' || Array.isArray(item))) throw new FieldInputError(field, `${label} must be a JSON array of objects.`)
   return parsed as Record<string, unknown>[]
-}
-
-/** Whether focus has nowhere the user chose: on the page itself, or on `target` already. */
-function focusIsLost(target: HTMLElement | null): boolean {
-  const active = document.activeElement
-  return !(active instanceof HTMLElement) || active === document.body || !active.isConnected || active === target
-}
-
-/**
- * Focuses the element with an id once the render showing it has committed. A
- * step's control is disabled while its request runs, which takes focus from it,
- * so a refused request gives focus back (`ifLost`) only once the control is
- * enabled again, and only if focus was lost: a user who went to another field
- * while it ran keeps it there. A request made while the workspace is locked
- * waits until it opens again: until then focus is on the session check, which
- * is not the user's choice, and nothing in the hidden workspace can take it.
- */
-function useFocusById() {
-  const { lock } = useStaff()
-  const [request, setRequest] = useState<{ id: string; ifLost: boolean } | null>(null)
-  useEffect(() => {
-    if (!request || lock != null) return
-    setRequest(null)
-    const target = document.getElementById(request.id)
-    if (!request.ifLost || focusIsLost(target)) target?.focus()
-  }, [request, lock])
-  return useCallback((id: string, ifLost = false) => setRequest({ id, ifLost }), [])
 }
 
 function OcrReview({ facilityId, job, extractions, onChanged }: { facilityId: string; job: OcrJob; extractions: OcrExtraction[]; onChanged: (disposition: 'validated' | 'rejected') => Promise<void> }) {
@@ -882,19 +898,23 @@ function CampaignCard({ facilityId, membershipId, campaign, permissions, onChang
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  // Closing a campaign removes its form: focus goes to the campaign.
+  const focus = useFocusById()
   const startsInFuture = campaign.status === 'planned' && new Date(campaign.startsAt).getTime() > Date.now()
   async function transition(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (busy) return
     const reason = String(new FormData(event.currentTarget).get('reason') ?? '').trim()
     const status = campaign.status === 'planned' ? 'active' : 'closed'
     if (reason.length < 8) return setError('Enter a status reason of at least 8 characters.')
     setBusy(true); setError(''); setSuccess('')
-    try { await staffApi.updateOutreachCampaignStatus(facilityId, campaign, status, reason); setSuccess(`Campaign ${status}.`); await onChanged() }
+    try { await staffApi.updateOutreachCampaignStatus(facilityId, campaign, status, reason); setSuccess(`Campaign ${status}.`); await onChanged(); focus(`campaign-${campaign.id}-title`, true) }
     catch (caught) { setError(errorText(caught, 'Campaign status could not be updated. Refresh and try again.')) }
     finally { setBusy(false) }
   }
   async function addMember(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (busy) return
     const element = event.currentTarget
     const form = new FormData(element)
     const membershipId = String(form.get('membershipId') ?? '').trim()
@@ -905,11 +925,13 @@ function CampaignCard({ facilityId, membershipId, campaign, permissions, onChang
     catch (caught) { setError(errorText(caught, 'Campaign member could not be added.')) }
     finally { setBusy(false) }
   }
-  return <div className="staff-list-item"><div className="staff-row"><strong>{campaign.name}</strong><Badge tone={campaign.status === 'active' ? 'success' : 'neutral'}>{campaign.status}</Badge></div><p>{campaign.services.join(', ')} · Starts {dateText(campaign.startsAt)}</p>
+  return <div className="staff-list-item"><div className="staff-row"><strong id={`campaign-${campaign.id}-title`} tabIndex={-1}>{campaign.name}</strong><Badge tone={campaign.status === 'active' ? 'success' : 'neutral'}>{campaign.status}</Badge></div><p>{campaign.services.join(', ')} · Starts {dateText(campaign.startsAt)}</p>
     {canRead && <details><summary>Members</summary><ListState loading={members.loading} error={members.error} empty="No members" retry={() => void members.refresh()} hasItems={Boolean(members.items?.length)} />{members.items?.map(member => <p key={member.id}>{member.role.replaceAll('_', ' ')} · Membership {shortId(member.membershipId)}</p>)}</details>}
-    {canWrite && campaign.status !== 'closed' && <form className="staff-form" onSubmit={event => void transition(event)}><Field label={campaign.status === 'planned' ? 'Activation reason' : 'Closure reason'} htmlFor={`campaign-reason-${campaign.id}`} required><Input id={`campaign-reason-${campaign.id}`} name="reason" minLength={8} maxLength={500} required /></Field>{startsInFuture && <p className="staff-muted">Activation is available after the start time. Refresh the campaign then.</p>}<Button type="submit" tone="secondary" size="sm" disabled={busy || startsInFuture}>{busy ? 'Updating…' : campaign.status === 'planned' ? 'Activate campaign' : 'Close campaign'}</Button></form>}
-    {canWrite && <details><summary>Add campaign member</summary><form className="staff-form" onSubmit={event => void addMember(event)}><Field label="Facility membership ID" htmlFor={`campaign-member-${campaign.id}`} required><Input id={`campaign-member-${campaign.id}`} name="membershipId" placeholder="Membership UUID" required /></Field><Field label="Campaign role" htmlFor={`campaign-role-${campaign.id}`}><Select id={`campaign-role-${campaign.id}`} name="role"><option value="enumerator">Enumerator</option><option value="health_worker">Health worker</option><option value="admin">Admin</option></Select></Field><Button type="submit" size="sm" disabled={busy}>{busy ? 'Adding…' : 'Add member'}</Button></form></details>}
-    {error && <p className="staff-error" role="alert">{error}</p>}{success && <p className="staff-success" role="status">{success}</p>}
+    {canWrite && campaign.status !== 'closed' && <form className="staff-form" onSubmit={event => void transition(event)}><Field label={campaign.status === 'planned' ? 'Activation reason' : 'Closure reason'} htmlFor={`campaign-reason-${campaign.id}`} required><Input id={`campaign-reason-${campaign.id}`} name="reason" minLength={8} maxLength={500} required /></Field>{startsInFuture && <p className="staff-muted">Activation is available after the start time. Refresh the campaign then.</p>}<Button type="submit" tone="secondary" size="sm" disabled={startsInFuture} aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Updating…' : campaign.status === 'planned' ? 'Activate campaign' : 'Close campaign'}</Button></form>}
+    {canWrite && <details><summary>Add campaign member</summary><form className="staff-form" onSubmit={event => void addMember(event)}><Field label="Facility membership ID" htmlFor={`campaign-member-${campaign.id}`} required><Input id={`campaign-member-${campaign.id}`} name="membershipId" placeholder="Membership UUID" required /></Field><Field label="Campaign role" htmlFor={`campaign-role-${campaign.id}`}><Select id={`campaign-role-${campaign.id}`} name="role"><option value="enumerator">Enumerator</option><option value="health_worker">Health worker</option><option value="admin">Admin</option></Select></Field><Button type="submit" size="sm" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Adding…' : 'Add member'}</Button></form></details>}
+    {error && <p className="staff-error" role="alert">{error}</p>}
+    {/* Mounted throughout, so what was recorded is announced. */}
+    <div id={`outreach-campaign-status-${campaign.id}`} role="status">{success && <p className="staff-success">{success}</p>}</div>
   </div>
 }
 
@@ -917,21 +939,26 @@ function OutreachCaseCard({ facilityId, item, canLink, onChanged }: { facilityId
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  // A link resolves the case, which removes its form: focus goes to the case.
+  const focus = useFocusById()
   async function linkExisting(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    if (busy) return
     const element = event.currentTarget
     const form = new FormData(element)
     const patientId = String(form.get('patientId') ?? '').trim()
     const reason = String(form.get('reason') ?? '').trim()
     if (!patientId || reason.length < 8) return setError('Enter a canonical patient ID and a reason of at least 8 characters.')
     setBusy(true); setError(''); setSuccess('')
-    try { await staffApi.linkExistingOutreachCase(facilityId, item, patientId, reason); setSuccess('Existing patient linked.'); await onChanged() }
+    try { await staffApi.linkExistingOutreachCase(facilityId, item, patientId, reason); setSuccess('Existing patient linked.'); await onChanged(); focus(`outreach-case-${item.id}-title`, true) }
     catch (caught) { setError(errorText(caught, 'Patient could not be linked. Verify access and refresh the case.')) }
     finally { setBusy(false) }
   }
-  return <div className="staff-list-item"><div className="staff-row"><strong>{item.fullName ?? 'Registrant'}</strong><Badge tone={item.status === 'identity_resolved' ? 'success' : 'warning'}>{item.status.replaceAll('_', ' ')}</Badge></div><p>Case {shortId(item.id)} · {item.ageYears == null ? 'Age not recorded' : `${item.ageYears} years`} · {item.sex ?? 'Unknown'} · {dateText(item.createdAt)}</p>{item.temporaryPatientId && <p>Temporary ID {shortId(item.temporaryPatientId)}</p>}
-    {canLink && item.status === 'identity_resolution_pending' && <details><summary>Link verified existing patient</summary><form className="staff-form" onSubmit={event => void linkExisting(event)}><Field label="Canonical patient ID" htmlFor={`outreach-patient-${item.id}`} required><Input id={`outreach-patient-${item.id}`} name="patientId" placeholder="Patient UUID" required /></Field><Field label="Resolution reason" htmlFor={`outreach-reason-${item.id}`} required><Textarea id={`outreach-reason-${item.id}`} name="reason" minLength={8} maxLength={1000} required /></Field><p className="staff-muted">The server checks your exact patient authorization and the case version.</p><Button type="submit" size="sm" disabled={busy}>{busy ? 'Linking…' : 'Link existing patient'}</Button></form></details>}
-    {error && <p className="staff-error" role="alert">{error}</p>}{success && <p className="staff-success" role="status">{success}</p>}
+  return <div className="staff-list-item"><div className="staff-row"><strong id={`outreach-case-${item.id}-title`} tabIndex={-1}>{item.fullName ?? 'Registrant'}</strong><Badge tone={item.status === 'identity_resolved' ? 'success' : 'warning'}>{item.status.replaceAll('_', ' ')}</Badge></div><p>Case {shortId(item.id)} · {item.ageYears == null ? 'Age not recorded' : `${item.ageYears} years`} · {item.sex ?? 'Unknown'} · {dateText(item.createdAt)}</p>{item.temporaryPatientId && <p>Temporary ID {shortId(item.temporaryPatientId)}</p>}
+    {canLink && item.status === 'identity_resolution_pending' && <details><summary>Link verified existing patient</summary><form className="staff-form" onSubmit={event => void linkExisting(event)}><Field label="Canonical patient ID" htmlFor={`outreach-patient-${item.id}`} required><Input id={`outreach-patient-${item.id}`} name="patientId" placeholder="Patient UUID" required /></Field><Field label="Resolution reason" htmlFor={`outreach-reason-${item.id}`} required><Textarea id={`outreach-reason-${item.id}`} name="reason" minLength={8} maxLength={1000} required /></Field><p className="staff-muted">The server checks your exact patient authorization and the case version.</p><Button type="submit" size="sm" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Linking…' : 'Link existing patient'}</Button></form></details>}
+    {error && <p className="staff-error" role="alert">{error}</p>}
+    {/* Mounted throughout, so what was recorded is announced. */}
+    <div id={`outreach-case-status-${item.id}`} role="status">{success && <p className="staff-success">{success}</p>}</div>
   </div>
 }
 
@@ -957,7 +984,7 @@ export function Outreach() {
 
   async function createCampaign(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!facilityId) return
+    if (!facilityId || busy) return
     const element = event.currentTarget
     const form = new FormData(element)
     const name = String(form.get('name') ?? '').trim()
@@ -973,7 +1000,7 @@ export function Outreach() {
 
   async function createCase(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!facilityId) return
+    if (!facilityId || busy) return
     const element = event.currentTarget
     const form = new FormData(element)
     const campaignId = String(form.get('campaignId') ?? '') || undefined
@@ -994,13 +1021,15 @@ export function Outreach() {
   if (!facilityId || (!canReadCases && !canReadCampaigns)) return <EmptyState titleAs="h1" title="Outreach unavailable" description="This facility membership needs outreach campaign or registration read permission." />
   return <>
     <PageHead eyebrow="Community care" title="Outreach">Manage facility campaigns and registration cases. A temporary registration is pending identity resolution until the backend links it to a verified patient.</PageHead>
-    {error && <p className="staff-error" role="alert">{error}</p>}{success && <p className="staff-success" role="status">{success}</p>}
+    {error && <p className="staff-error" role="alert">{error}</p>}
+    {/* Mounted throughout, so what was created is announced. */}
+    <div id="outreach-status" role="status">{success && <p className="staff-success">{success}</p>}</div>
     <div className="staff-two-col"><div className="staff-stack">
       {canReadCampaigns && <Card className="staff-card"><div className="staff-row"><h2>Campaigns</h2><Button tone="secondary" size="sm" onClick={() => void campaigns.refresh()} disabled={campaigns.loading}>Refresh</Button></div><ListState loading={campaigns.loading} error={campaigns.error} empty="No campaigns" retry={() => void campaigns.refresh()} hasItems={Boolean(campaigns.items?.length)} />{campaigns.items?.map((campaign: OutreachCampaign) => <CampaignCard key={campaign.id} facilityId={facilityId} membershipId={membershipId} campaign={campaign} permissions={permissions} onChanged={campaigns.refresh} onMembershipChange={recordMembership} />)}</Card>}
-      {permissions.includes('outreach.campaign.write') && <Card className="staff-card"><h2>New campaign</h2><form className="staff-form" onSubmit={event => void createCampaign(event)}><Field label="Campaign name" htmlFor="outreach-campaign-name" required><Input id="outreach-campaign-name" name="name" minLength={2} maxLength={200} required /></Field><Field label="Starts" htmlFor="outreach-campaign-start" required><Input id="outreach-campaign-start" name="startsAt" type="datetime-local" required /></Field><fieldset><legend>Services</legend>{outreachServices.map(([code, label]) => <label key={code} className="staff-row"><input type="checkbox" name="services" value={code} />{label}</label>)}</fieldset><Button type="submit" disabled={busy}>{busy ? 'Creating…' : 'Create campaign'}</Button></form></Card>}
+      {permissions.includes('outreach.campaign.write') && <Card className="staff-card"><h2>New campaign</h2><form className="staff-form" onSubmit={event => void createCampaign(event)}><Field label="Campaign name" htmlFor="outreach-campaign-name" required><Input id="outreach-campaign-name" name="name" minLength={2} maxLength={200} required /></Field><Field label="Starts" htmlFor="outreach-campaign-start" required><Input id="outreach-campaign-start" name="startsAt" type="datetime-local" required /></Field><fieldset><legend>Services</legend>{outreachServices.map(([code, label]) => <label key={code} className="staff-row"><input type="checkbox" name="services" value={code} />{label}</label>)}</fieldset><Button type="submit" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Creating…' : 'Create campaign'}</Button></form></Card>}
     </div><div className="staff-stack">
       {canReadCases && <Card className="staff-card"><div className="staff-row"><h2>Registration cases</h2><Button tone="secondary" size="sm" onClick={() => void cases.refresh()} disabled={cases.loading}>Refresh</Button></div><ListState loading={cases.loading} error={cases.error} empty="No registration cases" retry={() => void cases.refresh()} hasItems={Boolean(cases.items?.length)} />{cases.items?.map((item: OutreachCase) => <OutreachCaseCard key={item.id} facilityId={facilityId} item={item} canLink={permissions.includes('outreach.registration.write')} onChanged={cases.refresh} />)}</Card>}
-      {permissions.includes('outreach.registration.write') && <Card className="staff-card"><h2>New registration case</h2><form className="staff-form" onSubmit={event => void createCase(event)}>{canReadCampaigns && <Field label="Campaign" htmlFor="outreach-case-campaign" hint="Only active registration campaigns containing your facility membership appear here. A case may also be created without a campaign."><Select id="outreach-case-campaign" name="campaignId"><option value="">No campaign</option>{campaigns.items?.filter(campaign => campaign.status === 'active' && campaign.services.includes('registration') && eligibleCampaigns.facilityId === facilityId && eligibleCampaigns.ids.has(campaign.id)).map(campaign => <option key={campaign.id} value={campaign.id}>{campaign.name}</option>)}</Select></Field>}<Field label="Full name" htmlFor="outreach-case-name" required><Input id="outreach-case-name" name="fullName" maxLength={200} required /></Field><div className="staff-form-row"><Field label="Sex" htmlFor="outreach-case-sex" required><Select id="outreach-case-sex" name="sex"><option value="unknown">Unknown</option><option value="female">Female</option><option value="male">Male</option><option value="other">Other</option></Select></Field><Field label="Age (years)" htmlFor="outreach-case-age" required><Input id="outreach-case-age" name="ageYears" type="number" min="0" max="130" required /></Field></div><Field label="Phone (optional)" htmlFor="outreach-case-phone"><Input id="outreach-case-phone" name="phone" minLength={3} maxLength={32} /></Field><Field label="Operational notes" htmlFor="outreach-case-notes"><Textarea id="outreach-case-notes" name="operationalNotes" minLength={3} maxLength={2000} /></Field><Button type="submit" disabled={busy}>{busy ? 'Creating…' : 'Create case'}</Button></form></Card>}
+      {permissions.includes('outreach.registration.write') && <Card className="staff-card"><h2>New registration case</h2><form className="staff-form" onSubmit={event => void createCase(event)}>{canReadCampaigns && <Field label="Campaign" htmlFor="outreach-case-campaign" hint="Only active registration campaigns containing your facility membership appear here. A case may also be created without a campaign."><Select id="outreach-case-campaign" name="campaignId"><option value="">No campaign</option>{campaigns.items?.filter(campaign => campaign.status === 'active' && campaign.services.includes('registration') && eligibleCampaigns.facilityId === facilityId && eligibleCampaigns.ids.has(campaign.id)).map(campaign => <option key={campaign.id} value={campaign.id}>{campaign.name}</option>)}</Select></Field>}<Field label="Full name" htmlFor="outreach-case-name" required><Input id="outreach-case-name" name="fullName" maxLength={200} required /></Field><div className="staff-form-row"><Field label="Sex" htmlFor="outreach-case-sex" required><Select id="outreach-case-sex" name="sex"><option value="unknown">Unknown</option><option value="female">Female</option><option value="male">Male</option><option value="other">Other</option></Select></Field><Field label="Age (years)" htmlFor="outreach-case-age" required><Input id="outreach-case-age" name="ageYears" type="number" min="0" max="130" required /></Field></div><Field label="Phone (optional)" htmlFor="outreach-case-phone"><Input id="outreach-case-phone" name="phone" minLength={3} maxLength={32} /></Field><Field label="Operational notes" htmlFor="outreach-case-notes"><Textarea id="outreach-case-notes" name="operationalNotes" minLength={3} maxLength={2000} /></Field><Button type="submit" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Creating…' : 'Create case'}</Button></form></Card>}
     </div></div>
   </>
 }

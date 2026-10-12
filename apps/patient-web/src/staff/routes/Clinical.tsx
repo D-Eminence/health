@@ -6,6 +6,7 @@ import { isAllowedPatientLookup, staffApi, type ClinicalRecord, type DiagnosisUp
 import { useStaff } from '../App'
 import { getEnvironment } from '../env'
 import { refusalText } from '../fieldProblem'
+import { BUSY, useFocusById } from '../focus'
 import { staffSessionGeneration, untilStaffSessionReady } from '../session'
 
 const tabs: Array<{ id: RecordKind | 'documents'; label: string; permission: string }> = [
@@ -201,7 +202,7 @@ function EncounterForm({ onCreated, disabled }: { onCreated: (input: { encounter
     catch (caught) { setError(errorMessage(caught, 'Encounter could not be created.')) }
     finally { submitting.current = false; setBusy(false) }
   }
-  return <Card className="staff-card"><h2>Start encounter</h2><p>Creating a clinical encounter requires current server authorization and a documented reason for care.</p><form className="staff-form" onSubmit={event => void submit(event)}><Field label="Encounter type" htmlFor="encounter-type" required><Select id="encounter-type" name="encounterType" required><option value="ambulatory">Outpatient</option><option value="emergency">Emergency</option><option value="inpatient">Inpatient</option><option value="virtual">Virtual</option><option value="home">Home</option><option value="other">Other</option></Select></Field><Field label="Chief complaint" htmlFor="chief-complaint" required><Textarea id="chief-complaint" name="chiefComplaint" maxLength={4000} required /></Field>{error && <p className="staff-error" role="alert">{error}</p>}<Button type="submit" disabled={busy || disabled}>{busy ? 'Creating…' : 'Start encounter'}</Button></form></Card>
+  return <Card className="staff-card"><h2>Start encounter</h2><p>Creating a clinical encounter requires current server authorization and a documented reason for care.</p><form className="staff-form" onSubmit={event => void submit(event)}><Field label="Encounter type" htmlFor="encounter-type" required><Select id="encounter-type" name="encounterType" required><option value="ambulatory">Outpatient</option><option value="emergency">Emergency</option><option value="inpatient">Inpatient</option><option value="virtual">Virtual</option><option value="home">Home</option><option value="other">Other</option></Select></Field><Field label="Chief complaint" htmlFor="chief-complaint" required><Textarea id="chief-complaint" name="chiefComplaint" maxLength={4000} required /></Field>{error && <p className="staff-error" role="alert">{error}</p>}<Button type="submit" aria-disabled={busy || disabled || undefined} className={BUSY}>{busy ? 'Creating…' : 'Start encounter'}</Button></form></Card>
 }
 
 function RecordForm({ tab, onCreated, disabled }: { tab: RecordKind; onCreated: (kind: RecordKind, body: object, key: string) => Promise<void>; disabled: boolean }) {
@@ -257,7 +258,7 @@ function RecordForm({ tab, onCreated, disabled }: { tab: RecordKind; onCreated: 
     {tab === 'diagnoses' && <><div className="staff-form-row"><Field label="Code system" htmlFor="diagnosis-system" required><Input id="diagnosis-system" name="codeSystem" placeholder="ICD-10" maxLength={255} required /></Field><Field label="Code" htmlFor="diagnosis-code" required><Input id="diagnosis-code" name="code" maxLength={100} required /></Field></div><Field label="Display" htmlFor="diagnosis-display" required><Input id="diagnosis-display" name="display" maxLength={500} required /></Field><div className="staff-form-row"><Field label="Clinical status" htmlFor="diagnosis-status"><Select id="diagnosis-status" name="clinicalStatus">{diagnosisClinicalStatuses.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</Select></Field><Field label="Verification" htmlFor="diagnosis-verification"><Select id="diagnosis-verification" name="verificationStatus">{diagnosisVerificationStatuses.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</Select></Field></div><Field label="Notes" htmlFor="diagnosis-notes"><Textarea id="diagnosis-notes" name="notes" maxLength={4000} /></Field></>}
     {tab === 'prescriptions' && <><Field label="Medication" htmlFor="medication" required><Input id="medication" name="medicationDisplay" maxLength={500} required /></Field><div className="staff-form-row"><Field label="Dose quantity" htmlFor="dose-quantity"><Input id="dose-quantity" name="doseQuantity" type="number" min="0.0001" step="0.0001" /></Field><Field label="Dose unit" htmlFor="dose-unit"><Input id="dose-unit" name="doseUnit" placeholder="mg" maxLength={80} /></Field></div><div className="staff-form-row"><Field label="Route code" htmlFor="route-code"><Input id="route-code" name="routeCode" placeholder="oral" maxLength={100} /></Field><Field label="Frequency" htmlFor="frequency" required><Input id="frequency" name="frequency" placeholder="Twice daily" maxLength={240} required /></Field></div><Field label="Instructions" htmlFor="instructions" required><Textarea id="instructions" name="instructions" maxLength={4000} required /></Field><p className="staff-muted">This creates an EHR draft. Pharmacy acceptance and dispensing are separate backend actions.</p></>}
     {tab === 'lab-requests' && <><div className="staff-form-row"><Field label="Test code system" htmlFor="test-system" required><Input id="test-system" name="testCodeSystem" placeholder="LOINC" maxLength={255} required /></Field><Field label="Test code" htmlFor="test-code" required><Input id="test-code" name="testCode" maxLength={100} required /></Field></div><Field label="Test display" htmlFor="test-display" required><Input id="test-display" name="testDisplay" maxLength={500} required /></Field><div className="staff-form-row"><Field label="Priority" htmlFor="test-priority"><Select id="test-priority" name="priority"><option value="routine">Routine</option><option value="urgent">Urgent</option><option value="asap">As soon as possible</option><option value="stat">Stat</option></Select></Field><Field label="Specimen type code" htmlFor="specimen-code"><Input id="specimen-code" name="specimenTypeCode" maxLength={100} /></Field></div><Field label="Clinical information" htmlFor="test-information"><Textarea id="test-information" name="clinicalInformation" maxLength={4000} /></Field><Field label="Request handling" htmlFor="lab-request-status" required><Select id="lab-request-status" name="status" defaultValue="draft" required><option value="draft">Save EHR draft</option><option value="active">Create active request and send to Lab</option></Select></Field><p className="staff-muted">Active creation asks Lab to accept the order. If acceptance is not confirmed, review the request list before retrying. A draft stays in the EHR: it cannot be sent to Lab later, because that backend handoff is still missing, so create an active request to order the test.</p></>}
-    {error && <p className="staff-error" role="alert">{error}</p>}<Button type="submit" disabled={busy || disabled}>{busy ? 'Saving…' : tab === 'lab-requests' ? 'Create lab request' : tab === 'vitals' || tab === 'diagnoses' ? 'Save record' : 'Save draft'}</Button>
+    {error && <p className="staff-error" role="alert">{error}</p>}<Button type="submit" aria-disabled={busy || disabled || undefined} className={BUSY}>{busy ? 'Saving…' : tab === 'lab-requests' ? 'Create lab request' : tab === 'vitals' || tab === 'diagnoses' ? 'Save record' : 'Save draft'}</Button>
   </form></Card>
 }
 
@@ -289,7 +290,7 @@ function StatusActionForm({ id, title, choices, disabled, onChange }: {
     <Field label="New status" htmlFor={`${id}-status`} required><Select id={`${id}-status`} name="status" defaultValue={choices[0]?.value} required>{choices.map(choice => <option key={choice.value} value={choice.value}>{choice.label}</option>)}</Select></Field>
     <Field label="Reason for change" htmlFor={`${id}-reason`} required><Input id={`${id}-reason`} name="reason" minLength={3} maxLength={500} required /></Field>
     {error && <p className="staff-error" role="alert">{error}</p>}
-    <Button type="submit" tone="secondary" size="sm" disabled={busy || disabled}>{busy ? 'Updating…' : 'Update status'}</Button>
+    <Button type="submit" tone="secondary" size="sm" aria-disabled={busy || disabled || undefined} className={UNAVAILABLE}>{busy ? 'Updating…' : 'Update status'}</Button>
   </form>
 }
 
@@ -320,7 +321,7 @@ function ReasonActionForm({ id, title, actionLabel, minLength = 3, disabled, onA
     <strong>{title}</strong>
     <Field label="Reason" htmlFor={`${id}-reason`} required><Input id={`${id}-reason`} name="reason" minLength={minLength} maxLength={500} required /></Field>
     {error && <p className="staff-error" role="alert">{error}</p>}
-    <Button type="submit" tone="secondary" size="sm" disabled={busy || disabled}>{busy ? 'Working…' : actionLabel}</Button>
+    <Button type="submit" tone="secondary" size="sm" aria-disabled={busy || disabled || undefined} className={UNAVAILABLE}>{busy ? 'Working…' : actionLabel}</Button>
   </form>
 }
 
@@ -364,7 +365,7 @@ function DiagnosisUpdateForm({ id, diagnosis, disabled, onUpdate }: {
     <Field label="Reason for change" htmlFor={`${id}-reason`} required><Input id={`${id}-reason`} name="reason" minLength={3} maxLength={500} required /></Field>
     <p className="staff-muted">Every change is kept in the record history. A diagnosis marked entered in error accepts no further change here.</p>
     {error && <p className="staff-error" role="alert">{error}</p>}
-    <Button type="submit" tone="secondary" size="sm" disabled={busy || disabled}>{busy ? 'Updating…' : 'Update diagnosis'}</Button>
+    <Button type="submit" tone="secondary" size="sm" aria-disabled={busy || disabled || undefined} className={UNAVAILABLE}>{busy ? 'Updating…' : 'Update diagnosis'}</Button>
   </form>
 }
 
@@ -407,7 +408,7 @@ function VitalCorrectionForm({ id, current, disabled, onCorrect }: {
         defaultValue={current[name] == null ? '' : String(current[name])} /></Field>)}</div>
     <Field label="Reason for correction" htmlFor={`${id}-reason`} required><Input id={`${id}-reason`} name="reason" minLength={3} maxLength={500} required /></Field>
     {error && <p className="staff-error" role="alert">{error}</p>}
-    <Button type="submit" tone="secondary" size="sm" disabled={busy || disabled}>{busy ? 'Saving…' : 'Save correction'}</Button>
+    <Button type="submit" tone="secondary" size="sm" aria-disabled={busy || disabled || undefined} className={UNAVAILABLE}>{busy ? 'Saving…' : 'Save correction'}</Button>
   </form>
 }
 
@@ -446,7 +447,7 @@ function VitalPanel({ facilityId, patientId, encounterId, vital, canCorrect, dis
     {loadError && <p className="staff-error" role="alert">These vitals were corrected, but the correction could not be loaded, so the values below are as first recorded and may not be current. {loadError}</p>}
     {corrected && <Detail label="Originally recorded" value={vitalSummary(vital)} />}
     {canCorrect && current && <>
-      <Button tone="secondary" size="sm" aria-expanded={open} onClick={() => setOpen(value => !value)}>{open ? 'Close correction' : 'Correct these vitals'}</Button>
+      <Button id={`vital-${vital.id}-correct`} tone="secondary" size="sm" aria-expanded={open} onClick={() => setOpen(value => !value)}>{open ? 'Close correction' : 'Correct these vitals'}</Button>
       {open && <VitalCorrectionForm id={`vital-${vital.id}`} current={current} disabled={disabled} onCorrect={onCorrect} />}
     </>}
   </>
@@ -509,24 +510,25 @@ function NotePanel({ facilityId, patientId, encounterId, note, canWrite, verify,
   }
 
   return <div className="staff-stack">
-    <Button tone="secondary" size="sm" onClick={() => setOpen(value => !value)} aria-expanded={open}>
+    <Button id={`note-${note.id}-toggle`} tone="secondary" size="sm" onClick={() => setOpen(value => !value)} aria-expanded={open}>
       {open ? 'Hide note content' : 'Review note content'}
     </Button>
     {open && <>
-      <Button tone="quiet" size="sm" onClick={() => setRevision(value => value + 1)} disabled={loading}>Refresh revisions</Button>
-      {loading && <p role="status">Loading note revisions…</p>}
+      <Button tone="quiet" size="sm" onClick={() => { setNotice(''); setRevision(value => value + 1) }} disabled={loading}>Refresh revisions</Button>
+      {/* Mounted while the note is open, so what a revision records is announced; it says so through the read that follows. */}
+      <div id={`note-${note.id}-status-region`} role="status">{notice ? <p className="staff-success">{notice}</p> : loading && <p>Loading note revisions…</p>}</div>
       {loadError && <p className="staff-error" role="alert">{loadError}</p>}
-      {notice && <p className="staff-success" role="status">{notice}</p>}
       {!loading && !loadError && revisions?.length === 0 && <p>No note content is available.</p>}
       {!loading && !loadError && revisions?.map(item => <div className="staff-list-item" key={item.id}>
         <strong>Revision {item.revisionNo}</strong><p className="staff-note-content">{item.content}</p>
         <p>Recorded {new Date(item.createdAt).toLocaleString()} · {item.changeReason}</p>
       </div>)}
-      {!loading && !loadError && Boolean(revisions?.length) && canWrite && (noteTransitions[String(note.status)]?.length ?? 0) > 0 &&
+      {/* The forms stay while the revisions are read again, so the one just used keeps focus. */}
+      {!loadError && Boolean(revisions?.length) && canWrite && (noteTransitions[String(note.status)]?.length ?? 0) > 0 &&
         <StatusActionForm key={`${note.id}-${note.rowVersion}`} id={`note-${note.id}`} title="Reviewed note status"
           choices={noteTransitions[String(note.status)]!} disabled={busy}
           onChange={onStatus} />}
-      {!loading && !loadError && canWrite && note.status !== 'entered_in_error' &&
+      {!loadError && revisions !== null && canWrite && note.status !== 'entered_in_error' &&
         <form className="staff-form" onSubmit={event => void addRevision(event)}>
           <strong>Add a note revision</strong>
           <Field label="Content" htmlFor={`note-revision-content-${note.id}`} required>
@@ -536,7 +538,7 @@ function NotePanel({ facilityId, patientId, encounterId, note, canWrite, verify,
             <Input id={`note-revision-reason-${note.id}`} name="reason" minLength={3} maxLength={500} required />
           </Field>
           {error && <p className="staff-error" role="alert">{error}</p>}
-          <Button type="submit" size="sm" disabled={busy}>{busy ? 'Recording…' : 'Record revision'}</Button>
+          <Button type="submit" size="sm" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Recording…' : 'Record revision'}</Button>
         </form>}
     </>}
   </div>
@@ -550,16 +552,23 @@ function Documents({ patientId, encounterId, facilityId, canWrite, canOcr, verif
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [notice, setNotice] = useState('')
   async function load() { setLoading(true); setError(''); try { setItems((await staffApi.documents(facilityId, patientId, encounterId)).items) } catch (caught) { setError(caught instanceof Error ? caught.message : 'Documents could not be loaded.') } finally { setLoading(false) } }
   useEffect(() => { void load() }, [facilityId, patientId, encounterId])
   async function upload(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setError('')
+    event.preventDefault()
+    // The button stays focusable while the upload runs; a second press does nothing.
+    if (busy) return
+    setError(''); setNotice('')
     const formElement = event.currentTarget
     const file = new FormData(formElement).get('document')
     if (!(file instanceof File) || !file.size) return setError('Select a file first.')
     if (!['application/pdf', 'image/jpeg', 'image/png', 'image/tiff'].includes(file.type) || file.size > 52_428_800) return setError('Use PDF, JPEG, PNG, or TIFF, up to 50 MiB.')
     setBusy(true)
-    try { await verify(); await staffApi.uploadDocument(facilityId, patientId, encounterId, file); await load(); formElement.reset() }
+    try {
+      await verify(); await staffApi.uploadDocument(facilityId, patientId, encounterId, file); await load(); formElement.reset()
+      setNotice('Document uploaded. It can be opened once its virus scan is clean.')
+    }
     catch (caught) { setError(caught instanceof Error ? caught.message : 'Document could not be uploaded.') }
     finally { setBusy(false) }
   }
@@ -579,7 +588,7 @@ function Documents({ patientId, encounterId, facilityId, canWrite, canOcr, verif
     }
     catch (caught) { setError(caught instanceof Error ? caught.message : 'Document could not be opened.') }
   }
-  return <div className="staff-two-col"><Card className="staff-card"><h2>Documents</h2>{loading && <p role="status">Loading documents…</p>}{!loading && items.length === 0 && <p>No documents for this encounter.</p>}<div className="staff-list">{items.map(item => <div className="staff-list-item" key={item.id}><strong>{item.fileName}</strong><p>{item.mediaType} · {fileSize(item.sizeBytes)} · scan: {item.scanStatus}</p><Button tone="secondary" size="sm" onClick={() => void download(item.id)} disabled={item.scanStatus !== 'clean'}>Open file</Button>{canOcr && item.scanStatus === 'clean' && <Link to="/provider/ocr" state={{ ocrDocumentId: item.id, ocrPatientId: patientId, actorId, facilityId }} className="staff-text-link">Extract with OCR</Link>}</div>)}</div></Card>{canWrite && <Card className="staff-card"><h2>Upload a document</h2><p>Files are scanned before download becomes available.</p><form className="staff-form" onSubmit={event => void upload(event)}><Field label="Clinical document" htmlFor="clinical-document"><Input id="clinical-document" name="document" type="file" accept=".pdf,.jpg,.jpeg,.png,.tif,.tiff" required /></Field><Button type="submit" disabled={busy}>{busy ? 'Uploading…' : 'Upload document'}</Button></form></Card>}{error && <p role="alert" className="staff-error">{error}</p>}</div>
+  return <div className="staff-two-col"><Card className="staff-card"><h2>Documents</h2>{loading && <p role="status">Loading documents…</p>}{!loading && items.length === 0 && <p>No documents for this encounter.</p>}<div className="staff-list">{items.map(item => <div className="staff-list-item" key={item.id}><strong>{item.fileName}</strong><p>{item.mediaType} · {fileSize(item.sizeBytes)} · scan: {item.scanStatus}</p><Button tone="secondary" size="sm" onClick={() => void download(item.id)} disabled={item.scanStatus !== 'clean'}>Open file</Button>{canOcr && item.scanStatus === 'clean' && <Link to="/provider/ocr" state={{ ocrDocumentId: item.id, ocrPatientId: patientId, actorId, facilityId }} className="staff-text-link">Extract with OCR</Link>}</div>)}</div></Card>{canWrite && <Card className="staff-card"><h2>Upload a document</h2><p>Files are scanned before download becomes available.</p><form className="staff-form" onSubmit={event => void upload(event)}><Field label="Clinical document" htmlFor="clinical-document"><Input id="clinical-document" name="document" type="file" accept=".pdf,.jpg,.jpeg,.png,.tif,.tiff" required /></Field><Button type="submit" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Uploading…' : 'Upload document'}</Button></form><div role="status">{notice && <p className="staff-success">{notice}</p>}</div></Card>}{error && <p role="alert" className="staff-error">{error}</p>}</div>
 }
 
 // What EHR's emergency summary sends of each section at most (patient-records.service.ts
@@ -737,6 +746,9 @@ export function Clinical() {
   const [recordsLoading, setRecordsLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  // After a change, where the work continues: the form rebuilt for the record's new
+  // version, or the record itself once a final status removes the form.
+  const focus = useFocusById()
   const loadSequence = useRef(0)
   // Every records read takes a number; only the latest may show its rows. The
   // page last asked for is what a re-read after a change reads again, so a page
@@ -941,12 +953,14 @@ export function Clinical() {
       setSelection(chosen => chosen?.id === current.id ? current : chosen)
       setEncounters(items => items.map(item => item.id === current.id ? current : item))
       setError('This encounter changed since it was loaded and now shows its current status. Choose the change again if it is still needed.')
+      focus([`encounter-${selected.id}-status`, 'clinical-documentation-title'], true)
       return
     }
     // The changed encounter may not be on the page shown; it stays documented as changed.
     if (updated?.id) setSelection(current => current?.id === updated.id ? updated : current)
     await loadEncounters({ cursors: 'shown', fresh: true })
     setSuccess('Encounter status updated.')
+    focus([`encounter-${selected.id}-status`, 'clinical-documentation-title'], true)
   }
 
   async function changeRecordStatus(record: ClinicalRecord, kind: StatusRecordKind, status: string, reason: string) {
@@ -960,6 +974,8 @@ export function Clinical() {
     setSuccess(kind === 'clinical-notes' ? 'Clinical note status updated.'
       : kind === 'lab-requests' ? 'Lab request status updated.' : 'Prescription status updated.')
     await loadRecords(kind, 'shown', true)
+    const form = kind === 'clinical-notes' ? 'note' : kind === 'lab-requests' ? 'lab-request' : 'prescription'
+    focus([`${form}-${record.id}-status`, `record-${record.id}-title`, 'clinical-records-title'], true)
   }
 
   async function updateDiagnosis(record: ClinicalRecord, changes: DiagnosisChanges, reason: string) {
@@ -972,6 +988,7 @@ export function Clinical() {
       { expectedRowVersion, changeReason: reason, ...changes })
     setSuccess('Diagnosis updated.')
     await loadRecords('diagnoses', 'shown', true)
+    focus([`diagnosis-${record.id}-clinical`, `record-${record.id}-title`, 'clinical-records-title'], true)
   }
 
   async function correctVital(record: ClinicalRecord, replacementValues: VitalMeasurements, reason: string, key: string) {
@@ -984,6 +1001,8 @@ export function Clinical() {
       { expectedRowVersion, changeReason: reason, replacementValues }, key)
     setSuccess('Vital correction saved.')
     await loadRecords('vitals', 'shown', true)
+    // The rebuilt vitals show their correction only once it is read, so the record itself takes focus.
+    focus([`record-${record.id}-title`, 'clinical-records-title'], true)
   }
 
   async function handoffPrescription(record: ClinicalRecord, reason: string, key: string) {
@@ -1002,24 +1021,26 @@ export function Clinical() {
     {currentWriteAccess && !currentWriteAccess.allowed && <div className="staff-notice" role="status">{currentWriteAccess.failed
       ? 'Write access could not be confirmed, so changes are unavailable. Refresh the page to try again.'
       : 'Read-only access. This authorization does not include changes; ask the patient to approve a read-and-write request to add or change records.'}</div>}
-    {error && <p className="staff-error" role="alert">{error}</p>}{success && <p className="staff-success" role="status">{success}</p>}
+    {error && <p className="staff-error" role="alert">{error}</p>}
+    {/* Mounted throughout, so what a change says is announced. */}
+    <div id="clinical-status" role="status">{success && <p className="staff-success">{success}</p>}</div>
     <div className="staff-two-col staff-encounter-grid"><Card className="staff-card"><h2>Encounters</h2>{loading && <p role="status">Loading encounters…</p>}
       <Notice notice={encounterNotice} scope={encounterScope} />
       <Pager label="Encounter pages" position={encounterPosition} busy={loading} onShow={cursors => void loadEncounters({ cursors, paging: true })} />
       {selected && !scopedEncounters.some(item => item.id === selected.id) && <p className="staff-muted">The encounter being documented, {selected.encounterType.replace('_', ' ')} started {new Date(selected.startedAt).toLocaleString()}, is on another page.</p>}
       {!loading && scopedEncounters.length === 0 && <p>No encounters are available for this patient and facility.</p>}<div className="staff-list">{scopedEncounters.map(item => <button type="button" key={item.id} className={`staff-list-item staff-select-row${item.id === encounterId ? ' selected' : ''}`} aria-current={item.id === encounterId ? 'true' : undefined} onClick={() => setSelection(item)}><strong>{item.encounterType.replace('_', ' ')} · {item.status.replace('_', ' ')}</strong><p>{new Date(item.startedAt).toLocaleString()}</p><p>{item.chiefComplaint || 'No chief complaint provided'}</p></button>)}</div>
 </Card>{permissions.includes('ehr.encounter.write') && canMutate && <EncounterForm onCreated={createEncounter} disabled={!facility} />}</div>
-    {selected && <section className="staff-section" aria-labelledby="clinical-documentation-title"><div className="staff-page-head"><p className="staff-eyebrow">Selected encounter</p><h2 id="clinical-documentation-title">Care documentation</h2><p>{new Date(selected.startedAt).toLocaleString()} · {selected.status.replace('_', ' ')}</p></div>
+    {selected && <section className="staff-section" aria-labelledby="clinical-documentation-title"><div className="staff-page-head"><p className="staff-eyebrow">Selected encounter</p><h2 id="clinical-documentation-title" tabIndex={-1}>Care documentation</h2><p>{new Date(selected.startedAt).toLocaleString()} · {selected.status.replace('_', ' ')}</p></div>
       {canMutate && permissions.includes('ehr.encounter.write') && (encounterTransitions[selected.status]?.length ?? 0) > 0 &&
         <Card className="staff-card"><StatusActionForm key={`${selected.id}-${selected.rowVersion}`} id={`encounter-${selected.id}`} title="Encounter status"
           choices={encounterTransitions[selected.status]!} disabled={loading} onChange={changeEncounterStatus} /></Card>}
       {!activeTab ? <p className="staff-muted">Your current facility role does not grant access to encounter records.</p>
         : <><TabList items={visibleTabs} selectedId={activeTab} onSelect={id => setTab(id as RecordKind | 'documents')} label="Clinical record section"
           idPrefix="clinical-record" className="staff-tabs" />
-        <TabPanel id={activeTab} idPrefix="clinical-record">{activeTab === 'documents' ? <Documents key={selected.id} patientId={patientId!} encounterId={selected.id} facilityId={facility.id} canWrite={canMutate && permissions.includes(writePermissions.documents)} canOcr={permissions.includes('ocr.job.read')} verify={verify} /> : <div className="staff-two-col"><Card className="staff-card"><h2>{tabs.find(item => item.id === activeTab)?.label}</h2>{recordsLoading && <p role="status">Loading records…</p>}
+        <TabPanel id={activeTab} idPrefix="clinical-record">{activeTab === 'documents' ? <Documents key={selected.id} patientId={patientId!} encounterId={selected.id} facilityId={facility.id} canWrite={canMutate && permissions.includes(writePermissions.documents)} canOcr={permissions.includes('ocr.job.read')} verify={verify} /> : <div className="staff-two-col"><Card className="staff-card"><h2 id="clinical-records-title" tabIndex={-1}>{tabs.find(item => item.id === activeTab)?.label}</h2>{recordsLoading && <p role="status">Loading records…</p>}
         <Notice notice={recordNotice} scope={recordScope} />
         <Pager label="Record pages" position={recordPosition} busy={recordsLoading} onShow={cursors => void loadRecords(activeTab, cursors, false)} />
-        {!recordsLoading && visibleRecords.length === 0 && <p>No {tabs.find(item => item.id === activeTab)?.label.toLowerCase()} for this encounter.</p>}<div className="staff-list">{visibleRecords.map(record => <div className="staff-list-item staff-stack" key={record.id}><strong>{recordTitle(activeTab, record)}</strong>
+        {!recordsLoading && visibleRecords.length === 0 && <p>No {tabs.find(item => item.id === activeTab)?.label.toLowerCase()} for this encounter.</p>}<div className="staff-list">{visibleRecords.map(record => <div className="staff-list-item staff-stack" key={record.id}><strong id={`record-${record.id}-title`} tabIndex={-1}>{recordTitle(activeTab, record)}</strong>
         {activeTab === 'diagnoses' && record.verificationStatus === 'entered_in_error' && <Badge tone="warning">Entered in error</Badge>}
         {activeTab === 'vitals' ? <VitalPanel key={`${record.id}-${String(record.rowVersion)}`} facilityId={facility.id} patientId={patientId!} encounterId={selected.id}
           vital={record} canCorrect={canMutate && permissions.includes('ehr.vital.write')} disabled={recordsLoading}
