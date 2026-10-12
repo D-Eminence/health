@@ -70,11 +70,14 @@ const prescriptionTransitions: Readonly<Record<string, readonly StatusOption[]>>
   on_hold: [{ value: 'active', label: 'Resume' }, { value: 'cancelled', label: 'Cancel' },
     { value: 'entered_in_error', label: 'Mark entered in error' }],
 }
-// EHR passes no change to a prescription on to Pharmacy, and Pharmacy dispenses
-// the version it accepted whatever EHR says later. Only an active prescription
-// can be sent, so one active or on hold may have been: the clinician is told so
-// where its change is confirmed. A draft never reached Pharmacy.
-const PHARMACY_NOT_TOLD = 'Pharmacy is not told of this change. If this prescription was sent to Pharmacy, Pharmacy may still dispense the earlier version it was sent, so you must contact the pharmacy.'
+// EHR passes no change to a prescription on to Pharmacy. Since hid-system #48
+// (migration 0080) Pharmacy dispenses only while the prescription is still active at
+// the version it accepted, so any change ends that for good, a later resume
+// included, and the remedy is a new prescription; a dispensing already recorded
+// stands. Only an active prescription can be sent, so one active or on hold may
+// have been: the clinician is told so where its change is confirmed. A draft never
+// reached Pharmacy.
+const PHARMACY_NOT_TOLD = 'Pharmacy is not told of this change, but once this prescription is put on hold, completed, cancelled or marked entered in error, Pharmacy can no longer dispense the version it was sent, and resuming it does not make it dispensable again. A dispensing already recorded is not undone, so contact the pharmacy if it may have dispensed. To continue treatment, create a new prescription and send it.'
 const noteTransitions: Readonly<Record<string, readonly StatusOption[]>> = {
   draft: [{ value: 'signed', label: 'Sign note' }, { value: 'entered_in_error', label: 'Mark entered in error' }],
   signed: [{ value: 'entered_in_error', label: 'Mark entered in error' }],
@@ -1354,7 +1357,22 @@ export function Clinical() {
     if (!expectedRowVersion) throw new Error('Reload the prescription before sending it to Pharmacy.')
     setSuccess('')
     await verify()
-    await staffApi.acceptPrescription(facility.id, patientId, encounterId, record.id, expectedRowVersion, reason, key)
+    try { await staffApi.acceptPrescription(facility.id, patientId, encounterId, record.id, expectedRowVersion, reason, key) }
+    catch (caught) {
+      if (!isHidApiError(caught)) throw caught
+      // Pharmacy holds one work item per prescription (hid-system #48), whatever version it was sent.
+      if (caught.code === 'IDEMPOTENCY_CONFLICT') throw new Error('Pharmacy already holds work for this prescription, sent earlier, perhaps at an earlier version or with another reason, so it was not sent again. If the prescription changed since, Pharmacy cannot dispense it: create a new prescription and send that.')
+      // The prescription changed under the handoff: what was shown is read again, and the form, built for the old version, goes.
+      const changed = caught.code === 'PHARMACY_PRESCRIPTION_NOT_ELIGIBLE'
+        ? 'This prescription no longer matches what was sent (it was changed, put on hold or cancelled meanwhile), so Pharmacy did not accept it; the list was reloaded.'
+        : caught.status === 412 ? 'This prescription changed since it was loaded, so it was not sent to Pharmacy; the list was reloaded. Check it, and send it again if it is still needed.'
+          : caught.code === 'PRESCRIPTION_NOT_ELIGIBLE' ? 'This prescription is no longer active, so it was not sent to Pharmacy; the list was reloaded.' : null
+      if (!changed) throw caught
+      const items = await loadRecords('prescriptions', 'shown', true)
+      setError(items ? changed : `${changed.replace(/; the list was reloaded\./, '.')} The list could not be reloaded; refresh it.`)
+      focus([`handoff-${record.id}-reason`, `record-${record.id}-title`, 'clinical-records-title'], true)
+      return
+    }
     setSuccess('Pharmacy accepted this exact prescription version.')
   }
 

@@ -158,19 +158,25 @@ function descriptions(element: Element) {
 /**
  * EHR passes no change to Pharmacy (hid-system prescriptions.service.ts update()
  * writes EHR only; acceptForPharmacy is the only Pharmacy call, for an active
- * prescription), and Pharmacy dispenses the copy it accepted whatever EHR says
- * later (pharmacy.service.ts dispense()). Until that is fixed (backend A1), the
- * clinician is told so where the change is confirmed.
+ * prescription). Since hid-system #48 (migration 0080) Pharmacy dispenses only
+ * while the prescription is still active at the version it accepted: a hold,
+ * completion, cancellation, entered in error or any edit leaves its work item
+ * undispensable for good, a resume included (409
+ * PHARMACY_PRESCRIPTION_NOT_DISPENSABLE), and a dispensing recorded before is
+ * not undone. The clinician is told so where the change is confirmed.
  */
 describe('changing the status of a prescription Pharmacy may hold', () => {
-  it.each(['active', 'on_hold'])('says at the action that Pharmacy is not told and may still dispense a %s prescription it was sent', async status => {
+  it.each(['active', 'on_hold'])('says at the action that Pharmacy is not told, and can no longer dispense a %s prescription it was sent once changed', async status => {
     api.records.mockResolvedValue({ items: [{ ...active, status }, draft], nextCursor: null })
     await openPrescriptions()
     const button = within(entry('Amoxicillin')).getByRole('button', { name: 'Update status' })
     const warning = descriptions(button)
-    expect(warning).toContain('Pharmacy is not told of this change.')
-    expect(warning).toContain('Pharmacy may still dispense the earlier version it was sent')
-    expect(warning).toContain('you must contact the pharmacy')
+    expect(warning).toContain('Pharmacy is not told of this change')
+    expect(warning).toContain('Pharmacy can no longer dispense the version it was sent')
+    expect(warning).toContain('resuming it does not make it dispensable again')
+    expect(warning).toContain('A dispensing already recorded is not undone, so contact the pharmacy if it may have dispensed.')
+    expect(warning).toContain('create a new prescription and send it')
+    expect(warning).not.toContain('may still dispense')
     // Shown in the form before the change is confirmed, not a message that comes and goes.
     const shown = document.getElementById(button.getAttribute('aria-describedby')!)!
     expect(button.closest('form')!.contains(shown)).toBe(true)
@@ -188,7 +194,7 @@ describe('changing the status of a prescription Pharmacy may hold', () => {
     await waitFor(() => expect(api.updateRecord).toHaveBeenCalledWith('facility-1', PATIENT, ENCOUNTER, 'prescriptions', 'rx-1',
       { expectedRowVersion: 3, changeReason: 'Allergy reported', status: 'cancelled' }))
     expect(await within(form).findByText('Prescription changed since it was loaded')).toBeTruthy()
-    expect(descriptions(within(form).getByRole('button', { name: 'Update status' }))).toContain('Pharmacy is not told of this change.')
+    expect(descriptions(within(form).getByRole('button', { name: 'Update status' }))).toContain('Pharmacy is not told of this change')
   })
 
   // The status form and the handoff form once shared a React key, so a redraw of
@@ -284,5 +290,37 @@ describe('sending a prescription to Pharmacy', () => {
     fireEvent.click(within(form).getByRole('button', { name: 'Send to Pharmacy' }))
     expect(await within(form).findByText('Pharmacy access is not authorized')).toBeTruthy()
     expect(screen.queryByText('Pharmacy accepted this exact prescription version.')).toBeNull()
+  })
+
+  // hid-system #48: Pharmacy accepts only the exact active prescription version EHR
+  // checked; one changed, held or cancelled meanwhile answers 409
+  // PHARMACY_PRESCRIPTION_NOT_ELIGIBLE, which EHR passes through.
+  it('reads the list again when Pharmacy finds the prescription no longer matches what was sent', async () => {
+    api.acceptPrescription.mockRejectedValueOnce(new HidApiError(409, 'Pharmacy acceptance must match the current active EHR prescription version',
+      { code: 'PHARMACY_PRESCRIPTION_NOT_ELIGIBLE' }))
+    await openPrescriptions()
+    api.records.mockClear()
+    const form = within(entry('Amoxicillin')).getByRole('button', { name: 'Send to Pharmacy' }).closest('form')!
+    type(form, 'Reason', 'Patient collecting today')
+    fireEvent.click(within(form).getByRole('button', { name: 'Send to Pharmacy' }))
+
+    expect(await screen.findByText(/This prescription no longer matches what was sent/)).toBeTruthy()
+    expect(screen.getByText(/the list was reloaded/)).toBeTruthy()
+    expect(api.records).toHaveBeenCalledWith('facility-1', PATIENT, ENCOUNTER, 'prescriptions', { cursor: undefined, fresh: true })
+    expect(screen.queryByText('Pharmacy accepted this exact prescription version.')).toBeNull()
+  })
+
+  // Pharmacy holds one work item per prescription (pharmacy.service.ts acceptEhrPrescription).
+  it('says Pharmacy already holds work for a prescription sent before, and that a changed one needs a new prescription', async () => {
+    api.acceptPrescription.mockRejectedValueOnce(new HidApiError(409, 'Prescription acceptance conflicts with existing Pharmacy work',
+      { code: 'IDEMPOTENCY_CONFLICT' }))
+    await openPrescriptions()
+    const form = within(entry('Amoxicillin')).getByRole('button', { name: 'Send to Pharmacy' }).closest('form')!
+    type(form, 'Reason', 'Patient collecting today')
+    fireEvent.click(within(form).getByRole('button', { name: 'Send to Pharmacy' }))
+
+    const said = await within(form).findByRole('alert')
+    expect(said.textContent).toMatch(/Pharmacy already holds work for this prescription/)
+    expect(said.textContent).toMatch(/create a new prescription/)
   })
 })
