@@ -43,7 +43,7 @@ describe('Access PIN', () => {
     const input = await screen.findByLabelText('Set PIN')
     fireEvent.change(input, { target: { value: '1234' } })
     await press(screen.getByRole('button', { name: 'Save PIN' }))
-    expect((await screen.findByRole('alert')).textContent).toContain('Sign in again')
+    expect((await screen.findByRole('alert')).textContent).toContain('sign in again')
     expect(input.getAttribute('aria-invalid')).toBeNull()
   })
 })

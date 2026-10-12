@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { SettingsPage } from '../routes/Portal'
-import { json, problem, profile, renderPortal, type Handler } from './portalHarness'
+import { described, json, problem, profile, renderPortal, type Handler } from './portalHarness'
 
 /**
  * The patient's Access PIN, POST and DELETE /identity/me/access-pin (hid-system
@@ -58,13 +58,32 @@ describe('patient Access PIN', () => {
     expect(screen.queryByRole('button', { name: 'Revoke Access PIN' })).toBeNull()
   })
 
-  it('keeps the status and says why when a recent sign-in is required', async () => {
+  it('states the 10-minute sign-in rule beside the PIN', async () => {
+    renderSettings(() => json({ configured: true }))
+    expect(described(await screen.findByLabelText('Set PIN'))).toContain('You must have signed in within the last 10 minutes to change it.')
+  })
+
+  it('keeps the status and says how to sign in again when a recent sign-in is required', async () => {
     renderSettings(() => problem(403, 'PATIENT_RECENT_AUTH_REQUIRED', 'Sign in again before changing your Access PIN'))
     fireEvent.change(await screen.findByLabelText('Set PIN'), { target: { value: '1234' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save PIN' }))
 
-    expect((await screen.findByRole('alert')).textContent).toContain('Sign in again before changing your Access PIN')
+    // As for account deletion: the patient is signed in, so 'sign in again' alone does not say how.
+    expect((await screen.findByRole('alert')).textContent)
+      .toBe('For your security, sign out, sign in again, and return here within 10 minutes to change your Access PIN.')
     expect(screen.getByText('Not configured')).toBeTruthy()
     await waitFor(() => expect((screen.getByLabelText('Set PIN') as HTMLInputElement).value).toBe('1234'))
+  })
+
+  it('says how to sign in again when revoking the PIN needs a recent sign-in', async () => {
+    renderSettings((_path, method) => method === 'POST' ? json({ configured: true })
+      : problem(403, 'PATIENT_RECENT_AUTH_REQUIRED', 'Sign in again before changing your Access PIN'))
+    fireEvent.change(await screen.findByLabelText('Set PIN'), { target: { value: '1234' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save PIN' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Revoke Access PIN' }))
+
+    expect((await screen.findByRole('alert')).textContent)
+      .toBe('For your security, sign out, sign in again, and return here within 10 minutes to change your Access PIN.')
+    expect(screen.getByText('Configured')).toBeTruthy()
   })
 })

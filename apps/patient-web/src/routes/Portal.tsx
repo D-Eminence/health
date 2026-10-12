@@ -337,6 +337,17 @@ export function NotificationsPage() {
   </section>
 }
 
+/**
+ * Why a PIN change was refused. Setting and revoking it need a sign-in within the
+ * last 10 minutes (hid-system recent-authentication.ts); the patient is signed in,
+ * so 'sign in again' alone does not say how, as on account deletion.
+ */
+function pinProblem(cause: unknown, fallback: string) {
+  if (!isHidApiError(cause)) return fallback
+  return cause.code === 'PATIENT_RECENT_AUTH_REQUIRED'
+    ? 'For your security, sign out, sign in again, and return here within 10 minutes to change your Access PIN.' : cause.message
+}
+
 export function SettingsPage() {
   const { api } = useSession()
   useDocumentTitle('Settings · Health ID')
@@ -366,7 +377,7 @@ export function SettingsPage() {
     try { await api.setAccessPin(pin); setPin(''); setNotice('Access PIN configured.'); await profile.reload() }
     catch (cause) {
       const aboutField = isFieldProblem(cause)
-      setError(isHidApiError(cause) ? cause.message : 'Access PIN could not be updated.')
+      setError(pinProblem(cause, 'Access PIN could not be updated.'))
       setPinFieldError(aboutField); setErrorAlert(!aboutField || fromField)
     } finally { setBusy(false); pinFocus.focus() }
   }
@@ -375,7 +386,7 @@ export function SettingsPage() {
     setBusy(true); setError(null); setNotice(null); setPinFieldError(false); setErrorAlert(true)
     try { await api.revokeAccessPin(); setNotice('Access PIN revoked.'); await profile.reload(); focusAfter(() => pinHeading.current) }
     catch (cause) {
-      setError(isHidApiError(cause) ? cause.message : 'Access PIN could not be revoked.')
+      setError(pinProblem(cause, 'Access PIN could not be revoked.'))
       focusAfter(() => revokePinButton.current)
     } finally { setBusy(false) }
   }
@@ -392,7 +403,7 @@ export function SettingsPage() {
     <div role="status">{notice && <p className="patient-inline-success">{notice}</p>}</div>
     <LoadState loading={profile.loading} error={profile.error} retry={profile.reload} hasData={profile.data !== null} focusTarget={heading} />
     {profile.data && !profile.error && <div className="patient-card" aria-busy={profile.loading || undefined}><h2 ref={pinHeading} tabIndex={-1}>Access PIN</h2>
-      <p id="access-pin-hint" className="patient-field-hint">Your PIN is 4 to 8 digits. A provider must still have the right role and purpose to use this PIN. You must have signed in recently to change it.</p>
+      <p id="access-pin-hint" className="patient-field-hint">Your PIN is 4 to 8 digits. A provider must still have the right role and purpose to use this PIN. You must have signed in within the last 10 minutes to change it.</p>
       <p>Status: <strong>{profile.data.accessPinConfigured ? 'Configured' : 'Not configured'}</strong></p>
       <form onSubmit={event => void configurePin(event)} className="patient-form patient-inline-form"><label>{profile.data.accessPinConfigured ? 'Replace PIN' : 'Set PIN'}<input ref={pinFocus.target} required type="password" inputMode="numeric" autoComplete="new-password" pattern="[0-9]{4,8}" minLength={4} maxLength={8} value={pin} onChange={event => setPin(event.target.value.replace(/\D/g, '').slice(0, 8))}
         aria-invalid={pinFieldError || undefined} aria-describedby={describedBy('access-pin-hint', pinFieldError && 'settings-error')} /></label>
