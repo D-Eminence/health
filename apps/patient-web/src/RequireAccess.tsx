@@ -52,7 +52,7 @@ export function RequireAccess({ requirement, children }: RequireAccessProps) {
           <BrandLogo className="patient-state-logo" />
           {sessionError ? <div role="alert" className="patient-access-state">
             <h1>We could not check your session</h1>
-            <p>Check your connection, then try again.</p>
+            <p>Try again in a moment.</p>
             <button ref={retryButton} type="button" onClick={() => { retried.current = true; checking.current = false; retrySessionCheck() }}>Try again</button>
           </div> : <div role="status" aria-live="polite" className="patient-access-state">
             <h1>Checking your session…</h1>

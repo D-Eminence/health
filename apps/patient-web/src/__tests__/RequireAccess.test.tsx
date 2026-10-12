@@ -91,7 +91,9 @@ describe('RequireAccess', () => {
     renderGuard({ status: 'unknown', principal: null }, PATIENT_ROUTE, 'We could not check your session. Try again.')
     // The heading names the state; what to do follows it.
     expect(screen.getByRole('heading', { level: 1, name: 'We could not check your session' })).toBeDefined()
-    expect(screen.getByRole('alert').textContent).toBe('We could not check your sessionCheck your connection, then try again.Try again')
+    // The check also fails for an outage or a session this portal cannot use, not
+    // only for a lost connection, so the advice blames none of them.
+    expect(screen.getByRole('alert').textContent).toBe('We could not check your sessionTry again in a moment.Try again')
   })
 
   it('after Try again, moves focus to the page that opens, or to Try again when the check fails again', async () => {
