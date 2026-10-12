@@ -110,6 +110,15 @@ function confirmation(item: HTMLElement) {
   return within(item).getByRole('status').textContent
 }
 
+/**
+ * The error a refused field is described by, or null while it is not marked
+ * invalid: a value refused before sending is reported at its field (PEHR-04).
+ */
+function refusal(control: HTMLElement) {
+  if (control.getAttribute('aria-invalid') !== 'true') return null
+  return document.getElementById(control.getAttribute('aria-describedby') ?? '')?.textContent ?? ''
+}
+
 /** The status messages on the page: a work item's region says nothing until something is recorded. */
 function statusesSaying() {
   return screen.queryAllByRole('status').map(status => status.textContent).filter(Boolean)
@@ -478,7 +487,7 @@ describe('full dispensing', () => {
     fillDispensing(item, { quantity: '21', reason: '  Counter  ' })
     fireEvent.click(within(item).getByRole('button', { name: 'Record full dispensing' }))
 
-    expect(within(item).getByRole('alert').textContent).toBe('Enter a reason of at least 8 characters.')
+    expect(refusal(within(item).getByRole('textbox', { name: 'Reason' }))).toBe('Enter a reason of at least 8 characters.')
     expect(confirmation(item)).toBe('')
     expect(api.dispense).not.toHaveBeenCalled()
     expect(api.pharmacyWorkItems).toHaveBeenCalledTimes(1)
@@ -507,7 +516,7 @@ describe('full dispensing', () => {
     if (!form) throw new Error('Dispensing form not found')
     fireEvent.submit(form)
 
-    expect(within(item).getByRole('alert').textContent).toBe('Enter a positive quantity and unit.')
+    expect(refusal(within(item).getByRole('spinbutton', { name: 'Quantity dispensed' }))).toBe('Enter a positive quantity and unit.')
     expect(confirmation(item)).toBe('')
     expect(within(item).getByRole('button', { name: 'Record full dispensing' }).hasAttribute('disabled')).toBe(false)
     expect(api.dispense).not.toHaveBeenCalled()
@@ -521,7 +530,7 @@ describe('full dispensing', () => {
     fillDispensing(item, { quantity: '21', unit: '   ', reason: 'Full course dispensed at counter' })
     fireEvent.click(within(item).getByRole('button', { name: 'Record full dispensing' }))
 
-    expect(within(item).getByRole('alert').textContent).toBe('Enter a positive quantity and unit.')
+    expect(refusal(within(item).getByRole('textbox', { name: 'Unit' }))).toBe('Enter a positive quantity and unit.')
     expect(confirmation(item)).toBe('')
     expect(api.dispense).not.toHaveBeenCalled()
     expect(api.pharmacyWorkItems).toHaveBeenCalledTimes(1)
@@ -717,7 +726,7 @@ describe('dispensing reversal', () => {
     fillReversal(item, '   Recall   ')
     fireEvent.click(within(item).getByRole('button', { name: 'Reverse dispensing' }))
 
-    expect(within(item).getByRole('alert').textContent).toBe('Enter a reason of at least 8 characters.')
+    expect(refusal(within(item).getByRole('textbox', { name: 'Reversal reason' }))).toBe('Enter a reason of at least 8 characters.')
     expect(confirmation(item)).toBe('')
     expect(api.dispensing).not.toHaveBeenCalled()
     expect(api.reverseDispensing).not.toHaveBeenCalled()

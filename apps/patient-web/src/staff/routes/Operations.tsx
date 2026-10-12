@@ -6,6 +6,7 @@ import { staffApi, type LabAbnormalFlag, type LabAccession, type LabExecution, t
 import { useStaff } from '../App'
 import { FieldInputError, problemProps, problemText, refusalText, type FieldProblem } from '../fieldProblem'
 import { BUSY, focusIsLost, useFocusById } from '../focus'
+import { GroupError, useFieldProblems } from '../useFieldProblems'
 
 // A refusal's message, with each field a 400 VALIDATION_FAILED names.
 function errorText(error: unknown, fallback: string) {
@@ -72,6 +73,7 @@ function ListState({ loading, error, empty, retry, hasItems }: { loading: boolea
 function AccessionForm({ facilityId, item, onCreated }: { facilityId: string; item: LabWorkItem; onCreated: (accession: LabAccession) => void }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const problems = useFieldProblems()
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     // The button stays focusable while the request runs; a second press does nothing.
@@ -79,15 +81,16 @@ function AccessionForm({ facilityId, item, onCreated }: { facilityId: string; it
     const form = new FormData(event.currentTarget)
     const specimenType = String(form.get('specimenType') ?? '').trim()
     const reason = String(form.get('reason') ?? '').trim()
-    if (!specimenType || !reason) return setError('Enter a specimen type and clinical reason.')
-    setBusy(true); setError('')
+    setError(''); problems.clear()
+    if (!specimenType || !reason) return problems.refuse(!specimenType ? 'lab-specimen-type' : 'lab-accession-reason', 'Enter a specimen type and clinical reason.')
+    setBusy(true)
     try { onCreated(await staffApi.createLabAccession(facilityId, item.id, specimenType, reason)) }
     catch (caught) { setError(errorText(caught, 'Accession could not be created.')) }
     finally { setBusy(false) }
   }
   return <Card className="staff-card"><h2>Create specimen accession</h2><p>{item.testName ?? 'Accepted lab order'} · Patient {shortId(item.patientId)}</p><form className="staff-form" onSubmit={event => void submit(event)}>
-    <Field label="Specimen type" htmlFor="lab-specimen-type" required><Input id="lab-specimen-type" name="specimenType" maxLength={240} placeholder="Blood, urine, swab…" required /></Field>
-    <Field label="Reason" htmlFor="lab-accession-reason" required><Textarea id="lab-accession-reason" name="reason" maxLength={500} required /></Field>
+    <Field label="Specimen type" htmlFor="lab-specimen-type" error={problems.error('lab-specimen-type')} required><Input id="lab-specimen-type" name="specimenType" maxLength={240} placeholder="Blood, urine, swab…" required {...problems.control('lab-specimen-type')} /></Field>
+    <Field label="Reason" htmlFor="lab-accession-reason" error={problems.error('lab-accession-reason')} required><Textarea id="lab-accession-reason" name="reason" maxLength={500} required {...problems.control('lab-accession-reason')} /></Field>
     {error && <p className="staff-error" role="alert">{error}</p>}
     <Button type="submit" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Creating…' : 'Create accession'}</Button>
   </form></Card>
@@ -106,12 +109,14 @@ function SpecimenAction({ facilityId, accessionId, specimen, permissions, onChan
   const [action, setAction] = useState<SpecimenActionKind>(allowed[0] ?? 'collect')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const problems = useFieldProblems()
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (busy) return
     const detail = String(new FormData(event.currentTarget).get('detail') ?? '').trim()
-    if (action === 'reject' && !detail) return setError('Enter a rejection reason.')
-    setBusy(true); setError('')
+    setError(''); problems.clear()
+    if (action === 'reject' && !detail) return problems.refuse(`lab-detail-${specimen.id}`, 'Enter a rejection reason.')
+    setBusy(true)
     try { await staffApi.transitionSpecimen(facilityId, accessionId, specimen, action, detail); onChanged(SPECIMEN_STEP_DONE[action]) }
     catch (caught) { setError(errorText(caught, 'Specimen could not be updated. Refresh and try again.')); onRefused(caught) }
     finally { setBusy(false) }
@@ -119,7 +124,7 @@ function SpecimenAction({ facilityId, accessionId, specimen, permissions, onChan
   return <div className="staff-list-item"><div className="staff-row"><strong id={`lab-specimen-${specimen.id}-title`} tabIndex={-1}>{specimen.specimenType} · {specimen.specimenIdentifier}</strong><Badge tone={specimen.status === 'received' ? 'success' : specimen.status === 'rejected' ? 'danger' : 'warning'}>{specimen.status}</Badge></div>
     {allowed.length > 0 && <form className="staff-form" onSubmit={event => void submit(event)}>
       <Field label="Next step" htmlFor={`lab-action-${specimen.id}`}><Select id={`lab-action-${specimen.id}`} value={action} onChange={event => setAction(event.target.value as SpecimenActionKind)}>{allowed.map(value => <option key={value} value={value}>{value === 'collect' ? 'Mark collected' : value === 'receive' ? 'Mark received' : 'Reject specimen'}</option>)}</Select></Field>
-      <Field label={action === 'reject' ? 'Rejection reason' : 'Notes or condition'} htmlFor={`lab-detail-${specimen.id}`} required={action === 'reject'}><Input id={`lab-detail-${specimen.id}`} name="detail" maxLength={action === 'collect' ? 1000 : 500} required={action === 'reject'} /></Field>
+      <Field label={action === 'reject' ? 'Rejection reason' : 'Notes or condition'} htmlFor={`lab-detail-${specimen.id}`} error={problems.error(`lab-detail-${specimen.id}`)} required={action === 'reject'}><Input id={`lab-detail-${specimen.id}`} name="detail" maxLength={action === 'collect' ? 1000 : 500} required={action === 'reject'} {...problems.control(`lab-detail-${specimen.id}`)} /></Field>
       {error && <p className="staff-error" role="alert">{error}</p>}
       <Button type="submit" size="sm" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Saving…' : 'Record step'}</Button>
     </form>}
@@ -128,22 +133,23 @@ function SpecimenAction({ facilityId, accessionId, specimen, permissions, onChan
 
 const abnormalFlags: readonly LabAbnormalFlag[] = ['unknown', 'normal', 'high', 'low', 'abnormal', 'critical_candidate']
 
-function resultValue(form: FormData, resultType: 'numeric' | 'text'): LabResultValue {
+/** The result entered under `id` (an execution's), or a FieldInputError naming the field refused. */
+function resultValue(form: FormData, resultType: 'numeric' | 'text', id: string): LabResultValue {
   const unit = String(form.get('unit') ?? '').trim()
   const referenceRange = String(form.get('referenceRange') ?? '').trim()
   const flag = String(form.get('abnormalFlag') ?? 'unknown')
-  if (!abnormalFlags.includes(flag as LabAbnormalFlag)) throw new Error('Choose a valid result flag.')
+  if (!abnormalFlags.includes(flag as LabAbnormalFlag)) throw new FieldInputError(`lab-flag-${id}`, 'Choose a valid result flag.')
   const shared = {
     ...(unit ? { unit } : {}), ...(referenceRange ? { referenceRange } : {}),
     abnormalFlag: flag as LabAbnormalFlag,
   }
   if (resultType === 'numeric') {
     const raw = String(form.get('numericValue') ?? '').trim()
-    if (!raw || !Number.isFinite(Number(raw))) throw new Error('Enter a valid numeric result.')
+    if (!raw || !Number.isFinite(Number(raw))) throw new FieldInputError(`lab-numeric-${id}`, 'Enter a valid numeric result.')
     return { resultType, numericValue: Number(raw), ...shared }
   }
   const textValue = String(form.get('textValue') ?? '').trim()
-  if (!textValue) throw new Error('Enter the text result.')
+  if (!textValue) throw new FieldInputError(`lab-text-${id}`, 'Enter the text result.')
   return { resultType, textValue, ...shared }
 }
 
@@ -155,16 +161,21 @@ function ResultEntry({ facilityId, execution, result, onChanged, onRefused }: {
   const [resultType, setResultType] = useState<'numeric' | 'text'>(current?.resultType ?? 'numeric')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const problems = useFieldProblems()
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (busy) return
     const form = new FormData(event.currentTarget)
-    setError('')
+    setError(''); problems.clear()
     let value: LabResultValue
-    try { value = resultValue(form, resultType) }
-    catch (caught) { setError(errorText(caught, 'Enter a valid result.')); return }
+    try { value = resultValue(form, resultType, execution.id) }
+    catch (caught) {
+      if (caught instanceof FieldInputError) problems.refuse(caught.field, caught.message)
+      else setError(errorText(caught, 'Enter a valid result.'))
+      return
+    }
     const reason = String(form.get('reason') ?? '').trim()
-    if (result && !reason) return setError('Explain the correction or amendment.')
+    if (result && !reason) return problems.refuse(`lab-result-reason-${execution.id}`, 'Explain the correction or amendment.')
     setBusy(true)
     try {
       const updated = result
@@ -180,14 +191,14 @@ function ResultEntry({ facilityId, execution, result, onChanged, onRefused }: {
     <form className="staff-form" onSubmit={event => void submit(event)}>
       <Field label="Result type" htmlFor={`lab-result-type-${execution.id}`}><Select id={`lab-result-type-${execution.id}`} value={resultType} onChange={event => setResultType(event.target.value as 'numeric' | 'text')}><option value="numeric">Numeric</option><option value="text">Text</option></Select></Field>
       {resultType === 'numeric'
-        ? <Field label="Numeric value" htmlFor={`lab-numeric-${execution.id}`} required><Input id={`lab-numeric-${execution.id}`} name="numericValue" type="number" step="any" defaultValue={current?.resultType === 'numeric' ? current.numericValue ?? '' : ''} required /></Field>
-        : <Field label="Text value" htmlFor={`lab-text-${execution.id}`} required><Textarea id={`lab-text-${execution.id}`} name="textValue" maxLength={4000} defaultValue={current?.resultType === 'text' ? current.textValue ?? '' : ''} required /></Field>}
+        ? <Field label="Numeric value" htmlFor={`lab-numeric-${execution.id}`} error={problems.error(`lab-numeric-${execution.id}`)} required><Input id={`lab-numeric-${execution.id}`} name="numericValue" type="number" step="any" defaultValue={current?.resultType === 'numeric' ? current.numericValue ?? '' : ''} required {...problems.control(`lab-numeric-${execution.id}`)} /></Field>
+        : <Field label="Text value" htmlFor={`lab-text-${execution.id}`} error={problems.error(`lab-text-${execution.id}`)} required><Textarea id={`lab-text-${execution.id}`} name="textValue" maxLength={4000} defaultValue={current?.resultType === 'text' ? current.textValue ?? '' : ''} required {...problems.control(`lab-text-${execution.id}`)} /></Field>}
       <div className="staff-form-row">
         <Field label="Unit" htmlFor={`lab-unit-${execution.id}`}><Input id={`lab-unit-${execution.id}`} name="unit" maxLength={80} defaultValue={current?.unit ?? ''} /></Field>
         <Field label="Reference range" htmlFor={`lab-range-${execution.id}`}><Input id={`lab-range-${execution.id}`} name="referenceRange" maxLength={240} defaultValue={current?.referenceRange ?? ''} /></Field>
       </div>
-      <Field label="Abnormal flag" htmlFor={`lab-flag-${execution.id}`}><Select id={`lab-flag-${execution.id}`} name="abnormalFlag" defaultValue={current?.abnormalFlag ?? 'unknown'}>{abnormalFlags.map(flag => <option key={flag} value={flag}>{flag.replaceAll('_', ' ')}</option>)}</Select></Field>
-      {result && <><Field label="Revision type" htmlFor={`lab-revision-kind-${execution.id}`}><Select id={`lab-revision-kind-${execution.id}`} name="revisionKind"><option value="correction">Correction</option><option value="amendment">Amendment</option></Select></Field><Field label="Reason" htmlFor={`lab-result-reason-${execution.id}`} required><Textarea id={`lab-result-reason-${execution.id}`} name="reason" maxLength={500} required /></Field></>}
+      <Field label="Abnormal flag" htmlFor={`lab-flag-${execution.id}`} error={problems.error(`lab-flag-${execution.id}`)}><Select id={`lab-flag-${execution.id}`} name="abnormalFlag" defaultValue={current?.abnormalFlag ?? 'unknown'} {...problems.control(`lab-flag-${execution.id}`)}>{abnormalFlags.map(flag => <option key={flag} value={flag}>{flag.replaceAll('_', ' ')}</option>)}</Select></Field>
+      {result && <><Field label="Revision type" htmlFor={`lab-revision-kind-${execution.id}`}><Select id={`lab-revision-kind-${execution.id}`} name="revisionKind"><option value="correction">Correction</option><option value="amendment">Amendment</option></Select></Field><Field label="Reason" htmlFor={`lab-result-reason-${execution.id}`} error={problems.error(`lab-result-reason-${execution.id}`)} required><Textarea id={`lab-result-reason-${execution.id}`} name="reason" maxLength={500} required {...problems.control(`lab-result-reason-${execution.id}`)} /></Field></>}
       {error && <p className="staff-error" role="alert">{error}</p>}
       <Button type="submit" size="sm" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Recording…' : result ? 'Record new revision' : 'Record unverified result'}</Button>
     </form>
@@ -200,12 +211,15 @@ function ResultGovernance({ facilityId, result, action, onChanged, onRefused }: 
 }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const problems = useFieldProblems()
+  const reasonId = `lab-${action}-reason-${result.id}`
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (busy) return
     const reason = String(new FormData(event.currentTarget).get('reason') ?? '').trim()
-    if (!reason) return setError('Enter a reason for this decision.')
-    setBusy(true); setError('')
+    setError(''); problems.clear()
+    if (!reason) return problems.refuse(reasonId, 'Enter a reason for this decision.')
+    setBusy(true)
     try {
       const value = action === 'verify'
         ? await staffApi.verifyLabResult(facilityId, result, reason)
@@ -216,7 +230,7 @@ function ResultGovernance({ facilityId, result, action, onChanged, onRefused }: 
   }
   return <form className="staff-form" onSubmit={event => void submit(event)}>
     <p className="staff-muted">{action === 'verify' ? 'Verify version ' + result.currentVersion + ' after independent review. The person who entered it cannot verify it.' : 'Release verified version ' + result.currentVersion + ' to authorized readers.'}</p>
-    <Field label={`${action === 'verify' ? 'Verification' : 'Release'} reason`} htmlFor={`lab-${action}-reason-${result.id}`} required><Textarea id={`lab-${action}-reason-${result.id}`} name="reason" maxLength={500} required /></Field>
+    <Field label={`${action === 'verify' ? 'Verification' : 'Release'} reason`} htmlFor={reasonId} error={problems.error(reasonId)} required><Textarea id={reasonId} name="reason" maxLength={500} required {...problems.control(reasonId)} /></Field>
     {error && <p className="staff-error" role="alert">{error}</p>}
     <Button type="submit" size="sm" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Recording…' : action === 'verify' ? 'Verify result version' : 'Release result version'}</Button>
   </form>
@@ -344,6 +358,7 @@ function ExecutionPanel({ facilityId, specimen, permissions, generation, recheck
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [startError, setStartError] = useState('')
+  const startProblems = useFieldProblems()
   const [busy, setBusy] = useState(false)
   const [revision, setRevision] = useState(0)
   // A step removes the form that made it; focus goes to its execution, if it was lost.
@@ -412,8 +427,9 @@ function ExecutionPanel({ facilityId, specimen, permissions, generation, recheck
     const form = new FormData(event.currentTarget)
     const reason = String(form.get('reason') ?? '').trim()
     const method = String(form.get('method') ?? '').trim()
-    if (!reason) return setStartError('Enter a reason to begin execution.')
-    setBusy(true); setStartError(''); setNotice('')
+    setStartError(''); startProblems.clear()
+    if (!reason) return startProblems.refuse(`lab-start-reason-${specimen.id}`, 'Enter a reason to begin execution.')
+    setBusy(true); setNotice('')
     try { changedExecution(await staffApi.startLabExecution(facilityId, specimen, reason, method), 'Analytical execution started.') }
     catch (caught) { setStartError(errorText(caught, 'Execution could not be started. Refresh the specimen first.')); recheckAccess(caught) }
     finally { setBusy(false) }
@@ -428,7 +444,7 @@ function ExecutionPanel({ facilityId, specimen, permissions, generation, recheck
     {canStart && !loading && !error && (items?.length === 0 || (!canRead && !items)) && <form className="staff-form" onSubmit={event => void start(event)}>
       <p className="staff-muted">Begin analysis for this received specimen. The backend checks the exact specimen version and patient authorization.</p>
       <Field label="Method" htmlFor={`lab-method-${specimen.id}`}><Input id={`lab-method-${specimen.id}`} name="method" maxLength={240} /></Field>
-      <Field label="Reason" htmlFor={`lab-start-reason-${specimen.id}`} required><Textarea id={`lab-start-reason-${specimen.id}`} name="reason" maxLength={500} required /></Field>
+      <Field label="Reason" htmlFor={`lab-start-reason-${specimen.id}`} error={startProblems.error(`lab-start-reason-${specimen.id}`)} required><Textarea id={`lab-start-reason-${specimen.id}`} name="reason" maxLength={500} required {...startProblems.control(`lab-start-reason-${specimen.id}`)} /></Field>
       {startError && <p className="staff-error" role="alert">{startError}</p>}
       <Button type="submit" size="sm" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Starting…' : 'Start execution'}</Button>
     </form>}
@@ -522,14 +538,20 @@ function PharmacyAction({ facilityId, item, permissions, onChanged }: { facility
   const [success, setSuccess] = useState('')
   // Recording removes the form once the work list is read again: focus goes to the prescription.
   const focus = useFocusById()
+  const problems = useFieldProblems()
   async function submit(event: FormEvent<HTMLFormElement>, reverse = false) {
     event.preventDefault()
     // The button stays focusable while the request runs; a second press does nothing.
     if (busy) return
-    setError(''); setSuccess('')
+    setError(''); setSuccess(''); problems.clear()
     const form = new FormData(event.currentTarget)
     const reason = String(form.get('reason') ?? '').trim()
-    if (reason.length < 8) return setError('Enter a reason of at least 8 characters.')
+    if (reason.length < 8) return problems.refuse(reverse ? `pharmacy-reversal-${item.id}` : `pharmacy-reason-${item.id}`, 'Enter a reason of at least 8 characters.')
+    const quantity = Number(form.get('quantity'))
+    const unit = String(form.get('unit') ?? '').trim()
+    if (!reverse && (!Number.isFinite(quantity) || quantity <= 0 || !unit)) {
+      return problems.refuse(!Number.isFinite(quantity) || quantity <= 0 ? `pharmacy-quantity-${item.id}` : `pharmacy-unit-${item.id}`, 'Enter a positive quantity and unit.')
+    }
     setBusy(true)
     try {
       if (reverse) {
@@ -538,9 +560,6 @@ function PharmacyAction({ facilityId, item, permissions, onChanged }: { facility
         await staffApi.reverseDispensing(facilityId, current.id, current.version, reason)
         setSuccess('Dispensing reversal recorded.')
       } else {
-        const quantity = Number(form.get('quantity'))
-        const unit = String(form.get('unit') ?? '').trim()
-        if (!Number.isFinite(quantity) || quantity <= 0 || !unit) throw new Error('Enter a positive quantity and unit.')
         await staffApi.dispense(facilityId, item, quantity, unit, reason)
         setSuccess('Dispensing recorded.')
       }
@@ -554,8 +573,8 @@ function PharmacyAction({ facilityId, item, permissions, onChanged }: { facility
   return <div className="staff-list-item"><div className="staff-row"><strong id={`pharmacy-${item.id}-title`} tabIndex={-1}>{item.medication.display}</strong><Badge tone={item.dispensing?.reversed ? 'warning' : item.dispensing ? 'success' : 'information'}>{item.dispensing?.reversed ? 'Reversed' : item.dispensing ? 'Dispensed' : 'Accepted'}</Badge></div><p>Patient {shortId(item.patientId)} · {item.doseQuantity == null ? 'Dose not recorded' : `${item.doseQuantity} ${item.doseUnit ?? ''}`} · {item.frequency ?? 'Frequency not recorded'}</p>
     <p>{item.routeCode ? `Route: ${item.routeCode}` : 'Route not recorded'}</p>
     {item.instructions && <p className="staff-note-content">{item.instructions}</p>}
-    {canDispense && <form className="staff-form" onSubmit={event => void submit(event)}><div className="staff-form-row"><Field label="Quantity dispensed" htmlFor={`pharmacy-quantity-${item.id}`} required><Input id={`pharmacy-quantity-${item.id}`} name="quantity" type="number" min="0.0001" step="0.0001" required /></Field><Field label="Unit" htmlFor={`pharmacy-unit-${item.id}`} required><Input id={`pharmacy-unit-${item.id}`} name="unit" maxLength={80} defaultValue={item.doseUnit ?? ''} required /></Field></div><Field label="Reason" htmlFor={`pharmacy-reason-${item.id}`} required><Textarea id={`pharmacy-reason-${item.id}`} name="reason" minLength={8} maxLength={500} required /></Field><Button type="submit" size="sm" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Recording…' : 'Record full dispensing'}</Button></form>}
-    {canReverse && <form className="staff-form" onSubmit={event => void submit(event, true)}><Field label="Reversal reason" htmlFor={`pharmacy-reversal-${item.id}`} required><Textarea id={`pharmacy-reversal-${item.id}`} name="reason" minLength={8} maxLength={500} required /></Field><Button type="submit" tone="secondary" size="sm" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Recording…' : 'Reverse dispensing'}</Button></form>}
+    {canDispense && <form className="staff-form" onSubmit={event => void submit(event)}><div className="staff-form-row"><Field label="Quantity dispensed" htmlFor={`pharmacy-quantity-${item.id}`} error={problems.error(`pharmacy-quantity-${item.id}`)} required><Input id={`pharmacy-quantity-${item.id}`} name="quantity" type="number" min="0.0001" step="0.0001" required {...problems.control(`pharmacy-quantity-${item.id}`)} /></Field><Field label="Unit" htmlFor={`pharmacy-unit-${item.id}`} error={problems.error(`pharmacy-unit-${item.id}`)} required><Input id={`pharmacy-unit-${item.id}`} name="unit" maxLength={80} defaultValue={item.doseUnit ?? ''} required {...problems.control(`pharmacy-unit-${item.id}`)} /></Field></div><Field label="Reason" htmlFor={`pharmacy-reason-${item.id}`} error={problems.error(`pharmacy-reason-${item.id}`)} required><Textarea id={`pharmacy-reason-${item.id}`} name="reason" minLength={8} maxLength={500} required {...problems.control(`pharmacy-reason-${item.id}`)} /></Field><Button type="submit" size="sm" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Recording…' : 'Record full dispensing'}</Button></form>}
+    {canReverse && <form className="staff-form" onSubmit={event => void submit(event, true)}><Field label="Reversal reason" htmlFor={`pharmacy-reversal-${item.id}`} error={problems.error(`pharmacy-reversal-${item.id}`)} required><Textarea id={`pharmacy-reversal-${item.id}`} name="reason" minLength={8} maxLength={500} required {...problems.control(`pharmacy-reversal-${item.id}`)} /></Field><Button type="submit" tone="secondary" size="sm" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Recording…' : 'Reverse dispensing'}</Button></form>}
     {error && <p className="staff-error" role="alert">{error}</p>}
     {/* Mounted throughout, so what was recorded is announced. */}
     <div id={`pharmacy-status-${item.id}`} role="status">{success && <p className="staff-success">{success}</p>}</div>
@@ -900,14 +919,16 @@ function CampaignCard({ facilityId, membershipId, campaign, permissions, onChang
   const [success, setSuccess] = useState('')
   // Closing a campaign removes its form: focus goes to the campaign.
   const focus = useFocusById()
+  const problems = useFieldProblems()
   const startsInFuture = campaign.status === 'planned' && new Date(campaign.startsAt).getTime() > Date.now()
   async function transition(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (busy) return
     const reason = String(new FormData(event.currentTarget).get('reason') ?? '').trim()
     const status = campaign.status === 'planned' ? 'active' : 'closed'
-    if (reason.length < 8) return setError('Enter a status reason of at least 8 characters.')
-    setBusy(true); setError(''); setSuccess('')
+    setError(''); problems.clear()
+    if (reason.length < 8) return problems.refuse(`campaign-reason-${campaign.id}`, 'Enter a status reason of at least 8 characters.')
+    setBusy(true); setSuccess('')
     try { await staffApi.updateOutreachCampaignStatus(facilityId, campaign, status, reason); setSuccess(`Campaign ${status}.`); await onChanged(); focus(`campaign-${campaign.id}-title`, true) }
     catch (caught) { setError(errorText(caught, 'Campaign status could not be updated. Refresh and try again.')) }
     finally { setBusy(false) }
@@ -919,16 +940,17 @@ function CampaignCard({ facilityId, membershipId, campaign, permissions, onChang
     const form = new FormData(element)
     const membershipId = String(form.get('membershipId') ?? '').trim()
     const role = String(form.get('role') ?? 'enumerator') as OutreachCampaignMember['role']
-    if (!membershipId) return setError('Enter a facility membership ID.')
-    setBusy(true); setError(''); setSuccess('')
+    setError(''); problems.clear()
+    if (!membershipId) return problems.refuse(`campaign-member-${campaign.id}`, 'Enter a facility membership ID.')
+    setBusy(true); setSuccess('')
     try { await staffApi.addOutreachCampaignMember(facilityId, campaign.id, membershipId, role); setSuccess('Campaign member added.'); element.reset(); await members.refresh() }
     catch (caught) { setError(errorText(caught, 'Campaign member could not be added.')) }
     finally { setBusy(false) }
   }
   return <div className="staff-list-item"><div className="staff-row"><strong id={`campaign-${campaign.id}-title`} tabIndex={-1}>{campaign.name}</strong><Badge tone={campaign.status === 'active' ? 'success' : 'neutral'}>{campaign.status}</Badge></div><p>{campaign.services.join(', ')} · Starts {dateText(campaign.startsAt)}</p>
     {canRead && <details><summary>Members</summary><ListState loading={members.loading} error={members.error} empty="No members" retry={() => void members.refresh()} hasItems={Boolean(members.items?.length)} />{members.items?.map(member => <p key={member.id}>{member.role.replaceAll('_', ' ')} · Membership {shortId(member.membershipId)}</p>)}</details>}
-    {canWrite && campaign.status !== 'closed' && <form className="staff-form" onSubmit={event => void transition(event)}><Field label={campaign.status === 'planned' ? 'Activation reason' : 'Closure reason'} htmlFor={`campaign-reason-${campaign.id}`} required><Input id={`campaign-reason-${campaign.id}`} name="reason" minLength={8} maxLength={500} required /></Field>{startsInFuture && <p className="staff-muted">Activation is available after the start time. Refresh the campaign then.</p>}<Button type="submit" tone="secondary" size="sm" disabled={startsInFuture} aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Updating…' : campaign.status === 'planned' ? 'Activate campaign' : 'Close campaign'}</Button></form>}
-    {canWrite && <details><summary>Add campaign member</summary><form className="staff-form" onSubmit={event => void addMember(event)}><Field label="Facility membership ID" htmlFor={`campaign-member-${campaign.id}`} required><Input id={`campaign-member-${campaign.id}`} name="membershipId" placeholder="Membership UUID" required /></Field><Field label="Campaign role" htmlFor={`campaign-role-${campaign.id}`}><Select id={`campaign-role-${campaign.id}`} name="role"><option value="enumerator">Enumerator</option><option value="health_worker">Health worker</option><option value="admin">Admin</option></Select></Field><Button type="submit" size="sm" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Adding…' : 'Add member'}</Button></form></details>}
+    {canWrite && campaign.status !== 'closed' && <form className="staff-form" onSubmit={event => void transition(event)}><Field label={campaign.status === 'planned' ? 'Activation reason' : 'Closure reason'} htmlFor={`campaign-reason-${campaign.id}`} error={problems.error(`campaign-reason-${campaign.id}`)} required><Input id={`campaign-reason-${campaign.id}`} name="reason" minLength={8} maxLength={500} required {...problems.control(`campaign-reason-${campaign.id}`)} /></Field>{startsInFuture && <p className="staff-muted">Activation is available after the start time. Refresh the campaign then.</p>}<Button type="submit" tone="secondary" size="sm" disabled={startsInFuture} aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Updating…' : campaign.status === 'planned' ? 'Activate campaign' : 'Close campaign'}</Button></form>}
+    {canWrite && <details><summary>Add campaign member</summary><form className="staff-form" onSubmit={event => void addMember(event)}><Field label="Facility membership ID" htmlFor={`campaign-member-${campaign.id}`} error={problems.error(`campaign-member-${campaign.id}`)} required><Input id={`campaign-member-${campaign.id}`} name="membershipId" placeholder="Membership UUID" required {...problems.control(`campaign-member-${campaign.id}`)} /></Field><Field label="Campaign role" htmlFor={`campaign-role-${campaign.id}`}><Select id={`campaign-role-${campaign.id}`} name="role"><option value="enumerator">Enumerator</option><option value="health_worker">Health worker</option><option value="admin">Admin</option></Select></Field><Button type="submit" size="sm" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Adding…' : 'Add member'}</Button></form></details>}
     {error && <p className="staff-error" role="alert">{error}</p>}
     {/* Mounted throughout, so what was recorded is announced. */}
     <div id={`outreach-campaign-status-${campaign.id}`} role="status">{success && <p className="staff-success">{success}</p>}</div>
@@ -941,6 +963,7 @@ function OutreachCaseCard({ facilityId, item, canLink, onChanged }: { facilityId
   const [success, setSuccess] = useState('')
   // A link resolves the case, which removes its form: focus goes to the case.
   const focus = useFocusById()
+  const problems = useFieldProblems()
   async function linkExisting(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (busy) return
@@ -948,14 +971,17 @@ function OutreachCaseCard({ facilityId, item, canLink, onChanged }: { facilityId
     const form = new FormData(element)
     const patientId = String(form.get('patientId') ?? '').trim()
     const reason = String(form.get('reason') ?? '').trim()
-    if (!patientId || reason.length < 8) return setError('Enter a canonical patient ID and a reason of at least 8 characters.')
-    setBusy(true); setError(''); setSuccess('')
+    setError(''); problems.clear()
+    if (!patientId || reason.length < 8) {
+      return problems.refuse(!patientId ? `outreach-patient-${item.id}` : `outreach-reason-${item.id}`, 'Enter a canonical patient ID and a reason of at least 8 characters.')
+    }
+    setBusy(true); setSuccess('')
     try { await staffApi.linkExistingOutreachCase(facilityId, item, patientId, reason); setSuccess('Existing patient linked.'); await onChanged(); focus(`outreach-case-${item.id}-title`, true) }
     catch (caught) { setError(errorText(caught, 'Patient could not be linked. Verify access and refresh the case.')) }
     finally { setBusy(false) }
   }
   return <div className="staff-list-item"><div className="staff-row"><strong id={`outreach-case-${item.id}-title`} tabIndex={-1}>{item.fullName ?? 'Registrant'}</strong><Badge tone={item.status === 'identity_resolved' ? 'success' : 'warning'}>{item.status.replaceAll('_', ' ')}</Badge></div><p>Case {shortId(item.id)} · {item.ageYears == null ? 'Age not recorded' : `${item.ageYears} years`} · {item.sex ?? 'Unknown'} · {dateText(item.createdAt)}</p>{item.temporaryPatientId && <p>Temporary ID {shortId(item.temporaryPatientId)}</p>}
-    {canLink && item.status === 'identity_resolution_pending' && <details><summary>Link verified existing patient</summary><form className="staff-form" onSubmit={event => void linkExisting(event)}><Field label="Canonical patient ID" htmlFor={`outreach-patient-${item.id}`} required><Input id={`outreach-patient-${item.id}`} name="patientId" placeholder="Patient UUID" required /></Field><Field label="Resolution reason" htmlFor={`outreach-reason-${item.id}`} required><Textarea id={`outreach-reason-${item.id}`} name="reason" minLength={8} maxLength={1000} required /></Field><p className="staff-muted">The server checks your exact patient authorization and the case version.</p><Button type="submit" size="sm" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Linking…' : 'Link existing patient'}</Button></form></details>}
+    {canLink && item.status === 'identity_resolution_pending' && <details><summary>Link verified existing patient</summary><form className="staff-form" onSubmit={event => void linkExisting(event)}><Field label="Canonical patient ID" htmlFor={`outreach-patient-${item.id}`} error={problems.error(`outreach-patient-${item.id}`)} required><Input id={`outreach-patient-${item.id}`} name="patientId" placeholder="Patient UUID" required {...problems.control(`outreach-patient-${item.id}`)} /></Field><Field label="Resolution reason" htmlFor={`outreach-reason-${item.id}`} error={problems.error(`outreach-reason-${item.id}`)} required><Textarea id={`outreach-reason-${item.id}`} name="reason" minLength={8} maxLength={1000} required {...problems.control(`outreach-reason-${item.id}`)} /></Field><p className="staff-muted">The server checks your exact patient authorization and the case version.</p><Button type="submit" size="sm" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Linking…' : 'Link existing patient'}</Button></form></details>}
     {error && <p className="staff-error" role="alert">{error}</p>}
     {/* Mounted throughout, so what was recorded is announced. */}
     <div id={`outreach-case-status-${item.id}`} role="status">{success && <p className="staff-success">{success}</p>}</div>
@@ -971,6 +997,7 @@ export function Outreach() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  const problems = useFieldProblems()
   const [eligibleCampaigns, setEligibleCampaigns] = useState<{ facilityId: string; ids: Set<string> }>({ facilityId: '', ids: new Set() })
   const recordMembership = useCallback((campaignId: string, isMember: boolean) => {
     setEligibleCampaigns(previous => {
@@ -990,9 +1017,11 @@ export function Outreach() {
     const name = String(form.get('name') ?? '').trim()
     const services = form.getAll('services').map(String)
     const startTime = new Date(String(form.get('startsAt') ?? ''))
-    if (name.length < 2 || services.length === 0) return setError('Enter a campaign name and choose at least one service.')
-    if (Number.isNaN(startTime.getTime())) return setError('Enter a valid campaign start date.')
-    setBusy(true); setError(''); setSuccess('')
+    setError(''); problems.clear()
+    if (name.length < 2) return problems.refuse('outreach-campaign-name', 'Enter a campaign name and choose at least one service.')
+    if (services.length === 0) return problems.refuse('outreach-campaign-services', 'Enter a campaign name and choose at least one service.', `outreach-service-${outreachServices[0][0]}`)
+    if (Number.isNaN(startTime.getTime())) return problems.refuse('outreach-campaign-start', 'Enter a valid campaign start date.')
+    setBusy(true); setSuccess('')
     try { await staffApi.createOutreachCampaign(facilityId, { name, services, startsAt: startTime.toISOString() }); setSuccess('Campaign created.'); element.reset(); await campaigns.refresh() }
     catch (caught) { setError(errorText(caught, 'Campaign could not be created.')) }
     finally { setBusy(false) }
@@ -1009,10 +1038,11 @@ export function Outreach() {
     const ageYears = Number(form.get('ageYears'))
     const phone = String(form.get('phone') ?? '').trim() || undefined
     const operationalNotes = String(form.get('operationalNotes') ?? '').trim() || undefined
-    if (!fullName || !Number.isInteger(ageYears) || ageYears < 0 || ageYears > 130) return setError('Enter a name and a valid age.')
+    setError(''); problems.clear()
+    if (!fullName || !Number.isInteger(ageYears) || ageYears < 0 || ageYears > 130) return problems.refuse(!fullName ? 'outreach-case-name' : 'outreach-case-age', 'Enter a name and a valid age.')
     // CreateRegistrationCaseDto takes operational notes of 3 to 2000 characters, or none.
-    if (operationalNotes !== undefined && operationalNotes.length < 3) return setError('Operational notes need at least 3 characters, or leave them blank.')
-    setBusy(true); setError(''); setSuccess('')
+    if (operationalNotes !== undefined && operationalNotes.length < 3) return problems.refuse('outreach-case-notes', 'Operational notes need at least 3 characters, or leave them blank.')
+    setBusy(true); setSuccess('')
     try { await staffApi.createOutreachCase(facilityId, { campaignId, fullName, sex, ageYears, phone, operationalNotes }); setSuccess('Registration case created for identity resolution.'); element.reset(); await cases.refresh() }
     catch (caught) { setError(errorText(caught, 'Registration case could not be created.')) }
     finally { setBusy(false) }
@@ -1026,10 +1056,10 @@ export function Outreach() {
     <div id="outreach-status" role="status">{success && <p className="staff-success">{success}</p>}</div>
     <div className="staff-two-col"><div className="staff-stack">
       {canReadCampaigns && <Card className="staff-card"><div className="staff-row"><h2>Campaigns</h2><Button tone="secondary" size="sm" onClick={() => void campaigns.refresh()} disabled={campaigns.loading}>Refresh</Button></div><ListState loading={campaigns.loading} error={campaigns.error} empty="No campaigns" retry={() => void campaigns.refresh()} hasItems={Boolean(campaigns.items?.length)} />{campaigns.items?.map((campaign: OutreachCampaign) => <CampaignCard key={campaign.id} facilityId={facilityId} membershipId={membershipId} campaign={campaign} permissions={permissions} onChanged={campaigns.refresh} onMembershipChange={recordMembership} />)}</Card>}
-      {permissions.includes('outreach.campaign.write') && <Card className="staff-card"><h2>New campaign</h2><form className="staff-form" onSubmit={event => void createCampaign(event)}><Field label="Campaign name" htmlFor="outreach-campaign-name" required><Input id="outreach-campaign-name" name="name" minLength={2} maxLength={200} required /></Field><Field label="Starts" htmlFor="outreach-campaign-start" required><Input id="outreach-campaign-start" name="startsAt" type="datetime-local" required /></Field><fieldset><legend>Services</legend>{outreachServices.map(([code, label]) => <label key={code} className="staff-row"><input type="checkbox" name="services" value={code} />{label}</label>)}</fieldset><Button type="submit" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Creating…' : 'Create campaign'}</Button></form></Card>}
+      {permissions.includes('outreach.campaign.write') && <Card className="staff-card"><h2>New campaign</h2><form className="staff-form" onSubmit={event => void createCampaign(event)}><Field label="Campaign name" htmlFor="outreach-campaign-name" error={problems.error('outreach-campaign-name')} required><Input id="outreach-campaign-name" name="name" minLength={2} maxLength={200} required {...problems.control('outreach-campaign-name')} /></Field><Field label="Starts" htmlFor="outreach-campaign-start" error={problems.error('outreach-campaign-start')} required><Input id="outreach-campaign-start" name="startsAt" type="datetime-local" required {...problems.control('outreach-campaign-start')} /></Field><fieldset {...problems.group('outreach-campaign-services')}><legend>Services</legend>{outreachServices.map(([code, label]) => <label key={code} className="staff-row"><input id={`outreach-service-${code}`} type="checkbox" name="services" value={code} />{label}</label>)}<GroupError field="outreach-campaign-services">{problems.error('outreach-campaign-services')}</GroupError></fieldset><Button type="submit" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Creating…' : 'Create campaign'}</Button></form></Card>}
     </div><div className="staff-stack">
       {canReadCases && <Card className="staff-card"><div className="staff-row"><h2>Registration cases</h2><Button tone="secondary" size="sm" onClick={() => void cases.refresh()} disabled={cases.loading}>Refresh</Button></div><ListState loading={cases.loading} error={cases.error} empty="No registration cases" retry={() => void cases.refresh()} hasItems={Boolean(cases.items?.length)} />{cases.items?.map((item: OutreachCase) => <OutreachCaseCard key={item.id} facilityId={facilityId} item={item} canLink={permissions.includes('outreach.registration.write')} onChanged={cases.refresh} />)}</Card>}
-      {permissions.includes('outreach.registration.write') && <Card className="staff-card"><h2>New registration case</h2><form className="staff-form" onSubmit={event => void createCase(event)}>{canReadCampaigns && <Field label="Campaign" htmlFor="outreach-case-campaign" hint="Only active registration campaigns containing your facility membership appear here. A case may also be created without a campaign."><Select id="outreach-case-campaign" name="campaignId"><option value="">No campaign</option>{campaigns.items?.filter(campaign => campaign.status === 'active' && campaign.services.includes('registration') && eligibleCampaigns.facilityId === facilityId && eligibleCampaigns.ids.has(campaign.id)).map(campaign => <option key={campaign.id} value={campaign.id}>{campaign.name}</option>)}</Select></Field>}<Field label="Full name" htmlFor="outreach-case-name" required><Input id="outreach-case-name" name="fullName" maxLength={200} required /></Field><div className="staff-form-row"><Field label="Sex" htmlFor="outreach-case-sex" required><Select id="outreach-case-sex" name="sex"><option value="unknown">Unknown</option><option value="female">Female</option><option value="male">Male</option><option value="other">Other</option></Select></Field><Field label="Age (years)" htmlFor="outreach-case-age" required><Input id="outreach-case-age" name="ageYears" type="number" min="0" max="130" required /></Field></div><Field label="Phone (optional)" htmlFor="outreach-case-phone"><Input id="outreach-case-phone" name="phone" minLength={3} maxLength={32} /></Field><Field label="Operational notes" htmlFor="outreach-case-notes"><Textarea id="outreach-case-notes" name="operationalNotes" minLength={3} maxLength={2000} /></Field><Button type="submit" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Creating…' : 'Create case'}</Button></form></Card>}
+      {permissions.includes('outreach.registration.write') && <Card className="staff-card"><h2>New registration case</h2><form className="staff-form" onSubmit={event => void createCase(event)}>{canReadCampaigns && <Field label="Campaign" htmlFor="outreach-case-campaign" hint="Only active registration campaigns containing your facility membership appear here. A case may also be created without a campaign."><Select id="outreach-case-campaign" name="campaignId"><option value="">No campaign</option>{campaigns.items?.filter(campaign => campaign.status === 'active' && campaign.services.includes('registration') && eligibleCampaigns.facilityId === facilityId && eligibleCampaigns.ids.has(campaign.id)).map(campaign => <option key={campaign.id} value={campaign.id}>{campaign.name}</option>)}</Select></Field>}<Field label="Full name" htmlFor="outreach-case-name" error={problems.error('outreach-case-name')} required><Input id="outreach-case-name" name="fullName" maxLength={200} required {...problems.control('outreach-case-name')} /></Field><div className="staff-form-row"><Field label="Sex" htmlFor="outreach-case-sex" required><Select id="outreach-case-sex" name="sex"><option value="unknown">Unknown</option><option value="female">Female</option><option value="male">Male</option><option value="other">Other</option></Select></Field><Field label="Age (years)" htmlFor="outreach-case-age" error={problems.error('outreach-case-age')} required><Input id="outreach-case-age" name="ageYears" type="number" min="0" max="130" required {...problems.control('outreach-case-age')} /></Field></div><Field label="Phone (optional)" htmlFor="outreach-case-phone"><Input id="outreach-case-phone" name="phone" minLength={3} maxLength={32} /></Field><Field label="Operational notes" htmlFor="outreach-case-notes" error={problems.error('outreach-case-notes')}><Textarea id="outreach-case-notes" name="operationalNotes" minLength={3} maxLength={2000} {...problems.control('outreach-case-notes')} /></Field><Button type="submit" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Creating…' : 'Create case'}</Button></form></Card>}
     </div></div>
   </>
 }

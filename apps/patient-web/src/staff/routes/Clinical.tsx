@@ -7,6 +7,7 @@ import { useStaff } from '../App'
 import { getEnvironment } from '../env'
 import { refusalText } from '../fieldProblem'
 import { BUSY, useFocusById } from '../focus'
+import { GroupError, useFieldProblems } from '../useFieldProblems'
 import { staffSessionGeneration, untilStaffSessionReady } from '../session'
 
 const tabs: Array<{ id: RecordKind | 'documents'; label: string; permission: string }> = [
@@ -205,15 +206,21 @@ function EncounterForm({ onCreated, disabled }: { onCreated: (input: { encounter
   return <Card className="staff-card"><h2>Start encounter</h2><p>Creating a clinical encounter requires current server authorization and a documented reason for care.</p><form className="staff-form" onSubmit={event => void submit(event)}><Field label="Encounter type" htmlFor="encounter-type" required><Select id="encounter-type" name="encounterType" required><option value="ambulatory">Outpatient</option><option value="emergency">Emergency</option><option value="inpatient">Inpatient</option><option value="virtual">Virtual</option><option value="home">Home</option><option value="other">Other</option></Select></Field><Field label="Chief complaint" htmlFor="chief-complaint" required><Textarea id="chief-complaint" name="chiefComplaint" maxLength={4000} required /></Field>{error && <p className="staff-error" role="alert">{error}</p>}<Button type="submit" aria-disabled={busy || disabled || undefined} className={BUSY}>{busy ? 'Creating…' : 'Start encounter'}</Button></form></Card>
 }
 
+/** A value refused before sending, at a control (or group) to tie it to and the control to focus. */
+class FieldRefusal extends Error {
+  constructor(readonly field: string, message: string, readonly focusId: string = field) { super(message) }
+}
+
 function RecordForm({ tab, onCreated, disabled }: { tab: RecordKind; onCreated: (kind: RecordKind, body: object, key: string) => Promise<void>; disabled: boolean }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const problems = useFieldProblems()
   const submitting = useRef(false)
   const attempt = useRef<{ signature: string; body: object; key: string } | null>(null)
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (submitting.current || disabled) return
-    submitting.current = true; setError(''); setBusy(true)
+    submitting.current = true; setError(''); problems.clear(); setBusy(true)
     const formElement = event.currentTarget
     const form = new FormData(formElement)
     try {
@@ -222,22 +229,26 @@ function RecordForm({ tab, onCreated, disabled }: { tab: RecordKind; onCreated: 
       else if (tab === 'vitals') {
         const measurements = Object.fromEntries(['heightCm', 'weightKg', 'temperatureC', 'pulseBpm', 'respiratoryRate', 'systolicMmhg', 'diastolicMmhg', 'oxygenSaturationPercent']
           .map(name => [name, number(form, name)] as const).filter(([, value]) => value !== undefined))
-        if (Object.keys(measurements).length === 0) throw new Error('Enter at least one vital measurement.')
+        if (Object.keys(measurements).length === 0) throw new FieldRefusal('vital-values', 'Enter at least one vital measurement.', 'vital-systolicMmhg')
         // EHR refuses one blood pressure reading without the other (400 BLOOD_PRESSURE_INCOMPLETE).
-        if (('systolicMmhg' in measurements) !== ('diastolicMmhg' in measurements)) throw new Error('Enter both systolic and diastolic blood pressure, or leave both blank.')
+        if (('systolicMmhg' in measurements) !== ('diastolicMmhg' in measurements)) {
+          throw new FieldRefusal('systolicMmhg' in measurements ? 'vital-diastolicMmhg' : 'vital-systolicMmhg', 'Enter both systolic and diastolic blood pressure, or leave both blank.')
+        }
         body = { recordedAt: isoNow(), source: 'manual', ...measurements }
       } else if (tab === 'diagnoses') body = { codeSystem: text(form, 'codeSystem'), code: text(form, 'code'), display: text(form, 'display'), clinicalStatus: text(form, 'clinicalStatus'), verificationStatus: text(form, 'verificationStatus'), notes: text(form, 'notes') || undefined }
       else if (tab === 'prescriptions') {
         const doseQuantity = number(form, 'doseQuantity')
         const doseUnit = text(form, 'doseUnit') || undefined
-        if ((doseQuantity === undefined) !== (doseUnit === undefined)) throw new Error('Enter both dose quantity and dose unit, or leave both blank.')
+        if ((doseQuantity === undefined) !== (doseUnit === undefined)) {
+          throw new FieldRefusal(doseQuantity === undefined ? 'dose-quantity' : 'dose-unit', 'Enter both dose quantity and dose unit, or leave both blank.')
+        }
         body = { medicationDisplay: text(form, 'medicationDisplay'), doseQuantity, doseUnit,
           routeCode: text(form, 'routeCode') || undefined, frequency: text(form, 'frequency'),
           instructions: text(form, 'instructions'), status: 'draft' }
       }
       else {
         const status = text(form, 'status')
-        if (status !== 'draft' && status !== 'active') throw new Error('Choose draft or active request.')
+        if (status !== 'draft' && status !== 'active') throw new FieldRefusal('lab-request-status', 'Choose draft or active request.')
         body = { testCodeSystem: text(form, 'testCodeSystem'), testCode: text(form, 'testCode'),
           testDisplay: text(form, 'testDisplay'), priority: text(form, 'priority'), status,
           specimenTypeCode: text(form, 'specimenTypeCode') || undefined,
@@ -248,16 +259,32 @@ function RecordForm({ tab, onCreated, disabled }: { tab: RecordKind; onCreated: 
       await onCreated(tab, attempt.current.body, attempt.current.key)
       formElement.reset()
       attempt.current = null
-    } catch (caught) { setError(errorMessage(caught, 'Record could not be saved.')) }
+    } catch (caught) {
+      if (caught instanceof FieldRefusal) problems.refuse(caught.field, caught.message, caught.focusId)
+      else {
+        // The inputs are named as the DTO's fields, so each field EHR refused is marked where it was entered.
+        setError(errorMessage(caught, 'Record could not be saved.'))
+        problems.markRefused(formElement, caught)
+      }
+    }
     finally { submitting.current = false; setBusy(false) }
   }
+  // A control in this form, marked invalid and described by its error while refused.
+  const field = (id: string) => ({ error: problems.error(id), control: problems.control(id) })
+  const f = {
+    noteType: field('note-type'), title: field('note-title'), content: field('note-content'),
+    system: field('diagnosis-system'), code: field('diagnosis-code'), display: field('diagnosis-display'), notes: field('diagnosis-notes'),
+    medication: field('medication'), dose: field('dose-quantity'), unit: field('dose-unit'), route: field('route-code'), frequency: field('frequency'), instructions: field('instructions'),
+    testSystem: field('test-system'), testCode: field('test-code'), testDisplay: field('test-display'), specimen: field('specimen-code'), information: field('test-information'), handling: field('lab-request-status'),
+  }
   return <Card className="staff-card"><h2>Add {tabs.find(item => item.id === tab)?.label.toLowerCase()}</h2><form className="staff-form" onSubmit={event => void submit(event)}>
-    {tab === 'clinical-notes' && <><Field label="Note type" htmlFor="note-type" required><Input id="note-type" name="noteType" placeholder="Consultation" maxLength={80} required /></Field><Field label="Title" htmlFor="note-title" required><Input id="note-title" name="title" maxLength={240} required /></Field><Field label="Clinical note" htmlFor="note-content" required><Textarea id="note-content" name="content" minLength={1} maxLength={100000} required /></Field><p className="staff-muted">Notes are saved as drafts. Signing needs its own reviewed action.</p></>}
-    {tab === 'vitals' && <div className="staff-form-row">{VITAL_FIELDS.map(([name, label, step, min, max]) =>
-      <Field key={name} label={label} htmlFor={`vital-${name}`}><Input id={`vital-${name}`} name={name} type="number" step={step} min={min} max={max} /></Field>)}</div>}
-    {tab === 'diagnoses' && <><div className="staff-form-row"><Field label="Code system" htmlFor="diagnosis-system" required><Input id="diagnosis-system" name="codeSystem" placeholder="ICD-10" maxLength={255} required /></Field><Field label="Code" htmlFor="diagnosis-code" required><Input id="diagnosis-code" name="code" maxLength={100} required /></Field></div><Field label="Display" htmlFor="diagnosis-display" required><Input id="diagnosis-display" name="display" maxLength={500} required /></Field><div className="staff-form-row"><Field label="Clinical status" htmlFor="diagnosis-status"><Select id="diagnosis-status" name="clinicalStatus">{diagnosisClinicalStatuses.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</Select></Field><Field label="Verification" htmlFor="diagnosis-verification"><Select id="diagnosis-verification" name="verificationStatus">{diagnosisVerificationStatuses.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</Select></Field></div><Field label="Notes" htmlFor="diagnosis-notes"><Textarea id="diagnosis-notes" name="notes" maxLength={4000} /></Field></>}
-    {tab === 'prescriptions' && <><Field label="Medication" htmlFor="medication" required><Input id="medication" name="medicationDisplay" maxLength={500} required /></Field><div className="staff-form-row"><Field label="Dose quantity" htmlFor="dose-quantity"><Input id="dose-quantity" name="doseQuantity" type="number" min="0.0001" step="0.0001" /></Field><Field label="Dose unit" htmlFor="dose-unit"><Input id="dose-unit" name="doseUnit" placeholder="mg" maxLength={80} /></Field></div><div className="staff-form-row"><Field label="Route code" htmlFor="route-code"><Input id="route-code" name="routeCode" placeholder="oral" maxLength={100} /></Field><Field label="Frequency" htmlFor="frequency" required><Input id="frequency" name="frequency" placeholder="Twice daily" maxLength={240} required /></Field></div><Field label="Instructions" htmlFor="instructions" required><Textarea id="instructions" name="instructions" maxLength={4000} required /></Field><p className="staff-muted">This creates an EHR draft. Pharmacy acceptance and dispensing are separate backend actions.</p></>}
-    {tab === 'lab-requests' && <><div className="staff-form-row"><Field label="Test code system" htmlFor="test-system" required><Input id="test-system" name="testCodeSystem" placeholder="LOINC" maxLength={255} required /></Field><Field label="Test code" htmlFor="test-code" required><Input id="test-code" name="testCode" maxLength={100} required /></Field></div><Field label="Test display" htmlFor="test-display" required><Input id="test-display" name="testDisplay" maxLength={500} required /></Field><div className="staff-form-row"><Field label="Priority" htmlFor="test-priority"><Select id="test-priority" name="priority"><option value="routine">Routine</option><option value="urgent">Urgent</option><option value="asap">As soon as possible</option><option value="stat">Stat</option></Select></Field><Field label="Specimen type code" htmlFor="specimen-code"><Input id="specimen-code" name="specimenTypeCode" maxLength={100} /></Field></div><Field label="Clinical information" htmlFor="test-information"><Textarea id="test-information" name="clinicalInformation" maxLength={4000} /></Field><Field label="Request handling" htmlFor="lab-request-status" required><Select id="lab-request-status" name="status" defaultValue="draft" required><option value="draft">Save EHR draft</option><option value="active">Create active request and send to Lab</option></Select></Field><p className="staff-muted">Active creation asks Lab to accept the order. If acceptance is not confirmed, review the request list before retrying. A draft stays in the EHR: it cannot be sent to Lab later, because that backend handoff is still missing, so create an active request to order the test.</p></>}
+    {tab === 'clinical-notes' && <><Field label="Note type" htmlFor="note-type" error={f.noteType.error} required><Input id="note-type" name="noteType" placeholder="Consultation" maxLength={80} required {...f.noteType.control} /></Field><Field label="Title" htmlFor="note-title" error={f.title.error} required><Input id="note-title" name="title" maxLength={240} required {...f.title.control} /></Field><Field label="Clinical note" htmlFor="note-content" error={f.content.error} required><Textarea id="note-content" name="content" minLength={1} maxLength={100000} required {...f.content.control} /></Field><p className="staff-muted">Notes are saved as drafts. Signing needs its own reviewed action.</p></>}
+    {tab === 'vitals' && <div role="group" aria-label="Vital measurements" {...problems.group('vital-values')}><div className="staff-form-row">{VITAL_FIELDS.map(([name, label, step, min, max]) =>
+      <Field key={name} label={label} htmlFor={`vital-${name}`} error={problems.error(`vital-${name}`)}><Input id={`vital-${name}`} name={name} type="number" step={step} min={min} max={max} {...problems.control(`vital-${name}`)} /></Field>)}</div>
+      <GroupError field="vital-values">{problems.error('vital-values')}</GroupError></div>}
+    {tab === 'diagnoses' && <><div className="staff-form-row"><Field label="Code system" htmlFor="diagnosis-system" error={f.system.error} required><Input id="diagnosis-system" name="codeSystem" placeholder="ICD-10" maxLength={255} required {...f.system.control} /></Field><Field label="Code" htmlFor="diagnosis-code" error={f.code.error} required><Input id="diagnosis-code" name="code" maxLength={100} required {...f.code.control} /></Field></div><Field label="Display" htmlFor="diagnosis-display" error={f.display.error} required><Input id="diagnosis-display" name="display" maxLength={500} required {...f.display.control} /></Field><div className="staff-form-row"><Field label="Clinical status" htmlFor="diagnosis-status"><Select id="diagnosis-status" name="clinicalStatus">{diagnosisClinicalStatuses.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</Select></Field><Field label="Verification" htmlFor="diagnosis-verification"><Select id="diagnosis-verification" name="verificationStatus">{diagnosisVerificationStatuses.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</Select></Field></div><Field label="Notes" htmlFor="diagnosis-notes" error={f.notes.error}><Textarea id="diagnosis-notes" name="notes" maxLength={4000} {...f.notes.control} /></Field></>}
+    {tab === 'prescriptions' && <><Field label="Medication" htmlFor="medication" error={f.medication.error} required><Input id="medication" name="medicationDisplay" maxLength={500} required {...f.medication.control} /></Field><div className="staff-form-row"><Field label="Dose quantity" htmlFor="dose-quantity" error={f.dose.error}><Input id="dose-quantity" name="doseQuantity" type="number" min="0.0001" step="0.0001" {...f.dose.control} /></Field><Field label="Dose unit" htmlFor="dose-unit" error={f.unit.error}><Input id="dose-unit" name="doseUnit" placeholder="mg" maxLength={80} {...f.unit.control} /></Field></div><div className="staff-form-row"><Field label="Route code" htmlFor="route-code" error={f.route.error}><Input id="route-code" name="routeCode" placeholder="oral" maxLength={100} {...f.route.control} /></Field><Field label="Frequency" htmlFor="frequency" error={f.frequency.error} required><Input id="frequency" name="frequency" placeholder="Twice daily" maxLength={240} required {...f.frequency.control} /></Field></div><Field label="Instructions" htmlFor="instructions" error={f.instructions.error} required><Textarea id="instructions" name="instructions" maxLength={4000} required {...f.instructions.control} /></Field><p className="staff-muted">This creates an EHR draft. Pharmacy acceptance and dispensing are separate backend actions.</p></>}
+    {tab === 'lab-requests' && <><div className="staff-form-row"><Field label="Test code system" htmlFor="test-system" error={f.testSystem.error} required><Input id="test-system" name="testCodeSystem" placeholder="LOINC" maxLength={255} required {...f.testSystem.control} /></Field><Field label="Test code" htmlFor="test-code" error={f.testCode.error} required><Input id="test-code" name="testCode" maxLength={100} required {...f.testCode.control} /></Field></div><Field label="Test display" htmlFor="test-display" error={f.testDisplay.error} required><Input id="test-display" name="testDisplay" maxLength={500} required {...f.testDisplay.control} /></Field><div className="staff-form-row"><Field label="Priority" htmlFor="test-priority"><Select id="test-priority" name="priority"><option value="routine">Routine</option><option value="urgent">Urgent</option><option value="asap">As soon as possible</option><option value="stat">Stat</option></Select></Field><Field label="Specimen type code" htmlFor="specimen-code" error={f.specimen.error}><Input id="specimen-code" name="specimenTypeCode" maxLength={100} {...f.specimen.control} /></Field></div><Field label="Clinical information" htmlFor="test-information" error={f.information.error}><Textarea id="test-information" name="clinicalInformation" maxLength={4000} {...f.information.control} /></Field><Field label="Request handling" htmlFor="lab-request-status" error={f.handling.error} required><Select id="lab-request-status" name="status" defaultValue="draft" required {...f.handling.control}><option value="draft">Save EHR draft</option><option value="active">Create active request and send to Lab</option></Select></Field><p className="staff-muted">Active creation asks Lab to accept the order. If acceptance is not confirmed, review the request list before retrying. A draft stays in the EHR: it cannot be sent to Lab later, because that backend handoff is still missing, so create an active request to order the test.</p></>}
     {error && <p className="staff-error" role="alert">{error}</p>}<Button type="submit" aria-disabled={busy || disabled || undefined} className={BUSY}>{busy ? 'Saving…' : tab === 'lab-requests' ? 'Create lab request' : tab === 'vitals' || tab === 'diagnoses' ? 'Save record' : 'Save draft'}</Button>
   </form></Card>
 }
@@ -268,6 +295,7 @@ function StatusActionForm({ id, title, choices, disabled, onChange }: {
 }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const problems = useFieldProblems()
   const submitting = useRef(false)
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -276,19 +304,18 @@ function StatusActionForm({ id, title, choices, disabled, onChange }: {
     const form = new FormData(formElement)
     const status = text(form, 'status')
     const reason = text(form, 'reason')
-    if (!choices.some(choice => choice.value === status) || reason.length < 3) {
-      setError('Choose an allowed status and give a reason of at least 3 characters.')
-      return
-    }
-    submitting.current = true; setBusy(true); setError('')
+    setError(''); problems.clear()
+    if (!choices.some(choice => choice.value === status)) return problems.refuse(`${id}-status`, 'Choose an allowed status.')
+    if (reason.length < 3) return problems.refuse(`${id}-reason`, 'Give a reason of at least 3 characters.')
+    submitting.current = true; setBusy(true)
     try { await onChange(status, reason); formElement.reset() }
     catch (caught) { setError(errorMessage(caught, 'Status could not be changed.')) }
     finally { submitting.current = false; setBusy(false) }
   }
   return <form className="staff-form" onSubmit={event => void submit(event)}>
     <strong>{title}</strong>
-    <Field label="New status" htmlFor={`${id}-status`} required><Select id={`${id}-status`} name="status" defaultValue={choices[0]?.value} required>{choices.map(choice => <option key={choice.value} value={choice.value}>{choice.label}</option>)}</Select></Field>
-    <Field label="Reason for change" htmlFor={`${id}-reason`} required><Input id={`${id}-reason`} name="reason" minLength={3} maxLength={500} required /></Field>
+    <Field label="New status" htmlFor={`${id}-status`} error={problems.error(`${id}-status`)} required><Select id={`${id}-status`} name="status" defaultValue={choices[0]?.value} required {...problems.control(`${id}-status`)}>{choices.map(choice => <option key={choice.value} value={choice.value}>{choice.label}</option>)}</Select></Field>
+    <Field label="Reason for change" htmlFor={`${id}-reason`} error={problems.error(`${id}-reason`)} required><Input id={`${id}-reason`} name="reason" minLength={3} maxLength={500} required {...problems.control(`${id}-reason`)} /></Field>
     {error && <p className="staff-error" role="alert">{error}</p>}
     <Button type="submit" tone="secondary" size="sm" aria-disabled={busy || disabled || undefined} className={UNAVAILABLE}>{busy ? 'Updating…' : 'Update status'}</Button>
   </form>
@@ -300,6 +327,7 @@ function ReasonActionForm({ id, title, actionLabel, minLength = 3, disabled, onA
 }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const problems = useFieldProblems()
   const submitting = useRef(false)
   const attempt = useRef<{ reason: string; key: string } | null>(null)
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -307,19 +335,17 @@ function ReasonActionForm({ id, title, actionLabel, minLength = 3, disabled, onA
     if (submitting.current || disabled) return
     const formElement = event.currentTarget
     const reason = text(new FormData(formElement), 'reason')
-    if (reason.length < minLength) {
-      setError(`Give a reason of at least ${minLength} characters.`)
-      return
-    }
+    setError(''); problems.clear()
+    if (reason.length < minLength) return problems.refuse(`${id}-reason`, `Give a reason of at least ${minLength} characters.`)
     if (attempt.current?.reason !== reason) attempt.current = { reason, key: crypto.randomUUID() }
-    submitting.current = true; setBusy(true); setError('')
+    submitting.current = true; setBusy(true)
     try { await onAction(reason, attempt.current.key); formElement.reset(); attempt.current = null }
     catch (caught) { setError(errorMessage(caught, `${actionLabel} could not be completed.`)) }
     finally { submitting.current = false; setBusy(false) }
   }
   return <form className="staff-form" onSubmit={event => void submit(event)}>
     <strong>{title}</strong>
-    <Field label="Reason" htmlFor={`${id}-reason`} required><Input id={`${id}-reason`} name="reason" minLength={minLength} maxLength={500} required /></Field>
+    <Field label="Reason" htmlFor={`${id}-reason`} error={problems.error(`${id}-reason`)} required><Input id={`${id}-reason`} name="reason" minLength={minLength} maxLength={500} required {...problems.control(`${id}-reason`)} /></Field>
     {error && <p className="staff-error" role="alert">{error}</p>}
     <Button type="submit" tone="secondary" size="sm" aria-disabled={busy || disabled || undefined} className={UNAVAILABLE}>{busy ? 'Working…' : actionLabel}</Button>
   </form>
@@ -334,6 +360,7 @@ function DiagnosisUpdateForm({ id, diagnosis, disabled, onUpdate }: {
 }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const problems = useFieldProblems()
   const submitting = useRef(false)
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -348,21 +375,26 @@ function DiagnosisUpdateForm({ id, diagnosis, disabled, onUpdate }: {
       ...(verificationStatus !== String(diagnosis.verificationStatus ?? '') ? { verificationStatus } : {}),
       ...(notes !== String(diagnosis.notes ?? '').trim() ? { notes } : {}),
     }
-    if (Object.keys(changes).length === 0) { setError('Change the clinical status, verification or notes before saving.'); return }
-    if (reason.length < 3) { setError('Give a reason of at least 3 characters.'); return }
-    submitting.current = true; setBusy(true); setError('')
+    setError(''); problems.clear()
+    // "Nothing changed" is about the three fields together: it is tied to their group.
+    if (Object.keys(changes).length === 0) return problems.refuse(`${id}-changes`, 'Change the clinical status, verification or notes before saving.', `${id}-clinical`)
+    if (reason.length < 3) return problems.refuse(`${id}-reason`, 'Give a reason of at least 3 characters.')
+    submitting.current = true; setBusy(true)
     try { await onUpdate(changes, reason) }
     catch (caught) { setError(errorMessage(caught, 'The diagnosis could not be changed.')) }
     finally { submitting.current = false; setBusy(false) }
   }
   return <form className="staff-form" onSubmit={event => void submit(event)}>
     <strong>Change this diagnosis</strong>
-    <div className="staff-form-row">
-      <Field label="Clinical status" htmlFor={`${id}-clinical`}><Select id={`${id}-clinical`} name="clinicalStatus" defaultValue={String(diagnosis.clinicalStatus ?? '')}>{diagnosisClinicalStatuses.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</Select></Field>
-      <Field label="Verification" htmlFor={`${id}-verification`}><Select id={`${id}-verification`} name="verificationStatus" defaultValue={String(diagnosis.verificationStatus ?? '')}>{[...diagnosisVerificationStatuses, { value: 'entered_in_error', label: 'Entered in error' }].map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</Select></Field>
+    <div className="staff-form" role="group" aria-label="Diagnosis changes" {...problems.group(`${id}-changes`)}>
+      <div className="staff-form-row">
+        <Field label="Clinical status" htmlFor={`${id}-clinical`}><Select id={`${id}-clinical`} name="clinicalStatus" defaultValue={String(diagnosis.clinicalStatus ?? '')}>{diagnosisClinicalStatuses.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</Select></Field>
+        <Field label="Verification" htmlFor={`${id}-verification`}><Select id={`${id}-verification`} name="verificationStatus" defaultValue={String(diagnosis.verificationStatus ?? '')}>{[...diagnosisVerificationStatuses, { value: 'entered_in_error', label: 'Entered in error' }].map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</Select></Field>
+      </div>
+      <Field label="Notes" htmlFor={`${id}-notes`}><Textarea id={`${id}-notes`} name="notes" maxLength={4000} defaultValue={String(diagnosis.notes ?? '')} /></Field>
+      <GroupError field={`${id}-changes`}>{problems.error(`${id}-changes`)}</GroupError>
     </div>
-    <Field label="Notes" htmlFor={`${id}-notes`}><Textarea id={`${id}-notes`} name="notes" maxLength={4000} defaultValue={String(diagnosis.notes ?? '')} /></Field>
-    <Field label="Reason for change" htmlFor={`${id}-reason`} required><Input id={`${id}-reason`} name="reason" minLength={3} maxLength={500} required /></Field>
+    <Field label="Reason for change" htmlFor={`${id}-reason`} error={problems.error(`${id}-reason`)} required><Input id={`${id}-reason`} name="reason" minLength={3} maxLength={500} required {...problems.control(`${id}-reason`)} /></Field>
     <p className="staff-muted">Every change is kept in the record history. A diagnosis marked entered in error accepts no further change here.</p>
     {error && <p className="staff-error" role="alert">{error}</p>}
     <Button type="submit" tone="secondary" size="sm" aria-disabled={busy || disabled || undefined} className={UNAVAILABLE}>{busy ? 'Updating…' : 'Update diagnosis'}</Button>
@@ -376,6 +408,7 @@ function VitalCorrectionForm({ id, current, disabled, onCorrect }: {
 }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const problems = useFieldProblems()
   const submitting = useRef(false)
   const attempt = useRef<{ signature: string; key: string } | null>(null)
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -388,25 +421,31 @@ function VitalCorrectionForm({ id, current, disabled, onCorrect }: {
       if (value !== undefined) values[name] = value
     }
     const reason = text(form, 'reason')
-    const problem = Object.keys(values).length === 0 ? 'Enter at least one vital measurement.'
-      : (values.systolicMmhg === undefined) !== (values.diastolicMmhg === undefined) ? 'Enter both systolic and diastolic blood pressure, or leave both blank.'
-      : VITAL_FIELDS.every(([name]) => values[name] === (current[name] == null ? undefined : Number(current[name]))) ? 'Change at least one value before saving a correction.'
-      : reason.length < 3 ? 'Give a reason of at least 3 characters.' : ''
-    if (problem) { setError(problem); return }
+    setError(''); problems.clear()
+    // A rule about the values together is tied to their group; a missing blood pressure reading to its field.
+    if (Object.keys(values).length === 0) return problems.refuse(`${id}-values`, 'Enter at least one vital measurement.', `${id}-systolicMmhg`)
+    if ((values.systolicMmhg === undefined) !== (values.diastolicMmhg === undefined)) {
+      return problems.refuse(values.systolicMmhg === undefined ? `${id}-systolicMmhg` : `${id}-diastolicMmhg`, 'Enter both systolic and diastolic blood pressure, or leave both blank.')
+    }
+    if (VITAL_FIELDS.every(([name]) => values[name] === (current[name] == null ? undefined : Number(current[name])))) {
+      return problems.refuse(`${id}-values`, 'Change at least one value before saving a correction.', `${id}-systolicMmhg`)
+    }
+    if (reason.length < 3) return problems.refuse(`${id}-reason`, 'Give a reason of at least 3 characters.')
     // A retry of the same correction reuses its key, so EHR cannot append it twice.
     const signature = JSON.stringify([values, reason])
     if (attempt.current?.signature !== signature) attempt.current = { signature, key: crypto.randomUUID() }
-    submitting.current = true; setBusy(true); setError('')
+    submitting.current = true; setBusy(true)
     try { await onCorrect(values, reason, attempt.current.key); attempt.current = null }
     catch (caught) { setError(errorMessage(caught, 'The correction could not be saved.')) }
     finally { submitting.current = false; setBusy(false) }
   }
   return <form className="staff-form" onSubmit={event => void submit(event)}>
     <p className="staff-muted">The values below become the current vitals; what was recorded is kept. A measurement left blank is not part of the corrected vitals.</p>
-    <div className="staff-form-row">{VITAL_FIELDS.map(([name, label, step, min, max]) =>
-      <Field key={name} label={label} htmlFor={`${id}-${name}`}><Input id={`${id}-${name}`} name={name} type="number" step={step} min={min} max={max}
-        defaultValue={current[name] == null ? '' : String(current[name])} /></Field>)}</div>
-    <Field label="Reason for correction" htmlFor={`${id}-reason`} required><Input id={`${id}-reason`} name="reason" minLength={3} maxLength={500} required /></Field>
+    <div role="group" aria-label="Corrected vital measurements" {...problems.group(`${id}-values`)}><div className="staff-form-row">{VITAL_FIELDS.map(([name, label, step, min, max]) =>
+      <Field key={name} label={label} htmlFor={`${id}-${name}`} error={problems.error(`${id}-${name}`)}><Input id={`${id}-${name}`} name={name} type="number" step={step} min={min} max={max}
+        defaultValue={current[name] == null ? '' : String(current[name])} {...problems.control(`${id}-${name}`)} /></Field>)}</div>
+      <GroupError field={`${id}-values`}>{problems.error(`${id}-values`)}</GroupError></div>
+    <Field label="Reason for correction" htmlFor={`${id}-reason`} error={problems.error(`${id}-reason`)} required><Input id={`${id}-reason`} name="reason" minLength={3} maxLength={500} required {...problems.control(`${id}-reason`)} /></Field>
     {error && <p className="staff-error" role="alert">{error}</p>}
     <Button type="submit" tone="secondary" size="sm" aria-disabled={busy || disabled || undefined} className={UNAVAILABLE}>{busy ? 'Saving…' : 'Save correction'}</Button>
   </form>
@@ -466,6 +505,7 @@ function NotePanel({ facilityId, patientId, encounterId, note, canWrite, verify,
   const [loadError, setLoadError] = useState('')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const problems = useFieldProblems()
   const submitting = useRef(false)
   const attempt = useRef<{ signature: string; input: { expectedRowVersion: number; changeReason: string; content: string }; key: string } | null>(null)
 
@@ -488,10 +528,10 @@ function NotePanel({ facilityId, patientId, encounterId, note, canWrite, verify,
     const content = text(form, 'content')
     const changeReason = text(form, 'reason')
     const expectedRowVersion = rowVersion(note.rowVersion)
-    if (!expectedRowVersion || !content || changeReason.length < 3) {
-      setError('Reload the note, enter content, and give a reason of at least 3 characters.')
-      return
-    }
+    setError(''); problems.clear()
+    if (!expectedRowVersion) { setError('Reload the note before recording a revision.'); return }
+    if (!content) return problems.refuse(`note-revision-content-${note.id}`, 'Enter the revised note content.')
+    if (changeReason.length < 3) return problems.refuse(`note-revision-reason-${note.id}`, 'Give a reason of at least 3 characters.')
     const signature = JSON.stringify([expectedRowVersion, content, changeReason])
     if (attempt.current?.signature !== signature) attempt.current = {
       signature, input: { expectedRowVersion, changeReason, content }, key: crypto.randomUUID(),
@@ -531,11 +571,11 @@ function NotePanel({ facilityId, patientId, encounterId, note, canWrite, verify,
       {!loadError && revisions !== null && canWrite && note.status !== 'entered_in_error' &&
         <form className="staff-form" onSubmit={event => void addRevision(event)}>
           <strong>Add a note revision</strong>
-          <Field label="Content" htmlFor={`note-revision-content-${note.id}`} required>
-            <Textarea id={`note-revision-content-${note.id}`} name="content" maxLength={100000} required />
+          <Field label="Content" htmlFor={`note-revision-content-${note.id}`} error={problems.error(`note-revision-content-${note.id}`)} required>
+            <Textarea id={`note-revision-content-${note.id}`} name="content" maxLength={100000} required {...problems.control(`note-revision-content-${note.id}`)} />
           </Field>
-          <Field label="Reason for revision" htmlFor={`note-revision-reason-${note.id}`} required>
-            <Input id={`note-revision-reason-${note.id}`} name="reason" minLength={3} maxLength={500} required />
+          <Field label="Reason for revision" htmlFor={`note-revision-reason-${note.id}`} error={problems.error(`note-revision-reason-${note.id}`)} required>
+            <Input id={`note-revision-reason-${note.id}`} name="reason" minLength={3} maxLength={500} required {...problems.control(`note-revision-reason-${note.id}`)} />
           </Field>
           {error && <p className="staff-error" role="alert">{error}</p>}
           <Button type="submit" size="sm" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Recording…' : 'Record revision'}</Button>
@@ -553,17 +593,18 @@ function Documents({ patientId, encounterId, facilityId, canWrite, canOcr, verif
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
+  const problems = useFieldProblems()
   async function load() { setLoading(true); setError(''); try { setItems((await staffApi.documents(facilityId, patientId, encounterId)).items) } catch (caught) { setError(caught instanceof Error ? caught.message : 'Documents could not be loaded.') } finally { setLoading(false) } }
   useEffect(() => { void load() }, [facilityId, patientId, encounterId])
   async function upload(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     // The button stays focusable while the upload runs; a second press does nothing.
     if (busy) return
-    setError(''); setNotice('')
+    setError(''); setNotice(''); problems.clear()
     const formElement = event.currentTarget
     const file = new FormData(formElement).get('document')
-    if (!(file instanceof File) || !file.size) return setError('Select a file first.')
-    if (!['application/pdf', 'image/jpeg', 'image/png', 'image/tiff'].includes(file.type) || file.size > 52_428_800) return setError('Use PDF, JPEG, PNG, or TIFF, up to 50 MiB.')
+    if (!(file instanceof File) || !file.size) return problems.refuse('clinical-document', 'Select a file first.')
+    if (!['application/pdf', 'image/jpeg', 'image/png', 'image/tiff'].includes(file.type) || file.size > 52_428_800) return problems.refuse('clinical-document', 'Use PDF, JPEG, PNG, or TIFF, up to 50 MiB.')
     setBusy(true)
     try {
       await verify(); await staffApi.uploadDocument(facilityId, patientId, encounterId, file); await load(); formElement.reset()
@@ -588,7 +629,7 @@ function Documents({ patientId, encounterId, facilityId, canWrite, canOcr, verif
     }
     catch (caught) { setError(caught instanceof Error ? caught.message : 'Document could not be opened.') }
   }
-  return <div className="staff-two-col"><Card className="staff-card"><h2>Documents</h2>{loading && <p role="status">Loading documents…</p>}{!loading && items.length === 0 && <p>No documents for this encounter.</p>}<div className="staff-list">{items.map(item => <div className="staff-list-item" key={item.id}><strong>{item.fileName}</strong><p>{item.mediaType} · {fileSize(item.sizeBytes)} · scan: {item.scanStatus}</p><Button tone="secondary" size="sm" onClick={() => void download(item.id)} disabled={item.scanStatus !== 'clean'}>Open file</Button>{canOcr && item.scanStatus === 'clean' && <Link to="/provider/ocr" state={{ ocrDocumentId: item.id, ocrPatientId: patientId, actorId, facilityId }} className="staff-text-link">Extract with OCR</Link>}</div>)}</div></Card>{canWrite && <Card className="staff-card"><h2>Upload a document</h2><p>Files are scanned before download becomes available.</p><form className="staff-form" onSubmit={event => void upload(event)}><Field label="Clinical document" htmlFor="clinical-document"><Input id="clinical-document" name="document" type="file" accept=".pdf,.jpg,.jpeg,.png,.tif,.tiff" required /></Field><Button type="submit" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Uploading…' : 'Upload document'}</Button></form><div role="status">{notice && <p className="staff-success">{notice}</p>}</div></Card>}{error && <p role="alert" className="staff-error">{error}</p>}</div>
+  return <div className="staff-two-col"><Card className="staff-card"><h2>Documents</h2>{loading && <p role="status">Loading documents…</p>}{!loading && items.length === 0 && <p>No documents for this encounter.</p>}<div className="staff-list">{items.map(item => <div className="staff-list-item" key={item.id}><strong>{item.fileName}</strong><p>{item.mediaType} · {fileSize(item.sizeBytes)} · scan: {item.scanStatus}</p><Button tone="secondary" size="sm" onClick={() => void download(item.id)} disabled={item.scanStatus !== 'clean'}>Open file</Button>{canOcr && item.scanStatus === 'clean' && <Link to="/provider/ocr" state={{ ocrDocumentId: item.id, ocrPatientId: patientId, actorId, facilityId }} className="staff-text-link">Extract with OCR</Link>}</div>)}</div></Card>{canWrite && <Card className="staff-card"><h2>Upload a document</h2><p>Files are scanned before download becomes available.</p><form className="staff-form" onSubmit={event => void upload(event)}><Field label="Clinical document" htmlFor="clinical-document" error={problems.error('clinical-document')}><Input id="clinical-document" name="document" type="file" accept=".pdf,.jpg,.jpeg,.png,.tif,.tiff" required {...problems.control('clinical-document')} /></Field><Button type="submit" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Uploading…' : 'Upload document'}</Button></form><div role="status">{notice && <p className="staff-success">{notice}</p>}</div></Card>}{error && <p role="alert" className="staff-error">{error}</p>}</div>
 }
 
 // What EHR's emergency summary sends of each section at most (patient-records.service.ts

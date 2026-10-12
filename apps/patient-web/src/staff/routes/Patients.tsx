@@ -5,6 +5,7 @@ import { Badge, Button, Card, Field, Input, Select, Textarea } from '@hid/ui'
 import { isAllowedPatientLookup, staffApi } from '../api'
 import { useStaff } from '../App'
 import { BUSY, useFocusById } from '../focus'
+import { useFieldProblems } from '../useFieldProblems'
 import { staffSessionGeneration, untilStaffSessionReady } from '../session'
 
 const HID_PATTERN = /^HID-[A-HJ-NP-Z2-9]{6,32}$/
@@ -55,6 +56,8 @@ export function Patients() {
   const [error, setError] = useState('')
   // Closing the open record's grant removes the card that did it: focus goes to the page heading.
   const focus = useFocusById()
+  // A reason or PIN refused before sending is reported at its field (PEHR-04).
+  const problems = useFieldProblems()
   // A Health ID refused before sending is reported at its field, which takes focus,
   // and the field's description announces it. Refused from Enter in the field, focus
   // does not move, so the message is an alert instead, new for each refusal; as both
@@ -71,7 +74,7 @@ export function Patients() {
   // A method the backend would refuse is not offered, and the reason is shown with it.
   const unavailable = methodUnavailable(mode, permissions)
 
-  function clearFeedback() { setMessage(''); setError('') }
+  function clearFeedback() { setMessage(''); setError(''); problems.clear() }
 
   /** False, with the reason shown at the Health ID field and focus there, when the Health ID cannot be sent. */
   function healthIdAccepted(): boolean {
@@ -110,6 +113,9 @@ export function Patients() {
     if (busy) return
     clearFeedback()
     if (!healthIdAccepted()) return
+    if (mode === 'request' && reason.trim().length < 8) return problems.refuse('request-reason', 'Enter a clinical reason of at least 8 characters.')
+    if (mode === 'pin' && !/^\d{4,8}$/.test(pin.trim())) return problems.refuse('patient-pin', 'Enter the patient’s 4 to 8 digit access PIN.')
+    if (mode === 'emergency' && emergencyReason.trim().length < 8) return problems.refuse('emergency-reason', 'Document the emergency reason in at least 8 characters.')
     setBusy(true)
     // The record opens after the grant only while the session that obtained it is
     // ready: it waits while that session is checked, and never opens once it ended.
@@ -117,16 +123,13 @@ export function Patients() {
     try {
       if (!facility) throw new Error('Select a facility first.')
       if (mode === 'request') {
-        if (reason.trim().length < 8) throw new Error('Enter a clinical reason of at least 8 characters.')
         const request = await staffApi.requestAccess(facility.id, normalized, scope, reason.trim(), 60)
         setMessage(`Request ${request.accessRequestId} is ${request.status}. The patient must approve before records are available.`)
       } else if (mode === 'pin') {
-        if (!/^\d{4,8}$/.test(pin.trim())) throw new Error('Enter the patient’s 4 to 8 digit access PIN.')
         await staffApi.verifyPin(facility.id, normalized, pin.trim())
         await untilStaffSessionReady(sentIn)
         await openPatient('direct-care')
       } else {
-        if (emergencyReason.trim().length < 8) throw new Error('Document the emergency reason in at least 8 characters.')
         await staffApi.breakGlass(facility.id, normalized, emergencyReason.trim())
         await untilStaffSessionReady(sentIn)
         await openPatient('emergency')
@@ -151,11 +154,12 @@ export function Patients() {
     {activePatient && <Card className="staff-card staff-current"><h2>{activePatient.purpose === 'emergency' ? 'Current emergency summary' : 'Current authorized record'}</h2><div className="staff-row"><strong>{activePatient.lookup.patient.fullName ?? activePatient.hid}</strong><Badge tone={activePatient.purpose === 'emergency' ? 'danger' : 'success'}>{activePatient.purpose === 'emergency' ? 'Emergency access' : 'Access allowed'}</Badge><Link to="/provider/clinical" className="staff-text-link">{activePatient.purpose === 'emergency' ? 'Open read-only emergency summary →' : 'Open clinical record →'}</Link></div>{grantId && <Button tone="secondary" size="sm" onClick={() => void closeGrant()} aria-disabled={busy || undefined} className={BUSY}>Close my grant</Button>}</Card>}
     <div className="staff-two-col">
       <Card className="staff-card"><h2>Check current access</h2><p>Already approved? Verify with the server before opening the chart.</p><form className="staff-form" noValidate onSubmit={event => void checkAccess(event)}><Field label="Health ID" htmlFor="patient-hid" hint={HID_FORMAT} error={hidError ? hidAlert ? <span key={focusHid} role="alert">{hidError}</span> : hidError : undefined} required><Input id="patient-hid" autoComplete="off" placeholder="HID-…" value={hid} onChange={event => { setHid(event.target.value.toUpperCase()); setHidError('') }} required invalid={!!hidError} aria-describedby={hidError ? 'patient-hid-error' : 'patient-hid-hint'} /></Field><Button type="submit" disabled={!facility || !permissions.includes('identity.patient.read')} aria-disabled={busy || undefined} className={BUSY}>Verify access</Button></form></Card>
-      <Card className="staff-card"><h2>Obtain access</h2><div className="staff-tabs" role="group" aria-label="Access method"><button type="button" aria-pressed={mode === 'request'} onClick={() => setMode('request')}>Request</button><button type="button" aria-pressed={mode === 'pin'} onClick={() => setMode('pin')}>Patient PIN</button><button type="button" aria-pressed={mode === 'emergency'} onClick={() => setMode('emergency')}>Emergency</button></div>
-        <form className="staff-form" onSubmit={event => void submitAccess(event)}>
-          {mode === 'request' && <><p className="staff-muted">Ask the patient to approve access. A pending request does not expose their record.</p><Field label="Access scope" htmlFor="request-scope"><Select id="request-scope" value={scope} onChange={event => setScope(event.target.value as 'read_records' | 'write_records')}><option value="read_records">Read records</option><option value="write_records">Read and write records</option></Select></Field><Field label="Clinical reason" htmlFor="request-reason" required><Textarea id="request-reason" value={reason} onChange={event => setReason(event.target.value)} minLength={8} required /></Field></>}
-          {mode === 'pin' && <><p className="staff-muted">Only the patient should share their access PIN. Verification and grant creation happen on the server.</p><Field label="Patient access PIN" htmlFor="patient-pin" required><Input id="patient-pin" type="password" inputMode="numeric" autoComplete="off" value={pin} onChange={event => setPin(event.target.value)} required /></Field></>}
-          {mode === 'emergency' && <><div className="staff-notice staff-danger">Use emergency access only when the patient cannot consent and care cannot wait. The action is time limited and audited. It opens a read-only summary from this facility: completed encounters and signed notes, and the diagnoses, prescriptions, lab requests and documents your role may read. It shows no vital signs and opens no files.</div><Field label="Emergency reason" htmlFor="emergency-reason" required><Textarea id="emergency-reason" value={emergencyReason} onChange={event => setEmergencyReason(event.target.value)} minLength={8} required /></Field></>}
+      <Card className="staff-card"><h2>Obtain access</h2><div className="staff-tabs" role="group" aria-label="Access method"><button type="button" aria-pressed={mode === 'request'} onClick={() => { problems.clear(); setMode('request') }}>Request</button><button type="button" aria-pressed={mode === 'pin'} onClick={() => { problems.clear(); setMode('pin') }}>Patient PIN</button><button type="button" aria-pressed={mode === 'emergency'} onClick={() => { problems.clear(); setMode('emergency') }}>Emergency</button></div>
+        {/* The page checks each method's fields itself and says what is wrong at the field. */}
+        <form className="staff-form" noValidate onSubmit={event => void submitAccess(event)}>
+          {mode === 'request' && <><p className="staff-muted">Ask the patient to approve access. A pending request does not expose their record.</p><Field label="Access scope" htmlFor="request-scope"><Select id="request-scope" value={scope} onChange={event => setScope(event.target.value as 'read_records' | 'write_records')}><option value="read_records">Read records</option><option value="write_records">Read and write records</option></Select></Field><Field label="Clinical reason" htmlFor="request-reason" error={problems.error('request-reason')} required><Textarea id="request-reason" value={reason} onChange={event => setReason(event.target.value)} minLength={8} maxLength={500} required {...problems.control('request-reason')} /></Field></>}
+          {mode === 'pin' && <><p className="staff-muted">Only the patient should share their access PIN. Verification and grant creation happen on the server.</p><Field label="Patient access PIN" htmlFor="patient-pin" hint="4 to 8 digits." error={problems.error('patient-pin')} required><Input id="patient-pin" type="password" inputMode="numeric" autoComplete="off" pattern="[0-9]{4,8}" maxLength={8} value={pin} onChange={event => setPin(event.target.value)} required aria-describedby="patient-pin-hint" {...problems.control('patient-pin')} /></Field></>}
+          {mode === 'emergency' && <><div className="staff-notice staff-danger">Use emergency access only when the patient cannot consent and care cannot wait. The action is time limited and audited. It opens a read-only summary from this facility: completed encounters and signed notes, and the diagnoses, prescriptions, lab requests and documents your role may read. It shows no vital signs and opens no files.</div><Field label="Emergency reason" htmlFor="emergency-reason" error={problems.error('emergency-reason')} required><Textarea id="emergency-reason" value={emergencyReason} onChange={event => setEmergencyReason(event.target.value)} minLength={8} maxLength={500} required {...problems.control('emergency-reason')} /></Field></>}
           {unavailable && <p id="access-method-unavailable" className="staff-muted">{unavailable}</p>}
           <Button type="submit" disabled={!facility || unavailable !== null} aria-disabled={busy || undefined} className={BUSY} aria-describedby={unavailable ? 'access-method-unavailable' : undefined}>{busy ? 'Working…' : mode === 'request' ? 'Send access request' : mode === 'pin' ? 'Verify PIN and open' : 'Activate emergency access'}</Button>
         </form>

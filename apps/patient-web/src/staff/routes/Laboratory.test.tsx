@@ -123,6 +123,15 @@ function optionLabels(select: HTMLElement) {
   return within(select).getAllByRole('option').map(option => option.textContent)
 }
 
+/**
+ * The error a refused field is described by, once it is marked invalid: a
+ * value refused before sending is reported at its field (PEHR-04).
+ */
+async function refusalOf(control: HTMLElement) {
+  await waitFor(() => expect(control.getAttribute('aria-invalid')).toBe('true'))
+  return document.getElementById(control.getAttribute('aria-describedby') ?? '')?.textContent
+}
+
 function valueOf(element: HTMLElement) {
   return (element as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value
 }
@@ -294,7 +303,7 @@ describe('Laboratory accession creation', () => {
 
     fireEvent.submit(formOf(within(card).getByRole('button', { name: 'Create accession' })))
 
-    expect((await within(card).findByRole('alert')).textContent).toBe('Enter a specimen type and clinical reason.')
+    expect(await refusalOf(within(card).getByRole('textbox', { name: 'Specimen type' }))).toBe('Enter a specimen type and clinical reason.')
     expect(api.createLabAccession).not.toHaveBeenCalled()
   })
 
@@ -455,7 +464,7 @@ describe('Laboratory specimen custody', () => {
     expect((reason as HTMLInputElement).required).toBe(true)
     fireEvent.submit(formOf(reason))
 
-    expect((await within(card).findByRole('alert')).textContent).toBe('Enter a rejection reason.')
+    expect(await refusalOf(reason)).toBe('Enter a rejection reason.')
     expect(api.transitionSpecimen).not.toHaveBeenCalled()
 
     fireEvent.change(reason, { target: { value: 'Sample haemolysed' } })
@@ -472,7 +481,7 @@ describe('Laboratory specimen custody', () => {
     fireEvent.change(reason, { target: { value: '   ' } })
     fireEvent.submit(formOf(reason))
 
-    expect((await within(card).findByRole('alert')).textContent).toBe('Enter a rejection reason.')
+    expect(await refusalOf(reason)).toBe('Enter a rejection reason.')
     expect(api.transitionSpecimen).not.toHaveBeenCalled()
   })
 
@@ -545,7 +554,7 @@ describe('Laboratory analytical execution', () => {
 
     fireEvent.submit(formOf(await within(panel).findByRole('button', { name: 'Start execution' })))
 
-    expect((await within(panel).findByRole('alert')).textContent).toBe('Enter a reason to begin execution.')
+    expect(await refusalOf(within(panel).getByRole('textbox', { name: 'Reason' }))).toBe('Enter a reason to begin execution.')
     expect(api.startLabExecution).not.toHaveBeenCalled()
     // The form stays, so the reason can be typed without a refresh.
     expect(within(panel).getByRole('button', { name: 'Start execution' })).toBeTruthy()
@@ -638,7 +647,7 @@ describe('Laboratory manual result entry', () => {
     expect(valueOf(value)).toBe('')
     fireEvent.submit(formOf(value))
 
-    expect((await within(panel).findByRole('alert')).textContent).toBe('Enter a valid numeric result.')
+    expect(await refusalOf(value)).toBe('Enter a valid numeric result.')
     expect(api.enterLabResult).not.toHaveBeenCalled()
   })
 
@@ -681,7 +690,7 @@ describe('Laboratory manual result entry', () => {
     const text = within(panel).getByRole('textbox', { name: 'Text value' })
     fireEvent.submit(formOf(text))
 
-    expect((await within(panel).findByRole('alert')).textContent).toBe('Enter the text result.')
+    expect(await refusalOf(text)).toBe('Enter the text result.')
     expect(api.enterLabResult).not.toHaveBeenCalled()
 
     fireEvent.change(text, { target: { value: ' No growth after 48 hours ' } })
@@ -731,7 +740,7 @@ describe('Laboratory result correction and amendment', () => {
 
     fireEvent.change(value, { target: { value: '7.4' } })
     fireEvent.submit(formOf(value))
-    expect((await within(panel).findByRole('alert')).textContent).toBe('Explain the correction or amendment.')
+    expect(await refusalOf(within(panel).getByRole('textbox', { name: 'Reason' }))).toBe('Explain the correction or amendment.')
     expect(api.correctLabResult).not.toHaveBeenCalled()
 
     fireEvent.change(within(panel).getByRole('textbox', { name: 'Reason' }), { target: { value: TRANSCRIPTION_FIX } })
@@ -794,7 +803,7 @@ describe('Laboratory result verification and release', () => {
     expect(within(panel).getByText('entered unverified')).toBeTruthy()
     const reason = within(panel).getByRole('textbox', { name: 'Verification reason' })
     fireEvent.submit(formOf(reason))
-    expect((await within(panel).findByRole('alert')).textContent).toBe('Enter a reason for this decision.')
+    expect(await refusalOf(reason)).toBe('Enter a reason for this decision.')
     expect(api.verifyLabResult).not.toHaveBeenCalled()
 
     fireEvent.change(reason, { target: { value: 'Independent review against QC run' } })

@@ -82,6 +82,11 @@ async function correctionForm() {
   return screen.getByRole('button', { name: 'Save correction' }).closest('form')!
 }
 
+/** What describes `element`: a refusal is tied to its field, or to the group of fields its rule covers (PEHR-04). */
+function described(element: Element) {
+  return document.getElementById(element.getAttribute('aria-describedby') ?? '')?.textContent ?? ''
+}
+
 function value(scope: HTMLElement, label: string) {
   return (within(scope).getByLabelText(labelled(label)) as HTMLInputElement).value
 }
@@ -128,7 +133,8 @@ describe('changing a diagnosis', () => {
     type(form, 'Reason for change', 'No real change')
     fireEvent.click(within(form).getByRole('button', { name: 'Update diagnosis' }))
 
-    expect((await within(form).findByRole('alert')).textContent).toContain('Change the clinical status, verification or notes')
+    const changes = within(form).getByRole('group', { name: 'Diagnosis changes' })
+    await waitFor(() => expect(described(changes)).toContain('Change the clinical status, verification or notes'))
     expect(api.updateDiagnosis).not.toHaveBeenCalled()
   })
 
@@ -203,11 +209,14 @@ describe('correcting vitals', () => {
     const form = await correctionForm()
     type(form, 'Reason for correction', 'Checking the reading')
     fireEvent.click(within(form).getByRole('button', { name: 'Save correction' }))
-    expect((await within(form).findByRole('alert')).textContent).toContain('Change at least one value')
+    const values = within(form).getByRole('group', { name: 'Corrected vital measurements' })
+    await waitFor(() => expect(described(values)).toContain('Change at least one value'))
 
     type(form, 'Diastolic BP (mmHg)', '')
     fireEvent.click(within(form).getByRole('button', { name: 'Save correction' }))
-    expect((await within(form).findByRole('alert')).textContent).toContain('Enter both systolic and diastolic')
+    const diastolic = within(form).getByLabelText(labelled('Diastolic BP (mmHg)'))
+    await waitFor(() => expect(described(diastolic)).toContain('Enter both systolic and diastolic'))
+    expect(diastolic.getAttribute('aria-invalid')).toBe('true')
     expect(api.correctVital).not.toHaveBeenCalled()
   })
 
