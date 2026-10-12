@@ -586,6 +586,35 @@ describe('the facility this tab works at, found gone mid-session', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Choose a patient first.' })).toBeTruthy()
   })
 
+  /** The 'lost' sentence the heading is described by, as a screen reader reads it when the heading takes focus. */
+  const headingDescription = (heading: HTMLElement) =>
+    (heading.getAttribute('aria-describedby') ?? '').split(' ').map(id => document.getElementById(id)?.textContent ?? '').join(' ')
+
+  it('takes focus from the header, and says what closed, when a check finds it gone', async () => {
+    // Focus on Sign out, still on screen, is not given back to it: the page it was beside is gone.
+    await openPatientAtIkeja({ [ENCOUNTERS]: [() => json({ items: [] })] }, [session(LAGOS, 'selected', [LAGOS])])
+    expect(await screen.findByRole('heading', { name: PATIENT_NAME })).toBeTruthy()
+    screen.getByRole('button', { name: 'Sign out' }).focus()
+
+    fromAnotherTab()
+
+    const heading = await question()
+    await waitFor(() => expect(document.activeElement).toBe(heading))
+    expect(headingDescription(heading)).toContain('The page you had open was closed, along with any patient record, and anything not yet saved there was not sent.')
+  })
+
+  it('takes focus from the header when a refresh finds it gone', async () => {
+    const encounters = deferredResponse()
+    await openPatientAtIkeja({ [ENCOUNTERS]: [encounters.answer], [REFRESH]: [session(LAGOS, 'selected', [LAGOS])] })
+    screen.getByRole('button', { name: 'Sign out' }).focus()
+
+    await act(async () => { encounters.respond(unauthenticated()) })
+
+    const heading = await question()
+    await waitFor(() => expect(document.activeElement).toBe(heading))
+    expect(headingDescription(heading)).toContain('The facility you were working at is no longer available to you.')
+  })
+
   it('opens no patient from a page\'s answer that arrives once the facility is found gone', async () => {
     // The patient lookup was sent at Ikeja Clinic before the check; its answer arrives while the question shows.
     const looking = deferredResponse()

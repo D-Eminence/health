@@ -199,6 +199,8 @@ function StaffProvider({ children }: { children: ReactNode }) {
     if (facilityLost.current || facilityChoiceNeeded(current) !== null) return
     if (read.actor.id !== current.actor.id || read.actor.facilities.some(facility => facility.id === working)) return
     startPeriod()
+    // The question replaces the page and takes focus (FacilityChoice): focus held before a check is not given back.
+    focusBeforeLock.current = null
     setState({ status: 'ready', session: read, facilityLost: true })
   }), [setState, startPeriod])
   const askIfHeardWhileOpening = useCallback(() => {
@@ -456,14 +458,15 @@ function FacilityChoice({ reason, onChosen }: { reason: FacilityQuestion; onChos
   const heading = useRef<HTMLHeadingElement>(null)
   // The question is the page: it takes focus when it appears, unless the person is already somewhere on it.
   // One that appears while the workspace is locked (hidden at load, or a sign-in being checked) takes it
-  // once the workspace opens, once.
+  // once the workspace opens, once. Asked because the facility was found gone, it takes focus wherever
+  // it was (Sign out, say): the page and patient closed under the person, and its heading says so.
   const focused = useRef(false)
   useEffect(() => {
     if (focused.current || lock !== null) return
     focused.current = true
     const active = document.activeElement
-    if (!(active instanceof HTMLElement) || active === document.body || !active.isConnected) heading.current?.focus()
-  }, [lock])
+    if (reason === 'lost' || !(active instanceof HTMLElement) || active === document.body || !active.isConnected) heading.current?.focus()
+  }, [lock, reason])
   if (state.status !== 'ready') return null
   const { facilities } = state.session.actor
 
@@ -491,7 +494,7 @@ function FacilityChoice({ reason, onChosen }: { reason: FacilityQuestion; onChos
   }
 
   return <section className="staff-card staff-facility-choice" aria-labelledby="staff-facility-choice-title">
-    <h1 id="staff-facility-choice-title" ref={heading} tabIndex={-1}>Where are you working?</h1>
+    <h1 id="staff-facility-choice-title" ref={heading} tabIndex={-1} aria-describedby="staff-facility-choice-why">Where are you working?</h1>
     <p id="staff-facility-choice-why">{FACILITY_CHOICE_WHY[reason]} Choose where you are working before you continue. Patient access, records and requests use the facility you choose, and you can switch later from “Working at”.</p>
     <form className="staff-form" noValidate onSubmit={event => void choose(event)}>
       <fieldset disabled={busy} aria-describedby={['staff-facility-choice-why', missing && 'staff-facility-choice-missing', error && 'staff-facility-choice-error'].filter(Boolean).join(' ')}>
