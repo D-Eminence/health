@@ -243,17 +243,22 @@ describe('a workspace bound to the administrator who opened it', () => {
     const become = (next: DocumentVisibilityState) => act(() => { visibility = next; document.dispatchEvent(new Event('visibilitychange')) })
     const { calls, messages } = await openAs({ [SESSION]: [sessionOf('admin-1'), sessionOf('admin-2')], [OVERVIEW]: [overview()] })
     expect(await screen.findByText('7')).toBeTruthy()
+    const { adminApi } = await import('../api')
+    const asked = vi.spyOn(adminApi, 'session')
 
-    // A brief look at another tab asks nothing.
+    // A brief look at another tab asks nothing, and the workspace stays as it was.
     become('hidden')
     become('visible')
-    expect(calls.filter(call => call === SESSION)).toHaveLength(1)
+    await act(async () => {})
+    expect(asked).not.toHaveBeenCalled()
+    expect(screen.getByRole('heading', { name: 'Overview' })).toBeTruthy()
 
     become('hidden')
     const now = Date.now()
     vi.spyOn(Date, 'now').mockImplementation(() => now + 61_000)
     become('visible')
     expect(await screen.findByText(messages.switched)).toBeTruthy()
+    expect(asked).toHaveBeenCalledTimes(1)
     expect(calls.filter(call => call === SESSION)).toHaveLength(2)
   })
 
