@@ -1,7 +1,8 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen } from '@testing-library/react'
-import { ResourceView, useResource } from '../ui'
+import type { CursorPage } from '../api'
+import { ResourceView, useCursorPages, useResource } from '../ui'
 
 vi.mock('../api', () => ({ newIdempotencyKey: () => 'key-1' }))
 
@@ -44,5 +45,34 @@ describe('resource view', () => {
     expect(await screen.findByText('Loading current information…')).toBeTruthy()
     expect(screen.queryByText('alpha')).toBeNull()
     expect(load).toHaveBeenLastCalledWith('second')
+  })
+})
+
+/**
+ * Asks for the next page as soon as the first page is on screen, before the
+ * page's passive effects have run: what a click does when the browser handles it
+ * between React's commit and those effects (under load, or on a slow device).
+ */
+function EagerPages({ load, loadPage }: {
+  load: () => Promise<CursorPage<string>>
+  loadPage: (cursor: string, signal: AbortSignal) => Promise<CursorPage<string>>
+}) {
+  const resource = useResource(load, 'The list could not be loaded.')
+  const pages = useCursorPages(resource, loadPage, 'More could not be loaded.')
+  const asked = useRef(false)
+  useLayoutEffect(() => {
+    if (resource.data && !asked.current) { asked.current = true; void pages.loadMore() }
+  })
+  return <ul>{pages.items.map(item => <li key={item}>{item}</li>)}</ul>
+}
+
+describe('cursor pages', () => {
+  it('keeps a page asked for as soon as the first page appeared', async () => {
+    const load = vi.fn(async () => ({ items: ['first row'], nextCursor: 'cursor-2' }))
+    const loadPage = vi.fn(async () => ({ items: ['second row'], nextCursor: null }))
+    render(<EagerPages load={load} loadPage={loadPage} />)
+    expect(await screen.findByText('second row')).toBeTruthy()
+    expect(loadPage).toHaveBeenCalledTimes(1)
+    expect((loadPage.mock.calls[0] as unknown as [string, AbortSignal])[1].aborted).toBe(false)
   })
 })

@@ -10,7 +10,10 @@ const api = vi.hoisted(() => ({
   session: vi.fn(), mfaStatus: vi.fn(), logout: vi.fn(), refresh: vi.fn(), overview: vi.fn(),
   approvals: vi.fn(), applications: vi.fn(), demos: vi.fn(), integrations: vi.fn(),
 }))
-vi.mock('../api', () => ({ adminApi: api, newIdempotencyKey: () => 'key-1' }))
+const account = vi.hoisted(() => ({ id: null as string | null }))
+vi.mock('../api', () => ({ adminApi: api, newIdempotencyKey: () => 'key-1',
+  adminSessionAccount: () => account.id, setAdminSessionAccount: (id: string | null) => { account.id = id },
+  closeAdminSession: () => { account.id = null } }))
 vi.mock('../env', () => ({ environment: () => ({ name: 'local', turnstileSiteKey: null, apiBaseUrl: 'https://gateway.example.test' }) }))
 
 const actor = (permissions: string[]) => ({ actor: { accountId: 'admin-1', subject: 'staff:1', displayName: 'Ada Admin',
@@ -130,7 +133,8 @@ describe('platform administration session', () => {
   })
 
   it('signs out through the platform session and clears the workspace', async () => {
-    api.session.mockResolvedValueOnce(actor(ALL))
+    // Opening, then the check of whose session the browser holds before signing out.
+    api.session.mockResolvedValueOnce(actor(ALL)).mockResolvedValueOnce(actor(ALL))
     api.logout.mockResolvedValueOnce(undefined)
     open()
     await screen.findByRole('heading', { name: 'Overview' })
@@ -170,6 +174,9 @@ describe('consolidated admin routing', () => {
     api.session.mockResolvedValueOnce(actor(SUPPORT))
     open()
     expect(await screen.findByRole('heading', { name: 'Platform totals' })).toBeTruthy()
+    // The heading renders before the page's effects request anything; the totals
+    // render only once the overview has answered, after every count was requested.
+    expect(await screen.findByText('Registered patients')).toBeTruthy()
     expect(screen.queryByRole('heading', { name: 'Waiting for attention' })).toBeNull()
     expect(api.overview).toHaveBeenCalledTimes(1)
     expect(api.approvals).not.toHaveBeenCalled()

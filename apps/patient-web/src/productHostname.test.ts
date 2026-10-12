@@ -20,6 +20,32 @@ describe('resolveStaffProductHostname', () => {
     expect(resolveStaffProductHostname(hostname)?.route).toBe(route)
   })
 
+  // hid-system infra/cloudflare/src/frontend-worker.mjs (DEPLOYMENT_PROFILES.staging).
+  it.each([
+    ['ehr.staging.healthidentitydirectory.com', '/provider/clinical'],
+    ['lab.staging.healthidentitydirectory.com', '/provider/laboratory'],
+    ['pharmacy.staging.healthidentitydirectory.com', '/provider/pharmacy'],
+    ['migrate.staging.healthidentitydirectory.com', '/provider/ocr'],
+    ['outreach.staging.healthidentitydirectory.com', '/provider/outreach'],
+  ])('maps the staging host %s to %s', (hostname, route) => {
+    expect(resolveStaffProductHostname(hostname)?.route).toBe(route)
+  })
+
+  it.each([
+    'staging.healthidentitydirectory.com',
+    'www.healthidentitydirectory.com',
+    'admin.staging.healthidentitydirectory.com',
+    'ocr.staging.healthidentitydirectory.com',
+    'lab.staging.staging.healthidentitydirectory.com',
+    'lab.preview.healthidentitydirectory.com',
+    'evil-lab.staging.healthidentitydirectory.com',
+    'lab.staging.healthidentitydirectory.com.evil.test',
+    'constructor',
+    '__proto__',
+  ])('maps no other host to a workspace (%s)', hostname => {
+    expect(resolveStaffProductHostname(hostname)).toBeNull()
+  })
+
   it('normalizes hostname casing and a trailing dot', () => {
     expect(resolveStaffProductHostname('EHR.HEALTHIDENTITYDIRECTORY.COM.')).toMatchObject({
       key: 'ehr',
@@ -53,6 +79,16 @@ describe('platform admin hostname', () => {
     expect(isPlatformAdminHostname('admin.healthidentitydirectory.com')).toBe(true)
     expect(isPlatformAdminHostname('ADMIN.HEALTHIDENTITYDIRECTORY.COM.')).toBe(true)
     expect(isPlatformAdminHostname('healthidentitydirectory.com')).toBe(false)
+  })
+
+  it('recognizes the staging admin hostname and no other', () => {
+    expect(isPlatformAdminHostname('admin.staging.healthidentitydirectory.com')).toBe(true)
+    expect(isPlatformAdminHostname('Admin.Staging.HealthIdentityDirectory.com.')).toBe(true)
+    for (const hostname of ['staging.healthidentitydirectory.com', 'admin.staging.staging.healthidentitydirectory.com',
+      'admin.preview.healthidentitydirectory.com', 'admin.staging.healthidentitydirectory.com.evil.test',
+      'evil-admin.staging.healthidentitydirectory.com']) {
+      expect(isPlatformAdminHostname(hostname), hostname).toBe(false)
+    }
   })
 
   it('recognizes the admin routes', () => {

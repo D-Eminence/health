@@ -37,7 +37,9 @@ const ADMIN_PROBLEMS: Readonly<Record<string, string>> = {
   STEP_UP_EXPIRED: 'Your last authenticator confirmation is more than 5 minutes old. Confirm again; the action was not carried out.',
   REASON_REQUIRED: 'Enter a reason of 8 to 500 characters. It is recorded in the audit log.',
   IF_MATCH_REQUIRED: 'Reload this item before changing it.',
-  IDEMPOTENCY_KEY_INVALID: 'This request could not be matched to a single submission. Try again.',
+  // Identity's answer to a missing or malformed Idempotency-Key on an admin command
+  // (common/idempotency.ts); IDEMPOTENCY_KEY_INVALID is patient enrollment's, never an admin route's.
+  IDEMPOTENCY_KEY_REQUIRED: 'This request could not be matched to a single submission. Try again.',
   IDEMPOTENCY_CONFLICT: 'This submission conflicts with an earlier one. Reload and try again.',
   IDEMPOTENCY_KEY_REUSED: 'This submission conflicts with an earlier one. Reload and try again.',
   HIGH_RISK_POLICY_MISSING: 'This action is unavailable because the server has no security policy for it.',
