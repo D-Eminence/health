@@ -806,3 +806,40 @@ code and password), PA-10 (the contact cleared for another code) and PA-12
     - PR-06: patient portal page titles.
     - PR-04, PR-05: focus after 'Try again' and 'Revoke access'.
     - PR-07: the Access PIN field does not say 4 to 8 digits.
+
+## 2026-10-12: backend dependencies merged in hid-system (docs only)
+
+No portal code change. The hid-system fixes this portal depends on are merged
+into hid-system `main` (`6b49a06`). None is released or deployed, and no
+staging or live run covers them; the next action for each is a hid-system
+release.
+
+- **D-Eminence/hid-system#42** (merged at `e4295d0`): a refused request on an
+  Identity session route (sign-out, facility selection, session read, service
+  session, Google link) answers its own 400, 401 or 403 and is audited as its
+  `auth.*` session event, instead of `503`. The portals already handle those
+  answers, and neither reads a `503` as a session mismatch.
+- **D-Eminence/hid-system#46** (merged at `6b49a06`): EHR and OCR answer a
+  staff refusal made before a facility is bound (`400 FACILITY_REQUIRED`,
+  `403 FACILITY_ACCESS_DENIED`, and EHR's runtime-control refusals) with its
+  own status, and audit it, instead of `503`. A database fault in EHR's
+  runtime-control check answers `503 PLATFORM_CONTROL_UNAVAILABLE` instead of
+  `401`, so the portal no longer reads it as a signed-out session.
+- **D-Eminence/hid-system#41** (merged at `63201b1`): hid-system's `apps/web`,
+  which serves `www` and `staging` today, has the fixed `/provider/recover`
+  route that the product-host recovery links point to.
+- **Still open: D-Eminence/hid-system#47** (ADR-046): Identity keeps the
+  facility a staff sign-in chose across reload and refresh. Its migration was
+  renumbered from 0079 to 0080 when hid-system #45 took 0079. It is up to date
+  with `main` and its local checks pass, including the PostgreSQL verifier with
+  #42's audit interceptor registered. It waits on the backend owner's release
+  decision and deploy order (0080 and the role bootstrap before that Identity
+  takes traffic). D-Eminence/Health-id#42 (draft) reads its
+  `facilitySelection` and waits on it and on the product decision of when to
+  ask.
+- **Backend follow-ups found and not fixed:** patient-only routes
+  (`GET /identity/me`, EHR `GET /ehr/me/records`) answer `503` to a staff
+  sign-in instead of `403 PATIENT_SESSION_REQUIRED`; Identity's own
+  runtime-control check can answer `401` on a database fault; and the audit
+  rows for these refusals do not record the refusal code. See
+  [open questions](./OPEN-QUESTIONS.md).
