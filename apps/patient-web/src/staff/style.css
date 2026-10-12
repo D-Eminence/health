@@ -50,6 +50,13 @@ body { margin: 0; }
 .staff-select-row { width: 100%; text-align: left; cursor: pointer; }
 .staff-select-row.selected { border-color: var(--color-brand); background: var(--color-brand-tint); box-shadow: inset 3px 0 0 var(--color-brand); }
 .staff-muted { color: var(--color-muted); font-size: 13px; }
+/* Preflight gives links the text's colour and no underline; the underline is the cue that does not rely on colour. */
+.staff-text-link, .staff-muted a { color: var(--color-brand); font-weight: 600; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.staff-text-link:hover, .staff-muted a:hover { color: var(--color-brand-hover); }
+.staff-module { display: grid; align-content: start; gap: 6px; padding: 18px 20px; border: 1px solid var(--color-line-strong); border-radius: var(--radius-card); background: var(--color-surface); color: var(--color-muted); font-size: 13px; line-height: 1.5; text-decoration: none; }
+.staff-module strong { color: var(--color-ink); font-size: 15px; font-weight: 650; }
+.staff-module small { margin-top: 4px; color: var(--color-brand); font-size: 13px; font-weight: 600; text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.staff-module:hover { border-color: var(--color-brand-border); background: var(--color-brand-tint); }
 .staff-error { color: var(--color-critical) !important; font-size: 12px !important; margin: 0; }
 .staff-success { color: var(--color-positive-ink) !important; font-size: 12px !important; margin: 0; }
 .staff-notice { border-left: 2px solid var(--color-brand); padding: 9px 12px; background: var(--color-brand-tint); color: var(--color-ink); font-size: 13px; line-height: 1.45; }

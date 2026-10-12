@@ -204,6 +204,24 @@ describe('status text is at least 4.5:1 (WCAG 1.4.3)', () => {
   })
 })
 
+describe('provider link text is at least 4.5:1 (WCAG 1.4.3)', () => {
+  // Cards and the page are white; an EmptyState's action sits on surface-sunk.
+  it.each([
+    ['.staff-text-link', 'surface'],
+    ['.staff-text-link', 'surface-sunk'],
+    ['.staff-muted a', 'surface'],
+    ['.staff-module', 'surface'],
+    ['.staff-module strong', 'surface'],
+    ['.staff-module small', 'surface'],
+  ])('%s on --color-%s', (text, surface) => {
+    expect(ratio(declared(staffCss, text, 'color'), token(surface))).toBeGreaterThanOrEqual(TEXT)
+  })
+
+  it.each(['.staff-module', '.staff-module strong', '.staff-module small'])('%s on a hovered workspace card', text => {
+    expect(ratio(declared(staffCss, text, 'color'), declared(staffCss, '.staff-module:hover', 'background'))).toBeGreaterThanOrEqual(TEXT)
+  })
+})
+
 describe('faint small text is at least 4.5:1 (WCAG 1.4.3)', () => {
   it.each([
     ['.staff-facility label', '.staff-sidebar'],
