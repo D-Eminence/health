@@ -51,7 +51,7 @@ body { margin: 0; }
 .staff-select-row.selected { border-color: var(--color-brand); background: var(--color-brand-tint); box-shadow: inset 3px 0 0 var(--color-brand); }
 .staff-muted { color: var(--color-muted); font-size: 13px; }
 .staff-error { color: var(--color-critical) !important; font-size: 12px !important; margin: 0; }
-.staff-success { color: var(--color-positive) !important; font-size: 12px !important; margin: 0; }
+.staff-success { color: var(--color-positive-ink) !important; font-size: 12px !important; margin: 0; }
 .staff-notice { border-left: 2px solid var(--color-brand); padding: 9px 12px; background: var(--color-brand-tint); color: var(--color-ink); font-size: 13px; line-height: 1.45; }
 .staff-danger { border-left-color: var(--color-critical); background: color-mix(in srgb, var(--color-critical) 7%, white); }
 .staff-form { display: grid; gap: 14px; }

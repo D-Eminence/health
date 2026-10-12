@@ -29,10 +29,11 @@
   --color-ink: #222222;
   --color-text: #262626;
   --color-muted: #555555;
-  --color-faint: #7b7b7b;
+  --color-faint: #6f6f6f; /* small text: 4.5:1 on every light surface, hover included */
   --color-soft: #898989;
   --color-line: #f0f0f0;
   --color-line-strong: #e3e3e3;
+  --color-line-control: #898989; /* a form control's boundary: 3:1 on every light surface */
 
   /* Elevated/inverse surfaces. */
   --color-inverse-surface: #252525;
@@ -42,6 +43,9 @@
   /* Semantic status. */
   --color-positive: #00a94f;
   --color-caution: #d89600;
+  /* Status text, alone or on its own 10% tint: 4.5:1. The bright values stay for icons and fills. */
+  --color-positive-ink: #007a39;
+  --color-caution-ink: #8f5f00;
   --color-critical: #ba3a35;
   --color-information: #25a4ff;
   --color-stage: #25a4ff; /* compatibility alias for existing workflow UI */
@@ -117,6 +121,9 @@
   --color-soft: #8f8f8f;
   --color-line: #242424;
   --color-line-strong: #343434;
+  --color-line-control: #8f8f8f;
+  --color-positive-ink: #00a94f;
+  --color-caution-ink: #d89600;
   --color-inverse-surface: #f2f2f2;
   --color-inverse-ink: #0b0b0b;
   --color-inverse-muted: #555555;
