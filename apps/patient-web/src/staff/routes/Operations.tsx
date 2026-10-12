@@ -785,19 +785,31 @@ function PublishedEvidence({ facilityId, publication, permissions }: { facilityI
   </>
 }
 
-function OcrPublicationStatus({ facilityId, publication, permissions, retryHere }: { facilityId: string; publication: OcrPublication; permissions: readonly string[]; retryHere: boolean }) {
+/**
+ * A publication as OCR holds it, and what can take it further. `canPublish`: this viewer may publish this
+ * review now (ocr.publication.write, with the job's current patient confirmation); `retryHere`: this page
+ * holds the key of the request that made it, and offers Retry publication.
+ */
+function OcrPublicationStatus({ facilityId, publication, permissions, canPublish, retryHere }: {
+  facilityId: string; publication: OcrPublication; permissions: readonly string[]; canPublish: boolean; retryHere: boolean
+}) {
   const failed = publication.status === 'failed'
   const attempts = failed && publication.attemptCount != null && publication.maxAttempts != null ? ` · Attempt ${publication.attemptCount} of ${publication.maxAttempts}` : ''
+  const unfinished = 'OCR has not finished this publication. Refresh the job status to see whether it has.'
+  const failedText = !RETRYABLE_PUBLICATION_FAILURES.includes(publication.failureCode ?? '') ? 'It cannot be retried.'
+    : !attemptsLeft(publication) ? 'The publication attempt limit has been reached. It cannot be retried.'
+      : retryHere ? PUBLICATION_RETRY_WAIT
+        : canPublish ? 'It can be retried only from the page where Publish was pressed, before that page is reloaded or left.' : ''
+  // OCR claims a publication again only while attempts remain (ocr.service.ts executePublication), whichever page asks.
+  const unfinishedText = !attemptsLeft(publication) ? `${unfinished} This is its last attempt: if it has stopped, it cannot be resumed.`
+    : retryHere ? 'OCR has not finished this publication. If it has stopped, Retry publication resumes it; if it is still running, OCR says so.'
+      : canPublish ? `${unfinished} If it has stopped, it can be resumed only from the page where Publish was pressed, before that page is reloaded or left.`
+        : unfinished
   return <div className="staff-stack">
     <p>Publication: <Badge tone={publication.status === 'published' ? 'success' : failed ? 'danger' : 'information'}>{publication.status}</Badge>{publication.failureCode ? ` · ${publication.failureCode}` : ''}{attempts}</p>
     {failed && publication.failureSummary && <p>{publication.failureSummary}</p>}
-    {failed && <p className="staff-muted">{!RETRYABLE_PUBLICATION_FAILURES.includes(publication.failureCode ?? '') ? 'It cannot be retried.'
-      : !attemptsLeft(publication) ? 'The publication attempt limit has been reached. It cannot be retried.'
-        : retryHere ? PUBLICATION_RETRY_WAIT
-          : 'It can be retried only from the page where Publish was pressed, before that page is reloaded or left.'}</p>}
-    {(publication.status === 'pending' || publication.status === 'processing') && <p className="staff-muted">{retryHere
-      ? 'OCR has not finished this publication. If it has stopped, Retry publication resumes it; if it is still running, OCR says so.'
-      : 'OCR has not finished this publication. Refresh the job status to see whether it has. If it has stopped, it can be resumed only from the page where Publish was pressed, before that page is reloaded or left.'}</p>}
+    {failed && failedText && <p className="staff-muted">{failedText}</p>}
+    {(publication.status === 'pending' || publication.status === 'processing') && <p className="staff-muted">{unfinishedText}</p>}
     {publication.status === 'published' && <PublishedEvidence facilityId={facilityId} publication={publication} permissions={permissions} />}
   </div>
 }
@@ -816,6 +828,8 @@ function OcrPublicationCard({ facilityId, validation, confirmationId, permission
   const [historyError, setHistoryError] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  // Counts changes to `publicationAttempts`, which `next` reads while rendering: each change renders again.
+  const [, setHeldKeys] = useState(0)
   const focus = useFocusById()
   const publishId = `ocr-publish-${validation.id}`
   const retryId = `ocr-publish-retry-${validation.id}`
@@ -842,6 +856,13 @@ function OcrPublicationCard({ facilityId, validation, confirmationId, permission
     return publicationAttempts.has(request) && items.some(resumable) ? retryId : null
   }
 
+  /** Holds a request's key, or drops it, and renders what that changes. */
+  function hold(held: string, attempt: PublicationAttempt | null) {
+    if (attempt) publicationAttempts.set(held, attempt)
+    else publicationAttempts.delete(held)
+    setHeldKeys(value => value + 1)
+  }
+
   // Reads the history again, keeping what it showed until the answer arrives.
   async function reload(): Promise<OcrPublication[] | null> {
     try { const { items } = await staffApi.ocrPublications(facilityId, validation.id); setPublications(items); setHistoryError(''); return items }
@@ -851,7 +872,7 @@ function OcrPublicationCard({ facilityId, validation, confirmationId, permission
   /** A publication the history read again shows, whatever answer was lost on the way: said, and the job read again. */
   async function recorded(items: readonly OcrPublication[] | null) {
     if (!request || !items?.some(item => item.status === 'published')) return false
-    publicationAttempts.delete(request)
+    hold(request, null)
     await onChanged()
     return true
   }
@@ -867,11 +888,11 @@ function OcrPublicationCard({ facilityId, validation, confirmationId, permission
       return
     }
     const attempt = held ?? { key: crypto.randomUUID(), retryAt: 0 }
-    publicationAttempts.set(request, attempt)
+    hold(request, attempt)
     setBusy(true); setError('')
     try {
       const publication = await staffApi.publishOcrValidation(facilityId, validation, confirmationId, operation, attempt.key)
-      if (publication.status === 'published') { publicationAttempts.delete(request); await onChanged(); return }
+      if (publication.status === 'published') { hold(request, null); await onChanged(); return }
       // Any other answer published nothing: show what OCR holds.
       const items = await reload()
       if (await recorded(items)) return
@@ -880,8 +901,9 @@ function OcrPublicationCard({ facilityId, validation, confirmationId, permission
       // That publication was requested with another key, so this request cannot resume it.
       const alreadyPublished = isHidApiError(caught) && caught.code === 'OCR_ALREADY_PUBLISHED'
       // The history shown is out of date then: it is not shown, nor Publish offered, until read again.
-      if (alreadyPublished) { publicationAttempts.delete(request); setPublications(null) }
+      if (alreadyPublished) { hold(request, null); setPublications(null) }
       // A failed attempt has OCR wait before the next: counted from this answer, which came after the failure.
+      // Read only when Retry publication is pressed, so it needs no render.
       else attempt.retryAt = Date.now() + PUBLICATION_RETRY_WAIT_MS
       const items = await reload()
       if (await recorded(items)) return
@@ -897,7 +919,7 @@ function OcrPublicationCard({ facilityId, validation, confirmationId, permission
     {error && <p className="staff-error" role="alert">{error}</p>}
     {historyError && <p className="staff-error" role="alert">{historyError}</p>}
     {publications === null && !historyError && <p className="staff-muted" role="status">Loading publication history…</p>}
-    {publications?.map(publication => <OcrPublicationStatus key={publication.id} facilityId={facilityId} publication={publication} permissions={permissions} retryHere={action === retryId} />)}
+    {publications?.map(publication => <OcrPublicationStatus key={publication.id} facilityId={facilityId} publication={publication} permissions={permissions} canPublish={request !== undefined} retryHere={action === retryId} />)}
     {action === publishId && <Button id={publishId} size="sm" onClick={() => void publish()} disabled={busy}>{busy ? 'Publishing…' : `Publish to ${validation.targetDomain.replace('_', ' ')}`}</Button>}
     {action === retryId && <Button id={retryId} size="sm" onClick={() => void publish(true)} disabled={busy}>{busy ? 'Retrying…' : 'Retry publication'}</Button>}
   </div>
