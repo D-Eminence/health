@@ -18,7 +18,7 @@ import { Clinical } from './routes/Clinical'
 import { Laboratory, Pharmacy, Ocr, Outreach, MigrateGap } from './routes/Operations'
 import { resolveStaffProductHostname } from '../productHostname'
 import { revealFocusedLink } from '../navStrip'
-import { useFocusOnPageChange } from './pageFocus'
+import { focusPageHeading, useFocusOnPageChange } from './pageFocus'
 import './style.css'
 
 type SessionState =
@@ -404,18 +404,42 @@ function Shell() {
   const navigate = useNavigate()
   const main = useRef<HTMLElement>(null)
   useFocusOnPageChange(main)
+  // A facility chosen in the list is not switched to until the switch is confirmed: on a
+  // closed list one arrow key changes the value (WCAG 3.2.2). The choice belongs to the
+  // account and facility it was made in, so a refresh, a switch from another tab, a lock
+  // or the next session that changes either discards it.
+  const [choice, setChoice] = useState<{ from: string; to: string } | null>(null)
+  // Raised once a switch has opened the overview, whose heading then takes focus.
+  const [switched, setSwitched] = useState(0)
+  useEffect(() => { if (switched) focusPageHeading(main.current) }, [switched])
   if (state.status !== 'ready') return null
   const { actor } = state.session
   const currentFacility = actor.facility
   const permissions = currentFacility?.permissions ?? []
   const visible = navigation.filter(item => !item.permission || permissions.includes(item.permission))
+  const choosingFrom = `${actor.id}|${currentFacility?.id ?? ''}`
+  const chosenId = choice?.from === choosingFrom ? choice.to : currentFacility?.id ?? ''
+  const chosen = chosenId !== (currentFacility?.id ?? '') ? actor.facilities.find(facility => facility.id === chosenId) : undefined
 
-  async function chooseFacility(id: string) {
+  async function switchFacility() {
+    if (switching || !chosen) return
     setFacilityError('')
     setSwitching(true)
-    try { if (await selectFacility(id)) navigate('/provider') }
+    try {
+      if (await selectFacility(chosen.id)) {
+        setChoice(null)
+        navigate('/provider')
+        setSwitched(value => value + 1)
+      }
+    }
     catch (error) { setFacilityError(error instanceof Error ? error.message : 'Facility could not be selected.') }
     finally { setSwitching(false) }
+  }
+
+  function keepFacility() {
+    setChoice(null)
+    setFacilityError('')
+    document.getElementById('staff-facility-select')?.focus()
   }
 
   async function leave() {
@@ -439,10 +463,16 @@ function Shell() {
       <aside className="staff-sidebar" aria-label="Provider navigation">
         <div className="staff-facility">
           <label htmlFor="staff-facility-select">Working at</label>
-          <Select id="staff-facility-select" value={currentFacility?.id ?? ''} disabled={switching} onChange={event => void chooseFacility(event.target.value)}>
+          <Select id="staff-facility-select" value={chosenId} disabled={switching} aria-describedby={chosen ? 'staff-facility-question' : undefined}
+            onChange={event => { setFacilityError(''); setChoice({ from: choosingFrom, to: event.target.value }) }}>
             {!currentFacility && <option value="">Select a facility</option>}
             {actor.facilities.map(facility => <option key={facility.id} value={facility.id}>{facility.name}</option>)}
           </Select>
+          {chosen && <div className="staff-facility-confirm" role="group" aria-labelledby="staff-facility-question">
+            <p id="staff-facility-question">{currentFacility ? `You are working at ${currentFacility.name}. Switch to ${chosen.name}?` : `Work at ${chosen.name}?`}{activePatient ? ' The open patient record will close.' : ''}</p>
+            {/* Kept enabled while it runs, so focus stays on it; a second press does nothing. */}
+            <div className="staff-row"><Button size="sm" onClick={() => void switchFacility()} aria-disabled={switching || undefined}>{switching ? 'Switching…' : 'Switch facility'}</Button><Button size="sm" tone="quiet" onClick={keepFacility} disabled={switching}>Cancel</Button></div>
+          </div>}
           {facilityError && <p role="alert" className="staff-error">{facilityError}</p>}
         </div>
         <nav className="staff-nav" onFocus={revealFocusedLink}>{visible.map(item => <NavLink key={item.to} to={item.to} end={item.to === '/provider'} className={({ isActive }) => `staff-nav-link${isActive ? ' active' : ''}`}>{item.label}{item.to === '/provider/clinical' && !activePatient && <span className="staff-nav-meta">Select patient</span>}</NavLink>)}</nav>

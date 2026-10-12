@@ -18,9 +18,14 @@ export function useFocusOnPageChange(main: RefObject<HTMLElement | null>): void 
     shown.current = pathname
     const active = document.activeElement
     if (active instanceof HTMLElement && active !== document.body && active.isConnected) return
-    const target = main.current?.querySelector<HTMLElement>('h1') ?? main.current
-    if (!target) return
-    if (!target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1')
-    target.focus()
+    focusPageHeading(main.current)
   }, [pathname, main])
+}
+
+/** Moves focus to the page's heading in `main`, or to `main` while the page has none. */
+export function focusPageHeading(main: HTMLElement | null): void {
+  const target = main?.querySelector<HTMLElement>('h1') ?? main
+  if (!target) return
+  if (!target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1')
+  target.focus()
 }

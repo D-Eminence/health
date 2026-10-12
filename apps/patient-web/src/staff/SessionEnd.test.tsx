@@ -245,6 +245,15 @@ async function signIn() {
   fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
 }
 
+/**
+ * Switches to Ikeja Clinic as a provider does: choosing it in the facility list
+ * only proposes it (PEHR-02), and Switch facility confirms it.
+ */
+async function switchToIkeja(select: HTMLElement | Promise<HTMLElement>) {
+  fireEvent.change(await select, { target: { value: 'facility-2' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Switch facility' }))
+}
+
 async function openPatientRecord() {
   fireEvent.change(await screen.findByRole('textbox', { name: 'Health ID' }), { target: { value: PATIENT_HID } })
   fireEvent.click(screen.getByRole('button', { name: 'Verify access' }))
@@ -447,7 +456,7 @@ describe('asking the server', () => {
     serve({ [SESSION]: [json(staffSession()), confirmedEnd.session()], [REQUESTS]: [read.answer, json([])], [FACILITY]: [json(atIkeja())],
       [REFRESH]: [refreshRefused(), confirmedEnd.refresh()] })
     await open('/provider')
-    fireEvent.change(await screen.findByRole('combobox', { name: 'Working at' }), { target: { value: 'facility-2' } })
+    await switchToIkeja(screen.findByRole('combobox', { name: 'Working at' }))
     expect(await screen.findByText(/^Working at Ikeja Clinic\./)).toBeTruthy()
 
     await act(async () => { read.respond(ended()) })
@@ -484,7 +493,7 @@ describe('an action or refresh refused because the session ended', () => {
   it('shows the session-ended screen when switching facility finds the session ended', async () => {
     serve({ [SESSION]: [json(staffSession()), confirmedEnd.session()], [REQUESTS]: [json([])], [FACILITY]: [ended()], [REFRESH]: [refreshRefused(), confirmedEnd.refresh()] })
     await open('/provider')
-    fireEvent.change(await screen.findByRole('combobox', { name: 'Working at' }), { target: { value: 'facility-2' } })
+    await switchToIkeja(screen.findByRole('combobox', { name: 'Working at' }))
 
     await expectSessionEnded()
   })
@@ -560,7 +569,7 @@ describe('late answers after the session ended', () => {
       [REFRESH]: [refreshRefused(), confirmedEnd.refresh()], [LOGIN]: [json(staffSession())] })
     const commits = await open('/provider/patients')
     await openPatientRecord()
-    fireEvent.change(screen.getByRole('combobox', { name: 'Working at' }), { target: { value: 'facility-2' } })
+    await switchToIkeja(screen.getByRole('combobox', { name: 'Working at' }))
     await expectSessionEnded()
     await signInAgain('/provider/patients')
     const signedInAt = commits.length
@@ -577,7 +586,7 @@ describe('late answers after the session ended', () => {
     serve({ [SESSION]: [json(staffSession())], [LOOKUP]: [lookup.answer], [FACILITY]: [json(atIkeja())] })
     const commits = await open('/provider/patients')
     await openPatientRecord()
-    fireEvent.change(screen.getByRole('combobox', { name: 'Working at' }), { target: { value: 'facility-2' } })
+    await switchToIkeja(screen.getByRole('combobox', { name: 'Working at' }))
     await waitFor(() => expect(where()).toBe('/provider'))
     const switchedAt = commits.length
 
@@ -591,7 +600,7 @@ describe('late answers after the session ended', () => {
     const switched = deferredResponse()
     serve({ [SESSION]: [json(staffSession()), confirmedEnd.session()], [FACILITY]: [switched.answer], [REFRESH]: [confirmedEnd.refresh()] })
     await open('/provider/patients')
-    fireEvent.change(await screen.findByRole('combobox', { name: 'Working at' }), { target: { value: 'facility-2' } })
+    await switchToIkeja(screen.findByRole('combobox', { name: 'Working at' }))
     await endSessionNow()
 
     await act(async () => { switched.respond(json(atIkeja())) })
@@ -609,7 +618,7 @@ describe('late answers after the session ended', () => {
     const calls = serve({ [SESSION]: [json(staffSession()), confirmedEnd.session()], [FACILITY]: [switched.answer],
       [REFRESH]: [confirmedEnd.refresh(), json(staffSession())], [LOGIN]: [json(staffSession())] })
     await open('/provider/patients')
-    fireEvent.change(await screen.findByRole('combobox', { name: 'Working at' }), { target: { value: 'facility-2' } })
+    await switchToIkeja(screen.findByRole('combobox', { name: 'Working at' }))
     await endSessionNow()
     await signInAgain('/provider/patients')
     const before = calls.length
@@ -645,7 +654,7 @@ describe('late answers after the session ended', () => {
   })
 
   const actions = {
-    'facility switch': { route: FACILITY, start: async () => { fireEvent.change(await screen.findByRole('combobox', { name: 'Working at' }), { target: { value: 'facility-2' } }) } },
+    'facility switch': { route: FACILITY, start: async () => { await switchToIkeja(screen.findByRole('combobox', { name: 'Working at' })) } },
     'sign-out': { route: LOGOUT, start: async () => { fireEvent.click(await screen.findByRole('button', { name: 'Sign out' })) } },
   } as const
   it.each([
@@ -748,7 +757,7 @@ describe('late answers after the session ended', () => {
       [REFRESH]: [refreshRefused(), confirmedEnd.refresh(), json(staffSession('staff-2', 'Bola Nurse'))], [LOGIN]: [json(staffSession('staff-2', 'Bola Nurse'))] })
     await open('/provider/patients')
     await openPatientRecord()
-    fireEvent.change(screen.getByRole('combobox', { name: 'Working at' }), { target: { value: 'facility-2' } })
+    await switchToIkeja(screen.getByRole('combobox', { name: 'Working at' }))
     await expectSessionEnded()
     await signInAgain('/provider/patients')
     const before = calls.length
@@ -860,7 +869,7 @@ describe('refusals that do not end the session', () => {
   it('keeps the workspace when a facility switch is refused (403), without restoring the session', async () => {
     const calls = serve({ [SESSION]: [json(staffSession())], [REQUESTS]: [json([])], [FACILITY]: [problem(403, 'FACILITY_ACCESS_DENIED', 'You are not a member of this facility')] })
     await open('/provider')
-    fireEvent.change(await screen.findByRole('combobox', { name: 'Working at' }), { target: { value: 'facility-2' } })
+    await switchToIkeja(screen.findByRole('combobox', { name: 'Working at' }))
 
     expect((await screen.findByRole('alert')).textContent).toBe('You are not a member of this facility')
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeTruthy()
@@ -909,7 +918,7 @@ describe('refusals that do not end the session', () => {
     const calls = serve({ [SESSION]: [json(staffSession())], [REQUESTS]: [later(10, ended), json([])],
       [FACILITY]: [later(10, ended), json(atIkeja())], [REFRESH]: [later(40, () => json(staffSession()))] })
     await open('/provider')
-    fireEvent.change(await screen.findByRole('combobox', { name: 'Working at' }), { target: { value: 'facility-2' } })
+    await switchToIkeja(screen.findByRole('combobox', { name: 'Working at' }))
 
     expect(await screen.findByText(/^Working at Ikeja Clinic\./)).toBeTruthy()
     expect(calls.filter(call => call === REFRESH)).toHaveLength(1)
@@ -923,7 +932,7 @@ describe('refusals that do not end the session', () => {
       [REFRESH]: [json(staffSession())],
     })
     await open('/provider')
-    fireEvent.change(await screen.findByRole('combobox', { name: 'Working at' }), { target: { value: 'facility-2' } })
+    await switchToIkeja(screen.findByRole('combobox', { name: 'Working at' }))
 
     expect(await screen.findByText(/^Working at Ikeja Clinic\./)).toBeTruthy()
     expect(screen.queryByText(SESSION_ENDED)).toBeNull()
@@ -942,7 +951,7 @@ describe('repeated refusals', () => {
       [REFRESH]: [later(20, () => refreshRefused()), confirmedEnd.refresh()],
     })
     await open('/provider')
-    fireEvent.change(await screen.findByRole('combobox', { name: 'Working at' }), { target: { value: 'facility-2' } })
+    await switchToIkeja(screen.findByRole('combobox', { name: 'Working at' }))
 
     await expectSessionEnded()
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 50)) })
@@ -1021,7 +1030,7 @@ describe('signing out', () => {
     const switched = deferredResponse()
     const leaving = deferredResponse()
     await openAndSignOut({ [FACILITY]: [switched.answer], [LOGOUT]: [leaving.answer] })
-    fireEvent.change(screen.getByRole('combobox', { name: 'Working at' }), { target: { value: 'facility-2' } })
+    await switchToIkeja(screen.getByRole('combobox', { name: 'Working at' }))
 
     await act(async () => { switched.respond(json(atIkeja())) })
     await act(async () => { leaving.respond(signedOut()) })
@@ -1198,7 +1207,7 @@ describe('another account in the same browser', () => {
   ])('does not adopt a facility switch that %s', async (_label, routes) => {
     const calls = serve({ [SESSION]: [json(staffSession()), json(staffSession('staff-2', 'Bola Nurse'))], [REQUESTS]: [json([])], ...routes })
     const commits = await open('/provider')
-    fireEvent.change(await screen.findByRole('combobox', { name: 'Working at' }), { target: { value: 'facility-2' } })
+    await switchToIkeja(screen.findByRole('combobox', { name: 'Working at' }))
 
     await expectSessionEnded()
     expect(calls.filter(call => call === FACILITY)).toHaveLength(1)
