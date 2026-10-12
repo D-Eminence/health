@@ -137,7 +137,7 @@ export function EmergencyContactsCard() {
     setRemoving(null); setNotice('Contact removed. They will no longer be notified.'); await contacts.reload()
   }, 'The contact could not be removed.', byId(`contact-confirm-remove-${contactId}`))
 
-  return <div className="patient-card" aria-labelledby="emergency-contacts-heading" aria-busy={contacts.loading || undefined}>
+  return <div className="patient-card" aria-labelledby="emergency-contacts-heading" aria-busy={(contacts.loading && contacts.data !== null) || undefined}>
     <h2 ref={heading} tabIndex={-1} id="emergency-contacts-heading">Emergency contacts</h2>
     <p className="patient-field-hint">If a provider uses emergency access to your record, verified contacts are told
       your first name, the facility, and the time. They never receive medical details. A contact is only notified
@@ -291,7 +291,7 @@ export function AccountDeletionCard() {
   const waiting = status.data ? days(status.data.waitingPeriodSeconds) : null
   const scheduled = current?.state === 'pending' && current.scheduledFor
 
-  return <div className="patient-card patient-danger-card" aria-labelledby="account-deletion-heading" aria-busy={status.loading || undefined}>
+  return <div className="patient-card patient-danger-card" aria-labelledby="account-deletion-heading" aria-busy={(status.loading && status.data !== null) || undefined}>
     <h2 ref={heading} tabIndex={-1} id="account-deletion-heading">Delete account</h2>
     {error && <p role="alert" className="patient-inline-error">{error}</p>}
     <div role="status">{notice && <p className="patient-inline-success">{notice}</p>}</div>

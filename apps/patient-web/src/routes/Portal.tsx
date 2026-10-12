@@ -72,7 +72,9 @@ function notificationTitle(item: PatientNotification) {
 
 /**
  * The first load and a failed one. Content already on screen stays there while it
- * reloads (PR-03), and after 'Try again' focus goes to `focusTarget` (PR-04).
+ * reloads (PR-03), and after 'Try again' focus goes to `focusTarget` (PR-04). A
+ * card is aria-busy only while it reloads what it shows: assistive technology may
+ * hold back changes in a busy region, the first load's status among them.
  */
 function LoadState({ loading, error, retry, hasData, focusTarget }: {
   loading: boolean; error: string | null; retry: () => unknown; hasData: boolean; focusTarget: RefObject<HTMLElement | null>
@@ -286,7 +288,7 @@ export function AccessPage() {
     <p className="patient-page-copy">Review requests before deciding whether a facility can access information within the requested scope.</p>
     {error && <p role="alert" className="patient-inline-error">{error}</p>}
     <div role="status">{notice && <p className="patient-inline-success">{notice}</p>}</div>
-    <div className="patient-card" aria-busy={requests.loading || undefined}><h2 ref={requestsHeading} tabIndex={-1}>Access requests</h2>
+    <div className="patient-card" aria-busy={(requests.loading && requests.data !== null) || undefined}><h2 ref={requestsHeading} tabIndex={-1}>Access requests</h2>
       <LoadState loading={requests.loading} error={requests.error} retry={requests.reload} hasData={requests.data !== null} focusTarget={requestsHeading} />
       {requests.data && !requests.error && (requests.data.length === 0 ? <p className="patient-empty">There are no access requests.</p> : <ul className="patient-list">
         {requests.data.map(item => <li key={item.accessRequestId} className="patient-access-item"><div><strong>{item.facilityName}</strong><span>{item.scope} · {date(item.requestedAt)} · {item.status}</span><p>{item.reason}</p></div>
@@ -298,7 +300,7 @@ export function AccessPage() {
             <button type="button" className="patient-secondary-button" disabled={!!working} onClick={() => cancelDenial(item.accessRequestId)}>Cancel</button></form>}
         </li>)}
       </ul>)}</div>
-    <div className="patient-card" aria-busy={history.loading || undefined}><h2 ref={historyHeading} tabIndex={-1}>Access history</h2>
+    <div className="patient-card" aria-busy={(history.loading && history.data !== null) || undefined}><h2 ref={historyHeading} tabIndex={-1}>Access history</h2>
       <LoadState loading={history.loading} error={history.error} retry={history.reload} hasData={history.data !== null} focusTarget={historyHeading} />
       {history.data && !history.error && (history.data.items.length === 0 ? <p className="patient-empty">No access grants are recorded.</p> : <ul className="patient-list">
         {history.data.items.map(item => <li key={item.consentGrantId}><div><strong>{item.facilityName}</strong><span>{item.breakGlass ? 'Emergency access' : item.scope} · {item.purpose}</span><span>{date(item.startsAt)} to {date(item.expiresAt)} · {item.status}</span>
