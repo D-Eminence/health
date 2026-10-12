@@ -36,6 +36,10 @@ export function Enrollment() {
   const [checkKey, setCheckKey] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [fieldError, setFieldError] = useState(false)
+  // An error about the field is spoken by its description once focus moves there,
+  // and is an alert only when focus is already in the field (Enter) or it is not
+  // about the field.
+  const [errorAlert, setErrorAlert] = useState(true)
   const startKey = useRef<{ nin: string; key: string } | null>(null)
 
   const applyProgress = (progress: EnrollmentProgress) => {
@@ -73,14 +77,17 @@ export function Enrollment() {
 
   if (state.status === 'authenticated') return <Navigate to="/" replace />
 
-  const displayError = (reason: unknown) => {
+  const displayError = (reason: unknown, fromField = false, stepCodes: readonly string[] = []) => {
+    const aboutField = isFieldProblem(reason, stepCodes)
     setError(isHidApiError(reason) ? reason.message : 'We could not complete that step. Please try again.')
-    setFieldError(isFieldProblem(reason))
+    setFieldError(aboutField)
+    setErrorAlert(!aboutField || fromField)
   }
-  const clearError = () => { setError(null); setFieldError(false) }
+  const clearError = () => { setError(null); setFieldError(false); setErrorAlert(true) }
 
   const submitNin = async (event: FormEvent) => {
     event.preventDefault()
+    const fromField = stepFocus.onTarget()
     if (!/^\d{11}$/.test(nin) || !turnstileToken || busy) return
     if (googleRequired && !googlePending) { setError('Reconnect Google before continuing.'); setFieldError(false); return }
     setBusy(true); clearError()
@@ -89,12 +96,13 @@ export function Enrollment() {
       const progress = await api.enrollmentStart(nin, turnstileToken, startKey.current.key)
       applyProgress(progress)
       setNin('')
-    } catch (reason) { displayError(reason) }
+    } catch (reason) { displayError(reason, fromField) }
     finally { setTurnstileToken(null); setResetKey(value => value + 1); setBusy(false); stepFocus.focus() }
   }
 
   const submitContact = async (event: FormEvent) => {
     event.preventDefault()
+    const fromField = stepFocus.onTarget()
     if (busy || !contact.trim()) return
     setBusy(true); clearError()
     try {
@@ -103,21 +111,23 @@ export function Enrollment() {
       setMaskedContact(contact.trim())
       // Kept, so 'Request another code' comes back to it filled in (PA-10).
       setStage('otp')
-    } catch (reason) { displayError(reason) }
+    } catch (reason) { displayError(reason, fromField, ['CONTACT_ALREADY_REGISTERED']) }
     finally { setBusy(false); stepFocus.focus() }
   }
 
   const submitCode = async (event: FormEvent) => {
     event.preventDefault()
+    const fromField = stepFocus.onTarget()
     if (busy || !challengeId || !/^\d{6}$/.test(code)) return
     setBusy(true); clearError()
     try { await api.enrollmentVerify(challengeId, code); setCode(''); setStage('password') }
-    catch (reason) { displayError(reason) }
+    catch (reason) { displayError(reason, fromField) }
     finally { setBusy(false); stepFocus.focus() }
   }
 
   const submitPassword = async (event: FormEvent) => {
     event.preventDefault()
+    const fromField = stepFocus.onTarget()
     if (busy || password.length < 12) return
     if (googleRequired && !googlePending) { setError('Reconnect Google before activation.'); setFieldError(false); return }
     setBusy(true); clearError()
@@ -126,7 +136,7 @@ export function Enrollment() {
       setPassword('')
       setHidCode(result.hidCode)
       setStage('complete')
-    } catch (reason) { displayError(reason) }
+    } catch (reason) { displayError(reason, fromField) }
     finally { setBusy(false); stepFocus.focus() }
   }
 
@@ -140,7 +150,7 @@ export function Enrollment() {
       // Binding answers only that it bound; the enrollment's own progress is read
       // again, so a patient already past the contact step is not sent back to it.
       if (stage !== 'nin') { await api.enrollmentBindGoogle(); applyProgress(await api.enrollmentCurrent()) }
-    } catch (reason) { displayError(reason); setFieldError(false) }
+    } catch (reason) { displayError(reason); setFieldError(false); setErrorAlert(true) }
     finally { setGoogleTurnstileToken(null); setGoogleResetKey(value => value + 1); setBusy(false); stepFocus.focus() }
   }
 
@@ -159,7 +169,7 @@ export function Enrollment() {
       </ol>
       {checking ? <p role="status">Checking for an enrollment in progress…</p> : null}
       {checkError && <div className="patient-inline-error" role="alert"><p>We could not check for an enrollment in progress. Try again before starting.</p><button type="button" className="patient-secondary-button" onClick={() => setCheckKey(value => value + 1)}>Try again</button></div>}
-      {error && <p id="enroll-error" role="alert" className="patient-inline-error">{error}</p>}
+      {error && <p id="enroll-error" role={errorAlert ? 'alert' : undefined} className="patient-inline-error">{error}</p>}
       {googleRequired && !googlePending && <p role="status" className="patient-inline-error">Reconnect the Google account used to start this enrollment.</p>}
       {!checking && !checkError && stage === 'nin' && <form onSubmit={event => void submitNin(event)} className="patient-form">
         <label>National Identification Number<input ref={stepFocus.target} required inputMode="numeric" autoComplete="off" value={nin} onChange={event => setNin(event.target.value.replace(/\D/g, '').slice(0, 11))} pattern="[0-9]{11}" maxLength={11} placeholder="11 digits"
@@ -180,7 +190,7 @@ export function Enrollment() {
         <label>Verification code<input ref={stepFocus.target} required inputMode="numeric" autoComplete="one-time-code" value={code} onChange={event => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))} pattern="[0-9]{6}" maxLength={6}
           aria-invalid={invalid} aria-describedby={describedBy('enroll-code-hint', errorId)} /></label>
         <button type="submit" className="patient-primary-button" disabled={busy || code.length !== 6}>{busy ? 'Checking…' : 'Verify code'}</button>
-        <button type="button" className="patient-text-button" onClick={() => { setCode(''); setChallengeId(null); clearError(); setStage('contact'); stepFocus.focus() }}>Request another code or change contact</button>
+        <button type="button" className="patient-text-button" disabled={busy} onClick={() => { setCode(''); setChallengeId(null); clearError(); setStage('contact'); stepFocus.focus() }}>Request another code or change contact</button>
       </form>}
       {!checking && !checkError && stage === 'password' && <form onSubmit={event => void submitPassword(event)} className="patient-form">
         <h2>Activate your account</h2><p id="enroll-password-hint" className="patient-field-hint">Choose a password of at least 12 characters.</p>

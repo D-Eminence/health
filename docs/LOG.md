@@ -730,20 +730,30 @@ code and password), PA-10 (the contact cleared for another code) and PA-12
   ("Your Health ID is ready.", "Password reset complete."). After a refused step
   it goes back to the field. "Start again" (provider recovery) and "Request
   another code or change contact" (enrollment) move it too. Focus the person has
-  moved elsewhere while a step runs stays where it is. Opening the page, or
-  resuming an enrollment already under way, moves nothing.
+  moved elsewhere while a step runs, including another field of the same form,
+  stays where it is. Opening the page, or resuming an enrollment already under
+  way, moves nothing.
 - **Field errors.** A refusal about the step's field is now tied to it: the field
   is marked `aria-invalid` and described by the error as well as its hint. That
   covers a value refused as malformed or wrong (`400`, `422`, such as
-  `NIN_NOT_VERIFIED`, `OTP_INVALID` and `PASSWORD_INVALID`) and a wrong or
-  expired recovery code (`403 OTP_INVALID_OR_EXPIRED`). Rate limits, outages and
-  other refusals still show the alert, but leave the field valid. The error
-  stays the one alert at the top of the form.
+  `NIN_NOT_VERIFIED`, `OTP_INVALID` and `PASSWORD_INVALID`), a wrong or expired
+  recovery code on the code step (`403 OTP_INVALID_OR_EXPIRED`), and a contact
+  already used by a Health ID (`409 CONTACT_ALREADY_REGISTERED`). On the
+  password step the same `403` means the verification ran out, so the password
+  field stays valid. A missing security check (`400 TURNSTILE_REQUIRED`), a
+  request key refused (`400 IDEMPOTENCY_KEY_INVALID`), rate limits and outages
+  leave the field valid too. The error shows at the top of the form. It is an
+  alert when it is not about the field, or when the step was sent with Enter in
+  the field; sent from the button, focus moves to the field, whose description
+  says it, so it is not also an alert (it would be spoken twice).
 - **Password mismatch (provider and platform recovery).** "Passwords do not
   match." is now in a polite live region, announced once when it appears, and
-  the confirm field is marked invalid and described by it.
+  the confirm field is marked invalid and described by it. It appears once the
+  confirmation differs from the password, not while it is still being typed and
+  agrees so far.
 - **Another code.** "Request another code or change contact" comes back to the
-  contact just used, filled in, instead of an empty field.
+  contact just used, filled in, instead of an empty field. It cannot be used
+  while a code is being checked.
 - **Page titles.** Sign-in, enrollment and recovery name the tab ("Sign in ·
   Health ID", "Get your Health ID · Health ID", "Reset your password · Health ID",
   and "… · Health ID Provider" or "… Platform"), and give the earlier title back
@@ -751,11 +761,20 @@ code and password), PA-10 (the contact cleared for another code) and PA-12
   (PR-06, PEHR-05 below).
 - No request, contract or backend change. The Turnstile, the challenge and the
   verification token are handled as before.
-- **Tests:** `apps/patient-web/src/__tests__/AuthStepFocus.test.tsx`, 13 cases.
-  Each step is submitted with focus on its button, as a keyboard user does. 11
-  fail against the forms before this change; the other two guard what must not
-  change (focus moved elsewhere is kept; opening at a resumed stage moves
-  nothing). Full suite 1020 tests, typecheck and lint pass.
+- **Tests:** `apps/patient-web/src/__tests__/AuthStepFocus.test.tsx`, 21 cases.
+  Each step is submitted with focus on its button, as a keyboard user does,
+  unless the case is about Enter in the field. 11 of the first 13 fail against
+  the forms before this change; the other two guard what must not change (focus
+  moved elsewhere is kept; opening at a resumed stage moves nothing). The review
+  below added 8: 6 fail on the reviewed commit (`aa2602a`), 1 more there was
+  updated, and two guard that opening `/recover` and `/provider/recover` moves
+  nothing.
+- **Review.** An independent review found no blocker. Fixed: a verification that
+  ran out on the password step marked the password invalid (major); focus was
+  taken back from another field of the same form; a field error from the button
+  was spoken twice; the security-check and request-key 400s counted as field
+  errors and `CONTACT_ALREADY_REGISTERED` did not; the mismatch showed on the
+  first keystroke; "Request another code" worked during a check; two test gaps.
 - **Browser check:** headless Chromium against the built portal with the API
   mocked, at 390px, every step submitted from the keyboard, 19 of 19 checks:
   - each step's focus, including Chromium's own blur of the disabled button;

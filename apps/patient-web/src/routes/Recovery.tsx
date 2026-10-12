@@ -23,13 +23,20 @@ export function Recovery() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [fieldError, setFieldError] = useState(false)
+  // An error about the field is announced by the field's description once focus
+  // moves there; it is an alert only when focus is already in the field (Enter),
+  // or when it is not about the field at all. As both it would be spoken twice.
+  const [errorAlert, setErrorAlert] = useState(true)
 
-  const run = async (operation: () => Promise<void>) => {
+  const run = async (operation: () => Promise<void>, stepCodes: readonly string[] = []) => {
+    const fromField = stepFocus.onTarget()
     setBusy(true); setError(null); setFieldError(false)
     try { await operation() }
     catch (reason) {
+      const aboutField = isFieldProblem(reason, stepCodes)
       setError(isHidApiError(reason) ? reason.message : 'We could not complete that step. Please try again.')
-      setFieldError(isFieldProblem(reason))
+      setFieldError(aboutField)
+      setErrorAlert(!aboutField || fromField)
     } finally { setBusy(false); stepFocus.focus() }
   }
 
@@ -53,7 +60,7 @@ export function Recovery() {
       setVerificationToken(result.verificationToken)
       setCode('')
       setStep('password')
-    })
+    }, ['OTP_INVALID_OR_EXPIRED'])
   }
 
   const complete = (event: FormEvent) => {
@@ -72,7 +79,7 @@ export function Recovery() {
   return <main className="patient-auth-page"><section className="patient-auth-card" aria-labelledby="recovery-title">
     <Link to="/sign-in" className="patient-auth-brand"><BrandLogo /></Link>
     <p className="patient-eyebrow">Account recovery</p><h1 id="recovery-title" className="patient-page-title">Reset your password.</h1>
-    {error && <p id="recovery-error" role="alert" className="patient-inline-error">{error}</p>}
+    {error && <p id="recovery-error" role={errorAlert ? 'alert' : undefined} className="patient-inline-error">{error}</p>}
     {step === 'start' && <form onSubmit={start} className="patient-form"><p id="recovery-start-hint" className="patient-page-copy">Enter your email or Health ID. We will send a code to your verified contact.</p>
       <label>Email or Health ID<input ref={stepFocus.target} required autoComplete="username" value={identifier} onChange={event => setIdentifier(event.target.value)}
         aria-invalid={invalid} aria-describedby={describedBy('recovery-start-hint', errorId)} /></label>

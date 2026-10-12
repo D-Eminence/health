@@ -28,6 +28,9 @@ export function PrincipalRecovery({ audience }: { audience: RecoveryAudience }) 
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [fieldError, setFieldError] = useState(false)
+  // As in patient recovery: an error about the field is spoken by its description
+  // once focus moves there, and is an alert only when focus is already in the field.
+  const [errorAlert, setErrorAlert] = useState(true)
 
   // hid-system refuses a staff reset everywhere but the main site. Opened on a
   // product or admin site (a bookmark, history), the page points there instead.
@@ -43,14 +46,17 @@ export function PrincipalRecovery({ audience }: { audience: RecoveryAudience }) 
     </section></main>
   }
 
-  async function run(operation: () => Promise<void>) {
+  async function run(operation: () => Promise<void>, stepCodes: readonly string[] = []) {
+    const fromField = stepFocus.onTarget()
     setBusy(true)
     setError(null)
     setFieldError(false)
     try { await operation() }
     catch (reason) {
+      const aboutField = isFieldProblem(reason, stepCodes)
       setError(isHidApiError(reason) ? reason.message : 'We could not complete that step. Please try again.')
-      setFieldError(isFieldProblem(reason))
+      setFieldError(aboutField)
+      setErrorAlert(!aboutField || fromField)
     } finally {
       setBusy(false)
       stepFocus.focus()
@@ -81,7 +87,7 @@ export function PrincipalRecovery({ audience }: { audience: RecoveryAudience }) 
       setVerificationToken(result.verificationToken)
       setCode('')
       setStep('password')
-    })
+    }, ['OTP_INVALID_OR_EXPIRED'])
   }
 
   function complete(event: FormEvent<HTMLFormElement>) {
@@ -112,13 +118,14 @@ export function PrincipalRecovery({ audience }: { audience: RecoveryAudience }) 
   // The error is about the step's field when the server refused its value.
   const invalid = fieldError ? true : undefined
   const errorId = fieldError ? 'principal-recovery-error' : undefined
-  const mismatch = confirmPassword !== '' && password !== confirmPassword
+  // Not while the confirmation is still being typed and agrees so far.
+  const mismatch = confirmPassword !== '' && password !== confirmPassword && !password.startsWith(confirmPassword)
 
   return <main className="patient-auth-page"><section className="patient-auth-card" aria-labelledby="principal-recovery-title">
     <Link to={signInPath} className="patient-auth-brand"><BrandLogo /></Link>
     <p className="patient-eyebrow">{accountLabel} account recovery</p>
     <h1 id="principal-recovery-title" className="patient-page-title">Reset your password.</h1>
-    {error && <p id="principal-recovery-error" role="alert" className="patient-inline-error">{error}</p>}
+    {error && <p id="principal-recovery-error" role={errorAlert ? 'alert' : undefined} className="patient-inline-error">{error}</p>}
     {step === 'start' && <form onSubmit={start} className="patient-form">
       <p id="principal-recovery-start-hint" className="patient-page-copy">Enter your work email. If an eligible account exists, we will send a code to its verified contact.</p>
       <label>Work email<input ref={stepFocus.target} required type="email" autoComplete="username" maxLength={254} value={identifier} onChange={event => setIdentifier(event.target.value)}

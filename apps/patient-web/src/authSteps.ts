@@ -19,25 +19,36 @@ export function useStepFocus() {
     if (!request || !element?.isConnected) return
     const active = document.activeElement
     const form = element.closest('form')
+    // A submit button still holding focus while disabled (Chromium moves it to the
+    // page; other engines may not) is the step just sent, not a place the person chose.
     const lost = !(active instanceof HTMLElement) || active === document.body || !active.isConnected
-      || (form !== null && form.contains(active))
+      || active === element
+      || (form !== null && form.contains(active) && active instanceof HTMLButtonElement && active.type === 'submit')
     if (lost) element.focus()
   }, [request])
   return {
     /** Ref for the element focus goes to on the step now shown. */
     target: useCallback((element: HTMLElement | null) => { if (element) target.current = element }, []),
     focus: useCallback(() => setRequest(value => value + 1), []),
+    /** Whether focus is on the step's field now: the step is being sent with Enter there. */
+    onTarget: useCallback(() => target.current !== null && document.activeElement === target.current, []),
   }
 }
 
+/** Refusals sent as 400 that are not about the value typed: the security check, the request's own key. */
+const NOT_ABOUT_THE_VALUE = new Set(['TURNSTILE_REQUIRED', 'IDEMPOTENCY_KEY_INVALID'])
+
 /**
  * Whether a refused step is about the value in its field: a malformed or
- * rejected value (400, 422), or a recovery code that is wrong or expired.
- * Rate limits, outages and other refusals are not, and leave the field valid.
+ * rejected value (400, 422), or one of the step's own codes, such as a wrong or
+ * expired recovery code on the code step (`OTP_INVALID_OR_EXPIRED`, which on the
+ * password step means the verification ran out, not that the password is wrong).
+ * Rate limits, outages, the security check and other refusals leave the field valid.
  */
-export function isFieldProblem(reason: unknown): boolean {
-  return isHidApiError(reason)
-    && (reason.status === 400 || reason.status === 422 || reason.code === 'OTP_INVALID_OR_EXPIRED')
+export function isFieldProblem(reason: unknown, stepCodes: readonly string[] = []): boolean {
+  if (!isHidApiError(reason)) return false
+  if (stepCodes.includes(reason.code)) return true
+  return (reason.status === 400 || reason.status === 422) && !NOT_ABOUT_THE_VALUE.has(reason.code)
 }
 
 /** The aria-describedby value for ids that may be absent. */
