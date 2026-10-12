@@ -114,7 +114,7 @@ function ChatConversation() {
     <div className="record-chat-panel">
       <header className="record-chat-panel-header"><span className="record-chat-avatar"><NoteIcon /></span><div><h2>Health ID record assistant</h2><p>Uses your released clinical notes</p></div><span className="record-chat-private">Private to your account</span></header>
       <details className="record-chat-coverage"><summary>Which records can I ask about?</summary><p>Replies use your released clinical notes. Archived imports, attachments, lab results and prescriptions are not included. Your care team guides diagnosis and treatment.</p></details>
-      <div className="record-chat-coverage"><p>Your latest 10 exchanges are available for 30 days. New conversation deletes saved chats. Each question is answered independently.</p>
+      <div className="record-chat-coverage"><p>Your latest 10 exchanges are available for 30 days. New conversation deletes saved chats. Up to four recent exchanges help the assistant understand follow-up questions.</p>
         {historyStatus === 'loading' && <p role="status">Loading your saved conversation…</p>}
         {historyError && <p role="alert">{historyError}</p>}
         {historyStatus === 'error' && <button type="button" onClick={() => setHistoryAttempt(current => current + 1)}>Retry loading conversation</button>}
