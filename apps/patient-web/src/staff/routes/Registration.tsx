@@ -58,8 +58,16 @@ export function Registration() {
   const [error, setError] = useState('')
   // A case decision removes the form that made it: focus goes to the case.
   const focus = useFocusById()
-  // A value refused before sending is reported at its field (PEHR-04).
-  const problems = useFieldProblems()
+  // A value refused before sending is reported at its field (PEHR-04). Each form keeps
+  // its own refusals: submitting one leaves another's in place.
+  const ninProblems = useFieldProblems()
+  const caseProblems = useFieldProblems()
+  const reviewProblems = useFieldProblems()
+  const enrollProblems = useFieldProblems()
+  const { clear: clearReview } = reviewProblems
+  const { clear: clearEnroll } = enrollProblems
+  // The review and enrollment forms act on the case shown: another case starts them afresh.
+  useEffect(() => { clearReview(); clearEnroll() }, [registrationCase?.caseId, clearReview, clearEnroll])
   const resolveKey = useRef(crypto.randomUUID())
   const reviewKey = useCommandKey()
   const enrollmentKey = useCommandKey()
@@ -103,8 +111,8 @@ export function Registration() {
     if (!facilityId || !canWrite) return
     const normalized = caseId.trim()
     setMessage('')
-    setError(''); problems.clear()
-    if (!UUID.test(normalized)) { problems.refuse('registration-case-id', 'Enter a valid registration case ID.'); return }
+    setError(''); caseProblems.clear()
+    if (!UUID.test(normalized)) { caseProblems.refuse('registration-case-id', 'Enter a valid registration case ID.'); return }
     if (registrationCase?.caseId !== normalized) { setRegistrationCase(null); setEnrollment(null) }
     setCaseLoading(true)
     try {
@@ -128,10 +136,10 @@ export function Registration() {
     const lastName = String(data.get('lastName') ?? '').trim()
     const dateOfBirth = String(data.get('dateOfBirth') ?? '')
     const gender = String(data.get('gender') ?? '') as ResolveNinInput['gender'] | ''
-    setError(''); setMessage(''); problems.clear()
-    if (!/^\d{11}$/.test(nin)) { problems.refuse('registration-nin', 'Enter the 11 digit NIN.'); return }
+    setError(''); setMessage(''); ninProblems.clear()
+    if (!/^\d{11}$/.test(nin)) { ninProblems.refuse('registration-nin', 'Enter the 11 digit NIN.'); return }
     if (!firstName || !lastName || !dateOfBirth) {
-      problems.refuse(!firstName ? 'registration-first' : !lastName ? 'registration-last' : 'registration-dob', 'Enter the patient’s name and date of birth.'); return
+      ninProblems.refuse(!firstName ? 'registration-first' : !lastName ? 'registration-last' : 'registration-dob', 'Enter the patient’s name and date of birth.'); return
     }
     setBusy(true)
     try {
@@ -159,12 +167,12 @@ export function Registration() {
     const data = new FormData(event.currentTarget)
     const reason = String(data.get('reason') ?? '').trim()
     const patientId = String(data.get('patientId') ?? '')
-    setError(''); setMessage(''); problems.clear()
+    setError(''); setMessage(''); reviewProblems.clear()
     if (action === 'link' && !registrationCase.candidates?.some(candidate => candidate.patientId === patientId)) {
-      problems.refuse('registration-candidate', 'Select a candidate returned by this registration case.'); return
+      reviewProblems.refuse('registration-candidate', 'Select a candidate returned by this registration case.'); return
     }
     if (reason.length < 8 || reason.length > 500) {
-      problems.refuse(action === 'link' ? 'registration-link-reason' : 'registration-approve-reason', 'Enter a review reason between 8 and 500 characters.'); return
+      reviewProblems.refuse(action === 'link' ? 'registration-link-reason' : 'registration-approve-reason', 'Enter a review reason between 8 and 500 characters.'); return
     }
     const key = reviewKey.forInput(JSON.stringify([action, facilityId, registrationCase.caseId, registrationCase.version, patientId, reason]))
     setBusy(true)
@@ -188,9 +196,9 @@ export function Registration() {
     const data = new FormData(event.currentTarget)
     const email = String(data.get('email') ?? '').trim().toLowerCase()
     const reason = String(data.get('reason') ?? '').trim()
-    setError(''); setMessage(''); problems.clear()
+    setError(''); setMessage(''); enrollProblems.clear()
     if (!email || reason.length < 8 || reason.length > 500) {
-      problems.refuse(!email ? 'registration-email' : 'registration-enroll-reason', 'Enter a valid email and an enrollment reason between 8 and 500 characters.'); return
+      enrollProblems.refuse(!email ? 'registration-email' : 'registration-enroll-reason', 'Enter a valid email and an enrollment reason between 8 and 500 characters.'); return
     }
     const key = enrollmentKey.forInput(JSON.stringify([facilityId, registrationCase.caseId, registrationCase.version, email, reason]))
     setBusy(true)
@@ -223,9 +231,9 @@ export function Registration() {
         <form className="staff-form" onInput={() => { resolveKey.current = crypto.randomUUID() }} onSubmit={event => void resolve(event)}>
           {/* Not disabled while the NIN is verified, which would take focus from the button: read-only. */}
           <fieldset className="staff-form">
-            <Field label="National Identity Number" htmlFor="registration-nin" error={problems.error('registration-nin')} required><Input {...problems.control('registration-nin')} id="registration-nin" name="nin" type="password" inputMode="numeric" autoComplete="off" pattern="[0-9]{11}" minLength={11} maxLength={11} readOnly={busy} required /></Field>
-            <div className="staff-form-row"><Field label="First name" htmlFor="registration-first" error={problems.error('registration-first')} required><Input {...problems.control('registration-first')} id="registration-first" name="firstName" maxLength={100} autoComplete="off" readOnly={busy} required /></Field><Field label="Last name" htmlFor="registration-last" error={problems.error('registration-last')} required><Input {...problems.control('registration-last')} id="registration-last" name="lastName" maxLength={100} autoComplete="off" readOnly={busy} required /></Field></div>
-            <div className="staff-form-row"><Field label="Date of birth" htmlFor="registration-dob" error={problems.error('registration-dob')} required><Input {...problems.control('registration-dob')} id="registration-dob" name="dateOfBirth" type="date" readOnly={busy} required /></Field><Field label="Gender (optional)" htmlFor="registration-gender"><Select id="registration-gender" name="gender"><option value="">Not supplied</option><option value="female">Female</option><option value="male">Male</option><option value="intersex">Intersex</option><option value="other">Other</option><option value="unknown">Unknown</option></Select></Field></div>
+            <Field label="National Identity Number" htmlFor="registration-nin" error={ninProblems.error('registration-nin')} required><Input {...ninProblems.control('registration-nin')} id="registration-nin" name="nin" type="password" inputMode="numeric" autoComplete="off" pattern="[0-9]{11}" minLength={11} maxLength={11} readOnly={busy} required /></Field>
+            <div className="staff-form-row"><Field label="First name" htmlFor="registration-first" error={ninProblems.error('registration-first')} required><Input {...ninProblems.control('registration-first')} id="registration-first" name="firstName" maxLength={100} autoComplete="off" readOnly={busy} required /></Field><Field label="Last name" htmlFor="registration-last" error={ninProblems.error('registration-last')} required><Input {...ninProblems.control('registration-last')} id="registration-last" name="lastName" maxLength={100} autoComplete="off" readOnly={busy} required /></Field></div>
+            <div className="staff-form-row"><Field label="Date of birth" htmlFor="registration-dob" error={ninProblems.error('registration-dob')} required><Input {...ninProblems.control('registration-dob')} id="registration-dob" name="dateOfBirth" type="date" readOnly={busy} required /></Field><Field label="Gender (optional)" htmlFor="registration-gender"><Select id="registration-gender" name="gender"><option value="">Not supplied</option><option value="female">Female</option><option value="male">Male</option><option value="intersex">Intersex</option><option value="other">Other</option><option value="unknown">Unknown</option></Select></Field></div>
             <Button type="submit" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Verifying…' : 'Verify and create case'}</Button>
           </fieldset>
         </form>
@@ -233,7 +241,7 @@ export function Registration() {
 
       <Card className="staff-card"><h2>Resume a registration case</h2><p>Use the case ID supplied when verification completed. The backend does not provide a searchable case list.</p>
         <form className="staff-form" onSubmit={event => { event.preventDefault(); if (!caseLoading && !busy) void loadCase(caseIdInput) }}>
-          <Field label="Registration case ID" htmlFor="registration-case-id" error={problems.error('registration-case-id')} required><Input {...problems.control('registration-case-id')} id="registration-case-id" value={caseIdInput} onChange={event => setCaseIdInput(event.target.value)} autoComplete="off" required /></Field>
+          <Field label="Registration case ID" htmlFor="registration-case-id" error={caseProblems.error('registration-case-id')} required><Input {...caseProblems.control('registration-case-id')} id="registration-case-id" value={caseIdInput} onChange={event => setCaseIdInput(event.target.value)} autoComplete="off" required /></Field>
           <div className="staff-row"><Button type="submit" aria-disabled={caseLoading || busy || undefined} className={BUSY}>{caseLoading ? 'Loading…' : 'Load case'}</Button>{registration && <Button type="button" tone="secondary" aria-disabled={caseLoading || busy || undefined} className={BUSY} onClick={() => { if (!caseLoading && !busy) void loadCase(registration.caseId) }}>Refresh current case</Button>}</div>
         </form>
       </Card>
@@ -243,10 +251,10 @@ export function Registration() {
         {registration.patient && <p><strong>Health ID:</strong> {registration.patient.hid}</p>}
         {registration.status === 'review_required' && <div className="staff-stack"><p className="staff-notice">A possible existing patient was found. Only a listed candidate may be linked. This API does not support overriding the match review to create a new identity.</p>
           {registration.candidates?.length ? <div className="staff-list">{registration.candidates.map(candidate => <div className="staff-list-item" key={candidate.patientId}><strong>{candidate.fullName}</strong><p>Date of birth: {candidate.dateOfBirth ?? 'Not provided'} · Patient ID: {candidate.patientId}</p></div>)}</div> : <p className="staff-error">Candidate details are unavailable. Refresh this case before reviewing it.</p>}
-          {canApprove && Boolean(registration.candidates?.length) && <form className="staff-form" onSubmit={event => void review(event, 'link')}><Field label="Candidate to link" htmlFor="registration-candidate" error={problems.error('registration-candidate')} required><Select {...problems.control('registration-candidate')} id="registration-candidate" name="patientId" required><option value="">Select a candidate</option>{registration.candidates?.map(candidate => <option value={candidate.patientId} key={candidate.patientId}>{candidate.fullName} · {candidate.dateOfBirth ?? 'date unknown'}</option>)}</Select></Field><Field label="Review reason" htmlFor="registration-link-reason" error={problems.error('registration-link-reason')} required><Textarea {...problems.control('registration-link-reason')} id="registration-link-reason" name="reason" minLength={8} maxLength={500} required /></Field><Button type="submit" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Saving…' : 'Link selected patient'}</Button></form>}
+          {canApprove && Boolean(registration.candidates?.length) && <form className="staff-form" onSubmit={event => void review(event, 'link')}><Field label="Candidate to link" htmlFor="registration-candidate" error={reviewProblems.error('registration-candidate')} required><Select {...reviewProblems.control('registration-candidate')} id="registration-candidate" name="patientId" required><option value="">Select a candidate</option>{registration.candidates?.map(candidate => <option value={candidate.patientId} key={candidate.patientId}>{candidate.fullName} · {candidate.dateOfBirth ?? 'date unknown'}</option>)}</Select></Field><Field label="Review reason" htmlFor="registration-link-reason" error={reviewProblems.error('registration-link-reason')} required><Textarea {...reviewProblems.control('registration-link-reason')} id="registration-link-reason" name="reason" minLength={8} maxLength={500} required /></Field><Button type="submit" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Saving…' : 'Link selected patient'}</Button></form>}
         </div>}
-        {registration.status === 'pending_new_identity_approval' && <><p className="staff-notice">Verification found no candidate. An authorized reviewer may approve a new Health ID.</p>{canApprove && <form className="staff-form" onSubmit={event => void review(event, 'approve')}><Field label="Approval reason" htmlFor="registration-approve-reason" error={problems.error('registration-approve-reason')} required><Textarea {...problems.control('registration-approve-reason')} id="registration-approve-reason" name="reason" minLength={8} maxLength={500} required /></Field><Button type="submit" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Saving…' : 'Approve new Health ID'}</Button></form>}</>}
-        {completed.has(registration.status) && canApprove && !enrollment && <form className="staff-form" onSubmit={event => void enroll(event)}><h3>Enroll patient account</h3><p>This creates a pending account for a patient who does not already have one. The email must belong to the patient; contact verification and password setup follow separately.</p><Field label="Patient email" htmlFor="registration-email" error={problems.error('registration-email')} required><Input {...problems.control('registration-email')} id="registration-email" name="email" type="email" maxLength={254} autoComplete="off" required /></Field><Field label="Enrollment reason" htmlFor="registration-enroll-reason" error={problems.error('registration-enroll-reason')} required><Textarea {...problems.control('registration-enroll-reason')} id="registration-enroll-reason" name="reason" minLength={8} maxLength={500} required /></Field><Button type="submit" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Enrolling…' : 'Create pending patient account'}</Button></form>}
+        {registration.status === 'pending_new_identity_approval' && <><p className="staff-notice">Verification found no candidate. An authorized reviewer may approve a new Health ID.</p>{canApprove && <form className="staff-form" onSubmit={event => void review(event, 'approve')}><Field label="Approval reason" htmlFor="registration-approve-reason" error={reviewProblems.error('registration-approve-reason')} required><Textarea {...reviewProblems.control('registration-approve-reason')} id="registration-approve-reason" name="reason" minLength={8} maxLength={500} required /></Field><Button type="submit" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Saving…' : 'Approve new Health ID'}</Button></form>}</>}
+        {completed.has(registration.status) && canApprove && !enrollment && <form className="staff-form" onSubmit={event => void enroll(event)}><h3>Enroll patient account</h3><p>This creates a pending account for a patient who does not already have one. The email must belong to the patient; contact verification and password setup follow separately.</p><Field label="Patient email" htmlFor="registration-email" error={enrollProblems.error('registration-email')} required><Input {...enrollProblems.control('registration-email')} id="registration-email" name="email" type="email" maxLength={254} autoComplete="off" required /></Field><Field label="Enrollment reason" htmlFor="registration-enroll-reason" error={enrollProblems.error('registration-enroll-reason')} required><Textarea {...enrollProblems.control('registration-enroll-reason')} id="registration-enroll-reason" name="reason" minLength={8} maxLength={500} required /></Field><Button type="submit" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Enrolling…' : 'Create pending patient account'}</Button></form>}
         {enrollment && <p className="staff-success">Pending account created for {enrollment.hid}. Contact verification is required.</p>}
       </Card>}
       {error && <div role="alert"><p className="staff-error">{error}</p></div>}
