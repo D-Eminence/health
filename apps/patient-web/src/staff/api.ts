@@ -226,9 +226,10 @@ export interface NoteRevision {
  * GET /ehr/patients/:patientId/emergency-records (hid-system
  * patient-records.service.ts read()): this facility's completed encounters and
  * signed notes, 50 of each, and its diagnoses, prescriptions, lab requests and
- * uploaded documents, 100 of each and in every status. `limit` is the larger
- * cap. EHR also returns vitals, as first recorded and without corrections,
- * which are not read here. pg sends numeric and bigint columns as strings.
+ * uploaded documents, 100 of each and in every status. EHR also returns vitals,
+ * as first recorded and without corrections, and one `limit`, 100, which is not
+ * each section's cap; neither is read here. pg sends numeric and bigint columns
+ * as strings.
  */
 export interface EmergencyRecords {
   encounters: Array<{
@@ -305,12 +306,11 @@ export interface EmergencyRecords {
     status: string
     createdAt: string
   }>
-  limit: number
 }
 
 /**
  * A clinical document as EHR's list returns it (document.service.ts list):
- * size_bytes and row_version are selected as text.
+ * size_bytes is selected as text.
  */
 export interface DocumentRecord {
   id: string
@@ -321,7 +321,6 @@ export interface DocumentRecord {
   sizeBytes: number | string
   status: string
   scanStatus: string
-  version?: string
   createdAt: string
 }
 
@@ -417,14 +416,12 @@ export interface PharmacyWorkItem {
   patientId: string
   version: number
   acceptedAt: string
-  medication: { display: string; codeSystem?: string | null; code?: string | null }
+  medication: { display: string }
   doseQuantity?: number | null
   doseUnit?: string | null
   routeCode?: string | null
   frequency?: string
   instructions?: string | null
-  /** The EHR prescription version Pharmacy accepted. */
-  sourceEhrPrescriptionVersion?: number
   dispensing?: { id: string; reversed: boolean } | null
 }
 

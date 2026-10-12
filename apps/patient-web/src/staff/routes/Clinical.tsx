@@ -144,11 +144,6 @@ function rowVersion(value: unknown): number | null {
   return Number.isSafeInteger(parsed) && parsed >= 1 ? parsed : null
 }
 
-// A refusal's message, with each field a 400 VALIDATION_FAILED names.
-function errorMessage(caught: unknown, fallback: string): string {
-  return refusalText(caught, fallback)
-}
-
 /** A file size as EHR sends it, a number or text (pg returns bigint and ::text columns as strings), in KiB. */
 function fileSize(value: number | string | null | undefined): string {
   const count = value == null || value === '' ? NaN : Number(value)
@@ -207,7 +202,7 @@ function EncounterForm({ onCreated, disabled }: { onCreated: (input: { encounter
     }
     submitting.current = true; setError(''); setBusy(true)
     try { await onCreated(attempt.current.input, attempt.current.key); formElement.reset(); attempt.current = null }
-    catch (caught) { setError(errorMessage(caught, 'Encounter could not be created.')) }
+    catch (caught) { setError(refusalText(caught, 'Encounter could not be created.')) }
     finally { submitting.current = false; setBusy(false) }
   }
   return <Card className="staff-card"><h2>Start encounter</h2><p>Creating a clinical encounter requires current server authorization and a documented reason for care.</p><form className="staff-form" onSubmit={event => void submit(event)}><Field label="Encounter type" htmlFor="encounter-type" required><Select id="encounter-type" name="encounterType" required><option value="ambulatory">Outpatient</option><option value="emergency">Emergency</option><option value="inpatient">Inpatient</option><option value="virtual">Virtual</option><option value="home">Home</option><option value="other">Other</option></Select></Field><Field label="Chief complaint" htmlFor="chief-complaint" required><Textarea id="chief-complaint" name="chiefComplaint" maxLength={4000} required /></Field>{error && <p className="staff-error" role="alert">{error}</p>}<Button type="submit" aria-disabled={busy || disabled || undefined} className={BUSY}>{busy ? 'Creating…' : 'Start encounter'}</Button></form></Card>
@@ -270,7 +265,7 @@ function RecordForm({ tab, onCreated, disabled }: { tab: RecordKind; onCreated: 
       if (caught instanceof FieldRefusal) problems.refuse(caught.field, caught.message, caught.focusId)
       else {
         // The inputs are named as the DTO's fields, so each field EHR refused is marked where it was entered.
-        setError(errorMessage(caught, 'Record could not be saved.'))
+        setError(refusalText(caught, 'Record could not be saved.'))
         problems.markRefused(formElement, caught)
       }
     }
@@ -322,7 +317,7 @@ function StatusActionForm({ id, title, choices, warning, disabled, onChange }: {
     if (reason.length < 3) return problems.refuse(`${id}-reason`, 'Give a reason of at least 3 characters.')
     submitting.current = true; setBusy(true)
     try { await onChange(status, reason); formElement.reset() }
-    catch (caught) { setError(errorMessage(caught, 'Status could not be changed.')) }
+    catch (caught) { setError(refusalText(caught, 'Status could not be changed.')) }
     finally { submitting.current = false; setBusy(false) }
   }
   return <form className="staff-form" onSubmit={event => void submit(event)}>
@@ -355,7 +350,7 @@ function ReasonActionForm({ id, title, actionLabel, minLength = 3, disabled, onA
     if (attempt.current?.reason !== reason) attempt.current = { reason, key: crypto.randomUUID() }
     submitting.current = true; setBusy(true)
     try { await onAction(reason, attempt.current.key); formElement.reset(); attempt.current = null }
-    catch (caught) { setError(errorMessage(caught, `${actionLabel} could not be completed.`)) }
+    catch (caught) { setError(refusalText(caught, `${actionLabel} could not be completed.`)) }
     finally { submitting.current = false; setBusy(false) }
   }
   return <form className="staff-form" onSubmit={event => void submit(event)}>
@@ -396,7 +391,7 @@ function DiagnosisUpdateForm({ id, diagnosis, disabled, onUpdate }: {
     if (reason.length < 3) return problems.refuse(`${id}-reason`, 'Give a reason of at least 3 characters.')
     submitting.current = true; setBusy(true)
     try { await onUpdate(changes, reason) }
-    catch (caught) { setError(errorMessage(caught, 'The diagnosis could not be changed.')) }
+    catch (caught) { setError(refusalText(caught, 'The diagnosis could not be changed.')) }
     finally { submitting.current = false; setBusy(false) }
   }
   return <form className="staff-form" onSubmit={event => void submit(event)}>
@@ -451,7 +446,7 @@ function VitalCorrectionForm({ id, current, disabled, onCorrect }: {
     if (attempt.current?.signature !== signature) attempt.current = { signature, key: crypto.randomUUID() }
     submitting.current = true; setBusy(true)
     try { await onCorrect(values, reason, attempt.current.key); attempt.current = null }
-    catch (caught) { setError(errorMessage(caught, 'The correction could not be saved.')) }
+    catch (caught) { setError(refusalText(caught, 'The correction could not be saved.')) }
     finally { submitting.current = false; setBusy(false) }
   }
   return <form className="staff-form" onSubmit={event => void submit(event)}>
@@ -488,7 +483,7 @@ function VitalPanel({ facilityId, patientId, encounterId, vital, canCorrect, dis
       const current = items.find(item => item.correctionNo === correctionNo)
       if (current) setLatest(current)
       else setLoadError('The current correction was not returned.')
-    }).catch(caught => { if (active) setLoadError(errorMessage(caught, 'Corrections could not be loaded.')) })
+    }).catch(caught => { if (active) setLoadError(refusalText(caught, 'Corrections could not be loaded.')) })
     return () => { active = false }
   }, [facilityId, patientId, encounterId, vital.id, corrected, correctionNo])
   const current: VitalValues | null = corrected ? latest?.replacementValues ?? null : vital
@@ -530,7 +525,7 @@ function NotePanel({ facilityId, patientId, encounterId, note, canWrite, verify,
     setLoading(true); setLoadError('')
     void staffApi.noteRevisions(facilityId, patientId, encounterId, note.id)
       .then(value => { if (active) setRevisions(value) })
-      .catch(caught => { if (active) setLoadError(errorMessage(caught, 'Note content could not be loaded.')) })
+      .catch(caught => { if (active) setLoadError(refusalText(caught, 'Note content could not be loaded.')) })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
   }, [open, revision, facilityId, patientId, encounterId, note.id])
@@ -560,7 +555,7 @@ function NotePanel({ facilityId, patientId, encounterId, note, canWrite, verify,
       setNotice('A new note revision was recorded.')
       setRevision(value => value + 1)
       await onChanged()
-    } catch (caught) { setError(errorMessage(caught, 'Note revision could not be recorded.')) }
+    } catch (caught) { setError(refusalText(caught, 'Note revision could not be recorded.')) }
     finally { submitting.current = false; setBusy(false) }
   }
 
@@ -728,7 +723,7 @@ function EmergencySummary({ facilityId, patientId, patientName, permissions, ver
     setSummary(null); setLoading(true); setError('')
     void verify().then(() => staffApi.emergencyRecords(facilityId, patientId))
       .then(result => { if (active) setSummary(result) })
-      .catch(caught => { if (active) setError(errorMessage(caught, 'Emergency records could not be loaded.')) })
+      .catch(caught => { if (active) setError(refusalText(caught, 'Emergency records could not be loaded.')) })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
   }, [facilityId, patientId, verify, revision])
@@ -906,8 +901,8 @@ export function Clinical() {
     } catch (caught) {
       if (sequence !== loadSequence.current) return
       encounterRequested.current = before
-      if (request.paging) setEncounterNotice({ scope, text: `The page could not be loaded. ${errorMessage(caught, '')}`.trim(), alert: true })
-      else setError(errorMessage(caught, 'Encounters could not be loaded.'))
+      if (request.paging) setEncounterNotice({ scope, text: `The page could not be loaded. ${refusalText(caught, '')}`.trim(), alert: true })
+      else setError(refusalText(caught, 'Encounters could not be loaded.'))
     }
     finally { if (sequence === loadSequence.current) setLoading(false) }
   }, [facility?.id, patientId, activePatient?.purpose, verify])
@@ -991,8 +986,8 @@ export function Clinical() {
     } catch (caught) {
       if (sequence !== recordLoad.current) return
       recordRequested.current = before
-      if (afterChange) setError(`The change was saved, but the records could not be reloaded. ${errorMessage(caught, '')}`.trim())
-      else setRecordNotice({ scope, text: `The page could not be loaded. ${errorMessage(caught, '')}`.trim(), alert: true })
+      if (afterChange) setError(`The change was saved, but the records could not be reloaded. ${refusalText(caught, '')}`.trim())
+      else setRecordNotice({ scope, text: `The page could not be loaded. ${refusalText(caught, '')}`.trim(), alert: true })
     } finally { if (sequence === recordLoad.current) setRecordsLoading(false) }
   }
 
