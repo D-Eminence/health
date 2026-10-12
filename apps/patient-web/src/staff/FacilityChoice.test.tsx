@@ -175,11 +175,33 @@ describe('a facility chosen earlier that is no longer available (reselect)', () 
     const sent = serve({ [SESSION]: [session(LAGOS, 'reselect')] })
     await open('/provider')
     await question()
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    const proceed = screen.getByRole('button', { name: 'Continue' })
+    proceed.focus()
+    fireEvent.click(proceed)
+    // Focus moves into the options, whose description says it: as an alert too it would be spoken twice.
+    const missing = screen.getByText('Choose a facility to continue.')
+    expect(missing.getAttribute('role')).toBeNull()
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(document.activeElement).toBe(option('Lagos General'))
+    expect(screen.getByRole('group', { name: 'Facility' }).getAttribute('aria-describedby')).toContain(missing.id)
+    expect(sent.filter(call => call.route === FACILITY)).toEqual([])
+  })
+
+  it('says so as an alert when sent with Enter on an option and nothing chosen, as focus does not move', async () => {
+    const sent = serve({ [SESSION]: [session(LAGOS, 'reselect')] })
+    await open('/provider')
+    await question()
+    option('Lagos General').focus()
+    // Enter on a radio submits its form (implicit submission); nothing is checked.
+    fireEvent.submit(option('Lagos General').form!)
     const missing = screen.getByRole('alert')
     expect(missing.textContent).toBe('Choose a facility to continue.')
     expect(document.activeElement).toBe(option('Lagos General'))
-    expect(screen.getByRole('group', { name: 'Facility' }).getAttribute('aria-describedby')).toContain(missing.id)
+
+    // Each refusal is a new alert, so Enter pressed again says it again.
+    fireEvent.submit(option('Lagos General').form!)
+    expect(screen.getByRole('alert')).not.toBe(missing)
+    expect(screen.getByRole('alert').textContent).toBe('Choose a facility to continue.')
     expect(sent.filter(call => call.route === FACILITY)).toEqual([])
   })
 

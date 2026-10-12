@@ -452,7 +452,11 @@ const FACILITY_CHOICE_WHY: Record<FacilityQuestion, string> = {
 function FacilityChoice({ reason, onChosen }: { reason: FacilityQuestion; onChosen: () => void }) {
   const { state, lock, selectFacility } = useStaff()
   const [picked, setPicked] = useState('')
-  const [missing, setMissing] = useState(false)
+  // Continue with nothing picked is reported at the options, which take focus, and their description
+  // announces it. Sent with Enter on an option, focus does not move into them, so the message is an alert
+  // instead, new for each refusal; as both it would be spoken twice. `missing` counts the refusals.
+  const [missing, setMissing] = useState(0)
+  const [missingAlert, setMissingAlert] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const heading = useRef<HTMLHeadingElement>(null)
@@ -475,8 +479,10 @@ function FacilityChoice({ reason, onChosen }: { reason: FacilityQuestion; onChos
     if (busy) return
     setError('')
     if (!picked) {
-      setMissing(true)
-      document.querySelector<HTMLInputElement>('input[name="staff-facility-choice"]')?.focus()
+      const options = event.currentTarget.querySelector('fieldset')
+      setMissingAlert(options?.contains(document.activeElement) ?? false)
+      setMissing(count => count + 1)
+      options?.querySelector<HTMLInputElement>('input[name="staff-facility-choice"]')?.focus()
       return
     }
     // The options are disabled while the choice is saved, so the one checked is the one
@@ -497,14 +503,14 @@ function FacilityChoice({ reason, onChosen }: { reason: FacilityQuestion; onChos
     <h1 id="staff-facility-choice-title" ref={heading} tabIndex={-1} aria-describedby="staff-facility-choice-why">Where are you working?</h1>
     <p id="staff-facility-choice-why">{FACILITY_CHOICE_WHY[reason]} Choose where you are working before you continue. Patient access, records and requests use the facility you choose, and you can switch later from “Working at”.</p>
     <form className="staff-form" noValidate onSubmit={event => void choose(event)}>
-      <fieldset disabled={busy} aria-describedby={['staff-facility-choice-why', missing && 'staff-facility-choice-missing', error && 'staff-facility-choice-error'].filter(Boolean).join(' ')}>
+      <fieldset disabled={busy} aria-describedby={['staff-facility-choice-why', missing > 0 && 'staff-facility-choice-missing', error && 'staff-facility-choice-error'].filter(Boolean).join(' ')}>
         <legend>Facility</legend>
         {facilities.map(facility => <label key={facility.id} className="staff-choice">
           <input type="radio" name="staff-facility-choice" value={facility.id} checked={picked === facility.id}
-            onChange={() => { setPicked(facility.id); setMissing(false); setError('') }} /> {facility.name}
+            onChange={() => { setPicked(facility.id); setMissing(0); setError('') }} /> {facility.name}
         </label>)}
       </fieldset>
-      {missing && <p id="staff-facility-choice-missing" role="alert" className="staff-error">Choose a facility to continue.</p>}
+      {missing > 0 && <p key={missing} id="staff-facility-choice-missing" role={missingAlert ? 'alert' : undefined} className="staff-error">Choose a facility to continue.</p>}
       {error && <p id="staff-facility-choice-error" role="alert" className="staff-error">{error}</p>}
       {/* Kept enabled while it runs, so focus stays on it; a second press does nothing. */}
       <Button type="submit" aria-disabled={busy || undefined}>{busy ? 'Saving…' : 'Continue'}</Button>
