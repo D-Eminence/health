@@ -5,7 +5,7 @@ import { GoogleButton } from '../GoogleButton'
 import { Turnstile } from '../Turnstile'
 import { BrandLogo } from '../BrandLogo'
 import { useSession } from '../session'
-import type { PatientRecords } from '../api'
+import type { PatientNotification, PatientRecords } from '../api'
 import { usePatientResource } from './usePatientResource'
 import { AccountDeletionCard, EmergencyContactsCard } from './AccountSafety'
 import { revealFocusedLink } from '../navStrip'
@@ -36,6 +36,21 @@ function vitalsSummary(item: PatientRecords['vitals'][number]) {
     item.weightKg != null ? `Weight ${item.weightKg} kg` : '',
     item.heightCm != null ? `Height ${item.heightCm} cm` : '',
   ].filter(Boolean).join(' · ')
+}
+
+/**
+ * What each inbox code means to the patient. Identity writes these two today
+ * (hid-system 0037_patient_notification_inbox.sql); a code added later reads as
+ * a general account update until it has its own words, never as the code itself.
+ */
+const NOTIFICATION_TITLES: Readonly<Record<string, string>> = {
+  ACCESS_REQUEST_RECEIVED: 'A facility asked to access your health information',
+  EMERGENCY_ACCESS_ACTIVATED: 'A provider used emergency access to your health information',
+}
+const NOTIFICATION_SUBJECTS: Readonly<Record<string, string>> = { 'access-request': 'Access request', 'consent-grant': 'Access grant' }
+
+function notificationTitle(item: PatientNotification) {
+  return NOTIFICATION_TITLES[item.notificationCode] ?? 'An update about your Health ID account'
 }
 
 function LoadState({ loading, error, retry }: { loading: boolean; error: string | null; retry: () => void }) {
@@ -243,7 +258,7 @@ export function NotificationsPage() {
     <LoadState loading={notifications.loading} error={notifications.error} retry={notifications.reload} />
     {error && <p role="alert" className="patient-inline-error">{error}</p>}
     {notifications.data && !notifications.loading && !notifications.error && <div className="patient-card">{notifications.data.length === 0 ? <p className="patient-empty">You have no notifications.</p> : <ul className="patient-list">
-      {notifications.data.map(item => <li key={item.id}><div><strong>{item.notificationCode.replace(/[_-]/g, ' ')}</strong><span>{date(item.createdAt)} · {item.readAt ? 'Read' : 'Unread'}</span></div>
+      {notifications.data.map(item => <li key={item.id}><div><strong>{notificationTitle(item)}</strong><span>{[item.resourceType && NOTIFICATION_SUBJECTS[item.resourceType], date(item.createdAt), item.readAt ? 'Read' : 'Unread'].filter(Boolean).join(' · ')}</span></div>
         {!item.readAt && <button type="button" disabled={working === item.id} onClick={() => void markRead(item.id)}>Mark as read</button>}</li>)}
     </ul>}</div>}
   </section>
