@@ -63,9 +63,11 @@ describe('session end reasons the server gives when the console opens (reload or
 })
 
 describe('signing out of a session the server has already ended', () => {
+  const ada = () => json({ actor: { accountId: 'admin-1', subject: 'staff:1', displayName: 'Ada Admin', email: 'ada@example.test',
+    platformRoles: [], platformPermissions: ['platform.admin.access'] } })
+  // The console opens, then asks whose session the browser holds before it signs out.
   const signedIn = () => ({
-    [SESSION]: [json({ actor: { accountId: 'admin-1', subject: 'staff:1', displayName: 'Ada Admin', email: 'ada@example.test',
-      platformRoles: [], platformPermissions: ['platform.admin.access'] } })],
+    [SESSION]: [ada(), ada()],
     'GET /api/v1/admin/mfa': [json({ enrolled: true, factorType: 'totp', activatedAt: null, lastUsedAt: null,
       recoveryCodesRemaining: 10, session: null })],
     'GET /api/v1/admin/overview': [json({ registeredPatients: 0, facilities: 0, verifiedFacilities: 0, suspendedFacilities: 0,
@@ -87,6 +89,17 @@ describe('signing out of a session the server has already ended', () => {
     await screen.findByRole('heading', { name: 'Overview' })
     fireEvent.click(screen.getAllByRole('button', { name: 'Sign out' })[0]!)
     await waitFor(() => expect(screen.getByText('You have signed out of platform administration.')).toBeTruthy())
+  })
+
+  it('sends no sign-out once the server has refused the session, and keeps its reason', async () => {
+    const calls = serve({ ...signedIn(), [SESSION]: [ada(), refused('PLATFORM_SESSION_REVOKED')],
+      [REFRESH]: [refused('PLATFORM_SESSION_REVOKED')] })
+    const messages = await open()
+    await screen.findByRole('heading', { name: 'Overview' })
+    fireEvent.click(screen.getAllByRole('button', { name: 'Sign out' })[0]!)
+    expect(await screen.findByText(messages.revoked)).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Administration sign in' })).toBeTruthy()
+    expect(calls).not.toContain('POST /api/v1/auth/admin/logout')
   })
 })
 
@@ -112,6 +125,8 @@ describe('a workspace bound to the administrator who opened it', () => {
     recoveryCodesRemaining: 10, session: { mfaVerifiedAt: new Date().toISOString(), mfaMethod: 'totp', stepUpExpiresAt: null,
       idleExpiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
       absoluteExpiresAt: new Date(Date.now() + 8 * 60 * 60_000).toISOString() } })
+  const LOGOUT = 'POST /api/v1/auth/admin/logout'
+  const signedOut = () => new Response(null, { status: 204 })
   const overview = () => json({ registeredPatients: 7, facilities: 0, verifiedFacilities: 0, suspendedFacilities: 0,
     activeStaffMemberships: 0, pendingIdentityReviews: 0 })
   const unavailable = () => json({ code: 'SERVICE_UNAVAILABLE', detail: 'The service could not complete the request.' }, 503)
@@ -250,12 +265,75 @@ describe('a workspace bound to the administrator who opened it', () => {
   })
 
   it('tells the other admin tabs when this one signs out', async () => {
-    serve({ [MFA]: [mfa()], [SESSION]: [sessionOf('admin-1')], [OVERVIEW]: [overview()],
-      'POST /api/v1/auth/admin/logout': [new Response(null, { status: 204 })] })
-    await open()
+    const { calls } = await openAs({ [SESSION]: [sessionOf('admin-1'), sessionOf('admin-1')], [OVERVIEW]: [overview()],
+      [LOGOUT]: [signedOut()] })
     expect(await screen.findByText('7')).toBeTruthy()
     fireEvent.click(screen.getAllByRole('button', { name: 'Sign out' })[0]!)
     expect(await screen.findByText('You have signed out of platform administration.')).toBeTruthy()
     expect(TabChannel.posted).toEqual([{ name: CHANNEL, message: 'changed' }])
+    expect(calls.slice(-2)).toEqual([SESSION, LOGOUT])
+  })
+
+  // Logout ends whichever platform session the browser's cookies carry
+  // (hid-system platform-auth.controller.ts revokes request.actor's session) and
+  // needs no step-up, so a tab that has not yet heard of another administrator's
+  // sign-in asks the server first.
+  it('leaves another administrator\'s session alone when this tab signs out', async () => {
+    const { calls, messages } = await openAs({ [SESSION]: [sessionOf('admin-1'), sessionOf('admin-2')],
+      [OVERVIEW]: [overview()], [LOGOUT]: [signedOut()] })
+    expect(await screen.findByText('7')).toBeTruthy()
+    fireEvent.click(screen.getAllByRole('button', { name: 'Sign out' })[0]!)
+    expect(await screen.findByText(messages.switched)).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Administration sign in' })).toBeTruthy()
+    expect(calls).not.toContain(LOGOUT)
+  })
+
+  it('leaves another administrator\'s session alone when restoring the session finds theirs', async () => {
+    const { calls, messages } = await openAs({ [SESSION]: [sessionOf('admin-1'), refused('AUTHENTICATION_REQUIRED')],
+      [REFRESH]: [grantFor('admin-2')], [OVERVIEW]: [overview()], [LOGOUT]: [signedOut()] })
+    expect(await screen.findByText('7')).toBeTruthy()
+    fireEvent.click(screen.getAllByRole('button', { name: 'Sign out' })[0]!)
+    expect(await screen.findByText(messages.switched)).toBeTruthy()
+    expect(screen.queryByText('You have signed out of platform administration.')).toBeNull()
+    expect(calls).not.toContain(LOGOUT)
+  })
+
+  // The access cookie lasts 5 minutes and the session 15 idle minutes (hid-system
+  // PLATFORM_ACCESS_TTL_SECONDS, PLATFORM_IDLE_TIMEOUT_SECONDS). A logout without
+  // it is refused and leaves the session alive.
+  it('restores a lapsed access token before signing out, so the server ends the session', async () => {
+    const { calls } = await openAs({ [SESSION]: [sessionOf('admin-1'), refused('AUTHENTICATION_REQUIRED'), sessionOf('admin-1')],
+      [REFRESH]: [grantFor('admin-1')], [OVERVIEW]: [overview()], [LOGOUT]: [signedOut()] })
+    expect(await screen.findByText('7')).toBeTruthy()
+    fireEvent.click(screen.getAllByRole('button', { name: 'Sign out' })[0]!)
+    expect(await screen.findByText('You have signed out of platform administration.')).toBeTruthy()
+    expect(calls.slice(-4)).toEqual([SESSION, REFRESH, SESSION, LOGOUT])
+  })
+
+  it('does not sign out blindly when the server cannot say whose session the browser holds', async () => {
+    const { calls } = await openAs({ [SESSION]: [sessionOf('admin-1'), unavailable(), unavailable(), unavailable()],
+      [OVERVIEW]: [overview()], [LOGOUT]: [signedOut()] })
+    expect(await screen.findByText('7')).toBeTruthy()
+    fireEvent.click(screen.getAllByRole('button', { name: 'Sign out' })[0]!)
+    expect(await screen.findByText(/^Sign-out could not be completed\./, {}, { timeout: 4000 })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Overview' })).toBeTruthy()
+    expect(calls).not.toContain(LOGOUT)
+  })
+
+  it('carries no sign-out error into the next workspace when the check itself ended the session', async () => {
+    const required = json({ code: 'PLATFORM_SESSION_REQUIRED', detail: 'Platform session required' }, 403)
+    await openAs({ [MFA]: [mfa(), mfa()], [SESSION]: [sessionOf('admin-1'), required, sessionOf('admin-1')],
+      [OVERVIEW]: [overview(), overview()],
+      'POST /api/v1/auth/admin/login': [json({ status: 'mfa_required', expiresAt: new Date(Date.now() + 300_000).toISOString() })],
+      'POST /api/v1/auth/admin/mfa/verify': [grantFor('admin-1')] })
+    expect(await screen.findByText('7')).toBeTruthy()
+    fireEvent.click(screen.getAllByRole('button', { name: 'Sign out' })[0]!)
+    fireEvent.change(await screen.findByLabelText('Email'), { target: { value: 'admin-1@example.test' } })
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'correct horse battery' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    fireEvent.change(await screen.findByLabelText('Authenticator code'), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Verify' }))
+    expect(await screen.findByText('7')).toBeTruthy()
+    expect(screen.queryByText(/MFA-verified platform administration session/)).toBeNull()
   })
 })

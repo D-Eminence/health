@@ -110,7 +110,8 @@ describe('platform administration session', () => {
   })
 
   it('signs out through the platform session and clears the workspace', async () => {
-    api.session.mockResolvedValueOnce(actor(ALL))
+    // Opening, then the check of whose session the browser holds before signing out.
+    api.session.mockResolvedValueOnce(actor(ALL)).mockResolvedValueOnce(actor(ALL))
     api.logout.mockResolvedValueOnce(undefined)
     open()
     await screen.findByRole('heading', { name: 'Overview' })

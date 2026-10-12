@@ -180,15 +180,31 @@ export function App() {
 
   async function signOut() {
     setSignOutError(null)
-    try { await adminApi.logout(); end(SIGNED_OUT) }
-    catch (reason) {
-      if (!isHidApiError(reason) || reason.status !== 401) {
-        setSignOutError(failure(reason, 'Sign-out could not be completed.'))
+    const accountId = adminSessionAccount()
+    let switched = false
+    const stopWatching = onSessionEnded(reason => { if (reason === 'switched') switched = true })
+    try {
+      // Logout ends whichever platform session the browser's cookies carry, and a
+      // tab that has not yet heard of another administrator's sign-in would end
+      // theirs. The server is asked first, restoring a lapsed access token on the
+      // way, so the logout also reaches a session idle for a few minutes.
+      if (accountId !== null && (await adminApi.session()).actor.accountId !== accountId) {
+        end(SESSION_ENDED_MESSAGES.switched)
         return
       }
+      await adminApi.logout()
+      end(SIGNED_OUT)
+    } catch (reason) {
+      if (!isHidApiError(reason) || reason.status !== 401) {
+        // A refusal that ended the workspace (403 PLATFORM_SESSION_REQUIRED) has said why already.
+        if (signedIn.current) setSignOutError(failure(reason, 'Sign-out could not be completed.'))
+        return
+      }
+      // The browser holds another administrator's session, which is left alone.
+      if (switched) return
       // An expired or revoked session was already ended with the server's reason, which is kept.
       if (!serverSessionEnd(reason.code)) end(SIGNED_OUT)
-    }
+    } finally { stopWatching() }
     // The other admin tabs used the same session.
     announceAdminSessionChange()
   }
