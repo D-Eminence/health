@@ -77,6 +77,7 @@ body { margin: 0; }
 @media (max-width: 700px) { .staff-auth-page { grid-template-columns: 1fr; } .staff-auth-aside { display: none; } .staff-auth { padding: 35px 20px; } .staff-auth .staff-brand { margin-bottom: 52px; } .staff-two-col, .staff-form-row { grid-template-columns: minmax(0, 1fr); } .staff-user { display: none; } }
 .staff-facility-confirm { display: grid; gap: 8px; }
 .staff-facility-confirm p { margin: 0; color: var(--color-ink); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
+.staff-layout-single { grid-template-columns: minmax(0, 1fr); }
 .staff-facility-choice { display: grid; gap: 14px; max-width: 560px; }
 .staff-facility-choice h1 { margin: 0; }
 .staff-facility-choice p { margin: 0; line-height: 1.5; overflow-wrap: anywhere; }

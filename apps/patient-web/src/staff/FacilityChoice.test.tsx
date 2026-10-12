@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 
 /**
@@ -373,5 +373,26 @@ describe('focus when the question first shows while the workspace is locked', ()
     expect(sent.filter(call => call.route === SESSION)).toHaveLength(2)
     await waitFor(() => expect(document.activeElement).toBe(heading))
     expect(pageRequests(sent)).toEqual([])
+  })
+})
+
+describe('the shell while the question shows', () => {
+  it('offers no navigation or role built from a facility nobody chose, and offers them once one is chosen', async () => {
+    serve({ [SESSION]: [session(LAGOS, 'reselect')], [FACILITY]: [session(IKEJA, 'selected')], [REQUESTS]: [() => json([])] })
+    await open('/provider')
+    await question()
+    // The links and the role badge would come from the reported facility, which no one chose.
+    expect(screen.queryByRole('navigation')).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Patient access' })).toBeNull()
+    expect(screen.queryByRole('link', { name: /^Clinical record/ })).toBeNull()
+    expect(screen.queryByText('clinician')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Sign out' })).toBeTruthy()
+
+    fireEvent.click(option('Ikeja Clinic'))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    const navigation = await screen.findByRole('navigation')
+    expect(within(navigation).getByRole('link', { name: 'Patient access' })).toBeTruthy()
+    expect(within(navigation).getByRole('link', { name: /^Clinical record/ })).toBeTruthy()
+    expect(screen.getAllByText('clinician').length).toBeGreaterThan(0)
   })
 })

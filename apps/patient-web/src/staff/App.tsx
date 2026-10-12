@@ -551,9 +551,11 @@ function Shell() {
         <Button tone="quiet" size="sm" onClick={() => void leave()} disabled={signingOut}>{signingOut ? 'Signing out…' : 'Sign out'}</Button>
       </div>
     </header>
-    <div className="staff-layout">
-      <aside className="staff-sidebar" aria-label="Provider navigation">
-        {!choiceNeeded && <div className="staff-facility">
+    {/* While the facility is being chosen there is no sidebar: its list, links and role badge would all
+        come from the facility Identity reported, which no one chose. Sign out stays in the header. */}
+    <div className={choiceNeeded ? 'staff-layout staff-layout-single' : 'staff-layout'}>
+      {!choiceNeeded && <aside className="staff-sidebar" aria-label="Provider navigation">
+        <div className="staff-facility">
           <label htmlFor="staff-facility-select">Working at</label>
           <Select id="staff-facility-select" value={chosenId} disabled={switching} aria-describedby={chosen ? 'staff-facility-question' : undefined}
             onChange={event => { setFacilityError(''); setChoice({ from: choosingFrom, to: event.target.value }) }}>
@@ -566,10 +568,10 @@ function Shell() {
             <div className="staff-row"><Button size="sm" onClick={() => void switchFacility()} aria-disabled={switching || undefined}>{switching ? 'Switching…' : 'Switch facility'}</Button><Button size="sm" tone="quiet" onClick={keepFacility} disabled={switching}>Cancel</Button></div>
           </div>}
           {facilityError && <p role="alert" className="staff-error">{facilityError}</p>}
-        </div>}
+        </div>
         <nav className="staff-nav" onFocus={revealFocusedLink}>{visible.map(item => <NavLink key={item.to} to={item.to} end={item.to === '/provider'} className={({ isActive }) => `staff-nav-link${isActive ? ' active' : ''}`}>{item.label}{item.to === '/provider/clinical' && !activePatient && <span className="staff-nav-meta">Select patient</span>}</NavLink>)}</nav>
         <div className="staff-sidebar-footer"><Badge tone="information">{actor.roles.join(', ') || 'Staff'}</Badge><p>Access is limited to your active facility and server permissions.</p></div>
-      </aside>
+      </aside>}
       <main ref={main} className="staff-main">{signOutError && <p role="alert" className="staff-error">{signOutError}</p>}
         {choiceNeeded ? <FacilityChoice reason={choiceNeeded} onChosen={() => setFocusHeading(true)} /> : <Outlet />}</main>
     </div>
