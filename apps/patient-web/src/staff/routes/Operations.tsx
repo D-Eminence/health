@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNod
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { Badge, Button, Card, EmptyState, Field, Input, Select, Textarea } from '@hid/ui'
-import { staffApi, type LabAbnormalFlag, type LabAccession, type LabExecution, type LabResult, type LabResultRevision, type LabResultValue, type LabImport, type LabSpecimen, type LabWorkItem, type OcrExtraction, type OcrJob, type OcrPublication, type OcrTargetDomain, type OcrValidation, type OcrValidationInput, type OutreachCampaign, type OutreachCampaignMember, type OutreachCase, type PharmacyImport, type PharmacyWorkItem } from '../api'
+import { staffApi, type LabAbnormalFlag, type LabAccession, type LabExecution, type LabResult, type LabResultRevision, type LabResultValue, type LabImport, type LabSpecimen, type LabWorkItem, type OcrExtraction, type OcrJob, type OcrPublication, type OcrTargetDomain, type OcrValidation, type OcrValidationInput, type OutreachCampaign, type OutreachCase, type PharmacyImport, type PharmacyWorkItem } from '../api'
 import { useStaff } from '../App'
 import { describedBy } from '../../authSteps'
 
@@ -987,51 +987,19 @@ export function Ocr() {
   </>
 }
 
-const outreachServices = [
-  ['registration', 'Registration'], ['vitals', 'Vitals'], ['vaccination', 'Vaccination'], ['lab_sample', 'Lab sample'], ['referral', 'Referral'],
-] as const
-
-function CampaignCard({ facilityId, membershipId, campaign, permissions, onChanged, onMembershipChange }: {
-  facilityId: string; membershipId: string | undefined; campaign: OutreachCampaign; permissions: string[];
-  onChanged: () => Promise<void>; onMembershipChange: (campaignId: string, isMember: boolean) => void
+// Identity does not authorize outreach.campaign.write until campaign governance is
+// decided (hid-system authorize-outreach.dto.ts, ADR-045): creating a campaign,
+// changing its status and adding a member all answer 400, so none is offered.
+function CampaignCard({ facilityId, membershipId, campaign, canRead, onMembershipChange }: {
+  facilityId: string; membershipId: string | undefined; campaign: OutreachCampaign; canRead: boolean;
+  onMembershipChange: (campaignId: string, isMember: boolean) => void
 }) {
-  const canRead = permissions.includes('outreach.campaign.read')
-  const canWrite = permissions.includes('outreach.campaign.write')
   const members = useFacilityList(facilityId, canRead, useCallback(id => staffApi.outreachCampaignMembers(id, campaign.id), [campaign.id]))
   useEffect(() => {
     if (members.items) onMembershipChange(campaign.id, members.items.some(member => member.membershipId === membershipId))
   }, [campaign.id, membershipId, members.items, onMembershipChange])
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-  const [success, setSuccess] = useState('')
-  const startsInFuture = campaign.status === 'planned' && new Date(campaign.startsAt).getTime() > Date.now()
-  async function transition(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const reason = String(new FormData(event.currentTarget).get('reason') ?? '').trim()
-    const status = campaign.status === 'planned' ? 'active' : 'closed'
-    if (reason.length < 8) return setError('Enter a status reason of at least 8 characters.')
-    setBusy(true); setError(''); setSuccess('')
-    try { await staffApi.updateOutreachCampaignStatus(facilityId, campaign, status, reason); setSuccess(`Campaign ${status}.`); await onChanged() }
-    catch (caught) { setError(errorText(caught, 'Campaign status could not be updated. Refresh and try again.')) }
-    finally { setBusy(false) }
-  }
-  async function addMember(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const element = event.currentTarget
-    const form = new FormData(element)
-    const membershipId = String(form.get('membershipId') ?? '').trim()
-    const role = String(form.get('role') ?? 'enumerator') as OutreachCampaignMember['role']
-    if (!membershipId) return setError('Enter a facility membership ID.')
-    setBusy(true); setError(''); setSuccess('')
-    try { await staffApi.addOutreachCampaignMember(facilityId, campaign.id, membershipId, role); setSuccess('Campaign member added.'); element.reset(); await members.refresh() }
-    catch (caught) { setError(errorText(caught, 'Campaign member could not be added.')) }
-    finally { setBusy(false) }
-  }
   return <div className="staff-list-item"><div className="staff-row"><strong>{campaign.name}</strong><Badge tone={campaign.status === 'active' ? 'success' : 'neutral'}>{campaign.status}</Badge></div><p>{campaign.services.join(', ')} · Starts {dateText(campaign.startsAt)}</p>
     {canRead && <details><summary>Members</summary><ListState loading={members.loading} error={members.error} empty="No members" retry={() => void members.refresh()} hasItems={Boolean(members.items?.length)} />{members.items?.map(member => <p key={member.id}>{member.role.replaceAll('_', ' ')} · Membership {shortId(member.membershipId)}</p>)}</details>}
-    {canWrite && campaign.status !== 'closed' && <form className="staff-form" onSubmit={event => void transition(event)}><Field label={campaign.status === 'planned' ? 'Activation reason' : 'Closure reason'} htmlFor={`campaign-reason-${campaign.id}`} required><Input id={`campaign-reason-${campaign.id}`} name="reason" minLength={8} maxLength={500} required /></Field>{startsInFuture && <p className="staff-muted">Activation is available after the start time. Refresh the campaign then.</p>}<Button type="submit" tone="secondary" size="sm" disabled={busy || startsInFuture}>{busy ? 'Updating…' : campaign.status === 'planned' ? 'Activate campaign' : 'Close campaign'}</Button></form>}
-    {canWrite && <details><summary>Add campaign member</summary><form className="staff-form" onSubmit={event => void addMember(event)}><Field label="Facility membership ID" htmlFor={`campaign-member-${campaign.id}`} required><Input id={`campaign-member-${campaign.id}`} name="membershipId" placeholder="Membership UUID" required /></Field><Field label="Campaign role" htmlFor={`campaign-role-${campaign.id}`}><Select id={`campaign-role-${campaign.id}`} name="role"><option value="enumerator">Enumerator</option><option value="health_worker">Health worker</option><option value="admin">Admin</option></Select></Field><Button type="submit" size="sm" disabled={busy}>{busy ? 'Adding…' : 'Add member'}</Button></form></details>}
-    {error && <p className="staff-error" role="alert">{error}</p>}{success && <p className="staff-success" role="status">{success}</p>}
   </div>
 }
 
@@ -1077,22 +1045,6 @@ export function Outreach() {
     })
   }, [facilityId])
 
-  async function createCampaign(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (!facilityId) return
-    const element = event.currentTarget
-    const form = new FormData(element)
-    const name = String(form.get('name') ?? '').trim()
-    const services = form.getAll('services').map(String)
-    const startTime = new Date(String(form.get('startsAt') ?? ''))
-    if (name.length < 2 || services.length === 0) return setError('Enter a campaign name and choose at least one service.')
-    if (Number.isNaN(startTime.getTime())) return setError('Enter a valid campaign start date.')
-    setBusy(true); setError(''); setSuccess('')
-    try { await staffApi.createOutreachCampaign(facilityId, { name, services, startsAt: startTime.toISOString() }); setSuccess('Campaign created.'); element.reset(); await campaigns.refresh() }
-    catch (caught) { setError(errorText(caught, 'Campaign could not be created.')) }
-    finally { setBusy(false) }
-  }
-
   async function createCase(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!facilityId) return
@@ -1113,14 +1065,13 @@ export function Outreach() {
 
   if (!facilityId || (!canReadCases && !canReadCampaigns)) return <EmptyState titleAs="h1" title="Outreach unavailable" description="This facility membership needs outreach campaign or registration read permission." />
   return <>
-    <PageHead eyebrow="Community care" title="Outreach">Manage facility campaigns and registration cases. A temporary registration is pending identity resolution until the backend links it to a verified patient.</PageHead>
+    <PageHead eyebrow="Community care" title="Outreach">View facility campaigns and manage registration cases. A temporary registration is pending identity resolution until the backend links it to a verified patient.</PageHead>
     {error && <p className="staff-error" role="alert">{error}</p>}{success && <p className="staff-success" role="status">{success}</p>}
     <div className="staff-two-col"><div className="staff-stack">
-      {canReadCampaigns && <Card className="staff-card"><div className="staff-row"><h2>Campaigns</h2><Button tone="secondary" size="sm" onClick={() => void campaigns.refresh()} disabled={campaigns.loading}>Refresh</Button></div><ListState loading={campaigns.loading} error={campaigns.error} empty="No campaigns" retry={() => void campaigns.refresh()} hasItems={Boolean(campaigns.items?.length)} />{campaigns.items?.map((campaign: OutreachCampaign) => <CampaignCard key={campaign.id} facilityId={facilityId} membershipId={membershipId} campaign={campaign} permissions={permissions} onChanged={campaigns.refresh} onMembershipChange={recordMembership} />)}</Card>}
-      {permissions.includes('outreach.campaign.write') && <Card className="staff-card"><h2>New campaign</h2><form className="staff-form" onSubmit={event => void createCampaign(event)}><Field label="Campaign name" htmlFor="outreach-campaign-name" required><Input id="outreach-campaign-name" name="name" minLength={2} maxLength={200} required /></Field><Field label="Starts" htmlFor="outreach-campaign-start" required><Input id="outreach-campaign-start" name="startsAt" type="datetime-local" required /></Field><fieldset><legend>Services</legend>{outreachServices.map(([code, label]) => <label key={code} className="staff-row"><input type="checkbox" name="services" value={code} />{label}</label>)}</fieldset><Button type="submit" disabled={busy}>{busy ? 'Creating…' : 'Create campaign'}</Button></form></Card>}
+      {canReadCampaigns && <Card className="staff-card"><div className="staff-row"><h2>Campaigns</h2><Button tone="secondary" size="sm" onClick={() => void campaigns.refresh()} disabled={campaigns.loading}>Refresh</Button></div><p className="staff-notice">Campaign management is not yet available. Campaigns and their members can be viewed here, but not created, activated, closed or given members.</p><ListState loading={campaigns.loading} error={campaigns.error} empty="No campaigns" retry={() => void campaigns.refresh()} hasItems={Boolean(campaigns.items?.length)} />{campaigns.items?.map((campaign: OutreachCampaign) => <CampaignCard key={campaign.id} facilityId={facilityId} membershipId={membershipId} campaign={campaign} canRead={canReadCampaigns} onMembershipChange={recordMembership} />)}</Card>}
     </div><div className="staff-stack">
       {canReadCases && <Card className="staff-card"><div className="staff-row"><h2>Registration cases</h2><Button tone="secondary" size="sm" onClick={() => void cases.refresh()} disabled={cases.loading}>Refresh</Button></div><ListState loading={cases.loading} error={cases.error} empty="No registration cases" retry={() => void cases.refresh()} hasItems={Boolean(cases.items?.length)} />{cases.items?.map((item: OutreachCase) => <OutreachCaseCard key={item.id} facilityId={facilityId} item={item} canLink={permissions.includes('outreach.registration.write')} onChanged={cases.refresh} />)}</Card>}
-      {permissions.includes('outreach.registration.write') && <Card className="staff-card"><h2>New registration case</h2><form className="staff-form" onSubmit={event => void createCase(event)}>{canReadCampaigns && <Field label="Campaign" htmlFor="outreach-case-campaign" hint="Only active registration campaigns containing your facility membership appear here. A case may also be created without a campaign."><Select id="outreach-case-campaign" name="campaignId"><option value="">No campaign</option>{campaigns.items?.filter(campaign => campaign.status === 'active' && campaign.services.includes('registration') && eligibleCampaigns.facilityId === facilityId && eligibleCampaigns.ids.has(campaign.id)).map(campaign => <option key={campaign.id} value={campaign.id}>{campaign.name}</option>)}</Select></Field>}<Field label="Full name" htmlFor="outreach-case-name" required><Input id="outreach-case-name" name="fullName" maxLength={200} required /></Field><div className="staff-form-row"><Field label="Sex" htmlFor="outreach-case-sex" required><Select id="outreach-case-sex" name="sex"><option value="unknown">Unknown</option><option value="female">Female</option><option value="male">Male</option><option value="other">Other</option></Select></Field><Field label="Age (years)" htmlFor="outreach-case-age" required><Input id="outreach-case-age" name="ageYears" type="number" min="0" max="130" required /></Field></div><Field label="Phone (optional)" htmlFor="outreach-case-phone"><Input id="outreach-case-phone" name="phone" minLength={3} maxLength={32} /></Field><Field label="Operational notes" htmlFor="outreach-case-notes"><Textarea id="outreach-case-notes" name="operationalNotes" maxLength={2000} /></Field><Button type="submit" disabled={busy}>{busy ? 'Creating…' : 'Create case'}</Button></form></Card>}
+      {permissions.includes('outreach.registration.write') && <Card className="staff-card"><h2>New registration case</h2><form className="staff-form" onSubmit={event => void createCase(event)}>{canReadCampaigns && <Field label="Campaign" htmlFor="outreach-case-campaign" hint="Only active registration campaigns containing your facility membership appear here. A case may also be created without a campaign."><Select id="outreach-case-campaign" name="campaignId"><option value="">No campaign</option>{campaigns.items?.filter(campaign => campaign.status === 'active' && campaign.services.includes('registration') && eligibleCampaigns.facilityId === facilityId && eligibleCampaigns.ids.has(campaign.id)).map(campaign => <option key={campaign.id} value={campaign.id}>{campaign.name}</option>)}</Select></Field>}<Field label="Full name" htmlFor="outreach-case-name" required><Input id="outreach-case-name" name="fullName" maxLength={200} required /></Field><div className="staff-form-row"><Field label="Sex" htmlFor="outreach-case-sex" required><Select id="outreach-case-sex" name="sex" required><option value="unknown">Unknown</option><option value="female">Female</option><option value="male">Male</option><option value="other">Other</option></Select></Field><Field label="Age (years)" htmlFor="outreach-case-age" required><Input id="outreach-case-age" name="ageYears" type="number" min="0" max="130" required /></Field></div><Field label="Phone (optional)" htmlFor="outreach-case-phone"><Input id="outreach-case-phone" name="phone" minLength={3} maxLength={32} /></Field><Field label="Operational notes" htmlFor="outreach-case-notes"><Textarea id="outreach-case-notes" name="operationalNotes" maxLength={2000} /></Field><Button type="submit" disabled={busy}>{busy ? 'Creating…' : 'Create case'}</Button></form></Card>}
     </div></div>
   </>
 }

@@ -1045,22 +1045,12 @@ export const staffApi = {
   outreachCampaignMembers: (facilityId: string, campaignId: string) =>
     client.get<OutreachCampaignMember[]>(`/api/v1/outreach/registration-cases/campaigns/${encodeURIComponent(campaignId)}/members`,
       { headers: facilityHeaders(facilityId) }),
-  updateOutreachCampaignStatus: (facilityId: string, campaign: OutreachCampaign, status: 'active' | 'closed', reason: string) =>
-    client.post<OutreachCampaign>(`/api/v1/outreach/registration-cases/campaigns/${encodeURIComponent(campaign.id)}/status`,
-      { status, reason }, { headers: { ...facilityHeaders(facilityId), 'If-Match': String(campaign.rowVersion) } }),
-  addOutreachCampaignMember: (facilityId: string, campaignId: string, membershipId: string,
-    role: OutreachCampaignMember['role']) =>
-    client.post<OutreachCampaignMember>(`/api/v1/outreach/registration-cases/campaigns/${encodeURIComponent(campaignId)}/members`,
-      { membershipId, role }, { headers: facilityHeaders(facilityId) }),
   outreachCases: (facilityId: string) =>
     client.get<OutreachCase[]>('/api/v1/outreach/registration-cases', { headers: facilityHeaders(facilityId) }),
   linkExistingOutreachCase: (facilityId: string, registrationCase: OutreachCase, canonicalPatientId: string, reason: string) =>
     client.post<OutreachCase>(`/api/v1/outreach/registration-cases/${encodeURIComponent(registrationCase.id)}/link-existing`,
       { canonicalPatientId, expectedVersion: registrationCase.rowVersion, reason },
       { headers: { ...facilityHeaders(facilityId), ...keyHeaders() } }),
-  createOutreachCampaign: (facilityId: string, input: { name: string; services: string[]; startsAt: string }) =>
-    client.post<OutreachCampaign>('/api/v1/outreach/registration-cases/campaigns', input,
-      { headers: facilityHeaders(facilityId) }),
   createOutreachCase: (facilityId: string, input: { campaignId?: string; fullName: string; sex: string; ageYears: number; phone?: string; operationalNotes?: string }) => {
     const localCommandId = crypto.randomUUID()
     return client.post<OutreachCase>('/api/v1/outreach/registration-cases',
