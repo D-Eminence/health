@@ -529,6 +529,9 @@ const publicationOperations = {
 /** A field the page refused before sending, named by its control's id. */
 interface FieldProblem { readonly field: string; readonly message: string }
 
+/** OCR takes document and patient IDs only as UUID v4 (hid-system OCR DTOs: IsUUID('4')), and names no field when it refuses one. */
+const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
 class FieldInputError extends Error {
   constructor(readonly field: string, message: string) { super(message) }
 }
@@ -654,6 +657,7 @@ function OcrConfirmation({ facilityId, job, onChanged }: { facilityId: string; j
     const reason = String(form.get('reason') ?? '').trim()
     setError(''); setProblem(null)
     const refused = !patientId ? { field: 'ocr-confirm-patient', message: 'Enter the canonical patient ID.' }
+      : !UUID_V4.test(patientId) ? { field: 'ocr-confirm-patient', message: 'Enter a valid canonical patient ID (a UUID).' }
       : reason.length < 8 ? { field: 'ocr-confirm-reason', message: 'Enter a patient confirmation reason of at least 8 characters.' } : null
     if (refused) { setProblem(refused); focus(refused.field); return }
     const signature = JSON.stringify([patientId, reason])
@@ -968,7 +972,9 @@ export function Ocr() {
   async function find(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setProblem(null)
-    if (!documentId.trim()) { setProblem({ field: 'ocr-document', message: 'Enter a document ID.' }); focus('ocr-document'); return }
+    const refused = !documentId.trim() ? { field: 'ocr-document', message: 'Enter a document ID.' }
+      : !UUID_V4.test(documentId.trim()) ? { field: 'ocr-document', message: 'Enter a valid document ID (a UUID).' } : null
+    if (refused) { setProblem(refused); focus(refused.field); return }
     await lookup()
     focus('ocr-find-submit', true)
   }
@@ -983,7 +989,9 @@ export function Ocr() {
     if (!facilityId) return
     // Create extraction job stays available, so a missing ID is said at its field, which takes focus.
     const refused = !documentId.trim() ? { field: 'ocr-document', message: 'Enter a document ID.' }
-      : !patientId.trim() ? { field: 'ocr-patient', message: 'Enter the patient ID.' } : null
+      : !UUID_V4.test(documentId.trim()) ? { field: 'ocr-document', message: 'Enter a valid document ID (a UUID).' }
+      : !patientId.trim() ? { field: 'ocr-patient', message: 'Enter the patient ID.' }
+      : !UUID_V4.test(patientId.trim()) ? { field: 'ocr-patient', message: 'Enter a valid patient ID (a UUID).' } : null
     setProblem(refused)
     if (refused) { focus(refused.field); return }
     setBusy(true); setError(''); setNotice(''); setExtractions(null); setValidations(null)

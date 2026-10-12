@@ -86,6 +86,44 @@ describe('creating an extraction job', () => {
   })
 })
 
+/**
+ * EHR-FORMS-01 (OCR part). OCR takes document and patient IDs only as UUID v4
+ * (hid-system find-ocr-job.dto.ts, create-ocr-job.dto.ts and
+ * confirm-ocr-patient.dto.ts: IsUUID('4')), and answers anything else with a
+ * generic 400 that names no field. The page says so at the field instead.
+ */
+describe('OCR IDs are UUIDs', () => {
+  it('a document ID that is not a UUID is refused at its field, and nothing is sent', async () => {
+    render(<MemoryRouter initialEntries={['/provider/ocr']}><Ocr /></MemoryRouter>)
+    const documentId = screen.getByLabelText(/^Document ID/)
+    fireEvent.change(documentId, { target: { value: ' DOC-2024-0001 ' } })
+    await press(screen.getByRole('button', { name: 'Find job' }))
+    await waitFor(() => expect(document.activeElement).toBe(documentId))
+    expect(documentId.getAttribute('aria-invalid')).toBe('true')
+    expect(descriptions(documentId)).toEqual(['Enter a valid document ID (a UUID).'])
+    expect(api.findOcrJob).not.toHaveBeenCalled()
+  })
+
+  it('a patient ID that is not a UUID is refused at its field, and no job is created', async () => {
+    await findJob(null)
+    const patient = screen.getByLabelText(/^Patient ID/)
+    fireEvent.change(patient, { target: { value: 'HID-ABCDEF' } })
+    await press(screen.getByRole('button', { name: 'Create extraction job' }))
+    await waitFor(() => expect(document.activeElement).toBe(patient))
+    expect(patient.getAttribute('aria-invalid')).toBe('true')
+    expect(descriptions(patient)).toEqual(['Enter a valid patient ID (a UUID).'])
+    expect(api.createOcrJob).not.toHaveBeenCalled()
+  })
+
+  it('takes an upper-case UUID, as OCR does', async () => {
+    render(<MemoryRouter initialEntries={['/provider/ocr']}><Ocr /></MemoryRouter>)
+    api.findOcrJob.mockResolvedValue({ job: null })
+    fireEvent.change(screen.getByLabelText(/^Document ID/), { target: { value: DOCUMENT.toUpperCase() } })
+    await press(screen.getByRole('button', { name: 'Find job' }))
+    await waitFor(() => expect(api.findOcrJob).toHaveBeenCalledWith('facility-1', DOCUMENT.toUpperCase()))
+  })
+})
+
 describe('reviewing an extraction', () => {
   it('NEW-OCR-RAWTEXT-SCROLL: the extracted text, which scrolls, is a named region a keyboard can reach', async () => {
     await findJob(awaiting)
