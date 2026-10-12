@@ -15,7 +15,7 @@ import { Clinical } from '../Clinical'
  * corrections. It lists documents without opening any.
  */
 const api = vi.hoisted(() => ({ lookupPatient: vi.fn(), emergencyRecords: vi.fn(), encounters: vi.fn(), records: vi.fn(),
-  consentStatus: vi.fn(), documentDownload: vi.fn() }))
+  consentStatus: vi.fn(), documentDownload: vi.fn(), labReleasedResultsForOrder: vi.fn() }))
 const staff = vi.hoisted(() => ({ permissions: [] as string[] }))
 
 vi.mock('../../api', () => ({
@@ -323,5 +323,29 @@ describe('a summary that names what EHR withheld and what it cut short', () => {
     await renderSummary()
     expect(screen.queryByRole('heading', { level: 2, name: 'Documents' })).toBeNull()
     expect(screen.queryByText('referral-letter.pdf')).toBeNull()
+  })
+})
+
+/**
+ * hid-system #51: a lab request's released Lab results, which Lab also serves
+ * under an active emergency grant. Each read is audited, so it is made only when
+ * asked for, and under the emergency purpose.
+ */
+describe('released Lab results in the emergency summary', () => {
+  it('reads a lab request’s released results only when asked, under the emergency purpose', async () => {
+    staff.permissions = [...EVERY_READ, 'lab.result.released.read']
+    api.labReleasedResultsForOrder.mockResolvedValue({ workItemId: 'work-item-1', sourceEhrOrderId: 'lab-2', sourceEhrOrderVersion: 1,
+      patientId: PATIENT, acceptedAt: '2026-10-01T08:15:00.000Z', test: { codeSystem: 'LOINC', code: '718-7', name: 'Haemoglobin' }, results: [] })
+    await renderSummary()
+    const request = within(section('Lab requests')).getByText('Haemoglobin').closest<HTMLElement>('.staff-list-item')!
+    expect(api.labReleasedResultsForOrder).not.toHaveBeenCalled()
+    within(request).getByRole('button', { name: 'View released results' }).click()
+    expect(await within(request).findByText('No result released yet.')).toBeTruthy()
+    expect(api.labReleasedResultsForOrder).toHaveBeenCalledWith('facility-1', 'lab-2', 'emergency')
+  })
+
+  it('offers no released results without lab.result.released.read', async () => {
+    await renderSummary()
+    expect(screen.queryByRole('button', { name: 'View released results' })).toBeNull()
   })
 })

@@ -2,12 +2,13 @@ import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNod
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { Badge, Button, Card, EmptyState, Field, Input, Select, Textarea } from '@hid/ui'
-import { staffApi, type LabAbnormalFlag, type LabAccession, type LabExecution, type LabResult, type LabResultRevision, type LabResultValue, type LabImport, type LabSpecimen, type LabWorkItem, type OcrExtraction, type OcrJob, type OcrPublication, type OcrTargetDomain, type OcrValidation, type OcrValidationInput, type OutreachCampaign, type OutreachCase, type PharmacyImport, type PharmacyWorkItem } from '../api'
+import { staffApi, type LabAbnormalFlag, type LabAccession, type LabExecution, type LabResult, type LabResultValue, type LabImport, type LabSpecimen, type LabWorkItem, type OcrExtraction, type OcrJob, type OcrPublication, type OcrTargetDomain, type OcrValidation, type OcrValidationInput, type OutreachCampaign, type OutreachCase, type PharmacyImport, type PharmacyWorkItem } from '../api'
 import { useStaff } from '../App'
 import { describedBy } from '../../authSteps'
 import { FieldInputError, problemProps, problemText, refusal, refusalText, type FieldProblem } from '../fieldProblem'
 import { BUSY, focusIsLost, UNAVAILABLE, useFocusById } from '../focus'
 import { useFieldProblems } from '../useFieldProblems'
+import { RevisionList } from '../labRevisions'
 
 // A refusal's message, with each field a 400 VALIDATION_FAILED names.
 function errorText(error: unknown, fallback: string) {
@@ -242,16 +243,6 @@ function ResultGovernance({ facilityId, result, action, onStarted, onChanged, on
     {error && <p className="staff-error" role="alert">{error}</p>}
     <Button type="submit" size="sm" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Recording…' : action === 'verify' ? 'Verify result version' : 'Release result version'}</Button>
   </form>
-}
-
-function RevisionList({ revisions }: { revisions: LabResultRevision[] }) {
-  return <div className="staff-list">{revisions.map(revision => <div className="staff-list-item" key={revision.version}>
-    <div className="staff-row"><strong>Version {revision.version}</strong><Badge tone={revision.releaseStatus === 'released' ? 'success' : 'warning'}>{revision.releaseStatus.replaceAll('_', ' ')}</Badge></div>
-    <p>{revision.resultType === 'numeric' ? revision.numericValue == null ? 'Not recorded' : `${revision.numericValue} ${revision.unit ?? ''}` : revision.textValue ?? 'Not recorded'} · {revision.abnormalFlag.replaceAll('_', ' ')}</p>
-    <p>Entered {dateText(revision.enteredAt)} · {revision.verificationStatus.replaceAll('_', ' ')}</p>
-    {revision.referenceRange && <p>Reference range: {revision.referenceRange}</p>}
-    {revision.correctionReason && <p>Reason: {revision.correctionReason}</p>}
-  </div>)}</div>
 }
 
 function ResultHistory({ facilityId, result, onRefused }: { facilityId: string; result: LabResult; onRefused: (error: unknown) => void }) {

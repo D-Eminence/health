@@ -2,13 +2,14 @@ import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNod
 import { Link } from 'react-router-dom'
 import { assertSignedStorageUrl, isHidApiError } from '@hid/http'
 import { Badge, Button, Card, EmptyState, Field, Input, Select, TabList, TabPanel, Textarea } from '@hid/ui'
-import { isAllowedPatientLookup, staffApi, type ClinicalRecord, type DiagnosisUpdate, type DocumentRecord, type EmergencyRecords, type EmergencySection, type Encounter, type LabHandoff, type NoteRevision, type Page, type RecordKind, type SavedRecord, type StatusRecordKind, type VitalCorrection, type VitalMeasurement, type VitalMeasurements } from '../api'
+import { isAllowedPatientLookup, staffApi, type ClinicalRecord, type DiagnosisUpdate, type DocumentRecord, type EmergencyRecords, type EmergencySection, type Encounter, type LabHandoff, type LabOrderReleasedResults, type NoteRevision, type Page, type RecordKind, type SavedRecord, type StatusRecordKind, type VitalCorrection, type VitalMeasurement, type VitalMeasurements } from '../api'
 import { useStaff } from '../App'
 import { getEnvironment } from '../env'
 import { refusalText } from '../fieldProblem'
 import { BUSY, QUIET_UNAVAILABLE, UNAVAILABLE, useFocusById } from '../focus'
 import { GroupError, useFieldProblems } from '../useFieldProblems'
 import { staffSessionGeneration, untilStaffSessionReady } from '../session'
+import { RevisionList, skipsVersions } from '../labRevisions'
 
 const tabs: Array<{ id: RecordKind | 'documents'; label: string; permission: string }> = [
   { id: 'clinical-notes', label: 'Notes', permission: 'ehr.note.read' },
@@ -721,6 +722,62 @@ function NotePanel({ facilityId, patientId, encounterId, note, canWrite, verify,
   </div>
 }
 
+/** What a refused read of a request's released Lab results means (INTERFACE_CONTRACT.md, Lab "Released results"). */
+function releasedResultsRefusal(caught: unknown): string {
+  if (!isHidApiError(caught)) return refusalText(caught, 'Released results could not be loaded.')
+  if (caught.status === 404) return caught.code === 'LAB_WORK_ITEM_NOT_FOUND'
+    ? 'Lab has no work item for this request that you can see: Lab has not accepted it, accepted it at another facility, or your access to this patient does not cover it.'
+    // An earlier Lab has no such route.
+    : 'Released results are not available from this Lab service.'
+  if (caught.status === 403) return `Access denied: you may not read this request's Lab results here${labCode(caught.code) ? ` (${caught.code})` : ''}.`
+  return refusalText(caught, 'Released results could not be loaded.')
+}
+
+/**
+ * The released results of the Lab work item accepted from one lab request
+ * (hid-system #51, GET /lab/ehr-orders/:id/released-results). Lab audits every
+ * read, so it is read only when opened or refreshed, never on its own. Each
+ * result shows its released revisions only, under their stored version numbers.
+ */
+function ReleasedResults({ facilityId, requestId, purpose = 'direct-care' }: { facilityId: string; requestId: string; purpose?: 'direct-care' | 'emergency' }) {
+  const [open, setOpen] = useState(false)
+  const [revision, setRevision] = useState(0)
+  const [released, setReleased] = useState<LabOrderReleasedResults | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  useEffect(() => {
+    if (!open) return
+    let active = true
+    // What was shown is hidden while it is read again: a refused read leaves nothing of it.
+    setReleased(null); setLoading(true); setError('')
+    void staffApi.labReleasedResultsForOrder(facilityId, requestId, purpose)
+      .then(value => { if (active) setReleased(value) })
+      .catch(caught => { if (active) setError(releasedResultsRefusal(caught)) })
+      .finally(() => { if (active) setLoading(false) })
+    return () => { active = false }
+  }, [open, revision, facilityId, requestId, purpose])
+  return <div className="staff-stack">
+    <Button id={`lab-request-${requestId}-results`} tone="secondary" size="sm" aria-expanded={open} onClick={() => setOpen(value => !value)}>
+      {open ? 'Hide released results' : 'View released results'}</Button>
+    {open && <>
+      <Button tone="quiet" size="sm" aria-disabled={loading || undefined} className={QUIET_UNAVAILABLE}
+        onClick={() => { if (!loading) setRevision(value => value + 1) }}>Refresh released results</Button>
+      <div role="status">{loading && <p>Loading released results…</p>}</div>
+      {error && <p className="staff-error" role="alert">{error}</p>}
+      {released && (released.results.length === 0 ? <p>No result released yet.</p> : <>
+        <p>{released.test.name} · {released.test.codeSystem} {released.test.code} · accepted by Lab {new Date(released.acceptedAt).toLocaleString()}</p>
+        {released.results.map((result, index) => <div className="staff-stack" key={result.id}>
+          <div className="staff-row"><strong>Result {index + 1}</strong>
+            <Badge tone={result.status === 'entered_in_error' ? 'danger' : 'success'}>{result.status === 'entered_in_error' ? 'Entered in error' : 'Released'}</Badge></div>
+          {result.status === 'entered_in_error' && <p>The latest released version was marked entered in error: do not use it.</p>}
+          {skipsVersions(result.revisions) && <p className="staff-muted">Version numbers skip revisions that were never released; those are not shown.</p>}
+          <RevisionList revisions={result.revisions} />
+        </div>)}
+      </>)}
+    </>}
+  </div>
+}
+
 function Documents({ patientId, encounterId, facilityId, canWrite, canOcr, verify }: { patientId: string; encounterId: string; facilityId: string; canWrite: boolean; canOcr: boolean; verify: () => Promise<void> }) {
   const { state } = useStaff()
   // The OCR handoff names who made it and where, since the history entry holding it outlives both.
@@ -931,6 +988,8 @@ function EmergencySummary({ facilityId, patientId, patientName, permissions, ver
           {item.status === 'entered_in_error' && <p>Recorded in error: not a request for this patient.</p>}
           <p>{item.testCodeSystem} {item.testCode} · {item.priority} priority · Requested {date(item.createdAt)}</p>
           {item.clinicalInformation && <p className="staff-note-content">{item.clinicalInformation}</p>}
+          {/* Lab allows a released-results read under an active emergency grant; a draft never reached Lab. */}
+          {item.status !== 'draft' && may('lab.result.released.read') && <ReleasedResults facilityId={facilityId} requestId={item.id} purpose="emergency" />}
         </>} />}
       {may('ehr.document.read') && <SummarySection title="Documents" items={summary.documents} {...sectionProps('documents')}
         note={<p>{summary.released
@@ -1352,6 +1411,9 @@ export function Clinical() {
         {activeTab === 'lab-requests' && record.status === 'active' && canMutate && permissions.includes('ehr.lab-request.write') && canSendToLab &&
           <SendToLab key={`send-${record.id}-${String(record.rowVersion)}`} requestId={record.id} disabled={recordsLoading}
             onSend={key => sendLabRequest(record, key)} />}
+        {/* A draft never reached Lab; any other request may have, before or after a change. */}
+        {activeTab === 'lab-requests' && record.status !== 'draft' && permissions.includes('lab.result.released.read') &&
+          <ReleasedResults key={`results-${record.id}`} facilityId={facility.id} requestId={record.id} />}
       </div>)}</div></Card>{canMutate && permissions.includes(writePermissions[activeTab]) && <RecordForm key={`${selected.id}-${activeTab}`} tab={activeTab} onCreated={createRecord} disabled={!selected} />}</div>}</TabPanel></>}
     </section>}
   </>
