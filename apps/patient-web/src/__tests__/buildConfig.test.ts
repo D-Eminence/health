@@ -59,7 +59,22 @@ describe('portal build configuration', () => {
   it('reads every public variable by name', () => {
     const files = readdirSync(source, { recursive: true, encoding: 'utf8' })
       .filter(file => /\.tsx?$/.test(file) && !/(^|\/)__tests__\/|\.test\.tsx?$/.test(file))
-    const whole = files.filter(file => /import\.meta\.env(?!\.VITE_HID_[A-Z0-9_]+\b)/.test(readFileSync(join(source, file), 'utf8')))
+    const whole = files.filter(file => readsEnvironmentWhole(readFileSync(join(source, file), 'utf8')))
     expect(whole).toEqual([])
   })
+
+  it('tells a whole read from a read by name or of a Vite built-in', () => {
+    expect(readsEnvironmentWhole('const raw = import.meta.env')).toBe(true)
+    expect(readsEnvironmentWhole('const { VITE_HID_API_BASE_URL } = import.meta.env')).toBe(true)
+    expect(readsEnvironmentWhole('import.meta.env.VITE_HID_APP_ORIGIN')).toBe(false)
+    // Vite's own flags inline no user variable.
+    for (const key of ['DEV', 'PROD', 'MODE', 'BASE_URL', 'SSR']) {
+      expect(readsEnvironmentWhole(`if (import.meta.env.${key}) run()`)).toBe(false)
+    }
+  })
 })
+
+/** A read of `import.meta.env` other than one VITE_HID_ variable by name or one of Vite's built-in keys. */
+function readsEnvironmentWhole(text: string): boolean {
+  return /import\.meta\.env(?!\.(?:VITE_HID_[A-Z0-9_]+|DEV|PROD|MODE|BASE_URL|SSR)\b)/.test(text)
+}
