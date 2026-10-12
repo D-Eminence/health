@@ -456,7 +456,7 @@ export function Laboratory() {
   const list = useFacilityList(facilityId, canRead, useCallback(async id => (await staffApi.labWorkItems(id)).items, []))
   const [selection, setSelection] = useState<{ facilityId: string; item: LabWorkItem } | null>(null)
   const selected = selection && selection.facilityId === facilityId ? selection.item : null
-  if (!facilityId || !canRead) return <EmptyState title="Laboratory unavailable" description="This facility membership needs lab work-item read permission." />
+  if (!facilityId || !canRead) return <EmptyState titleAs="h1" title="Laboratory unavailable" description="This facility membership needs lab work-item read permission." />
   return <>
     <PageHead eyebrow="Provider workspace" title="Laboratory">Accepted EHR test orders at this facility. A separate accession records the specimen chain of custody.</PageHead>
     <div className="staff-row staff-toolbar"><Button tone="secondary" size="sm" onClick={() => void list.refresh()} disabled={list.loading}>Refresh work</Button></div>
@@ -507,7 +507,7 @@ export function Pharmacy() {
   const { facilityId, permissions } = useFacilityAccess()
   const canRead = permissions.includes('pharmacy.work-item.read')
   const list = useFacilityList(facilityId, canRead, useCallback(async id => (await staffApi.pharmacyWorkItems(id)).items, []))
-  if (!facilityId || !canRead) return <EmptyState title="Pharmacy unavailable" description="This facility membership needs pharmacy work-item read permission." />
+  if (!facilityId || !canRead) return <EmptyState titleAs="h1" title="Pharmacy unavailable" description="This facility membership needs pharmacy work-item read permission." />
   return <>
     <PageHead eyebrow="Provider workspace" title="Pharmacy">Accepted prescriptions and full dispensing records for the active facility. The server checks patient authorization before dispensing or reversal.</PageHead>
     <div className="staff-row staff-toolbar"><Button tone="secondary" size="sm" onClick={() => void list.refresh()} disabled={list.loading}>Refresh work</Button></div>
@@ -956,7 +956,7 @@ export function Ocr() {
     finally { setBusy(false) }
   }
 
-  if (!facilityId || !canRead) return <EmptyState title="Document OCR unavailable" description="This facility membership needs OCR job read permission." />
+  if (!facilityId || !canRead) return <EmptyState titleAs="h1" title="Document OCR unavailable" description="This facility membership needs OCR job read permission." />
   return <>
     <PageHead eyebrow="Governed document processing" title="Document OCR">Find a job by its clinical document ID. The document must be available and virus scan clean before extraction can begin.</PageHead>
     <div className="staff-two-col"><Card className="staff-card"><h2>Find document job</h2><form className="staff-form" noValidate onSubmit={event => void find(event)}><Field label="Document ID" htmlFor="ocr-document" error={problemText(problem, 'ocr-document')} required><Input id="ocr-document" value={documentId} onChange={event => { setDocumentId(event.target.value); setSearched(false); setJob(null); setNotice(''); setProblem(null); setStepFocus(null) }} placeholder="Document UUID" required {...problemProps(problem, 'ocr-document')} /></Field><Button id="ocr-find-submit" type="submit" disabled={busy}>{busy ? 'Checking…' : 'Find job'}</Button></form>
@@ -1111,7 +1111,7 @@ export function Outreach() {
     finally { setBusy(false) }
   }
 
-  if (!facilityId || (!canReadCases && !canReadCampaigns)) return <EmptyState title="Outreach unavailable" description="This facility membership needs outreach campaign or registration read permission." />
+  if (!facilityId || (!canReadCases && !canReadCampaigns)) return <EmptyState titleAs="h1" title="Outreach unavailable" description="This facility membership needs outreach campaign or registration read permission." />
   return <>
     <PageHead eyebrow="Community care" title="Outreach">Manage facility campaigns and registration cases. A temporary registration is pending identity resolution until the backend links it to a verified patient.</PageHead>
     {error && <p className="staff-error" role="alert">{error}</p>}{success && <p className="staff-success" role="status">{success}</p>}

@@ -191,7 +191,7 @@ export function Registration() {
     } finally { if (currentFacility.current === facilityId) setBusy(false) }
   }
 
-  if (!facilityId || !canWrite) return <EmptyState title="Registration unavailable" description="This facility membership needs identity registration write permission." />
+  if (!facilityId || !canWrite) return <EmptyState titleAs="h1" title="Registration unavailable" description="This facility membership needs identity registration write permission." />
   const registration = registrationCase
   return <>
     <div className="staff-page-head"><p className="staff-eyebrow">Identity operations</p><h1>Patient registration.</h1><p>Verify a NIN, review possible matches, and link the verified identity to a governed Health ID. Every step is tied to your active facility and recorded by the backend.</p></div>
