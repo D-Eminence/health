@@ -80,6 +80,18 @@ describe('imported evidence reads', () => {
 })
 
 /**
+ * GAP-L93, OUTREACH-01: Identity does not authorize outreach.campaign.write
+ * (hid-system authorize-outreach.dto.ts, ADR-045), so the staff API reads
+ * campaigns and their members and has no call that writes them.
+ */
+describe('Outreach campaign requests', () => {
+  it('only read campaigns', async () => {
+    const { staffApi } = await signedInStaffApi()
+    expect(Object.keys(staffApi).filter(name => /campaign/i.test(name)).sort()).toEqual(['outreachCampaignMembers', 'outreachCampaigns'])
+  })
+})
+
+/**
  * OUTREACH-02: Outreach answers a registration sent again with the same
  * Idempotency-Key and body with the case it made, so the caller names the
  * command (its localCommandId, also the key, and temporary patient ID) and

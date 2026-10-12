@@ -6,9 +6,9 @@ import { Outreach } from '../Operations'
 const api = vi.hoisted(() => ({
   outreachCampaigns: vi.fn(), outreachCases: vi.fn(), outreachCampaignMembers: vi.fn(), createOutreachCase: vi.fn(),
   linkExistingOutreachCase: vi.fn(),
-  // Campaign writes Identity refuses; the page must never send them.
-  createOutreachCampaign: vi.fn(), updateOutreachCampaignStatus: vi.fn(), addOutreachCampaignMember: vi.fn(),
 }))
+// Every staff API member the page reaches for that this test does not provide, such as a campaign write.
+const unprovided = vi.hoisted(() => new Set<string>())
 const permissions = vi.hoisted(() => ({ value: [] as string[] }))
 
 vi.mock('../../App', () => ({
@@ -16,7 +16,14 @@ vi.mock('../../App', () => ({
     id: 'facility-1', membershipId: 'member-1', permissions: permissions.value,
   } } } }, lock: null }),
 }))
-vi.mock('../../api', () => ({ staffApi: api }))
+vi.mock('../../api', () => ({
+  staffApi: new Proxy(api, {
+    get(target, property) {
+      if (typeof property === 'string' && !(property in target)) unprovided.add(property)
+      return Reflect.get(target, property)
+    },
+  }),
+}))
 
 const ALL = ['outreach.campaign.read', 'outreach.campaign.write', 'outreach.registration.read', 'outreach.registration.write']
 const campaign = (id: string, name: string, status: string) =>
@@ -27,6 +34,7 @@ const pendingCase = { id: 'case-1', status: 'identity_resolution_pending', fullN
 
 beforeEach(() => {
   vi.clearAllMocks()
+  unprovided.clear()
   permissions.value = ALL
   api.outreachCampaigns.mockResolvedValue([campaign('campaign-1', 'Ikeja screening week', 'active'), campaign('campaign-2', 'Epe follow-up', 'planned')])
   api.outreachCases.mockResolvedValue([])
@@ -56,11 +64,9 @@ describe('Outreach campaigns, read only', () => {
     expect(screen.queryByLabelText(/^Activation reason/)).toBeNull()
     expect(screen.queryByLabelText(/^Closure reason/)).toBeNull()
     expect(screen.queryByLabelText(/^Facility membership ID/)).toBeNull()
-    // Members are still read.
+    // Members are still read, and nothing else is reached for.
     await waitFor(() => expect(api.outreachCampaignMembers).toHaveBeenCalledWith('facility-1', 'campaign-2'))
-    expect(api.createOutreachCampaign).not.toHaveBeenCalled()
-    expect(api.updateOutreachCampaignStatus).not.toHaveBeenCalled()
-    expect(api.addOutreachCampaignMember).not.toHaveBeenCalled()
+    expect([...unprovided]).toEqual([])
   })
 
   it('does not say the page manages campaigns', async () => {
@@ -163,7 +169,12 @@ describe('creating a registration case', () => {
   it.each([
     ['Operational notes', { notes: '  ab ' }, 'outreach-case-notes', 'Enter operational notes of at least 3 characters, or leave them blank.'],
     ['Phone', { phone: ' 12 ' }, 'outreach-case-phone', 'Enter a phone number of at least 3 characters, or leave it blank.'],
-  ])('refuses %s shorter than 3 characters once trimmed, as Outreach does, at the field', async (_name, values, id, message) => {
+    // The form checks its own fields (noValidate), so a browser's bubble does not say the same thing another way.
+    ['Full name', { fullName: '   ' }, 'outreach-case-name', 'Enter the registrant\'s full name.'],
+    ['an empty age', { age: '' }, 'outreach-case-age', 'Enter an age in whole years, from 0 to 130.'],
+    ['an age over 130', { age: '131' }, 'outreach-case-age', 'Enter an age in whole years, from 0 to 130.'],
+    ['an age in part years', { age: '4.5' }, 'outreach-case-age', 'Enter an age in whole years, from 0 to 130.'],
+  ])('refuses %s as Outreach would, at the field', async (_name, values, id, message) => {
     render(<Outreach />)
     await press(await fillCase({ fullName: 'Amaka Obi', sex: 'female', age: '34', ...values }))
     const field = document.getElementById(id)!
@@ -171,6 +182,35 @@ describe('creating a registration case', () => {
     expect(field.getAttribute('aria-invalid')).toBe('true')
     expect(document.getElementById(field.getAttribute('aria-describedby') ?? '')?.textContent).toBe(message)
     expect(api.createOutreachCase).not.toHaveBeenCalled()
+  })
+})
+
+describe('what the new registration case form says', () => {
+  it('checks its own fields, so the browser does not check them a second way', async () => {
+    render(<Outreach />)
+    const form = (await fillCase({})).closest('form')!
+    expect(form.noValidate).toBe(true)
+  })
+
+  it('clears the last answer when a field is refused', async () => {
+    api.createOutreachCase.mockRejectedValueOnce(new HidApiError(0, 'The network request failed.', { code: 'NETWORK_ERROR' }))
+    render(<Outreach />)
+    await press(await fillCase({ fullName: 'Amaka Obi', sex: 'female', age: '34' }))
+    expect((await screen.findByRole('alert')).textContent).toBe('The network request failed.')
+    await press(await fillCase({ phone: ' 12 ' }))
+    await waitFor(() => expect(document.getElementById('outreach-case-phone')?.getAttribute('aria-invalid')).toBe('true'))
+    expect(screen.queryByText('The network request failed.')).toBeNull()
+  })
+
+  it('clears a field refused before once another field is refused', async () => {
+    render(<Outreach />)
+    await press(await fillCase({ fullName: 'Amaka Obi', sex: 'female', age: '34', phone: ' 12 ' }))
+    const phone = document.getElementById('outreach-case-phone')!
+    await waitFor(() => expect(phone.getAttribute('aria-invalid')).toBe('true'))
+    await press(await fillCase({ fullName: '', phone: '0803 000 0000' }))
+    await waitFor(() => expect(document.getElementById('outreach-case-name')?.getAttribute('aria-invalid')).toBe('true'))
+    expect(phone.getAttribute('aria-invalid')).toBeNull()
+    expect(document.getElementById('outreach-case-phone-error')).toBeNull()
   })
 })
 
