@@ -317,6 +317,8 @@
   .patient-consequences { display: grid; gap: 8px; margin: 12px 0 18px; padding-left: 20px; color: var(--color-ink); font-size: 14px; line-height: 1.5; }
   .patient-danger-button { display: inline-flex; min-height: 44px; align-items: center; justify-content: center; padding: 10px 16px; border: 1px solid #b42318; border-radius: var(--radius-button); background: #b42318; color: #fff; font-size: 14px; font-weight: 600; cursor: pointer; }
   .patient-danger-button:disabled { cursor: not-allowed; opacity: .55; }
+  /* Read by assistive technology, not shown: the item a repeated button acts on. */
+  .patient-visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 }
 
 @media (max-width: 900px) {

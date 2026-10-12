@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent } from 'react'
+import { useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import {
@@ -41,6 +41,11 @@ const BLOCKED_REASONS: Record<AccountDeletionBlockedReason, string> = {
   LEGAL_HOLD: 'Some of your records must be kept for a legal or regulatory reason, so this account cannot be deleted right now. Contact Health ID support for help.',
   RETENTION_POLICY_UNAVAILABLE: 'We could not confirm how your records must be kept, so nothing was deleted. Try again later or contact Health ID support.',
   WORKFORCE_ACCOUNT: 'This sign-in is also used for provider or administrator access, so it cannot be deleted from the patient portal. Contact your organisation or Health ID support.',
+}
+
+/** The contact a repeated button acts on, for assistive technology only (NEW-AMBIGUOUS-ACTION-NAMES). */
+function ItemName({ children }: { children: ReactNode }) {
+  return <span className="patient-visually-hidden">{children}</span>
 }
 
 const RELATIONSHIP_LABELS: Record<EmergencyContactRelationship, string> = {
@@ -152,10 +157,10 @@ export function EmergencyContactsCard() {
         </div>
         <div className="patient-decision-actions">
           {contact.status === 'unverified' && <button id={`contact-send-${contact.contactId}`} type="button" className="patient-secondary-button" disabled={busy}
-            onClick={() => void sendCode(contact)}>Send verification code</button>}
+            onClick={() => void sendCode(contact)}>Send verification code <ItemName>to {contact.name}, {contact.destinationHint}</ItemName></button>}
           <button id={`contact-edit-${contact.contactId}`} type="button" disabled={busy} onClick={() => setEditing({ contactId: contact.contactId, version: contact.version,
-            name: contact.name, relationship: contact.relationship, notifyOnEmergencyAccess: contact.notifyOnEmergencyAccess })}>Edit</button>
-          <button id={`contact-remove-${contact.contactId}`} type="button" disabled={busy} onClick={() => setRemoving(contact.contactId)}>Remove</button>
+            name: contact.name, relationship: contact.relationship, notifyOnEmergencyAccess: contact.notifyOnEmergencyAccess })}>Edit <ItemName>{contact.name}, {contact.destinationHint}</ItemName></button>
+          <button id={`contact-remove-${contact.contactId}`} type="button" disabled={busy} onClick={() => setRemoving(contact.contactId)}>Remove <ItemName>{contact.name}, {contact.destinationHint}</ItemName></button>
         </div>
         {verifying?.contactId === contact.contactId && <form className="patient-deny-form" onSubmit={confirmCode}>
           <label>Code from {contact.name}<input id={`contact-code-${contact.contactId}`} autoFocus inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6}
