@@ -133,7 +133,8 @@ export function EmergencyContactsCard() {
     setRemoving(null); setNotice('Contact removed. They will no longer be notified.'); await contacts.reload()
   }, 'The contact could not be removed.', byId(`contact-confirm-remove-${contactId}`))
 
-  return <div className="patient-card" aria-labelledby="emergency-contacts-heading" aria-busy={(contacts.loading && contacts.data !== null) || undefined}>
+  // Only the list is busy while it reloads: a notice outside it is not held back.
+  return <div className="patient-card" aria-labelledby="emergency-contacts-heading">
     <h2 ref={heading} tabIndex={-1} id="emergency-contacts-heading">Emergency contacts</h2>
     <p className="patient-field-hint">If a provider uses emergency access to your record, verified contacts are told
       your first name, the facility, and the time. They never receive medical details. A contact is only notified
@@ -142,7 +143,7 @@ export function EmergencyContactsCard() {
     <div role="status">{notice && <p className="patient-inline-success">{notice}</p>}</div>
     {contacts.loading && !contacts.data && <p role="status" className="patient-loading">Loading your contacts…</p>}
     {contacts.error && <div role="alert"><p>{contacts.error}</p><button ref={retryFocus.button} type="button" onClick={() => retryFocus.retry(contacts.reload)}>Try again</button></div>}
-    {contacts.data && !contacts.error && (contacts.data.length === 0
+    {contacts.data && !contacts.error && <div aria-busy={contacts.loading || undefined}>{contacts.data.length === 0
       ? <p className="patient-empty">You have no emergency contacts.</p>
       : <ul className="patient-list">{contacts.data.map(contact => <li key={contact.contactId} className="patient-access-item">
         <div><strong>{contact.name}</strong>
@@ -181,7 +182,7 @@ export function EmergencyContactsCard() {
           <span>Remove {contact.name}? They will no longer be notified.</span>
           <button id={`contact-confirm-remove-${contact.contactId}`} type="button" className="patient-secondary-button" disabled={busy} onClick={() => remove(contact.contactId)}>Confirm removal</button>
           <button type="button" disabled={busy} onClick={() => { setRemoving(null); focusAfter(byId(`contact-remove-${contact.contactId}`)) }}>Keep contact</button></div>}
-      </li>)}</ul>)}
+      </li>)}</ul>}</div>}
     <p id="emergency-contacts-limit" className="patient-field-hint">You can add up to 5 emergency contacts.</p>
     {!adding ? <button ref={addButton} type="button" className="patient-secondary-button" disabled={busy || (contacts.data?.length ?? 0) >= 5}
       aria-describedby="emergency-contacts-limit"
@@ -287,13 +288,14 @@ export function AccountDeletionCard() {
   const waiting = status.data ? days(status.data.waitingPeriodSeconds) : null
   const scheduled = current?.state === 'pending' && current.scheduledFor
 
-  return <div className="patient-card patient-danger-card" aria-labelledby="account-deletion-heading" aria-busy={(status.loading && status.data !== null) || undefined}>
+  // Only the status is busy while it reloads: a notice outside it is not held back.
+  return <div className="patient-card patient-danger-card" aria-labelledby="account-deletion-heading">
     <h2 ref={heading} tabIndex={-1} id="account-deletion-heading">Delete account</h2>
     {error && <p role="alert" className="patient-inline-error">{error}</p>}
     <div role="status">{notice && <p className="patient-inline-success">{notice}</p>}</div>
     {status.loading && !status.data && <p role="status" className="patient-loading">Checking your account…</p>}
     {status.error && <div role="alert"><p>{status.error}</p><button ref={retryFocus.button} type="button" onClick={() => retryFocus.retry(status.reload)}>Try again</button></div>}
-    {status.data && !status.error && (scheduled
+    {status.data && !status.error && <div aria-busy={status.loading || undefined}>{scheduled
       ? <>
         <p>Your account is scheduled for deletion on <strong>{dateTime(current.scheduledFor)}</strong>.</p>
         <p className="patient-field-hint">Until then you can keep using Health ID and cancel at any time. After that date this cannot be undone.</p>
@@ -324,6 +326,6 @@ export function AccountDeletionCard() {
             <button type="button" className="patient-secondary-button" disabled={busy} onClick={event => void cancel(pending.requestId, event.currentTarget)}>Keep my account</button>
           </div>
         </form>}
-      </>)}
+      </>}</div>}
   </div>
 }

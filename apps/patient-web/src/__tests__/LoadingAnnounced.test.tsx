@@ -1,14 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { act, screen, waitFor } from '@testing-library/react'
-import type { AccessRequest } from '../api'
-import { AccessPage, SettingsPage } from '../routes/Portal'
+import { act, fireEvent, screen, waitFor } from '@testing-library/react'
+import type { AccessRequest, EmergencyContact } from '../api'
+import { AccessPage, ProfilePage, SettingsPage } from '../routes/Portal'
+import { AccountDeletionCard, EmergencyContactsCard } from '../routes/AccountSafety'
 import { json, press, profile, renderPortal } from './portalHarness'
 
 /**
  * A region marked aria-busy may have its changes held back by assistive
- * technology until it is no longer busy. The first load's status message is
- * the change to announce, so it never sits inside a busy region; content
- * already on screen is marked busy while it reloads (PR-03).
+ * technology until it is no longer busy. The first load's status message and an
+ * action's notice never sit inside a busy region; content already on screen is
+ * marked busy while it reloads (PR-03).
  */
 const request: AccessRequest = {
   accessRequestId: '70000000-0000-4000-8000-000000000001', facilityId: 'facility-1', facilityName: 'Lagos General', scope: 'read_records',
@@ -74,5 +75,92 @@ describe('the first load is announced', () => {
     expect(screen.getByText('Lagos General')).toBeTruthy()
     await act(async () => { reload!.release(json([{ ...request, status: 'approved' }])) })
     await waitFor(() => expect(requestsCard.getAttribute('aria-busy')).toBeNull())
+  })
+})
+
+const contact: EmergencyContact = {
+  contactId: 'a0000000-0000-4000-8000-000000000001', name: 'Chidi Okafor', relationship: 'sibling', channel: 'sms',
+  destinationHint: '+234•••••567', status: 'unverified', verifiedAt: null, notifyOnEmergencyAccess: true,
+  eligibleForEmergencyNotification: false, version: 1, pendingVerification: null, lastNotification: null,
+}
+const scheduled = { waitingPeriodSeconds: 1_209_600, confirmationTtlSeconds: 600, request: { requestId: 'req-1', state: 'pending',
+  requestedAt: '2026-10-08T10:00:00Z', confirmationExpiresAt: null, scheduledFor: '2026-10-22T10:00:00Z', blockedReasonCode: null,
+  cancelledAt: null, cancellable: true } }
+
+/**
+ * Each action sets its notice and then reloads what it changed. The reload is
+ * held here, so the content it replaces is still busy when the notice is checked.
+ */
+describe('an action\'s notice is not inside the region that reloads', () => {
+  function heldReload(first: () => Response) {
+    const reload = held()
+    let reads = 0
+    return { read: () => ++reads === 1 ? first() : reload.promise, release: reload.release }
+  }
+  async function noticeOutsideBusy(notice: string, reloading: string) {
+    const shown = await screen.findByText(notice)
+    expect(shown.closest('[role="status"]')).not.toBeNull()
+    expect(busyAround(screen.getByText(reloading))).not.toBeNull()
+    expect(busyAround(shown)).toBeNull()
+  }
+  const contacts = (first: () => Response) => {
+    const reads = heldReload(first)
+    renderPortal(<EmergencyContactsCard />, (path, method) => {
+      if (method === 'GET') return reads.read()
+      if (path.endsWith('/verification')) return json({ challengeId: 'b0000000-0000-4000-8000-000000000001', expiresAt: '2026-10-08T10:05:00Z', deliveryOutcome: 'accepted' }, 202)
+      if (path.endsWith('/verification/confirm')) return json({ contactId: contact.contactId, status: 'verified' })
+      if (path.endsWith('/deactivate')) return json({ contactId: contact.contactId, status: 'deactivated', replayed: false })
+      return json(contact)
+    })
+    return reads
+  }
+
+  it('Contact added', async () => {
+    contacts(() => json([]))
+    await press(await screen.findByRole('button', { name: 'Add emergency contact' }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Contact name' }), { target: { value: 'Chidi Okafor' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Phone number' }), { target: { value: '+2348012345567' } })
+    await press(screen.getByRole('button', { name: 'Save contact' }))
+    await noticeOutsideBusy('Contact added. Send a verification code so they can be notified in an emergency.', 'You have no emergency contacts.')
+  })
+
+  it('Contact verified', async () => {
+    contacts(() => json([contact]))
+    await press(await screen.findByRole('button', { name: /^Send verification code/ }))
+    fireEvent.change(await screen.findByRole('textbox', { name: /Code from Chidi Okafor/ }), { target: { value: '482913' } })
+    await press(screen.getByRole('button', { name: 'Verify contact' }))
+    await noticeOutsideBusy('Contact verified. They will be notified if emergency access to your record is used.', 'Chidi Okafor')
+  })
+
+  it('Contact updated', async () => {
+    contacts(() => json([contact]))
+    await press(await screen.findByRole('button', { name: /^Edit/ }))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Name' }), { target: { value: 'Chidi O.' } })
+    await press(screen.getByRole('button', { name: 'Save contact' }))
+    await noticeOutsideBusy('Contact updated.', 'Chidi Okafor')
+  })
+
+  it('Contact removed', async () => {
+    contacts(() => json([contact]))
+    await press(await screen.findByRole('button', { name: /^Remove/ }))
+    await press(screen.getByRole('button', { name: 'Confirm removal' }))
+    await noticeOutsideBusy('Contact removed. They will no longer be notified.', 'Chidi Okafor')
+  })
+
+  it('Account deletion cancelled', async () => {
+    const reads = heldReload(() => json(scheduled))
+    renderPortal(<AccountDeletionCard />, (_path, method) => method === 'GET' ? reads.read() : json({ requestId: 'req-1', state: 'cancelled', replayed: false }))
+    await press(await screen.findByRole('button', { name: 'Cancel deletion' }))
+    await noticeOutsideBusy('Account deletion cancelled. Your account stays open.',
+      'Until then you can keep using Health ID and cancel at any time. After that date this cannot be undone.')
+  })
+
+  it('NIN verification succeeded', async () => {
+    const reads = heldReload(() => json(profile))
+    renderPortal(<ProfilePage />, (path, method) => method === 'GET' ? reads.read()
+      : json({ entityType: 'patient', verificationType: 'nin', provider: 'qoreid', state: 'verified', recordedAt: '2026-01-01T00:00:00.000Z' }))
+    fireEvent.change(await screen.findByRole('textbox', { name: 'National Identification Number' }), { target: { value: '12345678901' } })
+    await press(screen.getByRole('button', { name: 'Verify NIN' }))
+    await noticeOutsideBusy('NIN verification succeeded. Identity evidence was recorded.', 'Your NIN is 11 digits.')
   })
 })

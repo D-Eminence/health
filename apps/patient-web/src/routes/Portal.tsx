@@ -165,9 +165,10 @@ export function ProfilePage() {
       <div><dt>Country</dt><dd>{profile.data.country || 'Not provided'}</dd></div>
       <div><dt>Identity assurance</dt><dd>{profile.data.assuranceState || 'Not available'}</dd></div>
     </dl></div>}
-    {profile.data && !profile.error && <div className="patient-card" aria-busy={profile.loading || undefined}><h2>NIN verification</h2>
+    {/* Only what the profile decides is busy while it reloads: the notice below is not held back. */}
+    {profile.data && !profile.error && <div className="patient-card"><h2>NIN verification</h2>
       <p className="patient-field-hint">Repeat verification for a NIN already linked to your account. An eligible migrated account may link a matching NIN. The service checks your account and compares your verified profile details before recording the result.</p>
-      {!eligibleAssurance ? <p className="patient-field-hint">This account is not eligible for self-service NIN verification. Identity review is required.</p>
+      <div aria-busy={profile.loading || undefined}>{!eligibleAssurance ? <p className="patient-field-hint">This account is not eligible for self-service NIN verification. Identity review is required.</p>
         : !completeIdentity ? <p className="patient-field-hint">A complete name and birth date are required before NIN verification can be requested.</p>
           : <><p id="profile-nin-hint" className="patient-field-hint">Your NIN is 11 digits.</p>
           <form className="patient-form patient-inline-form" onSubmit={event => void verifyNin(event)}>
@@ -177,7 +178,7 @@ export function ProfilePage() {
               onChange={event => { setNin(event.target.value.replace(/\D/g, '').slice(0, 11)); setVerificationError(null); setVerificationNotice(null); setNinFieldError(false) }} /></label>
             <button type="submit" className="patient-primary-button" disabled={verifying || !/^\d{11}$/.test(nin)}>
               {verifying ? 'Verifying…' : 'Verify NIN'}</button>
-          </form></>}
+          </form></>}</div>
       {verificationError && <p id="profile-nin-error" role={errorAlert ? 'alert' : undefined} className="patient-inline-error">{verificationError}</p>}
       <div role="status">{verificationNotice && <p className="patient-inline-success">{verificationNotice}</p>}</div>
     </div>}
