@@ -44,6 +44,10 @@ export function Enrollment() {
   const [checkError, setCheckError] = useState(false)
   const [checkKey, setCheckKey] = useState(0)
   const [signOutRequired, setSignOutRequired] = useState(false)
+  // Focus moves to the note when a check the person asked for, or a step, finds
+  // the sign-in: it is read there, and its message is an alert only otherwise, so
+  // it is not read twice (as errorAlert below).
+  const [signOutAlert, setSignOutAlert] = useState(true)
   const signOutNote = useRef<HTMLDivElement>(null)
   const [error, setError] = useState<string | null>(null)
   const [fieldError, setFieldError] = useState(false)
@@ -85,6 +89,7 @@ export function Enrollment() {
       retriedCheck.current = false
       if (progress.status === 'rejected' && requiresSignOut(progress.reason)) {
         setSignOutRequired(true)
+        setSignOutAlert(!retried)
         setChecking(false)
         if (retried) focusAfter(() => signOutNote.current)
         return
@@ -107,7 +112,7 @@ export function Enrollment() {
 
   const displayError = (reason: unknown, fromField = false, stepCodes: readonly string[] = []) => {
     if (requiresSignOut(reason)) {
-      setSignOutRequired(true); setError(null); setFieldError(false)
+      setSignOutRequired(true); setSignOutAlert(false); setError(null); setFieldError(false)
       focusAfter(() => signOutNote.current)
       return
     }
@@ -204,13 +209,14 @@ export function Enrollment() {
       </ol>
       {checking ? <p role="status">Checking for an enrollment in progress…</p> : null}
       {checkError && <div className="patient-inline-error" role="alert"><p>We could not check for an enrollment in progress. Try again before starting.</p><button ref={checkRetry} type="button" className="patient-secondary-button" onClick={() => { retriedCheck.current = true; setCheckKey(value => value + 1) }}>Try again</button></div>}
-      {signOutRequired && <div ref={signOutNote} tabIndex={-1} role="alert" className="patient-inline-error patient-session-note">
+      {signOutRequired && <div ref={signOutNote} tabIndex={-1} role="group" aria-labelledby="enroll-sign-out" className="patient-inline-error patient-session-note">
         {otherPortalSession ? <>
-          <p>A provider sign-in is active in this browser. Sign out of the provider portal before starting a new Health ID.</p>
+          <p id="enroll-sign-out" role={signOutAlert ? 'alert' : undefined}>A provider sign-in is active in this browser. Sign out of the provider portal before starting a new Health ID.</p>
           <Link to="/provider">Go to the provider portal</Link>
         </> : <>
-          <p>This browser is still signed in to Health ID. Sign out of the patient or provider portal before starting a new Health ID.</p>
-          <Link to="/">Go to the patient portal</Link>
+          <p id="enroll-sign-out" role={signOutAlert ? 'alert' : undefined}>This browser is still signed in to Health ID. Sign out of the patient or provider portal before starting a new Health ID.</p>
+          {/* No link to the patient portal: this tab has no patient session, so it would open sign-in. Check again opens it once the session check finds the patient. */}
+          <p>If a patient is signed in, Check again opens the patient portal, where you can sign out.</p>
           <Link to="/provider">Go to the provider portal</Link>
         </>}
         {/* Once it is signed out elsewhere, as asked, the browser's session and the enrollment are checked again. */}

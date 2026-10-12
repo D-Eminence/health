@@ -299,10 +299,11 @@ describe('patient enrollment', () => {
     fireEvent.change(await screen.findByLabelText('National Identification Number'), { target: { value: '12345678901' } })
     fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
     await press('Verify NIN')
-    const alert = await screen.findByRole('alert')
-    expect(alert.textContent).toContain('Sign out of the patient or provider portal before starting a new Health ID.')
+    // Focus moves to the note, which is read there once: it is not also an alert.
+    const note = await screen.findByRole('group', { name: /Sign out of the patient or provider portal before starting a new Health ID\./ })
     expect(screen.queryByLabelText('National Identification Number')).toBeNull()
-    await waitFor(() => expect(alert.contains(document.activeElement)).toBe(true))
+    await waitFor(() => expect(document.activeElement).toBe(note))
+    expect(screen.queryByRole('alert')).toBeNull()
   })
 
   it('a NIN that cannot be verified: focus returns to the NIN field, marked invalid and described by the error', async () => {
