@@ -210,12 +210,11 @@ export function createPatientApi(client: ApiClient) {
     // Patient-owned revocation; the staff `consent-grants/:id/close` route is not a patient route.
     revokeAccess: (grantId: string, reason: string) => call<{ consentGrantId: string; status: 'revoked'; replayed: boolean }>(
       'POST', `identity/me/consent-grants/${encodeURIComponent(grantId)}/revoke`, { reason }),
-    accessRequests: (signal?: AbortSignal) => call<AccessRequest[]>('GET', 'identity/me/access-requests', undefined,
-      { signal, headers: { 'X-Purpose-Of-Use': 'direct-care' } }),
-    approveAccess: (id: string) => call<unknown>('POST', `identity/access-requests/${encodeURIComponent(id)}/approve`, undefined,
-      { headers: { 'X-Purpose-Of-Use': 'direct-care' } }),
-    denyAccess: (id: string, reason: string) => call<unknown>('POST', `identity/access-requests/${encodeURIComponent(id)}/deny`, { reason },
-      { headers: { 'X-Purpose-Of-Use': 'direct-care' } }),
+    // The patient's own decisions carry no purpose of use: Identity binds them to the
+    // patient session, and would audit a purpose header as the purpose of the decision.
+    accessRequests: (signal?: AbortSignal) => call<AccessRequest[]>('GET', 'identity/me/access-requests', undefined, { signal }),
+    approveAccess: (id: string) => call<unknown>('POST', `identity/access-requests/${encodeURIComponent(id)}/approve`),
+    denyAccess: (id: string, reason: string) => call<unknown>('POST', `identity/access-requests/${encodeURIComponent(id)}/deny`, { reason }),
     notifications: (signal?: AbortSignal) => call<PatientNotification[]>('GET', 'identity/me/notifications', undefined, { signal }),
     markNotificationRead: (id: string) => call<{ id: string; readAt: string }>('POST', `identity/me/notifications/${encodeURIComponent(id)}/read`),
     setAccessPin: (pin: string) => call<{ configured: true }>('POST', 'identity/me/access-pin', { pin }),
