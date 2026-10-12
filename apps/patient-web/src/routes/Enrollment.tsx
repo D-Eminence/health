@@ -29,6 +29,14 @@ const requiresSignOut = (reason: unknown) => isHidApiError(reason) && reason.sta
 const enrollmentEnded = (reason: unknown) => isHidApiError(reason) && reason.status === 404 && reason.code === 'ENROLLMENT_NOT_FOUND'
 const ENDED_HERE = 'This enrollment ended on this device because someone signed in or out here. Enter the same NIN to continue it.'
 const ENDS_ENROLLMENT = 'Signing out also ends an enrollment in progress on this device; continue it by entering the same NIN before reloading this page.'
+/**
+ * Enrollment's limits (hid-system #61 and #50): wrong codes spend one budget per
+ * contact, so the fifth within 15 minutes refuses every code, a correct one too,
+ * and sends no new one, for 15 minutes; and one enrollment's activation attempts
+ * are limited to 15 in 15 minutes. Both answers are the step's usual refusal.
+ */
+const CODE_BUDGET_HINT = 'After 5 wrong codes within 15 minutes for the same contact, every code is refused, even a correct one, and no new code is sent to it, for 15 minutes.'
+const ACTIVATION_LIMIT_HINT = 'This enrollment has had too many activation attempts. Wait about 15 minutes, then activate again: the enrollment is kept.'
 
 export function Enrollment() {
   const { state, api, acceptGoogleSession, otherPortalSession, retrySessionCheck } = useSession()
@@ -66,6 +74,8 @@ export function Enrollment() {
   // and is an alert only when focus is already in the field (Enter) or it is not
   // about the field.
   const [errorAlert, setErrorAlert] = useState(true)
+  // What a refusal at the code or password step may mean, said under that step.
+  const [stepHint, setStepHint] = useState<'code' | 'activation' | null>(null)
   const startKey = useRef<{ nin: string; key: string } | null>(null)
   // 'Try again' and 'Check again' are replaced while the check runs: focus then
   // goes to the step's field, or to what replaced them when the check finds
@@ -79,7 +89,7 @@ export function Enrollment() {
 
   // Back to the NIN step, the enrollment's challenge and contact gone with it.
   const restartAtNin = () => {
-    setStage('nin'); setChallengeId(null); setMaskedContact(''); setCode(''); setPassword('')
+    setStage('nin'); setChallengeId(null); setMaskedContact(''); setCode(''); setPassword(''); setStepHint(null)
     setError(ENDED_HERE); setFieldError(false); setErrorAlert(true)
   }
 
@@ -181,8 +191,11 @@ export function Enrollment() {
     const fromField = stepFocus.onTarget()
     if (busy || !challengeId || !/^\d{6}$/.test(code)) return
     setBusy(true); clearError()
-    try { await api.enrollmentVerify(challengeId, code); setCode(''); setStage('password') }
-    catch (reason) { displayError(reason, fromField) }
+    try { await api.enrollmentVerify(challengeId, code); setCode(''); setStepHint(null); setStage('password') }
+    catch (reason) {
+      if (isHidApiError(reason) && reason.code === 'OTP_INVALID') setStepHint('code')
+      displayError(reason, fromField)
+    }
     finally { setBusy(false); stepFocus.focus() }
   }
 
@@ -196,8 +209,12 @@ export function Enrollment() {
       const result = await api.enrollmentActivate(password)
       setPassword('')
       setHidCode(result.hidCode)
+      setStepHint(null)
       setStage('complete')
-    } catch (reason) { displayError(reason, fromField) }
+    } catch (reason) {
+      if (isHidApiError(reason) && reason.status === 429) setStepHint('activation')
+      displayError(reason, fromField)
+    }
     finally { setBusy(false); stepFocus.focus() }
   }
 
@@ -269,12 +286,14 @@ export function Enrollment() {
           aria-invalid={invalid} aria-describedby={describedBy('enroll-code-hint', errorId)} /></label>
         <button type="submit" className="patient-primary-button" disabled={busy || code.length !== 6}>{busy ? 'Checking…' : 'Verify code'}</button>
         <button type="button" className="patient-text-button" disabled={busy} onClick={() => { setCode(''); setChallengeId(null); clearError(); setStage('contact'); stepFocus.focus() }}>Request another code or change contact</button>
+        {stepHint === 'code' && <p className="patient-field-hint">{CODE_BUDGET_HINT}</p>}
       </form>}
       {ready && stage === 'password' && <form onSubmit={event => void submitPassword(event)} className="patient-form">
         <h2>Activate your account</h2><p id="enroll-password-hint" className="patient-field-hint">Choose a password of at least 12 characters.</p>
         <label>Password<input ref={stepFocus.target} required type="password" autoComplete="new-password" minLength={12} maxLength={256} value={password} onChange={event => setPassword(event.target.value)}
           aria-invalid={invalid} aria-describedby={describedBy('enroll-password-hint', errorId)} /></label>
         <button type="submit" className="patient-primary-button" disabled={busy || password.length < 12 || (googleRequired && !googlePending)}>{busy ? 'Activating…' : 'Activate Health ID'}</button>
+        {stepHint === 'activation' && <p className="patient-field-hint">{ACTIVATION_LIMIT_HINT}</p>}
       </form>}
       {ready && stage === 'complete' && <div className="patient-success" role="status"><h2 ref={stepFocus.target} tabIndex={-1}>Your Health ID is ready.</h2><strong>{hidCode}</strong><p>Sign in with your verified email or Health ID and new password.</p><Link className="patient-primary-button" to="/sign-in">Sign in</Link></div>}
       {import.meta.env.VITE_HID_GOOGLE_CLIENT_ID && ready && stage !== 'complete' && !googlePending && <section className="patient-auth-separator" aria-label="Google enrollment">
