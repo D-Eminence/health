@@ -330,14 +330,16 @@ export interface EmptyStateProps extends Omit<HTMLAttributes<HTMLDivElement>, 't
   readonly description?: ReactNode
   readonly icon?: ReactNode
   readonly action?: ReactNode
+  /** The title's heading level: h1 where the empty state is the whole page, h2 (the default) inside one. */
+  readonly titleAs?: 'h1' | 'h2'
 }
 
 /** A restrained, useful empty state; no mandatory illustration or decoration. */
-export function EmptyState({ title, description, icon, action, className, ...rest }: EmptyStateProps) {
+export function EmptyState({ title, description, icon, action, titleAs: Title = 'h2', className, ...rest }: EmptyStateProps) {
   return (
     <div className={cx('flex min-h-48 flex-col items-start justify-center rounded-(--radius-card) border-[0.5px] border-line bg-surface-sunk p-5', className)} {...rest}>
       {icon ? <span aria-hidden="true" className="mb-3 text-brand">{icon}</span> : null}
-      <h2 className="text-[18px] font-medium leading-[1.25] text-ink">{title}</h2>
+      <Title className="text-[18px] font-medium leading-[1.25] text-ink">{title}</Title>
       {description ? <p className="mt-2 max-w-[52ch] text-[14px] leading-[1.45] text-muted">{description}</p> : null}
       {action ? <div className="mt-4">{action}</div> : null}
     </div>

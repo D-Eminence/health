@@ -61,7 +61,7 @@ function classNames(source: string): string[] {
 // Classes that still have no rule, left for a layout pass. Each is on an element
 // another class already lays out (a card, a two-column grid, a list item's text)
 // or wraps text that carries its own class.
-const LAYOUT_GAPS = ['staff-current', 'staff-gap-card', 'staff-feedback', 'staff-encounter-grid', 'staff-note-content']
+const LAYOUT_GAPS = ['staff-current', 'staff-gap-card', 'staff-feedback', 'staff-encounter-grid']
 
 describe('PEHR-06: provider links are distinguishable from text without colour', () => {
   it('underlines the standalone text links in the brand colour', () => {

@@ -8,23 +8,52 @@ export interface PresignedUpload {
   readonly requiredHeaders: Readonly<Record<string, string>>
 }
 
+export interface SignedStorageUrlOptions {
+  /**
+   * Accept plain http to this machine (localhost, 127.0.0.1, [::1]). Only a
+   * local environment, whose object storage runs without TLS, passes true.
+   */
+  readonly allowLocalHttp?: boolean
+  /** The refusal's code and user-facing message. */
+  readonly code?: string
+  readonly message?: string
+}
+
+const THIS_MACHINE = ['localhost', '127.0.0.1', '[::1]']
+
+/**
+ * A signed object-storage link the backend handed over, parsed, or a refusal:
+ * https only, with no user name or password, and plain http only to this
+ * machine when the caller allows it. Anything else (javascript:, data:, blob:,
+ * http to another host, a value that is not a URL) is never fetched or opened.
+ */
+export function assertSignedStorageUrl(value: string, options: SignedStorageUrlOptions = {}): URL {
+  let url: URL | null
+  try { url = new URL(value) } catch { url = null }
+  const local = options.allowLocalHttp === true && url?.protocol === 'http:' && THIS_MACHINE.includes(url.hostname)
+  if (!url || (url.protocol !== 'https:' && !local) || url.username || url.password) {
+    throw new HidApiError(400, options.message ?? 'The storage link is invalid.', {
+      code: options.code ?? 'INVALID_STORAGE_URL', retryable: false,
+    })
+  }
+  return url
+}
+
 export interface PresignedUploadOptions {
   readonly url: string
   readonly body: Blob | ArrayBuffer
   readonly requiredHeaders: Readonly<Record<string, string>>
+  /** See SignedStorageUrlOptions: true only in a local environment. */
+  readonly allowLocalHttp?: boolean
   readonly signal?: AbortSignal
   readonly fetchImpl?: typeof fetch
 }
 
 /** Sends bytes directly to the exact signed storage URL, without HID cookies. */
 export async function uploadPresignedObject(options: PresignedUploadOptions): Promise<void> {
-  const url = new URL(options.url)
-  const local = url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)
-  if ((url.protocol !== 'https:' && !local) || url.username || url.password) {
-    throw new HidApiError(400, 'The document upload link is invalid.', {
-      code: 'INVALID_UPLOAD_URL', retryable: false,
-    })
-  }
+  const url = assertSignedStorageUrl(options.url, {
+    allowLocalHttp: options.allowLocalHttp, code: 'INVALID_UPLOAD_URL', message: 'The document upload link is invalid.',
+  })
 
   let response: Response
   try {

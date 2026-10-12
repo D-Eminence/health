@@ -134,6 +134,18 @@ describe('a facility chosen earlier that is no longer available (reselect)', () 
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { level: 1, name: /Good to see you/ })))
   })
 
+  it('names the question in the tab title, not the page it holds back, then the page once chosen', async () => {
+    serve({ [SESSION]: [session(LAGOS, 'reselect')], [FACILITY]: [session(IKEJA, 'selected')], [REQUESTS]: [() => json([])] })
+    await open('/provider')
+    await question()
+    await waitFor(() => expect(document.title).toBe('Where are you working? · Health ID Provider'))
+    fireEvent.click(option('Ikeja Clinic'))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(await screen.findByText(/Working at Ikeja Clinic\./)).toBeTruthy()
+    await waitFor(() => expect(document.title).not.toBe('Where are you working? · Health ID Provider'))
+    expect(document.title).toMatch(/ · Health ID Provider$/)
+  })
+
   it('still asks when the only facility left is the default one, as after a membership ends', async () => {
     const sent = serve({ [SESSION]: [session(LAGOS, 'reselect', [LAGOS])], [FACILITY]: [session(LAGOS, 'selected', [LAGOS])], [REQUESTS]: [() => json([])] })
     await open('/provider')

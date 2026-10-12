@@ -19,6 +19,7 @@ import { Clinical } from './routes/Clinical'
 import { Laboratory, Pharmacy, Ocr, Outreach, MigrateGap } from './routes/Operations'
 import { resolveStaffProductHostname } from '../productHostname'
 import { revealFocusedLink } from '../navStrip'
+import { useDocumentTitle } from '../authSteps'
 import { focusPageHeading, useFocusOnPageChange } from './pageFocus'
 import './style.css'
 
@@ -356,13 +357,13 @@ function SessionEnded() {
   const follow = useLinkClickHandler(signIn)
   const heading = useRef<HTMLHeadingElement>(null)
   useEffect(() => { heading.current?.focus() }, [])
-  return <div className="staff-centered"><BrandLogo className="staff-state-logo" />
+  return <main className="staff-centered"><BrandLogo className="staff-state-logo" />
     <section className="staff-session-ended" aria-labelledby="staff-session-ended-title">
       <h1 id="staff-session-ended-title" ref={heading} tabIndex={-1}>Your session has ended</h1>
       <p>For your security, the provider workspace was closed and the patient information it showed was cleared. Sign in again to continue.</p>
       <ButtonLink href={href} onClick={follow}>Sign in again</ButtonLink>
     </section>
-  </div>
+  </main>
 }
 
 /**
@@ -387,7 +388,7 @@ function SessionCheck({ unconfirmed }: { unconfirmed: boolean }) {
     finally { setSigningOut(false) }
   }
 
-  return <div className="staff-centered"><BrandLogo className="staff-state-logo" />
+  return <main className="staff-centered"><BrandLogo className="staff-state-logo" />
     <section className="staff-session-ended" aria-labelledby="staff-session-check-title">
       <h1 id="staff-session-check-title" ref={heading} tabIndex={-1}>{unconfirmed ? 'We could not confirm your session' : 'Checking your session…'}</h1>
       <p>{unconfirmed
@@ -397,20 +398,21 @@ function SessionCheck({ unconfirmed }: { unconfirmed: boolean }) {
       <Button tone="quiet" onClick={() => void leave()} disabled={signingOut}>{signingOut ? 'Signing out…' : 'Sign out'}</Button>
       {error && <p role="alert" className="staff-error">{error}</p>}
     </section>
-  </div>
+  </main>
 }
 
 function Gate({ children }: { children: ReactNode }) {
   const { state, lock, refresh } = useStaff()
   if (state.status === 'ended') return <SessionEnded />
-  if (state.status === 'loading') return <div className="staff-centered" role="status"><BrandLogo className="staff-state-logo" />Checking your secure session…</div>
-  if (state.status === 'error') return <div className="staff-centered"><BrandLogo className="staff-state-logo" /><EmptyState title="Session unavailable" description={state.error} action={<Button onClick={() => void refresh()}>Try again</Button>} /></div>
+  // Each state screen is the page: a main landmark, and an h1 where it has a title.
+  if (state.status === 'loading') return <main className="staff-centered"><BrandLogo className="staff-state-logo" /><div role="status"><h1>Checking your secure session…</h1></div></main>
+  if (state.status === 'error') return <main className="staff-centered"><BrandLogo className="staff-state-logo" /><EmptyState titleAs="h1" title="Session unavailable" description={state.error} action={<Button onClick={() => void refresh()}>Try again</Button>} /></main>
   if (state.status === 'signed-out') {
     const productRoute = resolveStaffProductHostname(window.location.hostname)?.route
     const signInPath = productRoute ? `/provider/sign-in?returnTo=${encodeURIComponent(productRoute)}` : '/provider/sign-in'
     return <Navigate to={signInPath} replace />
   }
-  if (state.session.actor.facilities.length === 0) return <div className="staff-centered"><BrandLogo className="staff-state-logo" /><EmptyState title="No facility assignment" description="Your account has no active facility membership. Ask your organization administrator for access." /></div>
+  if (state.session.actor.facilities.length === 0) return <main className="staff-centered"><BrandLogo className="staff-state-logo" /><EmptyState titleAs="h1" title="No facility assignment" description="Your account has no active facility membership. Ask your organization administrator for access." /></main>
   // Locked, the workspace is hidden and inert but stays mounted: nothing reloads,
   // and a session the server still accepts gets it back as it was.
   return <>{lock && <SessionCheck unconfirmed={lock === 'unconfirmed'} />}<div hidden={lock !== null} inert={lock !== null}>{children}</div></>
@@ -533,6 +535,35 @@ const navigation = [
   { to: '/provider/outreach', label: 'Outreach', permission: 'outreach.registration.read' },
 ] as const
 
+// The pages the browser tab can name, by path. A title never carries a patient's
+// name or Health ID: it ends up in browser history, tab previews and shared screens.
+const PAGE_TITLES: Readonly<Record<string, string>> = Object.fromEntries([
+  ...navigation.map(item => [item.to, item.label]),
+  ['/provider/migrate', 'Migration workspace'],
+])
+
+/**
+ * Names the browser tab after the provider page shown (PEHR-05): index.html
+ * names it for patients only. A gate screen shown in place of the page names
+ * itself instead. Rendered inside the provider, whose session state it reads.
+ */
+function ProviderTitle() {
+  const { state, lock } = useStaff()
+  // The router matches a path in any case: /provider/Clinical shows the clinical record.
+  const path = useLocation().pathname.replace(/\/+$/, '').toLowerCase()
+  const page = path === '/provider/sign-in' ? 'Sign in'
+    : state.status === 'ended' ? 'Session ended'
+      : state.status === 'loading' || lock === 'checking' ? 'Checking your session'
+        : state.status === 'error' ? 'Session unavailable'
+          : lock === 'unconfirmed' ? 'Session not confirmed'
+            : state.status === 'ready' && state.session.actor.facilities.length === 0 ? 'No facility assignment'
+              // The question holds the page back (Shell shows it in the page's place), so it names the tab.
+              : state.status === 'ready' && (state.facilityLost || facilityChoiceNeeded(state.session)) ? 'Where are you working?'
+                : PAGE_TITLES[path] ?? 'Page not found'
+  useDocumentTitle(`${page} · Health ID Provider`)
+  return null
+}
+
 function Shell() {
   const { state, selectFacility, signOut, activePatient, lock } = useStaff()
   const [facilityError, setFacilityError] = useState('')
@@ -649,7 +680,8 @@ function Shell() {
         <nav className="staff-nav" onFocus={revealFocusedLink}>{visible.map(item => <NavLink key={item.to} to={item.to} end={item.to === '/provider'} className={({ isActive }) => `staff-nav-link${isActive ? ' active' : ''}`}>{item.label}{item.to === '/provider/clinical' && !activePatient && <span className="staff-nav-meta">Select patient</span>}</NavLink>)}</nav>
         <div className="staff-sidebar-footer"><Badge tone="information">{actor.roles.join(', ') || 'Staff'}</Badge><p>Access is limited to your active facility and server permissions.</p></div>
       </aside>}
-      <main ref={main} className="staff-main">{signOutError && <p role="alert" className="staff-error">{signOutError}</p>}
+      {/* Hidden itself while the workspace is locked: only the session check's main is exposed then. */}
+      <main ref={main} className="staff-main" hidden={lock !== null}>{signOutError && <p role="alert" className="staff-error">{signOutError}</p>}
         {/* Asked again for another reason (an answer to the choice that reports another facility), it starts afresh. */}
         {choiceNeeded ? <FacilityChoice key={choiceNeeded} reason={choiceNeeded} onChosen={() => setFocusHeading(true)} /> : <Outlet />}</main>
     </div>
@@ -657,7 +689,7 @@ function Shell() {
 }
 
 export function App() {
-  return <StaffProvider><Routes>
+  return <StaffProvider><ProviderTitle /><Routes>
     <Route path="sign-in" element={<SignIn />} />
     <Route element={<Gate><Shell /></Gate>}>
       <Route index element={<Dashboard />} />
@@ -671,7 +703,7 @@ export function App() {
       <Route path="ocr" element={<Ocr />} />
       <Route path="outreach" element={<Outreach />} />
       <Route path="migrate" element={<MigrateGap />} />
-      <Route path="*" element={<EmptyState title="Page not found" description="This provider page is unavailable." action={<NavLink className="staff-text-link" to="/provider">Go to provider overview →</NavLink>} />} />
+      <Route path="*" element={<EmptyState titleAs="h1" title="Page not found" description="This provider page is unavailable." action={<NavLink className="staff-text-link" to="/provider">Go to provider overview →</NavLink>} />} />
     </Route>
   </Routes></StaffProvider>
 }

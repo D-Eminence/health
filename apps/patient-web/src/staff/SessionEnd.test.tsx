@@ -64,10 +64,13 @@ const later = (ms: number, answer: () => Response) => () => new Promise<Response
 
 const PERMISSIONS = ['identity.patient.read', 'identity.consent.write', 'identity.break-glass.write', 'identity.patient-access-pin.verify',
   'ehr.encounter.read', 'ehr.document.read', 'lab.work-item.read']
-const facility = (id = 'facility-1', name = 'Lagos General') => ({ id, membershipId: `member-${id}`, organizationId: 'org-1', name, roles: ['clinician'], permissions: PERMISSIONS, isPrimary: id === 'facility-1' })
-const staffSession = (id = 'staff-1', displayName = 'Ada Clinician') => ({
+// Emergency access is offered only to a role that can also open the record it grants: the
+// patient lookup, and the emergency summary (ehr.encounter.read and ehr.note.read).
+const EMERGENCY_PERMISSIONS = [...PERMISSIONS, 'ehr.note.read']
+const facility = (id = 'facility-1', name = 'Lagos General', permissions = PERMISSIONS) => ({ id, membershipId: `member-${id}`, organizationId: 'org-1', name, roles: ['clinician'], permissions, isPrimary: id === 'facility-1' })
+const staffSession = (id = 'staff-1', displayName = 'Ada Clinician', permissions = PERMISSIONS) => ({
   actor: { kind: 'staff', id, email: 'ada@example.test', displayName, roles: ['clinician'], permissions: [],
-    facilities: [facility(), facility('facility-2', 'Ikeja Clinic')], facility: facility() },
+    facilities: [facility(undefined, undefined, permissions), facility('facility-2', 'Ikeja Clinic', permissions)], facility: facility(undefined, undefined, permissions) },
   expiresAt: '2026-10-10T12:00:00.000Z',
 })
 const atIkeja = () => ({ ...staffSession(), actor: { ...staffSession().actor, facility: facility('facility-2', 'Ikeja Clinic') } })
@@ -719,11 +722,11 @@ describe('late answers after the session ended', () => {
   it('do not repeat a write once the restore that would retry it shows the session belongs to another account', async () => {
     const restore = deferredResponse()
     const BREAK_GLASS = 'POST /api/v1/identity/break-glass'
-    const calls = serve({ [SESSION]: [json(staffSession()), json(staffSession('staff-2', 'Bola Nurse'))],
+    const calls = serve({ [SESSION]: [json(staffSession(undefined, undefined, EMERGENCY_PERMISSIONS)), json(staffSession('staff-2', 'Bola Nurse'))],
       [BREAK_GLASS]: [ended(), json({ grantId: 'grant-9' })], [REFRESH]: [restore.answer] })
     await open('/provider/patients')
     fireEvent.change(await screen.findByRole('textbox', { name: 'Health ID' }), { target: { value: PATIENT_HID } })
-    fireEvent.click(screen.getByRole('tab', { name: 'Emergency' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Emergency' }))
     fireEvent.change(screen.getByRole('textbox', { name: 'Emergency reason' }), { target: { value: 'Unconscious on arrival' } })
     fireEvent.click(screen.getByRole('button', { name: 'Activate emergency access' }))
     await waitFor(() => expect(calls).toContain(REFRESH))
@@ -775,11 +778,11 @@ describe('late answers after the session ended', () => {
   it('do not repeat an emergency access from the ended session as the next account', async () => {
     const emergency = deferredResponse()
     const BREAK_GLASS = 'POST /api/v1/identity/break-glass'
-    const calls = serve({ [SESSION]: [json(staffSession()), confirmedEnd.session()], [BREAK_GLASS]: [emergency.answer, json({ grantId: 'grant-9' })],
+    const calls = serve({ [SESSION]: [json(staffSession(undefined, undefined, EMERGENCY_PERMISSIONS)), confirmedEnd.session()], [BREAK_GLASS]: [emergency.answer, json({ grantId: 'grant-9' })],
       [REFRESH]: [confirmedEnd.refresh(), json(staffSession('staff-2', 'Bola Nurse'))], [LOGIN]: [json(staffSession('staff-2', 'Bola Nurse'))] })
     await open('/provider/patients')
     fireEvent.change(await screen.findByRole('textbox', { name: 'Health ID' }), { target: { value: PATIENT_HID } })
-    fireEvent.click(screen.getByRole('tab', { name: 'Emergency' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Emergency' }))
     fireEvent.change(screen.getByRole('textbox', { name: 'Emergency reason' }), { target: { value: 'Unconscious on arrival' } })
     fireEvent.click(screen.getByRole('button', { name: 'Activate emergency access' }))
     await waitFor(() => expect(calls).toContain(BREAK_GLASS))
@@ -854,10 +857,10 @@ describe('refusals that do not end the session', () => {
   })
 
   it('keeps the workspace when emergency access is refused (403)', async () => {
-    serve({ [SESSION]: [json(staffSession())], ['POST /api/v1/identity/break-glass']: [problem(403, 'PERMISSION_DENIED', 'Emergency access is not permitted')] })
+    serve({ [SESSION]: [json(staffSession(undefined, undefined, EMERGENCY_PERMISSIONS))], ['POST /api/v1/identity/break-glass']: [problem(403, 'PERMISSION_DENIED', 'Emergency access is not permitted')] })
     await open('/provider/patients')
     fireEvent.change(await screen.findByRole('textbox', { name: 'Health ID' }), { target: { value: PATIENT_HID } })
-    fireEvent.click(screen.getByRole('tab', { name: 'Emergency' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Emergency' }))
     fireEvent.change(screen.getByRole('textbox', { name: 'Emergency reason' }), { target: { value: 'Unconscious on arrival' } })
     fireEvent.click(screen.getByRole('button', { name: 'Activate emergency access' }))
 
@@ -1706,7 +1709,7 @@ describe('protected steps that follow another while the session is checked', () 
     const calls = serve({ [PIN]: [pinned.answer], [LOOKUP]: [allowedLookup(), allowedLookup()], [ENCOUNTERS]: [json({ items: [] })], ...routes })
     await open('/provider/patients')
     fireEvent.change(await screen.findByRole('textbox', { name: 'Health ID' }), { target: { value: PATIENT_HID } })
-    fireEvent.click(screen.getByRole('tab', { name: 'Patient PIN' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Patient PIN' }))
     fireEvent.change(screen.getByLabelText(/^Patient access PIN/), { target: { value: '4821' } })
     fireEvent.click(screen.getByRole('button', { name: 'Verify PIN and open' }))
     await waitFor(() => expect(calls).toContain(PIN))

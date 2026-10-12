@@ -235,6 +235,15 @@ export interface NoteRevision {
   createdAt: string
 }
 
+/**
+ * GET /ehr/patients/:patientId/emergency-records (hid-system
+ * patient-records.service.ts read()): this facility's completed encounters and
+ * signed notes, 50 of each, and its diagnoses, prescriptions, lab requests and
+ * uploaded documents, 100 of each and in every status. EHR also returns vitals,
+ * as first recorded and without corrections, and one `limit`, 100, which is not
+ * each section's cap; neither is read here. pg sends numeric and bigint columns
+ * as strings.
+ */
 export interface EmergencyRecords {
   encounters: Array<{
     id: string
@@ -255,16 +264,74 @@ export interface EmergencyRecords {
     content: string
     signedAt: string | null
   }>
-  limit: number
+  diagnoses: Array<{
+    id: string
+    encounterId: string
+    facilityId: string
+    codeSystem: string
+    code: string
+    display: string
+    clinicalStatus: string
+    verificationStatus: string
+    onsetAt: string | null
+    abatementAt: string | null
+    notes: string | null
+  }>
+  prescriptions: Array<{
+    id: string
+    encounterId: string
+    facilityId: string
+    medicationCodeSystem: string | null
+    medicationCode: string | null
+    medicationDisplay: string
+    doseQuantity: number | string | null
+    doseUnit: string | null
+    routeCode: string | null
+    frequency: string
+    instructions: string
+    // pg date columns, sent as the instant of midnight where EHR runs (2026-10-11T23:00:00.000Z an hour east of UTC).
+    startsOn: string | null
+    endsOn: string | null
+    status: string
+  }>
+  labRequests: Array<{
+    id: string
+    encounterId: string
+    facilityId: string
+    testCodeSystem: string
+    testCode: string
+    testDisplay: string
+    priority: string
+    status: string
+    specimenTypeCode: string | null
+    clinicalInformation: string | null
+    externalOrderReference: string | null
+    createdAt: string
+  }>
+  documents: Array<{
+    id: string
+    encounterId: string | null
+    facilityId: string
+    fileName: string
+    mediaType: string
+    sizeBytes: number | string | null
+    classification: string
+    status: string
+    createdAt: string
+  }>
 }
 
+/**
+ * A clinical document as EHR's list returns it (document.service.ts list):
+ * size_bytes is selected as text.
+ */
 export interface DocumentRecord {
   id: string
   patientId: string
   encounterId: string
   fileName: string
   mediaType: string
-  sizeBytes: number
+  sizeBytes: number | string
   status: string
   scanStatus: string
   createdAt: string
@@ -356,6 +423,7 @@ export type LabResultValue = {
   abnormalFlag?: LabAbnormalFlag
 }
 
+/** A Pharmacy work item as hid-system pharmacy.service.ts projectWorkItem() returns it. */
 export interface PharmacyWorkItem {
   id: string
   patientId: string
@@ -364,7 +432,9 @@ export interface PharmacyWorkItem {
   medication: { display: string }
   doseQuantity?: number | null
   doseUnit?: string | null
+  routeCode?: string | null
   frequency?: string
+  instructions?: string | null
   dispensing?: { id: string; reversed: boolean } | null
 }
 
@@ -894,8 +964,9 @@ export const staffApi = {
     client.get<Page<DocumentRecord>>('/api/v1/ehr/documents', {
       query: { patientId, encounterId }, headers: facilityHeaders(facilityId),
     }),
+  // A signed storage link valid for expiresInSeconds (s3-storage.provider.ts createDownload).
   documentDownload: (facilityId: string, documentId: string) =>
-    client.get<{ url: string; expiresAt: string | null }>(`/api/v1/ehr/documents/${encodeURIComponent(documentId)}/download`,
+    client.get<{ url: string; expiresInSeconds: number }>(`/api/v1/ehr/documents/${encodeURIComponent(documentId)}/download`,
       { headers: facilityHeaders(facilityId) }),
   async uploadDocument(facilityId: string, patientId: string, encounterId: string, file: File) {
     // Every step runs only while the session the upload started in is ready: each
@@ -916,7 +987,8 @@ export const staffApi = {
       sha256Hex, classification: 'phi', retentionClass: 'clinical-10y',
     }, { headers: { ...facilityHeaders(facilityId), ...keyHeaders() } })
     await untilStaffSessionReady(sentIn)
-    await uploadPresignedObject({ url: intent.upload.url, body: file, requiredHeaders: intent.upload.requiredHeaders, signal })
+    await uploadPresignedObject({ url: intent.upload.url, body: file, requiredHeaders: intent.upload.requiredHeaders, signal,
+      allowLocalHttp: getEnvironment().name === 'local' })
     await untilStaffSessionReady(sentIn)
     await client.post(`/api/v1/ehr/documents/${encodeURIComponent(intent.document.id)}/complete`, undefined,
       { headers: facilityHeaders(facilityId) })
