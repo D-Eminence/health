@@ -659,6 +659,23 @@ function diagnosisRank(item: EmergencyRecords['diagnoses'][number]) {
   return ['inactive', 'remission', 'resolved'].includes(item.clinicalStatus) ? 1 : 0
 }
 
+const DAY_MS = 86_400_000
+const CALENDAR_DAY = new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeZone: 'UTC' })
+
+/**
+ * A prescription's start or end day. EHR keeps it as a date (ehr.prescriptions
+ * starts_on, ends_on), which node-pg, given no type parser in hid-system, turns into
+ * midnight where the service runs and sends as an instant: 2026-10-12T00:00:00.000Z
+ * in UTC, 2026-10-11T23:00:00.000Z an hour east of it. The day is the one whose UTC
+ * midnight is nearest, which holds for any service less than 12 hours from UTC; a
+ * plain YYYY-MM-DD, as a type parser would send it, is that day.
+ */
+function calendarDay(value: string) {
+  const plain = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+  const instant = plain ? Date.UTC(Number(plain[1]), Number(plain[2]) - 1, Number(plain[3])) : Date.parse(value)
+  return Number.isNaN(instant) ? value : CALENDAR_DAY.format(new Date(Math.round(instant / DAY_MS) * DAY_MS))
+}
+
 /** The entries in `rank` order; EHR's own order, newest first, within a rank. */
 function currentFirst<T>(items: readonly T[], rank: (item: T) => number): T[] {
   return [...items].sort((first, second) => rank(first) - rank(second))
@@ -747,7 +764,7 @@ function EmergencySummary({ facilityId, patientId, patientName, permissions, ver
           {item.status === 'entered_in_error' && <p>Recorded in error: not a prescription for this patient.</p>}
           <p>{item.doseQuantity == null || item.doseQuantity === '' ? 'Dose not recorded' : `${Number(item.doseQuantity)} ${item.doseUnit ?? ''}`.trim()} · {item.routeCode ? `Route ${item.routeCode}` : 'Route not recorded'} · {item.frequency}</p>
           {item.instructions && <p className="staff-note-content">{item.instructions}</p>}
-          {(item.startsOn || item.endsOn) && <p>{[item.startsOn && `Starts ${item.startsOn}`, item.endsOn && `Ends ${item.endsOn}`].filter(Boolean).join(' · ')}</p>}
+          {(item.startsOn || item.endsOn) && <p>{[item.startsOn && `Starts ${calendarDay(item.startsOn)}`, item.endsOn && `Ends ${calendarDay(item.endsOn)}`].filter(Boolean).join(' · ')}</p>}
         </>} />}
       {may('ehr.lab-request.read') && <SummarySection title="Lab requests" cap={EMERGENCY_CAPS.labRequests}
         items={Array.isArray(summary.labRequests) ? currentFirst(summary.labRequests, item => orderRank(item.status)) : undefined}

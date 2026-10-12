@@ -152,6 +152,34 @@ describe('the emergency summary shows every section EHR returns that the role ma
     expect(item.textContent).toContain('Take with food')
   })
 
+  // ehr.prescriptions.starts_on and ends_on are pg date columns, and hid-system sets no
+  // type parser: node-pg makes each midnight where the service runs, which is sent as an
+  // instant. A clinician sees the calendar day, never a timestamp or the day before.
+  it.each([
+    ['in UTC', '2026-10-12T00:00:00.000Z', '2026-10-19T00:00:00.000Z'],
+    ['an hour east of UTC (Africa/Lagos)', '2026-10-11T23:00:00.000Z', '2026-10-18T23:00:00.000Z'],
+    ['five hours west of UTC', '2026-10-12T05:00:00.000Z', '2026-10-19T05:00:00.000Z'],
+    ['as plain dates', '2026-10-12', '2026-10-19'],
+  ])('shows the calendar days a prescription runs, sent from a service %s', async (_where, startsOn, endsOn) => {
+    api.emergencyRecords.mockResolvedValue(summary({ prescriptions: [{ ...prescription('prescription-3', 'Artesunate', 'active'), startsOn, endsOn }] }))
+    await renderSummary()
+    const item = within(section('Prescriptions')).getByText('Artesunate').closest<HTMLElement>('.staff-list-item')!
+    expect(within(item).getByText(/^Starts/).textContent).toBe('Starts 12 Oct 2026 · Ends 19 Oct 2026')
+    expect(item.textContent).not.toMatch(/T\d\d:\d\d|Z\b/)
+  })
+
+  it('shows a prescription with only a start date, and one with neither, without inventing the other', async () => {
+    api.emergencyRecords.mockResolvedValue(summary({ prescriptions: [
+      { ...prescription('prescription-3', 'Artesunate', 'active'), startsOn: '2026-10-12T00:00:00.000Z' },
+      prescription('prescription-1', 'Paracetamol', 'active'),
+    ] }))
+    await renderSummary()
+    const started = within(section('Prescriptions')).getByText('Artesunate').closest<HTMLElement>('.staff-list-item')!
+    expect(within(started).getByText(/^Starts/).textContent).toBe('Starts 12 Oct 2026')
+    const undated = within(section('Prescriptions')).getByText('Paracetamol').closest<HTMLElement>('.staff-list-item')!
+    expect(within(undated).queryByText(/Starts|Ends/)).toBeNull()
+  })
+
   it('lists documents without offering to open, download or extract any', async () => {
     await renderSummary()
     const documents = section('Documents')

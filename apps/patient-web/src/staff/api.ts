@@ -275,6 +275,7 @@ export interface EmergencyRecords {
     routeCode: string | null
     frequency: string
     instructions: string
+    // pg date columns, sent as the instant of midnight where EHR runs (2026-10-11T23:00:00.000Z an hour east of UTC).
     startsOn: string | null
     endsOn: string | null
     status: string
