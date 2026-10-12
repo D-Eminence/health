@@ -117,6 +117,9 @@ describe('creating a draft prescription', () => {
     expect(valid('0')).toBe(false)
     expect(valid('-1')).toBe(false)
     expect(valid('0.00005')).toBe(false)
+    // Above the minimum, a fifth decimal place is refused too (step 0.0001, not any).
+    expect(valid('1.0005')).toBe(true)
+    expect(valid('1.00005')).toBe(false)
   })
 
   it('limits each text field to what EHR accepts', async () => {
