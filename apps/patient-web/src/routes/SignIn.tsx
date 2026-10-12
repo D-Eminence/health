@@ -8,7 +8,7 @@ import { useSession } from '../session'
 import { useDocumentTitle } from '../authSteps'
 
 export function SignIn() {
-  const { state, sessionError, signIn, acceptGoogleSession, api } = useSession()
+  const { state, sessionError, otherPortalSession, signedOutElsewhere, signIn, acceptGoogleSession, api } = useSession()
   const navigate = useNavigate()
   useDocumentTitle('Sign in · Health ID')
   const [email, setEmail] = useState('')
@@ -62,6 +62,11 @@ export function SignIn() {
       <h1 id="sign-in-title" className="patient-page-title">Welcome back.</h1>
       <p className="patient-page-copy">Sign in to view your health information and manage access to it.</p>
       {(error || sessionError) && <p role="alert" className="patient-inline-error">{error || sessionError}</p>}
+      {signedOutElsewhere && !error && <p role="alert" className="patient-inline-error">You were signed out because this browser's Health ID sign-in changed in another tab or window. Sign in again to continue.</p>}
+      {otherPortalSession && <div className="patient-session-note">
+        <p>A provider sign-in is active in this browser. Signing in here as a patient replaces it.</p>
+        <Link to="/provider">Go to the provider portal</Link>
+      </div>}
       <form onSubmit={event => void submit(event)} className="patient-form">
         <label>Email or Health ID<input required autoComplete="username" value={email} onChange={event => setEmail(event.target.value)} placeholder="you@example.com or HID-…" /></label>
         <label>Password<input required type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} minLength={6} /></label>
@@ -70,7 +75,8 @@ export function SignIn() {
         <button type="submit" className="patient-primary-button" disabled={busy || !turnstileToken}>{busy ? 'Signing in…' : 'Sign in'}</button>
       </form>
       {import.meta.env.VITE_HID_GOOGLE_CLIENT_ID && <div className="patient-auth-separator"><span>or continue with Google</span>
-        <GoogleButton text="signin_with" disabled={busy || !turnstileToken} onCredential={google} /></div>}
+        <GoogleButton text="signin_with" disabled={busy || !turnstileToken} onCredential={google}
+          disabledReason={turnstileToken ? undefined : 'Complete the security check to continue with Google.'} /></div>}
       <p className="patient-auth-footer">New to Health ID? <Link to="/enroll">Get your Health ID</Link></p>
     </section>
   </main>

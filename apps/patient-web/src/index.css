@@ -182,13 +182,15 @@
 
   .patient-state-logo { display: block; width: auto; height: 32px; margin: 48px 16px 0; }
 
-  .patient-access-state p {
+  .patient-access-state p,
+  .patient-access-state h1 {
     margin: 0;
     font-size: 15px;
     line-height: 1.45;
   }
 
-  .patient-access-state p + p {
+  .patient-access-state p + p,
+  .patient-access-state h1 + p {
     margin-top: 8px;
     color: var(--color-muted);
   }
@@ -231,8 +233,9 @@
   .patient-form { display: grid; gap: 18px; margin-top: 28px; }
   .patient-form h2, .patient-card h2, .patient-success h2 { margin: 0 0 6px; color: var(--color-ink); font-size: 20px; font-weight: 600; }
   .patient-form label, .patient-deny-form label { display: grid; gap: 7px; color: var(--color-ink); font-size: 13px; font-weight: 600; }
-  .patient-form input, .patient-form select, .patient-deny-form input { width: 100%; min-height: 46px; padding: 10px 12px; border: 1px solid var(--color-line-strong); border-radius: var(--radius-control); background: var(--color-surface); color: var(--color-ink); font: inherit; font-size: 15px; }
+  .patient-form input, .patient-form select, .patient-deny-form input { width: 100%; min-height: 46px; padding: 10px 12px; border: 1px solid var(--color-line-control); border-radius: var(--radius-control); background: var(--color-surface); color: var(--color-ink); font: inherit; font-size: 15px; }
   .patient-form input:focus, .patient-form select:focus, .patient-deny-form input:focus { border-color: var(--color-brand); }
+  .patient-form input::placeholder, .patient-deny-form input::placeholder { color: var(--color-faint); }
   .patient-form-aside { text-align: right; }
   .patient-form-aside a, .patient-auth-footer a, .patient-text-button { color: var(--color-brand); font-weight: 600; }
   .patient-primary-button, .patient-secondary-button { display: inline-flex; min-height: 44px; align-items: center; justify-content: center; padding: 10px 16px; border: 1px solid var(--color-brand); border-radius: var(--radius-button); font-size: 14px; font-weight: 600; text-decoration: none; cursor: pointer; }
@@ -247,6 +250,10 @@
   .patient-inline-error, .patient-inline-success { margin: 18px 0; padding: 12px 14px; border-radius: var(--radius-control); font-size: 14px; line-height: 1.45; }
   .patient-inline-error { background: #fff0ef; color: #9b211d; }
   .patient-inline-success { background: #ecf9f1; color: #126239; }
+  /* A note about the browser's session, such as a provider's sign-in, and the link that resolves it. */
+  .patient-session-note { display: grid; justify-items: start; gap: 6px; }
+  .patient-session-note p { margin: 0; }
+  .patient-session-note a { color: var(--color-brand); font-weight: 600; text-decoration: underline; }
   .patient-field-hint { margin: 0; color: var(--color-muted); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
   .patient-text-button { justify-self: start; padding: 0; border: 0; background: transparent; font-size: 13px; cursor: pointer; }
   .patient-step-list { display: flex; gap: 8px; margin: 26px 0 0; padding: 0; list-style: none; }
@@ -303,8 +310,10 @@
   .patient-note p { white-space: pre-wrap; overflow-wrap: anywhere; }
   .patient-access-item { flex-wrap: wrap; }
   .patient-decision-actions { display: flex; align-items: start; gap: 8px; }
-  .patient-deny-form { display: flex; width: 100%; align-items: end; gap: 10px; }
+  .patient-deny-form { display: flex; flex-wrap: wrap; width: 100%; align-items: end; gap: 10px; }
   .patient-deny-form label { flex: 1; }
+  /* A field's rule takes its own line under the field, as it is read: the buttons follow it. */
+  .patient-deny-form .patient-field-hint { flex-basis: 100%; }
   .patient-inline-form { grid-template-columns: minmax(0, 1fr) auto; align-items: end; max-width: 420px; }
   .patient-contact-form { width: 100%; max-width: 520px; margin-top: 12px; }
   .patient-card .patient-checkbox, .patient-form .patient-checkbox { display: flex; align-items: center; gap: 10px; font-weight: 500; }
@@ -315,6 +324,8 @@
   .patient-consequences { display: grid; gap: 8px; margin: 12px 0 18px; padding-left: 20px; color: var(--color-ink); font-size: 14px; line-height: 1.5; }
   .patient-danger-button { display: inline-flex; min-height: 44px; align-items: center; justify-content: center; padding: 10px 16px; border: 1px solid #b42318; border-radius: var(--radius-button); background: #b42318; color: #fff; font-size: 14px; font-weight: 600; cursor: pointer; }
   .patient-danger-button:disabled { cursor: not-allowed; opacity: .55; }
+  /* Read by assistive technology, not shown: the item a repeated button acts on. */
+  .patient-visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 }
 
 @media (max-width: 900px) {

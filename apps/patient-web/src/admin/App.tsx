@@ -243,9 +243,10 @@ export function App() {
     announceAdminSessionChange()
   }
 
-  if (checking) return <main className="admin-message" role="status"><BrandLogo className="admin-state-logo" />Checking your platform session…</main>
-  if (checkError) return <main className="admin-message" role="alert"><BrandLogo className="admin-state-logo" /><h1>Session unavailable</h1>
-    <p>{checkError}</p><button type="button" className="admin-primary" onClick={() => setCheckRevision(value => value + 1)}>Try again</button></main>
+  // Each screen is a main landmark holding its status or alert: a role on the main element itself would replace the landmark.
+  if (checking) return <main className="admin-message"><BrandLogo className="admin-state-logo" /><p role="status">Checking your platform session…</p></main>
+  if (checkError) return <main className="admin-message"><BrandLogo className="admin-state-logo" /><h1>Session unavailable</h1>
+    <p role="alert">{checkError}</p><button type="button" className="admin-primary" onClick={() => setCheckRevision(value => value + 1)}>Try again</button></main>
   if (!session) return <AdminSignIn onSignedIn={signedInNow} notice={notice} />
   const actor = session.actor
   const sections = visibleNavigation(actor)

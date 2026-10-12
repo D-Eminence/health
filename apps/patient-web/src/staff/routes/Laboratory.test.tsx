@@ -44,6 +44,8 @@ const ACCESS_DENIED = 'Access denied. You are not authorized to view lab results
 const UNVERIFIED = 'Lab results are hidden because access to them could not be verified right now. Refresh to check again.'
 const SIGNED_OUT = 'Lab results are hidden because your session has ended. Sign in again to view them.'
 const TRANSCRIPTION_FIX = 'Transcription error corrected'
+// What the work list says once it holds as many items as the backend sends.
+const WORK_LIST_CAP_NOTICE = 'This list can show only the 200 oldest accepted work items. Any item accepted after them is not shown and cannot be reached from this page: completing work or refreshing the list does not bring it into view. Contact your facility administrator about orders not listed here.'
 
 const WORK_READ = ['lab.work-item.read']
 const ACCESSION_READ = [...WORK_READ, 'lab.accession.read']
@@ -123,6 +125,15 @@ function optionLabels(select: HTMLElement) {
   return within(select).getAllByRole('option').map(option => option.textContent)
 }
 
+/**
+ * The error a refused field is described by, once it is marked invalid: a
+ * value refused before sending is reported at its field (PEHR-04).
+ */
+async function refusalOf(control: HTMLElement) {
+  await waitFor(() => expect(control.getAttribute('aria-invalid')).toBe('true'))
+  return document.getElementById(control.getAttribute('aria-describedby') ?? '')?.textContent
+}
+
 function valueOf(element: HTMLElement) {
   return (element as HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement).value
 }
@@ -200,7 +211,8 @@ describe('Laboratory work-item list', () => {
     render(<Laboratory />)
 
     expect(screen.getByRole('status').textContent).toBe('Loading…')
-    expect((screen.getByRole('button', { name: 'Refresh work' }) as HTMLButtonElement).disabled).toBe(true)
+    // Unavailable while the list is read, yet focusable (NEW-PEHR-ACTION-FOCUS).
+    expect(screen.getByRole('button', { name: 'Refresh work' }).getAttribute('aria-disabled')).toBe('true')
     expect(api.labWorkItems).toHaveBeenCalledWith(FACILITY)
 
     pending.resolve({ items: [workItem()] })
@@ -294,7 +306,7 @@ describe('Laboratory accession creation', () => {
 
     fireEvent.submit(formOf(within(card).getByRole('button', { name: 'Create accession' })))
 
-    expect((await within(card).findByRole('alert')).textContent).toBe('Enter a specimen type and clinical reason.')
+    expect(await refusalOf(within(card).getByRole('textbox', { name: 'Specimen type' }))).toBe('Enter a specimen type and clinical reason.')
     expect(api.createLabAccession).not.toHaveBeenCalled()
   })
 
@@ -349,7 +361,7 @@ describe('Laboratory accession view', () => {
 
     const card = sectionOf('Specimen accession')
     expect(within(card).getByRole('status').textContent).toBe('Loading accession…')
-    expect((within(card).getByRole('button', { name: 'Refresh accession' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(within(card).getByRole('button', { name: 'Refresh accession' }).getAttribute('aria-disabled')).toBe('true')
     expect(api.labAccession).toHaveBeenCalledWith(FACILITY, 'accession-1')
 
     pending.resolve(accession([specimen('received')]))
@@ -455,7 +467,7 @@ describe('Laboratory specimen custody', () => {
     expect((reason as HTMLInputElement).required).toBe(true)
     fireEvent.submit(formOf(reason))
 
-    expect((await within(card).findByRole('alert')).textContent).toBe('Enter a rejection reason.')
+    expect(await refusalOf(reason)).toBe('Enter a rejection reason.')
     expect(api.transitionSpecimen).not.toHaveBeenCalled()
 
     fireEvent.change(reason, { target: { value: 'Sample haemolysed' } })
@@ -472,7 +484,7 @@ describe('Laboratory specimen custody', () => {
     fireEvent.change(reason, { target: { value: '   ' } })
     fireEvent.submit(formOf(reason))
 
-    expect((await within(card).findByRole('alert')).textContent).toBe('Enter a rejection reason.')
+    expect(await refusalOf(reason)).toBe('Enter a rejection reason.')
     expect(api.transitionSpecimen).not.toHaveBeenCalled()
   })
 
@@ -513,7 +525,7 @@ describe('Laboratory analytical execution', () => {
     const panel = await openExecutionPanel(EXECUTION_READ)
 
     expect((await within(panel).findByRole('status')).textContent).toBe('Loading executions…')
-    expect((within(panel).getByRole('button', { name: 'Refresh executions' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(within(panel).getByRole('button', { name: 'Refresh executions' }).getAttribute('aria-disabled')).toBe('true')
     expect(within(panel).queryByText('No execution has started for this specimen.')).toBeNull()
 
     pending.resolve({ items: [inProgress()] })
@@ -545,7 +557,7 @@ describe('Laboratory analytical execution', () => {
 
     fireEvent.submit(formOf(await within(panel).findByRole('button', { name: 'Start execution' })))
 
-    expect((await within(panel).findByRole('alert')).textContent).toBe('Enter a reason to begin execution.')
+    expect(await refusalOf(within(panel).getByRole('textbox', { name: 'Reason' }))).toBe('Enter a reason to begin execution.')
     expect(api.startLabExecution).not.toHaveBeenCalled()
     // The form stays, so the reason can be typed without a refresh.
     expect(within(panel).getByRole('button', { name: 'Start execution' })).toBeTruthy()
@@ -638,7 +650,7 @@ describe('Laboratory manual result entry', () => {
     expect(valueOf(value)).toBe('')
     fireEvent.submit(formOf(value))
 
-    expect((await within(panel).findByRole('alert')).textContent).toBe('Enter a valid numeric result.')
+    expect(await refusalOf(value)).toBe('Enter a valid numeric result.')
     expect(api.enterLabResult).not.toHaveBeenCalled()
   })
 
@@ -681,7 +693,7 @@ describe('Laboratory manual result entry', () => {
     const text = within(panel).getByRole('textbox', { name: 'Text value' })
     fireEvent.submit(formOf(text))
 
-    expect((await within(panel).findByRole('alert')).textContent).toBe('Enter the text result.')
+    expect(await refusalOf(text)).toBe('Enter the text result.')
     expect(api.enterLabResult).not.toHaveBeenCalled()
 
     fireEvent.change(text, { target: { value: ' No growth after 48 hours ' } })
@@ -731,7 +743,7 @@ describe('Laboratory result correction and amendment', () => {
 
     fireEvent.change(value, { target: { value: '7.4' } })
     fireEvent.submit(formOf(value))
-    expect((await within(panel).findByRole('alert')).textContent).toBe('Explain the correction or amendment.')
+    expect(await refusalOf(within(panel).getByRole('textbox', { name: 'Reason' }))).toBe('Explain the correction or amendment.')
     expect(api.correctLabResult).not.toHaveBeenCalled()
 
     fireEvent.change(within(panel).getByRole('textbox', { name: 'Reason' }), { target: { value: TRANSCRIPTION_FIX } })
@@ -794,7 +806,7 @@ describe('Laboratory result verification and release', () => {
     expect(within(panel).getByText('entered unverified')).toBeTruthy()
     const reason = within(panel).getByRole('textbox', { name: 'Verification reason' })
     fireEvent.submit(formOf(reason))
-    expect((await within(panel).findByRole('alert')).textContent).toBe('Enter a reason for this decision.')
+    expect(await refusalOf(reason)).toBe('Enter a reason for this decision.')
     expect(api.verifyLabResult).not.toHaveBeenCalled()
 
     fireEvent.change(reason, { target: { value: 'Independent review against QC run' } })
@@ -907,7 +919,7 @@ describe('Laboratory result history', () => {
     fireEvent.click(await within(panel).findByRole('button', { name: 'View result history' }))
 
     expect((await within(panel).findByText('Loading result history…')).getAttribute('role')).toBe('status')
-    expect((within(panel).getByRole('button', { name: 'Refresh history' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(within(panel).getByRole('button', { name: 'Refresh history' }).getAttribute('aria-disabled')).toBe('true')
     pending.resolve(history())
     expect(await within(panel).findByText('Version 2')).toBeTruthy()
     expect(within(panel).queryByText('Loading result history…')).toBeNull()
@@ -2483,5 +2495,37 @@ describe('Laboratory result access denied', () => {
       const written = JSON.stringify(consoles.flatMap(spy => spy.mock.calls))
       for (const fragment of [PATIENT, '7.1', 'g/dL', 'Gram-positive']) expect(written).not.toContain(fragment)
     })
+  })
+})
+
+describe('the result history toggle says whether the history is open', () => {
+  it('reports aria-expanded false while closed and true once opened', async () => {
+    api.labExecutions.mockResolvedValue({ items: [execution({ result: releasedResult() })] })
+    api.labResultHistory.mockResolvedValue(releasedResult())
+    const panel = await openExecutionPanel([...EXECUTION_READ, 'lab.result.released.read'])
+    const toggle = await within(panel).findByRole('button', { name: 'View result history' })
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    fireEvent.click(toggle)
+    expect(within(panel).getByRole('button', { name: 'Hide result history' }).getAttribute('aria-expanded')).toBe('true')
+    await within(panel).findByText('Version 1')
+  })
+})
+
+describe('the Laboratory work list says when the backend cut it short', () => {
+  // Lab lists at most 200 work items, oldest accepted first, with no status filter and no
+  // further page (lab-work-items.service.ts list): completing work never makes room.
+  const many = (count: number) => Array.from({ length: count }, (_, n) => workItem({ id: `work-item-${n}` }))
+
+  it('says that newer items cannot be reached from this page, and whom to ask, when the list holds 200', async () => {
+    api.labWorkItems.mockResolvedValue({ items: many(200) })
+    render(<Laboratory />)
+    expect((await screen.findByText(/oldest accepted work items/)).textContent).toBe(WORK_LIST_CAP_NOTICE)
+  })
+
+  it('says nothing of the kind for a shorter list', async () => {
+    api.labWorkItems.mockResolvedValue({ items: many(12) })
+    render(<Laboratory />)
+    await screen.findAllByText('Haemoglobin')
+    expect(screen.queryByText(/oldest accepted work items/)).toBeNull()
   })
 })

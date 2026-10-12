@@ -3,6 +3,7 @@ import { isHidApiError } from '@hid/http'
 import { Badge, Button, Card, EmptyState, Field, Select } from '@hid/ui'
 import { ACCESS_OUTCOME_FILTERS, ACCESS_REQUEST_STATUSES, staffApi, type AccessRequest, type AccessRequestStatus } from '../api'
 import { useStaff } from '../App'
+import { UNAVAILABLE, useFocusById } from '../focus'
 
 /** How a request ended up, from its effective status (hid-system 0074) or, before that, its own status. */
 const OUTCOMES: Record<string, { label: string; tone: 'success' | 'warning' | 'danger' | 'neutral' }> = {
@@ -57,6 +58,8 @@ export function AccessRequests() {
   const [loading, setLoading] = useState(false)
   const [closing, setClosing] = useState<string | null>(null)
   const [notice, setNotice] = useState('')
+  // Closing a grant takes its Close access button away: focus goes to the page heading.
+  const focus = useFocusById()
   // Outcome filters need an Identity build with hid-system 0074, which reports outcomes.
   const [outcomesReported, setOutcomesReported] = useState(false)
   // Only the latest load may update the list, whatever triggered it.
@@ -91,6 +94,7 @@ export function AccessRequests() {
     await load()
     if (failure) setError(failure)
     else setNotice('Access was closed by the backend.')
+    focus('access-requests-title', true)
   }
 
   useEffect(() => {
@@ -101,25 +105,27 @@ export function AccessRequests() {
   const filters = outcomesReported || ACCESS_OUTCOME_FILTERS.includes(status as never)
     ? [...ACCESS_REQUEST_STATUSES, ...ACCESS_OUTCOME_FILTERS] : ACCESS_REQUEST_STATUSES
   return <>
-    <div className="staff-page-head"><p className="staff-eyebrow">Patient consent</p><h1>Access requests.</h1><p>Requests are scoped to your active facility and staff account. A pending request never grants record access.</p></div>
+    <div className="staff-page-head"><p className="staff-eyebrow">Patient consent</p><h1 id="access-requests-title" tabIndex={-1}>Access requests.</h1><p>Requests are scoped to your active facility and staff account. A pending request never grants record access.</p></div>
     <div className="staff-row staff-toolbar">
       <Field label="Status" htmlFor="access-request-status"><Select id="access-request-status" value={status}
         onChange={event => setStatus(event.target.value as AccessRequestStatus | '')}>
         <option value="">Any status</option>
         {filters.map(value => <option key={value} value={value}>{FILTER_LABELS[value]}</option>)}
       </Select></Field>
-      <Button tone="secondary" size="sm" onClick={() => void load()} disabled={loading}>Refresh</Button>
+      {/* Focusable while the list is read, when a second press does nothing. */}
+      <Button tone="secondary" size="sm" aria-disabled={loading || undefined} className={UNAVAILABLE} onClick={() => { if (!loading) void load() }}>Refresh</Button>
     </div>
     {error && <p className="staff-error" role="alert">{error}</p>}
-    {notice && <p className="staff-success" role="status">{notice}</p>}
-    {loading && !requests && <p className="staff-muted" role="status">Loading requests…</p>}
+    {/* Mounted throughout, so what a close says is announced. */}
+    <div id="access-requests-status" role="status">{notice ? <p className="staff-success">{notice}</p> : loading && !requests && <p className="staff-muted">Loading requests…</p>}</div>
     {requests && requests.length === 0 && <EmptyState title={status ? `No access requests: ${FILTER_LABELS[status].toLowerCase()}` : 'No access requests'} description="Requests you send for this facility will appear here." />}
     {requests && requests.length > 0 && <Card className="staff-table-wrap"><table className="staff-table"><thead><tr><th>Requested</th><th>Patient context</th><th>Scope</th><th>Reason</th><th>Status</th></tr></thead><tbody>{requests.map(request => <tr key={request.accessRequestId}><td>{new Date(request.requestedAt).toLocaleString()}</td><td>Patient ••••{request.patientId.slice(-4)}</td><td>{request.scope.replace('_', ' ')}</td><td>{request.reason}</td><td><Badge tone={outcome(request).tone}>{outcome(request).label}</Badge>
       {request.authorizationMethod && <small className="staff-muted"> {request.authorizationMethod === 'patient_access_pin' ? 'Patient PIN' : 'Patient approval'}</small>}
       {request.effectiveStatus === 'active' && request.grantExpiresAt && <small className="staff-muted"> until {new Date(request.grantExpiresAt).toLocaleString()}</small>}
       {request.status === 'denied' && request.deniedReason && <small className="staff-muted"> {request.deniedReason}</small>}
       {request.effectiveStatus === 'active' && request.consentGrantId && <Button tone="secondary" size="sm"
-        onClick={() => void closeAccess(request)} disabled={closing !== null}>{closing === request.accessRequestId ? 'Closing…' : 'Close access'}</Button>}</td></tr>)}</tbody></table></Card>}
+        onClick={() => void closeAccess(request)} disabled={closing !== null && closing !== request.accessRequestId}
+        aria-disabled={closing === request.accessRequestId || undefined} className={UNAVAILABLE}>{closing === request.accessRequestId ? 'Closing…' : 'Close access'}</Button>}</td></tr>)}</tbody></table></Card>}
     {requests && requests.length === 100 && <p className="staff-muted">Showing the 100 most recent requests.</p>}
   </>
 }

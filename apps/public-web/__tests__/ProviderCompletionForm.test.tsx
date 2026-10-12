@@ -68,6 +68,8 @@ describe('ProviderCompletionForm', () => {
     const verifiedName = await screen.findByRole('textbox', { name: 'Registered organization name' }) as HTMLInputElement
     expect(verifiedName.readOnly).toBe(true)
     expect(verifiedName.value).toBe('Verified Laboratory')
+    // The Field's hint says where the value came from (PEHR-14).
+    expect(document.getElementById(verifiedName.getAttribute('aria-describedby') ?? '')?.textContent).toBe('Provided by the registry')
     fireEvent.change(screen.getByRole('textbox', { name: 'Legal entity type' }),
       { target: { value: 'Limited company' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save missing details' }))

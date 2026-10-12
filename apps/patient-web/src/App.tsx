@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react'
 import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { PATIENT_ROUTE } from '@hid/auth'
 import { RequireAccess } from './RequireAccess'
+import { useDocumentTitle } from './authSteps'
 import { SessionProvider } from './session'
 import { Overview } from './routes/Overview'
 import { SignIn } from './routes/SignIn'
@@ -16,6 +17,7 @@ const ProviderEnrollment = lazy(async () => ({ default: (await import('./staff/r
 const AdminApp = lazy(async () => ({ default: (await import('./admin/App')).App }))
 
 function PatientNotFound() {
+  useDocumentTitle('Page not found · Health ID')
   return <section className="patient-section"><p className="patient-eyebrow">Patient portal</p>
     <h1 className="patient-page-title">Page not found</h1>
     <p className="patient-page-copy">This patient page is unavailable.</p>
@@ -58,14 +60,18 @@ function ProductHostnameGate({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
-/** One authenticated portal origin, with separate session and permission scopes. */
+/**
+ * One authenticated portal origin, with separate session and permission scopes.
+ * A workspace still loading is a main landmark holding its status: a role on
+ * the main element itself would replace the landmark.
+ */
 export function App() {
   return <ProductHostnameGate><Routes>
     <Route path={STAFF_RECOVERY_PATH} element={<PrincipalRecovery audience="staff" />} />
-    <Route path="/provider/enroll" element={<Suspense fallback={<main role="status">Opening provider enrollment…</main>}><ProviderEnrollment /></Suspense>} />
+    <Route path="/provider/enroll" element={<Suspense fallback={<main><p role="status">Opening provider enrollment…</p></main>}><ProviderEnrollment /></Suspense>} />
     <Route path="/admin/recover" element={<PrincipalRecovery audience="admin" />} />
-    <Route path="/provider/*" element={<Suspense fallback={<main role="status">Opening provider workspace…</main>}><StaffApp /></Suspense>} />
-    <Route path="/admin/*" element={<Suspense fallback={<main role="status">Opening platform workspace…</main>}><AdminApp /></Suspense>} />
+    <Route path="/provider/*" element={<Suspense fallback={<main><p role="status">Opening provider workspace…</p></main>}><StaffApp /></Suspense>} />
+    <Route path="/admin/*" element={<Suspense fallback={<main><p role="status">Opening platform workspace…</p></main>}><AdminApp /></Suspense>} />
     <Route path="/*" element={<SessionProvider><PatientRoutes /></SessionProvider>} />
   </Routes></ProductHostnameGate>
 }
