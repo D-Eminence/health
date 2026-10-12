@@ -4,10 +4,15 @@ import { isHidApiError } from '@hid/http'
 import { Badge, Button, Card, EmptyState, Field, Input, Select, Textarea } from '@hid/ui'
 import { staffApi, type LabAbnormalFlag, type LabAccession, type LabExecution, type LabResult, type LabResultRevision, type LabResultValue, type LabSpecimen, type LabWorkItem, type OcrExtraction, type OcrJob, type OcrPublication, type OcrTargetDomain, type OcrValidation, type OcrValidationInput, type OutreachCampaign, type OutreachCampaignMember, type OutreachCase, type PharmacyWorkItem } from '../api'
 import { useStaff } from '../App'
+import { FieldInputError, problemProps, problemText, refusalText, type FieldProblem } from '../fieldProblem'
 
+// A refusal's message, with each field a 400 VALIDATION_FAILED names.
 function errorText(error: unknown, fallback: string) {
-  return error instanceof Error ? error.message : fallback
+  return refusalText(error, fallback)
 }
+
+// OCR takes document and patient IDs only as version 4 UUIDs (ocr-api DTOs, @IsUUID('4')).
+const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 function shortId(value: string) { return `••••${value.slice(-6)}` }
 
@@ -538,13 +543,6 @@ const publicationOperations = {
   PHARMACY: 'create_imported_medication_evidence', DOCUMENT_ONLY: 'retain_validated_document',
 } as const
 
-/** A field the page refused before sending, named by its control's id. */
-interface FieldProblem { readonly field: string; readonly message: string }
-
-class FieldInputError extends Error {
-  constructor(readonly field: string, message: string) { super(message) }
-}
-
 function jsonObject(value: FormDataEntryValue | null, label: string, field: string): Record<string, unknown> {
   let parsed: unknown
   try { parsed = JSON.parse(String(value ?? '')) } catch { throw new FieldInputError(field, `${label} must be valid JSON.`) }
@@ -557,15 +555,6 @@ function jsonObjectArray(value: FormDataEntryValue | null, label: string, field:
   try { parsed = JSON.parse(String(value ?? '')) } catch { throw new FieldInputError(field, `${label} must be valid JSON.`) }
   if (!Array.isArray(parsed) || parsed.some(item => !item || typeof item !== 'object' || Array.isArray(item))) throw new FieldInputError(field, `${label} must be a JSON array of objects.`)
   return parsed as Record<string, unknown>[]
-}
-
-/** Marks the refused control invalid and ties it to its error, which Field renders as `${id}-error`. */
-function problemProps(problem: FieldProblem | null, id: string) {
-  return problem?.field === id ? { invalid: true, 'aria-describedby': `${id}-error` } : {}
-}
-
-function problemText(problem: FieldProblem | null, id: string) {
-  return problem?.field === id ? problem.message : undefined
 }
 
 /** Whether focus has nowhere the user chose: on the page itself, or on `target` already. */
@@ -664,6 +653,7 @@ function OcrConfirmation({ facilityId, job, onChanged }: { facilityId: string; j
     const reason = String(form.get('reason') ?? '').trim()
     setError(''); setProblem(null)
     const refused = !patientId ? { field: 'ocr-confirm-patient', message: 'Enter the canonical patient ID.' }
+      : !UUID_V4.test(patientId) ? { field: 'ocr-confirm-patient', message: 'Enter the canonical patient ID as a UUID, such as 3f2b8c1e-5d4a-4b6f-9c2d-1e0f7a8b9c0d.' }
       : reason.length < 8 ? { field: 'ocr-confirm-reason', message: 'Enter a patient confirmation reason of at least 8 characters.' } : null
     if (refused) { setProblem(refused); focus(refused.field); return }
     const signature = JSON.stringify([patientId, reason])
@@ -799,6 +789,9 @@ export function Ocr() {
     event.preventDefault()
     setProblem(null)
     if (!documentId.trim()) { setProblem({ field: 'ocr-document', message: 'Enter a document ID.' }); focus('ocr-document'); return }
+    if (!UUID_V4.test(documentId.trim())) {
+      setProblem({ field: 'ocr-document', message: 'Enter the document ID as a UUID, as the clinical record shows it.' }); focus('ocr-document'); return
+    }
     await lookup()
     focus('ocr-find-submit', true)
   }
@@ -812,6 +805,10 @@ export function Ocr() {
   async function create() {
     if (!facilityId) return
     if (!documentId.trim() || !patientId.trim()) return setError('Enter both the document and patient IDs.')
+    setProblem(null)
+    if (!UUID_V4.test(patientId.trim())) {
+      setProblem({ field: 'ocr-patient', message: 'Enter the patient ID as a UUID, such as 3f2b8c1e-5d4a-4b6f-9c2d-1e0f7a8b9c0d.' }); focus('ocr-patient'); return
+    }
     setBusy(true); setError(''); setNotice(''); setExtractions(null); setValidations(null)
     try {
       const created = await staffApi.createOcrJob(facilityId, documentId.trim(), patientId.trim())
@@ -843,7 +840,7 @@ export function Ocr() {
     <div className="staff-two-col"><Card className="staff-card"><h2>Find document job</h2><form className="staff-form" noValidate onSubmit={event => void find(event)}><Field label="Document ID" htmlFor="ocr-document" error={problemText(problem, 'ocr-document')} required><Input id="ocr-document" value={documentId} onChange={event => { setDocumentId(event.target.value); setSearched(false); setJob(null); setNotice(''); setProblem(null); setStepFocus(null) }} placeholder="Document UUID" required {...problemProps(problem, 'ocr-document')} /></Field><Button id="ocr-find-submit" type="submit" disabled={busy}>{busy ? 'Checking…' : 'Find job'}</Button></form>
       {searched && !visibleJob && <p className="staff-muted">No OCR job exists for this document.</p>}
       {/* Only after a lookup has answered that no job exists: a failed or missing lookup must not invite a duplicate job. */}
-      {searched && !visibleJob && permissions.includes('ocr.job.write') && <div className="staff-stack"><p>Create an extraction job for a verified patient document.</p><Field label="Patient ID" htmlFor="ocr-patient" required><Input id="ocr-patient" value={patientId} onChange={event => setPatientId(event.target.value)} placeholder="Patient UUID" /></Field><Button id="ocr-create-submit" onClick={() => void create()} disabled={busy || !documentId.trim() || !patientId.trim()}>{busy ? 'Creating…' : 'Create extraction job'}</Button></div>}
+      {searched && !visibleJob && permissions.includes('ocr.job.write') && <div className="staff-stack"><p>Create an extraction job for a verified patient document.</p><Field label="Patient ID" htmlFor="ocr-patient" error={problemText(problem, 'ocr-patient')} required><Input id="ocr-patient" value={patientId} onChange={event => { setPatientId(event.target.value); setProblem(null) }} placeholder="Patient UUID" {...problemProps(problem, 'ocr-patient')} /></Field><Button id="ocr-create-submit" onClick={() => void create()} disabled={busy || !documentId.trim() || !patientId.trim()}>{busy ? 'Creating…' : 'Create extraction job'}</Button></div>}
       {error && <p className="staff-error" role="alert">{error}</p>}
       {/* Mounted throughout, so a message put in it is announced. */}
       <div id="ocr-status" role="status">{notice && <p className="staff-notice">{notice}</p>}</div>
@@ -986,6 +983,8 @@ export function Outreach() {
     const phone = String(form.get('phone') ?? '').trim() || undefined
     const operationalNotes = String(form.get('operationalNotes') ?? '').trim() || undefined
     if (!fullName || !Number.isInteger(ageYears) || ageYears < 0 || ageYears > 130) return setError('Enter a name and a valid age.')
+    // CreateRegistrationCaseDto takes operational notes of 3 to 2000 characters, or none.
+    if (operationalNotes !== undefined && operationalNotes.length < 3) return setError('Operational notes need at least 3 characters, or leave them blank.')
     setBusy(true); setError(''); setSuccess('')
     try { await staffApi.createOutreachCase(facilityId, { campaignId, fullName, sex, ageYears, phone, operationalNotes }); setSuccess('Registration case created for identity resolution.'); element.reset(); await cases.refresh() }
     catch (caught) { setError(errorText(caught, 'Registration case could not be created.')) }
@@ -1001,7 +1000,7 @@ export function Outreach() {
       {permissions.includes('outreach.campaign.write') && <Card className="staff-card"><h2>New campaign</h2><form className="staff-form" onSubmit={event => void createCampaign(event)}><Field label="Campaign name" htmlFor="outreach-campaign-name" required><Input id="outreach-campaign-name" name="name" minLength={2} maxLength={200} required /></Field><Field label="Starts" htmlFor="outreach-campaign-start" required><Input id="outreach-campaign-start" name="startsAt" type="datetime-local" required /></Field><fieldset><legend>Services</legend>{outreachServices.map(([code, label]) => <label key={code} className="staff-row"><input type="checkbox" name="services" value={code} />{label}</label>)}</fieldset><Button type="submit" disabled={busy}>{busy ? 'Creating…' : 'Create campaign'}</Button></form></Card>}
     </div><div className="staff-stack">
       {canReadCases && <Card className="staff-card"><div className="staff-row"><h2>Registration cases</h2><Button tone="secondary" size="sm" onClick={() => void cases.refresh()} disabled={cases.loading}>Refresh</Button></div><ListState loading={cases.loading} error={cases.error} empty="No registration cases" retry={() => void cases.refresh()} hasItems={Boolean(cases.items?.length)} />{cases.items?.map((item: OutreachCase) => <OutreachCaseCard key={item.id} facilityId={facilityId} item={item} canLink={permissions.includes('outreach.registration.write')} onChanged={cases.refresh} />)}</Card>}
-      {permissions.includes('outreach.registration.write') && <Card className="staff-card"><h2>New registration case</h2><form className="staff-form" onSubmit={event => void createCase(event)}>{canReadCampaigns && <Field label="Campaign" htmlFor="outreach-case-campaign" hint="Only active registration campaigns containing your facility membership appear here. A case may also be created without a campaign."><Select id="outreach-case-campaign" name="campaignId"><option value="">No campaign</option>{campaigns.items?.filter(campaign => campaign.status === 'active' && campaign.services.includes('registration') && eligibleCampaigns.facilityId === facilityId && eligibleCampaigns.ids.has(campaign.id)).map(campaign => <option key={campaign.id} value={campaign.id}>{campaign.name}</option>)}</Select></Field>}<Field label="Full name" htmlFor="outreach-case-name" required><Input id="outreach-case-name" name="fullName" maxLength={200} required /></Field><div className="staff-form-row"><Field label="Sex" htmlFor="outreach-case-sex" required><Select id="outreach-case-sex" name="sex"><option value="unknown">Unknown</option><option value="female">Female</option><option value="male">Male</option><option value="other">Other</option></Select></Field><Field label="Age (years)" htmlFor="outreach-case-age" required><Input id="outreach-case-age" name="ageYears" type="number" min="0" max="130" required /></Field></div><Field label="Phone (optional)" htmlFor="outreach-case-phone"><Input id="outreach-case-phone" name="phone" minLength={3} maxLength={32} /></Field><Field label="Operational notes" htmlFor="outreach-case-notes"><Textarea id="outreach-case-notes" name="operationalNotes" maxLength={2000} /></Field><Button type="submit" disabled={busy}>{busy ? 'Creating…' : 'Create case'}</Button></form></Card>}
+      {permissions.includes('outreach.registration.write') && <Card className="staff-card"><h2>New registration case</h2><form className="staff-form" onSubmit={event => void createCase(event)}>{canReadCampaigns && <Field label="Campaign" htmlFor="outreach-case-campaign" hint="Only active registration campaigns containing your facility membership appear here. A case may also be created without a campaign."><Select id="outreach-case-campaign" name="campaignId"><option value="">No campaign</option>{campaigns.items?.filter(campaign => campaign.status === 'active' && campaign.services.includes('registration') && eligibleCampaigns.facilityId === facilityId && eligibleCampaigns.ids.has(campaign.id)).map(campaign => <option key={campaign.id} value={campaign.id}>{campaign.name}</option>)}</Select></Field>}<Field label="Full name" htmlFor="outreach-case-name" required><Input id="outreach-case-name" name="fullName" maxLength={200} required /></Field><div className="staff-form-row"><Field label="Sex" htmlFor="outreach-case-sex" required><Select id="outreach-case-sex" name="sex"><option value="unknown">Unknown</option><option value="female">Female</option><option value="male">Male</option><option value="other">Other</option></Select></Field><Field label="Age (years)" htmlFor="outreach-case-age" required><Input id="outreach-case-age" name="ageYears" type="number" min="0" max="130" required /></Field></div><Field label="Phone (optional)" htmlFor="outreach-case-phone"><Input id="outreach-case-phone" name="phone" minLength={3} maxLength={32} /></Field><Field label="Operational notes" htmlFor="outreach-case-notes"><Textarea id="outreach-case-notes" name="operationalNotes" minLength={3} maxLength={2000} /></Field><Button type="submit" disabled={busy}>{busy ? 'Creating…' : 'Create case'}</Button></form></Card>}
     </div></div>
   </>
 }
