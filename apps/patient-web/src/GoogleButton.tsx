@@ -12,6 +12,9 @@ declare global {
   }
 }
 
+/** The name of the button's region, which focus may land on: what the button does there. */
+const REGION_NAMES = { signin_with: 'Google sign-in', signup_with: 'Google sign-up', continue_with: 'Continue with Google' } as const
+
 let scriptPromise: Promise<void> | null = null
 function loadGoogle(): Promise<void> {
   if (window.google?.accounts.id) return Promise.resolve()
@@ -79,7 +82,7 @@ export function GoogleButton({ text, disabled, disabledReason, onCredential }: {
   }, [api, clientId, text, attempt])
 
   if (!clientId) return null
-  return <div ref={region} tabIndex={-1} role="group" aria-label="Google sign-in" className="patient-google">
+  return <div ref={region} tabIndex={-1} role="group" aria-label={REGION_NAMES[text]} className="patient-google">
     <div ref={host} inert={disabled} style={{ opacity: disabled ? .5 : 1 }} />
     {disabled && disabledReason && <p className="patient-field-hint">{disabledReason}</p>}
     {error && <p role="alert" className="patient-inline-error">{error}</p>}

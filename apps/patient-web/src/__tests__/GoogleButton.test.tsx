@@ -73,6 +73,15 @@ describe('the Google button', () => {
     // A named group, so focus landing there says where it is.
     expect(screen.getByRole('group', { name: 'Google sign-in' })).toBe(document.activeElement)
   })
+
+  it.each([
+    ['signin_with', 'Google sign-in'],
+    ['signup_with', 'Google sign-up'],
+    ['continue_with', 'Continue with Google'],
+  ] as const)('names its region for what the button does (%s)', async (text, name) => {
+    renderPortal(<GoogleButton text={text} disabled={false} onCredential={vi.fn()} />, nonce)
+    expect(await screen.findByRole('group', { name })).toBeTruthy()
+  })
 })
 
 describe('where the Google button is offered', () => {
