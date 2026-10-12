@@ -566,15 +566,19 @@ function focusIsLost(target: HTMLElement | null): boolean {
  * step's control is disabled while its request runs, which takes focus from it,
  * so a refused request gives focus back (`ifLost`) only once the control is
  * enabled again, and only if focus was lost: a user who went to another field
- * while it ran keeps it there.
+ * while it ran keeps it there. A request made while the workspace is locked
+ * waits until it opens again: until then focus is on the session check, which
+ * is not the user's choice, and nothing in the hidden workspace can take it.
  */
 function useFocusById() {
+  const { lock } = useStaff()
   const [request, setRequest] = useState<{ id: string; ifLost: boolean } | null>(null)
   useEffect(() => {
-    if (!request) return
+    if (!request || lock != null) return
+    setRequest(null)
     const target = document.getElementById(request.id)
     if (!request.ifLost || focusIsLost(target)) target?.focus()
-  }, [request])
+  }, [request, lock])
   return useCallback((id: string, ifLost = false) => setRequest({ id, ifLost }), [])
 }
 

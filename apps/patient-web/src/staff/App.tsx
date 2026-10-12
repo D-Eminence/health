@@ -407,17 +407,25 @@ function Shell() {
   // A facility chosen in the list is not switched to until the switch is confirmed: on a
   // closed list one arrow key changes the value (WCAG 3.2.2). The choice belongs to the
   // account and facility it was made in, so a refresh, a switch from another tab, a lock
-  // or the next session that changes either discards it.
+  // or the next session that changes either discards it. It also belongs to the page:
+  // moving to another page discards it, as Cancel does, so the list never goes on showing
+  // an unconfirmed facility while work continues at the one in use.
   const [choice, setChoice] = useState<{ from: string; to: string } | null>(null)
-  // Raised by a switch made on the overview, whose heading then takes focus. From any
-  // other page the change of page moves focus (useFocusOnPageChange) once the overview
-  // shows; focusing now would reach the old page's heading while the router's
-  // transition is pending.
-  const [switched, setSwitched] = useState(0)
-  useEffect(() => { if (switched) focusPageHeading(main.current) }, [switched])
+  // Set by a switch made on the overview, whose heading then takes focus once the
+  // workspace is open, unless the user has put focus somewhere since. From any other
+  // page the change of page moves focus (useFocusOnPageChange) once the overview shows;
+  // focusing now would reach the old page's heading while the router's transition is
+  // pending.
+  const [focusOverview, setFocusOverview] = useState(false)
+  useEffect(() => {
+    if (!focusOverview || lock !== null) return
+    setFocusOverview(false)
+    const active = document.activeElement
+    if (!(active instanceof HTMLElement) || active === document.body || !active.isConnected) focusPageHeading(main.current)
+  }, [focusOverview, lock])
   const { pathname } = useLocation()
   const shownPath = useRef(pathname)
-  useEffect(() => { shownPath.current = pathname }, [pathname])
+  useEffect(() => { shownPath.current = pathname; setChoice(null) }, [pathname])
   if (state.status !== 'ready') return null
   const { actor } = state.session
   const currentFacility = actor.facility
@@ -436,7 +444,7 @@ function Shell() {
         const onOverview = shownPath.current === '/provider'
         setChoice(null)
         navigate('/provider')
-        if (onOverview) setSwitched(value => value + 1)
+        if (onOverview) setFocusOverview(true)
       }
     }
     catch (error) { setFacilityError(error instanceof Error ? error.message : 'Facility could not be selected.') }

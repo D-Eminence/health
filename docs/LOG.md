@@ -579,18 +579,27 @@ than a live completion tracker.
     is on `/hospital/auth`. Each product host is served by its own hid-system
     app, and Health-id has no deployment configuration.
   - The links work once this portal serves the product hosts and www (or at
-    least `/provider/recover` there). Nothing was deployed and no DNS or hosting
+    least `/provider/recover` there). D-Eminence/hid-system#41 (open) adds that
+    fixed route to hid-system's `apps/web`, so they also work with today's
+    hosting once it is released. Nothing was deployed and no DNS or hosting
     setting was changed.
 - **Launch readiness, by workflow and level of evidence:**
-  - Patient (enrollment, sign-in, records, access, sign-out): code level
-    (component tests) and headless Chromium with the API mocked. The cookie
-    refresh and sign-out contract is checked against a local Identity through
-    Health-id's client, not through the patient screens. Not verified in
-    staging or production.
+  - Patient (enrollment, sign-in, records, access, sign-out): component tests.
+    Headless Chromium, with the API mocked, only rendered the sign-in,
+    enrollment (to its code step), recovery, records, access and settings
+    screens at 320 to 1280px (layout and focus visibility), and checked the
+    refresh header and a refused refresh on `/settings`. No patient workflow,
+    sign-out included, was driven in a browser. The cookie refresh and sign-out
+    contract is checked against a local Identity through Health-id's client,
+    not through the patient screens. Not verified in staging or production.
   - Provider (sign-in, patient access, clinical record, facility switch,
-    sign-out, recovery): the same levels. The local Identity run covers staff
-    sign-in, refresh and sign-out through the client. Product-host recovery and
-    sign-in await the hosting above. Not verified in staging or production.
+    sign-out, recovery): component tests. Driven in headless Chromium with the
+    API mocked: patient access (the Health ID field), the facility switch from
+    the clinical record and from Patient access, the OCR steps, a sign-out
+    refused as a mismatch, and the recovery links. Sign-in was not submitted
+    in a browser. The local Identity run covers staff sign-in, refresh and
+    sign-out through the client. Product-host recovery and sign-in await the
+    hosting above. Not verified in staging or production.
   - Migrate/OCR: code level and headless Chromium with the API mocked only. No
     local OCR service was run, since extraction needs Textract. Migrate project
     and bulk work has no backend contract (`MigrateGap`). Not verified in
@@ -669,3 +678,37 @@ than a live completion tracker.
     - PA-12, PR-06: page titles.
     - PR-04, PR-05: focus after 'Try again' and 'Revoke access'.
     - PR-07: the Access PIN field does not say 4 to 8 digits.
+- **Second review, before publication.** A second adversarial review of the
+  whole branch (session security, the focus fixes, the facility switch, the
+  docs), each finding put to a second reviewer to refute, confirmed eight
+  findings, all minor or nits, and refuted one. Session security again had
+  none. Fixed, with tests that fail before the fix (six):
+  - A refused OCR step answered while the workspace was locked never got focus
+    back: the session check's heading counted as the user's own choice. The
+    focus request now waits until the workspace opens, and is used once.
+  - A facility switch made on the overview had neither the lock wait nor the
+    user-focus guard: answered while locked it left focus on the page, and it
+    took focus from a link the user had moved to. It now waits for the
+    workspace and leaves the user's focus alone.
+  - An unconfirmed facility stayed in the "Working at" list on every page,
+    while every request still went to the facility in use. Opening another page
+    now discards it, as Cancel does.
+  - A Health ID refused from a button was spoken twice: focus moved to the
+    field described by the message, which was also a new alert. It is an alert
+    only when focus stays in the field (Enter).
+  - Docs: the launch-readiness evidence above now says what was run in a
+    browser; the OCR publication retry is folded into the existing open
+    question with the correct backend codes; the facility a session read
+    returns with `X-Facility-ID` is stated. The Document ID edit that cancels a
+    pending step now has its own test (it fails at `b223151`).
+- **Backend dependencies, as of this publication:**
+  - hid-system #39 (on `main` `522fb2e`, not deployed): `X-HID-Client`. This
+    branch works with earlier Identity builds on the same origin, which ignore
+    the header.
+  - D-Eminence/hid-system#42 (open): refused session-route requests answer
+    their 400, 401 or 403 and are audited, instead of 503. The portals already
+    handle those answers and never read a 503 as a mismatch.
+  - D-Eminence/hid-system#41 (open): `/provider/recover` on hid-system's
+    `apps/web`.
+  - Facility kept across reloads: no backend contract yet; see
+    [open questions](./OPEN-QUESTIONS.md), "Facility selection after reload".

@@ -71,6 +71,8 @@ describe('PEHR-03: the Health ID field says what it needs', () => {
     expect(field.getAttribute('aria-invalid')).toBe('true')
     expect(describedText(field)).toBe(MISTYPED)
     expect(screen.getByText(MISTYPED).closest('#patient-hid-error')).toBeTruthy()
+    // Focus moved to the field, whose description says it: an alert as well would be spoken twice.
+    expect(screen.queryByRole('alert')).toBeNull()
     expect(api.lookupPatient).not.toHaveBeenCalled()
     // The value is kept for correction.
     expect(field.value).toBe('HID-K0LO1I')
@@ -84,10 +86,11 @@ describe('PEHR-03: the Health ID field says what it needs', () => {
 
     await waitFor(() => expect(document.activeElement).toBe(field))
     expect(describedText(field)).toBe(MISTYPED)
+    expect(screen.queryByRole('alert')).toBeNull()
     expect(api.requestAccess).not.toHaveBeenCalled()
   })
 
-  it('pressing Enter in the focused field announces the error, since focus does not move', async () => {
+  it('pressing Enter in the focused field announces the error as an alert, since focus does not move', async () => {
     const field = renderPatients()
     field.focus()
     fireEvent.change(field, { target: { value: 'HID-K0LO1I' } })

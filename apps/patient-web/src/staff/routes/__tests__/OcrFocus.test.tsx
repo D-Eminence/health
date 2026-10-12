@@ -352,6 +352,24 @@ describe('OCR-A11Y-01: focus the user moved meanwhile is theirs', () => {
     expect(statusRegion().textContent).toBe('')
   })
 
+  it('a Document ID edit made while a step waits cancels the step\'s focus and message', async () => {
+    await findJob(awaiting)
+    fireEvent.change(await screen.findByLabelText(/^Review reason/), { target: { value: 'Checked against the scanned page' } })
+    api.validateOcrJob.mockResolvedValue({ id: 'validation-1' })
+    api.findOcrJob.mockResolvedValue({ job: validated })
+    const evidence = deferred<{ items: object[] }>()
+    api.ocrExtractions.mockReturnValueOnce(evidence.promise)
+    await press(screen.getByRole('button', { name: 'Validate extraction' }))
+    await screen.findByLabelText(/^Confirmation reason/)
+    const documentId = screen.getByLabelText(/^Document ID/)
+    documentId.focus()
+    fireEvent.change(documentId, { target: { value: 'd0000000-0000-4000-8000-000000000002' } })
+    await act(async () => { evidence.resolve({ items: [extraction] }) })
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+    expect(focused()).toBe(documentId)
+    expect(statusRegion().textContent).toBe('')
+  })
+
   it('a step that finishes while the workspace is locked takes focus, and says so, once it opens again', async () => {
     const view = await (async () => { const v = renderOcr(); return v })()
     api.findOcrJob.mockResolvedValue({ job: awaiting })
@@ -374,6 +392,45 @@ describe('OCR-A11Y-01: focus the user moved meanwhile is theirs', () => {
     view.rerender(<MemoryRouter initialEntries={['/provider/ocr']}><Ocr /></MemoryRouter>)
     await waitFor(() => expect(focused()).toBe(heading('Confirm source patient')))
     expect(statusRegion().textContent).toBe('Review recorded. Confirm the source patient next.')
+  })
+})
+
+describe('OCR-A11Y-01: a refusal answered while the workspace is locked', () => {
+  it('gives focus back to the step\'s control once the workspace opens again, not while the session check has it', async () => {
+    const view = renderOcr()
+    api.findOcrJob.mockResolvedValue({ job: awaiting })
+    fireEvent.change(screen.getByLabelText(/^Document ID/), { target: { value: DOCUMENT } })
+    fireEvent.click(screen.getByRole('button', { name: 'Find job' }))
+    fireEvent.change(await screen.findByLabelText(/^Review reason/), { target: { value: 'Checked against the scanned page' } })
+    const answer = deferred<never>()
+    api.validateOcrJob.mockReturnValueOnce(answer.promise)
+    const submit = screen.getByRole('button', { name: 'Validate extraction' })
+    await press(submit)
+    // The workspace locks while the request runs; focus is on the session check's heading.
+    workspace.lock = 'checking'
+    const check = document.createElement('h1')
+    check.tabIndex = -1
+    check.textContent = 'Checking your session…'
+    document.body.append(check)
+    check.focus()
+    view.rerender(<MemoryRouter initialEntries={['/provider/ocr']}><Ocr /></MemoryRouter>)
+    await act(async () => { answer.reject(unavailable()) })
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+    expect(focused()).toBe(check)
+    // The workspace opens again: the check is gone, and focus goes back to the control.
+    check.remove()
+    workspace.lock = null
+    view.rerender(<MemoryRouter initialEntries={['/provider/ocr']}><Ocr /></MemoryRouter>)
+    await waitFor(() => expect(focused()).toBe(screen.getByRole('button', { name: 'Validate extraction' })))
+    // Later openings of the workspace do not take focus again.
+    const elsewhere = screen.getByLabelText(/^Review reason/)
+    elsewhere.focus()
+    workspace.lock = 'away'
+    view.rerender(<MemoryRouter initialEntries={['/provider/ocr']}><Ocr /></MemoryRouter>)
+    workspace.lock = null
+    view.rerender(<MemoryRouter initialEntries={['/provider/ocr']}><Ocr /></MemoryRouter>)
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+    expect(focused()).toBe(elsewhere)
   })
 })
 

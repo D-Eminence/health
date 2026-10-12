@@ -12,7 +12,7 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
  * with { facilityId }) is unchanged.
  */
 vi.mock('./env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.example.test', turnstileSiteKey: null }) }))
-afterEach(() => { vi.unstubAllGlobals(); vi.resetModules() })
+afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.resetModules() })
 
 const SESSION = 'GET /api/v1/auth/session'
 const FACILITY = 'POST /api/v1/auth/facility'
@@ -206,6 +206,74 @@ describe('PEHR-02: after a reload', () => {
     await open('/provider')
     expect(await screen.findByText(/Working at Lagos General\./)).toBeTruthy()
     expect(list().value).toBe('facility-1')
+    expect(posted(sent)).toEqual([])
+  })
+})
+
+describe('PEHR-02: focus after a switch made on the overview, and a proposal left behind', () => {
+  /** The page's visibility and the clock, under the test's control: hiding the page locks the workspace. */
+  function pageVisibility() {
+    let visibility: DocumentVisibilityState = 'visible'
+    vi.spyOn(document, 'visibilityState', 'get').mockImplementation(() => visibility)
+    let now = 1_000_000
+    vi.spyOn(Date, 'now').mockImplementation(() => now)
+    const become = (next: DocumentVisibilityState) => { visibility = next; document.dispatchEvent(new Event('visibilitychange')) }
+    return { hide: () => act(() => become('hidden')), show: () => act(() => become('visible')), wait: (seconds: number) => { now += seconds * 1000 } }
+  }
+  const overviewHeading = () => screen.getByRole('heading', { level: 1, name: /Good to see you/ })
+
+  async function proposeOnOverview(answer: Answer) {
+    const sent = serve({ [SESSION]: [sessionAt(LAGOS)], [REQUESTS]: [() => json([]), () => json([])], [FACILITY]: [answer] })
+    await open('/provider')
+    expect(await screen.findByText('0 pending requests')).toBeTruthy()
+    fireEvent.change(list(), { target: { value: 'facility-2' } })
+    const confirm = screen.getByRole('button', { name: 'Switch facility' })
+    confirm.focus()
+    fireEvent.click(confirm)
+    return sent
+  }
+
+  it('answered while the workspace is locked: the overview heading takes focus once the workspace opens', async () => {
+    const page = pageVisibility()
+    let answer: (response: Response) => void = () => {}
+    const sent = await proposeOnOverview(() => new Promise<Response>(resolve => { answer = resolve }))
+    await waitFor(() => expect(posted(sent)).toHaveLength(1))
+    page.hide()
+    const check = await screen.findByRole('heading', { name: 'Checking your session…' })
+    await waitFor(() => expect(document.activeElement).toBe(check))
+    await act(async () => { answer(sessionAt(IKEJA)()) })
+    await settle()
+    // Nothing is focused inside the hidden workspace while it is locked.
+    expect(document.activeElement).toBe(check)
+    page.wait(5)
+    page.show()
+    expect(await screen.findByRole('navigation')).toBeTruthy()
+    expect(await screen.findByText(/Working at Ikeja Clinic\./)).toBeTruthy()
+    await waitFor(() => expect(document.activeElement).toBe(overviewHeading()))
+  })
+
+  it('leaves focus where the user moved it while the switch ran', async () => {
+    let answer: (response: Response) => void = () => {}
+    const sent = await proposeOnOverview(() => new Promise<Response>(resolve => { answer = resolve }))
+    await waitFor(() => expect(posted(sent)).toHaveLength(1))
+    const link = screen.getByRole('link', { name: 'Patient access' })
+    link.focus()
+    await act(async () => { answer(sessionAt(IKEJA)()) })
+    expect(await screen.findByText(/Working at Ikeja Clinic\./)).toBeTruthy()
+    await settle()
+    expect(document.activeElement).toBe(link)
+  })
+
+  it('discards a proposal that was not confirmed when another page opens, so the list shows the facility in use', async () => {
+    const sent = serve({ [SESSION]: [sessionAt(LAGOS)], [REQUESTS]: [() => json([]), () => json([])] })
+    await open('/provider')
+    expect(await screen.findByText('0 pending requests')).toBeTruthy()
+    fireEvent.change(list(), { target: { value: 'facility-2' } })
+    expect(screen.getByRole('group', { name: /Switch to Ikeja Clinic\?/ })).toBeTruthy()
+    fireEvent.click(screen.getByRole('link', { name: 'Patient access' }))
+    await waitFor(() => expect(where()).toBe('/provider/patients'))
+    expect(list().value).toBe('facility-1')
+    expect(screen.queryByRole('group', { name: /Switch to/ })).toBeNull()
     expect(posted(sent)).toEqual([])
   })
 })

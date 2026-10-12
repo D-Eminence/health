@@ -29,10 +29,12 @@ export function Patients() {
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
-  // A Health ID refused before sending is reported at its field, which takes focus.
-  // The message is also an alert, new for each refusal: from Enter in the field
-  // focus does not move, and nothing else would be announced.
+  // A Health ID refused before sending is reported at its field, which takes focus,
+  // and the field's description announces it. Refused from Enter in the field, focus
+  // does not move, so the message is an alert instead, new for each refusal; as both
+  // it would be spoken twice.
   const [hidError, setHidError] = useState('')
+  const [hidAlert, setHidAlert] = useState(false)
   const [focusHid, setFocusHid] = useState(0)
   useEffect(() => { if (focusHid) document.getElementById('patient-hid')?.focus() }, [focusHid])
   const normalized = hid.trim().toUpperCase()
@@ -47,6 +49,7 @@ export function Patients() {
   function healthIdAccepted(): boolean {
     const problem = healthIdProblem(normalized)
     setHidError(problem ?? '')
+    setHidAlert(problem !== null && document.activeElement?.id === 'patient-hid')
     if (problem) setFocusHid(value => value + 1)
     return problem === null
   }
@@ -111,7 +114,7 @@ export function Patients() {
     <div className="staff-page-head"><p className="staff-eyebrow">Governed access</p><h1>Open a patient record.</h1><p>Enter the patient’s Health ID. Their identity and records remain hidden until the backend authorizes this facility and purpose.</p></div>
     {activePatient && <Card className="staff-card staff-current"><h2>{activePatient.purpose === 'emergency' ? 'Current emergency summary' : 'Current authorized record'}</h2><div className="staff-row"><strong>{activePatient.lookup.patient.fullName ?? activePatient.hid}</strong><Badge tone={activePatient.purpose === 'emergency' ? 'danger' : 'success'}>{activePatient.purpose === 'emergency' ? 'Emergency access' : 'Access allowed'}</Badge><Link to="/provider/clinical" className="staff-text-link">{activePatient.purpose === 'emergency' ? 'Open read-only emergency summary →' : 'Open clinical record →'}</Link></div>{grantId && <Button tone="secondary" size="sm" onClick={() => void closeGrant()} disabled={busy}>Close my grant</Button>}</Card>}
     <div className="staff-two-col">
-      <Card className="staff-card"><h2>Check current access</h2><p>Already approved? Verify with the server before opening the chart.</p><form className="staff-form" noValidate onSubmit={event => void checkAccess(event)}><Field label="Health ID" htmlFor="patient-hid" hint={HID_FORMAT} error={hidError ? <span key={focusHid} role="alert">{hidError}</span> : undefined} required><Input id="patient-hid" autoComplete="off" placeholder="HID-…" value={hid} onChange={event => { setHid(event.target.value.toUpperCase()); setHidError('') }} required invalid={!!hidError} aria-describedby={hidError ? 'patient-hid-error' : 'patient-hid-hint'} /></Field><Button type="submit" disabled={busy || !facility || !permissions.includes('identity.patient.read')}>Verify access</Button></form></Card>
+      <Card className="staff-card"><h2>Check current access</h2><p>Already approved? Verify with the server before opening the chart.</p><form className="staff-form" noValidate onSubmit={event => void checkAccess(event)}><Field label="Health ID" htmlFor="patient-hid" hint={HID_FORMAT} error={hidError ? hidAlert ? <span key={focusHid} role="alert">{hidError}</span> : hidError : undefined} required><Input id="patient-hid" autoComplete="off" placeholder="HID-…" value={hid} onChange={event => { setHid(event.target.value.toUpperCase()); setHidError('') }} required invalid={!!hidError} aria-describedby={hidError ? 'patient-hid-error' : 'patient-hid-hint'} /></Field><Button type="submit" disabled={busy || !facility || !permissions.includes('identity.patient.read')}>Verify access</Button></form></Card>
       <Card className="staff-card"><h2>Obtain access</h2><div className="staff-tabs" role="tablist" aria-label="Access method"><button type="button" role="tab" aria-selected={mode === 'request'} className={mode === 'request' ? 'active' : ''} onClick={() => setMode('request')}>Request</button><button type="button" role="tab" aria-selected={mode === 'pin'} className={mode === 'pin' ? 'active' : ''} onClick={() => setMode('pin')}>Patient PIN</button><button type="button" role="tab" aria-selected={mode === 'emergency'} className={mode === 'emergency' ? 'active' : ''} onClick={() => setMode('emergency')}>Emergency</button></div>
         <form className="staff-form" onSubmit={event => void submitAccess(event)}>
           {mode === 'request' && <><p className="staff-muted">Ask the patient to approve access. A pending request does not expose their record.</p><Field label="Access scope" htmlFor="request-scope"><Select id="request-scope" value={scope} onChange={event => setScope(event.target.value as 'read_records' | 'write_records')}><option value="read_records">Read records</option><option value="write_records">Read and write records</option></Select></Field><Field label="Clinical reason" htmlFor="request-reason" required><Textarea id="request-reason" value={reason} onChange={event => setReason(event.target.value)} minLength={8} required /></Field></>}
