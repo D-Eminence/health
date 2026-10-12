@@ -500,6 +500,24 @@ describe('a patient tab is bound to the patient it shows (SEC-PATIENT-XTAB)', ()
     expect(screen.queryByText('HID-SUBJECT-P')).toBeNull()
   })
 
+  it('sign-in stops saying a provider is signed in once the provider signs out in another tab', async () => {
+    vi.stubGlobal('BroadcastChannel', TabBus)
+    const identity = fakeIdentity()
+    identity.install()
+    identity.signIn('staff')
+    const { App } = await import('../App')
+    render(<MemoryRouter initialEntries={['/sign-in']}><App /></MemoryRouter>)
+    const note = 'A provider sign-in is active in this browser. Signing in here as a patient replaces it.'
+    expect(await screen.findByText(note)).toBeTruthy()
+
+    identity.signOutElsewhere()
+    await anotherTab()
+
+    await waitFor(() => expect(screen.queryByText(note)).toBeNull())
+    expect(screen.getByRole('heading', { level: 1, name: 'Welcome back.' })).toBeTruthy()
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
   it('the portal leaves the patient\'s pages for sign-in when the patient\'s own sign-in ended, and blames no other tab', async () => {
     const identity = fakeIdentity()
     identity.install()

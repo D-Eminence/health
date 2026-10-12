@@ -71,6 +71,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [otherPortalSession, setOtherPortalSession] = useState(false)
   const [signedOutElsewhere, setSignedOutElsewhere] = useState(false)
   const [checkKey, setCheckKey] = useState(0)
+  const otherPortal = useRef(false)
+  useEffect(() => { otherPortal.current = otherPortalSession }, [otherPortalSession])
 
   useEffect(() => store.subscribe(setState), [store])
 
@@ -176,7 +178,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     }
     const ask = async (): Promise<void> => {
       const shown = store.getState().principal?.subjectId
-      if (store.getState().status !== 'authenticated' || shown === undefined) { heard = false; return }
+      if (store.getState().status !== 'authenticated' || shown === undefined) {
+        heard = false
+        // Signed out here because the browser holds a provider's sign-in, which
+        // sign-in and enrollment say: the session is checked again, so that they
+        // stop saying so once it has been signed out elsewhere.
+        if (otherPortal.current) setCheckKey(value => value + 1)
+        return
+      }
       if (asking) { again = true; return }
       asking = true
       const announced = heard

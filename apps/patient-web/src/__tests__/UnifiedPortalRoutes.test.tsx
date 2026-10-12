@@ -154,6 +154,40 @@ describe('unified authenticated portal routes', () => {
     expect(screen.queryByRole('textbox', { name: 'National Identification Number' })).toBeNull()
   })
 
+  it('checks again once the provider portal was signed out elsewhere, as the note asks, and opens the NIN step', async () => {
+    calls.patientSession.mockResolvedValueOnce({ actor: { id: 'staff-1', subject: 'staff-1', accountId: 'account-1', roles: [], permissions: [] } })
+    calls.patientEnrollmentCurrent.mockRejectedValueOnce(new HidApiError(409, 'Sign out before starting or continuing a new Health ID enrollment',
+      { code: 'PATIENT_ENROLLMENT_REQUIRES_SIGN_OUT' }))
+    open('/enroll')
+    expect((await screen.findByRole('alert')).textContent).toContain('A provider sign-in is active in this browser.')
+
+    // The provider signs out in another tab; the next checks find no sign-in and no enrollment.
+    const check = screen.getByRole('button', { name: 'Check again' })
+    check.focus()
+    await act(async () => { fireEvent.click(check) })
+
+    const nin = await screen.findByRole('textbox', { name: 'National Identification Number' })
+    await waitFor(() => expect(document.activeElement).toBe(nin))
+    expect(screen.queryByText(/Sign out of the provider portal/)).toBeNull()
+    expect(calls.patientEnrollmentCurrent).toHaveBeenCalledTimes(2)
+    expect(calls.patientSession).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps the sign-out note, with focus on it, when checking again finds the sign-in still there', async () => {
+    calls.patientEnrollmentCurrent.mockRejectedValue(new HidApiError(409, 'Sign out before starting or continuing a new Health ID enrollment',
+      { code: 'PATIENT_ENROLLMENT_REQUIRES_SIGN_OUT' }))
+    open('/enroll')
+    const check = await screen.findByRole('button', { name: 'Check again' })
+    check.focus()
+    await act(async () => { fireEvent.click(check) })
+
+    await waitFor(() => expect(calls.patientEnrollmentCurrent).toHaveBeenCalledTimes(2))
+    const note = await screen.findByRole('alert')
+    expect(note.textContent).toContain('This browser is still signed in to Health ID.')
+    await waitFor(() => expect(document.activeElement).toBe(note))
+    expect(screen.queryByRole('textbox', { name: 'National Identification Number' })).toBeNull()
+  })
+
   it('asks for a sign-out, with no retry loop, when enrollment is refused for a sign-in the browser holds', async () => {
     calls.patientEnrollmentCurrent.mockRejectedValue(new HidApiError(409, 'Sign out before starting or continuing a new Health ID enrollment',
       { code: 'GOOGLE_ONBOARDING_REQUIRES_SIGN_OUT' }))

@@ -20,7 +20,7 @@ const SIGN_OUT_FIRST = new Set(['PATIENT_ENROLLMENT_REQUIRES_SIGN_OUT', 'GOOGLE_
 const requiresSignOut = (reason: unknown) => isHidApiError(reason) && reason.status === 409 && SIGN_OUT_FIRST.has(reason.code)
 
 export function Enrollment() {
-  const { state, api, acceptGoogleSession, otherPortalSession } = useSession()
+  const { state, api, acceptGoogleSession, otherPortalSession, retrySessionCheck } = useSession()
   const navigate = useNavigate()
   useDocumentTitle('Get your Health ID · Health ID')
   const stepFocus = useStepFocus()
@@ -52,8 +52,9 @@ export function Enrollment() {
   // about the field.
   const [errorAlert, setErrorAlert] = useState(true)
   const startKey = useRef<{ nin: string; key: string } | null>(null)
-  // 'Try again' is replaced while the check runs: focus then goes to the step's
-  // field, or to the new 'Try again' when the check fails again (PR-04).
+  // 'Try again' and 'Check again' are replaced while the check runs: focus then
+  // goes to the step's field, or to what replaced them when the check finds
+  // the same again (PR-04).
   const retriedCheck = useRef(false)
   const checkRetry = useRef<HTMLButtonElement>(null)
   const focusAfter = useActionFocus()
@@ -71,6 +72,7 @@ export function Enrollment() {
     let active = true
     setChecking(true)
     setCheckError(false)
+    setSignOutRequired(false)
     void Promise.allSettled([api.enrollmentCurrent(), api.googleOnboarding()]).then(([progress, google]) => {
       if (!active) return
       // Only the enrollment's own progress must be known before starting. A failed
@@ -211,6 +213,8 @@ export function Enrollment() {
           <Link to="/">Go to the patient portal</Link>
           <Link to="/provider">Go to the provider portal</Link>
         </>}
+        {/* Once it is signed out elsewhere, as asked, the browser's session and the enrollment are checked again. */}
+        <button type="button" className="patient-secondary-button" onClick={() => { retriedCheck.current = true; retrySessionCheck(); setCheckKey(value => value + 1) }}>Check again</button>
       </div>}
       {error && <p id="enroll-error" role={errorAlert ? 'alert' : undefined} className="patient-inline-error">{error}</p>}
       {googleRequired && !googlePending && <p role="status" className="patient-inline-error">Reconnect the Google account used to start this enrollment.</p>}
