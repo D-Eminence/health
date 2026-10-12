@@ -1263,6 +1263,21 @@ describe('a document upload', () => {
 })
 
 describe('opening the workspace', () => {
+  it('shows the whole of a navigation link that gets keyboard focus', async () => {
+    // Below 900px the navigation is a horizontal strip. Chromium does not scroll a focused link that
+    // is partly showing, so tabbing backwards left one as a sliver at the strip's edge (measured at 390px).
+    const reveal = vi.fn()
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: reveal })
+    try {
+      serve({ [SESSION]: [json(staffSession())], [REQUESTS]: [json([])] })
+      await open('/provider/patients')
+      const link = await screen.findByRole('link', { name: /^Clinical record/ })
+      act(() => link.focus())
+      expect(reveal).toHaveBeenCalledWith({ block: 'nearest', inline: 'nearest' })
+      expect(reveal.mock.contexts.at(-1)).toBe(link)
+    } finally { Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView') }
+  })
+
   it('keeps a newer sign-in when the opening session check answers late', async () => {
     const opening = deferredResponse()
     serve({ [SESSION]: [opening.answer], [LOGIN]: [json(staffSession('staff-2', 'Bola Nurse'))], [REQUESTS]: [json([])] })

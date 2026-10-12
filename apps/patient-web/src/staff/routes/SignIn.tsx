@@ -4,6 +4,7 @@ import { Button, Field, Input } from '@hid/ui'
 import { getEnvironment } from '../env'
 import { useStaff } from '../App'
 import { BrandLogo } from '../../BrandLogo'
+import { turnstileSize } from '../../Turnstile'
 import { resolveStaffProductHostname, STAFF_RECOVERY_PATH, staffLoginAction, staffRecoveryHref } from '../../productHostname'
 import { staffReturnPath } from '../session'
 
@@ -26,6 +27,7 @@ function TurnstileChallenge({ onToken, resetKey }: { onToken: (token: string) =>
       widgetId = window.turnstile.render(host.current, {
         sitekey: siteKey,
         action: staffLoginAction(window.location.hostname),
+        size: turnstileSize(host.current, 'normal'),
         callback: onToken,
         'expired-callback': () => onToken(''),
         'error-callback': () => { onToken(''); setError('Human verification could not load. Refresh the page and try again.') },

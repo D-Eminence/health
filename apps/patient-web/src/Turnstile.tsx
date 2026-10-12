@@ -13,6 +13,16 @@ declare global {
 
 let scriptPromise: Promise<void> | null = null
 
+/**
+ * Cloudflare's normal and flexible widgets are at least 300px wide; in a
+ * narrower slot (a 320px phone) they push the page sideways, so the compact
+ * widget is used there. A slot not laid out yet (width 0) keeps the usual size.
+ */
+export function turnstileSize<Wide extends 'flexible' | 'normal'>(slot: HTMLElement, wide: Wide): Wide | 'compact' {
+  const width = slot.clientWidth
+  return width > 0 && width < 300 ? 'compact' : wide
+}
+
 function loadScript(): Promise<void> {
   if (window.turnstile) return Promise.resolve()
   if (scriptPromise) return scriptPromise
@@ -54,7 +64,7 @@ export function Turnstile({ action, onTokenChange, resetKey }: {
         sitekey: siteKey,
         action,
         theme: 'light',
-        size: 'flexible',
+        size: turnstileSize(container.current, 'flexible'),
         callback: (token: string) => onTokenChange(token),
         'expired-callback': () => onTokenChange(null),
         'error-callback': () => { onTokenChange(null); setError('Security check failed. Please try again.') },

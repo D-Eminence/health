@@ -40,6 +40,13 @@
     color-scheme: light;
   }
 
+  /* Keyboard focus scrolled into view stays clear of the sticky headers: the
+     patient header (67px), the provider top bar (63px) and the admin mobile
+     header (56px). */
+  html {
+    scroll-padding-top: 80px;
+  }
+
   #root {
     min-height: 100svh;
   }
@@ -284,9 +291,9 @@
   .patient-list { margin: 12px 0 0; padding: 0; list-style: none; }
   .patient-list li { display: flex; justify-content: space-between; gap: 20px; padding: 17px 0; border-top: 1px solid var(--color-line); }
   .patient-list li > div:first-child { display: grid; gap: 5px; min-width: 0; }
-  .patient-list strong { color: var(--color-ink); font-size: 15px; }
-  .patient-list span { color: var(--color-muted); font-size: 13px; }
-  .patient-list p { margin: 4px 0 0; color: var(--color-muted); font-size: 13px; }
+  .patient-list strong { color: var(--color-ink); font-size: 15px; overflow-wrap: anywhere; }
+  .patient-list span { color: var(--color-muted); font-size: 13px; overflow-wrap: anywhere; }
+  .patient-list p { margin: 4px 0 0; color: var(--color-muted); font-size: 13px; overflow-wrap: anywhere; }
   .patient-note { flex-direction: column; }
   .patient-note p { white-space: pre-wrap; overflow-wrap: anywhere; }
   .patient-access-item { flex-wrap: wrap; }

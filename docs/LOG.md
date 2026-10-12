@@ -391,3 +391,51 @@ than a live completion tracker.
   www with its own `apps/web` today, not this portal, so the links cannot be
   checked live until the portal is deployed there. No browser, staging or
   production run.
+
+## 2026-10-12: narrow screens and keyboard focus (accessibility audit, first batch)
+
+- The gap map has no accessibility row; its only responsive row is "Shared
+  visual system/responsiveness", marked IMPROVE. An audit of the launch screens
+  (patient sign-in, enrollment, recovery and records; provider sign-in, the
+  workspace and the clinical record; OCR) against WCAG 2.2 AA and the reference
+  design's rules found 51 issues; a second reviewer confirmed 49 and refuted 2.
+  Each was checked in the code, and the layout ones measured in headless
+  Chromium against a build of `main` with the API mocked.
+- This batch fixes the narrow-screen layout and focus visibility:
+  - Below 900px the provider workspace grew to its navigation strip's width
+    (573 to 614px at 320 to 390px), so every provider page scrolled sideways.
+    The single column is now `minmax(0, 1fr)`, as are the two-column forms
+    below 700px.
+  - Long values without spaces (document file names, facility names) widened
+    the patient records and access pages (415px at 320px) and the clinical
+    record's documents. They now wrap, as other long values already did.
+  - Cloudflare's Turnstile widget is at least 300px wide, so at 320px every
+    sign-in and recovery page was wider than the screen (354px; 340px for
+    provider sign-in). A slot narrower than 300px now gets the compact widget
+    (`turnstileSize` in `Turnstile.tsx`, also used by provider sign-in).
+  - Tabbing backwards put focused controls under the sticky patient header and
+    provider top bar (6 to 8 stops per patient page). The page now keeps
+    80px clear at the top (`scroll-padding-top`), more than any sticky header.
+  - In the horizontal navigation strip below 900px, Chromium left a focused
+    link partly or almost wholly clipped at the strip's edge. The focused link
+    is now scrolled fully into view (`revealFocusedLink`).
+- Measured after the change: no page overflow at 320, 360, 390, 768 or 1280px
+  on any of the eleven screens above (55 combinations; 19 overflowed before),
+  and no focus stop hidden or partly visible when tabbing backwards through
+  patient settings and overview and the provider clinical record at 390 and
+  1280px. The widget renders compact (146px tall) at 320px and full size at
+  390px.
+- Regression tests guard the stylesheet rules (`NarrowLayout.test.ts`, since
+  jsdom lays nothing out), the widget size (`TurnstileSize.test.tsx`, provider
+  sign-in tests) and the navigation focus (`NavStripFocus.test.tsx`, the staff
+  session tests).
+- Remaining confirmed findings, for the next batches, most severe first:
+  focus lost after each OCR step; the facility selector switching facility as
+  soon as its value changes; the Health ID field disabling its buttons without
+  saying why; contrast of input borders (1.28:1), success and warning badges
+  and text, and faint small text; focus after step changes in enrollment,
+  recovery and opening a patient; errors not tied to their fields; one page
+  title for every route; two h1 headings on the clinical record; tab roles
+  without tab panels; the Google button's disabled state.
+- Headless Chromium on this machine only; no other browser, assistive
+  technology, device, staging or production run.
