@@ -3,7 +3,9 @@
 This document describes the code in this repository and the `hid-system`
 gateway/API, first audited at commit `c4b5445` and most recently checked
 against `main` at `6b49a06` on 2026-10-12 (with open D-Eminence/hid-system#47
-at `1c18e91`). It supersedes the earlier plan based on
+at `1c18e91`). hid-system `main` has since moved to `bbc6e89` (hid-system#48 to
+#53 and #55 to #62, merged on 2026-10-12, none released); where those change a
+statement below, it says so. It supersedes the earlier plan based on
 the historical `hid-unified` Supabase functions. `hid-1.0`, `Dashboard.zip` and
 `HID.html` informed visual and workflow coverage; their local fixtures do not
 define API behavior. The [gap map](./HEALTH_ID_COMPLETE_FRONTEND_GAP_MAP.md)
@@ -76,11 +78,17 @@ and admin requests use the actual Identity, EHR, Access, Lab, Pharmacy, OCR,
 Outreach and Admin endpoints registered for their routes. The laboratory workspace covers work items, accession, specimen
 custody, analytical execution, result revisions, verification, release and
 history. The clinical workspace can create active EHR lab requests and hand
-active prescriptions to Pharmacy. EHR passes neither a later prescription or
-lab-request change nor an encounter's status to Pharmacy or Lab (hand-off A1,
-A3), so the clinical record warns at those status forms, or offers no change
-once Lab may be working on a request. The Lab and Pharmacy lists say when they
-reach the backend's cap of the 200 oldest work items (A2). See
+active prescriptions to Pharmacy. In every released hid-system build EHR
+passes neither a later prescription or lab-request change nor an encounter's
+status to Pharmacy or Lab (hand-off A1, A3), so the clinical record warns at
+those status forms, or offers no change once Lab may be working on a request.
+On hid-system `main` (not released), Pharmacy refuses to dispense a
+prescription EHR has since cancelled, held or changed
+(`409 PHARMACY_PRESCRIPTION_NOT_DISPENSABLE`, hid-system#48), and EHR sends an
+activated draft, a resumed hold or an edit of an active lab request to Lab
+(hid-system#56); a cancel or hold after Lab accepts is still not sent. The
+Lab and Pharmacy lists say when they reach the backend's cap of the 200 oldest
+work items (A2). See
 [open questions](./OPEN-QUESTIONS.md) for contract limits and backend defects.
 
 Retry keys for OCR publications (one `Idempotency-Key` per publication request)
@@ -100,11 +108,14 @@ and uploaded documents (100 each). The route requires only `ehr.encounter.read`
 and `ehr.note.read`, so the portal shows each further section only to a role
 holding its read permission, lists documents without opening them, and leaves
 out vitals, which EHR sends without corrections. That hiding is display, not
-access control: every section reaches the browser until EHR filters it
-(hand-off A11). The ordinary encounter and related clinical routes require
-`direct-care`, so an emergency grant does not open the detailed chart; that
-policy gap is tracked in [open questions](./OPEN-QUESTIONS.md) (hand-off B1,
-E1).
+access control: in every released hid-system build every section reaches the
+browser (hand-off A11). hid-system#52 (`7856366`; merged into `main`, not
+released) has EHR withhold each category the reader may not read, report
+per-section `limits` and `truncated`, list only available documents and audit
+the counts; vitals are still sent as first recorded (A11(a)). The ordinary
+encounter and related clinical routes require `direct-care`, so an emergency
+grant does not open the detailed chart; that policy gap is tracked in
+[open questions](./OPEN-QUESTIONS.md) (hand-off B1, E1).
 
 The frontend does not call a database directly. `scripts/check-boundaries.mjs`
 checks repository imports and forbidden dependencies, and ESLint restricts
@@ -183,15 +194,18 @@ diagnostics. Public variables are checked for secret-like names and values at
 build time: the portal's `vite.config.ts` runs `assertPublicEnvironment` over
 the resolved `VITE_HID_` variables and refuses to build or serve, and the public
 site checks when `RootLayout` calls `getEnvironment()` during `next build`. The
-portal reads each public variable by name from one record
-(`apps/patient-web/src/publicEnvironment.ts`), so only those reach the bundle.
-Clinical request/response bodies are not intended for logs, public URLs or
-browser persistence. Provider facility selection is held in portal memory and
-sent as `X-Facility-ID` on scoped calls. Choosing a facility in the list only
-proposes it; Switch facility confirms it. The portal keeps nothing about the
-facility in browser storage. With hid-system's per-sign-in facility contract
-(D-Eminence/hid-system#47: ADR-046, migration 0080; open, not merged or
-deployed; hand-off C1), Identity keeps the facility a sign-in chose and reports
+portal reads each public variable by name, never the env object whole, so only
+the variables it names reach the bundle: most through
+`apps/patient-web/src/publicEnvironment.ts`, and `VITE_HID_GOOGLE_CLIENT_ID`
+directly in the Google controls. Clinical request/response bodies are not
+intended for logs, public URLs or browser persistence. Provider facility
+selection is held in portal memory and sent as `X-Facility-ID` on scoped calls.
+Choosing a facility in the list only proposes it; Switch facility confirms it.
+The portal keeps nothing about the facility in browser storage. With
+hid-system's per-sign-in facility contract (D-Eminence/hid-system#47: ADR-046;
+open, not merged or deployed; hand-off C1; its migration 0080 must be
+renumbered, since hid-system `main` gave 0080 to hid-system#48 and also has 0081
+and 0082), Identity keeps the facility a sign-in chose and reports
 `facilitySelection` on staff sign-in, session reads and refresh, so a reload
 shows the facility chosen. While it is unresolved (`reselect`: the chosen
 facility is no longer available; `default` for someone with more than one
@@ -200,12 +214,12 @@ no sidebar, and asks where the person is working, with nothing preselected. An
 Identity without that contract reports no field (`null` counts the same): the
 portal then uses the facility `/auth/session` resolves (the primary one, else
 the first by name) at load and sign-in, as before. So the chooser, merged into
-`main`, works with hid-system `main` today and needs nothing from #47 to run.
-Either way, a tab keeps its in-memory facility across a refresh or session check
-only while it is still among `actor.facilities`. When it is gone, the tab closes
-the open page and patient and asks again; it never adopts the facility the
-answer reports. The staff transport cancels any protected request whose
-`X-Facility-ID` is no longer one of the session's facilities
+`main`, works with hid-system `main` today and needs nothing from hid-system#47
+to run. Either way, a tab keeps its in-memory facility across a refresh or
+session check only while it is still among `actor.facilities`. When it is gone,
+the tab closes the open page and patient and asks again; it never adopts the
+facility the answer reports. The staff transport cancels any protected request
+whose `X-Facility-ID` is no longer one of the session's facilities
 (`setStaffSessionFacilities` and `assertStaffSessionFacility` in
 `staff/session.ts`).
 

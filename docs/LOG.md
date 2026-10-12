@@ -840,8 +840,8 @@ release.
   decision and deploy order (0080 and the role bootstrap before that Identity
   takes traffic). D-Eminence/Health-id#42 (draft) reads its
   `facilitySelection` and waits on it and on the product decision of when to
-  ask. (Since changed: #42 merged into Health-id `main` before #47, since it
-  works without the field; see the 2026-10-12 readiness series.)
+  ask. (Since changed: Health-id #42 merged into `main` before hid-system#47,
+  since it works without the field; see the 2026-10-12 readiness series.)
 - **Backend follow-ups found and not fixed:** patient-only routes
   (`GET /identity/me`, EHR `GET /ehr/me/records`) answer `503` to a staff
   sign-in instead of `403 PATIENT_SESSION_REQUIRED`; Identity's own
@@ -900,7 +900,8 @@ release.
   field as before; a refresh or session check never moves a tab to another
   facility, and when it finds the tab's own facility gone, the tab closes the
   open page and patient, cancels requests still naming it, and asks again,
-  with or without the field; and `FacilityChoice.test.tsx` has 40 cases.
+  with or without the field; and `FacilityChoice.test.tsx` had 40 cases when
+  #42 merged (41 in the final tree).
 
 ## 2026-10-12: readiness series (visual system, facility chooser, provider clinical, OCR and Outreach, patient portal, admin and public)
 
@@ -909,9 +910,10 @@ An audit of Health-id `main` at `c880421` against hid-system `main` at
 backend, 16 infrastructure, 32 product decisions, 41 stale doc statements, 43
 already resolved and 4 not defects. A second reviewer confirmed 290, refuted 2
 and left 1 uncertain (47 needed no verdict). The frontend findings were fixed
-in six PRs; the backend, infrastructure and product items went to the
-hid-system owner as the [backend hand-off](./BACKEND_OWNER_HANDOFF.md); this
-entry's docs PR records both. hid-system was not changed.
+in six PRs, all merged into Health-id `main` (`0eda90f`); the backend,
+infrastructure and product items went to the hid-system owner as the
+[backend hand-off](./BACKEND_OWNER_HANDOFF.md); this entry's docs PR records
+both. hid-system was not changed.
 
 - **#44, visual system (`claude/a11y-visual-system`, merged).**
   - Tokens (`packages/ui/src/tokens.css`): `--color-line-control` `#898989` for
@@ -935,12 +937,17 @@ entry's docs PR records both. hid-system was not changed.
     `line-control`; the search shortcut hint is 6.43:1; a refused demo service
     or notes field is marked invalid. Commit `d5e0aa2` says it fixed the
     `/provider/apply` application form; that form was never rendered, the
-    change was reverted (`01475ba`), and the admin and public PR deletes it.
+    change was reverted (`01475ba`), and #48 (admin and public) deletes it.
   - Fixes PA-07, PA-08, PEHR-06, PEHR-07, PEHR-08, PEHR-12, PEHR-14,
     OCR-A11Y-03, OCR-A11Y-05, OCR-A11Y-08, A11Y-BR-05, A11Y-BR-06 and
     A11Y-BR-07. Tests: `ColourContrast.test.tsx` (both apps),
-    `StaffLinkStyles.test.ts`, `FieldDescription.test.tsx`; 44 of the first
-    48 contrast cases, 8 link cases and 9 Field cases failed on `main` first.
+    `StaffLinkStyles.test.ts`, `FieldDescription.test.tsx`. Failing first, per
+    the batch record: 44 of the first 48 cases in the portal's
+    `ColourContrast.test.tsx` failed on `main`, and its 9 later link-contrast
+    cases failed without the link rules; 8 `StaffLinkStyles.test.ts` cases
+    failed on `main`; and 9 checks across `FieldDescription.test.tsx`, the
+    Outreach hint test in `Operations.test.tsx` and the registry-hint assertion
+    in `ProviderCompletionForm.test.tsx` failed on `main`.
 - **#42, facility chooser (`claude/facility-selection`, merged).** While the
   facility is unresolved (`reselect`, `default` with more than one facility,
   or a `facilitySelection` value the portal does not know) no page and no
@@ -952,8 +959,10 @@ entry's docs PR records both. hid-system was not changed.
   check that finds the tab's facility gone closes the open page and patient,
   cancels protected requests still naming it (any header case), and asks
   again. It merged before hid-system#47 for that reason. Tests:
-  `FacilityChoice.test.tsx` (40 cases; 27 of the first 34 fail on `c880421`),
-  `staff/session.test.ts` (3), `NarrowLayout.test.ts`.
+  `FacilityChoice.test.tsx` (40 cases at #42's head `336d1e7` and 41 in the
+  final tree, one added in #45; 27 of the first 34 fail on `c880421`),
+  `staff/session.test.ts` (6 cases, 3 of them added by #42),
+  `NarrowLayout.test.ts`.
 - **#45, provider clinical (`claude/provider-clinical-readiness`, merged).**
   - Emergency summary: the sections EHR returns beyond encounters and notes
     (diagnoses, prescriptions, lab requests, documents) show only with each
@@ -967,7 +976,9 @@ entry's docs PR records both. hid-system was not changed.
     orders are not cancelled and Pharmacy and the Laboratory are not told; an
     active or on-hold prescription's status form says Pharmacy is not told and
     may still dispense the version it was sent; the lab-request form says a
-    draft is never sent to the Laboratory.
+    draft is never sent to the Laboratory. These warnings hold for every
+    released hid-system build; see "hid-system `main` moved on" below for what
+    its `main` has since merged.
   - Pharmacy's dispensing card shows route and instructions (PHARM-01). The
     Lab and Pharmacy lists say, at 200 items, that newer ones cannot be
     reached (A2). EHR forms mirror the DTO limits and name refused fields
@@ -981,7 +992,7 @@ entry's docs PR records both. hid-system was not changed.
   - Tests: `EmergencySummary`, `PatientAccess`, `ClinicalNotes`,
     `Prescriptions`, `ClinicalDocuments`, `RefreshFocus`,
     `FieldProblemsPerForm` and `OperationsActionFocus`.
-- **#46, OCR and Outreach (`claude/ocr-outreach-readiness`, open).**
+- **#46, OCR and Outreach (`claude/ocr-outreach-readiness`, merged).**
   - OCR publication keeps one Idempotency-Key per request in page memory
     (never browser storage), reads the history again after any refusal, and
     offers Retry publication with the same key after OCR's 15 s wait, or to
@@ -1000,8 +1011,10 @@ entry's docs PR records both. hid-system was not changed.
     A field refused from Enter in that field is announced as an alert.
   - Tests: `OcrPublication`, `OcrFields`, `Outreach`, `OcrConfirmation`,
     `OcrStateScreens`, `ocrOutreachApi`.
-- **Patient portal PR (`claude/patient-portal-readiness`).**
-  - Overview, records (every vital the aggregate returns, with units),
+- **#47, patient portal (`claude/patient-portal-readiness`, merged).**
+  - Overview, records (every vital the aggregate returns, with units; EHR
+    returns no vitals to a patient session, so none shows, see open
+    questions),
     notifications in words, the Access PIN's rules, and the NIN's 11 digits
     stated and tied to their fields. Every page names its tab. Focus after
     actions, Try again and page changes reaches what loaded; success notices
@@ -1023,7 +1036,7 @@ entry's docs PR records both. hid-system was not changed.
     are unchanged.
   - `staff/pageFocus.ts` moved to `src/pageFocus.ts`, shared by both portals;
     `ItemName` is in `src/ItemName.tsx`.
-- **Admin and public PR (`claude/admin-public-readiness`).**
+- **#48, admin and public (`claude/admin-public-readiness`, merged).**
   - Public site: the demo role is held to 2 to 120 characters and focus goes
     to the first field to correct; the pricing parser leaves out a product the
     site does not present and still refuses a malformed row
@@ -1041,13 +1054,13 @@ entry's docs PR records both. hid-system was not changed.
     deterministic, and a "Load more" page clicked early is no longer dropped.
   - Build: the staging product and admin hosts open their workspaces, and the
     Vite dev and preview servers answer them; the portal build refuses a
-    secret-like public variable (SEC-VITE-ENV-BUILD-GUARD) and reads each one
-    by name from one record; it publishes no source maps
-    (SEC-PUBLIC-SOURCEMAPS).
+    secret-like public variable (SEC-VITE-ENV-BUILD-GUARD) and reads each
+    public variable by name, never the env object whole; it publishes no
+    source maps (SEC-PUBLIC-SOURCEMAPS).
 - **Accessibility outcome.** All 28 confirmed findings left after the third
-  batch are fixed in source: 13 by #44, 6 by #45, 2 by #46 and 7 by the
-  patient portal PR. So are the 13 NEW-* findings the audit added: 6 by the
-  patient portal PR, 3 by #45 and 4 by #46. Remaining confirmed findings: 0.
+  batch are fixed in source: 13 by #44, 6 by #45, 2 by #46 and 7 by #47
+  (patient portal). So are the 13 NEW-* findings the audit added: 6 by #47,
+  3 by #45 and 4 by #46. Remaining confirmed findings: 0.
   Checked for this entry against the combined tree (`9bff952`): the token
   values, the link and Field rules, a title for every patient and provider
   page, one h1 on the clinical record with a working tab set, a main landmark
@@ -1070,38 +1083,61 @@ entry's docs PR records both. hid-system was not changed.
   - #45 at `cd55b33`: 102 files, 1231 tests.
   - #46 at `a29c252`: 89 files, 1113 tests; the public-site build passed at
     `2765940`, since the branch changes `packages/ui`.
-  - Patient portal PR at `292aee7`: 1152 tests; 12 of 13 full-suite runs
+  - #47 (patient portal) at `292aee7`: 1152 tests; 12 of 13 full-suite runs
     passed. The one failure captured was an admin list test under load, in
     code this PR does not touch, not checked against its base.
-  - Admin and public PR at `88435bd`: 87 files, 1110 tests; both builds pass,
-    the portal's `dist` holds no `.map` file, a build with
+  - #48 (admin and public) at `88435bd`: 87 files, 1110 tests; both builds
+    pass, the portal's `dist` holds no `.map` file, a build with
     `VITE_HID_STRIPE_SECRET=x` stops naming the key, and an unused variable is
     not inlined.
   - Combined tree `9bff952`, all six PRs joined by three integration merges
     whose conflicts kept both sides' behaviour: `audit:boundaries`,
     `typecheck`, `lint`, 130 files and 1684 tests, and both builds pass.
-  - Every behaviour change has a test that failed on the code before it.
-    Each PR had an adversarial review. The review text the provider and
-    facility batches received was cut off part-way, so any finding after the
-    cut was not seen.
+  - The counts above are for the tested heads. #46 merged at `c84a6ee`
+    (22:00:55Z, `56ab31a`), #47 at `699f37d` (22:05:17Z, `d478c21`) and #48
+    at `e675870` (22:11:41Z, `0eda90f`). Each merged head adds only merge
+    commits (of `main` or of the other readiness branches) to the head tested,
+    and `699f37d` also drops a trailing blank line. Health-id `main` at
+    `0eda90f` differs from the combined tree `9bff952` only by that blank
+    line in `PortalFocus.test.tsx`.
+  - Each batch reports a failing-first test for each behaviour change, and an
+    adversarial review of its PR; neither was re-checked for this entry. The
+    review text the provider and facility batches received was cut off
+    part-way, so any finding after the cut was not seen.
 - **Backend dependencies** ([hand-off](./BACKEND_OWNER_HANDOFF.md) ids): the
   warnings and the cap notice stand in for A1, A3 and A2; the emergency summary
   waits on A11 and on decisions E1 and then B1; OCR resume on B5, OCR's purpose
   on E3 and B4; Outreach writes on E5 and B10; Lab and Pharmacy queues on E2
   and B2; onboarded organizations on E4 and B3; the facility chooser on C1 and
-  E7 (#47, open); everything merged on hid-system `main` but unreleased (#31
-  and #33 to #46) on C2; hosting, Turnstile hosts, staging and secrets on D1 to D4.
+  E7 (hid-system#47, open; its migration 0080 must be renumbered, since
+  hid-system `main` gave 0080 to hid-system#48); everything merged on
+  hid-system `main` but unreleased (#31, #33 to #46, #48 to #53 and #55 to
+  #62) on C2; hosting, Turnstile hosts, staging and secrets on D1 to D4.
   Items found after the hand-off was written are in open questions, "Found
   during the readiness series".
+- **hid-system `main` moved on.** Between 14:39Z and 19:09Z, before this entry
+  was written, hid-system `main` went from `6b49a06` to `bbc6e89`
+  (hid-system#48 to #53 and #55 to #62); none is released. Among them: #48
+  refuses a dispense of a prescription EHR has since changed (A1); #49 maps
+  the platform MFA key in CDK (D4); #52 withholds emergency summary categories
+  the reader may not read and reports per-section limits (A11, except
+  corrected vitals); #55 answers recovery starts alike (A13); #56 sends an
+  activated draft, a resumed hold or an edited active request to Lab (A3, but
+  not a cancel or hold after acceptance); #59 lets only the uploader complete
+  a document (A15); #60 answers a missing purpose header with
+  `400 PURPOSE_OF_USE_REQUIRED` (A14(c)). The portal's warnings stay, since
+  they hold for every released build. The audit, the hand-off and the rest of
+  this entry describe `6b49a06`; open questions and the gap map note these
+  changes where they apply.
 - **Not verified.** No staging environment exists, so nothing ran against a
   deployed backend, staging or production. No browser or assistive-technology
   run was made in this series (the headless Chromium runs in the earlier
-  batches are not repeated). #46 and the two new PRs were not merged when
-  this was written; their counts are from their branches and the combined
-  tree.
+  batches are not repeated). #46, #47 and #48 merged after their counts were
+  taken; the counts are from their tested heads and the combined tree.
 - **Docs.** New `BACKEND_OWNER_HANDOFF.md`. The gap map, open questions,
   architecture notes and the Stage 2B and Stage 3 reports are brought in line
-  with the combined tree and hid-system `6b49a06`, including every statement
+  with the combined tree and hid-system `6b49a06` (and `bbc6e89` where its
+  later merges change a statement), including every statement
   in `docs/` that the audit's 41 doc-only findings named. Outside `docs/` and
   unchanged here: the `c4b5445` baseline comments in
   `packages/contracts/src/registry.ts`, `packages/api/src/services.ts` and

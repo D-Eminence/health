@@ -52,9 +52,9 @@ Two minutes before the reported idle expiry a banner offers **Stay signed in**,
 which refreshes the session. Nothing refreshes on a timer. At the 8-hour limit
 the banner says only a new sign-in will help.
 
-Since changed (the admin and public PR, 2026-10-12): a workspace belongs to the
-administrator who opened it. The console holds that account in memory only,
-set on open and cleared on end. A refresh that answers for another
+Since changed (Health-id #48, admin and public, 2026-10-12): a workspace
+belongs to the administrator who opened it. The console holds that account in
+memory only, set on open and cleared on end. A refresh that answers for another
 administrator ends the workspace with the **switched** notice ("Platform
 administration in this browser is now signed in as another administrator…")
 and is refused as a 401, so the original request is never repeated as them; a
@@ -257,4 +257,7 @@ export permission".
 - **Deployment**: merge and deploy the Stage 2A backend with
   `MFA_SECRET_KEY_B64`. Until then platform sign-in fails, because the staff
   sign-in route is no longer granted to the admin app. (Since changed: merged
-  into hid-system `main`, not released; backend hand-off C2 and D4.)
+  into hid-system `main`, not released; backend hand-off C2 and D4.
+  hid-system#49, also merged and not released, maps `MFA_SECRET_KEY_B64` from
+  Secrets Manager in the CDK stack; creating the secret and applying the
+  infrastructure remain.)
