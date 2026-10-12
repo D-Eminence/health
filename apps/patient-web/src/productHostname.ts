@@ -7,6 +7,8 @@ export const STAFF_PRODUCT_ROUTES = {
 } as const
 
 export const PLATFORM_ADMIN_HOSTNAME = 'admin.healthidentitydirectory.com'
+/** The admin site of each deployment, as hid-system's Cloudflare config names it (infra/cloudflare). */
+const PLATFORM_ADMIN_HOSTNAMES: readonly string[] = [PLATFORM_ADMIN_HOSTNAME, 'admin.staging.healthidentitydirectory.com']
 export const PLATFORM_ADMIN_ROUTE = '/admin/overview'
 
 export type StaffProductKey = keyof typeof STAFF_PRODUCT_ROUTES
@@ -17,12 +19,22 @@ export interface StaffProduct {
   route: (typeof STAFF_PRODUCT_ROUTES)[StaffProductKey]
 }
 
+/**
+ * Each staff product host of each deployment, exactly as hid-system's Cloudflare
+ * config names them (infra/cloudflare/src/frontend-worker.mjs, production and
+ * staging). Only a host listed here opens a product workspace.
+ */
 const STAFF_PRODUCT_HOSTNAMES: Record<string, StaffProduct> = {
   'ehr.healthidentitydirectory.com': { key: 'ehr', hostname: 'ehr.healthidentitydirectory.com', route: STAFF_PRODUCT_ROUTES.ehr },
   'lab.healthidentitydirectory.com': { key: 'lab', hostname: 'lab.healthidentitydirectory.com', route: STAFF_PRODUCT_ROUTES.lab },
   'pharmacy.healthidentitydirectory.com': { key: 'pharmacy', hostname: 'pharmacy.healthidentitydirectory.com', route: STAFF_PRODUCT_ROUTES.pharmacy },
   'migrate.healthidentitydirectory.com': { key: 'migrate', hostname: 'migrate.healthidentitydirectory.com', route: STAFF_PRODUCT_ROUTES.migrate },
   'outreach.healthidentitydirectory.com': { key: 'outreach', hostname: 'outreach.healthidentitydirectory.com', route: STAFF_PRODUCT_ROUTES.outreach },
+  'ehr.staging.healthidentitydirectory.com': { key: 'ehr', hostname: 'ehr.staging.healthidentitydirectory.com', route: STAFF_PRODUCT_ROUTES.ehr },
+  'lab.staging.healthidentitydirectory.com': { key: 'lab', hostname: 'lab.staging.healthidentitydirectory.com', route: STAFF_PRODUCT_ROUTES.lab },
+  'pharmacy.staging.healthidentitydirectory.com': { key: 'pharmacy', hostname: 'pharmacy.staging.healthidentitydirectory.com', route: STAFF_PRODUCT_ROUTES.pharmacy },
+  'migrate.staging.healthidentitydirectory.com': { key: 'migrate', hostname: 'migrate.staging.healthidentitydirectory.com', route: STAFF_PRODUCT_ROUTES.migrate },
+  'outreach.staging.healthidentitydirectory.com': { key: 'outreach', hostname: 'outreach.staging.healthidentitydirectory.com', route: STAFF_PRODUCT_ROUTES.outreach },
 }
 
 function normalizeHostname(hostname: string): string {
@@ -30,7 +42,8 @@ function normalizeHostname(hostname: string): string {
 }
 
 export function resolveStaffProductHostname(hostname: string): StaffProduct | null {
-  return STAFF_PRODUCT_HOSTNAMES[normalizeHostname(hostname)] ?? null
+  const normalized = normalizeHostname(hostname)
+  return Object.hasOwn(STAFF_PRODUCT_HOSTNAMES, normalized) ? STAFF_PRODUCT_HOSTNAMES[normalized]! : null
 }
 
 /**
@@ -87,7 +100,7 @@ export function isStaffProductRoute(pathname: string): boolean {
 }
 
 export function isPlatformAdminHostname(hostname: string): boolean {
-  return normalizeHostname(hostname) === PLATFORM_ADMIN_HOSTNAME
+  return PLATFORM_ADMIN_HOSTNAMES.includes(normalizeHostname(hostname))
 }
 
 export function isPlatformAdminRoute(pathname: string): boolean {
