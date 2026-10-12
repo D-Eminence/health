@@ -409,6 +409,7 @@ export interface OcrPublication {
 /** Lab evidence imported from a document (GET /api/v1/lab/imports/:importId), such as an OCR publication made. */
 export interface LabImport {
   id: string
+  /** accepted, entered_in_error or amended (hid-system lab migration 0017). */
   status: string
   externalLabName?: string | null
   reportedAt?: string | null
@@ -422,6 +423,7 @@ export interface LabImport {
     unit?: string | null
     referenceRange?: string | null
     abnormalFlag?: string | null
+    status?: string
   }>
 }
 /** Historical medication evidence imported from a document (GET /api/v1/pharmacy/imports/:importId). */

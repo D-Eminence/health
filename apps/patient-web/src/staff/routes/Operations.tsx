@@ -714,29 +714,40 @@ const publishedAs: Partial<Record<OcrTargetDomain, string>> = {
 function observationText(item: LabImport['observations'][number]) {
   const result = [item.value && `${item.value}${item.unit ? ` ${item.unit}` : ''}`, item.valueText].filter(Boolean).join(' · ')
   const flag = item.abnormalFlag && item.abnormalFlag !== 'normal' && item.abnormalFlag !== 'unknown' ? `flagged ${item.abnormalFlag}` : ''
-  return [`${item.testName}: ${result}`, item.referenceRange && `reference ${item.referenceRange}`, flag].filter(Boolean).join(' · ')
+  const status = item.status && item.status !== 'reported' ? item.status.replaceAll('_', ' ') : ''
+  return [result ? `${item.testName}: ${result}` : item.testName, item.referenceRange && `reference ${item.referenceRange}`, flag, status].filter(Boolean).join(' · ')
 }
 
-/** Evidence a Lab or Pharmacy publication imported, read from its owning domain only when asked: each read is audited. */
+/**
+ * Evidence a Lab or Pharmacy publication imported, read from its owning domain only when asked: each read
+ * is audited. What was imported does not change, so a read that succeeded is kept; one that failed is made
+ * again on the next opening.
+ */
 function ImportedEvidence({ facilityId, domain, importId }: { facilityId: string; domain: 'lab' | 'medication'; importId: string }) {
   const [open, setOpen] = useState(false)
   const [evidence, setEvidence] = useState<{ lab?: LabImport; medication?: PharmacyImport; error?: string } | null>(null)
+  const [reads, setReads] = useState(0)
   useEffect(() => {
-    if (!open) return
+    if (!reads) return
     let active = true
-    setEvidence(null)
     const read = domain === 'lab' ? staffApi.labImport(facilityId, importId).then(lab => ({ lab }))
       : staffApi.pharmacyImport(facilityId, importId).then(medication => ({ medication }))
     void read.then(found => { if (active) setEvidence(found) })
       .catch(caught => { if (active) setEvidence({ error: errorText(caught, 'Imported evidence could not be read.') }) })
     return () => { active = false }
-  }, [facilityId, domain, importId, open])
+  }, [facilityId, domain, importId, reads])
+  function toggle() {
+    // Cleared here, with the opening, so a refusal is never shown over the read that follows it.
+    if (!open && (reads === 0 || evidence?.error)) { setEvidence(null); setReads(value => value + 1) }
+    setOpen(!open)
+  }
   const lab = open ? evidence?.lab : undefined
   const medication = open ? evidence?.medication : undefined
-  return <div className="staff-stack"><Button tone="secondary" size="sm" aria-expanded={open} onClick={() => setOpen(value => !value)}>{open ? 'Hide' : 'View'} imported {domain} evidence</Button>
+  // A disclosure: its name stays the same, and aria-expanded says whether it is open.
+  return <div className="staff-stack"><Button tone="secondary" size="sm" aria-expanded={open} onClick={toggle}>Imported {domain} evidence</Button>
     {open && !evidence && <p className="staff-muted" role="status">Loading imported evidence…</p>}
     {open && evidence?.error && <p className="staff-error" role="alert">{evidence.error}</p>}
-    {lab && <>{lab.externalLabName && <p>Reported by {lab.externalLabName}</p>}<ul className="staff-stack">{lab.observations.map(item => <li key={item.id}>{observationText(item)}</li>)}</ul></>}
+    {lab && <>{lab.status && lab.status !== 'accepted' && <p>Import status: {lab.status.replaceAll('_', ' ')}</p>}{lab.externalLabName && <p>Reported by {lab.externalLabName}</p>}<ul className="staff-stack">{lab.observations.map(item => <li key={item.id}>{observationText(item)}</li>)}</ul></>}
     {medication && <><p><strong>{medication.medicationText}</strong></p>
       {(medication.strengthText || medication.doseText || medication.frequencyText) && <p>{[medication.strengthText, medication.doseText, medication.frequencyText].filter(Boolean).join(' · ')}</p>}
       {medication.historicalContext && <p className="staff-muted">{medication.historicalContext}</p>}</>}

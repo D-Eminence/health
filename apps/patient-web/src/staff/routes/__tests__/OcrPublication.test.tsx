@@ -369,7 +369,7 @@ describe('OCR-04: what a publication produced', () => {
   it('reads imported lab evidence from Lab when asked, if the role may, and never shows its ID', async () => {
     permissions.value = ['ocr.job.read', 'lab.import.read']
     lab()
-    api.labImport.mockResolvedValue({ id: IMPORT, status: 'reported', externalLabName: 'Central Laboratory', observations: [
+    api.labImport.mockResolvedValue({ id: IMPORT, status: 'accepted', externalLabName: 'Central Laboratory', observations: [
       { id: 'observation-1', ordinal: 1, testName: 'Haemoglobin', value: '12.1', unit: 'g/dL', referenceRange: '11.5-16.5', abnormalFlag: 'normal' },
       { id: 'observation-2', ordinal: 2, testName: 'Platelets', value: '95', unit: '10^9/L', abnormalFlag: 'low' },
     ] })
@@ -377,15 +377,58 @@ describe('OCR-04: what a publication produced', () => {
     expect(await screen.findByText('Published as imported lab evidence in the patient\'s record.')).toBeTruthy()
     expect(api.labImport).not.toHaveBeenCalled()
 
-    const view = screen.getByRole('button', { name: 'View imported lab evidence' })
+    // A disclosure: its name stays, and aria-expanded says whether it is open.
+    const view = screen.getByRole('button', { name: 'Imported lab evidence' })
     expect(view.getAttribute('aria-expanded')).toBe('false')
     await press(view)
     expect(await screen.findByText('Haemoglobin: 12.1 g/dL · reference 11.5-16.5')).toBeTruthy()
     expect(screen.getByText('Platelets: 95 10^9/L · flagged low')).toBeTruthy()
     expect(screen.getByText('Reported by Central Laboratory')).toBeTruthy()
+    expect(screen.queryByText(/^Import status/)).toBeNull()
     expect(api.labImport).toHaveBeenCalledWith('facility-1', IMPORT)
-    expect(screen.getByRole('button', { name: 'Hide imported lab evidence' }).getAttribute('aria-expanded')).toBe('true')
+    expect(screen.getByRole('button', { name: 'Imported lab evidence' })).toBe(view)
+    expect(view.getAttribute('aria-expanded')).toBe('true')
     expect(document.body.textContent).not.toContain(IMPORT)
+
+    // Each read is audited, and what was imported does not change: opening it again reads nothing.
+    await press(view)
+    expect(view.getAttribute('aria-expanded')).toBe('false')
+    expect(screen.queryByText('Reported by Central Laboratory')).toBeNull()
+    await press(view)
+    expect(screen.getByText('Reported by Central Laboratory')).toBeTruthy()
+    expect(screen.queryByText('Loading imported evidence…')).toBeNull()
+    expect(api.labImport).toHaveBeenCalledTimes(1)
+  })
+
+  it('reads imported evidence again when opened after a read that failed', async () => {
+    permissions.value = ['ocr.job.read', 'lab.import.read']
+    lab()
+    api.labImport.mockRejectedValueOnce(new HidApiError(503, 'Lab service is unavailable', { code: 'LAB_SERVICE_UNAVAILABLE' }))
+    await openJob()
+    const view = await screen.findByRole('button', { name: 'Imported lab evidence' })
+    await press(view)
+    expect((await screen.findByRole('alert')).textContent).toBe('Lab service is unavailable')
+    await press(view)
+    let answer: (value: unknown) => void = () => {}
+    api.labImport.mockReturnValueOnce(new Promise(resolve => { answer = resolve }))
+    await press(view)
+    // The earlier refusal is not shown while the new read runs.
+    expect(screen.getByText('Loading imported evidence…')).toBeTruthy()
+    expect(screen.queryByRole('alert')).toBeNull()
+    await act(async () => { answer({ id: IMPORT, status: 'accepted', observations: [] }) })
+    expect(api.labImport).toHaveBeenCalledTimes(2)
+  })
+
+  it('says an observation without a result by its name alone, and an import that is not accepted by its status', async () => {
+    permissions.value = ['ocr.job.read', 'lab.import.read']
+    lab()
+    api.labImport.mockResolvedValue({ id: IMPORT, status: 'entered_in_error', observations: [
+      { id: 'observation-1', ordinal: 1, testName: 'Culture', value: null, valueText: null, abnormalFlag: 'unknown', status: 'reported' },
+    ] })
+    await openJob()
+    await press(await screen.findByRole('button', { name: 'Imported lab evidence' }))
+    expect(await screen.findByText('Culture')).toBeTruthy()
+    expect(screen.getByText('Import status: entered in error')).toBeTruthy()
   })
 
   it('names imported lab evidence without reading it when the role may not read Lab imports', async () => {
@@ -403,7 +446,7 @@ describe('OCR-04: what a publication produced', () => {
       strengthText: '500 mg', doseText: 'One capsule', frequencyText: 'Three times a day', historicalContext: 'Course finished in March' })
     await openJob()
     expect(await screen.findByText('Published as imported medication evidence in the patient\'s record.')).toBeTruthy()
-    await press(screen.getByRole('button', { name: 'View imported medication evidence' }))
+    await press(screen.getByRole('button', { name: 'Imported medication evidence' }))
     expect(await screen.findByText('Amoxicillin capsules')).toBeTruthy()
     expect(screen.getByText('500 mg · One capsule · Three times a day')).toBeTruthy()
     expect(screen.getByText('Course finished in March')).toBeTruthy()
@@ -416,7 +459,7 @@ describe('OCR-04: what a publication produced', () => {
     lab()
     api.labImport.mockRejectedValue(new HidApiError(403, 'Lab access is not authorized', { code: 'LAB_ACCESS_DENIED' }))
     await openJob()
-    await press(await screen.findByRole('button', { name: 'View imported lab evidence' }))
+    await press(await screen.findByRole('button', { name: 'Imported lab evidence' }))
     expect((await screen.findByRole('alert')).textContent).toBe('Lab access is not authorized')
   })
 
