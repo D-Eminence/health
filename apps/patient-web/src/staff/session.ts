@@ -110,10 +110,12 @@ export function setStaffSessionFacilities(ids: readonly string[] | null): void {
 }
 
 /**
- * Throws a cancellation when `facilityId` is no longer one of the session's
+ * Throws a cancellation when the facility a request names (its X-Facility-ID,
+ * however the header name is written) is no longer one of the session's
  * facilities. A request that names none is left to the server, as before.
  */
-export function assertStaffSessionFacility(facilityId: string | undefined): void {
+export function assertStaffSessionFacility(headers: Readonly<Record<string, string>> | undefined): void {
+  const facilityId = Object.entries(headers ?? {}).find(([name]) => name.toLowerCase() === 'x-facility-id')?.[1]
   if (!facilityId || facilities === null || facilities.includes(facilityId)) return
   throw new HidApiError(0, 'Stopped because you are no longer active at the facility it was for.', { code: 'REQUEST_CANCELLED', retryable: false })
 }

@@ -515,7 +515,7 @@ function reportingSessionEnd(inner: ApiClient): ApiClient {
           // facility found gone meanwhile (see setStaffSessionFacilities).
           beforeAttempt: async () => {
             await spec.beforeAttempt?.(); await untilStaffSessionReady(sentIn)
-            assertStaffSessionFacility(spec.headers?.['X-Facility-ID'])
+            assertStaffSessionFacility(spec.headers)
           },
         } : {}),
       }

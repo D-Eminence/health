@@ -39,20 +39,30 @@ describe('a protected step waiting for its staff session', () => {
 
 describe('a protected request for a facility', () => {
   const cancelled = (check: () => void) => { try { check(); return 'sent' } catch (error) { return (error as { code?: string }).code } }
+  const at = (facilityId: string) => ({ 'X-Facility-ID': facilityId, 'X-Purpose-Of-Use': 'direct-care' })
 
   it('goes out for one of the session\'s facilities, and for any while no session is in use', async () => {
     const session = await import('./session')
-    expect(cancelled(() => session.assertStaffSessionFacility('facility-2'))).toBe('sent')
+    expect(cancelled(() => session.assertStaffSessionFacility(at('facility-2')))).toBe('sent')
     session.setStaffSessionFacilities(['facility-1', 'facility-2'])
-    expect(cancelled(() => session.assertStaffSessionFacility('facility-2'))).toBe('sent')
+    expect(cancelled(() => session.assertStaffSessionFacility(at('facility-2')))).toBe('sent')
     expect(cancelled(() => session.assertStaffSessionFacility(undefined))).toBe('sent')
+    expect(cancelled(() => session.assertStaffSessionFacility({ 'Idempotency-Key': 'key-1' }))).toBe('sent')
     // One naming no facility is the server's to refuse (400 FACILITY_REQUIRED), as before.
-    expect(cancelled(() => session.assertStaffSessionFacility(''))).toBe('sent')
+    expect(cancelled(() => session.assertStaffSessionFacility(at('')))).toBe('sent')
   })
 
   it('is cancelled once its facility is no longer one of the session\'s', async () => {
     const session = await import('./session')
     session.setStaffSessionFacilities(['facility-1'])
-    expect(cancelled(() => session.assertStaffSessionFacility('facility-2'))).toBe('REQUEST_CANCELLED')
+    expect(cancelled(() => session.assertStaffSessionFacility(at('facility-2')))).toBe('REQUEST_CANCELLED')
+  })
+
+  it('names its facility however the header is written: header names are not case-sensitive', async () => {
+    const session = await import('./session')
+    session.setStaffSessionFacilities(['facility-1'])
+    expect(cancelled(() => session.assertStaffSessionFacility({ 'x-facility-id': 'facility-1' }))).toBe('sent')
+    expect(cancelled(() => session.assertStaffSessionFacility({ 'x-facility-id': 'facility-2' }))).toBe('REQUEST_CANCELLED')
+    expect(cancelled(() => session.assertStaffSessionFacility({ 'X-FACILITY-ID': 'facility-2' }))).toBe('REQUEST_CANCELLED')
   })
 })
