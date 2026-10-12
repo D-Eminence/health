@@ -101,6 +101,22 @@ describe('signing out of a session the server has already ended', () => {
     await waitFor(() => expect(screen.getByText('You have signed out of platform administration.')).toBeTruthy())
   })
 
+  // The access cookie lasts 5 minutes (hid-system PLATFORM_ACCESS_TTL_SECONDS), so
+  // after a short idle the check before signing out gets the generic 401, and
+  // the refresh says why the server ended the session.
+  it('keeps the reason the refresh gives when the access token had lapsed', async () => {
+    const calls = serve({ ...signedIn(), [SESSION]: [ada(), refused('AUTHENTICATION_REQUIRED')],
+      [REFRESH]: [refused('PLATFORM_SESSION_REVOKED')] })
+    const messages = await open()
+    await screen.findByRole('heading', { name: 'Overview' })
+    fireEvent.click(screen.getAllByRole('button', { name: 'Sign out' })[0]!)
+    expect(await screen.findByRole('heading', { name: 'Administration sign in' })).toBeTruthy()
+    await act(async () => {})
+    expect(screen.getByText(messages.revoked)).toBeTruthy()
+    expect(screen.queryByText('You have signed out of platform administration.')).toBeNull()
+    expect(calls).not.toContain('POST /api/v1/auth/admin/logout')
+  })
+
   it('sends no sign-out once the server has refused the session, and keeps its reason', async () => {
     const calls = serve({ ...signedIn(), [SESSION]: [ada(), refused('PLATFORM_SESSION_REVOKED')],
       [REFRESH]: [refused('PLATFORM_SESSION_REVOKED')] })

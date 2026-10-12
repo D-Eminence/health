@@ -14,8 +14,7 @@ import { PrincipalsPage } from './Principals'
 import { failure } from './problems'
 import { SecurityPage } from './SecurityPage'
 import {
-  clearSessionWindow, currentSessionWindow, onSessionEnded, onSessionWindow, reportSessionEnded, serverSessionEnd,
-  type SessionEndReason,
+  clearSessionWindow, currentSessionWindow, onSessionEnded, onSessionWindow, reportSessionEnded, type SessionEndReason,
 } from './session-window'
 import { navigationItemFor, visibleNavigation } from './navigation'
 import { AdminSignIn } from './SignIn'
@@ -182,8 +181,9 @@ export function App() {
   async function signOut() {
     setSignOutError(null)
     const accountId = adminSessionAccount()
-    let switched = false
-    const stopWatching = onSessionEnded(reason => { if (reason === 'switched') switched = true })
+    // The reason the workspace ended with while signing out, if it did and had one.
+    let ended = null as SessionEndReason | null
+    const stopWatching = onSessionEnded(reason => { if (reason) ended ??= reason })
     try {
       // Logout ends whichever platform session the browser's cookies carry, and a
       // tab that has not yet heard of another administrator's sign-in would end
@@ -202,9 +202,11 @@ export function App() {
         return
       }
       // The browser holds another administrator's session, which is left alone.
-      if (switched) return
-      // An expired or revoked session was already ended with the server's reason, which is kept.
-      if (!serverSessionEnd(reason.code)) end(SIGNED_OUT)
+      if (ended === 'switched') return
+      // A session that expired or was revoked has already ended the workspace with that
+      // reason, whichever request was refused (on a lapsed access token, the refresh
+      // gives it), and the notice is kept. Only an end with no reason reads as signed out.
+      if (!ended) end(SIGNED_OUT)
     } finally { stopWatching() }
     // The other admin tabs used the same session.
     announceAdminSessionChange()
