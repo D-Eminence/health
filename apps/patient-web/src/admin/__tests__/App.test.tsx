@@ -150,6 +150,9 @@ describe('consolidated admin routing', () => {
     api.session.mockResolvedValueOnce(actor(SUPPORT))
     open()
     expect(await screen.findByRole('heading', { name: 'Platform totals' })).toBeTruthy()
+    // The heading renders before the page's effects request anything; the totals
+    // render only once the overview has answered, after every count was requested.
+    expect(await screen.findByText('Registered patients')).toBeTruthy()
     expect(screen.queryByRole('heading', { name: 'Waiting for attention' })).toBeNull()
     expect(api.overview).toHaveBeenCalledTimes(1)
     expect(api.approvals).not.toHaveBeenCalled()

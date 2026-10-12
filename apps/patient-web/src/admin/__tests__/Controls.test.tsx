@@ -33,7 +33,8 @@ describe('platform controls', () => {
     mocks.api.stepUp.mockResolvedValueOnce({ stepUpExpiresAt: '2026-10-08T12:05:00.000Z' })
     open(['platform.control.manage'])
 
-    expect(await screen.findByRole('heading', { name: 'Maintenance mode' })).toBeTruthy()
+    expect(await screen.findByText('Normal operation')).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Maintenance mode' })).toBeTruthy()
     expect(screen.getByText('Enable control')).toBeTruthy()
     const confirm = screen.getByRole('button', { name: 'Confirm change' }) as HTMLButtonElement
     fireEvent.change(screen.getByLabelText('Reason for this change'), { target: { value: 'Upgrade' } })
@@ -71,7 +72,7 @@ describe('platform controls', () => {
     mocks.api.controls.mockResolvedValueOnce([control()])
     mocks.api.command.mockRejectedValueOnce(new HidApiError(409, 'Version conflict', { code: 'VERSION_CONFLICT' }))
     open(['platform.control.manage'])
-    await screen.findByRole('heading', { name: 'Maintenance mode' })
+    await screen.findByText('Normal operation')
     fireEvent.change(screen.getByLabelText('Reason for this change'), { target: { value: 'Scheduled database upgrade' } })
     fireEvent.click(screen.getByRole('button', { name: 'Confirm change' }))
     expect((await screen.findByRole('alert')).textContent).toBe('This item changed. Reload it and try again.')
@@ -82,8 +83,8 @@ describe('platform controls', () => {
   it('is view-only without platform.control.manage', async () => {
     mocks.api.controls.mockResolvedValueOnce([control()])
     open([])
-    expect(await screen.findByRole('heading', { name: 'Maintenance mode' })).toBeTruthy()
-    expect(screen.getByText('Normal operation')).toBeTruthy()
+    expect(await screen.findByText('Normal operation')).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Maintenance mode' })).toBeTruthy()
     expect(screen.queryByText('Enable control')).toBeNull()
     expect(screen.queryByRole('button', { name: 'Confirm change' })).toBeNull()
     expect(mocks.api.command).not.toHaveBeenCalled()
