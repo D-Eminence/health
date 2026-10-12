@@ -7,7 +7,7 @@ import type { createPatientApi } from '../api'
 import { SupportChat } from '@hid/ui'
 
 const patient = { kind: 'patient', subjectId: 'patient-a', appRole: 'patient', assuranceLevel: 'aal1' } as const
-const ready = { status: 'ready', answer: 'A released note says example [1].', sources: [
+const ready = { status: 'ready' as const, answer: 'A released note says example [1].', sources: [
   { number: 1, noteId: 'note-a', title: '<b>Plain title</b>', revisionNo: 2, signedAt: '2026-10-07T10:00:00Z' },
 ] }
 const apiFor = (chat: ReturnType<typeof vi.fn>) => ({ chat, chatHistory: vi.fn().mockResolvedValue({ exchanges: [], retentionDays: 30, limit: 10 }), clearChatHistory: vi.fn().mockResolvedValue({ cleared: true }) }) as unknown as ReturnType<typeof createPatientApi>
