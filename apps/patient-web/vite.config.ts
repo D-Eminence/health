@@ -1,6 +1,25 @@
-import { defineConfig, loadEnv } from 'vite'
+import { defineConfig, loadEnv, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+// By path rather than through @hid/config: Vite loads this file with Node and
+// leaves package imports to Node, which cannot load that package's TypeScript.
+import { assertPublicEnvironment } from '../../packages/config/src/guards'
+
+/**
+ * Refuses to build (or serve) when a VITE_HID_ variable is named like a secret
+ * or holds a credential. Everything under that prefix can reach the bundle, so
+ * the check runs before anything is written: the one in env.ts runs in the
+ * browser, after the value has shipped.
+ */
+function publicEnvironmentGuard(): Plugin {
+  return {
+    name: 'hid-public-environment-guard',
+    configResolved(config) {
+      assertPublicEnvironment(Object.fromEntries(Object.entries(config.env)
+        .filter(([key, value]) => key.startsWith('VITE_HID_') && typeof value === 'string')))
+    },
+  }
+}
 
 /**
  * The authenticated Health ID portal.
@@ -19,7 +38,7 @@ export default defineConfig(({ mode }) => {
   return {
     // Only VITE_HID_ variables reach the bundle. Anything else stays server-side.
     envPrefix: 'VITE_HID_',
-    plugins: [react(), tailwindcss()],
+    plugins: [publicEnvironmentGuard(), react(), tailwindcss()],
     server: {
       port: 3200,
       strictPort: true,
