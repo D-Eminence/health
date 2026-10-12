@@ -222,6 +222,14 @@ export interface NoteRevision {
   createdAt: string
 }
 
+/**
+ * GET /ehr/patients/:patientId/emergency-records (hid-system
+ * patient-records.service.ts read()): this facility's completed encounters and
+ * signed notes, 50 of each, and its diagnoses, prescriptions, lab requests and
+ * uploaded documents, 100 of each and in every status. `limit` is the larger
+ * cap. EHR also returns vitals, as first recorded and without corrections,
+ * which are not read here. pg sends numeric and bigint columns as strings.
+ */
 export interface EmergencyRecords {
   encounters: Array<{
     id: string
@@ -241,6 +249,60 @@ export interface EmergencyRecords {
     revisionNo: number
     content: string
     signedAt: string | null
+  }>
+  diagnoses: Array<{
+    id: string
+    encounterId: string
+    facilityId: string
+    codeSystem: string
+    code: string
+    display: string
+    clinicalStatus: string
+    verificationStatus: string
+    onsetAt: string | null
+    abatementAt: string | null
+    notes: string | null
+  }>
+  prescriptions: Array<{
+    id: string
+    encounterId: string
+    facilityId: string
+    medicationCodeSystem: string | null
+    medicationCode: string | null
+    medicationDisplay: string
+    doseQuantity: number | string | null
+    doseUnit: string | null
+    routeCode: string | null
+    frequency: string
+    instructions: string
+    startsOn: string | null
+    endsOn: string | null
+    status: string
+  }>
+  labRequests: Array<{
+    id: string
+    encounterId: string
+    facilityId: string
+    testCodeSystem: string
+    testCode: string
+    testDisplay: string
+    priority: string
+    status: string
+    specimenTypeCode: string | null
+    clinicalInformation: string | null
+    externalOrderReference: string | null
+    createdAt: string
+  }>
+  documents: Array<{
+    id: string
+    encounterId: string | null
+    facilityId: string
+    fileName: string
+    mediaType: string
+    sizeBytes: number | string | null
+    classification: string
+    status: string
+    createdAt: string
   }>
   limit: number
 }

@@ -564,8 +564,64 @@ function Documents({ patientId, encounterId, facilityId, canWrite, canOcr, verif
   return <div className="staff-two-col"><Card className="staff-card"><h2>Documents</h2>{loading && <p role="status">Loading documents…</p>}{!loading && items.length === 0 && <p>No documents for this encounter.</p>}<div className="staff-list">{items.map(item => <div className="staff-list-item" key={item.id}><strong>{item.fileName}</strong><p>{item.mediaType} · {Math.ceil(item.sizeBytes / 1024)} KiB · scan: {item.scanStatus}</p><Button tone="secondary" size="sm" onClick={() => void download(item.id)} disabled={item.scanStatus !== 'clean'}>Open file</Button>{canOcr && item.scanStatus === 'clean' && <Link to="/provider/ocr" state={{ ocrDocumentId: item.id, ocrPatientId: patientId, actorId, facilityId }} className="staff-text-link">Extract with OCR</Link>}</div>)}</div></Card>{canWrite && <Card className="staff-card"><h2>Upload a document</h2><p>Files are scanned before download becomes available.</p><form className="staff-form" onSubmit={event => void upload(event)}><Field label="Clinical document" htmlFor="clinical-document"><Input id="clinical-document" name="document" type="file" accept=".pdf,.jpg,.jpeg,.png,.tif,.tiff" required /></Field><Button type="submit" disabled={busy}>{busy ? 'Uploading…' : 'Upload document'}</Button></form></Card>}{error && <p role="alert" className="staff-error">{error}</p>}</div>
 }
 
-function EmergencySummary({ facilityId, patientId, patientName, verify }: {
-  facilityId: string; patientId: string; patientName: string; verify: () => Promise<void>
+// What EHR's emergency summary sends of each section at most (patient-records.service.ts
+// read()). It reports one `limit`, 100, though encounters and notes stop at 50, so
+// each section is judged by its own cap: one that reaches it may have more.
+const EMERGENCY_CAPS = { encounters: 50, notes: 50, diagnoses: 100, prescriptions: 100, labRequests: 100, documents: 100 } as const
+
+type BadgeTone = 'neutral' | 'information' | 'success' | 'warning' | 'danger'
+// Prescription and lab request statuses (EHR OrderStatus), what is current first.
+const ORDER_STATUSES: Readonly<Record<string, { readonly label: string; readonly tone: BadgeTone; readonly rank: number }>> = {
+  active: { label: 'Active', tone: 'success', rank: 0 },
+  on_hold: { label: 'On hold', tone: 'warning', rank: 1 },
+  draft: { label: 'Draft', tone: 'information', rank: 2 },
+  completed: { label: 'Completed', tone: 'neutral', rank: 3 },
+  cancelled: { label: 'Cancelled', tone: 'neutral', rank: 4 },
+  entered_in_error: { label: 'Entered in error', tone: 'danger', rank: 5 },
+}
+
+function orderRank(status: string) { return ORDER_STATUSES[status]?.rank ?? 3 }
+
+// A diagnosis has no status of its own: an ongoing one first, then one that has
+// ended, then one refuted, and last one entered in error.
+function diagnosisRank(item: EmergencyRecords['diagnoses'][number]) {
+  if (item.verificationStatus === 'entered_in_error') return 3
+  if (item.verificationStatus === 'refuted') return 2
+  return ['inactive', 'remission', 'resolved'].includes(item.clinicalStatus) ? 1 : 0
+}
+
+/** The entries in `rank` order; EHR's own order, newest first, within a rank. */
+function currentFirst<T>(items: readonly T[], rank: (item: T) => number): T[] {
+  return [...items].sort((first, second) => rank(first) - rank(second))
+}
+
+function OrderStatus({ status }: { status: string }) {
+  const known = ORDER_STATUSES[status]
+  return <Badge tone={known?.tone ?? 'neutral'}>{known?.label ?? status.replaceAll('_', ' ')}</Badge>
+}
+
+/** A byte count as EHR sends it: a number, or a string (pg returns bigint as text). */
+function byteCount(value: number | string | null | undefined): number | null {
+  if (value == null || value === '') return null
+  const count = Number(value)
+  return Number.isFinite(count) && count >= 0 ? count : null
+}
+
+function SummarySection<T extends { id: string }>({ title, items, cap, empty, note, render }: {
+  title: string; items: readonly T[] | undefined; cap: number; empty: string; note?: ReactNode
+  render: (item: T) => ReactNode
+}) {
+  return <Card className="staff-card"><h2>{title}</h2>
+    {note}
+    {!Array.isArray(items) ? <p>{title} are not available in this summary.</p>
+      : items.length === 0 ? <p>{empty}</p>
+        : <div className="staff-list">{items.map(item => <div className="staff-list-item" key={item.id}>{render(item)}</div>)}</div>}
+    {Array.isArray(items) && items.length >= cap && <p className="staff-muted">The backend sends only the {cap} most recent; older ones are not shown.</p>}
+  </Card>
+}
+
+function EmergencySummary({ facilityId, patientId, patientName, permissions, verify }: {
+  facilityId: string; patientId: string; patientName: string; permissions: readonly string[]; verify: () => Promise<void>
 }) {
   const [summary, setSummary] = useState<EmergencyRecords | null>(null)
   const [loading, setLoading] = useState(false)
@@ -582,9 +638,13 @@ function EmergencySummary({ facilityId, patientId, patientName, verify }: {
     return () => { active = false }
   }, [facilityId, patientId, verify, revision])
 
+  // The route needs only ehr.encounter.read and ehr.note.read, but answers with
+  // every section: one is shown only to a role that may read that record.
+  const may = (permission: string) => permissions.includes(permission)
+  const date = (value: string | null) => value ? new Date(value).toLocaleString() : ''
   return <>
     <div className="staff-page-head"><p className="staff-eyebrow">Emergency record · audited access</p><h1>{patientName}</h1>
-      <p>This read-only summary contains completed encounters and signed clinical notes from this facility. The server checks the active emergency grant on each request.</p>
+      <p>This read-only summary holds this facility’s completed encounters and signed clinical notes, and the diagnoses, prescriptions, lab requests and documents your role may read. The server checks the active emergency grant on each request.</p>
     </div>
     <div className="staff-row staff-toolbar"><Badge tone="danger">Emergency access</Badge>
       <Button tone="secondary" size="sm" onClick={() => setRevision(value => value + 1)} disabled={loading}>Refresh summary</Button>
@@ -592,27 +652,58 @@ function EmergencySummary({ facilityId, patientId, patientName, verify }: {
     </div>
     {loading && <p role="status">Loading emergency summary…</p>}
     {error && <p className="staff-error" role="alert">{error}</p>}
+    {summary && <p className="staff-notice">Vital signs are not shown in this summary. EHR sends them as first recorded, without later corrections, so a value here could be one a clinician has since corrected.</p>}
     {summary && <div className="staff-two-col">
-      <Card className="staff-card"><h2>Completed encounters</h2>
-        {summary.encounters.length === 0 && <p>No completed encounters are available from this facility.</p>}
-        <div className="staff-list">{summary.encounters.map(item => <div className="staff-list-item" key={item.id}>
+      <SummarySection title="Completed encounters" items={summary.encounters} cap={EMERGENCY_CAPS.encounters}
+        empty="No completed encounters are available from this facility." render={item => <>
           <strong>{item.encounterType.replace('_', ' ')}</strong>
-          <p>Started {new Date(item.startedAt).toLocaleString()}</p>
-          {item.endedAt && <p>Ended {new Date(item.endedAt).toLocaleString()}</p>}
-        </div>)}</div>
-      </Card>
-      <Card className="staff-card"><h2>Signed notes</h2>
-        {summary.notes.length === 0 && <p>No signed notes are available from this facility.</p>}
-        <div className="staff-list">{summary.notes.map(item => <div className="staff-list-item" key={item.id}>
+          <p>Started {date(item.startedAt)}</p>
+          {item.endedAt && <p>Ended {date(item.endedAt)}</p>}
+        </>} />
+      <SummarySection title="Signed notes" items={summary.notes} cap={EMERGENCY_CAPS.notes}
+        empty="No signed notes are available from this facility." render={item => <>
           <strong>{item.title}</strong>
           <p>{item.noteType} · {item.status} · revision {item.revisionNo}</p>
           <p className="staff-note-content">{item.content}</p>
-          {item.signedAt && <p>Signed {new Date(item.signedAt).toLocaleString()}</p>}
-        </div>)}</div>
-      </Card>
+          {item.signedAt && <p>Signed {date(item.signedAt)}</p>}
+        </>} />
+      {may('ehr.diagnosis.read') && <SummarySection title="Diagnoses" cap={EMERGENCY_CAPS.diagnoses}
+        items={Array.isArray(summary.diagnoses) ? currentFirst(summary.diagnoses, diagnosisRank) : undefined}
+        empty="No diagnoses are available from this facility." render={item => <>
+          <div className="staff-row"><strong>{item.display}</strong>
+            {item.verificationStatus === 'entered_in_error' && <Badge tone="danger">Entered in error</Badge>}
+            {item.verificationStatus === 'refuted' && <Badge tone="neutral">Refuted</Badge>}</div>
+          {item.verificationStatus === 'entered_in_error' && <p>Recorded in error: not a diagnosis of this patient.</p>}
+          <p>{item.codeSystem} {item.code} · {item.clinicalStatus.replaceAll('_', ' ')} · {item.verificationStatus.replaceAll('_', ' ')}</p>
+          {item.notes && <p className="staff-note-content">{item.notes}</p>}
+        </>} />}
+      {may('ehr.prescription.read') && <SummarySection title="Prescriptions" cap={EMERGENCY_CAPS.prescriptions}
+        items={Array.isArray(summary.prescriptions) ? currentFirst(summary.prescriptions, item => orderRank(item.status)) : undefined}
+        empty="No prescriptions are available from this facility." render={item => <>
+          <div className="staff-row"><strong>{item.medicationDisplay}</strong><OrderStatus status={item.status} /></div>
+          {item.status === 'entered_in_error' && <p>Recorded in error: not a prescription for this patient.</p>}
+          <p>{item.doseQuantity == null || item.doseQuantity === '' ? 'Dose not recorded' : `${Number(item.doseQuantity)} ${item.doseUnit ?? ''}`.trim()} · {item.routeCode ? `Route ${item.routeCode}` : 'Route not recorded'} · {item.frequency}</p>
+          {item.instructions && <p className="staff-note-content">{item.instructions}</p>}
+          {(item.startsOn || item.endsOn) && <p>{[item.startsOn && `Starts ${item.startsOn}`, item.endsOn && `Ends ${item.endsOn}`].filter(Boolean).join(' · ')}</p>}
+        </>} />}
+      {may('ehr.lab-request.read') && <SummarySection title="Lab requests" cap={EMERGENCY_CAPS.labRequests}
+        items={Array.isArray(summary.labRequests) ? currentFirst(summary.labRequests, item => orderRank(item.status)) : undefined}
+        empty="No lab requests are available from this facility." render={item => <>
+          <div className="staff-row"><strong>{item.testDisplay}</strong><OrderStatus status={item.status} /></div>
+          {item.status === 'entered_in_error' && <p>Recorded in error: not a request for this patient.</p>}
+          <p>{item.testCodeSystem} {item.testCode} · {item.priority} priority · Requested {date(item.createdAt)}</p>
+          {item.clinicalInformation && <p className="staff-note-content">{item.clinicalInformation}</p>}
+        </>} />}
+      {may('ehr.document.read') && <SummarySection title="Documents" items={summary.documents} cap={EMERGENCY_CAPS.documents}
+        note={<p>Uploaded documents are listed for reference. They cannot be opened from this summary, and their virus scan result is not included.</p>}
+        empty="No uploaded documents are available from this facility." render={item => {
+          const size = byteCount(item.sizeBytes)
+          return <>
+            <strong>{item.fileName}</strong>
+            <p>{item.mediaType}{size == null ? '' : ` · ${Math.ceil(size / 1024).toLocaleString()} KiB`} · Uploaded {date(item.createdAt)}</p>
+          </>
+        }} />}
     </div>}
-    {summary && (summary.encounters.length >= summary.limit || summary.notes.length >= summary.limit) &&
-      <p className="staff-muted">The backend limits each emergency summary section to its {summary.limit} most recent records.</p>}
   </>
 }
 
@@ -764,7 +855,7 @@ export function Clinical() {
   if (!activePatient || !facility) return <><div className="staff-page-head"><p className="staff-eyebrow">Clinical record</p><h1>Choose a patient first.</h1><p>Clinical records require a current backend authorization for the selected facility.</p></div><EmptyState title="No authorized patient" description="Open a patient using an approved request, patient PIN, or documented emergency access." action={<Link className="staff-text-link" to="/provider/patients">Go to patient access →</Link>} /></>
   if (activePatient.purpose === 'emergency') return <EmergencySummary facilityId={facility.id}
     patientId={activePatient.lookup.patient.patientId} patientName={activePatient.lookup.patient.fullName ?? activePatient.hid}
-    verify={verify} />
+    permissions={permissions} verify={verify} />
   const selected = selectedEncounter
   const canMutate = activePatient.purpose === 'direct-care' && currentWriteAccess?.allowed === true
 
