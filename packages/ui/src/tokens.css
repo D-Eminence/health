@@ -29,7 +29,7 @@
   --color-ink: #222222;
   --color-text: #262626;
   --color-muted: #555555;
-  --color-faint: #6f6f6f; /* small text: 4.5:1 on every light surface, hover included */
+  --color-faint: #6f6f6f; /* small text: 4.5:1 from white down to surface-hover */
   --color-soft: #898989;
   --color-line: #f0f0f0;
   --color-line-strong: #e3e3e3;
