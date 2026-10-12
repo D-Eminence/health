@@ -25,6 +25,9 @@ vi.mock('../../App', () => ({
 }))
 vi.mock('../../session', () => ({ staffSessionGeneration: () => 1, untilStaffSessionReady: async () => {} }))
 
+// What the emergency summary's route requires (contracts registry ehr.emergencyRecords).
+const SUMMARY_READ = ['ehr.encounter.read', 'ehr.note.read']
+
 beforeEach(() => {
   vi.clearAllMocks()
   staff.permissions = ['identity.patient.read', 'identity.consent.write', 'identity.patient-access-pin.verify', 'identity.break-glass.write']
@@ -72,12 +75,50 @@ describe('emergency access is offered only to a role the backend will let use it
     expect(reason()).toMatch(/identity\.break-glass\.write/)
   })
 
-  it('is available, with nothing to explain, when the role holds both', () => {
-    staff.permissions = ['identity.patient.read', 'identity.consent.write', 'identity.break-glass.write']
+  it('is available, with nothing to explain, when the role holds both and what the record it opens needs', () => {
+    staff.permissions = ['identity.patient.read', 'identity.consent.write', 'identity.break-glass.write', ...SUMMARY_READ]
     renderPatients()
     fireEvent.click(method('Emergency'))
     expect(submit().disabled).toBe(false)
     expect(submit().getAttribute('aria-describedby')).toBeNull()
+  })
+
+  // Emergency access then looks the patient up (POST /identity/patient-lookup, identity.patient.read)
+  // and opens the emergency summary (GET /ehr/patients/:id/emergency-records, ehr.encounter.read and
+  // ehr.note.read). A role without them would create an audited grant, which may notify the
+  // patient, and then be refused.
+  it('is unavailable without identity.patient.read, which opens the record after the grant', () => {
+    staff.permissions = ['identity.consent.write', 'identity.break-glass.write', ...SUMMARY_READ]
+    renderPatients()
+    fireEvent.click(method('Emergency'))
+    expect(submit().disabled).toBe(true)
+    expect(reason()).toMatch(/identity\.patient\.read/)
+    expect(reason()).not.toMatch(/identity\.consent\.write|identity\.break-glass\.write|ehr\./)
+    fireEvent.click(submit())
+    expect(api.breakGlass).not.toHaveBeenCalled()
+  })
+
+  it('is unavailable without the emergency summary’s read permissions, and names them', () => {
+    staff.permissions = ['identity.patient.read', 'identity.consent.write', 'identity.break-glass.write', 'ehr.encounter.read']
+    renderPatients()
+    fireEvent.click(method('Emergency'))
+    expect(submit().disabled).toBe(true)
+    expect(reason()).toMatch(/ehr\.note\.read/)
+    expect(reason()).toMatch(/emergency summary/)
+    expect(reason()).not.toMatch(/ehr\.encounter\.read/)
+  })
+
+  it('offers the PIN only with identity.patient.read too, which opens the record once the PIN is verified', () => {
+    staff.permissions = ['identity.consent.write', 'identity.patient-access-pin.verify']
+    renderPatients()
+    fireEvent.click(method('Patient PIN'))
+    const pin = screen.getByRole('button', { name: 'Verify PIN and open' }) as HTMLButtonElement
+    expect(pin.disabled).toBe(true)
+    const why = document.getElementById(pin.getAttribute('aria-describedby') ?? '')?.textContent
+    expect(why).toMatch(/identity\.patient\.read/)
+    expect(why).not.toMatch(/identity\.patient-access-pin\.verify/)
+    fireEvent.click(pin)
+    expect(api.verifyPin).not.toHaveBeenCalled()
   })
 
   it('says why the PIN and request methods are unavailable too', () => {

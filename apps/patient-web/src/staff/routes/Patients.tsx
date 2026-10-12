@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { findEndpoint } from '@hid/contracts'
+import { findEndpoint, type EndpointMethod } from '@hid/contracts'
 import { Badge, Button, Card, Field, Input, Select, Textarea } from '@hid/ui'
 import { isAllowedPatientLookup, staffApi } from '../api'
 import { useStaff } from '../App'
@@ -13,24 +13,39 @@ const HID_FORMAT = 'Starts with HID-, then 6 to 32 letters and digits. Health ID
 
 type AccessMethod = 'request' | 'pin' | 'emergency'
 
-// Each method's backend route, whose every listed permission the role must hold
-// (contracts registry, from hid-system identity consent.controller.ts): emergency
-// access needs identity.consent.write as well as identity.break-glass.write.
-const METHOD_ROUTES: Record<AccessMethod, { readonly route: string; readonly action: string }> = {
-  request: { route: 'access.staffRequests', action: 'send access requests' },
-  pin: { route: 'access.verifyPin', action: 'verify a patient’s PIN' },
-  emergency: { route: 'access.breakGlass', action: 'activate emergency access' },
+interface MethodRoute { readonly route: string; readonly method: EndpointMethod; readonly purpose?: string }
+
+// Each backend route a method calls, whose every listed permission the role must
+// hold (contracts registry, verified in hid-system): the access step itself, where
+// emergency access needs identity.consent.write as well as identity.break-glass.write
+// (identity consent.controller.ts); then, for the PIN and emergency access, the
+// patient lookup that opens the record (identity.controller.ts), and for emergency
+// access the summary that record is (ehr patient-records.controller.ts). Without
+// those, the grant would be made, audited and perhaps told to the patient, and the
+// record still refused.
+const METHOD_ROUTES: Record<AccessMethod, { readonly routes: readonly MethodRoute[]; readonly action: string }> = {
+  request: { routes: [{ route: 'access.staffRequests', method: 'POST' }], action: 'send access requests' },
+  pin: { routes: [{ route: 'access.verifyPin', method: 'POST' },
+    { route: 'identity.patientLookup', method: 'POST', purpose: 'to open the record' }], action: 'verify a patient’s PIN' },
+  emergency: { routes: [{ route: 'access.breakGlass', method: 'POST' },
+    { route: 'identity.patientLookup', method: 'POST', purpose: 'to open the record' },
+    { route: 'ehr.emergencyRecords', method: 'GET', purpose: 'to read the emergency summary' }], action: 'activate emergency access' },
 }
 
-/** Why the role cannot use `method`, or null when it holds every permission its route requires. */
+/** Why the role cannot use `method`, or null when it holds every permission its routes require. */
 function methodUnavailable(method: AccessMethod, permissions: readonly string[]): string | null {
-  const { route, action } = METHOD_ROUTES[method]
+  const { routes, action } = METHOD_ROUTES[method]
+  const needs = routes.map(item => ({ ...item, required: findEndpoint(item.route)?.permissions?.[item.method] ?? [] }))
   // A route the registry does not describe is never offered.
-  const required = findEndpoint(route)?.permissions?.POST
-  if (!required?.length) return `This portal cannot ${action} here.`
-  const missing = required.filter(permission => !permissions.includes(permission))
+  if (needs.some(item => item.required.length === 0)) return `This portal cannot ${action} here.`
+  const required = new Set(needs.flatMap(item => item.required))
+  const missing = needs.flatMap(item => {
+    const lacking = item.required.filter(permission => !permissions.includes(permission))
+    return lacking.length ? [`${lacking.join(' and ')}${item.purpose ? ` ${item.purpose}` : ''}`] : []
+  })
+  const missingCount = [...required].filter(permission => !permissions.includes(permission)).length
   return missing.length === 0 ? null
-    : `Your role at this facility cannot ${action}: it ${missing.length < required.length ? 'also ' : ''}needs ${missing.join(' and ')}. Ask your organization administrator.`
+    : `Your role at this facility cannot ${action}: it ${missingCount < required.size ? 'also ' : ''}needs ${missing.join(', and ')}. Ask your organization administrator.`
 }
 
 /** Why `normalized` is not a Health ID, or null when it is one. */

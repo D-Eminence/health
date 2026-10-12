@@ -232,8 +232,9 @@ describe('unified authenticated portal routes', () => {
     const facility = {
       id: 'facility-1', membershipId: 'membership-1', organizationId: 'organization-1',
       name: 'Example Clinic', roles: ['clinician'],
-      // POST /identity/break-glass requires identity.consent.write as well as identity.break-glass.write.
-      permissions: ['identity.patient.read', 'identity.consent.write', 'identity.break-glass.write', 'ehr.encounter.read'],
+      // POST /identity/break-glass requires identity.consent.write as well as identity.break-glass.write;
+      // the emergency summary it opens, ehr.encounter.read and ehr.note.read.
+      permissions: ['identity.patient.read', 'identity.consent.write', 'identity.break-glass.write', 'ehr.encounter.read', 'ehr.note.read'],
       isPrimary: true,
     }
     calls.staffSession.mockResolvedValue({ actor: {
