@@ -264,10 +264,17 @@ class TabBus extends EventTarget {
 const anotherTab = async () => { await act(async () => { new TabBus('hid-session-change').postMessage('changed'); await new Promise(resolve => setTimeout(resolve, 0)) }) }
 
 let visibility: DocumentVisibilityState = 'visible'
-function becomeVisible() {
-  visibility = 'hidden'; document.dispatchEvent(new Event('visibilitychange'))
-  visibility = 'visible'; document.dispatchEvent(new Event('visibilitychange'))
+/** The tab goes out of view, and back `awayMs` later. */
+function becomeVisible(awayMs = 2 * 60_000) {
+  hide()
+  show(awayMs)
 }
+function hide() { visibility = 'hidden'; document.dispatchEvent(new Event('visibilitychange')) }
+function show(awayMs: number) {
+  const now = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + awayMs)
+  try { visibility = 'visible'; document.dispatchEvent(new Event('visibilitychange')) } finally { now.mockRestore() }
+}
+const sessionReads = (identity: { sent: { route: string }[] }) => identity.sent.filter(call => call.route === 'GET /api/v1/auth/session').length
 
 /** A patient tab showing the patient's own data while it is signed in. */
 function RecordsTab() {
@@ -414,6 +421,52 @@ describe('a patient tab is bound to the patient it shows (SEC-PATIENT-XTAB)', ()
     await waitFor(() => expect(patientStatus()).toBe('anonymous'))
     expect(screen.getByText('Signed out in another tab')).toBeTruthy()
     expect(identity.sent.filter(call => call.route === 'POST /api/v1/auth/refresh')).toEqual([{ route: 'POST /api/v1/auth/refresh', client: 'patient-web' }])
+  })
+
+  it('a brief look away, with nothing announced meanwhile, asks the server nothing on return', async () => {
+    const identity = fakeIdentity()
+    identity.install()
+    identity.signIn('patient')
+    await openRecordsTab()
+    const before = sessionReads(identity)
+
+    await act(async () => { becomeVisible(20_000) })
+    await settle()
+    expect(sessionReads(identity)).toBe(before)
+    expect(identity.sent.filter(call => call.route === 'POST /api/v1/auth/refresh')).toEqual([])
+    expect(patientStatus()).toBe('authenticated')
+  })
+
+  it('a brief look away during which another tab announced a change asks again on return', async () => {
+    vi.stubGlobal('BroadcastChannel', TabBus)
+    const identity = fakeIdentity()
+    identity.install()
+    identity.signIn('patient')
+    await openRecordsTab()
+    const before = sessionReads(identity)
+
+    await act(async () => { hide() })
+    await anotherTab()
+    await waitFor(() => expect(sessionReads(identity)).toBe(before + 1))
+    await act(async () => { show(20_000) })
+    await waitFor(() => expect(sessionReads(identity)).toBe(before + 2))
+    expect(patientStatus()).toBe('authenticated')
+  })
+
+  it('a page restored from the back/forward cache asks, however brief its absence, and only once', async () => {
+    const identity = fakeIdentity()
+    identity.install()
+    identity.signIn('patient')
+    await openRecordsTab()
+    const before = sessionReads(identity)
+
+    await act(async () => {
+      hide()
+      show(5_000)
+      window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }))
+    })
+    await settle()
+    expect(sessionReads(identity)).toBe(before + 1)
   })
 
   it('coming back into view while the service cannot be reached keeps the tab', async () => {

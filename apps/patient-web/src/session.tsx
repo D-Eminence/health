@@ -47,6 +47,9 @@ function isPatientSessionOf(session: PatientSession | null | undefined, subject:
   return session?.actor?.kind === 'patient' && session.actor.subject === subject
 }
 
+/** A tab back in view after this long asks whose session the browser holds. */
+const RECHECK_AFTER_HIDDEN_MS = 60_000
+
 const sessionEnded = (cause?: unknown) =>
   new HidApiError(401, 'Your session has ended. Sign in again.', { code: 'AUTHENTICATION_REQUIRED', retryable: false, cause })
 
@@ -150,12 +153,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [api, store, checkKey])
 
   // Another tab's sign-in or sign-out changes the cookies this tab sends. Each
-  // time one is heard of, and as the tab comes back into view, the server is asked
-  // whose session the browser holds. A tab showing a patient whose session has
-  // left the browser is signed out, so it neither keeps that patient's records on
-  // screen after their sign-out nor acts as another account. An access token past
-  // its 15 minutes answers 401 with the refresh cookie still live, so the session
-  // is restored once before it is judged; an outage proves nothing and changes nothing.
+  // time one is heard of, and as the tab comes back into view after a minute or
+  // more, the server is asked whose session the browser holds. A tab showing a
+  // patient whose session has left the browser is signed out, so it neither keeps
+  // that patient's records on screen after their sign-out nor acts as another
+  // account. An access token past its 15 minutes answers 401 with the refresh
+  // cookie still live, so the session is restored once before it is judged; an
+  // outage proves nothing and changes nothing.
   useEffect(() => {
     let asking = false
     let again = false
@@ -201,9 +205,31 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         if (again) { again = false; void ask() }
       }
     }
-    const onVisibility = () => { if (document.visibilityState === 'visible') void ask() }
-    const onPageShow = (event: PageTransitionEvent) => { if (event.persisted) void ask() }
-    const stopListening = onOtherTabSessionChange(() => { heard = true; void ask() })
+    // Since when the tab is out of view, and whether another tab announced a change meanwhile.
+    let away: { since: number; heard: boolean } | null = document.visibilityState === 'hidden' ? { since: Date.now(), heard: false } : null
+    // Back in view. Each question is a request, a session read Identity audits, and
+    // perhaps a refresh, so a brief look away with nothing announced meanwhile asks
+    // nothing, as in the provider portal. A return after a minute or more, one after
+    // another tab announced a change, and a page restored from the back/forward
+    // cache are asked about.
+    const back = (restored: boolean) => {
+      if (document.visibilityState === 'hidden') return
+      const left = away
+      away = null
+      // A restore whose return to view already asked has nothing more to ask.
+      if (!left) { if (restored && !asking) void ask(); return }
+      if (restored || left.heard || Date.now() - left.since >= RECHECK_AFTER_HIDDEN_MS) void ask()
+    }
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') away ??= { since: Date.now(), heard: false }
+      else back(false)
+    }
+    const onPageShow = (event: PageTransitionEvent) => { if (event.persisted) back(true) }
+    const stopListening = onOtherTabSessionChange(() => {
+      heard = true
+      if (away) away.heard = true
+      void ask()
+    })
     document.addEventListener('visibilitychange', onVisibility)
     window.addEventListener('pageshow', onPageShow)
     return () => {
