@@ -145,6 +145,21 @@ describe('demo request', () => {
     expect(validateDemoRequest({ ...valid, facility: '   ' }).facility).toBeDefined()
   })
 
+  // hid-system CreateDemoRequestDto.contactRole: trimmed, 2 to 120 characters.
+  it('accepts only a role the backend accepts', () => {
+    expect(validateDemoRequest({ ...valid, role: 'X' }).role).toBeDefined()
+    expect(validateDemoRequest({ ...valid, role: ' X ' }).role).toBeDefined()
+    expect(validateDemoRequest({ ...valid, role: 'x'.repeat(121) }).role).toBeDefined()
+    expect(validateDemoRequest({ ...valid, role: 'GP' }).role).toBeUndefined()
+    expect(validateDemoRequest({ ...valid, role: ` ${'x'.repeat(120)} ` }).role).toBeUndefined()
+  })
+
+  it('holds a role given under Other to the same bounds, since that is the role sent', () => {
+    expect(validateDemoRequest({ ...valid, role: 'Other', otherRole: 'X' }).otherRole).toBeDefined()
+    expect(validateDemoRequest({ ...valid, role: 'Other', otherRole: 'x'.repeat(121) }).otherRole).toBeDefined()
+    expect(validateDemoRequest({ ...valid, role: 'Other', otherRole: 'Matron' })).toEqual({})
+  })
+
   it('maps the form to the backend contract without including URL queries', () => {
     const body = toDemoSubmission(valid, { sourcePage: '/contact', sourceSection: 'contact-card', ctaLabel: 'Book a demo' }, 'token')
     expect(body).toMatchObject({

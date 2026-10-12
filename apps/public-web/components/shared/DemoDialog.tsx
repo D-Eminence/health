@@ -6,6 +6,7 @@ import { HealthIcon } from './HealthIcon'
 import { TurnstileWidget } from './TurnstileWidget'
 import {
   DEMO_PRODUCTS,
+  ROLE_MAX_LENGTH,
   toDemoSubmission,
   validateDemoRequest,
   type DemoRequest,
@@ -195,8 +196,8 @@ export function DemoDialog() {
             onChange={update('contactName')}
             autoComplete="name"
           />
-          <Field label="Your role" name="role" value={request.role} error={errors.role} onChange={update('role')} autoComplete="organization-title" />
-          {request.role === 'Other' ? <Field label="Specify your role" name="otherRole" value={request.otherRole} error={errors.otherRole} onChange={update('otherRole')} /> : null}
+          <Field label="Your role" name="role" value={request.role} error={errors.role} onChange={update('role')} autoComplete="organization-title" maxLength={ROLE_MAX_LENGTH} />
+          {request.role === 'Other' ? <Field label="Specify your role" name="otherRole" value={request.otherRole} error={errors.otherRole} onChange={update('otherRole')} maxLength={ROLE_MAX_LENGTH} /> : null}
           <div className="grid gap-4 sm:grid-cols-2">
             <Field
               label="Email"
@@ -268,6 +269,7 @@ interface FieldProps {
   readonly type?: string
   readonly optional?: boolean
   readonly autoComplete?: string
+  readonly maxLength?: number
 }
 
 function Field({
@@ -279,6 +281,7 @@ function Field({
   type = 'text',
   optional = false,
   autoComplete,
+  maxLength,
 }: FieldProps) {
   const errorId = `${name}-error`
 
@@ -294,6 +297,7 @@ function Field({
         value={value}
         onChange={onChange}
         {...(autoComplete ? { autoComplete } : {})}
+        {...(maxLength ? { maxLength } : {})}
         aria-invalid={error ? true : undefined}
         aria-describedby={error ? errorId : undefined}
         className={cx(
