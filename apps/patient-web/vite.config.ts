@@ -54,7 +54,8 @@ export default defineConfig(({ mode }) => {
     },
     preview: { port: 3200, strictPort: true },
     build: {
-      sourcemap: true,
+      // The portal's source, comments included, is not published beside it.
+      sourcemap: false,
       rollupOptions: {
         output: {
           manualChunks(id: string) {

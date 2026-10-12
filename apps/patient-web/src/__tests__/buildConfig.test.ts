@@ -40,6 +40,11 @@ describe('portal build configuration', () => {
     expect(config.env.VITE_HID_ENVIRONMENT).toBe('local')
   })
 
+  it('publishes no source maps, which would hand out the whole portal source', async () => {
+    const config = await resolveBuild()
+    expect(config.build.sourcemap).toBe(false)
+  })
+
   it('refuses to build when a public variable is named like a secret', async () => {
     await expect(resolveBuild({ VITE_HID_API_SECRET: 'x' })).rejects.toThrow(/VITE_HID_API_SECRET/)
   })
