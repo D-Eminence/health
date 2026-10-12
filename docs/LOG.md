@@ -325,3 +325,40 @@ than a live completion tracker.
   running it no longer rewrites the file. The motion README lists the
   components that exist and drops the removed tilt card.
 - Docs only; no code change.
+
+## 2026-10-11: sign-out in the session turn
+
+- Found by the final review of D-Eminence/Health-id#34; the gap predates it.
+  hid-system's logout, once accepted, clears the session cookies in its answer
+  (`auth.controller.ts`; a refused logout clears nothing), and ends whichever
+  session the cookies carry. A sign-out in one window answered after a sign-in
+  in another, so the new sign-in was lost and that window showed "Your session
+  has ended".
+- Staff and patient sign-outs now take the same Web Locks turn as refreshes and
+  sign-ins (`signOutInTurn`), and so does provider enrollment activation, which
+  also signs in. Before the logout, the server is asked whose session the
+  browser holds, and the logout is sent only while it is still this account's.
+  Another account signed in meanwhile, staff or patient, is left alone: logout
+  would otherwise end it. The provider portal asks when its sign-out had to
+  wait; the patient portal, which does not hear other windows sign in, always
+  asks.
+- A refused question is handled as a refused sign-out: the session is restored,
+  and its account confirmed, before the logout is sent again. hid-system also
+  answers 401 when it cannot check a session, so a 401 is not taken as this
+  account's. Any other failure stops the sign-out, and the page reports it as
+  failed.
+- hid-system's staff actor carries no `kind`; only patient and platform actors
+  do. The patient portal now recognises its own session by `kind: 'patient'`
+  and the subject, in the new check and in the existing restore after an idle
+  sign-out, so it never ends a staff session of the same person (one account
+  can hold both). The provider sign-out names its account when it starts, and
+  checks the session against it and against any session it restores, so
+  leaving the workspace while it waits does not drop it.
+- Recorded in [open questions](./OPEN-QUESTIONS.md): a sign-out that waited for
+  another window's sign-in leaves the session it meant to end alive on the
+  server until its idle limit, though it is no longer in this browser.
+- The patient sign-out tests now mock the environment as one object, as the
+  real getter caches it; a new object each render had rebuilt the client and
+  checked the session again on every render.
+- Component and unit tests only, with fake Web Locks. No browser, multi-window,
+  staging or deployed-backend run.

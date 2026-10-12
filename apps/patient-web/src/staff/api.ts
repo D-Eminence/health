@@ -5,7 +5,7 @@ import {
   endsStaffSession, nextStaffSessionChange, refusedAsPatient, reportStaffSessionEnded, staffSessionActor, staffSessionGeneration,
   staffSessionReadyFor, staffSessionSignal, untilStaffSessionReady,
 } from './session'
-import { inRefreshTurn, refreshInTurn } from '../sessionRefreshTurn'
+import { inRefreshTurn, refreshInTurn, signOutInTurn } from '../sessionRefreshTurn'
 import { staffLoginAction } from '../productHostname'
 
 export interface Facility {
@@ -553,9 +553,9 @@ function isSessionOf(session: StaffSession | null | undefined, actorId: string):
  * Restores this tab's session after a 401. A refresh that answers for another
  * account (signed in from another tab, staff or patient) has not restored it: it
  * counts as the 401 of an ended session, so nothing is repeated as that account.
+ * A sign-out names the account it started for, which outlives the workspace.
  */
-async function restoreStaffSession(): Promise<StaffSession> {
-  const actorId = staffSessionActor()
+async function restoreStaffSession(actorId = staffSessionActor()): Promise<StaffSession> {
   const restored = await refreshStaffSession()
   if (actorId !== null && !isSessionOf(restored, actorId)) throw sessionEnded()
   return restored
@@ -606,27 +606,39 @@ function signOut(confirmFirst = false): Promise<void> {
  */
 async function signOutStaffSession(confirmFirst: boolean): Promise<void> {
   const sentIn = staffSessionGeneration()
+  // The account this sign-out is for, named now: leaving the workspace clears it.
+  const actorId = staffSessionActor()
   // From a workspace locked while its session is checked, the browser may already
   // hold another account's session (signed in from another tab): logout ends
   // whichever session the cookies carry. The server is asked first. A browser
   // that no longer holds this session has nothing of it to end; one the server
   // cannot answer for is not signed out blindly.
   if (confirmFirst) {
-    const actorId = staffSessionActor()
     if (actorId === null) return
     const found = await checkStaffSession(actorId, sentIn)
     if (staffSessionGeneration() !== sentIn || found === 'ended') return
     if (found === 'unknown') throw new Error('Sign-out could not be completed. Try again.')
   }
   for (let attempt = 1; ; attempt += 1) {
-    try { await client.post<null>('/api/v1/auth/logout'); return }
+    try { await signOutInTurn(() => stillThisAccount(actorId), () => client.post<null>('/api/v1/auth/logout')); return }
     catch (error) { if (!endsStaffSession(error)) throw error }
     if (staffSessionGeneration() !== sentIn) return
     if (attempt === SIGN_OUT_ATTEMPTS) throw new Error('Sign-out could not be completed. Try again.')
-    try { await restoreStaffSession() }
+    try { await restoreStaffSession(actorId) }
     catch (refused) { if (endsStaffSession(refused)) return; throw refused }
     if (staffSessionGeneration() !== sentIn) return
   }
+}
+
+/**
+ * Whether the browser still holds this account's session. A refused question
+ * (a 401 also comes from a server that could not check) is thrown, and handled
+ * as a refused sign-out: the session is restored, and its account confirmed,
+ * before the sign-out is sent again.
+ */
+async function stillThisAccount(actorId: string | null): Promise<boolean> {
+  const session = await client.get<StaffSession | null>('/api/v1/auth/session', { auth: 'optional', dedupe: false })
+  return actorId !== null && isSessionOf(session, actorId)
 }
 
 /**
@@ -705,9 +717,10 @@ export const providerEnrollmentApi = {
     client.post<{ verified: true }>('/api/v1/identity/provider-enrollments/verify',
       { challengeId, code }, { auth: 'none' }),
 
-  activate: (password: string) =>
+  // Activation signs the new administrator in, so it takes the session turn as sign-ins do.
+  activate: (password: string) => inRefreshTurn(() =>
     client.post<ProviderEnrollmentActivation>('/api/v1/identity/provider-enrollments/activate',
-      { password }, { auth: 'none' }),
+      { password }, { auth: 'none' })),
 }
 
 export const staffApi = {
