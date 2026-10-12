@@ -729,7 +729,9 @@ function EmergencySummary({ facilityId, patientId, patientName, permissions, ver
   }, [facilityId, patientId, verify, revision])
 
   // The route needs only ehr.encounter.read and ehr.note.read, but answers with
-  // every section: one is shown only to a role that may read that record.
+  // every section: one is shown only to a role that may read that record. That
+  // is display, kept as defence in depth, not access control: every section still
+  // reaches the browser until EHR leaves out what the role may not read.
   const may = (permission: string) => permissions.includes(permission)
   const date = (value: string | null) => value ? new Date(value).toLocaleString() : ''
   return <>
