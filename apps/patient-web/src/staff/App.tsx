@@ -400,17 +400,22 @@ const FACILITY_CHOICE_WHY: Record<FacilityChoiceReason, string> = {
  * so a reload or a refresh reports it ('selected').
  */
 function FacilityChoice({ reason, onChosen }: { reason: FacilityChoiceReason; onChosen: () => void }) {
-  const { state, selectFacility } = useStaff()
+  const { state, lock, selectFacility } = useStaff()
   const [picked, setPicked] = useState('')
   const [missing, setMissing] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const heading = useRef<HTMLHeadingElement>(null)
   // The question is the page: it takes focus when it appears, unless the person is already somewhere on it.
+  // One that appears while the workspace is locked (hidden at load, or a sign-in being checked) takes it
+  // once the workspace opens, once.
+  const focused = useRef(false)
   useEffect(() => {
+    if (focused.current || lock !== null) return
+    focused.current = true
     const active = document.activeElement
     if (!(active instanceof HTMLElement) || active === document.body || !active.isConnected) heading.current?.focus()
-  }, [])
+  }, [lock])
   if (state.status !== 'ready') return null
   const { facilities } = state.session.actor
 

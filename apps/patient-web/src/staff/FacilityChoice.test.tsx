@@ -88,7 +88,16 @@ const unauthenticated = () => problem(401, 'AUTHENTICATION_REQUIRED', 'Valid aut
 async function signIn() {
   fireEvent.change(await screen.findByRole('textbox', { name: 'Work email' }), { target: { value: 'ada@example.test' } })
   fireEvent.change(screen.getByLabelText(/^Password/), { target: { value: 'correct horse battery staple' } })
-  fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+  // Pressed as a person does, so focus is on it while the sign-in runs.
+  const button = screen.getByRole('button', { name: 'Sign in' })
+  button.focus()
+  fireEvent.click(button)
+}
+
+function deferredResponse() {
+  let respond: (response: Response) => void = () => undefined
+  const promise = new Promise<Response>(resolve => { respond = resolve })
+  return { answer: () => promise, respond: (response: Response) => respond(response) }
 }
 
 describe('a facility chosen earlier that is no longer available (reselect)', () => {
@@ -324,5 +333,45 @@ describe('a selection this portal does not know (a later contract)', () => {
     await open('/provider')
     expect(await screen.findByText(/Working at Lagos General\./)).toBeTruthy()
     expect(screen.queryByRole('heading', { name: 'Where are you working?' })).toBeNull()
+  })
+})
+
+describe('focus when the question first shows while the workspace is locked', () => {
+  // The question is the page: it takes focus when it can first be reached, not while it is hidden.
+  it('takes focus once a page hidden when the session became ready is seen', async () => {
+    let visibility: DocumentVisibilityState = 'hidden'
+    vi.spyOn(document, 'visibilityState', 'get').mockImplementation(() => visibility)
+    const sent = serve({ [SESSION]: [session(LAGOS, 'reselect')] })
+    await open('/provider')
+    // Ready while hidden, the workspace is locked from the start: the question is there, hidden and inert.
+    await waitFor(() => expect(document.querySelector('[inert]')?.textContent).toContain('Where are you working?'))
+
+    act(() => { visibility = 'visible'; document.dispatchEvent(new Event('visibilitychange')) })
+
+    const heading = await question()
+    await waitFor(() => expect(document.activeElement).toBe(heading))
+    expect(pageRequests(sent)).toEqual([])
+  })
+
+  it('takes focus once the check a sign-in waits on is answered', async () => {
+    // Another tab announced a change while the sign-in was answered, so the new session is checked first.
+    const signingIn = deferredResponse()
+    const asked = deferredResponse()
+    const sent = serve({ [SESSION]: [unauthenticated, asked.answer], [REFRESH]: [unauthenticated], [LOGIN]: [signingIn.answer] })
+    await open('/provider/sign-in')
+    await signIn()
+    await waitFor(() => expect(sent.map(call => call.route)).toContain(LOGIN))
+    fromAnotherTab()
+    await act(async () => { signingIn.respond(await session(LAGOS, 'default')()) })
+    // Signed in, and locked while the server is asked: the question is there, hidden and inert.
+    expect(await screen.findByRole('heading', { name: 'Checking your session…' })).toBeTruthy()
+    await waitFor(() => expect(document.querySelector('[inert]')?.textContent).toContain('Where are you working?'))
+
+    await act(async () => { asked.respond(await session(LAGOS, 'default')()) })
+
+    const heading = await question()
+    expect(sent.filter(call => call.route === SESSION)).toHaveLength(2)
+    await waitFor(() => expect(document.activeElement).toBe(heading))
+    expect(pageRequests(sent)).toEqual([])
   })
 })
