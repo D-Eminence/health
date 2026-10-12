@@ -212,6 +212,35 @@ describe('changing the status of a prescription Pharmacy may hold', () => {
   })
 })
 
+/**
+ * A change to an encounter's status changes the encounter only (hid-system
+ * encounters.service.ts update() writes ehr.encounters alone): its
+ * prescriptions and lab requests keep their status, and neither Pharmacy nor
+ * Lab hears of it. Every status change the portal offers an encounter includes
+ * Cancel and Mark entered in error, and any encounter may hold orders, so the
+ * clinician is told so where the change is confirmed (backend hand-off).
+ */
+describe('changing the status of an encounter whose orders Pharmacy or Lab may hold', () => {
+  it.each(['planned', 'in_progress', 'on_hold'])('says at the action that cancelling a %s encounter cancels none of its orders, and whom to contact', async status => {
+    staff.permissions = [...HAND_OFF, 'ehr.encounter.write']
+    api.encounters.mockResolvedValue({ items: [{ id: ENCOUNTER, patientId: PATIENT, facilityId: 'facility-1', encounterType: 'ambulatory',
+      status, startedAt: '2026-10-10T08:00:00.000Z', chiefComplaint: null, rowVersion: 1 }], nextCursor: null })
+    await openPrescriptions()
+    const form = screen.getByText('Encounter status').closest('form')!
+    const options = within(within(form).getByLabelText(labelled('New status'))).getAllByRole('option').map(option => (option as HTMLOptionElement).value)
+    expect(options).toEqual(expect.arrayContaining(['cancelled', 'entered_in_error']))
+    const button = within(form).getByRole('button', { name: 'Update status' })
+    const warning = descriptions(button)
+    expect(warning).toContain('does not cancel its prescriptions or lab requests')
+    expect(warning).toContain('Pharmacy and the Laboratory are not told')
+    expect(warning).toContain('contact the pharmacy or laboratory')
+    // Shown in the form before the change is confirmed, not a message that comes and goes.
+    const shown = document.getElementById(button.getAttribute('aria-describedby')!)!
+    expect(form.contains(shown)).toBe(true)
+    expect(shown.closest('[role="alert"], [role="status"]')).toBeNull()
+  })
+})
+
 describe('sending a prescription to Pharmacy', () => {
   it('is offered only for an active prescription', async () => {
     await openPrescriptions()

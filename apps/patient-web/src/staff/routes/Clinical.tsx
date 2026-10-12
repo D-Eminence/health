@@ -57,6 +57,10 @@ const encounterTransitions: Readonly<Record<string, readonly StatusOption[]>> = 
   on_hold: [{ value: 'in_progress', label: 'Resume' }, { value: 'cancelled', label: 'Cancel' },
     { value: 'entered_in_error', label: 'Mark entered in error' }],
 }
+// EHR changes only the encounter: its prescriptions and lab requests keep their
+// status, and neither Pharmacy nor Lab is told. Every encounter status form offers
+// Cancel and Mark entered in error, and any encounter may hold orders.
+const ORDERS_NOT_CANCELLED = 'Cancelling this encounter, or marking it entered in error, does not cancel its prescriptions or lab requests, and Pharmacy and the Laboratory are not told. Cancel each order itself where this record offers it, and contact the pharmacy or laboratory about any order sent to them.'
 const prescriptionTransitions: Readonly<Record<string, readonly StatusOption[]>> = {
   draft: [{ value: 'active', label: 'Activate' }, { value: 'cancelled', label: 'Cancel' },
     { value: 'entered_in_error', label: 'Mark entered in error' }],
@@ -1106,7 +1110,7 @@ export function Clinical() {
     {selected && <section className="staff-section" aria-labelledby="clinical-documentation-title"><div className="staff-page-head"><p className="staff-eyebrow">Selected encounter</p><h2 id="clinical-documentation-title" tabIndex={-1}>Care documentation</h2><p>{new Date(selected.startedAt).toLocaleString()} · {selected.status.replace('_', ' ')}</p></div>
       {canMutate && permissions.includes('ehr.encounter.write') && (encounterTransitions[selected.status]?.length ?? 0) > 0 &&
         <Card className="staff-card"><StatusActionForm key={`${selected.id}-${selected.rowVersion}`} id={`encounter-${selected.id}`} title="Encounter status"
-          choices={encounterTransitions[selected.status]!} disabled={loading} onChange={changeEncounterStatus} /></Card>}
+          choices={encounterTransitions[selected.status]!} warning={ORDERS_NOT_CANCELLED} disabled={loading} onChange={changeEncounterStatus} /></Card>}
       {!activeTab ? <p className="staff-muted">Your current facility role does not grant access to encounter records.</p>
         : <><TabList items={visibleTabs} selectedId={activeTab} onSelect={id => setTab(id as RecordKind | 'documents')} label="Clinical record section"
           idPrefix="clinical-record" className="staff-tabs" />
