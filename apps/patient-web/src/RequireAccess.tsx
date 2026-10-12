@@ -12,8 +12,7 @@ import { Navigate } from 'react-router-dom'
 import { evaluateAccess, type AccessRequirement } from '@hid/auth'
 import { useSession } from './session'
 import { BrandLogo } from './BrandLogo'
-import { focusPageHeading } from './pageFocus'
-import { focusLost } from './routes/actionFocus'
+import { focusLost, focusPageHeading } from './pageFocus'
 
 export interface RequireAccessProps {
   readonly requirement: AccessRequirement

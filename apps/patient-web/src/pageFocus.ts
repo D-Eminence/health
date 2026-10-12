@@ -32,3 +32,15 @@ export function focusPageHeading(main: HTMLElement | null): void {
   if (!target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1')
   target.focus()
 }
+
+/**
+ * Whether keyboard focus has nowhere useful to stay: on the page itself, on a
+ * control no longer shown, or on a button disabled while its action ran
+ * (Chromium moves focus to the page as a focused control is disabled; other
+ * engines may keep it there).
+ */
+export function focusLost(): boolean {
+  const active = document.activeElement
+  return !(active instanceof HTMLElement) || active === document.body || !active.isConnected
+    || (active instanceof HTMLButtonElement && active.disabled)
+}

@@ -1,9 +1,10 @@
-import { useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react'
+import { useRef, useState, type FormEvent, type RefObject } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { GoogleButton } from '../GoogleButton'
 import { Turnstile } from '../Turnstile'
 import { BrandLogo } from '../BrandLogo'
+import { ItemName } from '../ItemName'
 import { useSession } from '../session'
 import type { PatientNotification, PatientRecords } from '../api'
 import { usePatientResource } from './usePatientResource'
@@ -31,15 +32,6 @@ function date(value: string | null | undefined) {
 function dateTime(value: string) {
   const parsed = new Date(value)
   return Number.isNaN(parsed.getTime()) ? value : new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeStyle: 'short' }).format(parsed)
-}
-
-/**
- * The rest of a repeated button's name, for assistive technology only: the item
- * it acts on, with something unique to it (NEW-AMBIGUOUS-ACTION-NAMES). The
- * visible text stays the start of the name.
- */
-function ItemName({ children }: { children: ReactNode }) {
-  return <span className="patient-visually-hidden">{children}</span>
 }
 
 /** Every measurement in a vitals entry, so one holding only blood pressure is not shown as a bare date. */

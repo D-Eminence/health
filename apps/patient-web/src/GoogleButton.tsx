@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSession } from './session'
-import { focusLost } from './routes/actionFocus'
+import { focusLost } from './pageFocus'
 
 interface CredentialResponse { credential?: string }
 declare global {

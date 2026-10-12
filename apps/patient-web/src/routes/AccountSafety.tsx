@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { useRef, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import {
@@ -6,6 +6,7 @@ import {
   type EmergencyContact, type EmergencyContactRelationship,
 } from '../api'
 import { useSession } from '../session'
+import { ItemName } from '../ItemName'
 import { usePatientResource } from './usePatientResource'
 import { useActionFocus, useRetryFocus } from './actionFocus'
 
@@ -41,11 +42,6 @@ const BLOCKED_REASONS: Record<AccountDeletionBlockedReason, string> = {
   LEGAL_HOLD: 'Some of your records must be kept for a legal or regulatory reason, so this account cannot be deleted right now. Contact Health ID support for help.',
   RETENTION_POLICY_UNAVAILABLE: 'We could not confirm how your records must be kept, so nothing was deleted. Try again later or contact Health ID support.',
   WORKFORCE_ACCOUNT: 'This sign-in is also used for provider or administrator access, so it cannot be deleted from the patient portal. Contact your organisation or Health ID support.',
-}
-
-/** The contact a repeated button acts on, for assistive technology only (NEW-AMBIGUOUS-ACTION-NAMES). */
-function ItemName({ children }: { children: ReactNode }) {
-  return <span className="patient-visually-hidden">{children}</span>
 }
 
 const RELATIONSHIP_LABELS: Record<EmergencyContactRelationship, string> = {

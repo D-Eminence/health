@@ -1,16 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
-
-/**
- * Whether keyboard focus has nowhere useful to stay: on the page itself, on a
- * control no longer shown, or on a button disabled while its action ran
- * (Chromium moves focus to the page as a focused control is disabled; other
- * engines may keep it there).
- */
-export function focusLost(): boolean {
-  const active = document.activeElement
-  return !(active instanceof HTMLElement) || active === document.body || !active.isConnected
-    || (active instanceof HTMLButtonElement && active.disabled)
-}
+import { focusLost } from '../pageFocus'
 
 /**
  * Keyboard focus after an action on a portal page (PR-03, PR-05). The control
