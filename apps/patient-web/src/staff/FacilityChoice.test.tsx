@@ -540,6 +540,8 @@ describe('the facility this tab works at, found gone mid-session', () => {
 
     const heading = await question()
     expect(screen.getByText(/The facility you were working at is no longer available to you\./)).toBeTruthy()
+    // What was on screen is gone with it, so the person is told, rather than left to believe it was saved.
+    expect(screen.getByText(/The page you had open was closed, along with any patient record, and anything not yet saved there was not sent\./)).toBeTruthy()
     expect(document.body.textContent).not.toContain(PATIENT_NAME)
     expect(screen.queryByRole('radio', { name: 'Ikeja Clinic' })).toBeNull()
     expect(option('Lagos General').checked).toBe(false)
@@ -573,6 +575,7 @@ describe('the facility this tab works at, found gone mid-session', () => {
 
     const heading = await question()
     expect(screen.getByText(/The facility you were working at is no longer available to you\./)).toBeTruthy()
+    expect(screen.getByText(/anything not yet saved there was not sent\./)).toBeTruthy()
     expect(document.body.textContent).not.toContain(PATIENT_NAME)
     await waitFor(() => expect(document.activeElement).toBe(heading))
     expect(await waiting).toBe('REQUEST_CANCELLED')

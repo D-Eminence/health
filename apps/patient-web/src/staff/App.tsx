@@ -432,7 +432,9 @@ const FACILITY_CHOICE_WHY: Record<FacilityQuestion, string> = {
   reselect: 'The facility you chose for this sign-in is no longer available to you.',
   unchosen: 'You work at more than one facility.',
   unconfirmed: 'The facility for this sign-in is not confirmed.',
-  lost: 'The facility you were working at is no longer available to you.',
+  // The page and any patient record close with the facility, and a save waiting to go is cancelled
+  // (setStaffSessionFacilities): said, so no one believes it was kept.
+  lost: 'The facility you were working at is no longer available to you. The page you had open was closed, along with any patient record, and anything not yet saved there was not sent.',
 }
 
 /**
