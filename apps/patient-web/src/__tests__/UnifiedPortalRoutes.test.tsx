@@ -243,7 +243,7 @@ describe('unified authenticated portal routes', () => {
 
     open('/provider/patients')
     fireEvent.change(await screen.findByRole('textbox', { name: 'Health ID' }), { target: { value: 'HID-ABC234' } })
-    fireEvent.click(screen.getByRole('tab', { name: 'Emergency' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Emergency' }))
     fireEvent.change(screen.getByRole('textbox', { name: 'Emergency reason' }), {
       target: { value: 'Patient cannot consent during emergency care' },
     })
