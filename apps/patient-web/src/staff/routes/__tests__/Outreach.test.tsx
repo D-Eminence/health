@@ -1,5 +1,6 @@
-import { render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { HidApiError } from '@hid/http'
 import { Outreach } from '../Operations'
 
 const api = vi.hoisted(() => ({
@@ -20,6 +21,9 @@ vi.mock('../../api', () => ({ staffApi: api }))
 const ALL = ['outreach.campaign.read', 'outreach.campaign.write', 'outreach.registration.read', 'outreach.registration.write']
 const campaign = (id: string, name: string, status: string) =>
   ({ id, name, status, services: ['registration'], startsAt: '2026-01-01T00:00:00.000Z', rowVersion: 1 })
+
+const pendingCase = { id: 'case-1', status: 'identity_resolution_pending', fullName: 'Amaka Obi', ageYears: 34, sex: 'female',
+  temporaryPatientId: 'tmp_c0000000-0000-4000-8000-000000000001', createdAt: '2026-10-12T09:00:00.000Z', rowVersion: 3 }
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -82,5 +86,126 @@ describe('Outreach registration case fields', () => {
     }
     // Sex always holds a value; Unknown is the default.
     expect((within(form).getByLabelText(/^Sex/) as HTMLSelectElement).value).toBe('unknown')
+  })
+})
+
+async function press(button: HTMLElement) {
+  button.focus()
+  await act(async () => { fireEvent.click(button) })
+}
+
+/** The new registration case form, filled in as given. */
+async function fillCase(values: { fullName?: string; sex?: string; age?: string; phone?: string; notes?: string }) {
+  const form = (await screen.findByRole('heading', { name: 'New registration case' })).closest('.staff-card') as HTMLElement
+  const set = (label: RegExp, value: string | undefined) => { if (value !== undefined) fireEvent.change(within(form).getByLabelText(label), { target: { value } }) }
+  set(/^Full name/, values.fullName); set(/^Sex/, values.sex); set(/^Age/, values.age); set(/^Phone/, values.phone); set(/^Operational notes/, values.notes)
+  return within(form).getByRole('button', { name: 'Create case' })
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+/** The command IDs each create request was sent with: its localCommandId (also its Idempotency-Key) and temporary patient ID. */
+const commands = () => api.createOutreachCase.mock.calls.map(call => call[2] as { localCommandId: string; temporaryPatientId: string })
+
+/**
+ * GAP-L94 and OUTREACH-02. Creating a registration case sends a
+ * localCommandId, which is also its Idempotency-Key, and a temporary patient
+ * ID; Outreach answers the same request sent again with the case it made
+ * (hid-system outreach.service.ts create). A new pair on every press made a
+ * retry after a lost answer a second case. The same case keeps its pair until
+ * it is created; a different case gets a new one.
+ */
+describe('creating a registration case', () => {
+  it('sends the case with a new command, and says it was created', async () => {
+    api.createOutreachCase.mockResolvedValue(pendingCase)
+    render(<Outreach />)
+    await press(await fillCase({ fullName: '  Amaka Obi ', sex: 'female', age: '34', phone: ' 0803 000 0000 ', notes: '  Met at the market clinic ' }))
+    await waitFor(() => expect(api.createOutreachCase).toHaveBeenCalledTimes(1))
+    expect(api.createOutreachCase.mock.calls[0]!.slice(0, 2)).toEqual(['facility-1', { campaignId: undefined, fullName: 'Amaka Obi', sex: 'female',
+      ageYears: 34, phone: '0803 000 0000', operationalNotes: 'Met at the market clinic' }])
+    expect(commands()[0]!.localCommandId).toMatch(UUID)
+    expect(commands()[0]!.temporaryPatientId).toMatch(/^tmp_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
+    expect(await screen.findByText('Registration case created for identity resolution.')).toBeTruthy()
+    expect(api.outreachCases).toHaveBeenCalledTimes(2)
+  })
+
+  it('sends the same command again when the same case is retried after a lost answer', async () => {
+    api.createOutreachCase.mockRejectedValueOnce(new HidApiError(0, 'The network request failed.', { code: 'NETWORK_ERROR' }))
+    render(<Outreach />)
+    const create = await fillCase({ fullName: 'Amaka Obi', sex: 'female', age: '34' })
+    await press(create)
+    expect((await screen.findByRole('alert')).textContent).toContain('The network request failed.')
+    api.createOutreachCase.mockResolvedValueOnce(pendingCase)
+    await press(create)
+    await waitFor(() => expect(api.createOutreachCase).toHaveBeenCalledTimes(2))
+    expect(commands()[0]!.localCommandId).toMatch(UUID)
+    expect(commands()[1]).toEqual(commands()[0])
+  })
+
+  it('sends a new command for a different case, and for the next case once one is created', async () => {
+    api.createOutreachCase.mockRejectedValueOnce(new HidApiError(503, 'Outreach is unavailable.', { code: 'SERVICE_UNAVAILABLE' }))
+    render(<Outreach />)
+    await press(await fillCase({ fullName: 'Amaka Obi', sex: 'female', age: '34' }))
+    await screen.findByRole('alert')
+    // A different case: the age was mistyped.
+    api.createOutreachCase.mockResolvedValueOnce(pendingCase)
+    await press(await fillCase({ age: '43' }))
+    await screen.findByText('Registration case created for identity resolution.')
+    // The next case, though its details match the last.
+    api.createOutreachCase.mockResolvedValueOnce(pendingCase)
+    await press(await fillCase({ fullName: 'Amaka Obi', sex: 'female', age: '43' }))
+    await waitFor(() => expect(api.createOutreachCase).toHaveBeenCalledTimes(3))
+    const [first, second, third] = commands()
+    expect(second!.localCommandId).not.toBe(first!.localCommandId)
+    expect(second!.temporaryPatientId).not.toBe(first!.temporaryPatientId)
+    expect(third!.localCommandId).not.toBe(second!.localCommandId)
+  })
+
+  it.each([
+    ['Operational notes', { notes: '  ab ' }, 'outreach-case-notes', 'Enter operational notes of at least 3 characters, or leave them blank.'],
+    ['Phone', { phone: ' 12 ' }, 'outreach-case-phone', 'Enter a phone number of at least 3 characters, or leave it blank.'],
+  ])('refuses %s shorter than 3 characters once trimmed, as Outreach does, at the field', async (_name, values, id, message) => {
+    render(<Outreach />)
+    await press(await fillCase({ fullName: 'Amaka Obi', sex: 'female', age: '34', ...values }))
+    const field = document.getElementById(id)!
+    await waitFor(() => expect(document.activeElement).toBe(field))
+    expect(field.getAttribute('aria-invalid')).toBe('true')
+    expect(document.getElementById(field.getAttribute('aria-describedby') ?? '')?.textContent).toBe(message)
+    expect(api.createOutreachCase).not.toHaveBeenCalled()
+  })
+})
+
+describe('linking a registration case to an existing patient', () => {
+  const PATIENT = 'a0000000-0000-4000-8000-000000000001'
+
+  it('sends the patient, the case and its version, and the reason, then reads the cases again', async () => {
+    api.outreachCases.mockResolvedValue([pendingCase])
+    api.linkExistingOutreachCase.mockResolvedValue({ ...pendingCase, status: 'identity_resolved', rowVersion: 4 })
+    render(<Outreach />)
+    fireEvent.click(await screen.findByText('Link verified existing patient'))
+    fireEvent.change(screen.getByLabelText(/^Canonical patient ID/), { target: { value: ` ${PATIENT} ` } })
+    fireEvent.change(screen.getByLabelText(/^Resolution reason/), { target: { value: ' Same name, age and phone as the Health ID record ' } })
+    await press(screen.getByRole('button', { name: 'Link existing patient' }))
+    await waitFor(() => expect(api.linkExistingOutreachCase).toHaveBeenCalledWith('facility-1', pendingCase, PATIENT,
+      'Same name, age and phone as the Health ID record'))
+    expect(await screen.findByText('Existing patient linked.')).toBeTruthy()
+    expect(api.outreachCases).toHaveBeenCalledTimes(2)
+  })
+
+  it('sends nothing without a reason of at least 8 characters', async () => {
+    api.outreachCases.mockResolvedValue([pendingCase])
+    render(<Outreach />)
+    fireEvent.click(await screen.findByText('Link verified existing patient'))
+    fireEvent.change(screen.getByLabelText(/^Canonical patient ID/), { target: { value: PATIENT } })
+    fireEvent.change(screen.getByLabelText(/^Resolution reason/), { target: { value: ' short  ' } })
+    fireEvent.submit(screen.getByRole('button', { name: 'Link existing patient' }).closest('form')!)
+    expect((await screen.findByRole('alert')).textContent).toBe('Enter a canonical patient ID and a reason of at least 8 characters.')
+    expect(api.linkExistingOutreachCase).not.toHaveBeenCalled()
+  })
+
+  it('offers no link for a case already resolved', async () => {
+    api.outreachCases.mockResolvedValue([{ ...pendingCase, status: 'identity_resolved' }])
+    render(<Outreach />)
+    await screen.findByText('Amaka Obi')
+    expect(screen.queryByText('Link verified existing patient')).toBeNull()
   })
 })

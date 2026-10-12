@@ -1051,10 +1051,10 @@ export const staffApi = {
     client.post<OutreachCase>(`/api/v1/outreach/registration-cases/${encodeURIComponent(registrationCase.id)}/link-existing`,
       { canonicalPatientId, expectedVersion: registrationCase.rowVersion, reason },
       { headers: { ...facilityHeaders(facilityId), ...keyHeaders() } }),
-  createOutreachCase: (facilityId: string, input: { campaignId?: string; fullName: string; sex: string; ageYears: number; phone?: string; operationalNotes?: string }) => {
-    const localCommandId = crypto.randomUUID()
-    return client.post<OutreachCase>('/api/v1/outreach/registration-cases',
-      { ...input, localCommandId, temporaryPatientId: `tmp_${crypto.randomUUID()}` },
-      { headers: { ...facilityHeaders(facilityId), 'Idempotency-Key': localCommandId } })
-  },
+  // Outreach answers a command sent again (its localCommandId is also its Idempotency-Key)
+  // with the case it made, so the caller names the command and resends it for the same case.
+  createOutreachCase: (facilityId: string, input: { campaignId?: string; fullName: string; sex: string; ageYears: number; phone?: string; operationalNotes?: string },
+    command: { localCommandId: string; temporaryPatientId: string }) =>
+    client.post<OutreachCase>('/api/v1/outreach/registration-cases', { ...input, ...command },
+      { headers: { ...facilityHeaders(facilityId), 'Idempotency-Key': command.localCommandId } }),
 }

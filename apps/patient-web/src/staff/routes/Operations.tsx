@@ -1034,6 +1034,13 @@ export function Outreach() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  const [problem, setProblem] = useState<FieldProblem | null>(null)
+  const focus = useFocusById()
+  // The case last sent, with its command: its localCommandId (also its Idempotency-Key) and
+  // temporary patient ID. Sending the same case again, after a lost answer or a refusal,
+  // sends the same command, which Outreach answers with the case it made; a different case,
+  // or the next one once this one is created, gets a new command. In memory only.
+  const caseAttempt = useRef<{ signature: string; command: { localCommandId: string; temporaryPatientId: string } } | null>(null)
   const [eligibleCampaigns, setEligibleCampaigns] = useState<{ facilityId: string; ids: Set<string> }>({ facilityId: '', ids: new Set() })
   const recordMembership = useCallback((campaignId: string, isMember: boolean) => {
     setEligibleCampaigns(previous => {
@@ -1057,8 +1064,19 @@ export function Outreach() {
     const phone = String(form.get('phone') ?? '').trim() || undefined
     const operationalNotes = String(form.get('operationalNotes') ?? '').trim() || undefined
     if (!fullName || !Number.isInteger(ageYears) || ageYears < 0 || ageYears > 130) return setError('Enter a name and a valid age.')
+    // Outreach takes a phone number and operational notes of at least 3 characters, or none
+    // (CreateRegistrationCaseDto), as sent: trimmed, so a native minLength is not enough.
+    const refused = phone !== undefined && phone.length < 3 ? { field: 'outreach-case-phone', message: 'Enter a phone number of at least 3 characters, or leave it blank.' }
+      : operationalNotes !== undefined && operationalNotes.length < 3 ? { field: 'outreach-case-notes', message: 'Enter operational notes of at least 3 characters, or leave them blank.' } : null
+    setProblem(refused)
+    if (refused) { focus(refused.field); return }
+    const input = { campaignId, fullName, sex, ageYears, phone, operationalNotes }
+    const signature = JSON.stringify([facilityId, input])
+    if (caseAttempt.current?.signature !== signature) {
+      caseAttempt.current = { signature, command: { localCommandId: crypto.randomUUID(), temporaryPatientId: `tmp_${crypto.randomUUID()}` } }
+    }
     setBusy(true); setError(''); setSuccess('')
-    try { await staffApi.createOutreachCase(facilityId, { campaignId, fullName, sex, ageYears, phone, operationalNotes }); setSuccess('Registration case created for identity resolution.'); element.reset(); await cases.refresh() }
+    try { await staffApi.createOutreachCase(facilityId, input, caseAttempt.current.command); caseAttempt.current = null; setSuccess('Registration case created for identity resolution.'); element.reset(); await cases.refresh() }
     catch (caught) { setError(errorText(caught, 'Registration case could not be created.')) }
     finally { setBusy(false) }
   }
@@ -1071,7 +1089,7 @@ export function Outreach() {
       {canReadCampaigns && <Card className="staff-card"><div className="staff-row"><h2>Campaigns</h2><Button tone="secondary" size="sm" onClick={() => void campaigns.refresh()} disabled={campaigns.loading}>Refresh</Button></div><p className="staff-notice">Campaign management is not yet available. Campaigns and their members can be viewed here, but not created, activated, closed or given members.</p><ListState loading={campaigns.loading} error={campaigns.error} empty="No campaigns" retry={() => void campaigns.refresh()} hasItems={Boolean(campaigns.items?.length)} />{campaigns.items?.map((campaign: OutreachCampaign) => <CampaignCard key={campaign.id} facilityId={facilityId} membershipId={membershipId} campaign={campaign} canRead={canReadCampaigns} onMembershipChange={recordMembership} />)}</Card>}
     </div><div className="staff-stack">
       {canReadCases && <Card className="staff-card"><div className="staff-row"><h2>Registration cases</h2><Button tone="secondary" size="sm" onClick={() => void cases.refresh()} disabled={cases.loading}>Refresh</Button></div><ListState loading={cases.loading} error={cases.error} empty="No registration cases" retry={() => void cases.refresh()} hasItems={Boolean(cases.items?.length)} />{cases.items?.map((item: OutreachCase) => <OutreachCaseCard key={item.id} facilityId={facilityId} item={item} canLink={permissions.includes('outreach.registration.write')} onChanged={cases.refresh} />)}</Card>}
-      {permissions.includes('outreach.registration.write') && <Card className="staff-card"><h2>New registration case</h2><form className="staff-form" onSubmit={event => void createCase(event)}>{canReadCampaigns && <Field label="Campaign" htmlFor="outreach-case-campaign" hint="Only active registration campaigns containing your facility membership appear here. A case may also be created without a campaign."><Select id="outreach-case-campaign" name="campaignId"><option value="">No campaign</option>{campaigns.items?.filter(campaign => campaign.status === 'active' && campaign.services.includes('registration') && eligibleCampaigns.facilityId === facilityId && eligibleCampaigns.ids.has(campaign.id)).map(campaign => <option key={campaign.id} value={campaign.id}>{campaign.name}</option>)}</Select></Field>}<Field label="Full name" htmlFor="outreach-case-name" required><Input id="outreach-case-name" name="fullName" maxLength={200} required /></Field><div className="staff-form-row"><Field label="Sex" htmlFor="outreach-case-sex" required><Select id="outreach-case-sex" name="sex" required><option value="unknown">Unknown</option><option value="female">Female</option><option value="male">Male</option><option value="other">Other</option></Select></Field><Field label="Age (years)" htmlFor="outreach-case-age" required><Input id="outreach-case-age" name="ageYears" type="number" min="0" max="130" required /></Field></div><Field label="Phone (optional)" htmlFor="outreach-case-phone"><Input id="outreach-case-phone" name="phone" minLength={3} maxLength={32} /></Field><Field label="Operational notes" htmlFor="outreach-case-notes"><Textarea id="outreach-case-notes" name="operationalNotes" maxLength={2000} /></Field><Button type="submit" disabled={busy}>{busy ? 'Creating…' : 'Create case'}</Button></form></Card>}
+      {permissions.includes('outreach.registration.write') && <Card className="staff-card"><h2>New registration case</h2><form className="staff-form" onSubmit={event => void createCase(event)}>{canReadCampaigns && <Field label="Campaign" htmlFor="outreach-case-campaign" hint="Only active registration campaigns containing your facility membership appear here. A case may also be created without a campaign."><Select id="outreach-case-campaign" name="campaignId"><option value="">No campaign</option>{campaigns.items?.filter(campaign => campaign.status === 'active' && campaign.services.includes('registration') && eligibleCampaigns.facilityId === facilityId && eligibleCampaigns.ids.has(campaign.id)).map(campaign => <option key={campaign.id} value={campaign.id}>{campaign.name}</option>)}</Select></Field>}<Field label="Full name" htmlFor="outreach-case-name" required><Input id="outreach-case-name" name="fullName" maxLength={200} required /></Field><div className="staff-form-row"><Field label="Sex" htmlFor="outreach-case-sex" required><Select id="outreach-case-sex" name="sex" required><option value="unknown">Unknown</option><option value="female">Female</option><option value="male">Male</option><option value="other">Other</option></Select></Field><Field label="Age (years)" htmlFor="outreach-case-age" required><Input id="outreach-case-age" name="ageYears" type="number" min="0" max="130" required /></Field></div><Field label="Phone (optional)" htmlFor="outreach-case-phone" error={problemText(problem, 'outreach-case-phone')}><Input id="outreach-case-phone" name="phone" minLength={3} maxLength={32} {...problemProps(problem, 'outreach-case-phone')} /></Field><Field label="Operational notes" htmlFor="outreach-case-notes" error={problemText(problem, 'outreach-case-notes')}><Textarea id="outreach-case-notes" name="operationalNotes" minLength={3} maxLength={2000} {...problemProps(problem, 'outreach-case-notes')} /></Field><Button type="submit" disabled={busy}>{busy ? 'Creating…' : 'Create case'}</Button></form></Card>}
     </div></div>
   </>
 }

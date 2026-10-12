@@ -78,3 +78,30 @@ describe('imported evidence reads', () => {
     expect(requests[0]!.headers.get('x-purpose-of-use')).toBe('direct-care')
   })
 })
+
+/**
+ * OUTREACH-02: Outreach answers a registration sent again with the same
+ * Idempotency-Key and body with the case it made, so the caller names the
+ * command (its localCommandId, also the key, and temporary patient ID) and
+ * sends the same one when it retries the same case.
+ */
+describe('Outreach registration case requests', () => {
+  it('sends the command the caller holds: its localCommandId as the Idempotency-Key, and its temporary patient ID', async () => {
+    document.cookie = 'hid_access_csrf=csrf-1'
+    const requests = recordFetch({ id: 'case-1' })
+    const { staffApi } = await signedInStaffApi()
+    const command = { localCommandId: 'c0000000-0000-4000-8000-000000000001', temporaryPatientId: 'tmp_c0000000-0000-4000-8000-000000000002' }
+
+    await staffApi.createOutreachCase('facility-1', { fullName: 'Amaka Obi', sex: 'female', ageYears: 34 }, command)
+    await staffApi.createOutreachCase('facility-1', { fullName: 'Amaka Obi', sex: 'female', ageYears: 34 }, command)
+
+    expect(requests).toHaveLength(2)
+    for (const request of requests) {
+      expect(request.method).toBe('POST')
+      expect(request.url.pathname).toBe('/api/v1/outreach/registration-cases')
+      expect(request.headers.get('idempotency-key')).toBe(command.localCommandId)
+      expect(request.headers.get('x-facility-id')).toBe('facility-1')
+      expect(request.body).toEqual({ fullName: 'Amaka Obi', sex: 'female', ageYears: 34, ...command })
+    }
+  })
+})
