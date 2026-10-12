@@ -371,7 +371,7 @@ function Gate({ children }: { children: ReactNode }) {
   const { state, lock, refresh } = useStaff()
   if (state.status === 'ended') return <SessionEnded />
   // Each state screen is the page: a main landmark, and an h1 where it has a title.
-  if (state.status === 'loading') return <main className="staff-centered"><BrandLogo className="staff-state-logo" /><p role="status">Checking your secure session…</p></main>
+  if (state.status === 'loading') return <main className="staff-centered"><BrandLogo className="staff-state-logo" /><div role="status"><h1>Checking your secure session…</h1></div></main>
   if (state.status === 'error') return <main className="staff-centered"><BrandLogo className="staff-state-logo" /><EmptyState titleAs="h1" title="Session unavailable" description={state.error} action={<Button onClick={() => void refresh()}>Try again</Button>} /></main>
   if (state.status === 'signed-out') {
     const productRoute = resolveStaffProductHostname(window.location.hostname)?.route
@@ -411,7 +411,8 @@ const PAGE_TITLES: Readonly<Record<string, string>> = Object.fromEntries([
  */
 function ProviderTitle() {
   const { state, lock } = useStaff()
-  const path = useLocation().pathname.replace(/\/+$/, '')
+  // The router matches a path in any case: /provider/Clinical shows the clinical record.
+  const path = useLocation().pathname.replace(/\/+$/, '').toLowerCase()
   const page = path === '/provider/sign-in' ? 'Sign in'
     : state.status === 'ended' ? 'Session ended'
       : state.status === 'loading' || lock === 'checking' ? 'Checking your session'

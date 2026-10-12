@@ -71,6 +71,14 @@ describe('PEHR-13: every provider state screen has a main landmark and an h1', (
     await act(async () => { answer(session()) })
   })
 
+  it('checking the session: an h1 in that main region', async () => {
+    let answer: (response: Response) => void = () => {}
+    serve({ 'GET /api/v1/auth/session': [() => new Promise<Response>(resolve => { answer = resolve })] })
+    await open('/provider')
+    await expectScreen(/Checking your secure session/)
+    await act(async () => { answer(session()) })
+  })
+
   it('session unavailable', async () => {
     serve({ 'GET /api/v1/auth/session': [unavailable, unavailable, unavailable, unavailable] })
     await open('/provider')

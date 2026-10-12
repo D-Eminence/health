@@ -48,6 +48,14 @@ describe('PEHR-05: each provider page names the browser tab', () => {
     await titled('Laboratory')
   })
 
+  // The router matches a path in any case, so the page it shows is named whatever the case typed.
+  it('names a page whose address is typed in another case', async () => {
+    serve({ 'GET /api/v1/auth/session': [() => session()] })
+    await open('/provider/Laboratory')
+    await screen.findByRole('heading', { level: 1, name: 'Laboratory' })
+    await titled('Laboratory')
+  })
+
   it('follows the page as the clinician moves through the workspace', async () => {
     serve({ 'GET /api/v1/auth/session': [() => session()] })
     await open('/provider')
