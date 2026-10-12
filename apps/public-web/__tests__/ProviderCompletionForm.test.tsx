@@ -137,6 +137,55 @@ describe('ProviderCompletionForm', () => {
     expect((await screen.findByRole('alert')).textContent).toBe('The confirmation code is invalid or expired')
   })
 
+  // hid-system organization-applications.controller.ts and
+  // organization-profile-completion.service.ts word these for developers.
+  it('keeps its own wording for a refusal the backend does not word for the applicant', async () => {
+    getProfile.mockReset().mockResolvedValue(profile)
+    saveProfile.mockReset()
+      .mockRejectedValueOnce(new HidApiError(428, 'If-Match must contain the expected positive version',
+        { code: 'IF_MATCH_REQUIRED' }))
+      .mockRejectedValueOnce(new HidApiError(409, 'Organization profile completion is unavailable',
+        { code: 'ORGANIZATION_REVIEW_REQUIRED' }))
+    render(<ProviderCompletionForm initialProduct="laboratory" />)
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Registered address' }),
+      { target: { value: '12 Marina Road, Lagos' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save missing details' }))
+    expect((await screen.findByRole('alert')).textContent).toBe('The profile could not be saved. Reload your profile and try again.')
+
+    await waitFor(() => expect((screen.getByRole('button', { name: 'Save missing details' }) as HTMLButtonElement).disabled).toBe(false))
+    fireEvent.click(screen.getByRole('button', { name: 'Save missing details' }))
+    await waitFor(() => expect(saveProfile).toHaveBeenCalledTimes(2))
+    expect(screen.getByRole('alert').textContent).toBe('The profile could not be saved. Reload your profile and try again.')
+  })
+
+  it('keeps its own wording when the request origin is refused', async () => {
+    start.mockReset().mockRejectedValueOnce(new HidApiError(403, 'Request origin is not allowed', { code: 'ORIGIN_DENIED' }))
+    render(<ProviderCompletionForm initialProduct="laboratory" />)
+    fireEvent.change(screen.getByRole('textbox', { name: 'CAC registration identifier' }), { target: { value: 'RC123456' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Administrator email' }), { target: { value: 'admin@example.org' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send email code' }))
+
+    expect((await screen.findByRole('alert')).textContent)
+      .toBe('The code request could not be completed. Check your details and try again later.')
+  })
+
+  it('shows a security-check refusal and a rate limit as the backend words them', async () => {
+    start.mockReset()
+      .mockRejectedValueOnce(new HidApiError(403, 'The security check expired or was already used',
+        { code: 'TURNSTILE_EXPIRED_OR_REPLAYED' }))
+      .mockRejectedValueOnce(new HidApiError(429, 'Application request limit reached; try again later',
+        { code: 'APPLICATION_RATE_LIMITED' }))
+    render(<ProviderCompletionForm initialProduct="laboratory" />)
+    fireEvent.change(screen.getByRole('textbox', { name: 'CAC registration identifier' }), { target: { value: 'RC123456' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Administrator email' }), { target: { value: 'admin@example.org' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send email code' }))
+    expect((await screen.findByRole('alert')).textContent).toBe('The security check expired or was already used')
+
+    await waitFor(() => expect((screen.getByRole('button', { name: 'Send email code' }) as HTMLButtonElement).disabled).toBe(false))
+    fireEvent.click(screen.getByRole('button', { name: 'Send email code' }))
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('Application request limit reached; try again later'))
+  })
+
   it('keeps its own wording for a service failure, whose detail the backend withholds', async () => {
     getProfile.mockReset().mockResolvedValue(profile)
     saveProfile.mockReset().mockRejectedValueOnce(new HidApiError(503, 'The service could not complete the request.',
