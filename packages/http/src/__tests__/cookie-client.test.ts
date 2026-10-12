@@ -29,6 +29,66 @@ describe('hid-system cookie transport', () => {
     expect(headers.has('Authorization')).toBe(false)
   })
 
+  // hid-system #39: Identity reads X-HID-Client on these two cookie calls only, so a
+  // portal refreshes or ends only its own kind of sign-in on the shared cookies.
+  it.each(['/api/v1/auth/refresh', '/api/v1/auth/logout'])('names the application on POST %s', async path => {
+    vi.stubGlobal('document', { cookie: 'hid_access_csrf=csrf-value' })
+    const { client, calls } = harness([new Response(null, { status: 204 })])
+    await client.post(path)
+    const headers = new Headers(calls[0]?.init.headers)
+    expect(headers.get('X-HID-Client')).toBe('patient-web')
+    // The CSRF token and cookies go as before.
+    expect(headers.get('X-CSRF-Token')).toBe('csrf-value')
+    expect(calls[0]?.init.credentials).toBe('include')
+    expect(headers.has('Authorization')).toBe(false)
+  })
+
+  it('names the application on no other cookie call', async () => {
+    vi.stubGlobal('document', { cookie: 'hid_access_csrf=csrf-value' })
+    const { client, calls } = harness(Array.from({ length: 8 }, () => new Response('{}')),
+      { getDefaultHeaders: () => ({ 'X-HID-Client': 'staff-web' }) })
+    await client.get('/api/v1/auth/session')
+    await client.get('/api/v1/auth/refresh')
+    await client.post('/api/v1/auth/login', {})
+    await client.post('/api/v1/auth/facility', { facilityId: 'facility-1' })
+    await client.post('/api/v1/auth/admin/refresh')
+    await client.post('/api/v1/auth/admin/logout')
+    await client.post('/api/v1/auth/refresh/extra')
+    await client.post('/api/v1/identity/me/access-pin', { pin: '123456' })
+    expect(calls.map(call => new Headers(call.init.headers).has('X-HID-Client'))).toEqual(Array(8).fill(false))
+  })
+
+  it('names only its own application, whatever a caller asks', async () => {
+    const { client, calls } = harness([new Response(null, { status: 204 })],
+      { getDefaultHeaders: () => ({ 'X-HID-Client': 'staff-web' }) })
+    await client.request({ method: 'POST', path: '/api/v1/auth/logout', headers: { 'X-HID-Client': 'staff-web' } })
+    expect(new Headers(calls[0]?.init.headers).get('X-HID-Client')).toBe('patient-web')
+  })
+
+  it('names the application on the refresh made for a protected request, and not on its repeat', async () => {
+    vi.stubGlobal('document', { cookie: 'hid_access_csrf=csrf-value' })
+    const refreshSession = vi.fn(async () => { await fixture.client.post('/api/v1/auth/refresh') })
+    const fixture = harness([
+      new Response('{}', { status: 401 }),
+      new Response(JSON.stringify({ actor: { kind: 'patient' } })),
+      new Response(JSON.stringify({ patientId: 'patient-1' })),
+    ], { refreshSession })
+    await fixture.client.get('/api/v1/identity/me')
+    expect(fixture.calls.map(call => new Headers(call.init.headers).get('X-HID-Client'))).toEqual([null, 'patient-web', null])
+  })
+
+  it('does not restore the session or repeat the request when the refresh names the other application', async () => {
+    const mismatch = () => new Response(JSON.stringify({ code: 'SESSION_CLIENT_MISMATCH',
+      detail: 'This sign-in belongs to the staff application, not patient-web' }),
+    { status: 403, headers: { 'Content-Type': 'application/problem+json' } })
+    const onUnauthorized = vi.fn()
+    const refreshSession = vi.fn(async () => { await fixture.client.post('/api/v1/auth/refresh') })
+    const fixture = harness([new Response('{}', { status: 401 }), mismatch()], { refreshSession, onUnauthorized })
+    await expect(fixture.client.get('/api/v1/identity/me')).rejects.toMatchObject({ status: 403, code: 'SESSION_CLIENT_MISMATCH' })
+    expect(fixture.calls.map(call => new URL(call.url).pathname)).toEqual(['/api/v1/identity/me', '/api/v1/auth/refresh'])
+    expect(refreshSession).toHaveBeenCalledTimes(1)
+  })
+
   it('reads CSRF cookie for writes and does not add it to reads', async () => {
     vi.stubGlobal('document', { cookie: 'other=1; hid_access_csrf=csrf-value' })
     const { client, calls } = harness([new Response('{}'), new Response('{}')])
