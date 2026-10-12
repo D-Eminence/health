@@ -135,6 +135,9 @@ export interface ApiClientOptions {
 
 const DEFAULT_TIMEOUT_MS = 15_000
 
+/** The cookie session calls on which Identity reads `X-HID-Client`. */
+const NAMED_CLIENT_PATHS: ReadonlySet<string> = new Set(['/api/v1/auth/refresh', '/api/v1/auth/logout'])
+
 /** A deduplicated read and the callers still waiting for it. */
 interface SharedRead {
   readonly controller: AbortController
@@ -265,16 +268,24 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
   let responseCsrfToken: string | null = null
   let refreshInFlight: Promise<void> | null = null
 
-  async function resolveHeaders(spec: RequestSpec, requestId: string): Promise<Headers> {
+  async function resolveHeaders(spec: RequestSpec, url: URL, requestId: string): Promise<Headers> {
     const headers = new Headers(await options.getDefaultHeaders?.())
 
     for (const [key, value] of Object.entries(spec.headers ?? {})) headers.set(key, value)
 
     headers.set('Accept', spec.responseType === 'download' ? '*/*' : 'application/json')
     if (cookieMode) {
-      // These are on the hid-system CORS allow-list. X-HID-Client and
-      // X-Request-ID are not, so adding them would block browser preflight.
+      // On the hid-system CORS allow-list. X-Request-ID is not, so adding it
+      // would block a cross-origin preflight.
       headers.set('X-Correlation-ID', requestId)
+      // The staff and patient apps share the session cookies on one origin.
+      // Identity reads X-HID-Client on these two calls only (hid-system #39) and
+      // refuses the other app's sign-in with 403 SESSION_CLIENT_MISMATCH, so
+      // neither app rotates or ends the other's. It names this client and no
+      // other, whatever a caller passed. Identity builds before #39 ignore it on
+      // the same origin but lack it on their CORS allow-list.
+      headers.delete('X-HID-Client')
+      if (spec.method === 'POST' && NAMED_CLIENT_PATHS.has(url.pathname)) headers.set('X-HID-Client', options.clientId)
     } else {
       headers.set('X-Request-ID', requestId)
       headers.set('X-HID-Client', options.clientId)
@@ -313,7 +324,7 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
     // the repeat after a refresh. A rejection ends the request. Headers (the CSRF
     // token among them) are read only after it, since a wait can outlast a refresh.
     await spec.beforeAttempt?.()
-    const headers = await resolveHeaders(spec, requestId)
+    const headers = await resolveHeaders(spec, url, requestId)
     const timeoutMs = spec.timeoutMs ?? defaultTimeoutMs
     const attemptSignal = createAttemptSignal(timeoutMs, spec.signal)
 

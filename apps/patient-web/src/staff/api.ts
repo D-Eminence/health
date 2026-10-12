@@ -6,6 +6,7 @@ import {
   staffSessionReadyFor, staffSessionSignal, untilStaffSessionReady,
 } from './session'
 import { inRefreshTurn, refreshInTurn, signOutInTurn } from '../sessionRefreshTurn'
+import { heldByOtherPortal } from '../sessionChange'
 import { staffLoginAction } from '../productHostname'
 
 export interface Facility {
@@ -522,8 +523,9 @@ let refreshing: Promise<StaffSession> | null = null
  * waited for another first reads the session, which that window has usually
  * restored already. Without the refresh cookie (dropped by the browser at the
  * idle or absolute limit, or cleared by a sign-out elsewhere) the server answers
- * 403 CSRF_VALIDATION_FAILED; nothing can restore the session then, so it is
- * reported as the ended session it is.
+ * 403 CSRF_VALIDATION_FAILED; with a patient's sign-in in the cookies, which
+ * this portal never rotates, 403 SESSION_CLIENT_MISMATCH. Nothing can restore
+ * the session then, so it is reported as the ended session it is.
  */
 function refreshStaffSession(): Promise<StaffSession> {
   refreshing ??= refreshInTurn(
@@ -532,6 +534,7 @@ function refreshStaffSession(): Promise<StaffSession> {
     () => client.post<StaffSession>('/api/v1/auth/refresh'))
     .catch((error: unknown) => {
       if (isHidApiError(error) && error.status === 403 && error.code === 'CSRF_VALIDATION_FAILED') throw sessionEnded(error)
+      if (heldByOtherPortal(error)) throw sessionEnded(error)
       throw error
     })
     .finally(() => { refreshing = null })
@@ -601,7 +604,8 @@ function signOut(confirmFirst = false): Promise<void> {
  * this tab may have rotated the session meanwhile), so the session is restored
  * and the sign-out sent again. A sign-out from a session that has since ended
  * does nothing, so it can never end the next one, and neither does one whose
- * restore finds another account's session in the browser: this session is
+ * restore finds another account's session in the browser, or one Identity
+ * refuses because the browser holds a patient's sign-in: this session is
  * already gone from it.
  */
 async function signOutStaffSession(confirmFirst: boolean): Promise<void> {
@@ -621,7 +625,12 @@ async function signOutStaffSession(confirmFirst: boolean): Promise<void> {
   }
   for (let attempt = 1; ; attempt += 1) {
     try { await signOutInTurn(() => stillThisAccount(actorId), () => client.post<null>('/api/v1/auth/logout')); return }
-    catch (error) { if (!endsStaffSession(error)) throw error }
+    catch (error) {
+      // The browser holds a patient's sign-in now, which Identity neither ended nor
+      // changed: this session has already left it.
+      if (heldByOtherPortal(error)) return
+      if (!endsStaffSession(error)) throw error
+    }
     if (staffSessionGeneration() !== sentIn) return
     if (attempt === SIGN_OUT_ATTEMPTS) throw new Error('Sign-out could not be completed. Try again.')
     try { await restoreStaffSession(actorId) }

@@ -75,3 +75,5 @@ body { margin: 0; }
 .staff-tabs button.active { background: var(--color-brand-tint); color: var(--color-brand); font-weight: 650; }
 @media (max-width: 900px) { .staff-layout { grid-template-columns: minmax(0, 1fr); } .staff-sidebar { border-right: 0; border-bottom: 1px solid var(--color-line); padding: 10px 14px; gap: 9px; } .staff-nav { display: flex; overflow-x: auto; padding-bottom: 2px; } .staff-nav-link { flex: 0 0 auto; } .staff-sidebar-footer { display: none; } .staff-facility { max-width: 360px; } .staff-main { padding: 24px 16px 60px; } }
 @media (max-width: 700px) { .staff-auth-page { grid-template-columns: 1fr; } .staff-auth-aside { display: none; } .staff-auth { padding: 35px 20px; } .staff-auth .staff-brand { margin-bottom: 52px; } .staff-two-col, .staff-form-row { grid-template-columns: minmax(0, 1fr); } .staff-user { display: none; } }
+.staff-facility-confirm { display: grid; gap: 8px; }
+.staff-facility-confirm p { margin: 0; color: var(--color-ink); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }

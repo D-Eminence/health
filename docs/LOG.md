@@ -471,3 +471,244 @@ than a live completion tracker.
     does not say 4 to 8 digits).
 - Headless Chromium on this machine only; no other browser, assistive
   technology, device, staging or production run.
+
+## 2026-10-12: portal-named session cookies, the three high accessibility findings, recovery hosting (accessibility audit, second batch)
+
+- **Session cookies (`X-HID-Client`).** hid-system #39 (on `main` at `522fb2e`,
+  not deployed) reads `X-HID-Client` on cookie `POST /api/v1/auth/refresh` and
+  `/auth/logout`. While the other portal's sign-in could still be renewed, it
+  refuses it with `403 SESSION_CLIENT_MISMATCH`, rotating and ending nothing and
+  keeping the cookies. Health-id sent no header, so a provider tab that had not
+  heard of a patient's sign-in could end it on sign-out, and either portal's
+  refresh could rotate the other's.
+  - `@hid/http`, in cookie mode, now sends the client's own `clientId`
+    (`patient-web` or `staff-web`) on those two POSTs and on no other call. It
+    is sent on every attempt, and a caller's header cannot replace it.
+  - Patient portal: a sign-out refused this way ends only its local session
+    and announces nothing, since the cookies did not change. A refresh refused
+    this way already ended the session as a 401.
+  - Provider portal: a refused refresh is the ended session it is (as
+    `CSRF_VALIDATION_FAILED`), and a refused sign-out completes locally. Neither
+    retries.
+  - CSRF, Origin and cookie handling are unchanged. Expiry, a refused refresh
+    (401), a missing refresh cookie (403 CSRF), network failures and 503s keep
+    their own handling.
+  - Tests: the shared client's header tests; patient and provider portal tests
+    (`PatientSessionClient.test.tsx`, `staff/SessionClient.test.tsx`); and
+    `SharedBrowserSession.test.tsx`, both real portals in one document against a
+    model of #39's cookie contract. 18 fail on `main` `1b17b5c`.
+  - Local integration: Health-id's client against a local Identity built from
+    hid-system `522fb2e` (Postgres 16, migrations 0001 to 0077). One cookie jar
+    was shared by both clients, with the Origin header, a real CORS preflight
+    and the CSRF cookie. 138 of 140 checks passed:
+    - each portal refreshes and signs out only its own sign-in;
+    - the other portal's sign-in is refused with no cookie set and the refresh
+      token unchanged;
+    - the refresh-cookie path behaves the same;
+    - the header appears only on the two POSTs;
+    - the preflight admits `x-hid-client`.
+  - The two failures are one backend defect (next item).
+- **Backend contract mismatch, reported, not fixed here.** At `522fb2e`, a
+  cookie sign-out whose live access cookie is a staff sign-in, refused for
+  `SESSION_CLIENT_MISMATCH` or `CSRF_VALIDATION_FAILED`, answers
+  `503 DEPENDENCY_UNAVAILABLE` instead of the documented 403.
+  - Cause: the global `AuditInterceptor` audits the refusal as
+    `api.post./api/v1/auth/logout` for the staff actor with no facility, which
+    `AuditService.assertActorFacility` refuses.
+  - Nothing is ended. The frontend does not treat a 503 as a mismatch.
+  - See [open questions](./OPEN-QUESTIONS.md), "Refused staff cookie sign-out
+    answers 503".
+- **OCR-A11Y-01 (high).** Each OCR step removed the control that ran it, so
+  focus fell to the page and nothing said whether the step worked.
+  - After create, retry, validate or reject, confirm and publish, once the job
+    and its evidence have been read again, focus moves to where the work
+    continues: the source patient confirmation, the review and publication
+    history, or Job status.
+  - A status region mounted throughout says what was recorded, naming the next
+    step only when it is shown.
+  - A refused request keeps its message and values, and gives focus back to its
+    control once that control is enabled again. A refused retry is reported in
+    the retry form.
+  - A field refused before sending shows its error at the field, tied to it,
+    and takes focus. This also fixes OCR-A11Y-02 (medium).
+  - The provider workspace moves focus to a new page's heading when a page
+    change takes away the control the user was on: Back, Forward, or a
+    document's Extract with OCR (`staff/pageFocus.ts`).
+  - Tests: `OcrFocus.test.tsx` (31; 21 of the first 26 fail on `main`, and the
+    five added after review fail before their fix; four refused-request cases
+    need a real browser, because jsdom keeps focus on a disabled control).
+- **PEHR-02 (high).** The "Working at" list switched facility as soon as its
+  value changed, so one arrow key on a closed list closed the open patient.
+  - Choosing a facility now only proposes it. A question names the current and
+    proposed facilities, and that the open patient record will close.
+  - Switch facility confirms it, with the same `POST /api/v1/auth/facility`.
+    Cancel keeps the current facility and returns focus to the list.
+  - The confirm button stays enabled while the switch runs, so focus stays on
+    it. After the switch, focus moves to the overview's heading.
+  - A proposal is dropped when the account or its facility changes (refresh,
+    another tab, lock, next session).
+  - Backend dependency: the choice is not kept across a reload. `/auth/session`
+    resolves the primary facility, else the first by name (see open questions).
+  - Tests: `FacilitySwitch.test.tsx` (9; 8 fail on `main`). The 14 switches in
+    `SessionEnd.test.tsx` now choose and confirm, with unchanged assertions.
+- **PEHR-03 (high).** A Health ID in the wrong format disabled both access
+  buttons silently.
+  - The format check is unchanged (HID_PATTERN, as hid-system's DTOs) and runs
+    when either form is sent.
+  - A hint states the format, and an empty or mistyped Health ID is reported at
+    the field: marked invalid, tied to the message, focused, nothing sent.
+  - The message is also an alert, new for each refusal, because Enter in the
+    focused field does not move focus.
+  - Tests: `PatientHealthIdField.test.tsx` (9; 6 of the first 8 fail on
+    `main`, and the added one fails before its fix).
+- **PEHR-11 (low)** is covered by the same page-change focus.
+  - Opening a patient moves focus to the clinical record's heading, and a
+    facility switch from the overview to its heading.
+  - Tests: `staff/PageFocus.test.tsx` (4; 2 of the first 3 fail on `main`, and
+    the added one fails before its fix).
+- **Recovery and hosting.**
+  - Checked in headless Chromium with the API mocked. On the six staff product
+    and admin hosts, in production and staging, provider sign-in links to
+    `/provider/recover` on www or staging. Opening `/provider/recover` there
+    directly shows the notice and that link, not a form, and sends no request.
+    A crafted `returnTo` or `next` never appears in a link. www and staging
+    show the form, and the admin host keeps its platform recovery form.
+  - The links are not live. At hid-system `522fb2e`, `www` and `staging` are
+    served by the `hid-web` worker with hid-system's own `apps/web`, which has
+    no `/provider/recover`: its catch-all redirects to `/`, and its staff reset
+    is on `/hospital/auth`. Each product host is served by its own hid-system
+    app, and Health-id has no deployment configuration.
+  - The links work once this portal serves the product hosts and www (or at
+    least `/provider/recover` there). D-Eminence/hid-system#41 (open) adds that
+    fixed route to hid-system's `apps/web`, so they also work with today's
+    hosting once it is released. Nothing was deployed and no DNS or hosting
+    setting was changed.
+- **Launch readiness, by workflow and level of evidence:**
+  - Patient (enrollment, sign-in, records, access, sign-out): component tests.
+    Headless Chromium, with the API mocked, only rendered the sign-in,
+    enrollment (to its code step), recovery, records, access and settings
+    screens at 320 to 1280px (layout and focus visibility), and checked the
+    refresh header and a refused refresh on `/settings`. No patient workflow,
+    sign-out included, was driven in a browser. The cookie refresh and sign-out
+    contract is checked against a local Identity through Health-id's client,
+    not through the patient screens. Not verified in staging or production.
+  - Provider (sign-in, patient access, clinical record, facility switch,
+    sign-out, recovery): component tests. Driven in headless Chromium with the
+    API mocked: patient access (the Health ID field), the facility switch from
+    the clinical record and from Patient access, the OCR steps, a sign-out
+    refused as a mismatch, and the recovery links. Sign-in was not submitted
+    in a browser. The local Identity run covers staff sign-in, refresh and
+    sign-out through the client. Product-host recovery and sign-in await the
+    hosting above. Not verified in staging or production.
+  - Migrate/OCR: code level and headless Chromium with the API mocked only. No
+    local OCR service was run, since extraction needs Textract. Migrate project
+    and bulk work has no backend contract (`MigrateGap`). Not verified in
+    staging or production.
+- **Review.** An adversarial review, with each finding put to a second
+  reviewer to refute, confirmed nine findings and refuted one. Session security
+  had none: it also checked two real tabs with Web Locks and BroadcastChannel.
+  The fixes are in their own commit, with tests that fail before it:
+  - Major: after a refused request, focus went back to the submit control even
+    when the user had gone to another field while it ran. Their typing was cut
+    short, and a space then pressed the button, so a review or confirmation
+    could be recorded with a cut-short reason. Focus now goes back only when it
+    was lost.
+  - A late step move took focus from a field the user had gone to, and a later
+    lookup could bring back an old message. The move now leaves the user's
+    focus alone, and a lookup or Document ID edit cancels it.
+  - A step or a page change during a workspace lock lost its focus move. Both
+    now wait for the workspace to open.
+  - The Health ID error from Enter in the field was not announced. It is now an
+    alert.
+  - A switch from a page other than the overview briefly focused the old
+    page's heading. It no longer does.
+  - Docs: the facility a reload shows (the primary, else the first by name),
+    and two claims of browser checks that had not been run. Both checks were
+    added and pass.
+  - Pre-existing, recorded in open questions: a publication that failed in its
+    owning service cannot be retried from the portal.
+- **Verification:**
+  - `npm test`: 1007 tests passed.
+  - `typecheck`, the patient app's `tsc --noEmit`, `lint`, `audit:boundaries`
+    and `git diff --check` all passed.
+  - Both builds passed. The public site was built in the main checkout at
+    `8b56680`, before the review fixes, which change no file it uses;
+    Turbopack does not build from this worktree's linked dependencies.
+  - Headless Chromium on the built portal, with the API mocked, passed 39 of
+    39 checks:
+    - the headers;
+    - by keyboard, each OCR step (find, create, validate, reject, confirm,
+      publish, retry) and each refusal (find, create, review, confirm,
+      publish, retry);
+    - typing elsewhere during a refused request or a late step;
+    - Back to OCR;
+    - ArrowDown and the switch, from the clinical record and from Patient
+      access;
+    - the Health ID field and its alert;
+    - the recovery links on 14 hosts.
+  - The width matrix from the first batch showed no overflow at 320 to 1280px
+    on its 55 screen and width pairs, and no focus stop hidden when tabbing
+    backwards. The new question, Health ID error and OCR field error fit at
+    320, 360 and 390px.
+  - No other browser, assistive technology, device, staging or production run.
+    This is not a claim of WCAG conformance.
+- Remaining confirmed findings, by audit id, most severe first (36):
+  - High: none.
+  - Medium:
+    - PA-07, OCR-A11Y-05, PEHR-08: input borders 1.28:1.
+    - A11Y-BR-05, OCR-A11Y-03, PEHR-07, A11Y-BR-06: success and warning badges
+      and text below 4.5:1.
+    - PEHR-06: provider links look like plain text.
+    - PR-03: patient actions drop focus to the page.
+    - PA-02, PA-03, PA-04, A11Y-BR-04: focus after a step change in enrollment
+      and recovery.
+    - PA-05, PEHR-04: errors not tied to their fields.
+    - PEHR-05: one page title for every provider page.
+  - Low:
+    - A11Y-BR-07, PEHR-12: faint small text.
+    - OCR-A11Y-08, PA-08: placeholder contrast.
+    - PEHR-09, A11Y-BR-08: two h1 headings on the clinical record.
+    - OCR-A11Y-09, PEHR-13: states with no h1 or main landmark.
+    - OCR-A11Y-06: Patient ID required only visually.
+    - PEHR-10: tab roles without tab panels.
+    - PEHR-14: Field hint and error ids never referenced.
+    - PA-06, PR-08: field errors for NIN, code and password.
+    - PA-10: 'Request another code' clears the contact.
+    - PA-11: the Google button's disabled state.
+    - PA-12, PR-06: page titles.
+    - PR-04, PR-05: focus after 'Try again' and 'Revoke access'.
+    - PR-07: the Access PIN field does not say 4 to 8 digits.
+- **Second review, before publication.** A second adversarial review of the
+  whole branch (session security, the focus fixes, the facility switch, the
+  docs), each finding put to a second reviewer to refute, confirmed eight
+  findings, all minor or nits, and refuted one. Session security again had
+  none. Fixed, with tests that fail before the fix (six):
+  - A refused OCR step answered while the workspace was locked never got focus
+    back: the session check's heading counted as the user's own choice. The
+    focus request now waits until the workspace opens, and is used once.
+  - A facility switch made on the overview had neither the lock wait nor the
+    user-focus guard: answered while locked it left focus on the page, and it
+    took focus from a link the user had moved to. It now waits for the
+    workspace and leaves the user's focus alone.
+  - An unconfirmed facility stayed in the "Working at" list on every page,
+    while every request still went to the facility in use. Opening another page
+    now discards it, as Cancel does.
+  - A Health ID refused from a button was spoken twice: focus moved to the
+    field described by the message, which was also a new alert. It is an alert
+    only when focus stays in the field (Enter).
+  - Docs: the launch-readiness evidence above now says what was run in a
+    browser; the OCR publication retry is folded into the existing open
+    question with the correct backend codes; the facility a session read
+    returns with `X-Facility-ID` is stated. The Document ID edit that cancels a
+    pending step now has its own test (it fails at `b223151`).
+- **Backend dependencies, as of this publication:**
+  - hid-system #39 (on `main` `522fb2e`, not deployed): `X-HID-Client`. This
+    branch works with earlier Identity builds on the same origin, which ignore
+    the header.
+  - D-Eminence/hid-system#42 (open): refused session-route requests answer
+    their 400, 401 or 403 and are audited, instead of 503. The portals already
+    handle those answers and never read a 503 as a mismatch.
+  - D-Eminence/hid-system#41 (open): `/provider/recover` on hid-system's
+    `apps/web`.
+  - Facility kept across reloads: no backend contract yet; see
+    [open questions](./OPEN-QUESTIONS.md), "Facility selection after reload".

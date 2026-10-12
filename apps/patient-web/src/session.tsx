@@ -6,7 +6,7 @@ import { createLogger } from '@hid/observability'
 import { createSessionStore, type AuthPrincipal, type SessionState } from '@hid/auth'
 import { createPatientApi, type PatientApi, type PatientSession } from './api'
 import { getEnvironment } from './env'
-import { announceSessionChange } from './sessionChange'
+import { announceSessionChange, heldByOtherPortal } from './sessionChange'
 
 interface SessionContextValue {
   readonly state: SessionState
@@ -56,8 +56,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         } catch (error) {
           // With no refresh cookie left (expired, or cleared by a sign-out in
           // another tab) the backend refuses the refresh with 403
-          // CSRF_VALIDATION_FAILED. The session has ended, as for a 401, so the
-          // patient returns to sign-in instead of seeing that refusal on the page.
+          // CSRF_VALIDATION_FAILED; with a provider's sign-in in the cookies, with
+          // 403 SESSION_CLIENT_MISMATCH, rotating nothing. Either way this
+          // patient's session has ended here, as for a 401, so the patient returns
+          // to sign-in instead of seeing that refusal on the page.
           if (isHidApiError(error) && error.status === 403) {
             throw new HidApiError(401, 'Your session has ended. Sign in again.', { code: 'AUTHENTICATION_REQUIRED', retryable: false, cause: error })
           }
@@ -120,6 +122,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       try {
         await api.logout(signedIn)
       } catch (error) {
+        // The browser holds a provider's sign-in now, which Identity neither ended
+        // nor changed: this patient's has already left it. Nothing changed for the
+        // other tabs to hear about.
+        if (heldByOtherPortal(error)) { store.clear(); return }
         if (!isHidApiError(error) || error.status !== 401) throw error
         // Logout needs the 15-minute access token. After a longer idle the
         // session is restored once so the server ends it, but only if it is
@@ -128,14 +134,18 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         try {
           restored = await api.refresh()
         } catch (refreshError) {
-          // A refused refresh leaves no session in this browser to end.
+          // A refused refresh leaves no session of this patient's in this browser
+          // to end, a provider's sign-in refused as SESSION_CLIENT_MISMATCH included.
           if (isHidApiError(refreshError) && (refreshError.status === 401 || refreshError.status === 403)) {
             store.clear()
             return
           }
           throw refreshError
         }
-        if (signedIn !== undefined && restored?.actor?.kind === 'patient' && restored.actor.subject === signedIn) await api.logout(signedIn)
+        if (signedIn !== undefined && restored?.actor?.kind === 'patient' && restored.actor.subject === signedIn) {
+          try { await api.logout(signedIn) }
+          catch (repeated) { if (heldByOtherPortal(repeated)) { store.clear(); return } throw repeated }
+        }
       }
       store.clear()
       announceSessionChange()

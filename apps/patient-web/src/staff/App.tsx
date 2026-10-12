@@ -18,6 +18,7 @@ import { Clinical } from './routes/Clinical'
 import { Laboratory, Pharmacy, Ocr, Outreach, MigrateGap } from './routes/Operations'
 import { resolveStaffProductHostname } from '../productHostname'
 import { revealFocusedLink } from '../navStrip'
+import { focusPageHeading, useFocusOnPageChange } from './pageFocus'
 import './style.css'
 
 type SessionState =
@@ -395,24 +396,69 @@ const navigation = [
 ] as const
 
 function Shell() {
-  const { state, selectFacility, signOut, activePatient } = useStaff()
+  const { state, selectFacility, signOut, activePatient, lock } = useStaff()
   const [facilityError, setFacilityError] = useState('')
   const [signOutError, setSignOutError] = useState('')
   const [switching, setSwitching] = useState(false)
   const [signingOut, setSigningOut] = useState(false)
   const navigate = useNavigate()
+  const main = useRef<HTMLElement>(null)
+  useFocusOnPageChange(main, lock !== null)
+  // A facility chosen in the list is not switched to until the switch is confirmed: on a
+  // closed list one arrow key changes the value (WCAG 3.2.2). The choice belongs to the
+  // account and facility it was made in, so a refresh, a switch from another tab, a lock
+  // or the next session that changes either discards it. It also belongs to the page:
+  // moving to another page discards it, as Cancel does, so the list never goes on showing
+  // an unconfirmed facility while work continues at the one in use.
+  const [choice, setChoice] = useState<{ from: string; to: string } | null>(null)
+  // Set by a switch made on the overview, whose heading then takes focus once the
+  // workspace is open, unless the user has put focus somewhere since. From any other
+  // page the change of page moves focus (useFocusOnPageChange) once the overview shows;
+  // focusing now would reach the old page's heading while the router's transition is
+  // pending.
+  const [focusOverview, setFocusOverview] = useState(false)
+  useEffect(() => {
+    if (!focusOverview || lock !== null) return
+    setFocusOverview(false)
+    const active = document.activeElement
+    if (!(active instanceof HTMLElement) || active === document.body || !active.isConnected) focusPageHeading(main.current)
+  }, [focusOverview, lock])
+  const { pathname } = useLocation()
+  const shownPath = useRef(pathname)
+  useEffect(() => {
+    // Only a change of page discards the proposal, not the shell's first render.
+    if (shownPath.current !== pathname) setChoice(null)
+    shownPath.current = pathname
+  }, [pathname])
   if (state.status !== 'ready') return null
   const { actor } = state.session
   const currentFacility = actor.facility
   const permissions = currentFacility?.permissions ?? []
   const visible = navigation.filter(item => !item.permission || permissions.includes(item.permission))
+  const choosingFrom = `${actor.id}|${currentFacility?.id ?? ''}`
+  const chosenId = choice?.from === choosingFrom ? choice.to : currentFacility?.id ?? ''
+  const chosen = chosenId !== (currentFacility?.id ?? '') ? actor.facilities.find(facility => facility.id === chosenId) : undefined
 
-  async function chooseFacility(id: string) {
+  async function switchFacility() {
+    if (switching || !chosen) return
     setFacilityError('')
     setSwitching(true)
-    try { if (await selectFacility(id)) navigate('/provider') }
+    try {
+      if (await selectFacility(chosen.id)) {
+        const onOverview = shownPath.current === '/provider'
+        setChoice(null)
+        navigate('/provider')
+        if (onOverview) setFocusOverview(true)
+      }
+    }
     catch (error) { setFacilityError(error instanceof Error ? error.message : 'Facility could not be selected.') }
     finally { setSwitching(false) }
+  }
+
+  function keepFacility() {
+    setChoice(null)
+    setFacilityError('')
+    document.getElementById('staff-facility-select')?.focus()
   }
 
   async function leave() {
@@ -436,16 +482,22 @@ function Shell() {
       <aside className="staff-sidebar" aria-label="Provider navigation">
         <div className="staff-facility">
           <label htmlFor="staff-facility-select">Working at</label>
-          <Select id="staff-facility-select" value={currentFacility?.id ?? ''} disabled={switching} onChange={event => void chooseFacility(event.target.value)}>
+          <Select id="staff-facility-select" value={chosenId} disabled={switching} aria-describedby={chosen ? 'staff-facility-question' : undefined}
+            onChange={event => { setFacilityError(''); setChoice({ from: choosingFrom, to: event.target.value }) }}>
             {!currentFacility && <option value="">Select a facility</option>}
             {actor.facilities.map(facility => <option key={facility.id} value={facility.id}>{facility.name}</option>)}
           </Select>
+          {chosen && <div className="staff-facility-confirm" role="group" aria-labelledby="staff-facility-question">
+            <p id="staff-facility-question">{currentFacility ? `You are working at ${currentFacility.name}. Switch to ${chosen.name}?` : `Work at ${chosen.name}?`}{activePatient ? ' The open patient record will close.' : ''}</p>
+            {/* Kept enabled while it runs, so focus stays on it; a second press does nothing. */}
+            <div className="staff-row"><Button size="sm" onClick={() => void switchFacility()} aria-disabled={switching || undefined}>{switching ? 'Switching…' : 'Switch facility'}</Button><Button size="sm" tone="quiet" onClick={keepFacility} disabled={switching}>Cancel</Button></div>
+          </div>}
           {facilityError && <p role="alert" className="staff-error">{facilityError}</p>}
         </div>
         <nav className="staff-nav" onFocus={revealFocusedLink}>{visible.map(item => <NavLink key={item.to} to={item.to} end={item.to === '/provider'} className={({ isActive }) => `staff-nav-link${isActive ? ' active' : ''}`}>{item.label}{item.to === '/provider/clinical' && !activePatient && <span className="staff-nav-meta">Select patient</span>}</NavLink>)}</nav>
         <div className="staff-sidebar-footer"><Badge tone="information">{actor.roles.join(', ') || 'Staff'}</Badge><p>Access is limited to your active facility and server permissions.</p></div>
       </aside>
-      <main className="staff-main">{signOutError && <p role="alert" className="staff-error">{signOutError}</p>}<Outlet /></main>
+      <main ref={main} className="staff-main">{signOutError && <p role="alert" className="staff-error">{signOutError}</p>}<Outlet /></main>
     </div>
   </div>
 }
