@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { findEndpoint } from '@hid/contracts'
 import { Badge, Button, Card, Field, Input, Select, Textarea } from '@hid/ui'
 import { isAllowedPatientLookup, staffApi } from '../api'
 import { useStaff } from '../App'
@@ -7,6 +8,28 @@ import { staffSessionGeneration, untilStaffSessionReady } from '../session'
 
 const HID_PATTERN = /^HID-[A-HJ-NP-Z2-9]{6,32}$/
 const HID_FORMAT = 'Starts with HID-, then 6 to 32 letters and digits. Health IDs never use 0, 1, I or O.'
+
+type AccessMethod = 'request' | 'pin' | 'emergency'
+
+// Each method's backend route, whose every listed permission the role must hold
+// (contracts registry, from hid-system identity consent.controller.ts): emergency
+// access needs identity.consent.write as well as identity.break-glass.write.
+const METHOD_ROUTES: Record<AccessMethod, { readonly route: string; readonly action: string }> = {
+  request: { route: 'access.staffRequests', action: 'send access requests' },
+  pin: { route: 'access.verifyPin', action: 'verify a patient’s PIN' },
+  emergency: { route: 'access.breakGlass', action: 'activate emergency access' },
+}
+
+/** Why the role cannot use `method`, or null when it holds every permission its route requires. */
+function methodUnavailable(method: AccessMethod, permissions: readonly string[]): string | null {
+  const { route, action } = METHOD_ROUTES[method]
+  // A route the registry does not describe is never offered.
+  const required = findEndpoint(route)?.permissions?.POST
+  if (!required?.length) return `This portal cannot ${action} here.`
+  const missing = required.filter(permission => !permissions.includes(permission))
+  return missing.length === 0 ? null
+    : `Your role at this facility cannot ${action}: it ${missing.length < required.length ? 'also ' : ''}needs ${missing.join(' and ')}. Ask your organization administrator.`
+}
 
 /** Why `normalized` is not a Health ID, or null when it is one. */
 function healthIdProblem(normalized: string): string | null {
@@ -25,7 +48,7 @@ export function Patients() {
   const [emergencyReason, setEmergencyReason] = useState('')
   const [pin, setPin] = useState('')
   const [scope, setScope] = useState<'read_records' | 'write_records'>('read_records')
-  const [mode, setMode] = useState<'request' | 'pin' | 'emergency'>('request')
+  const [mode, setMode] = useState<AccessMethod>('request')
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
@@ -42,6 +65,8 @@ export function Patients() {
   // approved request, the patient's PIN or emergency access), as the lookup
   // reported it, so it can be closed after a reload or from a later visit.
   const grantId = activePatient?.lookup.authorization.consentGrantId ?? null
+  // A method the backend would refuse is not offered, and the reason is shown with it.
+  const unavailable = methodUnavailable(mode, permissions)
 
   function clearFeedback() { setMessage(''); setError('') }
 
@@ -120,7 +145,8 @@ export function Patients() {
           {mode === 'request' && <><p className="staff-muted">Ask the patient to approve access. A pending request does not expose their record.</p><Field label="Access scope" htmlFor="request-scope"><Select id="request-scope" value={scope} onChange={event => setScope(event.target.value as 'read_records' | 'write_records')}><option value="read_records">Read records</option><option value="write_records">Read and write records</option></Select></Field><Field label="Clinical reason" htmlFor="request-reason" required><Textarea id="request-reason" value={reason} onChange={event => setReason(event.target.value)} minLength={8} required /></Field></>}
           {mode === 'pin' && <><p className="staff-muted">Only the patient should share their access PIN. Verification and grant creation happen on the server.</p><Field label="Patient access PIN" htmlFor="patient-pin" required><Input id="patient-pin" type="password" inputMode="numeric" autoComplete="off" value={pin} onChange={event => setPin(event.target.value)} required /></Field></>}
           {mode === 'emergency' && <><div className="staff-notice staff-danger">Use emergency access only when the patient cannot consent and care cannot wait. The action is time limited and audited. It opens a read-only summary from this facility: completed encounters and signed notes, and the diagnoses, prescriptions, lab requests and documents your role may read. It shows no vital signs and opens no files.</div><Field label="Emergency reason" htmlFor="emergency-reason" required><Textarea id="emergency-reason" value={emergencyReason} onChange={event => setEmergencyReason(event.target.value)} minLength={8} required /></Field></>}
-          <Button type="submit" disabled={busy || !facility || (mode === 'request' && !permissions.includes('identity.consent.write')) || (mode === 'pin' && !permissions.includes('identity.patient-access-pin.verify')) || (mode === 'emergency' && !permissions.includes('identity.break-glass.write'))}>{busy ? 'Working…' : mode === 'request' ? 'Send access request' : mode === 'pin' ? 'Verify PIN and open' : 'Activate emergency access'}</Button>
+          {unavailable && <p id="access-method-unavailable" className="staff-muted">{unavailable}</p>}
+          <Button type="submit" disabled={busy || !facility || unavailable !== null} aria-describedby={unavailable ? 'access-method-unavailable' : undefined}>{busy ? 'Working…' : mode === 'request' ? 'Send access request' : mode === 'pin' ? 'Verify PIN and open' : 'Activate emergency access'}</Button>
         </form>
       </Card>
     </div>
