@@ -99,3 +99,41 @@ describe('a read whose refresh waited for another window', () => {
     expect(calls).toContain(REFRESH)
   })
 })
+
+/**
+ * Only the calls that ask about the session judge their own 401s. Another
+ * request's final 401, once its refresh was refused, ends the session whatever
+ * else is in flight, a question about the session included.
+ */
+describe('a request refused while the tab asks whose session the browser holds', () => {
+  it('still signs the tab out, even when the question then cannot be answered', async () => {
+    let failQuestion: (reason: Error) => void = () => undefined
+    const question = new Promise<Response>((_, reject) => { failQuestion = reject })
+    outcome = undefined
+    const calls: string[] = []
+    const routes: Record<string, Array<() => Response | Promise<Response>>> = {
+      [SESSION]: [patient('subject-a'), () => question],
+      [PROFILE]: [accessExpired],
+      [REFRESH]: [() => problem(403, 'CSRF_VALIDATION_FAILED')],
+    }
+    vi.stubGlobal('fetch', vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const route = `${String(init?.method ?? 'GET')} ${new URL(String(url)).pathname}`
+      calls.push(route)
+      const next = routes[route]?.shift()
+      return next ? next() : problem(418, 'UNEXPECTED_REQUEST')
+    }))
+    render(<SessionProvider><Probe /></SessionProvider>)
+    await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('authenticated'))
+
+    // Restored from the back/forward cache: the tab asks, and the answer is slow.
+    await act(async () => { window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })) })
+    await waitFor(() => expect(calls.filter(call => call === SESSION)).toHaveLength(2))
+    await act(async () => { screen.getByRole('button', { name: 'Read profile' }).click() })
+    await waitFor(() => expect(outcome).toBe('401'))
+    expect(calls).toEqual([SESSION, SESSION, PROFILE, REFRESH])
+
+    // The question then fails for want of the network, which proves nothing.
+    await act(async () => { failQuestion(new TypeError('Failed to fetch')) })
+    await waitFor(() => expect(screen.getByTestId('status').textContent).toBe('anonymous'))
+  })
+})

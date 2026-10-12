@@ -161,22 +161,30 @@ export interface RecoveryChallenge {
 
 export function createPatientApi(client: ApiClient) {
   const call = <T>(method: 'GET' | 'POST' | 'DELETE', path: string, body?: unknown,
-    options?: { signal?: AbortSignal; headers?: Readonly<Record<string, string>> }) =>
+    options?: { signal?: AbortSignal; headers?: Readonly<Record<string, string>>; reportUnauthorized?: boolean }) =>
     client.request<T>({ method, path: `/api/v1/${path}`, auth: path.startsWith('auth/') || path.startsWith('identity/patient-enrollments') ? 'optional' : 'required',
       ...(body === undefined ? {} : { body }), ...options })
 
+  // A question about the session, and a refresh, judge their own 401: it may mean
+  // only an expired access token, which the refresh restores. The client's
+  // onUnauthorized is left to the final 401 of every other request.
+  const judged = { reportUnauthorized: false } as const
+
   return {
-    session: () => call<PatientSession>('GET', 'auth/session'),
+    session: () => call<PatientSession>('GET', 'auth/session', undefined, judged),
     // Windows of the portal take turns to refresh; one that waited reads the session
     // first, and takes only a patient's as restored: a provider's is refreshed, and refused.
-    refresh: () => refreshInTurn(() => call<PatientSession>('GET', 'auth/session').then(session => session?.actor?.kind === 'patient' ? session : null, () => null),
-      () => call<PatientSession>('POST', 'auth/refresh')),
+    refresh: () => refreshInTurn(
+      () => call<PatientSession>('GET', 'auth/session', undefined, judged).then(session => session?.actor?.kind === 'patient' ? session : null, () => null),
+      () => call<PatientSession>('POST', 'auth/refresh', undefined, judged)),
     // A sign-in waits for another window's refresh, whose answer would otherwise replace its cookies.
     login: (email: string, password: string, turnstileToken: string) =>
       inRefreshTurn(() => call<PatientSession>('POST', 'auth/patient/login', { email, password, turnstileAction: 'patient-login', turnstileToken })),
     // Signing out takes the same turn, and ends the session only while the browser
-    // still holds this patient's: this window does not hear other windows sign in,
-    // so it always asks. A refused question is handled as a refused sign-out.
+    // still holds this patient's. The portal hears other windows sign in on the
+    // session-change channel, but a browser without the channel, or an
+    // announcement still on its way, says nothing, so it always asks. A refused
+    // question is handled as a refused sign-out.
     logout: (subject: string | undefined) => signOutInTurn(() => call<PatientSession>('GET', 'auth/session').then(
       session => session.actor?.kind === 'patient' && subject !== undefined && session.actor.subject === subject),
     () => call<void>('POST', 'auth/logout'), { alwaysAsk: true }),

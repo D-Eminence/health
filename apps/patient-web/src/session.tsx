@@ -71,10 +71,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [otherPortalSession, setOtherPortalSession] = useState(false)
   const [signedOutElsewhere, setSignedOutElsewhere] = useState(false)
   const [checkKey, setCheckKey] = useState(0)
-  // While this tab restores its session, or asks whose session the browser holds
-  // (below), the 401s answered along the way are judged there: a session read that
-  // finds the access token expired is followed by the refresh that restores it.
-  const judging = useRef(0)
 
   useEffect(() => store.subscribe(setState), [store])
 
@@ -86,14 +82,16 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       sessionMode: 'cookie',
       logger: createLogger({ minLevel: environment.name === 'local' ? 'warn' : 'error',
         baseContext: { app: 'patient-web', environment: environment.name } }),
-      // Protected requests try a refresh before the final 401 clears the session.
-      onUnauthorized: () => { if (judging.current === 0 && store.getState().status === 'authenticated') store.clear() },
+      // Protected requests try a refresh before the final 401 clears the session. A
+      // question about the session and a refresh judge their own 401 (api.ts), so
+      // the session read that finds the access token expired, before the refresh
+      // that restores it, does not end it.
+      onUnauthorized: () => { if (store.getState().status === 'authenticated') store.clear() },
       refreshSession: async () => {
         // The patient this tab shows. A refresh answers for whichever sign-in the
         // browser holds now, another patient's from another tab included.
         const shown = store.getState().principal?.subjectId
         let restored: PatientSession | undefined
-        judging.current += 1
         try {
           restored = await patientApi?.refresh()
         } catch (error) {
@@ -105,7 +103,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           // to sign-in instead of seeing that refusal on the page.
           if (isHidApiError(error) && error.status === 403) throw sessionEnded(error)
           throw error
-        } finally { judging.current -= 1 }
+        }
         // Restored only if it is this patient's: otherwise the request is not
         // repeated as another account, and this tab's session has ended. Enrollment
         // calls reach here with no patient shown, and are not bound to one.
@@ -183,7 +181,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       asking = true
       const announced = heard
       heard = false
-      judging.current += 1
       try {
         let session: PatientSession
         try { session = await api.session() }
@@ -200,7 +197,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         if (!isPatientSessionOf(session, shown)) end(shown, true)
       } finally {
         asking = false
-        judging.current -= 1
         // A change heard while asking may postdate the answer: ask once more.
         if (again) { again = false; void ask() }
       }

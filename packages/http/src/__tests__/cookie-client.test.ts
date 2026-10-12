@@ -158,6 +158,22 @@ describe('hid-system cookie transport', () => {
     expect(calls).toHaveLength(3)
   })
 
+  it('passes a final 401 to onUnauthorized, except from a call that judges its own', async () => {
+    const onUnauthorized = vi.fn()
+    const refused = () => new Response(JSON.stringify({ code: 'AUTHENTICATION_REQUIRED', detail: 'Valid authentication is required' }), { status: 401 })
+    const { client, calls } = harness([refused(), refused(), refused()], { onUnauthorized })
+    await expect(client.request({ method: 'GET', path: '/api/v1/auth/session', reportUnauthorized: false }))
+      .rejects.toMatchObject({ status: 401 })
+    expect(onUnauthorized).not.toHaveBeenCalled()
+    // Asked together, a call that judges its 401 and one that does not are not one read.
+    await Promise.allSettled([
+      client.request({ method: 'GET', path: '/api/v1/auth/session', reportUnauthorized: false }),
+      client.get('/api/v1/auth/session'),
+    ])
+    expect(calls).toHaveLength(3)
+    expect(onUnauthorized).toHaveBeenCalledOnce()
+  })
+
   it('preserves domain data envelopes and reads Problem Details', async () => {
     const problem = { type: 'about:blank', title: 'Bad Request', status: 400,
       detail: 'One or more request fields are invalid.', code: 'VALIDATION_FAILED',
