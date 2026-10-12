@@ -18,6 +18,7 @@ import { Clinical } from './routes/Clinical'
 import { Laboratory, Pharmacy, Ocr, Outreach, MigrateGap } from './routes/Operations'
 import { resolveStaffProductHostname } from '../productHostname'
 import { revealFocusedLink } from '../navStrip'
+import { useDocumentTitle } from '../authSteps'
 import { focusPageHeading, useFocusOnPageChange } from './pageFocus'
 import './style.css'
 
@@ -395,6 +396,32 @@ const navigation = [
   { to: '/provider/outreach', label: 'Outreach', permission: 'outreach.registration.read' },
 ] as const
 
+// The pages the browser tab can name, by path. A title never carries a patient's
+// name or Health ID: it ends up in browser history, tab previews and shared screens.
+const PAGE_TITLES: Readonly<Record<string, string>> = Object.fromEntries([
+  ...navigation.map(item => [item.to, item.label]),
+  ['/provider/migrate', 'Migration workspace'],
+])
+
+/**
+ * Names the browser tab after the provider page shown (PEHR-05): index.html
+ * names it for patients only. A gate screen shown in place of the page names
+ * itself instead. Rendered inside the provider, whose session state it reads.
+ */
+function ProviderTitle() {
+  const { state, lock } = useStaff()
+  const path = useLocation().pathname.replace(/\/+$/, '')
+  const page = path === '/provider/sign-in' ? 'Sign in'
+    : state.status === 'ended' ? 'Session ended'
+      : state.status === 'loading' || lock === 'checking' ? 'Checking your session'
+        : state.status === 'error' ? 'Session unavailable'
+          : lock === 'unconfirmed' ? 'Session not confirmed'
+            : state.status === 'ready' && state.session.actor.facilities.length === 0 ? 'No facility assignment'
+              : PAGE_TITLES[path] ?? 'Page not found'
+  useDocumentTitle(`${page} · Health ID Provider`)
+  return null
+}
+
 function Shell() {
   const { state, selectFacility, signOut, activePatient, lock } = useStaff()
   const [facilityError, setFacilityError] = useState('')
@@ -503,7 +530,7 @@ function Shell() {
 }
 
 export function App() {
-  return <StaffProvider><Routes>
+  return <StaffProvider><ProviderTitle /><Routes>
     <Route path="sign-in" element={<SignIn />} />
     <Route element={<Gate><Shell /></Gate>}>
       <Route index element={<Dashboard />} />

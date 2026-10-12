@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { Field, Input, Select } from '@hid/ui'
 import { BrandLogo } from '../../BrandLogo'
+import { useDocumentTitle } from '../../authSteps'
 import { Turnstile } from '../../Turnstile'
 import { providerEnrollmentApi } from '../api'
 
@@ -38,6 +39,7 @@ function errorMessage(reason: unknown): string {
 }
 
 export function ProviderEnrollment() {
+  useDocumentTitle('Provider enrollment · Health ID Provider')
   const navigate = useNavigate()
   const [stage, setStage] = useState<'details' | 'otp' | 'password'>('details')
   const [organizationType, setOrganizationType] = useState<OrganizationType>('hospital')
