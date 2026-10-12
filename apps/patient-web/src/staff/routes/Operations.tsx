@@ -104,7 +104,7 @@ const SPECIMEN_STEP_DONE: Record<SpecimenActionKind, string> = {
   collect: 'Specimen marked collected.', receive: 'Specimen marked received.', reject: 'Specimen rejected.',
 }
 
-function SpecimenAction({ facilityId, accessionId, specimen, permissions, onChanged, onRefused }: { facilityId: string; accessionId: string; specimen: LabSpecimen; permissions: string[]; onChanged: (message: string) => void; onRefused: (error: unknown) => void }) {
+function SpecimenAction({ facilityId, accessionId, specimen, permissions, onStarted, onChanged, onRefused }: { facilityId: string; accessionId: string; specimen: LabSpecimen; permissions: string[]; onStarted: () => void; onChanged: (message: string) => void; onRefused: (error: unknown) => void }) {
   const actions: SpecimenActionKind[] = specimen.status === 'required'
     ? ['collect', 'reject'] : specimen.status === 'collected' ? ['receive', 'reject'] : []
   const allowed = actions.filter(action => permissions.includes(`lab.specimen.${action}`))
@@ -118,7 +118,7 @@ function SpecimenAction({ facilityId, accessionId, specimen, permissions, onChan
     const detail = String(new FormData(event.currentTarget).get('detail') ?? '').trim()
     setError(''); problems.clear()
     if (action === 'reject' && !detail) return problems.refuse(`lab-detail-${specimen.id}`, 'Enter a rejection reason.')
-    setBusy(true)
+    setBusy(true); onStarted()
     try { await staffApi.transitionSpecimen(facilityId, accessionId, specimen, action, detail); onChanged(SPECIMEN_STEP_DONE[action]) }
     catch (caught) { setError(errorText(caught, 'Specimen could not be updated. Refresh and try again.')); onRefused(caught) }
     finally { setBusy(false) }
@@ -155,8 +155,8 @@ function resultValue(form: FormData, resultType: 'numeric' | 'text', id: string)
   return { resultType, textValue, ...shared }
 }
 
-function ResultEntry({ facilityId, execution, result, onChanged, onRefused }: {
-  facilityId: string; execution: LabExecution; result: LabResult | null;
+function ResultEntry({ facilityId, execution, result, onStarted, onChanged, onRefused }: {
+  facilityId: string; execution: LabExecution; result: LabResult | null; onStarted: () => void;
   onChanged: (value: LabResult, message: string) => void; onRefused: (error: unknown) => void
 }) {
   const current = result?.revisions.find(revision => revision.version === result.currentVersion)
@@ -178,7 +178,7 @@ function ResultEntry({ facilityId, execution, result, onChanged, onRefused }: {
     }
     const reason = String(form.get('reason') ?? '').trim()
     if (result && !reason) return problems.refuse(`lab-result-reason-${execution.id}`, 'Explain the correction or amendment.')
-    setBusy(true)
+    setBusy(true); onStarted()
     try {
       const updated = result
         ? await staffApi.correctLabResult(facilityId, execution, result, value, reason,
@@ -207,8 +207,8 @@ function ResultEntry({ facilityId, execution, result, onChanged, onRefused }: {
   </details>
 }
 
-function ResultGovernance({ facilityId, result, action, onChanged, onRefused }: {
-  facilityId: string; result: LabResult; action: 'verify' | 'release';
+function ResultGovernance({ facilityId, result, action, onStarted, onChanged, onRefused }: {
+  facilityId: string; result: LabResult; action: 'verify' | 'release'; onStarted: () => void;
   onChanged: (value: LabResult, message: string) => void; onRefused: (error: unknown) => void
 }) {
   const [busy, setBusy] = useState(false)
@@ -221,7 +221,7 @@ function ResultGovernance({ facilityId, result, action, onChanged, onRefused }: 
     const reason = String(new FormData(event.currentTarget).get('reason') ?? '').trim()
     setError(''); problems.clear()
     if (!reason) return problems.refuse(reasonId, 'Enter a reason for this decision.')
-    setBusy(true)
+    setBusy(true); onStarted()
     try {
       const value = action === 'verify'
         ? await staffApi.verifyLabResult(facilityId, result, reason)
@@ -279,8 +279,8 @@ function ResultHistory({ facilityId, result, onRefused }: { facilityId: string; 
   </div>
 }
 
-function ExecutionCard({ facilityId, execution, permissions, onExecutionChanged, onResultChanged, onRefused }: {
-  facilityId: string; execution: LabExecution; permissions: string[];
+function ExecutionCard({ facilityId, execution, permissions, onStarted, onExecutionChanged, onResultChanged, onRefused }: {
+  facilityId: string; execution: LabExecution; permissions: string[]; onStarted: () => void;
   onExecutionChanged: (value: LabExecution, message: string) => void;
   onResultChanged: (value: LabResult, message: string) => void; onRefused: (error: unknown) => void
 }) {
@@ -292,7 +292,7 @@ function ExecutionCard({ facilityId, execution, permissions, onExecutionChanged,
     event.preventDefault()
     if (busy) return
     const notes = String(new FormData(event.currentTarget).get('notes') ?? '').trim()
-    setBusy(true); setError('')
+    setBusy(true); setError(''); onStarted()
     try { onExecutionChanged(await staffApi.completeLabExecution(facilityId, execution, notes), 'Analytical execution was completed.') }
     catch (caught) { setError(errorText(caught, 'Execution could not be completed. Refresh before retrying.')); onRefused(caught) }
     finally { setBusy(false) }
@@ -305,12 +305,12 @@ function ExecutionCard({ facilityId, execution, permissions, onExecutionChanged,
     {execution.method && <p>Method: {execution.method}</p>}
     {execution.status === 'in_progress' && permissions.includes('lab.execution.complete') && <form className="staff-form" onSubmit={event => void complete(event)}><Field label="Completion notes" htmlFor={`lab-completion-${execution.id}`}><Textarea id={`lab-completion-${execution.id}`} name="notes" maxLength={1000} /></Field><Button type="submit" size="sm" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Completing…' : 'Complete execution'}</Button></form>}
     {error && <p className="staff-error" role="alert">{error}</p>}
-    {execution.status === 'completed' && !result && permissions.includes('lab.result.enter') && <ResultEntry facilityId={facilityId} execution={execution} result={null} onChanged={onResultChanged} onRefused={onRefused} />}
+    {execution.status === 'completed' && !result && permissions.includes('lab.result.enter') && <ResultEntry facilityId={facilityId} execution={execution} result={null} onStarted={onStarted} onChanged={onResultChanged} onRefused={onRefused} />}
     {result && <><div className="staff-row"><strong>Manual result · version {result.currentVersion}</strong><Badge tone={result.status === 'released' ? 'success' : 'warning'}>{result.status.replaceAll('_', ' ')}</Badge></div>
       {current && <p>{current.resultType === 'numeric' ? current.numericValue == null ? 'Not recorded' : `${current.numericValue} ${current.unit ?? ''}` : current.textValue ?? 'Not recorded'} · {current.abnormalFlag.replaceAll('_', ' ')}</p>}
-      {canCorrect && <ResultEntry key={`${result.id}-${result.currentVersion}`} facilityId={facilityId} execution={execution} result={result} onChanged={onResultChanged} onRefused={onRefused} />}
-      {result.status === 'entered_unverified' && permissions.includes('lab.result.verify') && <ResultGovernance facilityId={facilityId} result={result} action="verify" onChanged={onResultChanged} onRefused={onRefused} />}
-      {result.status === 'verified_not_released' && permissions.includes('lab.result.release') && <ResultGovernance facilityId={facilityId} result={result} action="release" onChanged={onResultChanged} onRefused={onRefused} />}
+      {canCorrect && <ResultEntry key={`${result.id}-${result.currentVersion}`} facilityId={facilityId} execution={execution} result={result} onStarted={onStarted} onChanged={onResultChanged} onRefused={onRefused} />}
+      {result.status === 'entered_unverified' && permissions.includes('lab.result.verify') && <ResultGovernance facilityId={facilityId} result={result} action="verify" onStarted={onStarted} onChanged={onResultChanged} onRefused={onRefused} />}
+      {result.status === 'verified_not_released' && permissions.includes('lab.result.release') && <ResultGovernance facilityId={facilityId} result={result} action="release" onStarted={onStarted} onChanged={onResultChanged} onRefused={onRefused} />}
       {permissions.includes('lab.result.released.read') && <ResultHistory facilityId={facilityId} result={result} onRefused={onRefused} />}
     </>}
   </div>
@@ -407,6 +407,9 @@ function ExecutionPanel({ facilityId, specimen, permissions, generation, recheck
   // An action that answers after the results were hidden, here or anywhere in the accession,
   // must not bring them back.
   const stale = () => hidden.current || generation.current !== confirmed.current
+  // A step clears what the last one said, so the region changes even when the next
+  // records the same thing (a second execution completed, a second result verified).
+  const stepStarted = useCallback(() => setNotice(''), [])
   function changedExecution(value: LabExecution, message: string) {
     if (stale()) return
     const confirmedIn = confirmed.current
@@ -442,7 +445,7 @@ function ExecutionPanel({ facilityId, specimen, permissions, generation, recheck
     {error && <p className="staff-error" role="alert">{error}</p>}
     {canRead && <Button tone="secondary" size="sm" onClick={() => { setNotice(''); setRevision(value => value + 1) }} disabled={loading}>Refresh executions</Button>}
     {items?.map(execution => <ExecutionCard key={execution.id} facilityId={facilityId} execution={execution} permissions={permissions}
-      onExecutionChanged={changedExecution} onResultChanged={(value, message) => changedResult(execution.id, value, message)} onRefused={recheckAccess} />)}
+      onStarted={stepStarted} onExecutionChanged={changedExecution} onResultChanged={(value, message) => changedResult(execution.id, value, message)} onRefused={recheckAccess} />)}
     {canStart && !loading && !error && (items?.length === 0 || (!canRead && !items)) && <form className="staff-form" onSubmit={event => void start(event)}>
       <p className="staff-muted">Begin analysis for this received specimen. The backend checks the exact specimen version and patient authorization.</p>
       <Field label="Method" htmlFor={`lab-method-${specimen.id}`}><Input id={`lab-method-${specimen.id}`} name="method" maxLength={240} /></Field>
@@ -461,8 +464,13 @@ function AccessionView({ facilityId, id, permissions, created, onChanged }: { fa
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const [revision, setRevision] = useState(0)
-  // What the last step recorded, said in a region mounted throughout.
-  const [notice, setNotice] = useState(created ?? '')
+  // What the last step recorded, said in a region mounted throughout. A step clears
+  // it when it starts, so a second step that records the same thing is said again.
+  const [notice, setNotice] = useState('')
+  // The region comes with the accession, which replaces the form that created it, and
+  // one inserted already holding its text may not be announced: the creation is said
+  // once the accession's first read has settled, whether or not that read succeeded.
+  const creation = useRef(created)
   // A specimen step reloads the accession, which removes every specimen row until it is
   // read again; focus goes to the specimen's next step, or the specimen, once it is shown.
   const [focusAfterRead, setFocusAfterRead] = useState<readonly string[] | null>(null)
@@ -502,14 +510,18 @@ function AccessionView({ facilityId, id, permissions, created, onChanged }: { fa
     setError(''); setLoading(true)
     void staffApi.labAccession(facilityId, id).then(value => { if (active) setLoaded({ revision, accession: value }) })
       .catch(caught => { if (active) { setLoaded(null); setError(errorText(caught, 'Accession could not be loaded.')) } })
-      .finally(() => { if (active) setLoading(false) })
+      .finally(() => {
+        if (!active) return
+        setLoading(false)
+        if (creation.current) { setNotice(creation.current); creation.current = undefined }
+      })
     return () => { active = false }
   }, [facilityId, id, revision, recheck])
   return <Card className="staff-card"><h2 id="lab-accession-title" tabIndex={-1}>Specimen accession</h2>
     {/* Mounted throughout, so what a step records is announced; it says so through the read that follows. */}
     <div id="lab-accession-status" role="status">{notice ? <p className="staff-success">{notice}</p> : loading && <p>Loading accession…</p>}</div>
     {error && <p className="staff-error" role="alert">{error}</p>}
-    {accession && <><p>Accession {accession.accessionNumber}</p><div className="staff-list">{accession.specimens.map(specimen => <div className="staff-stack" key={`${specimen.id}-${specimen.status}`}><SpecimenAction facilityId={facilityId} accessionId={id} specimen={specimen} permissions={permissions} onChanged={message => { specimenChanged(specimen, message); onChanged() }} onRefused={specimenRefused} />{specimen.status === 'received' && (permissions.includes('lab.execution.read') || permissions.includes('lab.execution.start')) && <ExecutionPanel facilityId={facilityId} specimen={specimen} permissions={permissions} generation={generation} recheck={recheck} resultsHidden={resultsHidden} onResultsHidden={hideResults} />}</div>)}</div></>}
+    {accession && <><p>Accession {accession.accessionNumber}</p><div className="staff-list">{accession.specimens.map(specimen => <div className="staff-stack" key={`${specimen.id}-${specimen.status}`}><SpecimenAction facilityId={facilityId} accessionId={id} specimen={specimen} permissions={permissions} onStarted={() => setNotice('')} onChanged={message => { specimenChanged(specimen, message); onChanged() }} onRefused={specimenRefused} />{specimen.status === 'received' && (permissions.includes('lab.execution.read') || permissions.includes('lab.execution.start')) && <ExecutionPanel facilityId={facilityId} specimen={specimen} permissions={permissions} generation={generation} recheck={recheck} resultsHidden={resultsHidden} onResultsHidden={hideResults} />}</div>)}</div></>}
     <div className="staff-row"><Button id="lab-accession-refresh" tone="secondary" size="sm" onClick={() => { setNotice(''); reload() }} disabled={loading}>Refresh accession</Button></div>
   </Card>
 }

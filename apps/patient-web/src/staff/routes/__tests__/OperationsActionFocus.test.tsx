@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { Laboratory, Pharmacy } from '../Operations'
 
@@ -40,8 +40,9 @@ const prescription = { id: 'work-item-9', patientId: PATIENT, version: 3, accept
 
 function deferred<T>() {
   let resolve: (value: T) => void = () => {}
-  const promise = new Promise<T>(done => { resolve = done })
-  return { promise, resolve }
+  let reject: (reason: unknown) => void = () => {}
+  const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail })
+  return { promise, resolve, reject }
 }
 async function press(button: HTMLElement) {
   button.focus()
@@ -61,11 +62,11 @@ beforeEach(() => {
 })
 
 describe('Laboratory', () => {
-  async function openAccession(status: string) {
+  async function openAccession(status: string, extra: string[] = [], read: unknown = accession(status)) {
     staff.permissions = ['lab.work-item.read', 'lab.accession.read', 'lab.specimen.collect', 'lab.specimen.receive', 'lab.specimen.reject',
-      'lab.execution.read', 'lab.execution.complete']
+      'lab.execution.read', 'lab.execution.complete', ...extra]
     api.labWorkItems.mockResolvedValue({ items: [workItem] })
-    api.labAccession.mockResolvedValue(accession(status))
+    api.labAccession.mockResolvedValue(read)
     render(<Laboratory />)
     fireEvent.click(await screen.findByRole('button', { name: 'Open accession' }))
     await screen.findByText('Venous blood · SPC-1')
@@ -106,18 +107,113 @@ describe('Laboratory', () => {
     await waitFor(() => expect(status.textContent).toBe('Analytical execution was completed.'))
   })
 
-  it('creating an accession: focus moves to the accession', async () => {
+  async function createAccession(read: Promise<unknown>) {
     staff.permissions = ['lab.work-item.read', 'lab.accession.create', 'lab.accession.read']
     api.labWorkItems.mockResolvedValue({ items: [{ ...workItem, accessionId: null, accessionNumber: null, specimenStatuses: [] }] })
     api.createLabAccession.mockResolvedValue(accession('required'))
-    api.labAccession.mockResolvedValue(accession('required'))
+    api.labAccession.mockReturnValueOnce(read)
     render(<Laboratory />)
     fireEvent.click(await screen.findByRole('button', { name: 'Prepare accession' }))
     fireEvent.change(screen.getByLabelText(/^Specimen type/), { target: { value: 'Blood' } })
     fireEvent.change(screen.getByLabelText(/^Reason/), { target: { value: 'Anaemia work-up' } })
     await press(screen.getByRole('button', { name: 'Create accession' }))
+  }
+
+  it('creating an accession: focus moves to the accession, whose status region is on the page before it says so', async () => {
+    const reading = deferred<unknown>()
+    await createAccession(reading.promise)
     await waitFor(() => expect(focused()).toBe(screen.getByRole('heading', { name: 'Specimen accession' })))
-    await waitFor(() => expect(region('lab-accession-status').textContent).toBe('Accession ACC-1 created.'))
+    // The accession's region replaces the form with the accession. Inserted already
+    // holding the confirmation, it might never be spoken: it is said into the region
+    // once the accession has been read.
+    const status = region('lab-accession-status')
+    expect(status.textContent).not.toMatch(/created/)
+    await act(async () => { reading.resolve(accession('required')) })
+    await waitFor(() => expect(status.textContent).toBe('Accession ACC-1 created.'))
+    expect(status.isConnected).toBe(true)
+  })
+
+  it('creating an accession whose read then fails still says it was created, beside the failure', async () => {
+    const reading = deferred<unknown>()
+    await createAccession(reading.promise)
+    const status = region('lab-accession-status')
+    await act(async () => { reading.reject(new Error('Accession could not be loaded.')) })
+    await waitFor(() => expect(status.textContent).toBe('Accession ACC-1 created.'))
+    expect(screen.getByRole('alert').textContent).toBe('Accession could not be loaded.')
+  })
+
+  // The region says each step anew: one that records what the region already says is
+  // announced only if the region changed in between.
+  it('a second specimen step that records the same thing is said again: the region is cleared when a step starts', async () => {
+    const both = (first: string, second: string) => ({ ...accession(first),
+      specimens: [specimen(first), { ...specimen(second), id: 'specimen-2', specimenIdentifier: 'SPC-2' }] })
+    await openAccession('required', [], both('required', 'required'))
+    const status = region('lab-accession-status')
+    api.transitionSpecimen.mockResolvedValueOnce(specimen('collected', 3))
+    api.labAccession.mockResolvedValue(both('collected', 'required'))
+    await press(within(screen.getByText('Venous blood · SPC-1').closest('.staff-list-item') as HTMLElement).getByRole('button', { name: 'Record step' }))
+    await waitFor(() => expect(status.textContent).toBe('Specimen marked collected.'))
+    await screen.findByText('Venous blood · SPC-2')
+
+    const recording = deferred<unknown>()
+    api.transitionSpecimen.mockReturnValueOnce(recording.promise)
+    api.labAccession.mockResolvedValue(both('collected', 'collected'))
+    await press(within(screen.getByText('Venous blood · SPC-2').closest('.staff-list-item') as HTMLElement).getByRole('button', { name: 'Record step' }))
+    expect(status.textContent).toBe('')
+    await act(async () => { recording.resolve({ ...specimen('collected', 3), id: 'specimen-2' }) })
+    await waitFor(() => expect(status.textContent).toBe('Specimen marked collected.'))
+  })
+
+  const completed = (execution: typeof running) => ({ ...execution, status: 'completed', completedAt: '2026-10-09T09:30:00.000Z', version: 2 })
+  const second = { ...running, id: 'execution-2', requestedTestId: 'test-2', test: { codeSystem: 'LOINC', code: '789-8', name: 'Erythrocytes' } }
+
+  it('completing a second execution in the same panel is said again', async () => {
+    api.labExecutions.mockResolvedValue({ items: [running, second] })
+    await openAccession('received')
+    await screen.findByText(/Erythrocytes · LOINC/)
+    const status = region('lab-executions-status-specimen-1')
+    api.completeLabExecution.mockResolvedValueOnce(completed(running))
+    api.labExecutions.mockResolvedValue({ items: [completed(running), second] })
+    await press(screen.getAllByRole('button', { name: 'Complete execution' })[0]!)
+    await waitFor(() => expect(status.textContent).toBe('Analytical execution was completed.'))
+    await waitFor(() => expect(screen.getAllByRole('button', { name: 'Complete execution' })).toHaveLength(1))
+
+    const completing = deferred<unknown>()
+    api.completeLabExecution.mockReturnValueOnce(completing.promise)
+    api.labExecutions.mockResolvedValue({ items: [completed(running), completed(second)] })
+    await press(screen.getByRole('button', { name: 'Complete execution' }))
+    expect(status.textContent).toBe('')
+    await act(async () => { completing.resolve(completed(second)) })
+    await waitFor(() => expect(status.textContent).toBe('Analytical execution was completed.'))
+  })
+
+  it('verifying a second result in the same panel is said again', async () => {
+    const revision = { version: 1, resultType: 'numeric', numericValue: 13.2, textValue: null, unit: 'g/dL', referenceRange: null,
+      abnormalFlag: 'normal', entrySource: 'manual', verificationStatus: 'unverified', releaseStatus: 'not_released',
+      enteredAt: '2026-10-09T09:40:00.000Z', correctionReason: null }
+    const withResult = (execution: typeof running, status: string) => ({ ...completed(execution), result: { id: `result-${execution.id}`,
+      executionId: execution.id, status, verificationStatus: status === 'entered_unverified' ? 'unverified' : 'verified', currentVersion: 1,
+      currentReleasedVersion: null, revisions: [revision] } })
+    api.labExecutions.mockResolvedValue({ items: [withResult(running, 'entered_unverified'), withResult(second, 'entered_unverified')] })
+    await openAccession('received', ['lab.result.verify'])
+    await screen.findByText(/Erythrocytes · LOINC/)
+    const status = region('lab-executions-status-specimen-1')
+    const reasons = () => screen.getAllByRole('textbox', { name: /^Verification reason/ })
+    fireEvent.change(reasons()[0]!, { target: { value: 'Independent review' } })
+    api.verifyLabResult.mockResolvedValueOnce(withResult(running, 'verified_not_released').result)
+    api.labExecutions.mockResolvedValue({ items: [withResult(running, 'verified_not_released'), withResult(second, 'entered_unverified')] })
+    await press(screen.getAllByRole('button', { name: 'Verify result version' })[0]!)
+    await waitFor(() => expect(status.textContent).toBe('This exact result version was verified.'))
+    await waitFor(() => expect(screen.getAllByRole('button', { name: 'Verify result version' })).toHaveLength(1))
+
+    const verifying = deferred<unknown>()
+    api.verifyLabResult.mockReturnValueOnce(verifying.promise)
+    api.labExecutions.mockResolvedValue({ items: [withResult(running, 'verified_not_released'), withResult(second, 'verified_not_released')] })
+    fireEvent.change(reasons()[0]!, { target: { value: 'Independent review' } })
+    await press(screen.getByRole('button', { name: 'Verify result version' }))
+    expect(status.textContent).toBe('')
+    await act(async () => { verifying.resolve(withResult(second, 'verified_not_released').result) })
+    await waitFor(() => expect(status.textContent).toBe('This exact result version was verified.'))
   })
 })
 
