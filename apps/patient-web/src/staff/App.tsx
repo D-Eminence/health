@@ -20,7 +20,7 @@ import { Laboratory, Pharmacy, Ocr, Outreach, MigrateGap } from './routes/Operat
 import { resolveStaffProductHostname } from '../productHostname'
 import { revealFocusedLink } from '../navStrip'
 import { useDocumentTitle } from '../authSteps'
-import { focusPageHeading, useFocusOnPageChange } from './pageFocus'
+import { focusPageHeading, useFocusOnPageChange } from '../pageFocus'
 import './style.css'
 
 type SessionState =

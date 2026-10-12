@@ -4,7 +4,7 @@ import { MemoryRouter, Outlet, Route, Routes, useNavigate } from 'react-router-d
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import { Ocr } from '../Operations'
-import { useFocusOnPageChange } from '../../pageFocus'
+import { useFocusOnPageChange } from '../../../pageFocus'
 
 /**
  * OCR-A11Y-01 (WCAG 2.4.3 Focus Order, 4.1.3 Status Messages). Each OCR step

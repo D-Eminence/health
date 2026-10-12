@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react'
 import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { PATIENT_ROUTE } from '@hid/auth'
 import { RequireAccess } from './RequireAccess'
+import { useDocumentTitle } from './authSteps'
 import { SessionProvider } from './session'
 import { Overview } from './routes/Overview'
 import { SignIn } from './routes/SignIn'
@@ -16,6 +17,7 @@ const ProviderEnrollment = lazy(async () => ({ default: (await import('./staff/r
 const AdminApp = lazy(async () => ({ default: (await import('./admin/App')).App }))
 
 function PatientNotFound() {
+  useDocumentTitle('Page not found · Health ID')
   return <section className="patient-section"><p className="patient-eyebrow">Patient portal</p>
     <h1 className="patient-page-title">Page not found</h1>
     <p className="patient-page-copy">This patient page is unavailable.</p>

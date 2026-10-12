@@ -62,9 +62,10 @@ afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks() })
 
 let outcome: string | undefined
 function Probe() {
-  const { state, api, signOut } = useSession()
+  const { state, api, signOut, signedOutElsewhere } = useSession()
   return <>
     <output data-testid="status">{state.status}</output>
+    <output data-testid="elsewhere">{String(signedOutElsewhere)}</output>
     <button type="button" onClick={() => {
       void api.profile().then(() => { outcome = 'loaded' }, (error: { status?: number; code?: string }) => { outcome = `${error.status} ${error.code}` })
     }}>Read profile</button>
@@ -118,10 +119,22 @@ describe('SESSION_CLIENT_MISMATCH: the browser holds a provider\'s sign-in now',
     await press('Read profile')
     expect(outcome).toBe('401 AUTHENTICATION_REQUIRED')
     expect(status()).toBe('anonymous')
+    // Another account's sign-in, as a return to view finds it: sign-in says the sign-in changed elsewhere.
+    expect(screen.getByTestId('elsewhere').textContent).toBe('true')
     expect(routes(sent)).toEqual([PROFILE, REFRESH])
     // The cookies were kept: no other tab is told they changed.
     expect(announced).toEqual([])
     expect(screen.queryByText(/staff application|patient-web|SESSION_CLIENT_MISMATCH/)).toBeNull()
+  })
+
+  it('blames no other tab when a refresh is refused for a tab that showed no patient', async () => {
+    outcome = undefined
+    serve({ [SESSION]: [accessExpired], [PROFILE]: [accessExpired], [REFRESH]: [providerHoldsCookies] })
+    render(<SessionProvider><Probe /></SessionProvider>)
+    await waitFor(() => expect(status()).toBe('anonymous'))
+    await press('Read profile')
+    expect(outcome).toBe('401 AUTHENTICATION_REQUIRED')
+    expect(screen.getByTestId('elsewhere').textContent).toBe('false')
   })
 
   it('signs out locally when the sign-out itself is refused, without retrying or refreshing', async () => {

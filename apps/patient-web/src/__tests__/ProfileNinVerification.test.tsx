@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { createRegisteredBrowserClient } from '@hid/api'
 import { createApiClient } from '@hid/http'
 import { createPatientApi, type PatientProfile } from '../api'
@@ -48,6 +48,32 @@ describe('patient self-service NIN verification', () => {
     expect(requests.filter(request => request.path.endsWith('/verification/nin'))).toEqual([{
       path: '/api/v1/identity/me/verification/nin', body: { nin: '12345678901' },
     }])
+  })
+
+  it('keeps its success notice in one status region while the profile reloads, and focus in the NIN field', async () => {
+    let reads = 0
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).endsWith('/verification/nin')) {
+        return json({ entityType: 'patient', verificationType: 'nin', provider: 'qoreid', state: 'verified', recordedAt: '2026-01-01T00:00:00.000Z' })
+      }
+      reads += 1
+      return json(profile)
+    }) as typeof fetch
+    renderProfile(fetchImpl)
+
+    const input = await screen.findByRole('textbox', { name: 'National Identification Number' }) as HTMLInputElement
+    fireEvent.change(input, { target: { value: '12345678901' } })
+    const verify = screen.getByRole('button', { name: 'Verify NIN' })
+    verify.focus()
+    await act(async () => { fireEvent.click(verify) })
+    const notice = await screen.findByText('NIN verification succeeded. Identity evidence was recorded.')
+    const region = notice.closest('[role="status"]')!
+    await waitFor(() => expect(reads).toBe(2))
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+    expect(region.isConnected).toBe(true)
+    expect(region.textContent).toBe('NIN verification succeeded. Identity evidence was recorded.')
+    expect(input.isConnected).toBe(true)
+    expect(document.activeElement).toBe(input)
   })
 
   it('keeps the entered NIN when the server requires identity review', async () => {

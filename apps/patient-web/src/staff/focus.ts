@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { focusLost } from '../pageFocus'
 import { useStaff } from './App'
 
 /**
@@ -13,10 +14,13 @@ export const UNAVAILABLE = `${BUSY} aria-disabled:hover:border-line-strong aria-
 /** BUSY for a quiet button, without its tone's hover and press look while unavailable. */
 export const QUIET_UNAVAILABLE = `${BUSY} aria-disabled:hover:bg-transparent aria-disabled:active:bg-transparent`
 
-/** Whether focus has nowhere the user chose: on the page itself, or on `target` already. */
+/**
+ * Whether focus has nowhere the user chose: lost as the portals judge it
+ * (focusLost: on the page itself, on a control no longer shown, or on a button
+ * disabled while its action ran), or on `target` already.
+ */
 export function focusIsLost(target: HTMLElement | null): boolean {
-  const active = document.activeElement
-  return !(active instanceof HTMLElement) || active === document.body || !active.isConnected || active === target
+  return focusLost() || document.activeElement === target
 }
 
 interface FocusRequest { readonly ids: readonly string[]; readonly ifLost: boolean }

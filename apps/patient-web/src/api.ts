@@ -161,24 +161,35 @@ export interface RecoveryChallenge {
 
 export function createPatientApi(client: ApiClient) {
   const call = <T>(method: 'GET' | 'POST' | 'DELETE', path: string, body?: unknown,
-    options?: { signal?: AbortSignal; headers?: Readonly<Record<string, string>> }) =>
+    options?: { signal?: AbortSignal; headers?: Readonly<Record<string, string>>; reportUnauthorized?: boolean }) =>
     client.request<T>({ method, path: `/api/v1/${path}`, auth: path.startsWith('auth/') || path.startsWith('identity/patient-enrollments') ? 'optional' : 'required',
       ...(body === undefined ? {} : { body }), ...options })
 
+  // A question about the session, and a refresh, judge their own 401: it may mean
+  // only an expired access token, which the refresh restores. The client's
+  // onUnauthorized is left to the final 401 of every other request.
+  const judged = { reportUnauthorized: false } as const
+
   return {
-    session: () => call<PatientSession>('GET', 'auth/session'),
-    // Windows of the portal take turns to refresh; one that waited reads the session first.
-    refresh: () => refreshInTurn(() => call<PatientSession>('GET', 'auth/session').then(session => session?.actor ? session : null, () => null),
-      () => call<PatientSession>('POST', 'auth/refresh')),
+    session: () => call<PatientSession>('GET', 'auth/session', undefined, judged),
+    // Windows of the portal take turns to refresh; one that waited reads the session
+    // first, and takes only a patient's as restored: a provider's is refreshed, and refused.
+    refresh: () => refreshInTurn(
+      () => call<PatientSession>('GET', 'auth/session', undefined, judged).then(session => session?.actor?.kind === 'patient' ? session : null, () => null),
+      () => call<PatientSession>('POST', 'auth/refresh', undefined, judged)),
     // A sign-in waits for another window's refresh, whose answer would otherwise replace its cookies.
     login: (email: string, password: string, turnstileToken: string) =>
       inRefreshTurn(() => call<PatientSession>('POST', 'auth/patient/login', { email, password, turnstileAction: 'patient-login', turnstileToken })),
     // Signing out takes the same turn, and ends the session only while the browser
-    // still holds this patient's: this window does not hear other windows sign in,
-    // so it always asks. A refused question is handled as a refused sign-out.
-    logout: (subject: string | undefined) => signOutInTurn(() => call<PatientSession>('GET', 'auth/session').then(
+    // still holds this patient's. The portal hears other windows sign in on the
+    // session-change channel, but a browser without the channel, or an
+    // announcement still on its way, says nothing, so it always asks. A refused
+    // question is handled as a refused sign-out. The sign-out judges the 401 of
+    // either call (session.tsx restores the session and signs out again), so the
+    // tab is not signed out here while the server session may still be live.
+    logout: (subject: string | undefined) => signOutInTurn(() => call<PatientSession>('GET', 'auth/session', undefined, judged).then(
       session => session.actor?.kind === 'patient' && subject !== undefined && session.actor.subject === subject),
-    () => call<void>('POST', 'auth/logout'), { alwaysAsk: true }),
+    () => call<void>('POST', 'auth/logout', undefined, judged), { alwaysAsk: true }),
     googleNonce: () => call<{ nonce: string }>('GET', 'auth/google/nonce'),
     googleExchange: (idToken: string, turnstileToken: string, intent: 'sign_in' | 'enroll') =>
       inRefreshTurn(() => call<PatientSession | { stage: 'GOOGLE_AUTHENTICATED_PENDING_IDENTITY'; expiresAt: string }>(
@@ -210,12 +221,11 @@ export function createPatientApi(client: ApiClient) {
     // Patient-owned revocation; the staff `consent-grants/:id/close` route is not a patient route.
     revokeAccess: (grantId: string, reason: string) => call<{ consentGrantId: string; status: 'revoked'; replayed: boolean }>(
       'POST', `identity/me/consent-grants/${encodeURIComponent(grantId)}/revoke`, { reason }),
-    accessRequests: (signal?: AbortSignal) => call<AccessRequest[]>('GET', 'identity/me/access-requests', undefined,
-      { signal, headers: { 'X-Purpose-Of-Use': 'direct-care' } }),
-    approveAccess: (id: string) => call<unknown>('POST', `identity/access-requests/${encodeURIComponent(id)}/approve`, undefined,
-      { headers: { 'X-Purpose-Of-Use': 'direct-care' } }),
-    denyAccess: (id: string, reason: string) => call<unknown>('POST', `identity/access-requests/${encodeURIComponent(id)}/deny`, { reason },
-      { headers: { 'X-Purpose-Of-Use': 'direct-care' } }),
+    // The patient's own decisions carry no purpose of use: Identity binds them to the
+    // patient session, and would audit a purpose header as the purpose of the decision.
+    accessRequests: (signal?: AbortSignal) => call<AccessRequest[]>('GET', 'identity/me/access-requests', undefined, { signal }),
+    approveAccess: (id: string) => call<unknown>('POST', `identity/access-requests/${encodeURIComponent(id)}/approve`),
+    denyAccess: (id: string, reason: string) => call<unknown>('POST', `identity/access-requests/${encodeURIComponent(id)}/deny`, { reason }),
     notifications: (signal?: AbortSignal) => call<PatientNotification[]>('GET', 'identity/me/notifications', undefined, { signal }),
     markNotificationRead: (id: string) => call<{ id: string; readAt: string }>('POST', `identity/me/notifications/${encodeURIComponent(id)}/read`),
     setAccessPin: (pin: string) => call<{ configured: true }>('POST', 'identity/me/access-pin', { pin }),
