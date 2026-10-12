@@ -41,7 +41,7 @@
   }
 
   /* Keyboard focus scrolled into view stays clear of the sticky headers: the
-     patient header (67px), the provider top bar (63px) and the admin mobile
+     patient header (67px), the provider top bar (62px) and the admin mobile
      header (56px). */
   html {
     scroll-padding-top: 80px;
@@ -247,7 +247,7 @@
   .patient-inline-error, .patient-inline-success { margin: 18px 0; padding: 12px 14px; border-radius: var(--radius-control); font-size: 14px; line-height: 1.45; }
   .patient-inline-error { background: #fff0ef; color: #9b211d; }
   .patient-inline-success { background: #ecf9f1; color: #126239; }
-  .patient-field-hint { margin: 0; color: var(--color-muted); font-size: 13px; line-height: 1.5; }
+  .patient-field-hint { margin: 0; color: var(--color-muted); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
   .patient-text-button { justify-self: start; padding: 0; border: 0; background: transparent; font-size: 13px; cursor: pointer; }
   .patient-step-list { display: flex; gap: 8px; margin: 26px 0 0; padding: 0; list-style: none; }
   .patient-step-list li { flex: 1; padding: 9px 4px; border-bottom: 2px solid var(--color-line-strong); color: var(--color-muted); font-size: 12px; text-align: center; }
@@ -291,9 +291,14 @@
   .patient-list { margin: 12px 0 0; padding: 0; list-style: none; }
   .patient-list li { display: flex; justify-content: space-between; gap: 20px; padding: 17px 0; border-top: 1px solid var(--color-line); }
   .patient-list li > div:first-child { display: grid; gap: 5px; min-width: 0; }
-  .patient-list strong { color: var(--color-ink); font-size: 15px; overflow-wrap: anywhere; }
-  .patient-list span { color: var(--color-muted); font-size: 13px; overflow-wrap: anywhere; }
-  .patient-list p { margin: 4px 0 0; color: var(--color-muted); font-size: 13px; overflow-wrap: anywhere; }
+  .patient-list strong { color: var(--color-ink); font-size: 15px; }
+  .patient-list span { color: var(--color-muted); font-size: 13px; }
+  .patient-list p { margin: 4px 0 0; color: var(--color-muted); font-size: 13px; }
+  /* Long values without spaces (file and facility names) wrap instead of widening
+     the page. A trailing note beside the title column wraps only between words:
+     anywhere would let the row squeeze it until short words split. */
+  .patient-list li > div:first-child :is(strong, span, p) { overflow-wrap: anywhere; }
+  .patient-list li > p { overflow-wrap: break-word; }
   .patient-note { flex-direction: column; }
   .patient-note p { white-space: pre-wrap; overflow-wrap: anywhere; }
   .patient-access-item { flex-wrap: wrap; }
@@ -326,5 +331,6 @@
   .patient-overview-grid, .patient-details { grid-template-columns: 1fr; }
   .patient-card { padding: 18px; }
   .patient-list li, .patient-deny-form, .patient-inline-form { display: grid; grid-template-columns: 1fr; }
+  .patient-list li > p { overflow-wrap: anywhere; }
   .patient-decision-actions { justify-content: start; }
 }
