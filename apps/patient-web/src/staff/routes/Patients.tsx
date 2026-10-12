@@ -14,6 +14,7 @@ const HID_FORMAT = 'Starts with HID-, then 6 to 32 letters and digits. Health ID
 type AccessMethod = 'request' | 'pin' | 'emergency'
 
 interface MethodRoute { readonly route: string; readonly method: EndpointMethod; readonly purpose?: string }
+interface Action { readonly routes: readonly MethodRoute[]; readonly action: string }
 
 // Each backend route a method calls, whose every listed permission the role must
 // hold (contracts registry, verified in hid-system): the access step itself, where
@@ -23,7 +24,7 @@ interface MethodRoute { readonly route: string; readonly method: EndpointMethod;
 // access the summary that record is (ehr patient-records.controller.ts). Without
 // those, the grant would be made, audited and perhaps told to the patient, and the
 // record still refused.
-const METHOD_ROUTES: Record<AccessMethod, { readonly routes: readonly MethodRoute[]; readonly action: string }> = {
+const METHOD_ROUTES: Record<AccessMethod, Action> = {
   request: { routes: [{ route: 'access.staffRequests', method: 'POST' }], action: 'send access requests' },
   pin: { routes: [{ route: 'access.verifyPin', method: 'POST' },
     { route: 'identity.patientLookup', method: 'POST', purpose: 'to open the record' }], action: 'verify a patient’s PIN' },
@@ -31,10 +32,11 @@ const METHOD_ROUTES: Record<AccessMethod, { readonly routes: readonly MethodRout
     { route: 'identity.patientLookup', method: 'POST', purpose: 'to open the record' },
     { route: 'ehr.emergencyRecords', method: 'GET', purpose: 'to read the emergency summary' }], action: 'activate emergency access' },
 }
+// Closing the grant that opened the record (identity consent.controller.ts closeOwnGrant).
+const CLOSE_GRANT: Action = { routes: [{ route: 'access.closeOwnGrant', method: 'POST' }], action: 'close this grant' }
 
-/** Why the role cannot use `method`, or null when it holds every permission its routes require. */
-function methodUnavailable(method: AccessMethod, permissions: readonly string[]): string | null {
-  const { routes, action } = METHOD_ROUTES[method]
+/** Why the role cannot take `action`, or null when it holds every permission its routes require. */
+function actionUnavailable({ routes, action }: Action, permissions: readonly string[]): string | null {
   const needs = routes.map(item => ({ ...item, required: findEndpoint(item.route)?.permissions?.[item.method] ?? [] }))
   // A route the registry does not describe is never offered.
   if (needs.some(item => item.required.length === 0)) return `This portal cannot ${action} here.`
@@ -87,7 +89,8 @@ export function Patients() {
   // reported it, so it can be closed after a reload or from a later visit.
   const grantId = activePatient?.lookup.authorization.consentGrantId ?? null
   // A method the backend would refuse is not offered, and the reason is shown with it.
-  const unavailable = methodUnavailable(mode, permissions)
+  const unavailable = actionUnavailable(METHOD_ROUTES[mode], permissions)
+  const closeUnavailable = actionUnavailable(CLOSE_GRANT, permissions)
 
   function clearFeedback() { setMessage(''); setError(''); problems.clear() }
 
@@ -156,7 +159,7 @@ export function Patients() {
   }
 
   async function closeGrant() {
-    if (!facility || !grantId || busy) return
+    if (!facility || !grantId || busy || closeUnavailable) return
     clearFeedback(); setBusy(true)
     try {
       await staffApi.closeGrant(facility.id, grantId, 'Clinician closed completed patient access'); setActivePatient(null); setMessage('Access was closed by the backend.')
@@ -168,7 +171,7 @@ export function Patients() {
 
   return <>
     <div className="staff-page-head"><p className="staff-eyebrow">Governed access</p><h1 id="patients-title" tabIndex={-1}>Open a patient record.</h1><p>Enter the patient’s Health ID. Their identity and records remain hidden until the backend authorizes this facility and purpose.</p></div>
-    {activePatient && <Card className="staff-card staff-current"><h2>{activePatient.purpose === 'emergency' ? 'Current emergency summary' : 'Current authorized record'}</h2><div className="staff-row"><strong>{activePatient.lookup.patient.fullName ?? activePatient.hid}</strong><Badge tone={activePatient.purpose === 'emergency' ? 'danger' : 'success'}>{activePatient.purpose === 'emergency' ? 'Emergency access' : 'Access allowed'}</Badge><Link to="/provider/clinical" className="staff-text-link">{activePatient.purpose === 'emergency' ? 'Open read-only emergency summary →' : 'Open clinical record →'}</Link></div>{grantId && <Button tone="secondary" size="sm" onClick={() => void closeGrant()} aria-disabled={busy || undefined} className={BUSY}>Close my grant</Button>}</Card>}
+    {activePatient && <Card className="staff-card staff-current"><h2>{activePatient.purpose === 'emergency' ? 'Current emergency summary' : 'Current authorized record'}</h2><div className="staff-row"><strong>{activePatient.lookup.patient.fullName ?? activePatient.hid}</strong><Badge tone={activePatient.purpose === 'emergency' ? 'danger' : 'success'}>{activePatient.purpose === 'emergency' ? 'Emergency access' : 'Access allowed'}</Badge><Link to="/provider/clinical" className="staff-text-link">{activePatient.purpose === 'emergency' ? 'Open read-only emergency summary →' : 'Open clinical record →'}</Link></div>{grantId && <>{closeUnavailable && <p id="close-grant-unavailable" className="staff-muted">{closeUnavailable}</p>}<Button tone="secondary" size="sm" onClick={() => void closeGrant()} disabled={closeUnavailable !== null} aria-disabled={busy || undefined} className={BUSY} aria-describedby={closeUnavailable ? 'close-grant-unavailable' : undefined}>Close my grant</Button></>}</Card>}
     <div className="staff-two-col">
       <Card className="staff-card"><h2>Check current access</h2><p>Already approved? Verify with the server before opening the chart.</p><form className="staff-form" noValidate onSubmit={event => void checkAccess(event)}><Field label="Health ID" htmlFor="patient-hid" hint={HID_FORMAT} error={hidError ? hidAlert ? <span key={focusHid} role="alert">{hidError}</span> : hidError : undefined} required><Input id="patient-hid" autoComplete="off" placeholder="HID-…" value={hid} onChange={event => { setHid(event.target.value.toUpperCase()); setHidError('') }} required invalid={!!hidError} aria-describedby={hidError ? 'patient-hid-error' : 'patient-hid-hint'} /></Field><Button type="submit" disabled={!facility || !permissions.includes('identity.patient.read')} aria-disabled={busy || undefined} className={BUSY}>Verify access</Button></form></Card>
       <Card className="staff-card"><h2>Obtain access</h2><div className="staff-tabs" role="group" aria-label="Access method"><button type="button" aria-pressed={mode === 'request'} onClick={() => { problems.clear(); setMode('request') }}>Request</button><button type="button" aria-pressed={mode === 'pin'} onClick={() => { problems.clear(); setMode('pin') }}>Patient PIN</button><button type="button" aria-pressed={mode === 'emergency'} onClick={() => { problems.clear(); setMode('emergency') }}>Emergency</button></div>
