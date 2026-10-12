@@ -712,3 +712,97 @@ than a live completion tracker.
     `apps/web`.
   - Facility kept across reloads: no backend contract yet; see
     [open questions](./OPEN-QUESTIONS.md), "Facility selection after reload".
+
+## 2026-10-12: enrollment and password recovery, one step at a time (accessibility audit, third batch)
+
+Eight findings from the second batch's list of 36, in the patient and provider
+sign-up and recovery forms: PA-02, PA-03, PA-04 and A11Y-BR-04 (focus after a
+step change), PA-05 (the password mismatch), PA-06 (field errors for the NIN,
+code and password), PA-10 (the contact cleared for another code) and PA-12
+(page titles). The forms are `/enroll`, `/recover`, `/provider/recover` (and
+`/admin/recover`, the same component).
+
+- **Focus after each step.** Each step replaced the form before it and the
+  submit button was disabled while it ran, so focus fell to the page after every
+  step and after every refusal. `useStepFocus` (`apps/patient-web/src/authSteps.ts`)
+  now moves it, once the new step is on screen, to that step's field: the NIN,
+  contact, code or password. At the end it moves to the confirmation heading
+  ("Your Health ID is ready.", "Password reset complete."). After a refused step
+  it goes back to the field. "Start again" (provider recovery) and "Request
+  another code or change contact" (enrollment) move it too. Focus the person has
+  moved elsewhere while a step runs, including another field of the same form,
+  stays where it is. Opening the page, or resuming an enrollment already under
+  way, moves nothing.
+- **Field errors.** A refusal about the step's field is now tied to it: the field
+  is marked `aria-invalid` and described by the error as well as its hint. That
+  covers a value refused as malformed or wrong (`400`, `422`, such as
+  `NIN_NOT_VERIFIED`, `OTP_INVALID` and `PASSWORD_INVALID`), a wrong or expired
+  recovery code on the code step (`403 OTP_INVALID_OR_EXPIRED`), and a contact
+  already used by a Health ID (`409 CONTACT_ALREADY_REGISTERED`). On the
+  password step the same `403` means the verification ran out, so the password
+  field stays valid. A missing security check (`400 TURNSTILE_REQUIRED`), a
+  request key refused (`400 IDEMPOTENCY_KEY_INVALID`), rate limits and outages
+  leave the field valid too. The error shows at the top of the form. It is an
+  alert when it is not about the field, or when the step was sent with Enter in
+  the field; sent from the button, focus moves to the field, whose description
+  says it, so it is not also an alert (it would be spoken twice).
+- **Password mismatch (provider and platform recovery).** "Passwords do not
+  match." is now in a polite live region, announced once when it appears, and
+  the confirm field is marked invalid and described by it. It appears once the
+  confirmation differs from the password, not while it is still being typed and
+  agrees so far.
+- **Another code.** "Request another code or change contact" comes back to the
+  contact just used, filled in, instead of an empty field. It cannot be used
+  while a code is being checked.
+- **Page titles.** Sign-in, enrollment and recovery name the tab ("Sign in ·
+  Health ID", "Get your Health ID · Health ID", "Reset your password · Health ID",
+  and "… · Health ID Provider" or "… Platform"), and give the earlier title back
+  when they close. Patient portal pages and provider pages keep one title
+  (PR-06, PEHR-05 below).
+- No request, contract or backend change. The Turnstile, the challenge and the
+  verification token are handled as before.
+- **Tests:** `apps/patient-web/src/__tests__/AuthStepFocus.test.tsx`, 21 cases.
+  Each step is submitted with focus on its button, as a keyboard user does,
+  unless the case is about Enter in the field. 11 of the first 13 fail against
+  the forms before this change; the other two guard what must not change (focus
+  moved elsewhere is kept; opening at a resumed stage moves nothing). The review
+  below added 8: 6 fail on the reviewed commit (`aa2602a`), 1 more there was
+  updated, and two guard that opening `/recover` and `/provider/recover` moves
+  nothing.
+- **Review.** An independent review found no blocker. Fixed: a verification that
+  ran out on the password step marked the password invalid (major); focus was
+  taken back from another field of the same form; a field error from the button
+  was spoken twice; the security-check and request-key 400s counted as field
+  errors and `CONTACT_ALREADY_REGISTERED` did not; the mismatch showed on the
+  first keystroke; "Request another code" worked during a check; two test gaps.
+- **Browser check:** headless Chromium against the built portal with the API
+  mocked, at 390px, every step submitted from the keyboard, 19 of 19 checks:
+  - each step's focus, including Chromium's own blur of the disabled button;
+  - the invalid state and description after a wrong code and a refused NIN;
+  - the mismatch live region;
+  - the contact kept for another code;
+  - the titles.
+  No other browser, assistive technology or device. This is not a claim of WCAG
+  conformance.
+- **Remaining confirmed findings (28), by audit id, most severe first:**
+  - Medium:
+    - PA-07, OCR-A11Y-05, PEHR-08: input borders 1.28:1.
+    - A11Y-BR-05, OCR-A11Y-03, PEHR-07, A11Y-BR-06: success and warning badges
+      and text below 4.5:1.
+    - PEHR-06: provider links look like plain text.
+    - PR-03: patient actions drop focus to the page.
+    - PEHR-04: provider field errors not tied to their fields.
+    - PEHR-05: one page title for every provider page.
+  - Low:
+    - A11Y-BR-07, PEHR-12: faint small text.
+    - OCR-A11Y-08, PA-08: placeholder contrast.
+    - PEHR-09, A11Y-BR-08: two h1 headings on the clinical record.
+    - OCR-A11Y-09, PEHR-13: states with no h1 or main landmark.
+    - OCR-A11Y-06: Patient ID required only visually.
+    - PEHR-10: tab roles without tab panels.
+    - PEHR-14: Field hint and error ids never referenced.
+    - PR-08: the portal's NIN error.
+    - PA-11: the Google button's disabled state.
+    - PR-06: patient portal page titles.
+    - PR-04, PR-05: focus after 'Try again' and 'Revoke access'.
+    - PR-07: the Access PIN field does not say 4 to 8 digits.
