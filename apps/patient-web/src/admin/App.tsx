@@ -87,6 +87,8 @@ export function App() {
     clearSessionWindow()
     setSession(null)
     setNotice(message)
+    // A sign-out that failed belonged to this workspace, not to the next one.
+    setSignOutError(null)
   }, [])
 
   // The server stopped accepting this platform session (401 after refresh).

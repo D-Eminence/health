@@ -370,6 +370,27 @@ describe('a workspace bound to the administrator who opened it', () => {
     expect(screen.queryByText(/MFA-verified platform administration session/)).toBeNull()
   })
 
+  it('carries no sign-out error into the next workspace when the session ends after an outage', async () => {
+    await openAs({ [MFA]: [mfa(), mfa()],
+      [SESSION]: [sessionOf('admin-1'), unavailable(), unavailable(), unavailable(), refused('AUTHENTICATION_REQUIRED'),
+        sessionOf('admin-1')],
+      [REFRESH]: [refused('AUTHENTICATION_REQUIRED')], [OVERVIEW]: [overview(), overview()],
+      'POST /api/v1/auth/admin/login': [json({ status: 'mfa_required', expiresAt: new Date(Date.now() + 300_000).toISOString() })],
+      'POST /api/v1/auth/admin/mfa/verify': [grantFor('admin-1')] })
+    expect(await screen.findByText('7')).toBeTruthy()
+    fireEvent.click(screen.getAllByRole('button', { name: 'Sign out' })[0]!)
+    expect(await screen.findByText(/^Sign-out could not be completed\./, {}, { timeout: 4000 })).toBeTruthy()
+    // Another tab signs out; asked again, the server no longer knows this session.
+    fromAnotherTab()
+    fireEvent.change(await screen.findByLabelText('Email'), { target: { value: 'admin-1@example.test' } })
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'correct horse battery' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    fireEvent.change(await screen.findByLabelText('Authenticator code'), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Verify' }))
+    expect(await screen.findByText('7')).toBeTruthy()
+    expect(screen.queryByText(/Sign-out could not be completed/)).toBeNull()
+  })
+
   // MFA verification has already replaced the browser's platform cookies, so the
   // other tabs must hear of it even when this workspace then fails to open.
   it('tells the other admin tabs of a sign-in that could not open the workspace', async () => {
