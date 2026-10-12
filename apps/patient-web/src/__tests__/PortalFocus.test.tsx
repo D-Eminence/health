@@ -392,4 +392,3 @@ describe('account deletion', () => {
     await waitFor(() => expect(focused()).toBe(screen.getByRole('heading', { name: 'Delete account' })))
   })
 })
-
