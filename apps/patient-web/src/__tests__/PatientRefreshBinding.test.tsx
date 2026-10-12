@@ -74,6 +74,14 @@ describe('a read whose refresh waited for another window', () => {
     expect(calls).not.toContain(REFRESH)
   })
 
+  it('refreshes when the session it read first has expired too, and keeps this patient signed in', async () => {
+    const calls = await readAfterWaiting({ [SESSION]: [patient('subject-a'), accessExpired],
+      [PROFILE]: [accessExpired, () => json({ hid: 'HID-A' })], [REFRESH]: [patient('subject-a')] })
+    expect(outcome).toBe('loaded')
+    expect(screen.getByTestId('status').textContent).toBe('authenticated')
+    expect(calls.filter(call => call === REFRESH)).toHaveLength(1)
+  })
+
   it('does not take another patient\'s session as restored, and repeats nothing', async () => {
     const calls = await readAfterWaiting({ [SESSION]: [patient('subject-a'), patient('subject-b')],
       [PROFILE]: [accessExpired, () => json({ hid: 'HID-B' })] })
