@@ -88,7 +88,9 @@ describe('RequireAccess', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Checking your session…' })).toBeDefined()
     unmount()
     renderGuard({ status: 'unknown', principal: null }, PATIENT_ROUTE, 'We could not check your session. Try again.')
-    expect(screen.getByRole('heading', { level: 1, name: 'We could not check your session. Try again.' })).toBeDefined()
+    // The heading names the state; what to do follows it.
+    expect(screen.getByRole('heading', { level: 1, name: 'We could not check your session' })).toBeDefined()
+    expect(screen.getByRole('alert').textContent).toBe('We could not check your sessionCheck your connection, then try again.Try again')
   })
 
   it('after Try again, moves focus to the page that opens, or to Try again when the check fails again', async () => {

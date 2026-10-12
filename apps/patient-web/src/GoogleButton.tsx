@@ -79,7 +79,7 @@ export function GoogleButton({ text, disabled, disabledReason, onCredential }: {
   }, [api, clientId, text, attempt])
 
   if (!clientId) return null
-  return <div ref={region} tabIndex={-1} className="patient-google">
+  return <div ref={region} tabIndex={-1} role="group" aria-label="Google sign-in" className="patient-google">
     <div ref={host} inert={disabled} style={{ opacity: disabled ? .5 : 1 }} />
     {disabled && disabledReason && <p className="patient-field-hint">{disabledReason}</p>}
     {error && <p role="alert" className="patient-inline-error">{error}</p>}

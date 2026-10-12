@@ -70,6 +70,8 @@ describe('the Google button', () => {
     await waitFor(() => expect(window.google!.accounts.id.renderButton).toHaveBeenCalledTimes(2))
     expect(used.isConnected).toBe(false)
     await waitFor(() => expect(document.activeElement).toBe(view.container.querySelector('.patient-google')))
+    // A named group, so focus landing there says where it is.
+    expect(screen.getByRole('group', { name: 'Google sign-in' })).toBe(document.activeElement)
   })
 })
 

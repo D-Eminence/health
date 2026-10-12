@@ -189,7 +189,8 @@
     line-height: 1.45;
   }
 
-  .patient-access-state p + p {
+  .patient-access-state p + p,
+  .patient-access-state h1 + p {
     margin-top: 8px;
     color: var(--color-muted);
   }

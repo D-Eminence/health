@@ -117,7 +117,7 @@ describe('unified authenticated portal routes', () => {
     calls.patientSession.mockRejectedValueOnce(new Error('Network unavailable'))
     open('/profile')
 
-    expect(await screen.findByText('We could not check your session. Try again.')).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: 'We could not check your session' })).toBeTruthy()
     expect(screen.getByTestId('portal-path').textContent).toBe('/profile')
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
 
@@ -134,7 +134,7 @@ describe('unified authenticated portal routes', () => {
     await waitFor(() => expect(screen.getByTestId('portal-path').textContent).toBe('/sign-in'))
     expect(await screen.findByText('A provider sign-in is active in this browser. Signing in here as a patient replaces it.')).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Go to the provider portal' }).getAttribute('href')).toBe('/provider')
-    expect(screen.queryByText('We could not check your session. Try again.')).toBeNull()
+    expect(screen.queryByText(/could not check your session/)).toBeNull()
     expect(screen.queryByRole('alert')).toBeNull()
     expect(calls.patientSession).toHaveBeenCalledOnce()
     expect(calls.staffSession).not.toHaveBeenCalled()
