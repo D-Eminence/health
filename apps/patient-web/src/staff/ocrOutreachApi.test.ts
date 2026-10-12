@@ -59,3 +59,22 @@ describe('OCR publication requests', () => {
     }
   })
 })
+
+/** OCR-04: what a Lab or Pharmacy publication made is read from the domain that owns it. */
+describe('imported evidence reads', () => {
+  it.each([
+    ['labImport', '/api/v1/lab/imports/import-1'],
+    ['pharmacyImport', '/api/v1/pharmacy/imports/import-1'],
+  ] as const)('%s reads the import at this facility for direct care', async (method, path) => {
+    const requests = recordFetch({ id: 'import-1' })
+    const { staffApi } = await signedInStaffApi()
+
+    await staffApi[method]('facility-1', 'import-1')
+
+    expect(requests).toHaveLength(1)
+    expect(requests[0]!.method).toBe('GET')
+    expect(requests[0]!.url.pathname).toBe(path)
+    expect(requests[0]!.headers.get('x-facility-id')).toBe('facility-1')
+    expect(requests[0]!.headers.get('x-purpose-of-use')).toBe('direct-care')
+  })
+})

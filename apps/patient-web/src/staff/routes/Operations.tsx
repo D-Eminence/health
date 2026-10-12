@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNod
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { Badge, Button, Card, EmptyState, Field, Input, Select, Textarea } from '@hid/ui'
-import { staffApi, type LabAbnormalFlag, type LabAccession, type LabExecution, type LabResult, type LabResultRevision, type LabResultValue, type LabSpecimen, type LabWorkItem, type OcrExtraction, type OcrJob, type OcrPublication, type OcrTargetDomain, type OcrValidation, type OcrValidationInput, type OutreachCampaign, type OutreachCampaignMember, type OutreachCase, type PharmacyWorkItem } from '../api'
+import { staffApi, type LabAbnormalFlag, type LabAccession, type LabExecution, type LabResult, type LabResultRevision, type LabResultValue, type LabImport, type LabSpecimen, type LabWorkItem, type OcrExtraction, type OcrJob, type OcrPublication, type OcrTargetDomain, type OcrValidation, type OcrValidationInput, type OutreachCampaign, type OutreachCampaignMember, type OutreachCase, type PharmacyImport, type PharmacyWorkItem } from '../api'
 import { useStaff } from '../App'
 
 function errorText(error: unknown, fallback: string) {
@@ -688,7 +688,57 @@ function publicationRefusal(caught: unknown) {
   return errorText(caught, 'Validated evidence could not be published.')
 }
 
-function OcrPublicationStatus({ publication, retryHere }: { publication: OcrPublication; retryHere: boolean }) {
+const publishedAs: Partial<Record<OcrTargetDomain, string>> = {
+  EHR: 'Published as a clinical note in the patient\'s record.',
+  LAB: 'Published as imported lab evidence in the patient\'s record.',
+  PHARMACY: 'Published as imported medication evidence in the patient\'s record.',
+  DOCUMENT_ONLY: 'Kept as a validated document in the patient\'s record.',
+}
+
+function observationText(item: LabImport['observations'][number]) {
+  const result = [item.value && `${item.value}${item.unit ? ` ${item.unit}` : ''}`, item.valueText].filter(Boolean).join(' · ')
+  const flag = item.abnormalFlag && item.abnormalFlag !== 'normal' && item.abnormalFlag !== 'unknown' ? `flagged ${item.abnormalFlag}` : ''
+  return [`${item.testName}: ${result}`, item.referenceRange && `reference ${item.referenceRange}`, flag].filter(Boolean).join(' · ')
+}
+
+/** Evidence a Lab or Pharmacy publication imported, read from its owning domain only when asked: each read is audited. */
+function ImportedEvidence({ facilityId, domain, importId }: { facilityId: string; domain: 'lab' | 'medication'; importId: string }) {
+  const [open, setOpen] = useState(false)
+  const [evidence, setEvidence] = useState<{ lab?: LabImport; medication?: PharmacyImport; error?: string } | null>(null)
+  useEffect(() => {
+    if (!open) return
+    let active = true
+    setEvidence(null)
+    const read = domain === 'lab' ? staffApi.labImport(facilityId, importId).then(lab => ({ lab }))
+      : staffApi.pharmacyImport(facilityId, importId).then(medication => ({ medication }))
+    void read.then(found => { if (active) setEvidence(found) })
+      .catch(caught => { if (active) setEvidence({ error: errorText(caught, 'Imported evidence could not be read.') }) })
+    return () => { active = false }
+  }, [facilityId, domain, importId, open])
+  const lab = open ? evidence?.lab : undefined
+  const medication = open ? evidence?.medication : undefined
+  return <div className="staff-stack"><Button tone="secondary" size="sm" aria-expanded={open} onClick={() => setOpen(value => !value)}>{open ? 'Hide' : 'View'} imported {domain} evidence</Button>
+    {open && !evidence && <p className="staff-muted" role="status">Loading imported evidence…</p>}
+    {open && evidence?.error && <p className="staff-error" role="alert">{evidence.error}</p>}
+    {lab && <>{lab.externalLabName && <p>Reported by {lab.externalLabName}</p>}<ul className="staff-stack">{lab.observations.map(item => <li key={item.id}>{observationText(item)}</li>)}</ul></>}
+    {medication && <><p><strong>{medication.medicationText}</strong></p>
+      {(medication.strengthText || medication.doseText || medication.frequencyText) && <p>{[medication.strengthText, medication.doseText, medication.frequencyText].filter(Boolean).join(' · ')}</p>}
+      {medication.historicalContext && <p className="staff-muted">{medication.historicalContext}</p>}</>}
+  </div>
+}
+
+/** What a publication made: named, and readable where its owning domain lets this role read it. Never its raw ID. */
+function PublishedEvidence({ facilityId, publication, permissions }: { facilityId: string; publication: OcrPublication; permissions: readonly string[] }) {
+  const importId = publication.targetResourceId
+  const domain = publication.targetResourceType === 'lab-imported-evidence' && permissions.includes('lab.import.read') ? 'lab'
+    : publication.targetResourceType === 'pharmacy-imported-medication-evidence' && permissions.includes('pharmacy.import.read') ? 'medication' : null
+  return <>
+    <p>{publishedAs[publication.targetDomain] ?? 'Published.'}</p>
+    {domain && importId && <ImportedEvidence facilityId={facilityId} domain={domain} importId={importId} />}
+  </>
+}
+
+function OcrPublicationStatus({ facilityId, publication, permissions, retryHere }: { facilityId: string; publication: OcrPublication; permissions: readonly string[]; retryHere: boolean }) {
   const failed = publication.status === 'failed'
   const attempts = failed && publication.attemptCount != null && publication.maxAttempts != null ? ` · Attempt ${publication.attemptCount} of ${publication.maxAttempts}` : ''
   return <div className="staff-stack">
@@ -699,7 +749,7 @@ function OcrPublicationStatus({ publication, retryHere }: { publication: OcrPubl
         : retryHere ? 'OCR allows another attempt a short time after a failure.'
           : 'It can be retried only from the page where Publish was pressed, before that page is reloaded or left.'}</p>}
     {(publication.status === 'pending' || publication.status === 'processing') && <p className="staff-muted">OCR has not finished this publication. Refresh the job status to see whether it has.</p>}
-    {publication.targetResourceId && <p>Published {publication.targetResourceType ?? publication.targetDomain.toLowerCase()} record: <code>{publication.targetResourceId}</code></p>}
+    {publication.status === 'published' && <PublishedEvidence facilityId={facilityId} publication={publication} permissions={permissions} />}
   </div>
 }
 
@@ -769,7 +819,7 @@ function OcrPublicationCard({ facilityId, validation, confirmationId, permission
     {error && <p className="staff-error" role="alert">{error}</p>}
     {historyError && <p className="staff-error" role="alert">{historyError}</p>}
     {publications === null && !historyError && <p className="staff-muted" role="status">Loading publication history…</p>}
-    {publications?.map(publication => <OcrPublicationStatus key={publication.id} publication={publication} retryHere={action === retryId} />)}
+    {publications?.map(publication => <OcrPublicationStatus key={publication.id} facilityId={facilityId} publication={publication} permissions={permissions} retryHere={action === retryId} />)}
     {action === publishId && <Button id={publishId} size="sm" onClick={() => void publish()} disabled={busy}>{busy ? 'Publishing…' : `Publish to ${validation.targetDomain.replace('_', ' ')}`}</Button>}
     {action === retryId && <Button id={retryId} size="sm" onClick={() => void publish()} disabled={busy}>{busy ? 'Retrying…' : 'Retry publication'}</Button>}
   </div>

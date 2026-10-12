@@ -209,3 +209,86 @@ describe('publishing validated OCR evidence', () => {
     expect(screen.queryByText('Publication recorded.')).toBeNull()
   })
 })
+
+/**
+ * OCR-04. A publication showed only the raw ID of what it made. For Lab and
+ * Pharmacy that ID is an imported-evidence record, which Lab and Pharmacy let
+ * a role holding lab.import.read or pharmacy.import.read read
+ * (GET /api/v1/lab/imports/:importId, GET /api/v1/pharmacy/imports/:importId).
+ * Each read is audited, so the page reads it only when asked. Anything else is
+ * named, never shown as an ID.
+ */
+describe('OCR-04: what a publication produced', () => {
+  const IMPORT = 'b0000000-0000-4000-8000-0000000000aa'
+  const producedBy = (targetDomain: string, targetOperation: string, targetResourceType: string, targetResourceId: string) => {
+    api.ocrValidations.mockResolvedValue({ items: [{ ...validation, targetDomain }] })
+    api.ocrPublications.mockResolvedValue({ items: [{ ...publication, targetDomain, targetOperation, status: 'published', attemptCount: 1,
+      maxAttempts: 3, targetResourceType, targetResourceId }] })
+  }
+  const lab = () => producedBy('LAB', 'create_imported_lab_evidence', 'lab-imported-evidence', IMPORT)
+  const pharmacy = () => producedBy('PHARMACY', 'create_imported_medication_evidence', 'pharmacy-imported-medication-evidence', IMPORT)
+
+  it('reads imported lab evidence from Lab when asked, if the role may, and never shows its ID', async () => {
+    permissions.value = ['ocr.job.read', 'lab.import.read']
+    lab()
+    api.labImport.mockResolvedValue({ id: IMPORT, status: 'reported', externalLabName: 'Central Laboratory', observations: [
+      { id: 'observation-1', ordinal: 1, testName: 'Haemoglobin', value: '12.1', unit: 'g/dL', referenceRange: '11.5-16.5', abnormalFlag: 'normal' },
+      { id: 'observation-2', ordinal: 2, testName: 'Platelets', value: '95', unit: '10^9/L', abnormalFlag: 'low' },
+    ] })
+    await openJob()
+    expect(await screen.findByText('Published as imported lab evidence in the patient\'s record.')).toBeTruthy()
+    expect(api.labImport).not.toHaveBeenCalled()
+
+    const view = screen.getByRole('button', { name: 'View imported lab evidence' })
+    expect(view.getAttribute('aria-expanded')).toBe('false')
+    await press(view)
+    expect(await screen.findByText('Haemoglobin: 12.1 g/dL · reference 11.5-16.5')).toBeTruthy()
+    expect(screen.getByText('Platelets: 95 10^9/L · flagged low')).toBeTruthy()
+    expect(screen.getByText('Reported by Central Laboratory')).toBeTruthy()
+    expect(api.labImport).toHaveBeenCalledWith('facility-1', IMPORT)
+    expect(screen.getByRole('button', { name: 'Hide imported lab evidence' }).getAttribute('aria-expanded')).toBe('true')
+    expect(document.body.textContent).not.toContain(IMPORT)
+  })
+
+  it('names imported lab evidence without reading it when the role may not read Lab imports', async () => {
+    lab()
+    await openJob()
+    expect(await screen.findByText('Published as imported lab evidence in the patient\'s record.')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /imported lab evidence/ })).toBeNull()
+    expect(document.body.textContent).not.toContain(IMPORT)
+  })
+
+  it('reads imported medication evidence from Pharmacy when asked, if the role may', async () => {
+    permissions.value = ['ocr.job.read', 'pharmacy.import.read']
+    pharmacy()
+    api.pharmacyImport.mockResolvedValue({ id: IMPORT, activityStatus: 'unknown', medicationText: 'Amoxicillin capsules',
+      strengthText: '500 mg', doseText: 'One capsule', frequencyText: 'Three times a day', historicalContext: 'Course finished in March' })
+    await openJob()
+    expect(await screen.findByText('Published as imported medication evidence in the patient\'s record.')).toBeTruthy()
+    await press(screen.getByRole('button', { name: 'View imported medication evidence' }))
+    expect(await screen.findByText('Amoxicillin capsules')).toBeTruthy()
+    expect(screen.getByText('500 mg · One capsule · Three times a day')).toBeTruthy()
+    expect(screen.getByText('Course finished in March')).toBeTruthy()
+    expect(api.pharmacyImport).toHaveBeenCalledWith('facility-1', IMPORT)
+    expect(document.body.textContent).not.toContain(IMPORT)
+  })
+
+  it('says so when the imported evidence cannot be read', async () => {
+    permissions.value = ['ocr.job.read', 'lab.import.read']
+    lab()
+    api.labImport.mockRejectedValue(new HidApiError(403, 'Lab access is not authorized', { code: 'LAB_ACCESS_DENIED' }))
+    await openJob()
+    await press(await screen.findByRole('button', { name: 'View imported lab evidence' }))
+    expect((await screen.findByRole('alert')).textContent).toBe('Lab access is not authorized')
+  })
+
+  it.each([
+    ['EHR', 'create_imported_clinical_note', 'clinical-note', 'Published as a clinical note in the patient\'s record.'],
+    ['DOCUMENT_ONLY', 'retain_validated_document', 'document', 'Kept as a validated document in the patient\'s record.'],
+  ])('names what a %s publication made, without its ID', async (domain, operation, type, label) => {
+    producedBy(domain, operation, type, IMPORT)
+    await openJob()
+    expect(await screen.findByText(label)).toBeTruthy()
+    expect(document.body.textContent).not.toContain(IMPORT)
+  })
+})

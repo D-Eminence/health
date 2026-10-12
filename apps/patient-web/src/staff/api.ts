@@ -406,6 +406,33 @@ export interface OcrPublication {
   attemptCount?: number
   maxAttempts?: number
 }
+/** Lab evidence imported from a document (GET /api/v1/lab/imports/:importId), such as an OCR publication made. */
+export interface LabImport {
+  id: string
+  status: string
+  externalLabName?: string | null
+  reportedAt?: string | null
+  observations: Array<{
+    id: string
+    ordinal: number
+    testCode?: string | null
+    testName: string
+    value?: string | null
+    valueText?: string | null
+    unit?: string | null
+    referenceRange?: string | null
+    abnormalFlag?: string | null
+  }>
+}
+/** Historical medication evidence imported from a document (GET /api/v1/pharmacy/imports/:importId). */
+export interface PharmacyImport {
+  id: string
+  medicationText: string
+  strengthText?: string | null
+  doseText?: string | null
+  frequencyText?: string | null
+  historicalContext?: string | null
+}
 export interface OcrValidationInput {
   extractionId: string
   validatedPayload: Record<string, unknown>
@@ -1007,6 +1034,11 @@ export const staffApi = {
     client.post<OcrJob>(`/api/v1/ocr/jobs/${encodeURIComponent(job.id)}/retry`,
       { expectedVersion: job.version, reason, purpose: 'healthcare-operations' },
       { headers: facilityHeaders(facilityId, 'healthcare-operations') }),
+  // What a Lab or Pharmacy publication made, read from the domain that owns it.
+  labImport: (facilityId: string, importId: string) =>
+    client.get<LabImport>(`/api/v1/lab/imports/${encodeURIComponent(importId)}`, { headers: facilityHeaders(facilityId) }),
+  pharmacyImport: (facilityId: string, importId: string) =>
+    client.get<PharmacyImport>(`/api/v1/pharmacy/imports/${encodeURIComponent(importId)}`, { headers: facilityHeaders(facilityId) }),
 
   outreachCampaigns: (facilityId: string) =>
     client.get<OutreachCampaign[]>('/api/v1/outreach/registration-cases/campaigns', { headers: facilityHeaders(facilityId) }),
