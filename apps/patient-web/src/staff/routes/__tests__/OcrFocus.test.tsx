@@ -200,7 +200,9 @@ describe('OCR-A11Y-01: validation failures keep focus at the refused field', () 
     await press(screen.getByRole('button', { name: 'Validate extraction' }))
     await waitFor(() => expect(focused()).toBe(payload))
     expect(payload.getAttribute('aria-invalid')).toBe('true')
-    expect(document.getElementById(payload.getAttribute('aria-describedby') ?? '')?.textContent).toBe('Reviewed payload must be valid JSON.')
+    // Described first by its error; what the owning domains require follows it (NEW-OCR-REVIEW-HINT).
+    const [describedFirstBy] = (payload.getAttribute('aria-describedby') ?? '').split(' ')
+    expect(document.getElementById(describedFirstBy ?? '')?.textContent).toBe('Reviewed payload must be valid JSON.')
     expect(api.validateOcrJob).not.toHaveBeenCalled()
     // The value typed is kept.
     expect((payload as HTMLTextAreaElement).value).toBe('{not json')
