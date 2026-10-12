@@ -617,7 +617,10 @@ function Shell() {
 
   return <div className="staff-app">
     <header className="staff-topbar">
-      <NavLink to="/provider" className="staff-brand" aria-label="Health ID provider home"><BrandLogo /><small>Provider</small></NavLink>
+      {/* While the facility is being chosen the brand is not a link: no page opens before the choice. */}
+      {choiceNeeded
+        ? <span className="staff-brand"><BrandLogo /><small>Provider</small></span>
+        : <NavLink to="/provider" className="staff-brand" aria-label="Health ID provider home"><BrandLogo /><small>Provider</small></NavLink>}
       <div className="staff-topbar-actions">
         <span className="staff-user">{actor.displayName ?? actor.email ?? 'Staff member'}</span>
         <Button tone="quiet" size="sm" onClick={() => void leave()} disabled={signingOut}>{signingOut ? 'Signing out…' : 'Sign out'}</Button>

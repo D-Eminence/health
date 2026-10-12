@@ -418,6 +418,9 @@ describe('the shell while the question shows', () => {
     expect(screen.queryByRole('link', { name: /^Clinical record/ })).toBeNull()
     expect(screen.queryByText('clinician')).toBeNull()
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeTruthy()
+    // Nor a home link, which would show nothing until a facility is chosen: the brand is shown, not offered.
+    expect(screen.queryByRole('link')).toBeNull()
+    expect(screen.getByRole('img', { name: 'Health ID' })).toBeTruthy()
 
     fireEvent.click(option('Ikeja Clinic'))
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
@@ -425,6 +428,7 @@ describe('the shell while the question shows', () => {
     expect(within(navigation).getByRole('link', { name: 'Patient access' })).toBeTruthy()
     expect(within(navigation).getByRole('link', { name: /^Clinical record/ })).toBeTruthy()
     expect(screen.getAllByText('clinician').length).toBeGreaterThan(0)
+    expect(screen.getByRole('link', { name: 'Health ID provider home' })).toBeTruthy()
   })
 
   it('shows no refusal of a switch made before the question once the sidebar is back', async () => {
