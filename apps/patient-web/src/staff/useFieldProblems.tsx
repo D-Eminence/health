@@ -11,7 +11,9 @@ interface Shown { readonly field: string; readonly message: string; readonly ale
  * described by it, and takes focus once the render showing it has committed,
  * so its description announces the error. Refused from Enter in the field
  * itself, focus does not move, so the message is an alert there instead, new
- * for each refusal; as both it would be spoken twice. Fields a service refused
+ * for each refusal; as both it would be spoken twice. So too from Enter in any
+ * field of a refused group: a screen reader does not read a group's
+ * description again as focus moves within it. Fields a service refused
  * with 400 VALIDATION_FAILED are marked the same way without moving focus: the
  * form's own alert says so.
  */
@@ -21,7 +23,7 @@ export function useFieldProblems() {
   /** Refuses `field` (a control's id, or a group's) and moves focus to `focusId`, that field's control. */
   const refuse = useCallback((field: string, message: string, focusId: string = field) => {
     const active = document.activeElement
-    const alert = active instanceof HTMLElement && active.id === focusId
+    const alert = active instanceof HTMLElement && (active.id === focusId || document.getElementById(field)?.contains(active) === true)
     setShown(previous => ({ items: [{ field, message, alert }], seq: previous.seq + 1 }))
     if (!alert) focus(focusId)
   }, [focus])
@@ -47,9 +49,9 @@ export function useFieldProblems() {
     control(field: string) {
       return find(field) ? { invalid: true, 'aria-describedby': `${field}-error` } : {}
     },
-    /** Props for a group of controls that one rule covers: described by its error while refused. */
+    /** Props for a group of controls that one rule covers, named `field`: described by its error while refused. */
     group(field: string) {
-      return find(field) ? { 'aria-describedby': `${field}-error` } : {}
+      return { id: field, ...(find(field) ? { 'aria-describedby': `${field}-error` } : {}) }
     },
   }
 }

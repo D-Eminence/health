@@ -68,6 +68,22 @@ describe('outreach', () => {
     await waitFor(() => expect(document.getElementById('outreach-status')?.textContent).toBe('Registration case created for identity resolution.'))
     expectRefused(name, NAME_REFUSED)
   })
+
+  // The services rule is described at their fieldset, which a screen reader does not
+  // read again when focus moves within it: refused from Enter in a later service, it
+  // is an alert there, and focus stays.
+  it('the services rule, refused from within the services, is an alert there', async () => {
+    render(<Outreach />)
+    const name = await screen.findByLabelText(/^Campaign name/)
+    fireEvent.change(name, { target: { value: 'Measles week' } })
+    const later = document.getElementById('outreach-service-vaccination')!
+    expect(later.closest('fieldset')?.querySelector('input')).not.toBe(later)
+    later.focus()
+    fireEvent.submit(name.closest('form')!)
+    expect((await screen.findByRole('alert')).textContent).toBe(NAME_REFUSED)
+    expect(document.activeElement).toBe(later)
+    expect(api.createOutreachCampaign).not.toHaveBeenCalled()
+  })
 })
 
 describe('registration', () => {

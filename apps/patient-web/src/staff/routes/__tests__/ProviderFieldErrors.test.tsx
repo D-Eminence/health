@@ -162,6 +162,53 @@ describe('the clinical record', () => {
     expect(api.createRecord).not.toHaveBeenCalled()
   })
 
+  // A rule about a group is described at the group, which a screen reader does not
+  // read again when focus moves within it, and the group's first field is not
+  // described by it. Refused from Enter in one of the group's fields, the rule is
+  // an alert there and focus stays; from outside the group, focus moves into it.
+  async function vitalsForm() {
+    staff.activePatient = { hid: 'HID-ABCDEF23', purpose: 'direct-care', lookup }
+    render(<MemoryRouter><Clinical /></MemoryRouter>)
+    fireEvent.click(await screen.findByRole('tab', { name: 'Vitals' }))
+    return (await screen.findByRole('button', { name: 'Save record' })).closest('form')!
+  }
+
+  it('a rule about the vitals together, refused from Enter in a later vital, is an alert there', async () => {
+    const form = await vitalsForm()
+    const pulse = within(form).getByLabelText('Pulse (bpm)')
+    pulse.focus()
+    fireEvent.submit(form)
+    expect((await within(form).findByRole('alert')).textContent).toBe('Enter at least one vital measurement.')
+    expect(document.activeElement).toBe(pulse)
+    expect(described(within(form).getByRole('group', { name: 'Vital measurements' }))).toBe('Enter at least one vital measurement.')
+    expect(api.createRecord).not.toHaveBeenCalled()
+  })
+
+  it('the same rule refused from the form’s button moves focus into the group, and is not also an alert', async () => {
+    const form = await vitalsForm()
+    within(form).getByRole('button', { name: 'Save record' }).focus()
+    fireEvent.submit(form)
+    await waitFor(() => expect(document.activeElement).toBe(within(form).getByLabelText('Systolic BP (mmHg)')))
+    expect(described(within(form).getByRole('group', { name: 'Vital measurements' }))).toBe('Enter at least one vital measurement.')
+    expect(within(form).queryAllByRole('alert')).toEqual([])
+  })
+
+  it('a correction that changes nothing, refused from Enter in a later vital, is an alert there', async () => {
+    const vital = { id: 'vital-1', patientId: PATIENT, encounterId: ENCOUNTER, facilityId: 'facility-1', createdAt: '2026-10-10T08:05:00.000Z',
+      recordedAt: '2026-10-10T08:05:00.000Z', pulseBpm: 72, systolicMmhg: null, diastolicMmhg: null, currentCorrectionNo: 0, rowVersion: '1' }
+    api.records.mockImplementation(async (_f: string, _p: string, _e: string, kind: string) => ({ items: kind === 'vitals' ? [vital] : [], nextCursor: null }))
+    await vitalsForm()
+    fireEvent.click(await screen.findByRole('button', { name: 'Correct these vitals' }))
+    const form = screen.getByRole('button', { name: 'Save correction' }).closest('form')!
+    fireEvent.change(within(form).getByLabelText(labelled('Reason for correction')), { target: { value: 'Misread' } })
+    const pulse = within(form).getByLabelText('Pulse (bpm)')
+    pulse.focus()
+    fireEvent.submit(form)
+    expect((await within(form).findByRole('alert')).textContent).toBe('Change at least one value before saving a correction.')
+    expect(document.activeElement).toBe(pulse)
+    expect(described(within(form).getByRole('group', { name: 'Corrected vital measurements' }))).toBe('Change at least one value before saving a correction.')
+  })
+
   it('a field EHR refuses with 400 VALIDATION_FAILED is marked and described at that field', async () => {
     api.createRecord.mockRejectedValueOnce(new HidApiError(400, 'One or more request fields are invalid.', { code: 'VALIDATION_FAILED',
       details: [{ field: 'display', messages: ['display must be shorter than or equal to 500 characters'] }] }))
