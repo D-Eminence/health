@@ -472,7 +472,7 @@ than a live completion tracker.
 - Headless Chromium on this machine only; no other browser, assistive
   technology, device, staging or production run.
 
-## 2026-10-12: portal-named session cookies, the three high accessibility findings, recovery hosting
+## 2026-10-12: portal-named session cookies, the three high accessibility findings, recovery hosting (accessibility audit, second batch)
 
 - **Session cookies (`X-HID-Client`).** hid-system #39 (on `main` at `522fb2e`,
   not deployed) reads `X-HID-Client` on cookie `POST /api/v1/auth/refresh` and
@@ -534,8 +534,9 @@ than a live completion tracker.
   - The provider workspace moves focus to a new page's heading when a page
     change takes away the control the user was on: Back, Forward, or a
     document's Extract with OCR (`staff/pageFocus.ts`).
-  - Tests: `OcrFocus.test.tsx` (26; 21 fail on `main`; four refused-request
-    cases need a real browser, because jsdom keeps focus on a disabled control).
+  - Tests: `OcrFocus.test.tsx` (31; 21 of the first 26 fail on `main`, and the
+    five added after review fail before their fix; four refused-request cases
+    need a real browser, because jsdom keeps focus on a disabled control).
 - **PEHR-02 (high).** The "Working at" list switched facility as soon as its
   value changed, so one arrow key on a closed list closed the open patient.
   - Choosing a facility now only proposes it. A question names the current and
@@ -546,8 +547,8 @@ than a live completion tracker.
     it. After the switch, focus moves to the overview's heading.
   - A proposal is dropped when the account or its facility changes (refresh,
     another tab, lock, next session).
-  - Backend dependency: the choice is not kept across a reload (see open
-    questions).
+  - Backend dependency: the choice is not kept across a reload. `/auth/session`
+    resolves the primary facility, else the first by name (see open questions).
   - Tests: `FacilitySwitch.test.tsx` (9; 8 fail on `main`). The 14 switches in
     `SessionEnd.test.tsx` now choose and confirm, with unchanged assertions.
 - **PEHR-03 (high).** A Health ID in the wrong format disabled both access
@@ -556,11 +557,15 @@ than a live completion tracker.
     when either form is sent.
   - A hint states the format, and an empty or mistyped Health ID is reported at
     the field: marked invalid, tied to the message, focused, nothing sent.
-  - Tests: `PatientHealthIdField.test.tsx` (8; 6 fail on `main`).
+  - The message is also an alert, new for each refusal, because Enter in the
+    focused field does not move focus.
+  - Tests: `PatientHealthIdField.test.tsx` (9; 6 of the first 8 fail on
+    `main`, and the added one fails before its fix).
 - **PEHR-11 (low)** is covered by the same page-change focus.
   - Opening a patient moves focus to the clinical record's heading, and a
     facility switch from the overview to its heading.
-  - Tests: `staff/PageFocus.test.tsx` (3; 2 fail on `main`).
+  - Tests: `staff/PageFocus.test.tsx` (4; 2 of the first 3 fail on `main`, and
+    the added one fails before its fix).
 - **Recovery and hosting.**
   - Checked in headless Chromium with the API mocked. On the six staff product
     and admin hosts, in production and staging, provider sign-in links to
@@ -590,16 +595,48 @@ than a live completion tracker.
     local OCR service was run, since extraction needs Textract. Migrate project
     and bulk work has no backend contract (`MigrateGap`). Not verified in
     staging or production.
+- **Review.** An adversarial review, with each finding put to a second
+  reviewer to refute, confirmed nine findings and refuted one. Session security
+  had none: it also checked two real tabs with Web Locks and BroadcastChannel.
+  The fixes are in their own commit, with tests that fail before it:
+  - Major: after a refused request, focus went back to the submit control even
+    when the user had gone to another field while it ran. Their typing was cut
+    short, and a space then pressed the button, so a review or confirmation
+    could be recorded with a cut-short reason. Focus now goes back only when it
+    was lost.
+  - A late step move took focus from a field the user had gone to, and a later
+    lookup could bring back an old message. The move now leaves the user's
+    focus alone, and a lookup or Document ID edit cancels it.
+  - A step or a page change during a workspace lock lost its focus move. Both
+    now wait for the workspace to open.
+  - The Health ID error from Enter in the field was not announced. It is now an
+    alert.
+  - A switch from a page other than the overview briefly focused the old
+    page's heading. It no longer does.
+  - Docs: the facility a reload shows (the primary, else the first by name),
+    and two claims of browser checks that had not been run. Both checks were
+    added and pass.
+  - Pre-existing, recorded in open questions: a publication that failed in its
+    owning service cannot be retried from the portal.
 - **Verification:**
-  - `npm test`: 1000 tests passed.
+  - `npm test`: 1007 tests passed.
   - `typecheck`, the patient app's `tsc --noEmit`, `lint`, `audit:boundaries`
     and `git diff --check` all passed.
   - Both builds passed. The public site was built in the main checkout at
-    `8b56680`; Turbopack does not build from this worktree's linked
-    dependencies.
-  - Headless Chromium on the built portal, with the API mocked, passed 33 of
-    33 checks: the headers, every OCR step by keyboard, ArrowDown and the
-    switch, the Health ID field, and the recovery links on 14 hosts.
+    `8b56680`, before the review fixes, which change no file it uses;
+    Turbopack does not build from this worktree's linked dependencies.
+  - Headless Chromium on the built portal, with the API mocked, passed 39 of
+    39 checks:
+    - the headers;
+    - by keyboard, each OCR step (find, create, validate, reject, confirm,
+      publish, retry) and each refusal (find, create, review, confirm,
+      publish, retry);
+    - typing elsewhere during a refused request or a late step;
+    - Back to OCR;
+    - ArrowDown and the switch, from the clinical record and from Patient
+      access;
+    - the Health ID field and its alert;
+    - the recovery links on 14 hosts.
   - The width matrix from the first batch showed no overflow at 320 to 1280px
     on its 55 screen and width pairs, and no focus stop hidden when tabbing
     backwards. The new question, Health ID error and OCR field error fit at

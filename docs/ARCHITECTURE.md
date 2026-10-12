@@ -129,7 +129,7 @@ browser persistence. Provider facility selection is held in portal memory and
 sent as `X-Facility-ID` on scoped calls. Choosing a facility in the list only
 proposes it; Switch facility confirms it. The backend's `/auth/facility` response
 does not persist the selection, so after a reload the portal shows the facility
-`/auth/session` resolves: the sign-in's preferred one, else the primary one.
+`/auth/session` resolves: the primary one, else the first by name.
 
 ## Production requirements
 
