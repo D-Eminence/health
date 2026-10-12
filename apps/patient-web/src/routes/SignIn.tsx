@@ -5,10 +5,12 @@ import { GoogleButton } from '../GoogleButton'
 import { Turnstile } from '../Turnstile'
 import { BrandLogo } from '../BrandLogo'
 import { useSession } from '../session'
+import { useDocumentTitle } from '../authSteps'
 
 export function SignIn() {
   const { state, sessionError, signIn, acceptGoogleSession, api } = useSession()
   const navigate = useNavigate()
+  useDocumentTitle('Sign in · Health ID')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null)

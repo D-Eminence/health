@@ -5,6 +5,7 @@ import { Turnstile } from '../Turnstile'
 import { BrandLogo } from '../BrandLogo'
 import { createPrincipalRecoveryApi, type RecoveryAudience } from '../recoveryApi'
 import { STAFF_RECOVERY_PATH, staffRecoveryHref } from '../productHostname'
+import { describedBy, isFieldProblem, useDocumentTitle, useStepFocus } from '../authSteps'
 
 type Step = 'start' | 'code' | 'password' | 'complete'
 
@@ -13,6 +14,8 @@ export function PrincipalRecovery({ audience }: { audience: RecoveryAudience }) 
   const api = useMemo(() => createPrincipalRecoveryApi(audience), [audience])
   const signInPath = audience === 'staff' ? '/provider/sign-in' : '/admin/sign-in'
   const accountLabel = audience === 'staff' ? 'Provider' : 'Platform'
+  useDocumentTitle(`Reset your password · Health ID ${accountLabel}`)
+  const stepFocus = useStepFocus()
   const [step, setStep] = useState<Step>('start')
   const [identifier, setIdentifier] = useState('')
   const [challengeId, setChallengeId] = useState('')
@@ -24,6 +27,7 @@ export function PrincipalRecovery({ audience }: { audience: RecoveryAudience }) 
   const [turnstileResetKey, setTurnstileResetKey] = useState(0)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [fieldError, setFieldError] = useState(false)
 
   // hid-system refuses a staff reset everywhere but the main site. Opened on a
   // product or admin site (a bookmark, history), the page points there instead.
@@ -42,10 +46,15 @@ export function PrincipalRecovery({ audience }: { audience: RecoveryAudience }) 
   async function run(operation: () => Promise<void>) {
     setBusy(true)
     setError(null)
+    setFieldError(false)
     try { await operation() }
     catch (reason) {
       setError(isHidApiError(reason) ? reason.message : 'We could not complete that step. Please try again.')
-    } finally { setBusy(false) }
+      setFieldError(isFieldProblem(reason))
+    } finally {
+      setBusy(false)
+      stepFocus.focus()
+    }
   }
 
   function start(event: FormEvent<HTMLFormElement>) {
@@ -91,37 +100,49 @@ export function PrincipalRecovery({ audience }: { audience: RecoveryAudience }) 
     if (busy) return
     setStep('start')
     setError(null)
+    setFieldError(false)
     setCode('')
     setChallengeId('')
     setVerificationToken('')
     setPassword('')
     setConfirmPassword('')
+    stepFocus.focus()
   }
+
+  // The error is about the step's field when the server refused its value.
+  const invalid = fieldError ? true : undefined
+  const errorId = fieldError ? 'principal-recovery-error' : undefined
+  const mismatch = confirmPassword !== '' && password !== confirmPassword
 
   return <main className="patient-auth-page"><section className="patient-auth-card" aria-labelledby="principal-recovery-title">
     <Link to={signInPath} className="patient-auth-brand"><BrandLogo /></Link>
     <p className="patient-eyebrow">{accountLabel} account recovery</p>
     <h1 id="principal-recovery-title" className="patient-page-title">Reset your password.</h1>
-    {error && <p role="alert" className="patient-inline-error">{error}</p>}
+    {error && <p id="principal-recovery-error" role="alert" className="patient-inline-error">{error}</p>}
     {step === 'start' && <form onSubmit={start} className="patient-form">
-      <p className="patient-page-copy">Enter your work email. If an eligible account exists, we will send a code to its verified contact.</p>
-      <label>Work email<input required type="email" autoComplete="username" maxLength={254} value={identifier} onChange={event => setIdentifier(event.target.value)} /></label>
+      <p id="principal-recovery-start-hint" className="patient-page-copy">Enter your work email. If an eligible account exists, we will send a code to its verified contact.</p>
+      <label>Work email<input ref={stepFocus.target} required type="email" autoComplete="username" maxLength={254} value={identifier} onChange={event => setIdentifier(event.target.value)}
+        aria-invalid={invalid} aria-describedby={describedBy('principal-recovery-start-hint', errorId)} /></label>
       <Turnstile action={audience === 'staff' ? 'staff-reset' : 'admin-reset'} onTokenChange={setTurnstileToken} resetKey={turnstileResetKey} />
       <button className="patient-primary-button" type="submit" disabled={busy || !turnstileToken}>{busy ? 'Sending…' : 'Send recovery code'}</button>
     </form>}
     {step === 'code' && <form onSubmit={verify} className="patient-form">
-      <p className="patient-page-copy">Enter the six digit code sent to your verified contact.</p>
-      <label>Recovery code<input required inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" value={code} onChange={event => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))} /></label>
+      <p id="principal-recovery-code-hint" className="patient-page-copy">Enter the six digit code sent to your verified contact.</p>
+      <label>Recovery code<input ref={stepFocus.target} required inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" value={code} onChange={event => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+        aria-invalid={invalid} aria-describedby={describedBy('principal-recovery-code-hint', errorId)} /></label>
       <button className="patient-primary-button" type="submit" disabled={busy || code.length !== 6}>{busy ? 'Checking…' : 'Verify code'}</button>
     </form>}
     {step === 'password' && <form onSubmit={complete} className="patient-form">
-      <p className="patient-page-copy">Choose a new password of at least 12 characters.</p>
-      <label>New password<input required type="password" autoComplete="new-password" minLength={12} maxLength={256} value={password} onChange={event => setPassword(event.target.value)} /></label>
-      <label>Confirm new password<input required type="password" autoComplete="new-password" minLength={12} maxLength={256} value={confirmPassword} onChange={event => setConfirmPassword(event.target.value)} /></label>
-      {confirmPassword && password !== confirmPassword && <p className="patient-inline-error">Passwords do not match.</p>}
+      <p id="principal-recovery-password-hint" className="patient-page-copy">Choose a new password of at least 12 characters.</p>
+      <label>New password<input ref={stepFocus.target} required type="password" autoComplete="new-password" minLength={12} maxLength={256} value={password} onChange={event => setPassword(event.target.value)}
+        aria-invalid={invalid} aria-describedby={describedBy('principal-recovery-password-hint', errorId)} /></label>
+      <label>Confirm new password<input required type="password" autoComplete="new-password" minLength={12} maxLength={256} value={confirmPassword} onChange={event => setConfirmPassword(event.target.value)}
+        aria-invalid={mismatch || undefined} aria-describedby={mismatch ? 'principal-recovery-mismatch' : undefined} /></label>
+      {/* Always mounted, so the mismatch is announced once when it appears, not on each keystroke (PA-05). */}
+      <div aria-live="polite">{mismatch && <p id="principal-recovery-mismatch" className="patient-inline-error">Passwords do not match.</p>}</div>
       <button className="patient-primary-button" type="submit" disabled={busy || password.length < 12 || password !== confirmPassword}>{busy ? 'Saving…' : 'Reset password'}</button>
     </form>}
-    {step === 'complete' && <div role="status" className="patient-success"><h2>Password reset complete.</h2>
+    {step === 'complete' && <div role="status" className="patient-success"><h2 ref={stepFocus.target} tabIndex={-1}>Password reset complete.</h2>
       <Link className="patient-primary-button" to={signInPath}>Sign in</Link></div>}
     {(step === 'code' || step === 'password') && <p className="patient-auth-footer"><button className="patient-text-button" type="button" onClick={restart} disabled={busy}>Start again</button></p>}
     <p className="patient-auth-footer"><Link to={signInPath}>Back to {accountLabel.toLowerCase()} sign in</Link></p>
