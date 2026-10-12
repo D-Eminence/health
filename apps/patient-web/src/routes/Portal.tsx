@@ -395,7 +395,9 @@ export function SettingsPage() {
       <div className="patient-form"><label>Email or Health ID<input autoComplete="username" value={googlePrincipal} onChange={event => setGooglePrincipal(event.target.value)} /></label>
         <label>Current password<input type="password" autoComplete="current-password" value={googlePassword} onChange={event => setGooglePassword(event.target.value)} /></label>
         <Turnstile action="patient-login" onTokenChange={setGoogleToken} resetKey={googleReset} />
-        <GoogleButton text="continue_with" disabled={busy || !googleToken || !googlePrincipal.trim() || !googlePassword} onCredential={linkGoogle} /></div>
+        <GoogleButton text="continue_with" disabled={busy || !googleToken || !googlePrincipal.trim() || !googlePassword} onCredential={linkGoogle}
+          disabledReason={googleToken && googlePrincipal.trim() && googlePassword ? undefined
+            : 'Enter your email or Health ID and current password, and complete the security check, to link Google.'} /></div>
     </div>}
     <AccountDeletionCard />
   </section>

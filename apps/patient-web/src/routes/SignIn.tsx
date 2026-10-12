@@ -70,7 +70,8 @@ export function SignIn() {
         <button type="submit" className="patient-primary-button" disabled={busy || !turnstileToken}>{busy ? 'Signing in…' : 'Sign in'}</button>
       </form>
       {import.meta.env.VITE_HID_GOOGLE_CLIENT_ID && <div className="patient-auth-separator"><span>or continue with Google</span>
-        <GoogleButton text="signin_with" disabled={busy || !turnstileToken} onCredential={google} /></div>}
+        <GoogleButton text="signin_with" disabled={busy || !turnstileToken} onCredential={google}
+          disabledReason={turnstileToken ? undefined : 'Complete the security check to continue with Google.'} /></div>}
       <p className="patient-auth-footer">New to Health ID? <Link to="/enroll">Get your Health ID</Link></p>
     </section>
   </main>

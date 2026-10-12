@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSession } from './session'
+import { focusLost } from './routes/actionFocus'
 
 interface CredentialResponse { credential?: string }
 declare global {
@@ -26,12 +27,20 @@ function loadGoogle(): Promise<void> {
   return scriptPromise!
 }
 
-export function GoogleButton({ text, disabled, onCredential }: {
+/**
+ * Google's own button, rendered by Google Identity Services. While `disabled` it
+ * is inert, out of the tab order and the accessibility tree with the frame
+ * inside it, and `disabledReason` says why (PA-11).
+ */
+export function GoogleButton({ text, disabled, disabledReason, onCredential }: {
   text: 'signin_with' | 'signup_with' | 'continue_with'
   disabled: boolean
+  /** Why the button cannot be used yet, shown while it is disabled. */
+  disabledReason?: string
   onCredential: (token: string) => Promise<void>
 }) {
   const clientId = String(import.meta.env.VITE_HID_GOOGLE_CLIENT_ID ?? '').trim()
+  const region = useRef<HTMLDivElement>(null)
   const host = useRef<HTMLDivElement>(null)
   const { api } = useSession()
   const callback = useRef(onCredential)
@@ -59,6 +68,9 @@ export function GoogleButton({ text, disabled, onCredential }: {
         window.google.accounts.id.renderButton(host.current, { type: 'standard', theme: 'outline', size: 'large', text,
           width: String(Math.min(400, Math.max(220, host.current.clientWidth))) })
         setError(null)
+        // After a credential the button is rendered again and the one used is gone:
+        // focus left on the page returns to the button's region.
+        if (attempt > 0 && focusLost()) region.current?.focus()
       } catch (reason) {
         if (active) setError(reason instanceof Error ? reason.message : 'Google sign-in is unavailable.')
       }
@@ -67,8 +79,9 @@ export function GoogleButton({ text, disabled, onCredential }: {
   }, [api, clientId, text, attempt])
 
   if (!clientId) return null
-  return <div className="patient-google" aria-disabled={disabled}>
-    <div ref={host} style={{ pointerEvents: disabled ? 'none' : undefined, opacity: disabled ? .5 : 1 }} />
+  return <div ref={region} tabIndex={-1} className="patient-google">
+    <div ref={host} inert={disabled} style={{ opacity: disabled ? .5 : 1 }} />
+    {disabled && disabledReason && <p className="patient-field-hint">{disabledReason}</p>}
     {error && <p role="alert" className="patient-inline-error">{error}</p>}
   </div>
 }

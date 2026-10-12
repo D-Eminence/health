@@ -212,7 +212,8 @@ export function Enrollment() {
       {import.meta.env.VITE_HID_GOOGLE_CLIENT_ID && !checking && !checkError && stage !== 'complete' && !googlePending && <section className="patient-auth-separator" aria-label="Google enrollment">
         <span>{googleRequired ? 'Reconnect Google' : 'Continue with Google'}</span>
         <Turnstile action="patient-login" onTokenChange={setGoogleTurnstileToken} resetKey={googleResetKey} />
-        <GoogleButton text="signup_with" disabled={busy || !googleTurnstileToken} onCredential={onGoogle} />
+        <GoogleButton text="signup_with" disabled={busy || !googleTurnstileToken} onCredential={onGoogle}
+          disabledReason={googleTurnstileToken ? undefined : 'Complete the security check to continue with Google.'} />
       </section>}
       {googlePending && !checkError && stage !== 'complete' && <p role="status" className="patient-field-hint">Google identity confirmed for this enrollment.</p>}
       <p className="patient-auth-footer">Already have a Health ID? <Link to="/sign-in">Sign in</Link></p>
