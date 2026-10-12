@@ -2,6 +2,7 @@ import { useCallback, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { adminApi, type AdminActor, type ApplicationStatus, type Facility, type OrganizationApplication } from './api'
 import { environment } from './env'
+import { MAIN_SITE_ORIGINS, STAFF_RECOVERY_PATH } from '../productHostname'
 import { failure } from './problems'
 import {
   Page, Refresh, ResourceView, Status, date, has, label, useGovernedSubmit, useResource, useUrlFilters,
@@ -159,9 +160,8 @@ function ApplicationCard({ application, actor, onReviewed }: {
 function staffRecoveryUrl(): string {
   let name = 'local'
   try { name = environment().name } catch { /* A configuration problem is reported where the API is used. */ }
-  const origin = name === 'production' ? 'https://www.healthidentitydirectory.com'
-    : name === 'staging' ? 'https://staging.healthidentitydirectory.com' : window.location.origin
-  return `${origin}/provider/recover`
+  const origin = name === 'production' || name === 'staging' ? MAIN_SITE_ORIGINS[name] : window.location.origin
+  return `${origin}${STAFF_RECOVERY_PATH}`
 }
 
 export function ApplicationsPage({ actor }: { actor: AdminActor }) {

@@ -9,7 +9,7 @@ import { Enrollment } from './routes/Enrollment'
 import { Recovery } from './routes/Recovery'
 import { PrincipalRecovery } from './routes/PrincipalRecovery'
 import { AccessPage, NotificationsPage, PortalShell, ProfilePage, RecordsPage, SettingsPage } from './routes/Portal'
-import { resolveStaffProductHostname, isPlatformAdminHostname, PLATFORM_ADMIN_ROUTE } from './productHostname'
+import { resolveStaffProductHostname, isPlatformAdminHostname, PLATFORM_ADMIN_ROUTE, STAFF_RECOVERY_PATH } from './productHostname'
 
 const StaffApp = lazy(async () => ({ default: (await import('./staff/App')).App }))
 const ProviderEnrollment = lazy(async () => ({ default: (await import('./staff/routes/ProviderEnrollment')).ProviderEnrollment }))
@@ -61,7 +61,7 @@ function ProductHostnameGate({ children }: { children: React.ReactNode }) {
 /** One authenticated portal origin, with separate session and permission scopes. */
 export function App() {
   return <ProductHostnameGate><Routes>
-    <Route path="/provider/recover" element={<PrincipalRecovery audience="staff" />} />
+    <Route path={STAFF_RECOVERY_PATH} element={<PrincipalRecovery audience="staff" />} />
     <Route path="/provider/enroll" element={<Suspense fallback={<main role="status">Opening provider enrollment…</main>}><ProviderEnrollment /></Suspense>} />
     <Route path="/admin/recover" element={<PrincipalRecovery audience="admin" />} />
     <Route path="/provider/*" element={<Suspense fallback={<main role="status">Opening provider workspace…</main>}><StaffApp /></Suspense>} />

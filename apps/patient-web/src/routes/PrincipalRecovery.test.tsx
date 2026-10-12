@@ -18,8 +18,8 @@ vi.mock('../Turnstile', () => ({
   </button>,
 }))
 
-function open(audience: 'staff' | 'admin') {
-  render(<MemoryRouter><PrincipalRecovery audience={audience} /></MemoryRouter>)
+function open(audience: 'staff' | 'admin', path = '/') {
+  render(<MemoryRouter initialEntries={[path]}><PrincipalRecovery audience={audience} /></MemoryRouter>)
 }
 
 beforeEach(() => { vi.clearAllMocks() })
@@ -58,6 +58,27 @@ describe('staff and admin password recovery', () => {
     await waitFor(() => expect(screen.getByText('Password reset complete.')).toBeTruthy())
     expect(calls.complete).toHaveBeenCalledWith('challenge-1', 'verification-token', 'long-enough-password')
     expect(screen.getByRole('link', { name: 'Sign in' }).getAttribute('href')).toBe('/provider/sign-in')
+  })
+
+  it('follows no return address given in the link, so it cannot send anyone to another site', async () => {
+    // Product sites link here without one; a crafted link must not turn this page into a redirect.
+    calls.start.mockResolvedValueOnce({ accepted: true, challengeId: 'challenge-1' })
+    calls.verify.mockResolvedValueOnce({ verified: true, challengeId: 'challenge-1', verificationToken: 'verified' })
+    calls.complete.mockResolvedValueOnce({ completed: true })
+    open('staff', '/provider/recover?returnTo=https%3A%2F%2Fevil.example%2Fsign-in&next=%2F%2Fevil.example')
+
+    for (const link of screen.getAllByRole('link')) expect(link.getAttribute('href')).toBe('/provider/sign-in')
+    fireEvent.change(screen.getByLabelText('Work email'), { target: { value: 'nurse@example.test' } })
+    fireEvent.click(screen.getByRole('button', { name: /Complete staff-reset security check/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Send recovery code' }))
+    fireEvent.change(await screen.findByLabelText('Recovery code'), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Verify code' }))
+    fireEvent.change(await screen.findByLabelText('New password'), { target: { value: 'correct horse battery' } })
+    fireEvent.change(screen.getByLabelText('Confirm new password'), { target: { value: 'correct horse battery' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Reset password' }))
+
+    await screen.findByText('Password reset complete.')
+    for (const link of screen.getAllByRole('link')) expect(link.getAttribute('href')).toBe('/provider/sign-in')
   })
 
   it('uses the admin reset action and returns to platform sign in', () => {
