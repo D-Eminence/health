@@ -805,15 +805,17 @@ function OcrPublicationCard({ facilityId, validation, confirmationId, permission
       const publication = await staffApi.publishOcrValidation(facilityId, validation, confirmationId, operation, key)
       if (publication.status === 'published') { publicationKeys.delete(request); await onChanged(); return }
       // Any other answer published nothing: show what OCR holds.
-      focus(next(await reload()) ?? 'ocr-history-title', true)
+      focus(next(await reload() ?? publications) ?? 'ocr-history-title', true)
     } catch (caught) {
       // That publication was requested with another key, so this request cannot resume it.
       const alreadyPublished = isHidApiError(caught) && caught.code === 'OCR_ALREADY_PUBLISHED'
-      if (alreadyPublished) publicationKeys.delete(request)
+      // The history shown is out of date then: it is not shown, nor Publish offered, until read again.
+      if (alreadyPublished) { publicationKeys.delete(request); setPublications(null) }
       setError(alreadyPublished ? 'This review already has a publication request.' : publicationRefusal(caught))
       const items = await reload()
       if (alreadyPublished && items) setError('This review already has a publication request, shown below.')
-      focus(next(items) ?? 'ocr-history-title', true)
+      // Any other history that could not be read again still shows as it was.
+      focus(next(items ?? (alreadyPublished ? null : publications)) ?? 'ocr-history-title', true)
     }
     finally { setBusy(false) }
   }

@@ -167,6 +167,23 @@ describe('publishing validated OCR evidence', () => {
     await press(await screen.findByRole('button', { name: 'Publish to EHR' }))
     await waitFor(() => expect(screen.getAllByRole('alert').map(alert => alert.textContent)).toEqual([
       'This review already has a publication request.', 'The service could not complete the request.']))
+    // The history shown is out of date, and OCR would refuse Publish: neither is offered.
+    expect(screen.queryByRole('button', { name: 'Publish to EHR' })).toBeNull()
+  })
+
+  it('gives focus back to Publish, still shown, when a refused request\'s history cannot be read again', async () => {
+    let refuse: (reason: unknown) => void = () => {}
+    api.publishOcrValidation.mockReturnValueOnce(new Promise((_resolve, reject) => { refuse = reject }))
+    await openJob()
+    api.ocrPublications.mockRejectedValue(new HidApiError(503, 'The service could not complete the request.', { code: 'SERVICE_UNAVAILABLE' }))
+    await press(await screen.findByRole('button', { name: 'Publish to EHR' }))
+    // As in Chromium, focus leaves the disabled button while the request runs.
+    const elsewhere = document.body.appendChild(document.createElement('button'))
+    elsewhere.focus()
+    elsewhere.remove()
+    expect(document.activeElement).toBe(document.body)
+    await act(async () => { refuse(new HidApiError(503, 'EHR service is unavailable', { code: 'EHR_SERVICE_UNAVAILABLE' })) })
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Publish to EHR' })))
   })
 
   it('a failed publication found on opening the job, with no key on this page, cannot be retried from here and says so', async () => {
