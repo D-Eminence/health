@@ -38,6 +38,14 @@ describe('Outreach campaign assignment', () => {
     expect(api.outreachCampaignMembers).toHaveBeenCalledWith('facility-1', 'campaign-1')
     expect(api.outreachCampaignMembers).toHaveBeenCalledWith('facility-1', 'campaign-2')
   })
+
+  it('describes the Campaign select by the hint under it (PEHR-14)', async () => {
+    render(<Outreach />)
+
+    const campaign = await screen.findByRole('combobox', { name: 'Campaign' })
+    expect(document.getElementById(campaign.getAttribute('aria-describedby') ?? '')?.textContent)
+      .toBe('Only active registration campaigns containing your facility membership appear here. A case may also be created without a campaign.')
+  })
 })
 
 describe('Outreach registration case limits (EHR-FORMS-01)', () => {

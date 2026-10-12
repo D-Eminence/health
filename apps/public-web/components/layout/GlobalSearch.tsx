@@ -266,7 +266,7 @@ export function GlobalSearch() {
         >
           <HealthIcon name="search" size={18} />
           <span aria-hidden="true" className="hidden min-[1180px]:inline text-[13px] font-semibold">Search</span>
-          <kbd aria-hidden="true" className="hidden min-[1320px]:inline-flex min-h-5 items-center rounded-(--radius-compact) bg-surface-selected px-1.5 font-mono text-[10px] text-faint">⌘ K</kbd>
+          <kbd aria-hidden="true" className="hidden min-[1320px]:inline-flex min-h-5 items-center rounded-(--radius-compact) bg-surface-selected px-1.5 font-mono text-[10px] text-muted">⌘ K</kbd>
         </button>
       )}
       groups={SEARCH_GROUPS}
