@@ -871,7 +871,7 @@ describe('refusals that do not end the session', () => {
     await open('/provider')
     await switchToIkeja(screen.findByRole('combobox', { name: 'Working at' }))
 
-    expect((await screen.findByRole('alert')).textContent).toBe('You are not a member of this facility')
+    expect((await screen.findByRole('alert')).textContent).toBe('You are no longer active at Ikeja Clinic. Choose another facility.')
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeTruthy()
     expect(calls.filter(call => call === FACILITY)).toHaveLength(1)
     expect(calls).not.toContain(REFRESH)

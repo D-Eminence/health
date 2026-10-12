@@ -45,9 +45,11 @@ export function appliesAt(context: string[], width: number): boolean {
     [...prelude.matchAll(/\((max|min)-width:\s*(\d+)px\)/g)].every(([, bound, px]) => bound === 'max' ? width <= Number(px) : width >= Number(px)))
 }
 
-export function valueAt(css: string, selector: string, property: string, width: number): string | undefined {
+/** `selector` may list several of equal specificity that match one element, such as its classes: the last rule wins. */
+export function valueAt(css: string, selector: string | readonly string[], property: string, width: number): string | undefined {
+  const selectors = [selector].flat()
   return parse(css)
-    .filter(rule => rule.selectors.includes(selector) && appliesAt(rule.context, width))
+    .filter(rule => rule.selectors.some(candidate => selectors.includes(candidate)) && appliesAt(rule.context, width))
     .flatMap(rule => [...rule.body.matchAll(new RegExp(`(?:^|;|\\s)${property}\\s*:\\s*([^;]+)`, 'g'))].map(match => match[1]!.trim()))
     .at(-1)
 }

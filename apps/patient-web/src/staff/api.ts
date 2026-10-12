@@ -2,8 +2,8 @@ import { createApiClient, HidApiError, isHidApiError, uploadPresignedObject, typ
 import { createRegisteredBrowserClient } from '@hid/api'
 import { getEnvironment } from './env'
 import {
-  endsStaffSession, nextStaffSessionChange, refusedAsPatient, reportStaffSessionEnded, staffSessionActor, staffSessionGeneration,
-  staffSessionReadyFor, staffSessionSignal, untilStaffSessionReady,
+  assertStaffSessionFacility, endsStaffSession, nextStaffSessionChange, refusedAsPatient, reportStaffSessionEnded, reportStaffSessionRead,
+  staffSessionActor, staffSessionGeneration, staffSessionReadyFor, staffSessionSignal, untilStaffSessionReady,
 } from './session'
 import { inRefreshTurn, refreshInTurn, signOutInTurn } from '../sessionRefreshTurn'
 import { heldByOtherPortal } from '../sessionChange'
@@ -31,9 +31,22 @@ export interface Actor {
   facility?: Facility
 }
 
+/**
+ * Where the facility a staff session reports comes from (hid-system ADR-046,
+ * migration 0080): 'selected', the facility this sign-in chose with
+ * POST /auth/facility; 'default', none chosen, so the server's default (the
+ * primary facility, else the first by name); 'reselect', the facility chosen
+ * earlier is no longer one of the actor's active facilities, so the default is
+ * reported instead. An Identity without that contract sends no field. A value
+ * not named here (a later contract) is not taken as a choice made: the portal
+ * asks (see facilitySelection.ts).
+ */
+export type FacilitySelection = 'selected' | 'default' | 'reselect'
+
 export interface StaffSession {
   actor: Actor
   expiresAt?: string
+  facilitySelection?: FacilitySelection
 }
 
 export interface RegistrationCapabilities {
@@ -448,7 +461,10 @@ const transport = createApiClient({
   baseUrl: getEnvironment().apiBaseUrl,
   clientId: 'staff-web',
   sessionMode: 'cookie',
-  refreshSession: async () => { await restoreStaffSession() },
+  refreshSession: async () => {
+    const sentIn = staffSessionGeneration()
+    reportStaffSessionRead(await restoreStaffSession(), sentIn)
+  },
 })
 
 /** A signal aborted when either one is. */
@@ -495,8 +511,12 @@ function reportingSessionEnd(inner: ApiClient): ApiClient {
           // The HTTP client sends some requests again on its own: a read after a
           // backoff, and any request after a refresh. Each attempt waits for its
           // session again as it leaves, so none goes out while the session is
-          // being checked, could not be confirmed, or the page is away.
-          beforeAttempt: async () => { await spec.beforeAttempt?.(); await untilStaffSessionReady(sentIn) },
+          // being checked, could not be confirmed, or the page is away; nor for a
+          // facility found gone meanwhile (see setStaffSessionFacilities).
+          beforeAttempt: async () => {
+            await spec.beforeAttempt?.(); await untilStaffSessionReady(sentIn)
+            assertStaffSessionFacility(spec.headers)
+          },
         } : {}),
       }
       try { return await inner.request<T>(own) }
@@ -676,7 +696,9 @@ async function checkStaffSession(actorId: string, sentIn: number): Promise<Staff
     catch (refused) { return endsStaffSession(refused) ? 'ended' : 'unknown' }
   }
   if (typeof session?.actor?.id !== 'string') return 'unknown'
-  return isSessionOf(session, actorId) ? 'alive' : 'ended'
+  if (!isSessionOf(session, actorId)) return 'ended'
+  reportStaffSessionRead(session, sentIn)
+  return 'alive'
 }
 
 function facilityHeaders(facilityId: string, purpose: 'direct-care' | 'emergency' | 'healthcare-operations' = 'direct-care') {

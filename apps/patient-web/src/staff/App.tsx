@@ -1,12 +1,13 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { NavLink, Navigate, Outlet, Route, Routes, useHref, useLinkClickHandler, useLocation, useNavigate } from 'react-router-dom'
 import { BrandLogo } from '../BrandLogo'
-import { Badge, Button, ButtonLink, EmptyState, Select } from '@hid/ui'
+import { Badge, Button, ButtonLink, Card, EmptyState, Select } from '@hid/ui'
 import { isHidApiError } from '@hid/http'
 import { staffApi, type PatientLookup, type StaffSession } from './api'
+import { facilityChoiceNeeded, type FacilityChoiceReason } from './facilitySelection'
 import {
-  announceStaffSessionChange, onOtherTabSessionChange, onStaffSessionEnded, setStaffSessionActor, setStaffSessionReady,
-  staffSessionGeneration, staffSignInPath, startStaffSessionGeneration,
+  announceStaffSessionChange, onOtherTabSessionChange, onStaffSessionEnded, onStaffSessionRead, setStaffSessionActor,
+  setStaffSessionFacilities, setStaffSessionReady, staffSessionGeneration, staffSignInPath, startStaffSessionGeneration,
 } from './session'
 import { SignIn } from './routes/SignIn'
 import { Dashboard } from './routes/Dashboard'
@@ -27,7 +28,12 @@ type SessionState =
   | { status: 'signed-out'; session: null }
   /** The server stopped accepting the session while it was in use (expired, revoked or ended elsewhere). */
   | { status: 'ended'; session: null }
-  | { status: 'ready'; session: StaffSession }
+  /**
+   * `facilityLost`: a refresh or check found the facility this tab worked at gone
+   * from the actor's facilities; the session is the one it read, and the facility
+   * must be chosen again before any page opens.
+   */
+  | { status: 'ready'; session: StaffSession; facilityLost?: boolean }
 
 export interface ActivePatient {
   hid: string
@@ -78,6 +84,7 @@ function StaffProvider({ children }: { children: ReactNode }) {
   // The state as of the last change, read synchronously by the session-end listener.
   const status = useRef<SessionState['status']>('loading')
   const currentSession = useRef<StaffSession | null>(null)
+  const facilityLost = useRef(false)
   const [lock, setLockState] = useState<SessionLock>(null)
   const lockRef = useRef<SessionLock>(null)
   // Where focus was when the workspace locked, given back when it opens again.
@@ -92,8 +99,11 @@ function StaffProvider({ children }: { children: ReactNode }) {
   const away = useRef<{ since: number; sentIn: number; cached: boolean } | null>(null)
   // Readiness for protected requests follows the state and the lock at once, not after a render.
   const setState = useCallback((next: SessionState) => {
-    status.current = next.status; currentSession.current = next.session; setSessionState(next)
+    status.current = next.status; currentSession.current = next.session
+    facilityLost.current = next.status === 'ready' && next.facilityLost === true
+    setSessionState(next)
     setStaffSessionActor(next.status === 'ready' ? next.session.actor.id : null)
+    setStaffSessionFacilities(next.status === 'ready' ? next.session.actor.facilities.map(facility => facility.id) : null)
     // A session that becomes ready while the page is hidden (opened in the
     // background, or signed in or restored while away) is away from the start:
     // locked, and judged as it comes back like any other absence.
@@ -110,7 +120,7 @@ function StaffProvider({ children }: { children: ReactNode }) {
     if (focused?.isConnected) focused.focus()
   }, [lock])
   // Leaving the provider portal (for the patient portal, in the same page) leaves no session in use.
-  useEffect(() => () => { setStaffSessionActor(null); setStaffSessionReady(false) }, [])
+  useEffect(() => () => { setStaffSessionActor(null); setStaffSessionFacilities(null); setStaffSessionReady(false) }, [])
   // Each session, sign-out and facility starts a new period. A patient set by a page
   // from an earlier period is ignored, whenever its answer arrives.
   const period = useRef(0)
@@ -171,6 +181,28 @@ function StaffProvider({ children }: { children: ReactNode }) {
     })
   }, [setState, setLock, startPeriod])
   useEffect(() => onStaffSessionEnded(ask), [ask])
+
+  // A refresh or check of this session that finds the facility this tab works at no
+  // longer among the actor's (its membership ended). The tab never moves to the
+  // facility the answer reports, which may be another tab's choice; it cannot stay
+  // where it is either. Its patient closes and it asks where the person is working,
+  // and requests still on their way for the facility that is gone are not sent
+  // (setStaffSessionFacilities). This applies before a check's answer opens the
+  // workspace, and before a refreshed request is repeated.
+  useEffect(() => onStaffSessionRead((read, sentIn) => {
+    const current = currentSession.current
+    const working = current?.actor.facility?.id
+    if (status.current !== 'ready' || sentIn !== staffSessionGeneration() || !current || !working) return
+    // A tab still asking has no facility of its own to lose: the facility it holds is only
+    // the one Identity reported. Its question stays; a facility gone meanwhile is refused
+    // when chosen, and the refusal says so.
+    if (facilityLost.current || facilityChoiceNeeded(current) !== null) return
+    if (read.actor.id !== current.actor.id || read.actor.facilities.some(facility => facility.id === working)) return
+    startPeriod()
+    // The question replaces the page and takes focus (FacilityChoice): focus held before a check is not given back.
+    focusBeforeLock.current = null
+    setState({ status: 'ready', session: read, facilityLost: true })
+  }), [setState, startPeriod])
   const askIfHeardWhileOpening = useCallback(() => {
     if (!heardWhileOpening.current) return
     heardWhileOpening.current = false
@@ -285,7 +317,9 @@ function StaffProvider({ children }: { children: ReactNode }) {
     // A switch answered after its session ended, or after another change, applies to nothing now.
     if (period.current !== owner || status.current !== 'ready') return false
     startPeriod()
-    setState({ status: 'ready', session })
+    // Identity accepted this tab's own choice: an answer for the facility sent is that choice, whatever
+    // selection it reports. Asking again straight away would leave the person no way on.
+    setState({ status: 'ready', session: session.actor.facility?.id === id ? { ...session, facilitySelection: 'selected' } : session })
     return true
   }
 
@@ -382,6 +416,110 @@ function Gate({ children }: { children: ReactNode }) {
   return <>{lock && <SessionCheck unconfirmed={lock === 'unconfirmed'} />}<div hidden={lock !== null} inert={lock !== null}>{children}</div></>
 }
 
+/**
+ * A choice or switch of facility that Identity refused, in words the person can act
+ * on. Its own detail for 403 FACILITY_ACCESS_DENIED speaks of "the actor"; the
+ * facility is no longer one of theirs (the membership ended since the list was read).
+ */
+function facilityRefusal(caught: unknown, facility: string): string {
+  if (isHidApiError(caught) && caught.code === 'FACILITY_ACCESS_DENIED') return `You are no longer active at ${facility}. Choose another facility.`
+  return caught instanceof Error ? caught.message : 'Facility could not be selected.'
+}
+
+/** Why the facility question is asked: as Identity reports the selection, or 'lost' (see SessionState). */
+type FacilityQuestion = FacilityChoiceReason | 'lost'
+
+/** Why the question is asked, as the page says it. */
+const FACILITY_CHOICE_WHY: Record<FacilityQuestion, string> = {
+  reselect: 'The facility you chose for this sign-in is no longer available to you.',
+  unchosen: 'You work at more than one facility.',
+  unconfirmed: 'The facility for this sign-in is not confirmed.',
+  // The page and any patient record close with the facility, and a save waiting to go is cancelled
+  // (setStaffSessionFacilities): said, so no one believes it was kept.
+  lost: 'The facility you were working at is no longer available to you. The page you had open was closed, along with any patient record, and anything not yet saved there was not sent.',
+}
+
+/**
+ * Asks where the person is working before any page opens, so that no facility is
+ * used that they did not choose (hid-system ADR-046): when the facility chosen for
+ * this sign-in is no longer available ('reselect'), when none was chosen and
+ * they work at more than one ('unchosen'), or when Identity reports a selection
+ * this portal does not know ('unconfirmed'); and when the facility this tab was
+ * working at is found gone mid-session ('lost'). Nothing is preselected. Choosing sends
+ * the same POST /auth/facility as a switch, and Identity keeps it for the sign-in,
+ * so a reload or a refresh reports it ('selected').
+ */
+function FacilityChoice({ reason, onChosen }: { reason: FacilityQuestion; onChosen: () => void }) {
+  const { state, lock, selectFacility } = useStaff()
+  const [picked, setPicked] = useState('')
+  // Continue with nothing picked is reported at the options, which take focus, and their description
+  // announces it. Sent with Enter on an option, focus does not move into them, so the message is an alert
+  // instead, new for each refusal; as both it would be spoken twice. `missing` counts the refusals.
+  const [missing, setMissing] = useState(0)
+  const [missingAlert, setMissingAlert] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const heading = useRef<HTMLHeadingElement>(null)
+  // The question is the page: it takes focus when it appears, unless the person is already somewhere on it.
+  // One that appears while the workspace is locked (hidden at load, or a sign-in being checked) takes it
+  // once the workspace opens, once. Asked because the facility was found gone, it takes focus wherever
+  // it was (Sign out, say): the page and patient closed under the person, and its heading says so.
+  const focused = useRef(false)
+  useEffect(() => {
+    if (focused.current || lock !== null) return
+    focused.current = true
+    const active = document.activeElement
+    if (reason === 'lost' || !(active instanceof HTMLElement) || active === document.body || !active.isConnected) heading.current?.focus()
+  }, [lock, reason])
+  if (state.status !== 'ready') return null
+  const { facilities } = state.session.actor
+
+  async function choose(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (busy) return
+    setError('')
+    if (!picked) {
+      const options = event.currentTarget.querySelector('fieldset')
+      setMissingAlert(options?.contains(document.activeElement) ?? false)
+      setMissing(count => count + 1)
+      options?.querySelector<HTMLInputElement>('input[name="staff-facility-choice"]')?.focus()
+      return
+    }
+    // The options are disabled while the choice is saved, so the one checked is the one
+    // sent. A choice sent with Enter on an option moves focus to Continue, which stays
+    // enabled, rather than leave it on a disabled option and so on the page.
+    const form = event.currentTarget
+    if (document.activeElement instanceof HTMLInputElement && form.contains(document.activeElement)) {
+      form.querySelector<HTMLButtonElement>('button[type="submit"]')?.focus()
+    }
+    const name = facilities.find(facility => facility.id === picked)?.name ?? 'this facility'
+    setBusy(true)
+    try { if (await selectFacility(picked)) onChosen() }
+    catch (caught) { setError(facilityRefusal(caught, name)) }
+    finally { setBusy(false) }
+  }
+
+  return <section className="staff-facility-choice" aria-labelledby="staff-facility-choice-title">
+    <div className="staff-page-head">
+      <h1 id="staff-facility-choice-title" ref={heading} tabIndex={-1} aria-describedby="staff-facility-choice-why">Where are you working?</h1>
+      <p id="staff-facility-choice-why">{FACILITY_CHOICE_WHY[reason]} Choose where you are working before you continue. Patient access, records and requests use the facility you choose, and you can switch later from “Working at”.</p>
+    </div>
+    <Card className="staff-card"><form className="staff-form" noValidate onSubmit={event => void choose(event)}>
+      <fieldset disabled={busy} aria-describedby={['staff-facility-choice-why', missing > 0 && 'staff-facility-choice-missing', error && 'staff-facility-choice-error'].filter(Boolean).join(' ')}>
+        <legend>Facility</legend>
+        {facilities.map(facility => <label key={facility.id} className="staff-choice">
+          <input type="radio" name="staff-facility-choice" value={facility.id} checked={picked === facility.id}
+            onChange={() => { setPicked(facility.id); setMissing(0); setError('') }} /> {facility.name}
+        </label>)}
+      </fieldset>
+      {missing > 0 && <p key={missing} id="staff-facility-choice-missing" role={missingAlert ? 'alert' : undefined} className="staff-error">Choose a facility to continue.</p>}
+      {error && <p id="staff-facility-choice-error" role="alert" className="staff-error">{error}</p>}
+      {/* Kept enabled while it runs, so focus stays on it; a second press does nothing. */}
+      <Button type="submit" aria-disabled={busy || undefined}>{busy ? 'Saving…' : 'Continue'}</Button>
+    </form></Card>
+  </section>
+}
+
 const navigation = [
   { to: '/provider', label: 'Overview', permission: '' },
   { to: '/provider/patients', label: 'Patient access', permission: 'identity.patient.read' },
@@ -411,18 +549,19 @@ function Shell() {
   // moving to another page discards it, as Cancel does, so the list never goes on showing
   // an unconfirmed facility while work continues at the one in use.
   const [choice, setChoice] = useState<{ from: string; to: string } | null>(null)
-  // Set by a switch made on the overview, whose heading then takes focus once the
-  // workspace is open, unless the user has put focus somewhere since. From any other
+  // Set by a switch made on the overview, or by the first choice of facility, after
+  // which the page's heading takes focus once the workspace is open, unless the
+  // user has put focus somewhere since. From any other
   // page the change of page moves focus (useFocusOnPageChange) once the overview shows;
   // focusing now would reach the old page's heading while the router's transition is
   // pending.
-  const [focusOverview, setFocusOverview] = useState(false)
+  const [focusHeading, setFocusHeading] = useState(false)
   useEffect(() => {
-    if (!focusOverview || lock !== null) return
-    setFocusOverview(false)
+    if (!focusHeading || lock !== null) return
+    setFocusHeading(false)
     const active = document.activeElement
     if (!(active instanceof HTMLElement) || active === document.body || !active.isConnected) focusPageHeading(main.current)
-  }, [focusOverview, lock])
+  }, [focusHeading, lock])
   const { pathname } = useLocation()
   const shownPath = useRef(pathname)
   useEffect(() => {
@@ -430,6 +569,14 @@ function Shell() {
     if (shownPath.current !== pathname) setChoice(null)
     shownPath.current = pathname
   }, [pathname])
+  const choiceNeeded = state.status !== 'ready' ? null : state.facilityLost ? 'lost' : facilityChoiceNeeded(state.session)
+  // The sidebar goes while the facility is chosen, and with it the proposal and refusal of a switch made
+  // before: they were about a facility left behind, and are not shown, or announced, again when it is back.
+  useEffect(() => {
+    if (!choiceNeeded) return
+    setChoice(null)
+    setFacilityError('')
+  }, [choiceNeeded])
   if (state.status !== 'ready') return null
   const { actor } = state.session
   const currentFacility = actor.facility
@@ -448,10 +595,10 @@ function Shell() {
         const onOverview = shownPath.current === '/provider'
         setChoice(null)
         navigate('/provider')
-        if (onOverview) setFocusOverview(true)
+        if (onOverview) setFocusHeading(true)
       }
     }
-    catch (error) { setFacilityError(error instanceof Error ? error.message : 'Facility could not be selected.') }
+    catch (error) { setFacilityError(facilityRefusal(error, chosen.name)) }
     finally { setSwitching(false) }
   }
 
@@ -472,14 +619,19 @@ function Shell() {
 
   return <div className="staff-app">
     <header className="staff-topbar">
-      <NavLink to="/provider" className="staff-brand" aria-label="Health ID provider home"><BrandLogo /><small>Provider</small></NavLink>
+      {/* While the facility is being chosen the brand is not a link: no page opens before the choice. */}
+      {choiceNeeded
+        ? <span className="staff-brand"><BrandLogo /><small>Provider</small></span>
+        : <NavLink to="/provider" className="staff-brand" aria-label="Health ID provider home"><BrandLogo /><small>Provider</small></NavLink>}
       <div className="staff-topbar-actions">
         <span className="staff-user">{actor.displayName ?? actor.email ?? 'Staff member'}</span>
         <Button tone="quiet" size="sm" onClick={() => void leave()} disabled={signingOut}>{signingOut ? 'Signing out…' : 'Sign out'}</Button>
       </div>
     </header>
-    <div className="staff-layout">
-      <aside className="staff-sidebar" aria-label="Provider navigation">
+    {/* While the facility is being chosen there is no sidebar: its list, links and role badge would all
+        come from the facility Identity reported, which no one chose. Sign out stays in the header. */}
+    <div className={choiceNeeded ? 'staff-layout staff-layout-single' : 'staff-layout'}>
+      {!choiceNeeded && <aside className="staff-sidebar" aria-label="Provider navigation">
         <div className="staff-facility">
           <label htmlFor="staff-facility-select">Working at</label>
           <Select id="staff-facility-select" value={chosenId} disabled={switching} aria-describedby={chosen ? 'staff-facility-question' : undefined}
@@ -496,8 +648,10 @@ function Shell() {
         </div>
         <nav className="staff-nav" onFocus={revealFocusedLink}>{visible.map(item => <NavLink key={item.to} to={item.to} end={item.to === '/provider'} className={({ isActive }) => `staff-nav-link${isActive ? ' active' : ''}`}>{item.label}{item.to === '/provider/clinical' && !activePatient && <span className="staff-nav-meta">Select patient</span>}</NavLink>)}</nav>
         <div className="staff-sidebar-footer"><Badge tone="information">{actor.roles.join(', ') || 'Staff'}</Badge><p>Access is limited to your active facility and server permissions.</p></div>
-      </aside>
-      <main ref={main} className="staff-main">{signOutError && <p role="alert" className="staff-error">{signOutError}</p>}<Outlet /></main>
+      </aside>}
+      <main ref={main} className="staff-main">{signOutError && <p role="alert" className="staff-error">{signOutError}</p>}
+        {/* Asked again for another reason (an answer to the choice that reports another facility), it starts afresh. */}
+        {choiceNeeded ? <FacilityChoice key={choiceNeeded} reason={choiceNeeded} onChosen={() => setFocusHeading(true)} /> : <Outlet />}</main>
     </div>
   </div>
 }

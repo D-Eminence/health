@@ -16,6 +16,7 @@ import { valueAt } from './cssRules'
 const here = dirname(fileURLToPath(import.meta.url))
 const portalCss = readFileSync(resolve(here, '../index.css'), 'utf8')
 const staffCss = readFileSync(resolve(here, '../staff/style.css'), 'utf8')
+const tokensCss = readFileSync(resolve(here, '../../../../packages/ui/src/tokens.css'), 'utf8')
 const PHONE = 320
 const DESKTOP = 1280
 
@@ -61,6 +62,42 @@ describe('keyboard focus under the sticky headers', () => {
     const staffTopbar = Number.parseFloat(valueAt(staffCss, '.staff-topbar', 'height', PHONE)!)
     expect(padding).toBeGreaterThan(Math.max(patientHeader, staffTopbar, 56))
     expect(valueAt(portalCss, 'html', 'scroll-padding-top', DESKTOP)).toBe(valueAt(portalCss, 'html', 'scroll-padding-top', PHONE))
+  })
+})
+
+/** WCAG 2 contrast ratio of two #rrggbb colours. */
+function contrast(first: string, second: string): number {
+  const luminance = (hex: string) => {
+    const [r, g, b] = [1, 3, 5].map(at => Number.parseInt(hex.slice(at, at + 2), 16) / 255)
+      .map(channel => channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4)
+    return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!
+  }
+  const [light, dark] = [luminance(first), luminance(second)].sort((a, b) => b - a)
+  return (light! + 0.05) / (dark! + 0.05)
+}
+
+describe('the facility question', () => {
+  it.each([PHONE, DESKTOP])('fills the workspace at %ipx, with no sidebar track beside it', width => {
+    // While the facility is chosen the sidebar is gone and the question is the layout's only child; on the
+    // sidebar's grid it fell into the sidebar-width first track.
+    expect(valueAt(staffCss, ['.staff-layout', '.staff-layout-single'], 'grid-template-columns', width)).toBe('minmax(0, 1fr)')
+  })
+})
+
+describe('the facility question while its choice is saved', () => {
+  // Its options are disabled meanwhile (the fieldset). Each shows it, as a disabled field of @hid/ui does
+  // (not-allowed, tinted, muted), not only its small radio, and its name stays readable in either theme.
+  const disabledOption = '.staff-facility-choice fieldset:disabled .staff-choice'
+
+  it('shows each option as unavailable, and still readable', () => {
+    expect(valueAt(staffCss, disabledOption, 'cursor', DESKTOP)).toBe('not-allowed')
+    expect(valueAt(staffCss, disabledOption, 'color', DESKTOP)).toBe('var(--color-muted)')
+    expect(valueAt(staffCss, disabledOption, 'background', DESKTOP)).toBe('var(--color-surface-tint)')
+    for (const theme of ['@theme', "[data-theme='dark']"]) {
+      const text = valueAt(tokensCss, theme, '--color-muted', DESKTOP)!
+      const fill = valueAt(tokensCss, theme, '--color-surface-tint', DESKTOP)!
+      expect(contrast(text, fill), theme).toBeGreaterThanOrEqual(4.5)
+    }
   })
 })
 
