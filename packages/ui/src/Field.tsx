@@ -7,6 +7,11 @@
  * so a screen reader announces them with the control and an error marks it
  * invalid, without each caller wiring aria-describedby by hand. Context needs a
  * client module; server components can still render these.
+ *
+ * A Field wraps one control: every Input, Select and Textarea inside it takes
+ * its hint or error, whatever its id. Only these three read it; a SearchField
+ * or a native control in a Field takes aria-describedby and aria-invalid from
+ * its caller.
  */
 
 import { createContext, useContext } from 'react'

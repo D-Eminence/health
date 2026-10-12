@@ -249,7 +249,10 @@ export function TextLink({ className, children, ...rest }: TextLinkProps) {
 // reaches its control through context, which React's server build lacks.
 
 export interface SearchFieldProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'type'> {
-  /** Accessible name; use a visible Field label where search context is not self-evident. */
+  /**
+   * Accessible name; use a visible Field label where search context is not self-evident.
+   * It does not read that Field's hint or error: pass aria-describedby.
+   */
   readonly label: string
   readonly startAdornment?: ReactNode
   readonly endAdornment?: ReactNode
