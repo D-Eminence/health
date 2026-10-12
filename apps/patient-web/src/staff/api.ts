@@ -307,15 +307,20 @@ export interface EmergencyRecords {
   limit: number
 }
 
+/**
+ * A clinical document as EHR's list returns it (document.service.ts list):
+ * size_bytes and row_version are selected as text.
+ */
 export interface DocumentRecord {
   id: string
   patientId: string
   encounterId: string
   fileName: string
   mediaType: string
-  sizeBytes: number
+  sizeBytes: number | string
   status: string
   scanStatus: string
+  version?: string
   createdAt: string
 }
 
@@ -939,8 +944,9 @@ export const staffApi = {
     client.get<Page<DocumentRecord>>('/api/v1/ehr/documents', {
       query: { patientId, encounterId }, headers: facilityHeaders(facilityId),
     }),
+  // A signed storage link valid for expiresInSeconds (s3-storage.provider.ts createDownload).
   documentDownload: (facilityId: string, documentId: string) =>
-    client.get<{ url: string; expiresAt: string | null }>(`/api/v1/ehr/documents/${encodeURIComponent(documentId)}/download`,
+    client.get<{ url: string; expiresInSeconds: number }>(`/api/v1/ehr/documents/${encodeURIComponent(documentId)}/download`,
       { headers: facilityHeaders(facilityId) }),
   async uploadDocument(facilityId: string, patientId: string, encounterId: string, file: File) {
     // Every step runs only while the session the upload started in is ready: each
@@ -961,7 +967,8 @@ export const staffApi = {
       sha256Hex, classification: 'phi', retentionClass: 'clinical-10y',
     }, { headers: { ...facilityHeaders(facilityId), ...keyHeaders() } })
     await untilStaffSessionReady(sentIn)
-    await uploadPresignedObject({ url: intent.upload.url, body: file, requiredHeaders: intent.upload.requiredHeaders, signal })
+    await uploadPresignedObject({ url: intent.upload.url, body: file, requiredHeaders: intent.upload.requiredHeaders, signal,
+      allowLocalHttp: getEnvironment().name === 'local' })
     await untilStaffSessionReady(sentIn)
     await client.post(`/api/v1/ehr/documents/${encodeURIComponent(intent.document.id)}/complete`, undefined,
       { headers: facilityHeaders(facilityId) })

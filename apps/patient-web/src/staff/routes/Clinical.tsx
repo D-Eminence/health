@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { isHidApiError } from '@hid/http'
+import { assertSignedStorageUrl, isHidApiError } from '@hid/http'
 import { Badge, Button, Card, EmptyState, Field, Input, Select, Textarea } from '@hid/ui'
 import { isAllowedPatientLookup, staffApi, type ClinicalRecord, type DiagnosisUpdate, type DocumentRecord, type EmergencyRecords, type Encounter, type NoteRevision, type Page, type RecordKind, type StatusRecordKind, type VitalCorrection, type VitalMeasurement, type VitalMeasurements } from '../api'
 import { useStaff } from '../App'
+import { getEnvironment } from '../env'
 import { staffSessionGeneration, untilStaffSessionReady } from '../session'
 
 const tabs: Array<{ id: RecordKind | 'documents'; label: string; permission: string }> = [
@@ -135,6 +136,12 @@ function rowVersion(value: unknown): number | null {
 
 function errorMessage(caught: unknown, fallback: string): string {
   return caught instanceof Error ? caught.message : fallback
+}
+
+/** A file size as EHR sends it, a number or text (pg returns bigint and ::text columns as strings), in KiB. */
+function fileSize(value: number | string | null | undefined): string {
+  const count = value == null || value === '' ? NaN : Number(value)
+  return Number.isFinite(count) && count >= 0 ? `${Math.ceil(count / 1024).toLocaleString()} KiB` : 'Size unavailable'
 }
 
 function Detail({ label, value }: { label: string; value: ReactNode }) {
@@ -556,12 +563,16 @@ function Documents({ patientId, encounterId, facilityId, canWrite, canOcr, verif
     try {
       await verify()
       const result = await staffApi.documentDownload(facilityId, id)
+      // Only a signed storage link opens: never javascript:, data: or plain http to
+      // another host, whatever a faulty backend or proxy sends.
+      assertSignedStorageUrl(result.url, { allowLocalHttp: getEnvironment().name === 'local',
+        code: 'INVALID_DOWNLOAD_URL', message: 'Document could not be opened.' })
       await untilStaffSessionReady(sentIn)
       window.open(result.url, '_blank', 'noopener,noreferrer')
     }
     catch (caught) { setError(caught instanceof Error ? caught.message : 'Document could not be opened.') }
   }
-  return <div className="staff-two-col"><Card className="staff-card"><h2>Documents</h2>{loading && <p role="status">Loading documents…</p>}{!loading && items.length === 0 && <p>No documents for this encounter.</p>}<div className="staff-list">{items.map(item => <div className="staff-list-item" key={item.id}><strong>{item.fileName}</strong><p>{item.mediaType} · {Math.ceil(item.sizeBytes / 1024)} KiB · scan: {item.scanStatus}</p><Button tone="secondary" size="sm" onClick={() => void download(item.id)} disabled={item.scanStatus !== 'clean'}>Open file</Button>{canOcr && item.scanStatus === 'clean' && <Link to="/provider/ocr" state={{ ocrDocumentId: item.id, ocrPatientId: patientId, actorId, facilityId }} className="staff-text-link">Extract with OCR</Link>}</div>)}</div></Card>{canWrite && <Card className="staff-card"><h2>Upload a document</h2><p>Files are scanned before download becomes available.</p><form className="staff-form" onSubmit={event => void upload(event)}><Field label="Clinical document" htmlFor="clinical-document"><Input id="clinical-document" name="document" type="file" accept=".pdf,.jpg,.jpeg,.png,.tif,.tiff" required /></Field><Button type="submit" disabled={busy}>{busy ? 'Uploading…' : 'Upload document'}</Button></form></Card>}{error && <p role="alert" className="staff-error">{error}</p>}</div>
+  return <div className="staff-two-col"><Card className="staff-card"><h2>Documents</h2>{loading && <p role="status">Loading documents…</p>}{!loading && items.length === 0 && <p>No documents for this encounter.</p>}<div className="staff-list">{items.map(item => <div className="staff-list-item" key={item.id}><strong>{item.fileName}</strong><p>{item.mediaType} · {fileSize(item.sizeBytes)} · scan: {item.scanStatus}</p><Button tone="secondary" size="sm" onClick={() => void download(item.id)} disabled={item.scanStatus !== 'clean'}>Open file</Button>{canOcr && item.scanStatus === 'clean' && <Link to="/provider/ocr" state={{ ocrDocumentId: item.id, ocrPatientId: patientId, actorId, facilityId }} className="staff-text-link">Extract with OCR</Link>}</div>)}</div></Card>{canWrite && <Card className="staff-card"><h2>Upload a document</h2><p>Files are scanned before download becomes available.</p><form className="staff-form" onSubmit={event => void upload(event)}><Field label="Clinical document" htmlFor="clinical-document"><Input id="clinical-document" name="document" type="file" accept=".pdf,.jpg,.jpeg,.png,.tif,.tiff" required /></Field><Button type="submit" disabled={busy}>{busy ? 'Uploading…' : 'Upload document'}</Button></form></Card>}{error && <p role="alert" className="staff-error">{error}</p>}</div>
 }
 
 // What EHR's emergency summary sends of each section at most (patient-records.service.ts
@@ -598,13 +609,6 @@ function currentFirst<T>(items: readonly T[], rank: (item: T) => number): T[] {
 function OrderStatus({ status }: { status: string }) {
   const known = ORDER_STATUSES[status]
   return <Badge tone={known?.tone ?? 'neutral'}>{known?.label ?? status.replaceAll('_', ' ')}</Badge>
-}
-
-/** A byte count as EHR sends it: a number, or a string (pg returns bigint as text). */
-function byteCount(value: number | string | null | undefined): number | null {
-  if (value == null || value === '') return null
-  const count = Number(value)
-  return Number.isFinite(count) && count >= 0 ? count : null
 }
 
 function SummarySection<T extends { id: string }>({ title, items, cap, empty, note, render }: {
@@ -696,13 +700,10 @@ function EmergencySummary({ facilityId, patientId, patientName, permissions, ver
         </>} />}
       {may('ehr.document.read') && <SummarySection title="Documents" items={summary.documents} cap={EMERGENCY_CAPS.documents}
         note={<p>Uploaded documents are listed for reference. They cannot be opened from this summary, and their virus scan result is not included.</p>}
-        empty="No uploaded documents are available from this facility." render={item => {
-          const size = byteCount(item.sizeBytes)
-          return <>
-            <strong>{item.fileName}</strong>
-            <p>{item.mediaType}{size == null ? '' : ` · ${Math.ceil(size / 1024).toLocaleString()} KiB`} · Uploaded {date(item.createdAt)}</p>
-          </>
-        }} />}
+        empty="No uploaded documents are available from this facility." render={item => <>
+          <strong>{item.fileName}</strong>
+          <p>{item.mediaType} · {fileSize(item.sizeBytes)} · Uploaded {date(item.createdAt)}</p>
+        </>} />}
     </div>}
   </>
 }
