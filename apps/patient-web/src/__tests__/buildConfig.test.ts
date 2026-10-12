@@ -20,12 +20,13 @@ const CI_ENVIRONMENT = {
   VITE_HID_APP_ORIGIN: 'http://localhost:3200',
 }
 
-async function resolveBuild(extra: Record<string, string> = {}) {
+async function resolveBuild(extra: Record<string, string> = {}, command: 'build' | 'serve' = 'build') {
   const variables = { ...CI_ENVIRONMENT, ...extra }
   const previous = Object.fromEntries(Object.keys(variables).map(key => [key, process.env[key]]))
   Object.assign(process.env, variables)
   try {
-    return await resolveConfig({ root, configFile: join(root, 'vite.config.ts'), mode: 'production', logLevel: 'silent' }, 'build')
+    return await resolveConfig({ root, configFile: join(root, 'vite.config.ts'),
+      mode: command === 'build' ? 'production' : 'development', logLevel: 'silent' }, command)
   } finally {
     for (const [key, value] of Object.entries(previous)) {
       if (value === undefined) delete process.env[key]
@@ -52,6 +53,20 @@ describe('portal build configuration', () => {
   it('refuses to build when a public variable holds a credential', async () => {
     await expect(resolveBuild({ VITE_HID_ANALYTICS_ID: 'AKIAABCDEFGHIJKLMNOP' }))
       .rejects.toThrow(/VITE_HID_ANALYTICS_ID: value looks like an AWS access key id/)
+  })
+
+  // The staff product and admin hosts of each deployment (hid-system
+  // infra/cloudflare/src/frontend-worker.mjs). The preview server takes the dev
+  // server's list, and either refuses a host it does not list.
+  it('lets the dev and preview servers answer every staff product and admin host', async () => {
+    const config = await resolveBuild({}, 'serve')
+    for (const deployment of ['', 'staging.']) {
+      for (const product of ['ehr', 'lab', 'pharmacy', 'migrate', 'outreach', 'admin']) {
+        const host = `${product}.${deployment}healthidentitydirectory.com`
+        expect(config.server.allowedHosts).toContain(host)
+        expect(config.preview.allowedHosts).toContain(host)
+      }
+    }
   })
 
   // Vite inlines every VITE_HID_ variable wherever code reads `import.meta.env`

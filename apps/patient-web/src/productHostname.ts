@@ -37,6 +37,9 @@ const STAFF_PRODUCT_HOSTNAMES: Record<string, StaffProduct> = {
   'outreach.staging.healthidentitydirectory.com': { key: 'outreach', hostname: 'outreach.staging.healthidentitydirectory.com', route: STAFF_PRODUCT_ROUTES.outreach },
 }
 
+/** Every staff product and admin host of each deployment, as the dev and preview servers allow them. */
+export const PORTAL_HOSTNAMES: readonly string[] = [...Object.keys(STAFF_PRODUCT_HOSTNAMES), ...PLATFORM_ADMIN_HOSTNAMES]
+
 function normalizeHostname(hostname: string): string {
   return hostname.trim().toLowerCase().replace(/\.+$/, '')
 }

@@ -4,6 +4,7 @@ import tailwindcss from '@tailwindcss/vite'
 // By path rather than through @hid/config: Vite loads this file with Node and
 // leaves package imports to Node, which cannot load that package's TypeScript.
 import { assertPublicEnvironment } from '../../packages/config/src/guards'
+import { PORTAL_HOSTNAMES } from './src/productHostname'
 
 /**
  * Refuses to build (or serve) when a VITE_HID_ variable is named like a secret
@@ -42,14 +43,8 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 3200,
       strictPort: true,
-      allowedHosts: [
-        'ehr.healthidentitydirectory.com',
-        'lab.healthidentitydirectory.com',
-        'pharmacy.healthidentitydirectory.com',
-        'migrate.healthidentitydirectory.com',
-        'outreach.healthidentitydirectory.com',
-        'admin.healthidentitydirectory.com',
-      ],
+      // The hosts the portal opens a workspace on; the preview server takes this list too.
+      allowedHosts: [...PORTAL_HOSTNAMES],
       proxy: { '/api/v1': { target: target.origin, changeOrigin: true } },
     },
     preview: { port: 3200, strictPort: true },
