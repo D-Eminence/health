@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { Patients } from '../Patients'
@@ -131,5 +131,45 @@ describe('emergency access is offered only to a role the backend will let use it
     const pin = screen.getByRole('button', { name: 'Verify PIN and open' }) as HTMLButtonElement
     expect(pin.disabled).toBe(true)
     expect(document.getElementById(pin.getAttribute('aria-describedby') ?? '')?.textContent).toMatch(/identity\.patient-access-pin\.verify/)
+  })
+})
+
+describe('the patient PIN', () => {
+  // Identity removes every space from the PIN before checking it (hid-system
+  // VerifyPatientAccessPinDto compactPin), so a PIN typed in groups is accepted.
+  it('is sent without the spaces it was typed with', async () => {
+    api.verifyPin.mockResolvedValue({})
+    api.lookupPatient.mockResolvedValue({ patient: { patientId: 'a0000000-0000-4000-8000-000000000001', hid: 'HID-ABCDEF23', fullName: 'Ada Patient', version: 1 },
+      authorization: { decision: 'allow', consentGrantId: null, breakGlass: false } })
+    renderPatients()
+    fireEvent.change(screen.getByRole('textbox', { name: 'Health ID' }), { target: { value: 'HID-ABCDEF23' } })
+    fireEvent.click(method('Patient PIN'))
+    const pin = screen.getByLabelText(/^Patient access PIN/)
+    fireEvent.change(pin, { target: { value: '12 34' } })
+    fireEvent.submit(pin.closest('form')!)
+    await waitFor(() => expect(api.verifyPin).toHaveBeenCalledWith('facility-1', 'HID-ABCDEF23', '1234'))
+    expect(pin.getAttribute('aria-invalid')).toBeNull()
+  })
+
+  // A field cut at 8 characters would send 1234 567 as 1234567, a wrong PIN, and each
+  // failed verification counts towards Identity's lock (access_patient_with_pin).
+  it('takes an 8 digit PIN typed in two groups whole', () => {
+    renderPatients()
+    fireEvent.click(method('Patient PIN'))
+    const pin = screen.getByLabelText(/^Patient access PIN/) as HTMLInputElement
+    expect(pin.maxLength).toBeGreaterThanOrEqual('1234 5678'.length)
+    fireEvent.change(pin, { target: { value: '1234 5678' } })
+    expect(pin.checkValidity()).toBe(true)
+  })
+
+  it('is still refused when it is not 4 to 8 digits once its spaces are removed', async () => {
+    renderPatients()
+    fireEvent.change(screen.getByRole('textbox', { name: 'Health ID' }), { target: { value: 'HID-ABCDEF23' } })
+    fireEvent.click(method('Patient PIN'))
+    const pin = screen.getByLabelText(/^Patient access PIN/)
+    fireEvent.change(pin, { target: { value: '12 3' } })
+    fireEvent.submit(pin.closest('form')!)
+    await waitFor(() => expect(pin.getAttribute('aria-invalid')).toBe('true'))
+    expect(api.verifyPin).not.toHaveBeenCalled()
   })
 })

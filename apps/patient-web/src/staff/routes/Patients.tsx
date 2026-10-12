@@ -129,7 +129,9 @@ export function Patients() {
     clearFeedback()
     if (!healthIdAccepted()) return
     if (mode === 'request' && reason.trim().length < 8) return problems.refuse('request-reason', 'Enter a clinical reason of at least 8 characters.')
-    if (mode === 'pin' && !/^\d{4,8}$/.test(pin.trim())) return problems.refuse('patient-pin', 'Enter the patient’s 4 to 8 digit access PIN.')
+    // Identity removes every space from a PIN before checking it (VerifyPatientAccessPinDto), so a PIN typed in groups is one PIN.
+    const compactPin = pin.replace(/\s+/g, '')
+    if (mode === 'pin' && !/^\d{4,8}$/.test(compactPin)) return problems.refuse('patient-pin', 'Enter the patient’s 4 to 8 digit access PIN.')
     if (mode === 'emergency' && emergencyReason.trim().length < 8) return problems.refuse('emergency-reason', 'Document the emergency reason in at least 8 characters.')
     setBusy(true)
     // The record opens after the grant only while the session that obtained it is
@@ -141,7 +143,7 @@ export function Patients() {
         const request = await staffApi.requestAccess(facility.id, normalized, scope, reason.trim(), 60)
         setMessage(`Request ${request.accessRequestId} is ${request.status}. The patient must approve before records are available.`)
       } else if (mode === 'pin') {
-        await staffApi.verifyPin(facility.id, normalized, pin.trim())
+        await staffApi.verifyPin(facility.id, normalized, compactPin)
         await untilStaffSessionReady(sentIn)
         await openPatient('direct-care')
       } else {
@@ -173,7 +175,7 @@ export function Patients() {
         {/* The page checks each method's fields itself and says what is wrong at the field. */}
         <form className="staff-form" noValidate onSubmit={event => void submitAccess(event)}>
           {mode === 'request' && <><p className="staff-muted">Ask the patient to approve access. A pending request does not expose their record.</p><Field label="Access scope" htmlFor="request-scope"><Select id="request-scope" value={scope} onChange={event => setScope(event.target.value as 'read_records' | 'write_records')}><option value="read_records">Read records</option><option value="write_records">Read and write records</option></Select></Field><Field label="Clinical reason" htmlFor="request-reason" error={problems.error('request-reason')} required><Textarea id="request-reason" value={reason} onChange={event => setReason(event.target.value)} minLength={8} maxLength={500} required {...problems.control('request-reason')} /></Field></>}
-          {mode === 'pin' && <><p className="staff-muted">Only the patient should share their access PIN. Verification and grant creation happen on the server.</p><Field label="Patient access PIN" htmlFor="patient-pin" hint="4 to 8 digits." error={problems.error('patient-pin')} required><Input id="patient-pin" type="password" inputMode="numeric" autoComplete="off" pattern="[0-9]{4,8}" maxLength={8} value={pin} onChange={event => setPin(event.target.value)} required aria-describedby="patient-pin-hint" {...problems.control('patient-pin')} /></Field></>}
+          {mode === 'pin' && <><p className="staff-muted">Only the patient should share their access PIN. Verification and grant creation happen on the server.</p><Field label="Patient access PIN" htmlFor="patient-pin" hint="4 to 8 digits." error={problems.error('patient-pin')} required><Input id="patient-pin" type="password" inputMode="numeric" autoComplete="off" pattern="\s*(\d\s*){4,8}" maxLength={16} value={pin} onChange={event => setPin(event.target.value)} required aria-describedby="patient-pin-hint" {...problems.control('patient-pin')} /></Field></>}
           {mode === 'emergency' && <><div className="staff-notice staff-danger">Use emergency access only when the patient cannot consent and care cannot wait. The action is time limited and audited. It opens a read-only summary from this facility: completed encounters and signed notes, and the diagnoses, prescriptions, lab requests and documents your role may read. It shows no vital signs and opens no files.</div><Field label="Emergency reason" htmlFor="emergency-reason" error={problems.error('emergency-reason')} required><Textarea id="emergency-reason" value={emergencyReason} onChange={event => setEmergencyReason(event.target.value)} minLength={8} maxLength={500} required {...problems.control('emergency-reason')} /></Field></>}
           {unavailable && <p id="access-method-unavailable" className="staff-muted">{unavailable}</p>}
           <Button type="submit" disabled={!facility || unavailable !== null} aria-disabled={busy || undefined} className={BUSY} aria-describedby={unavailable ? 'access-method-unavailable' : undefined}>{busy ? 'Working…' : mode === 'request' ? 'Send access request' : mode === 'pin' ? 'Verify PIN and open' : 'Activate emergency access'}</Button>
