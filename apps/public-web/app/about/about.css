@@ -224,5 +224,5 @@
 
 @media (max-width: 1100px) {
   .about-navigation { border-bottom-color: var(--color-line); background: var(--color-surface); }
-  .about-mobile-navigation select { border-color: var(--color-line-strong); border-radius: var(--radius-control); background: var(--color-surface); color: var(--color-ink); }
+  .about-mobile-navigation select { border-color: var(--color-line-control); border-radius: var(--radius-control); background: var(--color-surface); color: var(--color-ink); }
 }

@@ -1,0 +1,53 @@
+/**
+ * A small reader for the portal stylesheets, shared by the tests that guard
+ * them (jsdom applies no stylesheet). It reads the value that wins at a width:
+ * the last declaration, in source order, among the rules that apply there.
+ */
+export interface Rule { selectors: string[]; body: string; context: string[] }
+
+/** Splits a selector list on its top-level commas, keeping `:is(a, b)` whole. */
+function splitSelectors(list: string): string[] {
+  const selectors: string[] = []
+  let depth = 0
+  let start = 0
+  for (let index = 0; index < list.length; index += 1) {
+    if (list[index] === '(') depth += 1
+    else if (list[index] === ')') depth -= 1
+    else if (list[index] === ',' && depth === 0) { selectors.push(list.slice(start, index).trim()); start = index + 1 }
+  }
+  selectors.push(list.slice(start).trim())
+  return selectors
+}
+
+export function parse(css: string, context: string[] = []): Rule[] {
+  const source = css.replace(/\/\*[\s\S]*?\*\//g, '')
+  const rules: Rule[] = []
+  let index = 0
+  for (;;) {
+    const open = source.indexOf('{', index)
+    if (open < 0) break
+    const before = source.slice(index, open)
+    const prelude = before.slice(before.lastIndexOf(';') + 1).trim()
+    let depth = 1
+    let end = open + 1
+    while (end < source.length && depth > 0) { if (source[end] === '{') depth += 1; else if (source[end] === '}') depth -= 1; end += 1 }
+    const body = source.slice(open + 1, end - 1)
+    if (/^@(media|layer|supports)\b/.test(prelude)) rules.push(...parse(body, [...context, prelude]))
+    else rules.push({ selectors: splitSelectors(prelude), body, context })
+    index = end
+  }
+  return rules
+}
+
+/** Whether every media condition (max-width and min-width in px) holds at a viewport width. */
+export function appliesAt(context: string[], width: number): boolean {
+  return context.filter(prelude => prelude.startsWith('@media')).every(prelude =>
+    [...prelude.matchAll(/\((max|min)-width:\s*(\d+)px\)/g)].every(([, bound, px]) => bound === 'max' ? width <= Number(px) : width >= Number(px)))
+}
+
+export function valueAt(css: string, selector: string, property: string, width: number): string | undefined {
+  return parse(css)
+    .filter(rule => rule.selectors.includes(selector) && appliesAt(rule.context, width))
+    .flatMap(rule => [...rule.body.matchAll(new RegExp(`(?:^|;|\\s)${property}\\s*:\\s*([^;]+)`, 'g'))].map(match => match[1]!.trim()))
+    .at(-1)
+}
