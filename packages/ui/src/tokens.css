@@ -30,7 +30,6 @@
   --color-text: #262626;
   --color-muted: #555555;
   --color-faint: #6f6f6f; /* small text: 4.5:1 from white down to surface-hover */
-  --color-soft: #898989;
   --color-line: #f0f0f0;
   --color-line-strong: #e3e3e3;
   --color-line-control: #898989; /* a form control's boundary: 3:1 on every light surface */
@@ -119,7 +118,6 @@
   --color-text: #f2f2f2;
   --color-muted: #cccccc;
   --color-faint: #aaaaaa;
-  --color-soft: #8f8f8f;
   --color-line: #242424;
   --color-line-strong: #343434;
   --color-line-control: #8f8f8f;
