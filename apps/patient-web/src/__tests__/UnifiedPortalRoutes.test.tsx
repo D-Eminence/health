@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
 import { App } from '../App'
@@ -96,6 +96,21 @@ describe('unified authenticated portal routes', () => {
 
     expect(await screen.findByRole('textbox', { name: 'National Identification Number' })).toBeTruthy()
     expect(calls.patientEnrollmentCurrent).toHaveBeenCalledTimes(2)
+  })
+
+  it('moves focus to the NIN field once Try again finds no enrollment, and to Try again when the check fails again', async () => {
+    calls.patientEnrollmentCurrent.mockRejectedValueOnce(new Error('Network unavailable')).mockRejectedValueOnce(new Error('Network unavailable'))
+    open('/enroll')
+
+    const first = await screen.findByRole('button', { name: 'Try again' })
+    first.focus()
+    await act(async () => { fireEvent.click(first) })
+    const second = await screen.findByRole('button', { name: 'Try again' })
+    await waitFor(() => expect(document.activeElement).toBe(second))
+    await act(async () => { fireEvent.click(second) })
+
+    const nin = await screen.findByRole('textbox', { name: 'National Identification Number' })
+    await waitFor(() => expect(document.activeElement).toBe(nin))
   })
 
   it('keeps a protected patient URL pending when the session check loses the network', async () => {

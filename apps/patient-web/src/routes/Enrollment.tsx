@@ -7,6 +7,7 @@ import { Turnstile } from '../Turnstile'
 import { BrandLogo } from '../BrandLogo'
 import { useSession } from '../session'
 import { describedBy, isFieldProblem, useDocumentTitle, useStepFocus } from '../authSteps'
+import { useActionFocus } from './actionFocus'
 
 type Stage = 'nin' | 'contact' | 'otp' | 'password' | 'complete'
 
@@ -41,6 +42,11 @@ export function Enrollment() {
   // about the field.
   const [errorAlert, setErrorAlert] = useState(true)
   const startKey = useRef<{ nin: string; key: string } | null>(null)
+  // 'Try again' is replaced while the check runs: focus then goes to the step's
+  // field, or to the new 'Try again' when the check fails again (PR-04).
+  const retriedCheck = useRef(false)
+  const checkRetry = useRef<HTMLButtonElement>(null)
+  const focusAfter = useActionFocus()
 
   const applyProgress = (progress: EnrollmentProgress) => {
     setGoogleRequired(progress.googleOnboardingRequired === true)
@@ -63,17 +69,21 @@ export function Enrollment() {
       // pending: an enrollment that requires Google still says so.
       const unavailable = progress.status === 'rejected'
         && (!isHidApiError(progress.reason) || ![401, 404].includes(progress.reason.status))
+      const retried = retriedCheck.current
+      retriedCheck.current = false
       if (unavailable) {
         setCheckError(true)
         setChecking(false)
+        if (retried) focusAfter(() => checkRetry.current)
         return
       }
       if (progress.status === 'fulfilled') applyProgress(progress.value)
       if (google.status === 'fulfilled' && new Date(google.value.expiresAt).getTime() > Date.now()) setGooglePending(true)
       setChecking(false)
+      if (retried) stepFocus.focus()
     })
     return () => { active = false }
-  }, [api, checkKey])
+  }, [api, checkKey, focusAfter, stepFocus.focus])
 
   if (state.status === 'authenticated') return <Navigate to="/" replace />
 
@@ -168,7 +178,7 @@ export function Enrollment() {
         {['NIN', 'Contact', 'Code', 'Activate'].map((label, index) => <li key={label} aria-current={['nin', 'contact', 'otp', 'password'][index] === stage ? 'step' : undefined}>{label}</li>)}
       </ol>
       {checking ? <p role="status">Checking for an enrollment in progress…</p> : null}
-      {checkError && <div className="patient-inline-error" role="alert"><p>We could not check for an enrollment in progress. Try again before starting.</p><button type="button" className="patient-secondary-button" onClick={() => setCheckKey(value => value + 1)}>Try again</button></div>}
+      {checkError && <div className="patient-inline-error" role="alert"><p>We could not check for an enrollment in progress. Try again before starting.</p><button ref={checkRetry} type="button" className="patient-secondary-button" onClick={() => { retriedCheck.current = true; setCheckKey(value => value + 1) }}>Try again</button></div>}
       {error && <p id="enroll-error" role={errorAlert ? 'alert' : undefined} className="patient-inline-error">{error}</p>}
       {googleRequired && !googlePending && <p role="status" className="patient-inline-error">Reconnect the Google account used to start this enrollment.</p>}
       {!checking && !checkError && stage === 'nin' && <form onSubmit={event => void submitNin(event)} className="patient-form">

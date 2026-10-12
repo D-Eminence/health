@@ -38,12 +38,14 @@ export function patientApi(handler: Handler) {
   return { api, sent }
 }
 
+type SessionValue = ReturnType<typeof createTestSessionValue>
+
 /** Renders `ui` for a signed-in patient. Paths are recorded without the /api/v1 prefix. */
-export function renderPortal(ui: ReactElement, handler: Handler) {
+export function renderPortal(ui: ReactElement, handler: Handler, session: Partial<SessionValue> = {}) {
   const { api, sent } = patientApi(handler)
-  const view = render(<MemoryRouter><SessionContext.Provider value={createTestSessionValue({
+  const view = render(<MemoryRouter><SessionContext.Provider value={{ ...createTestSessionValue({
     kind: 'patient', subjectId: 'patient:subject', appRole: 'patient', assuranceLevel: 'aal1',
-  }, api)}>{ui}</SessionContext.Provider></MemoryRouter>)
+  }, api), ...session }}>{ui}</SessionContext.Provider></MemoryRouter>)
   return { sent, view }
 }
 
