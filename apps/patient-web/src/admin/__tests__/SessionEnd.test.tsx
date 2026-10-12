@@ -287,6 +287,55 @@ describe('a workspace bound to the administrator who opened it', () => {
     expect(screen.queryByRole('heading', { name: 'Administration sign in' })).toBeNull()
   })
 
+  // The answer that opens the workspace may predate the change another tab announced meanwhile.
+  it('asks again once the workspace opens when another tab spoke while its session was checked', async () => {
+    const opening = later()
+    const { messages } = await openAs({ [SESSION]: [opening.response, sessionOf('admin-2')], [OVERVIEW]: [overview()] })
+    expect(await screen.findByText('Checking your platform session…')).toBeTruthy()
+    fromAnotherTab()
+    await act(async () => { opening.answer(sessionOf('admin-1')) })
+    expect(await screen.findByText(messages.switched)).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Administration sign in' })).toBeTruthy()
+  })
+
+  it('asks again once the workspace opens when another tab spoke while a sign-in opened it', async () => {
+    const opening = later()
+    const asked = later()
+    const { messages } = await openAs({
+      [SESSION]: [refused('AUTHENTICATION_REQUIRED'), opening.response, asked.response],
+      [REFRESH]: [refused('AUTHENTICATION_REQUIRED')], [OVERVIEW]: [overview()],
+      'POST /api/v1/auth/admin/login': [json({ status: 'mfa_required', expiresAt: new Date(Date.now() + 300_000).toISOString() })],
+      'POST /api/v1/auth/admin/mfa/verify': [grantFor('admin-1')] })
+    fireEvent.change(await screen.findByLabelText('Email'), { target: { value: 'admin-1@example.test' } })
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'correct horse battery' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    fireEvent.change(await screen.findByLabelText('Authenticator code'), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Verify' }))
+    expect(await screen.findByText('Opening platform administration…')).toBeTruthy()
+    fromAnotherTab()
+    await act(async () => { opening.answer(sessionOf('admin-1')) })
+    expect(await screen.findByText('7')).toBeTruthy()
+    await act(async () => { asked.answer(sessionOf('admin-2')) })
+    expect(await screen.findByText(messages.switched)).toBeTruthy()
+  })
+
+  // Nothing is pending then: the sign-in that follows asks whose session the browser holds anyway.
+  it('does not ask again for a change heard before the sign-in began', async () => {
+    const { calls } = await openAs({ [MFA]: [mfa()], [SESSION]: [refused('AUTHENTICATION_REQUIRED'), sessionOf('admin-1')],
+      [REFRESH]: [refused('AUTHENTICATION_REQUIRED')], [OVERVIEW]: [overview()],
+      'POST /api/v1/auth/admin/login': [json({ status: 'mfa_required', expiresAt: new Date(Date.now() + 300_000).toISOString() })],
+      'POST /api/v1/auth/admin/mfa/verify': [grantFor('admin-1')] })
+    fireEvent.change(await screen.findByLabelText('Email'), { target: { value: 'admin-1@example.test' } })
+    fromAnotherTab()
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'correct horse battery' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    fireEvent.change(await screen.findByLabelText('Authenticator code'), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Verify' }))
+    expect(await screen.findByText('7')).toBeTruthy()
+    await act(async () => {})
+    expect(calls.filter(call => call === SESSION)).toHaveLength(2)
+  })
+
   it('asks whose session the browser holds when the page returns after a while away', async () => {
     let visibility: DocumentVisibilityState = 'visible'
     vi.spyOn(document, 'visibilityState', 'get').mockImplementation(() => visibility)
@@ -327,6 +376,25 @@ describe('a workspace bound to the administrator who opened it', () => {
     expect(await screen.findByText('You have signed out of platform administration.')).toBeTruthy()
     expect(TabChannel.posted).toEqual([{ name: CHANNEL, message: 'changed' }])
     expect(calls.slice(-2)).toEqual([SESSION, LOGOUT])
+  })
+
+  // The check before logout can take a second of retries; a second press starts nothing more.
+  it('signs out once however often Sign out is pressed meanwhile', async () => {
+    const asked = later()
+    const { calls } = await openAs({ [SESSION]: [sessionOf('admin-1'), asked.response], [OVERVIEW]: [overview()],
+      [LOGOUT]: [signedOut(), signedOut()] })
+    expect(await screen.findByText('7')).toBeTruthy()
+    const [sidebar, header] = screen.getAllByRole('button', { name: 'Sign out' }) as HTMLButtonElement[]
+    fireEvent.click(sidebar!)
+    await waitFor(() => expect(calls.filter(call => call === SESSION)).toHaveLength(2))
+    expect(sidebar!.disabled).toBe(true)
+    expect(header!.disabled).toBe(true)
+    fireEvent.click(sidebar!)
+    fireEvent.click(header!)
+    await act(async () => { asked.answer(sessionOf('admin-1')) })
+    expect(await screen.findByText('You have signed out of platform administration.')).toBeTruthy()
+    expect(calls.filter(call => call === LOGOUT)).toHaveLength(1)
+    expect(TabChannel.posted).toEqual([{ name: CHANNEL, message: 'changed' }])
   })
 
   // Logout ends whichever platform session the browser's cookies carry

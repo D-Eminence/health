@@ -79,8 +79,14 @@ export function App() {
   const [checkRevision, setCheckRevision] = useState(0)
   const [notice, setNotice] = useState<string | null>(null)
   const [signOutError, setSignOutError] = useState<string | null>(null)
+  const [signingOut, setSigningOut] = useState(false)
   const signedIn = useRef(false)
   const checkingSession = useRef(false)
+  const signOutRunning = useRef(false)
+  // Another admin tab spoke while no workspace was open. The answer that opens
+  // the next one may predate it, so the server is asked again once it opens.
+  const heardWhileOpening = useRef(false)
+  const recheckSession = useRef<() => void>(() => undefined)
   useAreaTitle()
 
   const end = useCallback((message: string | null) => {
@@ -111,11 +117,13 @@ export function App() {
     setSession(value)
     // Records the server's idle and absolute expiry for the session warning.
     void adminApi.mfaStatus().catch(() => undefined)
+    if (heardWhileOpening.current) { heardWhileOpening.current = false; recheckSession.current() }
   }, [])
 
   useEffect(() => {
     let active = true
     checkingSession.current = true
+    heardWhileOpening.current = false
     setAdminSessionAccount(null)
     setChecking(true)
     setCheckError(null)
@@ -139,7 +147,9 @@ export function App() {
   // says so, or the page returns after a while away or from the back/forward
   // cache, the server is asked whose session the browser holds. Another
   // administrator's ends the workspace; a refused session ends it through the
-  // client's 401; a question the server could not answer (an outage) changes nothing.
+  // client's 401; a question the server could not answer (an outage) changes
+  // nothing. A change announced while the next workspace is being opened is asked
+  // about once it opens.
   useEffect(() => {
     let asking = false
     let again = false
@@ -165,7 +175,11 @@ export function App() {
       if (away >= RECHECK_AFTER_HIDDEN_MS) recheck()
     }
     const onPageShow = (event: PageTransitionEvent) => { if (event.persisted) recheck() }
-    const stopListening = onOtherAdminTabSessionChange(recheck)
+    recheckSession.current = recheck
+    const stopListening = onOtherAdminTabSessionChange(() => {
+      if (signedIn.current) recheck()
+      else heardWhileOpening.current = true
+    })
     document.addEventListener('visibilitychange', onVisibility)
     window.addEventListener('pageshow', onPageShow)
     return () => {
@@ -178,6 +192,7 @@ export function App() {
   // MFA verification or activation has already replaced the browser's platform
   // cookies and told the other admin tabs (api.ts), whether or not this workspace opens.
   async function signedInNow() {
+    heardWhileOpening.current = false
     setAdminSessionAccount(null)
     let value: AdminSession
     try { value = await adminApi.session() }
@@ -185,7 +200,16 @@ export function App() {
     open(value)
   }
 
+  // The check before logout can take a second of retries: a second press starts nothing more.
   async function signOut() {
+    if (signOutRunning.current) return
+    signOutRunning.current = true
+    setSigningOut(true)
+    try { await signOutOnce() }
+    finally { signOutRunning.current = false; setSigningOut(false) }
+  }
+
+  async function signOutOnce() {
     setSignOutError(null)
     const accountId = adminSessionAccount()
     // The reason the workspace ended with while signing out, if it did and had one.
@@ -242,11 +266,11 @@ export function App() {
             </div>)}
           </nav>
           <div className="admin-sidebar-footer"><span>{actor.displayName || actor.email || 'Platform administrator'}</span>
-            <button type="button" onClick={() => void signOut()}>Sign out</button></div>
+            <button type="button" disabled={signingOut} onClick={() => void signOut()}>Sign out</button></div>
         </aside>
         <div className="admin-main-wrap">
           <header className="admin-mobile-header"><Link to="/admin/overview" className="admin-mobile-logo"><BrandLogo /><span>Platform</span></Link>
-            <button type="button" onClick={() => void signOut()}>Sign out</button></header>
+            <button type="button" disabled={signingOut} onClick={() => void signOut()}>Sign out</button></header>
           <nav className="admin-mobile-nav" aria-label="Platform areas">
             {sections.flatMap(section => section.items).map(item => <NavLink key={item.path} to={item.path}>{item.title}</NavLink>)}
           </nav>
