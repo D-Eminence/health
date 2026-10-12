@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
+import type { StaffSession } from './api'
 
 /**
  * The working facility across reloads (hid-system ADR-046, migration 0080).
@@ -703,6 +704,23 @@ describe('the facility this tab works at, found gone mid-session', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
     expect(await screen.findByText('You are no longer active at Lagos General. Choose another facility.')).toBeTruthy()
     expect(screen.getByRole('heading', { name: 'Where are you working?' })).toBeTruthy()
+  })
+
+  it.each([
+    ['made in an earlier session', (generation: number) => ({ generation: generation - 1, actor: 'staff-1' })],
+    ['of another account', (generation: number) => ({ generation, actor: 'staff-2' })],
+  ] as const)('learns nothing from a read %s', async (_label, read) => {
+    serve({ [SESSION]: [session(IKEJA, 'selected')], [REQUESTS]: [() => json([])] })
+    await open('/provider')
+    expect(await screen.findByText(/Working at Ikeja Clinic\./)).toBeTruthy()
+    const { reportStaffSessionRead, staffSessionGeneration } = await import('./session')
+    const gone = await session(LAGOS, 'selected', [LAGOS])().json() as StaffSession
+    const { generation, actor } = read(staffSessionGeneration())
+
+    act(() => { reportStaffSessionRead({ ...gone, actor: { ...gone.actor, id: actor } }, generation) })
+
+    expect(screen.getByText(/Working at Ikeja Clinic\./)).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: 'Where are you working?' })).toBeNull()
   })
 
   it('leaves a question already asked as it is: the facility reported then was never the tab\'s own', async () => {

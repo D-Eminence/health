@@ -52,9 +52,11 @@ function appliesAt(context: string[], width: number): boolean {
     [...prelude.matchAll(/\((max|min)-width:\s*(\d+)px\)/g)].every(([, bound, px]) => bound === 'max' ? width <= Number(px) : width >= Number(px)))
 }
 
-function valueAt(css: string, selector: string, property: string, width: number): string | undefined {
+/** `selector` may list several of equal specificity that match one element, such as its classes: the last rule wins. */
+function valueAt(css: string, selector: string | readonly string[], property: string, width: number): string | undefined {
+  const selectors = [selector].flat()
   return parse(css)
-    .filter(rule => rule.selectors.includes(selector) && appliesAt(rule.context, width))
+    .filter(rule => rule.selectors.some(candidate => selectors.includes(candidate)) && appliesAt(rule.context, width))
     .flatMap(rule => [...rule.body.matchAll(new RegExp(`(?:^|;|\\s)${property}\\s*:\\s*([^;]+)`, 'g'))].map(match => match[1]!.trim()))
     .at(-1)
 }
@@ -122,6 +124,14 @@ function contrast(first: string, second: string): number {
   const [light, dark] = [luminance(first), luminance(second)].sort((a, b) => b - a)
   return (light! + 0.05) / (dark! + 0.05)
 }
+
+describe('the facility question', () => {
+  it.each([PHONE, DESKTOP])('fills the workspace at %ipx, with no sidebar track beside it', width => {
+    // While the facility is chosen the sidebar is gone and the question is the layout's only child; on the
+    // sidebar's grid it fell into the sidebar-width first track.
+    expect(valueAt(staffCss, ['.staff-layout', '.staff-layout-single'], 'grid-template-columns', width)).toBe('minmax(0, 1fr)')
+  })
+})
 
 describe('the facility question while its choice is saved', () => {
   // Its options are disabled meanwhile (the fieldset). Each shows it, as a disabled field of @hid/ui does
