@@ -581,10 +581,11 @@ function NotePanel({ facilityId, patientId, encounterId, note, canWrite, verify,
         <strong>Revision {item.revisionNo}</strong><p className="staff-note-content">{item.content}</p>
         <p>Recorded {new Date(item.createdAt).toLocaleString()} · {item.changeReason}</p>
       </div>)}
-      {/* The forms stay while the revisions are read again, so the one just used keeps focus. */}
+      {/* The forms stay while the revisions are read again, so the one just used keeps focus;
+          the content is hidden then, so the status form, which signs it, is unavailable. */}
       {!loadError && Boolean(revisions?.length) && canWrite && (noteTransitions[String(note.status)]?.length ?? 0) > 0 &&
         <StatusActionForm key={`${note.id}-${note.rowVersion}`} id={`note-${note.id}`} title="Reviewed note status"
-          choices={noteTransitions[String(note.status)]!} disabled={busy}
+          choices={noteTransitions[String(note.status)]!} disabled={busy || loading}
           onChange={onStatus} />}
       {!loadError && revisions !== null && canWrite && note.status !== 'entered_in_error' &&
         <form className="staff-form" onSubmit={event => void addRevision(event)}>

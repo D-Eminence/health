@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
@@ -155,6 +155,31 @@ describe('reviewing a note', () => {
     await waitFor(() => expect(api.updateRecord).toHaveBeenCalledWith('facility-1', PATIENT, ENCOUNTER, 'clinical-notes', 'note-1',
       { expectedRowVersion: 2, changeReason: 'Reviewed with the patient', status: 'signed' }))
     expect(await screen.findByText('Clinical note status updated.')).toBeTruthy()
+  })
+
+  // The form stays while the revisions are read again, so the one just used keeps
+  // focus, but the content is hidden then: nothing can be signed unseen.
+  it('offers no status change while the content is read again, and offers it once the content is back', async () => {
+    await openContent()
+    let answer: (value: unknown[]) => void = () => {}
+    api.noteRevisions.mockReturnValueOnce(new Promise<unknown[]>(resolve => { answer = resolve }))
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh revisions' }))
+    await waitFor(() => expect(screen.queryByText(/Fever for three days/)).toBeNull())
+    const form = screen.getByRole('button', { name: 'Update status' }).closest('form')!
+    const button = within(form).getByRole('button', { name: 'Update status' })
+    expect(button.getAttribute('aria-disabled')).toBe('true')
+    type(form, 'New status', 'signed')
+    type(form, 'Reason for change', 'Reviewed with the patient')
+    fireEvent.click(button)
+    expect(api.updateRecord).not.toHaveBeenCalled()
+
+    await act(async () => { answer([revision]) })
+    expect(await screen.findByText(/Fever for three days/)).toBeTruthy()
+    expect(button.isConnected).toBe(true)
+    expect(button.getAttribute('aria-disabled')).toBeNull()
+    fireEvent.click(button)
+    await waitFor(() => expect(api.updateRecord).toHaveBeenCalledWith('facility-1', PATIENT, ENCOUNTER, 'clinical-notes', 'note-1',
+      { expectedRowVersion: 2, changeReason: 'Reviewed with the patient', status: 'signed' }))
   })
 
   it('shows a version conflict where the change was made, and changes nothing', async () => {
