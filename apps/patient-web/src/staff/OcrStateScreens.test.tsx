@@ -103,9 +103,12 @@ describe('OCR-A11Y-09: opening Document OCR, every screen has a main landmark an
     await screen.findByRole('heading', { level: 1, name: 'Document OCR' })
     fromAnotherTab()
     await expectScreen('Checking your session…')
+    // HTML's rule is on the attribute itself, which a hidden ancestor does not give: one main without it.
+    expect(document.querySelectorAll('main:not([hidden])')).toHaveLength(1)
     await act(async () => { answer(session([facility(['ocr.job.read'])])) })
     await waitFor(() => expect(screen.queryByRole('heading', { name: 'Checking your session…' })).toBeNull())
     expect(shownMains()).toHaveLength(1)
+    expect(document.querySelectorAll('main:not([hidden])')).toHaveLength(1)
     expect(within(shownMains()[0]!).getByRole('heading', { level: 1, name: 'Document OCR' })).toBeTruthy()
   })
 
