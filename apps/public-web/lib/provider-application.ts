@@ -128,6 +128,7 @@ export interface OrganizationCompletionProfile {
   fields: Record<OrganizationProfileFieldName, OrganizationProfileField>
 }
 export type OrganizationProfilePatch = Partial<Record<OrganizationProfileFieldName, string>>
+export type OrganizationProfileErrors = Partial<Record<OrganizationProfileFieldName, string>>
 
 const COMPLETION_PATH = '/api/v1/identity/organization-applications/completion'
 const PROFILE_FIELDS: readonly OrganizationProfileFieldName[] = [
@@ -166,6 +167,23 @@ export function getOrganizationCompletionProfile(): Promise<OrganizationCompleti
   return publicClient().request({ method: 'GET', path: `${COMPLETION_PATH}/profile`, auth: 'none' })
 }
 
+/** hid-system CompleteOrganizationProfileDto: the lengths each typed field accepts, after trimming. */
+const PROFILE_TEXT_BOUNDS: readonly { name: OrganizationProfileFieldName; min: number; max: number; message: string }[] = [
+  { name: 'companyName', min: 2, max: 200, message: 'Enter the registered organization name in 2 to 200 characters.' },
+  { name: 'entityType', min: 2, max: 120, message: 'Enter the legal entity type in 2 to 120 characters.' },
+  { name: 'address', min: 5, max: 1000, message: 'Enter the registered address in 5 to 1,000 characters.' },
+]
+
+/** Field errors for the details entered; a field left blank is not sent, so it has none. */
+export function validateOrganizationProfileEntries(entries: OrganizationProfilePatch): OrganizationProfileErrors {
+  const errors: OrganizationProfileErrors = {}
+  for (const { name, min, max, message } of PROFILE_TEXT_BOUNDS) {
+    const length = entries[name]?.trim().length ?? 0
+    if (length > 0 && (length < min || length > max)) errors[name] = message
+  }
+  return errors
+}
+
 export function missingOrganizationProfileFields(profile: OrganizationCompletionProfile, entries: OrganizationProfilePatch): OrganizationProfilePatch {
   if (profile.status !== 'pending_verification') throw new Error('This organization profile is already awaiting review.')
   const body: OrganizationProfilePatch = {}
@@ -176,6 +194,8 @@ export function missingOrganizationProfileFields(profile: OrganizationCompletion
     body[name] = value
   }
   if (Object.keys(body).length === 0) throw new Error('Enter at least one missing organization detail.')
+  const invalid = Object.values(validateOrganizationProfileEntries(body))[0]
+  if (invalid) throw new Error(invalid)
   return body
 }
 

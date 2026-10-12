@@ -2,8 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   initialApplicationSelection, organizationApplicationBody, providerApplicationHref,
   missingOrganizationProfileFields, saveOrganizationCompletionProfile,
-  startOrganizationCompletion, submitOrganizationApplication, verifyOrganizationCompletion,
-  type OrganizationCompletionProfile,
+  startOrganizationCompletion, submitOrganizationApplication, validateOrganizationProfileEntries,
+  verifyOrganizationCompletion, type OrganizationCompletionProfile,
 } from '@/lib/provider-application'
 
 const { request } = vi.hoisted(() => ({ request: vi.fn() }))
@@ -100,5 +100,26 @@ describe('provider application routes and contract', () => {
       method: 'PATCH', path: '/api/v1/identity/organization-applications/completion/profile', auth: 'none',
       headers: { 'If-Match': '"4"' }, body: { entityType: 'Limited company' },
     })
+  })
+
+  // hid-system CompleteOrganizationProfileDto: companyName 2-200, entityType 2-120 and
+  // address 5-1000 characters, each after trimming.
+  it('refuses profile details shorter than the backend accepts', () => {
+    const profile: OrganizationCompletionProfile = {
+      status: 'pending_verification', profileState: 'incomplete', version: 4,
+      productCode: 'ehr', registrationNumber: 'RC123456', fields: {
+        companyName: { value: null, source: null }, entityType: { value: null, source: null },
+        registrationDate: { value: null, source: null }, address: { value: null, source: null },
+        registryStatus: { value: null, source: null },
+      },
+    }
+    expect(validateOrganizationProfileEntries({ companyName: 'A', entityType: ' X ', address: 'abcd' })).toEqual({
+      companyName: 'Enter the registered organization name in 2 to 200 characters.',
+      entityType: 'Enter the legal entity type in 2 to 120 characters.',
+      address: 'Enter the registered address in 5 to 1,000 characters.',
+    })
+    expect(validateOrganizationProfileEntries({ companyName: 'AB', entityType: 'Ltd', address: ' 12 Rd ', registryStatus: '' })).toEqual({})
+    expect(() => missingOrganizationProfileFields(profile, { address: 'abc' })).toThrow(/registered address in 5/)
+    expect(missingOrganizationProfileFields(profile, { address: '  12 Marina Road  ' })).toEqual({ address: '12 Marina Road' })
   })
 })

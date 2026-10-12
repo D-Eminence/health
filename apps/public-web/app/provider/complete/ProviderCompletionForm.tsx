@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, type FormEvent } from 'react'
+import { isHidApiError } from '@hid/http'
 import { Button, Card, Field, Input, Select } from '@hid/ui'
 import { TurnstileWidget } from '@/components/shared/TurnstileWidget'
 import { APP_ENTRY, ROUTES } from '@/content/site'
@@ -11,9 +12,11 @@ import {
   normalizeCacRegistrationNumber,
   saveOrganizationCompletionProfile,
   startOrganizationCompletion,
+  validateOrganizationProfileEntries,
   verifyOrganizationCompletion,
   type ApplicationProductCode,
   type OrganizationCompletionProfile,
+  type OrganizationProfileErrors,
   type OrganizationProfileFieldName,
   type OrganizationProfilePatch,
 } from '@/lib/provider-application'
@@ -30,8 +33,13 @@ const PROFILE_FIELDS: readonly {
   { name: 'registryStatus', label: 'Registry status', hint: 'A self reported status is reviewed by Health ID.' },
 ]
 
+/**
+ * A refusal's own message for a 4xx, which hid-system words for the applicant
+ * and sanitises. A server failure's detail is withheld, so it keeps the fallback.
+ */
 function applicationError(reason: unknown, fallback: string): string {
-  return reason instanceof Error && !('status' in reason) ? reason.message : fallback
+  if (isHidApiError(reason)) return reason.status >= 400 && reason.status < 500 ? reason.message : fallback
+  return reason instanceof Error ? reason.message : fallback
 }
 
 export function ProviderCompletionForm({ initialProduct }: { readonly initialProduct: ApplicationProductCode }) {
@@ -44,6 +52,7 @@ export function ProviderCompletionForm({ initialProduct }: { readonly initialPro
   const [code, setCode] = useState('')
   const [profile, setProfile] = useState<OrganizationCompletionProfile | null>(null)
   const [entries, setEntries] = useState<OrganizationProfilePatch>({})
+  const [fieldErrors, setFieldErrors] = useState<OrganizationProfileErrors>({})
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -110,6 +119,12 @@ export function ProviderCompletionForm({ initialProduct }: { readonly initialPro
     event.preventDefault()
     if (!profile || busy) return
     setError('')
+    const found = validateOrganizationProfileEntries(entries)
+    setFieldErrors(found)
+    if (Object.keys(found).length > 0) {
+      setError('Check the details marked below.')
+      return
+    }
     setBusy(true)
     try {
       const result = await saveOrganizationCompletionProfile(profile, entries)
@@ -143,7 +158,8 @@ export function ProviderCompletionForm({ initialProduct }: { readonly initialPro
                 ? 'Provided by the registry'
                 : field.source === 'user_provided' ? 'Provided by applicant; subject to review' : hint
 
-              return <Field key={name} label={label} htmlFor={`completion-${name}`} hint={fieldHint}>
+              const fieldError = editable ? fieldErrors[name] : undefined
+              return <Field key={name} label={label} htmlFor={`completion-${name}`} hint={fieldHint} error={fieldError}>
                 {editable && name === 'registryStatus' ? (
                   <Select id={`completion-${name}`} value={value}
                     onChange={event => setEntries(current => ({ ...current, [name]: event.target.value }))}>
@@ -152,6 +168,7 @@ export function ProviderCompletionForm({ initialProduct }: { readonly initialPro
                   </Select>
                 ) : (
                   <Input id={`completion-${name}`} value={value} readOnly={!editable}
+                    invalid={Boolean(fieldError)} aria-describedby={fieldError ? `completion-${name}-error` : undefined}
                     type={name === 'registrationDate' ? 'date' : 'text'}
                     maxLength={name === 'address' ? 1000 : name === 'companyName' ? 200 : 120}
                     onChange={editable ? event => setEntries(current => ({ ...current, [name]: event.target.value })) : undefined} />
