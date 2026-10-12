@@ -1,5 +1,30 @@
 import type { ApiClient } from '@hid/http'
 import { createEhrService, createSupportService } from '@hid/api'
+import { parsePatientChat, type PatientChatReply } from '@hid/contracts'
+
+export interface PatientChatHistory {
+  exchanges: Array<{ id: string; question: string; reply: PatientChatReply; createdAt: string }>
+  retentionDays: number
+  limit: number
+}
+function parseChatHistory(value: unknown): PatientChatHistory {
+  if (typeof value !== 'object' || value === null) throw new Error('Saved chat returned an invalid response.')
+  const history = value as Record<string, unknown>
+  if (!Array.isArray(history.exchanges) || history.exchanges.length > 10 || history.retentionDays !== 30 || history.limit !== 10) {
+    throw new Error('Saved chat returned an invalid response.')
+  }
+  const ids = new Set<string>()
+  const exchanges = history.exchanges.map((item: unknown) => {
+    if (typeof item !== 'object' || item === null) throw new Error('Saved chat returned an invalid response.')
+    const row = item as Record<string, unknown>
+    if (typeof row.id !== 'string' || !/^[a-f0-9-]{36}$/i.test(row.id) || ids.has(row.id)
+      || typeof row.question !== 'string' || !row.question.trim() || row.question.length > 500
+      || typeof row.createdAt !== 'string' || !Number.isFinite(Date.parse(row.createdAt))) throw new Error('Saved chat returned an invalid response.')
+    ids.add(row.id)
+    return { id: row.id, question: row.question, createdAt: row.createdAt, reply: parsePatientChat(row.reply) }
+  })
+  return { exchanges, retentionDays: 30, limit: 10 }
+}
 
 /** Contracts read from hid-system c4b5445 Identity and EHR controllers. */
 export interface PatientSession {
@@ -99,6 +124,8 @@ export function createPatientApi(client: ApiClient) {
 
   return {
     chat: createEhrService({ app: 'patient-web', client }).chat,
+    chatHistory: async (signal?: AbortSignal) => parseChatHistory(await call<unknown>('GET', 'ehr/me/chat/history', undefined, { signal })),
+    clearChatHistory: (signal?: AbortSignal) => call<{ cleared: true }>('DELETE', 'ehr/me/chat/history', undefined, { signal }),
     supportChat: createSupportService({ app: 'patient-web', client }).chat,
     session: () => call<PatientSession>('GET', 'auth/session'),
     refresh: () => call<PatientSession>('POST', 'auth/refresh'),

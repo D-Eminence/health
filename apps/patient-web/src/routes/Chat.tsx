@@ -34,12 +34,30 @@ function ChatConversation() {
   const [draft, setDraft] = useState('')
   const [exchanges, setExchanges] = useState<Exchange[]>([])
   const [busy, setBusy] = useState(false)
+  const [historyStatus, setHistoryStatus] = useState<'loading' | 'ready' | 'error'>('loading')
+  const [historyAttempt, setHistoryAttempt] = useState(0)
+  const [historyError, setHistoryError] = useState('')
+  const [resetting, setResetting] = useState(false)
   const flight = useRef<AbortController | null>(null)
   const nextId = useRef(0)
   const input = useRef<HTMLTextAreaElement>(null)
   const history = useRef<HTMLDivElement>(null)
   const followLatest = useRef(true)
   useEffect(() => () => { flight.current?.abort() }, [])
+  useEffect(() => {
+    const controller = new AbortController()
+    setHistoryStatus('loading'); setHistoryError('')
+    void api.chatHistory(controller.signal).then(saved => {
+      if (controller.signal.aborted) return
+      setExchanges(saved.exchanges.map((exchange, index) => ({ id: index, question: exchange.question, reply: exchange.reply })))
+      nextId.current = saved.exchanges.length
+      setHistoryStatus('ready')
+    }).catch(() => {
+      if (controller.signal.aborted) return
+      setHistoryStatus('error'); setHistoryError('Your saved conversation could not be loaded. Please try again.')
+    })
+    return () => controller.abort()
+  }, [api, historyAttempt])
   useEffect(() => {
     if (history.current && followLatest.current) history.current.scrollTop = history.current.scrollHeight
   }, [exchanges, busy])
@@ -50,14 +68,26 @@ function ChatConversation() {
     }
   }, [draft])
   const chooseQuestion = (question: string) => { setDraft(question); input.current?.focus() }
-  const reset = () => {
-    flight.current?.abort(); flight.current = null
-    setExchanges([]); setDraft(''); setBusy(false); followLatest.current = true
-    input.current?.focus()
+  const reset = async () => {
+    flight.current?.abort()
+    const controller = new AbortController(); flight.current = controller
+    setResetting(true); setBusy(true); setHistoryError('')
+    setExchanges(current => current.map(exchange => exchange.reply || exchange.error ? exchange : { ...exchange, error: 'Reply cancelled. You can ask again.' }))
+    try {
+      const result = await api.clearChatHistory(controller.signal)
+      if (controller.signal.aborted) return
+      if (result.cleared !== true) throw new Error('History deletion was not confirmed')
+      setExchanges([]); setDraft(''); followLatest.current = true
+      input.current?.focus()
+    } catch {
+      if (!controller.signal.aborted) setHistoryError('Your saved conversation could not be deleted. Please try again.')
+    } finally {
+      if (flight.current === controller) { flight.current = null; setBusy(false); setResetting(false) }
+    }
   }
   const send = async () => {
     const question = draft.trim()
-    if (flight.current || !question || question.length > 500) return
+    if (historyStatus !== 'ready' || flight.current || !question || question.length > 500) return
     const controller = new AbortController(); flight.current = controller
     const id = nextId.current++
     followLatest.current = true
@@ -78,11 +108,17 @@ function ChatConversation() {
   return <section className="patient-section record-chat-page" aria-labelledby="record-chat-title">
     <header className="record-chat-page-header">
       <div><p className="patient-eyebrow">Your record assistant</p><h1 id="record-chat-title" className="patient-page-title">Ask about your records</h1><p className="patient-page-copy">A little clarity, from your clinical notes.</p></div>
-      <button type="button" className="record-chat-reset" onClick={reset}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>New conversation</button>
+      <button type="button" className="record-chat-reset" disabled={resetting || historyStatus !== 'ready'} onClick={() => { void reset() }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>New conversation</button>
     </header>
     <div className="record-chat-panel">
       <header className="record-chat-panel-header"><span className="record-chat-avatar"><NoteIcon /></span><div><h2>Health ID record assistant</h2><p>Uses your released clinical notes</p></div><span className="record-chat-private">Private to your account</span></header>
       <details className="record-chat-coverage"><summary>Which records can I ask about?</summary><p>Replies use your released clinical notes. Archived imports, attachments, lab results and prescriptions are not included. Your care team guides diagnosis and treatment.</p></details>
+      <div className="record-chat-coverage"><p>Your latest 10 exchanges are saved to your account for up to 30 days. New conversation deletes them. Previous messages are not sent as context for new questions.</p>
+        {historyStatus === 'loading' && <p role="status">Loading your saved conversation…</p>}
+        {historyError && <p role="alert">{historyError}</p>}
+        {historyStatus === 'error' && <button type="button" onClick={() => setHistoryAttempt(current => current + 1)}>Retry loading conversation</button>}
+        {resetting && <p role="status">Deleting your saved conversation…</p>}
+      </div>
       <div ref={history} className="record-chat-history" onScroll={() => {
         const element = history.current
         if (element) followLatest.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80
@@ -108,7 +144,7 @@ function ChatConversation() {
           onChange={event => setDraft(event.target.value)} onKeyDown={event => {
             if (event.key === 'Enter' && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey && !event.nativeEvent.isComposing && !busy) { event.preventDefault(); void send() }
           }} />
-          <button type="submit" disabled={busy || !draft.trim() || draft.trim().length > 500} aria-label="Send question"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="m5 12 7-7 7 7M12 5v15" /></svg><span>Send</span></button>
+          <button type="submit" disabled={historyStatus !== 'ready' || busy || !draft.trim() || draft.trim().length > 500} aria-label="Send question"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="m5 12 7-7 7 7M12 5v15" /></svg><span>Send</span></button>
         </div>
         <div className="record-chat-composer-hints"><span id="record-question-hint">Enter to send · Shift + Enter for a new line</span><span>{draft.length}/500</span></div>
         <p className="record-chat-care-note">Check the record references and speak with your care team about medical decisions.</p>

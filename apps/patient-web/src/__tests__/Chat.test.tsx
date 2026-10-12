@@ -10,7 +10,7 @@ const patient = { kind: 'patient', subjectId: 'patient-a', appRole: 'patient', a
 const ready = { status: 'ready', answer: 'A released note says example [1].', sources: [
   { number: 1, noteId: 'note-a', title: '<b>Plain title</b>', revisionNo: 2, signedAt: '2026-10-07T10:00:00Z' },
 ] }
-const apiFor = (chat: ReturnType<typeof vi.fn>) => ({ chat }) as unknown as ReturnType<typeof createPatientApi>
+const apiFor = (chat: ReturnType<typeof vi.fn>) => ({ chat, chatHistory: vi.fn().mockResolvedValue({ exchanges: [], retentionDays: 30, limit: 10 }), clearChatHistory: vi.fn().mockResolvedValue({ cleared: true }) }) as unknown as ReturnType<typeof createPatientApi>
 beforeEach(() => {
   HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', '') }
   HTMLDialogElement.prototype.close = function () { this.removeAttribute('open') }
@@ -27,19 +27,23 @@ it('renders patient citations as text and discards content on account change or 
   const chat = vi.fn().mockResolvedValue(ready)
   const api = apiFor(chat)
   const view = render(<SessionContext.Provider value={createTestSessionValue(patient, api)}><PatientChat /></SessionContext.Provider>)
+  await waitFor(() => expect(screen.queryByText(/Loading your saved conversation/)).toBeNull())
   fireEvent.change(screen.getByLabelText('Your question'), { target: { value: ' notes? ' } })
   fireEvent.click(screen.getByRole('button', { name: 'Send question' }))
   expect(await screen.findByText(ready.answer)).toBeTruthy()
   expect(screen.getByText(/Plain title/).querySelector('b')).toBeNull()
   expect(chat.mock.calls[0]?.[0]).toBe('notes?')
   view.rerender(<SessionContext.Provider value={createTestSessionValue({ ...patient, subjectId: 'patient-b' }, api)}><PatientChat /></SessionContext.Provider>)
+  await waitFor(() => expect(screen.queryByText(/Loading your saved conversation/)).toBeNull())
   expect(screen.queryByText(ready.answer)).toBeNull()
   view.rerender(<SessionContext.Provider value={createTestSessionValue(null, api)}><PatientChat /></SessionContext.Provider>)
+  await waitFor(() => expect(screen.queryByText(/Loading your saved conversation/)).toBeNull())
   expect(screen.queryByLabelText('Your question')).toBeNull()
 })
 it('cancels inflight generation on unmount and prevents concurrent sends', async () => {
   const chat = vi.fn((_question: string, _options: { signal: AbortSignal }) => new Promise(() => {}))
   const view = render(<SessionContext.Provider value={createTestSessionValue(patient, apiFor(chat))}><PatientChat /></SessionContext.Provider>)
+  await waitFor(() => expect(screen.queryByText(/Loading your saved conversation/)).toBeNull())
   fireEvent.change(screen.getByLabelText('Your question'), { target: { value: 'Question' } })
   fireEvent.click(screen.getByRole('button', { name: 'Send question' }))
   fireEvent.click(screen.getByRole('button', { name: 'Send question' }))
@@ -47,9 +51,49 @@ it('cancels inflight generation on unmount and prevents concurrent sends', async
   const signal = chat.mock.calls[0]?.[1]?.signal as AbortSignal
   view.unmount(); expect(signal.aborted).toBe(true)
 })
-it('suggestions prepare a question for explicit sending and focus the composer', () => {
+it('restores server history after signing out and signing back in without browser storage', async () => {
+  const chat = vi.fn()
+  const api = apiFor(chat)
+  const saved = { exchanges: [{ id: '11111111-1111-4111-8111-111111111111', question: 'Previous question', reply: ready, createdAt: new Date().toISOString() }], retentionDays: 30, limit: 10 }
+  vi.mocked(api.chatHistory).mockResolvedValue(saved)
+  const browserWrite = vi.spyOn(Storage.prototype, 'setItem')
+  const view = render(<SessionContext.Provider value={createTestSessionValue(patient, api)}><PatientChat /></SessionContext.Provider>)
+  expect(await screen.findByText('Previous question')).toBeTruthy()
+  view.rerender(<SessionContext.Provider value={createTestSessionValue(null, api)}><PatientChat /></SessionContext.Provider>)
+  expect(screen.queryByText('Previous question')).toBeNull()
+  view.rerender(<SessionContext.Provider value={createTestSessionValue(patient, api)}><PatientChat /></SessionContext.Provider>)
+  expect(await screen.findByText('Previous question')).toBeTruthy()
+  expect(api.chatHistory).toHaveBeenCalledTimes(2)
+  expect(browserWrite).not.toHaveBeenCalled()
+  browserWrite.mockRestore()
+})
+it('blocks sends while history loads and ignores a late history reply after account change', async () => {
+  const api = apiFor(vi.fn())
+  let resolve!: (value: Awaited<ReturnType<typeof api.chatHistory>>) => void
+  vi.mocked(api.chatHistory).mockImplementationOnce(() => new Promise(done => { resolve = done }))
+  const view = render(<SessionContext.Provider value={createTestSessionValue(patient, api)}><PatientChat /></SessionContext.Provider>)
+  fireEvent.change(screen.getByLabelText('Your question'), { target: { value: 'Wait' } })
+  fireEvent.keyDown(screen.getByLabelText('Your question'), { key: 'Enter' })
+  expect(api.chat).not.toHaveBeenCalled()
+  view.rerender(<SessionContext.Provider value={createTestSessionValue({ ...patient, subjectId: 'patient-b' }, api)}><PatientChat /></SessionContext.Provider>)
+  resolve({ exchanges: [{ id: '11111111-1111-4111-8111-111111111111', question: 'Another patient private question', reply: ready, createdAt: new Date().toISOString() }], retentionDays: 30, limit: 10 })
+  await waitFor(() => expect(screen.queryByText(/Loading your saved conversation/)).toBeNull())
+  expect(screen.queryByText('Another patient private question')).toBeNull()
+})
+it('keeps history visible and reports failure if deletion is not confirmed', async () => {
+  const api = apiFor(vi.fn())
+  vi.mocked(api.chatHistory).mockResolvedValue({ exchanges: [{ id: '11111111-1111-4111-8111-111111111111', question: 'Saved question', reply: ready, createdAt: new Date().toISOString() }], retentionDays: 30, limit: 10 })
+  vi.mocked(api.clearChatHistory).mockRejectedValue(new Error('network unavailable'))
+  render(<SessionContext.Provider value={createTestSessionValue(patient, api)}><PatientChat /></SessionContext.Provider>)
+  expect(await screen.findByText('Saved question')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'New conversation' }))
+  expect((await screen.findByRole('alert')).textContent).toContain('could not be deleted')
+  expect(screen.getByText('Saved question')).toBeTruthy()
+})
+it('suggestions prepare a question for explicit sending and focus the composer', async () => {
   const chat = vi.fn()
   render(<SessionContext.Provider value={createTestSessionValue(patient, apiFor(chat))}><PatientChat /></SessionContext.Provider>)
+  await waitFor(() => expect(screen.queryByText(/Loading your saved conversation/)).toBeNull())
   fireEvent.click(screen.getByRole('button', { name: /Summarise my notes/ }))
   const input = screen.getByLabelText('Your question') as HTMLTextAreaElement
   expect(input.value).toBe('Summarise my latest released clinical notes.')
@@ -60,6 +104,7 @@ it('shows the sent question immediately and keeps a new draft while a reply is p
   let resolve!: (value: typeof ready) => void
   const chat = vi.fn(() => new Promise<typeof ready>(done => { resolve = done }))
   render(<SessionContext.Provider value={createTestSessionValue(patient, apiFor(chat))}><PatientChat /></SessionContext.Provider>)
+  await waitFor(() => expect(screen.queryByText(/Loading your saved conversation/)).toBeNull())
   const input = screen.getByLabelText('Your question') as HTMLTextAreaElement
   fireEvent.change(input, { target: { value: 'My first question' } })
   fireEvent.click(screen.getByRole('button', { name: 'Send question' }))
@@ -77,12 +122,13 @@ it('new conversation cancels old work and ignores late replies without unlocking
   const pending: Array<(value: typeof ready) => void> = []
   const chat = vi.fn((_question: string, _options: { signal: AbortSignal }) => new Promise<typeof ready>(done => pending.push(done)))
   render(<SessionContext.Provider value={createTestSessionValue(patient, apiFor(chat))}><PatientChat /></SessionContext.Provider>)
+  await waitFor(() => expect(screen.queryByText(/Loading your saved conversation/)).toBeNull())
   const input = screen.getByLabelText('Your question') as HTMLTextAreaElement
   fireEvent.change(input, { target: { value: 'Old question' } })
   fireEvent.click(screen.getByRole('button', { name: 'Send question' }))
   fireEvent.click(screen.getByRole('button', { name: 'New conversation' }))
   expect(chat.mock.calls[0]?.[1].signal.aborted).toBe(true)
-  expect(screen.queryByText('Old question')).toBeNull()
+  await waitFor(() => expect(screen.queryByText('Old question')).toBeNull())
   expect(input.value).toBe('')
   expect(document.activeElement).toBe(input)
   fireEvent.change(input, { target: { value: 'New question' } })
@@ -97,6 +143,7 @@ it('new conversation cancels old work and ignores late replies without unlocking
 it('Enter sends, Shift+Enter keeps multiline editing, and oversized questions do not send', async () => {
   const chat = vi.fn().mockResolvedValue(ready)
   render(<SessionContext.Provider value={createTestSessionValue(patient, apiFor(chat))}><PatientChat /></SessionContext.Provider>)
+  await waitFor(() => expect(screen.queryByText(/Loading your saved conversation/)).toBeNull())
   const input = screen.getByLabelText('Your question')
   fireEvent.change(input, { target: { value: 'A question' } })
   fireEvent.keyDown(input, { key: 'Enter', shiftKey: true })
@@ -118,6 +165,7 @@ it.each([
 ])('shows safe patient error %s without retrying', async (status, code, message) => {
   const chat = vi.fn().mockRejectedValue(new HidApiError(status, 'Private provider detail', { code }))
   render(<SessionContext.Provider value={createTestSessionValue(patient, apiFor(chat))}><PatientChat /></SessionContext.Provider>)
+  await waitFor(() => expect(screen.queryByText(/Loading your saved conversation/)).toBeNull())
   fireEvent.change(screen.getByLabelText('Your question'), { target: { value: 'Question' } })
   fireEvent.click(screen.getByRole('button', { name: 'Send question' }))
   expect((await screen.findByRole('alert')).textContent).toBe(message)
@@ -126,6 +174,7 @@ it.each([
 it.each(['preparing', 'ready'])('shows %s empty-source answers without inventing citations', async status => {
   const chat = vi.fn().mockResolvedValue({ status, answer: 'No released clinical notes.', sources: [] })
   render(<SessionContext.Provider value={createTestSessionValue(patient, apiFor(chat))}><PatientChat /></SessionContext.Provider>)
+  await waitFor(() => expect(screen.queryByText(/Loading your saved conversation/)).toBeNull())
   fireEvent.change(screen.getByLabelText('Your question'), { target: { value: 'Question' } })
   fireEvent.click(screen.getByRole('button', { name: 'Send question' }))
   expect(await screen.findByText('No released clinical notes.')).toBeTruthy()
