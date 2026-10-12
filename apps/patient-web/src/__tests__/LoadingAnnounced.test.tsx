@@ -25,8 +25,8 @@ function held() {
 
 const busyAround = (element: Element) => element.closest('[aria-busy="true"]')
 
-describe('the first load is announced', () => {
-  it('on the access page, whose cards are not busy before they show anything', async () => {
+describe('busy regions while content loads (PR-03)', () => {
+  it('keeps the first load\'s status out of a busy region on the access page, whose cards are not busy before they show anything', async () => {
     const requests = held()
     const history = held()
     renderPortal(<AccessPage />, path => path === '/identity/me/access-requests' ? requests.promise : history.promise)
@@ -41,7 +41,7 @@ describe('the first load is announced', () => {
     expect(await screen.findByText('Lagos General')).toBeTruthy()
   })
 
-  it('on the settings page, for emergency contacts and account deletion', async () => {
+  it('keeps the first load\'s status out of a busy region on the settings page, for emergency contacts and account deletion', async () => {
     const contacts = held()
     const deletion = held()
     renderPortal(<SettingsPage />, path => path === '/identity/me' ? json(profile)
