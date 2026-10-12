@@ -182,7 +182,8 @@
 
   .patient-state-logo { display: block; width: auto; height: 32px; margin: 48px 16px 0; }
 
-  .patient-access-state p {
+  .patient-access-state p,
+  .patient-access-state h1 {
     margin: 0;
     font-size: 15px;
     line-height: 1.45;

@@ -7,11 +7,13 @@
  * who arrived at the wrong entrance somewhere that makes sense.
  */
 
-import type { ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import { Navigate } from 'react-router-dom'
 import { evaluateAccess, type AccessRequirement } from '@hid/auth'
 import { useSession } from './session'
 import { BrandLogo } from './BrandLogo'
+import { focusPageHeading } from './pageFocus'
+import { focusLost } from './routes/actionFocus'
 
 export interface RequireAccessProps {
   readonly requirement: AccessRequirement
@@ -21,6 +23,17 @@ export interface RequireAccessProps {
 export function RequireAccess({ requirement, children }: RequireAccessProps) {
   const { state, sessionError, retrySessionCheck } = useSession()
   const decision = evaluateAccess(state, requirement)
+  // 'Try again' is replaced while the session is checked again: focus then goes to
+  // the page that opens, or to the new 'Try again' when the check fails again (PR-04).
+  const retried = useRef(false)
+  const retryButton = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    if (!retried.current || (decision.outcome === 'pending' && !sessionError)) return
+    retried.current = false
+    if (!focusLost()) return
+    if (decision.outcome === 'allow') focusPageHeading(document.getElementById('main'))
+    else if (sessionError) retryButton.current?.focus()
+  }, [decision.outcome, sessionError])
 
   switch (decision.outcome) {
     case 'allow':
@@ -33,10 +46,10 @@ export function RequireAccess({ requirement, children }: RequireAccessProps) {
         <main className="patient-page">
           <BrandLogo className="patient-state-logo" />
           {sessionError ? <div role="alert" className="patient-access-state">
-            <p>{sessionError}</p>
-            <button type="button" onClick={retrySessionCheck}>Try again</button>
+            <h1>{sessionError}</h1>
+            <button ref={retryButton} type="button" onClick={() => { retried.current = true; retrySessionCheck() }}>Try again</button>
           </div> : <div role="status" aria-live="polite" className="patient-access-state">
-            Checking your session…
+            <h1>Checking your session…</h1>
           </div>}
         </main>
       )
