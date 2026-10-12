@@ -102,7 +102,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           // CSRF_VALIDATION_FAILED; with a provider's sign-in in the cookies, with
           // 403 SESSION_CLIENT_MISMATCH, rotating nothing. Either way this
           // patient's session has ended here, as for a 401, so the patient returns
-          // to sign-in instead of seeing that refusal on the page.
+          // to sign-in instead of seeing that refusal on the page. A provider's
+          // sign-in is another account's, and sign-in says so, as when a return
+          // to view finds it; a tab that showed no patient blames no one.
+          if (heldByOtherPortal(error) && shown !== undefined) setSignedOutElsewhere(true)
           if (isHidApiError(error) && error.status === 403) throw sessionEnded(error)
           throw error
         }
