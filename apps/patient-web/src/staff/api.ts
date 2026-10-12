@@ -204,6 +204,28 @@ export interface ClinicalRecord {
 
 export type StatusRecordKind = 'clinical-notes' | 'prescriptions' | 'lab-requests'
 
+/**
+ * What became of asking Lab to accept an active lab request once EHR saved it
+ * (hid-system #56, lab-requests.service.ts LabHandoff; INTERFACE_CONTRACT.md,
+ * "Lab requests"). Lab holds one work item per request, at the version it
+ * accepted: `already_accepted` means it holds an earlier version, so this
+ * version's change is not in Lab; `failed` carries Lab's status and code, and
+ * the request can be sent again; `not_sent` means the actor lacks
+ * lab.work-item.accept.
+ */
+export type LabHandoff =
+  | { state: 'accepted' }
+  | { state: 'already_accepted'; code: string }
+  | { state: 'failed'; status: number; code: string }
+  | { state: 'not_sent'; code: string }
+
+/**
+ * A record as EHR answers its create or status change. Since hid-system #56 a lab
+ * request also carries Lab's work item and `labHandoff`, both null unless the
+ * request is active; an earlier EHR sends neither.
+ */
+export type SavedRecord = ClinicalRecord & { labWorkItem?: unknown; labHandoff?: LabHandoff | null }
+
 export type VitalMeasurement = 'systolicMmhg' | 'diastolicMmhg' | 'pulseBpm' | 'temperatureC'
   | 'respiratoryRate' | 'oxygenSaturationPercent' | 'weightKg' | 'heightCm'
 export type VitalMeasurements = Partial<Record<VitalMeasurement, number>>
@@ -398,6 +420,8 @@ export interface LabResultRevision {
   verificationStatus: 'unverified' | 'verified' | 'entered_in_error'
   releaseStatus: 'not_released' | 'verified_not_released' | 'released'
   enteredAt: string
+  /** When this revision was released; null until then. Sent since hid-system #51. */
+  releasedAt?: string | null
   correctionReason: string | null
 }
 
@@ -409,6 +433,24 @@ export interface LabResult {
   currentVersion: number
   currentReleasedVersion: number | null
   revisions: LabResultRevision[]
+}
+
+/**
+ * GET /api/v1/lab/ehr-orders/:sourceEhrOrderId/released-results (hid-system #51,
+ * lab-executions.service.ts listReleasedForEhrOrder): the Lab work item accepted
+ * from one EHR lab request and the released view of each of its results, in
+ * execution start order. A result keeps only its released revisions, under their
+ * stored version numbers, so a gap is a revision never released; a result with
+ * none is left out, so an order with nothing released has no results.
+ */
+export interface LabOrderReleasedResults {
+  workItemId: string
+  sourceEhrOrderId: string
+  sourceEhrOrderVersion: number
+  patientId: string
+  acceptedAt: string
+  test: { codeSystem: string; code: string; name: string }
+  results: LabResult[]
 }
 
 export interface LabExecution {
@@ -979,12 +1021,12 @@ export const staffApi = {
   records: (facilityId: string, patientId: string, encounterId: string, kind: RecordKind, page: PageRequest = {}) =>
     client.get<Page<ClinicalRecord>>(`${encounterPath(patientId, encounterId)}/${kind}`, { ...pageQuery(page), headers: facilityHeaders(facilityId) }),
   createRecord: (facilityId: string, patientId: string, encounterId: string, kind: RecordKind, input: object, idempotencyKey?: string) =>
-    client.post<ClinicalRecord>(`${encounterPath(patientId, encounterId)}/${kind}`, input,
+    client.post<SavedRecord>(`${encounterPath(patientId, encounterId)}/${kind}`, input,
       { headers: { ...facilityHeaders(facilityId), ...keyHeaders(idempotencyKey) } }),
   // A status PATCH: diagnoses have no status field and vitals are corrected, never patched.
   updateRecord: (facilityId: string, patientId: string, encounterId: string, kind: StatusRecordKind,
     recordId: string, input: { expectedRowVersion: number; changeReason: string; status: string }) =>
-    client.request<ClinicalRecord>({ method: 'PATCH',
+    client.request<SavedRecord>({ method: 'PATCH',
       path: `${encounterPath(patientId, encounterId)}/${kind}/${encodeURIComponent(recordId)}`,
       body: input, headers: facilityHeaders(facilityId) }),
   updateDiagnosis: (facilityId: string, patientId: string, encounterId: string, diagnosisId: string,
@@ -1003,6 +1045,13 @@ export const staffApi = {
     prescriptionId: string, expectedRowVersion: number, reason: string, idempotencyKey?: string) =>
     client.post<unknown>(`${encounterPath(patientId, encounterId)}/prescriptions/${encodeURIComponent(prescriptionId)}/pharmacy-work-item`,
       { expectedRowVersion, reason }, { headers: { ...facilityHeaders(facilityId), ...keyHeaders(idempotencyKey) } }),
+  // Sends (or sends again) a saved active lab request to Lab at the version read
+  // (hid-system #56). The body is exactly SendLabRequestToLabDto; the caller keeps
+  // one key per attempt, so pressing again after no answer is the same send.
+  sendLabRequestToLab: (facilityId: string, patientId: string, encounterId: string, requestId: string,
+    expectedRowVersion: number, idempotencyKey?: string) =>
+    client.post<unknown>(`${encounterPath(patientId, encounterId)}/lab-requests/${encodeURIComponent(requestId)}/lab-work-item`,
+      { expectedRowVersion }, { headers: { ...facilityHeaders(facilityId), ...keyHeaders(idempotencyKey) } }),
   noteRevisions: (facilityId: string, patientId: string, encounterId: string, noteId: string) =>
     client.get<NoteRevision[]>(`${encounterPath(patientId, encounterId)}/clinical-notes/${encodeURIComponent(noteId)}/revisions`,
       { headers: facilityHeaders(facilityId) }),
@@ -1097,6 +1146,12 @@ export const staffApi = {
   labResultHistory: (facilityId: string, resultId: string) =>
     client.get<LabResult>(`/api/v1/lab/results/${encodeURIComponent(resultId)}/history`,
       { headers: facilityHeaders(facilityId), dedupe: false }),
+  // The released results of the Lab work item accepted from one EHR lab request
+  // (hid-system #51). Each read is audited, so it is made only when asked for, and
+  // never merged with one in flight. Lab allows it under an active emergency grant.
+  labReleasedResultsForOrder: (facilityId: string, labRequestId: string, purpose: 'direct-care' | 'emergency' = 'direct-care') =>
+    client.get<LabOrderReleasedResults>(`/api/v1/lab/ehr-orders/${encodeURIComponent(labRequestId)}/released-results`,
+      { headers: facilityHeaders(facilityId, purpose), dedupe: false }),
   pharmacyWorkItems: (facilityId: string) =>
     client.get<{ items: PharmacyWorkItem[] }>('/api/v1/pharmacy/work-items', { headers: facilityHeaders(facilityId) }),
   dispense: (facilityId: string, item: PharmacyWorkItem, quantityDispensed: number, quantityUnit: string, reason: string) =>
