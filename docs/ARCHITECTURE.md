@@ -94,6 +94,13 @@ The client can call the refresh endpoint before treating a protected 401 as a
 signed-out session. Session state is restored from the backend; the browser
 cannot inspect the HttpOnly cookie to decide who is signed in.
 
+The patient and provider portals share these cookies on one origin. On
+`POST /auth/refresh` and `POST /auth/logout`, and on no other call, the cookie
+client names its application in `X-HID-Client` (`patient-web` or `staff-web`,
+the client's own `clientId`; a caller cannot change it). hid-system #39 then
+refuses the other portal's sign-in with `403 SESSION_CLIENT_MISMATCH`, rotating
+and ending nothing, and each portal ends only its own session.
+
 Staff requests include `X-Facility-ID` and `X-Purpose-Of-Use` with the selected
 facility context. The selected facility must belong to the authenticated
 session; the backend checks the header on each request. Admin routes use their
@@ -119,9 +126,10 @@ error states for backend reads. `@hid/observability` handles redaction for
 diagnostics, and public variables are checked for secret-like names and values.
 Clinical request/response bodies are not intended for logs, public URLs or
 browser persistence. Provider facility selection is held in portal memory and
-sent as `X-Facility-ID` on scoped calls. The backend's `/auth/facility` response
-does not persist the selection in the session cookie, so a reload currently
-requires selecting the facility again.
+sent as `X-Facility-ID` on scoped calls. Choosing a facility in the list only
+proposes it; Switch facility confirms it. The backend's `/auth/facility` response
+does not persist the selection, so after a reload the portal shows the facility
+`/auth/session` resolves: the sign-in's preferred one, else the primary one.
 
 ## Production requirements
 
@@ -131,6 +139,13 @@ That forwarding must preserve cookies, CSRF and request headers. A direct
 cross-origin call to the gateway is not an equivalent session deployment. The
 public site also needs a production `/api/v1/*` route for pricing and demo
 requests; its Next.js rewrite is development-only.
+
+This portal is not deployed. hid-system's Cloudflare configuration
+(`infra/cloudflare/workers/*/wrangler.json` at `522fb2e`) serves `www` and
+`staging` with hid-system's own `apps/web`, and each product host with its own
+hid-system app. The provider recovery links on product hosts point to
+`/provider/recover` on www, a route only this portal has, so they work once this
+portal serves www as well as the product hosts.
 
 The backend's current Turnstile service permits all three general login
 actions (`patient-login`, `staff-login`, `admin-login`) together, and

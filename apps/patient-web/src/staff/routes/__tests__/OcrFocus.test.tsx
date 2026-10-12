@@ -392,4 +392,3 @@ describe('OCR-A11Y-01: arriving at OCR by Back, Forward or a document\'s Extract
     expect(statusRegion().textContent).toBe('')
   })
 })
-
