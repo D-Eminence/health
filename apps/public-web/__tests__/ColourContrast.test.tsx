@@ -102,12 +102,17 @@ describe('the boundary of a public form control is at least 3:1 (WCAG 1.4.11)', 
     }
   })
 
-  it('the demo request dialog: a refused text field shows its error border alone', () => {
+  it('the demo request dialog: a refused control is marked invalid and shows its red error border alone', () => {
     const { container } = render(<DemoDialog />)
+    // Notes under 8 characters are refused, as are the empty service and text fields.
+    fireEvent.change(container.querySelector('textarea[name="notes"]')!, { target: { value: 'Hi' } })
     fireEvent.submit(container.querySelector('form')!)
-    const refused = controls(container).filter(control => control.getAttribute('aria-invalid') === 'true' && control.tagName === 'INPUT')
-    expect(refused.length).toBeGreaterThan(0)
-    for (const control of refused) expect(ratio(only(control, 'border'), token('surface')), labelOf(control)).toBeGreaterThanOrEqual(BOUNDARY)
+    const refused = controls(container).filter(control => control.getAttribute('aria-invalid') === 'true')
+    expect(refused.map(control => control.getAttribute('name'))).toEqual(expect.arrayContaining(['service', 'facility', 'notes']))
+    for (const control of refused) {
+      expect(only(control, 'border'), labelOf(control)).toEqual(token('critical'))
+      expect(ratio(only(control, 'border'), token('surface')), labelOf(control)).toBeGreaterThanOrEqual(BOUNDARY)
+    }
   })
 
   // The select shows only at 1100px and narrower, where every rule for it applies.
