@@ -50,8 +50,8 @@ describe('patient health records', () => {
     const entries = card('Vitals').getAllByRole('listitem').map(item => item.querySelector('span')?.textContent)
     expect(entries).toEqual([
       'BP 120/80 mmHg',
-      'Pulse 72',
-      'BP 118/76 mmHg · Temp 37.2°C · Pulse 70 · Respiratory rate 16 · SpO₂ 98% · Weight 70.5 kg · Height 172 cm',
+      'Pulse 72 bpm',
+      'BP 118/76 mmHg · Temp 37.2°C · Pulse 70 bpm · Respiratory rate 16 breaths/min · SpO₂ 98% · Weight 70.5 kg · Height 172 cm',
     ])
   })
 

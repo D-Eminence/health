@@ -47,8 +47,8 @@ function vitalsSummary(item: PatientRecords['vitals'][number]) {
   return [
     item.systolicMmhg != null && item.diastolicMmhg != null ? `BP ${item.systolicMmhg}/${item.diastolicMmhg} mmHg` : '',
     item.temperatureC != null ? `Temp ${item.temperatureC}°C` : '',
-    item.pulseBpm != null ? `Pulse ${item.pulseBpm}` : '',
-    item.respiratoryRate != null ? `Respiratory rate ${item.respiratoryRate}` : '',
+    item.pulseBpm != null ? `Pulse ${item.pulseBpm} bpm` : '',
+    item.respiratoryRate != null ? `Respiratory rate ${item.respiratoryRate} breaths/min` : '',
     item.oxygenSaturationPercent != null ? `SpO₂ ${item.oxygenSaturationPercent}%` : '',
     item.weightKg != null ? `Weight ${item.weightKg} kg` : '',
     item.heightCm != null ? `Height ${item.heightCm} cm` : '',
