@@ -812,13 +812,15 @@ code and password), PA-10 (the contact cleared for another code) and PA-12
 - **Backend contract (D-Eminence/hid-system#47, open, not merged).**
   `POST /auth/facility` checked the membership and audited the choice but
   stored nothing, so a reload moved a provider back to the primary facility.
-  #47 (ADR-046, migration 0079) keeps the
+  #47 (ADR-046, migration 0080) keeps the
   choice per sign-in and reports `facilitySelection` on staff session reads,
   refresh and sign-in: `selected`, `default` (none chosen) or `reselect` (the
   facility chosen is no longer one of the actor's active facilities, so the
   default is reported). The choice authorizes nothing: `X-Facility-ID` is still
-  checked on every request. It is based on hid-system `main` `05df685`, which
-  carries #34's 0078. 0079 and the role bootstrap must be applied before that
+  checked on every request. It is based on hid-system `main` `1ceca76`, which
+  carries #34's 0078 and #45's 0079 (the patient PIN actor window); #47's
+  migration was renumbered from 0079 to 0080 when #45 merged. 0080 and the
+  role bootstrap must be applied before that
   Identity takes traffic: without the table, staff session reads and refresh
   answer 503 (a refresh keeps its rotation), and no provider page loads. A
   failed selection read is a 503, never a facility the user did not choose;

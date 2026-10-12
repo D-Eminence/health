@@ -33,7 +33,7 @@ export interface Actor {
 
 /**
  * Where the facility a staff session reports comes from (hid-system ADR-046,
- * migration 0079): 'selected', the facility this sign-in chose with
+ * migration 0080): 'selected', the facility this sign-in chose with
  * POST /auth/facility; 'default', none chosen, so the server's default (the
  * primary facility, else the first by name); 'reselect', the facility chosen
  * earlier is no longer one of the actor's active facilities, so the default is

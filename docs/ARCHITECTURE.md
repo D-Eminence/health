@@ -129,7 +129,7 @@ browser persistence. Provider facility selection is held in portal memory and
 sent as `X-Facility-ID` on scoped calls. Choosing a facility in the list only
 proposes it; Switch facility confirms it. The portal keeps nothing about the
 facility in browser storage. With hid-system's per-sign-in facility contract
-(D-Eminence/hid-system#47: ADR-046, migration 0079; open, not merged or deployed), Identity keeps the
+(D-Eminence/hid-system#47: ADR-046, migration 0080; open, not merged or deployed), Identity keeps the
 facility a sign-in chose and reports `facilitySelection` on staff session reads
 and refresh, so a reload shows the facility chosen. While it is unresolved
 (`reselect`: the chosen facility is no longer available; or `default` for
