@@ -63,6 +63,15 @@ describe('portal build configuration', () => {
     expect(whole).toEqual([])
   })
 
+  // The patient, staff and admin areas share one record of these, so they cannot drift apart.
+  it('reads the public configuration in one place', () => {
+    const files = readdirSync(source, { recursive: true, encoding: 'utf8' })
+      .filter(file => /\.tsx?$/.test(file) && !/(^|\/)__tests__\/|\.test\.tsx?$/.test(file))
+    const readers = files.filter(file => /import\.meta\.env\.VITE_HID_(?:ENVIRONMENT|API_BASE_URL|APP_ORIGIN)\b/
+      .test(readFileSync(join(source, file), 'utf8')))
+    expect(readers).toEqual(['publicEnvironment.ts'])
+  })
+
   it('tells a whole read from a read by name or of a Vite built-in', () => {
     expect(readsEnvironmentWhole('const raw = import.meta.env')).toBe(true)
     expect(readsEnvironmentWhole('const { VITE_HID_API_BASE_URL } = import.meta.env')).toBe(true)
