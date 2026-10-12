@@ -41,7 +41,17 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-const PRICED_PRODUCTS: readonly string[] = ['identity', 'ehr', 'laboratory', 'pharmacy', 'migrate', 'outreach', 'api']
+/**
+ * The products the site presents prices for, keyed by the slug type that
+ * Pricing.tsx names, so a product added to one fails typecheck until both list it.
+ */
+const PRICED_PRODUCTS: Readonly<Record<PublicPrice['product_slug'], true>> = {
+  identity: true, ehr: true, laboratory: true, pharmacy: true, migrate: true, outreach: true, api: true,
+}
+
+function isPricedProduct(slug: string): slug is PublicPrice['product_slug'] {
+  return Object.hasOwn(PRICED_PRODUCTS, slug)
+}
 
 /**
  * The backend starts with quote prices. A missing or null amount is never guessed.
@@ -64,7 +74,7 @@ export function parsePublicPrices(value: unknown): PublicPrice[] {
     if (['fixed', 'starting_from'].includes(item.visibility) !== (item.amount_minor !== null)) {
       throw new Error('Pricing is temporarily unavailable.')
     }
-    return PRICED_PRODUCTS.includes(item.product_slug) ? [item as unknown as PublicPrice] : []
+    return isPricedProduct(item.product_slug) ? [item as unknown as PublicPrice] : []
   })
 }
 

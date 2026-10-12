@@ -117,6 +117,8 @@ describe('pricing', () => {
     const prices = parsePublicPrices({ data: [
       { product_slug: 'ehr', context: 'core', visibility: 'contact_sales', amount_minor: null, currency: 'NGN', billing_period: null, unit: null },
       { product_slug: 'insurance', context: 'core', visibility: 'fixed', amount_minor: 990000, currency: 'NGN', billing_period: 'monthly', unit: 'facility' },
+      // A slug that names an object property is no product the site knows either.
+      { product_slug: 'constructor', context: 'core', visibility: 'contact_sales', amount_minor: null, currency: 'NGN', billing_period: null, unit: null },
     ] })
     expect(prices).toEqual([
       { product_slug: 'ehr', context: 'core', visibility: 'contact_sales', amount_minor: null, currency: 'NGN', billing_period: null, unit: null },
