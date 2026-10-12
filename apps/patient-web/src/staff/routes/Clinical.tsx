@@ -554,7 +554,8 @@ function NotePanel({ facilityId, patientId, encounterId, note, canWrite, verify,
       {open ? 'Hide note content' : 'Review note content'}
     </Button>
     {open && <>
-      <Button tone="quiet" size="sm" onClick={() => { setNotice(''); setRevision(value => value + 1) }} disabled={loading}>Refresh revisions</Button>
+      <Button tone="quiet" size="sm" aria-disabled={loading || undefined} className={BUSY}
+        onClick={() => { if (loading) return; setNotice(''); setRevision(value => value + 1) }}>Refresh revisions</Button>
       {/* Mounted while the note is open, so what a revision records is announced; it says so through the read that follows. */}
       <div id={`note-${note.id}-status-region`} role="status">{notice ? <p className="staff-success">{notice}</p> : loading && <p>Loading note revisions…</p>}</div>
       {loadError && <p className="staff-error" role="alert">{loadError}</p>}
@@ -708,7 +709,8 @@ function EmergencySummary({ facilityId, patientId, patientName, permissions, ver
       <p>This read-only summary holds this facility’s completed encounters and signed clinical notes, and the diagnoses, prescriptions, lab requests and documents your role may read. The server checks the active emergency grant on each request.</p>
     </div>
     <div className="staff-row staff-toolbar"><Badge tone="danger">Emergency access</Badge>
-      <Button tone="secondary" size="sm" onClick={() => setRevision(value => value + 1)} disabled={loading}>Refresh summary</Button>
+      <Button tone="secondary" size="sm" aria-disabled={loading || undefined} className={UNAVAILABLE}
+        onClick={() => { if (!loading) setRevision(value => value + 1) }}>Refresh summary</Button>
       <Link className="staff-text-link" to="/provider/patients">Change patient →</Link>
     </div>
     {loading && <p role="status">Loading emergency summary…</p>}
@@ -1058,7 +1060,7 @@ export function Clinical() {
 
   return <>
     <div className="staff-page-head"><p className="staff-eyebrow">Clinical record · {facility.name}</p><h1>{activePatient.lookup.patient.fullName ?? activePatient.hid}</h1><p>HID {activePatient.hid} · Direct care access. The server rechecks authorization before changes.</p></div>
-    <div className="staff-row staff-toolbar"><Badge tone="success">Authorized</Badge><Button tone="secondary" size="sm" onClick={() => void loadEncounters({ cursors: 'shown', fresh: true })} disabled={loading}>Refresh encounters</Button><Link className="staff-text-link" to="/provider/patients">Change patient →</Link></div>
+    <div className="staff-row staff-toolbar"><Badge tone="success">Authorized</Badge><Button tone="secondary" size="sm" aria-disabled={loading || undefined} className={UNAVAILABLE} onClick={() => { if (!loading) void loadEncounters({ cursors: 'shown', fresh: true }) }}>Refresh encounters</Button><Link className="staff-text-link" to="/provider/patients">Change patient →</Link></div>
     {currentWriteAccess && !currentWriteAccess.allowed && <div className="staff-notice" role="status">{currentWriteAccess.failed
       ? 'Write access could not be confirmed, so changes are unavailable. Refresh the page to try again.'
       : 'Read-only access. This authorization does not include changes; ask the patient to approve a read-and-write request to add or change records.'}</div>}

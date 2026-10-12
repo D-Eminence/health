@@ -112,7 +112,8 @@ export function AccessRequests() {
         <option value="">Any status</option>
         {filters.map(value => <option key={value} value={value}>{FILTER_LABELS[value]}</option>)}
       </Select></Field>
-      <Button tone="secondary" size="sm" onClick={() => void load()} disabled={loading}>Refresh</Button>
+      {/* Focusable while the list is read, when a second press does nothing. */}
+      <Button tone="secondary" size="sm" aria-disabled={loading || undefined} className={BUSY} onClick={() => { if (!loading) void load() }}>Refresh</Button>
     </div>
     {error && <p className="staff-error" role="alert">{error}</p>}
     {/* Mounted throughout, so what a close says is announced. */}

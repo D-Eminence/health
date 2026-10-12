@@ -202,7 +202,8 @@ describe('accepted prescription work list', () => {
 
     expect(screen.getByRole('heading', { name: 'Pharmacy' })).toBeTruthy()
     expect(screen.getByRole('status').textContent).toBe('Loading…')
-    expect(screen.getByRole('button', { name: 'Refresh work' }).hasAttribute('disabled')).toBe(true)
+    // Unavailable while the list is read, yet focusable (NEW-PEHR-ACTION-FOCUS).
+    expect(screen.getByRole('button', { name: 'Refresh work' }).getAttribute('aria-disabled')).toBe('true')
     expect(screen.queryByRole('alert')).toBeNull()
     expect(screen.queryByRole('heading', { name: 'No accepted prescriptions' })).toBeNull()
     expect(api.pharmacyWorkItems).toHaveBeenCalledTimes(1)
@@ -282,7 +283,7 @@ describe('accepted prescription work list', () => {
     const refresh = screen.getByRole('button', { name: 'Refresh work' })
     fireEvent.click(refresh)
 
-    expect(refresh.hasAttribute('disabled')).toBe(true)
+    expect(refresh.getAttribute('aria-disabled')).toBe('true')
     expect(screen.getByText(AMOXICILLIN)).toBeTruthy()
     expect(statusesSaying()).toEqual([])
     expect(screen.queryByText('Loading…')).toBeNull()
@@ -591,8 +592,8 @@ describe('full dispensing', () => {
 
     const refresh = screen.getByRole('button', { name: 'Refresh work' })
     fireEvent.click(refresh)
-    expect(refresh.hasAttribute('disabled')).toBe(true)
-    await waitFor(() => expect(refresh.hasAttribute('disabled')).toBe(false))
+    expect(refresh.getAttribute('aria-disabled')).toBe('true')
+    await waitFor(() => expect(refresh.getAttribute('aria-disabled')).toBeNull())
     expect(api.pharmacyWorkItems).toHaveBeenCalledTimes(2)
 
     fireEvent.click(within(item).getByRole('button', { name: 'Record full dispensing' }))

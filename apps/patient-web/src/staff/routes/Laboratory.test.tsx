@@ -211,7 +211,8 @@ describe('Laboratory work-item list', () => {
     render(<Laboratory />)
 
     expect(screen.getByRole('status').textContent).toBe('Loading…')
-    expect((screen.getByRole('button', { name: 'Refresh work' }) as HTMLButtonElement).disabled).toBe(true)
+    // Unavailable while the list is read, yet focusable (NEW-PEHR-ACTION-FOCUS).
+    expect(screen.getByRole('button', { name: 'Refresh work' }).getAttribute('aria-disabled')).toBe('true')
     expect(api.labWorkItems).toHaveBeenCalledWith(FACILITY)
 
     pending.resolve({ items: [workItem()] })
@@ -360,7 +361,7 @@ describe('Laboratory accession view', () => {
 
     const card = sectionOf('Specimen accession')
     expect(within(card).getByRole('status').textContent).toBe('Loading accession…')
-    expect((within(card).getByRole('button', { name: 'Refresh accession' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(within(card).getByRole('button', { name: 'Refresh accession' }).getAttribute('aria-disabled')).toBe('true')
     expect(api.labAccession).toHaveBeenCalledWith(FACILITY, 'accession-1')
 
     pending.resolve(accession([specimen('received')]))
@@ -524,7 +525,7 @@ describe('Laboratory analytical execution', () => {
     const panel = await openExecutionPanel(EXECUTION_READ)
 
     expect((await within(panel).findByRole('status')).textContent).toBe('Loading executions…')
-    expect((within(panel).getByRole('button', { name: 'Refresh executions' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(within(panel).getByRole('button', { name: 'Refresh executions' }).getAttribute('aria-disabled')).toBe('true')
     expect(within(panel).queryByText('No execution has started for this specimen.')).toBeNull()
 
     pending.resolve({ items: [inProgress()] })
@@ -918,7 +919,7 @@ describe('Laboratory result history', () => {
     fireEvent.click(await within(panel).findByRole('button', { name: 'View result history' }))
 
     expect((await within(panel).findByText('Loading result history…')).getAttribute('role')).toBe('status')
-    expect((within(panel).getByRole('button', { name: 'Refresh history' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(within(panel).getByRole('button', { name: 'Refresh history' }).getAttribute('aria-disabled')).toBe('true')
     pending.resolve(history())
     expect(await within(panel).findByText('Version 2')).toBeTruthy()
     expect(within(panel).queryByText('Loading result history…')).toBeNull()

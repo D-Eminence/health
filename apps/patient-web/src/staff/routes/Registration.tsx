@@ -211,7 +211,7 @@ export function Registration() {
     <div className="staff-page-head"><p className="staff-eyebrow">Identity operations</p><h1>Patient registration.</h1><p>Verify a NIN, review possible matches, and link the verified identity to a governed Health ID. Every step is tied to your active facility and recorded by the backend.</p></div>
     <div className="staff-stack">
       <Card className="staff-card">
-        <div className="staff-row"><h2>Verification availability</h2><Button tone="secondary" size="sm" onClick={() => void refreshCapabilities()} disabled={capabilityLoading}>{capabilityLoading ? 'Checking…' : 'Check again'}</Button></div>
+        <div className="staff-row"><h2>Verification availability</h2><Button tone="secondary" size="sm" aria-disabled={capabilityLoading || undefined} className={BUSY} onClick={() => { if (!capabilityLoading) void refreshCapabilities() }}>{capabilityLoading ? 'Checking…' : 'Check again'}</Button></div>
         {capabilityError && <p role="alert" className="staff-error">{capabilityError}</p>}
         {!capabilities && !capabilityError && <p className="staff-muted">Checking the backend’s registration capability…</p>}
         {capabilities && <p className="staff-muted">{capabilities.nin.enabled
@@ -234,7 +234,7 @@ export function Registration() {
       <Card className="staff-card"><h2>Resume a registration case</h2><p>Use the case ID supplied when verification completed. The backend does not provide a searchable case list.</p>
         <form className="staff-form" onSubmit={event => { event.preventDefault(); if (!caseLoading && !busy) void loadCase(caseIdInput) }}>
           <Field label="Registration case ID" htmlFor="registration-case-id" error={problems.error('registration-case-id')} required><Input {...problems.control('registration-case-id')} id="registration-case-id" value={caseIdInput} onChange={event => setCaseIdInput(event.target.value)} autoComplete="off" required /></Field>
-          <div className="staff-row"><Button type="submit" aria-disabled={caseLoading || busy || undefined} className={BUSY}>{caseLoading ? 'Loading…' : 'Load case'}</Button>{registration && <Button type="button" tone="secondary" onClick={() => void loadCase(registration.caseId)} disabled={caseLoading || busy}>Refresh current case</Button>}</div>
+          <div className="staff-row"><Button type="submit" aria-disabled={caseLoading || busy || undefined} className={BUSY}>{caseLoading ? 'Loading…' : 'Load case'}</Button>{registration && <Button type="button" tone="secondary" aria-disabled={caseLoading || busy || undefined} className={BUSY} onClick={() => { if (!caseLoading && !busy) void loadCase(registration.caseId) }}>Refresh current case</Button>}</div>
         </form>
       </Card>
 
