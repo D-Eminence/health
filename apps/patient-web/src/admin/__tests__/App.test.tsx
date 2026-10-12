@@ -10,7 +10,9 @@ const api = vi.hoisted(() => ({
   session: vi.fn(), mfaStatus: vi.fn(), logout: vi.fn(), refresh: vi.fn(), overview: vi.fn(),
   approvals: vi.fn(), applications: vi.fn(), demos: vi.fn(), integrations: vi.fn(),
 }))
-vi.mock('../api', () => ({ adminApi: api, newIdempotencyKey: () => 'key-1' }))
+const account = vi.hoisted(() => ({ id: null as string | null }))
+vi.mock('../api', () => ({ adminApi: api, newIdempotencyKey: () => 'key-1',
+  adminSessionAccount: () => account.id, setAdminSessionAccount: (id: string | null) => { account.id = id } }))
 vi.mock('../env', () => ({ environment: () => ({ name: 'local', turnstileSiteKey: null, apiBaseUrl: 'https://gateway.example.test' }) }))
 
 const actor = (permissions: string[]) => ({ actor: { accountId: 'admin-1', subject: 'staff:1', displayName: 'Ada Admin',

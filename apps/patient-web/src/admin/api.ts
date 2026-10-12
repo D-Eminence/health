@@ -1,4 +1,4 @@
-import { createApiClient, isHidApiError, NO_RETRY, type DownloadResult, type HidApiError, type RequestSpec } from '@hid/http'
+import { createApiClient, HidApiError, isHidApiError, NO_RETRY, type DownloadResult, type RequestSpec } from '@hid/http'
 import { createRegisteredBrowserClient } from '@hid/api'
 import { environment } from './env'
 import { recordServerSessionEnd, recordSessionWindow, reportSessionEnded, serverSessionEnd } from './session-window'
@@ -188,6 +188,22 @@ async function request<T>(path: string, options: Partial<RequestSpec> = {}): Pro
 /** 401 codes meaning the server no longer accepts this platform session. */
 const SESSION_END_CODES = new Set(['AUTHENTICATION_REQUIRED', 'PLATFORM_SESSION_EXPIRED', 'PLATFORM_SESSION_REVOKED'])
 
+/**
+ * The administrator whose workspace is open, or null while none is (checking,
+ * signed out, ended). Held in memory only. Every admin tab shares the browser's
+ * platform cookies, so a refresh can answer for an administrator who signed in
+ * from another tab: that has not restored this workspace's session.
+ */
+let openAccount: string | null = null
+
+export function adminSessionAccount(): string | null {
+  return openAccount
+}
+
+export function setAdminSessionAccount(accountId: string | null): void {
+  openAccount = accountId
+}
+
 function grant(value: PlatformSessionGrant): PlatformSessionGrant {
   recordSessionWindow({ idleExpiresAt: value.idleExpiresAt })
   return value
@@ -235,14 +251,23 @@ export const adminApi = {
   },
   session() { return request<AdminSession>('/api/v1/admin/session') },
   async refresh() {
+    let refreshed: PlatformSessionGrant
     try {
-      return grant(await request<PlatformSessionGrant>('/api/v1/auth/admin/refresh', { method: 'POST', auth: 'optional' }))
+      refreshed = await request<PlatformSessionGrant>('/api/v1/auth/admin/refresh', { method: 'POST', auth: 'optional' })
     } catch (error) {
       // The shared client reports the original request's 401 after a failed
       // refresh, so keep the refresh's own reason for the session-end notice.
       if (isHidApiError(error) && error.status === 401) recordServerSessionEnd(serverSessionEnd(error.code))
       throw error
     }
+    // A session for another administrator ends this workspace. The refusal is a
+    // 401, so the client does not repeat the original request as them.
+    if (openAccount !== null && refreshed.actor?.accountId !== openAccount) {
+      reportSessionEnded('switched')
+      throw new HidApiError(401, 'Your platform session has ended. Sign in again to continue.',
+        { code: 'AUTHENTICATION_REQUIRED', retryable: false })
+    }
+    return grant(refreshed)
   },
   logout() { return request<void>('/api/v1/auth/admin/logout', { method: 'POST' }) },
   async mfaStatus(signal?: AbortSignal) {
