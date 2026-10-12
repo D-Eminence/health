@@ -162,8 +162,10 @@ describe('PEHR-02: Switch facility confirms it', () => {
     confirm.focus()
     fireEvent.click(confirm)
 
-    const refusal = await screen.findByText(/not active at this facility/)
+    // In words the clinician can act on, as the facility question says it: Identity's own detail speaks of "the actor".
+    const refusal = await screen.findByText('You are no longer active at Ikeja Clinic. Choose another facility.')
     expect(refusal.getAttribute('role')).toBe('alert')
+    expect(screen.queryByText(/actor/)).toBeNull()
     expect(where()).toBe('/provider/clinical')
     expect(screen.getByRole('heading', { name: PATIENT_NAME })).toBeTruthy()
     expect(screen.getByRole('group', { name: /Switch to Ikeja Clinic\?/ })).toBeTruthy()

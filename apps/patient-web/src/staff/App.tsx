@@ -383,6 +383,16 @@ function Gate({ children }: { children: ReactNode }) {
   return <>{lock && <SessionCheck unconfirmed={lock === 'unconfirmed'} />}<div hidden={lock !== null} inert={lock !== null}>{children}</div></>
 }
 
+/**
+ * A choice or switch of facility that Identity refused, in words the person can act
+ * on. Its own detail for 403 FACILITY_ACCESS_DENIED speaks of "the actor"; the
+ * facility is no longer one of theirs (the membership ended since the list was read).
+ */
+function facilityRefusal(caught: unknown, facility: string): string {
+  if (isHidApiError(caught) && caught.code === 'FACILITY_ACCESS_DENIED') return `You are no longer active at ${facility}. Choose another facility.`
+  return caught instanceof Error ? caught.message : 'Facility could not be selected.'
+}
+
 /** Why the question is asked, as the page says it. */
 const FACILITY_CHOICE_WHY: Record<FacilityChoiceReason, string> = {
   reselect: 'The facility you chose for this sign-in is no longer available to you.',
@@ -428,9 +438,17 @@ function FacilityChoice({ reason, onChosen }: { reason: FacilityChoiceReason; on
       document.querySelector<HTMLInputElement>('input[name="staff-facility-choice"]')?.focus()
       return
     }
+    // The options are disabled while the choice is saved, so the one checked is the one
+    // sent. A choice sent with Enter on an option moves focus to Continue, which stays
+    // enabled, rather than leave it on a disabled option and so on the page.
+    const form = event.currentTarget
+    if (document.activeElement instanceof HTMLInputElement && form.contains(document.activeElement)) {
+      form.querySelector<HTMLButtonElement>('button[type="submit"]')?.focus()
+    }
+    const name = facilities.find(facility => facility.id === picked)?.name ?? 'this facility'
     setBusy(true)
     try { if (await selectFacility(picked)) onChosen() }
-    catch (caught) { setError(caught instanceof Error ? caught.message : 'Facility could not be selected.') }
+    catch (caught) { setError(facilityRefusal(caught, name)) }
     finally { setBusy(false) }
   }
 
@@ -438,18 +456,18 @@ function FacilityChoice({ reason, onChosen }: { reason: FacilityChoiceReason; on
     <h1 id="staff-facility-choice-title" ref={heading} tabIndex={-1}>Where are you working?</h1>
     <p id="staff-facility-choice-why">{FACILITY_CHOICE_WHY[reason]} Choose where you are working before you continue. Patient access, records and requests use the facility you choose, and you can switch later from “Working at”.</p>
     <form className="staff-form" noValidate onSubmit={event => void choose(event)}>
-      <fieldset aria-describedby={missing ? 'staff-facility-choice-why staff-facility-choice-missing' : 'staff-facility-choice-why'}>
+      <fieldset disabled={busy} aria-describedby={['staff-facility-choice-why', missing && 'staff-facility-choice-missing', error && 'staff-facility-choice-error'].filter(Boolean).join(' ')}>
         <legend>Facility</legend>
         {facilities.map(facility => <label key={facility.id} className="staff-choice">
           <input type="radio" name="staff-facility-choice" value={facility.id} checked={picked === facility.id}
-            onChange={() => { setPicked(facility.id); setMissing(false) }} /> {facility.name}
+            onChange={() => { setPicked(facility.id); setMissing(false); setError('') }} /> {facility.name}
         </label>)}
       </fieldset>
       {missing && <p id="staff-facility-choice-missing" role="alert" className="staff-error">Choose a facility to continue.</p>}
+      {error && <p id="staff-facility-choice-error" role="alert" className="staff-error">{error}</p>}
       {/* Kept enabled while it runs, so focus stays on it; a second press does nothing. */}
       <Button type="submit" aria-disabled={busy || undefined}>{busy ? 'Saving…' : 'Continue'}</Button>
     </form>
-    {error && <p role="alert" className="staff-error">{error}</p>}
   </section>
 }
 
@@ -524,7 +542,7 @@ function Shell() {
         if (onOverview) setFocusHeading(true)
       }
     }
-    catch (error) { setFacilityError(error instanceof Error ? error.message : 'Facility could not be selected.') }
+    catch (error) { setFacilityError(facilityRefusal(error, chosen.name)) }
     finally { setSwitching(false) }
   }
 

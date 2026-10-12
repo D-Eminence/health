@@ -145,8 +145,11 @@ describe('a facility chosen earlier that is no longer available (reselect)', () 
     await question()
     fireEvent.click(option('Ikeja Clinic'))
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
-    const refusal = await screen.findByText(/not active at this facility/)
+    // Said in words the person can act on, at the options: Identity's own detail speaks of "the actor".
+    const refusal = await screen.findByText('You are no longer active at Ikeja Clinic. Choose another facility.')
     expect(refusal.getAttribute('role')).toBe('alert')
+    expect(screen.queryByText(/actor/)).toBeNull()
+    expect(screen.getByRole('group', { name: 'Facility' }).getAttribute('aria-describedby')).toContain(refusal.id)
     expect(screen.getByRole('heading', { name: 'Where are you working?' })).toBeTruthy()
     expect(screen.queryByText(/Good to see you/)).toBeNull()
     expect(pageRequests(sent)).toEqual([])
@@ -394,5 +397,63 @@ describe('the shell while the question shows', () => {
     expect(within(navigation).getByRole('link', { name: 'Patient access' })).toBeTruthy()
     expect(within(navigation).getByRole('link', { name: /^Clinical record/ })).toBeTruthy()
     expect(screen.getAllByText('clinician').length).toBeGreaterThan(0)
+  })
+})
+
+describe('the question while a choice is saved or refused', () => {
+  it('clears a refusal once another facility is picked', async () => {
+    serve({ [SESSION]: [session(LAGOS, 'reselect')], [FACILITY]: [() => problem(403, 'FACILITY_ACCESS_DENIED', 'The actor is not active at this facility')] })
+    await open('/provider')
+    await question()
+    fireEvent.click(option('Ikeja Clinic'))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(await screen.findByRole('alert')).toBeTruthy()
+
+    fireEvent.click(option('Lagos General'))
+
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.getByRole('group', { name: 'Facility' }).getAttribute('aria-describedby')).toBe('staff-facility-choice-why')
+  })
+
+  it('keeps the options as they are while the choice is saved, with focus on Continue', async () => {
+    const saving = deferredResponse()
+    const sent = serve({ [SESSION]: [session(LAGOS, 'reselect')], [FACILITY]: [saving.answer], [REQUESTS]: [() => json([])] })
+    await open('/provider')
+    await question()
+    fireEvent.click(option('Ikeja Clinic'))
+    const proceed = screen.getByRole('button', { name: 'Continue' })
+    proceed.focus()
+    fireEvent.click(proceed)
+    await screen.findByRole('button', { name: 'Saving…' })
+
+    // The option checked is the facility being saved: no other can be picked meanwhile.
+    expect(option('Lagos General').matches(':disabled')).toBe(true)
+    expect(option('Ikeja Clinic').matches(':disabled')).toBe(true)
+    expect(option('Ikeja Clinic').checked).toBe(true)
+    expect(document.activeElement).toBe(proceed)
+
+    await act(async () => { saving.respond(await session(IKEJA, 'selected')()) })
+    expect(await screen.findByText(/Working at Ikeja Clinic\./)).toBeTruthy()
+    expect(sent.filter(call => call.route === FACILITY).map(call => call.body)).toEqual([{ facilityId: 'facility-2' }])
+  })
+
+  it('moves focus to Continue, not to the page, when the choice is sent with Enter on an option', async () => {
+    const saving = deferredResponse()
+    serve({ [SESSION]: [session(LAGOS, 'reselect')], [FACILITY]: [saving.answer] })
+    await open('/provider')
+    await question()
+    fireEvent.click(option('Ikeja Clinic'))
+    option('Ikeja Clinic').focus()
+    // Enter on a radio submits its form (implicit submission); the option it was on is then disabled.
+    fireEvent.submit(option('Ikeja Clinic').form!)
+
+    const proceed = await screen.findByRole('button', { name: 'Saving…' })
+    expect(option('Ikeja Clinic').matches(':disabled')).toBe(true)
+    expect(document.activeElement).toBe(proceed)
+
+    await act(async () => { saving.respond(problem(403, 'FACILITY_ACCESS_DENIED', 'The actor is not active at this facility')) })
+    expect(await screen.findByRole('alert')).toBeTruthy()
+    expect(option('Ikeja Clinic').matches(':disabled')).toBe(false)
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Continue' }))
   })
 })
