@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
@@ -127,5 +127,20 @@ describe('confirming the source patient of an OCR job', () => {
     expect((await screen.findByRole('alert')).textContent).toContain('does not match')
     expect(api.findOcrJob).not.toHaveBeenCalled()
     expect(screen.getByRole('button', { name: 'Confirm source patient' })).toBeTruthy()
+  })
+
+  // Focus cannot move to a field it is on already, so a refusal made from Enter there is an alert, new each time.
+  it('says a patient ID refused from Enter in its field as an alert', async () => {
+    await confirmationForm()
+    const patient = screen.getByLabelText(/^Canonical patient ID/)
+    fireEvent.change(patient, { target: { value: 'HID-ABCDEF' } })
+    patient.focus()
+    await act(async () => { fireEvent.submit(patient.closest('form')!) })
+    const first = await screen.findByRole('alert')
+    expect(first.textContent).toBe('Enter a valid canonical patient ID (a UUID).')
+    expect(patient.getAttribute('aria-describedby')).toBe('ocr-confirm-patient-error')
+    await act(async () => { fireEvent.submit(patient.closest('form')!) })
+    await waitFor(() => expect(screen.getByRole('alert')).not.toBe(first))
+    expect(api.confirmOcrPatient).not.toHaveBeenCalled()
   })
 })

@@ -202,6 +202,26 @@ describe('what the new registration case form says', () => {
     expect(screen.queryByText('The network request failed.')).toBeNull()
   })
 
+  // Refused from a press of Create case, focus moves to the field, whose description says why. Refused
+  // from Enter in that field, focus cannot move, so the refusal is an alert there, new each time.
+  it('says a refusal made from Enter in the refused field itself as an alert', async () => {
+    render(<Outreach />)
+    await press(await fillCase({ fullName: 'Amaka Obi', sex: 'female', age: '34', phone: ' 12 ' }))
+    const phone = document.getElementById('outreach-case-phone')!
+    await waitFor(() => expect(document.activeElement).toBe(phone))
+    expect(screen.queryByRole('alert')).toBeNull()
+
+    await act(async () => { fireEvent.submit(phone.closest('form')!) })
+    const message = 'Enter a phone number of at least 3 characters, or leave it blank.'
+    const first = await screen.findByRole('alert')
+    expect(first.textContent).toBe(message)
+    expect(document.getElementById(phone.getAttribute('aria-describedby') ?? '')?.textContent).toBe(message)
+    await act(async () => { fireEvent.submit(phone.closest('form')!) })
+    await waitFor(() => expect(screen.getByRole('alert')).not.toBe(first))
+    expect(screen.getByRole('alert').textContent).toBe(message)
+    expect(api.createOutreachCase).not.toHaveBeenCalled()
+  })
+
   it('clears a field refused before once another field is refused', async () => {
     render(<Outreach />)
     await press(await fillCase({ fullName: 'Amaka Obi', sex: 'female', age: '34', phone: ' 12 ' }))

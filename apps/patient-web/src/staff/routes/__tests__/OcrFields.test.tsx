@@ -116,6 +116,25 @@ describe('OCR IDs are UUIDs', () => {
     expect(api.createOcrJob).not.toHaveBeenCalled()
   })
 
+  // Refused from Find job, focus moves to the field, whose description says why. Refused from Enter in
+  // the field itself, focus cannot move, so the refusal is an alert there, new each time.
+  it('says a document ID refused from Enter in its field as an alert', async () => {
+    render(<MemoryRouter initialEntries={['/provider/ocr']}><Ocr /></MemoryRouter>)
+    const documentId = screen.getByLabelText(/^Document ID/)
+    fireEvent.change(documentId, { target: { value: 'DOC-2024-0001' } })
+    await press(screen.getByRole('button', { name: 'Find job' }))
+    await waitFor(() => expect(document.activeElement).toBe(documentId))
+    expect(screen.queryByRole('alert')).toBeNull()
+
+    await act(async () => { fireEvent.submit(documentId.closest('form')!) })
+    const first = await screen.findByRole('alert')
+    expect(first.textContent).toBe('Enter a valid document ID (a UUID).')
+    expect(descriptions(documentId)).toEqual(['Enter a valid document ID (a UUID).'])
+    await act(async () => { fireEvent.submit(documentId.closest('form')!) })
+    await waitFor(() => expect(screen.getByRole('alert')).not.toBe(first))
+    expect(api.findOcrJob).not.toHaveBeenCalled()
+  })
+
   // The answer to the last attempt no longer applies once another is refused, as on the Outreach case form.
   it('clears the last answer when a document ID is refused', async () => {
     api.findOcrJob.mockRejectedValueOnce(new HidApiError(503, 'OCR is unavailable.', { code: 'SERVICE_UNAVAILABLE' }))

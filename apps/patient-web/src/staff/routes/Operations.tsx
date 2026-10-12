@@ -526,8 +526,23 @@ const publicationOperations = {
   PHARMACY: 'create_imported_medication_evidence', DOCUMENT_ONLY: 'retain_validated_document',
 } as const
 
-/** A field the page refused before sending, named by its control's id. */
-interface FieldProblem { readonly field: string; readonly message: string }
+/**
+ * A field the page refused before sending, named by its control's id. `alert`, a new number for each
+ * refusal, when it was refused from Enter in the field itself.
+ */
+interface FieldProblem { readonly field: string; readonly message: string; readonly alert?: number }
+
+let refusals = 0
+
+/**
+ * A refusal to show at its field. Focus then moves to the field, so its description says why; refused
+ * from Enter in the field itself, focus cannot move and nothing would be said, so the message is an
+ * alert there instead, new for each refusal (as both, it would be said twice).
+ */
+function refusal(problem: FieldProblem): FieldProblem {
+  const active = document.activeElement
+  return active instanceof HTMLElement && active.id === problem.field ? { ...problem, alert: ++refusals } : problem
+}
 
 /** OCR takes document and patient IDs only as UUID v4 (hid-system OCR DTOs: IsUUID('4')), and names no field when it refuses one. */
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -555,8 +570,9 @@ function problemProps(problem: FieldProblem | null, id: string) {
   return problem?.field === id ? { invalid: true, 'aria-describedby': `${id}-error` } : {}
 }
 
-function problemText(problem: FieldProblem | null, id: string) {
-  return problem?.field === id ? problem.message : undefined
+function problemText(problem: FieldProblem | null, id: string): ReactNode {
+  if (problem?.field !== id) return undefined
+  return problem.alert ? <span key={problem.alert} role="alert">{problem.message}</span> : problem.message
 }
 
 /** Whether focus has nowhere the user chose: on the page itself, or on `target` already. */
@@ -617,7 +633,7 @@ function OcrReview({ facilityId, job, extractions, onChanged }: { facilityId: st
     try { input = read(new FormData(event.currentTarget)) }
     catch (caught) {
       if (!(caught instanceof FieldInputError)) throw caught
-      setProblem({ field: caught.field, message: caught.message }); focus(caught.field); return
+      setProblem(refusal({ field: caught.field, message: caught.message })); focus(caught.field); return
     }
     setBusy(true)
     try {
@@ -659,7 +675,7 @@ function OcrConfirmation({ facilityId, job, onChanged }: { facilityId: string; j
     const refused = !patientId ? { field: 'ocr-confirm-patient', message: 'Enter the canonical patient ID.' }
       : !UUID_V4.test(patientId) ? { field: 'ocr-confirm-patient', message: 'Enter a valid canonical patient ID (a UUID).' }
       : reason.length < 8 ? { field: 'ocr-confirm-reason', message: 'Enter a patient confirmation reason of at least 8 characters.' } : null
-    if (refused) { setProblem(refused); focus(refused.field); return }
+    if (refused) { setProblem(refusal(refused)); focus(refused.field); return }
     const signature = JSON.stringify([patientId, reason])
     if (attempt.current?.signature !== signature) attempt.current = { signature, key: crypto.randomUUID() }
     setBusy(true)
@@ -975,7 +991,7 @@ export function Ocr() {
     setProblem(null); setError(''); setNotice('')
     const refused = !documentId.trim() ? { field: 'ocr-document', message: 'Enter a document ID.' }
       : !UUID_V4.test(documentId.trim()) ? { field: 'ocr-document', message: 'Enter a valid document ID (a UUID).' } : null
-    if (refused) { setProblem(refused); focus(refused.field); return }
+    if (refused) { setProblem(refusal(refused)); focus(refused.field); return }
     await lookup()
     focus('ocr-find-submit', true)
   }
@@ -994,7 +1010,7 @@ export function Ocr() {
     // document ID needs no check here: Create is shown only once Find job has taken it, and editing it hides Create.
     const refused = !patientId.trim() ? { field: 'ocr-patient', message: 'Enter the patient ID.' }
       : !UUID_V4.test(patientId.trim()) ? { field: 'ocr-patient', message: 'Enter a valid patient ID (a UUID).' } : null
-    setProblem(refused)
+    setProblem(refused && refusal(refused))
     if (refused) { focus(refused.field); return }
     setBusy(true); setExtractions(null); setValidations(null)
     try {
@@ -1011,7 +1027,7 @@ export function Ocr() {
     if (!facilityId || !visibleJob) return
     const reason = String(new FormData(event.currentTarget).get('reason') ?? '').trim()
     setProblem(null); setRetryError('')
-    if (reason.length < 8) { setProblem({ field: 'ocr-retry-reason', message: 'Enter a reason of at least 8 characters.' }); focus('ocr-retry-reason'); return }
+    if (reason.length < 8) { setProblem(refusal({ field: 'ocr-retry-reason', message: 'Enter a reason of at least 8 characters.' })); focus('ocr-retry-reason'); return }
     setBusy(true); setError(''); setNotice('')
     try {
       setJob(await staffApi.retryOcrJob(facilityId, visibleJob, reason)); setLookupRevision(value => value + 1)
@@ -1138,7 +1154,7 @@ export function Outreach() {
       : !age || !Number.isInteger(ageYears) || ageYears < 0 || ageYears > 130 ? { field: 'outreach-case-age', message: 'Enter an age in whole years, from 0 to 130.' }
       : phone !== undefined && phone.length < 3 ? { field: 'outreach-case-phone', message: 'Enter a phone number of at least 3 characters, or leave it blank.' }
       : operationalNotes !== undefined && operationalNotes.length < 3 ? { field: 'outreach-case-notes', message: 'Enter operational notes of at least 3 characters, or leave them blank.' } : null
-    setProblem(refused)
+    setProblem(refused && refusal(refused))
     if (refused) { focus(refused.field); return }
     const input = { campaignId, fullName, sex, ageYears, phone, operationalNotes }
     const signature = JSON.stringify([facilityId, input])
