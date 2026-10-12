@@ -11,8 +11,16 @@ import { useActionFocus } from './actionFocus'
 
 type Stage = 'nin' | 'contact' | 'otp' | 'password' | 'complete'
 
+/**
+ * Identity refuses every enrollment call while the browser holds a sign-in, a
+ * provider's included (hid-system patient-enrollment.controller.ts, and the Google
+ * exchange for an enrollment): trying again cannot help until it is signed out.
+ */
+const SIGN_OUT_FIRST = new Set(['PATIENT_ENROLLMENT_REQUIRES_SIGN_OUT', 'GOOGLE_ONBOARDING_REQUIRES_SIGN_OUT'])
+const requiresSignOut = (reason: unknown) => isHidApiError(reason) && reason.status === 409 && SIGN_OUT_FIRST.has(reason.code)
+
 export function Enrollment() {
-  const { state, api, acceptGoogleSession } = useSession()
+  const { state, api, acceptGoogleSession, otherPortalSession } = useSession()
   const navigate = useNavigate()
   useDocumentTitle('Get your Health ID · Health ID')
   const stepFocus = useStepFocus()
@@ -35,6 +43,8 @@ export function Enrollment() {
   const [checking, setChecking] = useState(true)
   const [checkError, setCheckError] = useState(false)
   const [checkKey, setCheckKey] = useState(0)
+  const [signOutRequired, setSignOutRequired] = useState(false)
+  const signOutNote = useRef<HTMLDivElement>(null)
   const [error, setError] = useState<string | null>(null)
   const [fieldError, setFieldError] = useState(false)
   // An error about the field is spoken by its description once focus moves there,
@@ -71,6 +81,12 @@ export function Enrollment() {
         && (!isHidApiError(progress.reason) || ![401, 404].includes(progress.reason.status))
       const retried = retriedCheck.current
       retriedCheck.current = false
+      if (progress.status === 'rejected' && requiresSignOut(progress.reason)) {
+        setSignOutRequired(true)
+        setChecking(false)
+        if (retried) focusAfter(() => signOutNote.current)
+        return
+      }
       if (unavailable) {
         setCheckError(true)
         setChecking(false)
@@ -88,6 +104,11 @@ export function Enrollment() {
   if (state.status === 'authenticated') return <Navigate to="/" replace />
 
   const displayError = (reason: unknown, fromField = false, stepCodes: readonly string[] = []) => {
+    if (requiresSignOut(reason)) {
+      setSignOutRequired(true); setError(null); setFieldError(false)
+      focusAfter(() => signOutNote.current)
+      return
+    }
     const aboutField = isFieldProblem(reason, stepCodes)
     setError(isHidApiError(reason) ? reason.message : 'We could not complete that step. Please try again.')
     setFieldError(aboutField)
@@ -164,6 +185,8 @@ export function Enrollment() {
     finally { setGoogleTurnstileToken(null); setGoogleResetKey(value => value + 1); setBusy(false); stepFocus.focus() }
   }
 
+  // No step is offered while the check runs, after it failed, or while a sign-in blocks enrollment.
+  const ready = !checking && !checkError && !signOutRequired
   // The error is about the stage's field when the server refused its value.
   const invalid = fieldError ? true : undefined
   const errorId = fieldError ? 'enroll-error' : undefined
@@ -179,37 +202,47 @@ export function Enrollment() {
       </ol>
       {checking ? <p role="status">Checking for an enrollment in progress…</p> : null}
       {checkError && <div className="patient-inline-error" role="alert"><p>We could not check for an enrollment in progress. Try again before starting.</p><button ref={checkRetry} type="button" className="patient-secondary-button" onClick={() => { retriedCheck.current = true; setCheckKey(value => value + 1) }}>Try again</button></div>}
+      {signOutRequired && <div ref={signOutNote} tabIndex={-1} role="alert" className="patient-inline-error patient-session-note">
+        {otherPortalSession ? <>
+          <p>A provider sign-in is active in this browser. Sign out of the provider portal before starting a new Health ID.</p>
+          <Link to="/provider">Go to the provider portal</Link>
+        </> : <>
+          <p>This browser is still signed in to Health ID. Sign out of the patient or provider portal before starting a new Health ID.</p>
+          <Link to="/">Go to the patient portal</Link>
+          <Link to="/provider">Go to the provider portal</Link>
+        </>}
+      </div>}
       {error && <p id="enroll-error" role={errorAlert ? 'alert' : undefined} className="patient-inline-error">{error}</p>}
       {googleRequired && !googlePending && <p role="status" className="patient-inline-error">Reconnect the Google account used to start this enrollment.</p>}
-      {!checking && !checkError && stage === 'nin' && <form onSubmit={event => void submitNin(event)} className="patient-form">
+      {ready && stage === 'nin' && <form onSubmit={event => void submitNin(event)} className="patient-form">
         <label>National Identification Number<input ref={stepFocus.target} required inputMode="numeric" autoComplete="off" value={nin} onChange={event => setNin(event.target.value.replace(/\D/g, '').slice(0, 11))} pattern="[0-9]{11}" maxLength={11} placeholder="11 digits"
           aria-invalid={invalid} aria-describedby={describedBy('enroll-nin-hint', errorId)} /></label>
         <p id="enroll-nin-hint" className="patient-field-hint">Your NIN is 11 digits. It is verified by the existing Health ID identity service. It is not stored in this browser.</p>
         <Turnstile action="patient-enrollment" onTokenChange={setTurnstileToken} resetKey={resetKey} />
         <button type="submit" className="patient-primary-button" disabled={busy || !turnstileToken || nin.length !== 11 || (googleRequired && !googlePending)}>{busy ? 'Verifying…' : 'Verify NIN'}</button>
       </form>}
-      {!checking && !checkError && stage === 'contact' && <form onSubmit={event => void submitContact(event)} className="patient-form">
+      {ready && stage === 'contact' && <form onSubmit={event => void submitContact(event)} className="patient-form">
         <h2>Where should we send your code?</h2>
         <label>Contact method<select value={channel} onChange={event => setChannel(event.target.value as 'phone' | 'email')}><option value="phone">Phone</option><option value="email">Email</option></select></label>
         <label>{channel === 'phone' ? 'Phone number' : 'Email address'}<input ref={stepFocus.target} required type={channel === 'phone' ? 'tel' : 'email'} autoComplete={channel === 'phone' ? 'tel' : 'email'} value={contact} onChange={event => setContact(event.target.value)}
           aria-invalid={invalid} aria-describedby={errorId} /></label>
         <button type="submit" className="patient-primary-button" disabled={busy}>{busy ? 'Sending…' : 'Send verification code'}</button>
       </form>}
-      {!checking && !checkError && stage === 'otp' && <form onSubmit={event => void submitCode(event)} className="patient-form">
+      {ready && stage === 'otp' && <form onSubmit={event => void submitCode(event)} className="patient-form">
         <h2>Verify your contact</h2><p id="enroll-code-hint" className="patient-field-hint">Enter the six digit code sent to {maskedContact || 'your contact'}.</p>
         <label>Verification code<input ref={stepFocus.target} required inputMode="numeric" autoComplete="one-time-code" value={code} onChange={event => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))} pattern="[0-9]{6}" maxLength={6}
           aria-invalid={invalid} aria-describedby={describedBy('enroll-code-hint', errorId)} /></label>
         <button type="submit" className="patient-primary-button" disabled={busy || code.length !== 6}>{busy ? 'Checking…' : 'Verify code'}</button>
         <button type="button" className="patient-text-button" disabled={busy} onClick={() => { setCode(''); setChallengeId(null); clearError(); setStage('contact'); stepFocus.focus() }}>Request another code or change contact</button>
       </form>}
-      {!checking && !checkError && stage === 'password' && <form onSubmit={event => void submitPassword(event)} className="patient-form">
+      {ready && stage === 'password' && <form onSubmit={event => void submitPassword(event)} className="patient-form">
         <h2>Activate your account</h2><p id="enroll-password-hint" className="patient-field-hint">Choose a password of at least 12 characters.</p>
         <label>Password<input ref={stepFocus.target} required type="password" autoComplete="new-password" minLength={12} maxLength={256} value={password} onChange={event => setPassword(event.target.value)}
           aria-invalid={invalid} aria-describedby={describedBy('enroll-password-hint', errorId)} /></label>
         <button type="submit" className="patient-primary-button" disabled={busy || password.length < 12 || (googleRequired && !googlePending)}>{busy ? 'Activating…' : 'Activate Health ID'}</button>
       </form>}
-      {!checking && !checkError && stage === 'complete' && <div className="patient-success" role="status"><h2 ref={stepFocus.target} tabIndex={-1}>Your Health ID is ready.</h2><strong>{hidCode}</strong><p>Sign in with your verified email or Health ID and new password.</p><Link className="patient-primary-button" to="/sign-in">Sign in</Link></div>}
-      {import.meta.env.VITE_HID_GOOGLE_CLIENT_ID && !checking && !checkError && stage !== 'complete' && !googlePending && <section className="patient-auth-separator" aria-label="Google enrollment">
+      {ready && stage === 'complete' && <div className="patient-success" role="status"><h2 ref={stepFocus.target} tabIndex={-1}>Your Health ID is ready.</h2><strong>{hidCode}</strong><p>Sign in with your verified email or Health ID and new password.</p><Link className="patient-primary-button" to="/sign-in">Sign in</Link></div>}
+      {import.meta.env.VITE_HID_GOOGLE_CLIENT_ID && ready && stage !== 'complete' && !googlePending && <section className="patient-auth-separator" aria-label="Google enrollment">
         <span>{googleRequired ? 'Reconnect Google' : 'Continue with Google'}</span>
         <Turnstile action="patient-login" onTokenChange={setGoogleTurnstileToken} resetKey={googleResetKey} />
         <GoogleButton text="signup_with" disabled={busy || !googleTurnstileToken} onCredential={onGoogle}

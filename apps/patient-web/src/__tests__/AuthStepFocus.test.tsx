@@ -292,6 +292,19 @@ describe('patient enrollment', () => {
     expect(described(await screen.findByLabelText('National Identification Number'))).toContain('Your NIN is 11 digits.')
   })
 
+  it('a start refused because the browser holds a sign-in asks for a sign-out instead of another attempt', async () => {
+    api.enrollmentStart.mockRejectedValue(new HidApiError(409, 'Sign out before starting or continuing a new Health ID enrollment',
+      { code: 'PATIENT_ENROLLMENT_REQUIRES_SIGN_OUT' }))
+    open()
+    fireEvent.change(await screen.findByLabelText('National Identification Number'), { target: { value: '12345678901' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
+    await press('Verify NIN')
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toContain('Sign out of the patient or provider portal before starting a new Health ID.')
+    expect(screen.queryByLabelText('National Identification Number')).toBeNull()
+    await waitFor(() => expect(alert.contains(document.activeElement)).toBe(true))
+  })
+
   it('a NIN that cannot be verified: focus returns to the NIN field, marked invalid and described by the error', async () => {
     api.enrollmentStart.mockRejectedValue(new HidApiError(422, 'The NIN could not be verified', { code: 'NIN_NOT_VERIFIED' }))
     open()

@@ -248,6 +248,10 @@
   .patient-inline-error, .patient-inline-success { margin: 18px 0; padding: 12px 14px; border-radius: var(--radius-control); font-size: 14px; line-height: 1.45; }
   .patient-inline-error { background: #fff0ef; color: #9b211d; }
   .patient-inline-success { background: #ecf9f1; color: #126239; }
+  /* A note about the browser's session, such as a provider's sign-in, and the link that resolves it. */
+  .patient-session-note { display: grid; justify-items: start; gap: 6px; }
+  .patient-session-note p { margin: 0; }
+  .patient-session-note a { color: var(--color-brand); font-weight: 600; text-decoration: underline; }
   .patient-field-hint { margin: 0; color: var(--color-muted); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
   .patient-text-button { justify-self: start; padding: 0; border: 0; background: transparent; font-size: 13px; cursor: pointer; }
   .patient-step-list { display: flex; gap: 8px; margin: 26px 0 0; padding: 0; list-style: none; }

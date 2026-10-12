@@ -125,6 +125,46 @@ describe('unified authenticated portal routes', () => {
     expect(calls.patientSession).toHaveBeenCalledTimes(2)
   })
 
+  it('sends a protected patient URL to sign-in, saying so, when the browser holds a provider\'s sign-in', async () => {
+    // hid-system's staff actor carries no `kind` (auth.controller.ts session; current-staff-context.service.ts).
+    calls.patientSession.mockResolvedValue({ actor: { id: 'staff-1', subject: 'staff-1', accountId: 'account-1',
+      roles: ['clinician'], permissions: [], facilities: [] } })
+    open('/profile')
+
+    await waitFor(() => expect(screen.getByTestId('portal-path').textContent).toBe('/sign-in'))
+    expect(await screen.findByText('A provider sign-in is active in this browser. Signing in here as a patient replaces it.')).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Go to the provider portal' }).getAttribute('href')).toBe('/provider')
+    expect(screen.queryByText('We could not check your session. Try again.')).toBeNull()
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(calls.patientSession).toHaveBeenCalledOnce()
+    expect(calls.staffSession).not.toHaveBeenCalled()
+  })
+
+  it('asks for the provider portal\'s sign-out, with no retry loop, when enrollment is refused for a provider\'s sign-in', async () => {
+    calls.patientSession.mockResolvedValue({ actor: { id: 'staff-1', subject: 'staff-1', accountId: 'account-1', roles: [], permissions: [] } })
+    calls.patientEnrollmentCurrent.mockRejectedValue(new HidApiError(409, 'Sign out before starting or continuing a new Health ID enrollment',
+      { code: 'PATIENT_ENROLLMENT_REQUIRES_SIGN_OUT' }))
+    open('/enroll')
+
+    expect((await screen.findByRole('alert')).textContent)
+      .toContain('A provider sign-in is active in this browser. Sign out of the provider portal before starting a new Health ID.')
+    expect(screen.getByRole('link', { name: 'Go to the provider portal' }).getAttribute('href')).toBe('/provider')
+    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull()
+    expect(screen.queryByText(/could not check for an enrollment/)).toBeNull()
+    expect(screen.queryByRole('textbox', { name: 'National Identification Number' })).toBeNull()
+  })
+
+  it('asks for a sign-out, with no retry loop, when enrollment is refused for a sign-in the browser holds', async () => {
+    calls.patientEnrollmentCurrent.mockRejectedValue(new HidApiError(409, 'Sign out before starting or continuing a new Health ID enrollment',
+      { code: 'GOOGLE_ONBOARDING_REQUIRES_SIGN_OUT' }))
+    open('/enroll')
+
+    expect((await screen.findByRole('alert')).textContent)
+      .toContain('This browser is still signed in to Health ID. Sign out of the patient or provider portal before starting a new Health ID.')
+    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull()
+    expect(screen.queryByRole('textbox', { name: 'National Identification Number' })).toBeNull()
+  })
+
   it('opens provider sign in directly under /provider', async () => {
     open('/provider/sign-in')
 

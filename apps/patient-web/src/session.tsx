@@ -12,6 +12,11 @@ interface SessionContextValue {
   readonly state: SessionState
   readonly api: PatientApi
   readonly sessionError: string | null
+  /**
+   * The browser's shared cookies hold a provider's sign-in, not a patient's. This
+   * portal is then signed out, which is not an error: sign-in says so.
+   */
+  readonly otherPortalSession: boolean
   readonly retrySessionCheck: () => void
   readonly signIn: (email: string, password: string, turnstileToken: string) => Promise<void>
   readonly acceptGoogleSession: (session: PatientSession) => void
@@ -20,6 +25,16 @@ interface SessionContextValue {
 }
 
 const SessionContext = createContext<SessionContextValue | null>(null)
+
+/**
+ * Whether the session the browser holds belongs to the provider portal, which
+ * shares this origin and its cookies: hid-system's staff actor carries no kind
+ * (and the platform's names its own), where a patient's names `patient`.
+ */
+function heldForAnotherPortal(session: PatientSession): boolean {
+  const actor = session?.actor
+  return typeof actor === 'object' && actor !== null && actor.kind !== 'patient'
+}
 
 /** The backend is authoritative: only a verified patient actor opens this app. */
 function patientPrincipal(session: PatientSession): AuthPrincipal {
@@ -36,6 +51,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const store = storeRef.current
   const [state, setState] = useState<SessionState>(store.getState())
   const [sessionError, setSessionError] = useState<string | null>(null)
+  const [otherPortalSession, setOtherPortalSession] = useState(false)
   const [checkKey, setCheckKey] = useState(0)
 
   useEffect(() => store.subscribe(setState), [store])
@@ -76,15 +92,24 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     void (async () => {
       try {
         const session = await api.session()
-        if (active) {
-          store.setAuthenticated(patientPrincipal(session))
+        if (!active) return
+        if (heldForAnotherPortal(session)) {
+          // A provider's sign-in: no patient is signed in here, and asking again
+          // would only find it again.
+          store.setAnonymous()
           setSessionError(null)
+          setOtherPortalSession(true)
+          return
         }
+        store.setAuthenticated(patientPrincipal(session))
+        setSessionError(null)
+        setOtherPortalSession(false)
       } catch (error) {
         if (!active) return
         if (isHidApiError(error) && error.status === 401) {
           store.setAnonymous()
           setSessionError(null)
+          setOtherPortalSession(false)
         } else {
           setSessionError('We could not check your session. Try again.')
         }
@@ -94,7 +119,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, [api, store, checkKey])
 
   const value = useMemo<SessionContextValue>(() => ({
-    state, api, sessionError,
+    state, api, sessionError, otherPortalSession,
     retrySessionCheck: () => { setSessionError(null); setCheckKey(value => value + 1) },
     // A patient sign-in or sign-out replaces the session cookies this origin's other
     // tabs use, a provider's among them: they are told, naming no one.
@@ -105,12 +130,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       try {
         store.setAuthenticated(patientPrincipal(session))
         setSessionError(null)
+        setOtherPortalSession(false)
       } finally { announceSessionChange() }
     },
     acceptGoogleSession: session => {
       try {
         store.setAuthenticated(patientPrincipal(session))
         setSessionError(null)
+        setOtherPortalSession(false)
       } finally { announceSessionChange() }
     },
     refresh: async () => {
@@ -150,7 +177,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       store.clear()
       announceSessionChange()
     },
-  }), [state, api, sessionError, store])
+  }), [state, api, sessionError, otherPortalSession, store])
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>
 }
@@ -167,6 +194,7 @@ export function createTestSessionValue(principal: AuthPrincipal | null, api: Pat
     state: principal ? { status: 'authenticated', principal } : { status: 'anonymous', principal: null },
     api,
     sessionError: null,
+    otherPortalSession: false,
     retrySessionCheck: () => {},
     signIn: async () => {},
     acceptGoogleSession: () => {},
