@@ -55,6 +55,8 @@ const ACCESS_DENIED = 'Pharmacy access is not authorized'
 const WORK_ITEM_VERSION_CONFLICT = 'Dispensing must bind to the exact accepted work-item version'
 const DISPENSING_VERSION_CONFLICT = 'Reversal must bind to the exact dispensing version'
 const WORK_UNAVAILABLE = 'Pharmacy work is temporarily unavailable.'
+// What the work list says once it holds as many items as the backend sends.
+const WORK_LIST_CAP_NOTICE = 'This list can show only the 200 oldest accepted work items. Any item accepted after them is not shown and cannot be reached from this page: completing work or refreshing the list does not bring it into view. Contact your facility administrator about orders not listed here.'
 const workUnavailable = () => new HidApiError(503, WORK_UNAVAILABLE, { code: 'PHARMACY_SERVICE_UNAVAILABLE' })
 
 /** Accepted, not yet dispensed. */
@@ -865,20 +867,21 @@ describe('what the dispensing card shows of the prescription (PHARM-01)', () => 
 })
 
 describe('the work list says when the backend cut it short', () => {
-  // Pharmacy lists at most 200 work items, oldest accepted first (pharmacy.service.ts listWorkItems).
+  // Pharmacy lists at most 200 work items, oldest accepted first, every one ever accepted
+  // (work items are insert-only) and no further page (pharmacy.service.ts listWorkItems):
+  // dispensing never makes room.
   const many = (count: number) => Array.from({ length: count }, (_, n) => ({ ...accepted, id: `work-item-${n}` }))
 
-  it('notes that newer items may be missing when the list holds 200', async () => {
+  it('says that newer items cannot be reached from this page, and whom to ask, when the list holds 200', async () => {
     api.pharmacyWorkItems.mockResolvedValue({ items: many(200) })
     render(<Pharmacy />)
-    expect(await screen.findByText(/Showing the first 200 work items/)).toBeTruthy()
-    expect(screen.getByText(/Showing the first 200 work items/).textContent).toMatch(/newer items may be missing/)
+    expect((await screen.findByText(/oldest accepted work items/)).textContent).toBe(WORK_LIST_CAP_NOTICE)
   })
 
   it('says nothing of the kind for a shorter list', async () => {
     api.pharmacyWorkItems.mockResolvedValue({ items: many(199) })
     render(<Pharmacy />)
     await screen.findAllByText(AMOXICILLIN)
-    expect(screen.queryByText(/Showing the first 200 work items/)).toBeNull()
+    expect(screen.queryByText(/oldest accepted work items/)).toBeNull()
   })
 })

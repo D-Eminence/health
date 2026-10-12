@@ -55,11 +55,13 @@ function useFacilityList<T>(facilityId: string | undefined, enabled: boolean, lo
 
 // Lab and Pharmacy list at most this many work items, oldest accepted first, and
 // offer no further page (lab-work-items.service.ts list, pharmacy.service.ts listWorkItems).
+// Neither filters by status, so a completed or dispensed item stays in the list:
+// once a facility has this many, a newer one cannot be reached from here.
 const WORK_LIST_CAP = 200
 
 function WorkListCap({ count }: { count: number }) {
   if (count < WORK_LIST_CAP) return null
-  return <p className="staff-notice">Showing the first {WORK_LIST_CAP} work items, oldest accepted first; newer items may be missing. Complete or refresh work to see more.</p>
+  return <p className="staff-notice">This list can show only the {WORK_LIST_CAP} oldest accepted work items. Any item accepted after them is not shown and cannot be reached from this page: completing work or refreshing the list does not bring it into view. Contact your facility administrator about orders not listed here.</p>
 }
 
 function ListState({ loading, error, empty, retry, hasItems }: { loading: boolean; error: string; empty: string; retry: () => void; hasItems: boolean }) {

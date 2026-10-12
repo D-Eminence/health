@@ -44,6 +44,8 @@ const ACCESS_DENIED = 'Access denied. You are not authorized to view lab results
 const UNVERIFIED = 'Lab results are hidden because access to them could not be verified right now. Refresh to check again.'
 const SIGNED_OUT = 'Lab results are hidden because your session has ended. Sign in again to view them.'
 const TRANSCRIPTION_FIX = 'Transcription error corrected'
+// What the work list says once it holds as many items as the backend sends.
+const WORK_LIST_CAP_NOTICE = 'This list can show only the 200 oldest accepted work items. Any item accepted after them is not shown and cannot be reached from this page: completing work or refreshing the list does not bring it into view. Contact your facility administrator about orders not listed here.'
 
 const WORK_READ = ['lab.work-item.read']
 const ACCESSION_READ = [...WORK_READ, 'lab.accession.read']
@@ -2509,19 +2511,20 @@ describe('the result history toggle says whether the history is open', () => {
 })
 
 describe('the Laboratory work list says when the backend cut it short', () => {
-  // Lab lists at most 200 work items, oldest accepted first (lab-work-items.service.ts list).
+  // Lab lists at most 200 work items, oldest accepted first, with no status filter and no
+  // further page (lab-work-items.service.ts list): completing work never makes room.
   const many = (count: number) => Array.from({ length: count }, (_, n) => workItem({ id: `work-item-${n}` }))
 
-  it('notes that newer items may be missing when the list holds 200', async () => {
+  it('says that newer items cannot be reached from this page, and whom to ask, when the list holds 200', async () => {
     api.labWorkItems.mockResolvedValue({ items: many(200) })
     render(<Laboratory />)
-    expect((await screen.findByText(/Showing the first 200 work items/)).textContent).toMatch(/newer items may be missing/)
+    expect((await screen.findByText(/oldest accepted work items/)).textContent).toBe(WORK_LIST_CAP_NOTICE)
   })
 
   it('says nothing of the kind for a shorter list', async () => {
     api.labWorkItems.mockResolvedValue({ items: many(12) })
     render(<Laboratory />)
     await screen.findAllByText('Haemoglobin')
-    expect(screen.queryByText(/Showing the first 200 work items/)).toBeNull()
+    expect(screen.queryByText(/oldest accepted work items/)).toBeNull()
   })
 })
