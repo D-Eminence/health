@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNod
 import { Link } from 'react-router-dom'
 import { assertSignedStorageUrl, isHidApiError } from '@hid/http'
 import { Badge, Button, Card, EmptyState, Field, Input, Select, TabList, TabPanel, Textarea } from '@hid/ui'
-import { isAllowedPatientLookup, staffApi, type ClinicalRecord, type DiagnosisUpdate, type DocumentRecord, type EmergencyRecords, type Encounter, type NoteRevision, type Page, type RecordKind, type StatusRecordKind, type VitalCorrection, type VitalMeasurement, type VitalMeasurements } from '../api'
+import { isAllowedPatientLookup, staffApi, type ClinicalRecord, type DiagnosisUpdate, type DocumentRecord, type EmergencyRecords, type EmergencySection, type Encounter, type NoteRevision, type Page, type RecordKind, type StatusRecordKind, type VitalCorrection, type VitalMeasurement, type VitalMeasurements } from '../api'
 import { useStaff } from '../App'
 import { getEnvironment } from '../env'
 import { refusalText } from '../fieldProblem'
@@ -645,8 +645,9 @@ function Documents({ patientId, encounterId, facilityId, canWrite, canOcr, verif
 }
 
 // What EHR's emergency summary sends of each section at most (patient-records.service.ts
-// read()). It reports one `limit`, 100, though encounters and notes stop at 50, so
-// each section is judged by its own cap: one that reaches it may have more.
+// SECTION_LIMITS). Since hid-system #52 EHR reports each released section's limit and
+// whether it was cut short; an earlier EHR reports neither, only one `limit` that is
+// no section's cap, so there a section that reaches its cap may have more.
 const EMERGENCY_CAPS = { encounters: 50, notes: 50, diagnoses: 100, prescriptions: 100, labRequests: 100, documents: 100 } as const
 
 type BadgeTone = 'neutral' | 'information' | 'success' | 'warning' | 'danger'
@@ -697,16 +698,27 @@ function OrderStatus({ status }: { status: string }) {
   return <Badge tone={known?.tone ?? 'neutral'}>{known?.label ?? status.replaceAll('_', ' ')}</Badge>
 }
 
-function SummarySection<T extends { id: string }>({ title, items, cap, empty, note, render }: {
+/**
+ * One section of the summary. A section EHR withheld was not read for this
+ * reader, so its empty array is no answer and is never shown as "none". One EHR
+ * reports as cut short (`truncated`) says so; from an EHR that reports nothing,
+ * one that reaches its cap may have more.
+ */
+function SummarySection<T extends { id: string }>({ title, items, cap, empty, note, render, withheld = false, truncated }: {
   title: string; items: readonly T[] | undefined; cap: number; empty: string; note?: ReactNode
-  render: (item: T) => ReactNode
+  render: (item: T) => ReactNode; withheld?: boolean; truncated?: boolean
 }) {
+  if (withheld && (!Array.isArray(items) || items.length === 0)) return <Card className="staff-card"><h2>{title}</h2>
+    <p>{title} are not included in this summary: EHR did not release them to your role at this facility.</p></Card>
+  const shortened = Array.isArray(items) && (truncated ?? items.length >= cap)
   return <Card className="staff-card"><h2>{title}</h2>
     {note}
     {!Array.isArray(items) ? <p>{title} are not available in this summary.</p>
       : items.length === 0 ? <p>{empty}</p>
         : <div className="staff-list">{items.map(item => <div className="staff-list-item" key={item.id}>{render(item)}</div>)}</div>}
-    {Array.isArray(items) && items.length >= cap && <p className="staff-muted">The backend sends only the {cap} most recent; older ones are not shown.</p>}
+    {shortened && <p className="staff-muted">{truncated === undefined
+      ? `The backend sends only the ${cap} most recent; older ones are not shown.`
+      : `Only the ${cap} most recent are shown; older ones exist and are not shown.`}</p>}
   </Card>
 }
 
@@ -728,12 +740,20 @@ function EmergencySummary({ facilityId, patientId, patientName, permissions, ver
     return () => { active = false }
   }, [facilityId, patientId, verify, revision])
 
-  // The route needs only ehr.encounter.read and ehr.note.read, but answers with
-  // every section: one is shown only to a role that may read that record. That
-  // is display, kept as defence in depth, not access control: every section still
-  // reaches the browser until EHR leaves out what the role may not read.
+  // The route needs only ehr.encounter.read and ehr.note.read. Since hid-system #52
+  // EHR reads each further section only for a reader who holds its read permission
+  // and names the others withheld; an earlier EHR sends every section. Either way a
+  // section is shown only to a role that may read that record: display, kept as
+  // defence in depth, not access control, which is EHR's.
   const may = (permission: string) => permissions.includes(permission)
   const date = (value: string | null) => value ? new Date(value).toLocaleString() : ''
+  // Each section's own limit and whether EHR cut it short, where EHR reports them.
+  const sectionProps = (key: keyof typeof EMERGENCY_CAPS) => ({
+    cap: summary?.limits?.[key] ?? EMERGENCY_CAPS[key],
+    withheld: summary?.withheld?.includes(key) ?? false,
+    truncated: summary?.truncated ? summary.truncated[key] === true : undefined,
+  })
+  const released = (key: EmergencySection) => !summary?.released || summary.released.includes(key)
   return <>
     <div className="staff-page-head"><p className="staff-eyebrow">Emergency record · audited access</p><h1>{patientName}</h1>
       <p>This read-only summary holds this facility’s completed encounters and signed clinical notes, and the diagnoses, prescriptions, lab requests and documents your role may read. The server checks the active emergency grant on each request.</p>
@@ -745,22 +765,22 @@ function EmergencySummary({ facilityId, patientId, patientName, permissions, ver
     </div>
     {loading && <p role="status">Loading emergency summary…</p>}
     {error && <p className="staff-error" role="alert">{error}</p>}
-    {summary && <p className="staff-notice">Vital signs are not shown in this summary. EHR sends them as first recorded, without later corrections, so a value here could be one a clinician has since corrected.</p>}
+    {summary && released('vitals') && <p className="staff-notice">Vital signs are not shown in this summary. EHR sends them as first recorded, without later corrections, so a value here could be one a clinician has since corrected.</p>}
     {summary && <div className="staff-two-col">
-      <SummarySection title="Completed encounters" items={summary.encounters} cap={EMERGENCY_CAPS.encounters}
+      <SummarySection title="Completed encounters" items={summary.encounters} {...sectionProps('encounters')}
         empty="No completed encounters are available from this facility." render={item => <>
           <strong>{item.encounterType.replace('_', ' ')}</strong>
           <p>Started {date(item.startedAt)}</p>
           {item.endedAt && <p>Ended {date(item.endedAt)}</p>}
         </>} />
-      <SummarySection title="Signed notes" items={summary.notes} cap={EMERGENCY_CAPS.notes}
+      <SummarySection title="Signed notes" items={summary.notes} {...sectionProps('notes')}
         empty="No signed notes are available from this facility." render={item => <>
           <strong>{item.title}</strong>
           <p>{item.noteType} · {item.status} · revision {item.revisionNo}</p>
           <p className="staff-note-content">{item.content}</p>
           {item.signedAt && <p>Signed {date(item.signedAt)}</p>}
         </>} />
-      {may('ehr.diagnosis.read') && <SummarySection title="Diagnoses" cap={EMERGENCY_CAPS.diagnoses}
+      {may('ehr.diagnosis.read') && <SummarySection title="Diagnoses" {...sectionProps('diagnoses')}
         items={Array.isArray(summary.diagnoses) ? currentFirst(summary.diagnoses, diagnosisRank) : undefined}
         empty="No diagnoses are available from this facility." render={item => <>
           <div className="staff-row"><strong>{item.display}</strong>
@@ -770,7 +790,7 @@ function EmergencySummary({ facilityId, patientId, patientName, permissions, ver
           <p>{item.codeSystem} {item.code} · {item.clinicalStatus.replaceAll('_', ' ')} · {item.verificationStatus.replaceAll('_', ' ')}</p>
           {item.notes && <p className="staff-note-content">{item.notes}</p>}
         </>} />}
-      {may('ehr.prescription.read') && <SummarySection title="Prescriptions" cap={EMERGENCY_CAPS.prescriptions}
+      {may('ehr.prescription.read') && <SummarySection title="Prescriptions" {...sectionProps('prescriptions')}
         items={Array.isArray(summary.prescriptions) ? currentFirst(summary.prescriptions, item => orderRank(item.status)) : undefined}
         empty="No prescriptions are available from this facility." render={item => <>
           <div className="staff-row"><strong>{item.medicationDisplay}</strong><OrderStatus status={item.status} /></div>
@@ -779,7 +799,7 @@ function EmergencySummary({ facilityId, patientId, patientName, permissions, ver
           {item.instructions && <p className="staff-note-content">{item.instructions}</p>}
           {(item.startsOn || item.endsOn) && <p>{[item.startsOn && `Starts ${calendarDay(item.startsOn)}`, item.endsOn && `Ends ${calendarDay(item.endsOn)}`].filter(Boolean).join(' · ')}</p>}
         </>} />}
-      {may('ehr.lab-request.read') && <SummarySection title="Lab requests" cap={EMERGENCY_CAPS.labRequests}
+      {may('ehr.lab-request.read') && <SummarySection title="Lab requests" {...sectionProps('labRequests')}
         items={Array.isArray(summary.labRequests) ? currentFirst(summary.labRequests, item => orderRank(item.status)) : undefined}
         empty="No lab requests are available from this facility." render={item => <>
           <div className="staff-row"><strong>{item.testDisplay}</strong><OrderStatus status={item.status} /></div>
@@ -787,8 +807,10 @@ function EmergencySummary({ facilityId, patientId, patientName, permissions, ver
           <p>{item.testCodeSystem} {item.testCode} · {item.priority} priority · Requested {date(item.createdAt)}</p>
           {item.clinicalInformation && <p className="staff-note-content">{item.clinicalInformation}</p>}
         </>} />}
-      {may('ehr.document.read') && <SummarySection title="Documents" items={summary.documents} cap={EMERGENCY_CAPS.documents}
-        note={<p>Uploaded documents are listed for reference. They cannot be opened from this summary, and their virus scan result is not included.</p>}
+      {may('ehr.document.read') && <SummarySection title="Documents" items={summary.documents} {...sectionProps('documents')}
+        note={<p>{summary.released
+          ? 'Documents that passed the virus scan are listed for reference; they cannot be opened from this summary.'
+          : 'Uploaded documents are listed for reference. They cannot be opened from this summary, and their virus scan result is not included.'}</p>}
         empty="No uploaded documents are available from this facility." render={item => <>
           <strong>{item.fileName}</strong>
           <p>{item.mediaType} · {fileSize(item.sizeBytes)} · Uploaded {date(item.createdAt)}</p>

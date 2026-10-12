@@ -235,14 +235,23 @@ export interface NoteRevision {
   createdAt: string
 }
 
+/** The seven sections of an EHR record summary, in the order EHR names them (INTERFACE_CONTRACT.md, Record summaries). */
+export type EmergencySection = 'encounters' | 'notes' | 'vitals' | 'diagnoses' | 'prescriptions' | 'labRequests' | 'documents'
+
 /**
  * GET /ehr/patients/:patientId/emergency-records (hid-system
- * patient-records.service.ts read()): this facility's completed encounters and
- * signed notes, 50 of each, and its diagnoses, prescriptions, lab requests and
- * uploaded documents, 100 of each and in every status. EHR also returns vitals,
- * as first recorded and without corrections, and one `limit`, 100, which is not
- * each section's cap; neither is read here. pg sends numeric and bigint columns
- * as strings.
+ * patient-records.service.ts readEmergency): this facility's completed
+ * encounters and signed notes, 50 of each, and, of vitals, diagnoses,
+ * prescriptions, lab requests and documents, 100 of each in every status, but
+ * since hid-system #52 only the sections the reader holds the read permission
+ * for. `released` names those and `withheld` the others, whose arrays are then
+ * empty and mean "not released to this caller", never "no records"; `limits`
+ * and `truncated` say, per released section, the most rows it shows and whether
+ * more exist. Documents are those whose latest virus scan is clean (status
+ * 'available', scanStatus 'clean', mediaType as the scan detected it). Vitals
+ * are as first recorded, without corrections, and never shown here. An EHR before
+ * #52 sends every section, documents in every status, and one `limit` (100), and
+ * none of the four fields. pg sends numeric and bigint columns as strings.
  */
 export interface EmergencyRecords {
   encounters: Array<{
@@ -317,8 +326,17 @@ export interface EmergencyRecords {
     sizeBytes: number | string | null
     classification: string
     status: string
+    scanStatus?: string
     createdAt: string
   }>
+  // As first recorded: shown nowhere, so not typed further.
+  vitals?: Array<Record<string, unknown>>
+  released?: EmergencySection[]
+  withheld?: EmergencySection[]
+  limits?: Partial<Record<EmergencySection, number>>
+  truncated?: Partial<Record<EmergencySection, boolean>>
+  /** 50 since hid-system #52, 100 before: not any one section's cap. */
+  limit?: number
 }
 
 /**
