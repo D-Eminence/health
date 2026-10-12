@@ -639,7 +639,8 @@ function Shell() {
         <div className="staff-sidebar-footer"><Badge tone="information">{actor.roles.join(', ') || 'Staff'}</Badge><p>Access is limited to your active facility and server permissions.</p></div>
       </aside>}
       <main ref={main} className="staff-main">{signOutError && <p role="alert" className="staff-error">{signOutError}</p>}
-        {choiceNeeded ? <FacilityChoice reason={choiceNeeded} onChosen={() => setFocusHeading(true)} /> : <Outlet />}</main>
+        {/* Asked again for another reason (an answer to the choice that reports another facility), it starts afresh. */}
+        {choiceNeeded ? <FacilityChoice key={choiceNeeded} reason={choiceNeeded} onChosen={() => setFocusHeading(true)} /> : <Outlet />}</main>
     </div>
   </div>
 }

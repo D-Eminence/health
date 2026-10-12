@@ -504,11 +504,18 @@ describe('the question while a choice is saved or refused', () => {
     await open('/provider')
     await question()
     fireEvent.click(option('Ikeja Clinic'))
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    const proceed = screen.getByRole('button', { name: 'Continue' })
+    proceed.focus()
+    fireEvent.click(proceed)
 
     expect(await screen.findByText(/The facility for this sign-in is not confirmed\./)).toBeTruthy()
-    expect(screen.getByRole('heading', { name: 'Where are you working?' })).toBeTruthy()
+    const heading = screen.getByRole('heading', { name: 'Where are you working?' })
     expect(pageRequests(sent)).toEqual([])
+    // Asked afresh, for the new reason: nothing is left picked from the answer just refused, and the heading
+    // takes focus, so the new reason is read rather than changed in place unannounced.
+    expect(option('Ikeja Clinic').checked).toBe(false)
+    expect(option('Lagos General').checked).toBe(false)
+    await waitFor(() => expect(document.activeElement).toBe(heading))
   })
 })
 
