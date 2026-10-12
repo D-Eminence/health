@@ -31,7 +31,7 @@ vi.mock('../staff/api', () => ({
 }))
 vi.mock('../admin/api', () => ({
   adminApi: { session: calls.adminSession, refresh: calls.adminRefresh },
-  adminSessionAccount: () => null, setAdminSessionAccount: () => undefined,
+  adminSessionAccount: () => null, setAdminSessionAccount: () => undefined, closeAdminSession: () => undefined,
 }))
 
 function Path() {

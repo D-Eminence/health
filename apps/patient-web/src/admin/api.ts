@@ -191,18 +191,40 @@ const SESSION_END_CODES = new Set(['AUTHENTICATION_REQUIRED', 'PLATFORM_SESSION_
 
 /**
  * The administrator whose workspace is open, or null while none is (checking,
- * signed out, ended). Held in memory only. Every admin tab shares the browser's
- * platform cookies, so a refresh can answer for an administrator who signed in
- * from another tab: that has not restored this workspace's session.
+ * signing in, signed out, ended). Held in memory only. Every admin tab shares the
+ * browser's platform cookies, so a refresh can answer for an administrator who
+ * signed in from another tab: that has not restored this workspace's session.
  */
 let openAccount: string | null = null
+/**
+ * A workspace ended and no other is being opened yet (no session check or
+ * sign-in since). Requests it sent may still be refused with 401 after the
+ * browser's cookies came to hold another administrator's session; a refresh
+ * then would answer for them and the client would repeat the request, a command
+ * included, as them. So none is made until the next workspace is opened.
+ */
+let workspaceClosed = false
 
 export function adminSessionAccount(): string | null {
   return openAccount
 }
 
+/** Binds the workspace to `accountId`; with null, opens the way for one (a session check or a sign-in). */
 export function setAdminSessionAccount(accountId: string | null): void {
   openAccount = accountId
+  workspaceClosed = false
+}
+
+/** The workspace ended: no session is restored for it, or as anyone, until the next one is opened. */
+export function closeAdminSession(): void {
+  openAccount = null
+  workspaceClosed = true
+}
+
+/** The client does not repeat a request whose refresh is refused with this 401. */
+function sessionNotRestored(): HidApiError {
+  return new HidApiError(401, 'Your platform session has ended. Sign in again to continue.',
+    { code: 'AUTHENTICATION_REQUIRED', retryable: false })
 }
 
 function grant(value: PlatformSessionGrant): PlatformSessionGrant {
@@ -261,6 +283,7 @@ export const adminApi = {
   },
   session() { return request<AdminSession>('/api/v1/admin/session') },
   async refresh() {
+    if (workspaceClosed) throw sessionNotRestored()
     let refreshed: PlatformSessionGrant
     try {
       refreshed = await request<PlatformSessionGrant>('/api/v1/auth/admin/refresh', { method: 'POST', auth: 'optional' })
@@ -274,8 +297,7 @@ export const adminApi = {
     // 401, so the client does not repeat the original request as them.
     if (openAccount !== null && refreshed.actor?.accountId !== openAccount) {
       reportSessionEnded('switched')
-      throw new HidApiError(401, 'Your platform session has ended. Sign in again to continue.',
-        { code: 'AUTHENTICATION_REQUIRED', retryable: false })
+      throw sessionNotRestored()
     }
     return grant(refreshed)
   },

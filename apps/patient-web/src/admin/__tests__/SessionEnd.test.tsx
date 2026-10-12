@@ -209,6 +209,28 @@ describe('a workspace bound to the administrator who opened it', () => {
     expect(calls.filter(call => call === OVERVIEW)).toHaveLength(1)
   })
 
+  // The closing workspace's other requests may be refused only after the refresh
+  // that found another administrator has settled. A second refresh would then
+  // answer for them too, and the client would repeat the request as them: a read
+  // or a command alike.
+  it('restores no session for a request still in flight from a closed workspace', async () => {
+    const { adminApi } = await import('../api')
+    const statusChecks = vi.spyOn(adminApi, 'mfaStatus')
+    const status = later()
+    const { calls, messages } = await openAs({ [SESSION]: [sessionOf('admin-1')], [MFA]: [status.response, mfa()],
+      [OVERVIEW]: [refused('AUTHENTICATION_REQUIRED')], [REFRESH]: [grantFor('admin-2'), grantFor('admin-2')] })
+    expect(await screen.findByText(messages.switched)).toBeTruthy()
+    await act(async () => {
+      status.answer(refused('AUTHENTICATION_REQUIRED'))
+      await Promise.allSettled(statusChecks.mock.results.map(result => result.value as Promise<unknown>))
+    })
+    expect(calls.filter(call => call === REFRESH)).toHaveLength(1)
+    expect(calls.filter(call => call === MFA)).toHaveLength(1)
+    const { currentSessionWindow } = await import('../session-window')
+    expect(currentSessionWindow().idleExpiresAt).toBeNull()
+    expect(screen.getByRole('heading', { name: 'Administration sign in' })).toBeTruthy()
+  })
+
   it('repeats the request once when the refresh restores the same administrator', async () => {
     const { calls } = await openAs({ [SESSION]: [sessionOf('admin-1')],
       [OVERVIEW]: [refused('AUTHENTICATION_REQUIRED'), overview()], [REFRESH]: [grantFor('admin-1')] })

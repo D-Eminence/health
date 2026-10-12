@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
-import { adminApi, adminSessionAccount, setAdminSessionAccount, type AdminActor, type AdminSession } from './api'
+import {
+  adminApi, adminSessionAccount, closeAdminSession, setAdminSessionAccount, type AdminActor, type AdminSession,
+} from './api'
 import { ApprovalsPage } from './Approvals'
 import { AuditPage } from './Audit'
 import { BrandLogo } from '../BrandLogo'
@@ -83,7 +85,8 @@ export function App() {
 
   const end = useCallback((message: string | null) => {
     signedIn.current = false
-    setAdminSessionAccount(null)
+    // Until the next session check or sign-in, nothing this workspace sent restores a session.
+    closeAdminSession()
     clearSessionWindow()
     setSession(null)
     setNotice(message)
@@ -113,6 +116,7 @@ export function App() {
   useEffect(() => {
     let active = true
     checkingSession.current = true
+    setAdminSessionAccount(null)
     setChecking(true)
     setCheckError(null)
     // A missing or expired access token is restored once by the API client's refresh.
@@ -128,7 +132,7 @@ export function App() {
     return () => { active = false; checkingSession.current = false }
   }, [checkRevision, open])
 
-  useEffect(() => () => setAdminSessionAccount(null), [])
+  useEffect(() => () => closeAdminSession(), [])
 
   // Nothing else reveals that another tab signed a different administrator in,
   // or this one out, while this tab sent no request. When another admin tab
@@ -174,6 +178,7 @@ export function App() {
   // MFA verification or activation has already replaced the browser's platform
   // cookies and told the other admin tabs (api.ts), whether or not this workspace opens.
   async function signedInNow() {
+    setAdminSessionAccount(null)
     let value: AdminSession
     try { value = await adminApi.session() }
     catch (error) { throw new Error(failure(error, 'Platform administration could not be opened. Try again.')) }

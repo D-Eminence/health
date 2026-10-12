@@ -12,7 +12,8 @@ const api = vi.hoisted(() => ({
 }))
 const account = vi.hoisted(() => ({ id: null as string | null }))
 vi.mock('../api', () => ({ adminApi: api, newIdempotencyKey: () => 'key-1',
-  adminSessionAccount: () => account.id, setAdminSessionAccount: (id: string | null) => { account.id = id } }))
+  adminSessionAccount: () => account.id, setAdminSessionAccount: (id: string | null) => { account.id = id },
+  closeAdminSession: () => { account.id = null } }))
 vi.mock('../env', () => ({ environment: () => ({ name: 'local', turnstileSiteKey: null, apiBaseUrl: 'https://gateway.example.test' }) }))
 
 const actor = (permissions: string[]) => ({ actor: { accountId: 'admin-1', subject: 'staff:1', displayName: 'Ada Admin',
