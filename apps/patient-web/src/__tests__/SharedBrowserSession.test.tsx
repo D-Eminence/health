@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
@@ -22,15 +23,17 @@ vi.mock('../env', () => ({ getEnvironment: () => environment }))
 vi.mock('../staff/env', () => ({ getEnvironment: () => environment }))
 
 type Kind = 'staff' | 'patient'
-interface SignIn { kind: Kind; ended: boolean; rotations: number; refresh: string; access: string; accessLive: boolean }
+interface SignIn { kind: Kind; actor: { subject: string }; ended: boolean; rotations: number; refresh: string; access: string; accessLive: boolean }
 
 const PERMISSIONS = ['identity.patient.read', 'identity.consent.write', 'ehr.encounter.read']
 const facility = { id: 'facility-1', membershipId: 'member-1', organizationId: 'org-1', name: 'Lagos General', roles: ['clinician'], permissions: PERMISSIONS, isPrimary: true }
-const ACTORS: Record<Kind, object> = {
+const ACTORS: Record<Kind, { subject: string }> = {
   // hid-system's staff actor carries no `kind`.
-  staff: { id: 'staff-1', subject: 'staff-1', email: 'ada@example.test', displayName: 'Ada Clinician', roles: ['clinician'], permissions: [], facilities: [facility], facility },
-  patient: { kind: 'patient', subject: 'subject-p', patientId: 'patient-p', accountId: 'account-p' },
+  staff: { id: 'staff-1', subject: 'staff-1', email: 'ada@example.test', displayName: 'Ada Clinician', roles: ['clinician'], permissions: [], facilities: [facility], facility } as { subject: string },
+  patient: { kind: 'patient', subject: 'subject-p', patientId: 'patient-p', accountId: 'account-p' } as { subject: string },
 }
+/** A second patient, signing in on the same browser. */
+const PATIENT_B = { kind: 'patient', subject: 'subject-b', patientId: 'patient-b', accountId: 'account-b' }
 
 function fakeIdentity() {
   let counter = 0
@@ -52,7 +55,7 @@ function fakeIdentity() {
   const json = (body: unknown, status = 200, headers: Record<string, string> = {}) =>
     new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', ...headers } })
   const problem = (status: number, code: string, detail = code) => json({ type: 'about:blank', title: code, status, code, detail }, status)
-  const session = (signIn: SignIn) => json({ actor: ACTORS[signIn.kind], expiresAt: '2026-10-12T12:00:00.000Z' }, 200, { 'X-CSRF-Token': jar.csrf ?? '' })
+  const session = (signIn: SignIn) => json({ actor: signIn.actor, expiresAt: '2026-10-12T12:00:00.000Z' }, 200, { 'X-CSRF-Token': jar.csrf ?? '' })
   const namedKind = (client: string | null): Kind | undefined => client === 'staff-web' ? 'staff' : client === 'patient-web' ? 'patient' : undefined
   const mismatch = (kind: Kind, client: string | null) => problem(403, 'SESSION_CLIENT_MISMATCH', `This sign-in belongs to the ${kind} application, not ${client}`)
 
@@ -94,7 +97,7 @@ function fakeIdentity() {
       case 'GET /api/v1/identity/me': {
         const live = byAccess()
         if (!live) return problem(401, 'AUTHENTICATION_REQUIRED', 'Valid authentication is required')
-        return live.kind === 'patient' ? json({ hid: 'HID-PATIENTP' }) : problem(403, 'PATIENT_SESSION_REQUIRED')
+        return live.kind === 'patient' ? json({ hid: `HID-${live.actor.subject.toUpperCase()}` }) : problem(403, 'PATIENT_SESSION_REQUIRED')
       }
       case 'GET /api/v1/identity/access-requests': {
         const live = byAccess()
@@ -109,11 +112,17 @@ function fakeIdentity() {
   return {
     sent, jar,
     /** A sign-in from another tab: it replaces the browser's cookies. */
-    signIn(kind: Kind) {
-      const signIn: SignIn = { kind, ended: false, rotations: 0, refresh: '', access: '', accessLive: false }
+    signIn(kind: Kind, actor = ACTORS[kind]) {
+      const signIn: SignIn = { kind, actor, ended: false, rotations: 0, refresh: '', access: '', accessLive: false }
       signIns.push(signIn)
       issue(signIn)
       return signIn
+    },
+    /** A sign-out from another tab: the session ends and the browser's cookies are cleared. */
+    signOutElsewhere() {
+      const signIn = byRefresh()
+      if (signIn) signIn.ended = true
+      clear()
     },
     /** The 15-minute access cookie lapses; the refresh cookie lasts hours. */
     expireAccess() { for (const signIn of signIns) signIn.accessLive = false },
@@ -230,5 +239,194 @@ describe('one browser, both portals (hid-system #39 contract)', () => {
     await act(async () => { screen.getByRole('button', { name: 'Read profile' }).click() })
     await waitFor(() => expect(profileOutcome).toBe('loaded'))
     expect(patient.rotations).toBe(1)
+  })
+})
+
+/** The origin's tabs, as BroadcastChannel connects them: a channel never hears its own messages. */
+class TabBus extends EventTarget {
+  static open = new Set<TabBus>()
+  constructor(readonly name: string) { super(); TabBus.open.add(this) }
+  postMessage(data: unknown) {
+    for (const other of TabBus.open) {
+      if (other !== this && other.name === this.name) setTimeout(() => other.dispatchEvent(new MessageEvent('message', { data })), 0)
+    }
+  }
+  close() { TabBus.open.delete(this) }
+}
+/** Another tab of the origin saying the browser's session changed. */
+const anotherTab = async () => { await act(async () => { new TabBus('hid-session-change').postMessage('changed'); await new Promise(resolve => setTimeout(resolve, 0)) }) }
+
+let visibility: DocumentVisibilityState = 'visible'
+function becomeVisible() {
+  visibility = 'hidden'; document.dispatchEvent(new Event('visibilitychange'))
+  visibility = 'visible'; document.dispatchEvent(new Event('visibilitychange'))
+}
+
+/** A patient tab showing the patient's own data while it is signed in. */
+function RecordsTab() {
+  const { state, api, signedOutElsewhere } = useSession()
+  const [hid, setHid] = useState<string | null>(null)
+  useEffect(() => {
+    if (state.status !== 'authenticated') { setHid(null); return }
+    void api.profile().then(profile => setHid((profile as { hid: string }).hid), () => undefined)
+  }, [state.status, api])
+  return <section aria-label="Patient tab">
+    <output data-testid="patient-status">{state.status}</output>
+    {state.status === 'authenticated' && hid && <p>{hid}</p>}
+    {signedOutElsewhere && <p>Signed out in another tab</p>}
+    <button type="button" onClick={() => { void api.profile().then(() => { profileOutcome = 'loaded' }, (error: { status?: number }) => { profileOutcome = String(error.status) }) }}>Read profile</button>
+  </section>
+}
+
+async function openRecordsTab() {
+  render(<SessionProvider><RecordsTab /></SessionProvider>)
+  expect(await screen.findByText('HID-SUBJECT-P')).toBeTruthy()
+}
+
+describe('a patient tab is bound to the patient it shows (SEC-PATIENT-XTAB)', () => {
+  beforeEach(() => {
+    visibility = 'visible'
+    vi.spyOn(document, 'visibilityState', 'get').mockImplementation(() => visibility)
+  })
+
+  it('a sign-out in another tab, heard on the channel, signs this tab out and takes the patient\'s data off screen', async () => {
+    vi.stubGlobal('BroadcastChannel', TabBus)
+    const identity = fakeIdentity()
+    identity.install()
+    identity.signIn('patient')
+    await openRecordsTab()
+
+    identity.signOutElsewhere()
+    await anotherTab()
+
+    await waitFor(() => expect(patientStatus()).toBe('anonymous'))
+    expect(screen.queryByText('HID-SUBJECT-P')).toBeNull()
+    expect(screen.getByText('Signed out in another tab')).toBeTruthy()
+  })
+
+  it('another patient\'s sign-in, heard on the channel, signs this tab out without reading as that patient', async () => {
+    vi.stubGlobal('BroadcastChannel', TabBus)
+    const identity = fakeIdentity()
+    identity.install()
+    identity.signIn('patient')
+    await openRecordsTab()
+
+    identity.signIn('patient', PATIENT_B)
+    await anotherTab()
+
+    await waitFor(() => expect(patientStatus()).toBe('anonymous'))
+    expect(document.body.textContent).not.toMatch(/HID-SUBJECT-[PB]/)
+    expect(identity.sent.filter(call => call.route === 'GET /api/v1/identity/me')).toHaveLength(1)
+  })
+
+  it('a provider\'s sign-in, heard on the channel, signs this tab out', async () => {
+    vi.stubGlobal('BroadcastChannel', TabBus)
+    const identity = fakeIdentity()
+    identity.install()
+    identity.signIn('patient')
+    await openRecordsTab()
+
+    identity.signIn('staff')
+    await anotherTab()
+    await waitFor(() => expect(patientStatus()).toBe('anonymous'))
+    expect(screen.queryByText('HID-SUBJECT-P')).toBeNull()
+  })
+
+  it('a refresh that answers for another patient is not this tab\'s session: nothing is repeated as that patient', async () => {
+    const identity = fakeIdentity()
+    identity.install()
+    identity.signIn('patient')
+    await openPatientTab()
+    identity.signIn('patient', PATIENT_B)
+    identity.expireAccess()
+
+    profileOutcome = undefined
+    await act(async () => { screen.getByRole('button', { name: 'Read profile' }).click() })
+    await waitFor(() => expect(profileOutcome).toBeDefined())
+
+    expect(profileOutcome).toBe('401')
+    expect(patientStatus()).toBe('anonymous')
+    expect(identity.sent.filter(call => call.route === 'GET /api/v1/identity/me')).toHaveLength(1)
+  })
+
+  it('coming back into view after another patient signed in, with their access cookie live, signs this tab out', async () => {
+    const identity = fakeIdentity()
+    identity.install()
+    identity.signIn('patient')
+    await openRecordsTab()
+    identity.signIn('patient', PATIENT_B)
+
+    await act(async () => { becomeVisible() })
+    await waitFor(() => expect(patientStatus()).toBe('anonymous'))
+    expect(screen.queryByText('HID-SUBJECT-P')).toBeNull()
+    expect(identity.sent.filter(call => call.route === 'GET /api/v1/identity/me')).toHaveLength(1)
+  })
+
+  it('coming back into view after the access token expired restores this patient\'s session and keeps the tab', async () => {
+    const identity = fakeIdentity()
+    identity.install()
+    const patient = identity.signIn('patient')
+    await openRecordsTab()
+    identity.expireAccess()
+
+    await act(async () => { becomeVisible() })
+    await waitFor(() => expect(patient.rotations).toBe(1))
+    await settle()
+    expect(patientStatus()).toBe('authenticated')
+    expect(screen.getByText('HID-SUBJECT-P')).toBeTruthy()
+  })
+
+  it('coming back into view while the service cannot be reached keeps the tab', async () => {
+    const identity = fakeIdentity()
+    identity.install()
+    identity.signIn('patient')
+    await openRecordsTab()
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch') }))
+
+    await act(async () => { becomeVisible() })
+    await settle()
+    expect(patientStatus()).toBe('authenticated')
+    expect(screen.getByText('HID-SUBJECT-P')).toBeTruthy()
+  })
+
+  it('the portal leaves the patient\'s pages for sign-in, which says why', async () => {
+    vi.stubGlobal('BroadcastChannel', TabBus)
+    const identity = fakeIdentity()
+    identity.install()
+    identity.signIn('patient')
+    const { App } = await import('../App')
+    render(<MemoryRouter initialEntries={['/']}><App /></MemoryRouter>)
+    expect(await screen.findByText('HID-SUBJECT-P')).toBeTruthy()
+
+    identity.signOutElsewhere()
+    await anotherTab()
+
+    expect((await screen.findByRole('alert')).textContent)
+      .toBe('You were signed out because this browser\'s Health ID sign-in changed in another tab or window. Sign in again to continue.')
+    expect(screen.getByRole('heading', { level: 1, name: 'Welcome back.' })).toBeTruthy()
+    expect(screen.queryByText('HID-SUBJECT-P')).toBeNull()
+  })
+
+  it('a tab does not hear its own sign-in, and asks the server nothing more', async () => {
+    vi.stubGlobal('BroadcastChannel', TabBus)
+    const identity = fakeIdentity()
+    identity.install()
+    function SignInTab() {
+      const { state, signIn } = useSession()
+      return <><output data-testid="patient-status">{state.status}</output>
+        <button type="button" onClick={() => { void signIn('patient@example.test', 'correct horse', 'token').catch(() => undefined) }}>Sign in</button></>
+    }
+    vi.stubGlobal('fetch', vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const route = `${String(init?.method ?? 'GET')} ${new URL(String(url)).pathname}`
+      identity.sent.push({ route, client: null })
+      if (route === 'POST /api/v1/auth/patient/login') { identity.signIn('patient'); return new Response(JSON.stringify({ actor: ACTORS.patient }), { status: 200, headers: { 'Content-Type': 'application/json' } }) }
+      return new Response(JSON.stringify({ status: 401, code: 'AUTHENTICATION_REQUIRED', detail: 'Valid authentication is required' }), { status: 401, headers: { 'Content-Type': 'application/json' } })
+    }))
+    render(<SessionProvider><SignInTab /></SessionProvider>)
+    await waitFor(() => expect(patientStatus()).toBe('anonymous'))
+    await act(async () => { screen.getByRole('button', { name: 'Sign in' }).click() })
+    await waitFor(() => expect(patientStatus()).toBe('authenticated'))
+    await settle()
+    expect(identity.sent.filter(call => call.route === 'GET /api/v1/auth/session')).toHaveLength(1)
   })
 })

@@ -167,8 +167,9 @@ export function createPatientApi(client: ApiClient) {
 
   return {
     session: () => call<PatientSession>('GET', 'auth/session'),
-    // Windows of the portal take turns to refresh; one that waited reads the session first.
-    refresh: () => refreshInTurn(() => call<PatientSession>('GET', 'auth/session').then(session => session?.actor ? session : null, () => null),
+    // Windows of the portal take turns to refresh; one that waited reads the session
+    // first, and takes only a patient's as restored: a provider's is refreshed, and refused.
+    refresh: () => refreshInTurn(() => call<PatientSession>('GET', 'auth/session').then(session => session?.actor?.kind === 'patient' ? session : null, () => null),
       () => call<PatientSession>('POST', 'auth/refresh')),
     // A sign-in waits for another window's refresh, whose answer would otherwise replace its cookies.
     login: (email: string, password: string, turnstileToken: string) =>

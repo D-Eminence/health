@@ -8,7 +8,7 @@ import { useSession } from '../session'
 import { useDocumentTitle } from '../authSteps'
 
 export function SignIn() {
-  const { state, sessionError, otherPortalSession, signIn, acceptGoogleSession, api } = useSession()
+  const { state, sessionError, otherPortalSession, signedOutElsewhere, signIn, acceptGoogleSession, api } = useSession()
   const navigate = useNavigate()
   useDocumentTitle('Sign in · Health ID')
   const [email, setEmail] = useState('')
@@ -62,6 +62,7 @@ export function SignIn() {
       <h1 id="sign-in-title" className="patient-page-title">Welcome back.</h1>
       <p className="patient-page-copy">Sign in to view your health information and manage access to it.</p>
       {(error || sessionError) && <p role="alert" className="patient-inline-error">{error || sessionError}</p>}
+      {signedOutElsewhere && !error && <p role="alert" className="patient-inline-error">You were signed out because this browser's Health ID sign-in changed in another tab or window. Sign in again to continue.</p>}
       {otherPortalSession && <div className="patient-session-note">
         <p>A provider sign-in is active in this browser. Signing in here as a patient replaces it.</p>
         <Link to="/provider">Go to the provider portal</Link>
