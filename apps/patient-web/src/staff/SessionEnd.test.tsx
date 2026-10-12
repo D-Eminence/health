@@ -1263,6 +1263,32 @@ describe('a document upload', () => {
 })
 
 describe('opening the workspace', () => {
+  it('scrolls only the narrow-screen navigation strip to show a link that gets keyboard focus', async () => {
+    // Below 900px the navigation is a horizontal strip. Chromium does not scroll a focused link that is
+    // partly showing, so tabbing backwards left one as a sliver at the strip's edge (measured at 390px).
+    const pageScroll = vi.fn()
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', { configurable: true, value: pageScroll })
+    try {
+      serve({ [SESSION]: [json(staffSession())], [REQUESTS]: [json([])] })
+      await open('/provider/patients')
+      const link = await screen.findByRole('link', { name: /^Clinical record/ })
+      const strip = link.closest('nav')!
+      let left = 79
+      Object.defineProperty(strip, 'scrollLeft', { configurable: true, get: () => left, set: (value: number) => { left = value } })
+      Object.defineProperty(strip, 'scrollWidth', { configurable: true, value: 556 })
+      Object.defineProperty(strip, 'clientWidth', { configurable: true, value: 362 })
+      strip.getBoundingClientRect = () => ({ left: 14, right: 376, top: 80, bottom: 121, width: 362, height: 41, x: 14, y: 80, toJSON: () => ({}) })
+      link.getBoundingClientRect = () => ({ left: -65, right: 15, top: 80, bottom: 119, width: 80, height: 39, x: -65, y: 80, toJSON: () => ({}) })
+      // Keyboard focus: jsdom never matches :focus-visible, Chromium does after Tab.
+      link.matches = (selector: string) => selector === ':focus-visible' || Element.prototype.matches.call(link, selector)
+
+      act(() => link.focus())
+
+      expect(left).toBe(0)
+      expect(pageScroll).not.toHaveBeenCalled()
+    } finally { Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView') }
+  })
+
   it('keeps a newer sign-in when the opening session check answers late', async () => {
     const opening = deferredResponse()
     serve({ [SESSION]: [opening.answer], [LOGIN]: [json(staffSession('staff-2', 'Bola Nurse'))], [REQUESTS]: [json([])] })

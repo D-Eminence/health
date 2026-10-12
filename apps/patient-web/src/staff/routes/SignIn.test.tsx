@@ -88,3 +88,19 @@ it('keeps password recovery on this site where the portal is not a product site'
   expect(screen.getByRole('link', { name: 'Forgot your password?' }).getAttribute('href')).toBe('/provider/recover')
   expect(screen.queryByText(/Password resets are done on the main Health ID site/)).toBeNull()
 })
+
+it.each([
+  [260, 'compact'],
+  [320, 'normal'],
+  [0, 'normal'],
+])('fits the security check into a %ipx slot with the %s widget', async (slot, size) => {
+  // Cloudflare's normal widget is 300px wide; at 320px the sign-in column leaves 280px.
+  Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, get: () => slot })
+  const renderChallenge = vi.fn((_host: HTMLElement, _options: Record<string, unknown>) => 'widget-1')
+  vi.stubGlobal('turnstile', { render: renderChallenge, remove: vi.fn(), reset: vi.fn() })
+  try {
+    render(<MemoryRouter><SignIn /></MemoryRouter>)
+    await waitFor(() => expect(renderChallenge).toHaveBeenCalledTimes(1))
+    expect(renderChallenge.mock.calls[0]?.[1]).toMatchObject({ size })
+  } finally { Reflect.deleteProperty(HTMLElement.prototype, 'clientWidth') }
+})
