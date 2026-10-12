@@ -19,6 +19,17 @@ type Stage = 'nin' | 'contact' | 'otp' | 'password' | 'complete'
 const SIGN_OUT_FIRST = new Set(['PATIENT_ENROLLMENT_REQUIRES_SIGN_OUT', 'GOOGLE_ONBOARDING_REQUIRES_SIGN_OUT'])
 const requiresSignOut = (reason: unknown) => isHidApiError(reason) && reason.status === 409 && SIGN_OUT_FIRST.has(reason.code)
 
+/**
+ * Since hid-system #50 every sign-in, refresh and sign-out in this browser expires
+ * the enrollment cookie, and each step then answers 404 ENROLLMENT_NOT_FOUND
+ * (patient-enrollment.service.ts requireEnrollment). The start sent again with the
+ * same key and NIN restores it (the key is kept for as long as this page is), while
+ * a new key is refused as a duplicate for a day.
+ */
+const enrollmentEnded = (reason: unknown) => isHidApiError(reason) && reason.status === 404 && reason.code === 'ENROLLMENT_NOT_FOUND'
+const ENDED_HERE = 'This enrollment ended on this device because someone signed in or out here. Enter the same NIN to continue it.'
+const ENDS_ENROLLMENT = 'Signing out also ends an enrollment in progress on this device; continue it by entering the same NIN before reloading this page.'
+
 export function Enrollment() {
   const { state, api, acceptGoogleSession, otherPortalSession, retrySessionCheck } = useSession()
   const navigate = useNavigate()
@@ -62,6 +73,15 @@ export function Enrollment() {
   const retriedCheck = useRef(false)
   const checkRetry = useRef<HTMLButtonElement>(null)
   const focusAfter = useActionFocus()
+  // The step shown, for the check, which runs apart from any one render.
+  const stageShown = useRef<Stage>(stage)
+  useEffect(() => { stageShown.current = stage }, [stage])
+
+  // Back to the NIN step, the enrollment's challenge and contact gone with it.
+  const restartAtNin = () => {
+    setStage('nin'); setChallengeId(null); setMaskedContact(''); setCode(''); setPassword('')
+    setError(ENDED_HERE); setFieldError(false); setErrorAlert(true)
+  }
 
   const applyProgress = (progress: EnrollmentProgress) => {
     setGoogleRequired(progress.googleOnboardingRequired === true)
@@ -101,6 +121,8 @@ export function Enrollment() {
         return
       }
       if (progress.status === 'fulfilled') applyProgress(progress.value)
+      // An enrollment this page had reached a step of is gone: it ended here.
+      else if (enrollmentEnded(progress.reason) && ['contact', 'otp', 'password'].includes(stageShown.current)) restartAtNin()
       if (google.status === 'fulfilled' && new Date(google.value.expiresAt).getTime() > Date.now()) setGooglePending(true)
       setChecking(false)
       if (retried) stepFocus.focus()
@@ -111,6 +133,7 @@ export function Enrollment() {
   if (state.status === 'authenticated') return <Navigate to="/" replace />
 
   const displayError = (reason: unknown, fromField = false, stepCodes: readonly string[] = []) => {
+    if (enrollmentEnded(reason)) return restartAtNin()
     if (requiresSignOut(reason)) {
       setSignOutRequired(true); setSignOutAlert(false); setError(null); setFieldError(false)
       focusAfter(() => signOutNote.current)
@@ -212,11 +235,13 @@ export function Enrollment() {
       {signOutRequired && <div ref={signOutNote} tabIndex={-1} role="group" aria-labelledby="enroll-sign-out" className="patient-inline-error patient-session-note">
         {otherPortalSession ? <>
           <p id="enroll-sign-out" role={signOutAlert ? 'alert' : undefined}>A provider sign-in is active in this browser. Sign out of the provider portal before starting a new Health ID.</p>
+          <p>{ENDS_ENROLLMENT}</p>
           <Link to="/provider">Go to the provider portal</Link>
         </> : <>
           <p id="enroll-sign-out" role={signOutAlert ? 'alert' : undefined}>This browser is still signed in to Health ID. Sign out of the patient or provider portal before starting a new Health ID.</p>
           {/* No link to the patient portal: this tab has no patient session, so it would open sign-in. Check again opens it once the session check finds the patient. */}
           <p>If a patient is signed in, Check again opens the patient portal, where you can sign out.</p>
+          <p>{ENDS_ENROLLMENT}</p>
           <Link to="/provider">Go to the provider portal</Link>
         </>}
         {/* Once it is signed out elsewhere, as asked, the browser's session and the enrollment are checked again. */}
