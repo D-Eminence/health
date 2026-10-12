@@ -339,6 +339,41 @@ describe('unified authenticated portal routes', () => {
     expect(await screen.findByText('Active lab request created and accepted by Lab.')).toBeTruthy()
   })
 
+  it('keeps an active laboratory request Lab refused as saved, without creating it again or naming its ID', async () => {
+    const facility = {
+      id: 'facility-1', membershipId: 'membership-1', organizationId: 'organization-1',
+      name: 'Example Clinic', roles: ['clinician'],
+      permissions: ['identity.patient.read', 'ehr.encounter.read', 'ehr.lab-request.read', 'ehr.lab-request.write'],
+      isPrimary: true,
+    }
+    calls.staffSession.mockResolvedValue({ actor: {
+      kind: 'staff', id: 'staff-1', displayName: 'Ada Clinician', roles: ['clinician'],
+      permissions: facility.permissions, facilities: [facility], facility,
+    } })
+    // hid-system #56: the request is committed and active; Lab refused it.
+    calls.staffCreateRecord.mockRejectedValue(new HidApiError(409,
+      'Lab request 0f2b6d0e-6a55-4b4c-9a7e-2f4b8c1d3e5a is saved and active in the EHR, but Lab refused it (LAB_ACCESS_DENIED); send it to Lab again once that is resolved',
+      { code: 'LAB_HANDOFF_REFUSED' }))
+
+    open('/provider/patients')
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Health ID' }), { target: { value: 'HID-ABC234' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Verify access' }))
+    fireEvent.click(await screen.findByRole('tab', { name: 'Lab requests' }))
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Test code system' }), { target: { value: 'LOINC' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Test code' }), { target: { value: '718-7' } })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Test display' }), { target: { value: 'Hemoglobin' } })
+    fireEvent.change(screen.getByRole('combobox', { name: 'Request handling' }), { target: { value: 'active' } })
+    const readsBefore = calls.staffRecords.mock.calls.length
+    fireEvent.click(screen.getByRole('button', { name: 'Create lab request' }))
+
+    expect((await screen.findByText(/^Lab request saved and active in the EHR/)).textContent).toMatch(/Lab refused it \(LAB_ACCESS_DENIED\)/)
+    expect(calls.staffRecords.mock.calls.length).toBeGreaterThan(readsBefore)
+    expect((screen.getByRole('textbox', { name: 'Test display' }) as HTMLInputElement).value).toBe('')
+    expect(document.body.textContent).not.toMatch(/0f2b6d0e/)
+    expect(screen.queryByText(/accepted by Lab/)).toBeNull()
+    expect(calls.staffCreateRecord).toHaveBeenCalledOnce()
+  })
+
   it('uses only the read-only emergency summary after an audited break-glass grant', async () => {
     const facility = {
       id: 'facility-1', membershipId: 'membership-1', organizationId: 'organization-1',

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNod
 import { Link } from 'react-router-dom'
 import { assertSignedStorageUrl, isHidApiError } from '@hid/http'
 import { Badge, Button, Card, EmptyState, Field, Input, Select, TabList, TabPanel, Textarea } from '@hid/ui'
-import { isAllowedPatientLookup, staffApi, type ClinicalRecord, type DiagnosisUpdate, type DocumentRecord, type EmergencyRecords, type EmergencySection, type Encounter, type NoteRevision, type Page, type RecordKind, type StatusRecordKind, type VitalCorrection, type VitalMeasurement, type VitalMeasurements } from '../api'
+import { isAllowedPatientLookup, staffApi, type ClinicalRecord, type DiagnosisUpdate, type DocumentRecord, type EmergencyRecords, type EmergencySection, type Encounter, type LabHandoff, type NoteRevision, type Page, type RecordKind, type SavedRecord, type StatusRecordKind, type VitalCorrection, type VitalMeasurement, type VitalMeasurements } from '../api'
 import { useStaff } from '../App'
 import { getEnvironment } from '../env'
 import { refusalText } from '../fieldProblem'
@@ -79,10 +79,135 @@ const noteTransitions: Readonly<Record<string, readonly StatusOption[]>> = {
   signed: [{ value: 'entered_in_error', label: 'Mark entered in error' }],
   amended: [{ value: 'entered_in_error', label: 'Mark entered in error' }],
 }
-// EHR allows draft → active too, but that PATCH never reaches Lab, and no change
-// to a request Lab has accepted is passed to Lab: only a draft is offered changes.
-const labRequestTransitions: Readonly<Record<string, readonly StatusOption[]>> = {
-  draft: [{ value: 'cancelled', label: 'Cancel' }, { value: 'entered_in_error', label: 'Mark entered in error' }],
+/**
+ * A lab request's status changes. Since hid-system #56 EHR sends a request to Lab
+ * whenever a change leaves it active: activating a draft, resuming a held request
+ * (lab-requests.service.ts update). It sends it only for an actor who holds
+ * lab.work-item.accept, so for anyone else the choice says it is not sent. Holding,
+ * completing, cancelling or marking entered in error a request Lab may hold is not
+ * passed to Lab, which keeps working on the version it accepted, so none is offered
+ * for an active or held request; a draft, which Lab never received, may be cancelled
+ * or marked entered in error.
+ */
+function labRequestChoices(status: string, canSend: boolean): readonly StatusOption[] {
+  const activate = (verb: string) => ({ value: 'active', label: canSend ? `${verb} and send to Lab` : `${verb} in the EHR only (not sent to Lab)` })
+  // Sending an order is never the choice made by default: it is chosen deliberately.
+  if (status === 'draft') return [{ value: 'cancelled', label: 'Cancel' },
+    { value: 'entered_in_error', label: 'Mark entered in error' }, activate('Activate')]
+  if (status === 'on_hold') return [activate('Resume')]
+  return []
+}
+
+/** What is said under an active or held lab request about the changes not offered. */
+const LAB_NOT_TOLD: Readonly<Record<string, string>> = {
+  active: 'Lab may already be working on this request. Holding, cancelling, completing or marking it entered in error is not passed to Lab, which keeps working on the version it accepted, so none of these is offered here; contact the laboratory to stop or correct it.',
+  on_hold: 'Putting this request on hold was not passed to Lab, which may still be working on the version it accepted. Cancelling it or marking it entered in error would not be passed to Lab either, so neither is offered here; contact the laboratory to stop or correct it.',
+}
+
+/** A code from Lab as EHR reports it (lab-requests.service.ts LAB_CODE), or nothing. */
+function labCode(value: unknown): string | undefined {
+  return typeof value === 'string' && /^[A-Z][A-Z0-9_]{0,63}$/.test(value) ? value : undefined
+}
+
+/**
+ * The saved request, and Lab's code, that a create's 409 LAB_HANDOFF_REFUSED names
+ * in its detail (lab-requests.service.ts handoffProblem). A 502's detail is hidden
+ * by EHR, so it names neither. Neither is ever shown: the ID is only where focus goes.
+ */
+function handoffNames(message: string) {
+  const named = /Lab request ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}) is saved and active in the EHR, but Lab refused it \(([A-Z][A-Z0-9_]{0,63})\)/i.exec(message)
+  return { requestId: named?.[1], code: named?.[2] }
+}
+
+/** Where a saved request is sent from: this role's Send to Lab, or someone else's. */
+function sendItFrom(canSend: boolean) {
+  return canSend ? 'use Send to Lab on the request' : 'someone who may send requests to Lab must use Send to Lab on the request'
+}
+
+/**
+ * What an active lab request's save says about Lab (hid-system #56 labHandoff).
+ * `done` is the change made ("created", "activated", "resumed"); only Lab's
+ * acceptance is a plain success. An EHR before #56 reports no handoff after a
+ * status change, and sent nothing to Lab, which is said as Lab not being asked.
+ */
+function labHandoffOutcome(handoff: LabHandoff | null, done: string, canSend: boolean): { readonly text: string; readonly accepted: boolean } {
+  switch (handoff?.state) {
+    case 'accepted':
+      return { accepted: true, text: `Lab request ${done} and accepted by Lab.` }
+    case 'already_accepted':
+      return { accepted: false, text: `Lab request ${done} in the EHR, but Lab holds an earlier version of it, so this change is not in Lab. Contact the laboratory.` }
+    case 'failed': {
+      if (handoff.code === 'LAB_ORDER_NOT_CURRENT') return { accepted: false, text: `Lab request ${done} in the EHR, but it changed again before Lab accepted it, and Lab may hold that later version. The list was reloaded: check the request, and if it is still needed, ${sendItFrom(canSend)}.` }
+      const code = labCode(handoff.code)
+      return { accepted: false, text: `Lab request ${done} in the EHR: its status is saved, but Lab did not accept it${code ? ` (${code})` : ''}. To send it again, ${sendItFrom(canSend)}.` }
+    }
+    case 'not_sent':
+      return { accepted: false, text: `Lab request ${done} in the EHR, not sent to Lab: your role cannot send requests to Lab. Someone who may send requests to Lab must use Send to Lab on it.` }
+    default:
+      return { accepted: false, text: `Lab request ${done} in the EHR; Lab was not asked to accept it, so the Laboratory does not have it. Contact the laboratory to order the test.` }
+  }
+}
+
+/** A Send to Lab that did not reach Lab's acceptance: what to say, and whether the list changed under it. */
+interface LabSendRefusal { readonly text: string; readonly reload?: boolean; readonly retry?: boolean }
+
+/**
+ * What a refused POST .../lab-work-item means (lab-requests.service.ts sendToLab).
+ * Its problem details are not shown: Lab's pass through as Lab wrote them, and a
+ * handoff problem names the request.
+ */
+function labSendRefusal(caught: unknown): LabSendRefusal {
+  if (!isHidApiError(caught)) return { retry: true, text: refusalText(caught, 'The lab request could not be sent to Lab. Send it again.') }
+  if (caught.status === 412 || caught.code === 'LAB_ORDER_NOT_CURRENT') return { reload: true,
+    text: 'This lab request changed since it was loaded, so it was not sent to Lab. The list was reloaded: check the request, and send it again if it is still needed.' }
+  if (caught.code === 'LAB_REQUEST_NOT_ELIGIBLE') return { reload: true,
+    text: 'This lab request is no longer active, so it was not sent to Lab. The list was reloaded.' }
+  if (caught.code === 'LAB_ORDER_ALREADY_ACCEPTED') return {
+    text: 'Lab already holds an earlier version of this request, so this version was not sent and its changes are not in Lab. Contact the laboratory.' }
+  if (caught.code === 'LAB_ACCESS_DENIED') return { text: 'Lab does not allow you to accept this order for this patient.' }
+  if (caught.status === 502 || caught.code === 'LAB_HANDOFF_UNCONFIRMED') return { retry: true,
+    text: 'Lab did not confirm that it accepted this request, so the Laboratory may not have it: send again.' }
+  if (caught.status === 0 || caught.status === 408 || caught.status >= 500) return { retry: true,
+    text: `${refusalText(caught, 'The service did not answer.')} The request may not have reached Lab: send it again.` }
+  if (caught.status === 404) return { reload: true,
+    text: 'The EHR did not find this lab request to send, or cannot send a saved request to Lab. The list was reloaded; contact the laboratory if the test is still needed.' }
+  if (caught.status === 401) return { text: refusalText(caught, 'Sign in again to send this request to Lab.') }
+  const code = labCode(caught.code)
+  return { text: `This lab request was not sent to Lab: it was refused${code ? ` (${code})` : ''}. Contact the laboratory if the test is still needed.` }
+}
+
+class LabSendError extends Error {
+  constructor(message: string, readonly retry: boolean) { super(message) }
+}
+
+/**
+ * Sends a saved active request to Lab, or sends it again. One key per attempt:
+ * pressed again after Lab did not answer, it is the same send; after any other
+ * outcome the next press is a new attempt. The control is rebuilt for each
+ * version of the request, which is a new attempt too.
+ */
+function SendToLab({ requestId, disabled, onSend }: { requestId: string; disabled: boolean; onSend: (key: string) => Promise<void> }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const sending = useRef(false)
+  const attempt = useRef<string | null>(null)
+  async function send() {
+    if (sending.current || disabled) return
+    attempt.current ??= crypto.randomUUID()
+    sending.current = true; setBusy(true); setError('')
+    try { await onSend(attempt.current); attempt.current = null }
+    catch (caught) {
+      const retry = caught instanceof LabSendError ? caught.retry : true
+      if (!retry) attempt.current = null
+      setError(caught instanceof Error ? caught.message : 'The lab request could not be sent to Lab.')
+    } finally { sending.current = false; setBusy(false) }
+  }
+  return <div className="staff-stack">
+    <p className="staff-muted" id={`lab-request-${requestId}-send-hint`}>Sends this active request to Lab if Lab does not have it yet. Lab keeps one work item per request, so sending again changes nothing Lab already holds.</p>
+    {error && <p className="staff-error" role="alert">{error}</p>}
+    <Button id={`lab-request-${requestId}-send`} tone="secondary" size="sm" aria-disabled={busy || disabled || undefined} className={UNAVAILABLE}
+      aria-describedby={`lab-request-${requestId}-send-hint`} onClick={() => void send()}>{busy ? 'Sending…' : 'Send to Lab'}</Button>
+  </div>
 }
 const diagnosisClinicalStatuses: readonly StatusOption[] = [
   { value: 'active', label: 'Active' }, { value: 'recurrence', label: 'Recurrence' }, { value: 'relapse', label: 'Relapse' },
@@ -288,9 +413,9 @@ function RecordForm({ tab, onCreated, disabled }: { tab: RecordKind; onCreated: 
     {tab === 'prescriptions' && <><Field label="Medication" htmlFor="medication" error={f.medication.error} required><Input id="medication" name="medicationDisplay" maxLength={500} required {...f.medication.control} /></Field><div className="staff-form-row"><Field label="Dose quantity" htmlFor="dose-quantity" error={f.dose.error}><Input id="dose-quantity" name="doseQuantity" type="number" min="0.0001" step="0.0001" {...f.dose.control} /></Field><Field label="Dose unit" htmlFor="dose-unit" error={f.unit.error}><Input id="dose-unit" name="doseUnit" placeholder="mg" maxLength={80} {...f.unit.control} /></Field></div><div className="staff-form-row"><Field label="Route code" htmlFor="route-code" error={f.route.error}><Input id="route-code" name="routeCode" placeholder="oral" maxLength={100} {...f.route.control} /></Field><Field label="Frequency" htmlFor="frequency" error={f.frequency.error} required><Input id="frequency" name="frequency" placeholder="Twice daily" maxLength={240} required {...f.frequency.control} /></Field></div><Field label="Instructions" htmlFor="instructions" error={f.instructions.error} required><Textarea id="instructions" name="instructions" maxLength={4000} required {...f.instructions.control} /></Field><p className="staff-muted">This creates an EHR draft. Pharmacy acceptance and dispensing are separate backend actions.</p></>}
     {tab === 'lab-requests' && <><div className="staff-form-row"><Field label="Test code system" htmlFor="test-system" error={f.testSystem.error} required><Input id="test-system" name="testCodeSystem" placeholder="LOINC" maxLength={255} required {...f.testSystem.control} /></Field><Field label="Test code" htmlFor="test-code" error={f.testCode.error} required><Input id="test-code" name="testCode" maxLength={100} required {...f.testCode.control} /></Field></div><Field label="Test display" htmlFor="test-display" error={f.testDisplay.error} required><Input id="test-display" name="testDisplay" maxLength={500} required {...f.testDisplay.control} /></Field><div className="staff-form-row"><Field label="Priority" htmlFor="test-priority"><Select id="test-priority" name="priority"><option value="routine">Routine</option><option value="urgent">Urgent</option><option value="asap">As soon as possible</option><option value="stat">Stat</option></Select></Field><Field label="Specimen type code" htmlFor="specimen-code" error={f.specimen.error}><Input id="specimen-code" name="specimenTypeCode" maxLength={100} {...f.specimen.control} /></Field></div><Field label="Clinical information" htmlFor="test-information" error={f.information.error}><Textarea id="test-information" name="clinicalInformation" maxLength={4000} {...f.information.control} /></Field><Field label="Request handling" htmlFor="lab-request-status" error={f.handling.error} required><Select id="lab-request-status" name="status" defaultValue="draft" required {...f.handling.control}
       aria-describedby={f.handling.error ? 'lab-request-status-error lab-request-draft-warning' : 'lab-request-draft-warning'}><option value="draft">Save EHR draft</option><option value="active">Create active request and send to Lab</option></Select></Field>
-      {/* EHR sends a request to Lab only when it is created active; making a draft active later never reaches Lab. */}
-      <div id="lab-request-draft-warning" className="staff-notice staff-danger">A draft is not sent to the Laboratory, and cannot be sent later. To order the test, create an active request.</div>
-      <p className="staff-muted">Active creation asks Lab to accept the order. If acceptance is not confirmed, review the request list before retrying.</p></>}
+      {/* Since hid-system #56 EHR sends a request to Lab when it is created active, and when a draft is activated later. */}
+      <div id="lab-request-draft-warning" className="staff-notice staff-danger">A draft is not sent to the Laboratory until it is activated.</div>
+      <p className="staff-muted">Active creation saves the request, then asks Lab to accept it; if Lab does not, the request stays saved and active and can be sent again from the list.</p></>}
     {error && <p className="staff-error" role="alert">{error}</p>}<Button type="submit" aria-disabled={busy || disabled || undefined} className={BUSY}
       aria-describedby={tab === 'lab-requests' ? 'lab-request-draft-warning' : undefined}>{busy ? 'Saving…' : tab === 'lab-requests' ? 'Create lab request' : tab === 'vitals' || tab === 'diagnoses' ? 'Save record' : 'Save draft'}</Button>
   </form></Card>
@@ -973,6 +1098,8 @@ export function Clinical() {
     permissions={permissions} verify={verify} />
   const selected = selectedEncounter
   const canMutate = activePatient.purpose === 'direct-care' && currentWriteAccess?.allowed === true
+  // EHR sends a lab request to Lab only for an actor who also holds Lab's acceptance permission.
+  const canSendToLab = permissions.includes('lab.work-item.accept')
 
   // A new encounter starts now, so it usually heads the first page; it is the
   // one documented next even when it does not (a backdated start).
@@ -989,11 +1116,12 @@ export function Clinical() {
   // page last asked for. A read for a list no longer shown (the clinician moved
   // to another tab or encounter) is not made: it would replace that list's rows.
   // After a change the read is fresh, and a failure keeps the rows and says the
-  // change was saved; a failed page move is reported beside the list.
-  async function loadRecords(kind: RecordKind, cursors: Cursors | 'shown', afterChange: boolean) {
-    if (!facility || !patientId || !encounterId) return
+  // change was saved; a failed page move is reported beside the list. It answers
+  // the rows read, or null when none were.
+  async function loadRecords(kind: RecordKind, cursors: Cursors | 'shown', afterChange: boolean): Promise<ClinicalRecord[] | null> {
+    if (!facility || !patientId || !encounterId) return null
     const scope = JSON.stringify([facility.id, patientId, encounterId, kind])
-    if (scope !== recordScopeShown.current) return
+    if (scope !== recordScopeShown.current) return null
     const sequence = ++recordLoad.current
     const before = recordRequested.current
     const wanted = cursors !== 'shown' ? cursors : before.scope === scope ? before.cursors : FIRST_PAGE
@@ -1003,28 +1131,63 @@ export function Clinical() {
     try {
       const { page, cursors: shown, restarted } = await readPage(
         (cursor, fresh) => staffApi.records(facility.id, patientId, encounterId, kind, { cursor, fresh }), wanted, afterChange)
-      if (sequence !== recordLoad.current) return
+      if (sequence !== recordLoad.current) return null
       recordRequested.current = { scope, cursors: shown }
       setRecords(page.items); setRecordsFor(scope); setRecordPages({ scope, cursors: shown, next: page.nextCursor ?? null })
       setRecordNotice(restarted ? { scope, text: RESTARTED, alert: false } : null)
+      return page.items
     } catch (caught) {
-      if (sequence !== recordLoad.current) return
+      if (sequence !== recordLoad.current) return null
       recordRequested.current = before
       if (afterChange) setError(`The change was saved, but the records could not be reloaded. ${refusalText(caught, '')}`.trim())
       else setRecordNotice({ scope, text: `The page could not be loaded. ${refusalText(caught, '')}`.trim(), alert: true })
+      return null
     } finally { if (sequence === recordLoad.current) setRecordsLoading(false) }
+  }
+
+  // A saved lab request that Lab does not hold, or holds at another version: the
+  // change stands, so this is said as a warning, not as the change failing, and
+  // the work continues at the request's Send to Lab, where it is offered. Said
+  // after the list is read again, which may have said it could not be.
+  function labWarning(text: string, requestId: string | undefined, reloaded: boolean) {
+    setError(reloaded ? text : `${text} The list could not be reloaded; refresh it to see the request.`)
+    focus(requestId ? [`lab-request-${requestId}-send`, `record-${requestId}-title`, 'clinical-records-title'] : ['clinical-records-title'])
   }
 
   // A new record is the newest, so it heads the first page.
   async function createRecord(kind: RecordKind, body: object, key: string) {
     if (!facility || !patientId || !encounterId) return
     if (!canMutate) throw new Error('This access does not permit changes to the patient record.')
+    const activeLab = kind === 'lab-requests' && 'status' in body && body.status === 'active'
     setSuccess('')
+    if (activeLab) setError('')
     await verify()
-    await staffApi.createRecord(facility.id, patientId, encounterId, kind, body, key)
-    setSuccess(kind === 'lab-requests' && 'status' in body && body.status === 'active'
-      ? 'Active lab request created and accepted by Lab.' : 'Clinical record saved by the backend.')
-    await loadRecords(kind, FIRST_PAGE, true)
+    let saved: SavedRecord
+    try { saved = await staffApi.createRecord(facility.id, patientId, encounterId, kind, body, key) }
+    catch (caught) {
+      // hid-system #56: the request is saved and active, and Lab did not take it. Answering
+      // here clears the form and its key, so it is not created again: it is sent from the
+      // list. The problem's detail names the request, and is not shown.
+      if (!activeLab || !isHidApiError(caught) || (caught.code !== 'LAB_HANDOFF_REFUSED' && caught.code !== 'LAB_HANDOFF_UNCONFIRMED')) throw caught
+      const named = handoffNames(caught.message)
+      const items = await loadRecords(kind, FIRST_PAGE, true)
+      // A 502 names no request; the newest active one for this test heads the list read.
+      const fields = body as { testCodeSystem?: unknown; testCode?: unknown }
+      const requestId = named.requestId ?? items?.find(item => item.status === 'active'
+        && item.testCodeSystem === fields.testCodeSystem && item.testCode === fields.testCode)?.id
+      labWarning(caught.code === 'LAB_HANDOFF_REFUSED'
+        ? `Lab request saved and active in the EHR, but Lab refused it${named.code ? ` (${named.code})` : ''}, so the Laboratory does not have it. Do not create it again: once that is resolved, ${sendItFrom(canSendToLab)}.`
+        : `Lab request saved and active in the EHR, but Lab did not confirm it, so the Laboratory may not have it. Do not create it again: to send it again, ${sendItFrom(canSendToLab)}.`,
+      requestId, items !== null)
+      return
+    }
+    // An EHR before #56 reports no handoff: its 201 for an active request meant Lab accepted it.
+    const outcome = !activeLab ? null : saved.labHandoff === undefined ? { accepted: true, text: 'Active lab request created and accepted by Lab.' }
+      : saved.labHandoff?.state === 'accepted' ? { accepted: true, text: 'Active lab request created and accepted by Lab.' }
+        : labHandoffOutcome(saved.labHandoff ?? null, 'created', canSendToLab)
+    if (!outcome || outcome.accepted) setSuccess(outcome?.text ?? 'Clinical record saved by the backend.')
+    const items = await loadRecords(kind, FIRST_PAGE, true)
+    if (outcome && !outcome.accepted) labWarning(outcome.text, typeof saved?.id === 'string' ? saved.id : undefined, items !== null)
   }
 
   async function changeEncounterStatus(status: string, reason: string) {
@@ -1062,15 +1225,41 @@ export function Clinical() {
     if (!facility || !patientId || !encounterId || !canMutate) return
     const expectedRowVersion = rowVersion(record.rowVersion)
     if (!expectedRowVersion) throw new Error('Reload the record before changing its status.')
+    // Since hid-system #56 a lab request left active is sent to Lab, and the answer says how that went.
+    const toLab = kind === 'lab-requests' && status === 'active'
     setSuccess('')
+    if (toLab) setError('')
     await verify()
-    await staffApi.updateRecord(facility.id, patientId, encounterId, kind, record.id,
+    const saved = await staffApi.updateRecord(facility.id, patientId, encounterId, kind, record.id,
       { expectedRowVersion, changeReason: reason, status })
-    setSuccess(kind === 'clinical-notes' ? 'Clinical note status updated.'
-      : kind === 'lab-requests' ? 'Lab request status updated.' : 'Prescription status updated.')
-    await loadRecords(kind, 'shown', true)
+    // An EHR before #56 reports no handoff, and sent nothing to Lab.
+    const outcome = toLab ? labHandoffOutcome(saved?.labHandoff ?? null, record.status === 'on_hold' ? 'resumed' : 'activated', canSendToLab) : null
+    if (!outcome || outcome.accepted) setSuccess(outcome?.text ?? (kind === 'clinical-notes' ? 'Clinical note status updated.'
+      : kind === 'lab-requests' ? 'Lab request status updated.' : 'Prescription status updated.'))
+    const items = await loadRecords(kind, 'shown', true)
+    if (outcome && !outcome.accepted) return labWarning(outcome.text, record.id, items !== null)
     const form = kind === 'clinical-notes' ? 'note' : kind === 'lab-requests' ? 'lab-request' : 'prescription'
     focus([`${form}-${record.id}-status`, `record-${record.id}-title`, 'clinical-records-title'], true)
+  }
+
+  // Sends a saved active lab request to Lab at the version shown (hid-system #56).
+  // A refusal that means the request changed reads the list again and says so above
+  // it; any other is said at the control, which keeps its attempt's key to send again.
+  async function sendLabRequest(record: ClinicalRecord, key: string) {
+    if (!facility || !patientId || !encounterId || !canMutate) return
+    const expectedRowVersion = rowVersion(record.rowVersion)
+    if (!expectedRowVersion) throw new LabSendError('Reload the lab request before sending it to Lab.', false)
+    setSuccess(''); setError('')
+    await verify()
+    try { await staffApi.sendLabRequestToLab(facility.id, patientId, encounterId, record.id, expectedRowVersion, key) }
+    catch (caught) {
+      const refusal = labSendRefusal(caught)
+      if (!refusal.reload) throw new LabSendError(refusal.text, refusal.retry === true)
+      const items = await loadRecords('lab-requests', 'shown', true)
+      labWarning(refusal.text, record.id, items !== null)
+      return
+    }
+    setSuccess('Lab accepted this lab request at its current version.')
   }
 
   async function updateDiagnosis(record: ClinicalRecord, changes: DiagnosisChanges, reason: string) {
@@ -1155,11 +1344,14 @@ export function Clinical() {
         {activeTab === 'diagnoses' && canMutate && permissions.includes('ehr.diagnosis.write') && record.verificationStatus !== 'entered_in_error' &&
           <DiagnosisUpdateForm key={`${record.id}-${String(record.rowVersion)}`} id={`diagnosis-${record.id}`} diagnosis={record}
             disabled={recordsLoading} onUpdate={(changes, reason) => updateDiagnosis(record, changes, reason)} />}
-        {activeTab === 'lab-requests' && canMutate && permissions.includes('ehr.lab-request.write') && (labRequestTransitions[String(record.status)]?.length ?? 0) > 0 &&
-          <StatusActionForm key={`${record.id}-${String(record.rowVersion)}`} id={`lab-request-${record.id}`} title="Lab request status" choices={labRequestTransitions[String(record.status)]!}
+        {activeTab === 'lab-requests' && canMutate && permissions.includes('ehr.lab-request.write') && labRequestChoices(String(record.status), canSendToLab).length > 0 &&
+          <StatusActionForm key={`${record.id}-${String(record.rowVersion)}`} id={`lab-request-${record.id}`} title="Lab request status" choices={labRequestChoices(String(record.status), canSendToLab)}
             disabled={recordsLoading} onChange={(status, reason) => changeRecordStatus(record, 'lab-requests', status, reason)} />}
-        {activeTab === 'lab-requests' && canMutate && permissions.includes('ehr.lab-request.write') && (record.status === 'active' || record.status === 'on_hold') &&
-          <p className="staff-muted">Lab may already be working on this request. Status changes made here are not passed to Lab, so none are offered; contact the laboratory to stop or correct it.</p>}
+        {activeTab === 'lab-requests' && canMutate && permissions.includes('ehr.lab-request.write') && LAB_NOT_TOLD[String(record.status)] &&
+          <p className="staff-muted">{LAB_NOT_TOLD[String(record.status)]}</p>}
+        {activeTab === 'lab-requests' && record.status === 'active' && canMutate && permissions.includes('ehr.lab-request.write') && canSendToLab &&
+          <SendToLab key={`send-${record.id}-${String(record.rowVersion)}`} requestId={record.id} disabled={recordsLoading}
+            onSend={key => sendLabRequest(record, key)} />}
       </div>)}</div></Card>{canMutate && permissions.includes(writePermissions[activeTab]) && <RecordForm key={`${selected.id}-${activeTab}`} tab={activeTab} onCreated={createRecord} disabled={!selected} />}</div>}</TabPanel></>}
     </section>}
   </>
