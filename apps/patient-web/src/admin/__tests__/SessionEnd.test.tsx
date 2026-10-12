@@ -336,4 +336,20 @@ describe('a workspace bound to the administrator who opened it', () => {
     expect(await screen.findByText('7')).toBeTruthy()
     expect(screen.queryByText(/MFA-verified platform administration session/)).toBeNull()
   })
+
+  // MFA verification has already replaced the browser's platform cookies, so the
+  // other tabs must hear of it even when this workspace then fails to open.
+  it('tells the other admin tabs of a sign-in that could not open the workspace', async () => {
+    await openAs({ [SESSION]: [refused('AUTHENTICATION_REQUIRED'), unavailable(), unavailable(), unavailable()],
+      [REFRESH]: [refused('AUTHENTICATION_REQUIRED')],
+      'POST /api/v1/auth/admin/login': [json({ status: 'mfa_required', expiresAt: new Date(Date.now() + 300_000).toISOString() })],
+      'POST /api/v1/auth/admin/mfa/verify': [grantFor('admin-2')] })
+    fireEvent.change(await screen.findByLabelText('Email'), { target: { value: 'admin-2@example.test' } })
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'correct horse battery' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    fireEvent.change(await screen.findByLabelText('Authenticator code'), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Verify' }))
+    await waitFor(() => expect(TabChannel.posted).toEqual([{ name: CHANNEL, message: 'changed' }]), { timeout: 4000 })
+    expect(await screen.findByRole('heading', { name: 'Administration sign in' })).toBeTruthy()
+  })
 })

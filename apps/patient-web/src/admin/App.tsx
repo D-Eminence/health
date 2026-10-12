@@ -171,11 +171,16 @@ export function App() {
   }, [])
 
   async function signedInNow() {
-    let value: AdminSession
-    try { value = await adminApi.session() }
-    catch (error) { throw new Error(failure(error, 'Platform administration could not be opened. Try again.')) }
-    open(value)
-    announceAdminSessionChange()
+    try {
+      let value: AdminSession
+      try { value = await adminApi.session() }
+      catch (error) { throw new Error(failure(error, 'Platform administration could not be opened. Try again.')) }
+      open(value)
+    } finally {
+      // MFA verification or enrollment has already replaced the browser's platform
+      // cookies, whether or not this workspace opens.
+      announceAdminSessionChange()
+    }
   }
 
   async function signOut() {
