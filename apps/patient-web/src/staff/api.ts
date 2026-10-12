@@ -2,8 +2,8 @@ import { createApiClient, HidApiError, isHidApiError, uploadPresignedObject, typ
 import { createRegisteredBrowserClient } from '@hid/api'
 import { getEnvironment } from './env'
 import {
-  endsStaffSession, nextStaffSessionChange, refusedAsPatient, reportStaffSessionEnded, staffSessionActor, staffSessionGeneration,
-  staffSessionReadyFor, staffSessionSignal, untilStaffSessionReady,
+  assertStaffSessionFacility, endsStaffSession, nextStaffSessionChange, refusedAsPatient, reportStaffSessionEnded, reportStaffSessionRead,
+  staffSessionActor, staffSessionGeneration, staffSessionReadyFor, staffSessionSignal, untilStaffSessionReady,
 } from './session'
 import { inRefreshTurn, refreshInTurn, signOutInTurn } from '../sessionRefreshTurn'
 import { heldByOtherPortal } from '../sessionChange'
@@ -461,7 +461,10 @@ const transport = createApiClient({
   baseUrl: getEnvironment().apiBaseUrl,
   clientId: 'staff-web',
   sessionMode: 'cookie',
-  refreshSession: async () => { await restoreStaffSession() },
+  refreshSession: async () => {
+    const sentIn = staffSessionGeneration()
+    reportStaffSessionRead(await restoreStaffSession(), sentIn)
+  },
 })
 
 /** A signal aborted when either one is. */
@@ -508,8 +511,12 @@ function reportingSessionEnd(inner: ApiClient): ApiClient {
           // The HTTP client sends some requests again on its own: a read after a
           // backoff, and any request after a refresh. Each attempt waits for its
           // session again as it leaves, so none goes out while the session is
-          // being checked, could not be confirmed, or the page is away.
-          beforeAttempt: async () => { await spec.beforeAttempt?.(); await untilStaffSessionReady(sentIn) },
+          // being checked, could not be confirmed, or the page is away; nor for a
+          // facility found gone meanwhile (see setStaffSessionFacilities).
+          beforeAttempt: async () => {
+            await spec.beforeAttempt?.(); await untilStaffSessionReady(sentIn)
+            assertStaffSessionFacility(spec.headers?.['X-Facility-ID'])
+          },
         } : {}),
       }
       try { return await inner.request<T>(own) }
@@ -689,7 +696,9 @@ async function checkStaffSession(actorId: string, sentIn: number): Promise<Staff
     catch (refused) { return endsStaffSession(refused) ? 'ended' : 'unknown' }
   }
   if (typeof session?.actor?.id !== 'string') return 'unknown'
-  return isSessionOf(session, actorId) ? 'alive' : 'ended'
+  if (!isSessionOf(session, actorId)) return 'ended'
+  reportStaffSessionRead(session, sentIn)
+  return 'alive'
 }
 
 function facilityHeaders(facilityId: string, purpose: 'direct-care' | 'emergency' | 'healthcare-operations' = 'direct-care') {

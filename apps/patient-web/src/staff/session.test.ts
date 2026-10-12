@@ -36,3 +36,23 @@ describe('a protected step waiting for its staff session', () => {
     expect(await outcome(session.untilStaffSessionReady(sentIn))).toBe('REQUEST_CANCELLED')
   })
 })
+
+describe('a protected request for a facility', () => {
+  const cancelled = (check: () => void) => { try { check(); return 'sent' } catch (error) { return (error as { code?: string }).code } }
+
+  it('goes out for one of the session\'s facilities, and for any while no session is in use', async () => {
+    const session = await import('./session')
+    expect(cancelled(() => session.assertStaffSessionFacility('facility-2'))).toBe('sent')
+    session.setStaffSessionFacilities(['facility-1', 'facility-2'])
+    expect(cancelled(() => session.assertStaffSessionFacility('facility-2'))).toBe('sent')
+    expect(cancelled(() => session.assertStaffSessionFacility(undefined))).toBe('sent')
+    // One naming no facility is the server's to refuse (400 FACILITY_REQUIRED), as before.
+    expect(cancelled(() => session.assertStaffSessionFacility(''))).toBe('sent')
+  })
+
+  it('is cancelled once its facility is no longer one of the session\'s', async () => {
+    const session = await import('./session')
+    session.setStaffSessionFacilities(['facility-1'])
+    expect(cancelled(() => session.assertStaffSessionFacility('facility-2'))).toBe('REQUEST_CANCELLED')
+  })
+})

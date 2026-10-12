@@ -16,7 +16,8 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
  * are working, with nothing preselected, and sends the same POST /auth/facility
  * as a switch. An Identity without the contract reports no field, and the portal
  * behaves as before. A value the portal does not know is not taken as a choice
- * made: it asks.
+ * made: it asks. A tab keeps its facility across a refresh or session check while
+ * that facility is still one of the actor's, and asks again once it is gone.
  */
 vi.mock('./env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.example.test', turnstileSiteKey: null }) }))
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.resetModules() })
@@ -38,6 +39,10 @@ const REFRESH = 'POST /api/v1/auth/refresh'
 const LOGIN = 'POST /api/v1/auth/login'
 const FACILITY = 'POST /api/v1/auth/facility'
 const REQUESTS = 'GET /api/v1/identity/access-requests'
+const LOOKUP = 'POST /api/v1/identity/patient-lookup'
+const PATIENT_ID = 'b1000000-0000-4000-8000-00000000a7c3'
+const ENCOUNTERS = `GET /api/v1/ehr/patients/${PATIENT_ID}/encounters`
+const PATIENT_NAME = 'Chidi Okafor'
 
 type Answer = () => Response | Promise<Response>
 interface Sent { route: string; body: unknown; facility: string | null }
@@ -455,5 +460,93 @@ describe('the question while a choice is saved or refused', () => {
     expect(await screen.findByRole('alert')).toBeTruthy()
     expect(option('Ikeja Clinic').matches(':disabled')).toBe(false)
     expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Continue' }))
+  })
+})
+
+describe('the facility this tab works at, found gone mid-session', () => {
+  // Identity checks X-Facility-ID against the actor's active memberships on every request. A tab keeps
+  // the facility it works at across a refresh or check only while it is still one of the actor's
+  // (hid-system#47 interface contract); it never moves to the facility the answer reports, which may
+  // be another tab's choice. Once it is gone the open patient closes, and the tab asks.
+  const allowedLookup = () => json({ authorization: { decision: 'allow', consentGrantId: 'grant-1', scope: 'read_records' },
+    patient: { patientId: PATIENT_ID, hid: 'HID-ABCDEF23', fullName: PATIENT_NAME } })
+
+  /** A patient's record open at Ikeja Clinic; `sessions` are the session reads that follow the first. */
+  async function openPatientAtIkeja(routes: Record<string, Answer[]>, sessions: Answer[] = []) {
+    const sent = serve({ [SESSION]: [session(IKEJA, 'selected'), ...sessions], [LOOKUP]: [allowedLookup, allowedLookup], ...routes })
+    await open('/provider/patients')
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Health ID' }), { target: { value: 'HID-ABCDEF23' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Verify access' }))
+    await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/provider/clinical'))
+    return sent
+  }
+
+  it.each([
+    ['still reports the selection lost', 'reselect'],
+    ['reports another tab\'s choice', 'selected'],
+    ['comes from an Identity without the contract', undefined],
+  ] as const)('asks once a refresh that %s shows it gone, closing the patient and sending nothing more for it', async (_label, selection) => {
+    const sent = await openPatientAtIkeja({ [ENCOUNTERS]: [unauthenticated], [REFRESH]: [session(LAGOS, selection, [LAGOS])],
+      [FACILITY]: [session(LAGOS, 'selected', [LAGOS])] })
+
+    const heading = await question()
+    expect(screen.getByText(/The facility you were working at is no longer available to you\./)).toBeTruthy()
+    expect(document.body.textContent).not.toContain(PATIENT_NAME)
+    expect(screen.queryByRole('radio', { name: 'Ikeja Clinic' })).toBeNull()
+    expect(option('Lagos General').checked).toBe(false)
+    await waitFor(() => expect(document.activeElement).toBe(heading))
+    // The read refused before the refresh is not repeated for the facility that is gone.
+    const refreshed = sent.findIndex(call => call.route === REFRESH)
+    expect(refreshed).toBeGreaterThan(-1)
+    expect(sent.slice(refreshed + 1).filter(call => call.facility === 'facility-2')).toEqual([])
+
+    fireEvent.click(option('Lagos General'))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    // The page opens again at the facility chosen, with no patient open.
+    expect(await screen.findByRole('heading', { level: 1, name: 'Choose a patient first.' })).toBeTruthy()
+    expect(sent.filter(call => call.route === FACILITY).map(call => call.body)).toEqual([{ facilityId: 'facility-1' }])
+    expect(sent.slice(refreshed + 1).filter(call => call.facility === 'facility-2')).toEqual([])
+  })
+
+  it('asks once a session check shows it gone, before the workspace opens again, and never sends what waited for it', async () => {
+    const asked = deferredResponse()
+    const sent = await openPatientAtIkeja({ [ENCOUNTERS]: [() => json({ items: [] })], [FACILITY]: [session(LAGOS, 'selected', [LAGOS])] },
+      [asked.answer])
+    expect(await screen.findByRole('heading', { name: PATIENT_NAME })).toBeTruthy()
+
+    fromAnotherTab()
+    expect(await screen.findByRole('heading', { name: 'Checking your session…' })).toBeTruthy()
+    // A request made for Ikeja Clinic while the session is checked waits for it.
+    const { staffApi } = await import('./api')
+    const waiting = staffApi.listAccessRequests('facility-2').then(() => 'sent', (error: { code?: string }) => error.code)
+    // Another tab switched to Lagos General, and the Ikeja Clinic membership has ended.
+    await act(async () => { asked.respond(await session(LAGOS, 'selected', [LAGOS])()) })
+
+    const heading = await question()
+    expect(screen.getByText(/The facility you were working at is no longer available to you\./)).toBeTruthy()
+    expect(document.body.textContent).not.toContain(PATIENT_NAME)
+    await waitFor(() => expect(document.activeElement).toBe(heading))
+    expect(await waiting).toBe('REQUEST_CANCELLED')
+    expect(sent.filter(call => call.route === REQUESTS)).toEqual([])
+
+    fireEvent.click(option('Lagos General'))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(await screen.findByRole('heading', { level: 1, name: 'Choose a patient first.' })).toBeTruthy()
+  })
+
+  it('leaves a question already asked as it is: the facility reported then was never the tab\'s own', async () => {
+    // Asked at load (none chosen yet), then another tab switches to Ikeja Clinic and Lagos General ends.
+    const sent = serve({ [SESSION]: [session(LAGOS, 'default'), session(IKEJA, 'selected', [IKEJA])] })
+    await open('/provider')
+    await question()
+    fromAnotherTab()
+    await waitFor(() => expect(sent.filter(call => call.route === SESSION)).toHaveLength(2))
+    await waitFor(() => expect(screen.queryByText('Checking your session…')).toBeNull())
+
+    expect(await question()).toBeTruthy()
+    expect(screen.getByText(/You work at more than one facility\./)).toBeTruthy()
+    expect(screen.queryByText(/were working at/)).toBeNull()
+    expect(option('Ikeja Clinic').checked).toBe(false)
+    expect(pageRequests(sent)).toEqual([])
   })
 })

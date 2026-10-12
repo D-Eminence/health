@@ -6,8 +6,8 @@ import { isHidApiError } from '@hid/http'
 import { staffApi, type PatientLookup, type StaffSession } from './api'
 import { facilityChoiceNeeded, type FacilityChoiceReason } from './facilitySelection'
 import {
-  announceStaffSessionChange, onOtherTabSessionChange, onStaffSessionEnded, setStaffSessionActor, setStaffSessionReady,
-  staffSessionGeneration, staffSignInPath, startStaffSessionGeneration,
+  announceStaffSessionChange, onOtherTabSessionChange, onStaffSessionEnded, onStaffSessionRead, setStaffSessionActor,
+  setStaffSessionFacilities, setStaffSessionReady, staffSessionGeneration, staffSignInPath, startStaffSessionGeneration,
 } from './session'
 import { SignIn } from './routes/SignIn'
 import { Dashboard } from './routes/Dashboard'
@@ -28,7 +28,12 @@ type SessionState =
   | { status: 'signed-out'; session: null }
   /** The server stopped accepting the session while it was in use (expired, revoked or ended elsewhere). */
   | { status: 'ended'; session: null }
-  | { status: 'ready'; session: StaffSession }
+  /**
+   * `facilityLost`: a refresh or check found the facility this tab worked at gone
+   * from the actor's facilities; the session is the one it read, and the facility
+   * must be chosen again before any page opens.
+   */
+  | { status: 'ready'; session: StaffSession; facilityLost?: boolean }
 
 export interface ActivePatient {
   hid: string
@@ -79,6 +84,7 @@ function StaffProvider({ children }: { children: ReactNode }) {
   // The state as of the last change, read synchronously by the session-end listener.
   const status = useRef<SessionState['status']>('loading')
   const currentSession = useRef<StaffSession | null>(null)
+  const facilityLost = useRef(false)
   const [lock, setLockState] = useState<SessionLock>(null)
   const lockRef = useRef<SessionLock>(null)
   // Where focus was when the workspace locked, given back when it opens again.
@@ -93,8 +99,11 @@ function StaffProvider({ children }: { children: ReactNode }) {
   const away = useRef<{ since: number; sentIn: number; cached: boolean } | null>(null)
   // Readiness for protected requests follows the state and the lock at once, not after a render.
   const setState = useCallback((next: SessionState) => {
-    status.current = next.status; currentSession.current = next.session; setSessionState(next)
+    status.current = next.status; currentSession.current = next.session
+    facilityLost.current = next.status === 'ready' && next.facilityLost === true
+    setSessionState(next)
     setStaffSessionActor(next.status === 'ready' ? next.session.actor.id : null)
+    setStaffSessionFacilities(next.status === 'ready' ? next.session.actor.facilities.map(facility => facility.id) : null)
     // A session that becomes ready while the page is hidden (opened in the
     // background, or signed in or restored while away) is away from the start:
     // locked, and judged as it comes back like any other absence.
@@ -111,7 +120,7 @@ function StaffProvider({ children }: { children: ReactNode }) {
     if (focused?.isConnected) focused.focus()
   }, [lock])
   // Leaving the provider portal (for the patient portal, in the same page) leaves no session in use.
-  useEffect(() => () => { setStaffSessionActor(null); setStaffSessionReady(false) }, [])
+  useEffect(() => () => { setStaffSessionActor(null); setStaffSessionFacilities(null); setStaffSessionReady(false) }, [])
   // Each session, sign-out and facility starts a new period. A patient set by a page
   // from an earlier period is ignored, whenever its answer arrives.
   const period = useRef(0)
@@ -172,6 +181,26 @@ function StaffProvider({ children }: { children: ReactNode }) {
     })
   }, [setState, setLock, startPeriod])
   useEffect(() => onStaffSessionEnded(ask), [ask])
+
+  // A refresh or check of this session that finds the facility this tab works at no
+  // longer among the actor's (its membership ended). The tab never moves to the
+  // facility the answer reports, which may be another tab's choice; it cannot stay
+  // where it is either. Its patient closes and it asks where the person is working,
+  // and requests still on their way for the facility that is gone are not sent
+  // (setStaffSessionFacilities). This applies before a check's answer opens the
+  // workspace, and before a refreshed request is repeated.
+  useEffect(() => onStaffSessionRead((read, sentIn) => {
+    const current = currentSession.current
+    const working = current?.actor.facility?.id
+    if (status.current !== 'ready' || sentIn !== staffSessionGeneration() || !current || !working) return
+    // A tab still asking has no facility of its own to lose: the facility it holds is only
+    // the one Identity reported. Its question stays; a facility gone meanwhile is refused
+    // when chosen, and the refusal says so.
+    if (facilityLost.current || facilityChoiceNeeded(current) !== null) return
+    if (read.actor.id !== current.actor.id || read.actor.facilities.some(facility => facility.id === working)) return
+    startPeriod()
+    setState({ status: 'ready', session: read, facilityLost: true })
+  }), [setState, startPeriod])
   const askIfHeardWhileOpening = useCallback(() => {
     if (!heardWhileOpening.current) return
     heardWhileOpening.current = false
@@ -393,11 +422,15 @@ function facilityRefusal(caught: unknown, facility: string): string {
   return caught instanceof Error ? caught.message : 'Facility could not be selected.'
 }
 
+/** Why the facility question is asked: as Identity reports the selection, or 'lost' (see SessionState). */
+type FacilityQuestion = FacilityChoiceReason | 'lost'
+
 /** Why the question is asked, as the page says it. */
-const FACILITY_CHOICE_WHY: Record<FacilityChoiceReason, string> = {
+const FACILITY_CHOICE_WHY: Record<FacilityQuestion, string> = {
   reselect: 'The facility you chose for this sign-in is no longer available to you.',
   unchosen: 'You work at more than one facility.',
   unconfirmed: 'The facility for this sign-in is not confirmed.',
+  lost: 'The facility you were working at is no longer available to you.',
 }
 
 /**
@@ -405,11 +438,12 @@ const FACILITY_CHOICE_WHY: Record<FacilityChoiceReason, string> = {
  * used that they did not choose (hid-system ADR-046): when the facility chosen for
  * this sign-in is no longer available ('reselect'), when none was chosen and
  * they work at more than one ('unchosen'), or when Identity reports a selection
- * this portal does not know ('unconfirmed'). Nothing is preselected. Choosing sends
+ * this portal does not know ('unconfirmed'); and when the facility this tab was
+ * working at is found gone mid-session ('lost'). Nothing is preselected. Choosing sends
  * the same POST /auth/facility as a switch, and Identity keeps it for the sign-in,
  * so a reload or a refresh reports it ('selected').
  */
-function FacilityChoice({ reason, onChosen }: { reason: FacilityChoiceReason; onChosen: () => void }) {
+function FacilityChoice({ reason, onChosen }: { reason: FacilityQuestion; onChosen: () => void }) {
   const { state, lock, selectFacility } = useStaff()
   const [picked, setPicked] = useState('')
   const [missing, setMissing] = useState(false)
@@ -522,7 +556,7 @@ function Shell() {
   }, [pathname])
   if (state.status !== 'ready') return null
   const { actor } = state.session
-  const choiceNeeded = facilityChoiceNeeded(state.session)
+  const choiceNeeded = state.facilityLost ? 'lost' : facilityChoiceNeeded(state.session)
   const currentFacility = actor.facility
   const permissions = currentFacility?.permissions ?? []
   const visible = navigation.filter(item => !item.permission || permissions.includes(item.permission))

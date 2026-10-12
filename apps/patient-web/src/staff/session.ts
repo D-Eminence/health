@@ -1,5 +1,6 @@
 import { HidApiError, isHidApiError } from '@hid/http'
 import { SESSION_CHANGE_CHANNEL } from '../sessionChange'
+import type { StaffSession } from './api'
 
 /**
  * The end of the provider's staff session, as the staff API finds it. hid-system
@@ -96,6 +97,28 @@ export function setStaffSessionActor(id: string | null): void {
 }
 
 /**
+ * The facilities of the session in use, as the provider holds them, or null while
+ * none is in use. Identity refuses a request whose X-Facility-ID is not one of the
+ * actor's active facilities (403 FACILITY_ACCESS_DENIED), so a protected request
+ * for a facility the provider has found gone (a membership ended mid-session) is
+ * never sent: one waiting for a check, or repeated after a refresh, is cancelled.
+ */
+let facilities: readonly string[] | null = null
+
+export function setStaffSessionFacilities(ids: readonly string[] | null): void {
+  facilities = ids
+}
+
+/**
+ * Throws a cancellation when `facilityId` is no longer one of the session's
+ * facilities. A request that names none is left to the server, as before.
+ */
+export function assertStaffSessionFacility(facilityId: string | undefined): void {
+  if (!facilityId || facilities === null || facilities.includes(facilityId)) return
+  throw new HidApiError(0, 'Stopped because you are no longer active at the facility it was for.', { code: 'REQUEST_CANCELLED', retryable: false })
+}
+
+/**
  * The origin's other tabs share this tab's cookies. Each tells the others when
  * its session changes (a staff or patient sign-in, a sign-out, a session end),
  * naming nothing; a tab that hears it asks the server itself. This tab announces
@@ -132,6 +155,23 @@ export function onStaffSessionEnded(listener: (generation: number) => void): () 
 
 export function reportStaffSessionEnded(sentIn: number = generation): void {
   for (const listener of [...listeners]) listener(sentIn)
+}
+
+/**
+ * Sessions of the account in use, read by a refresh (after a 401) or a session
+ * check, with the generation they were read in. The provider learns from them only
+ * whether the facility its tab works at is still one of the actor's: it never
+ * moves to the facility they report, which may be another tab's choice.
+ */
+const readListeners = new Set<(session: StaffSession, generation: number) => void>()
+
+export function onStaffSessionRead(listener: (session: StaffSession, generation: number) => void): () => void {
+  readListeners.add(listener)
+  return () => { readListeners.delete(listener) }
+}
+
+export function reportStaffSessionRead(session: StaffSession, sentIn: number): void {
+  for (const listener of [...readListeners]) listener(session, sentIn)
 }
 
 /**
