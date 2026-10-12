@@ -193,6 +193,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       asking = true
       const announced = heard
       heard = false
+      // Whether the server answered whose session the browser holds; an outage did not.
+      let answered = false
       try {
         let session: PatientSession
         try { session = await api.session() }
@@ -201,25 +203,31 @@ export function SessionProvider({ children }: { children: ReactNode }) {
           try { session = await api.refresh() }
           catch (refreshError) {
             // A provider's sign-in, refused before rotation, is another account's.
-            if (heldByOtherPortal(refreshError)) end(shown, true)
-            else if (isHidApiError(refreshError) && (refreshError.status === 401 || refreshError.status === 403)) end(shown, announced || heard)
+            if (heldByOtherPortal(refreshError)) { answered = true; end(shown, true) }
+            else if (isHidApiError(refreshError) && (refreshError.status === 401 || refreshError.status === 403)) { answered = true; end(shown, announced || heard) }
             return
           }
         }
+        answered = true
         if (!isPatientSessionOf(session, shown)) end(shown, true)
       } finally {
         asking = false
         // A change heard while asking may postdate the answer: ask once more.
         if (again) { again = false; void ask() }
+        // Otherwise the answer postdates every change heard while the tab was out
+        // of view, and its return has nothing more to ask about them.
+        else if (answered && away) away.heard = false
       }
     }
-    // Since when the tab is out of view, and whether another tab announced a change meanwhile.
+    // Since when the tab is out of view, and whether another tab announced a change
+    // meanwhile that no answer has followed yet.
     let away: { since: number; heard: boolean } | null = document.visibilityState === 'hidden' ? { since: Date.now(), heard: false } : null
     // Back in view. Each question is a request, a session read Identity audits, and
     // perhaps a refresh, so a brief look away with nothing announced meanwhile asks
     // nothing, as in the provider portal. A return after a minute or more, one after
-    // another tab announced a change, and a page restored from the back/forward
-    // cache are asked about.
+    // another tab announced a change that no answer has followed (the question asked
+    // as it was heard is still out, or found the service unavailable), and a page
+    // restored from the back/forward cache are asked about.
     const back = (restored: boolean) => {
       if (document.visibilityState === 'hidden') return
       const left = away

@@ -437,7 +437,7 @@ describe('a patient tab is bound to the patient it shows (SEC-PATIENT-XTAB)', ()
     expect(patientStatus()).toBe('authenticated')
   })
 
-  it('a brief look away during which another tab announced a change asks again on return', async () => {
+  it('a brief look away during which another tab announced a change asks once, as it is heard, and not again on return', async () => {
     vi.stubGlobal('BroadcastChannel', TabBus)
     const identity = fakeIdentity()
     identity.install()
@@ -449,7 +449,31 @@ describe('a patient tab is bound to the patient it shows (SEC-PATIENT-XTAB)', ()
     await anotherTab()
     await waitFor(() => expect(sessionReads(identity)).toBe(before + 1))
     await act(async () => { show(20_000) })
-    await waitFor(() => expect(sessionReads(identity)).toBe(before + 2))
+    await settle()
+    expect(sessionReads(identity)).toBe(before + 1)
+    expect(patientStatus()).toBe('authenticated')
+  })
+
+  it('a brief look away during which an announced change could not be checked asks again on return', async () => {
+    vi.stubGlobal('BroadcastChannel', TabBus)
+    const identity = fakeIdentity()
+    identity.install()
+    identity.signIn('patient')
+    await openRecordsTab()
+    const before = sessionReads(identity)
+    // The question asked as the change is heard finds the service unavailable.
+    const asked = vi.mocked(fetch)
+    const calls = asked.mock.calls.length
+    asked.mockImplementationOnce(async () => new Response(JSON.stringify({ type: 'about:blank', title: 'Unavailable', status: 503,
+      code: 'UPSTREAM_UNAVAILABLE', detail: 'Unavailable', retryable: false }), { status: 503, headers: { 'Content-Type': 'application/json' } }))
+
+    await act(async () => { hide() })
+    await anotherTab()
+    await waitFor(() => expect(asked.mock.calls.length).toBe(calls + 1))
+    await settle()
+    expect(sessionReads(identity)).toBe(before)
+    await act(async () => { show(20_000) })
+    await waitFor(() => expect(sessionReads(identity)).toBe(before + 1))
     expect(patientStatus()).toBe('authenticated')
   })
 
