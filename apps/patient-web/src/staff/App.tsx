@@ -425,7 +425,11 @@ function Shell() {
   }, [focusOverview, lock])
   const { pathname } = useLocation()
   const shownPath = useRef(pathname)
-  useEffect(() => { shownPath.current = pathname; setChoice(null) }, [pathname])
+  useEffect(() => {
+    // Only a change of page discards the proposal, not the shell's first render.
+    if (shownPath.current !== pathname) setChoice(null)
+    shownPath.current = pathname
+  }, [pathname])
   if (state.status !== 'ready') return null
   const { actor } = state.session
   const currentFacility = actor.facility
