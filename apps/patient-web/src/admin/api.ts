@@ -2,6 +2,7 @@ import { createApiClient, HidApiError, isHidApiError, NO_RETRY, type DownloadRes
 import { createRegisteredBrowserClient } from '@hid/api'
 import { environment } from './env'
 import { recordServerSessionEnd, recordSessionWindow, reportSessionEnded, serverSessionEnd } from './session-window'
+import { announceAdminSessionChange } from './tabs'
 
 export interface AdminActor {
   accountId: string
@@ -209,6 +210,17 @@ function grant(value: PlatformSessionGrant): PlatformSessionGrant {
   return value
 }
 
+/**
+ * A sign-in step that answered with a session has set the browser's platform
+ * cookies, which every admin tab sends from then on, so the other tabs are told
+ * at once rather than when this one opens its workspace.
+ */
+function signedIn<T extends PlatformSessionGrant>(value: T): T {
+  grant(value)
+  announceAdminSessionChange()
+  return value
+}
+
 /** One key per user submission, reused if that submission is retried after step-up. */
 export function newIdempotencyKey(): string {
   return crypto.randomUUID()
@@ -238,16 +250,14 @@ export const adminApi = {
       body: { email, password, turnstileAction: 'admin-login', ...(token ? { turnstileToken: token } : {}) } })
   },
   async verifyMfa(input: { code: string } | { recoveryCode: string }) {
-    return grant(await request<PlatformSessionGrant>('/api/v1/auth/admin/mfa/verify', { method: 'POST', auth: 'none', body: input }))
+    return signedIn(await request<PlatformSessionGrant>('/api/v1/auth/admin/mfa/verify', { method: 'POST', auth: 'none', body: input }))
   },
   startEnrollment() {
     return request<MfaEnrollment>('/api/v1/auth/admin/mfa/enroll/start', { method: 'POST', auth: 'none' })
   },
   async activateEnrollment(code: string) {
-    const activated = await request<PlatformSessionGrant & { recoveryCodes: string[] }>(
-      '/api/v1/auth/admin/mfa/enroll/activate', { method: 'POST', auth: 'none', body: { code } })
-    grant(activated)
-    return activated
+    return signedIn(await request<PlatformSessionGrant & { recoveryCodes: string[] }>(
+      '/api/v1/auth/admin/mfa/enroll/activate', { method: 'POST', auth: 'none', body: { code } }))
   },
   session() { return request<AdminSession>('/api/v1/admin/session') },
   async refresh() {

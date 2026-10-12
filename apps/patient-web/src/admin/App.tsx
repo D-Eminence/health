@@ -170,17 +170,13 @@ export function App() {
     }
   }, [])
 
+  // MFA verification or activation has already replaced the browser's platform
+  // cookies and told the other admin tabs (api.ts), whether or not this workspace opens.
   async function signedInNow() {
-    try {
-      let value: AdminSession
-      try { value = await adminApi.session() }
-      catch (error) { throw new Error(failure(error, 'Platform administration could not be opened. Try again.')) }
-      open(value)
-    } finally {
-      // MFA verification or enrollment has already replaced the browser's platform
-      // cookies, whether or not this workspace opens.
-      announceAdminSessionChange()
-    }
+    let value: AdminSession
+    try { value = await adminApi.session() }
+    catch (error) { throw new Error(failure(error, 'Platform administration could not be opened. Try again.')) }
+    open(value)
   }
 
   async function signOut() {

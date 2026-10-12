@@ -11,15 +11,25 @@ function json(body: unknown, status = 200) {
 }
 const refused = (code: string) => json({ code, detail: 'Valid authentication is required' }, 401)
 
-/** Answers each `METHOD /path` from its own queue, in order, and records the calls. */
-function serve(routes: Record<string, Response[]>) {
+/**
+ * Answers each `METHOD /path` from its own queue, in order, and records the
+ * calls. A queued promise is an answer that arrives when the test settles it.
+ */
+function serve(routes: Record<string, Array<Response | Promise<Response>>>) {
   const calls: string[] = []
   vi.stubGlobal('fetch', vi.fn(async (url: string | URL | Request, init: RequestInit) => {
     const route = `${String(init.method)} ${new URL(String(url)).pathname}`
     calls.push(route)
-    return routes[route]?.shift() ?? json({ code: 'UNEXPECTED_REQUEST' }, 418)
+    return await (routes[route]?.shift() ?? json({ code: 'UNEXPECTED_REQUEST' }, 418))
   }))
   return calls
+}
+
+/** An answer the test gives later, with `answer`. */
+function later() {
+  let answer!: (response: Response) => void
+  const response = new Promise<Response>(resolve => { answer = resolve })
+  return { response, answer }
 }
 
 async function open() {
@@ -117,8 +127,10 @@ describe('a workspace bound to the administrator who opened it', () => {
   const actor = (accountId: string) => ({ accountId, subject: `staff:${accountId}`, displayName: `Admin ${accountId}`,
     email: `${accountId}@example.test`, platformRoles: [], platformPermissions: ['platform.admin.access'] })
   const sessionOf = (accountId: string) => json({ actor: actor(accountId) })
-  const grantFor = (accountId: string) => json({ actor: { ...actor(accountId), kind: 'platform', sessionId: `session-${accountId}` },
-    expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(), idleExpiresAt: new Date(Date.now() + 15 * 60_000).toISOString() })
+  const grantFor = (accountId: string, extra: Record<string, unknown> = {}) => json({
+    actor: { ...actor(accountId), kind: 'platform', sessionId: `session-${accountId}` },
+    expiresAt: new Date(Date.now() + 15 * 60_000).toISOString(), idleExpiresAt: new Date(Date.now() + 15 * 60_000).toISOString(),
+    ...extra })
   const mfa = () => json({ enrolled: true, factorType: 'totp', activatedAt: null, lastUsedAt: null, recoveryCodesRemaining: 10, session: null })
   /** The MFA status of a live session, which reports its idle and absolute expiry. */
   const mfaOfLiveSession = () => json({ enrolled: true, factorType: 'totp', activatedAt: null, lastUsedAt: null,
@@ -152,7 +164,7 @@ describe('a workspace bound to the administrator who opened it', () => {
     vi.stubGlobal('BroadcastChannel', TabChannel)
   })
 
-  async function openAs(routes: Record<string, Response[]>) {
+  async function openAs(routes: Record<string, Array<Response | Promise<Response>>>) {
     const calls = serve({ [MFA]: [mfa()], ...routes })
     const messages = await open()
     return { calls, messages }
@@ -356,5 +368,45 @@ describe('a workspace bound to the administrator who opened it', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Verify' }))
     await waitFor(() => expect(TabChannel.posted).toEqual([{ name: CHANNEL, message: 'changed' }]), { timeout: 4000 })
     expect(await screen.findByRole('heading', { name: 'Administration sign in' })).toBeTruthy()
+  })
+
+  it('tells the other admin tabs of a sign-in as soon as the code is verified, and once', async () => {
+    const opening = later()
+    await openAs({ [MFA]: [mfa(), mfa()], [SESSION]: [refused('AUTHENTICATION_REQUIRED'), opening.response],
+      [REFRESH]: [refused('AUTHENTICATION_REQUIRED')], [OVERVIEW]: [overview()],
+      'POST /api/v1/auth/admin/login': [json({ status: 'mfa_required', expiresAt: new Date(Date.now() + 300_000).toISOString() })],
+      'POST /api/v1/auth/admin/mfa/verify': [grantFor('admin-2')] })
+    fireEvent.change(await screen.findByLabelText('Email'), { target: { value: 'admin-2@example.test' } })
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'correct horse battery' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    fireEvent.change(await screen.findByLabelText('Authenticator code'), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Verify' }))
+    // The workspace check has not answered yet.
+    expect(await screen.findByText('Opening platform administration…')).toBeTruthy()
+    await waitFor(() => expect(TabChannel.posted).toEqual([{ name: CHANNEL, message: 'changed' }]))
+    await act(async () => { opening.answer(sessionOf('admin-2')) })
+    expect(await screen.findByText('7')).toBeTruthy()
+    expect(TabChannel.posted).toEqual([{ name: CHANNEL, message: 'changed' }])
+  })
+
+  // Activation signs the administrator in: hid-system platform-auth.controller.ts
+  // activateEnrollment sets the platform cookies before the recovery codes show,
+  // and the administrator may read them for minutes, or close the tab there.
+  it('tells the other admin tabs of a sign-in as soon as an authenticator is activated', async () => {
+    const expiresAt = new Date(Date.now() + 300_000).toISOString()
+    await openAs({ [SESSION]: [refused('AUTHENTICATION_REQUIRED')], [REFRESH]: [refused('AUTHENTICATION_REQUIRED')],
+      'POST /api/v1/auth/admin/login': [json({ status: 'mfa_enrollment_required', expiresAt })],
+      'POST /api/v1/auth/admin/mfa/enroll/start': [json({ secret: 'JBSWY3DPEHPK3PXP',
+        otpauthUri: 'otpauth://totp/Health%20ID:admin-3?secret=JBSWY3DPEHPK3PXP', algorithm: 'SHA1', digits: 6,
+        periodSeconds: 30, expiresAt })],
+      'POST /api/v1/auth/admin/mfa/enroll/activate': [grantFor('admin-3', { recoveryCodes: ['AAAA-BBBB-CC', 'DDDD-EEEE-FF'] })] })
+    fireEvent.change(await screen.findByLabelText('Email'), { target: { value: 'admin-3@example.test' } })
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'correct horse battery' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Begin setup' }))
+    fireEvent.change(await screen.findByLabelText('Authenticator code'), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Activate authenticator' }))
+    expect(await screen.findByRole('heading', { name: 'Save your recovery codes' })).toBeTruthy()
+    expect(TabChannel.posted).toEqual([{ name: CHANNEL, message: 'changed' }])
   })
 })
