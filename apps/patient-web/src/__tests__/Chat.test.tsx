@@ -22,7 +22,7 @@ it('enables Send after history loads through the registered cookie client and se
       ? { exchanges: [], retentionDays: 30, limit: 10 }
       : { status: 'ready', answer: 'I am your Health ID record assistant.', sources: [] }),
     { status: 200, headers: { 'Content-Type': 'application/json' } }))
-  const transport = createApiClient({ baseUrl: 'https://staging.healthidentitydirectory.com',
+  const transport = createApiClient({ baseUrl: 'https://staging.healthidentitydirectory.com', clientId: 'patient-web',
     sessionMode: 'cookie', getCsrfToken: () => 'synthetic-csrf-token',
     fetchImpl: fetchImpl as unknown as typeof fetch })
   const api = createPatientApi(createRegisteredBrowserClient(transport, 'patient-web'))
