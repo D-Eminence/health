@@ -586,6 +586,50 @@ describe('the facility this tab works at, found gone mid-session', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Choose a patient first.' })).toBeTruthy()
   })
 
+  it('opens no patient from a page\'s answer that arrives once the facility is found gone', async () => {
+    // The patient lookup was sent at Ikeja Clinic before the check; its answer arrives while the question shows.
+    const looking = deferredResponse()
+    const sent = serve({ [SESSION]: [session(IKEJA, 'selected'), session(LAGOS, 'selected', [LAGOS])], [LOOKUP]: [looking.answer],
+      [FACILITY]: [session(LAGOS, 'selected', [LAGOS])] })
+    await open('/provider/patients')
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Health ID' }), { target: { value: 'HID-ABCDEF23' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Verify access' }))
+    await waitFor(() => expect(sent.map(call => call.route)).toContain(LOOKUP))
+
+    fromAnotherTab()
+    await question()
+    await act(async () => { looking.respond(allowedLookup()) })
+
+    // The patient period closed with the facility: the late answer neither opens the record nor moves to it.
+    expect(screen.getByTestId('where').textContent).toBe('/provider/patients')
+    fireEvent.click(option('Lagos General'))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(await screen.findByRole('textbox', { name: 'Health ID' })).toBeTruthy()
+    expect(screen.getByTestId('where').textContent).toBe('/provider/patients')
+    expect(document.body.textContent).not.toContain(PATIENT_NAME)
+  })
+
+  it('leaves the question it asked as it is when a later read finds more gone; choosing a facility gone says so', async () => {
+    // Ikeja Clinic ends; then, while the question shows, Lagos General (the facility Identity reported) ends too.
+    serve({ [SESSION]: [session(IKEJA, 'selected', [LAGOS, IKEJA, YABA]), session(LAGOS, 'selected', [LAGOS, YABA]), session(YABA, 'selected', [YABA])],
+      [FACILITY]: [() => problem(403, 'FACILITY_ACCESS_DENIED', 'The actor is not active at this facility')], [REQUESTS]: [() => json([])] })
+    await open('/provider')
+    expect(await screen.findByText(/Working at Ikeja Clinic\./)).toBeTruthy()
+    fromAnotherTab()
+    await question()
+    fireEvent.click(option('Lagos General'))
+
+    fromAnotherTab()
+    await waitFor(() => expect(screen.queryByText('Checking your session…')).toBeNull())
+
+    // Nothing the person picked is taken away while they choose; the server refuses a facility gone, and the refusal says so.
+    expect(screen.getByText(/The facility you were working at is no longer available to you\./)).toBeTruthy()
+    expect(option('Lagos General').checked).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(await screen.findByText('You are no longer active at Lagos General. Choose another facility.')).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Where are you working?' })).toBeTruthy()
+  })
+
   it('leaves a question already asked as it is: the facility reported then was never the tab\'s own', async () => {
     // Asked at load (none chosen yet), then another tab switches to Ikeja Clinic and Lagos General ends.
     const sent = serve({ [SESSION]: [session(LAGOS, 'default'), session(IKEJA, 'selected', [IKEJA])] })
