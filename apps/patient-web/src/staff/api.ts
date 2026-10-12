@@ -37,7 +37,9 @@ export interface Actor {
  * POST /auth/facility; 'default', none chosen, so the server's default (the
  * primary facility, else the first by name); 'reselect', the facility chosen
  * earlier is no longer one of the actor's active facilities, so the default is
- * reported instead. An Identity without that contract sends no field.
+ * reported instead. An Identity without that contract sends no field. A value
+ * not named here (a later contract) is not taken as a choice made: the portal
+ * asks (see facilitySelection.ts).
  */
 export type FacilitySelection = 'selected' | 'default' | 'reselect'
 

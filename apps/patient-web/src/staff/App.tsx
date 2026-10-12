@@ -4,7 +4,7 @@ import { BrandLogo } from '../BrandLogo'
 import { Badge, Button, ButtonLink, EmptyState, Select } from '@hid/ui'
 import { isHidApiError } from '@hid/http'
 import { staffApi, type PatientLookup, type StaffSession } from './api'
-import { facilityChoiceNeeded } from './facilitySelection'
+import { facilityChoiceNeeded, type FacilityChoiceReason } from './facilitySelection'
 import {
   announceStaffSessionChange, onOtherTabSessionChange, onStaffSessionEnded, setStaffSessionActor, setStaffSessionReady,
   staffSessionGeneration, staffSignInPath, startStaffSessionGeneration,
@@ -383,15 +383,23 @@ function Gate({ children }: { children: ReactNode }) {
   return <>{lock && <SessionCheck unconfirmed={lock === 'unconfirmed'} />}<div hidden={lock !== null} inert={lock !== null}>{children}</div></>
 }
 
+/** Why the question is asked, as the page says it. */
+const FACILITY_CHOICE_WHY: Record<FacilityChoiceReason, string> = {
+  reselect: 'The facility you chose for this sign-in is no longer available to you.',
+  unchosen: 'You work at more than one facility.',
+  unconfirmed: 'The facility for this sign-in is not confirmed.',
+}
+
 /**
  * Asks where the person is working before any page opens, so that no facility is
  * used that they did not choose (hid-system ADR-046): when the facility chosen for
- * this sign-in is no longer available ('reselect'), or when none was chosen and
- * they work at more than one ('unchosen'). Nothing is preselected. Choosing sends
+ * this sign-in is no longer available ('reselect'), when none was chosen and
+ * they work at more than one ('unchosen'), or when Identity reports a selection
+ * this portal does not know ('unconfirmed'). Nothing is preselected. Choosing sends
  * the same POST /auth/facility as a switch, and Identity keeps it for the sign-in,
  * so a reload or a refresh reports it ('selected').
  */
-function FacilityChoice({ reason, onChosen }: { reason: 'reselect' | 'unchosen'; onChosen: () => void }) {
+function FacilityChoice({ reason, onChosen }: { reason: FacilityChoiceReason; onChosen: () => void }) {
   const { state, selectFacility } = useStaff()
   const [picked, setPicked] = useState('')
   const [missing, setMissing] = useState(false)
@@ -423,9 +431,7 @@ function FacilityChoice({ reason, onChosen }: { reason: 'reselect' | 'unchosen';
 
   return <section className="staff-card staff-facility-choice" aria-labelledby="staff-facility-choice-title">
     <h1 id="staff-facility-choice-title" ref={heading} tabIndex={-1}>Where are you working?</h1>
-    <p id="staff-facility-choice-why">{reason === 'reselect'
-      ? 'The facility you chose for this sign-in is no longer available to you.'
-      : 'You work at more than one facility.'} Choose where you are working before you continue. Patient access, records and requests use the facility you choose, and you can switch later from “Working at”.</p>
+    <p id="staff-facility-choice-why">{FACILITY_CHOICE_WHY[reason]} Choose where you are working before you continue. Patient access, records and requests use the facility you choose, and you can switch later from “Working at”.</p>
     <form className="staff-form" noValidate onSubmit={event => void choose(event)}>
       <fieldset aria-describedby={missing ? 'staff-facility-choice-why staff-facility-choice-missing' : 'staff-facility-choice-why'}>
         <legend>Facility</legend>

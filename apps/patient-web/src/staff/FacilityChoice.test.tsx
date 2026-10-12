@@ -15,7 +15,8 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
  * 'default' for someone who works at more than one facility, it asks where they
  * are working, with nothing preselected, and sends the same POST /auth/facility
  * as a switch. An Identity without the contract reports no field, and the portal
- * behaves as before.
+ * behaves as before. A value the portal does not know is not taken as a choice
+ * made: it asks.
  */
 vi.mock('./env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.example.test', turnstileSiteKey: null }) }))
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.resetModules() })
@@ -34,10 +35,11 @@ const PERMISSIONS = ['identity.patient.read', 'identity.consent.write', 'ehr.enc
 const facility = (id: string, name: string, isPrimary: boolean) => ({ id, membershipId: `member-${id}`, organizationId: 'org-1', name, roles: ['clinician'], permissions: PERMISSIONS, isPrimary })
 const LAGOS = facility('facility-1', 'Lagos General', true)
 const IKEJA = facility('facility-2', 'Ikeja Clinic', false)
-type Selection = 'selected' | 'default' | 'reselect' | undefined
+/** What Identity reports, including a value a later contract could add and a null no build sends today. */
+type Selection = 'selected' | 'default' | 'reselect' | 'something-new' | null | undefined
 const session = (current: typeof LAGOS, facilitySelection: Selection, facilities = [LAGOS, IKEJA]) => () => json({
   actor: { id: 'staff-1', email: 'ada@example.test', displayName: 'Ada Clinician', roles: ['clinician'], permissions: [], facilities, facility: current },
-  expiresAt: '2026-10-12T12:00:00.000Z', ...(facilitySelection ? { facilitySelection } : {}),
+  expiresAt: '2026-10-12T12:00:00.000Z', ...(facilitySelection !== undefined ? { facilitySelection } : {}),
 })
 
 function serve(routes: Record<string, Answer[]>) {
@@ -216,5 +218,39 @@ describe('a facility chosen for this sign-in (selected), and an Identity without
     expect((screen.getByRole('combobox', { name: 'Working at' }) as HTMLSelectElement).value).toBe('facility-1')
     expect(sent.filter(call => call.route === REQUESTS).every(call => call.facility === 'facility-1')).toBe(true)
     expect(sent.filter(call => call.route === FACILITY)).toEqual([])
+  })
+})
+
+describe('a selection this portal does not know (a later contract)', () => {
+  // Only 'selected' is a choice made; a value the portal cannot read is not taken as one.
+  it('asks rather than open the reported facility, without claiming a reason it cannot know', async () => {
+    const sent = serve({ [SESSION]: [session(LAGOS, 'something-new')], [FACILITY]: [session(IKEJA, 'selected')], [REQUESTS]: [() => json([])] })
+    await open('/provider')
+    await question()
+    expect(screen.getByText(/The facility for this sign-in is not confirmed\./)).toBeTruthy()
+    expect(screen.queryByText(/no longer available|more than one facility/)).toBeNull()
+    expect(option('Lagos General').checked).toBe(false)
+    expect(pageRequests(sent)).toEqual([])
+
+    fireEvent.click(option('Ikeja Clinic'))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(await screen.findByText(/Working at Ikeja Clinic\./)).toBeTruthy()
+    await waitFor(() => expect(pageRequests(sent).length).toBeGreaterThan(0))
+    expect(pageRequests(sent).every(call => call.facility === 'facility-2')).toBe(true)
+  })
+
+  it('asks someone with one facility too', async () => {
+    const sent = serve({ [SESSION]: [session(LAGOS, 'something-new', [LAGOS])] })
+    await open('/provider')
+    await question()
+    expect(screen.getByText(/The facility for this sign-in is not confirmed\./)).toBeTruthy()
+    expect(pageRequests(sent)).toEqual([])
+  })
+
+  it('takes a null selection as no selection reported: the facility Identity reports, no question', async () => {
+    serve({ [SESSION]: [session(LAGOS, null)], [REQUESTS]: [() => json([])] })
+    await open('/provider')
+    expect(await screen.findByText(/Working at Lagos General\./)).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: 'Where are you working?' })).toBeNull()
   })
 })
