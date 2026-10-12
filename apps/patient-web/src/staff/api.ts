@@ -31,9 +31,20 @@ export interface Actor {
   facility?: Facility
 }
 
+/**
+ * Where the facility a staff session reports comes from (hid-system ADR-046,
+ * migration 0079): 'selected', the facility this sign-in chose with
+ * POST /auth/facility; 'default', none chosen, so the server's default (the
+ * primary facility, else the first by name); 'reselect', the facility chosen
+ * earlier is no longer one of the actor's active facilities, so the default is
+ * reported instead. An Identity without that contract sends no field.
+ */
+export type FacilitySelection = 'selected' | 'default' | 'reselect'
+
 export interface StaffSession {
   actor: Actor
   expiresAt?: string
+  facilitySelection?: FacilitySelection
 }
 
 export interface RegistrationCapabilities {

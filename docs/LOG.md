@@ -806,3 +806,47 @@ code and password), PA-10 (the contact cleared for another code) and PA-12
     - PR-06: patient portal page titles.
     - PR-04, PR-05: focus after 'Try again' and 'Revoke access'.
     - PR-07: the Access PIN field does not say 4 to 8 digits.
+
+## 2026-10-12: the working facility across reloads
+
+- **Backend contract (D-Eminence/hid-system#47, open, not merged).**
+  `POST /auth/facility` checked the membership and audited the choice but
+  stored nothing, so a reload moved a provider back to the primary facility.
+  #47 (ADR-046, migration 0079) keeps the
+  choice per sign-in and reports `facilitySelection` on staff session reads,
+  refresh and sign-in: `selected`, `default` (none chosen) or `reselect` (the
+  facility chosen is no longer one of the actor's active facilities, so the
+  default is reported). The choice authorizes nothing: `X-Facility-ID` is still
+  checked on every request. It is based on hid-system `main` `05df685`, which
+  carries #34's 0078. 0079 and the role bootstrap must be applied before that
+  Identity takes traffic: without the table, staff session reads and refresh
+  answer 503 (a refresh keeps its rotation), and no provider page loads. A
+  failed selection read is a 503, never a facility the user did not choose;
+  the portal shows its "Session unavailable" state with Try again.
+- **Portal (`apps/patient-web/src/staff`).** The staff session type reads the
+  optional field (`facilityChoiceNeeded` in `facilitySelection.ts`). While the facility is
+  unresolved, `reselect`, or `default` for someone with more than one
+  facility, the shell opens no page, sends no page request and hides "Working
+  at"; it asks "Where are you working?" with the person's facilities as
+  options, none preselected. Continue sends the same `POST /auth/facility` as a
+  switch; a refusal (`403 FACILITY_ACCESS_DENIED` when the membership ended
+  meanwhile, `400`) is shown and the question stays. After the choice the page
+  asked for opens, its requests name that facility, and focus moves to its
+  heading. With `selected`, a reload keeps the facility chosen. An Identity
+  without the field (today's) behaves as before. Nothing about the facility is
+  kept in browser storage. The choice belongs to the sign-in, so a session
+  read can report another tab's later choice; a tab adopts a session only on
+  load, sign-in or its own choice, so a refresh or session check never moves
+  it to another facility.
+- **Decision left open (product):** the portal asks at every sign-in when the
+  person has more than one facility, since otherwise the server's default would
+  be used without their choosing it. Asking only on `reselect` is the
+  alternative.
+- **Tests:** `apps/patient-web/src/staff/FacilityChoice.test.tsx`, 12 cases:
+  reselect on reload (no page, no request, nothing preselected; then the
+  chosen facility on every request and focus on the heading), reselect with one
+  facility left after a membership ended, a choice refused as `403` and as
+  `400`, Continue with nothing chosen, a page opened by its address, `default`
+  with two facilities and with one, `selected` on reload, no field, a later
+  switch, and a refresh that reports another tab's choice. 7 fail before the
+  change; the other 5 guard what must not change.

@@ -1,9 +1,10 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { NavLink, Navigate, Outlet, Route, Routes, useHref, useLinkClickHandler, useLocation, useNavigate } from 'react-router-dom'
 import { BrandLogo } from '../BrandLogo'
 import { Badge, Button, ButtonLink, EmptyState, Select } from '@hid/ui'
 import { isHidApiError } from '@hid/http'
 import { staffApi, type PatientLookup, type StaffSession } from './api'
+import { facilityChoiceNeeded } from './facilitySelection'
 import {
   announceStaffSessionChange, onOtherTabSessionChange, onStaffSessionEnded, setStaffSessionActor, setStaffSessionReady,
   staffSessionGeneration, staffSignInPath, startStaffSessionGeneration,
@@ -382,6 +383,65 @@ function Gate({ children }: { children: ReactNode }) {
   return <>{lock && <SessionCheck unconfirmed={lock === 'unconfirmed'} />}<div hidden={lock !== null} inert={lock !== null}>{children}</div></>
 }
 
+/**
+ * Asks where the person is working before any page opens, so that no facility is
+ * used that they did not choose (hid-system ADR-046): when the facility chosen for
+ * this sign-in is no longer available ('reselect'), or when none was chosen and
+ * they work at more than one ('unchosen'). Nothing is preselected. Choosing sends
+ * the same POST /auth/facility as a switch, and Identity keeps it for the sign-in,
+ * so a reload or a refresh reports it ('selected').
+ */
+function FacilityChoice({ reason, onChosen }: { reason: 'reselect' | 'unchosen'; onChosen: () => void }) {
+  const { state, selectFacility } = useStaff()
+  const [picked, setPicked] = useState('')
+  const [missing, setMissing] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const heading = useRef<HTMLHeadingElement>(null)
+  // The question is the page: it takes focus when it appears, unless the person is already somewhere on it.
+  useEffect(() => {
+    const active = document.activeElement
+    if (!(active instanceof HTMLElement) || active === document.body || !active.isConnected) heading.current?.focus()
+  }, [])
+  if (state.status !== 'ready') return null
+  const { facilities } = state.session.actor
+
+  async function choose(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (busy) return
+    setError('')
+    if (!picked) {
+      setMissing(true)
+      document.querySelector<HTMLInputElement>('input[name="staff-facility-choice"]')?.focus()
+      return
+    }
+    setBusy(true)
+    try { if (await selectFacility(picked)) onChosen() }
+    catch (caught) { setError(caught instanceof Error ? caught.message : 'Facility could not be selected.') }
+    finally { setBusy(false) }
+  }
+
+  return <section className="staff-card staff-facility-choice" aria-labelledby="staff-facility-choice-title">
+    <h1 id="staff-facility-choice-title" ref={heading} tabIndex={-1}>Where are you working?</h1>
+    <p id="staff-facility-choice-why">{reason === 'reselect'
+      ? 'The facility you chose for this sign-in is no longer available to you.'
+      : 'You work at more than one facility.'} Choose where you are working before you continue. Patient access, records and requests use the facility you choose, and you can switch later from “Working at”.</p>
+    <form className="staff-form" noValidate onSubmit={event => void choose(event)}>
+      <fieldset aria-describedby={missing ? 'staff-facility-choice-why staff-facility-choice-missing' : 'staff-facility-choice-why'}>
+        <legend>Facility</legend>
+        {facilities.map(facility => <label key={facility.id} className="staff-choice">
+          <input type="radio" name="staff-facility-choice" value={facility.id} checked={picked === facility.id}
+            onChange={() => { setPicked(facility.id); setMissing(false) }} /> {facility.name}
+        </label>)}
+      </fieldset>
+      {missing && <p id="staff-facility-choice-missing" role="alert" className="staff-error">Choose a facility to continue.</p>}
+      {/* Kept enabled while it runs, so focus stays on it; a second press does nothing. */}
+      <Button type="submit" aria-disabled={busy || undefined}>{busy ? 'Saving…' : 'Continue'}</Button>
+    </form>
+    {error && <p role="alert" className="staff-error">{error}</p>}
+  </section>
+}
+
 const navigation = [
   { to: '/provider', label: 'Overview', permission: '' },
   { to: '/provider/patients', label: 'Patient access', permission: 'identity.patient.read' },
@@ -411,18 +471,19 @@ function Shell() {
   // moving to another page discards it, as Cancel does, so the list never goes on showing
   // an unconfirmed facility while work continues at the one in use.
   const [choice, setChoice] = useState<{ from: string; to: string } | null>(null)
-  // Set by a switch made on the overview, whose heading then takes focus once the
-  // workspace is open, unless the user has put focus somewhere since. From any other
+  // Set by a switch made on the overview, or by the first choice of facility, after
+  // which the page's heading takes focus once the workspace is open, unless the
+  // user has put focus somewhere since. From any other
   // page the change of page moves focus (useFocusOnPageChange) once the overview shows;
   // focusing now would reach the old page's heading while the router's transition is
   // pending.
-  const [focusOverview, setFocusOverview] = useState(false)
+  const [focusHeading, setFocusHeading] = useState(false)
   useEffect(() => {
-    if (!focusOverview || lock !== null) return
-    setFocusOverview(false)
+    if (!focusHeading || lock !== null) return
+    setFocusHeading(false)
     const active = document.activeElement
     if (!(active instanceof HTMLElement) || active === document.body || !active.isConnected) focusPageHeading(main.current)
-  }, [focusOverview, lock])
+  }, [focusHeading, lock])
   const { pathname } = useLocation()
   const shownPath = useRef(pathname)
   useEffect(() => {
@@ -432,6 +493,7 @@ function Shell() {
   }, [pathname])
   if (state.status !== 'ready') return null
   const { actor } = state.session
+  const choiceNeeded = facilityChoiceNeeded(state.session)
   const currentFacility = actor.facility
   const permissions = currentFacility?.permissions ?? []
   const visible = navigation.filter(item => !item.permission || permissions.includes(item.permission))
@@ -448,7 +510,7 @@ function Shell() {
         const onOverview = shownPath.current === '/provider'
         setChoice(null)
         navigate('/provider')
-        if (onOverview) setFocusOverview(true)
+        if (onOverview) setFocusHeading(true)
       }
     }
     catch (error) { setFacilityError(error instanceof Error ? error.message : 'Facility could not be selected.') }
@@ -480,7 +542,7 @@ function Shell() {
     </header>
     <div className="staff-layout">
       <aside className="staff-sidebar" aria-label="Provider navigation">
-        <div className="staff-facility">
+        {!choiceNeeded && <div className="staff-facility">
           <label htmlFor="staff-facility-select">Working at</label>
           <Select id="staff-facility-select" value={chosenId} disabled={switching} aria-describedby={chosen ? 'staff-facility-question' : undefined}
             onChange={event => { setFacilityError(''); setChoice({ from: choosingFrom, to: event.target.value }) }}>
@@ -493,11 +555,12 @@ function Shell() {
             <div className="staff-row"><Button size="sm" onClick={() => void switchFacility()} aria-disabled={switching || undefined}>{switching ? 'Switching…' : 'Switch facility'}</Button><Button size="sm" tone="quiet" onClick={keepFacility} disabled={switching}>Cancel</Button></div>
           </div>}
           {facilityError && <p role="alert" className="staff-error">{facilityError}</p>}
-        </div>
+        </div>}
         <nav className="staff-nav" onFocus={revealFocusedLink}>{visible.map(item => <NavLink key={item.to} to={item.to} end={item.to === '/provider'} className={({ isActive }) => `staff-nav-link${isActive ? ' active' : ''}`}>{item.label}{item.to === '/provider/clinical' && !activePatient && <span className="staff-nav-meta">Select patient</span>}</NavLink>)}</nav>
         <div className="staff-sidebar-footer"><Badge tone="information">{actor.roles.join(', ') || 'Staff'}</Badge><p>Access is limited to your active facility and server permissions.</p></div>
       </aside>
-      <main ref={main} className="staff-main">{signOutError && <p role="alert" className="staff-error">{signOutError}</p>}<Outlet /></main>
+      <main ref={main} className="staff-main">{signOutError && <p role="alert" className="staff-error">{signOutError}</p>}
+        {choiceNeeded ? <FacilityChoice reason={choiceNeeded} onChosen={() => setFocusHeading(true)} /> : <Outlet />}</main>
     </div>
   </div>
 }
