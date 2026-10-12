@@ -1,9 +1,10 @@
 import { beforeEach, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { HidApiError } from '@hid/http'
+import { createApiClient, HidApiError } from '@hid/http'
+import { createRegisteredBrowserClient } from '@hid/api'
 import { PatientChat } from '../routes/Chat'
 import { SessionContext, createTestSessionValue } from '../session'
-import type { createPatientApi } from '../api'
+import { createPatientApi } from '../api'
 import { SupportChat } from '@hid/ui'
 
 const patient = { kind: 'patient', subjectId: 'patient-a', appRole: 'patient', assuranceLevel: 'aal1' } as const
@@ -14,6 +15,29 @@ const apiFor = (chat: ReturnType<typeof vi.fn>) => ({ chat, chatHistory: vi.fn()
 beforeEach(() => {
   HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', '') }
   HTMLDialogElement.prototype.close = function () { this.removeAttribute('open') }
+})
+it('enables Send after history loads through the registered cookie client and sends the question', async () => {
+  const fetchImpl = vi.fn(async (_url: string | URL | Request, init?: RequestInit) =>
+    new Response(JSON.stringify(init?.method === 'GET'
+      ? { exchanges: [], retentionDays: 30, limit: 10 }
+      : { status: 'ready', answer: 'I am your Health ID record assistant.', sources: [] }),
+    { status: 200, headers: { 'Content-Type': 'application/json' } }))
+  const transport = createApiClient({ baseUrl: 'https://staging.healthidentitydirectory.com',
+    sessionMode: 'cookie', getCsrfToken: () => 'synthetic-csrf-token',
+    fetchImpl: fetchImpl as unknown as typeof fetch })
+  const api = createPatientApi(createRegisteredBrowserClient(transport, 'patient-web'))
+  render(<SessionContext.Provider value={createTestSessionValue(patient, api)}><PatientChat /></SessionContext.Provider>)
+  fireEvent.change(screen.getByLabelText('Your question'), { target: { value: 'What are you?' } })
+  const send = screen.getByRole('button', { name: 'Send question' }) as HTMLButtonElement
+  await waitFor(() => expect(send.disabled).toBe(false))
+  fireEvent.click(send)
+  expect(await screen.findByText('I am your Health ID record assistant.')).toBeTruthy()
+  expect(fetchImpl).toHaveBeenCalledTimes(2)
+  expect(String(fetchImpl.mock.calls[0]?.[0])).toContain('/api/v1/ehr/me/chat/history')
+  expect(fetchImpl.mock.calls[0]?.[1]?.credentials).toBe('include')
+  expect(fetchImpl.mock.calls[1]?.[1]).toMatchObject({ method: 'POST', credentials: 'include',
+    body: JSON.stringify({ question: 'What are you?' }) })
+  expect(new Headers(fetchImpl.mock.calls[1]?.[1]?.headers).get('X-CSRF-Token')).toBe('synthetic-csrf-token')
 })
 it('does not mount patient chat for an authenticated staff context', () => {
   const staff = { kind: 'staff', subjectId: 'staff-a', appRole: 'clinician', assuranceLevel: 'aal1',

@@ -115,7 +115,7 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       'enrollment.verifyContact', 'enrollment.activate'],
     identity: ['identity.me', 'identity.accessHistory', 'identity.accessPin', 'identity.verifyNin'],
     access: ['access.patientRequests', 'access.approve', 'access.deny'],
-    ehr: ['ehr.myRecords', 'ehr.patientChat'],
+    ehr: ['ehr.myRecords', 'ehr.patientChat', 'ehr.patientChatHistory'],
   },
   'staff-web': {
     auth: ['auth.staffLogin', 'auth.session', 'auth.refresh', 'auth.logout', 'auth.facility',
@@ -165,7 +165,7 @@ export function canUseService(app: HidApp, service: HidService): boolean {
  * time a user reaches an unusual screen.
  */
 export function assertEndpointAllowed(app: HidApp, endpointName: string): void {
-  if (endpointName === 'ehr.patientChat' && app !== 'patient-web') {
+  if ((endpointName === 'ehr.patientChat' || endpointName === 'ehr.patientChatHistory') && app !== 'patient-web') {
     throw new BoundaryViolationError('Patient record chat is available only to the patient application.')
   }
   const descriptor = findEndpoint(endpointName)
