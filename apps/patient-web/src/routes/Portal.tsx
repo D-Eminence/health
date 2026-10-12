@@ -69,12 +69,12 @@ function notificationTitle(item: PatientNotification) {
  * hold back changes in a busy region, the first load's status among them.
  */
 function LoadState({ loading, error, retry, hasData, focusTarget }: {
-  loading: boolean; error: string | null; retry: () => unknown; hasData: boolean; focusTarget: RefObject<HTMLElement | null>
+  loading: boolean; error: string | null; retry: () => Promise<unknown>; hasData: boolean; focusTarget: RefObject<HTMLElement | null>
 }) {
-  const retryFocus = useRetryFocus(loading, error, focusTarget)
+  const retryFocus = useRetryFocus(focusTarget)
   if (loading && !hasData) return <div className="patient-card patient-loading" role="status">Loading your information…</div>
   if (error) return <div className="patient-card" role="alert"><p>{error}</p>
-    <button ref={retryFocus.button} type="button" onClick={() => { retryFocus.retried(); void retry() }}>Try again</button></div>
+    <button ref={retryFocus.button} type="button" onClick={() => retryFocus.retry(retry)}>Try again</button></div>
   return null
 }
 

@@ -24,11 +24,17 @@ export function RequireAccess({ requirement, children }: RequireAccessProps) {
   const decision = evaluateAccess(state, requirement)
   // 'Try again' is replaced while the session is checked again: focus then goes to
   // the page that opens, or to the new 'Try again' when the check fails again (PR-04).
+  // Only an outcome after the check was seen to start counts: an effect still
+  // pending from the render that showed 'Try again' runs after a quick press.
   const retried = useRef(false)
+  const checking = useRef(false)
   const retryButton = useRef<HTMLButtonElement>(null)
   useEffect(() => {
-    if (!retried.current || (decision.outcome === 'pending' && !sessionError)) return
+    if (!retried.current) return
+    if (decision.outcome === 'pending' && !sessionError) { checking.current = true; return }
+    if (!checking.current) return
     retried.current = false
+    checking.current = false
     if (!focusLost()) return
     if (decision.outcome === 'allow') focusPageHeading(document.getElementById('main'))
     else if (sessionError) retryButton.current?.focus()
@@ -47,7 +53,7 @@ export function RequireAccess({ requirement, children }: RequireAccessProps) {
           {sessionError ? <div role="alert" className="patient-access-state">
             <h1>We could not check your session</h1>
             <p>Check your connection, then try again.</p>
-            <button ref={retryButton} type="button" onClick={() => { retried.current = true; retrySessionCheck() }}>Try again</button>
+            <button ref={retryButton} type="button" onClick={() => { retried.current = true; checking.current = false; retrySessionCheck() }}>Try again</button>
           </div> : <div role="status" aria-live="polite" className="patient-access-state">
             <h1>Checking your session…</h1>
           </div>}

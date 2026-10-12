@@ -67,7 +67,7 @@ export function EmergencyContactsCard() {
   const addButton = useRef<HTMLButtonElement>(null)
   const addName = useRef<HTMLInputElement>(null)
   const focusAfter = useActionFocus()
-  const retryFocus = useRetryFocus(contacts.loading, contacts.error, heading)
+  const retryFocus = useRetryFocus(heading)
   const byId = (id: string) => () => document.getElementById(id)
   const toHeading = (): HTMLElement | null => heading.current
 
@@ -141,7 +141,7 @@ export function EmergencyContactsCard() {
     {error && <p role="alert" className="patient-inline-error">{error}</p>}
     <div role="status">{notice && <p className="patient-inline-success">{notice}</p>}</div>
     {contacts.loading && !contacts.data && <p role="status" className="patient-loading">Loading your contacts…</p>}
-    {contacts.error && <div role="alert"><p>{contacts.error}</p><button ref={retryFocus.button} type="button" onClick={() => { retryFocus.retried(); void contacts.reload() }}>Try again</button></div>}
+    {contacts.error && <div role="alert"><p>{contacts.error}</p><button ref={retryFocus.button} type="button" onClick={() => retryFocus.retry(contacts.reload)}>Try again</button></div>}
     {contacts.data && !contacts.error && (contacts.data.length === 0
       ? <p className="patient-empty">You have no emergency contacts.</p>
       : <ul className="patient-list">{contacts.data.map(contact => <li key={contact.contactId} className="patient-access-item">
@@ -225,7 +225,7 @@ export function AccountDeletionCard() {
   const completedHeading = useRef<HTMLHeadingElement>(null)
   const proceedButton = useRef<HTMLButtonElement>(null)
   const focusAfter = useActionFocus()
-  const retryFocus = useRetryFocus(status.loading, status.error, heading)
+  const retryFocus = useRetryFocus(heading)
 
   const request = async () => {
     if (busy || !acknowledged) return
@@ -292,7 +292,7 @@ export function AccountDeletionCard() {
     {error && <p role="alert" className="patient-inline-error">{error}</p>}
     <div role="status">{notice && <p className="patient-inline-success">{notice}</p>}</div>
     {status.loading && !status.data && <p role="status" className="patient-loading">Checking your account…</p>}
-    {status.error && <div role="alert"><p>{status.error}</p><button ref={retryFocus.button} type="button" onClick={() => { retryFocus.retried(); void status.reload() }}>Try again</button></div>}
+    {status.error && <div role="alert"><p>{status.error}</p><button ref={retryFocus.button} type="button" onClick={() => retryFocus.retry(status.reload)}>Try again</button></div>}
     {status.data && !status.error && (scheduled
       ? <>
         <p>Your account is scheduled for deletion on <strong>{dateTime(current.scheduledFor)}</strong>.</p>

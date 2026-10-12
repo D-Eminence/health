@@ -55,6 +55,25 @@ export async function press(button: HTMLElement) {
   await act(async () => { fireEvent.click(button) })
 }
 
+/**
+ * Presses the button named `name` the moment it is on the page: after the render
+ * that shows it commits and before React runs that render's effects, as a fast
+ * click can. Returns whether it has been pressed yet.
+ */
+export function pressOnArrival(name: string) {
+  let pressed = false
+  const observer = new MutationObserver(() => {
+    const button = screen.queryByRole('button', { name })
+    if (!button) return
+    observer.disconnect()
+    button.focus()
+    fireEvent.click(button)
+    pressed = true
+  })
+  observer.observe(document.body, { childList: true, subtree: true })
+  return () => pressed
+}
+
 /** The text an element's aria-describedby points to. */
 export const described = (element: HTMLElement) => (element.getAttribute('aria-describedby') ?? '').split(' ')
   .map(id => document.getElementById(id)?.textContent ?? '').join(' | ')

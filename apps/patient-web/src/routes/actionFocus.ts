@@ -23,18 +23,19 @@ export function useActionFocus() {
 
 /**
  * Keyboard focus after 'Try again' (PR-04), which the loading state replaces.
- * Once the load ends focus goes to `target` (the heading of what loaded), or to
- * the new 'Try again' when the load failed again, and only when focus was lost.
- * Give `button` to the 'Try again' button and call `retried` as it is pressed.
+ * `retry(reload)` runs the reload, and once the load it asked for has ended and
+ * the render showing its outcome has committed, focus goes to `target` (the
+ * heading of what loaded), or to the new 'Try again' when the load failed again,
+ * and only when focus was lost. It waits on the reload itself, not on the loading
+ * state: an effect still pending from the render that showed 'Try again' runs
+ * after a quick press, and would take the press for the outcome. Give `button`
+ * to the 'Try again' button.
  */
-export function useRetryFocus(loading: boolean, error: string | null, target: RefObject<HTMLElement | null>) {
-  const retrying = useRef(false)
+export function useRetryFocus(target: RefObject<HTMLElement | null>) {
   const button = useRef<HTMLButtonElement>(null)
-  useEffect(() => {
-    if (loading || !retrying.current) return
-    retrying.current = false
-    const element = error ? button.current : target.current
-    if (element?.isConnected && focusLost()) element.focus()
-  }, [loading, error, target])
-  return { button, retried: useCallback(() => { retrying.current = true }, []) }
+  const focusAfter = useActionFocus()
+  const retry = useCallback((reload: () => Promise<unknown>) => {
+    void reload().then(() => focusAfter(() => button.current ?? target.current))
+  }, [focusAfter, target])
+  return { button, retry }
 }

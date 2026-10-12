@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { createApiClient } from '@hid/http'
@@ -8,6 +8,7 @@ import { RequireAccess } from '../RequireAccess'
 import { createTestSessionValue, SessionContext } from '../session'
 import { createPatientApi, type PatientApi } from '../api'
 import type { PatientPrincipal, StaffPrincipal } from '@hid/auth'
+import { pressOnArrival } from './portalHarness'
 
 const patient: PatientPrincipal = {
   kind: 'patient',
@@ -114,6 +115,30 @@ describe('RequireAccess', () => {
     const second = await screen.findByRole('button', { name: 'Try again' })
     await waitFor(() => expect(document.activeElement).toBe(second))
     await act(async () => { fireEvent.click(second) })
+    const heading = await screen.findByRole('heading', { level: 1, name: 'Your health, connected.' })
+    await waitFor(() => expect(document.activeElement).toBe(heading))
+  })
+
+  it('moves focus to the page that opens when Try again is pressed before the failed check\'s effects have run', async () => {
+    // A press that comes after the render showing 'Try again' commits, and before
+    // its effects run: an effect still pending from that render once took the press
+    // for the outcome, and focus stayed on the button the check replaced.
+    const failed = 'We could not check your session. Try again.'
+    const unknown: SessionState = { status: 'unknown', principal: null }
+    function Checking() {
+      const [value, setValue] = useState<{ state: SessionState; sessionError: string | null }>({ state: unknown, sessionError: null })
+      useEffect(() => { const timer = setTimeout(() => setValue({ state: unknown, sessionError: failed }), 0); return () => clearTimeout(timer) }, [])
+      const retrySessionCheck = () => {
+        setValue({ state: unknown, sessionError: null })
+        setTimeout(() => setValue({ state: { status: 'authenticated', principal: patient }, sessionError: null }), 0)
+      }
+      return <MemoryRouter><SessionContext.Provider value={{ ...createTestSessionValue(null, stubApi()), ...value, retrySessionCheck }}>
+        <RequireAccess requirement={PATIENT_ROUTE}><main id="main"><h1>Your health, connected.</h1></main></RequireAccess>
+      </SessionContext.Provider></MemoryRouter>
+    }
+    const pressed = pressOnArrival('Try again')
+    render(<Checking />)
+    await waitFor(() => expect(pressed()).toBe(true))
     const heading = await screen.findByRole('heading', { level: 1, name: 'Your health, connected.' })
     await waitFor(() => expect(document.activeElement).toBe(heading))
   })

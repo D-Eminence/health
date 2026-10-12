@@ -5,7 +5,7 @@ import type { AccessRequest, EmergencyContact } from '../api'
 import { AccessPage, NotificationsPage, PortalShell, RecordsPage, SettingsPage } from '../routes/Portal'
 import { Overview } from '../routes/Overview'
 import { AccountDeletionCard, EmergencyContactsCard } from '../routes/AccountSafety'
-import { json, press, problem, profile, renderPortal, type Handler } from './portalHarness'
+import { json, press, pressOnArrival, problem, profile, renderPortal, type Handler } from './portalHarness'
 
 /**
  * Keyboard focus after the portal's actions (PR-03, PR-04, PR-05) and the notices
@@ -166,6 +166,42 @@ describe('access and consent', () => {
     await press(await screen.findByRole('button', { name: 'Try again' }))
     await screen.findByText('Lagos General')
     await waitFor(() => expect(focused()).toBe(screen.getByRole('heading', { name: 'Access history' })))
+  })
+})
+
+/**
+ * 'Try again' pressed before React has run the effects of the render that showed
+ * it. An effect still pending from that render then runs after the press, and
+ * once took the press for the outcome: focus stayed on the button it replaced.
+ */
+describe('Try again pressed as soon as it is shown', () => {
+  it.each([
+    ['the access history', () => {
+      let reads = 0
+      access(path => path === '/identity/me/access-requests' ? json([]) : ++reads === 1 ? unavailable() : json({ items: [grant] }))
+      return { loaded: 'Lagos General', heading: () => screen.getByRole('heading', { name: 'Access history' }) }
+    }],
+    ['the overview', () => {
+      let reads = 0
+      renderPortal(<Overview />, () => ++reads === 1 ? unavailable() : json(profile))
+      return { loaded: 'HID-ABC234', heading: () => screen.getByRole('heading', { level: 1 }) }
+    }],
+    ['the emergency contacts', () => {
+      let reads = 0
+      renderPortal(<EmergencyContactsCard />, () => ++reads === 1 ? unavailable() : json([contact]))
+      return { loaded: 'Chidi Okafor', heading: () => screen.getByRole('heading', { name: 'Emergency contacts' }) }
+    }],
+    ['the account deletion status', () => {
+      let reads = 0
+      renderPortal(<AccountDeletionCard />, () => ++reads === 1 ? unavailable() : json(noDeletion))
+      return { loaded: 'I understand what deleting my account means', heading: () => screen.getByRole('heading', { name: 'Delete account' }) }
+    }],
+  ])('moves focus to the heading of %s once it loads', async (_label, open) => {
+    const pressed = pressOnArrival('Try again')
+    const { loaded, heading } = open()
+    await waitFor(() => expect(pressed()).toBe(true))
+    await screen.findByText(loaded)
+    await waitFor(() => expect(focused()).toBe(heading()))
   })
 })
 
