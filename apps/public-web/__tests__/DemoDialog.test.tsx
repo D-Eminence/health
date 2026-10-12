@@ -90,6 +90,33 @@ describe('DemoDialog', () => {
     expect(submit).not.toHaveBeenCalled()
   })
 
+  // Nothing announces the errors as they appear: the first field to correct, in
+  // form order, takes focus, and its error is read with it.
+  it('moves focus to the first field to correct', async () => {
+    openDialog()
+    fillValidRequest()
+    fireEvent.change(field('role'), { target: { value: 'X' } })
+    fireEvent.change(field('email'), { target: { value: 'not-an-email' } })
+    const send = screen.getByRole('button', { name: 'Send request' })
+    send.focus()
+    fireEvent.click(send)
+
+    await waitFor(() => expect(document.activeElement).toBe(field('role')))
+    expect(field('role').getAttribute('aria-describedby')).toBe('role-error')
+    expect(submit).not.toHaveBeenCalled()
+  })
+
+  it('moves focus to the service, with its error, when none is chosen', async () => {
+    openDialog()
+    const send = screen.getByRole('button', { name: 'Send request' })
+    send.focus()
+    fireEvent.click(send)
+
+    await waitFor(() => expect(document.activeElement).toBe(field('service')))
+    expect(field('service').getAttribute('aria-describedby')).toBe('service-error')
+    expect(document.getElementById('service-error')?.textContent).toBe('Choose a service.')
+  })
+
   it('holds a role given under Other to the same limit', () => {
     openDialog()
     fireEvent.change(field('role'), { target: { value: 'Other' } })
