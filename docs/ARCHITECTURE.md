@@ -151,8 +151,10 @@ This portal is not deployed. hid-system's Cloudflare configuration
 (`infra/cloudflare/workers/*/wrangler.json` at `522fb2e`) serves `www` and
 `staging` with hid-system's own `apps/web`, and each product host with its own
 hid-system app. The provider recovery links on product hosts point to
-`/provider/recover` on www, a route only this portal has, so they work once this
-portal serves www as well as the product hosts.
+`/provider/recover` on www. hid-system's own `apps/web` has the same fixed route
+since D-Eminence/hid-system#41 (merged into hid-system `main` at `63201b1`, not
+yet released), so the links work with today's hosting once a release carries
+it, or once this portal serves www.
 
 The backend's current Turnstile service permits all three general login
 actions (`patient-login`, `staff-login`, `admin-login`) together, and
