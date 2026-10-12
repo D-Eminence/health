@@ -149,6 +149,69 @@ describe('changing a prescription status', () => {
   })
 })
 
+/** The text of everything that describes `element`, in order. */
+function descriptions(element: Element) {
+  return (element.getAttribute('aria-describedby') ?? '').split(/\s+/).filter(Boolean)
+    .map(id => document.getElementById(id)?.textContent ?? '').join(' ')
+}
+
+/**
+ * EHR passes no change to Pharmacy (hid-system prescriptions.service.ts update()
+ * writes EHR only; acceptForPharmacy is the only Pharmacy call, for an active
+ * prescription), and Pharmacy dispenses the copy it accepted whatever EHR says
+ * later (pharmacy.service.ts dispense()). Until that is fixed (backend A1), the
+ * clinician is told so where the change is confirmed.
+ */
+describe('changing the status of a prescription Pharmacy may hold', () => {
+  it.each(['active', 'on_hold'])('says at the action that Pharmacy is not told and may still dispense a %s prescription it was sent', async status => {
+    api.records.mockResolvedValue({ items: [{ ...active, status }, draft], nextCursor: null })
+    await openPrescriptions()
+    const button = within(entry('Amoxicillin')).getByRole('button', { name: 'Update status' })
+    const warning = descriptions(button)
+    expect(warning).toContain('Pharmacy is not told of this change.')
+    expect(warning).toContain('Pharmacy may still dispense the earlier version it was sent')
+    expect(warning).toContain('you must contact the pharmacy')
+    // Shown in the form before the change is confirmed, not a message that comes and goes.
+    const shown = document.getElementById(button.getAttribute('aria-describedby')!)!
+    expect(button.closest('form')!.contains(shown)).toBe(true)
+    expect(shown.closest('[role="alert"], [role="status"]')).toBeNull()
+  })
+
+  it('keeps the warning in the form when the change is refused, and sends the change as before', async () => {
+    api.updateRecord.mockRejectedValueOnce(new HidApiError(412, 'Prescription changed since it was loaded', { code: 'VERSION_CONFLICT' }))
+    await openPrescriptions()
+    const form = within(entry('Amoxicillin')).getByRole('button', { name: 'Update status' }).closest('form')!
+    type(form, 'New status', 'cancelled')
+    type(form, 'Reason for change', 'Allergy reported')
+    fireEvent.click(within(form).getByRole('button', { name: 'Update status' }))
+
+    await waitFor(() => expect(api.updateRecord).toHaveBeenCalledWith('facility-1', PATIENT, ENCOUNTER, 'prescriptions', 'rx-1',
+      { expectedRowVersion: 3, changeReason: 'Allergy reported', status: 'cancelled' }))
+    expect(await within(form).findByText('Prescription changed since it was loaded')).toBeTruthy()
+    expect(descriptions(within(form).getByRole('button', { name: 'Update status' }))).toContain('Pharmacy is not told of this change.')
+  })
+
+  // The status form and the handoff form once shared a React key, so a redraw of
+  // the list could leave a second status form, and its warning, under the same ids.
+  it('shows the status form, and its warning, once however often the list is drawn again', async () => {
+    await openPrescriptions()
+    expect(await within(entry('Amoxicillin')).findByRole('button', { name: 'Send to Pharmacy' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh encounters' }))
+    await waitFor(() => expect(api.encounters).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Refresh encounters' }).getAttribute('aria-disabled')).toBeNull())
+    expect(within(entry('Amoxicillin')).getAllByRole('button', { name: 'Update status' })).toHaveLength(1)
+    expect(within(entry('Amoxicillin')).getAllByRole('button', { name: 'Send to Pharmacy' })).toHaveLength(1)
+    expect(document.querySelectorAll('#prescription-rx-1-status')).toHaveLength(1)
+  })
+
+  it('gives no Pharmacy warning on a draft, which EHR never sends to Pharmacy', async () => {
+    await openPrescriptions()
+    const button = within(entry('Ibuprofen')).getByRole('button', { name: 'Update status' })
+    expect(button.getAttribute('aria-describedby')).toBeNull()
+    expect(entry('Ibuprofen').textContent).not.toContain('Pharmacy is not told')
+  })
+})
+
 describe('sending a prescription to Pharmacy', () => {
   it('is offered only for an active prescription', async () => {
     await openPrescriptions()

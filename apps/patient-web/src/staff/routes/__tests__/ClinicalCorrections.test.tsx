@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { HidApiError } from '@hid/http'
 import { Clinical } from '../Clinical'
 
 /**
@@ -280,5 +281,57 @@ describe('changing a lab request status', () => {
     await openTab('Lab requests')
     expect(await screen.findByText(/Status changes made here are not passed to Lab/)).toBeTruthy()
     expect(screen.queryByLabelText(labelled('New status'))).toBeNull()
+  })
+
+  it('gives no Laboratory warning on cancelling a draft, which Lab never received', async () => {
+    await openTab('Lab requests')
+    const button = (await screen.findByLabelText(labelled('New status'))).closest('form')!.querySelector('button[type="submit"]')!
+    expect(button.getAttribute('aria-describedby')).toBeNull()
+  })
+})
+
+/** The text of everything that describes `element`, in order. */
+function descriptions(element: Element) {
+  return (element.getAttribute('aria-describedby') ?? '').split(/\s+/).filter(Boolean)
+    .map(id => document.getElementById(id)?.textContent ?? '').join(' ')
+}
+
+/**
+ * EHR calls Lab only when a request is created active (hid-system
+ * lab-requests.service.ts create()); update() never does, so a draft PATCHed to
+ * active never becomes a Lab work item (backend A3). The portal offers no
+ * activation, and says where a draft is chosen that it does not order the test.
+ */
+describe('creating a lab request', () => {
+  it('says at the choice and at the action that a draft never reaches the Laboratory, and how to order the test', async () => {
+    await openTab('Lab requests')
+    const handling = await screen.findByLabelText(labelled('Request handling'))
+    const button = screen.getByRole('button', { name: 'Create lab request' })
+    for (const element of [handling, button]) {
+      const warning = descriptions(element)
+      expect(warning).toContain('A draft is not sent to the Laboratory, and cannot be sent later')
+      expect(warning).toContain('To order the test, create an active request.')
+    }
+    const shown = document.getElementById(button.getAttribute('aria-describedby')!)!
+    expect(button.closest('form')!.contains(shown)).toBe(true)
+    expect(shown.closest('[role="alert"], [role="status"]')).toBeNull()
+  })
+
+  it('keeps the warning on the choice when EHR refuses it, described after the refusal', async () => {
+    api.createRecord.mockRejectedValueOnce(new HidApiError(400, 'One or more request fields are invalid.', { code: 'VALIDATION_FAILED',
+      details: [{ field: 'status', messages: ['status must be one of the following values: draft, active'] }] }))
+    await openTab('Lab requests')
+    const form = screen.getByRole('button', { name: 'Create lab request' }).closest('form')!
+    type(form, 'Test code system', 'LOINC')
+    type(form, 'Test code', '718-7')
+    type(form, 'Test display', 'Haemoglobin')
+    fireEvent.click(within(form).getByRole('button', { name: 'Create lab request' }))
+
+    expect((await within(form).findByRole('alert')).textContent).toContain('Status must be one of the following values')
+    const handling = within(form).getByLabelText(labelled('Request handling'))
+    expect(handling.getAttribute('aria-invalid')).toBe('true')
+    const description = descriptions(handling)
+    expect(description).toMatch(/^Status must be one of the following values: draft, active\./)
+    expect(description).toContain('A draft is not sent to the Laboratory, and cannot be sent later')
   })
 })
