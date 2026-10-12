@@ -396,22 +396,28 @@ const navigation = [
 ] as const
 
 function Shell() {
-  const { state, selectFacility, signOut, activePatient } = useStaff()
+  const { state, selectFacility, signOut, activePatient, lock } = useStaff()
   const [facilityError, setFacilityError] = useState('')
   const [signOutError, setSignOutError] = useState('')
   const [switching, setSwitching] = useState(false)
   const [signingOut, setSigningOut] = useState(false)
   const navigate = useNavigate()
   const main = useRef<HTMLElement>(null)
-  useFocusOnPageChange(main)
+  useFocusOnPageChange(main, lock !== null)
   // A facility chosen in the list is not switched to until the switch is confirmed: on a
   // closed list one arrow key changes the value (WCAG 3.2.2). The choice belongs to the
   // account and facility it was made in, so a refresh, a switch from another tab, a lock
   // or the next session that changes either discards it.
   const [choice, setChoice] = useState<{ from: string; to: string } | null>(null)
-  // Raised once a switch has opened the overview, whose heading then takes focus.
+  // Raised by a switch made on the overview, whose heading then takes focus. From any
+  // other page the change of page moves focus (useFocusOnPageChange) once the overview
+  // shows; focusing now would reach the old page's heading while the router's
+  // transition is pending.
   const [switched, setSwitched] = useState(0)
   useEffect(() => { if (switched) focusPageHeading(main.current) }, [switched])
+  const { pathname } = useLocation()
+  const shownPath = useRef(pathname)
+  useEffect(() => { shownPath.current = pathname }, [pathname])
   if (state.status !== 'ready') return null
   const { actor } = state.session
   const currentFacility = actor.facility
@@ -427,9 +433,10 @@ function Shell() {
     setSwitching(true)
     try {
       if (await selectFacility(chosen.id)) {
+        const onOverview = shownPath.current === '/provider'
         setChoice(null)
         navigate('/provider')
-        setSwitched(value => value + 1)
+        if (onOverview) setSwitched(value => value + 1)
       }
     }
     catch (error) { setFacilityError(error instanceof Error ? error.message : 'Facility could not be selected.') }

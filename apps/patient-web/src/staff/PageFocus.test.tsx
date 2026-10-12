@@ -59,6 +59,21 @@ describe('PEHR-11: focus after a step that opens another page', () => {
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { level: 1, name: /Good to see you/ })))
   })
 
+  it('a facility switch made from another page moves focus to the overview\'s heading, never to the old page\'s', async () => {
+    serve({ 'GET /api/v1/auth/session': [() => session(LAGOS)], 'POST /api/v1/auth/facility': [() => session(IKEJA)] })
+    await open('/provider/patients')
+    fireEvent.change(await screen.findByRole('combobox', { name: 'Working at' }), { target: { value: 'facility-2' } })
+    const stops: string[] = []
+    const record = (event: FocusEvent) => { stops.push((event.target as HTMLElement).textContent?.trim() ?? '') }
+    document.addEventListener('focusin', record)
+    const confirm = screen.getByRole('button', { name: 'Switch facility' })
+    confirm.focus()
+    fireEvent.click(confirm)
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { level: 1, name: /Good to see you/ })))
+    document.removeEventListener('focusin', record)
+    expect(stops).not.toContain('Open a patient record.')
+  })
+
   it('a navigation link, still on screen after it is followed, keeps focus', async () => {
     serve({ 'GET /api/v1/auth/session': [() => session(LAGOS)] })
     await open('/provider')

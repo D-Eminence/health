@@ -70,7 +70,7 @@ describe('PEHR-03: the Health ID field says what it needs', () => {
     await waitFor(() => expect(document.activeElement).toBe(field))
     expect(field.getAttribute('aria-invalid')).toBe('true')
     expect(describedText(field)).toBe(MISTYPED)
-    expect(screen.getByText(MISTYPED).id).toBe('patient-hid-error')
+    expect(screen.getByText(MISTYPED).closest('#patient-hid-error')).toBeTruthy()
     expect(api.lookupPatient).not.toHaveBeenCalled()
     // The value is kept for correction.
     expect(field.value).toBe('HID-K0LO1I')
@@ -85,6 +85,22 @@ describe('PEHR-03: the Health ID field says what it needs', () => {
     await waitFor(() => expect(document.activeElement).toBe(field))
     expect(describedText(field)).toBe(MISTYPED)
     expect(api.requestAccess).not.toHaveBeenCalled()
+  })
+
+  it('pressing Enter in the focused field announces the error, since focus does not move', async () => {
+    const field = renderPatients()
+    field.focus()
+    fireEvent.change(field, { target: { value: 'HID-K0LO1I' } })
+    fireEvent.submit(field.closest('form') as HTMLFormElement)
+    const first = await screen.findByRole('alert')
+    expect(first.textContent).toBe(MISTYPED)
+    expect(first.closest('#patient-hid-error')).toBeTruthy()
+    expect(document.activeElement).toBe(field)
+    // Pressing Enter again, unchanged, announces it again.
+    fireEvent.submit(field.closest('form') as HTMLFormElement)
+    await waitFor(() => expect(screen.getByRole('alert')).not.toBe(first))
+    expect(screen.getByRole('alert').textContent).toBe(MISTYPED)
+    expect(api.lookupPatient).not.toHaveBeenCalled()
   })
 
   it('pressing Enter in the field with an empty Health ID asks for one', async () => {

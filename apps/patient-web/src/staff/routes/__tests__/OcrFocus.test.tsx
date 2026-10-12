@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { MemoryRouter, Outlet, Route, Routes, useNavigate } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
@@ -19,6 +19,8 @@ const api = vi.hoisted(() => ({
   createOcrJob: vi.fn(), retryOcrJob: vi.fn(), validateOcrJob: vi.fn(), confirmOcrPatient: vi.fn(), publishOcrValidation: vi.fn(),
 }))
 const permissions = vi.hoisted(() => ({ value: [] as string[] }))
+// The workspace lock, as the staff App reports it: null while the workspace is open.
+const workspace = vi.hoisted(() => ({ lock: null as string | null }))
 
 vi.mock('../../api', () => ({ staffApi: api }))
 vi.mock('../../App', () => ({
@@ -26,6 +28,7 @@ vi.mock('../../App', () => ({
     state: { status: 'ready', session: { actor: { id: 'staff-1', displayName: 'Ada Clinician', facility: {
       id: 'facility-1', membershipId: 'member-1', name: 'General Hospital', roles: ['doctor'], permissions: permissions.value,
     } } } },
+    lock: workspace.lock,
   }),
 }))
 
@@ -49,6 +52,7 @@ const unavailable = () => new HidApiError(503, 'The service could not complete t
 
 beforeEach(() => {
   vi.clearAllMocks()
+  workspace.lock = null
   permissions.value = ALL
   api.ocrExtractions.mockResolvedValue({ items: [extraction] })
   api.ocrValidations.mockResolvedValue({ items: [] })
@@ -56,7 +60,15 @@ beforeEach(() => {
 })
 
 function renderOcr() {
-  render(<MemoryRouter initialEntries={['/provider/ocr']}><Ocr /></MemoryRouter>)
+  return render(<MemoryRouter initialEntries={['/provider/ocr']}><Ocr /></MemoryRouter>)
+}
+
+/** A promise settled from the test, for an answer that arrives later. */
+function deferred<T>() {
+  let resolve: (value: T) => void = () => {}
+  let reject: (reason: unknown) => void = () => {}
+  const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail })
+  return { promise, resolve, reject }
 }
 
 async function findJob(job: object | null) {
@@ -292,6 +304,79 @@ describe('OCR-A11Y-01: a refused request gives focus back to the control that se
   })
 })
 
+describe('OCR-A11Y-01: focus the user moved meanwhile is theirs', () => {
+  it('a refused request leaves focus in a field the user went to while it ran', async () => {
+    await findJob(awaiting)
+    fireEvent.change(await screen.findByLabelText(/^Review reason/), { target: { value: 'Checked against the scanned page' } })
+    const answer = deferred<never>()
+    api.validateOcrJob.mockReturnValue(answer.promise)
+    await press(screen.getByRole('button', { name: 'Validate extraction' }))
+    // While it runs, the clinician goes on editing another field.
+    const accepted = screen.getByLabelText(/^Accepted fields/)
+    accepted.focus()
+    await act(async () => { answer.reject(unavailable()) })
+    await screen.findByRole('alert')
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+    expect(focused()).toBe(accepted)
+  })
+
+  it('a step does not take focus from a field the user went to before the job\'s evidence arrived, and still says what was recorded', async () => {
+    await findJob(awaiting)
+    fireEvent.change(await screen.findByLabelText(/^Review reason/), { target: { value: 'Checked against the scanned page' } })
+    api.validateOcrJob.mockResolvedValue({ id: 'validation-1' })
+    api.findOcrJob.mockResolvedValue({ job: validated })
+    const evidence = deferred<{ items: object[] }>()
+    api.ocrExtractions.mockReturnValueOnce(evidence.promise)
+    await press(screen.getByRole('button', { name: 'Validate extraction' }))
+    // The confirmation form shows before the evidence has been read again.
+    const reason = await screen.findByLabelText(/^Confirmation reason/)
+    reason.focus()
+    await act(async () => { evidence.resolve({ items: [extraction] }) })
+    await waitFor(() => expect(statusRegion().textContent).toBe('Review recorded. Confirm the source patient next.'))
+    expect(focused()).toBe(reason)
+  })
+
+  it('a lookup made while a step waits cancels the step\'s focus and message', async () => {
+    await findJob(awaiting)
+    fireEvent.change(await screen.findByLabelText(/^Review reason/), { target: { value: 'Checked against the scanned page' } })
+    api.validateOcrJob.mockResolvedValue({ id: 'validation-1' })
+    api.findOcrJob.mockResolvedValue({ job: validated })
+    const evidence = deferred<{ items: object[] }>()
+    api.ocrExtractions.mockReturnValueOnce(evidence.promise)
+    await press(screen.getByRole('button', { name: 'Validate extraction' }))
+    await screen.findByLabelText(/^Confirmation reason/)
+    await press(screen.getByRole('button', { name: 'Refresh status' }))
+    await act(async () => { evidence.resolve({ items: [extraction] }) })
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+    expect(focused()).toBe(screen.getByRole('button', { name: 'Refresh status' }))
+    expect(statusRegion().textContent).toBe('')
+  })
+
+  it('a step that finishes while the workspace is locked takes focus, and says so, once it opens again', async () => {
+    const view = await (async () => { const v = renderOcr(); return v })()
+    api.findOcrJob.mockResolvedValue({ job: awaiting })
+    fireEvent.change(screen.getByLabelText(/^Document ID/), { target: { value: DOCUMENT } })
+    fireEvent.click(screen.getByRole('button', { name: 'Find job' }))
+    fireEvent.change(await screen.findByLabelText(/^Review reason/), { target: { value: 'Checked against the scanned page' } })
+    api.validateOcrJob.mockResolvedValue({ id: 'validation-1' })
+    api.findOcrJob.mockResolvedValue({ job: validated })
+    const evidence = deferred<{ items: object[] }>()
+    api.ocrExtractions.mockReturnValueOnce(evidence.promise)
+    await press(screen.getByRole('button', { name: 'Validate extraction' }))
+    await screen.findByRole('heading', { name: 'Confirm source patient' })
+    // The page is left meanwhile: the workspace locks (hidden and inert).
+    workspace.lock = 'away'
+    view.rerender(<MemoryRouter initialEntries={['/provider/ocr']}><Ocr /></MemoryRouter>)
+    await act(async () => { evidence.resolve({ items: [extraction] }) })
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+    expect(statusRegion().textContent).toBe('')
+    workspace.lock = null
+    view.rerender(<MemoryRouter initialEntries={['/provider/ocr']}><Ocr /></MemoryRouter>)
+    await waitFor(() => expect(focused()).toBe(heading('Confirm source patient')))
+    expect(statusRegion().textContent).toBe('Review recorded. Confirm the source patient next.')
+  })
+})
+
 describe('OCR-A11Y-01: retrying a failed job', () => {
   it('moves focus to the job status and says the retry was requested', async () => {
     await findJob(failed)
@@ -340,11 +425,14 @@ describe('OCR-A11Y-01: arriving at OCR by Back, Forward or a document\'s Extract
     return <><h1>Clinical record</h1><button type="button" onClick={() => navigate('/provider/ocr', {
       state: { ocrDocumentId: DOCUMENT, ocrPatientId: PATIENT, actorId: 'staff-1', facilityId: 'facility-1' } })}>Extract with OCR</button></>
   }
-  /** The workspace's main region, as the staff App's shell lays it out. */
+  /** The workspace's main region, as the staff App's shell lays it out, with its lock. */
+  const shell = { locked: false, rerender: () => {} }
   function Workspace() {
     const main = useRef<HTMLElement>(null)
-    useFocusOnPageChange(main)
-    return <main ref={main}><Outlet /></main>
+    const [, setTick] = useState(0)
+    shell.rerender = () => setTick(value => value + 1)
+    useFocusOnPageChange(main, shell.locked)
+    return <>{shell.locked && <h1 tabIndex={-1}>Checking your session…</h1>}<main ref={main} hidden={shell.locked}><Outlet /></main></>
   }
   function renderWithHistory(entries: string[], index: number) {
     render(<MemoryRouter initialEntries={entries} initialIndex={index}><History /><Routes><Route element={<Workspace />}>
@@ -369,6 +457,20 @@ describe('OCR-A11Y-01: arriving at OCR by Back, Forward or a document\'s Extract
     await traverse(-1)
     screen.getByRole('button', { name: 'Extract with OCR' }).focus()
     await traverse(1)
+    await waitFor(() => expect(focused()).toBe(heading('Document OCR')))
+  })
+
+  it('a page opened by Back while the workspace is locked takes focus once it opens again', async () => {
+    shell.locked = false
+    renderWithHistory(['/provider/ocr', '/provider/clinical'], 1)
+    // The workspace locks, with focus on the check's heading, and the browser goes Back.
+    shell.locked = true
+    await act(async () => { shell.rerender() })
+    screen.getByRole('heading', { name: 'Checking your session…' }).focus()
+    await traverse(-1)
+    expect(focused()).toBe(screen.getByRole('heading', { name: 'Checking your session…' }))
+    shell.locked = false
+    await act(async () => { shell.rerender() })
     await waitFor(() => expect(focused()).toBe(heading('Document OCR')))
   })
 
