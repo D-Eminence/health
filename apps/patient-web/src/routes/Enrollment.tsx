@@ -285,7 +285,8 @@ export function Enrollment() {
         <label>Verification code<input ref={stepFocus.target} required inputMode="numeric" autoComplete="one-time-code" value={code} onChange={event => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))} pattern="[0-9]{6}" maxLength={6}
           aria-invalid={invalid} aria-describedby={describedBy('enroll-code-hint', errorId)} /></label>
         <button type="submit" className="patient-primary-button" disabled={busy || code.length !== 6}>{busy ? 'Checking…' : 'Verify code'}</button>
-        <button type="button" className="patient-text-button" disabled={busy} onClick={() => { setCode(''); setChallengeId(null); clearError(); setStage('contact'); stepFocus.focus() }}>Request another code or change contact</button>
+        {/* The note on a refused code is about that code: a new one starts without it. */}
+        <button type="button" className="patient-text-button" disabled={busy} onClick={() => { setCode(''); setChallengeId(null); setStepHint(null); clearError(); setStage('contact'); stepFocus.focus() }}>Request another code or change contact</button>
         {stepHint === 'code' && <p className="patient-field-hint">{CODE_BUDGET_HINT}</p>}
       </form>}
       {ready && stage === 'password' && <form onSubmit={event => void submitPassword(event)} className="patient-form">

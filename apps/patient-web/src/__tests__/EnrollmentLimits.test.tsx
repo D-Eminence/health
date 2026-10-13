@@ -41,6 +41,22 @@ describe('enrollment limits', () => {
     expect((await screen.findByText(/every code is refused, even a correct one/)).textContent).toMatch(/no new code is sent/)
   })
 
+  it('does not repeat the code budget note for the new code a person asks for', async () => {
+    api.enrollmentCurrent.mockResolvedValue({ stage: 'verify_contact', challengeId: 'challenge-1', maskedContact: 'a***@example.com' })
+    api.enrollmentVerify.mockRejectedValue(new HidApiError(422, 'The verification code is invalid or expired', { code: 'OTP_INVALID' }))
+    api.enrollmentContact.mockResolvedValue({ challengeId: 'challenge-2', expiresInSeconds: 600, resendAfterSeconds: 60 })
+    render(<MemoryRouter><Enrollment /></MemoryRouter>)
+    fireEvent.change(await screen.findByLabelText('Verification code'), { target: { value: '000000' } })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Verify code' })) })
+    await screen.findByText(/every code is refused, even a correct one/)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Request another code or change contact' }))
+    fireEvent.change(await screen.findByLabelText('Phone number'), { target: { value: '+2348000000000' } })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Send verification code' })) })
+    await screen.findByLabelText('Verification code')
+    expect(screen.queryByText(/every code is refused/)).toBeNull()
+  })
+
   it('says to wait when activation is refused for too many attempts, and that the enrollment is kept', async () => {
     api.enrollmentCurrent.mockResolvedValue({ stage: 'set_password' })
     api.enrollmentActivate.mockRejectedValue(new HidApiError(429, 'Too many enrollment requests; try again later', { code: 'ENROLLMENT_RATE_LIMITED' }))
