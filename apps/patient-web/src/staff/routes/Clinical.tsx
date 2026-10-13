@@ -87,19 +87,28 @@ const noteTransitions: Readonly<Record<string, readonly StatusOption[]>> = {
  * A lab request's status changes. Since hid-system #56 EHR sends a request to Lab
  * whenever a change leaves it active: activating a draft, resuming a held request
  * (lab-requests.service.ts update). It sends it only for an actor who holds
- * lab.work-item.accept, so for anyone else the choice says it is not sent. Holding,
- * completing, cancelling or marking entered in error a request Lab may hold is not
- * passed to Lab, which keeps working on the version it accepted, so none is offered
- * for an active or held request; a draft, which Lab never received, may be cancelled
- * or marked entered in error.
+ * lab.work-item.accept; for anyone else it makes the change without sending it,
+ * leaving an active request that role can neither send nor cancel, so neither is
+ * offered to such a role (LAB_SENT_BY_OTHERS says who can). Holding, completing,
+ * cancelling or marking entered in error a request Lab may hold is not passed to
+ * Lab, which keeps working on the version it accepted, so none is offered for an
+ * active or held request; a draft, which Lab never received, may be cancelled or
+ * marked entered in error.
  */
 function labRequestChoices(status: string, canSend: boolean): readonly StatusOption[] {
-  const activate = (verb: string) => ({ value: 'active', label: canSend ? `${verb} and send to Lab` : `${verb} in the EHR only (not sent to Lab)` })
+  const activate = (label: string): readonly StatusOption[] => canSend ? [{ value: 'active', label }] : []
   // Sending an order is never the choice made by default: it is chosen deliberately.
   if (status === 'draft') return [{ value: 'cancelled', label: 'Cancel' },
-    { value: 'entered_in_error', label: 'Mark entered in error' }, activate('Activate')]
-  if (status === 'on_hold') return [activate('Resume')]
+    { value: 'entered_in_error', label: 'Mark entered in error' }, ...activate('Activate and send to Lab')]
+  if (status === 'on_hold') return activate('Resume and send to Lab')
   return []
+}
+
+/** What is said under a lab request to a role without lab.work-item.accept, about what only another role can do. */
+const LAB_SENT_BY_OTHERS: Readonly<Record<string, string>> = {
+  draft: 'Activating this draft sends it to Lab, so only someone who may send requests to Lab can activate it.',
+  on_hold: 'Resuming this request sends it to Lab, so only someone who may send requests to Lab can resume it.',
+  active: 'If Lab does not have this request, someone who may send requests to Lab must use Send to Lab on it.',
 }
 
 /** What is said under an active or held lab request about the changes not offered. */
@@ -342,7 +351,7 @@ class FieldRefusal extends Error {
   constructor(readonly field: string, message: string, readonly focusId: string = field) { super(message) }
 }
 
-function RecordForm({ tab, onCreated, disabled }: { tab: RecordKind; onCreated: (kind: RecordKind, body: object, key: string) => Promise<void>; disabled: boolean }) {
+function RecordForm({ tab, onCreated, disabled, canSendToLab }: { tab: RecordKind; onCreated: (kind: RecordKind, body: object, key: string) => Promise<void>; disabled: boolean; canSendToLab: boolean }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const problems = useFieldProblems()
@@ -379,7 +388,7 @@ function RecordForm({ tab, onCreated, disabled }: { tab: RecordKind; onCreated: 
       }
       else {
         const status = text(form, 'status')
-        if (status !== 'draft' && status !== 'active') throw new FieldRefusal('lab-request-status', 'Choose draft or active request.')
+        if (status !== 'draft' && !(status === 'active' && canSendToLab)) throw new FieldRefusal('lab-request-status', canSendToLab ? 'Choose draft or active request.' : 'Choose a draft request.')
         body = { testCodeSystem: text(form, 'testCodeSystem'), testCode: text(form, 'testCode'),
           testDisplay: text(form, 'testDisplay'), priority: text(form, 'priority'), status,
           specimenTypeCode: text(form, 'specimenTypeCode') || undefined,
@@ -416,10 +425,11 @@ function RecordForm({ tab, onCreated, disabled }: { tab: RecordKind; onCreated: 
     {tab === 'diagnoses' && <><div className="staff-form-row"><Field label="Code system" htmlFor="diagnosis-system" error={f.system.error} required><Input id="diagnosis-system" name="codeSystem" placeholder="ICD-10" maxLength={255} required {...f.system.control} /></Field><Field label="Code" htmlFor="diagnosis-code" error={f.code.error} required><Input id="diagnosis-code" name="code" maxLength={100} required {...f.code.control} /></Field></div><Field label="Display" htmlFor="diagnosis-display" error={f.display.error} required><Input id="diagnosis-display" name="display" maxLength={500} required {...f.display.control} /></Field><div className="staff-form-row"><Field label="Clinical status" htmlFor="diagnosis-status"><Select id="diagnosis-status" name="clinicalStatus">{diagnosisClinicalStatuses.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</Select></Field><Field label="Verification" htmlFor="diagnosis-verification"><Select id="diagnosis-verification" name="verificationStatus">{diagnosisVerificationStatuses.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</Select></Field></div><Field label="Notes" htmlFor="diagnosis-notes" error={f.notes.error}><Textarea id="diagnosis-notes" name="notes" maxLength={4000} {...f.notes.control} /></Field></>}
     {tab === 'prescriptions' && <><Field label="Medication" htmlFor="medication" error={f.medication.error} required><Input id="medication" name="medicationDisplay" maxLength={500} required {...f.medication.control} /></Field><div className="staff-form-row"><Field label="Dose quantity" htmlFor="dose-quantity" error={f.dose.error}><Input id="dose-quantity" name="doseQuantity" type="number" min="0.0001" step="0.0001" {...f.dose.control} /></Field><Field label="Dose unit" htmlFor="dose-unit" error={f.unit.error}><Input id="dose-unit" name="doseUnit" placeholder="mg" maxLength={80} {...f.unit.control} /></Field></div><div className="staff-form-row"><Field label="Route code" htmlFor="route-code" error={f.route.error}><Input id="route-code" name="routeCode" placeholder="oral" maxLength={100} {...f.route.control} /></Field><Field label="Frequency" htmlFor="frequency" error={f.frequency.error} required><Input id="frequency" name="frequency" placeholder="Twice daily" maxLength={240} required {...f.frequency.control} /></Field></div><Field label="Instructions" htmlFor="instructions" error={f.instructions.error} required><Textarea id="instructions" name="instructions" maxLength={4000} required {...f.instructions.control} /></Field><p className="staff-muted">This creates an EHR draft. Pharmacy acceptance and dispensing are separate backend actions.</p></>}
     {tab === 'lab-requests' && <><div className="staff-form-row"><Field label="Test code system" htmlFor="test-system" error={f.testSystem.error} required><Input id="test-system" name="testCodeSystem" placeholder="LOINC" maxLength={255} required {...f.testSystem.control} /></Field><Field label="Test code" htmlFor="test-code" error={f.testCode.error} required><Input id="test-code" name="testCode" maxLength={100} required {...f.testCode.control} /></Field></div><Field label="Test display" htmlFor="test-display" error={f.testDisplay.error} required><Input id="test-display" name="testDisplay" maxLength={500} required {...f.testDisplay.control} /></Field><div className="staff-form-row"><Field label="Priority" htmlFor="test-priority"><Select id="test-priority" name="priority"><option value="routine">Routine</option><option value="urgent">Urgent</option><option value="asap">As soon as possible</option><option value="stat">Stat</option></Select></Field><Field label="Specimen type code" htmlFor="specimen-code" error={f.specimen.error}><Input id="specimen-code" name="specimenTypeCode" maxLength={100} {...f.specimen.control} /></Field></div><Field label="Clinical information" htmlFor="test-information" error={f.information.error}><Textarea id="test-information" name="clinicalInformation" maxLength={4000} {...f.information.control} /></Field><Field label="Request handling" htmlFor="lab-request-status" error={f.handling.error} required><Select id="lab-request-status" name="status" defaultValue="draft" required {...f.handling.control}
-      aria-describedby={f.handling.error ? 'lab-request-status-error lab-request-draft-warning' : 'lab-request-draft-warning'}><option value="draft">Save EHR draft</option><option value="active">Create active request and send to Lab</option></Select></Field>
-      {/* Since hid-system #56 EHR sends a request to Lab when it is created active, and when a draft is activated later. */}
-      <div id="lab-request-draft-warning" className="staff-notice staff-danger">A draft is not sent to the Laboratory until it is activated.</div>
-      <p className="staff-muted">Active creation saves the request, then asks Lab to accept it; if Lab does not, the request stays saved and active and can be sent again from the list.</p></>}
+      aria-describedby={f.handling.error ? 'lab-request-status-error lab-request-draft-warning' : 'lab-request-draft-warning'}><option value="draft">Save EHR draft</option>{canSendToLab && <option value="active">Create active request and send to Lab</option>}</Select></Field>
+      {/* Since hid-system #56 EHR sends a request to Lab when it is created active, and when a draft is activated later.
+          Lab accepts it only from an actor holding lab.work-item.accept, and refuses anyone else's (LAB_WORK_ITEM_ACCESS_DENIED). */}
+      <div id="lab-request-draft-warning" className="staff-notice staff-danger">A draft is not sent to the Laboratory until it is activated.{canSendToLab ? '' : ' Only someone who may send requests to Lab can activate it or create an active request.'}</div>
+      {canSendToLab && <p className="staff-muted">Active creation saves the request, then asks Lab to accept it; if Lab does not, the request stays saved and active and can be sent again from the list.</p>}</>}
     {error && <p className="staff-error" role="alert">{error}</p>}<Button type="submit" aria-disabled={busy || disabled || undefined} className={BUSY}
       aria-describedby={tab === 'lab-requests' ? 'lab-request-draft-warning' : undefined}>{busy ? 'Saving…' : tab === 'lab-requests' ? 'Create lab request' : tab === 'vitals' || tab === 'diagnoses' ? 'Save record' : 'Save draft'}</Button>
   </form></Card>
@@ -1428,13 +1438,15 @@ export function Clinical() {
             disabled={recordsLoading} onChange={(status, reason) => changeRecordStatus(record, 'lab-requests', status, reason)} />}
         {activeTab === 'lab-requests' && canMutate && permissions.includes('ehr.lab-request.write') && LAB_NOT_TOLD[String(record.status)] &&
           <p className="staff-muted">{LAB_NOT_TOLD[String(record.status)]}</p>}
+        {activeTab === 'lab-requests' && canMutate && permissions.includes('ehr.lab-request.write') && !canSendToLab && LAB_SENT_BY_OTHERS[String(record.status)] &&
+          <p className="staff-muted">{LAB_SENT_BY_OTHERS[String(record.status)]}</p>}
         {activeTab === 'lab-requests' && record.status === 'active' && canMutate && permissions.includes('ehr.lab-request.write') && canSendToLab &&
           <SendToLab key={`send-${record.id}-${String(record.rowVersion)}`} requestId={record.id} disabled={recordsLoading}
             onSend={key => sendLabRequest(record, key)} />}
         {/* A draft never reached Lab; any other request may have, before or after a change. */}
         {activeTab === 'lab-requests' && record.status !== 'draft' && permissions.includes('lab.result.released.read') &&
           <ReleasedResults key={`results-${record.id}`} facilityId={facility.id} requestId={record.id} />}
-      </div>)}</div></Card>{canMutate && permissions.includes(writePermissions[activeTab]) && <RecordForm key={`${selected.id}-${activeTab}`} tab={activeTab} onCreated={createRecord} disabled={!selected} />}</div>}</TabPanel></>}
+      </div>)}</div></Card>{canMutate && permissions.includes(writePermissions[activeTab]) && <RecordForm key={`${selected.id}-${activeTab}`} tab={activeTab} onCreated={createRecord} disabled={!selected} canSendToLab={canSendToLab} />}</div>}</TabPanel></>}
     </section>}
   </>
 }

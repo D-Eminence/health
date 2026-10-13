@@ -309,7 +309,8 @@ describe('unified authenticated portal routes', () => {
     const facility = {
       id: 'facility-1', membershipId: 'membership-1', organizationId: 'organization-1',
       name: 'Example Clinic', roles: ['clinician'],
-      permissions: ['identity.patient.read', 'ehr.encounter.read', 'ehr.lab-request.read', 'ehr.lab-request.write'],
+      // Lab accepts an order only from an actor holding lab.work-item.accept (lab-work-items.service.ts).
+      permissions: ['identity.patient.read', 'ehr.encounter.read', 'ehr.lab-request.read', 'ehr.lab-request.write', 'lab.work-item.accept'],
       isPrimary: true,
     }
     calls.staffSession.mockResolvedValue({ actor: {
@@ -343,7 +344,10 @@ describe('unified authenticated portal routes', () => {
     const facility = {
       id: 'facility-1', membershipId: 'membership-1', organizationId: 'organization-1',
       name: 'Example Clinic', roles: ['clinician'],
-      permissions: ['identity.patient.read', 'ehr.encounter.read', 'ehr.lab-request.read', 'ehr.lab-request.write'],
+      // A role that may accept Lab orders, which Lab's row-level security refuses for this patient
+      // (403 LAB_ACCESS_DENIED, lab-work-items.service.ts); a role without lab.work-item.accept is
+      // not offered an active request at all.
+      permissions: ['identity.patient.read', 'ehr.encounter.read', 'ehr.lab-request.read', 'ehr.lab-request.write', 'lab.work-item.accept'],
       isPrimary: true,
     }
     calls.staffSession.mockResolvedValue({ actor: {

@@ -263,13 +263,13 @@ describe('correcting vitals', () => {
 })
 
 describe('changing a lab request status', () => {
-  it('lets a draft be cancelled or marked entered in error, and activated in the EHR only by a role that cannot send it to Lab', async () => {
+  it('lets a draft be cancelled or marked entered in error, and not activated by a role that cannot send it to Lab', async () => {
     await openTab('Lab requests')
     const select = await screen.findByLabelText(labelled('New status'))
     const options = within(select).getAllByRole('option').map(option => (option as HTMLOptionElement).value)
-    expect(options).toEqual(['cancelled', 'entered_in_error', 'active'])
-    // This role lacks lab.work-item.accept, so EHR activates the draft without sending it (labHandoff not_sent).
-    expect(within(select).getByRole('option', { name: 'Activate in the EHR only (not sent to Lab)' })).toBeTruthy()
+    // This role lacks lab.work-item.accept: EHR would activate the draft without sending it (labHandoff
+    // not_sent), and the role could then neither send nor cancel it.
+    expect(options).toEqual(['cancelled', 'entered_in_error'])
 
     const form = select.closest('form')!
     type(form, 'Reason for change', 'Ordered twice')

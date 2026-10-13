@@ -115,6 +115,15 @@ describe('creating an active lab request that Lab did not take', () => {
     await waitFor(() => expect(document.activeElement).toBe(send))
   })
 
+  it('offers a role that cannot send to Lab only a draft, and says who can create an active request', async () => {
+    staff.permissions = READ_WRITE
+    await openLabRequests()
+    const handling = await screen.findByLabelText(labelled('Request handling'))
+    expect(within(handling).getAllByRole('option').map(option => (option as HTMLOptionElement).value)).toEqual(['draft'])
+    expect(document.getElementById('lab-request-draft-warning')!.textContent)
+      .toMatch(/Only someone who may send requests to Lab can activate it or create an active request/)
+  })
+
   it('creates the next request with a new key after a request Lab did not take', async () => {
     api.createRecord.mockRejectedValueOnce(new HidApiError(502, 'The service could not complete the request.', { code: 'LAB_HANDOFF_UNCONFIRMED' }))
     api.createRecord.mockResolvedValueOnce({ ...labRequest('active'), labWorkItem: { id: 'work-item-1' }, labHandoff: { state: 'accepted' } })
@@ -168,11 +177,29 @@ describe('activating or resuming a lab request', () => {
     expect(screen.getByText(/Putting this request on hold was not passed to Lab/)).toBeTruthy()
   })
 
-  it('says an activation by a role that cannot send to Lab is not sent', async () => {
+  // EHR activates or resumes a request for a role without lab.work-item.accept without
+  // sending it to Lab (labHandoff not_sent), and that role can neither send nor cancel it then.
+  it('offers a role that cannot send to Lab no activation of a draft, and says who can activate it', async () => {
     staff.permissions = READ_WRITE
     records['lab-requests'] = [labRequest('draft')]
     await openLabRequests()
-    expect(options(await statusForm()).at(-1)).toEqual(['active', 'Activate in the EHR only (not sent to Lab)'])
+    expect(options(await statusForm())).toEqual([['cancelled', 'Cancel'], ['entered_in_error', 'Mark entered in error']])
+    expect(screen.getByText(/only someone who may send requests to Lab can activate it/)).toBeTruthy()
+  })
+
+  it('offers a role that cannot send to Lab no resumption of a held request, and says who can resume it', async () => {
+    staff.permissions = READ_WRITE
+    records['lab-requests'] = [labRequest('on_hold')]
+    await openLabRequests()
+    expect(await screen.findByText(/only someone who may send requests to Lab can resume it/)).toBeTruthy()
+    expect(screen.queryByLabelText(labelled('New status'))).toBeNull()
+  })
+
+  it('tells a role that cannot send to Lab who can send an active request Lab may not have', async () => {
+    staff.permissions = READ_WRITE
+    records['lab-requests'] = [labRequest('active')]
+    await openLabRequests()
+    expect(await screen.findByText(/someone who may send requests to Lab must use Send to Lab on it/)).toBeTruthy()
   })
 
   it('offers no status change for an active request, and says what is not passed to Lab', async () => {
@@ -223,8 +250,8 @@ describe('activating or resuming a lab request', () => {
     expect(screen.queryByText(/accepted by Lab\./)).toBeNull()
   })
 
-  it('says an activation was not sent when the role cannot send requests to Lab', async () => {
-    staff.permissions = READ_WRITE
+  // The role was offered the activation, but no longer held lab.work-item.accept when EHR made it.
+  it('says an activation was not sent when EHR finds the role cannot send requests to Lab', async () => {
     await activate({ state: 'not_sent', code: 'LAB_PERMISSION_ABSENT' })
     expect(await screen.findByText(/your role cannot send requests to Lab/)).toBeTruthy()
   })
