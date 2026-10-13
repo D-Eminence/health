@@ -6,7 +6,7 @@ against `main` at `6b49a06` on 2026-10-12 (with open D-Eminence/hid-system#47
 at `1c18e91`). hid-system `main` has since moved to `bbc6e89` (hid-system#48 to
 #53 and #55 to #62, merged on 2026-10-12, none released); where those change a
 statement below, it says so. Those statements, and what the hid-system
-alignment PR (head `6128d00`, which follows Health-id #48) does with these
+alignment PR (Health-id #49, merged as `cf32087` after Health-id #48) does with these
 changes, were checked against `bbc6e89` on 2026-10-13. It supersedes the
 earlier plan based on the historical `hid-unified` Supabase functions.
 `hid-1.0`, `Dashboard.zip` and `HID.html` informed visual and workflow coverage; their local fixtures do not

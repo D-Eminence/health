@@ -1159,7 +1159,8 @@ sends a lab request to Lab on activation and resumption and can send one
 again, Lab serves released results by EHR order, Pharmacy refuses changed
 prescriptions, OCR names workload refusals, and Identity budgets recovery and
 enrollment codes. The hid-system alignment PR (`claude/hid-system-alignment`,
-head `6128d00`, 23 commits on `main` `0eda90f`) makes the portal read each
+Health-id #49: 31 commits on `main` `0eda90f`, final head `e42a0a2`, merged as
+`cf32087`) makes the portal read each
 change, and still handle the answer of a build without it. hid-system was not
 changed.
 
@@ -1261,9 +1262,16 @@ changed.
   failed first for each behaviour change, and that each of its nine commits
   (`c99154b` to `6128d00`) passes `tsc --noEmit` alone; neither was re-checked
   here. Two earlier commits, `04a847d` and `8b4928e`, fail `tsc` (TS2322 at the
-  note panel's `onChanged`), fixed by `065a1f9`, so a bisect across them meets
-  that error unless the PR is squash-merged. `88459c7`'s message names
-  hid-system's `sendContact`; the method is `startContact`.
+  note panel's `onChanged`), fixed by `065a1f9`; the PR was merged with a merge
+  commit, so a bisect across them meets that error. `88459c7`'s message names
+  hid-system's `sendContact`; the method is `startContact`. A final focused
+  review then checked every clinical-safety sentence against both hid-system
+  `bbc6e89` and `6b49a06`; its eight findings (the resume message on an older
+  EHR, the notes for a role that cannot send to Lab, refused versus
+  unconfirmed handoffs, the other identifier during a recovery wait, an active
+  create saved behind an error, untested focus, the Pharmacy message and a 201
+  without a body) are fixed in `7b2dfd8` to `e42a0a2`, with 24 tests that
+  failed first. At `e42a0a2` every gate passes: 137 files, 1811 tests.
 - **Not verified.** Component and API-client tests with the network stubbed;
   no browser, runtime, staging or live hid-system run, and hid-system#48 to #61
   are unreleased. Behind hid-system's gateway as it stands, a create's

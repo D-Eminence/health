@@ -6,8 +6,8 @@ re-checked on 2026-10-12 against hid-system `main` at `6b49a06` (open
 D-Eminence/hid-system#47 at `1c18e91`) and against Health-id `main` with the
 six readiness PRs, all merged (`0eda90f`). hid-system `main` has since moved to
 `bbc6e89` (hid-system#48 to #53 and #55 to #62, merged on 2026-10-12, none
-released); rows those change say so. The hid-system alignment PR, Health-id #49 (head
-`6128d00`, which follows Health-id #48) makes the portal read those changes;
+released); rows those change say so. The hid-system alignment PR, Health-id #49 (merged as
+`cf32087`, after Health-id #48) makes the portal read those changes;
 rows it touches were checked on 2026-10-13 against its final code and
 `bbc6e89`, and what it raised is under "Found during the hid-system
 alignment". They separate known backend defects,
@@ -128,7 +128,7 @@ hid-system change.
 
 ## Found during the hid-system alignment (2026-10-13)
 
-Raised by the hid-system alignment PR (head `6128d00`) and its review, which
+Raised by the hid-system alignment PR (Health-id #49, merged as `cf32087`) and its reviews, which
 made the portal read the contract changes of hid-system#48 and #50 to #61.
 Each was checked read-only at hid-system `bbc6e89` and against the PR's final
 code.
