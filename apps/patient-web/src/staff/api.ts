@@ -263,8 +263,8 @@ export type EmergencySection = 'encounters' | 'notes' | 'vitals' | 'diagnoses' |
 /**
  * GET /ehr/patients/:patientId/emergency-records (hid-system
  * patient-records.service.ts readEmergency): this facility's completed
- * encounters and signed notes, 50 of each, and, of vitals, diagnoses,
- * prescriptions, lab requests and documents, 100 of each in every status, but
+ * encounters and signed notes, 50 of each; of vitals, diagnoses, prescriptions
+ * and lab requests, 100 of each in every status; and 100 documents; but
  * since hid-system #52 only the sections the reader holds the read permission
  * for. `released` names those and `withheld` the others, whose arrays are then
  * empty and mean "not released to this caller", never "no records"; `limits`
