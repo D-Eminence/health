@@ -2,15 +2,25 @@ import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNod
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { Badge, Button, Card, EmptyState, Field, Input, Select, Textarea } from '@hid/ui'
-import { staffApi, type LabAbnormalFlag, type LabAccession, type LabExecution, type LabResult, type LabResultRevision, type LabResultValue, type LabImport, type LabSpecimen, type LabWorkItem, type OcrExtraction, type OcrJob, type OcrPublication, type OcrTargetDomain, type OcrValidation, type OcrValidationInput, type OutreachCampaign, type OutreachCase, type PharmacyImport, type PharmacyWorkItem } from '../api'
+import { staffApi, type LabAbnormalFlag, type LabAccession, type LabExecution, type LabResult, type LabResultValue, type LabImport, type LabSpecimen, type LabWorkItem, type OcrExtraction, type OcrJob, type OcrPublication, type OcrTargetDomain, type OcrValidation, type OcrValidationInput, type OutreachCampaign, type OutreachCase, type PharmacyImport, type PharmacyWorkItem } from '../api'
 import { useStaff } from '../App'
 import { describedBy } from '../../authSteps'
 import { FieldInputError, problemProps, problemText, refusal, refusalText, type FieldProblem } from '../fieldProblem'
 import { BUSY, focusIsLost, UNAVAILABLE, useFocusById } from '../focus'
 import { useFieldProblems } from '../useFieldProblems'
+import { RevisionList } from '../labRevisions'
+
+/**
+ * OCR's answer when EHR, Lab or Pharmacy refused OCR's own workload identity
+ * (hid-system #60, ocr-api owning-service-auth.ts): a fault between services, not
+ * a refusal of the user, which a publication stores as the retryable
+ * OWNING_SERVICE_UNAVAILABLE. Its detail is technical, so it is said plainly.
+ */
+const SERVICE_AUTH_UNAVAILABLE: ReadonlySet<string> = new Set(['EHR_SERVICE_AUTH_UNAVAILABLE', 'LAB_SERVICE_AUTH_UNAVAILABLE', 'PHARMACY_SERVICE_AUTH_UNAVAILABLE'])
 
 // A refusal's message, with each field a 400 VALIDATION_FAILED names.
 function errorText(error: unknown, fallback: string) {
+  if (isHidApiError(error) && SERVICE_AUTH_UNAVAILABLE.has(error.code)) return 'A connection between Health ID services failed; retry in about 15 seconds.'
   return refusalText(error, fallback)
 }
 
@@ -60,9 +70,10 @@ function useFacilityList<T>(facilityId: string | undefined, enabled: boolean, lo
 // once a facility has this many, a newer one cannot be reached from here.
 const WORK_LIST_CAP = 200
 
-function WorkListCap({ count }: { count: number }) {
+function WorkListCap({ count, children }: { count: number; children?: ReactNode }) {
   if (count < WORK_LIST_CAP) return null
-  return <p className="staff-notice">This list can show only the {WORK_LIST_CAP} oldest accepted work items. Any item accepted after them is not shown and cannot be reached from this page: completing work or refreshing the list does not bring it into view. Contact your facility administrator about orders not listed here.</p>
+  return <><p className="staff-notice">This list can show only the {WORK_LIST_CAP} oldest accepted work items. Any item accepted after them is not shown and cannot be reached from this page: completing work or refreshing the list does not bring it into view. Contact your facility administrator about orders not listed here.</p>
+    {children}</>
 }
 
 /** A list's refresh: focusable while its read runs (UNAVAILABLE), when a second press does nothing. */
@@ -242,16 +253,6 @@ function ResultGovernance({ facilityId, result, action, onStarted, onChanged, on
     {error && <p className="staff-error" role="alert">{error}</p>}
     <Button type="submit" size="sm" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Recording…' : action === 'verify' ? 'Verify result version' : 'Release result version'}</Button>
   </form>
-}
-
-function RevisionList({ revisions }: { revisions: LabResultRevision[] }) {
-  return <div className="staff-list">{revisions.map(revision => <div className="staff-list-item" key={revision.version}>
-    <div className="staff-row"><strong>Version {revision.version}</strong><Badge tone={revision.releaseStatus === 'released' ? 'success' : 'warning'}>{revision.releaseStatus.replaceAll('_', ' ')}</Badge></div>
-    <p>{revision.resultType === 'numeric' ? revision.numericValue == null ? 'Not recorded' : `${revision.numericValue} ${revision.unit ?? ''}` : revision.textValue ?? 'Not recorded'} · {revision.abnormalFlag.replaceAll('_', ' ')}</p>
-    <p>Entered {dateText(revision.enteredAt)} · {revision.verificationStatus.replaceAll('_', ' ')}</p>
-    {revision.referenceRange && <p>Reference range: {revision.referenceRange}</p>}
-    {revision.correctionReason && <p>Reason: {revision.correctionReason}</p>}
-  </div>)}</div>
 }
 
 function ResultHistory({ facilityId, result, onRefused }: { facilityId: string; result: LabResult; onRefused: (error: unknown) => void }) {
@@ -556,6 +557,11 @@ function PharmacyAction({ facilityId, item, permissions, onChanged }: { facility
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  // hid-system #48 (migration 0080): work whose EHR prescription is no longer active at
+  // the version Pharmacy accepted (changed, held, ended), or could not be read, stays listed
+  // as accepted, but cannot be dispensed. The list cannot tell, so it is known only once a
+  // dispensing is refused (409 PHARMACY_PRESCRIPTION_NOT_DISPENSABLE), which does not say which.
+  const [undispensable, setUndispensable] = useState(false)
   // Recording removes the form once the work list is read again: focus goes to the prescription.
   const focus = useFocusById()
   const problems = useFieldProblems()
@@ -585,16 +591,23 @@ function PharmacyAction({ facilityId, item, permissions, onChanged }: { facility
       }
       await onChanged()
       focus(`pharmacy-${item.id}-title`, true)
-    } catch (caught) { setError(errorText(caught, 'Pharmacy action could not be recorded.')) }
+    } catch (caught) {
+      if (!reverse && isHidApiError(caught) && caught.code === 'PHARMACY_PRESCRIPTION_NOT_DISPENSABLE') {
+        // Its dispensing form goes, so the work continues at the prescription.
+        setUndispensable(true)
+        focus(`pharmacy-${item.id}-title`, true)
+      } else setError(errorText(caught, 'Pharmacy action could not be recorded.'))
+    }
     finally { setBusy(false) }
   }
-  const canDispense = !item.dispensing && permissions.includes('pharmacy.dispensing.create')
+  const canDispense = !item.dispensing && !undispensable && permissions.includes('pharmacy.dispensing.create')
   const canReverse = Boolean(item.dispensing && !item.dispensing.reversed && permissions.includes('pharmacy.dispensing.reverse') && permissions.includes('pharmacy.dispensing.read'))
-  return <div className="staff-list-item"><div className="staff-row"><strong id={`pharmacy-${item.id}-title`} tabIndex={-1}>{item.medication.display}</strong><Badge tone={item.dispensing?.reversed ? 'warning' : item.dispensing ? 'success' : 'information'}>{item.dispensing?.reversed ? 'Reversed' : item.dispensing ? 'Dispensed' : 'Accepted'}</Badge></div><p>Patient {shortId(item.patientId)} · {item.doseQuantity == null ? 'Dose not recorded' : `${item.doseQuantity} ${item.doseUnit ?? ''}`} · {item.frequency ?? 'Frequency not recorded'}</p>
+  return <div className="staff-list-item"><div className="staff-row"><strong id={`pharmacy-${item.id}-title`} tabIndex={-1}>{item.medication.display}</strong><Badge tone={item.dispensing?.reversed ? 'warning' : item.dispensing ? 'success' : undispensable ? 'danger' : 'information'}>{item.dispensing?.reversed ? 'Reversed' : item.dispensing ? 'Dispensed' : undispensable ? 'Not dispensable' : 'Accepted'}</Badge></div><p>Patient {shortId(item.patientId)} · {item.doseQuantity == null ? 'Dose not recorded' : `${item.doseQuantity} ${item.doseUnit ?? ''}`} · {item.frequency ?? 'Frequency not recorded'}</p>
     <p>{item.routeCode ? `Route: ${item.routeCode}` : 'Route not recorded'}</p>
     {item.instructions && <p className="staff-note-content">{item.instructions}</p>}
     {canDispense && <form className="staff-form" onSubmit={event => void submit(event)}><div className="staff-form-row"><Field label="Quantity dispensed" htmlFor={`pharmacy-quantity-${item.id}`} error={problems.error(`pharmacy-quantity-${item.id}`)} required><Input id={`pharmacy-quantity-${item.id}`} name="quantity" type="number" min="0.0001" step="0.0001" required {...problems.control(`pharmacy-quantity-${item.id}`)} /></Field><Field label="Unit" htmlFor={`pharmacy-unit-${item.id}`} error={problems.error(`pharmacy-unit-${item.id}`)} required><Input id={`pharmacy-unit-${item.id}`} name="unit" maxLength={80} defaultValue={item.doseUnit ?? ''} required {...problems.control(`pharmacy-unit-${item.id}`)} /></Field></div><Field label="Reason" htmlFor={`pharmacy-reason-${item.id}`} error={problems.error(`pharmacy-reason-${item.id}`)} required><Textarea id={`pharmacy-reason-${item.id}`} name="reason" minLength={8} maxLength={500} required {...problems.control(`pharmacy-reason-${item.id}`)} /></Field><Button type="submit" size="sm" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Recording…' : 'Record full dispensing'}</Button></form>}
     {canReverse && <form className="staff-form" onSubmit={event => void submit(event, true)}><Field label="Reversal reason" htmlFor={`pharmacy-reversal-${item.id}`} error={problems.error(`pharmacy-reversal-${item.id}`)} required><Textarea id={`pharmacy-reversal-${item.id}`} name="reason" minLength={8} maxLength={500} required {...problems.control(`pharmacy-reversal-${item.id}`)} /></Field><Button type="submit" tone="secondary" size="sm" aria-disabled={busy || undefined} className={UNAVAILABLE}>{busy ? 'Recording…' : 'Reverse dispensing'}</Button></form>}
+    {undispensable && !item.dispensing && <p className="staff-error" role="alert">Not dispensable: the prescription is no longer active at the version Pharmacy accepted, or could not be checked; a new prescription and handoff are needed.</p>}
     {error && <p className="staff-error" role="alert">{error}</p>}
     {/* Mounted throughout, so what was recorded is announced. */}
     <div id={`pharmacy-status-${item.id}`} role="status">{success && <p className="staff-success">{success}</p>}</div>
@@ -610,7 +623,8 @@ export function Pharmacy() {
     <PageHead eyebrow="Provider workspace" title="Pharmacy">Accepted prescriptions and full dispensing records for the active facility. The server checks patient authorization before dispensing or reversal.</PageHead>
     <div className="staff-row staff-toolbar"><RefreshButton loading={list.loading} onRefresh={list.refresh}>Refresh work</RefreshButton></div>
     <ListState loading={list.loading} error={list.error} empty="No accepted prescriptions" retry={() => void list.refresh()} hasItems={Boolean(list.items?.length)} />
-    <WorkListCap count={list.items?.length ?? 0} />
+    {/* hid-system #48: work whose prescription changed stays listed as accepted (INTERFACE_CONTRACT.md, Pharmacy). */}
+    <WorkListCap count={list.items?.length ?? 0}><p className="staff-notice">Work whose prescription changed after Pharmacy accepted it cannot be dispensed, but it stays listed and counts toward these {WORK_LIST_CAP}.</p></WorkListCap>
     {list.items && list.items.length > 0 && <div className="staff-list">{list.items.map(item => <PharmacyAction key={item.id} facilityId={facilityId} item={item} permissions={permissions} onChanged={list.refresh} />)}</div>}
   </>
 }
@@ -756,7 +770,8 @@ const PUBLICATION_RETRY_WAIT = 'OCR allows another attempt about 15 seconds afte
 interface PublicationAttempt { readonly key: string; retryAt: number }
 
 function publicationRefusal(caught: unknown) {
-  if (isHidApiError(caught) && caught.code === 'OCR_PUBLICATION_IN_PROGRESS') return 'OCR did not start another attempt: one is still running, or it is too soon after the last one.'
+  // OCR answers it also after the last attempt (INTERFACE_CONTRACT.md, OCR publication).
+  if (isHidApiError(caught) && caught.code === 'OCR_PUBLICATION_IN_PROGRESS') return 'OCR did not start another attempt: one is still running, it is too soon after the last one, or no attempts remain.'
   if (isHidApiError(caught) && caught.code === 'OCR_PUBLICATION_TERMINAL') return 'The owning service refused this publication, so it cannot be retried.'
   return errorText(caught, 'Validated evidence could not be published.')
 }
@@ -863,8 +878,8 @@ function OcrPublicationStatus({ facilityId, publication, permissions, canPublish
 // resumes the publication it recorded under that key. A refusal reads the history
 // again: the page then offers only what OCR would take, and says a publication was
 // recorded when the history shows one, though its answer was lost.
-function OcrPublicationCard({ facilityId, validation, confirmationId, permissions, publicationAttempts, onChanged }: {
-  facilityId: string; validation: OcrValidation; confirmationId: string | undefined; permissions: readonly string[];
+function OcrPublicationCard({ actorId, facilityId, validation, confirmationId, permissions, publicationAttempts, onChanged }: {
+  actorId: string | undefined; facilityId: string; validation: OcrValidation; confirmationId: string | undefined; permissions: readonly string[];
   publicationAttempts: Map<string, PublicationAttempt>; onChanged: () => Promise<void>
 }) {
   const [publications, setPublications] = useState<OcrPublication[] | null>(null)
@@ -877,9 +892,11 @@ function OcrPublicationCard({ facilityId, validation, confirmationId, permission
   const publishId = `ocr-publish-${validation.id}`
   const retryId = `ocr-publish-retry-${validation.id}`
   const operation = validation.disposition === 'validated' && validation.targetDomain !== 'UNCLASSIFIED' ? publicationOperations[validation.targetDomain] : undefined
-  // What a press sends, and so what its key is held for.
-  const request = permissions.includes('ocr.publication.write') && confirmationId && operation
-    ? JSON.stringify([facilityId, validation.id, validation.version, confirmationId, operation]) : undefined
+  // What a press sends, and so what its key is held for. OCR finds a publication by facility, requesting
+  // account and key, so the key belongs to this validation and this requester: another account signed in
+  // here holds none for it.
+  const request = actorId && permissions.includes('ocr.publication.write') && confirmationId && operation
+    ? JSON.stringify([actorId, facilityId, validation.id, validation.version, confirmationId, operation]) : undefined
   useEffect(() => {
     let active = true
     void staffApi.ocrPublications(facilityId, validation.id).then(result => { if (active) setPublications(result.items) })
@@ -1129,7 +1146,7 @@ export function Ocr() {
       if (message) { const reloaded = await lookup(); setStepFocus({ targets: reloaded ? ['ocr-history-title', 'ocr-job-title'] : ['ocr-find-submit'], notice: reloaded ? message : undefined }); return }
       await afterStep(['ocr-history-title', 'ocr-job-title'], 'Source patient confirmed.')
     }} /></div>}
-    {visibleJob && validations && validations.length > 0 && <div className="staff-section"><h2 id="ocr-history-title" tabIndex={-1}>Review and publication history</h2><div className="staff-list">{validations.map(validation => <OcrPublicationCard key={validation.id} facilityId={facilityId} validation={validation} confirmationId={visibleJob.patientConfirmation?.id} permissions={permissions} publicationAttempts={publicationAttempts.current} onChanged={() => afterStep(['ocr-history-title', 'ocr-job-title'], 'Publication recorded.')} />)}</div></div>}
+    {visibleJob && validations && validations.length > 0 && <div className="staff-section"><h2 id="ocr-history-title" tabIndex={-1}>Review and publication history</h2><div className="staff-list">{validations.map(validation => <OcrPublicationCard key={validation.id} actorId={actorId} facilityId={facilityId} validation={validation} confirmationId={visibleJob.patientConfirmation?.id} permissions={permissions} publicationAttempts={publicationAttempts.current} onChanged={() => afterStep(['ocr-history-title', 'ocr-job-title'], 'Publication recorded.')} />)}</div></div>}
   </>
 }
 

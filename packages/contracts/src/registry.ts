@@ -131,6 +131,8 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('ehr.prescriptionPharmacy','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/prescriptions/:prescriptionId/pharmacy-work-item',P,false,one('POST','pharmacy.work-item.accept')),
   r('ehr.labRequests','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/lab-requests',GP,false,{GET:['ehr.lab-request.read'],POST:['ehr.lab-request.write']}),
   r('ehr.labRequest','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/lab-requests/:requestId',GPA,false,{GET:['ehr.lab-request.read'],PATCH:['ehr.lab-request.write']}),
+  // hid-system #56: sends (or sends again) a saved active lab request to Lab.
+  r('ehr.labRequestLabWorkItem','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/lab-requests/:requestId/lab-work-item',P,false,one('POST','ehr.lab-request.write','lab.work-item.accept')),
   r('files.list','files','/api/v1/ehr/documents',G,false,one('GET','ehr.document.read')),
   r('files.uploadIntent','files','/api/v1/ehr/documents/upload-intents',P,false,one('POST','ehr.document.write')),
   r('files.complete','files','/api/v1/ehr/documents/:documentId/complete',P,false,one('POST','ehr.document.write')),
@@ -154,6 +156,8 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('lab.verifyResult','lab','/api/v1/lab/results/:resultId/verify',P,false,one('POST','lab.result.verify')),
   r('lab.releaseResult','lab','/api/v1/lab/results/:resultId/release',P,false,one('POST','lab.result.release')),
   r('lab.resultHistory','lab','/api/v1/lab/results/:resultId/history',G,false,one('GET','lab.result.released.read')),
+  // hid-system #51: the released results of the Lab work item accepted from one EHR lab request.
+  r('lab.releasedResultsForOrder','lab','/api/v1/lab/ehr-orders/:sourceEhrOrderId/released-results',G,false,one('GET','lab.result.released.read')),
   r('pharmacy.workItems','pharmacy','/api/v1/pharmacy/work-items',G,false,one('GET','pharmacy.work-item.read')),
   r('pharmacy.workItem','pharmacy','/api/v1/pharmacy/work-items/:workItemId',G,false,one('GET','pharmacy.work-item.read')),
   r('pharmacy.dispense','pharmacy','/api/v1/pharmacy/work-items/:workItemId/dispensings',P,false,one('POST','pharmacy.dispensing.create')),

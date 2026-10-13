@@ -9,8 +9,10 @@ import { Clinical } from '../Clinical'
  * diagnoses, vitals and lab-requests services): a diagnosis PATCH names only
  * clinicalStatus, verificationStatus, abatementAt and notes; a vital is never
  * edited, it gets an appended correction whose values the list must show as
- * current; and a lab request's status change is not passed to Lab, so only a
- * draft that Lab never received can be cancelled or marked entered in error.
+ * current; and a lab request's hold, cancellation, completion or entered in error
+ * is not passed to Lab, so only a draft that Lab never received can be cancelled
+ * or marked entered in error. Since hid-system #56 activating a draft sends it to
+ * Lab, for an actor who holds lab.work-item.accept (LabRequestHandoff.test.tsx).
  */
 const api = vi.hoisted(() => ({
   lookupPatient: vi.fn(), consentStatus: vi.fn(), encounters: vi.fn(), records: vi.fn(), createRecord: vi.fn(),
@@ -261,10 +263,12 @@ describe('correcting vitals', () => {
 })
 
 describe('changing a lab request status', () => {
-  it('lets a draft be cancelled or marked entered in error, but not activated, since that does not reach Lab', async () => {
+  it('lets a draft be cancelled or marked entered in error, and not activated by a role that cannot send it to Lab', async () => {
     await openTab('Lab requests')
     const select = await screen.findByLabelText(labelled('New status'))
     const options = within(select).getAllByRole('option').map(option => (option as HTMLOptionElement).value)
+    // This role lacks lab.work-item.accept: EHR would activate the draft without sending it (labHandoff
+    // not_sent), and the role could then neither send nor cancel it.
     expect(options).toEqual(['cancelled', 'entered_in_error'])
 
     const form = select.closest('form')!
@@ -279,7 +283,7 @@ describe('changing a lab request status', () => {
   it('offers no status change for a request Lab may already be working on', async () => {
     records['lab-requests'] = [{ ...labRequest, status: 'active' }]
     await openTab('Lab requests')
-    expect(await screen.findByText(/Status changes made here are not passed to Lab/)).toBeTruthy()
+    expect(await screen.findByText(/Holding, cancelling, completing or marking it entered in error is not passed to Lab/)).toBeTruthy()
     expect(screen.queryByLabelText(labelled('New status'))).toBeNull()
   })
 
@@ -297,20 +301,20 @@ function descriptions(element: Element) {
 }
 
 /**
- * EHR calls Lab only when a request is created active (hid-system
- * lab-requests.service.ts create()); update() never does, so a draft PATCHed to
- * active never becomes a Lab work item (backend A3). The portal offers no
- * activation, and says where a draft is chosen that it does not order the test.
+ * Since hid-system #56 EHR sends a request to Lab when it is created active and
+ * when a draft is activated later (lab-requests.service.ts create() and update()),
+ * so a draft can still be ordered. Where a draft is chosen the portal says it does
+ * not reach the Laboratory until then.
  */
 describe('creating a lab request', () => {
-  it('says at the choice and at the action that a draft never reaches the Laboratory, and how to order the test', async () => {
+  it('says at the choice and at the action that a draft does not reach the Laboratory until it is activated', async () => {
     await openTab('Lab requests')
     const handling = await screen.findByLabelText(labelled('Request handling'))
     const button = screen.getByRole('button', { name: 'Create lab request' })
     for (const element of [handling, button]) {
       const warning = descriptions(element)
-      expect(warning).toContain('A draft is not sent to the Laboratory, and cannot be sent later')
-      expect(warning).toContain('To order the test, create an active request.')
+      expect(warning).toContain('A draft is not sent to the Laboratory until it is activated.')
+      expect(warning).not.toContain('cannot be sent later')
     }
     const shown = document.getElementById(button.getAttribute('aria-describedby')!)!
     expect(button.closest('form')!.contains(shown)).toBe(true)
@@ -332,6 +336,7 @@ describe('creating a lab request', () => {
     expect(handling.getAttribute('aria-invalid')).toBe('true')
     const description = descriptions(handling)
     expect(description).toMatch(/^Status must be one of the following values: draft, active\./)
-    expect(description).toContain('A draft is not sent to the Laboratory, and cannot be sent later')
+    expect(description).toContain('A draft is not sent to the Laboratory until it is activated.')
+    expect(description).not.toContain('cannot be sent later')
   })
 })

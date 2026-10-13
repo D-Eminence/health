@@ -910,6 +910,21 @@ describe('Laboratory result history', () => {
     expectNoFullPatientId()
   })
 
+  // hid-system #51: every revision in a Lab result response carries releasedAt, null until released.
+  it('says when each released revision was released, and nothing for one not released', async () => {
+    const releasedAt = '2026-10-09T10:30:00.000Z'
+    const base = releasedResult()
+    api.labExecutions.mockResolvedValue({ items: [listed()] })
+    api.labResultHistory.mockResolvedValue(correctionOf({ ...base, revisions: base.revisions.map(item => ({ ...item, releasedAt })) }))
+    const panel = await openExecutionPanel(permissions)
+
+    fireEvent.click(await within(panel).findByRole('button', { name: 'View result history' }))
+
+    expect(await within(panel).findByText('Version 2')).toBeTruthy()
+    expect(within(revisionEntry(1)).getByText(`Released ${new Date(releasedAt).toLocaleString()}`)).toBeTruthy()
+    expect(within(revisionEntry(2)).queryByText(/^Released /)).toBeNull()
+  })
+
   it('shows a loading status while the history is fetched', async () => {
     const pending = deferred<LabResult>()
     api.labExecutions.mockResolvedValue({ items: [listed()] })

@@ -50,6 +50,17 @@ export interface PatientNinVerification {
   recordedAt: string
 }
 
+/** The seven sections of a record summary (INTERFACE_CONTRACT.md, Record summaries), in the order EHR names them. */
+export type RecordSection = 'encounters' | 'notes' | 'vitals' | 'diagnoses' | 'prescriptions' | 'labRequests' | 'documents'
+
+/**
+ * GET /ehr/me/records (hid-system patient-records.service.ts readSelf). Since
+ * hid-system #52 only encounters and signed notes are released to the patient:
+ * `released` names them, `withheld` names the other five, whose arrays are then
+ * always empty and mean "not released to you", never "no records". `limits` and
+ * `truncated` say, per released section, the most rows it shows and whether
+ * more exist. An EHR before #52 sends none of these four and every section.
+ */
 export interface PatientRecords {
   encounters: Array<{ id: string; facilityId: string; encounterType: string; status: string; startedAt: string; endedAt: string | null }>
   notes: Array<{ id: string; encounterId: string; facilityId: string; noteType: string; title: string; status: string; revisionNo: number; content: string; signedAt: string | null }>
@@ -58,6 +69,11 @@ export interface PatientRecords {
   prescriptions: Array<{ id: string; encounterId: string; facilityId: string; medicationCodeSystem: string | null; medicationCode: string | null; medicationDisplay: string; doseQuantity: number | null; doseUnit: string | null; routeCode: string | null; frequency: string; instructions: string; startsOn: string | null; endsOn: string | null; status: string }>
   labRequests: Array<{ id: string; encounterId: string; facilityId: string; testCodeSystem: string; testCode: string; testDisplay: string; priority: string; status: string; specimenTypeCode: string | null; clinicalInformation: string | null; externalOrderReference: string | null; createdAt: string }>
   documents: Array<{ id: string; encounterId: string | null; facilityId: string; fileName: string; mediaType: string; sizeBytes: number | string | null; classification: string; status: string; createdAt: string }>
+  released?: RecordSection[]
+  withheld?: RecordSection[]
+  limits?: Partial<Record<RecordSection, number>>
+  truncated?: Partial<Record<RecordSection, boolean>>
+  /** The smallest section limit, 50 since hid-system #52 (100 before); `limits` and `truncated` say more. */
   limit: number
 }
 

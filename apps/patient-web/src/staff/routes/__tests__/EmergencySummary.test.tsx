@@ -15,7 +15,7 @@ import { Clinical } from '../Clinical'
  * corrections. It lists documents without opening any.
  */
 const api = vi.hoisted(() => ({ lookupPatient: vi.fn(), emergencyRecords: vi.fn(), encounters: vi.fn(), records: vi.fn(),
-  consentStatus: vi.fn(), documentDownload: vi.fn() }))
+  consentStatus: vi.fn(), documentDownload: vi.fn(), labReleasedResultsForOrder: vi.fn() }))
 const staff = vi.hoisted(() => ({ permissions: [] as string[] }))
 
 vi.mock('../../api', () => ({
@@ -235,5 +235,117 @@ describe('each section says when the backend cut it short', () => {
     await renderSummary()
     await waitFor(() => expect(within(section('Diagnoses')).getByText(/not available/)).toBeTruthy())
     expect(within(section('Diagnoses')).queryByText(/No diagnoses/)).toBeNull()
+  })
+})
+
+/**
+ * Since hid-system #52 (patient-records.service.ts readEmergency) the summary
+ * reads only the sections the reader holds the read permission for: `released`
+ * names them and `withheld` the others, whose arrays are then empty and mean
+ * "not released to this caller", never "no records". `limits` and `truncated`
+ * say, per released section, the most rows it shows and whether more exist, so
+ * a section is cut short only when EHR says so. Documents are those whose
+ * latest scan is clean (documents_effective, status 'available').
+ */
+const SECTIONS = ['encounters', 'notes', 'vitals', 'diagnoses', 'prescriptions', 'labRequests', 'documents'] as const
+const LIMITS: Record<string, number> = { encounters: 50, notes: 50, vitals: 100, diagnoses: 100, prescriptions: 100, labRequests: 100, documents: 100 }
+const cleanDocument = (id: string, fileName: string) => ({ ...documentRow(id, fileName), status: 'available', scanStatus: 'clean' })
+
+function releasedSummary(withheld: readonly string[] = [], truncated: Record<string, boolean> = {}, overrides: Record<string, unknown> = {}) {
+  const shown = SECTIONS.filter(name => !withheld.includes(name))
+  return summary({
+    documents: [cleanDocument('document-1', 'referral-letter.pdf')],
+    ...Object.fromEntries(withheld.map(name => [name, []])),
+    released: shown, withheld: [...withheld],
+    limits: Object.fromEntries(shown.map(name => [name, LIMITS[name]])),
+    truncated: Object.fromEntries(shown.map(name => [name, truncated[name] ?? false])),
+    limit: 50,
+    ...overrides,
+  })
+}
+
+describe('a summary that names what EHR withheld and what it cut short', () => {
+  it('never calls a withheld section empty, though the role may read it here', async () => {
+    api.emergencyRecords.mockResolvedValue(releasedSummary(['diagnoses']))
+    await renderSummary()
+    expect(screen.queryByText('No diagnoses are available from this facility.')).toBeNull()
+    expect(within(section('Diagnoses')).getByText(/not included in this summary/)).toBeTruthy()
+    // A section EHR released and that holds nothing is still empty.
+    api.emergencyRecords.mockResolvedValue(releasedSummary([], {}, { prescriptions: [] }))
+    screen.getByRole('button', { name: 'Refresh summary' }).click()
+    expect(await within(section('Prescriptions')).findByText('No prescriptions are available from this facility.')).toBeTruthy()
+  })
+
+  it('says a section was cut short only when EHR says so', async () => {
+    api.emergencyRecords.mockResolvedValue(releasedSummary([], { notes: true }, {
+      encounters: Array.from({ length: 50 }, (_, n) => encounter(n)),
+      notes: Array.from({ length: 50 }, (_, n) => note(n)),
+      prescriptions: Array.from({ length: 100 }, (_, n) => prescription(`prescription-${n}`, `Medicine ${n}`, 'active')),
+    }))
+    await renderSummary()
+    expect(within(section('Prescriptions')).queryByText(/most recent/)).toBeNull()
+    expect(within(section('Completed encounters')).queryByText(/most recent/)).toBeNull()
+    expect(within(section('Signed notes')).getByText(/50 most recent/)).toBeTruthy()
+  })
+
+  it('says a section with fewer rows than its limit was cut short when EHR says so', async () => {
+    api.emergencyRecords.mockResolvedValue(releasedSummary([], { diagnoses: true }))
+    await renderSummary()
+    expect(within(section('Diagnoses')).getByText(/100 most recent/)).toBeTruthy()
+  })
+
+  it('says listed documents passed the virus scan', async () => {
+    api.emergencyRecords.mockResolvedValue(releasedSummary())
+    await renderSummary()
+    const documents = section('Documents')
+    expect(documents.textContent).not.toMatch(/virus scan result is not included/)
+    expect(documents.textContent).toMatch(/passed the virus scan/)
+    expect(documents.textContent).toMatch(/cannot be opened from this summary/)
+    expect(within(documents).queryAllByRole('button')).toEqual([])
+  })
+
+  it('says nothing about vital signs when EHR withheld them', async () => {
+    api.emergencyRecords.mockResolvedValue(releasedSummary(['vitals']))
+    await renderSummary()
+    expect(screen.queryByText(/Vital signs are not shown in this summary/)).toBeNull()
+  })
+
+  it('still explains the vital signs it does not show when EHR released them', async () => {
+    api.emergencyRecords.mockResolvedValue(releasedSummary())
+    await renderSummary()
+    expect(screen.getByText(/Vital signs are not shown in this summary/)).toBeTruthy()
+    for (const value of ['131', '88/52', '39.4']) expect(document.body.textContent).not.toContain(value)
+  })
+
+  it('keeps a section the role may not read hidden, whatever EHR released', async () => {
+    staff.permissions = EVERY_READ.filter(item => item !== 'ehr.document.read')
+    api.emergencyRecords.mockResolvedValue(releasedSummary())
+    await renderSummary()
+    expect(screen.queryByRole('heading', { level: 2, name: 'Documents' })).toBeNull()
+    expect(screen.queryByText('referral-letter.pdf')).toBeNull()
+  })
+})
+
+/**
+ * hid-system #51: a lab request's released Lab results, which Lab also serves
+ * under an active emergency grant. Each read is audited, so it is made only when
+ * asked for, and under the emergency purpose.
+ */
+describe('released Lab results in the emergency summary', () => {
+  it('reads a lab request’s released results only when asked, under the emergency purpose', async () => {
+    staff.permissions = [...EVERY_READ, 'lab.result.released.read']
+    api.labReleasedResultsForOrder.mockResolvedValue({ workItemId: 'work-item-1', sourceEhrOrderId: 'lab-2', sourceEhrOrderVersion: 1,
+      patientId: PATIENT, acceptedAt: '2026-10-01T08:15:00.000Z', test: { codeSystem: 'LOINC', code: '718-7', name: 'Haemoglobin' }, results: [] })
+    await renderSummary()
+    const request = within(section('Lab requests')).getByText('Haemoglobin').closest<HTMLElement>('.staff-list-item')!
+    expect(api.labReleasedResultsForOrder).not.toHaveBeenCalled()
+    within(request).getByRole('button', { name: 'View released results' }).click()
+    expect(await within(request).findByText('No result released yet.')).toBeTruthy()
+    expect(api.labReleasedResultsForOrder).toHaveBeenCalledWith('facility-1', 'lab-2', 'emergency')
+  })
+
+  it('offers no released results without lab.result.released.read', async () => {
+    await renderSummary()
+    expect(screen.queryByRole('button', { name: 'View released results' })).toBeNull()
   })
 })
