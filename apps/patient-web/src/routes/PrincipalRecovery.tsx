@@ -6,7 +6,7 @@ import { BrandLogo } from '../BrandLogo'
 import { createPrincipalRecoveryApi, type RecoveryAudience } from '../recoveryApi'
 import { STAFF_RECOVERY_PATH, staffRecoveryHref } from '../productHostname'
 import { describedBy, isFieldProblem, useDocumentTitle, useStepFocus } from '../authSteps'
-import { CODE_BUDGET_HINT, useResendWait } from './recoveryWait'
+import { CODE_BUDGET_HINT, useCodeBudgetNote, useResendWait } from './recoveryWait'
 
 type Step = 'start' | 'code' | 'password' | 'complete'
 
@@ -33,7 +33,7 @@ export function PrincipalRecovery({ audience }: { audience: RecoveryAudience }) 
   // once focus moves there, and is an alert only when focus is already in the field.
   const [errorAlert, setErrorAlert] = useState(true)
   // A code was refused: it may be the account's spent code budget, which the refusal does not tell apart.
-  const [codeRefused, setCodeRefused] = useState(false)
+  const budget = useCodeBudgetNote()
   const resend = useResendWait()
 
   // hid-system refuses a staff reset everywhere but the main site. Opened on a
@@ -57,7 +57,7 @@ export function PrincipalRecovery({ audience }: { audience: RecoveryAudience }) 
     setFieldError(false)
     try { await operation() }
     catch (reason) {
-      if (isHidApiError(reason) && reason.code === 'OTP_INVALID_OR_EXPIRED') setCodeRefused(true)
+      if (isHidApiError(reason) && reason.code === 'OTP_INVALID_OR_EXPIRED') budget.refused(identifier)
       const aboutField = isFieldProblem(reason, stepCodes)
       setError(isHidApiError(reason) ? reason.message : 'We could not complete that step. Please try again.')
       setFieldError(aboutField)
@@ -74,6 +74,7 @@ export function PrincipalRecovery({ audience }: { audience: RecoveryAudience }) 
     void run(async () => {
       try {
         const result = await api.start(identifier.trim(), turnstileToken)
+        budget.started(identifier)
         setChallengeId(result.challengeId)
         resend.begin(result.resendAfterSeconds)
         setStep('code')
@@ -90,6 +91,7 @@ export function PrincipalRecovery({ audience }: { audience: RecoveryAudience }) 
     if (busy || !challengeId || code.length !== 6) return
     void run(async () => {
       const result = await api.verify(challengeId, code)
+      budget.accepted()
       setVerificationToken(result.verificationToken)
       setCode('')
       setStep('password')
@@ -108,6 +110,7 @@ export function PrincipalRecovery({ audience }: { audience: RecoveryAudience }) 
     })
   }
 
+  // Back to the first step, the work email kept. The budget note stays for a start with the same one (useCodeBudgetNote).
   function restart() {
     if (busy) return
     setStep('start')
@@ -118,7 +121,6 @@ export function PrincipalRecovery({ audience }: { audience: RecoveryAudience }) 
     setVerificationToken('')
     setPassword('')
     setConfirmPassword('')
-    setCodeRefused(false)
     resend.reset()
     stepFocus.focus()
   }
@@ -146,7 +148,7 @@ export function PrincipalRecovery({ audience }: { audience: RecoveryAudience }) 
       <label>Recovery code<input ref={stepFocus.target} required inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" value={code} onChange={event => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
         aria-invalid={invalid} aria-describedby={describedBy('principal-recovery-code-hint', errorId)} /></label>
       <button className="patient-primary-button" type="submit" disabled={busy || code.length !== 6}>{busy ? 'Checking…' : 'Verify code'}</button>
-      {codeRefused && <p className="patient-field-hint">{CODE_BUDGET_HINT}</p>}
+      {budget.shown && <p className="patient-field-hint">{CODE_BUDGET_HINT}</p>}
     </form>}
     {step === 'password' && <form onSubmit={complete} className="patient-form">
       <p id="principal-recovery-password-hint" className="patient-page-copy">Choose a new password of at least 12 characters.</p>
@@ -160,9 +162,10 @@ export function PrincipalRecovery({ audience }: { audience: RecoveryAudience }) 
     </form>}
     {step === 'complete' && <div role="status" className="patient-success"><h2 ref={stepFocus.target} tabIndex={-1}>Password reset complete.</h2>
       <Link className="patient-primary-button" to={signInPath}>Sign in</Link></div>}
-    {/* A start within the previous one's wait answers the same challenge and sends no code, but only for the
-        same identifier (hid-system #55, migration 0081): another one may be entered at once. A new code for the
-        same one is offered once the wait has passed, in a region mounted throughout, so it is announced. */}
+    {/* A start within the previous one's wait sends no code for the same identifier, which answers the same
+        challenge (hid-system #55, migration 0081), nor for the same account's other identifier; another
+        account's work email may be entered at once. A new code is offered once the wait has passed, in a region
+        mounted throughout, so it is announced. */}
     {(step === 'code' || step === 'password') && <div className="patient-auth-footer">
       <button className="patient-text-button" type="button" onClick={restart} disabled={busy}>Use a different work email</button>
       <div role="status">{resend.ready && <><p className="patient-field-hint">No code, or a code refused? Start again with the same work email to get a new code.</p>

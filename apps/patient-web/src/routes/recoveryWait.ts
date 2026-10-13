@@ -13,8 +13,13 @@ export const CODE_BUDGET_HINT = 'After 5 wrong codes within 15 minutes, every co
  * Whether a recovery may start again for a new code: a start for the same
  * identifier within the previous one's `resendAfterSeconds` answers the same
  * challenge and sends nothing (hid-system #55; migration 0081 keys the wait by
- * identifier, so another identifier is not held back). A start that names no
- * wait may start again at once.
+ * identifier). A start for the same account's other identifier (its email after
+ * its Health ID, or the reverse) within that wait sends nothing either: identity
+ * otp.service.ts start finds the account's challenge still cooling, and answers
+ * with a new random challengeId, under which the code already sent is not
+ * accepted. Before #55 the wait was the account's, and such a start answered the
+ * same challenge. Another account's identifier is not held back. A start that
+ * names no wait may start again at once.
  */
 export function useResendWait() {
   const [ready, setReady] = useState(false)
@@ -28,4 +33,25 @@ export function useResendWait() {
   }, [])
   const reset = useCallback(() => { clearTimeout(timer.current); setReady(false) }, [])
   return { ready, begin, reset }
+}
+
+/** An identifier as identity matches it for a start (otp.service.ts): trimmed, without regard to case. */
+function identifierKey(identifier: string) {
+  return identifier.trim().toLowerCase()
+}
+
+/**
+ * Whether to say CODE_BUDGET_HINT: from a refused code until a code is accepted,
+ * which shows the budget was not spent, or until a start for another identifier
+ * succeeds. A start for the same identifier keeps it: while the account's budget
+ * is spent, that start sends no code (otp.service.ts start), and the note is what
+ * says why none arrives.
+ */
+export function useCodeBudgetNote() {
+  const [refusedFor, setRefusedFor] = useState<string | null>(null)
+  const refused = useCallback((identifier: string) => setRefusedFor(identifierKey(identifier)), [])
+  const started = useCallback((identifier: string) =>
+    setRefusedFor(previous => previous === identifierKey(identifier) ? previous : null), [])
+  const accepted = useCallback(() => setRefusedFor(null), [])
+  return { shown: refusedFor !== null, refused, started, accepted }
 }
