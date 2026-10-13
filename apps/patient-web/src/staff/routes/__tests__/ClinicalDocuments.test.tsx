@@ -74,6 +74,16 @@ describe('the document list', () => {
     const name = await openDocuments()
     expect(name.closest('.staff-list-item')?.textContent).toContain('20 KiB')
   })
+
+  // hid-system #59: only the account that created an upload intent completes it, and there is no
+  // delegated completion, so an intent left `initiated` is never scanned; the list still shows it.
+  it('says an upload that was not completed will not be scanned, and to upload the file again', async () => {
+    api.documents.mockResolvedValue({ items: [{ ...listed, status: 'initiated', scanStatus: null }] })
+    const item = (await openDocuments()).closest<HTMLElement>('.staff-list-item')!
+    expect(item.textContent).toContain('Upload not completed; only the person who started it can finish it. Upload the file again.')
+    expect(item.textContent).not.toMatch(/scan: (pending|null)/)
+    expect(screen.getByRole('button', { name: 'Open file' })).toHaveProperty('disabled', true)
+  })
 })
 
 describe('opening a document checks the link first', () => {

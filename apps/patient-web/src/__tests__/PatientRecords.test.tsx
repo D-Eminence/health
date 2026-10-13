@@ -25,8 +25,12 @@ const vital = (id: string, values: Partial<PatientRecords['vitals'][number]>): P
 })
 
 function renderRecords(records: PatientRecords) {
+  return renderAnswering(async () => json(records))
+}
+
+function renderAnswering(answer: () => Promise<Response>) {
   const fetchImpl = vi.fn(async (input: RequestInfo | URL) => new URL(String(input)).pathname === '/api/v1/ehr/me/records'
-    ? json(records) : json({}, 404)) as typeof fetch
+    ? answer() : json({}, 404)) as typeof fetch
   const api = createPatientApi(createRegisteredBrowserClient(createApiClient({
     baseUrl: 'https://gateway.test', clientId: 'patient-web', sessionMode: 'cookie', fetchImpl,
   }), 'patient-web'))
@@ -75,7 +79,7 @@ describe('patient health records', () => {
     expect(card('Clinical documents').getByText('scan.pdf')).toBeTruthy()
   })
 
-  it('says so for each part of the record that holds nothing', async () => {
+  it('says so for each part of the record that holds nothing, from an EHR that names no withheld category', async () => {
     const fetchImpl = renderRecords(empty)
     expect(await screen.findByText('No completed encounters are available.')).toBeTruthy()
     for (const text of ['No signed clinical notes are available.', 'No vitals are available.', 'No diagnoses are available.',
@@ -83,5 +87,68 @@ describe('patient health records', () => {
       expect(screen.getByText(text)).toBeTruthy()
     }
     expect(fetchImpl).toHaveBeenCalledOnce()
+  })
+
+  /**
+   * hid-system #52 (patient-records.service.ts readSelf): only encounters and
+   * signed notes are released to the patient. The other five arrays are always
+   * empty and named in `withheld`, which means "not released to this caller",
+   * never "no records" (INTERFACE_CONTRACT.md, Record summaries). Each released
+   * section shows at most `limits[section]` rows and says in `truncated` whether
+   * more exist.
+   */
+  const released: PatientRecords = {
+    ...empty, released: ['encounters', 'notes'],
+    withheld: ['vitals', 'diagnoses', 'prescriptions', 'labRequests', 'documents'],
+    limits: { encounters: 50, notes: 50 }, truncated: { encounters: true, notes: false }, limit: 50,
+  }
+
+  it('says a withheld part of the record is not yet shared, never that it holds nothing', async () => {
+    renderRecords(released)
+    expect(await screen.findByText('No completed encounters are available.')).toBeTruthy()
+    for (const text of ['No vitals are available.', 'No diagnoses are available.', 'No prescriptions are available.',
+      'No laboratory requests are available.', 'No clinical documents are available.']) {
+      expect(screen.queryByText(text)).toBeNull()
+    }
+    expect(screen.getAllByText('Not yet shared with patients in Health ID.')).toHaveLength(5)
+    for (const heading of ['Vitals', 'Diagnoses', 'Prescriptions', 'Laboratory requests', 'Clinical documents']) {
+      expect(card(heading).getByText('Not yet shared with patients in Health ID.')).toBeTruthy()
+    }
+    expect(screen.getByText('No signed clinical notes are available.')).toBeTruthy()
+  })
+
+  it('says when only the most recent encounters or notes are shown', async () => {
+    renderRecords(released)
+    await screen.findByRole('heading', { name: 'Encounters' })
+    expect(card('Encounters').getByText('Showing your 50 most recent completed encounters; older ones are not shown.')).toBeTruthy()
+    expect(card('Clinical notes').queryByText(/most recent/)).toBeNull()
+  })
+
+  it('says when only the most recent signed notes are shown, and not for encounters that are all shown', async () => {
+    renderRecords({ ...released, truncated: { encounters: false, notes: true } })
+    await screen.findByRole('heading', { name: 'Clinical notes' })
+    expect(card('Clinical notes').getByText('Showing your 50 most recent signed clinical notes; older ones are not shown.')).toBeTruthy()
+    expect(card('Encounters').queryByText(/most recent/)).toBeNull()
+  })
+
+  // Until the record is read, nothing says what it holds: a withheld part may be among those named.
+  it('names no part of the record while it is read', async () => {
+    renderAnswering(() => new Promise<Response>(() => {}))
+    const heading = await screen.findByRole('heading', { name: 'Health records' })
+    const intro = heading.nextElementSibling!.textContent!
+    expect(intro).not.toMatch(/vitals|diagnoses|prescriptions|laboratory|documents/)
+  })
+
+  it('names no part of the record when it cannot be read', async () => {
+    renderAnswering(async () => json({ type: 'about:blank', title: 'Unavailable', status: 503, code: 'EHR_UNAVAILABLE' }, 503))
+    const heading = await screen.findByRole('heading', { name: 'Health records' })
+    await screen.findByRole('button', { name: /try again/i })
+    expect(heading.nextElementSibling!.textContent).not.toMatch(/vitals|diagnoses|prescriptions|laboratory|documents/)
+  })
+
+  it('describes only the released parts of the record', async () => {
+    renderRecords(released)
+    expect(await screen.findByText('Your completed encounters and signed clinical notes. Other parts of your record are not yet shared with patients in Health ID.')).toBeTruthy()
+    expect(screen.queryByText(/vitals, diagnoses, prescriptions/)).toBeNull()
   })
 })

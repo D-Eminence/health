@@ -24,11 +24,12 @@ const api = vi.hoisted(() => ({
   labImport: vi.fn(), pharmacyImport: vi.fn(),
 }))
 const permissions = vi.hoisted(() => ({ value: [] as string[] }))
+const signedIn = vi.hoisted(() => ({ actorId: 'staff-1' }))
 
 vi.mock('../../api', () => ({ staffApi: api }))
 vi.mock('../../App', () => ({
   useStaff: () => ({
-    state: { status: 'ready', session: { actor: { id: 'staff-1', displayName: 'Ada Clinician', facility: {
+    state: { status: 'ready', session: { actor: { id: signedIn.actorId, displayName: 'Ada Clinician', facility: {
       id: 'facility-1', membershipId: 'member-1', name: 'General Hospital', roles: ['doctor'], permissions: permissions.value,
     } } } },
     lock: null,
@@ -57,6 +58,7 @@ const RESUME_HERE = 'OCR has not finished this publication. If it has stopped, R
 
 beforeEach(() => {
   vi.clearAllMocks()
+  signedIn.actorId = 'staff-1'
   permissions.value = ['ocr.job.read', 'ocr.publication.write']
   api.findOcrJob.mockResolvedValue({ job })
   api.ocrExtractions.mockResolvedValue({ items: [] })
@@ -158,9 +160,41 @@ describe('publishing validated OCR evidence', () => {
       { code: 'OCR_PUBLICATION_IN_PROGRESS' }))
     await press(retry)
     await waitFor(() => expect(screen.getByRole('alert').textContent).toBe(
-      'OCR did not start another attempt: one is still running, or it is too soon after the last one.'))
+      'OCR did not start another attempt: one is still running, it is too soon after the last one, or no attempts remain.'))
     expect(screen.getByRole('button', { name: 'Retry publication' })).toBeTruthy()
     expect(screen.queryByText('Publication recorded.')).toBeNull()
+  })
+
+  // hid-system #60: OCR answers an owning service's refusal of its own workload identity as
+  // 503 <SERVICE>_SERVICE_AUTH_UNAVAILABLE, stored as the retryable OWNING_SERVICE_UNAVAILABLE.
+  it.each(['EHR', 'LAB', 'PHARMACY'])('says a failed connection between services (%s) plainly, and keeps the retry', async service => {
+    api.publishOcrValidation.mockRejectedValueOnce(new HidApiError(503, `${service} service refused the OCR service identity`,
+      { code: `${service}_SERVICE_AUTH_UNAVAILABLE` }))
+    await openJob()
+    api.ocrPublications.mockResolvedValue({ items: [unavailableAt(1)] })
+    await press(await screen.findByRole('button', { name: 'Publish to EHR' }))
+    expect((await screen.findByRole('alert')).textContent).toBe('A connection between Health ID services failed; retry in about 15 seconds.')
+    expect(screen.queryByText(/refused the OCR service identity/)).toBeNull()
+    expect(await screen.findByRole('button', { name: 'Retry publication' })).toBeTruthy()
+  })
+
+  // OCR finds a publication by facility, requesting account and key: only the requester can retry it.
+  it('offers the retry only to the account that pressed Publish', async () => {
+    api.publishOcrValidation.mockRejectedValueOnce(ehrUnavailable())
+    await openJob()
+    api.ocrPublications.mockResolvedValue({ items: [unavailableAt(1)] })
+    await press(await screen.findByRole('button', { name: 'Publish to EHR' }))
+    await screen.findByRole('button', { name: 'Retry publication' })
+
+    signedIn.actorId = 'staff-2'
+    await press(screen.getByRole('button', { name: 'Refresh status' }))
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Retry publication' })).toBeNull())
+    expect(screen.queryByRole('button', { name: 'Publish to EHR' })).toBeNull()
+    expect(screen.getByText(/can be retried only from the page where Publish was pressed/)).toBeTruthy()
+
+    signedIn.actorId = 'staff-1'
+    await press(screen.getByRole('button', { name: 'Refresh status' }))
+    expect(await screen.findByRole('button', { name: 'Retry publication' })).toBeTruthy()
   })
 
   it('reloads the history when OCR answers that the review was published already, and offers nothing OCR would refuse', async () => {
@@ -317,7 +351,7 @@ describe('publishing validated OCR evidence', () => {
       { code: 'OCR_PUBLICATION_IN_PROGRESS' }))
     await press(retry)
     await waitFor(() => expect(screen.getByRole('alert').textContent).toBe(
-      'OCR did not start another attempt: one is still running, or it is too soon after the last one.'))
+      'OCR did not start another attempt: one is still running, it is too soon after the last one, or no attempts remain.'))
     expect(keys()).toHaveLength(2)
     expect(keys()[1]).toBe(keys()[0])
     expect(screen.getByRole('button', { name: 'Retry publication' })).toBeTruthy()

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { APP_BOUNDARIES, APP_ROUTE_GRANTS, BoundaryViolationError,
   assertEndpointAllowed, canUseService } from '../boundaries'
 import { HID_ENDPOINTS, NON_FRONTEND_ENDPOINTS, findEndpoint, hasContracts } from '../registry'
+import { BrowserRouteError, assertRegisteredBrowserRequest } from '../browser-routes'
 
 describe('c4b5445 route registry', () => {
   it('uses unique names, full gateway paths and declared methods', () => {
@@ -30,6 +31,27 @@ describe('c4b5445 route registry', () => {
     expect(findEndpoint('identity.facilityAudit')?.permissions?.GET).toEqual(['audit.read'])
     expect(() => assertEndpointAllowed('staff-web','identity.facilityAudit')).not.toThrow()
     expect(() => assertEndpointAllowed('patient-web','identity.facilityAudit')).toThrow(BoundaryViolationError)
+  })
+
+  it('registers sending a saved lab request to Lab with both permissions EHR requires (hid-system #56)', () => {
+    expect(findEndpoint('ehr.labRequestLabWorkItem')).toMatchObject({
+      path: '/api/v1/ehr/patients/:patientId/encounters/:encounterId/lab-requests/:requestId/lab-work-item',
+      methods: ['POST'], permissions: { POST: ['ehr.lab-request.write', 'lab.work-item.accept'] } })
+    expect(() => assertEndpointAllowed('staff-web', 'ehr.labRequestLabWorkItem')).not.toThrow()
+    expect(() => assertEndpointAllowed('patient-web', 'ehr.labRequestLabWorkItem')).toThrow(BoundaryViolationError)
+    const path = '/api/v1/ehr/patients/a0000000-0000-4000-8000-000000000001/encounters/e0000000-0000-4000-8000-000000000001/lab-requests/0f2b6d0e-6a55-4b4c-9a7e-2f4b8c1d3e5a/lab-work-item'
+    expect(assertRegisteredBrowserRequest('POST', path).name).toBe('ehr.labRequestLabWorkItem')
+    expect(() => assertRegisteredBrowserRequest('GET', path)).toThrow(BrowserRouteError)
+  })
+
+  it('registers the released Lab results of an EHR lab request (hid-system #51)', () => {
+    expect(findEndpoint('lab.releasedResultsForOrder')).toMatchObject({
+      path: '/api/v1/lab/ehr-orders/:sourceEhrOrderId/released-results',
+      methods: ['GET'], permissions: { GET: ['lab.result.released.read'] } })
+    expect(() => assertEndpointAllowed('staff-web', 'lab.releasedResultsForOrder')).not.toThrow()
+    const path = '/api/v1/lab/ehr-orders/0f2b6d0e-6a55-4b4c-9a7e-2f4b8c1d3e5a/released-results'
+    expect(assertRegisteredBrowserRequest('GET', path).name).toBe('lab.releasedResultsForOrder')
+    expect(() => assertRegisteredBrowserRequest('POST', path)).toThrow(BrowserRouteError)
   })
 
   it('keeps workload routes and absent legacy flows out of browser contracts', () => {

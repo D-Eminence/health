@@ -6,7 +6,7 @@ import { Turnstile } from '../Turnstile'
 import { BrandLogo } from '../BrandLogo'
 import { ItemName } from '../ItemName'
 import { useSession } from '../session'
-import type { PatientNotification, PatientRecords } from '../api'
+import type { PatientNotification, PatientRecords, RecordSection } from '../api'
 import { usePatientResource } from './usePatientResource'
 import { useActionFocus, useRetryFocus } from './actionFocus'
 import { AccountDeletionCard, EmergencyContactsCard } from './AccountSafety'
@@ -191,36 +191,76 @@ export function ProfilePage() {
   </section>
 }
 
+/** What each record section holds, as the page names it. */
+const SECTION_NAMES: Readonly<Record<RecordSection, string>> = {
+  encounters: 'completed encounters', notes: 'signed clinical notes', vitals: 'vitals', diagnoses: 'diagnoses',
+  prescriptions: 'prescriptions', labRequests: 'laboratory requests', documents: 'uploaded clinical documents',
+}
+const ALL_SECTIONS = 'Your completed encounters, clinical notes, vitals, diagnoses, prescriptions, laboratory requests and uploaded clinical documents.'
+const WITHHELD = 'Not yet shared with patients in Health ID.'
+
+/** The opening line until the record is read: what it holds is not known yet. */
+const RECORD_UNREAD = 'Your health record, as it is shared with patients in Health ID.'
+
+/**
+ * The page's opening line. An EHR with hid-system #52 names what it released to
+ * the patient, and only that is promised; one before it sends every section.
+ * Nothing is named while the record is read, or when it could not be.
+ */
+function recordsIntro(data: PatientRecords | null) {
+  if (!data) return RECORD_UNREAD
+  if (!data.released) return ALL_SECTIONS
+  const names = data.released.filter(section => section in SECTION_NAMES).map(section => SECTION_NAMES[section])
+  if (names.length === 0) return 'No part of your record is shared with patients in Health ID yet.'
+  const listed = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`
+  return `Your ${listed}.${data.withheld?.length ? ' Other parts of your record are not yet shared with patients in Health ID.' : ''}`
+}
+
+/** An empty section's line: a withheld one was not released to the patient, which is not "none". */
+function emptyText(data: PatientRecords, section: RecordSection, none: string) {
+  return data.withheld?.includes(section) ? WITHHELD : none
+}
+
+/** Said only when EHR reports that the section holds more than it sent. */
+function Truncated({ data, section }: { data: PatientRecords; section: RecordSection }) {
+  if (data.truncated?.[section] !== true) return null
+  const limit = data.limits?.[section]
+  return <p className="patient-field-hint">{limit
+    ? `Showing your ${limit} most recent ${SECTION_NAMES[section]}; older ones are not shown.`
+    : `Showing only your most recent ${SECTION_NAMES[section]}; older ones are not shown.`}</p>
+}
+
 export function RecordsPage() {
   const { api } = useSession()
   useDocumentTitle('Health records · Health ID')
   const records = usePatientResource(api.records)
   const heading = useRef<HTMLHeadingElement>(null)
+  const data = records.data
   return <section className="patient-section"><p className="patient-eyebrow">Care history</p><h1 ref={heading} tabIndex={-1} className="patient-page-title">Health records</h1>
-    <p className="patient-page-copy">Your completed encounters, clinical notes, vitals, diagnoses, prescriptions, laboratory requests and uploaded clinical documents.</p>
-    <LoadState loading={records.loading} error={records.error} retry={records.reload} hasData={records.data !== null} focusTarget={heading} />
-    {records.data && !records.error && <>
-      <div className="patient-card"><h2>Encounters</h2>{records.data.encounters.length === 0 ? <p className="patient-empty">No completed encounters are available.</p> : <ul className="patient-list">
-        {records.data.encounters.map(item => <li key={item.id}><div><strong>{item.encounterType}</strong><span>{date(item.startedAt)} · {item.status}</span></div></li>)}
-      </ul>}</div>
-      <div className="patient-card"><h2>Clinical notes</h2>{records.data.notes.length === 0 ? <p className="patient-empty">No signed clinical notes are available.</p> : <ul className="patient-list">
-        {records.data.notes.map(item => <li key={item.id} className="patient-note"><div><strong>{item.title || item.noteType}</strong><span>{date(item.signedAt)} · {item.status}</span></div><p>{item.content}</p></li>)}
-      </ul>}</div>
-      <div className="patient-card"><h2>Vitals</h2>{records.data.vitals.length === 0 ? <p className="patient-empty">No vitals are available.</p> : <ul className="patient-list">
-        {records.data.vitals.map(item => <li key={item.id}><div><strong>{date(item.recordedAt)}</strong><span>{vitalsSummary(item)}</span></div></li>)}
-      </ul>}</div>
-      <div className="patient-card"><h2>Diagnoses</h2>{records.data.diagnoses.length === 0 ? <p className="patient-empty">No diagnoses are available.</p> : <ul className="patient-list">
-        {records.data.diagnoses.map(item => <li key={item.id}><div><strong>{item.display}</strong><span>{item.codeSystem}: {item.code} · {item.clinicalStatus} · {item.verificationStatus}</span></div>{item.notes && <p>{item.notes}</p>}</li>)}
-      </ul>}</div>
-      <div className="patient-card"><h2>Prescriptions</h2>{records.data.prescriptions.length === 0 ? <p className="patient-empty">No prescriptions are available.</p> : <ul className="patient-list">
-        {records.data.prescriptions.map(item => <li key={item.id}><div><strong>{item.medicationDisplay}</strong><span>{item.doseQuantity != null ? `${item.doseQuantity} ${item.doseUnit || ''}` : ''}{item.frequency ? ` · ${item.frequency}` : ''} · {item.status}</span></div><p>{item.instructions}</p></li>)}
-      </ul>}</div>
-      <div className="patient-card"><h2>Laboratory requests</h2>{records.data.labRequests.length === 0 ? <p className="patient-empty">No laboratory requests are available.</p> : <ul className="patient-list">
-        {records.data.labRequests.map(item => <li key={item.id}><div><strong>{item.testDisplay}</strong><span>{item.priority} · {item.status} · {date(item.createdAt)}</span></div>{item.clinicalInformation && <p>{item.clinicalInformation}</p>}</li>)}
-      </ul>}</div>
-      <div className="patient-card"><h2>Clinical documents</h2>{records.data.documents.length === 0 ? <p className="patient-empty">No clinical documents are available.</p> : <ul className="patient-list">
-        {records.data.documents.map(item => <li key={item.id}><div><strong>{item.fileName}</strong><span>{item.mediaType} · {bytes(item.sizeBytes)} · {date(item.createdAt)}</span></div></li>)}
-      </ul>}</div>
+    <p className="patient-page-copy">{recordsIntro(records.error ? null : data)}</p>
+    <LoadState loading={records.loading} error={records.error} retry={records.reload} hasData={data !== null} focusTarget={heading} />
+    {data && !records.error && <>
+      <div className="patient-card"><h2>Encounters</h2>{data.encounters.length === 0 ? <p className="patient-empty">{emptyText(data, 'encounters', 'No completed encounters are available.')}</p> : <ul className="patient-list">
+        {data.encounters.map(item => <li key={item.id}><div><strong>{item.encounterType}</strong><span>{date(item.startedAt)} · {item.status}</span></div></li>)}
+      </ul>}<Truncated data={data} section="encounters" /></div>
+      <div className="patient-card"><h2>Clinical notes</h2>{data.notes.length === 0 ? <p className="patient-empty">{emptyText(data, 'notes', 'No signed clinical notes are available.')}</p> : <ul className="patient-list">
+        {data.notes.map(item => <li key={item.id} className="patient-note"><div><strong>{item.title || item.noteType}</strong><span>{date(item.signedAt)} · {item.status}</span></div><p>{item.content}</p></li>)}
+      </ul>}<Truncated data={data} section="notes" /></div>
+      <div className="patient-card"><h2>Vitals</h2>{data.vitals.length === 0 ? <p className="patient-empty">{emptyText(data, 'vitals', 'No vitals are available.')}</p> : <ul className="patient-list">
+        {data.vitals.map(item => <li key={item.id}><div><strong>{date(item.recordedAt)}</strong><span>{vitalsSummary(item)}</span></div></li>)}
+      </ul>}<Truncated data={data} section="vitals" /></div>
+      <div className="patient-card"><h2>Diagnoses</h2>{data.diagnoses.length === 0 ? <p className="patient-empty">{emptyText(data, 'diagnoses', 'No diagnoses are available.')}</p> : <ul className="patient-list">
+        {data.diagnoses.map(item => <li key={item.id}><div><strong>{item.display}</strong><span>{item.codeSystem}: {item.code} · {item.clinicalStatus} · {item.verificationStatus}</span></div>{item.notes && <p>{item.notes}</p>}</li>)}
+      </ul>}<Truncated data={data} section="diagnoses" /></div>
+      <div className="patient-card"><h2>Prescriptions</h2>{data.prescriptions.length === 0 ? <p className="patient-empty">{emptyText(data, 'prescriptions', 'No prescriptions are available.')}</p> : <ul className="patient-list">
+        {data.prescriptions.map(item => <li key={item.id}><div><strong>{item.medicationDisplay}</strong><span>{item.doseQuantity != null ? `${item.doseQuantity} ${item.doseUnit || ''}` : ''}{item.frequency ? ` · ${item.frequency}` : ''} · {item.status}</span></div><p>{item.instructions}</p></li>)}
+      </ul>}<Truncated data={data} section="prescriptions" /></div>
+      <div className="patient-card"><h2>Laboratory requests</h2>{data.labRequests.length === 0 ? <p className="patient-empty">{emptyText(data, 'labRequests', 'No laboratory requests are available.')}</p> : <ul className="patient-list">
+        {data.labRequests.map(item => <li key={item.id}><div><strong>{item.testDisplay}</strong><span>{item.priority} · {item.status} · {date(item.createdAt)}</span></div>{item.clinicalInformation && <p>{item.clinicalInformation}</p>}</li>)}
+      </ul>}<Truncated data={data} section="labRequests" /></div>
+      <div className="patient-card"><h2>Clinical documents</h2>{data.documents.length === 0 ? <p className="patient-empty">{emptyText(data, 'documents', 'No clinical documents are available.')}</p> : <ul className="patient-list">
+        {data.documents.map(item => <li key={item.id}><div><strong>{item.fileName}</strong><span>{item.mediaType} · {bytes(item.sizeBytes)} · {date(item.createdAt)}</span></div></li>)}
+      </ul>}<Truncated data={data} section="documents" /></div>
       <p className="patient-field-hint">The record aggregate is scoped to your authenticated patient identity and audited by the backend.</p>
     </>}
   </section>

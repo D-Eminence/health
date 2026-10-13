@@ -25,6 +25,9 @@ function renderRecords(records: unknown) {
   }, createPatientApi(client))}><RecordsPage /></SessionContext.Provider>)
 }
 
+// As an EHR before hid-system #52 answers, naming no withheld section: only such a
+// build sends a patient documents. Since #52 documents are withheld from the
+// patient (PatientRecords.test.tsx covers that answer).
 const empty = { encounters: [], notes: [], vitals: [], diagnoses: [], prescriptions: [], labRequests: [], limit: 100 }
 const upload = (sizeBytes: unknown, fileName = 'referral.pdf') => ({ id: fileName, encounterId: null, facilityId: 'facility-1', fileName,
   mediaType: 'application/pdf', sizeBytes, classification: 'phi', status: 'uploaded', createdAt: '2026-10-01T08:00:00.000Z' })
