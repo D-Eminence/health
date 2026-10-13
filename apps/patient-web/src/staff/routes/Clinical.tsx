@@ -1307,9 +1307,15 @@ export function Clinical() {
       requestId, items)
       return
     }
+    // A 201 without a body names neither the request nor Lab's answer: the save is said, not Lab's acceptance.
+    if (activeLab && !saved) {
+      setSuccess('Active lab request created; check it in the list.')
+      await loadRecords(kind, FIRST_PAGE, true)
+      return
+    }
     // An EHR before #56 reports no handoff: its 201 for an active request meant Lab accepted it.
     // So does #56's, unless it names another state: a 201 never means Lab failed (that is a 409 or 502).
-    const outcome: LabOutcome | null = !activeLab ? null : saved?.labHandoff === undefined ? { accepted: true, text: 'Active lab request created and accepted by Lab.' }
+    const outcome: LabOutcome | null = !activeLab ? null : saved.labHandoff === undefined ? { accepted: true, text: 'Active lab request created and accepted by Lab.' }
       : saved.labHandoff?.state === 'accepted' ? { accepted: true, text: 'Active lab request created and accepted by Lab.' }
         : labHandoffOutcome(saved.labHandoff ?? null, 'created', canSendToLab)
     if (!outcome || outcome.accepted) setSuccess(outcome?.text ?? 'Clinical record saved by the backend.')

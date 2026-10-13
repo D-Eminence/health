@@ -157,12 +157,15 @@ describe('creating an active lab request that Lab did not take', () => {
     await waitFor(() => expect(document.activeElement).toBe(title))
   })
 
-  it('takes a 201 without a body as a saved request, not as a failure to save', async () => {
+  // A 201 without a body names neither the request nor Lab's answer, so Lab's acceptance is not claimed.
+  it('takes a 201 without a body as a saved request, not as a failure to save, nor as accepted by Lab', async () => {
     api.createRecord.mockImplementation(async () => { records['lab-requests'] = [labRequest('active')]; return undefined })
     const form = await createActiveRequest()
-    expect(await screen.findByText('Active lab request created and accepted by Lab.')).toBeTruthy()
+    expect(await screen.findByText('Active lab request created; check it in the list.')).toBeTruthy()
+    expect(screen.queryByText(/accepted by Lab/)).toBeNull()
     expect(within(form).queryByRole('alert')).toBeNull()
     expect(value(form, 'Test display')).toBe('')
+    expect(api.records).toHaveBeenLastCalledWith(...FRESH_FIRST_PAGE)
   })
 })
 
