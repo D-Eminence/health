@@ -1,6 +1,7 @@
 import { useMemo, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
+import { PasswordInput } from '@hid/ui'
 import { Turnstile } from '../Turnstile'
 import { BrandLogo } from '../BrandLogo'
 import { createPrincipalRecoveryApi, type RecoveryAudience } from '../recoveryApi'
@@ -152,10 +153,11 @@ export function PrincipalRecovery({ audience }: { audience: RecoveryAudience }) 
     </form>}
     {step === 'password' && <form onSubmit={complete} className="patient-form">
       <p id="principal-recovery-password-hint" className="patient-page-copy">Choose a new password of at least 12 characters.</p>
-      <label>New password<input ref={stepFocus.target} required type="password" autoComplete="new-password" minLength={12} maxLength={256} value={password} onChange={event => setPassword(event.target.value)}
-        aria-invalid={invalid} aria-describedby={describedBy('principal-recovery-password-hint', errorId)} /></label>
-      <label>Confirm new password<input required type="password" autoComplete="new-password" minLength={12} maxLength={256} value={confirmPassword} onChange={event => setConfirmPassword(event.target.value)}
-        aria-invalid={mismatch || undefined} aria-describedby={mismatch ? 'principal-recovery-mismatch' : undefined} /></label>
+      {/* Two fields, so each toggle is named for its own (a screen reader's list of buttons shows both). */}
+      <div className="patient-field"><label htmlFor="principal-recovery-password">New password</label><PasswordInput appearance="plain" id="principal-recovery-password" toggleLabel="Show new password" ref={stepFocus.target} required autoComplete="new-password" minLength={12} maxLength={256} value={password} onChange={event => setPassword(event.target.value)}
+        aria-invalid={invalid} aria-describedby={describedBy('principal-recovery-password-hint', errorId)} /></div>
+      <div className="patient-field"><label htmlFor="principal-recovery-confirm">Confirm new password</label><PasswordInput appearance="plain" id="principal-recovery-confirm" toggleLabel="Show confirmed password" required autoComplete="new-password" minLength={12} maxLength={256} value={confirmPassword} onChange={event => setConfirmPassword(event.target.value)}
+        aria-invalid={mismatch || undefined} aria-describedby={mismatch ? 'principal-recovery-mismatch' : undefined} /></div>
       {/* Always mounted, so the mismatch is announced once when it appears, not on each keystroke (PA-05). */}
       <div aria-live="polite">{mismatch && <p id="principal-recovery-mismatch" className="patient-inline-error">Passwords do not match.</p>}</div>
       <button className="patient-primary-button" type="submit" disabled={busy || password.length < 12 || password !== confirmPassword}>{busy ? 'Saving…' : 'Reset password'}</button>

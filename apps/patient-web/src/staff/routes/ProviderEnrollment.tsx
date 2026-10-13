@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
-import { Field, Input, Select } from '@hid/ui'
+import { Field, Input, PasswordInput, Select } from '@hid/ui'
 import { BrandLogo } from '../../BrandLogo'
 import { useDocumentTitle } from '../../authSteps'
 import { Turnstile } from '../../Turnstile'
@@ -194,11 +194,11 @@ export function ProviderEnrollment() {
         {stage === 'password' && (
           <form onSubmit={event => void activate(event)} className="patient-form">
             <h2>Create your provider account</h2>
-            <p className="patient-field-hint">Choose a password of at least 12 characters. After activation, you will enter the Provider Portal as your facility administrator.</p>
-            <label>Password
-              <Input required type="password" autoComplete="new-password" minLength={12} maxLength={256}
-                value={password} onChange={event => setPassword(event.target.value)} />
-            </label>
+            <p id="provider-password-hint" className="patient-field-hint">Choose a password of at least 12 characters. After activation, you will enter the Provider Portal as your facility administrator.</p>
+            <Field label="Password" htmlFor="provider-password">
+              <PasswordInput id="provider-password" required autoComplete="new-password" minLength={12} maxLength={256}
+                aria-describedby="provider-password-hint" value={password} onChange={event => setPassword(event.target.value)} />
+            </Field>
             <button type="submit" className="patient-primary-button" disabled={busy || password.length < 12}>
               {busy ? 'Creating provider account…' : 'Create provider account'}
             </button>

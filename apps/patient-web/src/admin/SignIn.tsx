@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
+import { PasswordInput } from '@hid/ui'
 import { adminApi, type MfaEnrollment, type PlatformLoginChallenge } from './api'
 import { environment } from './env'
 import { failure, isProblem } from './problems'
@@ -100,7 +101,7 @@ function CredentialsStep({ error, onError, onChallenge }: {
     <h1>Administration sign in</h1>
     <p>Access is limited to accounts with platform permissions. You will also need your authenticator app.</p>
     <label>Email<input type="email" autoComplete="username" required value={email} onChange={event => setEmail(event.target.value)} /></label>
-    <label>Password<input type="password" autoComplete="current-password" required value={password} onChange={event => setPassword(event.target.value)} /></label>
+    <div className="admin-field"><label htmlFor="admin-password">Password</label><PasswordInput appearance="plain" id="admin-password" autoComplete="current-password" required value={password} onChange={event => setPassword(event.target.value)} /></div>
     {(config.turnstileSiteKey || config.name !== 'local') &&
       <Turnstile siteKey={config.turnstileSiteKey} resetKey={resetKey} onChange={setToken} />}
     {error ? <p role="alert" className="admin-error">{error}</p> : null}

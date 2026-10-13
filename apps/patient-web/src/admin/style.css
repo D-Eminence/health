@@ -303,6 +303,8 @@
 
 /* Platform security (Stage 2B): sign-in steps, step-up, recovery codes, approvals. */
 .admin-auth-form { display: grid; gap: 17px; }
+/* A label tied by id to a field it does not wrap: a password with its Show toggle beside it. */
+.admin-field { display: grid; gap: 6px; }
 .admin-auth-form > p { margin: 0; color: var(--color-muted); font-size: 14px; }
 .admin-auth-form .admin-primary { justify-self: start; }
 .admin-auth-card .admin-checkbox,

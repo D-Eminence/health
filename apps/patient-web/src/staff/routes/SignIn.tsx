@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
-import { Button, Field, Input } from '@hid/ui'
+import { Button, Field, Input, PasswordInput } from '@hid/ui'
 import { getEnvironment } from '../env'
 import { useStaff } from '../App'
 import { BrandLogo } from '../../BrandLogo'
@@ -82,7 +82,7 @@ export function SignIn() {
       <p>Sign in with the staff account assigned to your facility. Your permissions and facility are verified by Health ID.</p>
       <form className="staff-form" onSubmit={event => void submit(event)}>
         <Field label="Work email" htmlFor="staff-email" required><Input id="staff-email" type="email" autoComplete="username" value={email} onChange={event => setEmail(event.target.value)} required /></Field>
-        <Field label="Password" htmlFor="staff-password" required><Input id="staff-password" type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} required /></Field>
+        <Field label="Password" htmlFor="staff-password" required><PasswordInput id="staff-password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} required /></Field>
         <TurnstileChallenge onToken={setToken} resetKey={turnstileResetKey} />
         {error && <p className="staff-error" role="alert">{error}</p>}
         <Button type="submit" disabled={busy || !!siteKey && !token}>{busy ? 'Signing in…' : 'Sign in'}</Button>

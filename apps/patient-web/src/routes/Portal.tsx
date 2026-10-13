@@ -1,6 +1,7 @@
 import { useRef, useState, type FormEvent, type RefObject } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
+import { PasswordInput } from '@hid/ui'
 import { GoogleButton } from '../GoogleButton'
 import { googleClientId } from '../googleClient'
 import { Turnstile } from '../Turnstile'
@@ -460,7 +461,8 @@ export function SettingsPage() {
     <EmergencyContactsCard />
     {googleClientId() && <div className="patient-card"><h2>Link a Google account</h2><p className="patient-field-hint">Confirm your existing Health ID credentials before linking.</p>
       <div className="patient-form"><label>Email or Health ID<input autoComplete="username" value={googlePrincipal} onChange={event => setGooglePrincipal(event.target.value)} /></label>
-        <label>Current password<input type="password" autoComplete="current-password" value={googlePassword} onChange={event => setGooglePassword(event.target.value)} /></label>
+        {/* No form is sent here (Google's button sends it), so each attempt remounts the field masked. */}
+        <div className="patient-field"><label htmlFor="google-link-password">Current password</label><PasswordInput appearance="plain" key={googleReset} id="google-link-password" autoComplete="current-password" value={googlePassword} onChange={event => setGooglePassword(event.target.value)} /></div>
         <Turnstile action="patient-login" onTokenChange={setGoogleToken} resetKey={googleReset} />
         <GoogleButton text="continue_with" disabled={busy || !googleToken || !googlePrincipal.trim() || !googlePassword} onCredential={linkGoogle}
           disabledReason={googleToken && googlePrincipal.trim() && googlePassword ? undefined

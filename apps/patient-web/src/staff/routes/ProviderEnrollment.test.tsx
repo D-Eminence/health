@@ -90,6 +90,9 @@ describe('provider enrollment', () => {
     await waitFor(() => expect(api.verify).toHaveBeenCalledWith('challenge-1', '123456'))
 
     const password = await screen.findByLabelText('Password') as HTMLInputElement
+    // It can be shown (@hid/ui PasswordInput), and the step's hint describes it.
+    expect(screen.getByRole('button', { name: 'Show password', pressed: false }).getAttribute('aria-controls')).toBe(password.id)
+    expect(password.getAttribute('aria-describedby')).toBe('provider-password-hint')
     fireEvent.change(password, { target: { value: 'short-pass' } })
     expect((screen.getByRole('button', { name: 'Create provider account' }) as HTMLButtonElement).disabled).toBe(true)
     fireEvent.change(password, { target: { value: 'a-long-enough-password' } })

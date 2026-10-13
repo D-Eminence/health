@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
+import { PasswordInput } from '@hid/ui'
 import type { EnrollmentProgress } from '../api'
 import { GoogleButton } from '../GoogleButton'
 import { googleClientId } from '../googleClient'
@@ -305,8 +306,8 @@ export function Enrollment() {
       </form>}
       {ready && stage === 'password' && <form onSubmit={event => void submitPassword(event)} className="patient-form">
         <h2>Activate your account</h2><p id="enroll-password-hint" className="patient-field-hint">Choose a password of at least 12 characters.</p>
-        <label>Password<input ref={stepFocus.target} required type="password" autoComplete="new-password" minLength={12} maxLength={256} value={password} onChange={event => setPassword(event.target.value)}
-          aria-invalid={invalid} aria-describedby={describedBy('enroll-password-hint', errorId)} /></label>
+        <div className="patient-field"><label htmlFor="enroll-password">Password</label><PasswordInput appearance="plain" id="enroll-password" ref={stepFocus.target} required autoComplete="new-password" minLength={12} maxLength={256} value={password} onChange={event => setPassword(event.target.value)}
+          aria-invalid={invalid} aria-describedby={describedBy('enroll-password-hint', errorId)} /></div>
         <button type="submit" className="patient-primary-button" disabled={busy || password.length < 12 || (googleRequired && !googlePending)}>{busy ? 'Activating…' : 'Activate Health ID'}</button>
         {stepHint === 'activation' && <p className="patient-field-hint">{ACTIVATION_LIMIT_HINT}</p>}
       </form>}

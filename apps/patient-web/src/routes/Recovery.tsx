@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
+import { PasswordInput } from '@hid/ui'
 import { Turnstile } from '../Turnstile'
 import { BrandLogo } from '../BrandLogo'
 import { useSession } from '../session'
@@ -109,8 +110,8 @@ export function Recovery() {
       <button className="patient-primary-button" disabled={busy || code.length !== 6}>{busy ? 'Checking…' : 'Verify code'}</button>
       {budget.shown && <p className="patient-field-hint">{CODE_BUDGET_HINT}</p>}</form>}
     {step === 'password' && <form onSubmit={complete} className="patient-form"><p id="recovery-password-hint" className="patient-page-copy">Choose a new password of at least 12 characters.</p>
-      <label>New password<input ref={stepFocus.target} required type="password" autoComplete="new-password" minLength={12} value={password} onChange={event => setPassword(event.target.value)}
-        aria-invalid={invalid} aria-describedby={describedBy('recovery-password-hint', errorId)} /></label>
+      <div className="patient-field"><label htmlFor="recovery-password">New password</label><PasswordInput appearance="plain" id="recovery-password" ref={stepFocus.target} required autoComplete="new-password" minLength={12} value={password} onChange={event => setPassword(event.target.value)}
+        aria-invalid={invalid} aria-describedby={describedBy('recovery-password-hint', errorId)} /></div>
       <button className="patient-primary-button" disabled={busy || password.length < 12}>{busy ? 'Saving…' : 'Reset password'}</button></form>}
     {step === 'complete' && <div role="status" className="patient-success"><h2 ref={stepFocus.target} tabIndex={-1}>Password reset complete.</h2><Link className="patient-primary-button" to="/sign-in">Sign in</Link></div>}
     {/* A start within the previous one's wait sends no code for the same identifier, which answers the same
