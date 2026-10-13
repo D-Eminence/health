@@ -4,7 +4,7 @@ import { Button, Field, Input } from '@hid/ui'
 import { getEnvironment } from '../env'
 import { useStaff } from '../App'
 import { BrandLogo } from '../../BrandLogo'
-import { turnstileSize } from '../../Turnstile'
+import { loadTurnstileScript, turnstileSize } from '../../Turnstile'
 import { resolveStaffProductHostname, STAFF_RECOVERY_PATH, staffLoginAction, staffRecoveryHref } from '../../productHostname'
 import { staffReturnPath } from '../session'
 
@@ -13,37 +13,35 @@ function getStaffLandingPath(search: string): string {
     ?? resolveStaffProductHostname(window.location.hostname)?.route ?? '/provider'
 }
 
+const CHALLENGE_UNAVAILABLE = 'Human verification could not load. Refresh the page and try again.'
+
 function TurnstileChallenge({ onToken, resetKey }: { onToken: (token: string) => void; resetKey: number }) {
   const siteKey = getEnvironment().turnstileSiteKey
   const host = useRef<HTMLDivElement>(null)
   const [error, setError] = useState('')
+  // Read when the widget answers, so a new callback does not render the widget again.
+  const tokenTo = useRef(onToken)
+  useEffect(() => { tokenTo.current = onToken }, [onToken])
 
   useEffect(() => {
     if (!siteKey || !host.current) return
     let active = true
     let widgetId: string | null = null
-    const render = () => {
+    // The portal's one loader (Turnstile.tsx): this page adds no script of its own.
+    void loadTurnstileScript().then(() => {
       if (!active || !host.current || !window.turnstile) return
+      setError('')
       widgetId = window.turnstile.render(host.current, {
         sitekey: siteKey,
         action: staffLoginAction(window.location.hostname),
         size: turnstileSize(host.current, 'normal'),
-        callback: onToken,
-        'expired-callback': () => onToken(''),
-        'error-callback': () => { onToken(''); setError('Human verification could not load. Refresh the page and try again.') },
+        callback: (token: string) => tokenTo.current(token),
+        'expired-callback': () => tokenTo.current(''),
+        'error-callback': () => { tokenTo.current(''); setError(CHALLENGE_UNAVAILABLE) },
       })
-    }
-    if (window.turnstile) render()
-    else {
-      const script = document.createElement('script')
-      script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit'
-      script.async = true
-      script.onload = render
-      script.onerror = () => setError('Human verification could not load. Refresh the page and try again.')
-      document.head.append(script)
-    }
+    }).catch(() => { if (active) setError(CHALLENGE_UNAVAILABLE) })
     return () => { active = false; if (widgetId && window.turnstile) window.turnstile.remove(widgetId) }
-  }, [siteKey, onToken, resetKey])
+  }, [siteKey, resetKey])
 
   if (!siteKey) return null
   return <div><div ref={host} />{error && <p role="alert" className="staff-error">{error}</p>}</div>

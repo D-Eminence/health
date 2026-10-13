@@ -95,9 +95,12 @@ describe('where the Google button is offered', () => {
   it('enrollment says the security check comes first, until it is complete', async () => {
     renderPortal(<Enrollment />, path => path.endsWith('/auth/google/nonce') ? nonce() : json({ status: 404, code: 'NOT_FOUND', detail: 'None' }, 404),
       { state: { status: 'anonymous', principal: null } })
+    // On the NIN step Google sign-up is a path of its own, with its own check (TurnstileOnePerPage).
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue with Google' }))
     expect(await screen.findByText(REASON)).toBeTruthy()
     const checks = screen.getAllByRole('button', { name: 'Complete check' })
-    fireEvent.click(checks[checks.length - 1]!)
+    expect(checks).toHaveLength(1)
+    fireEvent.click(checks[0]!)
     expect(screen.queryByText(REASON)).toBeNull()
   })
 })

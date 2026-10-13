@@ -3,6 +3,7 @@ import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import type { EnrollmentProgress } from '../api'
 import { GoogleButton } from '../GoogleButton'
+import { googleClientId } from '../googleClient'
 import { Turnstile } from '../Turnstile'
 import { BrandLogo } from '../BrandLogo'
 import { useSession } from '../session'
@@ -58,6 +59,11 @@ export function Enrollment() {
   const [googleTurnstileToken, setGoogleTurnstileToken] = useState<string | null>(null)
   const [resetKey, setResetKey] = useState(0)
   const [googleResetKey, setGoogleResetKey] = useState(0)
+  // The NIN step's two submissions, the NIN start and Google sign-up, each need
+  // their own single-use security check with its own action ('patient-enrollment'
+  // and 'patient-login'), so one is shown at a time: the path the person chose.
+  const [ninPath, setNinPath] = useState<'nin' | 'google'>('nin')
+  const googleHeading = useRef<HTMLSpanElement>(null)
   const [busy, setBusy] = useState(false)
   const [checking, setChecking] = useState(true)
   const [checkError, setCheckError] = useState(false)
@@ -225,6 +231,7 @@ export function Enrollment() {
       const result = await api.googleExchange(idToken, googleTurnstileToken, 'enroll')
       if ('actor' in result) { acceptGoogleSession(result); navigate('/', { replace: true }); return }
       setGooglePending(true)
+      setNinPath('nin')
       // Binding answers only that it bound; the enrollment's own progress is read
       // again, so a patient already past the contact step is not sent back to it.
       if (stage !== 'nin') { await api.enrollmentBindGoogle(); applyProgress(await api.enrollmentCurrent()) }
@@ -234,6 +241,13 @@ export function Enrollment() {
 
   // No step is offered while the check runs, after it failed, or while a sign-in blocks enrollment.
   const ready = !checking && !checkError && !signOutRequired
+  // Google sign-up is offered until it is pending for this enrollment. On the NIN
+  // step it is a path of its own, opened by a button: its check replaces the NIN
+  // form's rather than appearing beside it.
+  const googleOffered = Boolean(googleClientId()) && ready && stage !== 'complete' && !googlePending
+  const googleChosen = googleOffered && stage === 'nin' && ninPath === 'google'
+  const chooseGoogle = () => { setNinPath('google'); focusAfter(() => googleHeading.current) }
+  const chooseNin = () => { setNinPath('nin'); stepFocus.focus() }
   // The error is about the stage's field when the server refused its value.
   const invalid = fieldError ? true : undefined
   const errorId = fieldError ? 'enroll-error' : undefined
@@ -266,7 +280,7 @@ export function Enrollment() {
       </div>}
       {error && <p id="enroll-error" role={errorAlert ? 'alert' : undefined} className="patient-inline-error">{error}</p>}
       {googleRequired && !googlePending && <p role="status" className="patient-inline-error">Reconnect the Google account used to start this enrollment.</p>}
-      {ready && stage === 'nin' && <form onSubmit={event => void submitNin(event)} className="patient-form">
+      {ready && stage === 'nin' && !googleChosen && <form onSubmit={event => void submitNin(event)} className="patient-form">
         <label>National Identification Number<input ref={stepFocus.target} required inputMode="numeric" autoComplete="off" value={nin} onChange={event => setNin(event.target.value.replace(/\D/g, '').slice(0, 11))} pattern="[0-9]{11}" maxLength={11} placeholder="11 digits"
           aria-invalid={invalid} aria-describedby={describedBy('enroll-nin-hint', errorId)} /></label>
         <p id="enroll-nin-hint" className="patient-field-hint">Your NIN is 11 digits. It is verified by the existing Health ID identity service. It is not stored in this browser.</p>
@@ -297,11 +311,16 @@ export function Enrollment() {
         {stepHint === 'activation' && <p className="patient-field-hint">{ACTIVATION_LIMIT_HINT}</p>}
       </form>}
       {ready && stage === 'complete' && <div className="patient-success" role="status"><h2 ref={stepFocus.target} tabIndex={-1}>Your Health ID is ready.</h2><strong>{hidCode}</strong><p>Sign in with your verified email or Health ID and new password.</p><Link className="patient-primary-button" to="/sign-in">Sign in</Link></div>}
-      {import.meta.env.VITE_HID_GOOGLE_CLIENT_ID && ready && stage !== 'complete' && !googlePending && <section className="patient-auth-separator" aria-label="Google enrollment">
-        <span>{googleRequired ? 'Reconnect Google' : 'Continue with Google'}</span>
+      {googleOffered && stage === 'nin' && !googleChosen && <section className="patient-auth-separator" aria-label="Google enrollment">
+        <button type="button" className="patient-secondary-button" disabled={busy} onClick={chooseGoogle}>{googleRequired ? 'Reconnect Google' : 'Continue with Google'}</button>
+      </section>}
+      {googleOffered && (stage !== 'nin' || googleChosen) && <section className="patient-auth-separator" aria-label="Google enrollment">
+        <span ref={googleHeading} tabIndex={-1}>{googleRequired ? 'Reconnect Google' : 'Continue with Google'}</span>
+        {stage === 'nin' && <p className="patient-field-hint">You will still verify your NIN after Google confirms your account, unless that Google account already has a Health ID.</p>}
         <Turnstile action="patient-login" onTokenChange={setGoogleTurnstileToken} resetKey={googleResetKey} />
         <GoogleButton text="signup_with" disabled={busy || !googleTurnstileToken} onCredential={onGoogle}
           disabledReason={googleTurnstileToken ? undefined : 'Complete the security check to continue with Google.'} />
+        {stage === 'nin' && <button type="button" className="patient-text-button" disabled={busy} onClick={chooseNin}>Verify your NIN without Google</button>}
       </section>}
       {googlePending && !checkError && stage !== 'complete' && <p role="status" className="patient-field-hint">Google identity confirmed for this enrollment.</p>}
       <p className="patient-auth-footer">Already have a Health ID? <Link to="/sign-in">Sign in</Link></p>

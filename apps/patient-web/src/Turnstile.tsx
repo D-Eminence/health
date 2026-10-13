@@ -12,6 +12,7 @@ declare global {
 }
 
 let scriptPromise: Promise<void> | null = null
+const UNAVAILABLE = 'Security check unavailable. Please try again.'
 
 /**
  * Cloudflare's normal and flexible widgets are at least 300px wide; in a
@@ -23,18 +24,26 @@ export function turnstileSize<Wide extends 'flexible' | 'normal'>(slot: HTMLElem
   return width > 0 && width < 300 ? 'compact' : wide
 }
 
-function loadScript(): Promise<void> {
+/**
+ * Loads Cloudflare's api.js, in explicit rendering mode, once for the whole
+ * portal: the patient, provider and administration pages all wait on this one
+ * promise. A second <script> (StrictMode's second effect, a remount, or a move to
+ * another portal's sign-in before the first loads) would be fetched again and
+ * make Turnstile warn that it was loaded twice. A failed load removes its tag and
+ * the next widget tries again; a script that loads without Turnstile is a failure.
+ */
+export function loadTurnstileScript(): Promise<void> {
   if (window.turnstile) return Promise.resolve()
   if (scriptPromise) return scriptPromise
+  const script = document.createElement('script')
+  script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit'
+  script.async = true
   scriptPromise = new Promise<void>((resolve, reject) => {
-    const script = document.createElement('script')
-    script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit'
-    script.async = true
-    script.onload = () => resolve()
-    script.onerror = () => reject(new Error('Security check unavailable. Please try again.'))
-    document.head.appendChild(script)
-  }).catch(error => { scriptPromise = null; throw error })
-  return scriptPromise!
+    script.onload = () => window.turnstile ? resolve() : reject(new Error(UNAVAILABLE))
+    script.onerror = () => reject(new Error(UNAVAILABLE))
+  }).catch(error => { script.remove(); scriptPromise = null; throw error })
+  document.head.appendChild(script)
+  return scriptPromise
 }
 
 export function Turnstile({ action, onTokenChange, resetKey }: {
@@ -49,15 +58,19 @@ export function Turnstile({ action, onTokenChange, resetKey }: {
   const container = useRef<HTMLDivElement>(null)
   const widget = useRef<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // The page's callback is read when the widget answers, so a new function on each
+  // render does not remove the widget and render another, dropping its token.
+  const onToken = useRef(onTokenChange)
+  useEffect(() => { onToken.current = onTokenChange }, [onTokenChange])
 
   useEffect(() => {
     if (localWithoutWidget) {
-      onTokenChange('local-turnstile-disabled')
-      return () => onTokenChange(null)
+      onToken.current('local-turnstile-disabled')
+      return () => onToken.current(null)
     }
     if (!siteKey || !container.current) return
     let active = true
-    void loadScript().then(() => {
+    void loadTurnstileScript().then(() => {
       if (!active || !container.current || !window.turnstile) return
       setError(null)
       widget.current = window.turnstile.render(container.current, {
@@ -65,18 +78,18 @@ export function Turnstile({ action, onTokenChange, resetKey }: {
         action,
         theme: 'light',
         size: turnstileSize(container.current, 'flexible'),
-        callback: (token: string) => onTokenChange(token),
-        'expired-callback': () => onTokenChange(null),
-        'error-callback': () => { onTokenChange(null); setError('Security check failed. Please try again.') },
+        callback: (token: string) => onToken.current(token),
+        'expired-callback': () => onToken.current(null),
+        'error-callback': () => { onToken.current(null); setError('Security check failed. Please try again.') },
       })
-    }).catch(() => { if (active) setError('Security check unavailable. Please try again.') })
+    }).catch(() => { if (active) setError(UNAVAILABLE) })
     return () => {
       active = false
       if (widget.current && window.turnstile) window.turnstile.remove(widget.current)
       widget.current = null
-      onTokenChange(null)
+      onToken.current(null)
     }
-  }, [action, siteKey, localWithoutWidget, resetKey, onTokenChange])
+  }, [action, siteKey, localWithoutWidget, resetKey])
 
   if (localWithoutWidget) return null
   if (!siteKey) return <p role="alert" className="patient-inline-error">Security verification is not configured for this environment.</p>

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSession } from './session'
 import { focusLost } from './pageFocus'
+import { googleClientId } from './googleClient'
 
 interface CredentialResponse { credential?: string }
 declare global {
@@ -42,7 +43,7 @@ export function GoogleButton({ text, disabled, disabledReason, onCredential }: {
   disabledReason?: string
   onCredential: (token: string) => Promise<void>
 }) {
-  const clientId = String(import.meta.env.VITE_HID_GOOGLE_CLIENT_ID ?? '').trim()
+  const clientId = googleClientId()
   const region = useRef<HTMLDivElement>(null)
   const host = useRef<HTMLDivElement>(null)
   const { api } = useSession()
