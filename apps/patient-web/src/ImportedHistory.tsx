@@ -6,18 +6,46 @@ function date(value: string) {
   const parsed = new Date(value)
   return Number.isNaN(parsed.getTime()) ? 'Date unavailable' : parsed.toLocaleDateString('en-NG', { dateStyle: 'medium' })
 }
-function content(value: unknown) {
-  if (typeof value === 'string') return value.trim()
-  if (value == null) return ''
-  return JSON.stringify(value, null, 2)
+function label(value: string) {
+  const labels: Record<string, string> = {
+    medication_name: 'Medication', prescribing_provider: 'Prescribed by', start_date: 'Start date', end_date: 'End date',
+  }
+  if (labels[value]) return labels[value]
+  const text = value.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ').trim()
+  return text ? text[0]!.toUpperCase() + text.slice(1) : 'Information'
+}
+function present(value: unknown): boolean {
+  if (value == null) return false
+  if (typeof value === 'string') return value.trim().length > 0
+  if (Array.isArray(value)) return value.some(present)
+  if (typeof value === 'object') return Object.values(value).some(present)
+  return true
+}
+function InformationValue({ value }: { value: unknown }) {
+  if (Array.isArray(value)) return <ul>{value.filter(present).map((item, index) => <li key={index}><InformationValue value={item} /></li>)}</ul>
+  if (value !== null && typeof value === 'object') return <dl className="imported-history-fields">
+    {Object.entries(value).filter(([, item]) => present(item)).map(([key, item]) => <div key={key}>
+      <dt>{label(key)}</dt><dd><InformationValue value={item} /></dd>
+    </div>)}
+  </dl>
+  const text = typeof value === 'boolean' ? value ? 'Yes' : 'No' : String(value ?? '').trim()
+  // Date-only source fields retain their calendar day in every browser timezone.
+  const display = /^\d{4}-\d{2}-\d{2}$/.test(text) && Number.isFinite(Date.parse(text))
+    ? new Date(text).toLocaleDateString('en-NG', { dateStyle: 'medium', timeZone: 'UTC' }) : text
+  return <span className="imported-history-value">{display}</span>
 }
 function VersionContent({ version }: { version: ImportedRecordVersion }) {
-  return <div className="imported-history-content">{([
-    ['Record', version.record], ['Notes', version.notes], ['Structured information', version.structuredData],
+  const compare = (value: unknown) => typeof value === 'string' ? value.trim().replace(/\s+/g, ' ') : ''
+  const notes = compare(version.notes)
+  const record = compare(version.record)
+  // Legacy records sometimes include the notes heading and repeat the same notes.
+  const duplicateRecord = notes && (record === notes || record.replace(/^Notes\s+/i, '') === notes)
+  const sections = [
+    ['Record', duplicateRecord ? null : version.record], ['Notes', version.notes], ['Details', version.structuredData],
     ['Transcription', version.transcriptionText],
-  ] as const).map(([label, value]) => {
-    const text = content(value)
-    return text ? <div key={label}><h4>{label}</h4><pre>{text}</pre></div> : null
+  ] as const
+  return <div className="imported-history-content">{sections.map(([heading, value]) => {
+    return present(value) ? <div key={heading}><h4>{heading}</h4><InformationValue value={value} /></div> : null
   })}</div>
 }
 
@@ -60,7 +88,7 @@ export function ImportedHistory({ records, limit, download, allowLocalHttp = fal
         return <article className="imported-history-card" key={record.id}>
           <header><h3>{record.title || 'Imported medical record'}</h3><span className="imported-history-origin">
             {record.origin === 'patient-provided' ? 'Patient reported' : 'Provider authored'}</span></header>
-          <p>{[record.category, record.infoType, date(record.createdAt)].filter(Boolean).join(' · ')}</p>
+          <p>{[record.infoType || record.category ? label(record.infoType || record.category!) : '', date(record.createdAt)].filter(Boolean).join(' · ')}</p>
           <VersionContent version={current} />
           {record.versions.length > 1 && <details><summary>Previous versions</summary>{record.versions.filter(version => version.id !== record.currentVersionId)
             .map(version => <div key={version.id}><h4>Version {version.versionNo} · {date(version.createdAt)}</h4><VersionContent version={version} /></div>)}</details>}

@@ -5,6 +5,33 @@ import { ImportedHistory } from '../ImportedHistory'
 import { parseImportedRecords } from '../importedRecords'
 
 describe('imported medical history', () => {
+  it('shows structured values as readable fields and dates without inventing units', () => {
+    render(<ImportedHistory records={[{ ...historyFixture[0]!, files: [], versions: [{ ...historyFixture[0]!.versions[0]!,
+      structuredData: { medication_name: 'Example medication', dosage: '2', start_date: '2026-06-17',
+        prescribing_provider: 'Recorded provider', active: false, remaining: 0, empty: null, nested: { follow_up: 'Original instruction' } },
+    }] }]} limit={50} />)
+    expect(screen.getByText('Medication')).toBeTruthy()
+    expect(screen.getByText('Example medication')).toBeTruthy()
+    expect(screen.getByText('Dosage')).toBeTruthy()
+    expect(screen.getByText('2')).toBeTruthy()
+    expect(screen.getByText('Start date')).toBeTruthy()
+    expect(screen.getByText('17 Jun 2026')).toBeTruthy()
+    expect(screen.getByText('Prescribed by')).toBeTruthy()
+    expect(screen.getByText('No')).toBeTruthy()
+    expect(screen.getByText('0')).toBeTruthy()
+    expect(screen.getByText('Follow up')).toBeTruthy()
+    expect(screen.queryByText('Empty')).toBeNull()
+    expect(document.querySelector('pre')).toBeNull()
+    expect(screen.queryByText(/drug_prescription|medication_name|prescribing_provider/)).toBeNull()
+  })
+  it('shows repeated legacy notes once under a single label', () => {
+    render(<ImportedHistory records={[{ ...historyFixture[0]!, files: [], versions: [{ ...historyFixture[0]!.versions[0]!,
+      record: 'Notes\n\nOriginal patient note', notes: 'Original patient note', structuredData: null,
+    }] }]} limit={50} />)
+    expect(screen.getAllByText('Original patient note')).toHaveLength(1)
+    expect(screen.getAllByRole('heading', { name: 'Notes' })).toHaveLength(1)
+    expect(screen.queryByRole('heading', { name: 'Record' })).toBeNull()
+  })
   it('preserves authorship, dates, current content and previous versions without interpreting HTML', () => {
     render(<ImportedHistory records={[...historyFixture, { ...historyFixture[0]!, id: 'record-provider', title: 'Original provider entry', origin: 'provider-authored', files: [] }]} limit={50} />)
     expect(screen.getByText('Patient reported')).toBeTruthy()
