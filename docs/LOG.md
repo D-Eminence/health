@@ -1378,7 +1378,7 @@ audits, each checked by a second agent, came first.
     `/provider/complete` had a second, hidden widget, and a dialog closed after
     its check was solved could not be sent when reopened. The check now exists
     only while the dialog is open.
-  - A blank Google client ID counts as none.
+  - A blank Google client ID counts as none, on every page that offers Google.
   Regression tests: `TurnstileOnePerPage.test.tsx`, `TurnstileScriptOnce.test.tsx`
   and `DemoDialogTurnstile.test.tsx`.
 - **Password visibility.** `@hid/ui` `PasswordInput` puts a Show button beside
@@ -1386,9 +1386,12 @@ audits, each checked by a second agent, came first.
   "Password Show password"). The button's name stays "Show password", and
   `aria-pressed` says whether the password is shown. Showing the password
   changes only how it is displayed, a pointer press leaves focus in the field,
-  and the caret keeps its place. The field is masked again when its form is sent
-  or the page is hidden. It is used on all eight password fields; PIN and NIN
-  fields are unchanged. In headless Chromium 141 with the real component:
+  and the caret keeps its place. The field is masked again when its form is
+  sent, the page is left, or the person switches to another tab or app; Edge's
+  own reveal button is hidden. Where a form has two password fields, each toggle
+  is named for its own field. It is used on all nine password fields, on eight
+  screens; PIN and NIN fields are unchanged. In headless Chromium 141 with the
+  real component:
   - a mouse click and a touch tap both kept the caret (typing after Show gave
     `abcXYdef`);
   - Tab reached the toggle and Space showed the password;
@@ -1403,11 +1406,16 @@ audits, each checked by a second agent, came first.
   - The public site has a tab icon and an apple touch icon, but no manifest.
   - Health ID registers no service worker, and nothing is kept offline.
   - Both apps serve `/service-worker.js`, which only retires an earlier HID
-    worker: it deletes the `hid-` caches and unregisters itself. A legacy worker
-    is live on the apex today.
+    worker: it deletes the `hid-` caches and unregisters itself. It takes over
+    at once, so an open hid-system EHR tab, which reloads when its worker
+    changes, reloads once. A HID worker was observed on the apex on 2026-10-13
+    with a read-only request (cache `hid-static-v2026-04-29-1`); the apex must
+    answer that path itself, not redirect it (hand-off D1).
   - ESLint now forbids service worker registration, the Cache API, push
-    subscription and notification prompts. The hand-off had claimed lint already
-    forbade them; it covered only browser storage and IndexedDB.
+    subscription, system notifications and notification prompts, where they are
+    used plainly, through a property or by destructuring; computed or aliased
+    access is left to review. The hand-off had claimed lint already forbade
+    them; it covered only browser storage and IndexedDB.
   - Chromium 141 reported no installability errors for the built portal, with
     no service worker registered.
 - **Web push.** hid-system has no route that accepts a registration (hand-off
@@ -1415,11 +1423,38 @@ audits, each checked by a second agent, came first.
   contract for the backend owner. It assumes FCM, as accepted ADR-033 requires,
   and covers configuration, registration, status, removal, sign-out
   revocation and generic, PHI-free delivery.
+- **Review.** A second review, by area, each finding checked by another
+  agent, found nothing blocking. The minor findings it confirmed are fixed:
+  - patient sign-in still read a blank Google client ID as set;
+  - after "Check again" on the Google path, focus fell to the page;
+  - the password was masked on leaving the page but not on switching tabs;
+  - a password field was lighter than the field above it, and taller beside it
+    on the provider and administrator pages;
+  - Edge showed its own reveal button as well;
+  - the lint rules missed `window.Notification`, destructuring and
+    `new Notification`;
+  - the retirement script's comment said it reloads nothing, though EHR reloads
+    on a worker change;
+  - several doc statements and citations were corrected, including D6 on CSP
+    and the apex redirect, which must answer `/service-worker.js` rather than
+    redirect it;
+  - B15 gained the migration it needs, a named transport, the idempotency
+    refusals and a decision item, E21.
+  Real-browser check (Chromium 141, built portal): the password field matches
+  the field beside it in weight and height on the patient (600, 46 px),
+  administrator (700, 38 px) and provider (400, 40 px) sign-in pages, with no
+  sideways scroll at 320 px.
 - **Evidence.** Each behaviour change has a test that failed first. At the
   branch head every gate passes:
   - `audit:boundaries`, `typecheck` and `lint`;
-  - `npm test`: 147 files, 1874 tests;
-  - both builds, which contain the manifest, icons and `service-worker.js`;
+  - `npm test`: 147 files, 1878 tests. One of three full runs failed two OCR
+    focus tests (`OcrFields`, `OcrFocus`), which pass alone and in the other two
+    runs. This branch does not touch them or `staff/focus.ts`. The same test
+    failed once in CI on Health-id #51. A suspected cause, not reproduced:
+    `useFocusById` clears its request with `setRequest(null)`, which can drop a
+    newer request; it is left for its own change;
+  - both builds: each contains `service-worker.js` and its icons, and the
+    portal's also contains `health-id.webmanifest`;
   - `npm audit`: 0 vulnerabilities.
 - **Not verified.** Firefox, Safari and iOS, screen readers, installation on a
   real device, and anything deployed or against a live hid-system.

@@ -10,8 +10,8 @@ import { Field, PasswordInput } from '@hid/ui'
  * aria-pressed says whether the password is shown (the WAI-ARIA toggle button
  * pattern: a toggle's name does not change with its state). Showing the
  * password changes only how it is displayed: the value, autocomplete and the
- * form's submission are untouched, and it is hidden again when the form is sent
- * or the page is hidden.
+ * form's submission are untouched, and it is hidden again when the form is sent,
+ * the page is left, or the person switches away from it.
  */
 afterEach(() => { vi.restoreAllMocks() })
 
@@ -78,6 +78,21 @@ describe('PasswordInput', () => {
     act(() => { window.dispatchEvent(new Event('pagehide')) })
     expect(field().type).toBe('password')
     expect(toggle(false)).toBeTruthy()
+  })
+
+  it('is hidden again when the person switches away (another tab or app, a locked screen)', () => {
+    render(<Login />)
+    fireEvent.click(toggle())
+    const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden')
+    act(() => { document.dispatchEvent(new Event('visibilitychange')) })
+    expect(field().type).toBe('password')
+    expect(toggle(false)).toBeTruthy()
+    visibility.mockRestore()
+  })
+
+  it('is the only reveal control: Edge’s own is hidden', () => {
+    render(<Login />)
+    expect(field().className).toContain('[&::-ms-reveal]:hidden')
   })
 
   it('takes a Field’s error as an Input does; the toggle is not described by it', () => {

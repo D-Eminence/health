@@ -96,7 +96,7 @@ export function Enrollment() {
 
   // Back to the NIN step, the enrollment's challenge and contact gone with it.
   const restartAtNin = () => {
-    setStage('nin'); setChallengeId(null); setMaskedContact(''); setCode(''); setPassword(''); setStepHint(null)
+    setNinPath('nin'); setStage('nin'); setChallengeId(null); setMaskedContact(''); setCode(''); setPassword(''); setStepHint(null)
     setError(ENDED_HERE); setFieldError(false); setErrorAlert(true)
   }
 
@@ -316,7 +316,8 @@ export function Enrollment() {
         <button type="button" className="patient-secondary-button" disabled={busy} onClick={chooseGoogle}>{googleRequired ? 'Reconnect Google' : 'Continue with Google'}</button>
       </section>}
       {googleOffered && (stage !== 'nin' || googleChosen) && <section className="patient-auth-separator" aria-label="Google enrollment">
-        <span ref={googleHeading} tabIndex={-1}>{googleRequired ? 'Reconnect Google' : 'Continue with Google'}</span>
+        {/* On the NIN step, the chosen path's start is also where the step's focus goes (useStepFocus). */}
+        <span ref={element => { googleHeading.current = element; if (element && stage === 'nin') stepFocus.target(element) }} tabIndex={-1}>{googleRequired ? 'Reconnect Google' : 'Continue with Google'}</span>
         {stage === 'nin' && <p className="patient-field-hint">You will still verify your NIN after Google confirms your account, unless that Google account already has a Health ID.</p>}
         <Turnstile action="patient-login" onTokenChange={setGoogleTurnstileToken} resetKey={googleResetKey} />
         <GoogleButton text="signup_with" disabled={busy || !googleTurnstileToken} onCredential={onGoogle}

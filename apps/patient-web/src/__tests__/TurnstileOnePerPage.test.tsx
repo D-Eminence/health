@@ -136,7 +136,30 @@ describe('the enrollment NIN step with Google sign-up configured', () => {
   })
 })
 
+describe('focus on the Google path', () => {
+  it('goes to the Google heading when a check the person asked for brings the path back', async () => {
+    api.googleExchange.mockRejectedValue(new HidApiError(409, 'Sign out first.', { code: 'GOOGLE_ONBOARDING_REQUIRES_SIGN_OUT' }))
+    await ninStep()
+    fireEvent.click(screen.getByRole('button', { name: 'Continue with Google' }))
+    await waitFor(() => expect(shown()).toEqual(['patient-login']))
+    solve('patient-login', 'google-token')
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Sign up with Google' })) })
+    const again = await screen.findByRole('button', { name: 'Check again' })
+    again.focus()
+    await act(async () => { fireEvent.click(again) })
+    await waitFor(() => expect(shown()).toEqual(['patient-login']))
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByText('Continue with Google', { selector: '[tabindex="-1"]' })))
+  })
+})
+
 describe('one security check on each other page', () => {
+  it('patient sign-in offers no Google section when the client ID is blank', async () => {
+    vi.stubEnv('VITE_HID_GOOGLE_CLIENT_ID', '   ')
+    view(<SignIn />)
+    await waitFor(() => expect(turnstile.render).toHaveBeenCalled())
+    expect(screen.queryByText('or continue with Google')).toBeNull()
+  })
+
   it('the contact step of an enrollment in progress shows only Google’s', async () => {
     api.enrollmentCurrent.mockResolvedValue({ stage: 'contact_required' })
     view(<Enrollment />)

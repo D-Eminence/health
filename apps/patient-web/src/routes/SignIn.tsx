@@ -3,6 +3,7 @@ import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { PasswordInput } from '@hid/ui'
 import { GoogleButton } from '../GoogleButton'
+import { googleClientId } from '../googleClient'
 import { Turnstile } from '../Turnstile'
 import { BrandLogo } from '../BrandLogo'
 import { useSession } from '../session'
@@ -75,7 +76,7 @@ export function SignIn() {
         <Turnstile action="patient-login" onTokenChange={setTurnstileToken} resetKey={resetKey} />
         <button type="submit" className="patient-primary-button" disabled={busy || !turnstileToken}>{busy ? 'Signing in…' : 'Sign in'}</button>
       </form>
-      {import.meta.env.VITE_HID_GOOGLE_CLIENT_ID && <div className="patient-auth-separator"><span>or continue with Google</span>
+      {googleClientId() && <div className="patient-auth-separator"><span>or continue with Google</span>
         <GoogleButton text="signin_with" disabled={busy || !turnstileToken} onCredential={google}
           disabledReason={turnstileToken ? undefined : 'Complete the security check to continue with Google.'} /></div>}
       <p className="patient-auth-footer">New to Health ID? <Link to="/enroll">Get your Health ID</Link></p>

@@ -124,7 +124,7 @@ export interface PasswordInputProps extends Omit<InputProps, 'type'> {
 }
 
 const PASSWORD_TOGGLE =
-  'inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center gap-1.5 rounded-(--radius-control) border border-line-control bg-surface px-3 font-sans text-[13px] font-semibold text-brand transition-colors duration-150 hover:bg-surface-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:cursor-not-allowed disabled:opacity-60 aria-pressed:border-brand aria-pressed:bg-brand-tint'
+  'inline-flex min-w-11 shrink-0 items-center justify-center gap-1.5 rounded-(--radius-control) border border-line-control bg-surface px-3 font-sans text-[13px] font-semibold text-brand transition-colors duration-150 hover:bg-surface-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:cursor-not-allowed disabled:opacity-60 aria-pressed:border-brand aria-pressed:bg-brand-tint'
 
 /**
  * A password field with a Show toggle beside it.
@@ -135,9 +135,12 @@ const PASSWORD_TOGGLE =
  * toggle button pattern asks; the eye icon and the pressed style show it too.
  * Showing the password changes only how it is displayed: the value, the
  * autocomplete hint and the form's submission are untouched, a pointer press
- * leaves focus in the field, and the field is masked again when its form is sent
- * or the page is hidden (the device may be shared, or kept in the back/forward
- * cache). Give the field a label with htmlFor={id}. Its ref is the field.
+ * leaves focus in the field, and the field is masked again when its form is sent,
+ * the page is left (or kept in the back/forward cache) or the person switches
+ * away from it (another tab or app, a locked screen): the device may be shared.
+ * It is the only reveal control: Edge's own button in password fields is hidden.
+ * The toggle takes the field's height, so it lines up with the fields beside it.
+ * Give the field a label with htmlFor={id}. Its ref is the field.
  */
 export const PasswordInput = forwardRef<HTMLInputElement, PasswordInputProps>(function PasswordInput({
   id,
@@ -173,17 +176,20 @@ export const PasswordInput = forwardRef<HTMLInputElement, PasswordInputProps>(fu
     element.setSelectionRange(saved[0], saved[1])
   }, [shown])
 
-  // Masked again, at once, when the form is sent or the page is hidden.
+  // Masked again, at once, when the form is sent, the page is left, or it is hidden.
   useEffect(() => {
     const element = field.current
     if (!shown || !element) return
     const hide = () => { element.type = 'password'; setShown(false) }
+    const hidden = () => { if (document.visibilityState === 'hidden') hide() }
     const form = element.form
     form?.addEventListener('submit', hide)
     window.addEventListener('pagehide', hide)
+    document.addEventListener('visibilitychange', hidden)
     return () => {
       form?.removeEventListener('submit', hide)
       window.removeEventListener('pagehide', hide)
+      document.removeEventListener('visibilitychange', hidden)
     }
   }, [shown])
 
@@ -208,7 +214,7 @@ export const PasswordInput = forwardRef<HTMLInputElement, PasswordInputProps>(fu
         aria-invalid={state.invalid || undefined}
         aria-describedby={state.describedBy}
         className={cx(appearance === 'control' && CONTROL_BASE, appearance === 'control' && controlState(state.invalid),
-          'min-w-0 flex-1', className)}
+          'min-w-0 flex-1 [&::-ms-reveal]:hidden', className)}
       />
       <button
         type="button"

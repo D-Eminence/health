@@ -6,13 +6,14 @@ import { describe, expect, it, vi } from 'vitest'
 
 /**
  * Health ID registers no service worker. hid-system's earlier apps did
- * (/service-worker.js at scope '/', with caches named hid-…; one is live on
- * the apex today, hid-static-v2026-04-29-1), and a registered worker keeps
+ * (/service-worker.js at scope '/', with caches named hid-…; one was observed
+ * on the apex on 2026-10-13, cache hid-static-v2026-04-29-1), and a registered worker keeps
  * controlling its host until the browser's update check finds a new script.
  * Each Health ID app therefore serves /service-worker.js as a script that only
  * retires such a worker: it deletes the hid-… caches and unregisters itself.
- * It has no fetch handler, so it never serves or stores a response, and it does
- * not reload the pages it controlled (a form half filled in would be lost).
+ * It has no fetch handler, so it never serves or stores a response, and it
+ * reloads no page itself (a page of the earlier app that reloads when its
+ * worker changes, as hid-system's EHR does, reloads once, as on its releases).
  */
 const scripts = {
   portal: fileURLToPath(new URL('../../public/service-worker.js', import.meta.url)),
@@ -52,7 +53,7 @@ describe('the script that retires an earlier HID service worker', () => {
     expect(run.self.registration.unregister).toHaveBeenCalledTimes(1)
   })
 
-  it('serves, stores and shows nothing, and reloads no page', async () => {
+  it('serves, stores and shows nothing, and reloads no page itself', async () => {
     const run = worker(scripts.portal, ['hid-static-v2026-04-29-1'])
     await run.fire('install'); await run.fire('activate')
     expect([...run.listeners.keys()].sort()).toEqual(['activate', 'install'])

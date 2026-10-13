@@ -28,15 +28,24 @@ const NO_INDEXED_DB = {
   message: 'IndexedDB must not be used to hold Health ID data. See docs/ARCHITECTURE.md, PHI handling.',
 }
 
+// Plain, dotted and destructured uses are caught; computed (navigator['serviceWorker'])
+// and aliased ones (const N = Notification) are not: review catches those.
 const NO_SERVICE_WORKER = {
-  selector:
-    "MemberExpression[property.name=/^(serviceWorker|pushManager)$/], Identifier[name='PushManager'], MemberExpression[object.name='Notification'][property.name='requestPermission']",
+  selector: [
+    "MemberExpression[property.name=/^(serviceWorker|pushManager|showNotification)$/]",
+    "Identifier[name='PushManager']",
+    "MemberExpression[property.name='requestPermission'][object.name='Notification']",
+    "MemberExpression[property.name='requestPermission'][object.property.name='Notification']",
+    "NewExpression[callee.name='Notification']",
+    "NewExpression[callee.property.name='Notification']",
+    "ObjectPattern > Property[key.name=/^(serviceWorker|pushManager|showNotification|requestPermission)$/]",
+  ].join(', '),
   message:
-    'Health ID registers no service worker, subscribes to no push messages and asks for no notification permission: no backend route accepts a push subscription. See docs/ARCHITECTURE.md (PHI handling) and hand-off B15.',
+    'Health ID registers no service worker, subscribes to no push messages, shows no system notification and asks for no notification permission: no backend route accepts a push subscription. See docs/ARCHITECTURE.md (PHI handling) and hand-off B15.',
 }
 
 const NO_CACHE_STORAGE = {
-  selector: "MemberExpression[object.name='caches'], MemberExpression[property.name='caches']",
+  selector: "Identifier[name='caches'], MemberExpression[property.name='caches'], ObjectPattern > Property[key.name='caches']",
   message:
     'The Cache API must not hold Health ID pages or data: nothing is kept for offline use. See docs/ARCHITECTURE.md (PHI handling).',
 }

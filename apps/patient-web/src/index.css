@@ -237,6 +237,8 @@
   .patient-field { display: grid; gap: 7px; }
   .patient-form input, .patient-form select, .patient-deny-form input { width: 100%; min-height: 46px; padding: 10px 12px; border: 1px solid var(--color-line-control); border-radius: var(--radius-control); background: var(--color-surface); color: var(--color-ink); font: inherit; font-size: 15px; }
   .patient-form input:focus, .patient-form select:focus, .patient-deny-form input:focus { border-color: var(--color-brand); }
+  /* The typed text as in the fields whose label wraps them (they inherit the label's weight). */
+  .patient-field input { font-weight: 600; }
   .patient-form input::placeholder, .patient-deny-form input::placeholder { color: var(--color-faint); }
   .patient-form-aside { text-align: right; }
   .patient-form-aside a, .patient-auth-footer a, .patient-text-button { color: var(--color-brand); font-weight: 600; }
