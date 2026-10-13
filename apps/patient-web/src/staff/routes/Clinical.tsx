@@ -91,7 +91,10 @@ const noteTransitions: Readonly<Record<string, readonly StatusOption[]>> = {
  * (lab-requests.service.ts update). It sends it only for an actor who holds
  * lab.work-item.accept; for anyone else it makes the change without sending it,
  * leaving an active request that role can neither send nor cancel, so neither is
- * offered to such a role (LAB_SENT_BY_OTHERS says who can). Holding, completing,
+ * offered to such a role (LAB_SENT_BY_OTHERS says who can). An EHR before #56
+ * sends nothing to Lab on a status change: what "and send to Lab" promises is
+ * then corrected by what the change says once made (labHandoffOutcome, no
+ * handoff), that Lab was not asked or not told. Holding, completing,
  * cancelling or marking entered in error a request Lab may hold is not passed to
  * Lab, which keeps working on the version it accepted, so none is offered for an
  * active or held request; a draft, which Lab never received, may be cancelled or
@@ -106,11 +109,15 @@ function labRequestChoices(status: string, canSend: boolean): readonly StatusOpt
   return []
 }
 
-/** What is said under a lab request to a role without lab.work-item.accept, about what only another role can do. */
+/**
+ * What is said under a lab request to a role without lab.work-item.accept, about what only another
+ * role can do. It is the portal's rule, not the EHR's effect: an EHR before #56 sends nothing to Lab
+ * when a request is activated or resumed, and has no Send to Lab, so the laboratory is named too.
+ */
 const LAB_SENT_BY_OTHERS: Readonly<Record<string, string>> = {
-  draft: 'Activating this draft sends it to Lab, so only someone who may send requests to Lab can activate it.',
-  on_hold: 'Resuming this request sends it to Lab, so only someone who may send requests to Lab can resume it.',
-  active: 'If Lab does not have this request, someone who may send requests to Lab must use Send to Lab on it.',
+  draft: 'Only someone who may send requests to Lab can activate this draft.',
+  on_hold: 'Only someone who may send requests to Lab can resume this request.',
+  active: 'If the Laboratory may not have this request, ask someone who may send requests to Lab to use Send to Lab on it, or contact the laboratory.',
 }
 
 /** What is said under an active or held lab request about the changes not offered. */

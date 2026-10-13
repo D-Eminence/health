@@ -190,29 +190,33 @@ describe('activating or resuming a lab request', () => {
     expect(screen.getByText(/Putting this request on hold was not passed to Lab/)).toBeTruthy()
   })
 
-  // EHR activates or resumes a request for a role without lab.work-item.accept without
-  // sending it to Lab (labHandoff not_sent), and that role can neither send nor cancel it then.
+  // The portal offers activation and resumption only to a role that may send requests to Lab. Since
+  // #56 EHR makes them for any other role without sending the request (labHandoff not_sent), leaving
+  // an active request that role can neither send nor cancel; an EHR before #56 sends nothing to Lab
+  // on a status change, for any role. So what is said is the portal's rule, not what the EHR does.
   it('offers a role that cannot send to Lab no activation of a draft, and says who can activate it', async () => {
     staff.permissions = READ_WRITE
     records['lab-requests'] = [labRequest('draft')]
     await openLabRequests()
     expect(options(await statusForm())).toEqual([['cancelled', 'Cancel'], ['entered_in_error', 'Mark entered in error']])
-    expect(screen.getByText(/only someone who may send requests to Lab can activate it/)).toBeTruthy()
+    expect(screen.getByText('Only someone who may send requests to Lab can activate this draft.')).toBeTruthy()
+    expect(screen.queryByText(/Activating this draft sends it to Lab/)).toBeNull()
   })
 
   it('offers a role that cannot send to Lab no resumption of a held request, and says who can resume it', async () => {
     staff.permissions = READ_WRITE
     records['lab-requests'] = [labRequest('on_hold')]
     await openLabRequests()
-    expect(await screen.findByText(/only someone who may send requests to Lab can resume it/)).toBeTruthy()
+    expect(await screen.findByText('Only someone who may send requests to Lab can resume this request.')).toBeTruthy()
+    expect(screen.queryByText(/Resuming this request sends it to Lab/)).toBeNull()
     expect(screen.queryByLabelText(labelled('New status'))).toBeNull()
   })
 
-  it('tells a role that cannot send to Lab who can send an active request Lab may not have', async () => {
+  it('tells a role that cannot send to Lab who can send an active request Lab may not have, or to contact the laboratory', async () => {
     staff.permissions = READ_WRITE
     records['lab-requests'] = [labRequest('active')]
     await openLabRequests()
-    expect(await screen.findByText(/someone who may send requests to Lab must use Send to Lab on it/)).toBeTruthy()
+    expect(await screen.findByText('If the Laboratory may not have this request, ask someone who may send requests to Lab to use Send to Lab on it, or contact the laboratory.')).toBeTruthy()
   })
 
   it('offers no status change for an active request, and says what is not passed to Lab', async () => {
