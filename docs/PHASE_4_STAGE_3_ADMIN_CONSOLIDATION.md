@@ -112,9 +112,10 @@ It signs in through staff `POST /auth/login`. Since Stage 2A, admin endpoints
 need the separate MFA-verified platform session, so this app is legacy and
 cannot administer the Stage 2A backend. The Health-id portal claims the same
 production hostname (`PLATFORM_ADMIN_HOSTNAME` in
-`apps/patient-web/src/productHostname.ts`). Deciding which app serves that
+`apps/patient-web/src/productHostname.ts`; since 2026-10-12 the staging one
+too, `PLATFORM_ADMIN_HOSTNAMES`). Deciding which app serves that
 hostname, and retiring the legacy one, belongs to the backend and infrastructure
-owners.
+owners (backend hand-off D1, E8).
 
 Nothing in Health-id imports, builds or references the legacy app. Inside
 Health-id, no admin code was kept for compatibility: the old `Guard` and the
@@ -132,24 +133,24 @@ flat navigation were removed.
 | Audit search | Existing and complete | `Audit.tsx`; all `ListPlatformAuditDto` filters are wired | None |
 | Identity review (read-only) | Existing and complete | Decisions happen in the facility workflow by design | None |
 | Integrations | Existing and complete | `Integrations.tsx`; tests and browser run (settings, unchanged refusal, history, fallback removal) | None |
-| Pricing | Existing and complete | `Pages.tsx` | None |
+| Pricing | Existing and complete | `Pages.tsx`; since 2026-10-12, `Pricing.test.tsx` (versioned writes, one idempotency key across step-up, quote prices) | None |
 | Demo requests | Existing and complete | `Pages.tsx`; filters | None |
 | Service health | Existing and complete | `Pages.tsx` | None |
 | Dashboard | Existing and complete | Uses only backend totals and list counts; no invented metrics | None |
-| Platform controls | Existing but incomplete (backend defects; fix merged, not deployed) | Two defects at hid-system `46fabe6`, both from migration 0039. (1) `runtime-grants.sql` never grants `EXECUTE` on `platform.admin_list_controls()` or `platform.admin_set_control(text,boolean,bigint,text)` to the Identity runtime, so `GET /admin/controls` returns 500. (2) `admin_set_control` fails on every call with `42702` (its output columns shadow `control_key` and `row_version`), so `POST /admin/controls` would return 500 even with the grant. Until the fix is deployed, the page shows a safe error with a reference. The fix, D-Eminence/hid-system#20, adds the grant and migration 0071 with SQL and runtime regression tests. It reached hid-system `main` through D-Eminence/hid-system#18 (`3dd5176`) and is not deployed. With that fix applied locally, the browser run lists all 6 controls and pauses and restores one with step-up. | Backend owner: deploy hid-system `main` |
+| Platform controls | Existing but incomplete (backend defects; fix merged, not deployed) | Two defects at hid-system `46fabe6`, both from migration 0039. (1) `runtime-grants.sql` never grants `EXECUTE` on `platform.admin_list_controls()` or `platform.admin_set_control(text,boolean,bigint,text)` to the Identity runtime, so `GET /admin/controls` returns 500. (2) `admin_set_control` fails on every call with `42702` (its output columns shadow `control_key` and `row_version`), so `POST /admin/controls` would return 500 even with the grant. Until the fix is deployed, the page shows a safe error with a reference. The fix, D-Eminence/hid-system#20, adds the grant and migration 0071 with SQL and runtime regression tests. It reached hid-system `main` through D-Eminence/hid-system#18 (`3dd5176`) and is not deployed. With that fix applied locally, the browser run lists all 6 controls and pauses and restores one with step-up. Since 2026-10-12, `Controls.test.tsx` covers the page. | Backend owner: release hid-system `main` (backend hand-off C2) |
 | Demo requests beyond 100 | Done in Stage 4B | hid-system Stage 4A cursor (D-Eminence/hid-system#24); "Load more requests" | None (no total; see open questions) |
 | Approvals beyond 200 | Done in Stage 4B | hid-system Stage 4A cursor; "Load more requests"; overview "N+" from `nextCursor` | None |
 | Facility audit of platform actions | Done in Stage 4B | hid-system Stage 4A target filter; "Platform changes to this facility" | None |
 | Per-user MFA state | Done in Stage 4B | hid-system Stage 4A `mfaEnrolled`; Authenticator column; reset offered only when enrolled | None |
-| Organization directory | Missing backend | No admin endpoint lists or opens organizations. Organizations appear through facilities and applications. | Backend: an organization list and detail contract |
+| Organization directory | Missing backend | No admin endpoint lists or opens organizations. Organizations appear through facilities and applications. | Backend: an organization list and detail contract (hand-off F3) |
 | Support cases, tickets and notes | Missing backend | No contract. Support is account lookup, status and session revocation. | Product and backend decision |
 | Security event metrics | Missing backend | No aggregate endpoint. Filter Audit by outcome instead. | Backend: an aggregate endpoint, if wanted |
 | Legal holds and session-event review | Missing backend | Stage 2A finding S7 | Backend |
-| Billing, subscriptions and invoices | Missing backend | No contract | Product and backend |
+| Billing, subscriptions and invoices | Missing backend | No contract | Product and backend (hand-off F3, E16) |
 | Expired versus revoked session codes | Done in Stage 4B | hid-system Stage 4A `PLATFORM_SESSION_EXPIRED`/`PLATFORM_SESSION_REVOKED` and `STEP_UP_EXPIRED`; the sign-in notice states the server's reason, and the step-up dialog opens for either step-up code | None |
 | Authenticator QR code | Deferred | Needs a vetted encoder or dependency (Stage 2B) | Decide an approach |
 | Integration credential rotation | Deferred (by design) | The backend always answers `INTEGRATION_CREDENTIAL_ROTATION_EXTERNAL`. Credentials stay in deployment configuration, and the UI shows their state only. | None unless policy changes |
-| Legacy hid-system admin app and hostname | Deferred (backend and infrastructure) | See "Retained legacy code" | Retire it and route the hostname to the portal |
+| Legacy hid-system admin app and hostname | Deferred (backend and infrastructure) | See "Retained legacy code" | Retire it and route the hostname to the portal (hand-off D1, E8) |
 
 **Missing frontend:** none. Every admin endpoint the backend serves is wired.
 Two endpoints are deliberately unused:
@@ -250,21 +251,29 @@ request, approval and facility-audit limits were closed in Stage 4B (below).
   environment ([open questions](./OPEN-QUESTIONS.md)).
 - The legacy hid-system admin app still claims the production admin hostname
   in its Cloudflare configuration.
+- Since changed (2026-10-12): the workspace is bound to the administrator who
+  opened it, across tabs (see
+  [Phase 4 Stage 2B](./PHASE_4_STAGE_2B_FRONTEND_SECURITY.md), "Session end and
+  expiry"); its remaining limits are in open questions. Behind hid-system's
+  gateway the specific 5xx codes the console explains, such as
+  `PLATFORM_MAINTENANCE` and `MFA_UNAVAILABLE`, arrive as `503
+  UPSTREAM_UNAVAILABLE` until backend hand-off A8 ships.
 
 ## Next stage
 
 1. **Backend:** deploy hid-system `main` (the platform controls fix,
-   D-Eminence/hid-system#20, and Stage 4A, D-Eminence/hid-system#24). Audit
+   D-Eminence/hid-system#20, and Stage 4A, D-Eminence/hid-system#24; backend
+   hand-off C2). Audit
    by target, per-user MFA state, cursors and distinct session-end codes were
    built in Stage 4A and wired here in Stage 4B.
 2. **Backend and infrastructure:** retire hid-system `apps/admin` and route
    `admin.healthidentitydirectory.com` to the Health-id portal (with
-   same-origin `/api/v1`).
+   same-origin `/api/v1`; backend hand-off D1).
 3. **Product:** decide on the organization directory, support cases, security
    metrics, legal holds and billing. Then build backend contracts before any
    UI.
 4. **Staging:** deploy hid-system `main` (Stage 2A and 4A) with this
-   frontend, then repeat the browser runs there.
+   frontend, then repeat the browser runs there (backend hand-off D3).
 
 ## Stage 4B: backend contract wiring
 
