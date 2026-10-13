@@ -1325,8 +1325,9 @@ made the portal show something untrue, and Health-id #51
   (the three encounter warning cases, two record reloads and four closed
   workspaces). A 404 that a module sends with its own code was already shown
   correctly and still is. An independent review of the PR found nothing
-  blocking. Its minor findings were fixed with one more failing-first test
-  (13 cases across the four tests that failed first):
+  blocking. Its minor findings were fixed, each first shown failing: one new
+  case (the tab switch), and a documents assertion in the three warning cases,
+  for 10 failing-first cases in all:
   - the warning now also says documents are not changed;
   - the reload reads the tab shown when the change is answered, which the
     clinician may have changed meanwhile;
