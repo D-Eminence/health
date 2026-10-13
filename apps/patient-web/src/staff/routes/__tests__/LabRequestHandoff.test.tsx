@@ -157,6 +157,55 @@ describe('creating an active lab request that Lab did not take', () => {
     await waitFor(() => expect(document.activeElement).toBe(title))
   })
 
+  // An EHR before #56 has no Send to Lab, and passes Lab's own refusal back after saving the request
+  // (6b49a06 lab-requests.service.ts create), so the note promises neither.
+  it('says before an active create that a request Lab did not accept stays saved, even when an error is shown', async () => {
+    await openLabRequests()
+    expect(await screen.findByText('Active creation saves the request, then asks Lab to accept it. If Lab does not, the request stays saved and active, even when an error is shown: check the list before creating it again, then use Send to Lab on it there, or contact the laboratory if the EHR cannot send it.')).toBeTruthy()
+    expect(screen.queryByText(/can be sent again from the list/)).toBeNull()
+  })
+
+  it.each([
+    ['Lab\'s 403 passed back by an older EHR', new HidApiError(403, 'Lab does not allow this actor to accept the EHR order', { code: 'LAB_ACCESS_DENIED' }), /^Lab does not allow this actor to accept the EHR order\. /],
+    ['Lab unavailable, passed back by an older EHR', new HidApiError(503, 'The service could not complete the request.', { code: 'LAB_SERVICE_UNAVAILABLE' }), /^The service could not complete the request\. /],
+    ['no answer', new HidApiError(0, 'The service did not answer.', { code: 'NETWORK_ERROR' }), /^The service did not answer\. /],
+  ])('says an active create refused otherwise than by a handoff (%s) may have been saved, reloads the list and keeps the form', async (_case, refusal, says) => {
+    api.createRecord.mockImplementation(async () => { records['lab-requests'] = [labRequest('active')]; throw refusal })
+    const form = await createActiveRequest()
+    const said = await within(form).findByRole('alert')
+    expect(said.textContent).toMatch(says)
+    expect(said.textContent).toMatch(/The lab request may have been saved and active even so: check the list before creating it again\.$/)
+    expect(api.records).toHaveBeenLastCalledWith(...FRESH_FIRST_PAGE)
+    expect(await screen.findByText('Haemoglobin', { selector: 'strong' })).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/The change was saved/)
+    expect(screen.queryByText(/accepted by Lab/)).toBeNull()
+    // The form keeps the request and its key: pressed again unchanged, it replays the same create.
+    expect(value(form, 'Test display')).toBe('Haemoglobin')
+    fireEvent.click(within(form).getByRole('button', { name: 'Create lab request' }))
+    await waitFor(() => expect(api.createRecord).toHaveBeenCalledTimes(2))
+    expect(api.createRecord.mock.calls[1]![5]).toBe(api.createRecord.mock.calls[0]![5])
+  })
+
+  it('says the list could not be reloaded after an active create that may have been saved, not that the change was saved', async () => {
+    api.createRecord.mockRejectedValue(new HidApiError(503, 'The service could not complete the request.', { code: 'LAB_SERVICE_UNAVAILABLE' }))
+    const form = await createActiveRequest()
+    api.records.mockRejectedValue(new Error('Service unavailable'))
+    const said = await within(form).findByRole('alert')
+    expect(said.textContent).toMatch(/may have been saved and active even so/)
+    expect(said.textContent).toMatch(/The list could not be reloaded; refresh it to see the lab requests\.$/)
+    expect(document.body.textContent).not.toMatch(/The change was saved/)
+  })
+
+  it('does not say a request EHR refused field by field may have been saved', async () => {
+    api.createRecord.mockRejectedValue(new HidApiError(400, 'One or more request fields are invalid.', { code: 'VALIDATION_FAILED',
+      details: [{ field: 'testDisplay', messages: ['testDisplay must be shorter than or equal to 500 characters'] }] }))
+    const form = await createActiveRequest()
+    const said = await within(form).findByRole('alert')
+    expect(said.textContent).toMatch(/^One or more request fields are invalid\. Test display must be shorter/)
+    expect(said.textContent).not.toMatch(/may have been saved/)
+    expect(within(form).getByLabelText(labelled('Test display')).getAttribute('aria-invalid')).toBe('true')
+  })
+
   // A 201 without a body names neither the request nor Lab's answer, so Lab's acceptance is not claimed.
   it('takes a 201 without a body as a saved request, not as a failure to save, nor as accepted by Lab', async () => {
     api.createRecord.mockImplementation(async () => { records['lab-requests'] = [labRequest('active')]; return undefined })

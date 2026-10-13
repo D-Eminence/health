@@ -5,7 +5,7 @@ import { Badge, Button, Card, EmptyState, Field, Input, Select, TabList, TabPane
 import { isAllowedPatientLookup, staffApi, type ClinicalRecord, type DiagnosisUpdate, type DocumentRecord, type EmergencyRecords, type EmergencySection, type Encounter, type LabHandoff, type LabOrderReleasedResults, type NoteRevision, type Page, type RecordKind, type SavedRecord, type StatusRecordKind, type VitalCorrection, type VitalMeasurement, type VitalMeasurements } from '../api'
 import { useStaff } from '../App'
 import { getEnvironment } from '../env'
-import { refusalText } from '../fieldProblem'
+import { refusalText, refusedFields } from '../fieldProblem'
 import { BUSY, QUIET_UNAVAILABLE, UNAVAILABLE, useFocusById } from '../focus'
 import { GroupError, useFieldProblems } from '../useFieldProblems'
 import { staffSessionGeneration, untilStaffSessionReady } from '../session'
@@ -481,7 +481,8 @@ function RecordForm({ tab, onCreated, disabled, canSendToLab }: { tab: RecordKin
       {/* Since hid-system #56 EHR sends a request to Lab when it is created active, and when a draft is activated later.
           Lab accepts it only from an actor holding lab.work-item.accept, and refuses anyone else's (LAB_WORK_ITEM_ACCESS_DENIED). */}
       <div id="lab-request-draft-warning" className="staff-notice staff-danger">A draft is not sent to the Laboratory until it is activated.{canSendToLab ? '' : ' Only someone who may send requests to Lab can activate it or create an active request.'}</div>
-      {canSendToLab && <p className="staff-muted">Active creation saves the request, then asks Lab to accept it; if Lab does not, the request stays saved and active and can be sent again from the list.</p>}</>}
+      {/* An EHR before #56 has no Send to Lab, and passes Lab's own refusal back after saving the request. */}
+      {canSendToLab && <p className="staff-muted">Active creation saves the request, then asks Lab to accept it. If Lab does not, the request stays saved and active, even when an error is shown: check the list before creating it again, then use Send to Lab on it there, or contact the laboratory if the EHR cannot send it.</p>}</>}
     {error && <p className="staff-error" role="alert">{error}</p>}<Button type="submit" aria-disabled={busy || disabled || undefined} className={BUSY}
       aria-describedby={tab === 'lab-requests' ? 'lab-request-draft-warning' : undefined}>{busy ? 'Saving…' : tab === 'lab-requests' ? 'Create lab request' : tab === 'vitals' || tab === 'diagnoses' ? 'Save record' : 'Save draft'}</Button>
   </form></Card>
@@ -1242,9 +1243,11 @@ export function Clinical() {
   // page last asked for. A read for a list no longer shown (the clinician moved
   // to another tab or encounter) is not made: it would replace that list's rows.
   // After a change the read is fresh, and a failure keeps the rows and says the
-  // change was saved; a failed page move is reported beside the list. It answers
-  // the rows read, 'failed', or null when no read was made or kept (Reload).
-  async function loadRecords(kind: RecordKind, cursors: Cursors | 'shown', afterChange: boolean): Promise<Reload> {
+  // change was saved; a failed page move is reported beside the list. After an
+  // attempt that may have saved nothing ('unsure') the read is fresh too, and a
+  // failure is left to the caller to say. It answers the rows read, 'failed', or
+  // null when no read was made or kept (Reload).
+  async function loadRecords(kind: RecordKind, cursors: Cursors | 'shown', afterChange: boolean | 'unsure'): Promise<Reload> {
     if (!facility || !patientId || !encounterId) return null
     const scope = JSON.stringify([facility.id, patientId, encounterId, kind])
     if (scope !== recordScopeShown.current) return null
@@ -1256,7 +1259,7 @@ export function Clinical() {
     if (!afterChange) { setError(''); setRecordNotice(null) }
     try {
       const { page, cursors: shown, restarted } = await readPage(
-        (cursor, fresh) => staffApi.records(facility.id, patientId, encounterId, kind, { cursor, fresh }), wanted, afterChange)
+        (cursor, fresh) => staffApi.records(facility.id, patientId, encounterId, kind, { cursor, fresh }), wanted, afterChange !== false)
       if (sequence !== recordLoad.current) return null
       recordRequested.current = { scope, cursors: shown }
       setRecords(page.items); setRecordsFor(scope); setRecordPages({ scope, cursors: shown, next: page.nextCursor ?? null })
@@ -1265,8 +1268,8 @@ export function Clinical() {
     } catch (caught) {
       if (sequence !== recordLoad.current) return null
       recordRequested.current = before
-      if (afterChange) setError(`The change was saved, but the records could not be reloaded. ${refusalText(caught, '')}`.trim())
-      else setRecordNotice({ scope, text: `The page could not be loaded. ${refusalText(caught, '')}`.trim(), alert: true })
+      if (afterChange === true) setError(`The change was saved, but the records could not be reloaded. ${refusalText(caught, '')}`.trim())
+      else if (!afterChange) setRecordNotice({ scope, text: `The page could not be loaded. ${refusalText(caught, '')}`.trim(), alert: true })
       return 'failed'
     } finally { if (sequence === recordLoad.current) setRecordsLoading(false) }
   }
@@ -1291,10 +1294,22 @@ export function Clinical() {
     let saved: SavedRecord
     try { saved = await staffApi.createRecord(facility.id, patientId, encounterId, kind, body, key) }
     catch (caught) {
+      const handoff = isHidApiError(caught) && (caught.code === 'LAB_HANDOFF_REFUSED' || caught.code === 'LAB_HANDOFF_UNCONFIRMED')
+      // Not an active request, or fields EHR refused before saving anything (its ValidationPipe).
+      if (!activeLab || (!handoff && refusedFields(caught).length > 0)) throw caught
+      if (!handoff) {
+        // An EHR before #56 saves the request, then passes Lab's own refusal back (6b49a06
+        // lab-requests.service.ts create), and a create that went unanswered may have been
+        // saved too. The list is read again, and the form keeps the request and its key, so
+        // pressing again unchanged replays the same create rather than making another.
+        const items = await loadRecords(kind, FIRST_PAGE, 'unsure')
+        // Lab's own detail, passed back as it wrote it, may end without a full stop.
+        const said = refusalText(caught, 'The lab request could not be created.')
+        throw new Error(`${/[.!?]$/.test(said) ? said : `${said}.`} The lab request may have been saved and active even so: check the list before creating it again.${reloadSentence(items, 'lab requests', false)}`)
+      }
       // hid-system #56: the request is saved and active, and Lab did not take it. Answering
       // here clears the form and its key, so it is not created again: it is sent from the
       // list. The problem's detail names the request, and is not shown.
-      if (!activeLab || !isHidApiError(caught) || (caught.code !== 'LAB_HANDOFF_REFUSED' && caught.code !== 'LAB_HANDOFF_UNCONFIRMED')) throw caught
       const named = handoffNames(caught.message)
       const items = await loadRecords(kind, FIRST_PAGE, true)
       // A 502 names no request; the newest active one for this test heads the list read.
