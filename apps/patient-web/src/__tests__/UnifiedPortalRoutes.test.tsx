@@ -75,19 +75,21 @@ describe('unified authenticated portal routes', () => {
   it('opens staff sign-in from a signed-out workspace without a second refresh attempt', async () => {
     calls.staffRefresh.mockRejectedValue(new HidApiError(403, 'Refresh CSRF validation failed', { code: 'CSRF_VALIDATION_FAILED' }))
     open('/provider')
-    expect(await screen.findByRole('textbox', { name: /Work email/ })).toBeTruthy()
+    // These portals are lazy modules; cold test transforms can exceed the DOM
+    // helper's default one-second wait without a session/route failure.
+    expect(await screen.findByRole('textbox', { name: /Work email/ }, { timeout: 10000 })).toBeTruthy()
     expect(screen.queryByText('Session unavailable')).toBeNull()
     expect(calls.staffRefresh).not.toHaveBeenCalled()
-  })
+  }, 15000)
 
   it('opens admin sign-in on anonymous entry without misreporting missing platform authority', async () => {
     calls.adminRefresh.mockRejectedValue(new HidApiError(403, 'Refresh CSRF validation failed', { code: 'CSRF_VALIDATION_FAILED' }))
     open('/admin/overview')
-    await waitFor(() => expect(calls.adminSession).toHaveBeenCalled())
+    await waitFor(() => expect(calls.adminSession).toHaveBeenCalled(), { timeout: 10000 })
     expect(await screen.findByRole('button', { name: /Sign in/i })).toBeTruthy()
     expect(screen.queryByText('This account has no platform administration access.')).toBeNull()
     expect(calls.adminRefresh).not.toHaveBeenCalled()
-  })
+  }, 15000)
 
   it('opens patient sign in at /sign-in without mounting a staff or admin session', async () => {
     open('/sign-in')

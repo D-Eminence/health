@@ -115,7 +115,7 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       'enrollment.verifyContact', 'enrollment.activate'],
     identity: ['identity.me', 'identity.accessHistory', 'identity.accessPin', 'identity.verifyNin'],
     access: ['access.patientRequests', 'access.approve', 'access.deny'],
-    ehr: ['ehr.myRecords', 'ehr.myImportedAttachment', 'ehr.patientChat', 'ehr.patientChatHistory'],
+    ehr: ['ehr.myRecords', 'ehr.myImportedAttachment', 'ehr.patientChat', 'ehr.patientChatHistory','ehr.patientChatSource'],
   },
   'staff-web': {
     auth: ['auth.staffLogin', 'auth.session', 'auth.refresh', 'auth.logout', 'auth.facility',
@@ -169,7 +169,7 @@ export function assertEndpointAllowed(app: HidApp, endpointName: string): void {
     || (['ehr.importedRecords', 'ehr.importedAttachment'].includes(endpointName) && !['staff-web', 'ehr-web'].includes(app))) {
     throw new BoundaryViolationError('Imported medical history is available only in its patient or provider context.')
   }
-  if ((endpointName === 'ehr.patientChat' || endpointName === 'ehr.patientChatHistory') && app !== 'patient-web') {
+  if (['ehr.patientChat','ehr.patientChatHistory','ehr.patientChatSource'].includes(endpointName) && app !== 'patient-web') {
     throw new BoundaryViolationError('Patient record chat is available only to the patient application.')
   }
   const descriptor = findEndpoint(endpointName)

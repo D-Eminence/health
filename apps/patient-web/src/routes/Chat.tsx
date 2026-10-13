@@ -3,11 +3,13 @@ import type { PatientChatReply } from '@hid/contracts'
 import { isHidApiError } from '@hid/http'
 import { useSession } from '../session'
 import './chat.css'
+import { RecordAnswer } from '../RecordAnswer'
+import { ChatSource } from '../ChatSource'
 
 const suggestions = [
-  { title: 'Summarise my notes', detail: 'Get a clearer overview', question: 'Summarise my latest released clinical notes.' },
-  { title: 'Find recorded follow-ups', detail: 'See what my notes say', question: 'What follow-up steps are recorded in my clinical notes?' },
-  { title: 'Explain my latest note', detail: 'Understand the language', question: 'Explain my latest released clinical note in plain language.' },
+  { title: 'Summarise my history', detail: 'History and recent events', question: 'Summarise my medical history and important recent recorded events.' },
+  { title: 'Find my prescriptions', detail: 'Previous and latest medicines', question: 'What medicines have I previously been prescribed, and which are the latest recorded?' },
+  { title: 'Compare my lab results', detail: 'Changes across previous visits', question: 'Compare my laboratory results across visits and show the records supporting the changes.' },
 ]
 interface Exchange { id: number; question: string; reply?: PatientChatReply; error?: string }
 function failure(reason: unknown): string {
@@ -15,6 +17,7 @@ function failure(reason: unknown): string {
   if (reason.status === 401) return 'Your session ended. Please sign in again.'
   if (reason.status === 403) return 'You do not have access to patient record chat.'
   if (reason.code === 'CHAT_CONVERSATION_CHANGED') return 'This conversation was cleared. Please start a new question.'
+  if (reason.code === 'CHAT_CONTEXT_TOO_LARGE') return 'This conversation covers too many documents. Start a new conversation.'
   if (reason.status === 409) return 'Your records changed. Please ask your question again.'
   if (reason.status === 429) return 'Please wait before asking another question.'
   if (reason.code === 'CHAT_RECORD_SCOPE_EXCEEDED') return 'Your record history is too large for chat. Please use the Records page.'
@@ -53,9 +56,9 @@ function ChatConversation() {
       setExchanges(saved.exchanges.map((exchange, index) => ({ id: index, question: exchange.question, reply: exchange.reply })))
       nextId.current = saved.exchanges.length
       setHistoryStatus('ready')
-    }).catch(() => {
+    }).catch(reason => {
       if (controller.signal.aborted) return
-      setHistoryStatus('error'); setHistoryError('Your saved conversation could not be loaded. Please try again.')
+      setHistoryStatus('error'); setHistoryError(isHidApiError(reason)&&reason.code==='CHAT_CONTEXT_TOO_LARGE' ? 'This conversation covers too many documents. Start a new conversation to narrow the context.' : 'Your saved conversation could not be loaded. Please try again.')
     })
     return () => controller.abort()
   }, [api, historyAttempt])
@@ -78,7 +81,7 @@ function ChatConversation() {
       const result = await api.clearChatHistory(controller.signal)
       if (controller.signal.aborted) return
       if (result.cleared !== true) throw new Error('History deletion was not confirmed')
-      setExchanges([]); setDraft(''); followLatest.current = true
+      setExchanges([]); setDraft(''); setHistoryStatus('ready'); followLatest.current = true
       input.current?.focus()
     } catch {
       if (!controller.signal.aborted) setHistoryError('Your saved conversation could not be deleted. Please try again.')
@@ -109,11 +112,11 @@ function ChatConversation() {
   return <section className="patient-section record-chat-page" aria-labelledby="record-chat-title">
     <header className="record-chat-page-header">
       <div><p className="patient-eyebrow">Your record assistant</p><h1 id="record-chat-title" className="patient-page-title">Ask about your records</h1><p className="patient-page-copy">A little clarity, from your clinical notes.</p></div>
-      <button type="button" className="record-chat-reset" disabled={resetting || historyStatus !== 'ready'} onClick={() => { void reset() }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>New conversation</button>
+      <button type="button" className="record-chat-reset" disabled={resetting || historyStatus === 'loading'} onClick={() => { void reset() }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>New conversation</button>
     </header>
     <div className="record-chat-panel">
-      <header className="record-chat-panel-header"><span className="record-chat-avatar"><NoteIcon /></span><div><h2>Health ID record assistant</h2><p>Uses your released clinical notes</p></div><span className="record-chat-private">Private to your account</span></header>
-      <details className="record-chat-coverage"><summary>Which records can I ask about?</summary><p>Replies use your released clinical notes. Archived imports, attachments, lab results and prescriptions are not included. Your care team guides diagnosis and treatment.</p></details>
+      <header className="record-chat-panel-header"><span className="record-chat-avatar"><NoteIcon /></span><div><h2>Health ID record assistant</h2><p>Uses your available authorized patient records</p></div><span className="record-chat-private">Private to your account</span></header>
+      <details className="record-chat-coverage"><summary>Which records can I ask about?</summary><p>Ask about medical history, prescriptions, conditions, observations, investigations and released lab results. Readable documents can be included; unclear or pending scans are identified. Patient-reported history stays labelled. Your care team guides diagnosis and treatment.</p></details>
       <div className="record-chat-coverage"><p>Your latest 10 exchanges are available for 30 days. New conversation deletes saved chats. Up to four recent exchanges help the assistant understand follow-up questions.</p>
         {historyStatus === 'loading' && <p role="status">Loading your saved conversation…</p>}
         {historyError && <p role="alert">{historyError}</p>}
@@ -124,24 +127,25 @@ function ChatConversation() {
         const element = history.current
         if (element) followLatest.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80
       }}>
-        {exchanges.length === 0 && <div className="record-chat-welcome"><span className="record-chat-welcome-icon"><NoteIcon /></span><h2>Make sense of your notes</h2><p>Ask a complete question about your notes. Answers based on records include references you can check.</p>
+        {exchanges.length === 0 && <div className="record-chat-welcome"><span className="record-chat-welcome-icon"><NoteIcon /></span><h2>Understand your health records</h2><p>Ask about your history, medicines or results. Answers based on records include references you can check.</p>
           <div className="record-chat-suggestions" aria-label="Suggested questions">{suggestions.map(suggestion => <button key={suggestion.title} type="button" onClick={() => chooseQuestion(suggestion.question)}><span>{suggestion.title}</span><small>{suggestion.detail}</small><span className="record-chat-suggestion-arrow" aria-hidden="true">↗</span></button>)}</div>
         </div>}
         <div role="log" aria-label="Record chat" aria-live="polite" aria-relevant="additions text" aria-busy={busy} className="record-chat-messages">
           {exchanges.map(exchange => <article key={exchange.id} className="record-chat-exchange">
             <div className="record-chat-user"><span className="record-chat-message-label">You</span><p>{exchange.question}</p></div>
             <div className="record-chat-assistant"><span className="record-chat-avatar"><NoteIcon /></span><div className="record-chat-reply"><span className="record-chat-message-label">Health ID record assistant</span>
-              {exchange.reply ? <><p className="record-chat-answer">{exchange.reply.answer}</p>
-                {exchange.reply.status === 'preparing' && <p className="record-chat-preparing">Your notes are being prepared. Please ask again shortly.</p>}
-                {exchange.reply.sources.length > 0 && <details className="record-chat-sources" open><summary>{exchange.reply.sources.length} record {exchange.reply.sources.length === 1 ? 'reference' : 'references'}</summary><ul>{exchange.reply.sources.map(source => <li key={source.number}><span className="record-chat-source-number">[{source.number}]</span><div><strong>{source.title}</strong><span>Revision {source.revisionNo} · Signed {new Date(source.signedAt).toLocaleDateString('en-NG', { day: 'numeric', month: 'short', year: 'numeric' })}</span></div></li>)}</ul></details>}
+              {exchange.reply ? <><RecordAnswer text={exchange.reply.answer} />
+                {exchange.reply.coverage && !exchange.reply.coverage.complete && <p className="record-chat-preparing">This answer uses the available matching evidence. Coverage is incomplete{exchange.reply.coverage.pendingDocuments ? `; ${exchange.reply.coverage.pendingDocuments} document(s) are pending, unreadable or not included` : ''}. {exchange.reply.coverage.unavailable.join(' ')}</p>}
+                {exchange.reply.status === 'preparing' && <p className="record-chat-preparing">Your records are being prepared. Please ask again shortly.</p>}
+                {exchange.reply.sources.length > 0 && <details className="record-chat-sources" open><summary>{exchange.reply.sources.length} record {exchange.reply.sources.length === 1 ? 'reference' : 'references'}</summary><ul>{exchange.reply.sources.map(source => <ChatSource key={source.number} source={source} />)}</ul></details>}
               </> : exchange.error ? <p role="alert" className="record-chat-error">{exchange.error}</p>
-                : <p role="status" className="record-chat-thinking"><span className="record-chat-thinking-dots" aria-hidden="true"><i /><i /><i /></span>Reading your released notes…</p>}
+                : <p role="status" className="record-chat-thinking"><span className="record-chat-thinking-dots" aria-hidden="true"><i /><i /><i /></span>Reading your authorized records…</p>}
             </div></div>
           </article>)}
         </div>
       </div>
       <form className="record-chat-composer" onSubmit={submit}><label htmlFor="record-question">Your question</label>
-        <div className="record-chat-input-row"><textarea ref={input} id="record-question" rows={1} value={draft} maxLength={500} aria-describedby="record-question-hint" autoComplete="off" placeholder="Ask a question about your notes…"
+        <div className="record-chat-input-row"><textarea ref={input} id="record-question" rows={1} value={draft} maxLength={500} aria-describedby="record-question-hint" autoComplete="off" placeholder="Ask about your history, medicines or results…"
           onChange={event => setDraft(event.target.value)} onKeyDown={event => {
             if (event.key === 'Enter' && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey && !event.nativeEvent.isComposing && !busy) { event.preventDefault(); void send() }
           }} />

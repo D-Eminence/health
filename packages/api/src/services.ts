@@ -151,7 +151,7 @@ export function createEhrService(context: ServiceContext) {
     request,
     async chat(question: string, options: CallOptions = {}) {
       return parsePatientChat(await request('ehr.patientChat', 'POST', {
-        ...options, body: { question: chatQuestion(question) }, timeoutMs: 40_000,
+        ...options, body: { question: chatQuestion(question) }, timeoutMs: 65_000,
       }))
     },
     listRecords(options: CallOptions = {}): Promise<PatientRecordSummary> {

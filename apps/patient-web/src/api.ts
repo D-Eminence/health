@@ -126,6 +126,8 @@ export function createPatientApi(client: ApiClient) {
 
   return {
     chat: createEhrService({ app: 'patient-web', client }).chat,
+    chatSource: (kind:string,id:string,signal?:AbortSignal) => call<Record<string,unknown>>('GET',
+      `ehr/me/chat/sources/${encodeURIComponent(kind)}/${encodeURIComponent(id)}`,undefined,{signal}),
     chatHistory: async (signal?: AbortSignal) => parseChatHistory(await call<unknown>('GET', 'ehr/me/chat/history', undefined, { signal })),
     clearChatHistory: (signal?: AbortSignal) => call<{ cleared: true }>('DELETE', 'ehr/me/chat/history', undefined, { signal }),
     supportChat: createSupportService({ app: 'patient-web', client }).chat,

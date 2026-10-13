@@ -10,7 +10,7 @@ it('forwards cancellation and distinct timeouts without sending a patient identi
   await api.support.chat(' help ', undefined, { signal: controller.signal })
   await api.ehr.chat(' notes ', { signal: controller.signal })
   expect(request.mock.calls[0]?.[0]).toMatchObject({ auth: 'none', timeoutMs: 10000, signal: controller.signal, body: { text: 'help' } })
-  expect(request.mock.calls[1]?.[0]).toMatchObject({ auth: 'required', timeoutMs: 40000, signal: controller.signal, body: { question: 'notes' } })
+  expect(request.mock.calls[1]?.[0]).toMatchObject({ auth: 'required', timeoutMs: 65000, signal: controller.signal, body: { question: 'notes' } })
 })
 
 it('keeps patient CSRF and cookies; provider failures do not retry chat POSTs', async () => {

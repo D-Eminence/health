@@ -82,3 +82,10 @@
   .record-chat-input-row button { min-width: 42px; padding-inline: 9px; }
   .record-chat-input-row button span { display: none; }
 }
+
+.record-chat-answer p { margin: 0 0 .75rem; white-space: pre-wrap; }
+.record-chat-answer p:last-child { margin-bottom: 0; }
+.record-chat-answer ul { padding-left: 1.25rem; }
+.chat-source-fields { display: grid; gap: .5rem; margin: .75rem 0; }
+.chat-source-fields dt { font-weight: 600; text-transform: capitalize; }
+.chat-source-fields dd { margin: .2rem 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
