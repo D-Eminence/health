@@ -978,7 +978,9 @@ both. hid-system was not changed.
     may still dispense the version it was sent; the lab-request form says a
     draft is never sent to the Laboratory. These warnings hold for every
     released hid-system build; see "hid-system `main` moved on" below for what
-    its `main` has since merged.
+    its `main` has since merged. (Since changed: the hid-system alignment PR
+    rewords the prescription and lab-request warnings and offers activation to
+    a role that may send to Lab; see the 2026-10-13 entry.)
   - Pharmacy's dispensing card shows route and instructions (PHARM-01). The
     Lab and Pharmacy lists say, at 200 items, that newer ones cannot be
     reached (A2). EHR forms mirror the DTO limits and name refused fields
@@ -1126,7 +1128,8 @@ both. hid-system was not changed.
   not a cancel or hold after acceptance); #59 lets only the uploader complete
   a document (A15); #60 answers a missing purpose header with
   `400 PURPOSE_OF_USE_REQUIRED` (A14(c)). The portal's warnings stay, since
-  they hold for every released build. The audit, the hand-off and the rest of
+  they hold for every released build. (Since changed: the hid-system alignment
+  PR reads these changes; see the 2026-10-13 entry.) The audit, the hand-off and the rest of
   this entry describe `6b49a06`; open questions and the gap map note these
   changes where they apply.
 - **Not verified.** No staging environment exists, so nothing ran against a
@@ -1146,3 +1149,132 @@ both. hid-system was not changed.
   the two gateway health routes by nginx), the #42 pull request description, and
   hid-system's own `INTERFACE_CONTRACT.md`. Earlier entries in this log keep
   their text, with "since changed" notes where they read as current.
+
+## 2026-10-13: hid-system alignment (the portal reads hid-system#48 and #50 to #61)
+
+hid-system `main` moved from `6b49a06` to `bbc6e89` while the readiness series
+merged (hid-system#48 to #53 and #55 to #62; none released). Those PRs change
+answers the portal reads: the record summaries name what they withhold, EHR
+sends a lab request to Lab on activation and resumption and can send one
+again, Lab serves released results by EHR order, Pharmacy refuses changed
+prescriptions, OCR names workload refusals, and Identity budgets recovery and
+enrollment codes. The hid-system alignment PR (`claude/hid-system-alignment`,
+head `6128d00`, 23 commits on `main` `0eda90f`) makes the portal read each
+change, and still handle the answer of a build without it. hid-system was not
+changed.
+
+- **Patient records (hid-system#52).** A section named in `withheld` says "Not
+  yet shared with patients in Health ID." instead of having no entries;
+  `truncated` and `limits` say when only the most recent are shown; the
+  opening line names only the released sections, and none while the record is
+  read or after it could not be. Tests: `PatientRecords.test.tsx`,
+  `PortalRecords.test.tsx`.
+- **Emergency summary (hid-system#52, #51).** A section EHR withheld from a
+  role that may read it says it is not included; the truncation notice follows
+  `truncated`, and the cap guess applies only to an EHR that reports none; the
+  documents note says the listed documents passed the virus scan; the vitals
+  note shows only when EHR released vitals; each lab request but a draft offers
+  its released results under the emergency purpose. The role's own permission
+  still gates each section. Test: `EmergencySummary.test.tsx`.
+- **Lab requests (hid-system#56).** For a role holding `lab.work-item.accept`:
+  active creation, "Activate and send to Lab", "Resume and send to Lab", and
+  Send to Lab (`POST …/lab-work-item`, one key per attempt). Each `labHandoff`
+  state is said: `accepted`; `already_accepted` (Lab holds an earlier version,
+  so the change is not in Lab); `failed` (send it again, or, for
+  `LAB_ORDER_NOT_CURRENT`, check the request, which changed again);
+  `not_sent`; and none, from an EHR before hid-system#56 (Lab was not asked,
+  or, for a resumption, not told). A create answered
+  `409 LAB_HANDOFF_REFUSED` or `502 LAB_HANDOFF_UNCONFIRMED` reloads the list,
+  clears the form and its key, and moves focus to the saved request's Send to
+  Lab; the request ID in the problem detail is used only for focus, never
+  shown, and a 201 with no body reads as an EHR before hid-system#56. Any
+  other role creates drafts only, and notes say who can activate, resume or
+  send. Hold,
+  cancel, completion and entered in error stay unoffered for an active or held
+  request. A warning says the list could not be reloaded only when it could
+  not, and that it was reloaded only where the request changed under the
+  change (Send to Pharmacy likewise). Tests: `LabRequestHandoff.test.tsx`,
+  `ClinicalCorrections.test.tsx`, `labHandoffApi.test.ts`, and two registry
+  cases in `packages/contracts/src/__tests__/boundaries.test.ts`.
+- **Released Lab results (hid-system#51).** "View released results" under each
+  lab request but a draft, for `lab.result.released.read`, read only when
+  opened or refreshed and never merged with a read in flight, since Lab audits
+  each read. Nothing released, no work item the reader can see
+  (`404 LAB_WORK_ITEM_NOT_FOUND`), a Lab without the route and a refusal are
+  each said. The revision list moved to `staff/labRevisions.tsx`, shared with
+  the Laboratory's result history, which now shows when each revision was
+  released (`releasedAt`). Tests: `LabReleasedResults.test.tsx`,
+  `Laboratory.test.tsx`.
+- **Prescriptions and Pharmacy (hid-system#48).** The status-change warning
+  and the `409 IDEMPOTENCY_CONFLICT` message say only what holds with or
+  without migration 0080: `c182ad8` replaced `8785204`'s wording, which held
+  only once 0080 is deployed and dropped "you must contact the pharmacy". Send
+  to Pharmacy reads the list again when the prescription changed under it.
+  Pharmacy marks work "Not dispensable" after
+  `409 PHARMACY_PRESCRIPTION_NOT_DISPENSABLE`, saying the prescription is no
+  longer active at the version Pharmacy accepted (`ead16b4`), and its capped
+  list says such work stays listed. Tests: `Prescriptions.test.tsx`,
+  `Pharmacy.test.tsx`.
+- **Documents (hid-system#59).** A document left `initiated` says the upload
+  was not completed, that only the person who started it can finish it, and to
+  upload the file again. Test: `ClinicalDocuments.test.tsx`.
+- **Break-glass (hid-system#58).** `400 INVALID_CONSENT_COMMAND` says emergency
+  access may not be enabled for this deployment. `886b7c9` softened
+  `8b4928e`'s "is not enabled", since Identity gives that answer for a bad
+  duration or reason too. Test: `BreakGlassRefusal.test.tsx`.
+- **OCR (hid-system#60).** The three `503 …_SERVICE_AUTH_UNAVAILABLE` answers
+  read as a failed connection between Health ID services;
+  `OCR_PUBLICATION_IN_PROGRESS` also names "no attempts remain"; the
+  publication key names the signed-in account. Test: `OcrPublication.test.tsx`.
+- **Recovery (hid-system#55).** After a refused code, what a spent code budget
+  does; "Start again for a new code", announced, once `resendAfterSeconds` has
+  passed; "Use a different work email" (patient: "email or Health ID") at
+  once. `0f3d86e` restored the immediate way back that `817bb92` had held for
+  the wait. Tests: `RecoveryCodeBudget.test.tsx`, `AuthStepFocus.test.tsx`.
+- **Enrollment (hid-system#50, #61).** A step's `404 ENROLLMENT_NOT_FOUND`, or
+  a check that finds no enrollment once the page reached a step, returns to
+  the NIN step, to continue with the same NIN and start key; the sign-out note
+  says a sign-out ends an enrollment in progress; a refused code adds the
+  budget note, cleared for a new code (`88459c7`); `429 ENROLLMENT_RATE_LIMITED`
+  at activation says to wait about 15 minutes. Tests: `EnrollmentEnded.test.tsx`,
+  `EnrollmentLimits.test.tsx`.
+- **Contracts.** `ehr.labRequestLabWorkItem` (`POST`, `ehr.lab-request.write`
+  and `lab.work-item.accept`) and `lab.releasedResultsForOrder` (`GET`,
+  `lab.result.released.read`) in `packages/contracts/src/registry.ts`; the
+  first is added to the staff app's EHR route grants.
+- **Review.** A review of `065a1f9` raised 15 items. 12 were fixed in full and
+  item 1 for its prescription half; its Lab half is the deploy order below.
+  Items 7 (docs) and 8 (squashing two commits) were not done, because that
+  batch's rules forbade editing `docs/*.md` and rebasing; item 7 is this
+  entry's docs update.
+- **Deploy order (open).** "Activate and send to Lab", "Resume and send to Lab"
+  and Send to Lab need an EHR with hid-system#56, deployed after the Lab with
+  it. Against an older EHR, activation leaves the request active and unsent
+  (the page says so) and Send to Lab answers 404. No flag was added: the
+  repository has none, and splitting the commits needed a rebase. See
+  [open questions](./OPEN-QUESTIONS.md), "Found during the hid-system
+  alignment".
+- **Evidence.** At `6128d00`, as the batch reports: `audit:boundaries`,
+  `typecheck`, `lint`, `npm test` and the portal build pass; the public-site
+  build is not reported. `npm test` was re-run for this entry: 137 files, 1781
+  tests (1684 in the readiness combined tree). The fix batch reports a test that
+  failed first for each behaviour change, and that each of its nine commits
+  (`c99154b` to `6128d00`) passes `tsc --noEmit` alone; neither was re-checked
+  here. Two earlier commits, `04a847d` and `8b4928e`, fail `tsc` (TS2322 at the
+  note panel's `onChanged`), fixed by `065a1f9`, so a bisect across them meets
+  that error unless the PR is squash-merged. `88459c7`'s message names
+  hid-system's `sendContact`; the method is `startContact`.
+- **Not verified.** Component and API-client tests with the network stubbed;
+  no browser, runtime, staging or live hid-system run, and hid-system#48 to #61
+  are unreleased. Behind hid-system's gateway as it stands, a create's
+  `502 LAB_HANDOFF_UNCONFIRMED` and OCR's `503 …_SERVICE_AUTH_UNAVAILABLE`
+  arrive as `503 UPSTREAM_UNAVAILABLE` (hand-off A8, A25), so the portal's
+  handling of those codes takes effect only once A8 is fixed.
+- **Docs.** `BACKEND_OWNER_HANDOFF.md` is replaced by its refresh to hid-system
+  `bbc6e89`: A13 fixed; A1, A3, A5, A11, A14, A15, B6 and D4 partly fixed; new
+  A25, B14, D8, D9 and E17 to E20; hid-system#47 must take 0083. Its new header
+  lists what Health-id has addressed. The architecture notes, the gap map and
+  open questions say what the alignment PR changed and correct what hid-system
+  `bbc6e89` made untrue: Pharmacy's refusal of changed prescriptions, the
+  summaries' `withheld` and `limits`, the Lab send-again route, released
+  results, the new refusal codes and hid-system#47's renumbering.

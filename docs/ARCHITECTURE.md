@@ -5,9 +5,11 @@ gateway/API, first audited at commit `c4b5445` and most recently checked
 against `main` at `6b49a06` on 2026-10-12 (with open D-Eminence/hid-system#47
 at `1c18e91`). hid-system `main` has since moved to `bbc6e89` (hid-system#48 to
 #53 and #55 to #62, merged on 2026-10-12, none released); where those change a
-statement below, it says so. It supersedes the earlier plan based on
-the historical `hid-unified` Supabase functions. `hid-1.0`, `Dashboard.zip` and
-`HID.html` informed visual and workflow coverage; their local fixtures do not
+statement below, it says so. Those statements, and what the hid-system
+alignment PR (head `6128d00`, which follows Health-id #48) does with these
+changes, were checked against `bbc6e89` on 2026-10-13. It supersedes the
+earlier plan based on the historical `hid-unified` Supabase functions.
+`hid-1.0`, `Dashboard.zip` and `HID.html` informed visual and workflow coverage; their local fixtures do not
 define API behavior. The [gap map](./HEALTH_ID_COMPLETE_FRONTEND_GAP_MAP.md)
 records that baseline audit and should not be read as today's completion list.
 The hid-system work this frontend depends on is in the
@@ -75,27 +77,91 @@ and a malformed row refuses the whole catalogue. The demo form holds the
 contact role to the 2 to 120 characters `CreateDemoRequestDto` accepts and
 reuses one `Idempotency-Key` when a submission is retried. Patient, provider
 and admin requests use the actual Identity, EHR, Access, Lab, Pharmacy, OCR,
-Outreach and Admin endpoints registered for their routes. The laboratory workspace covers work items, accession, specimen
-custody, analytical execution, result revisions, verification, release and
-history. The clinical workspace can create active EHR lab requests and hand
-active prescriptions to Pharmacy. In every released hid-system build EHR
-passes neither a later prescription or lab-request change nor an encounter's
-status to Pharmacy or Lab (hand-off A1, A3), so the clinical record warns at
-those status forms, or offers no change once Lab may be working on a request.
-On hid-system `main` (not released), Pharmacy refuses to dispense a
-prescription EHR has since cancelled, held or changed
-(`409 PHARMACY_PRESCRIPTION_NOT_DISPENSABLE`, hid-system#48), and EHR sends an
-activated draft, a resumed hold or an edit of an active lab request to Lab
-(hid-system#56); a cancel or hold after Lab accepts is still not sent. The
-Lab and Pharmacy lists say when they reach the backend's cap of the 200 oldest
-work items (A2). See
-[open questions](./OPEN-QUESTIONS.md) for contract limits and backend defects.
+Outreach and Admin endpoints registered for their routes. The laboratory
+workspace covers work items, accession, specimen custody, analytical
+execution, result revisions (with each revision's release time, sent since
+hid-system#51), verification, release and history. The clinical workspace
+creates EHR lab requests and hands active prescriptions to Pharmacy. In every
+released hid-system build EHR sends a lab request to Lab only when it is
+created active, and passes neither a later prescription or lab-request change
+nor an encounter's status to Pharmacy or Lab (hand-off A1, A3). hid-system
+`main` (`bbc6e89`, not released) changes part of this:
 
-Retry keys for OCR publications (one `Idempotency-Key` per publication request)
-and Outreach registration cases (the case's `localCommandId` with its temporary
-patient ID) live in component memory only, never in browser storage. A retry
-after a lost answer replays the same command; a reload loses the key, and OCR
-offers no other way to resume (hand-off B5). Outreach campaign management is
+- Pharmacy accepts only the exact active prescription version EHR checked
+  (`409 PHARMACY_PRESCRIPTION_NOT_ELIGIBLE`) and dispenses only while the
+  prescription is still active at the version it accepted
+  (`409 PHARMACY_PRESCRIPTION_NOT_DISPENSABLE`), by a database guard
+  (hid-system#48, migration 0080). Pharmacy has always kept one work item per
+  prescription, so a prescription changed after its handoff, a resumed hold
+  included, cannot be sent again (`409 IDEMPOTENCY_CONFLICT`); with the guard
+  its work can no longer be dispensed either, and stays listed as accepted
+  (hand-off A1, E18).
+- EHR sends a lab request to Lab after any change that leaves it active
+  (activating a draft, resuming a held request), but only for an actor holding
+  `lab.work-item.accept` (otherwise `labHandoff` is `not_sent`), and reports
+  the outcome as `labHandoff`. `POST …/lab-requests/:requestId/lab-work-item`
+  sends a saved active request again; it needs `ehr.lab-request.write` and
+  `lab.work-item.accept` (hid-system#56). Lab keeps one work item per request,
+  at the version it accepted: a later change comes back as `already_accepted`
+  and is not in Lab, and holding, cancelling, completing or marking entered in
+  error a request Lab accepted is not sent at all (hand-off A3). A create that
+  Lab refused or did not confirm answers `409 LAB_HANDOFF_REFUSED` or
+  `502 LAB_HANDOFF_UNCONFIRMED` after the request is saved and active
+  (hand-off A25).
+- Lab serves the released results of the work item accepted from an EHR lab
+  request (`GET /lab/ehr-orders/:sourceEhrOrderId/released-results`, with
+  `lab.result.released.read`) and audits each read (hid-system#51).
+
+Since the hid-system alignment PR the portal uses these, and handles the
+answers of a build without them. A role holding `lab.work-item.accept` may
+create an active request, activate a draft ("Activate and send to Lab"),
+resume a held request ("Resume and send to Lab") and send a saved active
+request again (Send to Lab, one `Idempotency-Key` per attempt). Any other role
+may create only drafts, and a note under each request says who can do more.
+Each `labHandoff` state is said. A create answered with `LAB_HANDOFF_REFUSED`
+or `LAB_HANDOFF_UNCONFIRMED` is treated as the saved request it is: the list is
+read again, the form and its key clear, and focus moves to that request's Send
+to Lab. An active or held request is offered no other change, and its note
+says those changes do not reach Lab. Each request that may have reached Lab
+(any but a draft) offers "View released results" to a reader with
+`lab.result.released.read`, read only when opened. The status form of an
+active or held prescription says that Pharmacy is not told, that the pharmacy
+must be contacted if the prescription was sent, and that Pharmacy may refuse
+to dispense it after the change, even once resumed: true with or without
+migration 0080, which no response reveals. Pharmacy marks work "Not
+dispensable" once a dispensing is refused with
+`PHARMACY_PRESCRIPTION_NOT_DISPENSABLE`, until the page is reloaded. The
+encounter status form still warns that its orders are not cancelled and that
+Pharmacy and the Laboratory are not told. The Lab and Pharmacy lists say when
+they reach the backend's cap of the 200 oldest work items (A2), and Pharmacy
+adds that work it can no longer dispense stays listed and counts toward the
+200.
+
+Against an EHR without hid-system#56, activating a draft leaves it active
+without Lab receiving it (the page says Lab was not asked) and Send to Lab
+answers 404, so the portal with these actions is to be deployed with or after
+that EHR. Through hid-system's gateway as it stands, a service's 502, 503 or
+504 reaches the browser as `503 UPSTREAM_UNAVAILABLE` without the service's
+code (hand-off A8). A create answered `502 LAB_HANDOFF_UNCONFIRMED` then reads
+as an outage: the form keeps its values and key, so pressing again unchanged
+replays the same create and sends it to Lab again, while a changed form
+creates a second active request (hand-off A25). See
+[open questions](./OPEN-QUESTIONS.md) for these and the other contract limits
+and backend defects.
+
+Retry keys for OCR publications (one `Idempotency-Key` per publication request
+and signed-in account, since OCR finds a publication by facility, requesting
+account and key) and Outreach registration cases (the case's `localCommandId`
+with its temporary patient ID) live in component memory only, never in browser
+storage. A retry after a lost answer replays the same command; a reload loses
+the key, and OCR offers no other way to resume (hand-off B5). Since the
+hid-system alignment PR, OCR's `503 EHR_SERVICE_AUTH_UNAVAILABLE`,
+`LAB_SERVICE_AUTH_UNAVAILABLE` or `PHARMACY_SERVICE_AUTH_UNAVAILABLE`
+(hid-system#60: an owning service refused OCR's own workload identity, which a
+publication stores as the retryable `OWNING_SERVICE_UNAVAILABLE`) reads as a
+failed connection between Health ID services, to retry in about 15 seconds;
+behind the gateway it also arrives as `503 UPSTREAM_UNAVAILABLE` (hand-off A8).
+Outreach campaign management is
 not offered: Identity refuses `outreach.campaign.write` until campaign
 governance is decided (ADR-045; hand-off B10, E5), so the portal lists
 campaigns and members read-only and says so.
@@ -110,12 +176,24 @@ holding its read permission, lists documents without opening them, and leaves
 out vitals, which EHR sends without corrections. That hiding is display, not
 access control: in every released hid-system build every section reaches the
 browser (hand-off A11). hid-system#52 (`7856366`; merged into `main`, not
-released) has EHR withhold each category the reader may not read, report
-per-section `limits` and `truncated`, list only available documents and audit
-the counts; vitals are still sent as first recorded (A11(a)). The ordinary
+released) has EHR withhold each category the reader may not read and name it
+in `withheld`, report per-section `limits` and `truncated`, list only
+documents whose latest scan is clean, and audit the counts; vitals are still
+sent as first recorded (A11(a)). Since the hid-system alignment PR the portal
+reads these fields where EHR sends them: a section EHR withheld says it is not
+included rather than that the facility has none, the "most recent only" notice
+follows `truncated`, and the documents note says the listed documents passed
+the virus scan. Each lab request in the summary that may have reached Lab
+offers its released results, read with the emergency purpose, to a role with
+`lab.result.released.read`. The ordinary
 encounter and related clinical routes require `direct-care`, so an emergency
 grant does not open the detailed chart; that policy gap is tracked in
-[open questions](./OPEN-QUESTIONS.md) (hand-off B1, E1).
+[open questions](./OPEN-QUESTIONS.md) (hand-off B1, E1). On a database built
+from hid-system's migrations no `emergency` purpose of use exists
+(hid-system#58's migration 0082 seeds only `direct-care`), so Identity refuses
+break-glass with `400 INVALID_CONSENT_COMMAND` while the `break_glass_enabled`
+control is on, its default (hand-off B14); the portal then says emergency
+access may not be enabled for the deployment.
 
 The frontend does not call a database directly. `scripts/check-boundaries.mjs`
 checks repository imports and forbidden dependencies, and ESLint restricts
@@ -157,6 +235,31 @@ cookies means signed out, not an error. `refreshSession` restores only the
 patient shown. Session questions judge their own 401
 (`RequestSpec.reportUnauthorized: false` in `@hid/http`) instead of passing it
 to the client's global sign-out.
+
+The patient records page names only the sections EHR released: hid-system#52
+releases completed encounters and signed notes to a patient session and names
+the other five sections in `withheld`. Since the hid-system alignment PR a
+withheld section says it is not yet shared with patients in Health ID, rather
+than that there are none, and a section EHR reports as `truncated` says only
+the most recent are shown; an EHR before hid-system#52 is shown as before.
+Enrollment and password recovery follow hid-system `main`'s limits. Since hid-system#50 every
+sign-in, refresh and sign-out in the browser expires the enrollment cookie
+(`hid_enrollment`), after which each enrollment step answers
+`404 ENROLLMENT_NOT_FOUND`: the page returns to the NIN step, and the same NIN,
+sent again with the start key the page kept, restores the enrollment. After a
+reload that key is gone, and a new start for the NIN is refused
+(`409 NIN_ALREADY_REGISTERED`) until the pending enrollment expires, 24 hours
+after it started. hid-system#55 and hid-system#61 give recovery codes one
+failure budget per account and enrollment codes one per contact: by default the
+fifth wrong code within 15 minutes makes every code refused, a correct one too,
+for 15 minutes, with the same answer as a wrong code, so after a refused code
+the pages say what a spent budget does (hand-off E19). A recovery start for the
+same identifier within `resendAfterSeconds` answers the same challenge and
+sends no code, so "Start again for a new code" appears only once that wait has
+passed; "Use a different email or Health ID" (provider and platform: "work
+email") is offered at once. A start with the same account's other identifier
+within that wait gets a challenge for which no code is sent (hand-off section
+11, A13 residuals).
 
 The platform console's workspace is bound to the administrator who opened it,
 held in memory only. A refresh or session read that answers for another
@@ -204,9 +307,9 @@ Choosing a facility in the list only proposes it; Switch facility confirms it.
 The portal keeps nothing about the facility in browser storage. With
 hid-system's per-sign-in facility contract (D-Eminence/hid-system#47: ADR-046;
 open, not merged or deployed; hand-off C1; its migration 0080 must be
-renumbered, since hid-system `main` gave 0080 to hid-system#48 and also has 0081
-and 0082), Identity keeps the facility a sign-in chose and reports
-`facilitySelection` on staff sign-in, session reads and refresh, so a reload
+renumbered to 0083, since hid-system `main` gave 0080 to hid-system#48, 0081 to
+hid-system#55 and 0082 to hid-system#58), Identity keeps the facility a
+sign-in chose and reports `facilitySelection` on staff sign-in, session reads and refresh, so a reload
 shows the facility chosen. While it is unresolved (`reselect`: the chosen
 facility is no longer available; `default` for someone with more than one
 facility; or a value the portal does not know) the portal opens no page, shows
