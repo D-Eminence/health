@@ -10,7 +10,7 @@ function label(value: string) {
   const labels: Record<string, string> = {
     medication_name: 'Medication', prescribing_provider: 'Prescribed by', start_date: 'Start date', end_date: 'End date',
   }
-  if (labels[value]) return labels[value]
+  if (Object.hasOwn(labels, value)) return labels[value]!
   const text = value.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[_-]+/g, ' ').trim()
   return text ? text[0]!.toUpperCase() + text.slice(1) : 'Information'
 }
@@ -30,7 +30,7 @@ function InformationValue({ value }: { value: unknown }) {
   </dl>
   const text = typeof value === 'boolean' ? value ? 'Yes' : 'No' : String(value ?? '').trim()
   // Date-only source fields retain their calendar day in every browser timezone.
-  const display = /^\d{4}-\d{2}-\d{2}$/.test(text) && Number.isFinite(Date.parse(text))
+  const display = /^\d{4}-\d{2}-\d{2}$/.test(text) && Number.isFinite(Date.parse(text)) && new Date(text).toISOString().slice(0, 10) === text
     ? new Date(text).toLocaleDateString('en-NG', { dateStyle: 'medium', timeZone: 'UTC' }) : text
   return <span className="imported-history-value">{display}</span>
 }

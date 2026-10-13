@@ -8,7 +8,7 @@ describe('imported medical history', () => {
   it('shows structured values as readable fields and dates without inventing units', () => {
     render(<ImportedHistory records={[{ ...historyFixture[0]!, files: [], versions: [{ ...historyFixture[0]!.versions[0]!,
       structuredData: { medication_name: 'Example medication', dosage: '2', start_date: '2026-06-17',
-        prescribing_provider: 'Recorded provider', active: false, remaining: 0, empty: null, nested: { follow_up: 'Original instruction' } },
+        prescribing_provider: 'Recorded provider', unknown_date: '2026-02-30', active: false, remaining: 0, empty: null, nested: { follow_up: 'Original instruction' } },
     }] }]} limit={50} />)
     expect(screen.getByText('Medication')).toBeTruthy()
     expect(screen.getByText('Example medication')).toBeTruthy()
@@ -17,12 +17,21 @@ describe('imported medical history', () => {
     expect(screen.getByText('Start date')).toBeTruthy()
     expect(screen.getByText('17 Jun 2026')).toBeTruthy()
     expect(screen.getByText('Prescribed by')).toBeTruthy()
+    expect(screen.getByText('2026-02-30')).toBeTruthy()
     expect(screen.getByText('No')).toBeTruthy()
     expect(screen.getByText('0')).toBeTruthy()
     expect(screen.getByText('Follow up')).toBeTruthy()
     expect(screen.queryByText('Empty')).toBeNull()
     expect(document.querySelector('pre')).toBeNull()
     expect(screen.queryByText(/drug_prescription|medication_name|prescribing_provider/)).toBeNull()
+  })
+  it('renders arbitrary saved field names as text without inheriting object properties', () => {
+    render(<ImportedHistory records={[{ ...historyFixture[0]!, files: [], versions: [{ ...historyFixture[0]!.versions[0]!,
+      structuredData: JSON.parse('{"constructor":"Original value","__proto__":{"description":"Original nested value"}}'),
+    }] }]} limit={50} />)
+    expect(screen.getByText('Constructor')).toBeTruthy()
+    expect(screen.getByText('Original value')).toBeTruthy()
+    expect(screen.getByText('Original nested value')).toBeTruthy()
   })
   it('shows repeated legacy notes once under a single label', () => {
     render(<ImportedHistory records={[{ ...historyFixture[0]!, files: [], versions: [{ ...historyFixture[0]!.versions[0]!,
