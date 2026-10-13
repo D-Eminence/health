@@ -112,7 +112,7 @@ nor an encounter's status to Pharmacy or Lab (hand-off A1, A3). hid-system
   request (`GET /lab/ehr-orders/:sourceEhrOrderId/released-results`, with
   `lab.result.released.read`) and audits each read (hid-system#51).
 
-Since the hid-system alignment PR the portal uses these, and handles the
+Since the hid-system alignment PR (Health-id #49) the portal uses these, and handles the
 answers of a build without them. A role holding `lab.work-item.accept` may
 create an active request, activate a draft ("Activate and send to Lab"),
 resume a held request ("Resume and send to Lab") and send a saved active

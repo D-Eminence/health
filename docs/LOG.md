@@ -978,7 +978,7 @@ both. hid-system was not changed.
     may still dispense the version it was sent; the lab-request form says a
     draft is never sent to the Laboratory. These warnings hold for every
     released hid-system build; see "hid-system `main` moved on" below for what
-    its `main` has since merged. (Since changed: the hid-system alignment PR
+    its `main` has since merged. (Since changed: the hid-system alignment PR, Health-id #49,
     rewords the prescription and lab-request warnings and offers activation to
     a role that may send to Lab; see the 2026-10-13 entry.)
   - Pharmacy's dispensing card shows route and instructions (PHARM-01). The
