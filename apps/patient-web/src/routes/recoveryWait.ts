@@ -10,9 +10,11 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 export const CODE_BUDGET_HINT = 'After 5 wrong codes within 15 minutes, every code is refused, even a correct one, and no new code is sent, for 15 minutes. If that may have happened, wait before starting again.'
 
 /**
- * Whether a recovery may start again for a new code: a start within the previous
- * one's `resendAfterSeconds` answers the same challenge and sends nothing
- * (hid-system #55). A start that names no wait may start again at once.
+ * Whether a recovery may start again for a new code: a start for the same
+ * identifier within the previous one's `resendAfterSeconds` answers the same
+ * challenge and sends nothing (hid-system #55; migration 0081 keys the wait by
+ * identifier, so another identifier is not held back). A start that names no
+ * wait may start again at once.
  */
 export function useResendWait() {
   const [ready, setReady] = useState(false)

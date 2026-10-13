@@ -78,7 +78,8 @@ export function Recovery() {
     })
   }
 
-  // Back to the first step, the identifier kept: a new start after the wait sends a new code.
+  // Back to the first step, the identifier kept to be corrected or sent again: another identifier gets a
+  // code at once, the same one only once the previous start's wait has passed.
   const restart = () => {
     if (busy) return
     setStep('start'); setError(null); setFieldError(false); setCode(''); setChallengeId(''); setVerificationToken('')
@@ -109,9 +110,13 @@ export function Recovery() {
         aria-invalid={invalid} aria-describedby={describedBy('recovery-password-hint', errorId)} /></label>
       <button className="patient-primary-button" disabled={busy || password.length < 12}>{busy ? 'Saving…' : 'Reset password'}</button></form>}
     {step === 'complete' && <div role="status" className="patient-success"><h2 ref={stepFocus.target} tabIndex={-1}>Password reset complete.</h2><Link className="patient-primary-button" to="/sign-in">Sign in</Link></div>}
-    {(step === 'code' || step === 'password') && resend.ready && <div className="patient-auth-footer">
-      <p className="patient-field-hint">No code, or a code refused? Start again with the same email or Health ID to get a new code.</p>
-      <button className="patient-text-button" type="button" onClick={restart} disabled={busy}>Start again</button></div>}
+    {/* A start within the previous one's wait answers the same challenge and sends no code, but only for the
+        same identifier (hid-system #55, migration 0081): another one may be entered at once. A new code for the
+        same one is offered once the wait has passed, in a region mounted throughout, so it is announced. */}
+    {(step === 'code' || step === 'password') && <div className="patient-auth-footer">
+      <button className="patient-text-button" type="button" onClick={restart} disabled={busy}>Use a different email or Health ID</button>
+      <div role="status">{resend.ready && <><p className="patient-field-hint">No code, or a code refused? Start again with the same email or Health ID to get a new code.</p>
+        <button className="patient-text-button" type="button" onClick={restart} disabled={busy}>Start again for a new code</button></>}</div></div>}
     <p className="patient-auth-footer"><Link to="/sign-in">Back to sign in</Link></p>
   </section></main>
 }

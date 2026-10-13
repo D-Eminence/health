@@ -246,9 +246,9 @@ describe('provider and platform password recovery', () => {
     expect(screen.queryByText('Passwords do not match.')).toBeNull()
   })
 
-  it("'Start again' puts focus on the work email field", async () => {
+  it.each(['Use a different work email', 'Start again for a new code'])("'%s' puts focus on the work email field", async name => {
     await toPassword()
-    await press('Start again')
+    await press(name)
     await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('Work email')))
   })
 

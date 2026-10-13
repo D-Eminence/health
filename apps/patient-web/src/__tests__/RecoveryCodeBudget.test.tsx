@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
 import { Recovery } from '../routes/Recovery'
@@ -32,10 +32,13 @@ afterEach(() => { cleanup(); vi.clearAllMocks(); vi.useRealTimers() })
 
 const pages = [
   { name: 'patient', field: 'Email or Health ID', identifier: 'patient@example.test', same: /same email or Health ID/,
+    different: 'Use a different email or Health ID',
     start: api.recoveryStart, verify: api.recoveryVerify, open: () => render(<MemoryRouter><Recovery /></MemoryRouter>) },
   { name: 'provider', field: 'Work email', identifier: 'clinician@example.test', same: /same work email/,
+    different: 'Use a different work email',
     start: principal.start, verify: principal.verify, open: () => render(<MemoryRouter><PrincipalRecovery audience="staff" /></MemoryRouter>) },
 ] as const
+const NEW_CODE = 'Start again for a new code'
 
 async function toCode(page: (typeof pages)[number], resendAfterSeconds?: number) {
   page.start.mockResolvedValue({ accepted: true, challengeId: 'challenge-1', deliveryChannels: ['email', 'sms'], expiresInSeconds: 600,
@@ -58,20 +61,32 @@ describe.each(pages)('$name password recovery', page => {
     expect(hint.textContent).toMatch(/no new code is sent/)
   })
 
-  it('offers to start again only once a new code can be sent, with the same identifier', async () => {
+  it('offers a new code only once one can be sent, announces it, and keeps the identifier', async () => {
     await toCode(page, 60)
-    expect(screen.queryByRole('button', { name: 'Start again' })).toBeNull()
+    // Mounted throughout the wait, so what appears in it is announced.
+    const region = screen.getByRole('status')
+    expect(screen.queryByRole('button', { name: NEW_CODE })).toBeNull()
     await act(async () => { vi.advanceTimersByTime(59_000) })
-    expect(screen.queryByRole('button', { name: 'Start again' })).toBeNull()
+    expect(screen.queryByRole('button', { name: NEW_CODE })).toBeNull()
     await act(async () => { vi.advanceTimersByTime(1_000) })
-    const again = screen.getByRole('button', { name: 'Start again' })
-    expect(screen.getByText(page.same)).toBeTruthy()
+    const again = screen.getByRole('button', { name: NEW_CODE })
+    expect(region.textContent).toMatch(page.same)
+    expect(region.contains(again)).toBe(true)
     fireEvent.click(again)
     expect((await screen.findByLabelText(page.field) as HTMLInputElement).value).toBe(page.identifier)
   })
 
-  it('offers to start again at once when the start names no wait', async () => {
+  // The wait holds back only a repeat for the same identifier (otp_start_cooldowns, migration 0081).
+  it('offers at once a way back to correct the identifier', async () => {
+    await toCode(page, 60)
+    fireEvent.click(screen.getByRole('button', { name: page.different }))
+    const field = await screen.findByLabelText(page.field) as HTMLInputElement
+    expect(field.value).toBe(page.identifier)
+    await waitFor(() => expect(document.activeElement).toBe(field))
+  })
+
+  it('offers a new code at once when the start names no wait', async () => {
     await toCode(page)
-    expect(screen.getByRole('button', { name: 'Start again' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: NEW_CODE })).toBeTruthy()
   })
 })

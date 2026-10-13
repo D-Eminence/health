@@ -160,10 +160,13 @@ export function PrincipalRecovery({ audience }: { audience: RecoveryAudience }) 
     </form>}
     {step === 'complete' && <div role="status" className="patient-success"><h2 ref={stepFocus.target} tabIndex={-1}>Password reset complete.</h2>
       <Link className="patient-primary-button" to={signInPath}>Sign in</Link></div>}
-    {/* A start within the previous one's wait answers the same challenge and sends no code (hid-system #55). */}
-    {(step === 'code' || step === 'password') && resend.ready && <div className="patient-auth-footer">
-      <p className="patient-field-hint">No code, or a code refused? Start again with the same work email to get a new code.</p>
-      <button className="patient-text-button" type="button" onClick={restart} disabled={busy}>Start again</button></div>}
+    {/* A start within the previous one's wait answers the same challenge and sends no code, but only for the
+        same identifier (hid-system #55, migration 0081): another one may be entered at once. A new code for the
+        same one is offered once the wait has passed, in a region mounted throughout, so it is announced. */}
+    {(step === 'code' || step === 'password') && <div className="patient-auth-footer">
+      <button className="patient-text-button" type="button" onClick={restart} disabled={busy}>Use a different work email</button>
+      <div role="status">{resend.ready && <><p className="patient-field-hint">No code, or a code refused? Start again with the same work email to get a new code.</p>
+        <button className="patient-text-button" type="button" onClick={restart} disabled={busy}>Start again for a new code</button></>}</div></div>}
     <p className="patient-auth-footer"><Link to={signInPath}>Back to {accountLabel.toLowerCase()} sign in</Link></p>
   </section></main>
 }
