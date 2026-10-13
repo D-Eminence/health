@@ -246,11 +246,37 @@ describe('activating or resuming a lab request', () => {
     expect(await screen.findByText('Lab request activated and accepted by Lab.')).toBeTruthy()
   })
 
-  it('says a saved activation Lab did not accept was not accepted, and offers to send it again', async () => {
-    await activate({ state: 'failed', status: 502, code: 'LAB_SERVICE_UNAVAILABLE' })
-    const said = await screen.findByText(/did not accept/)
-    expect(said.textContent).toMatch(/LAB_SERVICE_UNAVAILABLE/)
+  // The handoff carries Lab's own status (lab-requests.service.ts LAB_REFUSALS): 400, 403 and 409
+  // are Lab's verdict on the request or the caller; any other (401, another 4xx, 5xx, Lab unreachable)
+  // says nothing about the request, as a create's 502 LAB_HANDOFF_UNCONFIRMED does not.
+  it.each([
+    ['activated', 'draft', 400, 'VALIDATION_FAILED'],
+    ['activated', 'draft', 403, 'LAB_ACCESS_DENIED'],
+    ['activated', 'draft', 409, 'IDEMPOTENCY_CONFLICT'],
+    ['resumed', 'on_hold', 403, 'LAB_WORK_ITEM_ACCESS_DENIED'],
+  ])('says a request %s from %s that Lab refused (%i %s) was refused, to be sent once that is resolved', async (done, from, status, code) => {
+    await activate({ state: 'failed', status, code }, from)
+    const said = await screen.findByText(new RegExp(`^Lab request ${done} in the EHR`))
+    expect(said.textContent).toMatch(new RegExp(`Lab refused it \\(${code}\\)`))
+    expect(said.textContent).toMatch(/once that is resolved, use Send to Lab on the request\.$/i)
+    expect(said.textContent).not.toMatch(/did not confirm|did not accept/)
+    expect(screen.queryByText(/accepted by Lab/)).toBeNull()
+    const send = await screen.findByRole('button', { name: 'Send to Lab' })
+    await waitFor(() => expect(document.activeElement).toBe(send))
+  })
+
+  it.each([
+    ['activated', 'draft', 502, 'LAB_SERVICE_UNAVAILABLE'],
+    ['activated', 'draft', 503, 'LAB_SERVICE_UNAVAILABLE'],
+    ['activated', 'draft', 401, 'LAB_SERVICE_ERROR'],
+    ['resumed', 'on_hold', 500, 'LAB_SERVICE_ERROR'],
+  ])('says a request %s from %s that Lab did not confirm (%i %s) may not be in the Laboratory, and offers to send it again', async (done, from, status, code) => {
+    await activate({ state: 'failed', status, code }, from)
+    const said = await screen.findByText(new RegExp(`^Lab request ${done} in the EHR`))
+    expect(said.textContent).toMatch(new RegExp(`Lab did not confirm it \\(${code}\\), so the Laboratory may not have it: `))
     expect(said.textContent).toMatch(/Send to Lab/)
+    expect(said.textContent).not.toMatch(/refused/)
+    expect(screen.queryByText(/accepted by Lab/)).toBeNull()
     const send = await screen.findByRole('button', { name: 'Send to Lab' })
     await waitFor(() => expect(document.activeElement).toBe(send))
   })

@@ -126,6 +126,13 @@ const LAB_NOT_TOLD: Readonly<Record<string, string>> = {
   on_hold: 'Putting this request on hold was not passed to Lab, which may still be working on the version it accepted. Cancelling it or marking it entered in error would not be passed to Lab either, so neither is offered here; contact the laboratory to stop or correct it.',
 }
 
+/**
+ * Lab's statuses that are its verdict on the request or the caller, as EHR tells them apart
+ * (lab-requests.service.ts LAB_REFUSALS): invalid, not allowed, or in conflict with what Lab holds.
+ * Any other (401, another 4xx, 5xx, Lab unreachable) says nothing about the request.
+ */
+const LAB_REFUSALS: ReadonlySet<number> = new Set([400, 403, 409])
+
 /** A code from Lab as EHR reports it (lab-requests.service.ts LAB_CODE), or nothing. */
 function labCode(value: unknown): string | undefined {
   return typeof value === 'string' && /^[A-Z][A-Z0-9_]{0,63}$/.test(value) ? value : undefined
@@ -173,8 +180,13 @@ function labHandoffOutcome(handoff: LabHandoff | null, done: string, canSend: bo
     case 'failed': {
       if (handoff.code === 'LAB_ORDER_NOT_CURRENT') return { accepted: false, sendable: true, listChanged: true,
         text: `Lab request ${done} in the EHR, but it changed again before Lab accepted it, and Lab may hold that later version: check the request, and if it is still needed, ${sendItFrom(canSend)}.` }
+      // As a create's 409 LAB_HANDOFF_REFUSED or 502 LAB_HANDOFF_UNCONFIRMED, by Lab's status. Lab
+      // checks the caller before what it holds, so a refusal does not say Lab lacks the request.
       const code = labCode(handoff.code)
-      return { accepted: false, sendable: true, text: `Lab request ${done} in the EHR: its status is saved, but Lab did not accept it${code ? ` (${code})` : ''}. To send it again, ${sendItFrom(canSend)}.` }
+      const named = code ? ` (${code})` : ''
+      return { accepted: false, sendable: true, text: LAB_REFUSALS.has(handoff.status)
+        ? `Lab request ${done} in the EHR: its status is saved, but Lab refused it${named}. Once that is resolved, ${sendItFrom(canSend)}.`
+        : `Lab request ${done} in the EHR: its status is saved, but Lab did not confirm it${named}, so the Laboratory may not have it: to send it again, ${sendItFrom(canSend)}.` }
     }
     case 'not_sent':
       return { accepted: false, sendable: false, text: `Lab request ${done} in the EHR, not sent to Lab: your role cannot send requests to Lab. Someone who may send requests to Lab must use Send to Lab on it.` }
