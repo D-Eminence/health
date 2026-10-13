@@ -1292,8 +1292,8 @@ changed.
 A read-only watch of hid-system `main` from `bbc6e89` to `b69a6ab` (merge of
 hid-system#65) checked hid-system#63, #64, #54 and #65 against Health-id
 `main` `82b474e`. None is released. hid-system was not changed. Two of them
-made the portal show something untrue, and branch
-`claude/hid-system-64-65-alignment` changes only that:
+made the portal show something untrue, and Health-id #51
+(`claude/hid-system-64-65-alignment`) changes only that:
 
 - **hid-system#64 (migration 0084).** Changing an encounter's status now
   closes its records in the same transaction. Cancelling cancels its draft,
