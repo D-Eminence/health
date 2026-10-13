@@ -1,3 +1,4 @@
+import { parseImportedRecords, type ImportedMedicalRecord, type ImportedAttachmentDownload } from './importedRecords'
 import type { ApiClient } from '@hid/http'
 import { createEhrService, createSupportService } from '@hid/api'
 import { parsePatientChat, type PatientChatReply } from '@hid/contracts'
@@ -75,6 +76,7 @@ export interface PatientNinVerification {
 }
 
 export interface PatientRecords {
+  importedRecords?: ImportedMedicalRecord[]
   encounters: Array<{ id: string; facilityId: string; encounterType: string; status: string; startedAt: string; endedAt: string | null }>
   notes: Array<{ id: string; encounterId: string; facilityId: string; noteType: string; title: string; status: string; revisionNo: number; content: string; signedAt: string | null }>
   limit: number
@@ -158,7 +160,13 @@ export function createPatientApi(client: ApiClient) {
       call<{ completed: true }>('POST', 'auth/otp/complete', { challengeId, verificationToken, newPassword, purpose: 'PASSWORD_RESET' }),
     profile: (signal?: AbortSignal) => call<PatientProfile>('GET', 'identity/me', undefined, { signal }),
     verifyNin: (nin: string) => call<PatientNinVerification>('POST', 'identity/me/verification/nin', { nin }),
-    records: (signal?: AbortSignal) => call<PatientRecords>('GET', 'ehr/me/records', undefined, { signal }),
+    records: async (signal?: AbortSignal) => {
+      const value = await call<PatientRecords>('GET', 'ehr/me/records', undefined, { signal })
+      if (value.importedRecords !== undefined) value.importedRecords = parseImportedRecords(value.importedRecords)
+      return value
+    },
+    importedAttachment: (id: string, signal?: AbortSignal) => call<ImportedAttachmentDownload>('GET',
+      `ehr/me/imported-attachments/${encodeURIComponent(id)}/download`, undefined, { signal }),
     accessHistory: (signal?: AbortSignal) => call<AccessHistory>('GET', 'identity/me/access-history', undefined, { signal }),
     accessRequests: (signal?: AbortSignal) => call<AccessRequest[]>('GET', 'identity/me/access-requests', undefined,
       { signal, headers: { 'X-Purpose-Of-Use': 'direct-care' } }),

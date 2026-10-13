@@ -1,3 +1,4 @@
+import type { ImportedRecordsResponse, ImportedAttachmentDownload } from '../importedRecords'
 import { createApiClient, uploadPresignedObject } from '@hid/http'
 import { createRegisteredBrowserClient } from '@hid/api'
 import { resolveStaffLoginAction } from '../productHostname'
@@ -466,6 +467,12 @@ export const staffApi = {
 
   encounters: (facilityId: string, patientId: string) =>
     client.get<Page<Encounter>>(patientPath(patientId), { query: { limit: 50 }, headers: facilityHeaders(facilityId) }),
+  importedRecords: (facilityId: string, patientId: string, purpose: 'direct-care' | 'emergency', signal?: AbortSignal) =>
+    client.get<ImportedRecordsResponse>(`/api/v1/ehr/patients/${encodeURIComponent(patientId)}/imported-records`,
+      { headers: facilityHeaders(facilityId, purpose), signal, dedupe: false }),
+  importedAttachment: (facilityId: string, patientId: string, fileId: string, purpose: 'direct-care' | 'emergency', signal?: AbortSignal) =>
+    client.get<ImportedAttachmentDownload>(`/api/v1/ehr/patients/${encodeURIComponent(patientId)}/imported-attachments/${encodeURIComponent(fileId)}/download`,
+      { headers: facilityHeaders(facilityId, purpose), signal, dedupe: false }),
   emergencyRecords: (facilityId: string, patientId: string) =>
     client.get<EmergencyRecords>(`/api/v1/ehr/patients/${encodeURIComponent(patientId)}/emergency-records`,
       { headers: facilityHeaders(facilityId, 'emergency') }),

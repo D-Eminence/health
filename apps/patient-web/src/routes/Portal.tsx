@@ -1,3 +1,5 @@
+import { ImportedHistory } from '../ImportedHistory'
+import { getEnvironment } from '../env'
 import { useState, type FormEvent } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
@@ -123,6 +125,8 @@ export function RecordsPage() {
     <p className="patient-page-copy">Completed encounters and signed clinical notes available to your patient account.</p>
     <LoadState loading={records.loading} error={records.error} retry={records.reload} />
     {records.data && !records.loading && !records.error && <>
+      {records.data?.importedRecords !== undefined && <ImportedHistory records={records.data.importedRecords}
+        limit={records.data.limit} download={api.importedAttachment} allowLocalHttp={getEnvironment().name === 'local'} />}
       <div className="patient-card"><h2>Encounters</h2>{records.data.encounters.length === 0 ? <p className="patient-empty">No completed encounters are available.</p> : <ul className="patient-list">
         {records.data.encounters.map(item => <li key={item.id}><div><strong>{item.encounterType}</strong><span>{date(item.startedAt)} · {item.status}</span></div></li>)}
       </ul>}</div>

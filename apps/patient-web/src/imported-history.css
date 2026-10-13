@@ -1,0 +1,13 @@
+.imported-history { margin-block: 1.5rem; }
+.imported-history-list { display: grid; gap: 1rem; }
+.imported-history-card { background: #fff; border: 1px solid #dce4eb; border-radius: 1rem; padding: 1.25rem; }
+.imported-history-card header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .75rem; }
+.imported-history-card h3, .imported-history-card h4 { margin-block: .5rem; }
+.imported-history-origin { background: #eaf3ff; color: #075ab6; border-radius: 1rem; padding: .25rem .65rem; font-size: .85rem; }
+.imported-history-content pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; margin-block: .5rem 1rem; }
+.imported-history-card ul { padding-inline-start: 1.25rem; }
+.imported-history-card li { margin-block: .5rem; overflow-wrap: anywhere; }
+.imported-history-card li > span, .imported-history-card li > button { display: block; margin-block: .3rem; }
+.imported-history-card button { border: 1px solid #0870d9; border-radius: .5rem; padding: .5rem .75rem; background: #fff; color: #075ab6; cursor: pointer; }
+.imported-history-card button:focus-visible { outline: 3px solid #0870d9; outline-offset: 3px; }
+.imported-history-card button:disabled { opacity: .6; cursor: wait; }
