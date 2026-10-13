@@ -1324,16 +1324,26 @@ made the portal show something untrue, and Health-id #51
 - **Evidence.** Each behaviour change has a test that failed first: 9 tests
   (the three encounter warning cases, two record reloads and four closed
   workspaces). A 404 that a module sends with its own code was already shown
-  correctly and still is. At the branch head every gate passes:
+  correctly and still is. An independent review of the PR found nothing
+  blocking. Its minor findings were fixed with one more failing-first test
+  (13 cases across the four tests that failed first):
+  - the warning now also says documents are not changed;
+  - the reload reads the tab shown when the change is answered, which the
+    clinician may have changed meanwhile;
+  - the Outreach test checks both lists;
+  - the gap map row and three hand-off citations are corrected.
+  Not changed: re-reading the records after a 409 that shows someone else
+  closed the encounter, which is the same staleness as any concurrent change.
+  At the branch head every gate passes:
   - `audit:boundaries`, `typecheck` and `lint`;
-  - `npm test`: 138 files, 1818 tests;
+  - `npm test`: 138 files, 1819 tests;
   - both builds;
   - `npm audit`: 0 vulnerabilities.
 - **Not verified.** Component tests with the network stubbed. Nothing was run
   in a browser, at runtime, on staging or against a live hid-system.
 - **Docs.** The architecture notes and open questions describe the new
   warning, the record reload, the closed modules and the `X-Real-IP`
-  requirement. The backend hand-off gains a note for `b69a6ab`:
+  requirement, and the gap map's encounter row matches them. The backend hand-off gains a note for `b69a6ab`:
   - hid-system#47 must now take migration 0085 and conflicts in eight files;
   - ADR-047 is accepted (D9);
   - hid-system#65 addresses A7, not re-verified;

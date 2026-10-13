@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
@@ -7,8 +7,8 @@ import { Laboratory, Ocr, Outreach, Pharmacy } from '../Operations'
 /**
  * Since hid-system #65 the gateway answers every Lab, Pharmacy, OCR and
  * Outreach route with 404 API_ROUTE_NOT_FOUND while that module is off
- * (gateway/nginx.conf.template; INTERFACE_CONTRACT.md "Modules enabled at
- * launch"), and a production deployment cannot turn one on. Its body has no
+ * (gateway/nginx.conf.template; INTERFACE_CONTRACT.md "Launch module set"),
+ * and a production deployment cannot turn one on. Its body has no
  * detail, so the client's message is its generic 404 one. The read
  * permissions stay seeded, so these workspaces still open: each must say
  * that the module is not in service, not that the work is missing.
@@ -59,9 +59,8 @@ describe('a workspace whose module the gateway has closed', () => {
   it('Outreach says the module is not in service for both its lists', async () => {
     permissions.value = ['outreach.campaign.read', 'outreach.registration.read']
     render(<Outreach />)
-    const shown = await alerts()
-    expect(shown.length).toBeGreaterThan(0)
-    expect(shown.every(text => text === NOT_IN_SERVICE)).toBe(true)
+    await waitFor(() => expect(screen.getAllByRole('alert')).toHaveLength(2))
+    expect(await alerts()).toEqual([NOT_IN_SERVICE, NOT_IN_SERVICE])
   })
 
   it('OCR says the module is not in service when a job is looked up', async () => {
