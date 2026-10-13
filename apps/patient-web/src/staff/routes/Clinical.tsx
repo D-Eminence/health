@@ -58,10 +58,15 @@ const encounterTransitions: Readonly<Record<string, readonly StatusOption[]>> = 
   on_hold: [{ value: 'in_progress', label: 'Resume' }, { value: 'cancelled', label: 'Cancel' },
     { value: 'entered_in_error', label: 'Mark entered in error' }],
 }
-// EHR changes only the encounter: its prescriptions and lab requests keep their
-// status, and neither Pharmacy nor Lab is told. Every encounter status form offers
-// Cancel and Mark entered in error, and any encounter may hold orders.
-const ORDERS_NOT_CANCELLED = 'Cancelling this encounter, or marking it entered in error, does not cancel its prescriptions or lab requests, and Pharmacy and the Laboratory are not told. Cancel each order itself where this record offers it, and contact the pharmacy or laboratory about any order sent to them.'
+// Since hid-system #64 (CLIN-EIE, migration 0084) EHR closes an encounter's records
+// in the same change (encounters.service.ts CLOSE_STEPS): cancelling cancels its
+// draft, active and on-hold prescriptions and lab requests; entered in error marks
+// those orders, its notes and its diagnoses entered in error. Completed orders and
+// vitals keep their state, and neither Pharmacy nor Lab is told. Every encounter
+// status form offers Cancel and Mark entered in error, and any encounter may hold orders.
+const ENCOUNTER_CLOSES_RECORDS = 'Cancelling this encounter also cancels its draft, active and on-hold prescriptions and lab requests. Marking it entered in error marks those orders, and its notes and diagnoses, entered in error. Completed orders and vitals are not changed. Pharmacy and the Laboratory are not told: contact the pharmacy or laboratory about any order sent to them.'
+// The statuses whose change also changes the encounter's records (above).
+const CLOSING_STATUSES: ReadonlySet<string> = new Set(['cancelled', 'entered_in_error'])
 const prescriptionTransitions: Readonly<Record<string, readonly StatusOption[]>> = {
   draft: [{ value: 'active', label: 'Activate' }, { value: 'cancelled', label: 'Cancel' },
     { value: 'entered_in_error', label: 'Mark entered in error' }],
@@ -1365,6 +1370,8 @@ export function Clinical() {
     // The changed encounter may not be on the page shown; it stays documented as changed.
     if (updated?.id) setSelection(current => current?.id === updated.id ? updated : current)
     await loadEncounters({ cursors: 'shown', fresh: true })
+    // The answer is the encounter alone: the records it closed are read again (hid-system #64).
+    if (CLOSING_STATUSES.has(status) && activeTab && activeTab !== 'documents') await loadRecords(activeTab, 'shown', true)
     setSuccess('Encounter status updated.')
     focus([`encounter-${selected.id}-status`, 'clinical-documentation-title'], true)
   }
@@ -1481,7 +1488,7 @@ export function Clinical() {
     {selected && <section className="staff-section" aria-labelledby="clinical-documentation-title"><div className="staff-page-head"><p className="staff-eyebrow">Selected encounter</p><h2 id="clinical-documentation-title" tabIndex={-1}>Care documentation</h2><p>{new Date(selected.startedAt).toLocaleString()} · {selected.status.replace('_', ' ')}</p></div>
       {canMutate && permissions.includes('ehr.encounter.write') && (encounterTransitions[selected.status]?.length ?? 0) > 0 &&
         <Card className="staff-card"><StatusActionForm key={`${selected.id}-${selected.rowVersion}`} id={`encounter-${selected.id}`} title="Encounter status"
-          choices={encounterTransitions[selected.status]!} warning={ORDERS_NOT_CANCELLED} disabled={loading} onChange={changeEncounterStatus} /></Card>}
+          choices={encounterTransitions[selected.status]!} warning={ENCOUNTER_CLOSES_RECORDS} disabled={loading} onChange={changeEncounterStatus} /></Card>}
       {!activeTab ? <p className="staff-muted">Your current facility role does not grant access to encounter records.</p>
         : <><TabList items={visibleTabs} selectedId={activeTab} onSelect={id => setTab(id as RecordKind | 'documents')} label="Clinical record section"
           idPrefix="clinical-record" className="staff-tabs" />

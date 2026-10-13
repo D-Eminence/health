@@ -130,9 +130,15 @@ must be contacted if the prescription was sent, and that Pharmacy may refuse
 to dispense it after the change, even once resumed: true with or without
 migration 0080, which no response reveals. Pharmacy marks work "Not
 dispensable" once a dispensing is refused with
-`PHARMACY_PRESCRIPTION_NOT_DISPENSABLE`, until the page is reloaded. The
-encounter status form still warns that its orders are not cancelled and that
-Pharmacy and the Laboratory are not told. The Lab and Pharmacy lists say when
+`PHARMACY_PRESCRIPTION_NOT_DISPENSABLE`, until the page is reloaded. Since
+hid-system#64 (migration 0084) a change of encounter status also closes the
+encounter's records. Cancelling cancels its draft, active and on-hold
+prescriptions and lab requests; entered in error marks those orders, its notes
+and its diagnoses entered in error. The encounter status form says so, and
+says that Pharmacy and the Laboratory are not told. EHR answers with the
+encounter alone, so after either change the records list shown is read again.
+That wording is untrue against an EHR without hid-system#64, so the portal is
+to be deployed with or after it. The Lab and Pharmacy lists say when
 they reach the backend's cap of the 200 oldest work items (A2), and Pharmacy
 adds that work it can no longer dispense stays listed and counts toward the
 200.
@@ -164,7 +170,12 @@ behind the gateway it also arrives as `503 UPSTREAM_UNAVAILABLE` (hand-off A8).
 Outreach campaign management is
 not offered: Identity refuses `outreach.campaign.write` until campaign
 governance is decided (ADR-045; hand-off B10, E5), so the portal lists
-campaigns and members read-only and says so.
+campaigns and members read-only and says so. Since hid-system#65 the gateway
+proxies only Identity and EHR at launch. Every Lab, Pharmacy, OCR and Outreach
+route answers `404 API_ROUTE_NOT_FOUND` with no detail, while those modules'
+read permissions stay seeded, so their workspaces still open. Each says that
+the module is not in service on this deployment and that refreshing will not
+help, instead of the client's generic "not found" (hand-off MOD-1).
 
 Break-glass access is audited by Identity, and the portal offers it only to a
 role holding every permission the grant and the summary need. EHR's dedicated
@@ -307,8 +318,9 @@ Choosing a facility in the list only proposes it; Switch facility confirms it.
 The portal keeps nothing about the facility in browser storage. With
 hid-system's per-sign-in facility contract (D-Eminence/hid-system#47: ADR-046;
 open, not merged or deployed; hand-off C1; its migration 0080 must be
-renumbered to 0083, since hid-system `main` gave 0080 to hid-system#48, 0081 to
-hid-system#55 and 0082 to hid-system#58), Identity keeps the facility a
+renumbered to 0085, since hid-system `main` gave 0080 to hid-system#48, 0081 to
+hid-system#55, 0082 to hid-system#58, 0083 to hid-system#63 and 0084 to
+hid-system#64), Identity keeps the facility a
 sign-in chose and reports `facilitySelection` on staff sign-in, session reads and refresh, so a reload
 shows the facility chosen. While it is unresolved (`reselect`: the chosen
 facility is no longer available; `default` for someone with more than one
@@ -333,7 +345,11 @@ production origin must forward its own `/api/v1/*` requests to the gateway.
 That forwarding must preserve cookies, CSRF and request headers. A direct
 cross-origin call to the gateway is not an equivalent session deployment. The
 public site also needs a production `/api/v1/*` route for pricing and demo
-requests; its Next.js rewrite is development-only (hand-off D1).
+requests; its Next.js rewrite is development-only (hand-off D1). Since
+hid-system#65 the gateway in staging and production also refuses, with
+`403 CLIENT_ADDRESS_REQUIRED`, any request whose edge did not set `X-Real-IP`
+to the client's address, so that forwarding must set it as hid-system's
+Workers do.
 
 The portal build publishes no source maps (`build.sourcemap: false`, guarded by
 `apps/patient-web/src/__tests__/buildConfig.test.ts`): hid-system's frontend
