@@ -46,7 +46,10 @@ describe('emergency access refused by a deployment without the emergency purpose
     api.breakGlass.mockRejectedValue(new HidApiError(400, 'The consent command failed integrity validation', { code: 'INVALID_CONSENT_COMMAND' }))
     await activateEmergencyAccess()
     const said = await screen.findByRole('alert')
-    expect(said.textContent).toMatch(/Emergency access is not enabled for this deployment/)
+    // Identity answers this for any SQLSTATE 22023 activate_break_glass raises (a bad duration or
+    // reason too, migration 0031), so a missing emergency purpose is likely, not certain.
+    expect(said.textContent).toMatch(/Emergency access may not be enabled for this deployment/)
+    expect(said.textContent).not.toMatch(/is not enabled/)
     expect(said.textContent).not.toMatch(/integrity validation/)
     expect(api.lookupPatient).not.toHaveBeenCalled()
   })
