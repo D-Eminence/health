@@ -305,9 +305,41 @@ describe('sending a prescription to Pharmacy', () => {
     fireEvent.click(within(form).getByRole('button', { name: 'Send to Pharmacy' }))
 
     expect(await screen.findByText(/This prescription no longer matches what was sent/)).toBeTruthy()
-    expect(screen.getByText(/the list was reloaded/)).toBeTruthy()
+    expect(screen.getByText(/The list was reloaded/)).toBeTruthy()
     expect(api.records).toHaveBeenCalledWith('facility-1', PATIENT, ENCOUNTER, 'prescriptions', { cursor: undefined, fresh: true })
     expect(screen.queryByText('Pharmacy accepted this exact prescription version.')).toBeNull()
+  })
+
+  it('says only that the list could not be reloaded when reading it again fails', async () => {
+    api.acceptPrescription.mockRejectedValueOnce(new HidApiError(409, 'Pharmacy acceptance must match the current active EHR prescription version',
+      { code: 'PHARMACY_PRESCRIPTION_NOT_ELIGIBLE' }))
+    await openPrescriptions()
+    api.records.mockRejectedValue(new Error('Service unavailable'))
+    const form = within(entry('Amoxicillin')).getByRole('button', { name: 'Send to Pharmacy' }).closest('form')!
+    type(form, 'Reason', 'Patient collecting today')
+    fireEvent.click(within(form).getByRole('button', { name: 'Send to Pharmacy' }))
+
+    const said = await screen.findByText(/This prescription no longer matches what was sent/)
+    expect(said.textContent).toMatch(/The list could not be reloaded/)
+    expect(said.textContent).not.toMatch(/list was reloaded/)
+  })
+
+  it('does not say the list could not be reloaded when another list replaced the read', async () => {
+    staff.permissions = [...HAND_OFF, 'ehr.note.read']
+    api.acceptPrescription.mockRejectedValueOnce(new HidApiError(409, 'Pharmacy acceptance must match the current active EHR prescription version',
+      { code: 'PHARMACY_PRESCRIPTION_NOT_ELIGIBLE' }))
+    await openPrescriptions()
+    let reread: (value: unknown) => void = () => {}
+    api.records.mockImplementationOnce(() => new Promise(resolve => { reread = resolve }))
+    const form = within(entry('Amoxicillin')).getByRole('button', { name: 'Send to Pharmacy' }).closest('form')!
+    type(form, 'Reason', 'Patient collecting today')
+    fireEvent.click(within(form).getByRole('button', { name: 'Send to Pharmacy' }))
+    await waitFor(() => expect(api.records).toHaveBeenLastCalledWith('facility-1', PATIENT, ENCOUNTER, 'prescriptions', { cursor: undefined, fresh: true }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Notes' }))
+    reread({ items: [active, draft], nextCursor: null })
+
+    const said = await screen.findByText(/This prescription no longer matches what was sent/)
+    expect(said.textContent).not.toMatch(/could not be reloaded/)
   })
 
   // Pharmacy holds one work item per prescription (pharmacy.service.ts acceptEhrPrescription).

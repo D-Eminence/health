@@ -138,31 +138,59 @@ function sendItFrom(canSend: boolean) {
 }
 
 /**
+ * What a lab request warning says, and where the work continues: `sendable` when
+ * Send to Lab can still help (not when Lab holds an earlier version, the role may
+ * not send, or the EHR cannot send), `listChanged` when the request changed under
+ * the change, so the list read again shows it differently.
+ */
+interface LabOutcome { readonly text: string; readonly accepted: boolean; readonly sendable?: boolean; readonly listChanged?: boolean }
+
+/**
  * What an active lab request's save says about Lab (hid-system #56 labHandoff).
  * `done` is the change made ("created", "activated", "resumed"); only Lab's
  * acceptance is a plain success. An EHR before #56 reports no handoff after a
- * status change, and sent nothing to Lab, which is said as Lab not being asked.
+ * status change, and sent nothing to Lab, which is said as Lab not being asked;
+ * for a resumption, Lab may still hold the version it accepted before the hold.
  */
-function labHandoffOutcome(handoff: LabHandoff | null, done: string, canSend: boolean): { readonly text: string; readonly accepted: boolean } {
+function labHandoffOutcome(handoff: LabHandoff | null, done: string, canSend: boolean): LabOutcome {
   switch (handoff?.state) {
     case 'accepted':
       return { accepted: true, text: `Lab request ${done} and accepted by Lab.` }
     case 'already_accepted':
-      return { accepted: false, text: `Lab request ${done} in the EHR, but Lab holds an earlier version of it, so this change is not in Lab. Contact the laboratory.` }
+      return { accepted: false, sendable: false, text: `Lab request ${done} in the EHR, but Lab holds an earlier version of it, so this change is not in Lab. Contact the laboratory.` }
     case 'failed': {
-      if (handoff.code === 'LAB_ORDER_NOT_CURRENT') return { accepted: false, text: `Lab request ${done} in the EHR, but it changed again before Lab accepted it, and Lab may hold that later version. The list was reloaded: check the request, and if it is still needed, ${sendItFrom(canSend)}.` }
+      if (handoff.code === 'LAB_ORDER_NOT_CURRENT') return { accepted: false, sendable: true, listChanged: true,
+        text: `Lab request ${done} in the EHR, but it changed again before Lab accepted it, and Lab may hold that later version: check the request, and if it is still needed, ${sendItFrom(canSend)}.` }
       const code = labCode(handoff.code)
-      return { accepted: false, text: `Lab request ${done} in the EHR: its status is saved, but Lab did not accept it${code ? ` (${code})` : ''}. To send it again, ${sendItFrom(canSend)}.` }
+      return { accepted: false, sendable: true, text: `Lab request ${done} in the EHR: its status is saved, but Lab did not accept it${code ? ` (${code})` : ''}. To send it again, ${sendItFrom(canSend)}.` }
     }
     case 'not_sent':
-      return { accepted: false, text: `Lab request ${done} in the EHR, not sent to Lab: your role cannot send requests to Lab. Someone who may send requests to Lab must use Send to Lab on it.` }
+      return { accepted: false, sendable: false, text: `Lab request ${done} in the EHR, not sent to Lab: your role cannot send requests to Lab. Someone who may send requests to Lab must use Send to Lab on it.` }
     default:
-      return { accepted: false, text: `Lab request ${done} in the EHR; Lab was not asked to accept it, so the Laboratory does not have it. Contact the laboratory to order the test.` }
+      return { accepted: false, sendable: false, text: done === 'resumed'
+        ? 'Lab request resumed in the EHR, but Lab was not told of the resumption; it may still hold the version it accepted earlier. Contact the laboratory if the test is still needed.'
+        : `Lab request ${done} in the EHR; Lab was not asked to accept it, so the Laboratory does not have it. Contact the laboratory to order the test.` }
   }
 }
 
 /** A Send to Lab that did not reach Lab's acceptance: what to say, and whether the list changed under it. */
-interface LabSendRefusal { readonly text: string; readonly reload?: boolean; readonly retry?: boolean }
+interface LabSendRefusal { readonly text: string; readonly reload?: boolean; readonly retry?: boolean; readonly sendable?: boolean }
+
+/**
+ * What a records read after a change came to: the rows read, 'failed' (the read
+ * failed), or null when no read for the list shown was made or kept (another
+ * read, or another list, replaced it), which is not a failure.
+ */
+type Reload = ClinicalRecord[] | 'failed' | null
+
+/**
+ * The sentence a warning after a change ends with about the list read again: that
+ * it could not be read, or, when the record changed under the change, that it was.
+ */
+function reloadSentence(reload: Reload, what: string, listChanged: boolean) {
+  if (reload === 'failed') return ` The list could not be reloaded; refresh it to see the ${what}.`
+  return Array.isArray(reload) && listChanged ? ' The list was reloaded.' : ''
+}
 
 /**
  * What a refused POST .../lab-work-item means (lab-requests.service.ts sendToLab).
@@ -171,10 +199,10 @@ interface LabSendRefusal { readonly text: string; readonly reload?: boolean; rea
  */
 function labSendRefusal(caught: unknown): LabSendRefusal {
   if (!isHidApiError(caught)) return { retry: true, text: refusalText(caught, 'The lab request could not be sent to Lab. Send it again.') }
-  if (caught.status === 412 || caught.code === 'LAB_ORDER_NOT_CURRENT') return { reload: true,
-    text: 'This lab request changed since it was loaded, so it was not sent to Lab. The list was reloaded: check the request, and send it again if it is still needed.' }
+  if (caught.status === 412 || caught.code === 'LAB_ORDER_NOT_CURRENT') return { reload: true, sendable: true,
+    text: 'This lab request changed since it was loaded, so it was not sent to Lab: check the request, and send it again if it is still needed.' }
   if (caught.code === 'LAB_REQUEST_NOT_ELIGIBLE') return { reload: true,
-    text: 'This lab request is no longer active, so it was not sent to Lab. The list was reloaded.' }
+    text: 'This lab request is no longer active, so it was not sent to Lab.' }
   if (caught.code === 'LAB_ORDER_ALREADY_ACCEPTED') return {
     text: 'Lab already holds an earlier version of this request, so this version was not sent and its changes are not in Lab. Contact the laboratory.' }
   if (caught.code === 'LAB_ACCESS_DENIED') return { text: 'Lab does not allow you to accept this order for this patient.' }
@@ -182,8 +210,8 @@ function labSendRefusal(caught: unknown): LabSendRefusal {
     text: 'Lab did not confirm that it accepted this request, so the Laboratory may not have it: send again.' }
   if (caught.status === 0 || caught.status === 408 || caught.status >= 500) return { retry: true,
     text: `${refusalText(caught, 'The service did not answer.')} The request may not have reached Lab: send it again.` }
-  if (caught.status === 404) return { reload: true,
-    text: 'The EHR did not find this lab request to send, or cannot send a saved request to Lab. The list was reloaded; contact the laboratory if the test is still needed.' }
+  if (caught.status === 404) return { reload: true, sendable: false,
+    text: 'The EHR did not find this lab request to send, or cannot send a saved request to Lab. Contact the laboratory if the test is still needed.' }
   if (caught.status === 401) return { text: refusalText(caught, 'Sign in again to send this request to Lab.') }
   const code = labCode(caught.code)
   return { text: `This lab request was not sent to Lab: it was refused${code ? ` (${code})` : ''}. Contact the laboratory if the test is still needed.` }
@@ -1191,8 +1219,8 @@ export function Clinical() {
   // to another tab or encounter) is not made: it would replace that list's rows.
   // After a change the read is fresh, and a failure keeps the rows and says the
   // change was saved; a failed page move is reported beside the list. It answers
-  // the rows read, or null when none were.
-  async function loadRecords(kind: RecordKind, cursors: Cursors | 'shown', afterChange: boolean): Promise<ClinicalRecord[] | null> {
+  // the rows read, 'failed', or null when no read was made or kept (Reload).
+  async function loadRecords(kind: RecordKind, cursors: Cursors | 'shown', afterChange: boolean): Promise<Reload> {
     if (!facility || !patientId || !encounterId) return null
     const scope = JSON.stringify([facility.id, patientId, encounterId, kind])
     if (scope !== recordScopeShown.current) return null
@@ -1215,17 +1243,17 @@ export function Clinical() {
       recordRequested.current = before
       if (afterChange) setError(`The change was saved, but the records could not be reloaded. ${refusalText(caught, '')}`.trim())
       else setRecordNotice({ scope, text: `The page could not be loaded. ${refusalText(caught, '')}`.trim(), alert: true })
-      return null
+      return 'failed'
     } finally { if (sequence === recordLoad.current) setRecordsLoading(false) }
   }
 
   // A saved lab request that Lab does not hold, or holds at another version: the
   // change stands, so this is said as a warning, not as the change failing, and
-  // the work continues at the request's Send to Lab, where it is offered. Said
-  // after the list is read again, which may have said it could not be.
-  function labWarning(text: string, requestId: string | undefined, reloaded: boolean) {
-    setError(reloaded ? text : `${text} The list could not be reloaded; refresh it to see the request.`)
-    focus(requestId ? [`lab-request-${requestId}-send`, `record-${requestId}-title`, 'clinical-records-title'] : ['clinical-records-title'])
+  // the work continues at the request's Send to Lab where it is offered and can
+  // help, else at the request. Said after the list is read again (`reload`).
+  function labWarning(text: string, requestId: string | undefined, reload: Reload, { sendable = true, listChanged = false } = {}) {
+    setError(`${text}${reloadSentence(reload, 'request', listChanged)}`)
+    focus(requestId ? [...(sendable ? [`lab-request-${requestId}-send`] : []), `record-${requestId}-title`, 'clinical-records-title'] : ['clinical-records-title'])
   }
 
   // A new record is the newest, so it heads the first page.
@@ -1247,21 +1275,22 @@ export function Clinical() {
       const items = await loadRecords(kind, FIRST_PAGE, true)
       // A 502 names no request; the newest active one for this test heads the list read.
       const fields = body as { testCodeSystem?: unknown; testCode?: unknown }
-      const requestId = named.requestId ?? items?.find(item => item.status === 'active'
-        && item.testCodeSystem === fields.testCodeSystem && item.testCode === fields.testCode)?.id
+      const requestId = named.requestId ?? (Array.isArray(items) ? items.find(item => item.status === 'active'
+        && item.testCodeSystem === fields.testCodeSystem && item.testCode === fields.testCode)?.id : undefined)
       labWarning(caught.code === 'LAB_HANDOFF_REFUSED'
         ? `Lab request saved and active in the EHR, but Lab refused it${named.code ? ` (${named.code})` : ''}, so the Laboratory does not have it. Do not create it again: once that is resolved, ${sendItFrom(canSendToLab)}.`
         : `Lab request saved and active in the EHR, but Lab did not confirm it, so the Laboratory may not have it. Do not create it again: to send it again, ${sendItFrom(canSendToLab)}.`,
-      requestId, items !== null)
+      requestId, items)
       return
     }
     // An EHR before #56 reports no handoff: its 201 for an active request meant Lab accepted it.
-    const outcome = !activeLab ? null : saved.labHandoff === undefined ? { accepted: true, text: 'Active lab request created and accepted by Lab.' }
+    // So does #56's, unless it names another state: a 201 never means Lab failed (that is a 409 or 502).
+    const outcome: LabOutcome | null = !activeLab ? null : saved?.labHandoff === undefined ? { accepted: true, text: 'Active lab request created and accepted by Lab.' }
       : saved.labHandoff?.state === 'accepted' ? { accepted: true, text: 'Active lab request created and accepted by Lab.' }
         : labHandoffOutcome(saved.labHandoff ?? null, 'created', canSendToLab)
     if (!outcome || outcome.accepted) setSuccess(outcome?.text ?? 'Clinical record saved by the backend.')
     const items = await loadRecords(kind, FIRST_PAGE, true)
-    if (outcome && !outcome.accepted) labWarning(outcome.text, typeof saved?.id === 'string' ? saved.id : undefined, items !== null)
+    if (outcome && !outcome.accepted) labWarning(outcome.text, typeof saved?.id === 'string' ? saved.id : undefined, items, outcome)
   }
 
   async function changeEncounterStatus(status: string, reason: string) {
@@ -1311,7 +1340,7 @@ export function Clinical() {
     if (!outcome || outcome.accepted) setSuccess(outcome?.text ?? (kind === 'clinical-notes' ? 'Clinical note status updated.'
       : kind === 'lab-requests' ? 'Lab request status updated.' : 'Prescription status updated.'))
     const items = await loadRecords(kind, 'shown', true)
-    if (outcome && !outcome.accepted) return labWarning(outcome.text, record.id, items !== null)
+    if (outcome && !outcome.accepted) return labWarning(outcome.text, record.id, items, outcome)
     const form = kind === 'clinical-notes' ? 'note' : kind === 'lab-requests' ? 'lab-request' : 'prescription'
     focus([`${form}-${record.id}-status`, `record-${record.id}-title`, 'clinical-records-title'], true)
   }
@@ -1330,7 +1359,7 @@ export function Clinical() {
       const refusal = labSendRefusal(caught)
       if (!refusal.reload) throw new LabSendError(refusal.text, refusal.retry === true)
       const items = await loadRecords('lab-requests', 'shown', true)
-      labWarning(refusal.text, record.id, items !== null)
+      labWarning(refusal.text, record.id, items, { sendable: refusal.sendable === true, listChanged: true })
       return
     }
     setSuccess('Lab accepted this lab request at its current version.')
@@ -1376,12 +1405,12 @@ export function Clinical() {
       if (caught.code === 'IDEMPOTENCY_CONFLICT') throw new Error('Pharmacy already holds work for this prescription, sent earlier, perhaps at an earlier version or with another reason, so it was not sent again. If the prescription changed since, Pharmacy cannot dispense it: create a new prescription and send that.')
       // The prescription changed under the handoff: what was shown is read again, and the form, built for the old version, goes.
       const changed = caught.code === 'PHARMACY_PRESCRIPTION_NOT_ELIGIBLE'
-        ? 'This prescription no longer matches what was sent (it was changed, put on hold or cancelled meanwhile), so Pharmacy did not accept it; the list was reloaded.'
-        : caught.status === 412 ? 'This prescription changed since it was loaded, so it was not sent to Pharmacy; the list was reloaded. Check it, and send it again if it is still needed.'
-          : caught.code === 'PRESCRIPTION_NOT_ELIGIBLE' ? 'This prescription is no longer active, so it was not sent to Pharmacy; the list was reloaded.' : null
+        ? 'This prescription no longer matches what was sent (it was changed, put on hold or cancelled meanwhile), so Pharmacy did not accept it.'
+        : caught.status === 412 ? 'This prescription changed since it was loaded, so it was not sent to Pharmacy: check it, and send it again if it is still needed.'
+          : caught.code === 'PRESCRIPTION_NOT_ELIGIBLE' ? 'This prescription is no longer active, so it was not sent to Pharmacy.' : null
       if (!changed) throw caught
       const items = await loadRecords('prescriptions', 'shown', true)
-      setError(items ? changed : `${changed.replace(/; the list was reloaded\./, '.')} The list could not be reloaded; refresh it.`)
+      setError(`${changed}${reloadSentence(items, 'prescription', true)}`)
       focus([`handoff-${record.id}-reason`, `record-${record.id}-title`, 'clinical-records-title'], true)
       return
     }

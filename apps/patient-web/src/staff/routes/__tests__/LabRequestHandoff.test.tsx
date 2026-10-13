@@ -145,11 +145,24 @@ describe('creating an active lab request that Lab did not take', () => {
   })
 
   it('does not call a replayed create that Lab holds at an earlier version accepted', async () => {
-    api.createRecord.mockResolvedValue({ ...labRequest('active', '2'), labWorkItem: null,
-      labHandoff: { state: 'already_accepted', code: 'LAB_ORDER_ALREADY_ACCEPTED' } })
+    api.createRecord.mockImplementation(async () => {
+      records['lab-requests'] = [labRequest('active', '2')]
+      return { ...labRequest('active', '2'), labWorkItem: null, labHandoff: { state: 'already_accepted', code: 'LAB_ORDER_ALREADY_ACCEPTED' } }
+    })
     await createActiveRequest()
     expect(await screen.findByText(/Lab holds an earlier version/)).toBeTruthy()
     expect(screen.queryByText(/accepted by Lab/)).toBeNull()
+    // Send to Lab could only answer LAB_ORDER_ALREADY_ACCEPTED again: the work continues at the request.
+    const title = await screen.findByText('Haemoglobin', { selector: 'strong' })
+    await waitFor(() => expect(document.activeElement).toBe(title))
+  })
+
+  it('takes a 201 without a body as a saved request, not as a failure to save', async () => {
+    api.createRecord.mockImplementation(async () => { records['lab-requests'] = [labRequest('active')]; return undefined })
+    const form = await createActiveRequest()
+    expect(await screen.findByText('Active lab request created and accepted by Lab.')).toBeTruthy()
+    expect(within(form).queryByRole('alert')).toBeNull()
+    expect(value(form, 'Test display')).toBe('')
   })
 })
 
@@ -209,8 +222,8 @@ describe('activating or resuming a lab request', () => {
     expect(screen.queryByLabelText(labelled('New status'))).toBeNull()
   })
 
-  async function activate(handoff: unknown) {
-    records['lab-requests'] = [labRequest('draft')]
+  async function activate(handoff: unknown, from = 'draft') {
+    records['lab-requests'] = [labRequest(from)]
     api.updateRecord.mockImplementation(async () => {
       records['lab-requests'] = [labRequest('active', '2')]
       return { ...labRequest('active', '2'), labWorkItem: null, ...(handoff === undefined ? {} : { labHandoff: handoff }) }
@@ -260,6 +273,37 @@ describe('activating or resuming a lab request', () => {
     await activate(undefined)
     expect(await screen.findByText(/Lab was not asked/)).toBeTruthy()
     expect(screen.queryByText(/accepted by Lab/)).toBeNull()
+  })
+
+  // An EHR before #56 tells Lab nothing of a resumption; Lab may hold the version it accepted at creation.
+  it('says a resumption the EHR reports nothing about was not told to Lab, which may still hold its earlier version', async () => {
+    await activate(undefined, 'on_hold')
+    const said = await screen.findByText(/^Lab request resumed in the EHR/)
+    expect(said.textContent).toMatch(/Lab was not told of the resumption/)
+    expect(said.textContent).toMatch(/may still hold the version it accepted earlier/)
+    expect(said.textContent).not.toMatch(/does not have it/)
+  })
+
+  it('moves to the request, not to Send to Lab, when Lab holds an earlier version of a resumed request', async () => {
+    await activate({ state: 'already_accepted', code: 'LAB_ORDER_ALREADY_ACCEPTED' }, 'on_hold')
+    await screen.findByText(/Lab holds an earlier version/)
+    const title = await screen.findByText('Haemoglobin', { selector: 'strong' })
+    await waitFor(() => expect(document.activeElement).toBe(title))
+  })
+
+  it('says the list was not reloaded only once, when reading it again fails', async () => {
+    records['lab-requests'] = [labRequest('draft')]
+    api.updateRecord.mockResolvedValue({ ...labRequest('active', '2'), labWorkItem: null,
+      labHandoff: { state: 'failed', status: 409, code: 'LAB_ORDER_NOT_CURRENT' } })
+    await openLabRequests()
+    const form = await statusForm()
+    api.records.mockRejectedValue(new Error('Service unavailable'))
+    type(form, 'New status', 'active')
+    type(form, 'Reason for change', 'Ready to order')
+    fireEvent.click(within(form).getByRole('button', { name: 'Update status' }))
+    const said = await screen.findByText(/changed again/)
+    expect(said.textContent).toMatch(/The list could not be reloaded/)
+    expect(said.textContent).not.toMatch(/list was reloaded/)
   })
 })
 
@@ -321,6 +365,33 @@ describe('sending a saved active lab request to Lab', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Send to Lab' }))
     expect(await screen.findByText(says)).toBeTruthy()
     expect(api.records).toHaveBeenCalledWith('facility-1', PATIENT, ENCOUNTER, 'lab-requests', { cursor: undefined, fresh: true })
+  })
+
+  it('says the list could not be reloaded, and not that it was, when reading it again fails', async () => {
+    records['lab-requests'] = [labRequest('active', '3')]
+    api.sendLabRequestToLab.mockRejectedValue(new HidApiError(412, 'Lab acceptance must bind to the current exact lab request version', { code: 'LAB_REQUEST_VERSION_CONFLICT' }))
+    await openLabRequests()
+    api.records.mockRejectedValue(new Error('Service unavailable'))
+    fireEvent.click(await screen.findByRole('button', { name: 'Send to Lab' }))
+    const said = await screen.findByText(/changed since it was loaded/)
+    expect(said.textContent).toMatch(/The list could not be reloaded/)
+    expect(said.textContent).not.toMatch(/list was reloaded/)
+  })
+
+  it('does not say the list could not be reloaded when another list replaced the read', async () => {
+    staff.permissions = [...SENDER, 'ehr.note.read']
+    records['lab-requests'] = [labRequest('active', '3')]
+    api.sendLabRequestToLab.mockRejectedValue(new HidApiError(412, 'Lab acceptance must bind to the current exact lab request version', { code: 'LAB_REQUEST_VERSION_CONFLICT' }))
+    await openLabRequests()
+    let reread: (value: unknown) => void = () => {}
+    api.records.mockImplementationOnce(() => new Promise(resolve => { reread = resolve }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Send to Lab' }))
+    await waitFor(() => expect(api.records).toHaveBeenLastCalledWith(...FRESH_FIRST_PAGE))
+    // The clinician moves to the notes while the requests are read again.
+    fireEvent.click(screen.getByRole('tab', { name: 'Notes' }))
+    reread({ items: [labRequest('active', '4')], nextCursor: null })
+    const said = await screen.findByText(/changed since it was loaded/)
+    expect(said.textContent).not.toMatch(/could not be reloaded/)
   })
 
   it('says when Lab does not allow the clinician to accept the order', async () => {
