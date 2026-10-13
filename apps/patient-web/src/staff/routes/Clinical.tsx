@@ -72,12 +72,14 @@ const prescriptionTransitions: Readonly<Record<string, readonly StatusOption[]>>
 }
 // EHR passes no change to a prescription on to Pharmacy. Since hid-system #48
 // (migration 0080) Pharmacy dispenses only while the prescription is still active at
-// the version it accepted, so any change ends that for good, a later resume
-// included, and the remedy is a new prescription; a dispensing already recorded
-// stands. Only an active prescription can be sent, so one active or on hold may
-// have been: the clinician is told so where its change is confirmed. A draft never
-// reached Pharmacy.
-const PHARMACY_NOT_TOLD = 'Pharmacy is not told of this change, but once this prescription is put on hold, completed, cancelled or marked entered in error, Pharmacy can no longer dispense the version it was sent, and resuming it does not make it dispensable again. A dispensing already recorded is not undone, so contact the pharmacy if it may have dispensed. To continue treatment, create a new prescription and send it.'
+// the version it accepted, so a change ends that, a later resume included (the
+// proposed default of hid-system's open decision D10), and the remedy is a new
+// prescription; a dispensing already recorded stands. A Pharmacy before 0080 still
+// dispenses a cancelled prescription, and no response tells the two apart, so the
+// warning says only what holds for both: the pharmacy must be told. Only an active
+// prescription can be sent, so one active or on hold may have been: the clinician is
+// told so where its change is confirmed. A draft never reached Pharmacy.
+const PHARMACY_NOT_TOLD = 'Pharmacy is not told of this change, so if this prescription was sent to Pharmacy you must contact the pharmacy. A dispensing already recorded is not undone. Pharmacy may refuse to dispense the version it was sent once the prescription has been put on hold, completed, cancelled or marked entered in error, even after it is resumed: if treatment is to continue and the pharmacy cannot dispense it, create a new prescription and send it.'
 const noteTransitions: Readonly<Record<string, readonly StatusOption[]>> = {
   draft: [{ value: 'signed', label: 'Sign note' }, { value: 'entered_in_error', label: 'Mark entered in error' }],
   signed: [{ value: 'entered_in_error', label: 'Mark entered in error' }],
@@ -1402,7 +1404,8 @@ export function Clinical() {
     catch (caught) {
       if (!isHidApiError(caught)) throw caught
       // Pharmacy holds one work item per prescription (hid-system #48), whatever version it was sent.
-      if (caught.code === 'IDEMPOTENCY_CONFLICT') throw new Error('Pharmacy already holds work for this prescription, sent earlier, perhaps at an earlier version or with another reason, so it was not sent again. If the prescription changed since, Pharmacy cannot dispense it: create a new prescription and send that.')
+      // Whether it can still dispense that work depends on migration 0080, which no response shows.
+      if (caught.code === 'IDEMPOTENCY_CONFLICT') throw new Error('Pharmacy already holds work for this prescription, sent earlier, perhaps at an earlier version or with another reason, so it was not sent again. If the prescription changed since, contact the pharmacy: it may refuse to dispense the version it holds, and if it cannot dispense it, create a new prescription and send that.')
       // The prescription changed under the handoff: what was shown is read again, and the form, built for the old version, goes.
       const changed = caught.code === 'PHARMACY_PRESCRIPTION_NOT_ELIGIBLE'
         ? 'This prescription no longer matches what was sent (it was changed, put on hold or cancelled meanwhile), so Pharmacy did not accept it.'
