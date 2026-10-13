@@ -162,6 +162,25 @@ judged optional and left unchanged.
 | Records the EHR now refuses on a closed encounter | Since hid-system#64, creates and order activations on a cancelled or entered-in-error encounter, and new prescriptions or the activation of a draft prescription on a completed one, answer `409 ENCOUNTER_NOT_OPEN`. The portal still offers those forms. Each refusal shows the EHR's detail, the form keeps what was typed, and nothing is written. Completing an encounter leaves its draft prescriptions that can no longer be activated, and the Complete choice does not say so. | Frontend owner: optionally hide those forms by encounter status and say what completing does to draft prescriptions. |
 | A Health-id Worker must send the client address | Since hid-system#65 the gateway requires `X-Real-IP` in staging and production. It trusts that header only from the VPC, and it answers a request without it with `403 CLIENT_ADDRESS_REQUIRED` (`gateway/proxy-headers.conf:13-16`). hid-system's seven Workers set it. Health-id has no deployment definition. | Infrastructure owner: hand-off D1. Any Worker or proxy that serves a Health-id build must replace the caller's `X-Real-IP` with the address Cloudflare reports, as hid-system's Workers do, and be deployed before a gateway that requires it. |
 
+## Found in the Turnstile, password, PWA and push work (2026-10-13)
+
+Raised by branch `claude/turnstile-password-pwa-push` (not merged; to be
+coordinated with the staging integration), which shows one Turnstile check per
+submission, adds a Show toggle to every password field, makes the portal
+installable and documents web push. Each was checked read-only at hid-system
+`b69a6ab`.
+
+| Item | Current evidence | Needed to close |
+| --- | --- | --- |
+| Which hosts are installable, and as which app | The portal's one manifest (`public/health-id.webmanifest`) is served on every portal host: www or the chosen patient host, the product hosts and the administration console. `start_url` `/` opens each host's own workspace. Its `id` `/` continues the identity of an earlier HID app installed on the same host. The public site has icons but no manifest. | Product owner: confirm that the administration console may be installed, and that Health ID should replace an installed HID app rather than appear beside it. Installing it then needs no further change. |
+| Earlier HID service workers | hid-system's apps register `/service-worker.js` at scope `/`, with caches named `hid-…`. One is live on the apex, `healthidentitydirectory.com`, from Vercel, and `www` redirects there. Each Health ID app serves a `/service-worker.js` that retires such a worker, but only on hosts it serves, and only for root-scoped registrations. hid-system's apex redirect would 308 the script, which leaves the apex worker in place for good. | Infrastructure owner: hand-off D1 (serve the retirement script on the apex before it redirects; report where earlier HID builds were served, and at which scopes, including path-scoped and `ocr.*`). |
+| Icon artwork | The icons are the mark cropped from `logo.png` (269×264), scaled: the 512 icon about 1.4× (plain) and 1.1× (maskable). At 32 px the fingerprint lines blur. | Design: an SVG master, or a 1024 px PNG, and a simplified mark for small sizes. Until then the derived icons are used. |
+| Offline page | No service worker, so an installed portal that cannot reach the network shows the browser's own offline page. Nothing is kept for offline use, and nothing claims it. | Product owner: keep the browser's page, or add a navigation-only worker serving one static page (rules: never `/api`, no runtime cache, network first). |
+| Web push decisions | No browser route accepts a push registration (hand-off B15). The portal asks for no permission and registers no worker (lint-enforced). | Product and backend owners: B15's decisions (transport under ADR-033, owning service, events, sign-out, staff scope); then the backend contract; then the portal's opt-in. |
+| Google sign-up on later enrollment steps | Enrollment offers the Google section, with its own security check, on the contact, code and password steps for every enrollment. hid-system's own `apps/web` shows it there only when the enrollment requires Google. It is one check on those steps, not a duplicate. | Product owner: keep it, or show it only when Google is required. |
+| The demo dialog on provider onboarding pages | `/provider/complete` and `/provider/apply` mount the demo dialog, but no link on them appears to open it. Its check now exists only while it is open. | Product owner: keep the dialog there, or remove it from those pages. |
+| hid-system's own web app | `apps/web` (served on www by hid-system's Cloudflare configuration) shows both enrollment checks at once, asks for notification permission on mount, and puts inbox titles and messages into system notifications (`PatientNotificationWatcher.tsx:24-27, 50`). | hid-system maintainers: change it there, or retire it when Health ID takes www. |
+
 ## Reference workflows without an audited API
 
 The following remain backend contract work before an operational frontend can

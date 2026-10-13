@@ -216,6 +216,20 @@ EHR is used only after `assertSignedStorageUrl` (`@hid/http`) accepts it:
 environment. The document upload's storage PUT and `window.open` for a download
 both check it first.
 
+Each submission Turnstile protects has its own widget and single-use token,
+with the action hid-system pins for its endpoint, and a page shows one check at
+a time. The enrollment NIN step offers the NIN start (`patient-enrollment`) and
+Google sign-up (`patient-login`) as two paths: "Continue with Google" replaces
+the NIN form and its check with Google's, so the two are never on screen
+together. Cloudflare's script loads once for the whole portal through
+`loadTurnstileScript` (`src/Turnstile.tsx`), shared by the patient, provider and
+administration pages; a failed load is removed so the next page tries again. The
+public site's demo dialog renders its check only while it is open. Every
+password field is a `@hid/ui` `PasswordInput`: a Show toggle beside the field,
+named "Show password" with `aria-pressed`, that changes only how the password
+is displayed and masks it again when its form is sent or the page is hidden.
+PINs and NINs stay masked without one.
+
 ## Authentication and patient data
 
 `hid-system` issues HttpOnly, host-only, SameSite Strict access and refresh
@@ -338,6 +352,23 @@ whose `X-Facility-ID` is no longer one of the session's facilities
 (`setStaffSessionFacilities` and `assertStaffSessionFacility` in
 `staff/session.ts`).
 
+The browser keeps nothing about a person beyond the portal hint (`@hid/auth`):
+no localStorage, sessionStorage, IndexedDB, Cache API, service worker or push
+subscription. ESLint enforces each (`eslint.config.js`: `NO_BROWSER_STORAGE`,
+`NO_INDEXED_DB`, `NO_SERVICE_WORKER`, `NO_CACHE_STORAGE`). The portal can be
+installed as an app: a web app manifest (`public/health-id.webmanifest`, named
+Health ID, standalone, `start_url` `/` so that each product and admin host opens
+its own workspace) and icons derived from the supplied mark. Its `id` is `/`,
+which deliberately continues the identity of an earlier HID app installed on
+the same host. That is installability only: with no service worker nothing is
+available offline, and an installed app that cannot reach the network shows the
+browser's own offline page. Each app also serves `/service-worker.js`, which no
+Health ID page registers: when the browser checks a worker that hid-system's
+earlier apps registered on a host (scope `/`, caches named `hid-…`) for an
+update, this script replaces it, deletes those caches and unregisters itself,
+without serving, storing or reloading anything. Web push is not offered: no
+backend route accepts a subscription (hand-off B15).
+
 ## Production requirements
 
 Because the session cookies are host-only and SameSite Strict, the portal's
@@ -350,6 +381,18 @@ hid-system#65 the gateway in staging and production also refuses, with
 `403 CLIENT_ADDRESS_REQUIRED`, any request whose edge did not set `X-Real-IP`
 to the client's address, so that forwarding must set it as hid-system's
 Workers do.
+
+Installing the portal and retiring an earlier worker need each host to serve
+the built files as files, never the single-page fallback:
+`/health-id.webmanifest` as `application/manifest+json`, `/icons/*.png`, and
+`/service-worker.js` as JavaScript with `Cache-Control: no-cache`.
+hid-system's frontend worker sets no-cache for a path ending
+`/service-worker.js` from the asset response's URL, a branch its tests do not
+reach. A worker script answered with `index.html` makes the earlier worker's
+update fail, so it keeps the host. A CSP must allow `manifest-src 'self'`, and a
+meta CSP does not govern a worker script (hand-off D1, D6). The HID worker live
+today on the apex, `healthidentitydirectory.com`, is outside Health ID's hosts:
+that origin must serve the same script before it redirects (hand-off D1).
 
 The portal build publishes no source maps (`build.sourcemap: false`, guarded by
 `apps/patient-web/src/__tests__/buildConfig.test.ts`): hid-system's frontend

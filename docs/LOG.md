@@ -1350,3 +1350,76 @@ made the portal show something untrue, and Health-id #51
   - hid-system#65 addresses A7, not re-verified;
   - a new ask, MOD-1: withdraw closed modules' read permissions, or expose
     the enabled modules.
+
+## 2026-10-13: one Turnstile check per submission, password Show toggle, installable portal, web push readiness
+
+Branch `claude/turnstile-password-pwa-push`, from `main` `077b85c`. Not merged:
+the product owner asked that new work stay on branches until the staging
+integration is finished. hid-system was only read (`b69a6ab`). Four read-only
+audits, each checked by a second agent, came first.
+
+- **Turnstile appeared twice** on the patient enrollment page's NIN step whenever
+  Google sign-up was configured. The NIN form (action `patient-enrollment`) and
+  the Google section (`patient-login`) each rendered a widget. hid-system pins
+  each endpoint to its own action, and tokens are single use, so both checks
+  are needed, but not together. This was not a React mounting fault: each
+  widget renders once into its own container, under StrictMode too. The NIN step
+  now shows one path at a time. "Continue with Google" replaces the NIN form and
+  its check with Google's, and "Verify your NIN without Google" brings back the
+  form with a fresh check. Other findings:
+  - The provider and administration sign-in pages added their own copy of
+    Cloudflare's script, two under StrictMode and three after moving between
+    portals before it loaded. They now share the portal's loader, which also
+    removes a failed script so the next page retries, and reports a script
+    that loaded without Turnstile.
+  - The shared widget no longer re-renders and drops its token when a page
+    passes a new callback.
+  - On the public site, the demo dialog rendered its check while closed, so
+    `/provider/complete` had a second, hidden widget, and a dialog closed after
+    its check was solved could not be sent when reopened. The check now exists
+    only while the dialog is open.
+  - A blank Google client ID counts as none.
+  Regression tests: `TurnstileOnePerPage.test.tsx`, `TurnstileScriptOnce.test.tsx`
+  and `DemoDialogTurnstile.test.tsx`.
+- **Password visibility.** `@hid/ui` `PasswordInput` puts a Show button beside
+  the field, never inside its label (inside it, Chromium names the field
+  "Password Show password"). The button's name stays "Show password", and
+  `aria-pressed` says whether the password is shown. Showing the password
+  changes only how it is displayed, a pointer press leaves focus in the field,
+  and the caret keeps its place. The field is masked again when its form is sent
+  or the page is hidden. It is used on all eight password fields; PIN and NIN
+  fields are unchanged. In headless Chromium 141 with the real component:
+  - a mouse click and a touch tap both kept the caret (typing after Show gave
+    `abcXYdef`);
+  - Tab reached the toggle and Space showed the password;
+  - Enter in the field submitted and masked it again;
+  - the field was named "Password" and the toggle "Show password", with its
+    pressed state exposed;
+  - a page hide masked the field at once.
+- **PWA.** Nothing existed before.
+  - The portal now has a web app manifest (`health-id.webmanifest`, standalone,
+    `start_url` `/`), icons cropped from the supplied mark, a theme colour and
+    an apple touch icon.
+  - The public site has a tab icon and an apple touch icon, but no manifest.
+  - Health ID registers no service worker, and nothing is kept offline.
+  - Both apps serve `/service-worker.js`, which only retires an earlier HID
+    worker: it deletes the `hid-` caches and unregisters itself. A legacy worker
+    is live on the apex today.
+  - ESLint now forbids service worker registration, the Cache API, push
+    subscription and notification prompts. The hand-off had claimed lint already
+    forbade them; it covered only browser storage and IndexedDB.
+  - Chromium 141 reported no installability errors for the built portal, with
+    no service worker registered.
+- **Web push.** hid-system has no route that accepts a registration (hand-off
+  B15), so the portal offers no push and asks for no permission. B15 gives the
+  contract for the backend owner. It assumes FCM, as accepted ADR-033 requires,
+  and covers configuration, registration, status, removal, sign-out
+  revocation and generic, PHI-free delivery.
+- **Evidence.** Each behaviour change has a test that failed first. At the
+  branch head every gate passes:
+  - `audit:boundaries`, `typecheck` and `lint`;
+  - `npm test`: 147 files, 1874 tests;
+  - both builds, which contain the manifest, icons and `service-worker.js`;
+  - `npm audit`: 0 vulnerabilities.
+- **Not verified.** Firefox, Safari and iOS, screen readers, installation on a
+  real device, and anything deployed or against a live hid-system.
