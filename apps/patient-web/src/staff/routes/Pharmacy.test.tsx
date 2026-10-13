@@ -574,8 +574,9 @@ describe('full dispensing', () => {
     fireEvent.click(within(item).getByRole('button', { name: 'Record full dispensing' }))
 
     const said = await within(item).findByRole('alert')
-    // Pharmacy answers so too for a prescription it cannot read (INTERFACE_CONTRACT.md, dispensing), not only a changed one.
-    expect(said.textContent).toBe('Not dispensable: the prescription is no longer active at the version Pharmacy accepted; a new prescription and handoff are needed.')
+    // Pharmacy answers so too for a prescription it cannot read (INTERFACE_CONTRACT.md, dispensing; migration 0080:
+    // one its owner cannot lock reads as missing), not only a changed one, and the answer does not tell them apart.
+    expect(said.textContent).toBe('Not dispensable: the prescription is no longer active at the version Pharmacy accepted, or could not be checked; a new prescription and handoff are needed.')
     expect(within(item).getByText('Not dispensable')).toBeTruthy()
     expect(within(item).queryByRole('button', { name: 'Record full dispensing' })).toBeNull()
     expect(within(item).queryByText('Dispensing recorded.')).toBeNull()

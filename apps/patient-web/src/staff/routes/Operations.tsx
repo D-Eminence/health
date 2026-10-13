@@ -558,9 +558,9 @@ function PharmacyAction({ facilityId, item, permissions, onChanged }: { facility
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   // hid-system #48 (migration 0080): work whose EHR prescription is no longer active at
-  // the version Pharmacy accepted (changed, held, ended, or not readable) stays listed as
-  // accepted, but cannot be dispensed. The list cannot tell, so it is known only once a
-  // dispensing is refused (409 PHARMACY_PRESCRIPTION_NOT_DISPENSABLE).
+  // the version Pharmacy accepted (changed, held, ended), or could not be read, stays listed
+  // as accepted, but cannot be dispensed. The list cannot tell, so it is known only once a
+  // dispensing is refused (409 PHARMACY_PRESCRIPTION_NOT_DISPENSABLE), which does not say which.
   const [undispensable, setUndispensable] = useState(false)
   // Recording removes the form once the work list is read again: focus goes to the prescription.
   const focus = useFocusById()
@@ -607,7 +607,7 @@ function PharmacyAction({ facilityId, item, permissions, onChanged }: { facility
     {item.instructions && <p className="staff-note-content">{item.instructions}</p>}
     {canDispense && <form className="staff-form" onSubmit={event => void submit(event)}><div className="staff-form-row"><Field label="Quantity dispensed" htmlFor={`pharmacy-quantity-${item.id}`} error={problems.error(`pharmacy-quantity-${item.id}`)} required><Input id={`pharmacy-quantity-${item.id}`} name="quantity" type="number" min="0.0001" step="0.0001" required {...problems.control(`pharmacy-quantity-${item.id}`)} /></Field><Field label="Unit" htmlFor={`pharmacy-unit-${item.id}`} error={problems.error(`pharmacy-unit-${item.id}`)} required><Input id={`pharmacy-unit-${item.id}`} name="unit" maxLength={80} defaultValue={item.doseUnit ?? ''} required {...problems.control(`pharmacy-unit-${item.id}`)} /></Field></div><Field label="Reason" htmlFor={`pharmacy-reason-${item.id}`} error={problems.error(`pharmacy-reason-${item.id}`)} required><Textarea id={`pharmacy-reason-${item.id}`} name="reason" minLength={8} maxLength={500} required {...problems.control(`pharmacy-reason-${item.id}`)} /></Field><Button type="submit" size="sm" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Recording…' : 'Record full dispensing'}</Button></form>}
     {canReverse && <form className="staff-form" onSubmit={event => void submit(event, true)}><Field label="Reversal reason" htmlFor={`pharmacy-reversal-${item.id}`} error={problems.error(`pharmacy-reversal-${item.id}`)} required><Textarea id={`pharmacy-reversal-${item.id}`} name="reason" minLength={8} maxLength={500} required {...problems.control(`pharmacy-reversal-${item.id}`)} /></Field><Button type="submit" tone="secondary" size="sm" aria-disabled={busy || undefined} className={UNAVAILABLE}>{busy ? 'Recording…' : 'Reverse dispensing'}</Button></form>}
-    {undispensable && !item.dispensing && <p className="staff-error" role="alert">Not dispensable: the prescription is no longer active at the version Pharmacy accepted; a new prescription and handoff are needed.</p>}
+    {undispensable && !item.dispensing && <p className="staff-error" role="alert">Not dispensable: the prescription is no longer active at the version Pharmacy accepted, or could not be checked; a new prescription and handoff are needed.</p>}
     {error && <p className="staff-error" role="alert">{error}</p>}
     {/* Mounted throughout, so what was recorded is announced. */}
     <div id={`pharmacy-status-${item.id}`} role="status">{success && <p className="staff-success">{success}</p>}</div>
