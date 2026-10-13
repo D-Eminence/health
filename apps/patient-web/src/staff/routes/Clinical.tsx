@@ -151,8 +151,11 @@ interface LabOutcome { readonly text: string; readonly accepted: boolean; readon
  * What an active lab request's save says about Lab (hid-system #56 labHandoff).
  * `done` is the change made ("created", "activated", "resumed"); only Lab's
  * acceptance is a plain success. An EHR before #56 reports no handoff after a
- * status change, and sent nothing to Lab, which is said as Lab not being asked;
- * for a resumption, Lab may still hold the version it accepted before the hold.
+ * status change, and sent nothing to Lab, which is said as Lab not being asked.
+ * It sent a request to Lab only when the request was created active, so for a
+ * resumption Lab may hold the version it accepted then, or never have received
+ * it (activated from a draft, or refused by Lab at creation, it stayed active):
+ * the laboratory is to be asked either way.
  */
 function labHandoffOutcome(handoff: LabHandoff | null, done: string, canSend: boolean): LabOutcome {
   switch (handoff?.state) {
@@ -170,7 +173,7 @@ function labHandoffOutcome(handoff: LabHandoff | null, done: string, canSend: bo
       return { accepted: false, sendable: false, text: `Lab request ${done} in the EHR, not sent to Lab: your role cannot send requests to Lab. Someone who may send requests to Lab must use Send to Lab on it.` }
     default:
       return { accepted: false, sendable: false, text: done === 'resumed'
-        ? 'Lab request resumed in the EHR, but Lab was not told of the resumption; it may still hold the version it accepted earlier. Contact the laboratory if the test is still needed.'
+        ? 'Lab request resumed in the EHR, but Lab was not told of the resumption: it may hold the version it accepted before the hold, or may never have received this request. Contact the laboratory to confirm the test is ordered.'
         : `Lab request ${done} in the EHR; Lab was not asked to accept it, so the Laboratory does not have it. Contact the laboratory to order the test.` }
   }
 }

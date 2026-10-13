@@ -275,12 +275,18 @@ describe('activating or resuming a lab request', () => {
     expect(screen.queryByText(/accepted by Lab/)).toBeNull()
   })
 
-  // An EHR before #56 tells Lab nothing of a resumption; Lab may hold the version it accepted at creation.
-  it('says a resumption the EHR reports nothing about was not told to Lab, which may still hold its earlier version', async () => {
+  // An EHR before #56 tells Lab nothing of a resumption. It sent a request to Lab only when it was
+  // created active, so Lab may hold the version it accepted then, or never have received it: a request
+  // activated from a draft was never sent, and one Lab refused at creation stayed active.
+  it('says a resumption the EHR reports nothing about was not told to Lab, which may hold its earlier version or never have had it', async () => {
     await activate(undefined, 'on_hold')
     const said = await screen.findByText(/^Lab request resumed in the EHR/)
     expect(said.textContent).toMatch(/Lab was not told of the resumption/)
-    expect(said.textContent).toMatch(/may still hold the version it accepted earlier/)
+    expect(said.textContent).toMatch(/it may hold the version it accepted before the hold/)
+    expect(said.textContent).toMatch(/or may never have received this request/)
+    // Contacting the laboratory is not left optional: neither possibility is known to be the case.
+    expect(said.textContent).toMatch(/Contact the laboratory to confirm the test is ordered\.$/)
+    expect(said.textContent).not.toMatch(/if the test is still needed/)
     expect(said.textContent).not.toMatch(/does not have it/)
   })
 
