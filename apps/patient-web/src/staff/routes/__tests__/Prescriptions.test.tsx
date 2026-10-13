@@ -15,7 +15,7 @@ import { Clinical } from '../Clinical'
  */
 const api = vi.hoisted(() => ({
   lookupPatient: vi.fn(), consentStatus: vi.fn(), encounters: vi.fn(), records: vi.fn(), createRecord: vi.fn(),
-  updateRecord: vi.fn(), acceptPrescription: vi.fn(),
+  updateRecord: vi.fn(), acceptPrescription: vi.fn(), updateEncounter: vi.fn(), encounter: vi.fn(),
 }))
 const staff = vi.hoisted(() => ({ permissions: [] as string[] }))
 
@@ -223,15 +223,18 @@ describe('changing the status of a prescription Pharmacy may hold', () => {
 })
 
 /**
- * A change to an encounter's status changes the encounter only (hid-system
- * encounters.service.ts update() writes ehr.encounters alone): its
- * prescriptions and lab requests keep their status, and neither Pharmacy nor
- * Lab hears of it. Every status change the portal offers an encounter includes
- * Cancel and Mark entered in error, and any encounter may hold orders, so the
- * clinician is told so where the change is confirmed (backend hand-off).
+ * Since hid-system #64 (CLIN-EIE, migration 0084) a change to an encounter's
+ * status also closes its records, in the same transaction (encounters.service.ts
+ * CLOSE_STEPS; INTERFACE_CONTRACT.md "Encounter status and its records"):
+ * cancelling cancels its draft, active and on-hold prescriptions and lab
+ * requests, and marking it entered in error marks those orders, its notes and
+ * its diagnoses entered in error. Neither Pharmacy nor Lab hears of it. Every
+ * status change the portal offers an encounter includes Cancel and Mark entered
+ * in error, so the clinician is told so where the change is confirmed. The
+ * answer is the encounter alone, so the records shown are read again.
  */
 describe('changing the status of an encounter whose orders Pharmacy or Lab may hold', () => {
-  it.each(['planned', 'in_progress', 'on_hold'])('says at the action that cancelling a %s encounter cancels none of its orders, and whom to contact', async status => {
+  it.each(['planned', 'in_progress', 'on_hold'])('says at the action what cancelling a %s encounter does to its orders, and whom to contact', async status => {
     staff.permissions = [...HAND_OFF, 'ehr.encounter.write']
     api.encounters.mockResolvedValue({ items: [{ id: ENCOUNTER, patientId: PATIENT, facilityId: 'facility-1', encounterType: 'ambulatory',
       status, startedAt: '2026-10-10T08:00:00.000Z', chiefComplaint: null, rowVersion: 1 }], nextCursor: null })
@@ -241,13 +244,70 @@ describe('changing the status of an encounter whose orders Pharmacy or Lab may h
     expect(options).toEqual(expect.arrayContaining(['cancelled', 'entered_in_error']))
     const button = within(form).getByRole('button', { name: 'Update status' })
     const warning = descriptions(button)
-    expect(warning).toContain('does not cancel its prescriptions or lab requests')
+    expect(warning).not.toContain('does not cancel')
+    expect(warning).not.toContain('Cancel each order itself')
+    expect(warning).toContain('Cancelling this encounter also cancels its draft, active and on-hold prescriptions and lab requests')
+    expect(warning).toContain('Marking it entered in error marks those orders, and its notes and diagnoses, entered in error')
+    // CLOSE_STEPS has no step for documents or vitals, nor for an order already completed.
+    expect(warning).toContain('Completed orders, vitals and documents are not changed')
     expect(warning).toContain('Pharmacy and the Laboratory are not told')
     expect(warning).toContain('contact the pharmacy or laboratory')
     // Shown in the form before the change is confirmed, not a message that comes and goes.
     const shown = document.getElementById(button.getAttribute('aria-describedby')!)!
     expect(form.contains(shown)).toBe(true)
     expect(shown.closest('[role="alert"], [role="status"]')).toBeNull()
+  })
+
+  it.each([['cancelled', 'Cancel'], ['entered_in_error', 'Mark entered in error']])('reads the records shown again once the encounter is %s', async (status, label) => {
+    staff.permissions = [...HAND_OFF, 'ehr.encounter.write']
+    const encounter = { id: ENCOUNTER, patientId: PATIENT, facilityId: 'facility-1', encounterType: 'ambulatory',
+      startedAt: '2026-10-10T08:00:00.000Z', chiefComplaint: null }
+    api.encounters.mockResolvedValue({ items: [{ ...encounter, status: 'in_progress', rowVersion: 1 }], nextCursor: null })
+    await openPrescriptions()
+    expect(within(entry('Amoxicillin')).getByRole('button', { name: 'Update status' })).toBeTruthy()
+    const closed = { ...encounter, status, rowVersion: 2 }
+    api.updateEncounter.mockResolvedValue(closed)
+    api.encounters.mockResolvedValue({ items: [closed], nextCursor: null })
+    api.records.mockResolvedValue({ items: [{ ...active, status, rowVersion: '4' }, { ...draft, status, rowVersion: '2' }], nextCursor: null })
+    const form = screen.getByText('Encounter status').closest('form')!
+    fireEvent.change(within(form).getByLabelText(labelled('New status')), { target: { value: status } })
+    expect((within(form).getByRole('option', { name: label }) as HTMLOptionElement).selected).toBe(true)
+    type(form, 'Reason for change', 'Duplicate encounter')
+    fireEvent.click(within(form).getByRole('button', { name: 'Update status' }))
+    expect(await screen.findByText('Encounter status updated.')).toBeTruthy()
+    expect(api.updateEncounter).toHaveBeenCalledWith('facility-1', PATIENT, ENCOUNTER,
+      expect.objectContaining({ status, expectedRowVersion: 1, changeReason: 'Duplicate encounter' }))
+    await waitFor(() => expect(api.records).toHaveBeenCalledTimes(2))
+    expect(api.records).toHaveBeenLastCalledWith('facility-1', PATIENT, ENCOUNTER, 'prescriptions', expect.objectContaining({ fresh: true }))
+    // The closed orders are shown as the EHR now holds them, without a status change to offer.
+    await waitFor(() => expect(within(entry('Amoxicillin')).queryByRole('button', { name: 'Update status' })).toBeNull())
+    expect(within(entry('Ibuprofen')).queryByRole('button', { name: 'Update status' })).toBeNull()
+  })
+
+  it('reads again the records tab shown when the change is answered, after the clinician moved to another', async () => {
+    staff.permissions = [...HAND_OFF, 'ehr.encounter.write', 'ehr.lab-request.read']
+    const encounter = { id: ENCOUNTER, patientId: PATIENT, facilityId: 'facility-1', encounterType: 'ambulatory',
+      startedAt: '2026-10-10T08:00:00.000Z', chiefComplaint: null }
+    api.encounters.mockResolvedValue({ items: [{ ...encounter, status: 'in_progress', rowVersion: 1 }], nextCursor: null })
+    await openPrescriptions()
+    let answer: (value: unknown) => void = () => {}
+    api.updateEncounter.mockReturnValue(new Promise(resolve => { answer = resolve }))
+    const form = screen.getByText('Encounter status').closest('form')!
+    fireEvent.change(within(form).getByLabelText(labelled('New status')), { target: { value: 'cancelled' } })
+    type(form, 'Reason for change', 'Duplicate encounter')
+    fireEvent.click(within(form).getByRole('button', { name: 'Update status' }))
+    await waitFor(() => expect(api.updateEncounter).toHaveBeenCalled())
+    // The lab requests read on moving to their tab may reach EHR before the change commits.
+    api.records.mockResolvedValue({ items: [], nextCursor: null })
+    fireEvent.click(screen.getByRole('tab', { name: 'Lab requests' }))
+    await waitFor(() => expect(api.records).toHaveBeenLastCalledWith('facility-1', PATIENT, ENCOUNTER, 'lab-requests'))
+    const reads = api.records.mock.calls.length
+    const closed = { ...encounter, status: 'cancelled', rowVersion: 2 }
+    api.encounters.mockResolvedValue({ items: [closed], nextCursor: null })
+    answer(closed)
+    expect(await screen.findByText('Encounter status updated.')).toBeTruthy()
+    expect(api.records).toHaveBeenCalledTimes(reads + 1)
+    expect(api.records).toHaveBeenLastCalledWith('facility-1', PATIENT, ENCOUNTER, 'lab-requests', expect.objectContaining({ fresh: true }))
   })
 })
 

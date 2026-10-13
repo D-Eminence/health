@@ -1286,3 +1286,67 @@ changed.
   `bbc6e89` made untrue: Pharmacy's refusal of changed prescriptions, the
   summaries' `withheld` and `limits`, the Lab send-again route, released
   results, the new refusal codes and hid-system#47's renumbering.
+
+## 2026-10-13: hid-system#64 and #65 (encounter status closes its records; modules closed at launch)
+
+A read-only watch of hid-system `main` from `bbc6e89` to `b69a6ab` (merge of
+hid-system#65) checked hid-system#63, #64, #54 and #65 against Health-id
+`main` `82b474e`. None is released. hid-system was not changed. Two of them
+made the portal show something untrue, and Health-id #51
+(`claude/hid-system-64-65-alignment`) changes only that:
+
+- **hid-system#64 (migration 0084).** Changing an encounter's status now
+  closes its records in the same transaction. Cancelling cancels its draft,
+  active and on-hold prescriptions and lab requests. Entered in error marks
+  those orders, and its notes and diagnoses, entered in error. The encounter
+  status form had warned that the change cancels none of its orders, and to
+  cancel each one by hand. It now says what the change does, and still says
+  that Pharmacy and the Laboratory are not told. EHR answers with the
+  encounter alone, so after Cancel or Mark entered in error the records list
+  shown is read again. Before, it kept showing the old statuses and offering
+  changes that would fail.
+- **hid-system#65.** The gateway proxies only Identity and EHR at launch. Every
+  Lab, Pharmacy, OCR and Outreach route answers `404 API_ROUTE_NOT_FOUND` with
+  no detail, while those modules' read permissions stay seeded, so the
+  workspaces still open. They used to say "We could not find what you were
+  looking for." next to a Refresh button. Now each says that the module is not
+  in service on this deployment and that refreshing will not help. A module's
+  own 404 keeps its message.
+- **Judged optional, not changed** (open questions, "Found watching hid-system
+  after the alignment"):
+  - retracting a completed encounter, which hid-system#64 allows and lists as
+    a Health-id follow-up;
+  - hiding the forms the EHR now refuses with `409 ENCOUNTER_NOT_OPEN`;
+  - the `X-Real-IP` that a Health-id Worker must set.
+  hid-system#63 and #54 need nothing from the portal.
+- **Deploy order.** The new encounter warning is true only against an EHR with
+  hid-system#64, so this portal is to be deployed with or after it.
+- **Evidence.** Each behaviour change has a test that failed first: 9 tests
+  (the three encounter warning cases, two record reloads and four closed
+  workspaces). A 404 that a module sends with its own code was already shown
+  correctly and still is. An independent review of the PR found nothing
+  blocking. Its minor findings were fixed, each first shown failing: one new
+  case (the tab switch), and a documents assertion in the three warning cases,
+  for 10 failing-first cases in all:
+  - the warning now also says documents are not changed;
+  - the reload reads the tab shown when the change is answered, which the
+    clinician may have changed meanwhile;
+  - the Outreach test checks both lists;
+  - the gap map row and three hand-off citations are corrected.
+  Not changed: re-reading the records after a 409 that shows someone else
+  closed the encounter, which is the same staleness as any concurrent change.
+  At the branch head every gate passes:
+  - `audit:boundaries`, `typecheck` and `lint`;
+  - `npm test`: 138 files, 1819 tests;
+  - both builds;
+  - `npm audit`: 0 vulnerabilities.
+- **Not verified.** Component tests with the network stubbed. Nothing was run
+  in a browser, at runtime, on staging or against a live hid-system.
+- **Docs.** The architecture notes and open questions describe the new
+  warning, the record reload, the closed modules and the `X-Real-IP`
+  requirement, and the gap map's encounter row matches them. The backend hand-off gains a note for `b69a6ab`:
+  - hid-system#47 must now take migration 0085 and conflicts in eight files;
+  - ADR-047 is accepted (D9);
+  - hid-system#65 addresses A7, not re-verified;
+  - a new ask, MOD-1: withdraw closed modules' read permissions, or expose
+    the enabled modules.

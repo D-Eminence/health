@@ -18,9 +18,18 @@ import { RevisionList } from '../labRevisions'
  */
 const SERVICE_AUTH_UNAVAILABLE: ReadonlySet<string> = new Set(['EHR_SERVICE_AUTH_UNAVAILABLE', 'LAB_SERVICE_AUTH_UNAVAILABLE', 'PHARMACY_SERVICE_AUTH_UNAVAILABLE'])
 
+/**
+ * Since hid-system #65 the gateway answers every route of a module that is off
+ * (Lab, Pharmacy, OCR and Outreach at launch) with 404 API_ROUTE_NOT_FOUND and no
+ * detail (gateway/nginx.conf.template), so the client's message is its generic 404
+ * one. The read permissions stay seeded, so these workspaces still open.
+ */
+const MODULE_NOT_IN_SERVICE = 'This workspace is not in service on this Health ID deployment: its work cannot be loaded or changed here, and refreshing will not help.'
+
 // A refusal's message, with each field a 400 VALIDATION_FAILED names.
 function errorText(error: unknown, fallback: string) {
   if (isHidApiError(error) && SERVICE_AUTH_UNAVAILABLE.has(error.code)) return 'A connection between Health ID services failed; retry in about 15 seconds.'
+  if (isHidApiError(error) && error.status === 404 && error.code === 'API_ROUTE_NOT_FOUND') return MODULE_NOT_IN_SERVICE
   return refusalText(error, fallback)
 }
 
