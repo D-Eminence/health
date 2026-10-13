@@ -1412,7 +1412,7 @@ export function Clinical() {
         {activeTab === 'clinical-notes' && <NotePanel facilityId={facility.id} patientId={patientId!} encounterId={selected.id}
           note={record} canWrite={canMutate && permissions.includes('ehr.note.write')} verify={verify}
           onStatus={(status, reason) => changeRecordStatus(record, 'clinical-notes', status, reason)}
-          onChanged={() => loadRecords('clinical-notes', 'shown', true)} />}
+          onChanged={async () => { await loadRecords('clinical-notes', 'shown', true) }} />}
         {activeTab === 'prescriptions' && canMutate && permissions.includes('ehr.prescription.write') && (prescriptionTransitions[String(record.status)]?.length ?? 0) > 0 &&
           <StatusActionForm key={`${record.id}-${record.rowVersion}`} id={`prescription-${record.id}`} title="Prescription status" choices={prescriptionTransitions[String(record.status)]!}
             warning={record.status === 'active' || record.status === 'on_hold' ? PHARMACY_NOT_TOLD : undefined}
