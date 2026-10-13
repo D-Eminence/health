@@ -25,8 +25,12 @@ const vital = (id: string, values: Partial<PatientRecords['vitals'][number]>): P
 })
 
 function renderRecords(records: PatientRecords) {
+  return renderAnswering(async () => json(records))
+}
+
+function renderAnswering(answer: () => Promise<Response>) {
   const fetchImpl = vi.fn(async (input: RequestInfo | URL) => new URL(String(input)).pathname === '/api/v1/ehr/me/records'
-    ? json(records) : json({}, 404)) as typeof fetch
+    ? answer() : json({}, 404)) as typeof fetch
   const api = createPatientApi(createRegisteredBrowserClient(createApiClient({
     baseUrl: 'https://gateway.test', clientId: 'patient-web', sessionMode: 'cookie', fetchImpl,
   }), 'patient-web'))
@@ -125,6 +129,21 @@ describe('patient health records', () => {
     await screen.findByRole('heading', { name: 'Clinical notes' })
     expect(card('Clinical notes').getByText('Showing your 50 most recent signed clinical notes; older ones are not shown.')).toBeTruthy()
     expect(card('Encounters').queryByText(/most recent/)).toBeNull()
+  })
+
+  // Until the record is read, nothing says what it holds: a withheld part may be among those named.
+  it('names no part of the record while it is read', async () => {
+    renderAnswering(() => new Promise<Response>(() => {}))
+    const heading = await screen.findByRole('heading', { name: 'Health records' })
+    const intro = heading.nextElementSibling!.textContent!
+    expect(intro).not.toMatch(/vitals|diagnoses|prescriptions|laboratory|documents/)
+  })
+
+  it('names no part of the record when it cannot be read', async () => {
+    renderAnswering(async () => json({ type: 'about:blank', title: 'Unavailable', status: 503, code: 'EHR_UNAVAILABLE' }, 503))
+    const heading = await screen.findByRole('heading', { name: 'Health records' })
+    await screen.findByRole('button', { name: /try again/i })
+    expect(heading.nextElementSibling!.textContent).not.toMatch(/vitals|diagnoses|prescriptions|laboratory|documents/)
   })
 
   it('describes only the released parts of the record', async () => {

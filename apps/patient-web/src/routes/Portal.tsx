@@ -199,12 +199,17 @@ const SECTION_NAMES: Readonly<Record<RecordSection, string>> = {
 const ALL_SECTIONS = 'Your completed encounters, clinical notes, vitals, diagnoses, prescriptions, laboratory requests and uploaded clinical documents.'
 const WITHHELD = 'Not yet shared with patients in Health ID.'
 
+/** The opening line until the record is read: what it holds is not known yet. */
+const RECORD_UNREAD = 'Your health record, as it is shared with patients in Health ID.'
+
 /**
  * The page's opening line. An EHR with hid-system #52 names what it released to
  * the patient, and only that is promised; one before it sends every section.
+ * Nothing is named while the record is read, or when it could not be.
  */
 function recordsIntro(data: PatientRecords | null) {
-  if (!data?.released) return ALL_SECTIONS
+  if (!data) return RECORD_UNREAD
+  if (!data.released) return ALL_SECTIONS
   const names = data.released.filter(section => section in SECTION_NAMES).map(section => SECTION_NAMES[section])
   if (names.length === 0) return 'No part of your record is shared with patients in Health ID yet.'
   const listed = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`
@@ -232,7 +237,7 @@ export function RecordsPage() {
   const heading = useRef<HTMLHeadingElement>(null)
   const data = records.data
   return <section className="patient-section"><p className="patient-eyebrow">Care history</p><h1 ref={heading} tabIndex={-1} className="patient-page-title">Health records</h1>
-    <p className="patient-page-copy">{recordsIntro(data)}</p>
+    <p className="patient-page-copy">{recordsIntro(records.error ? null : data)}</p>
     <LoadState loading={records.loading} error={records.error} retry={records.reload} hasData={data !== null} focusTarget={heading} />
     {data && !records.error && <>
       <div className="patient-card"><h2>Encounters</h2>{data.encounters.length === 0 ? <p className="patient-empty">{emptyText(data, 'encounters', 'No completed encounters are available.')}</p> : <ul className="patient-list">
