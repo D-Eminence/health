@@ -34,7 +34,7 @@ describe('imported medical history', () => {
   })
   it('never opens a late download after the patient scope unmounts', async () => {
     let finish!: (value: { url: string; expiresInSeconds: number }) => void
-    const download = vi.fn(() => new Promise<{ url: string; expiresInSeconds: number }>(resolve => { finish = resolve }))
+    const download = vi.fn((_id: string, _signal: AbortSignal) => new Promise<{ url: string; expiresInSeconds: number }>(resolve => { finish = resolve }))
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
     const view = render(<ImportedHistory records={historyFixture} limit={50} download={download} />)
     fireEvent.click(screen.getByRole('button', { name: 'Download cleared.pdf' }))

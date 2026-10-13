@@ -11,10 +11,10 @@ vi.mock('../env', () => ({ getEnvironment: () => ({ name: 'local' }) }))
 
 describe('patient imported-record API integration', () => {
   it('renders imported history from the patient-self endpoint even with no encounters or clinical notes', async () => {
-    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ encounters: [], notes: [], importedRecords: historyFixture, limit: 50 }),
-      { headers: { 'content-type': 'application/json' } })) as typeof fetch
+    const fetchImpl = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify({ encounters: [], notes: [], importedRecords: historyFixture, limit: 50 }),
+      { headers: { 'content-type': 'application/json' } }))
     const api = createPatientApi(createRegisteredBrowserClient(createApiClient({ baseUrl: 'https://gateway.test',
-      clientId: 'patient-web', sessionMode: 'cookie', fetchImpl }), 'patient-web'))
+      clientId: 'patient-web', sessionMode: 'cookie', fetchImpl: fetchImpl as typeof fetch }), 'patient-web'))
     render(<SessionContext.Provider value={createTestSessionValue({ kind: 'patient', subjectId: 'synthetic-patient', appRole: 'patient', assuranceLevel: 'aal1' }, api)}>
       <RecordsPage /></SessionContext.Provider>)
     expect(await screen.findByRole('heading', { name: 'Imported medical history' })).toBeTruthy()
