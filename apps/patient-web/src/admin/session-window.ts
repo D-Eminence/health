@@ -5,7 +5,13 @@
  * every request. It explains why the server stopped accepting the session.
  */
 
-export type SessionEndReason = 'expired' | 'revoked'
+/**
+ * Why the workspace ended: the server's PLATFORM_SESSION_EXPIRED or
+ * PLATFORM_SESSION_REVOKED (or the reading of its reported expiry), or
+ * `switched` when the browser's platform cookies now hold another
+ * administrator's session (signed in from another tab).
+ */
+export type SessionEndReason = 'expired' | 'revoked' | 'switched'
 
 interface SessionWindow { idleExpiresAt: number | null; absoluteExpiresAt: number | null }
 

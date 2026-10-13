@@ -125,16 +125,20 @@ export function useCursorPages<T>(resource: Resource<CursorPage<T>>,
   const first = resource.data
   const [state, setState] = useState<MorePages<T> | null>(null)
   const more = state && state.first === first ? state : null
-  const request = useRef<AbortController | null>(null)
-  // A new first page (or leaving the page) cancels a load for the previous one.
-  useEffect(() => () => request.current?.abort(), [first])
+  const request = useRef<{ first: CursorPage<T>; controller: AbortController } | null>(null)
+  // A new first page (or leaving the page) cancels a load for the previous one,
+  // never a load already started for the new one: the effects of the render that
+  // showed it can run after a click on "Load more".
+  useEffect(() => () => {
+    if (request.current?.first === first) request.current.controller.abort()
+  }, [first])
   const next = more ? more.next : first?.nextCursor ?? null
   const items = first ? [...first.items, ...(more?.items ?? [])] : []
 
   async function loadMore() {
     if (!first || !next || more?.loading) return
     const controller = new AbortController()
-    request.current = controller
+    request.current = { first, controller }
     setState({ first, items: more?.items ?? [], next, loading: true, error: null })
     const settle = (change: (current: MorePages<T>) => MorePages<T>) => {
       if (!controller.signal.aborted) setState(current => current?.first === first ? change(current) : current)

@@ -34,6 +34,14 @@ export interface DemoRequestContext {
 
 export type DemoRequestErrors = Partial<Record<keyof DemoRequest, string>>
 
+/** The longest role hid-system accepts. */
+export const ROLE_MAX_LENGTH = 120
+
+function isRoleLength(value: string): boolean {
+  const length = value.trim().length
+  return length >= 2 && length <= ROLE_MAX_LENGTH
+}
+
 export function validateDemoRequest(request: DemoRequest): DemoRequestErrors {
   const errors: DemoRequestErrors = {}
   if (!DEMO_PRODUCTS.some(product => product.code === request.service)) {
@@ -45,9 +53,11 @@ export function validateDemoRequest(request: DemoRequest): DemoRequestErrors {
   if (request.contactName.trim().length < 2 || request.contactName.trim().length > 160) {
     errors.contactName = 'Enter your full name.'
   }
-  if (request.role.trim() === '') errors.role = 'Enter your role.'
-  if (request.role === 'Other' && request.otherRole.trim() === '') {
-    errors.otherRole = 'Tell us your role.'
+  // The role sent is `role`, or `otherRole` when the role is Other; hid-system
+  // accepts 2 to 120 characters after trimming (CreateDemoRequestDto.contactRole).
+  if (!isRoleLength(request.role)) errors.role = 'Enter your role, in 2 to 120 characters.'
+  if (request.role === 'Other' && !isRoleLength(request.otherRole)) {
+    errors.otherRole = 'Tell us your role, in 2 to 120 characters.'
   }
   if (request.email.trim().length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(request.email.trim())) {
     errors.email = 'Enter a valid email address.'

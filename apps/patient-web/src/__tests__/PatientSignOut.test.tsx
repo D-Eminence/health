@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { useState } from 'react'
 import { act, render, screen, waitFor } from '@testing-library/react'
 import { SessionProvider, useSession } from '../session'
 
@@ -20,6 +21,7 @@ const patient = (subject: string) => json({
 })
 const problem = (status: number, code: string) => json({ status, code, title: code, detail: code }, status)
 const accessExpired = () => problem(401, 'AUTHENTICATION_REQUIRED')
+const unavailable = () => problem(503, 'UPSTREAM_UNAVAILABLE')
 const noContent = () => new Response(null, { status: 204 })
 // hid-system's staff actor carries no `kind`; one account can hold a patient and a staff session.
 const staff = (subject: string) => json({ actor: { id: subject, subject, accountId: `account-${subject}`, roles: [], permissions: [] } })
@@ -39,9 +41,11 @@ function serve(routes: Record<string, Array<() => Response>>) {
 
 function Probe() {
   const { state, signOut } = useSession()
+  const [failure, setFailure] = useState<string | null>(null)
   return <>
     <output data-testid="status">{state.status}</output>
-    <button type="button" onClick={() => { void signOut().catch(() => undefined) }}>Sign out</button>
+    <button type="button" onClick={() => { setFailure(null); void signOut().catch((error: Error) => setFailure(error.message)) }}>Sign out</button>
+    {failure && <p role="alert">{failure}</p>}
   </>
 }
 
@@ -166,6 +170,22 @@ describe('patient sign-out', () => {
     await waitFor(() => expect(calls).toContain(REFRESH))
     await act(async () => { await Promise.resolve() })
     expect(calls.filter(call => call === LOGOUT)).toHaveLength(1)
+  })
+
+  it.each([
+    ['the refresh that would restore it fails', {
+      [SESSION]: [() => patient('subject-a'), accessExpired], [REFRESH]: [unavailable] }],
+    ['the sign-out fails once it is restored', {
+      [SESSION]: [() => patient('subject-a'), accessExpired, () => patient('subject-a')], [REFRESH]: [() => patient('subject-a')], [LOGOUT]: [unavailable] }],
+    ['the sign-out itself is refused and the refresh that would restore it fails', {
+      [SESSION]: [() => patient('subject-a'), () => patient('subject-a')], [LOGOUT]: [accessExpired], [REFRESH]: [unavailable] }],
+  ])('keeps the patient signed in, and says so, when the access token expired and %s', async (_label, routes) => {
+    // The 401 that starts the restore is the sign-out's to judge: had it signed the
+    // tab out, the portal would show sign-in while the server session stayed live.
+    await signedInAs('subject-a', routes)
+    await act(async () => { screen.getByRole('button', { name: 'Sign out' }).click() })
+    expect((await screen.findByRole('alert')).textContent).toBe('UPSTREAM_UNAVAILABLE')
+    expect(screen.getByTestId('status').textContent).toBe('authenticated')
   })
 
   it('signs out locally when no session is left to restore', async () => {

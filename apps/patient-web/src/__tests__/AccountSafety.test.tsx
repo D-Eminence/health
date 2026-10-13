@@ -154,7 +154,7 @@ describe('patient emergency contacts', () => {
     expect(requests.find(request => request.method === 'POST' && request.path.endsWith('/emergency-contacts'))?.body)
       .toEqual({ name: 'Chidi Okafor', relationship: 'relative', channel: 'sms', destination: '0803 123 4567', notifyOnEmergencyAccess: true })
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Send verification code' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Send verification code to Chidi Okafor, +234•••••567' }))
     fireEvent.change(await screen.findByRole('textbox', { name: /Code from Chidi Okafor/ }), { target: { value: '482913' } })
     fireEvent.click(screen.getByRole('button', { name: 'Verify contact' }))
     expect(await screen.findByText('Verified · will be notified in an emergency')).toBeTruthy()
@@ -163,7 +163,7 @@ describe('patient emergency contacts', () => {
   it('keeps the contact unverified when delivery is not yet available', async () => {
     renderWith(<EmergencyContactsCard />, (path, method) => method === 'GET' ? json([contact()])
       : json({ code: 'EMERGENCY_CONTACT_DELIVERY_UNAVAILABLE', detail: 'Emergency contact verification is not yet available' }, 503))
-    fireEvent.click(await screen.findByRole('button', { name: 'Send verification code' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Send verification code to Chidi Okafor, +234•••••567' }))
     expect((await screen.findByRole('alert')).textContent).toContain('stays unverified and will not be notified')
     expect(screen.queryByRole('textbox', { name: /Code from/ })).toBeNull()
   })
@@ -171,7 +171,7 @@ describe('patient emergency contacts', () => {
   it('removes a contact only after confirmation', async () => {
     const requests = renderWith(<EmergencyContactsCard />, (path, method) => method === 'GET' ? json([contact()])
       : json({ contactId: contact().contactId, status: 'deactivated', replayed: false }))
-    fireEvent.click(await screen.findByRole('button', { name: 'Remove' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove Chidi Okafor, +234•••••567' }))
     expect(requests.some(request => request.path.endsWith('/deactivate'))).toBe(false)
     fireEvent.click(screen.getByRole('button', { name: 'Confirm removal' }))
     await waitFor(() => expect(requests.some(request => request.path.endsWith('/deactivate'))).toBe(true))
@@ -195,7 +195,7 @@ describe('patient access revocation', () => {
     })
     expect(await screen.findByText('Emergency access · emergency')).toBeTruthy()
     expect(screen.getByText(/cannot be revoked here/)).toBeTruthy()
-    const revokeButtons = screen.getAllByRole('button', { name: 'Revoke access' })
+    const revokeButtons = screen.getAllByRole('button', { name: /^Revoke access for / })
     expect(revokeButtons).toHaveLength(1)
     fireEvent.click(revokeButtons[0]!)
     fireEvent.change(screen.getByRole('textbox', { name: 'Reason for revocation' }), { target: { value: 'No longer needed' } })

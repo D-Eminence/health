@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link, Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
-import { adminApi, type AdminActor, type AdminSession } from './api'
+import {
+  adminApi, adminSessionAccount, closeAdminSession, setAdminSessionAccount, type AdminActor, type AdminSession,
+} from './api'
 import { ApprovalsPage } from './Approvals'
 import { AuditPage } from './Audit'
 import { BrandLogo } from '../BrandLogo'
@@ -14,12 +16,12 @@ import { PrincipalsPage } from './Principals'
 import { failure } from './problems'
 import { SecurityPage } from './SecurityPage'
 import {
-  clearSessionWindow, currentSessionWindow, onSessionEnded, onSessionWindow, reportSessionEnded, serverSessionEnd,
-  type SessionEndReason,
+  clearSessionWindow, currentSessionWindow, onSessionEnded, onSessionWindow, reportSessionEnded, type SessionEndReason,
 } from './session-window'
 import { navigationItemFor, visibleNavigation } from './navigation'
 import { AdminSignIn } from './SignIn'
 import { StepUpProvider } from './StepUp'
+import { announceAdminSessionChange, onOtherAdminTabSessionChange } from './tabs'
 import { date, has } from './ui'
 import './style.css'
 
@@ -29,8 +31,14 @@ export const SESSION_ENDED_MESSAGES: Readonly<Record<SessionEndReason, string>> 
   revoked: 'Your platform session was ended before it expired: it was signed out or revoked from another session or by '
     + 'another administrator, your account or roles changed, or your authenticator was reset. Sign in again, and tell your '
     + 'security team if you did not expect this.',
+  switched: 'Platform administration in this browser is now signed in as another administrator, so your workspace was '
+    + 'closed. Sign in again to continue.',
 }
 const NO_ACCESS = 'This account has no platform administration access.'
+const SIGNED_OUT = 'You have signed out of platform administration.'
+
+/** A tab back in view after this long asks the server whose session the browser holds. */
+const RECHECK_AFTER_HIDDEN_MS = 60_000
 
 /**
  * Guards an area with the same rule that shows it in the navigation. A
@@ -71,15 +79,25 @@ export function App() {
   const [checkRevision, setCheckRevision] = useState(0)
   const [notice, setNotice] = useState<string | null>(null)
   const [signOutError, setSignOutError] = useState<string | null>(null)
+  const [signingOut, setSigningOut] = useState(false)
   const signedIn = useRef(false)
   const checkingSession = useRef(false)
+  const signOutRunning = useRef(false)
+  // Another admin tab spoke while no workspace was open. The answer that opens
+  // the next one may predate it, so the server is asked again once it opens.
+  const heardWhileOpening = useRef(false)
+  const recheckSession = useRef<() => void>(() => undefined)
   useAreaTitle()
 
   const end = useCallback((message: string | null) => {
     signedIn.current = false
+    // Until the next session check or sign-in, nothing this workspace sent restores a session.
+    closeAdminSession()
     clearSessionWindow()
     setSession(null)
     setNotice(message)
+    // A sign-out that failed belonged to this workspace, not to the next one.
+    setSignOutError(null)
   }, [])
 
   // The server stopped accepting this platform session (401 after refresh).
@@ -93,15 +111,20 @@ export function App() {
   const open = useCallback((value: AdminSession) => {
     if (!has(value.actor, 'platform.admin.access')) throw new Error(NO_ACCESS)
     signedIn.current = true
+    // From here a refresh that answers for another administrator ends the workspace.
+    setAdminSessionAccount(value.actor.accountId)
     setNotice(null)
     setSession(value)
     // Records the server's idle and absolute expiry for the session warning.
     void adminApi.mfaStatus().catch(() => undefined)
+    if (heardWhileOpening.current) { heardWhileOpening.current = false; recheckSession.current() }
   }, [])
 
   useEffect(() => {
     let active = true
     checkingSession.current = true
+    heardWhileOpening.current = false
+    setAdminSessionAccount(null)
     setChecking(true)
     setCheckError(null)
     // A missing or expired access token is restored once by the API client's refresh.
@@ -117,29 +140,113 @@ export function App() {
     return () => { active = false; checkingSession.current = false }
   }, [checkRevision, open])
 
+  useEffect(() => () => closeAdminSession(), [])
+
+  // Nothing else reveals that another tab signed a different administrator in,
+  // or this one out, while this tab sent no request. When another admin tab
+  // says so, or the page returns after a while away or from the back/forward
+  // cache, the server is asked whose session the browser holds. Another
+  // administrator's ends the workspace; a refused session ends it through the
+  // client's 401; a question the server could not answer (an outage) changes
+  // nothing. A change announced while the next workspace is being opened is asked
+  // about once it opens.
+  useEffect(() => {
+    let asking = false
+    let again = false
+    let hiddenSince: number | null = null
+    const recheck = () => {
+      const accountId = adminSessionAccount()
+      if (!signedIn.current || accountId === null) return
+      if (asking) { again = true; return }
+      asking = true
+      void adminApi.session().then(value => {
+        if (signedIn.current && adminSessionAccount() === accountId && value.actor.accountId !== accountId) {
+          reportSessionEnded('switched')
+        }
+      }).catch(() => undefined).finally(() => {
+        asking = false
+        if (again) { again = false; recheck() }
+      })
+    }
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') { hiddenSince ??= Date.now(); return }
+      const away = hiddenSince === null ? 0 : Date.now() - hiddenSince
+      hiddenSince = null
+      if (away >= RECHECK_AFTER_HIDDEN_MS) recheck()
+    }
+    const onPageShow = (event: PageTransitionEvent) => { if (event.persisted) recheck() }
+    recheckSession.current = recheck
+    const stopListening = onOtherAdminTabSessionChange(() => {
+      if (signedIn.current) recheck()
+      else heardWhileOpening.current = true
+    })
+    document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('pageshow', onPageShow)
+    return () => {
+      stopListening()
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('pageshow', onPageShow)
+    }
+  }, [])
+
+  // MFA verification or activation has already replaced the browser's platform
+  // cookies and told the other admin tabs (api.ts), whether or not this workspace opens.
   async function signedInNow() {
+    heardWhileOpening.current = false
+    setAdminSessionAccount(null)
     let value: AdminSession
     try { value = await adminApi.session() }
     catch (error) { throw new Error(failure(error, 'Platform administration could not be opened. Try again.')) }
     open(value)
   }
 
+  // The check before logout can take a second of retries: a second press starts nothing more.
   async function signOut() {
-    setSignOutError(null)
-    try { await adminApi.logout(); end('You have signed out of platform administration.') }
-    catch (reason) {
-      if (isHidApiError(reason) && reason.status === 401) {
-        // An expired or revoked session was already ended with the server's reason, which is kept.
-        if (!serverSessionEnd(reason.code)) end('You have signed out of platform administration.')
-        return
-      }
-      setSignOutError(failure(reason, 'Sign-out could not be completed.'))
-    }
+    if (signOutRunning.current) return
+    signOutRunning.current = true
+    setSigningOut(true)
+    try { await signOutOnce() }
+    finally { signOutRunning.current = false; setSigningOut(false) }
   }
 
-  if (checking) return <main className="admin-message" role="status"><BrandLogo className="admin-state-logo" />Checking your platform session…</main>
-  if (checkError) return <main className="admin-message" role="alert"><BrandLogo className="admin-state-logo" /><h1>Session unavailable</h1>
-    <p>{checkError}</p><button type="button" className="admin-primary" onClick={() => setCheckRevision(value => value + 1)}>Try again</button></main>
+  async function signOutOnce() {
+    setSignOutError(null)
+    const accountId = adminSessionAccount()
+    // The reason the workspace ended with while signing out, if it did and had one.
+    let ended = null as SessionEndReason | null
+    const stopWatching = onSessionEnded(reason => { if (reason) ended ??= reason })
+    try {
+      // Logout ends whichever platform session the browser's cookies carry, and a
+      // tab that has not yet heard of another administrator's sign-in would end
+      // theirs. The server is asked first, restoring a lapsed access token on the
+      // way, so the logout also reaches a session idle for a few minutes.
+      if (accountId !== null && (await adminApi.session()).actor.accountId !== accountId) {
+        end(SESSION_ENDED_MESSAGES.switched)
+        return
+      }
+      await adminApi.logout()
+      end(SIGNED_OUT)
+    } catch (reason) {
+      if (!isHidApiError(reason) || reason.status !== 401) {
+        // A refusal that ended the workspace (403 PLATFORM_SESSION_REQUIRED) has said why already.
+        if (signedIn.current) setSignOutError(failure(reason, 'Sign-out could not be completed.'))
+        return
+      }
+      // The browser holds another administrator's session, which is left alone.
+      if (ended === 'switched') return
+      // A session that expired or was revoked has already ended the workspace with that
+      // reason, whichever request was refused (on a lapsed access token, the refresh
+      // gives it), and the notice is kept. Only an end with no reason reads as signed out.
+      if (!ended) end(SIGNED_OUT)
+    } finally { stopWatching() }
+    // The other admin tabs used the same session.
+    announceAdminSessionChange()
+  }
+
+  // Each screen is a main landmark holding its status or alert: a role on the main element itself would replace the landmark.
+  if (checking) return <main className="admin-message"><BrandLogo className="admin-state-logo" /><p role="status">Checking your platform session…</p></main>
+  if (checkError) return <main className="admin-message"><BrandLogo className="admin-state-logo" /><h1>Session unavailable</h1>
+    <p role="alert">{checkError}</p><button type="button" className="admin-primary" onClick={() => setCheckRevision(value => value + 1)}>Try again</button></main>
   if (!session) return <AdminSignIn onSignedIn={signedInNow} notice={notice} />
   const actor = session.actor
   const sections = visibleNavigation(actor)
@@ -160,11 +267,11 @@ export function App() {
             </div>)}
           </nav>
           <div className="admin-sidebar-footer"><span>{actor.displayName || actor.email || 'Platform administrator'}</span>
-            <button type="button" onClick={() => void signOut()}>Sign out</button></div>
+            <button type="button" disabled={signingOut} onClick={() => void signOut()}>Sign out</button></div>
         </aside>
         <div className="admin-main-wrap">
           <header className="admin-mobile-header"><Link to="/admin/overview" className="admin-mobile-logo"><BrandLogo /><span>Platform</span></Link>
-            <button type="button" onClick={() => void signOut()}>Sign out</button></header>
+            <button type="button" disabled={signingOut} onClick={() => void signOut()}>Sign out</button></header>
           <nav className="admin-mobile-nav" aria-label="Platform areas">
             {sections.flatMap(section => section.items).map(item => <NavLink key={item.path} to={item.path}>{item.title}</NavLink>)}
           </nav>

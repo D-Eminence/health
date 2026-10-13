@@ -73,6 +73,12 @@ export interface RequestSpec {
    */
   readonly refreshOnUnauthorized?: (error: HidApiError) => boolean
   /**
+   * Whether this call's final 401 is passed to `onUnauthorized`. Defaults to
+   * true. A call that asks about the session itself, and judges its own 401
+   * (an expired access token that a refresh may still restore), passes false.
+   */
+  readonly reportUnauthorized?: boolean
+  /**
    * Awaited immediately before every attempt is sent, retries and the repeat
    * after a refresh included. A caller can hold the request (for example while
    * its session is being checked) or end it by rejecting; the rejection is not
@@ -450,7 +456,7 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
           }
         }
         if (!shouldRetry({ error, method: spec.method, attempt: attemptIndex, policy, idempotent })) {
-          if (error instanceof HidApiError && error.status === 401) options.onUnauthorized?.(error)
+          if (error instanceof HidApiError && error.status === 401 && spec.reportUnauthorized !== false) options.onUnauthorized?.(error)
           throw error
         }
 
@@ -476,7 +482,7 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
 
   function dedupeKey(spec: RequestSpec): string {
     return JSON.stringify([spec.method, spec.path, spec.query ?? null, spec.auth ?? 'required',
-      spec.headers ?? null, spec.responseType ?? 'json'])
+      spec.headers ?? null, spec.responseType ?? 'json', spec.reportUnauthorized ?? true])
   }
 
   /**

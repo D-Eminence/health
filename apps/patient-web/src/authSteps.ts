@@ -57,7 +57,7 @@ export function describedBy(...ids: Array<string | false | null | undefined>): s
   return present.length ? present.join(' ') : undefined
 }
 
-/** Names the browser tab after the page, which index.html names for patients only (PA-12). */
+/** Names the browser tab after the page, which index.html names for patients only (PA-12, PR-06). */
 export function useDocumentTitle(title: string) {
   useEffect(() => {
     const before = document.title

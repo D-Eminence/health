@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
 import { App } from '../App'
 
 const calls = vi.hoisted(() => ({
-  patientSession: vi.fn(), patientRefresh: vi.fn(), patientEnrollmentCurrent: vi.fn(), patientGoogleOnboarding: vi.fn(),
+  patientSession: vi.fn(), patientRefresh: vi.fn(), patientEnrollmentCurrent: vi.fn(), patientGoogleOnboarding: vi.fn(), patientProfile: vi.fn(),
   staffSession: vi.fn(), staffRefresh: vi.fn(), staffSelectFacility: vi.fn(), staffLogout: vi.fn(),
   staffLookupPatient: vi.fn(), staffBreakGlass: vi.fn(), staffEmergencyRecords: vi.fn(),
   staffEncounters: vi.fn(), staffRecords: vi.fn(), staffCreateRecord: vi.fn(), staffConsentStatus: vi.fn(),
@@ -19,7 +19,7 @@ vi.mock('../staff/env', () => ({ getEnvironment: () => localEnvironment }))
 vi.mock('../admin/env', () => ({ environment: () => localEnvironment }))
 vi.mock('../api', () => ({
   createPatientApi: () => ({ session: calls.patientSession, refresh: calls.patientRefresh,
-    enrollmentCurrent: calls.patientEnrollmentCurrent, googleOnboarding: calls.patientGoogleOnboarding }),
+    enrollmentCurrent: calls.patientEnrollmentCurrent, googleOnboarding: calls.patientGoogleOnboarding, profile: calls.patientProfile }),
 }))
 vi.mock('../staff/api', () => ({
   staffApi: { session: calls.staffSession, refresh: calls.staffRefresh,
@@ -31,6 +31,7 @@ vi.mock('../staff/api', () => ({
 }))
 vi.mock('../admin/api', () => ({
   adminApi: { session: calls.adminSession, refresh: calls.adminRefresh },
+  adminSessionAccount: () => null, setAdminSessionAccount: () => undefined, closeAdminSession: () => undefined,
 }))
 
 function Path() {
@@ -98,16 +99,125 @@ describe('unified authenticated portal routes', () => {
     expect(calls.patientEnrollmentCurrent).toHaveBeenCalledTimes(2)
   })
 
+  it('moves focus to the NIN field once Try again finds no enrollment, and to Try again when the check fails again', async () => {
+    calls.patientEnrollmentCurrent.mockRejectedValueOnce(new Error('Network unavailable')).mockRejectedValueOnce(new Error('Network unavailable'))
+    open('/enroll')
+
+    const first = await screen.findByRole('button', { name: 'Try again' })
+    first.focus()
+    await act(async () => { fireEvent.click(first) })
+    const second = await screen.findByRole('button', { name: 'Try again' })
+    await waitFor(() => expect(document.activeElement).toBe(second))
+    await act(async () => { fireEvent.click(second) })
+
+    const nin = await screen.findByRole('textbox', { name: 'National Identification Number' })
+    await waitFor(() => expect(document.activeElement).toBe(nin))
+  })
+
   it('keeps a protected patient URL pending when the session check loses the network', async () => {
     calls.patientSession.mockRejectedValueOnce(new Error('Network unavailable'))
     open('/profile')
 
-    expect(await screen.findByText('We could not check your session. Try again.')).toBeTruthy()
+    expect(await screen.findByRole('heading', { level: 1, name: 'We could not check your session' })).toBeTruthy()
     expect(screen.getByTestId('portal-path').textContent).toBe('/profile')
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
 
     await waitFor(() => expect(screen.getByTestId('portal-path').textContent).toBe('/sign-in'))
     expect(calls.patientSession).toHaveBeenCalledTimes(2)
+  })
+
+  it('sends a protected patient URL to sign-in, saying so, when the browser holds a provider\'s sign-in', async () => {
+    // hid-system's staff actor carries no `kind` (auth.controller.ts session; current-staff-context.service.ts).
+    calls.patientSession.mockResolvedValue({ actor: { id: 'staff-1', subject: 'staff-1', accountId: 'account-1',
+      roles: ['clinician'], permissions: [], facilities: [] } })
+    open('/profile')
+
+    await waitFor(() => expect(screen.getByTestId('portal-path').textContent).toBe('/sign-in'))
+    expect(await screen.findByText('A provider sign-in is active in this browser. Signing in here as a patient replaces it.')).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Go to the provider portal' }).getAttribute('href')).toBe('/provider')
+    expect(screen.queryByText(/could not check your session/)).toBeNull()
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(calls.patientSession).toHaveBeenCalledOnce()
+    expect(calls.staffSession).not.toHaveBeenCalled()
+  })
+
+  it('asks for the provider portal\'s sign-out, with no retry loop, when enrollment is refused for a provider\'s sign-in', async () => {
+    calls.patientSession.mockResolvedValue({ actor: { id: 'staff-1', subject: 'staff-1', accountId: 'account-1', roles: [], permissions: [] } })
+    calls.patientEnrollmentCurrent.mockRejectedValue(new HidApiError(409, 'Sign out before starting or continuing a new Health ID enrollment',
+      { code: 'PATIENT_ENROLLMENT_REQUIRES_SIGN_OUT' }))
+    open('/enroll')
+
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toBe('A provider sign-in is active in this browser. Sign out of the provider portal before starting a new Health ID.')
+    // The alert is the message: the note's link and button are not inside it.
+    expect(within(alert).queryAllByRole('link')).toEqual([])
+    expect(screen.getByRole('link', { name: 'Go to the provider portal' }).getAttribute('href')).toBe('/provider')
+    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull()
+    expect(screen.queryByText(/could not check for an enrollment/)).toBeNull()
+    expect(screen.queryByRole('textbox', { name: 'National Identification Number' })).toBeNull()
+  })
+
+  it('checks again once the provider portal was signed out elsewhere, as the note asks, and opens the NIN step', async () => {
+    calls.patientSession.mockResolvedValueOnce({ actor: { id: 'staff-1', subject: 'staff-1', accountId: 'account-1', roles: [], permissions: [] } })
+    calls.patientEnrollmentCurrent.mockRejectedValueOnce(new HidApiError(409, 'Sign out before starting or continuing a new Health ID enrollment',
+      { code: 'PATIENT_ENROLLMENT_REQUIRES_SIGN_OUT' }))
+    open('/enroll')
+    expect((await screen.findByRole('alert')).textContent).toContain('A provider sign-in is active in this browser.')
+
+    // The provider signs out in another tab; the next checks find no sign-in and no enrollment.
+    const check = screen.getByRole('button', { name: 'Check again' })
+    check.focus()
+    await act(async () => { fireEvent.click(check) })
+
+    const nin = await screen.findByRole('textbox', { name: 'National Identification Number' })
+    await waitFor(() => expect(document.activeElement).toBe(nin))
+    expect(screen.queryByText(/Sign out of the provider portal/)).toBeNull()
+    expect(calls.patientEnrollmentCurrent).toHaveBeenCalledTimes(2)
+    expect(calls.patientSession).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps the sign-out note, with focus on it, when checking again finds the sign-in still there', async () => {
+    calls.patientEnrollmentCurrent.mockRejectedValue(new HidApiError(409, 'Sign out before starting or continuing a new Health ID enrollment',
+      { code: 'PATIENT_ENROLLMENT_REQUIRES_SIGN_OUT' }))
+    open('/enroll')
+    const check = await screen.findByRole('button', { name: 'Check again' })
+    check.focus()
+    await act(async () => { fireEvent.click(check) })
+
+    await waitFor(() => expect(calls.patientEnrollmentCurrent).toHaveBeenCalledTimes(2))
+    // Focus moves to the note, which is read there once: it is not also an alert.
+    const note = await screen.findByRole('group', { name: /This browser is still signed in to Health ID\./ })
+    await waitFor(() => expect(document.activeElement).toBe(note))
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.queryByRole('textbox', { name: 'National Identification Number' })).toBeNull()
+  })
+
+  it('opens the patient portal, where the patient can sign out, once checking again finds the patient signed in elsewhere', async () => {
+    calls.patientEnrollmentCurrent.mockRejectedValue(new HidApiError(409, 'Sign out before starting or continuing a new Health ID enrollment',
+      { code: 'PATIENT_ENROLLMENT_REQUIRES_SIGN_OUT' }))
+    calls.patientProfile.mockResolvedValue({ hid: 'HID-ABC234', fullName: 'Ada Example' })
+    open('/enroll')
+    const check = await screen.findByRole('button', { name: 'Check again' })
+
+    // The patient signed in from another tab after this one opened.
+    calls.patientSession.mockResolvedValue({ actor: { kind: 'patient', subject: 'subject-a', patientId: 'patient-a', accountId: 'account-a' } })
+    await act(async () => { fireEvent.click(check) })
+    await waitFor(() => expect(screen.getByTestId('portal-path').textContent).toBe('/'))
+    expect(await screen.findByRole('button', { name: 'Sign out' })).toBeTruthy()
+  })
+
+  it('asks for a sign-out, with no retry loop, when enrollment is refused for a sign-in the browser holds', async () => {
+    calls.patientEnrollmentCurrent.mockRejectedValue(new HidApiError(409, 'Sign out before starting or continuing a new Health ID enrollment',
+      { code: 'GOOGLE_ONBOARDING_REQUIRES_SIGN_OUT' }))
+    open('/enroll')
+
+    expect((await screen.findByRole('alert')).textContent)
+      .toBe('This browser is still signed in to Health ID. Sign out of the patient or provider portal before starting a new Health ID.')
+    expect(screen.getByText('If a patient is signed in, Check again opens the patient portal, where you can sign out.')).toBeTruthy()
+    // A link to the portal would only reach sign-in: this tab has no patient session to open it with.
+    expect(screen.queryByRole('link', { name: 'Go to the patient portal' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull()
+    expect(screen.queryByRole('textbox', { name: 'National Identification Number' })).toBeNull()
   })
 
   it('opens provider sign in directly under /provider', async () => {
@@ -133,7 +243,8 @@ describe('unified authenticated portal routes', () => {
   it('opens platform administration sign in directly under /admin', async () => {
     open('/admin/sign-in')
 
-    expect(await screen.findByRole('heading', { name: 'Administration sign in' })).toBeTruthy()
+    // The platform workspace is imported on first use, which can take over a second under a full run.
+    expect(await screen.findByRole('heading', { name: 'Administration sign in' }, { timeout: 5000 })).toBeTruthy()
     expect(screen.getByTestId('portal-path').textContent).toBe('/admin/sign-in')
     await waitFor(() => expect(calls.adminSession).toHaveBeenCalledOnce())
     expect(calls.patientSession).not.toHaveBeenCalled()

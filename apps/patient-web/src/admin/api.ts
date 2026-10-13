@@ -1,7 +1,8 @@
-import { createApiClient, isHidApiError, NO_RETRY, type DownloadResult, type HidApiError, type RequestSpec } from '@hid/http'
+import { createApiClient, HidApiError, isHidApiError, NO_RETRY, type DownloadResult, type RequestSpec } from '@hid/http'
 import { createRegisteredBrowserClient } from '@hid/api'
 import { environment } from './env'
 import { recordServerSessionEnd, recordSessionWindow, reportSessionEnded, serverSessionEnd } from './session-window'
+import { announceAdminSessionChange } from './tabs'
 
 export interface AdminActor {
   accountId: string
@@ -188,8 +189,57 @@ async function request<T>(path: string, options: Partial<RequestSpec> = {}): Pro
 /** 401 codes meaning the server no longer accepts this platform session. */
 const SESSION_END_CODES = new Set(['AUTHENTICATION_REQUIRED', 'PLATFORM_SESSION_EXPIRED', 'PLATFORM_SESSION_REVOKED'])
 
+/**
+ * The administrator whose workspace is open, or null while none is (checking,
+ * signing in, signed out, ended). Held in memory only. Every admin tab shares the
+ * browser's platform cookies, so a refresh can answer for an administrator who
+ * signed in from another tab: that has not restored this workspace's session.
+ */
+let openAccount: string | null = null
+/**
+ * A workspace ended and no other is being opened yet (no session check or
+ * sign-in since). Requests it sent may still be refused with 401 after the
+ * browser's cookies came to hold another administrator's session; a refresh
+ * then would answer for them and the client would repeat the request, a command
+ * included, as them. So none is made until the next workspace is opened.
+ */
+let workspaceClosed = false
+
+export function adminSessionAccount(): string | null {
+  return openAccount
+}
+
+/** Binds the workspace to `accountId`; with null, opens the way for one (a session check or a sign-in). */
+export function setAdminSessionAccount(accountId: string | null): void {
+  openAccount = accountId
+  workspaceClosed = false
+}
+
+/** The workspace ended: no session is restored for it, or as anyone, until the next one is opened. */
+export function closeAdminSession(): void {
+  openAccount = null
+  workspaceClosed = true
+}
+
+/** The client does not repeat a request whose refresh is refused with this 401. */
+function sessionNotRestored(): HidApiError {
+  return new HidApiError(401, 'Your platform session has ended. Sign in again to continue.',
+    { code: 'AUTHENTICATION_REQUIRED', retryable: false })
+}
+
 function grant(value: PlatformSessionGrant): PlatformSessionGrant {
   recordSessionWindow({ idleExpiresAt: value.idleExpiresAt })
+  return value
+}
+
+/**
+ * A sign-in step that answered with a session has set the browser's platform
+ * cookies, which every admin tab sends from then on, so the other tabs are told
+ * at once rather than when this one opens its workspace.
+ */
+function signedIn<T extends PlatformSessionGrant>(value: T): T {
+  grant(value)
+  announceAdminSessionChange()
   return value
 }
 
@@ -222,27 +272,34 @@ export const adminApi = {
       body: { email, password, turnstileAction: 'admin-login', ...(token ? { turnstileToken: token } : {}) } })
   },
   async verifyMfa(input: { code: string } | { recoveryCode: string }) {
-    return grant(await request<PlatformSessionGrant>('/api/v1/auth/admin/mfa/verify', { method: 'POST', auth: 'none', body: input }))
+    return signedIn(await request<PlatformSessionGrant>('/api/v1/auth/admin/mfa/verify', { method: 'POST', auth: 'none', body: input }))
   },
   startEnrollment() {
     return request<MfaEnrollment>('/api/v1/auth/admin/mfa/enroll/start', { method: 'POST', auth: 'none' })
   },
   async activateEnrollment(code: string) {
-    const activated = await request<PlatformSessionGrant & { recoveryCodes: string[] }>(
-      '/api/v1/auth/admin/mfa/enroll/activate', { method: 'POST', auth: 'none', body: { code } })
-    grant(activated)
-    return activated
+    return signedIn(await request<PlatformSessionGrant & { recoveryCodes: string[] }>(
+      '/api/v1/auth/admin/mfa/enroll/activate', { method: 'POST', auth: 'none', body: { code } }))
   },
   session() { return request<AdminSession>('/api/v1/admin/session') },
   async refresh() {
+    if (workspaceClosed) throw sessionNotRestored()
+    let refreshed: PlatformSessionGrant
     try {
-      return grant(await request<PlatformSessionGrant>('/api/v1/auth/admin/refresh', { method: 'POST', auth: 'optional' }))
+      refreshed = await request<PlatformSessionGrant>('/api/v1/auth/admin/refresh', { method: 'POST', auth: 'optional' })
     } catch (error) {
       // The shared client reports the original request's 401 after a failed
       // refresh, so keep the refresh's own reason for the session-end notice.
       if (isHidApiError(error) && error.status === 401) recordServerSessionEnd(serverSessionEnd(error.code))
       throw error
     }
+    // A session for another administrator ends this workspace. The refusal is a
+    // 401, so the client does not repeat the original request as them.
+    if (openAccount !== null && refreshed.actor?.accountId !== openAccount) {
+      reportSessionEnded('switched')
+      throw sessionNotRestored()
+    }
+    return grant(refreshed)
   },
   logout() { return request<void>('/api/v1/auth/admin/logout', { method: 'POST' }) },
   async mfaStatus(signal?: AbortSignal) {

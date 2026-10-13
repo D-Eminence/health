@@ -20,9 +20,43 @@ export function heldByOtherPortal(error: unknown): error is HidApiError {
   return isHidApiError(error) && error.status === 403 && error.code === 'SESSION_CLIENT_MISMATCH'
 }
 
+/**
+ * The channel this tab listens with, for either portal. A tab announces on the
+ * channel it listens with, since a channel never hears its own messages: a tab is
+ * not told of its own sign-in or sign-out.
+ */
+let tabs: BroadcastChannel | null = null
+let tabListeners = 0
+
+/** Calls `listener` each time another tab of the origin says the browser's session changed. */
+export function onOtherTabSessionChange(listener: () => void): () => void {
+  if (typeof BroadcastChannel === 'undefined') return () => undefined
+  // A browser that refuses the channel leaves this tab to notice changes on its
+  // own (a refused request, a return to the page); the portal still works.
+  let channel: BroadcastChannel
+  try { channel = tabs ??= new BroadcastChannel(SESSION_CHANGE_CHANNEL) } catch { return () => undefined }
+  const receive = () => listener()
+  try { channel.addEventListener('message', receive) } catch {
+    if (tabListeners === 0 && tabs === channel) { tabs = null; try { channel.close() } catch { /* already unusable */ } }
+    return () => undefined
+  }
+  tabListeners += 1
+  return () => {
+    channel.removeEventListener('message', receive)
+    tabListeners -= 1
+    if (tabListeners === 0 && tabs === channel) { channel.close(); tabs = null }
+  }
+}
+
+/** Tells the other tabs on the channel this tab listens with; a tab that does not listen says nothing. */
+export function announceToListeningTabs(): void {
+  try { tabs?.postMessage('changed') } catch { /* best effort, as for listening */ }
+}
+
 /** Tells this origin's other tabs that the browser's session changed. */
 export function announceSessionChange(): void {
   if (typeof BroadcastChannel === 'undefined') return
+  if (tabs) { announceToListeningTabs(); return }
   // Best effort: a browser that refuses the channel (for example with storage
   // blocked) only loses the announcement, never the sign-in or sign-out.
   try {

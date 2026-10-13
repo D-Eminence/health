@@ -8,21 +8,14 @@
  */
 
 import { assertPublicEnvironment, resolveEnvironment, type HidEnvironment } from '@hid/config'
-
-const RAW_ENVIRONMENT = import.meta.env as unknown as Record<string, string | undefined>
+import { PUBLIC_ENVIRONMENT } from './publicEnvironment'
 
 let cached: HidEnvironment | null = null
 
 export function getEnvironment(): HidEnvironment {
   if (cached) return cached
 
-  // Vite injects its own keys (MODE, DEV, BASE_URL...). Only the Health ID ones
-  // are audited and resolved.
-  const hidVariables = Object.fromEntries(
-    Object.entries(RAW_ENVIRONMENT).filter(([key]) => key.startsWith('VITE_HID_')),
-  )
-
-  assertPublicEnvironment(hidVariables)
-  cached = resolveEnvironment(hidVariables, 'VITE_HID_')
+  assertPublicEnvironment(PUBLIC_ENVIRONMENT)
+  cached = resolveEnvironment(PUBLIC_ENVIRONMENT, 'VITE_HID_')
   return cached
 }

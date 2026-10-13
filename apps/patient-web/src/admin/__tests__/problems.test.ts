@@ -60,6 +60,12 @@ describe('admin failure messages', () => {
     expect(failure(new HidApiError(400, 'x', { code: 'ADMIN_INVALID_CURSOR' }), 'fallback')).toMatch(/Refresh the list/)
   })
 
+  it('explains the idempotency refusal Identity gives an admin command', () => {
+    // hid-system identity-api common/idempotency.ts, used by every admin command that takes a key.
+    expect(failure(new HidApiError(400, 'Idempotency-Key must contain 16 to 128 URL-safe characters',
+      { code: 'IDEMPOTENCY_KEY_REQUIRED' }), 'fallback')).toBe('This request could not be matched to a single submission. Try again.')
+  })
+
   it('lets one screen explain a backend code more precisely without changing other screens', () => {
     const exportRestricted = { PERMISSION_DENIED: 'Exports are restricted to Super Admins with the export permission.' }
     expect(failure(problem(403, 'PERMISSION_DENIED'), 'fallback', exportRestricted)).toBe(exportRestricted.PERMISSION_DENIED)

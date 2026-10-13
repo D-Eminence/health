@@ -1,5 +1,5 @@
 import { HidApiError, isHidApiError } from '@hid/http'
-import { SESSION_CHANGE_CHANNEL } from '../sessionChange'
+import { announceToListeningTabs, onOtherTabSessionChange } from '../sessionChange'
 import type { StaffSession } from './api'
 
 /**
@@ -125,28 +125,12 @@ export function assertStaffSessionFacility(headers: Readonly<Record<string, stri
  * its session changes (a staff or patient sign-in, a sign-out, a session end),
  * naming nothing; a tab that hears it asks the server itself. This tab announces
  * on the channel it listens with, since a channel never hears its own messages.
+ * The channel is shared with the patient portal's code (../sessionChange).
  */
-let tabs: BroadcastChannel | null = null
-let tabListeners = 0
-
-export function onOtherTabSessionChange(listener: () => void): () => void {
-  if (typeof BroadcastChannel === 'undefined') return () => undefined
-  // A browser that refuses the channel leaves this tab to notice changes on its
-  // own (a refused request, a return to the page); the portal still works.
-  let channel: BroadcastChannel
-  try { channel = tabs ??= new BroadcastChannel(SESSION_CHANGE_CHANNEL) } catch { return () => undefined }
-  const receive = () => listener()
-  channel.addEventListener('message', receive)
-  tabListeners += 1
-  return () => {
-    channel.removeEventListener('message', receive)
-    tabListeners -= 1
-    if (tabListeners === 0 && tabs === channel) { channel.close(); tabs = null }
-  }
-}
+export { onOtherTabSessionChange }
 
 export function announceStaffSessionChange(): void {
-  try { tabs?.postMessage('changed') } catch { /* best effort, as for listening */ }
+  announceToListeningTabs()
 }
 
 /** Calls `listener` each time a request sent in `generation` is refused as if the session had ended. */

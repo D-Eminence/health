@@ -1,17 +1,17 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { Outreach } from '../Operations'
 import { Registration } from '../Registration'
 
 /**
- * PEHR-04 on pages with several forms. Outreach's campaign and case forms, and
- * Registration's NIN, case, review and enrollment forms, each shared one set of
- * field problems: submitting one form cleared what another form's field had
- * been refused for, though that value was still there and still refused. Each
- * form now keeps its own.
+ * PEHR-04 on pages with several forms. Outreach's forms, and Registration's
+ * NIN, case, review and enrollment forms, each shared one set of field
+ * problems: submitting one form cleared what another form's field had been
+ * refused for, though that value was still there and still refused. Each form
+ * now keeps its own.
  */
 const api = vi.hoisted(() => ({
-  outreachCampaigns: vi.fn(), outreachCases: vi.fn(), outreachCampaignMembers: vi.fn(), createOutreachCampaign: vi.fn(), createOutreachCase: vi.fn(),
+  outreachCampaigns: vi.fn(), outreachCases: vi.fn(), outreachCampaignMembers: vi.fn(), createOutreachCase: vi.fn(), linkExistingOutreachCase: vi.fn(),
   registrationCapabilities: vi.fn(), registrationCase: vi.fn(), resolveNin: vi.fn(),
 }))
 vi.mock('../../App', () => ({
@@ -40,64 +40,70 @@ beforeEach(() => {
   api.registrationCapabilities.mockResolvedValue({ nin: { enabled: true, state: 'test-only' }, newPatientRegistrationRequiresNin: true })
 })
 
+// Outreach offers no campaign create, status or member form (OUTREACH-01: Identity does not
+// authorize outreach.campaign.write, so each would always be refused; Outreach.test.tsx pins
+// that none is offered). The forms it keeps side by side are the new case form and each
+// pending case's link form, and each keeps its own refusals.
 describe('outreach', () => {
-  const NAME_REFUSED = 'Enter a campaign name and choose at least one service.'
+  const LINK_REFUSED = 'Enter a canonical patient ID and a reason of at least 8 characters.'
+  const pending = (id: string, fullName: string) => ({ id, status: 'identity_resolution_pending', fullName, rowVersion: 1,
+    createdAt: '2026-10-01T08:00:00.000Z' })
 
-  async function refuseCampaignName() {
-    render(<Outreach />)
-    const name = await screen.findByLabelText(/^Campaign name/)
-    fireEvent.submit(name.closest('form')!)
-    await waitFor(() => expectRefused(name, NAME_REFUSED))
-    return name
+  /** Opens the link form of the case named `fullName`, submits it empty, and returns its refused patient ID field. */
+  async function refuseLink(fullName: string) {
+    const card = (await screen.findByText(fullName)).closest<HTMLElement>('.staff-list-item')!
+    fireEvent.click(within(card).getByText('Link verified existing patient'))
+    const patient = within(card).getByLabelText(/^Canonical patient ID/)
+    fireEvent.submit(patient.closest('form')!)
+    await waitFor(() => expectRefused(patient, LINK_REFUSED))
+    return patient
   }
 
-  it('a case refused at its own field leaves the campaign’s refusal at the campaign name', async () => {
-    const name = await refuseCampaignName()
+  it('a case refused at its own field leaves a link refusal at the canonical patient ID', async () => {
+    api.outreachCases.mockResolvedValue([pending('case-1', 'Amina Example')])
+    render(<Outreach />)
+    const patient = await refuseLink('Amina Example')
     const caseName = screen.getByLabelText(/^Full name/)
     fireEvent.submit(caseName.closest('form')!)
-    await waitFor(() => expectRefused(caseName, 'Enter a name and a valid age.'))
-    expectRefused(name, NAME_REFUSED)
+    await waitFor(() => expectRefused(caseName, "Enter the registrant's full name."))
+    expectRefused(patient, LINK_REFUSED)
+    expect(api.createOutreachCase).not.toHaveBeenCalled()
   })
 
-  it('a case created leaves the campaign’s refusal at the campaign name', async () => {
-    const name = await refuseCampaignName()
-    api.createOutreachCase.mockResolvedValue({ id: 'case-1' })
-    fireEvent.change(screen.getByLabelText(/^Full name/), { target: { value: 'Amina Example' } })
+  it('a case created leaves a link refusal at the canonical patient ID', async () => {
+    api.outreachCases.mockResolvedValue([pending('case-1', 'Amina Example')])
+    api.createOutreachCase.mockResolvedValue({ id: 'case-2' })
+    render(<Outreach />)
+    const patient = await refuseLink('Amina Example')
+    fireEvent.change(screen.getByLabelText(/^Full name/), { target: { value: 'Bola Example' } })
     fireEvent.change(screen.getByLabelText(/^Age \(years\)/), { target: { value: '34' } })
     fireEvent.submit(screen.getByLabelText(/^Full name/).closest('form')!)
     await waitFor(() => expect(document.getElementById('outreach-status')?.textContent).toBe('Registration case created for identity resolution.'))
-    expectRefused(name, NAME_REFUSED)
+    expectRefused(patient, LINK_REFUSED)
   })
 
-  it('a campaign’s member refusal stays at its field when the campaign’s status form is submitted', async () => {
-    api.outreachCampaigns.mockResolvedValue([{ id: 'campaign-1', name: 'Measles week', status: 'active', services: ['registration'],
-      startsAt: '2026-10-01T08:00:00.000Z', rowVersion: 1 }])
-    api.outreachCampaignMembers.mockResolvedValue([])
+  it('one case’s link refusal stays at its field when another case’s link form is submitted', async () => {
+    api.outreachCases.mockResolvedValue([pending('case-1', 'Amina Example'), pending('case-2', 'Bola Example')])
     render(<Outreach />)
-    const member = await screen.findByLabelText(/^Facility membership ID/)
-    fireEvent.submit(member.closest('form')!)
-    await waitFor(() => expectRefused(member, 'Enter a facility membership ID.'))
-
-    const reason = screen.getByLabelText(/^Closure reason/)
-    fireEvent.submit(reason.closest('form')!)
-    await waitFor(() => expectRefused(reason, 'Enter a status reason of at least 8 characters.'))
-    expectRefused(member, 'Enter a facility membership ID.')
+    const first = await refuseLink('Amina Example')
+    const second = await refuseLink('Bola Example')
+    expect(second).not.toBe(first)
+    expectRefused(first, LINK_REFUSED)
+    expect(api.linkExistingOutreachCase).not.toHaveBeenCalled()
   })
 
-  // The services rule is described at their fieldset, which a screen reader does not
-  // read again when focus moves within it: refused from Enter in a later service, it
-  // is an alert there, and focus stays.
-  it('the services rule, refused from within the services, is an alert there', async () => {
+  // Refused from Enter in the refused field, focus cannot move to say why: it is an alert there, and focus stays.
+  it('a link refusal, refused from within the refused field, is an alert there', async () => {
+    api.outreachCases.mockResolvedValue([pending('case-1', 'Amina Example')])
     render(<Outreach />)
-    const name = await screen.findByLabelText(/^Campaign name/)
-    fireEvent.change(name, { target: { value: 'Measles week' } })
-    const later = document.getElementById('outreach-service-vaccination')!
-    expect(later.closest('fieldset')?.querySelector('input')).not.toBe(later)
-    later.focus()
-    fireEvent.submit(name.closest('form')!)
-    expect((await screen.findByRole('alert')).textContent).toBe(NAME_REFUSED)
-    expect(document.activeElement).toBe(later)
-    expect(api.createOutreachCampaign).not.toHaveBeenCalled()
+    const card = (await screen.findByText('Amina Example')).closest<HTMLElement>('.staff-list-item')!
+    fireEvent.click(within(card).getByText('Link verified existing patient'))
+    const patient = within(card).getByLabelText(/^Canonical patient ID/)
+    patient.focus()
+    fireEvent.submit(patient.closest('form')!)
+    expect((await screen.findByRole('alert')).textContent).toBe(LINK_REFUSED)
+    expect(document.activeElement).toBe(patient)
+    expect(api.linkExistingOutreachCase).not.toHaveBeenCalled()
   })
 })
 

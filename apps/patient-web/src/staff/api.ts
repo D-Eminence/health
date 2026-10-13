@@ -485,6 +485,38 @@ export interface OcrPublication {
   targetResourceType?: string | null
   targetResourceId?: string | null
   failureCode?: string | null
+  failureSummary?: string | null
+  attemptCount?: number
+  maxAttempts?: number
+}
+/** Lab evidence imported from a document (GET /api/v1/lab/imports/:importId), such as an OCR publication made. */
+export interface LabImport {
+  id: string
+  /** accepted, entered_in_error or amended (hid-system lab migration 0017). */
+  status: string
+  externalLabName?: string | null
+  reportedAt?: string | null
+  observations: Array<{
+    id: string
+    ordinal: number
+    testCode?: string | null
+    testName: string
+    value?: string | null
+    valueText?: string | null
+    unit?: string | null
+    referenceRange?: string | null
+    abnormalFlag?: string | null
+    status?: string
+  }>
+}
+/** Historical medication evidence imported from a document (GET /api/v1/pharmacy/imports/:importId). */
+export interface PharmacyImport {
+  id: string
+  medicationText: string
+  strengthText?: string | null
+  doseText?: string | null
+  frequencyText?: string | null
+  historicalContext?: string | null
 }
 export interface OcrValidationInput {
   extractionId: string
@@ -1086,41 +1118,39 @@ export const staffApi = {
   ocrPublications: (facilityId: string, validationId: string) =>
     client.get<{ items: OcrPublication[] }>(`/api/v1/ocr/validations/${encodeURIComponent(validationId)}/publications`,
       { headers: facilityHeaders(facilityId) }),
+  // OCR resumes a publication its owning service could not take only when the request
+  // that started it is sent again with the same key, so the caller holds the key.
   publishOcrValidation: (facilityId: string, validation: OcrValidation, patientConfirmationId: string,
-    targetOperation: 'create_imported_clinical_note' | 'create_imported_lab_evidence' | 'create_imported_medication_evidence' | 'retain_validated_document') =>
+    targetOperation: 'create_imported_clinical_note' | 'create_imported_lab_evidence' | 'create_imported_medication_evidence' | 'retain_validated_document',
+    idempotencyKey: string) =>
     client.post<OcrPublication>(`/api/v1/ocr/validations/${encodeURIComponent(validation.id)}/publications`,
       { validationVersion: validation.version, patientConfirmationId, targetOperation, purpose: 'direct-care' },
-      { headers: { ...facilityHeaders(facilityId), ...keyHeaders() } }),
+      { headers: { ...facilityHeaders(facilityId), ...keyHeaders(idempotencyKey) } }),
   retryOcrJob: (facilityId: string, job: OcrJob, reason: string) =>
     client.post<OcrJob>(`/api/v1/ocr/jobs/${encodeURIComponent(job.id)}/retry`,
       { expectedVersion: job.version, reason, purpose: 'healthcare-operations' },
       { headers: facilityHeaders(facilityId, 'healthcare-operations') }),
+  // What a Lab or Pharmacy publication made, read from the domain that owns it.
+  labImport: (facilityId: string, importId: string) =>
+    client.get<LabImport>(`/api/v1/lab/imports/${encodeURIComponent(importId)}`, { headers: facilityHeaders(facilityId) }),
+  pharmacyImport: (facilityId: string, importId: string) =>
+    client.get<PharmacyImport>(`/api/v1/pharmacy/imports/${encodeURIComponent(importId)}`, { headers: facilityHeaders(facilityId) }),
 
   outreachCampaigns: (facilityId: string) =>
     client.get<OutreachCampaign[]>('/api/v1/outreach/registration-cases/campaigns', { headers: facilityHeaders(facilityId) }),
   outreachCampaignMembers: (facilityId: string, campaignId: string) =>
     client.get<OutreachCampaignMember[]>(`/api/v1/outreach/registration-cases/campaigns/${encodeURIComponent(campaignId)}/members`,
       { headers: facilityHeaders(facilityId) }),
-  updateOutreachCampaignStatus: (facilityId: string, campaign: OutreachCampaign, status: 'active' | 'closed', reason: string) =>
-    client.post<OutreachCampaign>(`/api/v1/outreach/registration-cases/campaigns/${encodeURIComponent(campaign.id)}/status`,
-      { status, reason }, { headers: { ...facilityHeaders(facilityId), 'If-Match': String(campaign.rowVersion) } }),
-  addOutreachCampaignMember: (facilityId: string, campaignId: string, membershipId: string,
-    role: OutreachCampaignMember['role']) =>
-    client.post<OutreachCampaignMember>(`/api/v1/outreach/registration-cases/campaigns/${encodeURIComponent(campaignId)}/members`,
-      { membershipId, role }, { headers: facilityHeaders(facilityId) }),
   outreachCases: (facilityId: string) =>
     client.get<OutreachCase[]>('/api/v1/outreach/registration-cases', { headers: facilityHeaders(facilityId) }),
   linkExistingOutreachCase: (facilityId: string, registrationCase: OutreachCase, canonicalPatientId: string, reason: string) =>
     client.post<OutreachCase>(`/api/v1/outreach/registration-cases/${encodeURIComponent(registrationCase.id)}/link-existing`,
       { canonicalPatientId, expectedVersion: registrationCase.rowVersion, reason },
       { headers: { ...facilityHeaders(facilityId), ...keyHeaders() } }),
-  createOutreachCampaign: (facilityId: string, input: { name: string; services: string[]; startsAt: string }) =>
-    client.post<OutreachCampaign>('/api/v1/outreach/registration-cases/campaigns', input,
-      { headers: facilityHeaders(facilityId) }),
-  createOutreachCase: (facilityId: string, input: { campaignId?: string; fullName: string; sex: string; ageYears: number; phone?: string; operationalNotes?: string }) => {
-    const localCommandId = crypto.randomUUID()
-    return client.post<OutreachCase>('/api/v1/outreach/registration-cases',
-      { ...input, localCommandId, temporaryPatientId: `tmp_${crypto.randomUUID()}` },
-      { headers: { ...facilityHeaders(facilityId), 'Idempotency-Key': localCommandId } })
-  },
+  // Outreach answers a command sent again (its localCommandId is also its Idempotency-Key)
+  // with the case it made, so the caller names the command and resends it for the same case.
+  createOutreachCase: (facilityId: string, input: { campaignId?: string; fullName: string; sex: string; ageYears: number; phone?: string; operationalNotes?: string },
+    command: { localCommandId: string; temporaryPatientId: string }) =>
+    client.post<OutreachCase>('/api/v1/outreach/registration-cases', { ...input, ...command },
+      { headers: { ...facilityHeaders(facilityId), 'Idempotency-Key': command.localCommandId } }),
 }
