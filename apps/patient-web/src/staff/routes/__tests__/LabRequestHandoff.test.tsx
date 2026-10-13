@@ -271,6 +271,14 @@ describe('activating or resuming a lab request', () => {
     expect(await screen.findByText('If the Laboratory may not have this request, ask someone who may send requests to Lab to use Send to Lab on it, or contact the laboratory.')).toBeTruthy()
   })
 
+  // Each note for a role that cannot send, before and since it says the portal's rule, names "someone who may send requests to Lab".
+  it.each(['draft', 'on_hold', 'active'])('never tells a role that can send to Lab that someone else must, under a %s request', async status => {
+    records['lab-requests'] = [labRequest(status)]
+    await openLabRequests()
+    await screen.findByText('Haemoglobin', { selector: 'strong' })
+    expect(screen.queryByText(/someone who may send requests to Lab/)).toBeNull()
+  })
+
   it('offers no status change for an active request, and says what is not passed to Lab', async () => {
     records['lab-requests'] = [labRequest('active')]
     await openLabRequests()
@@ -377,6 +385,20 @@ describe('activating or resuming a lab request', () => {
     await screen.findByText(/Lab holds an earlier version/)
     const title = await screen.findByText('Haemoglobin', { selector: 'strong' })
     await waitFor(() => expect(document.activeElement).toBe(title))
+  })
+
+  // Send to Lab cannot help: the role may not send (not_sent), or the EHR has no handoff to report
+  // (before #56), which then says what "and send to Lab" did not do. The work continues at the request.
+  it.each([
+    ['an activation the EHR did not send (not_sent)', { state: 'not_sent', code: 'LAB_PERMISSION_ABSENT' }, 'draft', /your role cannot send requests to Lab/],
+    ['an activation the EHR reports nothing about', undefined, 'draft', /Lab was not asked to accept it, so the Laboratory does not have it\. Contact the laboratory to order the test\./],
+    ['a resumption the EHR reports nothing about', undefined, 'on_hold', /Lab was not told of the resumption/],
+  ])('moves to the request, not to Send to Lab, after %s', async (_case, handoff, from, says) => {
+    await activate(handoff, from)
+    await screen.findByText(says)
+    const title = await screen.findByText('Haemoglobin', { selector: 'strong' })
+    await waitFor(() => expect(document.activeElement).toBe(title))
+    expect(document.activeElement).not.toBe(screen.getByRole('button', { name: 'Send to Lab' }))
   })
 
   it('says the list was not reloaded only once, when reading it again fails', async () => {
@@ -488,6 +510,18 @@ describe('sending a saved active lab request to Lab', () => {
     await openLabRequests()
     fireEvent.click(await screen.findByRole('button', { name: 'Send to Lab' }))
     expect(await screen.findByText('Lab does not allow you to accept this order for this patient.')).toBeTruthy()
+  })
+
+  // An EHR before #56 has no POST .../lab-work-item, and sending again cannot help: the work continues at the request.
+  it('moves to the request, not to Send to Lab, when the EHR did not find the request to send or cannot send it (404)', async () => {
+    records['lab-requests'] = [labRequest('active', '3')]
+    api.sendLabRequestToLab.mockRejectedValue(new HidApiError(404, 'Cannot POST', { code: 'NOT_FOUND' }))
+    await openLabRequests()
+    fireEvent.click(await screen.findByRole('button', { name: 'Send to Lab' }))
+    expect((await screen.findByText(/did not find this lab request to send/)).textContent).toMatch(/Contact the laboratory/)
+    const title = await screen.findByText('Haemoglobin', { selector: 'strong' })
+    await waitFor(() => expect(document.activeElement).toBe(title))
+    expect(document.activeElement).not.toBe(screen.getByRole('button', { name: 'Send to Lab' }))
   })
 
   it('says a request Lab holds at an earlier version was not sent', async () => {
