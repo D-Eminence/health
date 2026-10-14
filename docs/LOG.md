@@ -1350,3 +1350,44 @@ made the portal show something untrue, and Health-id #51
   - hid-system#65 addresses A7, not re-verified;
   - a new ask, MOD-1: withdraw closed modules' read permissions, or expose
     the enabled modules.
+
+## 2026-10-14: patient enrollment while registration is closed (hid-system#68)
+
+Read at hid-system `main` `8f3eff1`: the enrollment controller and service,
+`docs/INTERFACE_CONTRACT.md` ("Enrollment availability and the
+closed-registration answer"), ADR-048 and `PHASE_3_LAUNCH_DECISIONS.md` N1
+and N2. hid-system was not changed.
+
+- **Availability (FE-4).** Production keeps NIN-only enrollment closed until
+  hid-system's N1 holder step ships, so every start answers 503. The page
+  still asked for a NIN and a security check, and showed the refusal only
+  after both were spent. It now reads
+  `GET /identity/patient-enrollments/availability` with the enrollment check
+  and offers the NIN step and Google sign-up only on `200 { open: true }`.
+  - Any other body: a notice in Identity's own words ("New Health ID
+    registration is not open yet. If you already have a Health ID, sign
+    in."), with Sign in and Forgot password? links, no security check and no
+    step list.
+  - A failed read, a 503 included: "We could not check whether new Health ID
+    registration is open", with Try again; focus follows Try again as it does
+    for the enrollment check. It is never taken for a sign-out.
+  - Unchanged: an enrollment in progress continues and an activated one shows
+    its HID, since only a start is refused while closed; an open registration
+    behaves as before; the start's own refusals are shown as before. One that a
+    sign-in or sign-out ended while registration is closed is not told to
+    enter its NIN again, because a resume with the same key is refused too.
+  - The route is registered (`enrollment.availability`, public `GET`) and
+    granted to patient-web only.
+  - **Deploy order.** An Identity without hid-system#68 answers the read with
+    404, which the page shows as a failed check, and offers no start. Deploy
+    this portal with or after an Identity carrying hid-system#68.
+  - Not changed: the sign-in page's "Get your Health ID" link and the public
+    site's sign-up entry do not read availability; they lead to the notice
+    (open questions).
+- **Evidence.** 9 tests failed first (8 in `EnrollmentAvailability.test.tsx`,
+  the registry case in `boundaries.test.ts`); 3 more guard what is unchanged.
+  The existing enrollment tests now answer the read as open. Gates:
+  `typecheck`, `lint`, `audit:boundaries` and `build:patient-web` pass;
+  `npm test`: 139 files, 1831 tests.
+- **Not verified.** Component tests with the network stubbed. Nothing was run
+  in a browser, at runtime, on staging or against a live hid-system.

@@ -20,6 +20,12 @@ describe('c4b5445 route registry', () => {
     expect(findEndpoint('auth.otpComplete')?.path).toBe('/api/v1/auth/otp/complete')
   })
 
+  it('registers the public enrollment availability read for the patient portal (hid-system#68, FE-4)', () => {
+    expect(findEndpoint('enrollment.availability')).toMatchObject({
+      path: '/api/v1/identity/patient-enrollments/availability', methods: ['GET'], auth: { kind: 'public' } })
+    expect(() => assertEndpointAllowed('patient-web', 'enrollment.availability')).not.toThrow()
+  })
+
   it('records distinct RBAC permissions per EHR method', () => {
     const encounters = findEndpoint('ehr.encounters')
     expect(encounters?.permissions?.GET).toEqual(['ehr.encounter.read'])

@@ -272,6 +272,24 @@ email") is offered at once. A start with the same account's other identifier
 within that wait gets a challenge for which no code is sent (hand-off section
 11, A13 residuals).
 
+Whether a new enrollment may start comes from hid-system#68's
+`GET /identity/patient-enrollments/availability` (FE-4, read at hid-system
+`main` `8f3eff1`), read with the enrollment check. The NIN step and Google
+sign-up are offered only on `200 { open: true }`. Any other body is not open:
+the page says, in Identity's own words for the start's 503, that new Health ID
+registration is not open yet, links to sign-in and password recovery, and loads
+no security check. A failed read, a 503 included, says the check failed and
+offers Try again; it is never taken for a sign-out. Only a start is refused
+while registration is closed, a resume with the same key included, so an
+enrollment in progress continues, an activated one still shows its HID within
+its 15 minutes, and one that a sign-in or sign-out ended here is not told to
+enter its NIN again. The read predicts only the checks a start makes before it
+reads a NIN, so the start's own refusals (rate limits, the lookup quota,
+`503 ENROLLMENT_RECONCILIATION_REQUIRED`) are shown as before. Production keeps
+NIN-only enrollment closed until hid-system's N1 holder step ships. The
+sign-in page's "Get your Health ID" link and the public site's sign-up entry do
+not read availability; they lead to this notice.
+
 The platform console's workspace is bound to the administrator who opened it,
 held in memory only. A refresh or session read that answers for another
 administrator ends the workspace with a notice and is refused as a 401, so no
