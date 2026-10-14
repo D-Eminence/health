@@ -49,6 +49,41 @@ export interface StaffSession {
   facilitySelection?: FacilitySelection
 }
 
+/**
+ * Staff sign-in with an authenticator (hid-system #71, ADR-054, migration 0088).
+ * The password step answers with the second step Identity asks for, and only an
+ * httpOnly challenge cookie the browser sends to /auth/mfa (5 minutes to verify,
+ * 10 to set up an authenticator); the session comes from verify, or from
+ * activation after a first enrolment. Nothing of a challenge, code or secret is
+ * kept outside the step's own state.
+ */
+export interface StaffLoginChallenge {
+  status: 'mfa_required' | 'mfa_enrollment_required'
+  expiresAt: string
+}
+
+/** The enrolment code was emailed to the account's address. `expiresAt` is the challenge's, not the code's. */
+export interface StaffEnrollmentCodeSent {
+  accepted: true
+  channel: 'email'
+  expiresAt: string
+}
+
+/** The new authenticator's secret, which Identity returns this once (enrolment start). */
+export interface StaffMfaEnrollment {
+  secret: string
+  otpauthUri: string
+  algorithm: 'SHA1'
+  digits: number
+  periodSeconds: number
+  expiresAt: string
+}
+
+/** The session of a first sign-in with the new authenticator, and its recovery codes, shown once. */
+export interface StaffMfaActivation extends StaffSession {
+  recoveryCodes: string[]
+}
+
 export interface RegistrationCapabilities {
   nin: { enabled: boolean; state: string }
   newPatientRegistrationRequiresNin: boolean
@@ -773,6 +808,18 @@ const SIGN_OUT_ATTEMPTS = 3
  */
 let leaving: Promise<unknown> = Promise.resolve()
 
+/**
+ * Sends a sign-in step whose answer sets the session cookies (the password step
+ * of an Identity before hid-system #71, verify and enrolment activation) once a
+ * sign-out in progress and a refresh in flight have answered, and in the
+ * session turn, so no other window's refresh answers after it: each of those
+ * answers can clear or replace the new session's cookies.
+ */
+async function settingSession<T>(step: () => Promise<T>): Promise<T> {
+  await Promise.all([leaving, refreshing?.catch(() => undefined)])
+  return inRefreshTurn(step)
+}
+
 function signOut(confirmFirst = false): Promise<void> {
   const signingOut = signOutStaffSession(confirmFirst)
   leaving = signingOut.catch(() => undefined)
@@ -884,12 +931,20 @@ export interface ProviderEnrollmentStart {
   resendAfterSeconds?: number
 }
 
+/**
+ * Since hid-system #71 activation sets the administrator's password and opens a
+ * staff MFA enrolment whose proof is the activation itself (`status`
+ * 'mfa_enrollment_required', or 'mfa_required' for an account that already has
+ * an authenticator), with the challenge cookie and no session. An Identity
+ * before #71 answers with the session's `actor` instead.
+ */
 export interface ProviderEnrollmentActivation {
   activated: true
   organizationId: string
   facilityId: string
   accountId: string
-  actor: StaffSession['actor']
+  status?: StaffLoginChallenge['status']
+  actor?: StaffSession['actor']
   expiresAt: string
 }
 
@@ -917,17 +972,26 @@ export const providerEnrollmentApi = {
 }
 
 export const staffApi = {
-  login: async (email: string, password: string, turnstileToken?: string) => {
-    await Promise.all([leaving, refreshing?.catch(() => undefined)])
-    // Nor may another window's refresh answer after it: its cookies would replace this sign-in's.
-    return inRefreshTurn(() => client.post<StaffSession>('/api/v1/auth/login', {
+  login: (email: string, password: string, turnstileToken?: string) =>
+    settingSession(() => client.post<StaffSession>('/api/v1/auth/login', {
       email, password, turnstileToken, turnstileAction: staffLoginAction(window.location.hostname),
-    }, { auth: 'none' }))
-  },
+    }, { auth: 'none' })),
   session: () => client.get<StaffSession>('/api/v1/auth/session', { auth: 'optional' }),
   refresh: () => refreshStaffSession(),
   logout: signOut,
   checkSession: checkStaffSession,
+  // The second steps of staff sign-in need no Turnstile token, CSRF token or session: the challenge
+  // cookie is their credential. Under /api/v1/auth/ with auth 'none', a 401 there (a wrong code, a
+  // spent challenge) is never refreshed and never taken for the end of a session.
+  verifyMfa: (proof: { code: string } | { recoveryCode: string }) =>
+    settingSession(() => client.post<StaffSession>('/api/v1/auth/mfa/verify', proof, { auth: 'none' })),
+  sendEnrollmentCode: () =>
+    client.post<StaffEnrollmentCodeSent>('/api/v1/auth/mfa/enroll/email-code', undefined, { auth: 'none' }),
+  /** With the emailed code; with none only after provider activation, which is its own proof. */
+  startEnrollment: (emailCode?: string) =>
+    client.post<StaffMfaEnrollment>('/api/v1/auth/mfa/enroll/start', emailCode === undefined ? {} : { emailCode }, { auth: 'none' }),
+  activateEnrollment: (code: string) =>
+    settingSession(() => client.post<StaffMfaActivation>('/api/v1/auth/mfa/enroll/activate', { code }, { auth: 'none' })),
   selectFacility: async (facilityId: string) => {
     const sentIn = staffSessionGeneration()
     const actorId = staffSessionActor()
