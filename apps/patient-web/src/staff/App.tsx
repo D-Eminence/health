@@ -3,7 +3,7 @@ import { NavLink, Navigate, Outlet, Route, Routes, useHref, useLinkClickHandler,
 import { BrandLogo } from '../BrandLogo'
 import { Badge, Button, ButtonLink, Card, EmptyState, Select } from '@hid/ui'
 import { isHidApiError } from '@hid/http'
-import { staffApi, type PatientLookup, type StaffSession } from './api'
+import { staffApi, type PatientLookup, type StaffLoginResult, type StaffMfaActivation, type StaffSession } from './api'
 import { facilityChoiceNeeded, type FacilityChoiceReason } from './facilitySelection'
 import {
   announceStaffSessionChange, endsStaffSession, onOtherTabSessionChange, onStaffSessionEnded, onStaffSessionRead, setStaffSessionActor,
@@ -61,7 +61,21 @@ interface StaffContextValue {
   /** Asks the server again whether the session holds, locking the workspace meanwhile. */
   checkSession(): void
   activePatient: ActivePatient | null
-  login(email: string, password: string, turnstileToken?: string): Promise<void>
+  /**
+   * The password step. It changes nothing here: since hid-system #71 Identity
+   * answers with the second step it asks for, and an Identity before #71 with
+   * the session, which the page opens with `completeSignIn`.
+   */
+  login(email: string, password: string, turnstileToken?: string): Promise<StaffLoginResult>
+  /** The second step by authenticator or recovery code; answers with the session for `completeSignIn`. */
+  verifyMfa(proof: { code: string } | { recoveryCode: string }): Promise<StaffSession>
+  /**
+   * The first code of a new authenticator; answers with the session and its
+   * recovery codes. The page shows the codes, then opens the session.
+   */
+  activateEnrollment(code: string): Promise<StaffMfaActivation>
+  /** Opens the workspace with the session a sign-in step answered with. Throws, opening nothing, for a patient's. */
+  completeSignIn(session: StaffSession): void
   refresh(): Promise<void>
   /** Resolves false, changing nothing, when the session ended while the switch was answered. */
   selectFacility(id: string): Promise<boolean>
@@ -82,7 +96,7 @@ export function useStaff() {
   return context
 }
 
-function StaffProvider({ children }: { children: ReactNode }) {
+export function StaffProvider({ children }: { children: ReactNode }) {
   const [state, setSessionState] = useState<SessionState>({ status: 'loading', session: null })
   // The state as of the last change, read synchronously by the session-end listener.
   const status = useRef<SessionState['status']>('loading')
@@ -302,9 +316,27 @@ function StaffProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => { void refresh() }, [refresh])
 
+  // Each step that can set the session cookies forgets what other tabs announced before it was sent:
+  // the cookies it sets come after that. A change heard from here on is asked about once the session opens.
   async function login(email: string, password: string, turnstileToken?: string) {
     heardWhileOpening.current = false
-    const session = await staffApi.login(email, password, turnstileToken)
+    return staffApi.login(email, password, turnstileToken)
+  }
+
+  async function verifyMfa(proof: { code: string } | { recoveryCode: string }) {
+    heardWhileOpening.current = false
+    return staffApi.verifyMfa(proof)
+  }
+
+  async function activateEnrollment(code: string) {
+    heardWhileOpening.current = false
+    const activated = await staffApi.activateEnrollment(code)
+    // The browser holds the new session while its recovery codes are shown: the other tabs are told now.
+    announceStaffSessionChange()
+    return activated
+  }
+
+  function completeSignIn(session: StaffSession) {
     if (session.actor.kind === 'patient') throw new Error('A staff account is required for this portal.')
     startStaffSessionGeneration()
     startPeriod()
@@ -341,8 +373,8 @@ function StaffProvider({ children }: { children: ReactNode }) {
   }
 
   const checkSession = useCallback(() => ask(staffSessionGeneration()), [ask])
-  const value = useMemo<StaffContextValue>(() => ({ state, lock, checkSession, activePatient, login, refresh, selectFacility, signOut, setActivePatient }),
-    [state, lock, checkSession, activePatient, refresh, setActivePatient])
+  const value = useMemo<StaffContextValue>(() => ({ state, lock, checkSession, activePatient, login, verifyMfa, activateEnrollment,
+    completeSignIn, refresh, selectFacility, signOut, setActivePatient }), [state, lock, checkSession, activePatient, refresh, setActivePatient])
   return <StaffContext.Provider value={value}>{children}</StaffContext.Provider>
 }
 

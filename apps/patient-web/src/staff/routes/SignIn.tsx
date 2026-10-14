@@ -15,6 +15,10 @@ import { staffReturnPath } from '../session'
 export const STAFF_MFA_NOTICE = 'Health ID now asks staff for a code from an authenticator app at sign-in. '
   + 'Sign in again to set one up, or to use the one you have.'
 
+/** What the page says when the password step asks for a second step, which it has no screens for yet. */
+const SECOND_STEP_UNAVAILABLE = 'Health ID now asks staff for a code from an authenticator app at sign-in, '
+  + 'and this version of the provider portal cannot ask for it yet.'
+
 function getStaffLandingPath(search: string): string {
   return staffReturnPath(new URLSearchParams(search).get('returnTo'))
     ?? resolveStaffProductHostname(window.location.hostname)?.route ?? '/provider'
@@ -57,7 +61,7 @@ function TurnstileChallenge({ onToken, resetKey }: { onToken: (token: string) =>
 }
 
 export function SignIn() {
-  const { state, login } = useStaff()
+  const { state, login, completeSignIn } = useStaff()
   const location = useLocation()
   const navigate = useNavigate()
   const [email, setEmail] = useState('')
@@ -75,7 +79,11 @@ export function SignIn() {
     event.preventDefault()
     setError('')
     setBusy(true)
-    try { await login(email.trim(), password, token || undefined); navigate(getStaffLandingPath(location.search)) }
+    try {
+      const answer = await login(email.trim(), password, token || undefined)
+      if (answer.kind === 'challenge') setError(SECOND_STEP_UNAVAILABLE)
+      else { completeSignIn(answer.session); navigate(getStaffLandingPath(location.search)) }
+    }
     catch (caught) { setError(caught instanceof Error ? caught.message : 'Sign in failed.') }
     finally {
       setToken('')

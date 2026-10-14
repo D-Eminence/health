@@ -3,10 +3,10 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { SignIn } from './SignIn'
 
-const calls = vi.hoisted(() => ({ login: vi.fn(), loginAction: vi.fn((_hostname: string) => 'staff-login'),
+const calls = vi.hoisted(() => ({ login: vi.fn(), completeSignIn: vi.fn(), loginAction: vi.fn((_hostname: string) => 'staff-login'),
   state: { status: 'signed-out' } as { status: string; reason?: string } }))
 
-vi.mock('../App', () => ({ useStaff: () => ({ state: calls.state, login: calls.login }) }))
+vi.mock('../App', () => ({ useStaff: () => ({ state: calls.state, login: calls.login, completeSignIn: calls.completeSignIn }) }))
 vi.mock('../env', () => ({ getEnvironment: () => ({ turnstileSiteKey: 'test-site-key' }) }))
 vi.mock('../../productHostname', async importOriginal => ({
   ...await importOriginal<Record<string, unknown>>(),

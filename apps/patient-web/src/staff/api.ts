@@ -63,6 +63,25 @@ export interface StaffLoginChallenge {
   expiresAt: string
 }
 
+/**
+ * What the password step answered: the second step Identity asks for, or, from
+ * an Identity before #71, the session itself. The portal accepts either, so
+ * Identity and the portal may be deployed in either order.
+ */
+export type StaffLoginResult =
+  | { kind: 'challenge'; challenge: StaffLoginChallenge }
+  | { kind: 'session'; session: StaffSession }
+
+/** Reads the password step's answer. Anything else (a later contract's step, say) opens nothing. */
+function loginResult(answer: unknown): StaffLoginResult {
+  const read = answer as Partial<StaffLoginChallenge> & Partial<StaffSession> | null
+  if ((read?.status === 'mfa_required' || read?.status === 'mfa_enrollment_required') && typeof read.expiresAt === 'string') {
+    return { kind: 'challenge', challenge: { status: read.status, expiresAt: read.expiresAt } }
+  }
+  if (typeof read?.actor?.id === 'string') return { kind: 'session', session: read as StaffSession }
+  throw new HidApiError(502, 'The service returned an unreadable response.', { code: 'INVALID_RESPONSE', retryable: false })
+}
+
 /** The enrolment code was emailed to the account's address. `expiresAt` is the challenge's, not the code's. */
 export interface StaffEnrollmentCodeSent {
   accepted: true
@@ -979,9 +998,9 @@ export const providerEnrollmentApi = {
 
 export const staffApi = {
   login: (email: string, password: string, turnstileToken?: string) =>
-    settingSession(() => client.post<StaffSession>('/api/v1/auth/login', {
+    settingSession(() => client.post<unknown>('/api/v1/auth/login', {
       email, password, turnstileToken, turnstileAction: staffLoginAction(window.location.hostname),
-    }, { auth: 'none' })),
+    }, { auth: 'none' })).then(loginResult),
   session: () => client.get<StaffSession>('/api/v1/auth/session', { auth: 'optional' }),
   refresh: () => refreshStaffSession(),
   logout: signOut,
