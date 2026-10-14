@@ -2,8 +2,9 @@ import { createApiClient, HidApiError, isHidApiError, uploadPresignedObject, typ
 import { createRegisteredBrowserClient } from '@hid/api'
 import { getEnvironment } from './env'
 import {
-  assertStaffSessionFacility, endsStaffSession, nextStaffSessionChange, refusedAsPatient, reportStaffSessionEnded, reportStaffSessionRead,
-  staffSessionActor, staffSessionGeneration, staffSessionReadyFor, staffSessionSignal, untilStaffSessionReady,
+  assertStaffSessionFacility, endsStaffSession, nextStaffSessionChange, noteStaffSessionRefusal, refusedAsPatient, reportStaffSessionEnded,
+  reportStaffSessionRead, staffMfaRequired, staffSessionActor, staffSessionGeneration, staffSessionReadyFor, staffSessionSignal,
+  untilStaffSessionReady,
 } from './session'
 import { inRefreshTurn, refreshInTurn, signOutInTurn } from '../sessionRefreshTurn'
 import { heldByOtherPortal } from '../sessionChange'
@@ -718,7 +719,10 @@ function reportingSessionEnd(inner: ApiClient): ApiClient {
       }
       try { return await inner.request<T>(own) }
       catch (error) {
-        // A 403 is reported only when it says the session is a patient's; the server is then asked.
+        // Heard on any call, a refresh or session read included: the provider says why once it finds the session ended.
+        noteStaffSessionRefusal(error, sentIn)
+        // A 403 is reported only when it says the session is a patient's, or one without an
+        // authenticator (endsStaffSession); the server is then asked.
         if (protectedCall && (endsStaffSession(error) || refusedAsPatient(error))) reportStaffSessionEnded(sentIn)
         throw error
       }
@@ -741,8 +745,10 @@ let refreshing: Promise<StaffSession> | null = null
  * restored already. Without the refresh cookie (dropped by the browser at the
  * idle or absolute limit, or cleared by a sign-out elsewhere) the server answers
  * 403 CSRF_VALIDATION_FAILED; with a patient's sign-in in the cookies, which
- * this portal never rotates, 403 SESSION_CLIENT_MISMATCH. Nothing can restore
- * the session then, so it is reported as the ended session it is.
+ * this portal never rotates, 403 SESSION_CLIENT_MISMATCH; for a sign-in made
+ * without an authenticator, 403 STAFF_MFA_REQUIRED, having ended it and cleared
+ * the cookies (hid-system #71). Nothing can restore the session then, so it is
+ * reported as the ended session it is.
  */
 function refreshStaffSession(): Promise<StaffSession> {
   refreshing ??= refreshInTurn(
@@ -751,7 +757,7 @@ function refreshStaffSession(): Promise<StaffSession> {
     () => client.post<StaffSession>('/api/v1/auth/refresh'))
     .catch((error: unknown) => {
       if (isHidApiError(error) && error.status === 403 && error.code === 'CSRF_VALIDATION_FAILED') throw sessionEnded(error)
-      if (heldByOtherPortal(error)) throw sessionEnded(error)
+      if (heldByOtherPortal(error) || staffMfaRequired(error)) throw sessionEnded(error)
       throw error
     })
     .finally(() => { refreshing = null })

@@ -73,6 +73,7 @@ body { margin: 0; }
 .staff-auth { display: grid; align-content: center; width: min(100%,510px); padding: clamp(28px,5vw,72px); margin: auto; }
 .staff-auth .staff-brand { margin-bottom: 50px; }
 .staff-auth > p { color: var(--color-muted); font-size: 14px; line-height: 1.55; margin: 12px 0 30px; }
+.staff-auth > .staff-notice { color: var(--color-ink); font-size: 13px; line-height: 1.45; margin: 0 0 24px; }
 .staff-auth-aside { display: grid; align-content: center; gap: 18px; background: var(--color-brand-tint); padding: clamp(28px,5vw,70px); border-left: 1px solid var(--color-brand-border); }
 .staff-auth-aside h2 { font-family: var(--font-display); font-weight: 400; font-size: clamp(30px,3vw,44px); line-height: 1.12; color: var(--color-ink); max-width: 14ch; }
 .staff-auth-aside p { color: var(--color-muted); max-width: 45ch; line-height: 1.6; }

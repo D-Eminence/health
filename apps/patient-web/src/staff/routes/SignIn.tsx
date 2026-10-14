@@ -8,6 +8,13 @@ import { turnstileSize } from '../../Turnstile'
 import { resolveStaffProductHostname, STAFF_RECOVERY_PATH, staffLoginAction, staffRecoveryHref } from '../../productHostname'
 import { staffReturnPath } from '../session'
 
+/**
+ * Said when Identity ended the sign-in for want of an authenticator
+ * (403 STAFF_MFA_REQUIRED, hid-system #71): here, and on the session-ended screen.
+ */
+export const STAFF_MFA_NOTICE = 'Health ID now asks staff for a code from an authenticator app at sign-in. '
+  + 'Sign in again to set one up, or to use the one you have.'
+
 function getStaffLandingPath(search: string): string {
   return staffReturnPath(new URLSearchParams(search).get('returnTo'))
     ?? resolveStaffProductHostname(window.location.hostname)?.route ?? '/provider'
@@ -61,6 +68,7 @@ export function SignIn() {
   const [error, setError] = useState('')
   const siteKey = getEnvironment().turnstileSiteKey
   const landingPath = getStaffLandingPath(location.search)
+  const mfaRequired = (state.status === 'signed-out' || state.status === 'ended') && state.reason === 'mfa-required'
 
   if (state.status === 'ready') return <Navigate to={landingPath} replace />
   async function submit(event: React.FormEvent<HTMLFormElement>) {
@@ -82,6 +90,7 @@ export function SignIn() {
       <p className="staff-eyebrow">Secure clinical workspace</p>
       <h1>Welcome back.</h1>
       <p>Sign in with the staff account assigned to your facility. Your permissions and facility are verified by Health ID.</p>
+      {mfaRequired && <p role="status" className="staff-notice">{STAFF_MFA_NOTICE}</p>}
       <form className="staff-form" onSubmit={event => void submit(event)}>
         <Field label="Work email" htmlFor="staff-email" required><Input id="staff-email" type="email" autoComplete="username" value={email} onChange={event => setEmail(event.target.value)} required /></Field>
         <Field label="Password" htmlFor="staff-password" required><Input id="staff-password" type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} required /></Field>
