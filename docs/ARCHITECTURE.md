@@ -290,6 +290,18 @@ NIN-only enrollment closed until hid-system's N1 holder step ships. The
 sign-in page's "Get your Health ID" link and the public site's sign-up entry do
 not read availability; they lead to this notice.
 
+hid-system#68 also bounds activation in time (N2(b), N2(c)). An activation
+whose contact was proved more than 30 minutes earlier answers
+`409 ENROLLMENT_CONTACT_REVERIFY_REQUIRED`, and Identity has already sent the
+enrollment back to the contact step, so the page goes there too: the contact
+typed on the page is kept, the code and password are cleared, and an alert says
+why. Any other activation refusal stays at the password step. The activation
+response expires the enrollment cookie, and `GET .../current` shows the HID
+only if that response was lost and only for 15 minutes after activation, so
+the completion screen asks the patient to save the HID. Until hid-system sends
+it to the verified contact (N2(a)), a patient with only a verified phone signs
+in and resets the password with it.
+
 The platform console's workspace is bound to the administrator who opened it,
 held in memory only. A refresh or session read that answers for another
 administrator ends the workspace with a notice and is refused as a 401, so no

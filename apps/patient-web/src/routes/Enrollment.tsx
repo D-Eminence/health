@@ -49,6 +49,23 @@ const REGISTRATION_CLOSED = 'New Health ID registration is not open yet. If you 
  */
 const CODE_BUDGET_HINT = 'After 5 wrong codes within 15 minutes for the same contact, every code is refused, even a correct one, and no new code is sent to it, for 15 minutes.'
 const ACTIVATION_LIMIT_HINT = 'This enrollment has had too many activation attempts. Wait about 15 minutes, then activate again: the enrollment is kept.'
+/**
+ * A contact proved more than 30 minutes before activation is proved again
+ * (hid-system#68, N2(c), ADR-048): activation answers 409 and has already sent
+ * the enrollment back to the contact step without its contact, so the page goes
+ * there too. At the password step a second try would only be refused.
+ */
+const contactReverifyRequired = (reason: unknown) => isHidApiError(reason) && reason.status === 409
+  && reason.code === 'ENROLLMENT_CONTACT_REVERIFY_REQUIRED'
+const REVERIFY_CONTACT = 'Your contact was verified more than 30 minutes ago, so it must be verified again before activation. Send a new code, enter it, then choose your password.'
+/**
+ * The HID is shown only here (hid-system#68, N2(a) and N2(b)): the activation
+ * response expires the enrollment cookie, and if that response is lost
+ * GET /current shows the HID for 15 minutes after activation only. Until it is
+ * also sent to the verified contact, a patient who verified only a phone signs
+ * in and resets their password with it.
+ */
+const SAVE_HID = 'Save your Health ID now: write it down or keep it somewhere safe. This page may not show it again once you leave or reload it, and never more than 15 minutes after activation.'
 
 export function Enrollment() {
   const { state, api, acceptGoogleSession, otherPortalSession, retrySessionCheck } = useSession()
@@ -234,6 +251,12 @@ export function Enrollment() {
       setStepHint(null)
       setStage('complete')
     } catch (reason) {
+      if (contactReverifyRequired(reason)) {
+        // The contact typed on this page is kept, so a new code goes to it with one press (PA-10).
+        setStage('contact'); setChallengeId(null); setMaskedContact(''); setCode(''); setPassword(''); setStepHint(null)
+        setError(REVERIFY_CONTACT); setFieldError(false); setErrorAlert(true)
+        return
+      }
       if (isHidApiError(reason) && reason.status === 429) setStepHint('activation')
       displayError(reason, fromField)
     }
@@ -328,7 +351,7 @@ export function Enrollment() {
         <button type="submit" className="patient-primary-button" disabled={busy || password.length < 12 || (googleRequired && !googlePending)}>{busy ? 'Activating…' : 'Activate Health ID'}</button>
         {stepHint === 'activation' && <p className="patient-field-hint">{ACTIVATION_LIMIT_HINT}</p>}
       </form>}
-      {ready && stage === 'complete' && <div className="patient-success" role="status"><h2 ref={stepFocus.target} tabIndex={-1}>Your Health ID is ready.</h2><strong>{hidCode}</strong><p>Sign in with your verified email or Health ID and new password.</p><Link className="patient-primary-button" to="/sign-in">Sign in</Link></div>}
+      {ready && stage === 'complete' && <div className="patient-success" role="status"><h2 ref={stepFocus.target} tabIndex={-1}>Your Health ID is ready.</h2><strong>{hidCode}</strong><p>{SAVE_HID}</p><p>Sign in with your verified email or Health ID and new password. With a verified phone number, your Health ID is how you sign in and reset your password.</p><Link className="patient-primary-button" to="/sign-in">Sign in</Link></div>}
       {import.meta.env.VITE_HID_GOOGLE_CLIENT_ID && ready && startOffered && stage !== 'complete' && !googlePending && <section className="patient-auth-separator" aria-label="Google enrollment">
         <span>{googleRequired ? 'Reconnect Google' : 'Continue with Google'}</span>
         <Turnstile action="patient-login" onTokenChange={setGoogleTurnstileToken} resetKey={googleResetKey} />

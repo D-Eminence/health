@@ -1351,7 +1351,7 @@ made the portal show something untrue, and Health-id #51
   - a new ask, MOD-1: withdraw closed modules' read permissions, or expose
     the enabled modules.
 
-## 2026-10-14: patient enrollment while registration is closed (hid-system#68)
+## 2026-10-14: patient enrollment after hid-system#68 (closed registration, contact proved again, saving the HID)
 
 Read at hid-system `main` `8f3eff1`: the enrollment controller and service,
 `docs/INTERFACE_CONTRACT.md` ("Enrollment availability and the
@@ -1389,5 +1389,27 @@ and N2. hid-system was not changed.
   The existing enrollment tests now answer the read as open. Gates:
   `typecheck`, `lint`, `audit:boundaries` and `build:patient-web` pass;
   `npm test`: 139 files, 1831 tests.
+- **Contact proved again (N2(c), ADR-048).** An activation whose contact was
+  proved more than 30 minutes earlier answers
+  `409 ENROLLMENT_CONTACT_REVERIFY_REQUIRED`, and Identity has already sent the
+  enrollment back to the contact step without its contact. The page showed the
+  message at the password step, where a second try was refused as
+  `409 ENROLLMENT_STAGE_INVALID`, so only a reload helped. It now returns to
+  the contact step with the contact typed on the page kept, clears the code and
+  password, moves focus to the contact field and says why in an alert. Other
+  activation refusals stay at the password step.
+- **Saving the HID (N2(a), N2(b)).** The completion screen showed the HID
+  without saying it may not be shown again. The activation response expires
+  the enrollment cookie, and `GET .../current` shows the HID only if that
+  response was lost, for 15 minutes after activation. The screen now asks the
+  patient to write it down or keep it somewhere safe, says it may not be shown
+  again, and says that with a verified phone the HID is how they sign in and
+  reset the password (hid-system has not shipped N2(a), which sends it to the
+  verified contact).
+- **Evidence.** 3 tests failed first in `EnrollmentActivation.test.tsx` (the
+  re-verification round trip, and the save note at activation and on a
+  re-display); a fourth guards that other refusals stay at the password step.
+  Gates: `typecheck`, `lint`, `audit:boundaries` and `build:patient-web` pass;
+  `npm test`: 140 files, 1835 tests.
 - **Not verified.** Component tests with the network stubbed. Nothing was run
   in a browser, at runtime, on staging or against a live hid-system.
