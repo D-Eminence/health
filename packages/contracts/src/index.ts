@@ -45,6 +45,7 @@ export type {
   HidAuthSession,
   HidFacilityAssignment,
   HidProblemDetails,
+  HidStaffLoginChallenge,
   PatientEnrollmentProgress,
   PatientRecordSummary,
   PublicPrice,

@@ -114,6 +114,28 @@ describe('application boundaries', () => {
     expect(() => assertEndpointAllowed('patient-web', 'auth.adminLogin')).toThrow(BoundaryViolationError)
   })
 
+  it('registers staff sign-in with an authenticator (hid-system #71) for the provider portal only', () => {
+    const steps = [
+      ['auth.staffMfaVerify', '/api/v1/auth/mfa/verify'],
+      ['auth.staffMfaEnrollEmailCode', '/api/v1/auth/mfa/enroll/email-code'],
+      ['auth.staffMfaEnrollStart', '/api/v1/auth/mfa/enroll/start'],
+      ['auth.staffMfaEnrollActivate', '/api/v1/auth/mfa/enroll/activate'],
+    ] as const
+    for (const [name, path] of steps) {
+      expect(findEndpoint(name)).toMatchObject({ service: 'auth', path, methods: ['POST'], auth: { kind: 'public' } })
+      expect(assertRegisteredBrowserRequest('POST', path).name).toBe(name)
+      expect(() => assertRegisteredBrowserRequest('GET', path)).toThrow(BrowserRouteError)
+      expect(() => assertEndpointAllowed('staff-web', name)).not.toThrow()
+      for (const app of ['patient-web', 'admin-web', 'public-web'] as const) {
+        expect(() => assertEndpointAllowed(app, name), `${app}: ${name}`).toThrow(BoundaryViolationError)
+      }
+    }
+    // The platform steps stay the console's, and Identity refuses a staff Google
+    // exchange (403 GOOGLE_STAFF_SIGN_IN_DISABLED), so the portal is granted none.
+    expect(() => assertEndpointAllowed('staff-web', 'auth.adminMfaVerify')).toThrow(BoundaryViolationError)
+    expect(() => assertEndpointAllowed('staff-web', 'auth.googleExchange')).toThrow(BoundaryViolationError)
+  })
+
   it('refuses an admin endpoint in a patient application', () => {
     expect(() => assertEndpointAllowed('patient-web','admin.overview')).toThrow(BoundaryViolationError)
   })
