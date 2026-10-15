@@ -1467,3 +1467,8 @@ Read at hid-system `main` `8f3eff1` (`patient-enrollment.service.ts`
     enrollment in progress still shows it at every step.
   - Evidence: 2 tests failed first in `EnrollmentAvailability.test.tsx`
     (closed and unknown); 1 more guards the open case.
+- **Gates** at each of the three commits: `typecheck`, `lint`,
+  `audit:boundaries` and `build:patient-web` pass; `npm test`: 140 files,
+  1840, 1841 and 1844 tests.
+- **Not verified.** Component tests with the network stubbed. Nothing was run
+  in a browser, at runtime, on staging or against a live hid-system.
