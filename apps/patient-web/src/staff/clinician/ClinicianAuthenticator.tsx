@@ -75,6 +75,9 @@ function outcomeOf(caught: unknown, step: StepName): Outcome {
     case 'CLINICIAN_APPLICATION_ACCOUNT_INELIGIBLE': return { then: 'step', step: { kind: 'blocked', message: ACCOUNT_INELIGIBLE }, message: null }
     case 'MFA_ENROLLMENT_PROOF_UNAVAILABLE': return { then: 'step', step: { kind: 'blocked',
       message: 'There is no email address on this account to confirm the setup. Contact HID support.' }, message: null }
+    // The email proof of this challenge was already used, by a start whose answer never arrived: a new challenge (P9) needs a new proof.
+    case 'MFA_ENROLLMENT_PROOF_COMPLETE': return { then: 'step', step: { kind: 'reopen' },
+      message: 'This setup was already confirmed by email but not finished. Start it again to continue.' }
     case 'MFA_ENROLLMENT_PROOF_REQUIRED':
       return { then: 'step', step: { kind: 'enrol' }, message: 'Confirm it is you first: ask for a code by email, then enter it.' }
     case 'MFA_INVALID_CODE': return { then: 'stay', field: true, message: INVALID_CODE[step] }
