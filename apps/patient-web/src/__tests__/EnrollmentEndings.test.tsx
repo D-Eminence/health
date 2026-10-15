@@ -120,3 +120,43 @@ describe('starting again after review', () => {
     expect((await screen.findByLabelText('Phone number') as HTMLInputElement).value).toBe('')
   })
 })
+
+/**
+ * On hid-system `main` f9dbaf0 a start answers 409 IDEMPOTENCY_KEY_REUSED only
+ * when its key's registration is for another NIN or already active
+ * (patient-enrollment.service.ts resume). The page binds its key to the NIN,
+ * so the answer means the registration this page started was activated: its
+ * activation answer was lost, or another tab activated it. A new key would be
+ * a new paid lookup and a new holder proof, ending in 409
+ * NIN_ALREADY_REGISTERED.
+ */
+describe('a registration this page started that was completed', () => {
+  it('says so on 409 IDEMPOTENCY_KEY_REUSED at the start, with sign-in and account recovery, and offers no new start', async () => {
+    let start = () => json({ stage: 'verify_contact', requiredProfileFields: [] })
+    const { headers } = renderPortal(<Enrollment />, gateway(() => start(), {
+      contact: () => problem(404, 'ENROLLMENT_NOT_FOUND', 'No pending enrollment was found') }), anonymous)
+    await submitNin()
+    // Activated in another tab, which expired this tab's cookie.
+    fireEvent.change(await screen.findByLabelText('Phone number'), { target: { value: '+2348000000000' } })
+    await press(screen.getByRole('button', { name: 'Send verification code' }))
+    await screen.findByLabelText('National Identification Number')
+    start = () => problem(409, 'IDEMPOTENCY_KEY_REUSED', 'This enrollment retry key belongs to a different request')
+    await submitNin()
+
+    const heading = await screen.findByRole('heading', { name: 'This registration was completed' })
+    await waitFor(() => expect(document.activeElement).toBe(heading))
+    const outcome = heading.closest('section')!
+    expect(outcome.textContent).toContain('A Health ID was created with this registration, so it can\'t be started again.')
+    expect(outcome.textContent).toContain('Sign in with your email or Health ID and the password you chose. If you can\'t, or you don\'t have your Health ID, use account recovery.')
+    expect(within(outcome).getByRole('link', { name: 'Sign in' }).getAttribute('href')).toBe('/sign-in')
+    expect(within(outcome).getByRole('link', { name: 'Recover your account' }).getAttribute('href')).toBe('/recover')
+    expect(screen.queryByLabelText('National Identification Number')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Continue' })).toBeNull()
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(document.body.textContent).not.toMatch(/start again/i)
+    expect(document.body.textContent).not.toContain(NIN)
+    const keys = startKeys(headers)
+    expect(keys).toHaveLength(2)
+    expect(keys[1]).toBe(keys[0])
+  })
+})

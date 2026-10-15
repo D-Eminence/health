@@ -21,18 +21,19 @@ import { NIN_CHECK_UNAVAILABLE, STEP_UNAVAILABLE, refusedWith, registrationClose
 import { ONLINE_NOT_FOR_RECORD, ONLINE_OFF, RouteChoice } from './enrollment/RouteChoice'
 import { HolderCodeStep } from './enrollment/HolderCodeStep'
 import { FacilityStep } from './enrollment/FacilityStep'
-import { AlreadyRegistered, RegistrationEnded } from './enrollment/Outcomes'
+import { AlreadyRegistered, RegistrationCompleted, RegistrationEnded } from './enrollment/Outcomes'
 
 /**
  * The stages of a registration. Since hid-system #84 (ADR-062) every start
  * answers `verify_holder`: the patient proves they hold the NIN at `holder`
  * (the choice), `holder_code` (a code texted to the phone on the NIN record)
  * or `facility` (an in-person check, #85, ADR-063) before the contact. An
- * Identity before #84 goes from `nin` to `contact`. `already_registered` and
- * `registration_ended` are endings, with no step shown.
+ * Identity before #84 goes from `nin` to `contact`. `already_registered`,
+ * `registration_ended` and `registration_completed` are endings, with no step
+ * shown.
  */
 type Stage = 'nin' | 'holder' | 'holder_code' | 'facility' | 'contact' | 'otp' | 'password' | 'complete'
-  | 'already_registered' | 'registration_ended'
+  | 'already_registered' | 'registration_ended' | 'registration_completed'
 /** Where a registration waits for its holder proof (its cookie is live). */
 const HOLDER_STAGES: readonly Stage[] = ['holder', 'holder_code', 'facility']
 /** Where the steps are listed: not at an ending. */
@@ -58,8 +59,6 @@ const PROOF_AT_FACILITY = 'Registration for this NIN is in progress at a facilit
 const FACILITY_CLOSED = 'Registration at a facility is not available now, so no check can be recorded. Try again later, or get a code by text message if you can.'
 /** GET .../current at verify_contact after "I have been checked". */
 const CHECKED_AT_FACILITY = 'Your identity was checked at the facility. Now add a contact we can send a code to.'
-/** The start's 409 IDEMPOTENCY_KEY_REUSED: that registration ended, and only a new key starts again. */
-const ATTEMPT_ENDED = 'That registration has ended. Select Continue to start again.'
 const resendWaitText = (seconds: number) => `A code was sent recently. You can ask for a new code in ${seconds} seconds.`
 
 /**
@@ -374,6 +373,20 @@ export function Enrollment() {
   }
 
   /**
+   * The start's 409 IDEMPOTENCY_KEY_REUSED. On hid-system main f9dbaf0 a start
+   * answers it only when its key's registration is for another NIN or already
+   * active (patient-enrollment.service.ts resume), and this page binds its key
+   * to the NIN: the registration it started was activated (its answer was
+   * lost, or another tab activated it). Sign-in and account recovery, not a new
+   * start, which would be a new paid lookup and holder proof ending in 409
+   * NIN_ALREADY_REGISTERED. Nothing typed is kept.
+   */
+  const showCompleted = () => {
+    freshStart(); setStage('registration_completed')
+    setGoogleRequired(false); setGooglePending(false); clearError()
+  }
+
+  /**
    * A refusal on the holder step (hid-system #84, ADR-062; "The NIN holder
    * step" in INTERFACE_CONTRACT.md). Where the online route cannot help, the
    * choice says why and offers the facility; an outage keeps the step as it is
@@ -520,11 +533,8 @@ export function Enrollment() {
       if (registrationClosed(reason)) {
         // As an availability read would now say: the closed notice, and no NIN step.
         setNin(''); setRegistration('closed')
-      } else if (refusedWith(reason, 409, 'IDEMPOTENCY_KEY_REUSED')) {
-        // The registration this key started was activated meanwhile (another tab): only a new key starts again.
-        startKey.current = null
-        sayError(ATTEMPT_ENDED)
-      } else if (temporarilyUnavailable(reason)) {
+      } else if (refusedWith(reason, 409, 'IDEMPOTENCY_KEY_REUSED')) showCompleted()
+      else if (temporarilyUnavailable(reason)) {
         // Identity's own text for a lookup it could not complete, said for any outage: the step is kept.
         setError(NIN_CHECK_UNAVAILABLE); setFieldError(false); setErrorAlert(true)
       } else displayError(reason, fromField)
@@ -708,6 +718,7 @@ export function Enrollment() {
         onOnline={() => { clearError(); setStage('holder'); stepFocus.focus() }} onDifferentNin={startAgain} />}
       {ready && stage === 'already_registered' && <AlreadyRegistered focusTarget={stepFocus.target} reference={reference} />}
       {ready && stage === 'registration_ended' && <RegistrationEnded focusTarget={stepFocus.target} onStartAgain={againAtNin} />}
+      {ready && stage === 'registration_completed' && <RegistrationCompleted focusTarget={stepFocus.target} />}
       {ready && stage === 'contact' && <ContactStep {...stepProps} channel={channel} onChannel={setChannel} contact={contact} onContact={setContact}
         onSubmit={event => void submitContact(event)} />}
       {ready && stage === 'otp' && <ContactCodeStep {...stepProps} maskedContact={maskedContact} code={code} onCode={setCode} onSubmit={event => void submitCode(event)}

@@ -41,3 +41,21 @@ export function RegistrationEnded({ focusTarget, onStartAgain }: { focusTarget: 
     <button type="button" className="patient-text-button" onClick={onStartAgain}>Start again</button>
   </section>
 }
+
+/**
+ * The start's 409 IDEMPOTENCY_KEY_REUSED: the registration this page's key
+ * started was activated, and its Health ID may never have been seen (a lost
+ * activation answer, or another tab). Sign-in and account recovery; no new
+ * start, which would spend a paid NIN lookup and a holder proof only to be
+ * refused 409 NIN_ALREADY_REGISTERED. Only this page's key gets this answer,
+ * so it says nothing about anyone else's NIN.
+ */
+export function RegistrationCompleted({ focusTarget }: { focusTarget: Focus }) {
+  return <section className="patient-success" aria-labelledby="enroll-completed-title">
+    <h2 id="enroll-completed-title" ref={focusTarget} tabIndex={-1}>This registration was completed</h2>
+    <p>A Health ID was created with this registration, so it can't be started again.</p>
+    <p>Sign in with your email or Health ID and the password you chose. If you can't, or you don't have your Health ID, use account recovery.</p>
+    <Link className="patient-primary-button" to="/sign-in">Sign in</Link>
+    <Link className="patient-secondary-button" to="/recover">Recover your account</Link>
+  </section>
+}
