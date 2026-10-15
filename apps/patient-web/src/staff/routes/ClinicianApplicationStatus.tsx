@@ -32,6 +32,9 @@ const RETRY = 'clinician-status-retry'
 const LIST_RETRY = 'clinician-status-list-retry'
 const CLOSE = 'clinician-status-close'
 
+/** A change Identity made (a withdrawal, a new application): what to say, and how it changes the list shown. */
+interface Done { notice: string; change(view: ClinicianAccountView): ClinicianAccountView }
+
 export function ClinicianApplicationStatus() {
   const mainSite = clinicianMainSiteHref(window.location.hostname, CLINICIAN_STATUS_PATH)
   return mainSite ? <MainSiteOnly href={mainSite} path={CLINICIAN_STATUS_PATH} /> : <StatusPage />
@@ -105,13 +108,14 @@ function StatusPage() {
 
   /**
    * Reads the applications. From the list, an outage keeps the list; otherwise it is said with Retry. True when it
-   * could not read them and the page says so.
+   * could not read them and the page says so. After a change that went through (`done`), that change is said and
+   * shown as Identity answered it even when the list cannot be read again.
    */
-  async function load(options: { notice?: string; fromList?: boolean; initial?: boolean } = {}): Promise<boolean> {
+  async function load(options: { notice?: string; done?: Done; fromList?: boolean; initial?: boolean } = {}): Promise<boolean> {
     try {
       const view = await clinicianApplicationApi.current()
       held.current = true
-      if (options.initial) { setAccount(view); setPhase('list') } else showList(view, options.notice ?? null)
+      if (options.initial) { setAccount(view); setPhase('list') } else showList(view, options.done?.notice ?? options.notice ?? null)
       return false
     } catch (caught) {
       const code = codeOf(caught)
@@ -129,8 +133,14 @@ function StatusPage() {
       if (options.initial && code === 'CLINICIAN_APPLICATION_AUTHENTICATOR_REQUIRED') { setAuthenticatorStart('verify'); setPhase('authenticator'); return false }
       if (takeOver(caught)) return false
       const message = code === 'PLATFORM_MAINTENANCE' ? MAINTENANCE : COULD_NOT_LOAD
-      if (options.fromList) setListError(shownError(`${message} Try again.`))
-      else { setFailure(shownError(message)); if (options.initial) setPhase('failed'); else move('failed') }
+      if (options.fromList) {
+        const done = options.done
+        if (done) {
+          setAccount(current => current && done.change(current))
+          setNotice(previous => ({ id: (previous?.id ?? 0) + 1, text: done.notice }))
+        }
+        setListError(shownError(`${message} Try again.`))
+      } else { setFailure(shownError(message)); if (options.initial) setPhase('failed'); else move('failed') }
       return true
     }
   }
@@ -161,9 +171,11 @@ function StatusPage() {
     setBusy('withdraw')
     setWithdrawError(null)
     try {
-      await clinicianApplicationApi.withdraw(view)
+      const withdrawn = await clinicianApplicationApi.withdraw(view)
       setWithdrawing(null)
-      await load({ notice: `You withdrew your application to ${view.facility.name}.`, fromList: true })
+      await load({ fromList: true, done: { notice: `You withdrew your application to ${view.facility.name}.`,
+        change: shown => ({ ...shown, applications: shown.applications.map(application =>
+          application.applicationId === withdrawn.applicationId ? withdrawn : application) }) } })
     } catch (caught) {
       const code = codeOf(caught)
       if (code === 'VERSION_CONFLICT' || code === 'CLINICIAN_APPLICATION_STATE_INVALID' || code === 'CLINICIAN_APPLICATION_NOT_FOUND') {
@@ -253,8 +265,11 @@ function StatusPage() {
           onWithdraw={() => { setWithdrawError(null); setWithdrawing(application) }} />
       </li>)}
     </ul>
-    <ApplyAnother account={view} onApplied={async facility => { await load({ notice: `Your application to ${facility} was sent. `
-      + "It is in HID's verification queue.", fromList: true }) }} takeOver={takeOver} />
+    <ApplyAnother account={view} takeOver={takeOver} onApplied={async (created, facility) => {
+      await load({ fromList: true, done: { notice: `Your application to ${facility} was sent. It is in HID's verification queue.`,
+        change: shown => shown.applications.some(application => application.applicationId === created.applicationId) ? shown
+          : { ...shown, applications: [created, ...shown.applications] } } })
+    }} />
     <div className="clinician-panel">
       <StepError error={closeError} />
       <TextButton id={CLOSE} onClick={() => void closePage()} disabled={busy !== null}>{busy === 'close' ? 'Closing…' : 'Close this page'}</TextButton>
@@ -343,7 +358,8 @@ const APPLY_OPEN = 'clinician-apply-open'
 
 /** Applying to another facility (P14), with the sign-up's details and declarations; the account's name is already known. */
 function ApplyAnother({ account, onApplied, takeOver }: {
-  account: ClinicianAccountView; onApplied(facility: string): Promise<void>; takeOver(caught: unknown): boolean
+  account: ClinicianAccountView; onApplied(created: ClinicianApplicationView, facility: string): Promise<void>
+  takeOver(caught: unknown): boolean
 }) {
   const [applying, setApplying] = useState(false)
   const [details, setDetails] = useState<DetailsValue>(EMPTY_DETAILS)
@@ -389,13 +405,13 @@ function ApplyAnother({ account, onApplied, takeOver }: {
     setError(null)
     setProblems([])
     try {
-      const created = await clinicianApplicationApi.apply(input, key)
+      const { replayed: _replayed, ...created } = await clinicianApplicationApi.apply(input, key)
       submission.current = null
       setApplying(false)
       setDetails(EMPTY_DETAILS)
       setAccurate(false)
       setConsent(false)
-      await onApplied(created.facility?.name ?? details.facility?.name ?? 'the facility')
+      await onApplied(created, created.facility?.name ?? details.facility?.name ?? 'the facility')
     } catch (caught) {
       if (takeOver(caught)) return
       const code = codeOf(caught)

@@ -440,6 +440,22 @@ describe('the applications', () => {
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Retry' })))
   })
 
+  it('says the withdrawal went through, and shows it, when the list cannot be read again just after', async () => {
+    await listShown()
+    api.current.mockRejectedValueOnce(problem(503, 'CLINICIAN_APPLICATION_UNAVAILABLE'))
+    fireEvent.click(within(article(FACILITY.name)).getByRole('button', { name: /Withdraw/ }))
+    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Withdraw application' }))
+    expect((await screen.findByRole('alert')).textContent).toBe("We couldn't load your application right now. Try again.")
+    expect(screen.getByRole('status').textContent).toBe('You withdrew your application to Lagos General Hospital.')
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('status')))
+    // The card as Identity answered the withdrawal, not the open application it was.
+    const shown = article(FACILITY.name)
+    expect(within(shown).getByText('Withdrawn')).toBeTruthy()
+    expect(within(shown).getByText('You withdrew this application.')).toBeTruthy()
+    expect(within(shown).queryByRole('button', { name: /Withdraw/ })).toBeNull()
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
   it('says when the page could not be closed, offers no Retry that would only reload, and closes on the next press', async () => {
     await listShown()
     api.endSession.mockRejectedValueOnce(problem(503, 'CLINICIAN_APPLICATION_UNAVAILABLE'))
@@ -487,6 +503,17 @@ describe('applying to another facility', () => {
     expect(api.apply).toHaveBeenCalledWith({ profession: 'nurse', regulator: 'NMCN', licenceNumber: 'NMCN 778899', licenceValidUntil: VALID_UNTIL,
       facilityId: OTHER.facilityId, declarations: { accurate: true, verificationConsent: true } }, 'apply-key-1')
     expect(screen.getByRole('article', { name: OTHER.name })).toBeTruthy()
+  })
+
+  it('says the application was sent, and shows it, when the list cannot be read again just after', async () => {
+    await applyForm()
+    api.current.mockRejectedValueOnce(problem(503, 'CLINICIAN_APPLICATION_UNAVAILABLE'))
+    press('Send application')
+    expect((await screen.findByRole('alert')).textContent).toBe("We couldn't load your application right now. Try again.")
+    expect(screen.getByRole('status').textContent).toBe("Your application to Lagos Island Clinic was sent. It is in HID's verification queue.")
+    expect(within(article(OTHER.name)).getByText('Received')).toBeTruthy()
+    expect(article(FACILITY.name)).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: 'Apply to another facility' })).toBeNull()
   })
 
   it.each([
