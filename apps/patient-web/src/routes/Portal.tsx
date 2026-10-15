@@ -114,50 +114,19 @@ export function PortalShell() {
   </div>
 }
 
+/**
+ * The patient's profile. The signed-in "Verify NIN" card is not offered: hid-system
+ * main f9dbaf0 answers POST /identity/me/verification/nin with
+ * 503 QOREID_PATIENT_NIN_BINDING_DISABLED while QOREID_PATIENT_SELF_NIN_BINDING_ENABLED
+ * is off, its default, and production refuses that flag, so the card could only be
+ * refused. It stays hidden until the owner decides P27 (PHASE_4_STAGE_5_RELEASE_READINESS.md
+ * section 3, Health-id alignment row 13); the API call is kept in api.ts.
+ */
 export function ProfilePage() {
   const { api } = useSession()
   useDocumentTitle('Your profile · Health ID')
   const profile = usePatientResource(api.profile)
-  const [nin, setNin] = useState('')
-  const [verifying, setVerifying] = useState(false)
-  const [verificationError, setVerificationError] = useState<string | null>(null)
-  const [verificationNotice, setVerificationNotice] = useState<string | null>(null)
-  // A refusal about the NIN is tied to its field (PR-08), and is an alert only when
-  // focus is already in the field (Enter) or it is not about the field, as in enrollment.
-  const [ninFieldError, setNinFieldError] = useState(false)
-  const [errorAlert, setErrorAlert] = useState(true)
   const heading = useRef<HTMLHeadingElement>(null)
-  // After a verification, sent or refused, focus goes back to the NIN field.
-  const ninFocus = useStepFocus()
-  const assurance = profile.data?.assuranceState
-  const eligibleAssurance = assurance === 'NIN_VERIFIED' || assurance === 'LEGACY_MIGRATED'
-  const completeIdentity = Boolean(profile.data?.firstName.trim() && profile.data?.lastName.trim() && profile.data?.dateOfBirth)
-
-  const verifyNin = async (event: FormEvent) => {
-    event.preventDefault()
-    if (verifying || !eligibleAssurance || !completeIdentity || !/^\d{11}$/.test(nin)) return
-    const fromField = ninFocus.onTarget()
-    setVerifying(true); setVerificationError(null); setVerificationNotice(null); setNinFieldError(false); setErrorAlert(true)
-    try {
-      const result = await api.verifyNin(nin)
-      if (result.state === 'verified') {
-        setNin('')
-        setVerificationNotice('NIN verification succeeded. Identity evidence was recorded.')
-        await profile.reload()
-      } else if (result.state === 'not_verified') {
-        setVerificationError('This NIN could not be verified against your Health ID profile. Check the number and try again.')
-        setNinFieldError(true); setErrorAlert(fromField)
-      } else if (result.state === 'incomplete') {
-        setVerificationError('The identity provider could not complete this verification. Try again later.')
-      } else {
-        setVerificationError('NIN verification is temporarily unavailable. Try again later.')
-      }
-    } catch (cause) {
-      const aboutField = isFieldProblem(cause)
-      setVerificationError(isHidApiError(cause) ? cause.message : 'NIN verification could not be completed. Try again.')
-      setNinFieldError(aboutField); setErrorAlert(!aboutField || fromField)
-    } finally { setVerifying(false); ninFocus.focus() }
-  }
 
   return <section className="patient-section"><p className="patient-eyebrow">Identity</p><h1 ref={heading} tabIndex={-1} className="patient-page-title">Your profile</h1>
     <p className="patient-page-copy">These details come from your verified Health ID account.</p>
@@ -171,23 +140,6 @@ export function ProfilePage() {
       <div><dt>Country</dt><dd>{profile.data.country || 'Not provided'}</dd></div>
       <div><dt>Identity assurance</dt><dd>{profile.data.assuranceState || 'Not available'}</dd></div>
     </dl></div>}
-    {/* Only what the profile decides is busy while it reloads: the notice below is not held back. */}
-    {profile.data && !profile.error && <div className="patient-card"><h2>NIN verification</h2>
-      <p className="patient-field-hint">Repeat verification for a NIN already linked to your account. An eligible migrated account may link a matching NIN. The service checks your account and compares your verified profile details before recording the result.</p>
-      <div aria-busy={profile.loading || undefined}>{!eligibleAssurance ? <p className="patient-field-hint">This account is not eligible for self-service NIN verification. Identity review is required.</p>
-        : !completeIdentity ? <p className="patient-field-hint">A complete name and birth date are required before NIN verification can be requested.</p>
-          : <><p id="profile-nin-hint" className="patient-field-hint">Your NIN is 11 digits.</p>
-          <form className="patient-form patient-inline-form" onSubmit={event => void verifyNin(event)}>
-            <label>National Identification Number<input ref={ninFocus.target} type="text" inputMode="numeric" autoComplete="off" spellCheck={false}
-              pattern="[0-9]{11}" minLength={11} maxLength={11} required value={nin}
-              aria-invalid={ninFieldError || undefined} aria-describedby={describedBy('profile-nin-hint', ninFieldError && 'profile-nin-error')}
-              onChange={event => { setNin(event.target.value.replace(/\D/g, '').slice(0, 11)); setVerificationError(null); setVerificationNotice(null); setNinFieldError(false) }} /></label>
-            <button type="submit" className="patient-primary-button" disabled={verifying || !/^\d{11}$/.test(nin)}>
-              {verifying ? 'Verifying…' : 'Verify NIN'}</button>
-          </form></>}</div>
-      {verificationError && <p id="profile-nin-error" role={errorAlert ? 'alert' : undefined} className="patient-inline-error">{verificationError}</p>}
-      <div role="status">{verificationNotice && <p className="patient-inline-success">{verificationNotice}</p>}</div>
-    </div>}
   </section>
 }
 
