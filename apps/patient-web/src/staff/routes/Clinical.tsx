@@ -60,11 +60,21 @@ const encounterTransitions: Readonly<Record<string, readonly StatusOption[]>> = 
 }
 // Since hid-system #64 (CLIN-EIE, migration 0084) EHR closes an encounter's records
 // in the same change (encounters.service.ts CLOSE_STEPS): cancelling cancels its
-// draft, active and on-hold prescriptions and lab requests; entered in error marks
-// those orders, its notes and its diagnoses entered in error. Completed orders,
-// vitals and documents keep their state, and neither Pharmacy nor Lab is told. Every
-// encounter status form offers Cancel and Mark entered in error, and any encounter may hold orders.
-const ENCOUNTER_CLOSES_RECORDS = 'Cancelling this encounter also cancels its draft, active and on-hold prescriptions and lab requests. Marking it entered in error marks those orders, and its notes and diagnoses, entered in error. Completed orders, vitals and documents are not changed. Pharmacy and the Laboratory are not told: contact the pharmacy or laboratory about any order sent to them.'
+// draft, active and on-hold prescriptions and lab requests and keeps everything else.
+// Since hid-system #74 (ENC-RETRACT-2, migration 0090) entered in error marks its
+// notes, its diagnoses, its final vitals, its draft, active, on-hold and completed
+// orders, and its initiated or uploaded documents entered in error. Neither Pharmacy
+// nor Lab is told. Every encounter status form offers Cancel and Mark entered in
+// error, and any encounter may hold these records.
+const ENCOUNTER_CLOSES_RECORDS = 'Cancelling this encounter also cancels its draft, active and on-hold prescriptions and lab requests; its notes, diagnoses, vitals, documents and completed orders are not changed. Marking it entered in error also marks entered in error its notes, diagnoses and vitals, its documents (other than rejected uploads), and its prescriptions and lab requests that are not cancelled, completed ones included. Pharmacy and the Laboratory are not told: contact the pharmacy or laboratory about any order sent to them.'
+/**
+ * Since hid-system #74 (ENC-RETRACT-1) a close that would change a kind of record the actor
+ * may not write is refused, with nothing written, as 403 ENCOUNTER_RETRACTION_NOT_PERMITTED.
+ * Its fixed detail names no kind, so as not to tell a role which records it holds; nor does this.
+ */
+function retractionNotPermitted(status: string) {
+  return `You may not ${status === 'cancelled' ? 'cancel this encounter' : 'mark this encounter entered in error'}: it holds records that this change would also change, and your role may not change all of them. Nothing was changed. Ask a colleague whose role may change all of its records (usually a doctor or clinician) to make this change.`
+}
 // The statuses whose change also changes the encounter's records (above).
 const CLOSING_STATUSES: ReadonlySet<string> = new Set(['cancelled', 'entered_in_error'])
 const prescriptionTransitions: Readonly<Record<string, readonly StatusOption[]>> = {
@@ -1356,6 +1366,9 @@ export function Clinical() {
         ...(status === 'completed' ? { endedAt: isoNow() } : {}),
       })
     } catch (caught) {
+      if (isHidApiError(caught) && caught.status === 403 && caught.code === 'ENCOUNTER_RETRACTION_NOT_PERMITTED') {
+        throw new Error(retractionNotPermitted(status))
+      }
       // Someone changed the encounter first: show it as it is now (the status
       // form is rebuilt for it) and say why the change was not made.
       if (!isHidApiError(caught) || (caught.status !== 409 && caught.status !== 412)) throw caught
@@ -1370,8 +1383,9 @@ export function Clinical() {
     // The changed encounter may not be on the page shown; it stays documented as changed.
     if (updated?.id) setSelection(current => current?.id === updated.id ? updated : current)
     await loadEncounters({ cursors: 'shown', fresh: true })
-    // The answer is the encounter alone: the records it closed are read again (hid-system #64),
-    // in the tab shown now, which the clinician may have changed while the change was sent.
+    // The answer does not carry the records it closed (hid-system #64; since #74 only their ids, in
+    // `cascade`): they are read again, in the tab shown now, which the clinician may have changed
+    // while the change was sent.
     if (CLOSING_STATUSES.has(status)) {
       const [, , shownEncounter, shownTab] = JSON.parse(recordScopeShown.current) as unknown[]
       if (shownEncounter === selected.id && typeof shownTab === 'string' && shownTab !== 'documents') await loadRecords(shownTab as RecordKind, 'shown', true)

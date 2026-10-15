@@ -133,12 +133,22 @@ dispensable" once a dispensing is refused with
 `PHARMACY_PRESCRIPTION_NOT_DISPENSABLE`, until the page is reloaded. Since
 hid-system#64 (migration 0084) a change of encounter status also closes the
 encounter's records. Cancelling cancels its draft, active and on-hold
-prescriptions and lab requests; entered in error marks those orders, its notes
-and its diagnoses entered in error. The encounter status form says so, and
-says that Pharmacy and the Laboratory are not told. EHR answers with the
-encounter alone, so after either change the records list shown is read again.
-That wording is untrue against an EHR without hid-system#64, so the portal is
-to be deployed with or after it. The Lab and Pharmacy lists say when
+prescriptions and lab requests and changes nothing else. Since hid-system#74
+(migration 0090) entered in error marks its notes, diagnoses and final vitals,
+its draft, active, on-hold and completed prescriptions and lab requests, and
+its initiated or uploaded documents entered in error. The encounter status form
+says so, and says that Pharmacy and the Laboratory are not told. EHR answers
+with the encounter and only the ids it closed, so after either change the
+records list shown is read again. A close that would change a kind of record
+the actor may not write is refused with `403 ENCOUNTER_RETRACTION_NOT_PERMITTED`
+and nothing written (hid-system ENC-RETRACT-1); the form then says the role may
+not make that change, that nothing changed and to ask a colleague whose role
+may change all of the encounter's records, naming no kind of record, as EHR
+does not. Since 0091 no role holds `ehr.lab-request.write` or
+`ehr.document.write`, so an encounter that still holds a lab request, or (to be
+marked entered in error) an initiated or uploaded document, cannot be closed by
+anyone. That wording is untrue against an EHR without hid-system#74, so the
+portal is to be deployed with or after it. The Lab and Pharmacy lists say when
 they reach the backend's cap of the 200 oldest work items (A2), and Pharmacy
 adds that work it can no longer dispense stays listed and counts toward the
 200.

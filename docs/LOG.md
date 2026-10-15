@@ -1370,4 +1370,20 @@ first. hid-system was not changed.
   sent with its terms in the URL. The screens are unchanged. Failing first: 6
   tests (the admin API's search, export and route list, the registry and the
   registered client).
+- **Encounter close since hid-system#74 (migration 0090).** The status form
+  said that a retraction left completed orders, vitals and documents unchanged.
+  Since 0090 marking an encounter entered in error also marks its final vitals,
+  its completed prescriptions and lab requests and its initiated or uploaded
+  documents entered in error; cancelling still changes only open orders. The
+  warning now says so. A close that would change a kind of record the actor may
+  not write answers `403 ENCOUNTER_RETRACTION_NOT_PERMITTED` with nothing
+  written; the form showed EHR's terse detail, and now says the role may not
+  make that change, that nothing changed and to ask a colleague whose role may
+  change all of the encounter's records, naming no kind of record, as EHR does
+  not. It is not read as a stale encounter: nothing is read again, and the
+  choice and reason stay. Not changed: the Documents tab is not read again
+  after a retraction (at launch no role may retract an encounter holding an
+  uploaded document), and a completed encounter is still offered no
+  retraction. Failing first: 5 tests (the three warning cases and the two
+  refusals).
 
