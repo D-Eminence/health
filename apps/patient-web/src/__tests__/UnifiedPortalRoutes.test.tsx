@@ -260,6 +260,16 @@ describe('unified authenticated portal routes', () => {
     expect(screen.getByTestId('portal-path').textContent).toBe('/provider/join')
   })
 
+  it('opens the clinician application status page outside the provider workspace, without a staff session', async () => {
+    clinician.current.mockRejectedValue(new HidApiError(401, 'Verify your email address again',
+      { code: 'CLINICIAN_APPLICATION_SESSION_INVALID' }))
+    open('/provider/join/status')
+    expect(await screen.findByRole('heading', { level: 1, name: 'Check your clinician application' })).toBeTruthy()
+    expect(calls.staffSession).not.toHaveBeenCalled()
+    expect(calls.staffRefresh).not.toHaveBeenCalled()
+    expect(screen.getByTestId('portal-path').textContent).toBe('/provider/join/status')
+  })
+
   it('opens platform administration sign in directly under /admin', async () => {
     open('/admin/sign-in')
 

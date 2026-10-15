@@ -24,14 +24,16 @@ export function ClinicianFrame({ labelledBy, children }: { labelledBy?: string; 
 /**
  * A step's heading. It takes focus as the step opens (`focus`), since the step
  * before it, and the control used there, are gone; the first step of a page
- * just opened leaves focus where it is.
+ * just opened leaves focus where it is. `level` 1 is a page's own heading.
  */
-export function StepHeading({ id, focus, children }: { id: string; focus: boolean; children: ReactNode }) {
+export function StepHeading({ id, focus, level = 2, children }: { id: string; focus: boolean; level?: 1 | 2; children: ReactNode }) {
   const heading = useRef<HTMLHeadingElement>(null)
   // On mount only: each step's heading is a new element.
   const focusOnMount = useRef(focus)
   useEffect(() => { if (focusOnMount.current) heading.current?.focus() }, [])
-  return <h2 id={id} ref={heading} tabIndex={-1} className="clinician-heading">{children}</h2>
+  const Heading = level === 1 ? 'h1' : 'h2'
+  return <Heading id={id} ref={heading} tabIndex={-1} className={level === 1 ? 'patient-page-title clinician-heading' : 'clinician-heading'}>
+    {children}</Heading>
 }
 
 export function PrimaryButton(props: ButtonHTMLAttributes<HTMLButtonElement>) {

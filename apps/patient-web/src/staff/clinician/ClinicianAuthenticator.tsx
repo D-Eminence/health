@@ -102,9 +102,11 @@ export interface ClinicianAuthenticatorProps {
   onReady(account: ClinicianAccountView | null): void
   /** The application page ended (401 CLINICIAN_APPLICATION_SESSION_INVALID). */
   onEnded(): void
+  /** A way out of the setup's first step, where the page has one (the status page's list). */
+  skip?: { label: string; onSkip(): void }
 }
 
-export function ClinicianAuthenticator({ start, context, email, reason, doneLabel, onReady, onEnded }: ClinicianAuthenticatorProps) {
+export function ClinicianAuthenticator({ start, context, email, reason, doneLabel, onReady, onEnded, skip }: ClinicianAuthenticatorProps) {
   const [step, setStep] = useState<Step>({ kind: start })
   // Each step shown is new, takes focus at its heading, and says the refusal that led to it.
   const [shown, setShown] = useState({ count: 0, carried: start === 'reopen' ? reason ?? null : null })
@@ -123,7 +125,7 @@ export function ClinicianAuthenticator({ start, context, email, reason, doneLabe
   const common = { carried: shown.carried, onMoved: moved }
   const key = shown.count
   switch (step.kind) {
-    case 'enrol': return <EnrolStep key={key} {...common} context={context} email={email}
+    case 'enrol': return <EnrolStep key={key} {...common} context={context} email={email} skip={skip}
       onSent={expiresAt => go({ kind: 'email-code', expiresAt })} />
     case 'email-code': return <EmailCodeStep key={key} {...common} email={email} expiresAt={step.expiresAt}
       onStarted={setup => go({ kind: 'setup', setup })} />
@@ -183,8 +185,9 @@ function Deadline({ expiresAt }: { expiresAt: string }) {
   return time ? <p className="patient-field-hint">Finish this step by {time}.</p> : null
 }
 
-function EnrolStep({ carried, onMoved, context, email, onSent }: StepProps & {
-  context: ClinicianAuthenticatorProps['context']; email: string; onSent(expiresAt: string): void
+function EnrolStep({ carried, onMoved, context, email, skip, onSent }: StepProps & {
+  context: ClinicianAuthenticatorProps['context']; email: string; skip: ClinicianAuthenticatorProps['skip']
+  onSent(expiresAt: string): void
 }) {
   const problems = useStepProblems(carried)
   const [pending, setPending] = useState(false)
@@ -209,6 +212,7 @@ function EnrolStep({ carried, onMoved, context, email, onSent }: StepProps & {
       when they call you, and you'll use it to sign in once your access is approved.</p>
     <StepError error={problems.error} />
     <PrimaryButton id="clinician-mfa-send" onClick={() => void send()} disabled={pending}>{pending ? 'Sending…' : 'Email me a code'}</PrimaryButton>
+    {skip && <TextButton onClick={skip.onSkip} disabled={pending}>{skip.label}</TextButton>}
   </section>
 }
 

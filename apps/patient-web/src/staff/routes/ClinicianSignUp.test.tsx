@@ -47,7 +47,8 @@ const SUBMITTED = { applicationId: 'a1', state: 'awaiting_authenticator', submit
   replayed: false, next: 'authenticator', authenticator: { purpose: 'enroll', expiresAt: '2026-10-15T09:10:00.000Z' } }
 
 beforeEach(() => {
-  vi.clearAllMocks()
+  // Answers queued for one call, and left unused by a test, must not reach the next.
+  vi.resetAllMocks()
   keys.count = 0
   api.availability.mockResolvedValue({ open: true })
   api.sendCode.mockResolvedValue({ accepted: true, challengeId: 'challenge-1', expiresInSeconds: 600, resendAfterSeconds: 60 })
