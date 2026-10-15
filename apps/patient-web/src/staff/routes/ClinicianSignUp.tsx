@@ -241,7 +241,8 @@ function SignUp() {
       <p className="patient-page-copy">You can't apply as a clinician on Health ID yet. If you already have a provider account, sign in.</p>
       {availability === 'failed' && <div className="clinician-panel">
         <p role="alert" className="patient-inline-error">We couldn't check right now.</p>
-        <PrimaryButton onClick={() => setChecks(value => value + 1)}>Retry</PrimaryButton>
+        {/* The check replaces this screen, Retry with it: what is shown next (a step, or this screen again) takes focus. */}
+        <PrimaryButton onClick={() => { setMoved(true); setChecks(value => value + 1) }}>Retry</PrimaryButton>
       </div>}
       <ul className="clinician-links clinician-panel">
         <li><Link to="/provider/sign-in">Sign in</Link></li>

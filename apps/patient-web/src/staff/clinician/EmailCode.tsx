@@ -53,6 +53,8 @@ export function EmailCode<Answer>({ idPrefix, action, email, onEmail, focusFirst
   // Each code sent opens a wait before another may be asked for. `notice` is what the status line says, once each.
   const [canResend, setCanResend] = useState(false)
   const [notice, setNotice] = useState<{ id: number; text: string } | null>(null)
+  // Back at the email step from the code step ("Use a different email"): its heading takes focus, the button used being gone.
+  const [returned, setReturned] = useState(false)
   const emailId = `${idPrefix}-email`
   const codeId = `${idPrefix}-code`
 
@@ -74,7 +76,7 @@ export function EmailCode<Answer>({ idPrefix, action, email, onEmail, focusFirst
     setProblem(null)
     setNotice(null)
     setCode('')
-    if (next === 'email') setChallenge(null)
+    if (next === 'email') { setChallenge(null); setReturned(true) }
     onStage(next)
   }
 
@@ -139,7 +141,7 @@ export function EmailCode<Answer>({ idPrefix, action, email, onEmail, focusFirst
   if (stage === 'email') {
     return <form key="email" className="patient-form" aria-labelledby={`${idPrefix}-email-title`} aria-busy={busy !== null}
       onSubmit={event => { event.preventDefault(); void sendCode(false) }}>
-      <StepHeading id={`${idPrefix}-email-title`} focus={focusFirst}>{copy.emailHeading}</StepHeading>
+      <StepHeading id={`${idPrefix}-email-title`} focus={focusFirst || returned}>{copy.emailHeading}</StepHeading>
       {copy.emailIntro}
       <StepError error={error} />
       <Field label="Work email" htmlFor={emailId} error={problemText(problem, emailId)} required>

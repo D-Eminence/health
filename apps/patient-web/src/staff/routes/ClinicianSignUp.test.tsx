@@ -163,6 +163,27 @@ describe('clinician sign-up availability', () => {
     expect(api.availability).toHaveBeenCalledTimes(2)
   })
 
+  it('puts focus on the email step when Retry finds sign-up open', async () => {
+    api.availability.mockRejectedValueOnce(problem(503, 'PLATFORM_CONTROL_UNAVAILABLE'))
+    open()
+    await screen.findByText("We couldn't check right now.")
+    press('Retry')
+    // The Retry button is gone with the screen it was on: the step shown next takes focus.
+    await stepShown('Your work email')
+  })
+
+  it('puts focus on the not-open heading, and says so again, when Retry meets the outage again', async () => {
+    api.availability.mockRejectedValueOnce(problem(503, 'PLATFORM_CONTROL_UNAVAILABLE'))
+      .mockRejectedValueOnce(problem(503, 'PLATFORM_CONTROL_UNAVAILABLE'))
+    open()
+    const first = await screen.findByText("We couldn't check right now.")
+    press('Retry')
+    await waitFor(() => expect(api.availability).toHaveBeenCalledTimes(2))
+    await stepShown("Clinician sign-up isn't open yet")
+    expect(screen.getByRole('alert')).not.toBe(first)
+    expect(screen.getByRole('alert').textContent).toBe("We couldn't check right now.")
+  })
+
   it('opens at the email step when sign-up is open', async () => {
     open()
     expect(await screen.findByRole('heading', { level: 1, name: 'Apply as a doctor or nurse' })).toBeTruthy()

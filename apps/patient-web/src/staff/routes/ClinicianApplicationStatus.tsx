@@ -296,6 +296,9 @@ function ApplicationCard({ view, stage, onSetUp, onWithdraw }: {
 /**
  * Withdrawing, confirmed in a dialog that holds focus while open and gives it
  * back to the control that opened it. It sends the version the page shows.
+ * The button pressed is only marked disabled while its request runs: a
+ * browser would take focus from a disabled button and leave it outside the
+ * dialog, where Tab and Escape no longer reach it.
  */
 function WithdrawDialog({ view, busy, error, onConfirm, onCancel }: {
   view: ClinicianApplicationView; busy: boolean; error: { id: number; message: string } | null; onConfirm(): void; onCancel(): void
@@ -327,7 +330,7 @@ function WithdrawDialog({ view, busy, error, onConfirm, onCancel }: {
       <p>Application to {view.facility.name}.</p>
       <StepError error={error} />
       <div className="clinician-actions">
-        <button type="button" className="patient-danger-button" onClick={onConfirm} disabled={busy}>
+        <button type="button" className="patient-danger-button" onClick={onConfirm} aria-disabled={busy || undefined}>
           {busy ? 'Withdrawing…' : 'Withdraw application'}</button>
         <button ref={keep} type="button" className="patient-secondary-button" onClick={onCancel} disabled={busy}>Keep application</button>
       </div>
@@ -336,6 +339,7 @@ function WithdrawDialog({ view, busy, error, onConfirm, onCancel }: {
 }
 
 const SEND = 'clinician-apply-send'
+const APPLY_OPEN = 'clinician-apply-open'
 
 /** Applying to another facility (P14), with the sign-up's details and declarations; the account's name is already known. */
 function ApplyAnother({ account, onApplied, takeOver }: {
@@ -364,7 +368,7 @@ function ApplyAnother({ account, onApplied, takeOver }: {
 
   if (!applying) {
     return <div className="clinician-panel">
-      <PrimaryButton onClick={() => setApplying(true)}>Apply to another facility</PrimaryButton>
+      <PrimaryButton id={APPLY_OPEN} onClick={() => setApplying(true)}>Apply to another facility</PrimaryButton>
     </div>
   }
 
@@ -429,7 +433,7 @@ function ApplyAnother({ account, onApplied, takeOver }: {
       facility={details.facility?.name ?? 'the facility'} problems={problems} />
     <div className="clinician-actions">
       <button id={SEND} type="submit" className="patient-primary-button" disabled={busy}>{busy ? 'Sending…' : 'Send application'}</button>
-      <TextButton onClick={() => setApplying(false)} disabled={busy}>Cancel</TextButton>
+      <TextButton onClick={() => { setApplying(false); focusOn(APPLY_OPEN) }} disabled={busy}>Cancel</TextButton>
     </div>
   </form>
 }

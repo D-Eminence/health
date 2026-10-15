@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
 import { ClinicianApplicationStatus } from './ClinicianApplicationStatus'
@@ -222,6 +222,18 @@ describe('the email code and the authenticator', () => {
     await headingFocused('Enter the code we emailed you')
   })
 
+  it('gives focus to the email step when the person goes back to use a different email', async () => {
+    api.current.mockRejectedValueOnce(problem(401, 'CLINICIAN_APPLICATION_SESSION_INVALID'))
+    open()
+    type(await screen.findByRole('textbox', { name: 'Work email' }), 'ada@example.test')
+    press('Complete check')
+    press('Send code')
+    await headingFocused('Enter the 6-digit code')
+    press('Use a different email')
+    await headingFocused('Your work email')
+    expect(textbox('Work email').value).toBe('ada@example.test')
+  })
+
   it('clears a wrong code and says so', async () => {
     api.verifyStatusCode.mockRejectedValueOnce(problem(401, 'CLINICIAN_APPLICATION_CODE_INVALID'))
     await throughEmail()
@@ -358,6 +370,33 @@ describe('the applications', () => {
     expect(screen.getByRole('heading', { level: 1, name: 'Your clinician applications' })).toBeTruthy()
   })
 
+  it('keeps focus in the dialog while a withdrawal is sent and after it is refused, so Tab and Escape still work there', async () => {
+    await listShown()
+    let refuse: (reason: unknown) => void = () => {}
+    api.withdraw.mockReturnValueOnce(new Promise((_resolve, reject) => { refuse = reject }))
+    fireEvent.click(within(article(FACILITY.name)).getByRole('button', { name: /Withdraw/ }))
+    const dialog = await screen.findByRole('dialog')
+    const confirm = within(dialog).getByRole('button', { name: 'Withdraw application' }) as HTMLButtonElement
+    confirm.focus()
+    fireEvent.click(confirm)
+    expect(within(dialog).getByRole('button', { name: 'Withdrawing…' })).toBe(confirm)
+    // A browser takes focus away from a button disabled while it has focus (jsdom does not): this one is only marked so.
+    expect(confirm.disabled).toBe(false)
+    expect(confirm.getAttribute('aria-disabled')).toBe('true')
+    expect(document.activeElement).toBe(confirm)
+    // Pressed again while it runs, it sends nothing more; Escape does not close the dialog yet.
+    fireEvent.click(confirm)
+    fireEvent.keyDown(confirm, { key: 'Escape' })
+    expect(api.withdraw).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('dialog')).toBe(dialog)
+    await act(async () => { refuse(problem(503, 'CLINICIAN_APPLICATION_UNAVAILABLE')) })
+    expect((await within(dialog).findByRole('alert')).textContent).toBe("We couldn't withdraw it right now. Try again.")
+    expect(confirm.getAttribute('aria-disabled')).toBeNull()
+    expect(document.activeElement).toBe(within(dialog).getByRole('button', { name: 'Withdraw application' }))
+    fireEvent.keyDown(document.activeElement!, { key: 'Escape' })
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
   it('asks for the email again, saying why, once the page has closed after 30 minutes', async () => {
     await listShown()
     api.withdraw.mockRejectedValueOnce(problem(401, 'CLINICIAN_APPLICATION_SESSION_INVALID'))
@@ -479,6 +518,14 @@ describe('applying to another facility', () => {
     press('Send application')
     await screen.findByRole('alert')
     await waitFor(() => expect(document.activeElement).toBe(target()))
+  })
+
+  it('gives focus back to "Apply to another facility" when the form is cancelled', async () => {
+    await listShown()
+    press('Apply to another facility')
+    await headingFocused('Apply to another facility')
+    press('Cancel')
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Apply to another facility' })))
   })
 
   it('sends the same key again after an outage', async () => {
