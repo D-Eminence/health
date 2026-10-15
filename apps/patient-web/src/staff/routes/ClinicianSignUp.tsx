@@ -121,10 +121,17 @@ function SignUp() {
     goTo('password')
   }
 
-  /** The submission's key: the same while the same details are sent again, a new one once they change. */
-  function keyFor(input: SignUpInput): string {
-    const { password: _password, ...sent } = input
-    const fingerprint = JSON.stringify(sent)
+  /**
+   * The submission's key: the same while the same details and password are
+   * sent again, a new one once either changes. Identity's request digest
+   * leaves the password out, so a retry under the same key with another
+   * password would replay the first submission and keep the first password;
+   * a new key for a draft already used is refused instead (the email
+   * confirmation screen). Only a digest of the password is kept, in memory.
+   */
+  async function keyFor(input: SignUpInput): Promise<string> {
+    const { password, ...sent } = input
+    const fingerprint = JSON.stringify({ ...sent, password: await passwordDigest(password) })
     if (submission.current?.fingerprint !== fingerprint) submission.current = { key: newClinicianIdempotencyKey(), fingerprint }
     return submission.current.key
   }
@@ -135,12 +142,11 @@ function SignUp() {
     const refused = [...passwordProblems(password, confirm), ...declarationProblems(accurate, consent)]
     if (refused.length > 0) { setProblems(refused); setSummaryKey(value => value + 1); return }
     const input: SignUpInput = { email, fullName: fullName.trim().replace(/\s+/g, ' '), password, ...applicationDetails(details) }
-    const key = keyFor(input)
     setBusy(true)
     setError(null)
     setProblems([])
     try {
-      const answer = await clinicianApplicationApi.submit(input, key)
+      const answer = await clinicianApplicationApi.submit(input, await keyFor(input))
       submission.current = null
       setSubmitted(answer)
       goTo('authenticator')
@@ -293,6 +299,9 @@ function SignUp() {
       </div>
     </form>}
 
+    {/* A replay is only of this same submission (its key follows the password too): nothing new was saved. */}
+    {screen === 'steps' && step === 'authenticator' && submitted?.replayed && <p role="status" className="patient-field-hint">
+      Your application was already received from your earlier attempt, with the password you entered then.</p>}
     {screen === 'steps' && step === 'authenticator' && submitted && <ClinicianAuthenticator
       start={submitted.authenticator ? (submitted.authenticator.purpose === 'verify' ? 'verify' : 'enrol') : 'reopen'}
       context="signup" email={email} doneLabel="Continue to your application"
@@ -314,6 +323,12 @@ function SignUp() {
     <p className="patient-auth-footer">Already applied? <Link to={CLINICIAN_STATUS_PATH}>Check an application's status</Link>.
       {' '}Have provider access? <Link to="/provider/sign-in">Sign in to the provider portal</Link>.</p>
   </ClinicianFrame>
+}
+
+/** A SHA-256 digest of the password, to tell one submission from another without keeping the password. */
+async function passwordDigest(password: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(password))
+  return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('')
 }
 
 function passwordProblems(password: string, confirm: string): Problem[] {

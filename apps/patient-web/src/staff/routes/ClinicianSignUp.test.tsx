@@ -387,6 +387,43 @@ describe('the password, declarations and submit', () => {
     expect(api.submit.mock.calls.map(call => call[1])).toEqual(['submission-key-1', 'submission-key-1'])
   })
 
+  it('sends another password as a new submission after a lost answer, so the first one is never kept unsaid', async () => {
+    // The first submit committed but its answer was lost; Identity refuses a new key for a draft already used.
+    api.submit.mockRejectedValueOnce(new HidApiError(0, 'Network', { code: 'NETWORK_ERROR' }))
+      .mockRejectedValueOnce(problem(401, 'CLINICIAN_APPLICATION_SESSION_INVALID'))
+    await toPassword()
+    fillPassword()
+    press('Submit application')
+    await screen.findByRole('alert')
+    type(screen.getByLabelText(/^Password\*?$/), 'another-long-password')
+    type(screen.getByLabelText(/^Confirm password\*?$/), 'another-long-password')
+    press('Submit application')
+    await stepShown('Confirm your email again')
+    expect(api.submit.mock.calls.map(call => call[1])).toEqual(['submission-key-1', 'submission-key-2'])
+    expect(api.submit.mock.calls[1]![0]).toMatchObject({ password: 'another-long-password' })
+  })
+
+  it('says a replayed submission was already received, with the password entered then', async () => {
+    api.submit.mockRejectedValueOnce(new HidApiError(0, 'Network', { code: 'NETWORK_ERROR' }))
+      .mockResolvedValueOnce({ ...SUBMITTED, replayed: true })
+    await toPassword()
+    fillPassword()
+    press('Submit application')
+    await screen.findByRole('alert')
+    type(screen.getByLabelText(/^Password\*?$/), 'a-long-enough-password')
+    type(screen.getByLabelText(/^Confirm password\*?$/), 'a-long-enough-password')
+    press('Submit application')
+    await stepShown('Set up your authenticator')
+    expect(api.submit.mock.calls.map(call => call[1])).toEqual(['submission-key-1', 'submission-key-1'])
+    const said = screen.getByText('Your application was already received from your earlier attempt, with the password you entered then.')
+    expect(said.getAttribute('role')).toBe('status')
+  })
+
+  it('says nothing of an earlier attempt when the submission is new', async () => {
+    await toAuthenticator()
+    expect(screen.queryByText(/already received from your earlier attempt/)).toBeNull()
+  })
+
   it('uses a new key once the details change', async () => {
     api.submit.mockRejectedValueOnce(problem(503, 'CLINICIAN_APPLICATION_UNAVAILABLE'))
     await toPassword()
