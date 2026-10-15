@@ -8,7 +8,7 @@ import '../../mfa/mfa.css'
 import { problemProps, problemText, refusal, type FieldProblem } from '../fieldProblem'
 import { clinicianApplicationApi, type ClinicianAccountView, type ClinicianActivation,
   type ClinicianAuthenticatorSetup } from '../clinicianApplicationApi'
-import { ACCOUNT_INELIGIBLE, FACTOR_UNPROVEN, MAINTENANCE } from './copy'
+import { ACCOUNT_INELIGIBLE, FACTOR_UNPROVEN, MAINTENANCE, STAFF_SIGN_IN_REQUIRED } from './copy'
 import { PrimaryButton, StepError, StepHeading, TextButton, shownError } from './ui'
 
 /**
@@ -77,6 +77,9 @@ function outcomeOf(caught: unknown, step: StepName): Outcome {
     case 'MFA_CHALLENGE_INVALID': return { then: 'step', step: { kind: 'reopen' }, message: EXPIRED }
     case 'STAFF_MFA_FACTOR_UNPROVEN': return { then: 'step', step: { kind: 'blocked', message: FACTOR_UNPROVEN }, message: null }
     case 'CLINICIAN_APPLICATION_ACCOUNT_INELIGIBLE': return { then: 'step', step: { kind: 'blocked', message: ACCOUNT_INELIGIBLE }, message: null }
+    // A reset authenticator of an approved clinician or a staff member: set up again only at staff sign-in (P7, P9).
+    case 'CLINICIAN_APPLICATION_STAFF_SIGN_IN_REQUIRED':
+      return { then: 'step', step: { kind: 'blocked', message: STAFF_SIGN_IN_REQUIRED }, message: null }
     case 'MFA_ENROLLMENT_PROOF_UNAVAILABLE': return { then: 'step', step: { kind: 'blocked',
       message: 'There is no email address on this account to confirm the setup. Contact HID support.' }, message: null }
     // The email proof of this challenge was already used, by a start whose answer never arrived: a new challenge (P9) needs a new proof.

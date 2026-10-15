@@ -34,6 +34,14 @@ export const SIGNUP_CLOSED = "New clinician applications aren't open right now."
 export const FACILITY_UNAVAILABLE = "This facility can't accept clinicians on Health ID right now. Choose another or ask your facility administrator."
 export const FACILITY_BUSY = 'This facility has many applications waiting. Try again in a few days or contact HID support.'
 export const ACCOUNT_INELIGIBLE = "This account can't apply for a clinical role. Contact HID support."
+/** The page's account was disabled or is no longer active (403 CLINICIAN_APPLICATION_ACCOUNT_INELIGIBLE on a read or a withdrawal). */
+export const ACCOUNT_UNAVAILABLE = "This account can't be used for clinician applications. Contact HID support."
+/**
+ * An approved clinician, or a facility's staff member, whose authenticator was
+ * reset sets it up again only at staff sign-in (403
+ * CLINICIAN_APPLICATION_STAFF_SIGN_IN_REQUIRED): Identity's own fixed words.
+ */
+export const STAFF_SIGN_IN_REQUIRED = 'Your authenticator was reset. Sign in to the provider portal to set it up again, or contact HID support.'
 export const PAGE_EXPIRED = 'For your security, this page closed after 30 minutes. Enter your email to continue.'
 export const APPLICATION_CHANGED = 'This application changed; here is its current state.'
 
@@ -75,6 +83,7 @@ export function refusalCopy(caught: unknown, fallback: string, rateLimited = 'To
     case 'PLATFORM_MAINTENANCE': return MAINTENANCE
     case 'CLINICIAN_APPLICATION_REQUIRES_SIGN_OUT': return REQUIRES_SIGN_OUT
     case 'STAFF_MFA_FACTOR_UNPROVEN': return FACTOR_UNPROVEN
+    case 'CLINICIAN_APPLICATION_STAFF_SIGN_IN_REQUIRED': return STAFF_SIGN_IN_REQUIRED
     case 'VERSION_CONFLICT': return APPLICATION_CHANGED
   }
   return APPLY_REFUSAL[code] ?? fallback

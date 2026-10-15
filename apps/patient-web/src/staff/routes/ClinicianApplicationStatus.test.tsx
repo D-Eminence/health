@@ -157,6 +157,16 @@ describe('opening the status page', () => {
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Retry' })))
   })
 
+  it('says the account cannot be used, with the email form and no Retry, when Identity refuses it (403 ..._ACCOUNT_INELIGIBLE)', async () => {
+    // The page's account was disabled or is no longer active: reading again cannot help.
+    api.current.mockRejectedValueOnce(problem(403, 'CLINICIAN_APPLICATION_ACCOUNT_INELIGIBLE'))
+    open()
+    expect((await screen.findByRole('alert')).textContent).toBe("This account can't be used for clinician applications. Contact HID support.")
+    expect(screen.getByRole('textbox', { name: 'Work email' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()
+    expect(api.current).toHaveBeenCalledTimes(1)
+  })
+
   it('links to the main site on a staff product host, with no form and no request', () => {
     vi.stubGlobal('location', { ...window.location, hostname: 'lab.staging.healthidentitydirectory.com' })
     open()
@@ -222,6 +232,9 @@ describe('the email code and the authenticator', () => {
 
   it.each([
     ['STAFF_MFA_FACTOR_UNPROVEN', 403, 'Your authenticator was set up at platform sign-in. Contact HID support to reset it.'],
+    // A reset authenticator of an approved clinician or a facility's staff member: set up again only at staff sign-in.
+    ['CLINICIAN_APPLICATION_STAFF_SIGN_IN_REQUIRED', 403,
+      'Your authenticator was reset. Sign in to the provider portal to set it up again, or contact HID support.'],
     ['CLINICIAN_APPLICATION_RATE_LIMITED', 429, 'Too many attempts from your network. Try again later.'],
     ['PLATFORM_MAINTENANCE', 503, 'Health ID is under maintenance. Try again later.'],
     ['CLINICIAN_APPLICATION_UNAVAILABLE', 503, "We couldn't check the code right now. Try again."],
@@ -351,6 +364,26 @@ describe('the applications', () => {
     fireEvent.click(within(article(FACILITY.name)).getByRole('button', { name: /Withdraw/ }))
     fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Withdraw application' }))
     expect(await screen.findByText('For your security, this page closed after 30 minutes. Enter your email to continue.')).toBeTruthy()
+    expect(screen.getByRole('textbox', { name: 'Work email' })).toBeTruthy()
+  })
+
+  it.each([
+    ['withdrawing', 'withdraw'],
+    ['reading the list again', 'current'],
+  ] as const)('leaves the list for the email form when the account can no longer be used, at %s', async (_case, call) => {
+    await listShown()
+    const ineligible = problem(403, 'CLINICIAN_APPLICATION_ACCOUNT_INELIGIBLE')
+    if (call === 'withdraw') api.withdraw.mockRejectedValueOnce(ineligible)
+    else {
+      api.withdraw.mockRejectedValueOnce(problem(409, 'VERSION_CONFLICT'))
+      api.current.mockRejectedValueOnce(ineligible)
+    }
+    fireEvent.click(within(article(FACILITY.name)).getByRole('button', { name: /Withdraw/ }))
+    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Withdraw application' }))
+    await headingFocused('Check your clinician application', 1)
+    expect(screen.getByRole('alert').textContent).toBe("This account can't be used for clinician applications. Contact HID support.")
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.queryByRole('article')).toBeNull()
     expect(screen.getByRole('textbox', { name: 'Work email' })).toBeTruthy()
   })
 

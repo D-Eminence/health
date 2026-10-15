@@ -227,12 +227,35 @@ describe('an activation whose answer was lost (P7)', () => {
   })
 })
 
+describe('an account that sets its authenticator up only at staff sign-in (403 CLINICIAN_APPLICATION_STAFF_SIGN_IN_REQUIRED)', () => {
+  it('says so at activation, never as an outage, and offers nothing more', async () => {
+    api.authenticator.activate.mockRejectedValueOnce(problem(403, 'CLINICIAN_APPLICATION_STAFF_SIGN_IN_REQUIRED'))
+    show('enrol')
+    await stepShown('Set up your authenticator')
+    fireEvent.click(screen.getByRole('button', { name: 'Email me a code' }))
+    await stepShown('Enter the code we emailed you')
+    typeCode('Email code', '654321')
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    await stepShown('Add Health ID to your authenticator app')
+    typeCode('Authenticator code', '112233')
+    fireEvent.click(screen.getByRole('button', { name: 'Activate authenticator' }))
+    await stepShown("Your authenticator can't be set up here")
+    expect(screen.getByRole('alert').textContent)
+      .toBe('Your authenticator was reset. Sign in to the provider portal to set it up again, or contact HID support.')
+    expect(screen.queryByRole('button')).toBeNull()
+    expect(handlers.onEnded).not.toHaveBeenCalled()
+  })
+})
+
 describe('opening the step again (P9)', () => {
   it.each([
     ['403 STAFF_MFA_FACTOR_UNPROVEN', problem(403, 'STAFF_MFA_FACTOR_UNPROVEN'),
       'Your authenticator was set up at platform sign-in. Contact HID support to reset it.'],
     ['403 CLINICIAN_APPLICATION_ACCOUNT_INELIGIBLE', problem(403, 'CLINICIAN_APPLICATION_ACCOUNT_INELIGIBLE'),
       "This account can't apply for a clinical role. Contact HID support."],
+    // An approved clinician, or a facility's staff member, whose authenticator was reset sets it up again only at staff sign-in.
+    ['403 CLINICIAN_APPLICATION_STAFF_SIGN_IN_REQUIRED', problem(403, 'CLINICIAN_APPLICATION_STAFF_SIGN_IN_REQUIRED'),
+      'Your authenticator was reset. Sign in to the provider portal to set it up again, or contact HID support.'],
   ])('says what %s means and offers nothing more', async (_case, caught, words) => {
     api.authenticator.reopen.mockRejectedValueOnce(caught)
     show('reopen')

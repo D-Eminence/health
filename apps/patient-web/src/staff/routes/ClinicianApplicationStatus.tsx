@@ -8,8 +8,8 @@ import { ClinicianAuthenticator } from '../clinician/ClinicianAuthenticator'
 import { Declarations, DetailsFields, EMPTY_DETAILS, FIELD, applicationDetails, declarationProblems, detailsProblems,
   type DetailsValue } from '../clinician/ClinicianDetails'
 import { EmailCode } from '../clinician/EmailCode'
-import { APPLICATION_CHANGED, APPLY_REFUSAL, FACILITY_UNAVAILABLE, MAINTENANCE, PAGE_EXPIRED, PROFESSION_NAME, REGULATOR_NAME,
-  STATE_LABEL, codeOf, formatDate, refusalCopy, stateCopy, statusCodeSentCopy } from '../clinician/copy'
+import { ACCOUNT_UNAVAILABLE, APPLICATION_CHANGED, APPLY_REFUSAL, FACILITY_UNAVAILABLE, MAINTENANCE, PAGE_EXPIRED, PROFESSION_NAME,
+  REGULATOR_NAME, STATE_LABEL, codeOf, formatDate, refusalCopy, stateCopy, statusCodeSentCopy } from '../clinician/copy'
 import { ClinicianFrame, ErrorSummary, MainSiteOnly, PrimaryButton, StepError, StepHeading, TextButton, shownError,
   type Problem } from '../clinician/ui'
 
@@ -120,6 +120,11 @@ function StatusPage() {
         if (options.initial) setPhase('form'); else toForm(null)
         return false
       }
+      // The account was disabled or is no longer active: reading again cannot help, so the form says so, with no Retry.
+      if (code === 'CLINICIAN_APPLICATION_ACCOUNT_INELIGIBLE') {
+        if (options.initial) { setFormNotice({ text: ACCOUNT_UNAVAILABLE, tone: 'alert' }); setPhase('form') } else toForm(ACCOUNT_UNAVAILABLE)
+        return false
+      }
       if (code === 'CLINICIAN_APPLICATION_AUTHENTICATOR_REQUIRED') held.current = true
       if (options.initial && code === 'CLINICIAN_APPLICATION_AUTHENTICATOR_REQUIRED') { setAuthenticatorStart('verify'); setPhase('authenticator'); return false }
       if (takeOver(caught)) return false
@@ -164,6 +169,8 @@ function StatusPage() {
       if (code === 'VERSION_CONFLICT' || code === 'CLINICIAN_APPLICATION_STATE_INVALID' || code === 'CLINICIAN_APPLICATION_NOT_FOUND') {
         setWithdrawing(null)
         await load({ notice: APPLICATION_CHANGED, fromList: true })
+      } else if (code === 'CLINICIAN_APPLICATION_ACCOUNT_INELIGIBLE') {
+        toForm(ACCOUNT_UNAVAILABLE)
       } else if (!takeOver(caught)) {
         setWithdrawError(shownError(code === 'PLATFORM_MAINTENANCE' ? MAINTENANCE : "We couldn't withdraw it right now. Try again."))
       }
