@@ -1396,4 +1396,18 @@ first. hid-system was not changed.
   focus to the vital. An EHR before #74 sends no status, and every vital stays
   correctable. Not added: the single-vital retraction route. Failing first: 3
   tests (the marker, the marker with a correction, the refused correction).
+- **Patient routes answering `403 PATIENT_SESSION_REQUIRED` (hid-system#74 and
+  #76, ADR-059; hand-off A9).** Every patient-only route now refuses a provider's or
+  administrator's session so, where it used to answer a retried `503`. With a
+  provider's sign-in live in the shared cookies, the patient pages showed "An
+  active patient session is required" as if the page had failed. Now such a
+  refusal makes the portal ask `GET /auth/session` whose session the browser
+  holds, the question it asks when another tab announces a change, and the
+  refusal reaches the page only once that is answered: a provider's session
+  signs the tab out, so the page goes to sign-in, which says the sign-in
+  changed elsewhere. The 403 alone ends nothing; a check the server cannot
+  answer (a `503`) or one that finds this patient's own session changes
+  nothing, and the page shows the refusal. No other 403 asks anything. Failing
+  first: 5 tests (the session client's three cases, the shared-browser case
+  and the records page).
 

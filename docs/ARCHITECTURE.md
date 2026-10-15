@@ -257,7 +257,13 @@ back/forward-cache restore; a 401 there is restored once through refresh, in
 its Web Locks turn, before the answer is judged. The tab stays signed in only
 for a patient session with its own subject: another account's session signs it
 out, an outage changes nothing, and a provider's session found in the shared
-cookies means signed out, not an error. `refreshSession` restores only the
+cookies means signed out, not an error. Since hid-system#74 (EHR) and #76
+(Identity) every patient-only route refuses any other session with
+`403 PATIENT_SESSION_REQUIRED`; a patient request refused so asks the same
+question, as an announcement would, and returns its refusal only once it is
+answered, so a page whose patient has left the browser goes to sign-in instead
+of showing an error. The 403 alone signs nothing out, and a question the
+server cannot answer changes nothing. `refreshSession` restores only the
 patient shown. Session questions judge their own 401
 (`RequestSpec.reportUnauthorized: false` in `@hid/http`) instead of passing it
 to the client's global sign-out.

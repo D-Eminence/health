@@ -1,12 +1,12 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { createApiClient, HidApiError, isHidApiError } from '@hid/http'
+import { createApiClient, HidApiError, isHidApiError, type ApiClient, type RequestSpec } from '@hid/http'
 import { createRegisteredBrowserClient } from '@hid/api'
 import { createLogger } from '@hid/observability'
 import { createSessionStore, type AuthPrincipal, type SessionState } from '@hid/auth'
 import { createPatientApi, type PatientApi, type PatientSession } from './api'
 import { getEnvironment } from './env'
-import { announceSessionChange, heldByOtherPortal, onOtherTabSessionChange } from './sessionChange'
+import { announceSessionChange, heldByOtherPortal, onOtherTabSessionChange, patientSessionRequired } from './sessionChange'
 
 interface SessionContextValue {
   readonly state: SessionState
@@ -73,6 +73,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const [checkKey, setCheckKey] = useState(0)
   const otherPortal = useRef(false)
   useEffect(() => { otherPortal.current = otherPortalSession }, [otherPortalSession])
+  // Asks the server whose session the browser holds (the check below), settling once it is answered.
+  const recheckSession = useRef<() => Promise<void>>(async () => undefined)
 
   useEffect(() => store.subscribe(setState), [store])
 
@@ -119,7 +121,23 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         }
       },
     }), 'patient-web')
-    patientApi = createPatientApi(client)
+    // A patient route refused because the session the browser sent is not a patient's
+    // (403 PATIENT_SESSION_REQUIRED): the shared cookies may hold a provider's sign-in
+    // now. The server is asked whose session it is before the refusal reaches the page,
+    // so a page whose patient has left the browser goes to sign-in instead of showing it.
+    const checked: ApiClient = {
+      ...client,
+      async request<T>(spec: RequestSpec): Promise<T> {
+        try { return await client.request<T>(spec) }
+        catch (error) {
+          if (patientSessionRequired(error)) await recheckSession.current()
+          throw error
+        }
+      },
+      get: (path, spec) => checked.request({ ...spec, method: 'GET', path }),
+      post: (path, body, spec) => checked.request({ ...spec, method: 'POST', path, body }),
+    }
+    patientApi = createPatientApi(checked)
     return patientApi
   }, [environment, store])
 
@@ -169,6 +187,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     // Whether another tab announced a change since the question in progress, or
     // the next one, began.
     let heard = false
+    // Requests refused with PATIENT_SESSION_REQUIRED, waiting for the question they raised.
+    let waiting: Array<() => void> = []
+    const settle = () => { const answered = waiting; waiting = []; for (const resume of answered) resume() }
     // `elsewhere` when the change is evident: another account's session, or a
     // refused refresh after another tab announced a change. A refused refresh
     // alone is also what this patient's own sign-in gives once it has expired or
@@ -187,6 +208,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         // sign-in and enrollment say: the session is checked again, so that they
         // stop saying so once it has been signed out elsewhere.
         if (otherPortal.current) setCheckKey(value => value + 1)
+        if (!asking) settle()
         return
       }
       if (asking) { again = true; return }
@@ -214,11 +236,21 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         asking = false
         // A change heard while asking may postdate the answer: ask once more.
         if (again) { again = false; void ask() }
-        // Otherwise the answer postdates every change heard while the tab was out
-        // of view, and its return has nothing more to ask about them.
-        else if (answered && away) away.heard = false
+        else {
+          // Otherwise the answer postdates every change heard while the tab was out
+          // of view, and its return has nothing more to ask about them.
+          if (answered && away) away.heard = false
+          settle()
+        }
       }
     }
+    // The refusal says the browser's session is not this patient's, as a change
+    // another tab announces would: asked as one, and answered before the request returns.
+    recheckSession.current = () => new Promise<void>(resume => {
+      waiting.push(resume)
+      heard = true
+      void ask()
+    })
     // Since when the tab is out of view, and whether another tab announced a change
     // meanwhile that no answer has followed yet.
     let away: { since: number; heard: boolean } | null = document.visibilityState === 'hidden' ? { since: Date.now(), heard: false } : null
@@ -252,6 +284,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       stopListening()
       document.removeEventListener('visibilitychange', onVisibility)
       window.removeEventListener('pageshow', onPageShow)
+      recheckSession.current = async () => undefined
+      settle()
     }
   }, [api, store])
 

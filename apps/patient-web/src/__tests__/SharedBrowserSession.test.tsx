@@ -346,6 +346,29 @@ describe('a patient tab is bound to the patient it shows (SEC-PATIENT-XTAB)', ()
     expect(screen.queryByText('HID-SUBJECT-P')).toBeNull()
   })
 
+  it('a patient read refused because a provider signed in elsewhere (403 PATIENT_SESSION_REQUIRED) asks the server, and signs this tab out', async () => {
+    const identity = fakeIdentity()
+    identity.install()
+    identity.signIn('patient')
+    await openRecordsTab()
+    // A provider signs in from another tab; this tab does not hear of it, and the provider's access cookie is live.
+    const provider = identity.signIn('staff')
+
+    profileOutcome = undefined
+    await act(async () => { screen.getByRole('button', { name: 'Read profile' }).click() })
+    await waitFor(() => expect(profileOutcome).toBeDefined())
+
+    expect(profileOutcome).toBe('403')
+    // The refusal says the session is not a patient's; the server is asked whose it is before the page hears of it.
+    const routes = identity.sent.map(call => call.route)
+    expect(routes.slice(routes.lastIndexOf('GET /api/v1/identity/me'))).toEqual(['GET /api/v1/identity/me', 'GET /api/v1/auth/session'])
+    expect(patientStatus()).toBe('anonymous')
+    expect(screen.queryByText('HID-SUBJECT-P')).toBeNull()
+    expect(screen.getByText('Signed out in another tab')).toBeTruthy()
+    expect(provider.ended).toBe(false)
+    expect(provider.rotations).toBe(0)
+  })
+
   it('a refresh that answers for another patient is not this tab\'s session: nothing is repeated as that patient', async () => {
     const identity = fakeIdentity()
     identity.install()
