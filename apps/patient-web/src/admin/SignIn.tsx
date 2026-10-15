@@ -46,9 +46,15 @@ export function AdminSignIn({ onSignedIn, notice }: {
     catch (caught) { restart(caught instanceof Error ? caught.message : 'Platform administration could not be opened.') }
   }
 
-  /** The challenge cookie expired, was used up or was never set. */
+  /**
+   * The challenge cookie expired, was used up or was never set; or, for an
+   * account that also works at a facility, Identity enrols the authenticator
+   * at staff sign-in only (hid-system #71), so this challenge cannot go on.
+   */
   function mfaFailure(caught: unknown, fallback: string) {
-    if (isProblem(caught, 'MFA_CHALLENGE_INVALID')) { restart(failure(caught, fallback)); return }
+    if (isProblem(caught, 'MFA_CHALLENGE_INVALID') || isProblem(caught, 'MFA_ENROLLMENT_STAFF_SIGN_IN_REQUIRED')) {
+      restart(failure(caught, fallback)); return
+    }
     setError(failure(caught, fallback))
   }
 
