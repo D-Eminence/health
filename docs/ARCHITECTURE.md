@@ -312,6 +312,30 @@ Identity refuses (`403 GOOGLE_STAFF_SIGN_IN_DISABLED`). The platform console's
 setup-key grouping, six-digit code rules and recovery-code step are shared
 from `src/mfa/`, and file saving from `src/download.ts`.
 
+Clinician self sign-up (hid-system ADR-064, built against the unmerged backend
+branch `claude/clinician-self-signup` at `fa58e2b`) has two public pages,
+`/provider/join` and `/provider/join/status`, routed before `/provider/*` and
+outside the provider workspace, as `/provider/enroll` is. They never ask
+`GET /auth/session`, hold no staff session and open none. Identity keeps the
+applicant's state in an httpOnly capability cookie (`hid_clinician_application`,
+path `/api/v1/identity/clinician-applications`), which the page sends and never
+reads. `staff/clinicianApplicationApi.ts` uses a client of its own, registered
+as `staff-web`, that restores nothing on a 401 and reports nothing to the
+workspace: a 401 means only that the application page or its authenticator
+step ended. The applicant's authenticator steps
+(`staff/clinician/ClinicianAuthenticator.tsx`) run Identity's 0088 challenge
+with no session and reuse `src/mfa/` (QR code, setup key, six-digit codes,
+recovery codes); staff sign-in's `StaffMfaSteps` is unchanged. Form values,
+security-check tokens, the password, the setup key, recovery codes and the
+applications live only in component state; the Idempotency-Key of a submission
+is kept in memory and reused only for that submission. The pages' security
+checks (`clinician-application`, `clinician-application-status`) are accepted
+only on the main site, so on a staff product host or the admin site each page,
+and every link to it, goes to the main site's address
+(`clinicianPageHref` in `productHostname.ts`). Provider sign-in and provider
+enrollment offer the way in only while `GET .../availability` answers
+`{ open: true }`.
+
 Each patient tab is bound to the patient it shows. Both portals announce sign-in
 and sign-out on one `BroadcastChannel`, `hid-session-change`
 (`src/sessionChange.ts`), and both listen on it. A patient tab asks

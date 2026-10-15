@@ -226,3 +226,18 @@ claim them:
 Before adding any of these screens, agree a permissioned API with persistence,
 validation and audit behavior in `hid-system`. Static reference UI and browser
 fixtures do not resolve the missing contract.
+
+## Clinician self sign-up (2026-10-15)
+
+Read at hid-system branch `claude/clinician-self-signup` `fa58e2b` (ADR-064,
+not merged). Health-id branch `claude/clinician-signup-pages` builds the
+applicant's pages; these rows are what it cannot settle.
+
+| Item | Current evidence | Needed to close |
+| --- | --- | --- |
+| The backend is not merged or deployed | ADR-064 is proposed and its branch unpushed; its migration (0094) is to be renumbered. Against an Identity without it the availability read answers 404: sign-up and the provider pages say sign-up isn't open yet, and the status page, always linked, says it couldn't load the applications. | hid-system maintainers: merge, deploy Identity, then this portal (hand-off section 12). |
+| No one can approve an application yet | The administrators' queue (list, detail, step 1 licence and identity check with a live authenticator code, step 2 approval by a second Super Admin, reject with a decision code) is not built in Health-id. hid-system's release checklist (P25) keeps intake closed until it ships. | Frontend owner: build the console's queue (`/admin/clinician-applications`, A1-A5) before `clinician_signup_enabled` is turned on. |
+| ADR-064's open owner questions | The step-1 identity standard and reviewer list, the service level told to applicants (the pages say applications stay open 30 days and promise no time), the register check's source, professions beyond MDCN and NMCN (the page says other professions can't apply here yet), and notices (none: the status page is the only channel). | Product owner: decide (hid-system RESULT §7). |
+| The pages need the main site | The security checks `clinician-application` and `clinician-application-status` are accepted only on www and staging, so the portal must serve `/provider/join` there (hand-off D1, D2); a staff product host or the admin site links to it. | Infrastructure owner: host the portal on the main site, or add the actions to other hosts' allow-lists. |
+| A public read on every provider sign-in | The provider sign-in and enrollment pages ask availability on every view (Identity caches it for 30 seconds), and offer nothing about clinician sign-up until it answers. A change of the control can take 30 seconds to show. | None needed unless the read's cost matters; it could be dropped for a link that leads to the not-open notice. |
+| Password show/hide | The clinician password fields are `@hid/ui` `Input`: the shared `PasswordInput` is on the unmerged branch `claude/turnstile-password-pwa-push`. | Frontend owner: switch the two fields once that branch merges. |

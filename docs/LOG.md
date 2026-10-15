@@ -1719,3 +1719,89 @@ build kept Google's script loader with no Google client ID.
   in a script, and a `sourceMappingURL` comment.
 - **Not verified.** The hid-system stager itself was not run; the rules were
   copied from it and must be kept in step when it changes.
+
+## 2026-10-15: clinician self sign-up, the applicant's pages (hid-system ADR-064)
+
+Owner decision 2 of 2026-10-14: doctors and nurses sign up themselves and two
+HID administrators approve. hid-system built the backend on branch
+`claude/clinician-self-signup` (head `fa58e2b`, migration `0094` to be
+renumbered `0096`, ADR-064 proposed): **not pushed, merged or deployed**. This
+branch (`claude/clinician-signup-pages`, from `main` `55a50b0`) builds the
+applicant's side against that branch's contract; the administrators' queue is
+not built.
+
+- **Contracts.** Sixteen public routes (`enrollment.clinician*`: availability,
+  the sign-up email code and its check, facility search, the submit, the five
+  authenticator steps, the status page's email code and its check, the
+  applications, withdraw, apply again, the end of the page), granted to the
+  provider portal (`staff-web`) only. The public site's enrollment grant now
+  names the routes it could reach before, so it cannot reach these; a new
+  enrollment route for the public site must be added to that list.
+  `staff/clinicianApplicationApi.ts` has a client of its own that restores no
+  staff session on a 401 and reports nothing to the workspace: a 401 means
+  only that the application page or its authenticator step ended. Commands
+  are sent once with the page's Idempotency-Key; withdraw sends `If-Match`.
+- **Sign-up, `/provider/join`** (`staff/routes/ClinicianSignUp.tsx`), outside
+  the provider workspace and its session. Only `200 { open: true }` shows the
+  form; otherwise "Clinician sign-up isn't open yet", with Retry after an
+  outage. Email, then code (the same words for every address; a new security
+  check, `clinician-application`, for every send; the wait for a new code said
+  once, with no countdown); details (name, doctor or nurse with MDCN or NMCN
+  derived, never typed, licence number and expiry, a facility searched from 3
+  letters with the count announced); password and the two declarations; one
+  submit with a key kept in memory. Then the authenticator with no session
+  (`staff/clinician/ClinicianAuthenticator.tsx`): the emailed proof, the QR
+  code and setup key (`src/mfa/OtpauthQr.tsx`), the first code and the
+  recovery codes once (`src/mfa/RecoveryCodes.tsx`), or a code when the account
+  has one, and "Start again" (P9) when a step expired. "Application
+  submitted" never says verified or approved.
+- **Status, `/provider/join/status`** (`staff/routes/ClinicianApplicationStatus.tsx`):
+  an email code (`clinician-application-status`), then the authenticator code
+  or its setup; each application's state in fixed words (decision codes for a
+  rejected one, the access state of an approved one, the licence's last four
+  characters); withdraw in a dialog that holds focus, with `If-Match` (a 409
+  reloads and says it changed); apply to another facility; "Close this page".
+- **Ways in.** Provider sign-in and provider enrollment ask for availability
+  (`staff/clinician/ClinicianSignUpEntry.tsx`) and offer "Sign up as a
+  clinician" only on `{ open: true }`, otherwise "Clinician sign-up isn't open
+  yet"; both link the status page. Sign-in after a right password for an
+  account with no active facility (`403 NO_ACTIVE_FACILITY_MEMBERSHIP`) keeps
+  Identity's words and points an applicant to the status page. Enrollment says
+  its administrator account cannot also hold a clinical role. On a staff
+  product host or the admin site every clinician link goes to the main site,
+  the only host whose Turnstile accepts the two actions.
+- **Refusals.** Every code in the contract has words: intake closed, the rate
+  limits (no countdown), the address in use (sign in, reset, status page),
+  facility busy or unavailable, a signed-in browser, the email proof expired,
+  the authenticator set up at platform sign-in, the 0088 codes (a refused code
+  cleared at its field, an expired step opened again, an email proof already
+  used restarted through P9), a changed application. A 503 or a network
+  failure keeps the page and what was typed and signs no one out. Nothing is
+  written to browser storage or the address; step headings take focus and
+  errors are alerts; the CSS keeps both pages inside 320px.
+- **Departures from the design.** The applicant authenticator is its own
+  component reusing `src/mfa/`, not a generic `StaffMfaSteps`, so staff
+  sign-in is unchanged. The entry says "Sign up as a clinician" as asked, not
+  the design's "Apply to join your facility". Sign-in keeps Identity's detail
+  for `NO_ACTIVE_FACILITY_MEMBERSHIP` and adds a line. The password fields use
+  `@hid/ui` `Input`: the shared `PasswordInput` is on the unmerged branch
+  `claude/turnstile-password-pwa-push`, not on `main`.
+- **Evidence.** Each commit's tests failed first: the boundary test and the
+  API module; the sign-up page's 42 tests and its route test; the status page's
+  50 and its route test; 9 entry tests; 1 authenticator test (17 more cover
+  0088 answers the page already handled). At each commit `audit:boundaries`,
+  `typecheck`, `lint`, `npx vitest run`, `build:patient-web` and
+  `audit:launch-build` pass. `npx vitest run`: `main` 150 files, 1957 tests;
+  this branch 156 files, 2118 tests. The staff sign-in integration tests that
+  list every request now stub the availability read, and the clinician pages'
+  title checks wait for the title effect (one failed once under load).
+- **Not verified.** Component tests with the network stubbed, against the
+  backend branch's code and its RESULT notes; nothing was run in a browser,
+  with an authenticator app, or against a running Identity.
+- **Deploy order.** hid-system merges ADR-064 and deploys 0094 (renumbered),
+  the role bootstrap and Identity; then this portal. Against an Identity
+  without ADR-064 the availability read answers 404, so sign-up and the
+  provider pages say sign-up isn't open yet, but the status page (always
+  linked) says it couldn't load the applications, with Retry.
+  Intake must stay off (`clinician_signup_enabled`) until the administrators'
+  queue ships: without it no application can be approved.
