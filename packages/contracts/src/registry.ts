@@ -33,7 +33,8 @@ const one = (method: EndpointMethod, ...permissions: string[]): Partial<Record<E
 
 export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('auth.patientLogin','auth','/api/v1/auth/patient/login',P,true),
-  r('auth.staffLogin','auth','/api/v1/auth/login',P,true),
+  r('auth.staffLogin','auth','/api/v1/auth/login',P,true,undefined,
+    'Requires Origin and a workforce Turnstile action. Since hid-system #71 returns an MFA status, not a session.'),
   r('auth.googleNonce','auth','/api/v1/auth/google/nonce',G,true),
   r('auth.googleOnboarding','auth','/api/v1/auth/google/onboarding',G,true),
   r('auth.googleExchange','auth','/api/v1/auth/oidc/exchange',P,true),
@@ -58,6 +59,17 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('auth.adminRefresh','auth','/api/v1/auth/admin/refresh',P,true,undefined,
     'Requires the platform refresh cookie and CSRF header.'),
   r('auth.adminLogout','auth','/api/v1/auth/admin/logout',P),
+  // Staff sign-in with an authenticator (hid-system #71 at 8f3eff1, ADR-054,
+  // migration 0088). Each step needs Origin and the staff challenge cookie
+  // (hid_access_mfa, path /api/v1/auth/mfa), and no Turnstile, CSRF or session.
+  r('auth.staffMfaVerify','auth','/api/v1/auth/mfa/verify',P,true,undefined,
+    'Takes a TOTP code or one recovery code. Returns a staff session.'),
+  r('auth.staffMfaEnrollEmailCode','auth','/api/v1/auth/mfa/enroll/email-code',P,true,undefined,
+    'No body. Emails a six-digit enrolment code to the account address; a resend replaces it.'),
+  r('auth.staffMfaEnrollStart','auth','/api/v1/auth/mfa/enroll/start',P,true,undefined,
+    'Takes the emailed code, or none after provider activation. The only response that contains the TOTP secret.'),
+  r('auth.staffMfaEnrollActivate','auth','/api/v1/auth/mfa/enroll/activate',P,true,undefined,
+    'Takes the first TOTP code. Returns a staff session and the recovery codes, once.'),
 
   r('enrollment.start','enrollment','/api/v1/identity/patient-enrollments',P,true),
   r('enrollment.availability','enrollment','/api/v1/identity/patient-enrollments/availability',G,true,undefined,
@@ -98,7 +110,7 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('enrollment.providerVerify','enrollment','/api/v1/identity/provider-enrollments/verify',P,true,undefined,
     'Accountless; verifies the emailed code and sets the enrollment cookie.'),
   r('enrollment.providerActivate','enrollment','/api/v1/identity/provider-enrollments/activate',P,true,undefined,
-    'Accountless; uses the enrollment cookie and returns a staff session.'),
+    'Accountless; uses the enrollment cookie. Since hid-system #71 returns an MFA status, not a session.'),
   r('identity.organizationApply','enrollment','/api/v1/identity/organization-applications',P,true),
   r('identity.organizationCompletionStart','enrollment','/api/v1/identity/organization-applications/completion/start',P,true),
   r('identity.organizationCompletionVerify','enrollment','/api/v1/identity/organization-applications/completion/verify',P,true),

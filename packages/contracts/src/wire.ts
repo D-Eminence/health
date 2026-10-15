@@ -36,6 +36,16 @@ export interface HidAuthSession {
   expiresAt?: string
 }
 
+/**
+ * The staff password step's answer since hid-system #71: the second step
+ * Identity asks for, with only an httpOnly challenge cookie. An Identity before
+ * #71 answers with a session instead.
+ */
+export interface HidStaffLoginChallenge {
+  status: 'mfa_required' | 'mfa_enrollment_required'
+  expiresAt: string
+}
+
 export interface HidProblemDetails {
   type: string
   title: string

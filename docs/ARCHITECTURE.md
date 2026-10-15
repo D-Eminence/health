@@ -256,6 +256,62 @@ the client's own `clientId`; a caller cannot change it). hid-system #39 then
 refuses the other portal's sign-in with `403 SESSION_CLIENT_MISMATCH`, rotating
 and ending nothing, and each portal ends only its own session.
 
+Staff sign-in is two steps since hid-system#71 (ADR-054, migration 0088; on
+hid-system `main` at `8f3eff1`, not deployed). `POST /auth/login` answers
+`{ status: 'mfa_required' | 'mfa_enrollment_required', expiresAt }` and sets
+only an httpOnly challenge cookie (`hid_access_mfa`, path `/api/v1/auth/mfa`).
+The session comes from `POST /auth/mfa/verify` (an authenticator code or one
+recovery code), or, on a first sign-in, from `/auth/mfa/enroll/activate` after
+the emailed code (`/enroll/email-code`) and `/enroll/start`, with ten recovery
+codes shown once. The registry grants those four routes to `staff-web` only.
+`staffApi.login` reads the password step's answer as that second step or, from
+an Identity before #71, as the session, so the portal and Identity can be
+deployed in either order; any other answer opens nothing. The provider's
+`login` changes no state; `completeSignIn` opens the workspace. The steps that
+set the session cookies (an older Identity's password step, verify,
+activation) wait for a sign-out or refresh in flight and take the Web Locks
+turn, and activation tells the other tabs at once, since the browser holds the
+session while its recovery codes are shown. The MFA steps carry no Turnstile
+token and a 401 there is never refreshed; the staff API keeps no code, setup
+secret or recovery code, and returns each only to the step that asked.
+The second step's screens (`staff/routes/StaffMfaSteps.tsx`) follow Identity's
+answer: the authenticator code or one recovery code; or, on a first sign-in,
+an explanation and a code emailed to the account's address only when asked
+(sends and setup starts count against 5 per 15 minutes), the setup (a QR code
+drawn in the page from the `otpauth://` URI by `src/mfa/OtpauthQr.tsx`, inline
+SVG with presentation attributes only, never a remote service; the grouped
+setup key; an open-in-app link; the deadline), its first code, and the ten
+recovery codes, shown once. The session opens only once the person says the
+codes are stored, and the workspace keeps the session without them. Each
+refusal is said: a wrong code at its field; 429, `503 MFA_UNAVAILABLE` and
+`MFA_ENROLLMENT_CODE_UNDELIVERABLE` keep the step; `MFA_CHALLENGE_INVALID` and
+`STAFF_MFA_FACTOR_UNPROVEN` (a two-person reset) go back to the password;
+`MFA_ENROLLMENT_PROOF_REQUIRED` back to the email step,
+`MFA_ENROLLMENT_PROOF_COMPLETE` on to setup with no code, and
+`MFA_ENROLLMENT_PROOF_UNAVAILABLE` stops. Each step's heading takes focus. The
+codes, the secret and the recovery codes live only in the steps' state.
+Provider enrollment activation (`/provider/enroll`) continues into the same
+steps on its own page: the activation is the enrolment's proof, so setup
+starts with no emailed code; an account that already has an authenticator is
+asked for its code; the page reloads into the workspace only after the
+recovery codes, and a challenge that lapses sends the administrator to
+`/provider/sign-in`. The page does not listen for the other tabs, so verify
+and activation announce the new session on a channel opened for the message. The platform console refuses the platform enrolment of an
+account with a staff membership as Identity does
+(`409 MFA_ENROLLMENT_STAFF_SIGN_IN_REQUIRED`) and says to set the
+authenticator up at staff sign-in first. Identity refuses a staff sign-in made without an authenticator (every
+one before #71, or one whose authenticator was reset) with
+`403 STAFF_MFA_REQUIRED` on every guarded route, and its refresh ends that
+sign-in. The provider portal takes it as the end of the session
+(`endsStaffSession`): it asks the server as for a 401, and the session-ended
+screen and the sign-in page say Health ID now asks for an authenticator code.
+The staff client notes the session that heard the refusal, because the refresh
+that answers it clears the cookies and later answers no longer say why. A 503
+is never taken for that end. The portal offers no staff Google sign-in, which
+Identity refuses (`403 GOOGLE_STAFF_SIGN_IN_DISABLED`). The platform console's
+setup-key grouping, six-digit code rules and recovery-code step are shared
+from `src/mfa/`, and file saving from `src/download.ts`.
+
 Each patient tab is bound to the patient it shows. Both portals announce sign-in
 and sign-out on one `BroadcastChannel`, `hid-session-change`
 (`src/sessionChange.ts`), and both listen on it. A patient tab asks

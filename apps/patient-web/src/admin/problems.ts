@@ -30,6 +30,9 @@ const ADMIN_PROBLEMS: Readonly<Record<string, string>> = {
   MFA_RATE_LIMITED: 'Too many incorrect codes. Verification is locked for up to 15 minutes; try again later.',
   MFA_UNAVAILABLE: 'Administrator MFA is temporarily unavailable, so platform sign-in cannot be completed. Contact platform operations.',
   MFA_NOT_ENROLLED: 'This administrator has no authenticator to reset.',
+  // A first platform enrolment of an account with an eligible staff membership (hid-system #71): no factor is created.
+  MFA_ENROLLMENT_STAFF_SIGN_IN_REQUIRED: 'This account also works at a facility, so its authenticator is set up at staff sign-in. '
+    + 'Sign in to the Health ID Provider Portal and set it up there first, then use the same authenticator here.',
 
   // Step-up and the high-risk policy: STEP_UP_REQUIRED when this session has no
   // confirmation, STEP_UP_EXPIRED when the last one is older than 5 minutes.

@@ -121,7 +121,10 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
     ehr: ['ehr.myRecords'],
   },
   'staff-web': {
-    auth: ['auth.staffLogin', 'auth.session', 'auth.refresh', 'auth.logout', 'auth.facility',
+    // Staff sign-in is two steps since hid-system #71: the password, then an
+    // authenticator code, or a first enrolment. Google sign-in is for patients only.
+    auth: ['auth.staffLogin', 'auth.staffMfaVerify', 'auth.staffMfaEnrollEmailCode', 'auth.staffMfaEnrollStart',
+      'auth.staffMfaEnrollActivate', 'auth.session', 'auth.refresh', 'auth.logout', 'auth.facility',
       'auth.otpStart', 'auth.otpVerify', 'auth.otpComplete'],
     enrollment: ['enrollment.providerStart', 'enrollment.providerVerify', 'enrollment.providerActivate'],
     identity: ['identity.patientLookup', 'identity.authorization', 'identity.consentStatus',

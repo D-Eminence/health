@@ -146,6 +146,22 @@ describe('platform administration sign-in', () => {
     expect(screen.getByLabelText('Setup key')).toBeTruthy()
   })
 
+  it('sends an administrator who also works at a facility to staff sign-in to set up the authenticator (409 MFA_ENROLLMENT_STAFF_SIGN_IN_REQUIRED)', async () => {
+    api.login.mockResolvedValueOnce({ status: 'mfa_enrollment_required', expiresAt: '2026-10-08T12:10:00.000Z' })
+    api.startEnrollment.mockRejectedValueOnce(problem(409, 'MFA_ENROLLMENT_STAFF_SIGN_IN_REQUIRED'))
+    const onSignedIn = open()
+    signInWithPassword()
+    fireEvent.click(await screen.findByRole('button', { name: 'Begin setup' }))
+
+    // Identity created no factor: the account enrols at staff sign-in, with its emailed proof, and uses that factor here.
+    expect((await screen.findByRole('alert')).textContent).toBe('This account also works at a facility, so its authenticator is set up at '
+      + 'staff sign-in. Sign in to the Health ID Provider Portal and set it up there first, then use the same authenticator here.')
+    expect(screen.getByRole('heading', { name: 'Administration sign in' })).toBeTruthy()
+    expect(screen.queryByText(/This item changed/)).toBeNull()
+    expect(api.activateEnrollment).not.toHaveBeenCalled()
+    expect(onSignedIn).not.toHaveBeenCalled()
+  })
+
   it('shows why the previous session ended and returns to sign-in if the workspace cannot open', async () => {
     api.login.mockResolvedValueOnce({ status: 'mfa_required', expiresAt: '2026-10-08T12:05:00.000Z' })
     api.verifyMfa.mockResolvedValueOnce({})
