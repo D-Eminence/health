@@ -22,15 +22,16 @@ const holder = (online: Record<string, unknown> = { available: true }, facility:
   ({ stage: 'verify_holder', expiresAt: '2026-10-16T10:00:00.000Z', googleOnboardingRequired: false, online, facility })
 const withCode = (code = DESK_CODE) => holder({ available: true }, { available: true, deskCode: code, deskCodeExpiresAt: '2026-10-16T10:00:00.000Z' })
 
-interface Routes { current?: () => Response; post?: Record<string, Handler> }
-function gateway({ current = () => problem(404, 'ENROLLMENT_NOT_FOUND', 'No pending enrollment was found'), post = {} }: Routes = {}): Handler {
+interface Routes { current?: () => Response; start?: () => Response; post?: Record<string, Handler> }
+function gateway({ current = () => problem(404, 'ENROLLMENT_NOT_FOUND', 'No pending enrollment was found'), start = () => json(holder()),
+  post = {} }: Routes = {}): Handler {
   return (path, method, body) => {
     if (path === `${BASE}/availability`) return json({ open: true, online: true, facility: true })
     if (path === `${BASE}/current`) return current()
     if (path === `${BASE}/participating-facilities`) return json({ whatToBring: WHAT_TO_BRING,
       facilities: [{ name: 'Synthetic General Hospital', town: 'Ikeja', lga: 'Ikeja', state: 'Lagos' }] })
     if (path === '/auth/google/onboarding') return problem(404, 'GOOGLE_ONBOARDING_NOT_FOUND', 'No Google sign-up is pending')
-    if (path === BASE && method === 'POST') return json(holder())
+    if (path === BASE && method === 'POST') return start()
     const handler = method === 'POST' ? post[path.slice(BASE.length + 1)] : undefined
     return handler ? handler(path, method, body) : problem(500, 'UNEXPECTED', `${method} ${path}`)
   }
@@ -241,5 +242,81 @@ describe('the facility stage after review', () => {
     await press(screen.getByRole('button', { name: 'I have been checked' }))
     expect((await screen.findByRole('alert')).textContent).toBe('Registration at a facility is not available now, so no check can be recorded. Try again later, or get a code by text message if you can.')
     expect(await screen.findByRole('heading', { name: 'Prove this NIN is yours' })).toBeTruthy()
+  })
+})
+
+/**
+ * A sign-in, refresh or sign-out in this browser expires the enrollment cookie
+ * and leaves the registration as it was (hid-system `main` f9dbaf0,
+ * auth.controller.ts clearEnrollmentCookie). A start with the same key and NIN
+ * resumes it, the in-person check included, with no new NIN lookup
+ * (patient-enrollment.service.ts resume); a new key is a new paid lookup and a
+ * new registration that must be checked at the facility again. One that is
+ * really gone starts afresh with either key. So a 404 at the facility stage
+ * keeps the start key, as at every other stage.
+ */
+describe('the facility stage when the enrollment cookie is lost', () => {
+  const NOT_FOUND = () => problem(404, 'ENROLLMENT_NOT_FOUND', 'No pending enrollment was found')
+  const checked = () => json({ stage: 'verify_contact', expiresAt: '2026-10-16T10:00:00.000Z', googleOnboardingRequired: false, requiredProfileFields: [] })
+  async function sameNinAgain() {
+    fireEvent.change(await screen.findByLabelText('National Identification Number'), { target: { value: NIN } })
+    fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
+    await press(screen.getByRole('button', { name: 'Continue' }))
+  }
+
+  it('continues with the same key after the sign-out note and a 404, as the note says', async () => {
+    let current = NOT_FOUND
+    let start = () => json(holder())
+    const { headers } = renderPortal(<Enrollment />, gateway({ current: () => current(), start: () => start(),
+      post: { 'facility-code': () => json(withCode()) } }), anonymous)
+    await toFacility()
+    await press(screen.getByRole('button', { name: 'Get my desk code' }))
+    await screen.findByRole('heading', { name: 'Your desk code' })
+    // Someone signed in elsewhere in this browser: Identity refuses the step until they sign out.
+    current = () => problem(409, 'PATIENT_ENROLLMENT_REQUIRES_SIGN_OUT', 'Sign out before starting or continuing a new Health ID enrollment')
+    await press(screen.getByRole('button', { name: 'I have been checked' }))
+    expect(await screen.findByText(/continue it by entering the same NIN before reloading this page/)).toBeTruthy()
+    // Signing out expired the enrollment cookie; the staff member had recorded the check.
+    current = NOT_FOUND
+    await press(screen.getByRole('button', { name: 'Check again' }))
+    const nin = await screen.findByLabelText('National Identification Number')
+    await waitFor(() => expect(document.activeElement).toBe(nin))
+    expect(screen.getByRole('alert').textContent).toMatch(/ended when someone signed in or out in this browser\. Enter your NIN to start again\.$/)
+    expect(screen.queryByRole('heading', { name: 'This registration has ended' })).toBeNull()
+    start = checked
+    await sameNinAgain()
+    expect(await screen.findByLabelText('Phone number')).toBeTruthy()
+    const keys = startKeys(headers)
+    expect(keys).toHaveLength(2)
+    expect(keys[1]).toBe(keys[0])
+  })
+
+  it.each([
+    ['"I have been checked"', 'I have been checked', {}],
+    ['"Get a new desk code"', 'Get a new desk code', { 'facility-code': () => NOT_FOUND() }],
+  ])('keeps the start key when %s finds the registration gone, so Start again with that NIN resumes one still open', async (_case, action, post) => {
+    let current = NOT_FOUND
+    let start = () => json(withCode())
+    const { headers } = renderPortal(<Enrollment />, gateway({ current: () => current(), start: () => start(), post }), anonymous)
+    fireEvent.change(await screen.findByLabelText('National Identification Number'), { target: { value: NIN } })
+    fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
+    await press(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByRole('heading', { name: 'Your desk code' })
+    current = NOT_FOUND
+    await press(screen.getByRole('button', { name: action }))
+    const heading = await screen.findByRole('heading', { name: 'This registration has ended' })
+    const outcome = heading.closest('section')!
+    expect(outcome.textContent).toContain('Otherwise it may have expired after 24 hours, or ended when someone signed in or out in this browser.')
+    expect(outcome.textContent).toContain('Select Start again and enter your NIN without reloading this page: a registration that is still open continues where it stopped.')
+    await press(within(outcome).getByRole('button', { name: 'Start again' }))
+    const nin = await screen.findByLabelText('National Identification Number')
+    await waitFor(() => expect(document.activeElement).toBe(nin))
+    expect((nin as HTMLInputElement).value).toBe('')
+    start = checked
+    await sameNinAgain()
+    expect(await screen.findByLabelText('Phone number')).toBeTruthy()
+    const keys = startKeys(headers)
+    expect(keys).toHaveLength(2)
+    expect(keys[1]).toBe(keys[0])
   })
 })

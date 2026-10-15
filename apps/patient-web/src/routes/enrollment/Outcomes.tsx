@@ -23,11 +23,13 @@ export function AlreadyRegistered({ focusTarget, reference }: { focusTarget: Foc
 }
 
 /**
- * GET .../current answers 404 after an in-person check (hid-system #85,
- * ADR-063): staff were told the NIN has a Health ID, which deletes the
- * registration, or it expired. The page follows the staff member's direction
- * and does not ask for the same NIN, which would start a new paid lookup
- * (P31).
+ * GET .../current answers 404 at the facility stage (hid-system #85, ADR-063):
+ * staff were told the NIN has a Health ID, which deletes the registration, it
+ * expired, or a sign-in or sign-out in this browser expired its cookie
+ * (Health-id alignment row 10). The staff member's direction comes first
+ * (P31). Start again keeps the page's start key, so the NIN entered before a
+ * reload resumes a registration that is still open, its check included, with
+ * no new paid lookup; one that is gone starts afresh.
  */
 export function RegistrationEnded({ focusTarget, onStartAgain }: { focusTarget: Focus; onStartAgain: () => void }) {
   return <section className="patient-success" aria-labelledby="enroll-ended-title">
@@ -35,7 +37,7 @@ export function RegistrationEnded({ focusTarget, onStartAgain }: { focusTarget: 
     <p>If the staff member told you this NIN already has a Health ID, use account recovery to get back into it.</p>
     <Link className="patient-primary-button" to="/recover">Recover your account</Link>
     <Link className="patient-secondary-button" to="/sign-in">Sign in</Link>
-    <p>Otherwise the registration may have expired: it lasts 24 hours. You can start again.</p>
+    <p>Otherwise it may have expired after 24 hours, or ended when someone signed in or out in this browser. Select Start again and enter your NIN without reloading this page: a registration that is still open continues where it stopped.</p>
     <button type="button" className="patient-text-button" onClick={onStartAgain}>Start again</button>
   </section>
 }

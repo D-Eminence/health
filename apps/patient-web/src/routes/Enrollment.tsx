@@ -174,6 +174,9 @@ export function Enrollment() {
   // it is not read twice (as errorAlert below).
   const [signOutAlert, setSignOutAlert] = useState(true)
   const signOutNote = useRef<HTMLDivElement>(null)
+  // The sign-out note was shown since the last check: a 404 that check then finds is the cookie
+  // expiry the note warned about, and the page does as the note says (the same NIN continues).
+  const signOutNoted = useRef(false)
   const [error, setError] = useState<string | null>(null)
   const [fieldError, setFieldError] = useState(false)
   // An error about the field is spoken by its description once focus moves there,
@@ -225,17 +228,27 @@ export function Enrollment() {
     setStage('nin'); setChallengeId(null); setMaskedContact(''); setCode(''); setPassword(''); setStepHint(null); forgetProfile(); forgetHolder()
     setNotice(null); setError(ENDED_HERE); setFieldError(false); setErrorAlert(true)
   }
-  /** Back to the NIN step with a new key: the next start is a new registration (and a new NIN lookup). */
-  const freshStart = () => {
-    startKey.current = null
-    // Nothing typed for the last registration is carried into the next, which may be someone else's on a shared phone.
+  /**
+   * Back to the NIN step with nothing typed for the last registration, which may
+   * be someone else's on a shared phone. The start key is left as it is.
+   */
+  const forgetRegistration = () => {
     setStage('nin'); setNin(''); setCode(''); setChallengeId(null); setMaskedContact(''); setPassword(''); setStepHint(null)
     setContact(''); setChannel('phone'); setReference(null)
     forgetProfile(); forgetHolder(); setNotice(null)
   }
-  /** GET .../current answered 404 after a desk check (P31): the staff member's direction, not the same NIN again. */
+  /** Back to the NIN step with a new key: the next start is a new registration (and a new NIN lookup). */
+  const freshStart = () => { startKey.current = null; forgetRegistration() }
+  /**
+   * GET .../current answered 404 at the facility stage (P31): the staff member's
+   * direction first. The start key is kept, as restartAtNin keeps it: a sign-in
+   * or sign-out here expires only the cookie, and the same NIN with this key
+   * resumes the registration, its in-person check included, with no new NIN
+   * lookup; one that is gone (a Health ID found, or expired) starts afresh with
+   * either key. The key is bound to the NIN, so another NIN gets a new one.
+   */
   const endAfterFacility = () => {
-    freshStart(); setStage('registration_ended'); setError(null); setFieldError(false); setErrorAlert(true)
+    forgetRegistration(); setStage('registration_ended'); setError(null); setFieldError(false); setErrorAlert(true)
   }
   // The wait before a new holder code, said in seconds until it has passed.
   const beginResendWait = (seconds: unknown) => {
@@ -294,7 +307,10 @@ export function Enrollment() {
         && (!isHidApiError(progress.reason) || ![401, 404].includes(progress.reason.status))
       const retried = retriedCheck.current
       retriedCheck.current = false
+      const afterSignOutNote = signOutNoted.current
+      signOutNoted.current = false
       if (progress.status === 'rejected' && requiresSignOut(progress.reason)) {
+        signOutNoted.current = true
         setSignOutRequired(true)
         setSignOutAlert(!retried)
         setChecking(false)
@@ -311,8 +327,9 @@ export function Enrollment() {
       const ended = progress.status === 'rejected' && enrollmentEnded(progress.reason)
         && [...HOLDER_STAGES, 'contact', 'otp', 'password'].includes(stageShown.current)
       if (progress.status === 'fulfilled') applyProgress(progress.value)
-      // After a desk check, follow the staff member's direction rather than ask for the same NIN (P31).
-      else if (ended && stageShown.current === 'facility') endAfterFacility()
+      // After a desk check, follow the staff member's direction (P31), unless the sign-out note
+      // was just shown here: then the 404 is the cookie it said signing out would end.
+      else if (ended && stageShown.current === 'facility' && !afterSignOutNote) endAfterFacility()
       else if (ended) restartAtNin()
       if (availability.status === 'fulfilled' && routesOf(availability.value)) setHolderSeen(true)
       if (google.status === 'fulfilled' && new Date(google.value.expiresAt).getTime() > Date.now()) setGooglePending(true)
@@ -330,6 +347,7 @@ export function Enrollment() {
   const displayError = (reason: unknown, fromField = false, stepCodes: readonly string[] = []) => {
     if (enrollmentEnded(reason)) return restartAtNin()
     if (requiresSignOut(reason)) {
+      signOutNoted.current = true
       setSignOutRequired(true); setSignOutAlert(false); setError(null); setFieldError(false)
       focusAfter(() => signOutNote.current)
       return
@@ -476,10 +494,15 @@ export function Enrollment() {
     finally { setBusy(false); stepFocus.focus() }
   }
 
-  /** "Use a different NIN" or "Start again": the next start is a new registration, with a new key. */
+  /** "Use a different NIN": the next start is a new registration, with a new key. */
   const startAgain = () => {
     if (busy) return
     freshStart(); clearError(); stepFocus.focus()
+  }
+  /** "Start again" after a registration ended at the facility stage: the kept key resumes it if it is still open. */
+  const againAtNin = () => {
+    if (busy) return
+    clearError(); setStage('nin'); stepFocus.focus()
   }
 
   const submitNin = async (event: FormEvent) => {
@@ -684,7 +707,7 @@ export function Enrollment() {
         onGetCode={() => void getDeskCode()} onChecked={() => void checkedAtFacility()}
         onOnline={() => { clearError(); setStage('holder'); stepFocus.focus() }} onDifferentNin={startAgain} />}
       {ready && stage === 'already_registered' && <AlreadyRegistered focusTarget={stepFocus.target} reference={reference} />}
-      {ready && stage === 'registration_ended' && <RegistrationEnded focusTarget={stepFocus.target} onStartAgain={startAgain} />}
+      {ready && stage === 'registration_ended' && <RegistrationEnded focusTarget={stepFocus.target} onStartAgain={againAtNin} />}
       {ready && stage === 'contact' && <ContactStep {...stepProps} channel={channel} onChannel={setChannel} contact={contact} onContact={setContact}
         onSubmit={event => void submitContact(event)} />}
       {ready && stage === 'otp' && <ContactCodeStep {...stepProps} maskedContact={maskedContact} code={code} onCode={setCode} onSubmit={event => void submitCode(event)}
