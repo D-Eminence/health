@@ -406,12 +406,27 @@ facilities (`GET .../participating-facilities`, also the public page
 `/enroll/facilities`), and shows the desk code (`POST .../facility-code`) only
 when asked; `GET .../current` shows the same code after a reload, and a new one
 is asked for only if staff ask. "I have been checked" reads `GET .../current`:
-`verify_contact` continues, `verify_holder` says the check is not recorded yet,
-and a `404` follows the staff member's direction (account recovery, sign-in or
-start again), never "the same NIN" (P31). `409 NIN_ALREADY_REGISTERED`, after a
-correct code or at activation, leads to account recovery, sign-in and Health ID
-support with the problem's `correlationId`; `409 ENROLLMENT_HOLDER_PROOF_REQUIRED`
-at activation starts again at the NIN step with a new key. The desk code, the
+`verify_contact` continues, with a confirmation in the page's status region
+that also describes the contact field focus moves to, and `verify_holder` says
+the check is not recorded yet. A `404` at the facility stage follows the staff
+member's direction (account recovery, sign-in or start again; P31) and also
+names a sign-in or sign-out in this browser. It keeps the start key, as every
+other stage does: such a sign-in or sign-out expires only the cookie, so the
+NIN entered before a reload resumes the registration with its check and no new
+lookup, and one that is gone starts afresh with either key. A `404` found by
+Check again just after the sign-out note goes to the NIN step, as the note says.
+`409 NIN_HOLDER_PROOF_CONFLICT` after a correct code means another registration
+of the NIN was already checked in person (0094); the page stays at the choice,
+says to finish that registration on the phone used at the facility, and keeps
+the facility as the fallback, with no desk code for this one. `409
+NIN_ALREADY_REGISTERED`, after a correct code or at activation, leads to
+account recovery, sign-in and Health ID support with the problem's
+`correlationId`; `409 ENROLLMENT_HOLDER_PROOF_REQUIRED` at activation starts
+again at the NIN step with a new key. The start's `409 IDEMPOTENCY_KEY_REUSED`
+can only mean that the registration this page's key started was activated
+(`resume` answers it for another NIN or an active row, and the key is bound to
+the NIN), so the page says the registration was completed and offers sign-in
+and account recovery, not a new start. The desk code, the
 challenge and the route state are page state only. The signed-in "Verify NIN"
 card is hidden until the owner decides P27: hid-system answers it
 `503 QOREID_PATIENT_NIN_BINDING_DISABLED` by default and production refuses the

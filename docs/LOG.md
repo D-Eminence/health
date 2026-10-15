@@ -1807,3 +1807,62 @@ ADR-061 password step were kept unchanged (same trees).
 - **Not verified.** Component tests with the network stubbed. Nothing was run in
   a browser, with a screen reader, at runtime, on staging or against a live
   hid-system; the 320px layout is checked from the stylesheet rules only.
+
+## 2026-10-15: patient sign-up after a second review (the facility stage's start key, a completed registration, the holder proof conflict, announcements)
+
+A second review of branch `claude/patient-signup-online` against hid-system
+`main` `f9dbaf0` (`INTERFACE_CONTRACT.md`, "The NIN holder step" and
+"Facility-assisted registration"; `patient-enrollment.service.ts`; 0094) found
+six defects. Five commits fix them, each with failing tests written first.
+
+- **The facility stage dropped the start key on a `404` (`826d396`; Health-id
+  alignment row 10, P31).** A sign-in, refresh or sign-out in the browser
+  expires only `hid_enrollment` (`auth.controller.ts` `clearEnrollmentCookie`).
+  A start with the same key and NIN resumes the registration, with any
+  recorded in-person check and no new NIN lookup (`resume`). The
+  facility-stage `404` called `freshStart`. So after the sign-out note ("continue
+  it by entering the same NIN"), Check again and the same NIN cost a second paid
+  lookup and a second check at the facility, and an online proof was then
+  refused `409 NIN_HOLDER_PROOF_CONFLICT`. The `404` now keeps the key and
+  clears what was typed. "This registration has ended" still gives the staff
+  member's direction first. It also names a sign-in or sign-out in this
+  browser, and its Start again keeps the key. A `404` found by Check again just
+  after the sign-out note goes to the NIN step, as the note says. A
+  registration that is gone starts afresh with either key, and another NIN
+  gets a new key. "Use a different NIN" and `429 ASSISTED_DESK_CODE_LIMITED`
+  still start with a new key. 3 tests failed first.
+- **The start's `409 IDEMPOTENCY_KEY_REUSED` invited a new paid start
+  (`1205617`).** `resume` answers it only for another NIN or an active row, and
+  the page binds the key to the NIN. So it means the registration this page
+  started was activated (a lost activation answer, or another tab). The page
+  said "That registration has ended. Select Continue to start again". It now
+  shows "This registration was completed", with sign-in and account recovery,
+  no NIN field and no new start. 1 test failed first; the branch had none for
+  this answer.
+- **`409 NIN_HOLDER_PROOF_CONFLICT` sent the registration to "Get my desk code"
+  (`a8d26f7`).** 0094 answers it only when another registration of the NIN was
+  already checked in person and is waiting for its contact and password.
+  The page said "show your desk code" for a registration that had none. A second
+  check would cost the staff and facility daily budgets and delete the
+  registration already checked. The page now stays at the choice. It says to
+  finish that registration on the phone used at the facility, and keeps the
+  facility as the fallback. The text message route says why it can't help.
+  The existing test was rewritten and failed first. The contract's looser
+  wording is in [open questions](./OPEN-QUESTIONS.md).
+- **A refusal after Enter in the password field was not announced
+  (`74fe26a`; ADR-061, P29).** With a profile field on the step, that field is
+  the focus target, and `onTarget()` was false in the password field. So a date
+  refused on the page, `DATE_OF_BIRTH_INVALID`, `ENROLLMENT_PROFILE_REQUIRED`
+  for another field and `PASSWORD_INVALID` were not alerts while focus stayed
+  put. `sentFromField` (`authSteps.ts`) reads where focus really is. 4 tests
+  failed first.
+- **The facility check confirmation was a live region inserted with its text
+  (`2504d72`).** The page's notice region now stays mounted, and the contact
+  field that focus moves to is described by the notice. 1 test failed first.
+- **Gates.** At each commit, `audit:boundaries`, `typecheck`, `lint`, `vitest`,
+  `build:patient-web` (local environment) and `audit:launch-build` pass.
+  `vitest` went from 157 files and 2028 tests to 157 files and 2037 tests.
+- **Not verified.** These are component tests with the network stubbed. Nothing
+  was run in a browser, with a screen reader, on staging or against a live
+  hid-system. How each screen reader reads the mounted status region and the
+  description is not checked.
