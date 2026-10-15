@@ -1386,4 +1386,14 @@ first. hid-system was not changed.
   uploaded document), and a completed encounter is still offered no
   retraction. Failing first: 5 tests (the three warning cases and the two
   refusals).
+- **Vitals entered in error (hid-system#74).** A vital now carries `status`,
+  and one entered in error keeps its values but takes no correction
+  (`409 VITAL_NOT_AMENDABLE`). The Vitals tab showed such a vital as current and
+  offered "Correct these vitals", which EHR would refuse. It is now marked
+  "Entered in error", says not to use the values, and offers no correction; its
+  earlier corrections are still shown. A correction refused because the vital
+  was retracted after it was loaded reads the vitals again, says why, and moves
+  focus to the vital. An EHR before #74 sends no status, and every vital stays
+  correctable. Not added: the single-vital retraction route. Failing first: 3
+  tests (the marker, the marker with a correction, the refused correction).
 

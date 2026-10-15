@@ -262,6 +262,64 @@ describe('correcting vitals', () => {
   })
 })
 
+/**
+ * Since hid-system #74 (ENC-RETRACT-2, migration 0090) a vital carries `status`: `final`, or
+ * `entered_in_error` once retracted on its own or with its encounter. It keeps its values and
+ * takes no correction: one answers 409 VITAL_NOT_AMENDABLE (INTERFACE_CONTRACT.md "Encounter
+ * status and its records"). An EHR before #74 sends no status, and every vital is final.
+ */
+describe('vitals entered in error', () => {
+  const retracted = { ...vital, status: 'entered_in_error', rowVersion: '2' }
+  const entry = () => screen.getByText('Vitals recorded').closest<HTMLElement>('.staff-list-item')!
+
+  it('are marked entered in error, keep their values and offer no correction', async () => {
+    records.vitals = [retracted]
+    await openTab('Vitals')
+    await screen.findByText('Vitals recorded')
+    expect(within(entry()).getByText('Entered in error')).toBeTruthy()
+    expect(entry().textContent).toContain('Recorded in error: do not use these values. They can no longer be corrected.')
+    expect(entry().textContent).toContain('BP 120/80 mmHg · 36.6 °C · 72 bpm')
+    expect(within(entry()).queryByRole('button', { name: 'Correct these vitals' })).toBeNull()
+  })
+
+  it('keep their corrections made before, with no further correction offered', async () => {
+    records.vitals = [{ ...retracted, currentCorrectionNo: 1, rowVersion: '3' }]
+    api.vitalCorrections.mockResolvedValue([{ id: 'c1', vitalId: 'vital-1', correctionNo: 1, replacementValues: { pulseBpm: 78 },
+      reason: 'Pulse misread', createdAt: '2026-10-10T08:30:00.000Z' }])
+    await openTab('Vitals')
+    expect(await screen.findByText(/Corrected \(correction 1\)/)).toBeTruthy()
+    expect(within(entry()).getByText('Entered in error')).toBeTruthy()
+    expect(within(entry()).queryByRole('button', { name: 'Correct these vitals' })).toBeNull()
+  })
+
+  it('a final vital is not marked, and still takes a correction', async () => {
+    records.vitals = [{ ...vital, status: 'final' }]
+    await openTab('Vitals')
+    expect(await screen.findByRole('button', { name: 'Correct these vitals' })).toBeTruthy()
+    expect(within(entry()).queryByText('Entered in error')).toBeNull()
+  })
+
+  it('a correction refused because the vitals were marked entered in error meanwhile reads them again and says so', async () => {
+    records.vitals = [{ ...vital, status: 'final' }]
+    api.correctVital.mockImplementationOnce(async () => {
+      records.vitals = [retracted]
+      throw new HidApiError(409, 'A vital entered in error cannot be changed', { code: 'VITAL_NOT_AMENDABLE' })
+    })
+    await openTab('Vitals')
+    const form = await correctionForm()
+    type(form, 'Pulse (bpm)', '78')
+    type(form, 'Reason for correction', 'Pulse misread from the monitor')
+    fireEvent.click(within(form).getByRole('button', { name: 'Save correction' }))
+
+    expect(await screen.findByText('These vitals were marked entered in error since they were loaded, so the correction was not saved. The list was reloaded.')).toBeTruthy()
+    expect(api.records).toHaveBeenLastCalledWith('facility-1', PATIENT, ENCOUNTER, 'vitals', expect.objectContaining({ fresh: true }))
+    await waitFor(() => expect(within(entry()).getByText('Entered in error')).toBeTruthy())
+    expect(screen.queryByRole('button', { name: 'Save correction' })).toBeNull()
+    expect(screen.queryByText('Vital correction saved.')).toBeNull()
+    await waitFor(() => expect(document.activeElement).toBe(document.getElementById('record-vital-1-title')))
+  })
+})
+
 describe('changing a lab request status', () => {
   it('lets a draft be cancelled or marked entered in error, and not activated by a role that cannot send it to Lab', async () => {
     await openTab('Lab requests')

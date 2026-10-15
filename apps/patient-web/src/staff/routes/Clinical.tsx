@@ -672,11 +672,15 @@ function VitalCorrectionForm({ id, current, disabled, onCorrect }: {
  * A vital is never edited: EHR appends a correction and the list row keeps the
  * recorded values. Where a correction exists its values are shown as current,
  * and if it cannot be read the recorded values are not passed off as current.
+ * Since hid-system #74 (migration 0090) a vital marked entered in error keeps its
+ * values and corrections and takes no further correction (409 VITAL_NOT_AMENDABLE),
+ * so it is marked and offers none. An EHR before #74 sends no status: every vital is final.
  */
 function VitalPanel({ facilityId, patientId, encounterId, vital, canCorrect, disabled, onCorrect }: {
   facilityId: string; patientId: string; encounterId: string; vital: ClinicalRecord
   canCorrect: boolean; disabled: boolean; onCorrect: VitalCorrect
 }) {
+  const retracted = vital.status === 'entered_in_error'
   const correctionNo = Number(vital.currentCorrectionNo ?? 0)
   const corrected = correctionNo > 0
   const [latest, setLatest] = useState<VitalCorrection | null>(null)
@@ -695,6 +699,7 @@ function VitalPanel({ facilityId, patientId, encounterId, vital, canCorrect, dis
   }, [facilityId, patientId, encounterId, vital.id, corrected, correctionNo])
   const current: VitalValues | null = corrected ? latest?.replacementValues ?? null : vital
   return <>
+    {retracted && <><Badge tone="warning">Entered in error</Badge><p>Recorded in error: do not use these values. They can no longer be corrected.</p></>}
     {!corrected && <p>{vitalSummary(vital)}</p>}
     {corrected && !latest && !loadError && <p role="status">Loading the correction…</p>}
     {latest && <><Detail label={`Corrected (correction ${latest.correctionNo})`} value={vitalSummary(latest.replacementValues)} />
@@ -702,7 +707,7 @@ function VitalPanel({ facilityId, patientId, encounterId, vital, canCorrect, dis
       <Detail label="Corrected at" value={latest.createdAt ? new Date(latest.createdAt).toLocaleString() : ''} /></>}
     {loadError && <p className="staff-error" role="alert">These vitals were corrected, but the correction could not be loaded, so the values below are as first recorded and may not be current. {loadError}</p>}
     {corrected && <Detail label="Originally recorded" value={vitalSummary(vital)} />}
-    {canCorrect && current && <>
+    {canCorrect && current && !retracted && <>
       <Button id={`vital-${vital.id}-correct`} tone="secondary" size="sm" aria-expanded={open} onClick={() => setOpen(value => !value)}>{open ? 'Close correction' : 'Correct these vitals'}</Button>
       {open && <VitalCorrectionForm id={`vital-${vital.id}`} current={current} disabled={disabled} onCorrect={onCorrect} />}
     </>}
@@ -1454,8 +1459,18 @@ export function Clinical() {
     if (!expectedRowVersion) throw new Error('Reload the vitals before correcting them.')
     setSuccess('')
     await verify()
-    await staffApi.correctVital(facility.id, patientId, encounterId, record.id,
-      { expectedRowVersion, changeReason: reason, replacementValues }, key)
+    try {
+      await staffApi.correctVital(facility.id, patientId, encounterId, record.id,
+        { expectedRowVersion, changeReason: reason, replacementValues }, key)
+    } catch (caught) {
+      // Marked entered in error since it was loaded (hid-system #74): it takes no correction, so
+      // what was shown is read again, and the form, built for a vital that took one, goes.
+      if (!isHidApiError(caught) || caught.code !== 'VITAL_NOT_AMENDABLE') throw caught
+      const items = await loadRecords('vitals', 'shown', true)
+      setError(`These vitals were marked entered in error since they were loaded, so the correction was not saved.${reloadSentence(items, 'vitals', true)}`)
+      focus([`record-${record.id}-title`, 'clinical-records-title'], true)
+      return
+    }
     setSuccess('Vital correction saved.')
     await loadRecords('vitals', 'shown', true)
     // The rebuilt vitals show their correction only once it is read, so the record itself takes focus.

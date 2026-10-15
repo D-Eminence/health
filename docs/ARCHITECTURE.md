@@ -147,8 +147,13 @@ may change all of the encounter's records, naming no kind of record, as EHR
 does not. Since 0091 no role holds `ehr.lab-request.write` or
 `ehr.document.write`, so an encounter that still holds a lab request, or (to be
 marked entered in error) an initiated or uploaded document, cannot be closed by
-anyone. That wording is untrue against an EHR without hid-system#74, so the
-portal is to be deployed with or after it. The Lab and Pharmacy lists say when
+anyone. Since hid-system#74 a vital carries `status`; one entered in error
+(on its own or with its encounter) keeps its values, is marked "Entered in
+error" in the Vitals tab and offers no correction, which EHR would refuse with
+`409 VITAL_NOT_AMENDABLE`. A correction refused so, the vital having been
+retracted since it was loaded, reads the vitals again and says why. That
+wording is untrue against an EHR without hid-system#74, so the portal is to be
+deployed with or after it. The Lab and Pharmacy lists say when
 they reach the backend's cap of the 200 oldest work items (A2), and Pharmacy
 adds that work it can no longer dispense stays listed and counts toward the
 200.
