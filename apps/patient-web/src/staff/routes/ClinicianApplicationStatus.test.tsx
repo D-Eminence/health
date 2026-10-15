@@ -372,6 +372,20 @@ describe('applying to another facility', () => {
     expect(textbox('Licence or registration number').value).toBe('NMCN 778899')
   })
 
+  it.each([
+    ['CLINICIAN_APPLICATION_UNAVAILABLE', 503, () => screen.getByRole('button', { name: 'Send application' })],
+    ['CLINICIAN_APPLICATION_LIMIT_REACHED', 409, () => screen.getByRole('button', { name: 'Send application' })],
+    ['IDEMPOTENCY_CONFLICT', 409, () => screen.getByRole('button', { name: 'Send application' })],
+    ['CLINICIAN_APPLICATION_FACILITY_UNAVAILABLE', 409, () => screen.getByRole('searchbox', { name: 'Your facility' })],
+    ['CLINICIAN_APPLICATION_INVALID', 400, () => textbox('Licence or registration number')],
+  ])('puts focus where a refusal that keeps the form can be dealt with (%s)', async (code, status, target) => {
+    await applyForm()
+    api.apply.mockRejectedValueOnce(problem(status, code))
+    press('Send application')
+    await screen.findByRole('alert')
+    await waitFor(() => expect(document.activeElement).toBe(target()))
+  })
+
   it('sends the same key again after an outage', async () => {
     await applyForm()
     api.apply.mockRejectedValueOnce(problem(503, 'CLINICIAN_APPLICATION_UNAVAILABLE'))

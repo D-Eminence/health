@@ -5,7 +5,7 @@ import { CLINICIAN_STATUS_PATH, clinicianMainSiteHref } from '../../productHostn
 import { CLINICIAN_REGULATOR_OF, clinicianApplicationApi, newClinicianIdempotencyKey, type ClinicianAccountView,
   type ClinicianApplicationDetails, type ClinicianApplicationView, type ClinicianStatusVerified } from '../clinicianApplicationApi'
 import { ClinicianAuthenticator } from '../clinician/ClinicianAuthenticator'
-import { Declarations, DetailsFields, EMPTY_DETAILS, applicationDetails, declarationProblems, detailsProblems,
+import { Declarations, DetailsFields, EMPTY_DETAILS, FIELD, applicationDetails, declarationProblems, detailsProblems,
   type DetailsValue } from '../clinician/ClinicianDetails'
 import { EmailCode } from '../clinician/EmailCode'
 import { APPLICATION_CHANGED, APPLY_REFUSAL, FACILITY_UNAVAILABLE, MAINTENANCE, PAGE_EXPIRED, PROFESSION_NAME, REGULATOR_NAME,
@@ -290,6 +290,8 @@ function WithdrawDialog({ view, busy, error, onConfirm, onCancel }: {
   </div>
 }
 
+const SEND = 'clinician-apply-send'
+
 /** Applying to another facility (P14), with the sign-up's details and declarations; the account's name is already known. */
 function ApplyAnother({ account, onApplied, takeOver }: {
   account: ClinicianAccountView; onApplied(facility: string): Promise<void>; takeOver(caught: unknown): boolean
@@ -303,6 +305,10 @@ function ApplyAnother({ account, onApplied, takeOver }: {
   const [error, setError] = useState<{ id: number; message: string } | null>(null)
   const [busy, setBusy] = useState(false)
   const submission = useRef<{ key: string; fingerprint: string } | null>(null)
+  // Where focus goes after a refusal that keeps the form: its button was disabled while busy.
+  const [focusRequest, setFocusRequest] = useState<{ id: string; count: number } | null>(null)
+  useEffect(() => { if (focusRequest) document.getElementById(focusRequest.id)?.focus() }, [focusRequest])
+  const focusOn = (id: string) => setFocusRequest(previous => ({ id, count: (previous?.count ?? 0) + 1 }))
 
   if (!account.canApply) {
     const refusal = account.applyRefusal
@@ -347,15 +353,19 @@ function ApplyAnother({ account, onApplied, takeOver }: {
       if (code === 'CLINICIAN_APPLICATION_FACILITY_UNAVAILABLE') {
         setDetails(value => ({ ...value, facility: null }))
         setError(shownError(FACILITY_UNAVAILABLE))
+        focusOn(FIELD.facility)
       } else if (code === 'IDEMPOTENCY_CONFLICT') {
         submission.current = null
         setError(shownError('Your details changed since your last attempt. Send the application again.'))
+        focusOn(SEND)
       } else if (code === 'CLINICIAN_APPLICATION_INVALID' || code === 'VALIDATION_FAILED') {
         setError(shownError("Some details weren't accepted. Check that your licence number is as on your licence and that the licence "
           + 'is valid after today and for at most five more years.'))
+        focusOn(FIELD.licenceNumber)
       } else {
         setError(shownError(refusalCopy(caught, "We couldn't send your application right now. Your details are still here; try again.",
           'Too many applications were sent from your network. Try again later.')))
+        focusOn(SEND)
       }
     } finally {
       setBusy(false)
@@ -373,7 +383,7 @@ function ApplyAnother({ account, onApplied, takeOver }: {
     <Declarations accurate={accurate} consent={consent} onAccurate={setAccurate} onConsent={setConsent} regulator={regulator}
       facility={details.facility?.name ?? 'the facility'} problems={problems} />
     <div className="clinician-actions">
-      <button type="submit" className="patient-primary-button" disabled={busy}>{busy ? 'Sending…' : 'Send application'}</button>
+      <button id={SEND} type="submit" className="patient-primary-button" disabled={busy}>{busy ? 'Sending…' : 'Send application'}</button>
       <TextButton onClick={() => setApplying(false)} disabled={busy}>Cancel</TextButton>
     </div>
   </form>

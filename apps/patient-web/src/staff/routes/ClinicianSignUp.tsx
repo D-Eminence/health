@@ -9,7 +9,7 @@ import { ClinicianAuthenticator } from '../clinician/ClinicianAuthenticator'
 import { Declarations, DetailsFields, EMPTY_DETAILS, applicationDetails, declarationProblems, detailsProblems,
   type DetailsValue } from '../clinician/ClinicianDetails'
 import { EmailCode } from '../clinician/EmailCode'
-import { FACILITY_UNAVAILABLE, PROFESSION_NAME, REGULATOR_NAME, codeOf, codeSentCopy,
+import { FACILITY_UNAVAILABLE, PROFESSION_NAME, REGULATOR_NAME, SIGNUP_CLOSED, codeOf, codeSentCopy,
   formatDate, isUnavailable, refusalCopy } from '../clinician/copy'
 import { ClinicianFrame, ErrorSummary, MainSiteOnly, PrimaryButton, StepError, StepHeading, TextButton, fieldError, shownError,
   type Problem } from '../clinician/ui'
@@ -58,6 +58,8 @@ function SignUp() {
   const [problems, setProblems] = useState<Problem[]>([])
   const [summaryKey, setSummaryKey] = useState(0)
   const [busy, setBusy] = useState(false)
+  // A control to focus once the page has drawn: the step stays after a refusal, and its button was disabled while busy.
+  const [focusRequest, setFocusRequest] = useState<{ id: string; count: number } | null>(null)
 
   const [email, setEmail] = useState('')
   const [fullName, setFullName] = useState('')
@@ -73,6 +75,12 @@ function SignUp() {
   useDocumentTitle(availability === 'loading' ? 'Clinician sign-up · Health ID Provider'
     : availability !== 'open' ? "Clinician sign-up isn't open yet · Health ID Provider"
       : `Clinician sign-up – ${label(step)} · Health ID Provider`)
+
+  useEffect(() => { if (focusRequest) document.getElementById(focusRequest.id)?.focus() }, [focusRequest])
+
+  function focusOn(id: string) {
+    setFocusRequest(previous => ({ id, count: (previous?.count ?? 0) + 1 }))
+  }
 
   useEffect(() => {
     let active = true
@@ -102,7 +110,8 @@ function SignUp() {
 
   function emailRefused(caught: unknown, call: 'send' | 'verify'): string | null {
     const code = codeOf(caught)
-    if (code === 'CLINICIAN_SIGNUP_CLOSED') { setAvailability('closed'); return null }
+    // Intake closed after the page opened: the not-open screen replaces the form, takes focus and says why.
+    if (code === 'CLINICIAN_SIGNUP_CLOSED') { setAvailability('closed'); setMoved(true); return null }
     if (call === 'verify' && code === 'CLINICIAN_EMAIL_IN_USE') { show('in-use'); return null }
     return refusalCopy(caught, call === 'send' ? "We couldn't send a code right now. Try again in a few minutes."
       : "We couldn't check the code right now. Try again.", 'Too many sign-up attempts from your network. Try again later.')
@@ -176,12 +185,15 @@ function SignUp() {
       case 'IDEMPOTENCY_CONFLICT':
         submission.current = null
         setError(shownError('Your details changed since your last attempt. Submit again to send them.'))
+        // The step stays, with the password to type again.
+        focusOn('clinician-password')
         return
     }
     const code = codeOf(caught)
     setError(shownError((code && Object.hasOwn(SUBMIT_REFUSAL, code) ? SUBMIT_REFUSAL[code] : undefined)
       ?? refusalCopy(caught, "We couldn't submit your application right now. Your details are still here; try again.",
         'Too many applications were sent from your network. Try again later.')))
+    focusOn('clinician-password')
   }
 
   function differentEmail() {
@@ -200,7 +212,8 @@ function SignUp() {
   }
   if (availability !== 'open') {
     return <ClinicianFrame labelledBy="clinician-signup-title">
-      <h1 id="clinician-signup-title" className="patient-page-title">Clinician sign-up isn't open yet</h1>
+      <StepHeading id="clinician-signup-title" level={1} focus={moved}>Clinician sign-up isn't open yet</StepHeading>
+      {moved && availability === 'closed' && <p role="alert" className="patient-inline-error">{SIGNUP_CLOSED}</p>}
       <p className="patient-page-copy">You can't apply as a clinician on Health ID yet. If you already have a provider account, sign in.</p>
       {availability === 'failed' && <div className="clinician-panel">
         <p role="alert" className="patient-inline-error">We couldn't check right now.</p>

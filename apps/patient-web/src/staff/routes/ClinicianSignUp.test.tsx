@@ -226,6 +226,33 @@ describe('the email steps', () => {
     expect(await screen.findByRole('heading', { level: 1, name: "Clinician sign-up isn't open yet" })).toBeTruthy()
   })
 
+  it.each([['send', 'Send code'], ['check', 'Verify email']] as const)(
+    'takes focus to the not-open screen and says why when sign-up closes at the %s', async (call, button) => {
+      if (call === 'send') {
+        api.sendCode.mockRejectedValueOnce(problem(503, 'CLINICIAN_SIGNUP_CLOSED'))
+        open()
+        type(await screen.findByRole('textbox', { name: 'Work email' }), 'ada@example.test')
+        press('Complete check')
+      } else {
+        api.verifyCode.mockRejectedValueOnce(problem(503, 'CLINICIAN_SIGNUP_CLOSED'))
+        await toCode()
+        type(textbox('6-digit code'), '123456')
+      }
+      press(button)
+      const heading = await screen.findByRole('heading', { level: 1, name: "Clinician sign-up isn't open yet" })
+      await waitFor(() => expect(document.activeElement).toBe(heading))
+      expect(screen.getByRole('alert').textContent).toBe("New clinician applications aren't open right now.")
+      expect(screen.queryByRole('textbox', { name: 'Work email' })).toBeNull()
+    })
+
+  it('neither takes focus nor alerts when the page opens with sign-up closed', async () => {
+    api.availability.mockResolvedValueOnce({ open: false })
+    open()
+    const heading = await screen.findByRole('heading', { level: 1, name: "Clinician sign-up isn't open yet" })
+    expect(document.activeElement).not.toBe(heading)
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
   it('clears and focuses a wrong code', async () => {
     api.verifyCode.mockRejectedValueOnce(problem(401, 'CLINICIAN_APPLICATION_CODE_INVALID'))
     await toCode()
@@ -518,6 +545,24 @@ describe('the password, declarations and submit', () => {
     press('Submit application')
     expect((await screen.findByRole('alert')).textContent).toBe(message)
     expect(screen.getByRole('heading', { name: 'Password and declarations' })).toBeTruthy()
+  })
+
+  it.each([
+    ['CLINICIAN_APPLICATION_UNAVAILABLE', 503],
+    ['PLATFORM_MAINTENANCE', 503],
+    ['CLINICIAN_APPLICATION_RATE_LIMITED', 429],
+    ['CLINICIAN_APPLICATION_FACILITY_BUSY', 409],
+    ['PASSWORD_INVALID', 400],
+    ['IDEMPOTENCY_CONFLICT', 409],
+  ])('puts focus in the cleared password field after a refusal that keeps the step (%s)', async (code, status) => {
+    api.submit.mockRejectedValueOnce(problem(status, code))
+    await toPassword()
+    fillPassword()
+    press('Submit application')
+    await screen.findByRole('alert')
+    const field = screen.getByLabelText(/^Password\*?$/) as HTMLInputElement
+    await waitFor(() => expect(document.activeElement).toBe(field))
+    expect(field.value).toBe('')
   })
 
   it('explains an address that already has an account at submit too', async () => {
