@@ -1391,11 +1391,19 @@ first. hid-system was not changed.
   (`409 VITAL_NOT_AMENDABLE`). The Vitals tab showed such a vital as current and
   offered "Correct these vitals", which EHR would refuse. It is now marked
   "Entered in error", says not to use the values, and offers no correction; its
-  earlier corrections are still shown. A correction refused because the vital
-  was retracted after it was loaded reads the vitals again, says why, and moves
-  focus to the vital. An EHR before #74 sends no status, and every vital stays
-  correctable. Not added: the single-vital retraction route. Failing first: 3
-  tests (the marker, the marker with a correction, the refused correction).
+  earlier corrections are still shown. A retraction, like a correction, raises
+  the vital's row version, which EHR checks first, so a correction sent at the
+  version loaded before either answers `412 VERSION_CONFLICT`; the 409 answers
+  only the version of a vital already entered in error. Either now reads the
+  vitals again, says whether they were marked entered in error or changed
+  otherwise, and moves focus to the vital; the 412 used to show EHR's detail in
+  the form, with the list unchanged and every resubmission refused. An EHR
+  before #74 sends no status, and every vital stays correctable. Not added: the
+  single-vital retraction route. Failing first: 3 tests (the marker, the marker
+  with a correction, the refused correction), and on review 2 more: the
+  refused correction, which had a 409 EHR does not give there, now with EHR's
+  412, and a 412 for a vital corrected meanwhile. A 409 whose list cannot be
+  read again, added then, passed before the change.
 - **Patient routes answering `403 PATIENT_SESSION_REQUIRED` (hid-system#74 and
   #76, ADR-059; hand-off A9).** Every patient-only route now refuses a provider's or
   administrator's session so, where it used to answer a retried `503`. With a
@@ -1422,7 +1430,7 @@ first. hid-system was not changed.
 - **Evidence and gates.** Each commit's failing and passing runs are kept
   outside the repository. At each commit `typecheck`, `lint`,
   `audit:boundaries` and `build:patient-web` pass, and `npm test` passes in
-  full (from 138 files and 1819 tests on `main` to 140 files and 1835 tests).
+  full (from 138 files and 1819 tests on `main` to 140 files and 1837 tests).
 - **Not verified.** Component tests with the network stubbed. Nothing was run
   in a browser, at runtime, on staging or against a live hid-system.
 - **Deploy order.** The admin console needs an Identity with hid-system#76,

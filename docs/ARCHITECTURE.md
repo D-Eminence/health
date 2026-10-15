@@ -150,10 +150,14 @@ marked entered in error) an initiated or uploaded document, cannot be closed by
 anyone. Since hid-system#74 a vital carries `status`; one entered in error
 (on its own or with its encounter) keeps its values, is marked "Entered in
 error" in the Vitals tab and offers no correction, which EHR would refuse with
-`409 VITAL_NOT_AMENDABLE`. A correction refused so, the vital having been
-retracted since it was loaded, reads the vitals again and says why. That
-wording is untrue against an EHR without hid-system#74, so the portal is to be
-deployed with or after it. The Lab and Pharmacy lists say when
+`409 VITAL_NOT_AMENDABLE`. A retraction, like a correction, raises the vital's
+row version, which EHR checks first, so a correction sent at the version
+loaded before either is refused with `412 VERSION_CONFLICT` (the 409 answers
+only the version of a vital already entered in error). Either refusal reads the
+vitals again, says whether they were marked entered in error or changed
+otherwise, and moves focus to the vital. That wording is untrue against an
+EHR without hid-system#74, so the portal is to be deployed with or after it.
+The Lab and Pharmacy lists say when
 they reach the backend's cap of the 200 oldest work items (A2), and Pharmacy
 adds that work it can no longer dispense stays listed and counts toward the
 200.

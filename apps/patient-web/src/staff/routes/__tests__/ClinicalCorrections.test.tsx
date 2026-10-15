@@ -265,8 +265,11 @@ describe('correcting vitals', () => {
 /**
  * Since hid-system #74 (ENC-RETRACT-2, migration 0090) a vital carries `status`: `final`, or
  * `entered_in_error` once retracted on its own or with its encounter. It keeps its values and
- * takes no correction: one answers 409 VITAL_NOT_AMENDABLE (INTERFACE_CONTRACT.md "Encounter
- * status and its records"). An EHR before #74 sends no status, and every vital is final.
+ * takes no correction (INTERFACE_CONTRACT.md "Encounter status and its records"). A retraction
+ * updates the vital, so its row version rises (0004's vitals_versioned), and a correction sent
+ * at the version loaded answers 412 VERSION_CONFLICT, which EHR checks first (vitals.service.ts
+ * correct); 409 VITAL_NOT_AMENDABLE answers only the version of a vital already entered in
+ * error. An EHR before #74 sends no status, and every vital is final.
  */
 describe('vitals entered in error', () => {
   const retracted = { ...vital, status: 'entered_in_error', rowVersion: '2' }
@@ -299,24 +302,71 @@ describe('vitals entered in error', () => {
     expect(within(entry()).queryByText('Entered in error')).toBeNull()
   })
 
-  it('a correction refused because the vitals were marked entered in error meanwhile reads them again and says so', async () => {
-    records.vitals = [{ ...vital, status: 'final' }]
-    api.correctVital.mockImplementationOnce(async () => {
-      records.vitals = [retracted]
-      throw new HidApiError(409, 'A vital entered in error cannot be changed', { code: 'VITAL_NOT_AMENDABLE' })
-    })
+  async function submitCorrection() {
     await openTab('Vitals')
     const form = await correctionForm()
     type(form, 'Pulse (bpm)', '78')
     type(form, 'Reason for correction', 'Pulse misread from the monitor')
     fireEvent.click(within(form).getByRole('button', { name: 'Save correction' }))
+  }
+
+  it('a correction refused because the vitals were marked entered in error meanwhile reads them again and says so', async () => {
+    records.vitals = [{ ...vital, status: 'final' }]
+    // EHR's answer: the retraction raised the vital's row version from the 1 loaded to 2.
+    api.correctVital.mockImplementationOnce(async () => {
+      records.vitals = [retracted]
+      throw new HidApiError(412, 'Vitals changed since they were loaded', { code: 'VERSION_CONFLICT' })
+    })
+    await submitCorrection()
 
     expect(await screen.findByText('These vitals were marked entered in error since they were loaded, so the correction was not saved. The list was reloaded.')).toBeTruthy()
+    expect(api.records).toHaveBeenCalledTimes(2)
     expect(api.records).toHaveBeenLastCalledWith('facility-1', PATIENT, ENCOUNTER, 'vitals', expect.objectContaining({ fresh: true }))
     await waitFor(() => expect(within(entry()).getByText('Entered in error')).toBeTruthy())
     expect(screen.queryByRole('button', { name: 'Save correction' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Correct these vitals' })).toBeNull()
     expect(screen.queryByText('Vital correction saved.')).toBeNull()
     await waitFor(() => expect(document.activeElement).toBe(document.getElementById('record-vital-1-title')))
+  })
+
+  it('a correction refused because the vitals were corrected meanwhile reads them again and offers the correction at their new version', async () => {
+    records.vitals = [{ ...vital, status: 'final' }]
+    api.correctVital.mockImplementationOnce(async () => {
+      records.vitals = [{ ...vital, status: 'final', currentCorrectionNo: 1, rowVersion: '2' }]
+      api.vitalCorrections.mockResolvedValue([{ id: 'c1', vitalId: 'vital-1', correctionNo: 1, replacementValues: { pulseBpm: 76 },
+        reason: 'Recounted by a colleague', createdAt: '2026-10-10T08:30:00.000Z' }])
+      throw new HidApiError(412, 'Vitals changed since they were loaded', { code: 'VERSION_CONFLICT' })
+    })
+    await submitCorrection()
+
+    expect(await screen.findByText('These vitals changed since they were loaded, so the correction was not saved: check them, and correct them again if it is still needed. The list was reloaded.')).toBeTruthy()
+    expect(api.records).toHaveBeenLastCalledWith('facility-1', PATIENT, ENCOUNTER, 'vitals', expect.objectContaining({ fresh: true }))
+    expect(await screen.findByText(/Recounted by a colleague/)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Save correction' })).toBeNull()
+    expect(within(entry()).queryByText('Entered in error')).toBeNull()
+    await waitFor(() => expect(document.activeElement).toBe(document.getElementById('record-vital-1-title')))
+
+    const form = await correctionForm()
+    expect(value(form, 'Pulse (bpm)')).toBe('76')
+    type(form, 'Pulse (bpm)', '78')
+    type(form, 'Reason for correction', 'Pulse misread from the monitor')
+    fireEvent.click(within(form).getByRole('button', { name: 'Save correction' }))
+    await waitFor(() => expect(api.correctVital).toHaveBeenLastCalledWith('facility-1', PATIENT, ENCOUNTER, 'vital-1',
+      expect.objectContaining({ expectedRowVersion: 2 }), expect.any(String)))
+    expect(await screen.findByText('Vital correction saved.')).toBeTruthy()
+  })
+
+  it('a correction answered 409 VITAL_NOT_AMENDABLE says the vitals were entered in error even when they cannot be read again', async () => {
+    records.vitals = [{ ...vital, status: 'final' }]
+    api.correctVital.mockImplementationOnce(async () => {
+      api.records.mockRejectedValueOnce(new HidApiError(503, 'Service unavailable'))
+      throw new HidApiError(409, 'A vital entered in error cannot be changed', { code: 'VITAL_NOT_AMENDABLE' })
+    })
+    await submitCorrection()
+
+    expect(await screen.findByText('These vitals were marked entered in error since they were loaded, so the correction was not saved. The list could not be reloaded; refresh it to see the vitals.')).toBeTruthy()
+    expect(screen.queryByText(/The change was saved/)).toBeNull()
+    expect(screen.queryByText('Vital correction saved.')).toBeNull()
   })
 })
 

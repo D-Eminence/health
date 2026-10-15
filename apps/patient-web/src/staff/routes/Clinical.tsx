@@ -1463,11 +1463,17 @@ export function Clinical() {
       await staffApi.correctVital(facility.id, patientId, encounterId, record.id,
         { expectedRowVersion, changeReason: reason, replacementValues }, key)
     } catch (caught) {
-      // Marked entered in error since it was loaded (hid-system #74): it takes no correction, so
-      // what was shown is read again, and the form, built for a vital that took one, goes.
-      if (!isHidApiError(caught) || caught.code !== 'VITAL_NOT_AMENDABLE') throw caught
+      // Changed since it was loaded: corrected, or (hid-system #74) marked entered in error on its
+      // own or with its encounter. Either change raises its row version, which EHR checks first, so
+      // it answers 412; 409 VITAL_NOT_AMENDABLE answers only the version of a vital already entered
+      // in error, which offers no correction here. What was shown is read again, the form, built for
+      // the old version, goes, and what is said follows the vital as read.
+      if (!isHidApiError(caught) || (caught.status !== 412 && caught.code !== 'VITAL_NOT_AMENDABLE')) throw caught
       const items = await loadRecords('vitals', 'shown', true)
-      setError(`These vitals were marked entered in error since they were loaded, so the correction was not saved.${reloadSentence(items, 'vitals', true)}`)
+      const retracted = caught.code === 'VITAL_NOT_AMENDABLE'
+        || (Array.isArray(items) && items.some(item => item.id === record.id && item.status === 'entered_in_error'))
+      setError(`${retracted ? 'These vitals were marked entered in error since they were loaded, so the correction was not saved.'
+        : 'These vitals changed since they were loaded, so the correction was not saved: check them, and correct them again if it is still needed.'}${reloadSentence(items, 'vitals', true)}`)
       focus([`record-${record.id}-title`, 'clinical-records-title'], true)
       return
     }
