@@ -104,14 +104,29 @@ function resultWords(field: keyof Mismatch, result: string | undefined, typedDat
 }
 
 const DESK_CODE_ENTRY = 'Enter the 10-character desk code shown on the patient’s phone.'
+const DATE_OF_BIRTH_ENTRY = 'Enter the whole date of birth as written on the document, or clear the field if the document shows none.'
 const STALE = 'This desk code can no longer be checked: another check came first, or the patient has a new code. Ask the patient for the code on their phone now, then check again.'
 const RETRY = 'The check could not be completed. Press Check again without changing the details: it is sent as the same check, so it is not counted twice.'
 const RETRY_PROOF = 'The check is recorded, but the patient’s registration could not be moved on. Press Check again without changing the details within 10 minutes: it is not counted twice.'
 
-/** An answer that may or may not have been recorded: the same submission is sent again. */
+/**
+ * An answer that may or may not have been recorded: the same submission is sent again. A 503
+ * ASSISTED_REGISTRATION_DISABLED is not one: the route is closed and nothing was recorded.
+ */
 function outcomeUnknown(caught: unknown): boolean {
   if (!isHidApiError(caught)) return true
+  if (caught.code === 'ASSISTED_REGISTRATION_DISABLED') return false
   return caught.status === 0 || caught.status === 408 || caught.status >= 500
+}
+
+/**
+ * Whether the date control holds a date it cannot report: one partly typed, or impossible such as 31
+ * February. Its value is then empty, so without this the check would go without the date the staff
+ * member typed, be counted, and be answered as if none was typed.
+ */
+function dateOfBirthUnfinished(form: HTMLFormElement): boolean {
+  const control = form.elements.namedItem('dateOfBirth')
+  return control instanceof HTMLInputElement && control.validity.badInput
 }
 
 export function InPersonCheck() {
@@ -147,13 +162,13 @@ function CheckDesk({ facilityId }: { facilityId: string }) {
   }
 
   /** Refuses what would not be accepted, at its field, before anything is sent. */
-  function refused(): boolean {
+  function refused(form: HTMLFormElement): boolean {
     if (!normalizeDeskCode(values.deskCode)) { problems.refuse('in-person-desk-code', DESK_CODE_ENTRY); return true }
     if (!values.documentType) { problems.refuse('in-person-document-type', 'Choose the document you checked.'); return true }
     if (!values.firstName.trim()) { problems.refuse('in-person-first-name', 'Enter the first name as written on the document.'); return true }
     if (!values.lastName.trim()) { problems.refuse('in-person-last-name', 'Enter the last name as written on the document.'); return true }
-    if (values.dateOfBirth && !/^\d{4}-\d{2}-\d{2}$/.test(values.dateOfBirth)) {
-      problems.refuse('in-person-date-of-birth', 'Enter the date of birth as written on the document, or leave it empty if it shows none.'); return true
+    if (dateOfBirthUnfinished(form) || (values.dateOfBirth && !/^\d{4}-\d{2}-\d{2}$/.test(values.dateOfBirth))) {
+      problems.refuse('in-person-date-of-birth', DATE_OF_BIRTH_ENTRY); return true
     }
     const missing = ATTESTATIONS.find(([key]) => !values.attestations[key])
     if (missing) {
@@ -168,7 +183,7 @@ function CheckDesk({ facilityId }: { facilityId: string }) {
     if (busy) return
     const form = event.currentTarget
     setError(''); setMismatch(null); problems.clear()
-    if (refused()) return
+    if (refused(form)) return
     const input = requestOf(values)
     const key = pending.current?.signature === signature ? pending.current.key : crypto.randomUUID()
     pending.current = { signature, key }
@@ -212,7 +227,9 @@ function CheckDesk({ facilityId }: { facilityId: string }) {
         problems.refuse('in-person-desk-code', STALE)
         return
       case 'ASSISTED_REGISTRATION_NOT_AUTHORIZED':
-        setError('You cannot register patients in person at this facility. Ask a platform administrator: the facility must take part, and your account needs an attested clinical grant and an active membership here.')
+        // One answer for four causes (INTERFACE_CONTRACT.md at f9dbaf0): no sign-in confirmed with an authenticator, no
+        // attested grant, an inactive membership or account, or a facility that does not take part. Each is named.
+        setError('You cannot register patients in person at this facility. Ask a platform administrator: the facility must take part, and you need an active account, a sign-in confirmed with your authenticator, an attested clinical grant and an active membership here.')
         return
       case 'PERMISSION_DENIED':
         setError('Your role at this facility cannot check patients in person. Ask a platform administrator.')

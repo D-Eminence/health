@@ -130,6 +130,20 @@ describe('the staff in-person check (hid-system #85, ADR-063)', () => {
     expect(api.assistedVerification).not.toHaveBeenCalled()
   })
 
+  it('refuses a partly typed date of birth at its field before sending, rather than leaving it out', async () => {
+    // A date control holding an unfinished or impossible date reports no value, and says so only in its validity.
+    render(<InPersonCheck />)
+    fill({ dob: '' })
+    const date = screen.getByLabelText(/Date of birth/) as HTMLInputElement
+    Object.defineProperty(date, 'validity', { configurable: true, value: { ...date.validity, badInput: true, valid: false } })
+    submit()
+    await waitFor(() => expect(document.activeElement).toBe(date))
+    expect(date.getAttribute('aria-invalid')).toBe('true')
+    expect(document.getElementById(date.getAttribute('aria-describedby')!)?.textContent)
+      .toBe('Enter the whole date of birth as written on the document, or clear the field if the document shows none.')
+    expect(api.assistedVerification).not.toHaveBeenCalled()
+  })
+
   it('refuses a check until every statement is confirmed, and says why', async () => {
     render(<InPersonCheck />)
     fill({ attest: 3 })
@@ -239,12 +253,29 @@ describe('the staff in-person check (hid-system #85, ADR-063)', () => {
     submit()
     const alert = await screen.findByRole('alert')
     expect(alert.textContent).toBe('Registration at a facility is not available. Nothing was recorded.')
+    // A final answer: nothing suggests checking again, and the next check is a new submission.
+    expect(screen.getByRole('button', { name: 'Check the details' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Check again' })).toBeNull()
     expect(staff.signOut).not.toHaveBeenCalled()
+  })
+
+  it('sends a check after the route was closed as a new submission', async () => {
+    api.assistedVerification.mockRejectedValueOnce(problem(503, 'ASSISTED_REGISTRATION_DISABLED', 'Registration at a facility is not available.'))
+      .mockResolvedValueOnce({ outcome: 'verified' })
+    render(<InPersonCheck />)
+    fill()
+    submit()
+    await screen.findByRole('alert')
+    submit()
+    await screen.findByRole('heading', { name: 'Checked. The patient can continue on their phone.' })
+    const [first, second] = sentKeys()
+    expect(second).not.toBe(first)
   })
 
   it.each([
     ['ASSISTED_REGISTRATION_NOT_AUTHORIZED', 'You cannot register patients in person at this facility.',
-      'You cannot register patients in person at this facility. Ask a platform administrator: the facility must take part, and your account needs an attested clinical grant and an active membership here.'],
+      // Identity gives one answer for four causes (INTERFACE_CONTRACT.md at f9dbaf0): each is named.
+      'You cannot register patients in person at this facility. Ask a platform administrator: the facility must take part, and you need an active account, a sign-in confirmed with your authenticator, an attested clinical grant and an active membership here.'],
     ['PERMISSION_DENIED', 'Required permission is missing',
       'Your role at this facility cannot check patients in person. Ask a platform administrator.'],
   ])('explains 403 %s without signing out', async (code, detail, shown) => {
