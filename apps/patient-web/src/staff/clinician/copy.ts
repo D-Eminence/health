@@ -99,7 +99,10 @@ export const STATE_LABEL: Readonly<Record<ClinicianApplicationState, string>> = 
   expired: 'Closed',
 }
 
-const DECISION_COPY: Readonly<Record<ClinicianDecisionCode, (view: ClinicianApplicationView) => string>> = {
+/** What a decision's words name: the regulator's code and the facility. */
+type DecisionSubject = { regulator: { code: string }; facility: { name: string } }
+
+const DECISION_COPY: Readonly<Record<ClinicianDecisionCode, (view: DecisionSubject) => string>> = {
   licence_not_verified: view => `We could not confirm your licence on the ${view.regulator.code} register.`,
   licence_not_current: view => `Your licence is not current on the ${view.regulator.code} register.`,
   details_mismatch: view => `The licence details you gave don't match the ${view.regulator.code} register. `
@@ -111,6 +114,14 @@ const DECISION_COPY: Readonly<Record<ClinicianDecisionCode, (view: ClinicianAppl
   existing_account: () => 'This licence already belongs to another Health ID account. Sign in with that account, '
     + 'or contact HID support to add this facility to it.',
   other: () => 'Your application was not approved. Contact HID support for details.',
+}
+
+/**
+ * What a rejection with `code` tells the applicant on the status page. The
+ * platform console shows it to the administrator choosing the code (A5).
+ */
+export function decisionCopy(code: ClinicianDecisionCode, subject: DecisionSubject): string {
+  return DECISION_COPY[code](subject)
 }
 
 const ACCESS_COPY: Readonly<Record<ClinicianAccessState, (view: ClinicianApplicationView, decided: string) => string>> = {

@@ -9,6 +9,7 @@ import { clearSessionWindow, recordSessionWindow, reportSessionEnded } from '../
 const api = vi.hoisted(() => ({
   session: vi.fn(), mfaStatus: vi.fn(), logout: vi.fn(), refresh: vi.fn(), overview: vi.fn(),
   approvals: vi.fn(), applications: vi.fn(), demos: vi.fn(), integrations: vi.fn(),
+  clinicianApplications: vi.fn(), clinicianApplication: vi.fn(),
 }))
 const account = vi.hoisted(() => ({ id: null as string | null }))
 vi.mock('../api', () => ({ adminApi: api, newIdempotencyKey: () => 'key-1',
@@ -155,6 +156,27 @@ describe('consolidated admin routing', () => {
       expect(screen.getByRole('link', { name: 'Go to overview' })).toBeTruthy()
       view.unmount()
     }
+  })
+
+  it('opens the clinician queue for workforce managers and refuses its links to anyone else, before any request', async () => {
+    const id = '0f2b6d0e-6a55-4b4c-9a7e-2f4b8c1d3e5a'
+    for (const path of ['/admin/clinicians', `/admin/clinicians/${id}`]) {
+      api.session.mockResolvedValueOnce(actor(SUPPORT))
+      const view = render(<MemoryRouter initialEntries={[path]}><Routes><Route path="/admin/*" element={<App />} /></Routes></MemoryRouter>)
+      expect(await screen.findByRole('heading', { name: 'Access denied' })).toBeTruthy()
+      expect(screen.getByText(/does not have permission for Clinician applications/)).toBeTruthy()
+      view.unmount()
+    }
+    expect(api.clinicianApplications).not.toHaveBeenCalled()
+    expect(api.clinicianApplication).not.toHaveBeenCalled()
+
+    api.session.mockResolvedValueOnce(actor(['platform.admin.access', 'platform.workforce.manage']))
+    api.clinicianApplications.mockResolvedValueOnce({ items: [], nextCursor: null })
+    open('/admin/clinicians')
+    expect(await screen.findByRole('heading', { level: 1, name: 'Clinician applications' })).toBeTruthy()
+    expect(screen.getAllByRole('link', { name: 'Clinician applications' }).length).toBeGreaterThan(0)
+    expect(document.title).toBe('Clinician applications · Health ID Platform')
+    await waitFor(() => expect(api.clinicianApplications).toHaveBeenCalledWith('open', {}, expect.any(AbortSignal)))
   })
 
   it('shows a not-found page for an unknown admin path', async () => {

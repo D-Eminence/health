@@ -26,6 +26,13 @@ describe('admin navigation', () => {
     expect(titles(SECURITY_AUDITOR)).toEqual(['Overview', 'Approvals', 'Audit', 'My security', 'Service health', 'Integrations'])
   })
 
+  it('shows the clinician queue to an administrator who manages the workforce, with its applications as sub-pages', () => {
+    expect(titles(['platform.admin.access', 'platform.workforce.manage'])).toEqual(['Overview', 'Clinician applications', 'My security'])
+    expect(titles(SUPPORT_ADMIN)).not.toContain('Clinician applications')
+    expect(navigationItemFor('/admin/clinicians/0f2b6d0e-6a55-4b4c-9a7e-2f4b8c1d3e5a')?.title).toBe('Clinician applications')
+    expect(navigationItemFor('/admin/clinicians')?.description).toMatch(/a second Super Admin approves/)
+  })
+
   it('drops sections with nothing visible', () => {
     const sections = visibleNavigation(actor(SUPPORT_ADMIN)).map(section => section.title)
     expect(sections).toEqual(['Platform', 'People and access', 'Security'])

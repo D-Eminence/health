@@ -211,6 +211,14 @@ export function DemosPage({ actor }: { actor: AdminActor }) {
   </Page>
 }
 
+/** What a control does, where its key alone does not say it. */
+const CONTROL_NOTES: Readonly<Record<string, string>> = {
+  // hid-system ADR-064 (0094), seeded off.
+  clinician_signup_enabled: 'Lets doctors and nurses apply by themselves at /provider/join. Their applications wait in '
+    + 'Clinician applications until one Super Admin verifies and a second approves, so open it only when the queue is '
+    + 'staffed. Applying also needs the provider portal on and maintenance off.',
+}
+
 function ControlAction({ control, reload }: { control: PlatformControl; reload: () => void }) {
   return <ActionForm title={control.enabled ? 'Disable control' : 'Enable control'} onSubmit={async (_, reason) => {
     await adminApi.command('/api/v1/admin/controls', { controlKey: control.controlKey,
@@ -226,6 +234,7 @@ export function ControlsPage({ actor }: { actor: AdminActor }) {
     <ResourceView resource={resource} empty={controls => controls.length === 0}>{controls => <div className="admin-tile-grid">
       {controls.map(control => <article className="admin-tile" key={control.controlKey}>
         <div className="admin-panel-head"><h2>{label(control.controlKey)}</h2><Status value={control.enabled ? 'enabled' : 'disabled'} /></div>
+        {Object.hasOwn(CONTROL_NOTES, control.controlKey) && <p className="admin-note">{CONTROL_NOTES[control.controlKey]}</p>}
         <p>{control.reason}</p><p className="admin-note">Updated {date(control.updatedAt)}</p>
         {has(actor, 'platform.control.manage') && <ControlAction control={control} reload={resource.reload} />}
       </article>)}
