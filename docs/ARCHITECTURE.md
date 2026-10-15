@@ -272,7 +272,8 @@ steps on its own page: the activation is the enrolment's proof, so setup
 starts with no emailed code; an account that already has an authenticator is
 asked for its code; the page reloads into the workspace only after the
 recovery codes, and a challenge that lapses sends the administrator to
-`/provider/sign-in`. The platform console refuses the platform enrolment of an
+`/provider/sign-in`. The page does not listen for the other tabs, so verify
+and activation announce the new session on a channel opened for the message. The platform console refuses the platform enrolment of an
 account with a staff membership as Identity does
 (`409 MFA_ENROLLMENT_STAFF_SIGN_IN_REQUIRED`) and says to set the
 authenticator up at staff sign-in first. Identity refuses a staff sign-in made without an authenticator (every

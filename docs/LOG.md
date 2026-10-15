@@ -1465,6 +1465,24 @@ changed". This part (`claude/staff-mfa-signin`) builds the screens.
   `build:patient-web`. One full run before the last style commit failed once in
   `OcrFocus.test.tsx` ("a short retry reason takes focus", a 1-second
   `waitFor` under load); it passes alone (three runs) and in the full re-run.
+- **Review fixes.** A review found two minor defects; each test failed first.
+  - Provider enrollment never told the other tabs that verify or activation
+    set the session: the staff announcer posted only on the channel the tab
+    listens with, and `/provider/enroll`, outside the workspace, listens on
+    none. Its test passed only because it mocked the announcer. The announcer
+    now goes through `announceSessionChange`, which opens a channel for the
+    message when the tab has none (the workspace, which listens, is
+    unchanged), and an older Identity's activation announces too. The test
+    stubs `BroadcastChannel` instead; 3 cases failed before the fix.
+  - `.staff-mfa p` matched a Field's error paragraph and, being in no layer,
+    beat its `text-critical`: a refused code showed in the steps' grey. The
+    rule is `.staff-mfa > p`. The sign-in tests read the unlayered rules and
+    pin each refused code's error (id, class, description, alert); 4 cases
+    failed before the fix. `.staff-card p` (on `main` before this branch)
+    does the same to Field errors in the workspace's cards, Registration's
+    among them; it is not changed here.
+  - Every gate passes after each fix: `typecheck`, `lint`, `npm test` (146
+    files, 1914 tests), `audit:boundaries`, `build:patient-web`.
 - **Not verified.** Component tests with the network stubbed; nothing was run
   in a browser, with a real authenticator app, on staging or against a live
   hid-system. The QR code's look on a phone camera, and the email delivery of
