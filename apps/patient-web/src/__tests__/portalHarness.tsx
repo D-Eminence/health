@@ -25,28 +25,31 @@ export const profile: PatientProfile = {
 
 export function patientApi(handler: Handler) {
   const sent: Sent[] = []
+  // Each request's headers, in the order sent, apart from `sent` so its entries stay comparable as they are.
+  const headers: Array<{ path: string; method: string; headers: Headers }> = []
   const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const path = new URL(String(input)).pathname.replace('/api/v1/', '/')
     const method = init?.method ?? 'GET'
     const body = init?.body ? JSON.parse(String(init.body)) as unknown : null
     sent.push({ path, method, body })
+    headers.push({ path, method, headers: new Headers(init?.headers) })
     return handler(path, method, body)
   }) as typeof fetch
   const api = createPatientApi(createRegisteredBrowserClient(createApiClient({
     baseUrl: 'https://gateway.test', clientId: 'patient-web', sessionMode: 'cookie', fetchImpl,
   }), 'patient-web'))
-  return { api, sent }
+  return { api, sent, headers }
 }
 
 type SessionValue = ReturnType<typeof createTestSessionValue>
 
 /** Renders `ui` for a signed-in patient. Paths are recorded without the /api/v1 prefix. */
 export function renderPortal(ui: ReactElement, handler: Handler, session: Partial<SessionValue> = {}) {
-  const { api, sent } = patientApi(handler)
+  const { api, sent, headers } = patientApi(handler)
   const view = render(<MemoryRouter><SessionContext.Provider value={{ ...createTestSessionValue({
     kind: 'patient', subjectId: 'patient:subject', appRole: 'patient', assuranceLevel: 'aal1',
   }, api), ...session }}>{ui}</SessionContext.Provider></MemoryRouter>)
-  return { sent, view }
+  return { sent, view, headers }
 }
 
 /** Presses a button the way a keyboard user does: focused, then activated. */
