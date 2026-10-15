@@ -429,6 +429,20 @@ describe('step 2: approve and give access (A4)', () => {
     expect(screen.queryByRole('button', { name: 'Approve and give access' })).toBeNull()
   })
 
+  it('says what step 2 still needs while its button is disabled', async () => {
+    await openDetail(underReview())
+    const panel = screen.getByRole('region', { name: 'Step 2 of 2: approve and give access' })
+    const approve = within(panel).getByRole('button', { name: 'Approve and give access' }) as HTMLButtonElement
+    type('Reason for approval', 'LGTM')
+    expect(approve.disabled).toBe(true)
+    const needed = within(panel).getByText('Still needed: a reason (8 to 500 characters).')
+    expect(approve.getAttribute('aria-describedby')).toBe(needed.id)
+    type('Reason for approval', 'Step 1 evidence reviewed')
+    expect(approve.disabled).toBe(false)
+    expect(within(panel).queryByText(/Still needed/)).toBeNull()
+    expect(approve.getAttribute('aria-describedby')).toBeNull()
+  })
+
   it('never offers step 2 to the administrator who did step 1, even if a hint says otherwise', async () => {
     await openDetail(underReview('admin-b', { callerHints: { attest: { allowed: false, reason: 'STATE' },
       approve: { allowed: true, reason: null }, reject: { allowed: true, reason: null } } }))
@@ -499,6 +513,21 @@ describe('reject (A5)', () => {
     expect(within(decision).getByText('Licence not current')).toBeTruthy()
     expect(within(decision).getByText('The register shows the licence expired')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Reject application' })).toBeNull()
+  })
+
+  it('says what a rejection still needs while its button is disabled', async () => {
+    await openDetail(detail())
+    const panel = screen.getByRole('region', { name: 'Reject this application' })
+    const reject = within(panel).getByRole('button', { name: 'Reject application' }) as HTMLButtonElement
+    const needed = within(panel).getByText('Still needed: the reason shown to the applicant, an internal reason (8 to 500 characters).')
+    expect(reject.getAttribute('aria-describedby')).toBe(needed.id)
+    fireEvent.change(within(panel).getByLabelText('Reason shown to the applicant'), { target: { value: 'duplicate' } })
+    type('Internal reason (never shown to the applicant)', 'Dup')
+    expect(reject.disabled).toBe(true)
+    expect(within(panel).getByText('Still needed: an internal reason (8 to 500 characters).')).toBeTruthy()
+    type('Internal reason (never shown to the applicant)', 'Second application for the same facility')
+    expect(reject.disabled).toBe(false)
+    expect(within(panel).queryByText(/Still needed/)).toBeNull()
   })
 
   it('offers no rejection to an administrator who works at the facility', async () => {

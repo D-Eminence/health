@@ -151,6 +151,14 @@ function validityWindow(licenceValidUntil: string) {
   return { today, latest: earlier(licenceValidUntil, shiftDay(today, 3, -1)), initial: earlier(licenceValidUntil, shiftDay(today, 1)) }
 }
 
+/** What a step's form still needs, said beside its disabled button and tied to it. */
+function StillNeeded({ id, missing }: { id: string; missing: readonly string[] }) {
+  return missing.length > 0 ? <p id={id} className="admin-note">Still needed: {missing.join(', ')}.</p> : null
+}
+
+const REASON_NEEDED = 'a reason (8 to 500 characters)'
+const reasonMissing = (reason: string) => reason.trim().length < 8 || reason.trim().length > 500
+
 function ClinicianStatus({ state }: { state: string }) {
   return <span className="admin-status" data-state={state}>{own(STATE_TITLE, state) ?? label(state)}</span>
 }
@@ -467,7 +475,7 @@ function AttestForm({ application, onOutcome, onStart, validity }: PanelProps & 
   const [reason, setReason] = useState('')
   const codeRef = useRef<HTMLInputElement>(null)
   const command = useReviewCommand(onOutcome)
-  const ids = { code: useId(), employment: useId(), evidence: useId(), validity: useId() }
+  const ids = { code: useId(), employment: useId(), evidence: useId(), validity: useId(), needed: useId() }
   const regulator = regulatorTitle(application.regulator)
 
   const missing = [
@@ -479,7 +487,7 @@ function AttestForm({ application, onOutcome, onStart, validity }: PanelProps & 
     !employmentConfirmed && 'the employment confirmation',
     (evidence.trim().length < 8 || evidence.trim().length > 500) && 'an evidence reference (8 to 500 characters)',
     !(ISO_DAY.test(validUntil) && validUntil >= validity.today && validUntil <= validity.latest) && 'a verification date in range',
-    (reason.trim().length < 8 || reason.trim().length > 500) && 'a reason (8 to 500 characters)',
+    reasonMissing(reason) && REASON_NEEDED,
   ].filter((item): item is string => Boolean(item))
   const ready = missing.length === 0 && Boolean(identityMethod) && Boolean(employmentChannel)
 
@@ -553,8 +561,9 @@ function AttestForm({ application, onOutcome, onStart, validity }: PanelProps & 
       within three years; the server refuses anything later.</p>
     <label>Reason<textarea rows={2} minLength={8} maxLength={500} value={reason}
       onChange={event => setReason(event.target.value)} /></label>
-    {missing.length > 0 && <p className="admin-note">Still needed: {missing.join(', ')}.</p>}
-    <button type="submit" className="admin-primary" disabled={!ready || command.busy}>
+    <StillNeeded id={ids.needed} missing={missing} />
+    <button type="submit" className="admin-primary" disabled={!ready || command.busy}
+      aria-describedby={missing.length > 0 ? ids.needed : undefined}>
       {command.busy ? 'Recording…' : 'Record verification (step 1)'}</button>
     {command.error && <p role="alert" className="admin-error">{command.error}</p>}
   </form>
@@ -586,7 +595,9 @@ function ApproveForm({ application, onOutcome, onStart }: PanelProps) {
   const command = useReviewCommand(onOutcome)
   const name = application.applicant.fullName
   const can = [...new Set(application.rolePermissions.map(permissionLabel))]
-  const ready = reason.trim().length >= 8 && reason.trim().length <= 500
+  const missing = reasonMissing(reason) ? [REASON_NEEDED] : []
+  const ready = missing.length === 0
+  const neededId = useId()
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -612,7 +623,9 @@ function ApproveForm({ application, onOutcome, onStart }: PanelProps) {
       step. {REVIEW_NOTE}</p>
     <label>Reason for approval<textarea rows={2} minLength={8} maxLength={500} value={reason}
       onChange={event => setReason(event.target.value)} /></label>
-    <button type="submit" className="admin-primary" disabled={!ready || command.busy}>
+    <StillNeeded id={neededId} missing={missing} />
+    <button type="submit" className="admin-primary" disabled={!ready || command.busy}
+      aria-describedby={missing.length > 0 ? neededId : undefined}>
       {command.busy ? 'Approving…' : 'Approve and give access'}</button>
     {command.error && <p role="alert" className="admin-error">{command.error}</p>}
   </form>
@@ -635,7 +648,12 @@ function RejectForm({ application, onOutcome, onStart }: PanelProps) {
   const [decision, setDecision] = useState<ClinicianDecisionCode | ''>('')
   const [reason, setReason] = useState('')
   const command = useReviewCommand(onOutcome)
-  const ready = decision !== '' && reason.trim().length >= 8 && reason.trim().length <= 500
+  const missing = [
+    decision === '' && 'the reason shown to the applicant',
+    reasonMissing(reason) && 'an internal reason (8 to 500 characters)',
+  ].filter((item): item is string => Boolean(item))
+  const ready = missing.length === 0
+  const neededId = useId()
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -664,7 +682,9 @@ function RejectForm({ application, onOutcome, onStart }: PanelProps) {
     <label>Internal reason (never shown to the applicant)<textarea rows={2} minLength={8} maxLength={500} value={reason}
       onChange={event => setReason(event.target.value)} /></label>
     <p className="admin-note">Rejecting changes nothing else: no role, membership or licence check is touched. {REVIEW_NOTE}</p>
-    <button type="submit" className="admin-secondary" disabled={!ready || command.busy}>
+    <StillNeeded id={neededId} missing={missing} />
+    <button type="submit" className="admin-secondary" disabled={!ready || command.busy}
+      aria-describedby={missing.length > 0 ? neededId : undefined}>
       {command.busy ? 'Rejecting…' : 'Reject application'}</button>
     {command.error && <p role="alert" className="admin-error">{command.error}</p>}
   </form>
