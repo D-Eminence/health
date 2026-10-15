@@ -37,6 +37,7 @@ const SETUP = { secret: SECRET, otpauthUri: `otpauth://totp/Health%20ID%20Provid
 const RECOVERY_CODES = ['ABCDE-FGHJK', 'MNPQR-STVWX', '01234-56789']
 /** A licence still valid next year, whenever the tests run. */
 const VALID_UNTIL = `${new Date().getFullYear() + 1}-06-30`
+const LATER = `${new Date().getFullYear() + 1}-07-31`
 const VIEW = { applicationId: 'a1', state: 'submitted', version: 2, facility: { id: FACILITY.facilityId, name: FACILITY.name },
   profession: 'doctor', regulator: { code: 'MDCN', name: 'Medical and Dental Council of Nigeria' }, licenceNumberHint: '2345',
   submittedAt: '2026-10-15T09:00:00.000Z', expiresAt: '2026-11-14T09:00:00.000Z', decidedAt: null, decisionCode: null, accessState: null,
@@ -306,6 +307,34 @@ describe('your details', () => {
     expect(choices).toHaveLength(2)
     expect(screen.getByText("My facility isn't listed")).toBeTruthy()
     expect(screen.getByRole('link', { name: 'provider enrollment' }).getAttribute('href')).toBe('/provider/enroll')
+  })
+
+  it('keeps what was changed while a facility search was running', async () => {
+    await toDetails()
+    await fillDetails()
+    let answer: (facilities: unknown[]) => void = () => {}
+    api.searchFacilities.mockReturnValueOnce(new Promise(resolve => { answer = resolve }))
+    type(screen.getByRole('searchbox', { name: 'Your facility' }), 'Lagos Island')
+    press('Search facilities')
+    expect(screen.getByRole('button', { name: 'Searching…' })).toBeTruthy()
+    // While it runs: another profession, licence and date, and a facility from the results still shown.
+    fireEvent.click(screen.getByRole('radio', { name: 'Nurse or midwife' }))
+    type(textbox('Licence or registration number'), 'NMCN/778899')
+    type(screen.getByLabelText(/^Licence valid until/), LATER)
+    fireEvent.click(screen.getByRole('radio', { name: /Lagos Island Clinic/ }))
+    await act(async () => { answer([OTHER]) })
+    expect(await screen.findByText('1 facility found.')).toBeTruthy()
+    expect((screen.getByRole('radio', { name: 'Nurse or midwife' }) as HTMLInputElement).checked).toBe(true)
+    expect(textbox('Licence or registration number').value).toBe('NMCN/778899')
+    expect((screen.getByLabelText(/^Licence valid until/) as HTMLInputElement).value).toBe(LATER)
+    expect((screen.getByRole('radio', { name: /Lagos Island Clinic/ }) as HTMLInputElement).checked).toBe(true)
+    press('Continue')
+    await stepShown('Password and declarations')
+    fillPassword()
+    press('Submit application')
+    await stepShown('Set up your authenticator')
+    expect(api.submit).toHaveBeenCalledWith(expect.objectContaining({ profession: 'nurse', regulator: 'NMCN', licenceNumber: 'NMCN/778899',
+      licenceValidUntil: LATER, facilityId: OTHER.facilityId }), 'submission-key-1')
   })
 
   it('says when there are too many searches, with no countdown', async () => {

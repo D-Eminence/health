@@ -1,4 +1,4 @@
-import { useState, type KeyboardEvent } from 'react'
+import { useState, type Dispatch, type KeyboardEvent, type SetStateAction } from 'react'
 import { Link } from 'react-router-dom'
 import { Field, Input } from '@hid/ui'
 import { describedBy } from '../../authSteps'
@@ -12,7 +12,9 @@ import { fieldError, type Problem } from './ui'
  * applying to another facility from the status page), and the two
  * declarations. Only doctor with MDCN and nurse with NMCN can apply (hid-system
  * ADR-064): the regulator follows the profession and is never typed. The
- * values live in the page's state only.
+ * values live in the page's state only, and every change is made to the
+ * current value (an updater), so a facility search that answers late never
+ * puts back what was changed while it ran.
  */
 
 export interface DetailsValue {
@@ -103,7 +105,7 @@ export function applicationDetails(value: DetailsValue): ClinicianApplicationDet
 
 export function DetailsFields({ value, onChange, problems, fullName, onFullName, onSearchRefused }: {
   value: DetailsValue
-  onChange(next: DetailsValue): void
+  onChange: Dispatch<SetStateAction<DetailsValue>>
   problems: readonly Problem[]
   /** Sign-up asks for the name too; applying again does not. */
   fullName?: string
@@ -111,7 +113,7 @@ export function DetailsFields({ value, onChange, problems, fullName, onFullName,
   /** A search refusal the page takes over (the page ended); true when it did. */
   onSearchRefused(caught: unknown): boolean
 }) {
-  const set = (patch: Partial<DetailsValue>) => onChange({ ...value, ...patch })
+  const set = (patch: Partial<DetailsValue>) => onChange(current => ({ ...current, ...patch }))
   const regulator = value.profession ? CLINICIAN_REGULATOR_OF[value.profession] : null
   const professionError = fieldError(problems, FIELD.profession)
 
@@ -151,7 +153,7 @@ export function DetailsFields({ value, onChange, problems, fullName, onFullName,
 }
 
 function FacilitySearch({ value, onChange, error, onRefused }: {
-  value: DetailsValue; onChange(next: DetailsValue): void; error?: string; onRefused(caught: unknown): boolean
+  value: DetailsValue; onChange: Dispatch<SetStateAction<DetailsValue>>; error?: string; onRefused(caught: unknown): boolean
 }) {
   const [searching, setSearching] = useState(false)
   const [refused, setRefused] = useState<string | null>(null)
@@ -166,7 +168,8 @@ function FacilitySearch({ value, onChange, error, onRefused }: {
     setRefused(null)
     try {
       const results = await clinicianApplicationApi.searchFacilities(query)
-      onChange({ ...value, results })
+      // Into the details as they are now: the person may have changed them while the search ran.
+      onChange(current => ({ ...current, results }))
       setAnswered(count => count + 1)
     } catch (caught) {
       if (onRefused(caught)) return
@@ -190,7 +193,7 @@ function FacilitySearch({ value, onChange, error, onRefused }: {
     <Field label="Your facility" htmlFor={FIELD.facility} error={error}
       hint="Search for the verified facility you work at: type at least 3 letters of its name." required>
       <Input id={FIELD.facility} type="search" autoComplete="off" maxLength={80} value={value.query}
-        onChange={event => onChange({ ...value, query: event.target.value })} onKeyDown={enter} />
+        onChange={event => { const query = event.target.value; onChange(current => ({ ...current, query })) }} onKeyDown={enter} />
     </Field>
     <button type="button" className="patient-secondary-button" onClick={() => void search()} disabled={searching || !canSearch}>
       {searching ? 'Searching…' : 'Search facilities'}</button>
@@ -203,7 +206,7 @@ function FacilitySearch({ value, onChange, error, onRefused }: {
       <legend>Choose your facility</legend>
       {results.map(facility => <label key={facility.facilityId} className="clinician-choice">
         <input type="radio" name="clinician-facility" value={facility.facilityId}
-          checked={value.facility?.facilityId === facility.facilityId} onChange={() => onChange({ ...value, facility })} />
+          checked={value.facility?.facilityId === facility.facilityId} onChange={() => onChange(current => ({ ...current, facility }))} />
         <span>{facility.name}<small>{facility.organizationName}</small></span></label>)}
     </fieldset>}
     <details className="clinician-help">
