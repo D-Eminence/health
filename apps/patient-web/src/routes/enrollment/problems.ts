@@ -21,7 +21,8 @@ export const registrationClosed = (reason: unknown) =>
  * keys its own text on the code (INTERFACE_CONTRACT.md, "The NIN holder step").
  */
 export function temporarilyUnavailable(reason: unknown) {
-  if (!isHidApiError(reason)) return true
+  // The client turns every failed or timed-out request into a HidApiError; anything else is a fault of the page.
+  if (!isHidApiError(reason)) return false
   return reason.status === 0 || reason.status === 408 || reason.status >= 500
     || reason.code === 'NETWORK_ERROR' || reason.code === 'REQUEST_TIMEOUT'
 }

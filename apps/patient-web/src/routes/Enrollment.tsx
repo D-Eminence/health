@@ -35,8 +35,14 @@ type Stage = 'nin' | 'holder' | 'holder_code' | 'facility' | 'contact' | 'otp' |
   | 'already_registered' | 'registration_ended'
 /** Where a registration waits for its holder proof (its cookie is live). */
 const HOLDER_STAGES: readonly Stage[] = ['holder', 'holder_code', 'facility']
-/** Where the steps are listed, and a Google sign-up may be offered: not at an ending. */
+/** Where the steps are listed: not at an ending. */
 const STEP_STAGES: readonly Stage[] = ['nin', ...HOLDER_STAGES, 'contact', 'otp', 'password', 'complete']
+/**
+ * Where a Google sign-up is offered (build-flag gated): before a start, or once
+ * the NIN holder is proved. While it is being proved a Google account would be
+ * bound to a registration nobody has shown is theirs.
+ */
+const GOOGLE_STAGES: readonly Stage[] = ['nin', 'contact', 'otp', 'password']
 const NO_ONLINE: EnrollmentOnlineRoute = { available: false }
 const NO_FACILITY: EnrollmentFacilityRoute = { available: false }
 
@@ -48,6 +54,8 @@ const HOLDER_LIMITED = 'This NIN can\'t be proved by a text message code now. Us
 const DELIVERY_FAILED = 'We couldn\'t send the code just now. Try again later, or register at a participating facility. Each try counts toward this registration\'s 3 codes.'
 /** 409 NIN_HOLDER_PROOF_CONFLICT: an in-person proof of this NIN is open at a facility. */
 const PROOF_AT_FACILITY = 'Registration for this NIN is in progress at a facility. Finish it there: show your desk code to the staff member.'
+/** "I have been checked" found the facility route closed (no facility takes part, or the flag is off). */
+const FACILITY_CLOSED = 'Registration at a facility is not available now, so no check can be recorded. Try again later, or get a code by text message if you can.'
 /** GET .../current at verify_contact after "I have been checked". */
 const CHECKED_AT_FACILITY = 'Your identity was checked at the facility. Now add a contact we can send a code to.'
 /** The start's 409 IDEMPOTENCY_KEY_REUSED: that registration ended, and only a new key starts again. */
@@ -215,12 +223,14 @@ export function Enrollment() {
   }
   const restartAtNin = () => {
     setStage('nin'); setChallengeId(null); setMaskedContact(''); setCode(''); setPassword(''); setStepHint(null); forgetProfile(); forgetHolder()
-    setError(ENDED_HERE); setFieldError(false); setErrorAlert(true)
+    setNotice(null); setError(ENDED_HERE); setFieldError(false); setErrorAlert(true)
   }
   /** Back to the NIN step with a new key: the next start is a new registration (and a new NIN lookup). */
   const freshStart = () => {
     startKey.current = null
+    // Nothing typed for the last registration is carried into the next, which may be someone else's on a shared phone.
     setStage('nin'); setNin(''); setCode(''); setChallengeId(null); setMaskedContact(''); setPassword(''); setStepHint(null)
+    setContact(''); setChannel('phone'); setReference(null)
     forgetProfile(); forgetHolder(); setNotice(null)
   }
   /** GET .../current answered 404 after a desk check (P31): the staff member's direction, not the same NIN again. */
@@ -351,7 +361,9 @@ export function Enrollment() {
    * choice says why and offers the facility; an outage keeps the step as it is
    * and never signs anyone out.
    */
-  const holderRefusal = async (reason: unknown, fromField = false) => {
+  const holderRefusal = async (reason: unknown, fromField = false): Promise<void> => {
+    // After a desk check a registration that is gone follows the staff member's direction (P31).
+    if (enrollmentEnded(reason) && stageShown.current === 'facility') return endAfterFacility()
     if (requiresSignOut(reason) || enrollmentEnded(reason)) return displayError(reason)
     if (refusedWith(reason, 409, 'NIN_ALREADY_REGISTERED')) return showAlreadyRegistered(reason)
     if (refusedWith(reason, 422, 'OTP_INVALID')) {
@@ -365,9 +377,13 @@ export function Enrollment() {
       try {
         const progress = await api.enrollmentCurrent()
         applyProgress(progress)
-        if (progress.stage === 'verify_holder' && progress.online?.challengeId) setStage('holder_code')
+        // Proved in another tab meanwhile: the page goes on, and no wait applies.
+        if (progress.stage !== 'verify_holder') return
+        if (progress.online?.challengeId) setStage('holder_code')
         seconds ??= typeof progress.online?.resendAfterSeconds === 'number' ? progress.online.resendAfterSeconds : null
-      } catch { /* the wait is said below */ }
+      } catch (again) {
+        if (enrollmentEnded(again) || requiresSignOut(again)) return holderRefusal(again)
+      }
       const wait = Math.max(1, Math.ceil(seconds ?? 60))
       beginResendWait(wait); sayError(resendWaitText(wait))
       return
@@ -379,7 +395,10 @@ export function Enrollment() {
         try {
           const progress = await api.enrollmentCurrent()
           if (progress.stage !== 'verify_holder') { applyProgress(progress); return }
-        } catch { /* said below */ }
+        } catch (again) {
+          // A registration that is gone is said as such; an outage leaves the refusal to be said below.
+          if (enrollmentEnded(again) || requiresSignOut(again)) return holderRefusal(again)
+        }
       }
       const text = refusedWith(reason, 429, 'NIN_HOLDER_ROUTE_LIMITED') ? HOLDER_LIMITED : (reason as Error).message
       setOnlineRefusal(text); setHolderChallenge(null); setCode(''); setStage('holder'); sayError(text)
@@ -445,8 +464,11 @@ export function Enrollment() {
     try {
       const progress = await api.enrollmentCurrent()
       applyProgress(progress)
-      if (progress.stage === 'verify_holder') setNotRecordedYet(true)
-      else if (progress.stage === 'verify_contact') setNotice(CHECKED_AT_FACILITY)
+      if (progress.stage === 'verify_holder') {
+        // The facility route closed meanwhile: applyProgress has left the facility stage, so say why.
+        if (progress.facility?.available) setNotRecordedYet(true)
+        else sayError(FACILITY_CLOSED)
+      } else if (progress.stage === 'verify_contact') setNotice(CHECKED_AT_FACILITY)
     } catch (reason) {
       if (enrollmentEnded(reason)) endAfterFacility()
       else await holderRefusal(reason)
@@ -479,7 +501,7 @@ export function Enrollment() {
         // The registration this key started was activated meanwhile (another tab): only a new key starts again.
         startKey.current = null
         sayError(ATTEMPT_ENDED)
-      } else if (temporarilyUnavailable(reason) && !requiresSignOut(reason)) {
+      } else if (temporarilyUnavailable(reason)) {
         // Identity's own text for a lookup it could not complete, said for any outage: the step is kept.
         setError(NIN_CHECK_UNAVAILABLE); setFieldError(false); setErrorAlert(true)
       } else displayError(reason, fromField)
@@ -602,7 +624,7 @@ export function Enrollment() {
   // No step is offered while the check runs, after it failed, or while a sign-in blocks enrollment.
   const ready = !checking && !checkError && !signOutRequired
   // A new enrollment is offered only while registration is open; one in progress continues.
-  const startOffered = STEP_STAGES.includes(stage) && (stage !== 'nin' || registration === 'open')
+  const startOffered = GOOGLE_STAGES.includes(stage) && (stage !== 'nin' || registration === 'open')
   const closed = ready && stage === 'nin' && registration === 'closed'
   // The holder step is listed only where Identity has it.
   const steps: Array<[string, readonly Stage[]]> = [['NIN', ['nin']],

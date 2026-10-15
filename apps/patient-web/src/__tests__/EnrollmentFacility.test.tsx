@@ -222,3 +222,24 @@ describe('registering at a healthcare facility', () => {
     expect(await screen.findByRole('heading', { name: 'Prove this NIN is yours' })).toBeTruthy()
   })
 })
+
+describe('the facility stage after review', () => {
+  it('follows the staff member\'s direction when a new desk code finds the registration gone (P31)', async () => {
+    renderPortal(<Enrollment />, gateway({ current: () => json(withCode()),
+      post: { 'facility-code': () => problem(404, 'ENROLLMENT_NOT_FOUND', 'No pending enrollment was found') } }), anonymous)
+    await screen.findByRole('heading', { name: 'Your desk code' })
+    await press(screen.getByRole('button', { name: 'Get a new desk code' }))
+    expect(await screen.findByRole('heading', { name: 'This registration has ended' })).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/Enter your NIN to start again/)
+  })
+
+  it('says the facility route closed when "I have been checked" finds it so, instead of saying nothing', async () => {
+    let current = () => json(withCode())
+    renderPortal(<Enrollment />, gateway({ current: () => current() }), anonymous)
+    await screen.findByRole('heading', { name: 'Your desk code' })
+    current = () => json(holder({ available: true }, { available: false }))
+    await press(screen.getByRole('button', { name: 'I have been checked' }))
+    expect((await screen.findByRole('alert')).textContent).toBe('Registration at a facility is not available now, so no check can be recorded. Try again later, or get a code by text message if you can.')
+    expect(await screen.findByRole('heading', { name: 'Prove this NIN is yours' })).toBeTruthy()
+  })
+})

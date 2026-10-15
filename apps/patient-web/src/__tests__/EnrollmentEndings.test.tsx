@@ -99,3 +99,24 @@ describe('a registration that is gone', () => {
     expect(screen.getByRole('alert').textContent).toBe(`${ENDED} Enter your NIN to start again.`)
   })
 })
+
+describe('starting again after review', () => {
+  it('does not carry the last registration\'s contact into the next one', async () => {
+    let start = () => json({ stage: 'verify_contact', requiredProfileFields: [] })
+    renderPortal(<Enrollment />, gateway(() => start(), {
+      contact: () => json({ challengeId: 'contact-challenge', expiresInSeconds: 600, resendAfterSeconds: 60 }),
+      'contact/verify': () => json({ stage: 'set_password', requiredProfileFields: [] }),
+      activate: () => problem(409, 'ENROLLMENT_HOLDER_PROOF_REQUIRED', 'Prove that you hold this NIN before you set a password') }), anonymous)
+    await submitNin()
+    fireEvent.change(await screen.findByLabelText('Phone number'), { target: { value: '+2348011111111' } })
+    await press(screen.getByRole('button', { name: 'Send verification code' }))
+    fireEvent.change(await screen.findByLabelText('Verification code'), { target: { value: '123456' } })
+    await press(screen.getByRole('button', { name: 'Verify code' }))
+    fireEvent.change(await screen.findByLabelText('Password'), { target: { value: PASSWORD } })
+    await press(screen.getByRole('button', { name: 'Activate Health ID' }))
+    await screen.findByLabelText('National Identification Number')
+    start = () => json({ stage: 'verify_contact', requiredProfileFields: [] })
+    await submitNin()
+    expect((await screen.findByLabelText('Phone number') as HTMLInputElement).value).toBe('')
+  })
+})

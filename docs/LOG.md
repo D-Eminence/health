@@ -1761,8 +1761,11 @@ ADR-061 password step were kept unchanged (same trees).
   in-person check of one original photo ID comes first, what to bring and the
   facilities are listed, the desk code is asked for only on request, shown
   again after a reload and replaced only if staff ask; "I have been checked"
-  reads `GET .../current`, and its `404` offers account recovery, sign-in or
-  starting again, never "the same NIN".
+  reads `GET .../current`, and its `404` (or one after any facility action)
+  offers account recovery, sign-in or starting again, never "the same NIN". A
+  Google sign-up is offered at the NIN step and after the proof, not while the
+  NIN is being proved, and starting again carries nothing typed (the contact
+  included) into the next registration.
 - **Endings (rows 8, 9, 10).** `409 NIN_ALREADY_REGISTERED`, after a correct code
   or at activation: account recovery, sign-in and Health ID support with the
   problem's `correlationId`, the start key dropped. `409
@@ -1785,11 +1788,15 @@ ADR-061 password step were kept unchanged (same trees).
 - **Evidence and gates.** Each new commit's tests were written first and failed
   before its change: 5 (contracts and API), 13 (the NIN step, the public list,
   the route test and the 320px rule), 34 and a 320px rule (the holder step and
-  the facility stage), 3 (activation refusals and the `404` text) and 3 (the
-  Verify NIN card). At each commit `audit:boundaries`, `typecheck`, `lint`,
+  the facility stage), 3 (activation refusals and the `404` text), 3 (the
+  Verify NIN card) and 6 (fixes from a review of the branch: a `404` after a
+  facility action, a cooldown or a `409 NIN_HOLDER_ROUTE_UNAVAILABLE` whose
+  re-read finds the registration moved on or gone, the facility route closing
+  before "I have been checked", Google while the NIN is proved, and a contact
+  carried into a new registration). At each commit `audit:boundaries`, `typecheck`, `lint`,
   `vitest`, `build:patient-web` (local environment) and `audit:launch-build`
   pass; `vitest` went from 152 files and 1975 tests (after the routes) to 157
-  files and 2022 tests. One full run failed two provider session-end tests on
+  files and 2028 tests. One full run failed two provider session-end tests on
   their 5-second timeout under load; they passed alone and on the next full
   run.
 - **Compatibility.** Against today's deployed Identity, which answers

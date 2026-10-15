@@ -8,6 +8,10 @@ vi.mock('../Turnstile', () => ({
     <button type="button" onClick={() => onTokenChange('turnstile-token')}>Complete check</button>,
 }))
 
+vi.mock('../GoogleButton', () => ({
+  GoogleButton: () => <button type="button">Sign up with Google</button>,
+}))
+
 afterEach(() => { vi.restoreAllMocks() })
 
 const BASE = '/identity/patient-enrollments'
@@ -306,5 +310,49 @@ describe('a NIN that already has a Health ID, said only after a correct code (ro
     expect(screen.queryByLabelText('National Identification Number')).toBeNull()
     expect(screen.queryByLabelText('Verification code')).toBeNull()
     expect(document.body.textContent).not.toContain(NIN)
+  })
+})
+
+describe('the holder step after review', () => {
+  it('goes where Identity has the registration, without a resend wait, when a cooldown finds it proved in another tab', async () => {
+    let current = () => json(holder({ available: true, challengeId: CHALLENGE, expiresInSeconds: 500, resendAfterSeconds: 0 }))
+    renderPortal(<Enrollment />, gateway({ current: () => current(), post: { holder: () => {
+      current = () => json({ stage: 'verify_contact', requiredProfileFields: [] })
+      return problem(429, 'OTP_RESEND_COOLDOWN', 'Wait before requesting another code')
+    } } }), anonymous)
+    await codeStep()
+    const resend = screen.getByRole('button', { name: 'Send a new code' }) as HTMLButtonElement
+    await waitFor(() => expect(resend.disabled).toBe(false))
+    await press(resend)
+    expect(await screen.findByLabelText('Phone number')).toBeTruthy()
+    expect(screen.queryByText(/A code was sent recently/)).toBeNull()
+  })
+
+  it('goes back to the NIN step when the registration is gone behind a 409 NIN_HOLDER_ROUTE_UNAVAILABLE', async () => {
+    renderPortal(<Enrollment />, gateway({ post: { holder: () => problem(409, 'NIN_HOLDER_ROUTE_UNAVAILABLE', HOLDER_ROUTE_UNAVAILABLE) } }), anonymous)
+    await startHolder()
+    await press(screen.getByRole('button', { name: 'Text me a code' }))
+    expect(await screen.findByLabelText('National Identification Number')).toBeTruthy()
+    expect(screen.getByRole('alert').textContent).toMatch(/This registration is no longer open on this device/)
+  })
+
+  it('offers Google sign-up only where it can be bound to a proved registration, not while the NIN is being proved', async () => {
+    vi.stubEnv('VITE_HID_GOOGLE_CLIENT_ID', 'google-client')
+    try {
+      renderPortal(<Enrollment />, gateway({ post: { ...sending, 'holder/verify': () => json({ stage: 'verify_contact', requiredProfileFields: [] }) } }), anonymous)
+      expect(await screen.findByRole('region', { name: 'Google enrollment' })).toBeTruthy()
+      fireEvent.change(screen.getByLabelText('National Identification Number'), { target: { value: NIN } })
+      // The NIN step's security check comes first; the second is Google's.
+      fireEvent.click(screen.getAllByRole('button', { name: 'Complete check' })[0]!)
+      await press(screen.getByRole('button', { name: 'Continue' }))
+      await choice()
+      expect(screen.queryByRole('region', { name: 'Google enrollment' })).toBeNull()
+      await press(screen.getByRole('button', { name: 'Text me a code' }))
+      await codeStep()
+      expect(screen.queryByRole('region', { name: 'Google enrollment' })).toBeNull()
+      await enterCode()
+      await screen.findByLabelText('Phone number')
+      expect(screen.getByRole('region', { name: 'Google enrollment' })).toBeTruthy()
+    } finally { vi.unstubAllEnvs() }
   })
 })
