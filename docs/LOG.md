@@ -1408,3 +1408,64 @@ plumbing; the second-step screens follow in part 2.
   and `build:patient-web`.
 - **Not verified.** Component and API-client tests with the network stubbed.
   Nothing was run in a browser, on staging or against a live hid-system.
+
+## 2026-10-15: staff sign-in with an authenticator, part 2 (hid-system#71)
+
+Part 1 laid the plumbing; against hid-system `main` `8f3eff1` (not deployed)
+the provider sign-in page still stopped after the password, provider
+enrollment activation still reloaded into a workspace with no session, and
+the platform console answered the dual-role enrolment refusal with "This item
+changed". This part (`claude/staff-mfa-signin`) builds the screens.
+
+- **QR code.** `src/mfa/OtpauthQr.tsx` draws the `otpauth://` URI Identity
+  returns at enrolment start as inline SVG (one path, a four-module quiet
+  zone, dark on light, presentation attributes only, as `style-src 'self'`
+  allows), with `qrcode-generator` 2.0.4 (MIT, no dependencies) pinned
+  exactly. No remote service sees the secret. The drawn modules were decoded
+  back to the URI with jsQR outside the repository.
+- **Staff second step** (`staff/routes/StaffMfaSteps.tsx`). `mfa_required`: the
+  six-digit code or one recovery code. `mfa_enrollment_required`: an
+  explanation and "Email me a code" (sent only on the press; sends and setup
+  starts count against 5 per 15 minutes; "Send a new code" replaces it), the
+  emailed code, the setup (QR code, grouped key, open-in-app link, deadline),
+  the first code, and the ten recovery codes shown once; the workspace opens
+  after "I have stored these recovery codes", with a session that does not
+  keep them. Refusals: a wrong code is cleared and said at its field; 429,
+  `503 MFA_UNAVAILABLE` and `MFA_ENROLLMENT_CODE_UNDELIVERABLE` keep the step;
+  `MFA_CHALLENGE_INVALID` and `STAFF_MFA_FACTOR_UNPROVEN` (two platform
+  administrators must reset the authenticator) go back to the password step;
+  `MFA_ENROLLMENT_PROOF_REQUIRED` to the email step;
+  `MFA_ENROLLMENT_PROOF_COMPLETE` on to setup with no code;
+  `MFA_ENROLLMENT_PROOF_UNAVAILABLE` stops. Each step's heading takes focus;
+  "Start again" waits for a step on its way. The password step says
+  `STAFF_MFA_FACTOR_UNPROVEN` and `MFA_UNAVAILABLE` in the portal's words.
+- **Provider enrollment.** Activation continues into the same steps on its own
+  page, with no emailed code (the activation is the proof); an account that
+  has an authenticator is asked for its code; the page reloads into the
+  workspace only after the recovery codes. A lapsed challenge sends the
+  administrator to `/provider/sign-in`. An older Identity's session still
+  opens the workspace at once.
+- **Platform console.** `409 MFA_ENROLLMENT_STAFF_SIGN_IN_REQUIRED` goes back
+  to the credentials step and says to set the authenticator up at staff
+  sign-in first.
+- **Departures from the investigation.** The steps live in one component that
+  the sign-in page and provider enrollment both draw, each with its own
+  heading level, classes and button, since enrollment sits outside the
+  provider workspace. The provider's context also offers the email code and
+  setup start. Provider activation's setup starts on "Begin setup", not on
+  arrival, so a remount never spends a start. Our words, not Identity's, for
+  `STAFF_MFA_FACTOR_UNPROVEN` at the password step. The console's copy names
+  the Provider Portal rather than linking to it: the admin host accepts no
+  staff sign-in check. No `PasswordInput` exists on this base, so the
+  password field is unchanged.
+- **Evidence.** 33 tests failed first (4 QR, 24 sign-in steps of which 2 were
+  part 1's expectations of "cannot ask for the code yet", 3 provider
+  enrollment, 2 console). At the branch head every gate passes: `typecheck`,
+  `lint`, `npm test` (146 files, 1914 tests), `audit:boundaries` and
+  `build:patient-web`. One full run before the last style commit failed once in
+  `OcrFocus.test.tsx` ("a short retry reason takes focus", a 1-second
+  `waitFor` under load); it passes alone (three runs) and in the full re-run.
+- **Not verified.** Component tests with the network stubbed; nothing was run
+  in a browser, with a real authenticator app, on staging or against a live
+  hid-system. The QR code's look on a phone camera, and the email delivery of
+  enrolment codes (an operator item), are unchecked.

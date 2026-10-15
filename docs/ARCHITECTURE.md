@@ -250,10 +250,32 @@ activation) wait for a sign-out or refresh in flight and take the Web Locks
 turn, and activation tells the other tabs at once, since the browser holds the
 session while its recovery codes are shown. The MFA steps carry no Turnstile
 token and a 401 there is never refreshed; the staff API keeps no code, setup
-secret or recovery code, and returns each only to the step that asked. The screens for the second step are not built yet:
-against an Identity with #71 the sign-in page says it cannot ask for the code,
-and provider enrollment activation still reloads into the portal expecting a
-session. Identity refuses a staff sign-in made without an authenticator (every
+secret or recovery code, and returns each only to the step that asked.
+The second step's screens (`staff/routes/StaffMfaSteps.tsx`) follow Identity's
+answer: the authenticator code or one recovery code; or, on a first sign-in,
+an explanation and a code emailed to the account's address only when asked
+(sends and setup starts count against 5 per 15 minutes), the setup (a QR code
+drawn in the page from the `otpauth://` URI by `src/mfa/OtpauthQr.tsx`, inline
+SVG with presentation attributes only, never a remote service; the grouped
+setup key; an open-in-app link; the deadline), its first code, and the ten
+recovery codes, shown once. The session opens only once the person says the
+codes are stored, and the workspace keeps the session without them. Each
+refusal is said: a wrong code at its field; 429, `503 MFA_UNAVAILABLE` and
+`MFA_ENROLLMENT_CODE_UNDELIVERABLE` keep the step; `MFA_CHALLENGE_INVALID` and
+`STAFF_MFA_FACTOR_UNPROVEN` (a two-person reset) go back to the password;
+`MFA_ENROLLMENT_PROOF_REQUIRED` back to the email step,
+`MFA_ENROLLMENT_PROOF_COMPLETE` on to setup with no code, and
+`MFA_ENROLLMENT_PROOF_UNAVAILABLE` stops. Each step's heading takes focus. The
+codes, the secret and the recovery codes live only in the steps' state.
+Provider enrollment activation (`/provider/enroll`) continues into the same
+steps on its own page: the activation is the enrolment's proof, so setup
+starts with no emailed code; an account that already has an authenticator is
+asked for its code; the page reloads into the workspace only after the
+recovery codes, and a challenge that lapses sends the administrator to
+`/provider/sign-in`. The platform console refuses the platform enrolment of an
+account with a staff membership as Identity does
+(`409 MFA_ENROLLMENT_STAFF_SIGN_IN_REQUIRED`) and says to set the
+authenticator up at staff sign-in first. Identity refuses a staff sign-in made without an authenticator (every
 one before #71, or one whose authenticator was reset) with
 `403 STAFF_MFA_REQUIRED` on every guarded route, and its refresh ends that
 sign-in. The provider portal takes it as the end of the session
