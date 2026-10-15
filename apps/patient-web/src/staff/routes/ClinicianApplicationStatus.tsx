@@ -28,6 +28,9 @@ type Phase = 'loading' | 'failed' | 'form' | 'authenticator' | 'list'
 
 const OPEN_STATES = new Set(['awaiting_authenticator', 'submitted', 'under_review'])
 const COULD_NOT_LOAD = "We couldn't load your application right now."
+const RETRY = 'clinician-status-retry'
+const LIST_RETRY = 'clinician-status-list-retry'
+const CLOSE = 'clinician-status-close'
 
 export function ClinicianApplicationStatus() {
   const mainSite = clinicianMainSiteHref(window.location.hostname, CLINICIAN_STATUS_PATH)
@@ -38,7 +41,8 @@ function StatusPage() {
   const [phase, setPhase] = useState<Phase>('loading')
   // Whether the page has moved from what it opened with: from then on each heading shown takes focus.
   const [moved, setMoved] = useState(false)
-  const [failure, setFailure] = useState(COULD_NOT_LOAD)
+  // Each failure to load is new, so the same words are announced again after a Retry.
+  const [failure, setFailure] = useState(() => shownError(COULD_NOT_LOAD))
   const [formNotice, setFormNotice] = useState<{ text: string; tone: 'alert' | 'status' } | null>(null)
   const [formRound, setFormRound] = useState(0)
   const [authenticatorStart, setAuthenticatorStart] = useState<'enrol' | 'verify'>('verify')
@@ -46,10 +50,16 @@ function StatusPage() {
   const [account, setAccount] = useState<ClinicianAccountView | null>(null)
   const [notice, setNotice] = useState<{ id: number; text: string } | null>(null)
   const [listError, setListError] = useState<{ id: number; message: string } | null>(null)
+  const [closeError, setCloseError] = useState<{ id: number; message: string } | null>(null)
   const [withdrawing, setWithdrawing] = useState<ClinicianApplicationView | null>(null)
   const [withdrawError, setWithdrawError] = useState<{ id: number; message: string } | null>(null)
   const [busy, setBusy] = useState<'withdraw' | 'close' | 'reload' | null>(null)
   const noticeLine = useRef<HTMLParagraphElement>(null)
+  // Whether this page holds an application capability (an email code was checked, or the applications were read):
+  // only then does a 401 mean that it closed.
+  const held = useRef(false)
+  // A control to focus once drawn again: the one used was disabled while its request ran.
+  const [focusRequest, setFocusRequest] = useState<{ id: string; count: number } | null>(null)
 
   useDocumentTitle(phase === 'list' ? 'Your clinician applications · Health ID Provider' : 'Clinician application · Health ID Provider')
 
@@ -58,7 +68,12 @@ function StatusPage() {
     setMoved(true)
   }
 
+  function focusOn(id: string) {
+    setFocusRequest(previous => ({ id, count: (previous?.count ?? 0) + 1 }))
+  }
+
   function toForm(text: string | null, tone: 'alert' | 'status' = 'alert') {
+    held.current = false
     setFormNotice(text ? { text, tone } : null)
     setFormRound(value => value + 1)
     setAccount(null)
@@ -75,6 +90,7 @@ function StatusPage() {
   function showList(view: ClinicianAccountView, text: string | null = null) {
     setAccount(view)
     setListError(null)
+    setCloseError(null)
     setNotice(text ? previous => ({ id: (previous?.id ?? 0) + 1, text }) : null)
     move('list')
   }
@@ -87,19 +103,30 @@ function StatusPage() {
     return false
   }
 
-  /** Reads the applications. From the list, an outage keeps the list; otherwise it is said with Retry. */
-  async function load(options: { notice?: string; fromList?: boolean; initial?: boolean } = {}) {
+  /**
+   * Reads the applications. From the list, an outage keeps the list; otherwise it is said with Retry. True when it
+   * could not read them and the page says so.
+   */
+  async function load(options: { notice?: string; fromList?: boolean; initial?: boolean } = {}): Promise<boolean> {
     try {
       const view = await clinicianApplicationApi.current()
+      held.current = true
       if (options.initial) { setAccount(view); setPhase('list') } else showList(view, options.notice ?? null)
+      return false
     } catch (caught) {
       const code = codeOf(caught)
-      if (options.initial && code === 'CLINICIAN_APPLICATION_SESSION_INVALID') { setPhase('form'); return }
-      if (options.initial && code === 'CLINICIAN_APPLICATION_AUTHENTICATOR_REQUIRED') { setAuthenticatorStart('verify'); setPhase('authenticator'); return }
-      if (takeOver(caught)) return
+      // No application page was open here (a first visit, perhaps after an outage): the form, with nothing said about one closing.
+      if (code === 'CLINICIAN_APPLICATION_SESSION_INVALID' && !held.current) {
+        if (options.initial) setPhase('form'); else toForm(null)
+        return false
+      }
+      if (code === 'CLINICIAN_APPLICATION_AUTHENTICATOR_REQUIRED') held.current = true
+      if (options.initial && code === 'CLINICIAN_APPLICATION_AUTHENTICATOR_REQUIRED') { setAuthenticatorStart('verify'); setPhase('authenticator'); return false }
+      if (takeOver(caught)) return false
       const message = code === 'PLATFORM_MAINTENANCE' ? MAINTENANCE : COULD_NOT_LOAD
       if (options.fromList) setListError(shownError(`${message} Try again.`))
-      else { setFailure(message); if (options.initial) setPhase('failed'); else move('failed') }
+      else { setFailure(shownError(message)); if (options.initial) setPhase('failed'); else move('failed') }
+      return true
     }
   }
 
@@ -108,10 +135,14 @@ function StatusPage() {
 
   useEffect(() => { if (notice) noticeLine.current?.focus() }, [notice])
 
+  useEffect(() => { if (focusRequest) document.getElementById(focusRequest.id)?.focus() }, [focusRequest])
+
   async function retry(fromList: boolean) {
     setBusy('reload')
-    await load({ fromList })
+    const failed = await load({ fromList })
     setBusy(null)
+    // Still failing: focus goes back to Retry, and the failure (a new alert) is said again.
+    if (failed) focusOn(fromList ? LIST_RETRY : RETRY)
   }
 
   function statusRefused(caught: unknown, call: 'send' | 'verify'): string {
@@ -144,11 +175,14 @@ function StatusPage() {
   async function closePage() {
     if (busy) return
     setBusy('close')
+    setCloseError(null)
     try {
       await clinicianApplicationApi.endSession()
     } catch {
-      setListError(shownError("This page couldn't be closed right now. Try again."))
+      // Its own words beside "Close this page", pressed again to retry: a Retry here would only read the list again.
+      setCloseError(shownError("This page couldn't be closed right now. Try again."))
       setBusy(null)
+      focusOn(CLOSE)
       return
     }
     setBusy(null)
@@ -163,8 +197,8 @@ function StatusPage() {
   if (phase === 'failed') {
     return <ClinicianFrame labelledBy="clinician-status-title">
       <StepHeading id="clinician-status-title" level={1} focus={moved}>Check your clinician application</StepHeading>
-      <p role="alert" className="patient-inline-error">{failure}</p>
-      <PrimaryButton onClick={() => { setMoved(true); void retry(false) }} disabled={busy !== null}>
+      <StepError error={failure} />
+      <PrimaryButton id={RETRY} onClick={() => { setMoved(true); void retry(false) }} disabled={busy !== null}>
         {busy === 'reload' ? 'Loading…' : 'Retry'}</PrimaryButton>
     </ClinicianFrame>
   }
@@ -183,7 +217,10 @@ function StatusPage() {
           copy={{ emailHeading: 'Your work email', emailIntro: null, sent: statusCodeSentCopy, codeInvalid: 'That code is wrong or has expired.' }}
           send={clinicianApplicationApi.sendStatusCode} verify={clinicianApplicationApi.verifyStatusCode} refused={statusRefused}
           onStage={() => setMoved(true)}
-          onVerified={(answer: ClinicianStatusVerified) => toAuthenticator(answer.next === 'authenticator_setup' ? 'enrol' : 'verify')} />
+          onVerified={(answer: ClinicianStatusVerified) => {
+            held.current = true
+            toAuthenticator(answer.next === 'authenticator_setup' ? 'enrol' : 'verify')
+          }} />
       </>}
       {phase === 'authenticator' && <ClinicianAuthenticator key={formRound} start={authenticatorStart} context="status"
         email={email || account?.account.email || 'your email address'} doneLabel="Continue to your applications"
@@ -200,7 +237,7 @@ function StatusPage() {
     <p ref={noticeLine} tabIndex={-1} role="status" className="patient-field-hint">{notice && <span key={notice.id}>{notice.text}</span>}</p>
     {listError && <div className="clinician-actions">
       <StepError error={listError} />
-      <TextButton onClick={() => void retry(true)} disabled={busy !== null}>{busy === 'reload' ? 'Loading…' : 'Retry'}</TextButton>
+      <TextButton id={LIST_RETRY} onClick={() => void retry(true)} disabled={busy !== null}>{busy === 'reload' ? 'Loading…' : 'Retry'}</TextButton>
     </div>}
     {view.applications.length === 0 && <p className="patient-page-copy">There are no applications for this address.</p>}
     <ul className="clinician-applications">
@@ -209,10 +246,11 @@ function StatusPage() {
           onWithdraw={() => { setWithdrawError(null); setWithdrawing(application) }} />
       </li>)}
     </ul>
-    <ApplyAnother account={view} onApplied={facility => load({ notice: `Your application to ${facility} was sent. It is in HID's `
-      + 'verification queue.', fromList: true })} takeOver={takeOver} />
+    <ApplyAnother account={view} onApplied={async facility => { await load({ notice: `Your application to ${facility} was sent. `
+      + "It is in HID's verification queue.", fromList: true }) }} takeOver={takeOver} />
     <div className="clinician-panel">
-      <TextButton onClick={() => void closePage()} disabled={busy !== null}>{busy === 'close' ? 'Closing…' : 'Close this page'}</TextButton>
+      <StepError error={closeError} />
+      <TextButton id={CLOSE} onClick={() => void closePage()} disabled={busy !== null}>{busy === 'close' ? 'Closing…' : 'Close this page'}</TextButton>
     </div>
     {withdrawing && <WithdrawDialog view={withdrawing} busy={busy === 'withdraw'} error={withdrawError}
       onConfirm={() => void confirmWithdraw()} onCancel={() => setWithdrawing(null)} />}

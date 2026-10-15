@@ -122,6 +122,41 @@ describe('opening the status page', () => {
     expect(api.current).toHaveBeenCalledTimes(2)
   })
 
+  it('asks for the email with nothing said about a closed page when Retry after an outage finds none open', async () => {
+    api.current.mockRejectedValueOnce(problem(503, 'CLINICIAN_APPLICATION_UNAVAILABLE'))
+      .mockRejectedValueOnce(problem(401, 'CLINICIAN_APPLICATION_SESSION_INVALID'))
+    open()
+    await screen.findByRole('alert')
+    press('Retry')
+    expect(await screen.findByRole('textbox', { name: 'Work email' })).toBeTruthy()
+    expect(screen.queryByText(/this page closed after 30 minutes/)).toBeNull()
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('still says the page closed when one was open and a later read finds it gone', async () => {
+    api.authenticator.verify.mockRejectedValueOnce(problem(409, 'CLINICIAN_APPLICATION_AUTHENTICATOR_READY'))
+    await throughEmail()
+    await headingFocused('Enter a code from your authenticator app')
+    api.current.mockRejectedValueOnce(problem(401, 'CLINICIAN_APPLICATION_SESSION_INVALID'))
+    type(textbox('Authenticator code'), '445566')
+    press('Verify')
+    expect(await screen.findByText('For your security, this page closed after 30 minutes. Enter your email to continue.')).toBeTruthy()
+    expect(screen.getByRole('textbox', { name: 'Work email' })).toBeTruthy()
+  })
+
+  it('says again that it could not load when Retry meets the outage again, and gives focus back to Retry', async () => {
+    api.current.mockRejectedValueOnce(problem(503, 'CLINICIAN_APPLICATION_UNAVAILABLE'))
+      .mockRejectedValueOnce(problem(503, 'CLINICIAN_APPLICATION_UNAVAILABLE'))
+    open()
+    const first = await screen.findByRole('alert')
+    press('Retry')
+    await waitFor(() => expect(api.current).toHaveBeenCalledTimes(2))
+    // A new alert, so the same words are announced again.
+    await waitFor(() => expect(screen.getByRole('alert')).not.toBe(first))
+    expect(screen.getByRole('alert').textContent).toBe("We couldn't load your application right now.")
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Retry' })))
+  })
+
   it('links to the main site on a staff product host, with no form and no request', () => {
     vi.stubGlobal('location', { ...window.location, hostname: 'lab.staging.healthidentitydirectory.com' })
     open()
@@ -317,6 +352,33 @@ describe('the applications', () => {
     fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Withdraw application' }))
     expect(await screen.findByText('For your security, this page closed after 30 minutes. Enter your email to continue.')).toBeTruthy()
     expect(screen.getByRole('textbox', { name: 'Work email' })).toBeTruthy()
+  })
+
+  it('says again when the list still cannot be read, and gives focus back to its Retry', async () => {
+    await listShown()
+    api.current.mockRejectedValueOnce(problem(503, 'CLINICIAN_APPLICATION_UNAVAILABLE'))
+      .mockRejectedValueOnce(problem(503, 'CLINICIAN_APPLICATION_UNAVAILABLE'))
+    fireEvent.click(within(article(FACILITY.name)).getByRole('button', { name: /Withdraw/ }))
+    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Withdraw application' }))
+    const first = await screen.findByRole('alert')
+    expect(first.textContent).toBe("We couldn't load your application right now. Try again.")
+    press('Retry')
+    await waitFor(() => expect(screen.getByRole('alert')).not.toBe(first))
+    expect(screen.getByRole('alert').textContent).toBe("We couldn't load your application right now. Try again.")
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Retry' })))
+  })
+
+  it('says when the page could not be closed, offers no Retry that would only reload, and closes on the next press', async () => {
+    await listShown()
+    api.endSession.mockRejectedValueOnce(problem(503, 'CLINICIAN_APPLICATION_UNAVAILABLE'))
+    press('Close this page')
+    expect((await screen.findByRole('alert')).textContent).toBe("This page couldn't be closed right now. Try again.")
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Close this page' })))
+    press('Close this page')
+    expect(await screen.findByText('This page is closed.')).toBeTruthy()
+    expect(api.endSession).toHaveBeenCalledTimes(2)
+    expect(api.current).toHaveBeenCalledTimes(1)
   })
 
   it('closes the page on request and asks for the email again', async () => {
