@@ -1,4 +1,8 @@
-/** Browser routes verified against hid-system c4b5445. Paths include /api/v1. */
+/**
+ * Browser routes verified against hid-system c4b5445, and later each where its
+ * comment says; the patient enrollment routes against hid-system main f9dbaf0
+ * (#82, #84, #85 and #86: ADR-061, ADR-062 and ADR-063). Paths include /api/v1.
+ */
 export type HidService = 'auth' | 'enrollment' | 'identity' | 'access' | 'ehr' | 'files'
   | 'notifications' | 'lab' | 'pharmacy' | 'ocr' | 'outreach' | 'admin' | 'commercial' | 'platform'
 export type EndpointMethod = 'GET' | 'POST' | 'PATCH' | 'DELETE'
@@ -73,13 +77,24 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
 
   r('enrollment.start','enrollment','/api/v1/identity/patient-enrollments',P,true),
   r('enrollment.availability','enrollment','/api/v1/identity/patient-enrollments/availability',G,true,undefined,
-    'hid-system#68 (FE-4). No input; 200 { open: boolean }. Anything but { open: true } means not open.'),
+    'hid-system#68 (FE-4); since #84 (ADR-062) 200 { open, online, facility }, each a boolean. only open: true opens a start; '
+    + 'online and facility say which route to prove the NIN holder is on. An Identity before #84 sends { open } only.'),
   r('enrollment.current','enrollment','/api/v1/identity/patient-enrollments/current',G,true),
   r('enrollment.google','enrollment','/api/v1/identity/patient-enrollments/google',P,true),
   r('enrollment.contact','enrollment','/api/v1/identity/patient-enrollments/contact',P,true),
   r('enrollment.verifyContact','enrollment','/api/v1/identity/patient-enrollments/contact/verify',P,true),
   r('enrollment.activate','enrollment','/api/v1/identity/patient-enrollments/activate',P,true,undefined,
-    'Returns HIDCode; does not create a login session.'),
+    'Returns HIDCode; does not create a login session. Takes dateOfBirth and gender only for the requiredProfileFields the NIN record lacks (ADR-061).'),
+  // The NIN holder step (#84, ADR-062) and the facility route (#85, ADR-063). Each
+  // POST needs Origin and the enrollment cookie, and takes no Turnstile token or Idempotency-Key.
+  r('enrollment.holder','enrollment','/api/v1/identity/patient-enrollments/holder',P,true,undefined,
+    'No body; texts a six-digit code to the phone on the NIN record. 200 { challengeId, expiresInSeconds, resendAfterSeconds }.'),
+  r('enrollment.holderVerify','enrollment','/api/v1/identity/patient-enrollments/holder/verify',P,true,undefined,
+    'Body { challengeId, code }; 200 { stage: verify_contact, requiredProfileFields }. 409 NIN_ALREADY_REGISTERED only after a correct code.'),
+  r('enrollment.facilityCode','enrollment','/api/v1/identity/patient-enrollments/facility-code',P,true,undefined,
+    'No body; answers the verify_holder progress with facility.deskCode. A new code replaces the last; five per enrollment.'),
+  r('enrollment.participatingFacilities','enrollment','/api/v1/identity/patient-enrollments/participating-facilities',G,true,undefined,
+    'No input; 200 { facilities: [{ name, addressLine?, town, lga, state, hours? }], whatToBring }. Empty while the facility route is off.'),
 
   r('identity.me','identity','/api/v1/identity/me',G),
   r('identity.accessHistory','identity','/api/v1/identity/me/access-history',G),
