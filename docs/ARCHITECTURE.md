@@ -342,10 +342,13 @@ Enrollment and password recovery follow hid-system `main`'s limits. Since hid-sy
 sign-in, refresh and sign-out in the browser expires the enrollment cookie
 (`hid_enrollment`), after which each enrollment step answers
 `404 ENROLLMENT_NOT_FOUND`: the page returns to the NIN step, and the same NIN,
-sent again with the start key the page kept, restores the enrollment. After a
-reload that key is gone, and a new start for the NIN is refused
-(`409 NIN_ALREADY_REGISTERED`) until the pending enrollment expires, 24 hours
-after it started. hid-system#55 and hid-system#61 give recovery codes one
+sent again with the start key the page kept, restores the enrollment. Since
+hid-system#84 (`main` `f9dbaf0`) a `404` also follows a later proof of the same
+NIN elsewhere, a deletion after `409 NIN_ALREADY_REGISTERED` and the 24-hour
+expiry, and the page says so. A start with a new key, after a reload for
+example, is a new registration and a new paid NIN lookup; it is never refused
+as `409 NIN_ALREADY_REGISTERED`, which Identity now says only after the NIN
+holder is proved. hid-system#55 and hid-system#61 give recovery codes one
 failure budget per account and enrollment codes one per contact: by default the
 fifth wrong code within 15 minutes makes every code refused, a correct one too,
 for 15 minutes, with the same answer as a wrong code, so after a refused code
@@ -364,8 +367,13 @@ sign-up are offered only on `200 { open: true }`, and only then does a NIN step
 ask to reconnect the Google account an ended enrollment required. Any other
 body is not open: the page says, in Identity's own words for the start's 503,
 that new Health ID registration is not open yet, links to sign-in and password
-recovery, and loads no security check. A failed read, a 503 included, says the
-check failed and offers Try again; it is never taken for a sign-out. Only a
+recovery, and loads no security check. Since hid-system#84 the answer is
+`{ open, online, facility }`: `open` stays the only gate, and the NIN step says
+how the NIN will be proved, by a code texted to the phone on the NIN record or
+at a participating facility, or that either is not available; an Identity
+before #84 sends `{ open }` only and neither route is described. A failed read,
+a 503 included, says the check failed and offers Try again; it is never taken
+for a sign-out. Only a
 start is refused while registration is closed, a resume with the same key
 included, so an enrollment in progress continues, an activated one still shows
 its HID within its 15 minutes, and one that a sign-in or sign-out ended here is
@@ -373,10 +381,41 @@ told to enter its NIN again only once a read finds registration open. While the
 read has failed, Try again stands in for the NIN step and takes focus when a
 step ends that way. The read predicts only the checks a start makes before it
 reads a NIN, so the start's own refusals (rate limits, the lookup quota,
-`503 ENROLLMENT_RECONCILIATION_REQUIRED`) are shown as before. Production keeps
-NIN-only enrollment closed until hid-system's N1 holder step ships. The
-sign-in page's "Get your Health ID" link and the public site's sign-up entry do
-not read availability; they lead to this notice.
+`503 ENROLLMENT_RECONCILIATION_REQUIRED`) are shown as before; a start answered
+`503 PATIENT_REGISTRATION_NOT_OPEN` (no holder route on) shows the closed notice,
+and a NIN lookup that could not be completed, or any other outage, says
+Identity's "We could not check your NIN now. Try again later." with the step
+kept. With every flag at its default, staging and production answer every start
+that way until an operator opens a holder route. The sign-in page's "Get your
+Health ID" link and the public site's sign-up entry do not read availability;
+they lead to this notice.
+
+The NIN holder step (hid-system#84, ADR-062; #85, ADR-063; read at `main`
+`f9dbaf0`). Every start answers `verify_holder`, with `online` and `facility`,
+and the page asks the patient to prove the NIN is theirs before a contact or a
+password; nothing is said to be verified until Identity says so. Online:
+`POST .../holder` texts a code to the phone on the NIN record (no body), and
+`POST .../holder/verify` checks it; a correct code continues at the contact step
+with `requiredProfileFields`, which the password step asks for (ADR-061). The
+resend wait comes from `Retry-After` when a gateway sends one, otherwise from
+`GET .../current`'s `online.resendAfterSeconds`. Where the online route cannot
+help (`NIN_HOLDER_ROUTE_UNAVAILABLE`, `NIN_HOLDER_ROUTE_LIMITED`) the choice says
+why and offers the facility. Facility: the stage says an in-person check of one
+original photo ID must come first, lists what to bring and the participating
+facilities (`GET .../participating-facilities`, also the public page
+`/enroll/facilities`), and shows the desk code (`POST .../facility-code`) only
+when asked; `GET .../current` shows the same code after a reload, and a new one
+is asked for only if staff ask. "I have been checked" reads `GET .../current`:
+`verify_contact` continues, `verify_holder` says the check is not recorded yet,
+and a `404` follows the staff member's direction (account recovery, sign-in or
+start again), never "the same NIN" (P31). `409 NIN_ALREADY_REGISTERED`, after a
+correct code or at activation, leads to account recovery, sign-in and Health ID
+support with the problem's `correlationId`; `409 ENROLLMENT_HOLDER_PROOF_REQUIRED`
+at activation starts again at the NIN step with a new key. The desk code, the
+challenge and the route state are page state only. The signed-in "Verify NIN"
+card is hidden until the owner decides P27: hid-system answers it
+`503 QOREID_PATIENT_NIN_BINDING_DISABLED` by default and production refuses the
+flag.
 
 hid-system#68 also bounds activation in time (N2(b), N2(c)). An activation
 whose contact was proved more than 30 minutes earlier answers
