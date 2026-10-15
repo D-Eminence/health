@@ -2,7 +2,8 @@
  * Response envelope handling.
  *
  * hid-system returns RFC 7807 style Problem Details containing `detail`,
- * `code`, `correlationId`, and optional field `errors`. The historical bearer
+ * `code`, `correlationId`, and optional field `errors`; from 0094 a problem
+ * may also carry `fields`, field names to short result codes. The historical bearer
  * transport also used a legacy envelope, which remains readable here.
  *
  * This module reads both without guessing at anything else, and is the only
@@ -50,6 +51,26 @@ export interface ParsedErrorEnvelope {
   readonly requestId: string | null
   readonly retryable: boolean | null
   readonly details: unknown
+  /** Field names to short result codes; null when the problem has none. */
+  readonly fields: Readonly<Record<string, string>> | null
+}
+
+/** A result code is a short machine code such as `no_match`; anything longer is not one. */
+const RESULT_CODE = /^[A-Za-z0-9_.-]{1,64}$/
+
+/**
+ * The problem's `fields` member (hid-system 0094, INTERFACE_CONTRACT.md
+ * section 6): an object of field names to short result codes, never a
+ * submitted or stored value. Only names with such a code are kept, so a
+ * later or malformed shape cannot carry a value into a page.
+ */
+function readFields(value: unknown): Readonly<Record<string, string>> | null {
+  if (!isRecord(value)) return null
+  const fields: Record<string, string> = {}
+  for (const [name, code] of Object.entries(value)) {
+    if (typeof code === 'string' && RESULT_CODE.test(code)) fields[name] = code
+  }
+  return Object.keys(fields).length > 0 ? Object.freeze(fields) : null
 }
 
 /**
@@ -88,6 +109,7 @@ export function parseErrorEnvelope(
     retryable: typeof retryableValue === 'boolean' ? retryableValue : null,
     details: record && Object.prototype.hasOwnProperty.call(record, 'errors') ? record.errors
       : record && Object.prototype.hasOwnProperty.call(record, 'details') ? record.details : null,
+    fields: readFields(record?.fields),
   }
 }
 
