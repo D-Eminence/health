@@ -78,6 +78,8 @@ const ADMIN_PROBLEMS: Readonly<Record<string, string>> = {
 
   // Clinician applications (hid-system ADR-064, branch claude/clinician-self-signup at fa58e2b): the queue's
   // three commands, and the workforce codes (0087) step 2 can return. None of them means someone else edited.
+  CLINICIAN_QUEUE_UNAVAILABLE: 'This Identity has no clinician queue yet (hid-system ADR-064 is not deployed), so '
+    + 'applications cannot be listed or reviewed here.',
   CLINICIAN_APPLICATION_NOT_FOUND: 'This application no longer exists or is not available to you. Reload the list.',
   CLINICIAN_APPLICATION_STATE_INVALID: 'This application is no longer at this step. Reload it to see its current state.',
   CLINICIAN_APPLICATION_COMMAND_INVALID: 'The server refused this step as incomplete. Tick every check, choose how identity '

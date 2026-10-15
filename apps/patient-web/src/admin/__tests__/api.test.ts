@@ -318,6 +318,20 @@ describe('platform admin API', () => {
     expect(requests[2]!.body).toEqual({ decisionCode: 'licence_not_current', reason: 'The register shows the licence expired' })
   })
 
+  it('names an Identity without the clinician queue instead of showing its bare 404', async () => {
+    const applicationId = '0f2b6d0e-6a55-4b4c-9a7e-2f4b8c1d3e5a'
+    recordFetch([
+      json({ code: 'NOT_FOUND', detail: 'Cannot GET /api/v1/admin/clinician-applications?state=open', correlationId: 'corr-1' }, 404),
+      json({ code: 'NOT_FOUND', detail: `Cannot GET /api/v1/admin/clinician-applications/${applicationId}` }, 404),
+      json({ code: 'CLINICIAN_APPLICATION_NOT_FOUND', detail: 'The application was not found' }, 404),
+    ])
+    const { adminApi } = await import('../api')
+    await expect(adminApi.clinicianApplications('open')).rejects.toMatchObject({ status: 404, code: 'CLINICIAN_QUEUE_UNAVAILABLE' })
+    await expect(adminApi.clinicianApplication(applicationId)).rejects.toMatchObject({ status: 404, code: 'CLINICIAN_QUEUE_UNAVAILABLE' })
+    // The queue's own answer for a missing application is kept as it is.
+    await expect(adminApi.clinicianApplication(applicationId)).rejects.toMatchObject({ status: 404, code: 'CLINICIAN_APPLICATION_NOT_FOUND' })
+  })
+
   it('never sends a clinician review command without a version to match', async () => {
     const requests = recordFetch()
     const { adminApi } = await import('../api')

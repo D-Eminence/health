@@ -105,6 +105,8 @@ describe('admin failure messages', () => {
       [409, 'WORKFORCE_ACCOUNT_INELIGIBLE', /can’t hold staff access/],
       [409, 'WORKFORCE_STAFF_INELIGIBLE', /staff record/],
       [409, 'WORKFORCE_EMAIL_IN_USE', /may have applied by themselves: check Clinician applications/],
+      // An Identity without ADR-064 (admin/api.ts names its bare 404 so).
+      [404, 'CLINICIAN_QUEUE_UNAVAILABLE', /^This Identity has no clinician queue yet \(hid-system ADR-064 is not deployed\)/],
     ]
     for (const [status, code, message] of expected) {
       const text = failure(problem(status, code), 'fallback')

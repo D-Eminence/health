@@ -334,6 +334,23 @@ async function cursorPage<T>(page: Promise<CursorPage<T>>): Promise<CursorPage<T
   return { items: value.items, nextCursor: value.nextCursor ?? null }
 }
 
+/**
+ * An Identity without hid-system ADR-064 has no queue: its 404 names no
+ * clinician code (`NOT_FOUND`, with a detail naming the route). It is said as
+ * that, never as a missing application or in the router's words.
+ */
+async function clinicianQueue<T>(read: Promise<T>): Promise<T> {
+  try {
+    return await read
+  } catch (error) {
+    if (isHidApiError(error) && error.status === 404 && error.code === 'NOT_FOUND') {
+      throw new HidApiError(404, 'The clinician queue is not available from this Identity.',
+        { code: 'CLINICIAN_QUEUE_UNAVAILABLE', requestId: error.requestId, retryable: false })
+    }
+    throw error
+  }
+}
+
 export const adminApi = {
   login(email: string, password: string, token: string) {
     return request<PlatformLoginChallenge>('/api/v1/auth/admin/login', { method: 'POST', auth: 'none',
@@ -502,12 +519,12 @@ export const adminApi = {
    * The query carries no personal data.
    */
   clinicianApplications(state: ClinicianApplicationFilter, page: { cursor?: string; limit?: number } = {}, signal?: AbortSignal) {
-    return cursorPage(request<CursorPage<ClinicianApplicationSummary>>('/api/v1/admin/clinician-applications', { signal,
-      query: { state, ...(page.limit ? { limit: page.limit } : {}), ...(page.cursor ? { cursor: page.cursor } : {}) } }))
+    return clinicianQueue(cursorPage(request<CursorPage<ClinicianApplicationSummary>>('/api/v1/admin/clinician-applications', {
+      signal, query: { state, ...(page.limit ? { limit: page.limit } : {}), ...(page.cursor ? { cursor: page.cursor } : {}) } })))
   },
   /** A2: one application with what both steps need, its warnings and the caller's hints. */
   clinicianApplication(applicationId: string, signal?: AbortSignal) {
-    return request<ClinicianApplicationDetail>(at('/api/v1/admin/clinician-applications', applicationId), { signal })
+    return clinicianQueue(request<ClinicianApplicationDetail>(at('/api/v1/admin/clinician-applications', applicationId), { signal }))
   },
   /** A3, step 1: the checklist, the evidence reference, the validity and a live code the applicant reads out. */
   attestClinicianApplication(application: ClinicianApplicationRef, input: ClinicianAttestation, idempotencyKey: string) {
