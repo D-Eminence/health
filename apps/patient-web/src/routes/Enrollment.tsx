@@ -63,15 +63,26 @@ const SIGN_OUT_FIRST = new Set(['PATIENT_ENROLLMENT_REQUIRES_SIGN_OUT', 'GOOGLE_
 const requiresSignOut = (reason: unknown) => isHidApiError(reason) && reason.status === 409 && SIGN_OUT_FIRST.has(reason.code)
 
 /**
- * Since hid-system #50 every sign-in, refresh and sign-out in this browser expires
- * the enrollment cookie, and each step then answers 404 ENROLLMENT_NOT_FOUND
- * (patient-enrollment.service.ts requireEnrollment). The start sent again with the
- * same key and NIN restores it (the key is kept for as long as this page is), while
- * a new key is refused as a duplicate for a day.
+ * A registration this page no longer finds answers 404 ENROLLMENT_NOT_FOUND
+ * (patient-enrollment.service.ts requireEnrollment): since hid-system #50 every
+ * sign-in, refresh and sign-out in this browser expires its cookie, and since
+ * #84 and #85 (0093, 0094) it is also removed by a later proof of the same NIN
+ * elsewhere, after 409 NIN_ALREADY_REGISTERED, or after 24 hours (Health-id
+ * alignment row 10). The start key is kept for as long as this page is: the
+ * same key and NIN resume a registration whose cookie alone was lost. A new
+ * key is a new registration and a new paid NIN lookup since #84, never a
+ * refusal (row 17).
  */
 const enrollmentEnded = (reason: unknown) => isHidApiError(reason) && reason.status === 404 && reason.code === 'ENROLLMENT_NOT_FOUND'
-const ENDED = 'This enrollment ended on this device because someone signed in or out here.'
-const ENDED_HERE = `${ENDED} Enter the same NIN to continue it.`
+const ENDED = 'This registration is no longer open on this device. It may have expired after 24 hours, been replaced by a newer registration for the same NIN, or ended when someone signed in or out in this browser.'
+const ENDED_HERE = `${ENDED} Enter your NIN to start again.`
+/**
+ * 409 ENROLLMENT_HOLDER_PROOF_REQUIRED at activation (hid-system #84, ADR-062):
+ * the database finds no valid holder proof, for example after the facility
+ * stopped taking part. The kept key would only resume that registration, so it
+ * is dropped and the patient starts again at the NIN step (row 9).
+ */
+const HOLDER_PROOF_REQUIRED = 'We could not confirm that this NIN is yours, so this registration can\'t be finished. Start again with your NIN, and prove it with a code or at a participating facility.'
 const ENDS_ENROLLMENT = 'Signing out also ends an enrollment in progress on this device; continue it by entering the same NIN before reloading this page.'
 /**
  * Whether a new enrollment may start (hid-system#68, FE-4): only `200 { open: true }`
@@ -532,6 +543,9 @@ export function Enrollment() {
       setStepHint(null)
       setStage('complete')
     } catch (reason) {
+      // The NIN was bound since the holder proof (row 8), or the proof is no longer valid (row 9).
+      if (refusedWith(reason, 409, 'NIN_ALREADY_REGISTERED')) { showAlreadyRegistered(reason); return }
+      if (refusedWith(reason, 409, 'ENROLLMENT_HOLDER_PROOF_REQUIRED')) { freshStart(); sayError(HOLDER_PROOF_REQUIRED); return }
       if (contactReverifyRequired(reason)) {
         // The contact typed on this page is kept, so a new code goes to it with one press (PA-10).
         setStage('contact'); setChallengeId(null); setMaskedContact(''); setCode(''); setPassword(''); setStepHint(null)

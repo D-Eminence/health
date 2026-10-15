@@ -20,7 +20,7 @@ vi.mock('../Turnstile', () => ({
 }))
 
 const NIN = '12345678901'
-const ENDED = /This enrollment ended on this device/
+const ENDED = /This registration is no longer open on this device/
 const notFound = () => new HidApiError(404, 'No pending enrollment was found', { code: 'ENROLLMENT_NOT_FOUND' })
 const signOutFirst = () => new HidApiError(409, 'Sign out before starting or continuing a new Health ID enrollment',
   { code: 'PATIENT_ENROLLMENT_REQUIRES_SIGN_OUT' })
@@ -46,9 +46,10 @@ async function startEnrollment() {
  * enrollment cookie (identity enrollment-cookie.ts clearEnrollmentCookie), and
  * without it each enrollment step answers 404 ENROLLMENT_NOT_FOUND
  * (patient-enrollment.service.ts requireEnrollment). A start sent again with the
- * same Idempotency-Key and NIN restores the cookie; a new key is refused as a
- * duplicate for 24 hours. So the page goes back to the NIN step, keeps the key it
- * started with, and says to enter the same NIN.
+ * same Idempotency-Key and NIN restores the cookie; since hid-system #84 a new
+ * key is a new registration and a new NIN lookup. So the page goes back to the
+ * NIN step, keeps the key it started with, and says why the registration may
+ * have ended (Health-id alignment row 10).
  */
 describe('an enrollment that ended on this device', () => {
   it('goes back to the NIN step when a step finds it gone, and continues it with the same key', async () => {
@@ -58,7 +59,7 @@ describe('an enrollment that ended on this device', () => {
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Verify code' })) })
 
     const nin = await screen.findByLabelText('National Identification Number')
-    expect(screen.getByText(ENDED).textContent).toMatch(/Enter the same NIN to continue it\./)
+    expect(screen.getByText(ENDED).textContent).toMatch(/Enter your NIN to start again\.$/)
     expect(screen.queryByLabelText('Verification code')).toBeNull()
     expect(screen.queryByText(/sent to a\*\*\*@example\.com/)).toBeNull()
 
