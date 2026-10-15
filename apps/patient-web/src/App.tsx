@@ -11,9 +11,11 @@ import { Recovery } from './routes/Recovery'
 import { PrincipalRecovery } from './routes/PrincipalRecovery'
 import { AccessPage, NotificationsPage, PortalShell, ProfilePage, RecordsPage, SettingsPage } from './routes/Portal'
 import { resolveStaffProductHostname, isPlatformAdminHostname, PLATFORM_ADMIN_ROUTE, STAFF_RECOVERY_PATH } from './productHostname'
+import { CLINICIAN_SIGNUP_PATH } from './productHostname'
 
 const StaffApp = lazy(async () => ({ default: (await import('./staff/App')).App }))
 const ProviderEnrollment = lazy(async () => ({ default: (await import('./staff/routes/ProviderEnrollment')).ProviderEnrollment }))
+const ClinicianSignUp = lazy(async () => ({ default: (await import('./staff/routes/ClinicianSignUp')).ClinicianSignUp }))
 const AdminApp = lazy(async () => ({ default: (await import('./admin/App')).App }))
 
 function PatientNotFound() {
@@ -69,6 +71,8 @@ export function App() {
   return <ProductHostnameGate><Routes>
     <Route path={STAFF_RECOVERY_PATH} element={<PrincipalRecovery audience="staff" />} />
     <Route path="/provider/enroll" element={<Suspense fallback={<main><p role="status">Opening provider enrollment…</p></main>}><ProviderEnrollment /></Suspense>} />
+    {/* Clinician self sign-up (hid-system ADR-064): public, outside the provider workspace and its session. */}
+    <Route path={CLINICIAN_SIGNUP_PATH} element={<Suspense fallback={<main><p role="status">Opening clinician sign-up…</p></main>}><ClinicianSignUp /></Suspense>} />
     <Route path="/admin/recover" element={<PrincipalRecovery audience="admin" />} />
     <Route path="/provider/*" element={<Suspense fallback={<main><p role="status">Opening provider workspace…</p></main>}><StaffApp /></Suspense>} />
     <Route path="/admin/*" element={<Suspense fallback={<main><p role="status">Opening platform workspace…</p></main>}><AdminApp /></Suspense>} />

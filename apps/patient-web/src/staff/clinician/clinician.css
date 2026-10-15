@@ -1,0 +1,52 @@
+/*
+ * Clinician self sign-up and its status page, drawn on provider enrollment's
+ * card (index.css, .patient-*). Not in a layer, so these hold over the
+ * card's component rules for the controls they draw: a radio or a checkbox in
+ * a .patient-form is not a full-width text field. Checked at 320px.
+ */
+.clinician-heading:focus { outline: none; }
+.clinician-card { overflow-wrap: anywhere; }
+
+/* Six steps wrap onto two rows on a phone rather than squeezing their names. */
+.clinician-steps { flex-wrap: wrap; }
+.clinician-steps li { flex: 1 1 4.75rem; min-width: 0; }
+
+.clinician-fieldset { display: grid; gap: 10px; min-width: 0; margin: 0; padding: 0; border: 0; }
+.clinician-fieldset legend { margin-bottom: 8px; padding: 0; color: var(--color-ink); font-size: 13px; font-weight: 600; }
+.clinician-choice { display: flex; align-items: flex-start; gap: 10px; color: var(--color-ink); font-size: 14px; font-weight: 500; line-height: 1.45; }
+.patient-form .clinician-choice input, .clinician-choice input { flex: 0 0 auto; width: 18px; height: 18px; min-height: 0; margin: 2px 0 0; padding: 0; accent-color: var(--color-brand); }
+.clinician-choice small { display: block; color: var(--color-muted); font-size: 12px; }
+.clinician-field-error { margin: 0; color: #9b211d; font-size: 12px; line-height: 1.45; }
+.clinician-search { display: grid; gap: 10px; }
+.clinician-help summary { color: var(--color-brand); font-size: 13px; font-weight: 600; cursor: pointer; }
+.clinician-help p { margin: 8px 0 0; color: var(--color-muted); font-size: 13px; line-height: 1.5; }
+.clinician-help a, .clinician-links a, .clinician-panel a { color: var(--color-brand); font-weight: 600; text-decoration: underline; }
+
+.clinician-error-summary { padding: 12px 14px; border: 2px solid #b42318; border-radius: var(--radius-control); background: #fff0ef; color: #9b211d; font-size: 14px; }
+.clinician-error-summary h3 { margin: 0 0 6px; font-size: 15px; }
+.clinician-error-summary ul { display: grid; gap: 4px; margin: 0; padding-left: 20px; }
+.clinician-error-summary a { color: #9b211d; font-weight: 600; text-decoration: underline; }
+.clinician-error-summary:focus { outline: 2px solid #b42318; outline-offset: 2px; }
+
+.clinician-actions, .clinician-links { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; }
+.clinician-links { margin: 0; padding: 0; list-style: none; font-size: 14px; }
+.clinician-panel { display: grid; gap: 14px; margin-top: 26px; }
+.clinician-panel p { margin: 0; color: var(--color-ink); font-size: 14px; line-height: 1.5; }
+
+.clinician-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 14px; margin: 0; font-size: 14px; line-height: 1.45; }
+.clinician-facts dt { color: var(--color-muted); }
+.clinician-facts dd { margin: 0; color: var(--color-ink); overflow-wrap: anywhere; }
+@media (max-width: 420px) {
+  .clinician-facts { grid-template-columns: minmax(0, 1fr); }
+  .clinician-facts dd { margin-bottom: 6px; }
+}
+
+.clinician-applications { display: grid; gap: 16px; margin: 22px 0 0; padding: 0; list-style: none; }
+.clinician-application { display: grid; gap: 10px; min-width: 0; padding: 18px; border: 1px solid var(--color-line-strong); border-radius: var(--radius-card); background: var(--color-surface); overflow-wrap: anywhere; }
+.clinician-application h2 { margin: 0; color: var(--color-ink); font-size: 18px; font-weight: 600; }
+.clinician-application p { margin: 0; color: var(--color-ink); font-size: 14px; line-height: 1.5; }
+
+.clinician-dialog-backdrop { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 16px; background: rgb(15 23 42 / .5); }
+.clinician-dialog { display: grid; gap: 14px; width: min(100%, 26rem); max-height: calc(100svh - 32px); overflow: auto; padding: 22px; border-radius: var(--radius-dialog); background: var(--color-surface); box-shadow: var(--shadow-dialog); }
+.clinician-dialog h2 { margin: 0; color: var(--color-ink); font-size: 18px; }
+.clinician-dialog p { margin: 0; color: var(--color-ink); font-size: 14px; line-height: 1.5; }

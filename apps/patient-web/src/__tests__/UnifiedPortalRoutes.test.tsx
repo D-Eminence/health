@@ -31,6 +31,12 @@ vi.mock('../staff/api', () => ({
     records: calls.staffRecords, createRecord: calls.staffCreateRecord, consentStatus: calls.staffConsentStatus },
   isAllowedPatientLookup: (value: { authorization?: { decision?: string } }) => value.authorization?.decision === 'allow',
 }))
+const clinician = vi.hoisted(() => ({ availability: vi.fn(), current: vi.fn() }))
+vi.mock('../staff/clinicianApplicationApi', () => ({
+  clinicianApplicationApi: clinician,
+  newClinicianIdempotencyKey: () => 'key-1',
+  CLINICIAN_REGULATOR_OF: { doctor: 'MDCN', nurse: 'NMCN' },
+}))
 vi.mock('../admin/api', () => ({
   adminApi: { session: calls.adminSession, refresh: calls.adminRefresh },
   adminSessionAccount: () => null, setAdminSessionAccount: () => undefined, closeAdminSession: () => undefined,
@@ -241,6 +247,17 @@ describe('unified authenticated portal routes', () => {
     expect(screen.getByTestId('portal-path').textContent).toBe('/provider/recover')
     expect(calls.staffSession).not.toHaveBeenCalled()
     expect(calls.patientSession).not.toHaveBeenCalled()
+  })
+
+  it('opens clinician sign-up outside the provider workspace, without a staff session', async () => {
+    clinician.availability.mockResolvedValue({ open: true })
+    open('/provider/join')
+    expect(await screen.findByRole('heading', { level: 1, name: 'Apply as a doctor or nurse' })).toBeTruthy()
+    expect(screen.getByRole('textbox', { name: 'Work email' })).toBeTruthy()
+    expect(calls.staffSession).not.toHaveBeenCalled()
+    expect(calls.staffRefresh).not.toHaveBeenCalled()
+    expect(calls.patientSession).not.toHaveBeenCalled()
+    expect(screen.getByTestId('portal-path').textContent).toBe('/provider/join')
   })
 
   it('opens platform administration sign in directly under /admin', async () => {
