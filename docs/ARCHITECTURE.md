@@ -259,8 +259,10 @@ patient's own device shows a desk code; the staff and console screens are:
   address or logged, and the screen shows no NIN, record value, contact or
   Health ID: a mismatch is shown per field as `match`, `no_match` or
   `not_in_record`, from the problem's `fields` member, which `@hid/http` keeps
-  as `HidApiError.fields` (field names to short result codes only; never in
-  log summaries). No answer of this route restores, ends or signs out the
+  as `HidApiError.fields` (field names to `match`, `no_match` or
+  `not_in_record` only: any other value, even one shaped like a code such as
+  a surname, is dropped; never in log summaries). A field without one of
+  those three words is shown as "no result given". No answer of this route restores, ends or signs out the
   session. A date of birth the date control cannot report (partly typed, or
   impossible such as 31 February: its value is then empty and only
   `validity.badInput` says so) is refused at the field, so a check is never

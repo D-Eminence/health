@@ -31,7 +31,7 @@ export interface HidApiErrorOptions {
   readonly requestId?: string | null
   readonly retryable?: boolean
   readonly details?: unknown
-  /** Field names to short result codes from the problem's `fields` member. */
+  /** Field names to result codes from the problem's `fields` member. */
   readonly fields?: Readonly<Record<string, string>> | null
   readonly cause?: unknown
 }
@@ -44,9 +44,10 @@ export class HidApiError extends Error {
   readonly retryable: boolean
   readonly details: unknown
   /**
-   * The problem's `fields` member: field names to short result codes such as
-   * `match` or `no_match`, never a submitted or stored value (hid-system 0094).
-   * Null when the problem has none.
+   * The problem's `fields` member: field names to the result codes `match`,
+   * `no_match` or `not_in_record`, never a submitted or stored value
+   * (hid-system 0094); the client drops any other value. Null when the problem
+   * has none.
    */
   readonly fields: Readonly<Record<string, string>> | null
 

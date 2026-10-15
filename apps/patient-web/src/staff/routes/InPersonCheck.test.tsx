@@ -197,6 +197,22 @@ describe('the staff in-person check (hid-system #85, ADR-063)', () => {
     expect(second).not.toBe(first)
   })
 
+  it('shows no result, never the value, for a field whose answer is not one of the three result words', async () => {
+    // The contract sends only match, no_match or not_in_record; anything else, such as a record value, is not shown.
+    api.assistedVerification.mockRejectedValueOnce(problem(422, 'ASSISTED_VERIFICATION_NOT_MATCHED', 'Not matched.',
+      { firstName: 'match', lastName: 'OKAFOR', dateOfBirth: '1988-01-15' }))
+    render(<InPersonCheck />)
+    fill()
+    submit()
+    const results = await screen.findByRole('list', { name: 'Result for each detail' })
+    expect(within(results).getAllByRole('listitem').map(item => item.textContent)).toEqual([
+      'First name: matches',
+      'Last name: no result given',
+      'Date of birth: no result given',
+    ])
+    expect(document.body.textContent).not.toMatch(/OKAFOR|1988-01-15/)
+  })
+
   it('says a date of birth was needed when none was typed and the record has one', async () => {
     api.assistedVerification.mockRejectedValueOnce(problem(422, 'ASSISTED_VERIFICATION_NOT_MATCHED', 'Not matched.',
       { firstName: 'match', lastName: 'match', dateOfBirth: 'no_match' }))

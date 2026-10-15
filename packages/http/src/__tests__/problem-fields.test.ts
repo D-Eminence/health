@@ -5,7 +5,7 @@ import { HidApiError } from '../errors'
 
 /**
  * hid-system 0094 (D-Eminence/hid-system#85, INTERFACE_CONTRACT.md section 6):
- * a problem may carry `fields`, field names to short result codes and never a
+ * a problem may carry `fields`, field names to result codes and never a
  * submitted or stored value. `422 ASSISTED_VERIFICATION_NOT_MATCHED` sends
  * `{ firstName, lastName, dateOfBirth }`, each `match`, `no_match` or
  * `not_in_record`; staff need it to see which field differed.
@@ -46,14 +46,25 @@ describe('problem fields', () => {
     expect(new HidApiError(503, 'Unavailable').fields).toBeNull()
   })
 
-  it('keeps only names with a short code, never another shape', () => {
+  it('keeps only names with a result code, never another shape', () => {
     expect(parseErrorEnvelope({ fields: ['firstName'] }, { status: 422 }).fields).toBeNull()
     expect(parseErrorEnvelope({ fields: 'no_match' }, { status: 422 }).fields).toBeNull()
     expect(parseErrorEnvelope({ fields: { firstName: 'match', lastName: { value: 'OKAFOR' }, dateOfBirth: 7 } },
       { status: 422 }).fields).toEqual({ firstName: 'match' })
     expect(parseErrorEnvelope({ fields: { lastName: { value: 'OKAFOR' } } }, { status: 422 }).fields).toBeNull()
-    // A result code is a short machine code; anything longer is not one.
+    // A long code is not one either.
     expect(parseErrorEnvelope({ fields: { firstName: 'x'.repeat(65) } }, { status: 422 }).fields).toBeNull()
+  })
+
+  it('keeps only the contract\'s result codes, so a value shaped like a code never reaches a page', () => {
+    // A registry surname, a date of birth or a first name fits a short-code pattern; none is a result code.
+    expect(parseErrorEnvelope({ fields: { firstName: 'Chukwuemeka', lastName: 'OKAFOR', dateOfBirth: '1990-04-02' } },
+      { status: 422 }).fields).toBeNull()
+    expect(parseErrorEnvelope({ fields: { firstName: 'match', lastName: 'OKAFOR', dateOfBirth: 'not_in_record' } },
+      { status: 422 }).fields).toEqual({ firstName: 'match', dateOfBirth: 'not_in_record' })
+    // The words are exact: another case or a near word is not one of them.
+    expect(parseErrorEnvelope({ fields: { firstName: 'MATCH', lastName: 'no-match', dateOfBirth: 'matched' } },
+      { status: 422 }).fields).toBeNull()
   })
 
   it('leaves the fields out of the log summary', () => {
