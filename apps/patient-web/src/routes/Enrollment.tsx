@@ -6,8 +6,14 @@ import { GoogleButton } from '../GoogleButton'
 import { Turnstile } from '../Turnstile'
 import { BrandLogo } from '../BrandLogo'
 import { useSession } from '../session'
-import { describedBy, isFieldProblem, useDocumentTitle, useStepFocus } from '../authSteps'
+import { isFieldProblem, useDocumentTitle, useStepFocus } from '../authSteps'
 import { useActionFocus } from './actionFocus'
+import { NinStep } from './enrollment/NinStep'
+import { ContactStep } from './enrollment/ContactStep'
+import { ContactCodeStep } from './enrollment/ContactCodeStep'
+import { PasswordStep } from './enrollment/PasswordStep'
+import { Complete } from './enrollment/Complete'
+import { RegistrationClosed } from './enrollment/RegistrationClosed'
 
 type Stage = 'nin' | 'contact' | 'otp' | 'password' | 'complete'
 
@@ -41,15 +47,6 @@ const ENDS_ENROLLMENT = 'Signing out also ends an enrollment in progress on this
  * holder step ships; the notice is Identity's own wording for the start's 503.
  */
 type Registration = 'open' | 'closed' | 'unknown'
-const REGISTRATION_CLOSED = 'New Health ID registration is not open yet. If you already have a Health ID, sign in.'
-/**
- * Enrollment's limits (hid-system #61 and #50): wrong codes spend one budget per
- * contact, so the fifth within 15 minutes refuses every code, a correct one too,
- * and sends no new one, for 15 minutes; and one enrollment's activation attempts
- * are limited to 15 in 15 minutes. Both answers are the step's usual refusal.
- */
-const CODE_BUDGET_HINT = 'After 5 wrong codes within 15 minutes for the same contact, every code is refused, even a correct one, and no new code is sent to it, for 15 minutes.'
-const ACTIVATION_LIMIT_HINT = 'This enrollment has had too many activation attempts. Wait about 15 minutes, then activate again: the enrollment is kept.'
 /**
  * A contact proved more than 30 minutes before activation is proved again
  * (hid-system#68, N2(c), ADR-048): activation answers 409 and has already sent
@@ -68,14 +65,6 @@ const REVERIFY_CODE_SENT = 'Your contact was verified more than 30 minutes ago, 
  */
 const notAtPasswordStep = (reason: unknown) => isHidApiError(reason) && reason.status === 409
   && reason.code === 'ENROLLMENT_STAGE_INVALID'
-/**
- * The HID is shown only here (hid-system#68, N2(a) and N2(b)): the activation
- * response expires the enrollment cookie, and if that response is lost
- * GET /current shows the HID for 15 minutes after activation only. Until it is
- * also sent to the verified contact, a patient who verified only a phone signs
- * in and resets their password with it.
- */
-const SAVE_HID = 'Save your Health ID now: write it down or keep it somewhere safe. This page may not show it again once you leave or reload it, and never more than 15 minutes after activation.'
 
 export function Enrollment() {
   const { state, api, acceptGoogleSession, otherPortalSession, retrySessionCheck } = useSession()
@@ -310,8 +299,9 @@ export function Enrollment() {
   const startOffered = stage !== 'nin' || registration === 'open'
   const closed = ready && stage === 'nin' && registration === 'closed'
   // The error is about the stage's field when the server refused its value.
-  const invalid = fieldError ? true : undefined
+  const invalid = fieldError ? true as const : undefined
   const errorId = fieldError ? 'enroll-error' : undefined
+  const stepProps = { focusTarget: stepFocus.target, busy, invalid, errorId }
 
   return <main className="patient-auth-page">
     <section className="patient-auth-card patient-enroll-card" aria-labelledby="enroll-title">
@@ -343,43 +333,18 @@ export function Enrollment() {
       {/* Not at a NIN step that offers no start, where Google is not offered either. */}
       {googleRequired && !googlePending && startOffered && <p role="status" className="patient-inline-error">Reconnect the Google account used to start this enrollment.</p>}
       {ready && stage === 'nin' && registration === 'unknown' && <div className="patient-inline-error" role="alert"><p>We could not check whether new Health ID registration is open. Try again before starting.</p><button ref={retryInPlaceOfNin} type="button" className="patient-secondary-button" onClick={() => { retriedCheck.current = true; setCheckKey(value => value + 1) }}>Try again</button></div>}
-      {closed && <section className="patient-success" aria-labelledby="enroll-closed-title">
-        <h2 id="enroll-closed-title" ref={stepFocus.target} tabIndex={-1}>Registration is not open yet</h2>
-        <p role="status">{REGISTRATION_CLOSED}</p>
-        <Link className="patient-primary-button" to="/sign-in">Sign in</Link>
-        <Link className="patient-text-button" to="/recover">Forgot password?</Link>
-      </section>}
-      {ready && stage === 'nin' && registration === 'open' && <form onSubmit={event => void submitNin(event)} className="patient-form">
-        <label>National Identification Number<input ref={stepFocus.target} required inputMode="numeric" autoComplete="off" value={nin} onChange={event => setNin(event.target.value.replace(/\D/g, '').slice(0, 11))} pattern="[0-9]{11}" maxLength={11} placeholder="11 digits"
-          aria-invalid={invalid} aria-describedby={describedBy('enroll-nin-hint', errorId)} /></label>
-        <p id="enroll-nin-hint" className="patient-field-hint">Your NIN is 11 digits. It is verified by the existing Health ID identity service. It is not stored in this browser.</p>
-        <Turnstile action="patient-enrollment" onTokenChange={setTurnstileToken} resetKey={resetKey} />
-        <button type="submit" className="patient-primary-button" disabled={busy || !turnstileToken || nin.length !== 11 || (googleRequired && !googlePending)}>{busy ? 'Verifying…' : 'Verify NIN'}</button>
-      </form>}
-      {ready && stage === 'contact' && <form onSubmit={event => void submitContact(event)} className="patient-form">
-        <h2>Where should we send your code?</h2>
-        <label>Contact method<select value={channel} onChange={event => setChannel(event.target.value as 'phone' | 'email')}><option value="phone">Phone</option><option value="email">Email</option></select></label>
-        <label>{channel === 'phone' ? 'Phone number' : 'Email address'}<input ref={stepFocus.target} required type={channel === 'phone' ? 'tel' : 'email'} autoComplete={channel === 'phone' ? 'tel' : 'email'} value={contact} onChange={event => setContact(event.target.value)}
-          aria-invalid={invalid} aria-describedby={errorId} /></label>
-        <button type="submit" className="patient-primary-button" disabled={busy}>{busy ? 'Sending…' : 'Send verification code'}</button>
-      </form>}
-      {ready && stage === 'otp' && <form onSubmit={event => void submitCode(event)} className="patient-form">
-        <h2>Verify your contact</h2><p id="enroll-code-hint" className="patient-field-hint">Enter the six digit code sent to {maskedContact || 'your contact'}.</p>
-        <label>Verification code<input ref={stepFocus.target} required inputMode="numeric" autoComplete="one-time-code" value={code} onChange={event => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))} pattern="[0-9]{6}" maxLength={6}
-          aria-invalid={invalid} aria-describedby={describedBy('enroll-code-hint', errorId)} /></label>
-        <button type="submit" className="patient-primary-button" disabled={busy || code.length !== 6}>{busy ? 'Checking…' : 'Verify code'}</button>
-        {/* The note on a refused code is about that code: a new one starts without it. */}
-        <button type="button" className="patient-text-button" disabled={busy} onClick={() => { setCode(''); setChallengeId(null); setStepHint(null); clearError(); setStage('contact'); stepFocus.focus() }}>Request another code or change contact</button>
-        {stepHint === 'code' && <p className="patient-field-hint">{CODE_BUDGET_HINT}</p>}
-      </form>}
-      {ready && stage === 'password' && <form onSubmit={event => void submitPassword(event)} className="patient-form">
-        <h2>Activate your account</h2><p id="enroll-password-hint" className="patient-field-hint">Choose a password of at least 12 characters.</p>
-        <label>Password<input ref={stepFocus.target} required type="password" autoComplete="new-password" minLength={12} maxLength={256} value={password} onChange={event => setPassword(event.target.value)}
-          aria-invalid={invalid} aria-describedby={describedBy('enroll-password-hint', errorId)} /></label>
-        <button type="submit" className="patient-primary-button" disabled={busy || password.length < 12 || (googleRequired && !googlePending)}>{busy ? 'Activating…' : 'Activate Health ID'}</button>
-        {stepHint === 'activation' && <p className="patient-field-hint">{ACTIVATION_LIMIT_HINT}</p>}
-      </form>}
-      {ready && stage === 'complete' && <div className="patient-success" role="status"><h2 ref={stepFocus.target} tabIndex={-1}>Your Health ID is ready.</h2><strong>{hidCode}</strong><p>{SAVE_HID}</p><p>Sign in with your verified email or Health ID and new password. With a verified phone number, your Health ID is how you sign in and reset your password.</p><Link className="patient-primary-button" to="/sign-in">Sign in</Link></div>}
+      {closed && <RegistrationClosed focusTarget={stepFocus.target} />}
+      {ready && stage === 'nin' && registration === 'open' && <NinStep {...stepProps} nin={nin} onNin={setNin} onSubmit={event => void submitNin(event)}
+        turnstile={<Turnstile action="patient-enrollment" onTokenChange={setTurnstileToken} resetKey={resetKey} />}
+        blocked={!turnstileToken || (googleRequired && !googlePending)} />}
+      {ready && stage === 'contact' && <ContactStep {...stepProps} channel={channel} onChannel={setChannel} contact={contact} onContact={setContact}
+        onSubmit={event => void submitContact(event)} />}
+      {ready && stage === 'otp' && <ContactCodeStep {...stepProps} maskedContact={maskedContact} code={code} onCode={setCode} onSubmit={event => void submitCode(event)}
+        onAnotherCode={() => { setCode(''); setChallengeId(null); setStepHint(null); clearError(); setStage('contact'); stepFocus.focus() }}
+        budgetNote={stepHint === 'code'} />}
+      {ready && stage === 'password' && <PasswordStep {...stepProps} password={password} onPassword={setPassword} onSubmit={event => void submitPassword(event)}
+        blocked={googleRequired && !googlePending} limitNote={stepHint === 'activation'} />}
+      {ready && stage === 'complete' && <Complete focusTarget={stepFocus.target} hidCode={hidCode} />}
       {import.meta.env.VITE_HID_GOOGLE_CLIENT_ID && ready && startOffered && stage !== 'complete' && !googlePending && <section className="patient-auth-separator" aria-label="Google enrollment">
         <span>{googleRequired ? 'Reconnect Google' : 'Continue with Google'}</span>
         <Turnstile action="patient-login" onTokenChange={setGoogleTurnstileToken} resetKey={googleResetKey} />
