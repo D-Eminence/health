@@ -190,7 +190,11 @@ proxies only Identity and EHR at launch. Every Lab, Pharmacy, OCR and Outreach
 route answers `404 API_ROUTE_NOT_FOUND` with no detail, while those modules'
 read permissions stay seeded, so their workspaces still open. Each says that
 the module is not in service on this deployment and that refreshing will not
-help, instead of the client's generic "not found" (hand-off MOD-1).
+help, instead of the client's generic "not found" (hand-off MOD-1). Since
+hid-system#75 (migration 0091) no role holds any of those modules'
+permissions, so the workspaces are hidden by permission; the dashboard's
+Health ID Migrate card and `/provider/migrate`, which lead only to Document
+OCR, are shown only with `ocr.job.read`, as the OCR workspace is.
 
 Break-glass access is audited by Identity, and the portal offers it only to a
 role holding every permission the grant and the summary need. EHR's dedicated

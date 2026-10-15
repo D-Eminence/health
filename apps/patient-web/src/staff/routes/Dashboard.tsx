@@ -40,6 +40,7 @@ export function Dashboard() {
       {activePatient && <Card className="staff-card"><h2>Current patient</h2><p>{activePatient.lookup.patient.fullName ?? activePatient.hid}</p><Link to="/provider/clinical" className="staff-text-link">Open clinical record →</Link></Card>}
     </div>}
     <section className="staff-section"><h2>Workspaces</h2><div className="staff-grid">{modules.filter(module => permissions.includes(module.permission)).map(module => <Link className="staff-module" key={module.to} to={module.to}><strong>{module.title}</strong><span>{module.detail}</span><small>Open workspace →</small></Link>)}</div>{facility && modules.every(module => !permissions.includes(module.permission)) && <p className="staff-muted">Your active facility has no clinical module permissions. Ask an administrator to review your assignment.</p>}</section>
-    <Card className="staff-card staff-gap-card"><h2>Health ID Migrate</h2><p>Document capture, extraction, validation, and publication use the governed OCR API. Bulk import, project matching, and team operations need additional backend support.</p><Link to="/provider/ocr" className="staff-text-link">Open document workflow →</Link></Card>
+    {/* It leads only to Document OCR, which a role without ocr.job.read cannot open: OCR is closed at launch, and no role holds it (hid-system 0091). */}
+    {permissions.includes('ocr.job.read') && <Card className="staff-card staff-gap-card"><h2>Health ID Migrate</h2><p>Document capture, extraction, validation, and publication use the governed OCR API. Bulk import, project matching, and team operations need additional backend support.</p><Link to="/provider/ocr" className="staff-text-link">Open document workflow →</Link></Card>}
   </>
 }

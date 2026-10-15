@@ -1410,4 +1410,22 @@ first. hid-system was not changed.
   nothing, and the page shows the refusal. No other 403 asks anything. Failing
   first: 5 tests (the session client's three cases, the shared-browser case
   and the records page).
+- **Health ID Migrate card (hid-system#75, migration 0091).** OCR is closed
+  at launch, and since 0091 no role holds any `ocr.*` permission, so the
+  Document OCR workspace is hidden. The provider dashboard still showed every
+  role a "Health ID Migrate" card leading to it, and `/provider/migrate` opened
+  for anyone with its own link to Document OCR. Both now show only with
+  `ocr.job.read`, as the OCR workspace does; the page otherwise says it is
+  unavailable, with its own main landmark and h1 (the investigation asked for
+  the route as well as the card). Failing first: 2 tests (the card hidden, the
+  page unavailable).
+- **Evidence and gates.** Each commit's failing and passing runs are kept
+  outside the repository. At each commit `typecheck`, `lint`,
+  `audit:boundaries` and `build:patient-web` pass, and `npm test` passes in
+  full (from 138 files and 1819 tests on `main` to 140 files and 1835 tests).
+- **Not verified.** Component tests with the network stubbed. Nothing was run
+  in a browser, at runtime, on staging or against a live hid-system.
+- **Deploy order.** The admin console needs an Identity with hid-system#76,
+  and the encounter and vitals wording an EHR with hid-system#74: this portal
+  is to be deployed with or after hid-system `8f3eff1`.
 
