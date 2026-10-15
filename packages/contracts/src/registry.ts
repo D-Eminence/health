@@ -191,10 +191,14 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('admin.facilities','admin','/api/v1/admin/facilities',G,false,one('GET','platform.facility.read')),
   r('admin.facility','admin','/api/v1/admin/facilities/:facilityId',G,false,one('GET','platform.facility.read')),
   r('admin.facilityStatus','admin','/api/v1/admin/facilities/:facilityId/status',P,false,one('POST','platform.facility.manage')),
-  r('admin.principals','admin','/api/v1/admin/principals',G,false,one('GET','platform.principal.read')),
-  { ...r('admin.principalsExport','admin','/api/v1/admin/principals/export',G,false,one('GET','platform.principal.export'),
-    'CSV response; use a dedicated download transport. Requires step-up; at most 5,000 rows.'),
-    requiredQuery: { GET: ['reason'] }, responseKind: 'download' },
+  // hid-system A24 (ADR-059, #76): the search terms and the export reason go in the JSON body, out of
+  // URLs and access logs. The deprecated GET forms (GET /principals and GET /principals/export) are not
+  // registered, so the browser cannot put a name, an email address or a reason in a URL.
+  r('admin.principalsSearch','admin','/api/v1/admin/principals/search',P,false,one('POST','platform.principal.read'),
+    'Body { query, page, pageSize, status? }; answers as GET /principals did. CSRF; no step-up, reason, If-Match or Idempotency-Key.'),
+  { ...r('admin.principalsExport','admin','/api/v1/admin/principals/export',P,false,one('POST','platform.principal.export'),
+    'Body { reason, query?, status? }. CSV response; use a dedicated download transport. Requires step-up; at most 5,000 rows.'),
+    responseKind: 'download' },
   r('admin.principalStatus','admin','/api/v1/admin/principals/:accountId/status',P,false,one('POST','platform.principal.manage')),
   r('admin.principalRoles','admin','/api/v1/admin/principals/:accountId/platform-roles',P,false,one('POST','platform.role.manage')),
   r('admin.principalRevokeSessions','admin','/api/v1/admin/principals/:accountId/sessions/revoke',P,false,one('POST','platform.session.revoke')),

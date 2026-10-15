@@ -300,7 +300,16 @@ authorization. Since Stage 2B the admin UI signs in to the separate MFA-verified
 platform session (`/auth/admin/*`, `hid_access_admin*` cookies) and answers the
 backend's `STEP_UP_REQUIRED` with an authenticator confirmation before repeating
 the same command once; see
-[Phase 4 Stage 2B](./PHASE_4_STAGE_2B_FRONTEND_SECURITY.md).
+[Phase 4 Stage 2B](./PHASE_4_STAGE_2B_FRONTEND_SECURITY.md). Since the launch
+alignment with hid-system `main` `8f3eff1` the user search and the principal
+export send their terms, and the export its audited reason, in a JSON body
+(`POST /admin/principals/search` and `POST /admin/principals/export`,
+hid-system#76, A24), with the platform CSRF token like every platform cookie
+`POST`. The registry holds no `GET` form of either, so no name, email address
+or reason goes into a URL that browser history or an access log keeps. Being
+`POST`s, neither is repeated automatically; the export keeps its download
+transport and row headers. An Identity without hid-system#76 answers both
+`404`, so the console is deployed with or after it.
 
 Clinical responses use `cache: 'no-store'`; screens show loading, empty and
 error states for backend reads. `@hid/observability` handles redaction for

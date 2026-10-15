@@ -1350,3 +1350,24 @@ made the portal show something untrue, and Health-id #51
   - hid-system#65 addresses A7, not re-verified;
   - a new ask, MOD-1: withdraw closed modules' read permissions, or expose
     the enabled modules.
+
+## 2026-10-15: launch alignment with hid-system `main` `8f3eff1`
+
+hid-system `main` at `8f3eff1` is what production is to run. Read-only, its
+contract (`docs/INTERFACE_CONTRACT.md`) and code show five things Health-id
+`main` `077b85c` gets wrong or does not use. Each is fixed on
+`claude/launch-alignment-fixes` in its own commit, with tests that failed
+first. hid-system was not changed.
+
+- **Admin principal search and export (A24, hid-system#76).** The console sent
+  the search term (a name or an email address) and the export's audited reason
+  in `GET` query strings, which access logs keep. The search is now
+  `POST /admin/principals/search` with `{ query, page, pageSize, status? }` and
+  the export `POST /admin/principals/export` with `{ reason, query?, status? }`,
+  both with the platform CSRF token. The export keeps its download transport,
+  its row headers and its no-retry; the search, now a `POST`, is not repeated
+  automatically either. The registry drops the `GET` forms, so neither can be
+  sent with its terms in the URL. The screens are unchanged. Failing first: 6
+  tests (the admin API's search, export and route list, the registry and the
+  registered client).
+

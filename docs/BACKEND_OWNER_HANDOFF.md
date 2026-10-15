@@ -18,6 +18,8 @@
 >     - A15 (#59): a document left `initiated` says the upload was not completed and that only the person who started it can finish it.
 >     - A5 and B5 (#60): OCR's `503 EHR_SERVICE_AUTH_UNAVAILABLE`, `LAB_SERVICE_AUTH_UNAVAILABLE` and `PHARMACY_SERVICE_AUTH_UNAVAILABLE` read as a failed connection between services (behind the gateway these also arrive as `503 UPSTREAM_UNAVAILABLE`, A8); `OCR_PUBLICATION_IN_PROGRESS` also names "no attempts remain"; the publication key is held per signed-in account.
 >     - E19 (#55, #61) and #50: after a refused code, recovery and enrollment say what a spent code budget does; recovery offers "Start again for a new code" once `resendAfterSeconds` has passed; an enrollment that a sign-in or sign-out on the device ended continues from the NIN step with the same start key; and `429 ENROLLMENT_RATE_LIMITED` at activation is explained.
+>   - Launch alignment (Health-id branch `claude/launch-alignment-fixes`, against hid-system `main` `8f3eff1`, which production is to run):
+>     - A24 (#76): the console searches users with `POST /admin/principals/search` and exports with `POST /admin/principals/export`, the terms and the reason in the JSON body with the platform CSRF token. The registry holds no `GET` form, so hid-system can remove the deprecated `GET /admin/principals` and `GET /admin/principals/export` once no earlier console is deployed.
 >   - Not done from section 9's frontend list: Sign out on "No facility assignment" (A10); Reject is still offered on a `required` specimen (A12); prescription Cancel and Hold after a handoff are still offered, with the warning (A1); no Pharmacy join for dispensing status (B6); no break-glass grant recovery by replay (B11). Patient recovery offers "Use a different email or Health ID" at once, so a restart with the same account's other identifier within `resendAfterSeconds` gets an id with no code (section 11, A13 residuals).
 >   - Deploy order: the alignment PR's Lab actions need an EHR with #56, deployed after the Lab with #56 (C2); see open questions.
 
@@ -566,7 +568,7 @@ Source findings: BE-NESTED-VALIDATION-ERRORS (scope narrowed by the verifier).
 
 ### A24 (P2). Admin principal search and export put names, emails and audit reasons in GET query strings
 
-**Status at `bbc6e89`: still open.**
+**Status at `bbc6e89`: still open.** **Since `8f3eff1`:** #76 added both `POST` routes and keeps the `GET` forms for one release; the Health-id console uses only the `POST` forms since the launch alignment (`claude/launch-alignment-fixes`), so the frontend part is done and the `GET` forms can go once no earlier console is deployed.
 
 **Problem.** Search terms (names, emails), status and the export's audit reason travel in the URL, which gateway and edge access logs record in full.
 
