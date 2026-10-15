@@ -4,7 +4,7 @@ import { Field, Input } from '@hid/ui'
 import { describedBy } from '../../authSteps'
 import { CLINICIAN_REGULATOR_OF, clinicianApplicationApi, type ClinicianApplicationDetails, type ClinicianFacility,
   type ClinicianProfession } from '../clinicianApplicationApi'
-import { PROFESSION_CHOICE, REGULATOR_NAME, SIGNUP_CLOSED, codeOf, refusalCopy } from './copy'
+import { PROFESSION_CHOICE, REGULATOR_NAME, SIGNUP_CLOSED, codeOf, lagosToday, refusalCopy } from './copy'
 import { fieldError, type Problem } from './ui'
 
 /**
@@ -52,15 +52,24 @@ function searchQuery(value: string): string {
   return value.trim().replace(/\s+/g, ' ')
 }
 
-function isoDate(date: Date): string {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+/**
+ * A calendar date moved by whole years, then days, in UTC so no time zone
+ * shifts it. As Postgres adds an interval of years, a day the target month
+ * lacks (29 February) becomes that month's last day.
+ */
+function shiftDate(value: string, years: number, days = 0): string {
+  const [year, month, day] = value.split('-').map(Number) as [number, number, number]
+  const lastDay = new Date(Date.UTC(year + years, month, 0)).getUTCDate()
+  return new Date(Date.UTC(year + years, month - 1, Math.min(day, lastDay) + days)).toISOString().slice(0, 10)
 }
 
-/** The licence dates Identity accepts: after today and within five years (it checks again in Lagos time). */
-export function licenceDateBounds(today = new Date()) {
-  const tomorrow = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1)
-  const latest = new Date(today.getFullYear() + 5, today.getMonth(), today.getDate())
-  return { min: isoDate(tomorrow), max: isoDate(latest) }
+/**
+ * The licence dates Identity accepts (P4, P14): after today and no later than
+ * today plus five years, both in Lagos, as Identity checks them.
+ */
+export function licenceDateBounds(now = new Date()) {
+  const today = lagosToday(now)
+  return { min: shiftDate(today, 0, 1), max: shiftDate(today, 5) }
 }
 
 function realDate(value: string): boolean {

@@ -90,6 +90,17 @@ export function refusalCopy(caught: unknown, fallback: string, rateLimited = 'To
 }
 
 const DATE = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Africa/Lagos' })
+const LAGOS_DAY = new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Lagos', year: 'numeric', month: '2-digit', day: '2-digit' })
+
+/**
+ * Today's date (`YYYY-MM-DD`) in Lagos, where Identity reads licence and
+ * verification dates, whatever the device's own time zone.
+ */
+export function lagosToday(now = new Date()): string {
+  const parts = LAGOS_DAY.formatToParts(now)
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find(item => item.type === type)?.value ?? ''
+  return `${part('year')}-${part('month')}-${part('day')}`
+}
 
 /** A date as applicants in Nigeria read it; nothing for a value Identity did not give. */
 export function formatDate(value: string | null | undefined): string | null {

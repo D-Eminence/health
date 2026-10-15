@@ -395,6 +395,37 @@ describe('your details', () => {
     press('Continue')
     expect(within(await screen.findByRole('alert')).getByRole('link', { name: 'Your licence must still be valid after today.' })).toBeTruthy()
   })
+
+  it('takes today in Lagos, where Identity checks the licence date, whatever the device clock says', async () => {
+    // 23:30 UTC on 15 October is already 16 October in Lagos (UTC+1 all year): that day is "today" there, and refused.
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-15T23:30:00.000Z'))
+    await toDetails()
+    await fillDetails()
+    const date = screen.getByLabelText(/^Licence valid until/) as HTMLInputElement
+    expect(date.min).toBe('2026-10-17')
+    expect(date.max).toBe('2031-10-16')
+    type(date, '2026-10-16')
+    press('Continue')
+    expect(within(await screen.findByRole('alert')).getByRole('link', { name: 'Your licence must still be valid after today.' })).toBeTruthy()
+    type(date, '2031-10-17')
+    press('Continue')
+    await waitFor(() => expect(within(screen.getByRole('alert')).getByRole('link', { name: 'Enter a date within the next five years.' })).toBeTruthy())
+    // Lagos today + 5 years is the last date Identity takes.
+    type(date, '2031-10-16')
+    press('Continue')
+    await stepShown('Password and declarations')
+  })
+
+  it('keeps the five-year limit on a real date when today in Lagos is 29 February', async () => {
+    // Identity adds an interval of 5 years: 29 February 2028 + 5 years is 28 February 2033, not 1 March.
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2028-02-29T12:00:00.000Z'))
+    await toDetails()
+    const date = screen.getByLabelText(/^Licence valid until/) as HTMLInputElement
+    expect(date.min).toBe('2028-03-01')
+    expect(date.max).toBe('2033-02-28')
+  })
 })
 
 describe('the password, declarations and submit', () => {

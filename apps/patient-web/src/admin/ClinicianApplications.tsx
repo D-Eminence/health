@@ -10,7 +10,7 @@ import {
   LoadMore, Page, Refresh, ResourceView, date, label, useCursorPages, useGovernedSubmit, useResource, useUrlFilters,
 } from './ui'
 import { isSixDigitCode, sixDigitCode } from '../mfa/codes'
-import { decisionCopy, REGULATOR_NAME } from '../staff/clinician/copy'
+import { decisionCopy, lagosToday, REGULATOR_NAME } from '../staff/clinician/copy'
 
 /**
  * The clinician verification queue (hid-system ADR-064, branch
@@ -131,14 +131,6 @@ function day(value: string | null | undefined) {
   if (!value || !ISO_DAY.test(value)) return date(value)
   const parsed = new Date(`${value}T00:00:00Z`)
   return Number.isNaN(parsed.getTime()) ? 'Not available' : DAY.format(parsed)
-}
-
-/** Today's date in Lagos, where the backend reads licence and verification dates. */
-function lagosToday(): string {
-  const parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Lagos', year: 'numeric', month: '2-digit',
-    day: '2-digit' }).formatToParts(new Date())
-  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find(item => item.type === type)?.value ?? ''
-  return `${part('year')}-${part('month')}-${part('day')}`
 }
 
 function shiftDay(value: string, years: number, days = 0): string {
