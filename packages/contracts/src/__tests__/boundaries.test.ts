@@ -155,6 +155,49 @@ describe('application boundaries', () => {
     expect(() => assertEndpointAllowed('staff-web', 'auth.googleExchange')).toThrow(BoundaryViolationError)
   })
 
+  it('registers clinician self sign-up (hid-system ADR-064) for the provider portal only', () => {
+    const base = '/api/v1/identity/clinician-applications'
+    const applicationId = '0f2b6d0e-6a55-4b4c-9a7e-2f4b8c1d3e5a'
+    const routes = [
+      ['enrollment.clinicianAvailability', `${base}/availability`, 'GET', `${base}/availability`],
+      ['enrollment.clinicianEmailCode', `${base}/email-code`, 'POST', `${base}/email-code`],
+      ['enrollment.clinicianEmailVerify', `${base}/email-code/verify`, 'POST', `${base}/email-code/verify`],
+      ['enrollment.clinicianFacilitySearch', `${base}/facility-search`, 'POST', `${base}/facility-search`],
+      ['enrollment.clinicianSubmit', base, 'POST', base],
+      ['enrollment.clinicianAuthenticatorEmailCode', `${base}/authenticator/email-code`, 'POST', `${base}/authenticator/email-code`],
+      ['enrollment.clinicianAuthenticatorStart', `${base}/authenticator/start`, 'POST', `${base}/authenticator/start`],
+      ['enrollment.clinicianAuthenticatorActivate', `${base}/authenticator/activate`, 'POST', `${base}/authenticator/activate`],
+      ['enrollment.clinicianAuthenticatorVerify', `${base}/authenticator/verify`, 'POST', `${base}/authenticator/verify`],
+      ['enrollment.clinicianAuthenticatorChallenge', `${base}/authenticator/challenge`, 'POST', `${base}/authenticator/challenge`],
+      ['enrollment.clinicianStatusEmailCode', `${base}/status/email-code`, 'POST', `${base}/status/email-code`],
+      ['enrollment.clinicianStatusEmailVerify', `${base}/status/email-code/verify`, 'POST', `${base}/status/email-code/verify`],
+      ['enrollment.clinicianCurrent', `${base}/current`, 'GET', `${base}/current`],
+      ['enrollment.clinicianWithdraw', `${base}/:applicationId/withdraw`, 'POST', `${base}/${applicationId}/withdraw`],
+      ['enrollment.clinicianApply', `${base}/current/applications`, 'POST', `${base}/current/applications`],
+      ['enrollment.clinicianSessionEnd', `${base}/session/end`, 'POST', `${base}/session/end`],
+    ] as const
+    for (const [name, path, method, example] of routes) {
+      expect(findEndpoint(name), name).toMatchObject({ service: 'enrollment', path, methods: [method], auth: { kind: 'public' } })
+      expect(assertRegisteredBrowserRequest(method, example).name).toBe(name)
+      expect(() => assertRegisteredBrowserRequest(method === 'GET' ? 'POST' : 'GET', example), name).toThrow(BrowserRouteError)
+      expect(() => assertEndpointAllowed('staff-web', name)).not.toThrow()
+      // The pages sit in the portal's provider area: the patient portal, the console and the public site are refused.
+      for (const app of ['patient-web', 'admin-web', 'public-web'] as const) {
+        expect(() => assertEndpointAllowed(app, name), `${app}: ${name}`).toThrow(BoundaryViolationError)
+      }
+    }
+    expect(APP_ROUTE_GRANTS['staff-web']?.enrollment?.filter(name => name.startsWith('enrollment.clinician'))).toHaveLength(routes.length)
+  })
+
+  it('keeps the public site\'s enrollment routes as they were', () => {
+    for (const name of ['enrollment.start', 'enrollment.availability', 'enrollment.current', 'enrollment.google',
+      'enrollment.contact', 'enrollment.verifyContact', 'enrollment.activate', 'enrollment.providerStart',
+      'enrollment.providerVerify', 'enrollment.providerActivate', 'identity.organizationApply',
+      'identity.organizationCompletionStart', 'identity.organizationCompletionVerify', 'identity.organizationCompletionProfile']) {
+      expect(() => assertEndpointAllowed('public-web', name), name).not.toThrow()
+    }
+  })
+
   it('refuses an admin endpoint in a patient application', () => {
     expect(() => assertEndpointAllowed('patient-web','admin.overview')).toThrow(BoundaryViolationError)
   })
