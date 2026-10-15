@@ -459,6 +459,25 @@ or reason goes into a URL that browser history or an access log keeps. Being
 transport and row headers. An Identity without hid-system#76 answers both
 `404`, so the console is deployed with or after it.
 
+The console's clinician verification queue (`/admin/clinicians`,
+`admin/ClinicianApplications.tsx`; hid-system ADR-064, built against the
+unmerged branch `claude/clinician-self-signup` at `fa58e2b`) is shown for
+`platform.workforce.manage` and links an application by its ID only. It uses
+the console's own pieces: the state filter in the address, the backend's
+cursor per state, `useGovernedSubmit` (one Idempotency-Key per submission,
+repeated only by the step-up), `If-Match` with the version shown, and a
+reason on every command. The server's caller hints choose which panel shows
+(step 1, step 2, reject); the commands decide. Step 2 is never offered to the
+administrator who recorded step 1, whatever a hint says. Step 1 sends a live
+code the applicant reads from their own authenticator, from a field with
+`autocomplete="off"`, so the browser never offers the reviewer's one-time
+code there. Every outcome reloads the application; a changed application
+(`VERSION_CONFLICT`, or a step no longer open) is reloaded and said to have
+changed, and a lost answer is reloaded and said to be unconfirmed. The words a
+rejection shows the applicant come from the status page's own copy
+(`decisionCopy` in `staff/clinician/copy.ts`), so the console and the
+applicant read the same sentence.
+
 Clinical responses use `cache: 'no-store'`; screens show loading, empty and
 error states for backend reads. `@hid/observability` handles redaction for
 diagnostics. Public variables are checked for secret-like names and values at

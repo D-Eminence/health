@@ -1805,3 +1805,90 @@ not built.
   linked) says it couldn't load the applications, with Retry.
   Intake must stay off (`clinician_signup_enabled`) until the administrators'
   queue ships: without it no application can be approved.
+
+## 2026-10-15: clinician self sign-up, the administrators' queue (hid-system ADR-064)
+
+The same branch (`claude/clinician-signup-pages`) adds the platform console's
+clinician verification queue, against hid-system's unmerged branch
+`claude/clinician-self-signup` (`fa58e2b`): its RESULT contract §4.3 (A1-A5),
+`ClinicianApplicationAdminService`, `admin-command-error.ts` and
+`identity.admin_get_clinician_application` (C18). Until this, no application
+could be approved.
+
+- **Contracts.** Five admin routes (`admin.clinicianApplications`,
+  `admin.clinicianApplication`, `admin.clinicianApplicationAttest`,
+  `...Approve`, `...Reject`), each `platform.workforce.manage`, reached by the
+  console through its `admin` grant only. `admin/api.ts` lists by state with
+  the cursor and limit only when given, and sends the three commands through
+  `adminApi.command` with `If-Match`, the submission's `Idempotency-Key` and
+  the platform CSRF token.
+- **Queue, `/admin/clinicians`** (`admin/ClinicianApplications.tsx`, "People
+  and access", shown for `platform.workforce.manage`): Open (the three
+  undecided states, oldest first) and each state, newest first, as
+  `aria-pressed` filters kept in the address; Load more with that state's
+  cursor. Each card: applicant, profession and regulator, licence and expiry,
+  facility and organisation, dates, authenticator, and who recorded step 1
+  ("You", with "Needs a different Super Admin").
+- **Application, `/admin/clinicians/:applicationId`** (by ID only, never a
+  name, email or licence in the address): every field in a `dl`; Identity's
+  warnings in words; the account, its other facilities and its
+  authenticator ("Set up on", "Not set up: step 1 is unavailable", "Set up
+  after a password reset"); the facility with its CAC hint and its
+  administrators "(not sufficient alone to confirm employment)"; the step-1
+  record, the approval and the decision with both reasons.
+- **Step 1 (A3)**, shown while the application is submitted and the caller's
+  hint allows it (otherwise the reason in words): the licence, identity and
+  employment checklist in fieldsets, the applicant's live code read out on
+  the call (`autocomplete="off"`, so the browser never offers the reviewer's
+  own one-time code), the evidence reference, the verification date and a
+  reason. The date defaults to the earlier of the licence expiry and a year,
+  is limited to the licence expiry and three years, and is sent as the end
+  of that day in Lagos (`T23:59:59+01:00`), the cap the backend applies. A
+  refused or rate-limited code clears and focuses only that field.
+- **Step 2 (A4)** is never offered to the administrator who recorded step 1,
+  whatever a hint says. It names the grant ("Grants Doctor at {facility} to
+  {name}"), the role's permissions in plain words, and explains
+  `CLINICIAN_APPLICATION_SECOND_ADMIN_REQUIRED` and an authenticator reset
+  after step 1 (reject with "Other").
+- **Reject (A5)**: the nine decision codes, each with the words the applicant
+  will see (the status page's copy, now exported from
+  `staff/clinician/copy.ts` as `decisionCopy`), an internal reason, and for
+  `identity_not_confirmed` that the account cannot apply again, with a link
+  to Users & roles to lock it.
+- **Outcomes.** A focused notice, then the application is read again. A
+  replay says it was already done with that submission; `VERSION_CONFLICT` or
+  `CLINICIAN_APPLICATION_STATE_INVALID` reloads and says the application
+  changed; an answer that was lost (a network failure or a 5xx) reloads and
+  says the outcome is unconfirmed, never success or failure. The step-up
+  repeats the same submission (same key and body), as everywhere in the
+  console. `admin/problems.ts` words every refusal of the three commands and
+  the workforce codes step 2 can return.
+- **Controls.** `clinician_signup_enabled` gets a note on the Platform controls
+  page (what it opens, and to open it only when the queue is staffed); it is
+  turned on and off like any other control.
+- **Departures from the design.** The code field is labelled "Applicant’s
+  authenticator code" (the step-up dialog's own field is "Authenticator
+  code"). C18 gives only a flag for a facility administrator with the
+  applicant's name, so the warning names no administrator; the facility's
+  administrators are listed below it. A retry after a lost answer is a new
+  submission with a new key, as the console's other commands are; the
+  reload shows whether the first went through. The Overview has no clinician
+  tile.
+- **An Identity without the queue.** Its bare `404 NOT_FOUND` (whose detail
+  names the route) is read by `admin/api.ts`, on the list and on one
+  application, as `CLINICIAN_QUEUE_UNAVAILABLE`, which says the queue is not
+  deployed; the queue's own `CLINICIAN_APPLICATION_NOT_FOUND` is kept.
+- **Evidence.** Failing first: the boundary test, three API tests and the
+  problems test (`381561d`); the queue's 30 tests (the page missing), and the
+  controls, navigation and route tests (`0b3b798`); the bare-404 API test and
+  its problems row (`3c82383`). At each commit `audit:boundaries`,
+  `typecheck`, `lint`, `npx vitest run`, `build:patient-web` and
+  `audit:launch-build` pass. `npx vitest run`: before the queue 156 files and
+  2118 tests; now 157 files and 2157 tests.
+- **Not verified.** Component tests with the network stubbed, against the
+  backend branch's code; nothing was run in a browser or against a running
+  Identity, and no step was taken by two real administrators.
+- **Deploy order.** As for the applicant pages: Identity with ADR-064 first.
+  Against an Identity without it the queue says it is not deployed there.
+  `clinician_signup_enabled` stays off until the release checklist's P25
+  conditions hold; this queue was one of them.
