@@ -69,6 +69,9 @@ function SignUp() {
   const [accurate, setAccurate] = useState(false)
   const [consent, setConsent] = useState(false)
   const [submitted, setSubmitted] = useState<ClinicianSubmitted | null>(null)
+  // The application page (Identity's capability cookie) once the application is submitted: open, being closed, or closed.
+  const [pageState, setPageState] = useState<'open' | 'closing' | 'closed'>('open')
+  const [closeError, setCloseError] = useState<{ id: number; message: string } | null>(null)
   // One key per submission, reused only when the same submission is sent again (never stored).
   const submission = useRef<{ key: string; fingerprint: string } | null>(null)
 
@@ -194,6 +197,27 @@ function SignUp() {
       ?? refusalCopy(caught, "We couldn't submit your application right now. Your details are still here; try again.",
         'Too many applications were sent from your network. Try again later.')))
     focusOn('clinician-password')
+  }
+
+  /**
+   * Ends the application page on this device (P15), as the status page's
+   * "Close this page" does: until then anyone at this browser could open the
+   * applications without a code, for up to 30 minutes.
+   */
+  async function closePage() {
+    if (pageState !== 'open') return
+    setPageState('closing')
+    setCloseError(null)
+    try {
+      await clinicianApplicationApi.endSession()
+    } catch {
+      setPageState('open')
+      setCloseError(shownError("This page couldn't be closed right now. Try again."))
+      focusOn('clinician-signup-close')
+      return
+    }
+    setPageState('closed')
+    focusOn('clinician-signup-closed')
   }
 
   function differentEmail() {
@@ -331,6 +355,14 @@ function SignUp() {
         video call: have your photo ID and your authenticator app ready. A second administrator must approve before you can sign in to
         the provider portal. We keep applications open for 30 days.</p>
       <div><Link className="patient-primary-button" to={CLINICIAN_STATUS_PATH}>View application status</Link></div>
+      <p className="patient-page-copy">This page stays open on this device for up to 30 minutes, so your application can be checked here
+        without a code. On a shared computer, close it when you're done.</p>
+      <StepError error={closeError} />
+      {pageState === 'closed'
+        ? <p id="clinician-signup-closed" tabIndex={-1} role="status" className="patient-inline-success">This page is closed on this
+          device. To check your application, enter your email on the status page.</p>
+        : <div><TextButton id="clinician-signup-close" onClick={() => void closePage()} disabled={pageState === 'closing'}>
+          {pageState === 'closing' ? 'Closing…' : 'Close this page'}</TextButton></div>}
     </section>}
 
     <p className="patient-auth-footer">Already applied? <Link to={CLINICIAN_STATUS_PATH}>Check an application's status</Link>.

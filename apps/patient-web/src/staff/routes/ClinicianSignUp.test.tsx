@@ -653,6 +653,47 @@ describe('the authenticator, before any review', () => {
   })
 })
 
+describe('closing the page once the application is submitted', () => {
+  async function toDone() {
+    await toAuthenticator()
+    press('Email me a code')
+    await stepShown('Enter the code we emailed you')
+    type(textbox('Email code'), '654321')
+    press('Continue')
+    await stepShown('Add Health ID to your authenticator app')
+    type(textbox('Authenticator code'), '112233')
+    press('Activate authenticator')
+    await stepShown('Save your recovery codes')
+    fireEvent.click(screen.getByRole('checkbox', { name: 'I have stored these recovery codes somewhere safe' }))
+    press('Continue to your application')
+    await stepShown('Application submitted')
+  }
+
+  it('offers to close the page on this device, for a shared computer', async () => {
+    api.endSession.mockResolvedValueOnce(undefined)
+    await toDone()
+    expect(screen.getByText(/This page stays open on this device for up to 30 minutes/)).toBeTruthy()
+    press('Close this page')
+    const closed = await screen.findByText('This page is closed on this device. To check your application, enter your email on the status page.')
+    await waitFor(() => expect(document.activeElement).toBe(closed))
+    expect(closed.getAttribute('role')).toBe('status')
+    expect(api.endSession).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('button', { name: 'Close this page' })).toBeNull()
+    expect(screen.getByRole('link', { name: 'View application status' }).getAttribute('href')).toBe('/provider/join/status')
+  })
+
+  it('says when the page could not be closed, gives focus back to the button, and closes on the next press', async () => {
+    api.endSession.mockRejectedValueOnce(problem(503, 'CLINICIAN_APPLICATION_UNAVAILABLE')).mockResolvedValueOnce(undefined)
+    await toDone()
+    press('Close this page')
+    expect((await screen.findByRole('alert')).textContent).toBe("This page couldn't be closed right now. Try again.")
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Close this page' })))
+    press('Close this page')
+    expect(await screen.findByText(/This page is closed on this device/)).toBeTruthy()
+    expect(api.endSession).toHaveBeenCalledTimes(2)
+  })
+})
+
 describe('nothing kept in the browser', () => {
   it('writes nothing to local or session storage and puts nothing identifying in the address', async () => {
     const setItem = vi.spyOn(Storage.prototype, 'setItem')
