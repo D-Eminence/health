@@ -1,0 +1,18 @@
+/*
+ * The authenticator steps' own layout, the same on the provider sign-in page and
+ * in provider enrollment; each page gives the text its own classes (StaffMfaLook).
+ * Not in a layer, so it holds over the pages' component rules for the controls
+ * it draws (a checkbox in a .patient-form, say).
+ */
+.hid-mfa-heading:focus { outline: none; }
+.hid-mfa-links { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; }
+.hid-mfa-setup { display: grid; gap: 14px; margin: 0; padding-left: 20px; color: var(--color-ink); font-size: 14px; line-height: 1.5; }
+.hid-mfa-setup small { display: block; margin-top: 6px; color: var(--color-muted); font-size: 12px; }
+.hid-mfa-setup a { color: var(--color-brand); font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+/* Dark on light whatever the page's colours, inside its own quiet zone: a camera reads it at this size. */
+.hid-mfa-qr { display: block; width: 200px; height: 200px; max-width: 100%; margin-top: 10px; border: 1px solid var(--color-line); border-radius: var(--radius-control); }
+.hid-mfa-key { display: block; margin-top: 10px; padding: 12px; border-radius: var(--radius-control); background: var(--color-surface-tint); color: var(--color-ink); font-size: 16px; letter-spacing: .08em; overflow-wrap: anywhere; }
+.hid-mfa-recovery { display: grid; gap: 14px; }
+.hid-mfa-codes { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin: 0; padding-left: 22px; color: var(--color-ink); font-size: 14px; }
+.hid-mfa-checkbox { display: flex; align-items: center; gap: 8px; color: var(--color-ink); font-size: 13px; font-weight: 500; }
+.hid-mfa-checkbox input { flex: 0 0 auto; width: 18px; height: 18px; min-height: 0; margin: 0; padding: 0; accent-color: var(--color-brand); }

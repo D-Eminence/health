@@ -3,7 +3,10 @@ import { NavLink, Navigate, Outlet, Route, Routes, useHref, useLinkClickHandler,
 import { BrandLogo } from '../BrandLogo'
 import { Badge, Button, ButtonLink, Card, EmptyState, Select } from '@hid/ui'
 import { isHidApiError } from '@hid/http'
-import { staffApi, type PatientLookup, type StaffLoginResult, type StaffMfaActivation, type StaffSession } from './api'
+import {
+  staffApi, type PatientLookup, type StaffEnrollmentCodeSent, type StaffLoginResult, type StaffMfaActivation, type StaffMfaEnrollment,
+  type StaffSession,
+} from './api'
 import { facilityChoiceNeeded, type FacilityChoiceReason } from './facilitySelection'
 import {
   announceStaffSessionChange, endsStaffSession, onOtherTabSessionChange, onStaffSessionEnded, onStaffSessionRead, setStaffSessionActor,
@@ -69,6 +72,10 @@ interface StaffContextValue {
   login(email: string, password: string, turnstileToken?: string): Promise<StaffLoginResult>
   /** The second step by authenticator or recovery code; answers with the session for `completeSignIn`. */
   verifyMfa(proof: { code: string } | { recoveryCode: string }): Promise<StaffSession>
+  /** A first enrolment's proof: a code emailed to the account's address. Sets no cookie. */
+  sendEnrollmentCode(): Promise<StaffEnrollmentCodeSent>
+  /** The new authenticator's secret, with the emailed code (none once the proof is verified). Sets no cookie. */
+  startEnrollment(emailCode?: string): Promise<StaffMfaEnrollment>
   /**
    * The first code of a new authenticator; answers with the session and its
    * recovery codes. The page shows the codes, then opens the session.
@@ -373,7 +380,8 @@ export function StaffProvider({ children }: { children: ReactNode }) {
   }
 
   const checkSession = useCallback(() => ask(staffSessionGeneration()), [ask])
-  const value = useMemo<StaffContextValue>(() => ({ state, lock, checkSession, activePatient, login, verifyMfa, activateEnrollment,
+  const value = useMemo<StaffContextValue>(() => ({ state, lock, checkSession, activePatient, login, verifyMfa,
+    sendEnrollmentCode: staffApi.sendEnrollmentCode, startEnrollment: staffApi.startEnrollment, activateEnrollment,
     completeSignIn, refresh, selectFacility, signOut, setActivePatient }), [state, lock, checkSession, activePatient, refresh, setActivePatient])
   return <StaffContext.Provider value={value}>{children}</StaffContext.Provider>
 }

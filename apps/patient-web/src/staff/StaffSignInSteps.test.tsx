@@ -32,9 +32,6 @@ const facility = { id: 'facility-1', membershipId: 'member-1', organizationId: '
   permissions: ['identity.consent.write'], isPrimary: true }
 const sessionBody = (id = 'staff-1') => ({ actor: { id, email: 'ada@example.test', displayName: 'Ada Clinician', roles: ['clinician'],
   permissions: [], facilities: [facility], facility }, expiresAt: '2026-10-14T12:00:00.000Z', facilitySelection: 'default' })
-/** Until the portal has the second steps' screens, the password step says it cannot go on. */
-const SECOND_STEP_UNAVAILABLE = 'Health ID now asks staff for a code from an authenticator app at sign-in, '
-  + 'and this version of the provider portal cannot ask for it yet.'
 const challenge = (status: 'mfa_required' | 'mfa_enrollment_required') => () => json({ status, expiresAt: '2026-10-14T09:05:00.000Z' })
 
 /** Serves each `METHOD /path` from its own queue and records every request. */
@@ -92,13 +89,16 @@ describe('the password step', () => {
     expect(TabChannel.posted).toEqual(['changed'])
   })
 
-  it.each([['mfa_required'], ['mfa_enrollment_required']] as const)('opens nothing when Identity asks for the second step (%s)', async status => {
+  it.each([
+    ['mfa_required', 'Verify it’s you'],
+    ['mfa_enrollment_required', 'Set up an authenticator app'],
+  ] as const)('asks for the second step Identity names (%s), opening nothing yet', async (status, step) => {
     const calls = serve({ [SESSION]: [ended], [REFRESH]: [ended], [LOGIN]: [challenge(status)] })
     await openSignIn()
     signIn()
 
-    expect((await screen.findByRole('alert')).textContent).toBe(SECOND_STEP_UNAVAILABLE)
-    expect(screen.getByRole('heading', { name: 'Welcome back.' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: step })).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: 'Welcome back.' })).toBeNull()
     expect(screen.getByTestId('where').textContent).toBe('/provider/sign-in')
     expect(screen.queryByRole('button', { name: 'Sign out' })).toBeNull()
     expect(calls).toEqual([SESSION, REFRESH, LOGIN])
@@ -106,10 +106,9 @@ describe('the password step', () => {
     expect(TabChannel.posted).toEqual([])
   })
 
+  // STAFF_MFA_FACTOR_UNPROVEN, the other right-password refusal, is said in the portal's words (StaffMfaSignIn.test.tsx).
   it.each([
     ['NO_ACTIVE_FACILITY_MEMBERSHIP', 'Your account has no active facility membership. Ask your organization administrator for access.'],
-    ['STAFF_MFA_FACTOR_UNPROVEN', 'Your authenticator was set up at platform sign-in and cannot be used for staff sign-in; '
-      + 'ask a platform administrator to reset it, then set it up again at staff sign-in'],
   ])('shows Identity\'s own words for a right password it refuses (403 %s), and stays', async (code, detail) => {
     const calls = serve({ [SESSION]: [ended], [REFRESH]: [ended], [LOGIN]: [() => problem(403, code, detail)] })
     await openSignIn()
