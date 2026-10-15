@@ -36,6 +36,7 @@ describe('admin failure messages', () => {
       [429, 'MFA_RATE_LIMITED', /locked for up to 15 minutes/],
       [503, 'MFA_UNAVAILABLE', /temporarily unavailable/],
       [409, 'MFA_NOT_ENROLLED', /no authenticator to reset/],
+      [409, 'MFA_ENROLLMENT_STAFF_SIGN_IN_REQUIRED', /set up at staff sign-in/],
       [403, 'STEP_UP_REQUIRED', /fresh authenticator confirmation \(they last 5 minutes\)\. It was not carried out/],
       [400, 'REASON_REQUIRED', /reason of 8 to 500 characters/],
       [428, 'IF_MATCH_REQUIRED', /Reload this item/],

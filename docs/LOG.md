@@ -1351,6 +1351,143 @@ made the portal show something untrue, and Health-id #51
   - a new ask, MOD-1: withdraw closed modules' read permissions, or expose
     the enabled modules.
 
+## 2026-10-15: staff sign-in with an authenticator, part 1 (hid-system#71)
+
+hid-system `main` `8f3eff1` has staff sign-in with an authenticator
+(hid-system#71, ADR-054, migration 0088), the `403 NO_ACTIVE_FACILITY_MEMBERSHIP`
+answer of hid-system#76 and the Turnstile contract of hid-system#79. None is
+deployed. Against it, Health-id `main` `077b85c` could not sign staff in: it
+took the password step's `{ status, expiresAt }` for a session, none of the
+`/auth/mfa/*` steps was registered, and a `403 STAFF_MFA_REQUIRED` was handled
+as an ordinary refusal ("Session unavailable" at load, a locked or still open
+workspace mid-session). This branch (`claude/staff-mfa-signin`) lays the
+plumbing; the second-step screens follow in part 2.
+
+- **Shared MFA pieces.** The platform console's setup-key grouping, six-digit
+  code rules and recovery-code step move to `src/mfa/` (`codes.ts`,
+  `RecoveryCodes.tsx`, drawn with each portal's classes, button and file
+  name), and `saveFile` to `src/download.ts`. The console looks and behaves as
+  before; a characterization test pins its recovery codes.
+- **Contracts.** `auth.staffMfaVerify`, `auth.staffMfaEnrollEmailCode`,
+  `auth.staffMfaEnrollStart` and `auth.staffMfaEnrollActivate` are registered
+  and granted to `staff-web` only. Staff verify takes a recovery code; there
+  is no separate staff recovery-code route.
+- **Staff API.** `verifyMfa`, `sendEnrollmentCode`, `startEnrollment` (with the
+  emailed code, or none after provider activation) and `activateEnrollment`.
+  Verify and activation wait for a sign-out or refresh in flight and take the
+  session turn. `login` reads the answer as the second step or, from an
+  Identity before #71, the session; anything else opens nothing.
+- **`403 STAFF_MFA_REQUIRED`.** Treated as the end of the session: at load the
+  refresh ends it and the portal goes to sign-in; mid-session, after a refused
+  request, a facility switch or another tab's announcement, the portal asks
+  the server and shows the session-ended screen. Both screens say Health ID now
+  asks for an authenticator code. The staff client notes the session that
+  heard the refusal, since the refresh clears the cookies and later answers no
+  longer say why. A 503 still leaves the session alone.
+- **Provider.** `login` (the password step) changes no state; `verifyMfa` and
+  `activateEnrollment` forget other tabs' announcements made before they were
+  sent; `completeSignIn` opens the workspace. The sign-in page opens an older
+  Identity's session and, against #71, says it cannot ask for the code yet.
+  Identity's own detail is shown for `403 NO_ACTIVE_FACILITY_MEMBERSHIP` and
+  `STAFF_MFA_FACTOR_UNPROVEN`; there is no staff Google sign-in.
+- **Departures from the investigation.** The registry header keeps its basis;
+  the new routes carry their own `8f3eff1` note, as other additions do. The
+  reason for an end is a per-session note in `staff/session.ts`, not the
+  refused refresh's cause, which the HTTP client drops when a protected
+  request's own refresh fails. `RecoveryCodes` takes the portal's button so
+  the staff step can use `@hid/ui`. Activation announces to other tabs at
+  once. Not done here: the admin copy for
+  `409 MFA_ENROLLMENT_STAFF_SIGN_IN_REQUIRED`, the provider enrollment
+  continuation and the QR code (part 2 and owner decisions).
+- **Evidence.** 55 tests failed first across the five commits (12 shared
+  pieces, 1 contracts, 15 API steps, 13 `STAFF_MFA_REQUIRED`, 14 two-step
+  sign-in); 9 more were written as guards that already passed (the console's
+  recovery codes, an ordinary end, the older Identity's session, Identity's
+  refusal details, no Google). At the branch head every gate passes:
+  `typecheck`, `lint`, `npm test` (144 files, 1883 tests), `audit:boundaries`
+  and `build:patient-web`.
+- **Not verified.** Component and API-client tests with the network stubbed.
+  Nothing was run in a browser, on staging or against a live hid-system.
+
+## 2026-10-15: staff sign-in with an authenticator, part 2 (hid-system#71)
+
+Part 1 laid the plumbing; against hid-system `main` `8f3eff1` (not deployed)
+the provider sign-in page still stopped after the password, provider
+enrollment activation still reloaded into a workspace with no session, and
+the platform console answered the dual-role enrolment refusal with "This item
+changed". This part (`claude/staff-mfa-signin`) builds the screens.
+
+- **QR code.** `src/mfa/OtpauthQr.tsx` draws the `otpauth://` URI Identity
+  returns at enrolment start as inline SVG (one path, a four-module quiet
+  zone, dark on light, presentation attributes only, as `style-src 'self'`
+  allows), with `qrcode-generator` 2.0.4 (MIT, no dependencies) pinned
+  exactly. No remote service sees the secret. The drawn modules were decoded
+  back to the URI with jsQR outside the repository.
+- **Staff second step** (`staff/routes/StaffMfaSteps.tsx`). `mfa_required`: the
+  six-digit code or one recovery code. `mfa_enrollment_required`: an
+  explanation and "Email me a code" (sent only on the press; sends and setup
+  starts count against 5 per 15 minutes; "Send a new code" replaces it), the
+  emailed code, the setup (QR code, grouped key, open-in-app link, deadline),
+  the first code, and the ten recovery codes shown once; the workspace opens
+  after "I have stored these recovery codes", with a session that does not
+  keep them. Refusals: a wrong code is cleared and said at its field; 429,
+  `503 MFA_UNAVAILABLE` and `MFA_ENROLLMENT_CODE_UNDELIVERABLE` keep the step;
+  `MFA_CHALLENGE_INVALID` and `STAFF_MFA_FACTOR_UNPROVEN` (two platform
+  administrators must reset the authenticator) go back to the password step;
+  `MFA_ENROLLMENT_PROOF_REQUIRED` to the email step;
+  `MFA_ENROLLMENT_PROOF_COMPLETE` on to setup with no code;
+  `MFA_ENROLLMENT_PROOF_UNAVAILABLE` stops. Each step's heading takes focus;
+  "Start again" waits for a step on its way. The password step says
+  `STAFF_MFA_FACTOR_UNPROVEN` and `MFA_UNAVAILABLE` in the portal's words.
+- **Provider enrollment.** Activation continues into the same steps on its own
+  page, with no emailed code (the activation is the proof); an account that
+  has an authenticator is asked for its code; the page reloads into the
+  workspace only after the recovery codes. A lapsed challenge sends the
+  administrator to `/provider/sign-in`. An older Identity's session still
+  opens the workspace at once.
+- **Platform console.** `409 MFA_ENROLLMENT_STAFF_SIGN_IN_REQUIRED` goes back
+  to the credentials step and says to set the authenticator up at staff
+  sign-in first.
+- **Departures from the investigation.** The steps live in one component that
+  the sign-in page and provider enrollment both draw, each with its own
+  heading level, classes and button, since enrollment sits outside the
+  provider workspace. The provider's context also offers the email code and
+  setup start. Provider activation's setup starts on "Begin setup", not on
+  arrival, so a remount never spends a start. Our words, not Identity's, for
+  `STAFF_MFA_FACTOR_UNPROVEN` at the password step. The console's copy names
+  the Provider Portal rather than linking to it: the admin host accepts no
+  staff sign-in check. No `PasswordInput` exists on this base, so the
+  password field is unchanged.
+- **Evidence.** 33 tests failed first (4 QR, 24 sign-in steps of which 2 were
+  part 1's expectations of "cannot ask for the code yet", 3 provider
+  enrollment, 2 console). At the branch head every gate passes: `typecheck`,
+  `lint`, `npm test` (146 files, 1914 tests), `audit:boundaries` and
+  `build:patient-web`. One full run before the last style commit failed once in
+  `OcrFocus.test.tsx` ("a short retry reason takes focus", a 1-second
+  `waitFor` under load); it passes alone (three runs) and in the full re-run.
+- **Review fixes.** A review found two minor defects; each test failed first.
+  - Provider enrollment never told the other tabs that verify or activation
+    set the session: the staff announcer posted only on the channel the tab
+    listens with, and `/provider/enroll`, outside the workspace, listens on
+    none. Its test passed only because it mocked the announcer. The announcer
+    now goes through `announceSessionChange`, which opens a channel for the
+    message when the tab has none (the workspace, which listens, is
+    unchanged), and an older Identity's activation announces too. The test
+    stubs `BroadcastChannel` instead; 3 cases failed before the fix.
+  - `.staff-mfa p` matched a Field's error paragraph and, being in no layer,
+    beat its `text-critical`: a refused code showed in the steps' grey. The
+    rule is `.staff-mfa > p`. The sign-in tests read the unlayered rules and
+    pin each refused code's error (id, class, description, alert); 4 cases
+    failed before the fix. `.staff-card p` (on `main` before this branch)
+    does the same to Field errors in the workspace's cards, Registration's
+    among them; it is not changed here.
+  - Every gate passes after each fix: `typecheck`, `lint`, `npm test` (146
+    files, 1914 tests), `audit:boundaries`, `build:patient-web`.
+- **Not verified.** Component tests with the network stubbed; nothing was run
+  in a browser, with a real authenticator app, on staging or against a live
+  hid-system. The QR code's look on a phone camera, and the email delivery of
+  enrolment codes (an operator item), are unchecked.
+
 ## 2026-10-15: launch alignment with hid-system `main` `8f3eff1`
 
 hid-system `main` at `8f3eff1` is what production is to run. Read-only, its
@@ -1436,4 +1573,3 @@ first. hid-system was not changed.
 - **Deploy order.** The admin console needs an Identity with hid-system#76,
   and the encounter and vitals wording an EHR with hid-system#74: this portal
   is to be deployed with or after hid-system `8f3eff1`.
-

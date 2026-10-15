@@ -61,11 +61,15 @@ export function onOtherTabSessionChange(listener: () => void): () => void {
 }
 
 /** Tells the other tabs on the channel this tab listens with; a tab that does not listen says nothing. */
-export function announceToListeningTabs(): void {
+function announceToListeningTabs(): void {
   try { tabs?.postMessage('changed') } catch { /* best effort, as for listening */ }
 }
 
-/** Tells this origin's other tabs that the browser's session changed. */
+/**
+ * Tells this origin's other tabs that the browser's session changed, from a tab
+ * that listens or not. Both portals announce here, and so does provider
+ * enrollment, whose page does not listen.
+ */
 export function announceSessionChange(): void {
   if (typeof BroadcastChannel === 'undefined') return
   if (tabs) { announceToListeningTabs(); return }

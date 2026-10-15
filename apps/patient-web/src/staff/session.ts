@@ -1,12 +1,13 @@
 import { HidApiError, isHidApiError } from '@hid/http'
-import { announceToListeningTabs, onOtherTabSessionChange } from '../sessionChange'
+import { announceSessionChange, onOtherTabSessionChange } from '../sessionChange'
 import type { StaffSession } from './api'
 
 /**
  * The end of the provider's staff session, as the staff API finds it. hid-system
  * answers an ended, expired or revoked staff session with a generic
  * 401 AUTHENTICATION_REQUIRED and gives staff clients no reason, so the portal
- * names none either. Held in memory only.
+ * names none either, with one exception: a sign-in made without an
+ * authenticator (see `staffSessionEndReason`). Held in memory only.
  */
 const listeners = new Set<(generation: number) => void>()
 
@@ -124,13 +125,15 @@ export function assertStaffSessionFacility(headers: Readonly<Record<string, stri
  * The origin's other tabs share this tab's cookies. Each tells the others when
  * its session changes (a staff or patient sign-in, a sign-out, a session end),
  * naming nothing; a tab that hears it asks the server itself. This tab announces
- * on the channel it listens with, since a channel never hears its own messages.
- * The channel is shared with the patient portal's code (../sessionChange).
+ * on the channel it listens with, since a channel never hears its own messages;
+ * a page that does not listen (provider enrollment, outside the workspace)
+ * announces on a channel opened for the message. The channel is shared with the
+ * patient portal's code (../sessionChange).
  */
 export { onOtherTabSessionChange }
 
 export function announceStaffSessionChange(): void {
-  announceToListeningTabs()
+  announceSessionChange()
 }
 
 /** Calls `listener` each time a request sent in `generation` is refused as if the session had ended. */
@@ -141,6 +144,36 @@ export function onStaffSessionEnded(listener: (generation: number) => void): () 
 
 export function reportStaffSessionEnded(sentIn: number = generation): void {
   for (const listener of [...listeners]) listener(sentIn)
+}
+
+/**
+ * Why a staff session ended, when Identity said. 'mfa-required': the sign-in was
+ * made without an authenticator (every staff sign-in from before hid-system #71
+ * and migration 0088, or one whose authenticator was reset). Identity refuses it
+ * on every guarded route with 403 STAFF_MFA_REQUIRED, the session read and the
+ * facility switch included, and its refresh answers the same and ends it.
+ */
+export type StaffSessionEndReason = 'mfa-required'
+
+export function staffMfaRequired(error: unknown): error is HidApiError {
+  return isHidApiError(error) && error.status === 403 && error.code === 'STAFF_MFA_REQUIRED'
+}
+
+/**
+ * The generation whose sign-in Identity last refused for want of an
+ * authenticator. Any staff request may hear it, a refresh included, and by the
+ * time the session is found ended the refresh has cleared the cookies, so later
+ * answers no longer say why: the staff client notes it as it arrives, and the
+ * provider names it when it ends that session.
+ */
+let mfaRequiredIn: number | null = null
+
+export function noteStaffSessionRefusal(error: unknown, sentIn: number): void {
+  if (staffMfaRequired(error)) mfaRequiredIn = sentIn
+}
+
+export function staffSessionEndReason(sentIn: number): StaffSessionEndReason | undefined {
+  return mfaRequiredIn === sentIn ? 'mfa-required' : undefined
 }
 
 /**
@@ -157,6 +190,8 @@ export function onStaffSessionRead(listener: (session: StaffSession, generation:
 }
 
 export function reportStaffSessionRead(session: StaffSession, sentIn: number): void {
+  // The browser holds a sign-in Identity accepts: an earlier refusal for want of an authenticator no longer describes it.
+  if (mfaRequiredIn === sentIn) mfaRequiredIn = null
   for (const listener of [...readListeners]) listener(session, sentIn)
 }
 
@@ -167,11 +202,14 @@ export function reportStaffSessionRead(session: StaffSession, sentIn: number): v
  * refresh rotates the session, so a retry still on its way can be refused while
  * the session lives on. The provider confirms with the server before ending it.
  * Calls under /api/v1/auth/ are never refreshed by the client; their callers
- * restore the session themselves. A 403 is an authorization refusal of one
- * request (including break-glass) and never ends the session.
+ * restore the session themselves. A 403 STAFF_MFA_REQUIRED counts the same: the
+ * sign-in was made without an authenticator and no request of it will be
+ * accepted, and the refresh the check makes ends it. Any other 403 is an
+ * authorization refusal of one request (including break-glass) and never ends
+ * the session.
  */
 export function endsStaffSession(error: unknown): boolean {
-  return isHidApiError(error) && error.status === 401
+  return isHidApiError(error) && (error.status === 401 || staffMfaRequired(error))
 }
 
 /**

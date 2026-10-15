@@ -66,3 +66,37 @@ describe('a protected request for a facility', () => {
     expect(cancelled(() => session.assertStaffSessionFacility({ 'X-FACILITY-ID': 'facility-2' }))).toBe('REQUEST_CANCELLED')
   })
 })
+
+describe('a refusal that ends the staff session', () => {
+  const refusal = async (status: number, code: string) => {
+    const { HidApiError } = await import('@hid/http')
+    return new HidApiError(status, 'detail', { code })
+  }
+
+  it('is a 401, or a 403 STAFF_MFA_REQUIRED for a sign-in made without an authenticator; no other 403 or 503', async () => {
+    const session = await import('./session')
+    expect(session.endsStaffSession(await refusal(401, 'AUTHENTICATION_REQUIRED'))).toBe(true)
+    expect(session.endsStaffSession(await refusal(403, 'STAFF_MFA_REQUIRED'))).toBe(true)
+    for (const code of ['FORBIDDEN', 'PATIENT_SCOPE_DENIED', 'FACILITY_ACCESS_DENIED', 'STAFF_MFA_FACTOR_UNPROVEN', 'CSRF_VALIDATION_FAILED']) {
+      expect(session.endsStaffSession(await refusal(403, code)), code).toBe(false)
+    }
+    expect(session.endsStaffSession(await refusal(503, 'STAFF_MFA_REQUIRED'))).toBe(false)
+    expect(session.endsStaffSession(new Error('STAFF_MFA_REQUIRED'))).toBe(false)
+  })
+
+  it('names why for the session it was heard in, until that session is read as accepted again', async () => {
+    const session = await import('./session')
+    session.startStaffSessionGeneration()
+    const sentIn = session.staffSessionGeneration()
+    session.noteStaffSessionRefusal(await refusal(401, 'AUTHENTICATION_REQUIRED'), sentIn)
+    expect(session.staffSessionEndReason(sentIn)).toBeUndefined()
+    session.noteStaffSessionRefusal(await refusal(403, 'STAFF_MFA_REQUIRED'), sentIn)
+    expect(session.staffSessionEndReason(sentIn)).toBe('mfa-required')
+    expect(session.staffSessionEndReason(sentIn + 1)).toBeUndefined()
+    // A read of another session leaves it; a read of this one, accepted, clears it.
+    session.reportStaffSessionRead({ actor: { id: 'staff-1', roles: [], permissions: [], facilities: [] } }, sentIn - 1)
+    expect(session.staffSessionEndReason(sentIn)).toBe('mfa-required')
+    session.reportStaffSessionRead({ actor: { id: 'staff-1', roles: [], permissions: [], facilities: [] } }, sentIn)
+    expect(session.staffSessionEndReason(sentIn)).toBeUndefined()
+  })
+})
