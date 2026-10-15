@@ -1784,3 +1784,60 @@ the Health-id alignment list (rows 1, 4, 5 and 7); the patient rows (1 to 3,
   panel needs an Identity with #85: an earlier one answers the read with a 404,
   which the panel shows as a failed read. `ASSISTED_REGISTRATION_ENABLED` must
   stay off until the patient screens are deployed too (hid-system P31, P33).
+
+## 2026-10-15: facility-assisted staff and console screens after review (hid-system#85)
+
+Six review findings on the screens of the entry above, checked again against
+hid-system `main` `f9dbaf0` (`docs/INTERFACE_CONTRACT.md` "Facility-assisted
+registration", `identity/assisted-registration.guard.ts`,
+`identity/assisted-verification.service.ts`, `identity/assisted-match.ts` and
+migration 0094's `auth.staff_session_is_mfa`). Two of the six are the same
+defect (a partly typed date of birth), so five changes were made; none was
+found wrong.
+
+- **A partly typed date of birth (two findings).** A date control holding an
+  unfinished or impossible date (31 February) reports an empty value, and only
+  `validity.badInput` says so. The check was sent without the date, counted
+  toward the daily budgets (20 per staff member, 100 per facility, every
+  outcome) and, when the NIN record has a date, answered `422` with "None was
+  typed". It is now refused at the field before sending: "Enter the whole date
+  of birth as written on the document, or clear the field if the document
+  shows none."
+- **`503 ASSISTED_REGISTRATION_DISABLED`.** The contract's next step is "None;
+  the route is closed", but any `5xx` kept the key and turned the button into
+  "Check again". This answer is now final: the button stays "Check the details"
+  and the next check takes a new key.
+- **`403 ASSISTED_REGISTRATION_NOT_AUTHORIZED`.** The message named three of
+  the four causes. It now says: "the facility must take part, and you need an
+  active account, a sign-in confirmed with your authenticator, an attested
+  clinical grant and an active membership here", which is what
+  `docs/OPEN-QUESTIONS.md` and `docs/BACKEND_OWNER_HANDOFF.md` already said.
+- **Designation focus.** A save, or a `409 VERSION_CONFLICT`, reads the
+  designation again; its new version replaces the form and the focused button,
+  so focus fell to the page. It now moves to the panel's heading, also after a
+  step-up dialog closes; a refusal that leaves the form in place keeps focus on
+  the button.
+- **Designation announcements.** The panel never cleared its error or notice
+  when a submission started, so the same answer twice (two saves of one status,
+  `ADMIN_STATE_CONFLICT` twice, a cancelled step-up twice) changed nothing and
+  was not announced. The form now clears them as it sends, each answer is a new
+  numbered element, and the notice appears inside a status region that is
+  always present. Two `503`s in a row were already announced: each carries a
+  new reference.
+- **Evidence.** 8 new tests and 2 changed; 9 were run failing first. The staff
+  check: 2 new (the partly typed date; the next check after the closed route
+  takes a new key) and 2 changed (the closed route's test now asserts the
+  button; the 403 row asserts the new message), all 4 failing first. The
+  designation panel: 6 new, 5 failing first (focus after a first designation,
+  after a step-up and after a version conflict; the notice and the alert
+  cleared and shown anew); the sixth, focus kept on the button after a refusal
+  that leaves the form in place, passes before and after. At each commit `audit:boundaries`, `typecheck`, `lint`,
+  `vitest run` (158 files, 2038 tests at the second), `build:patient-web` and
+  `audit:launch-build` pass. One full run while other worktrees loaded the
+  machine (load average 14) timed out `OcrFields` once, a test this change does
+  not touch; it passes alone and in the next full run.
+- **Not verified.** Component tests with the network stubbed; `validity.badInput`
+  is stubbed, since jsdom does not set it. Nothing was run in a browser, with a
+  screen reader, against a live Identity or on staging (S4v). A cancelled
+  step-up still leaves focus on the page, as everywhere in the console: the
+  step-up dialog does not return focus when it closes.

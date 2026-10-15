@@ -261,7 +261,12 @@ patient's own device shows a desk code; the staff and console screens are:
   `not_in_record`, from the problem's `fields` member, which `@hid/http` keeps
   as `HidApiError.fields` (field names to short result codes only; never in
   log summaries). No answer of this route restores, ends or signs out the
-  session.
+  session. A date of birth the date control cannot report (partly typed, or
+  impossible such as 31 February: its value is then empty and only
+  `validity.badInput` says so) is refused at the field, so a check is never
+  sent and counted without the date typed. `503 ASSISTED_REGISTRATION_DISABLED`
+  is a final answer, not an unknown one: the key is dropped and nothing offers
+  to check again.
 - **The designation** ("Registration in person" on
   `/admin/facilities/:facilityId`, `admin/AssistedRegistration.tsx`). It reads
   `GET /admin/facilities/:facilityId/assisted-registration` and, with
@@ -269,7 +274,12 @@ patient's own device shows a desk code; the staff and console screens are:
   `Idempotency-Key` and `If-Match` with the version read. The first
   designation is version `0`, so `adminApi.command` accepts `0` for a command
   that `creates` its resource and sends it as `If-Match: "0"`; every other
-  command still refuses a version below 1 before sending.
+  command still refuses a version below 1 before sending. A save or a
+  `VERSION_CONFLICT` reads the designation again, and the new version replaces
+  the form, so focus moves to the panel's heading. The panel clears its last
+  answer when a submission is sent, and shows each answer as a new element (a
+  notice inside a status region that is always present), so the same words
+  answering twice are announced twice.
 
 The patient's facility list, desk code and continuation after the check are
 the patient sign-up screens (alignment list rows 2, 3, 6, 8 and 9).
