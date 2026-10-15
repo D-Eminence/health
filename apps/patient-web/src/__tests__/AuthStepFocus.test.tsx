@@ -19,6 +19,7 @@ import { PrincipalRecovery } from '../routes/PrincipalRecovery'
 const api = vi.hoisted(() => ({
   enrollmentCurrent: vi.fn(), googleOnboarding: vi.fn(), enrollmentStart: vi.fn(), enrollmentContact: vi.fn(),
   enrollmentVerify: vi.fn(), enrollmentActivate: vi.fn(), recoveryStart: vi.fn(), recoveryVerify: vi.fn(), recoveryComplete: vi.fn(),
+  enrollmentAvailability: vi.fn(),
 }))
 const principal = vi.hoisted(() => ({ start: vi.fn(), verify: vi.fn(), complete: vi.fn() }))
 
@@ -37,6 +38,7 @@ beforeEach(() => {
   document.title = TAB_TITLE
   api.enrollmentCurrent.mockRejectedValue(new HidApiError(404, 'No enrollment'))
   api.googleOnboarding.mockRejectedValue(new HidApiError(404, 'No Google onboarding'))
+  api.enrollmentAvailability.mockResolvedValue({ open: true })
 })
 afterEach(() => { cleanup() })
 

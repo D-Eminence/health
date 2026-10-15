@@ -214,6 +214,9 @@ export function createPatientApi(client: ApiClient) {
     googleLink: (idToken: string, principal: string, password: string, turnstileToken: string) =>
       call<{ linked: true }>('POST', 'auth/google/link', { idToken, principal, password, turnstileToken, turnstileAction: 'patient-login' }),
     enrollmentCurrent: () => call<EnrollmentProgress>('GET', 'identity/patient-enrollments/current'),
+    // hid-system#68 (FE-4): whether a start would pass its checks made before a NIN is read.
+    // Only `{ open: true }` means open (INTERFACE_CONTRACT.md, public patient enrollment).
+    enrollmentAvailability: () => call<{ open: boolean }>('GET', 'identity/patient-enrollments/availability'),
     enrollmentStart: (nin: string, turnstileToken: string, idempotencyKey: string) =>
       call<EnrollmentProgress>('POST', 'identity/patient-enrollments', { nin, turnstileAction: 'patient-enrollment', turnstileToken },
         { headers: { 'Idempotency-Key': idempotencyKey } }),

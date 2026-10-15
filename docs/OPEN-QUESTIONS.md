@@ -162,6 +162,20 @@ judged optional and left unchanged.
 | Records the EHR now refuses on a closed encounter | Since hid-system#64, creates and order activations on a cancelled or entered-in-error encounter, and new prescriptions or the activation of a draft prescription on a completed one, answer `409 ENCOUNTER_NOT_OPEN`. The portal still offers those forms. Each refusal shows the EHR's detail, the form keeps what was typed, and nothing is written. Completing an encounter leaves its draft prescriptions that can no longer be activated, and the Complete choice does not say so. | Frontend owner: optionally hide those forms by encounter status and say what completing does to draft prescriptions. |
 | A Health-id Worker must send the client address | Since hid-system#65 the gateway requires `X-Real-IP` in staging and production. It trusts that header only from the VPC, and it answers a request without it with `403 CLIENT_ADDRESS_REQUIRED` (`gateway/proxy-headers.conf:13-16`). hid-system's seven Workers set it. Health-id has no deployment definition. | Infrastructure owner: hand-off D1. Any Worker or proxy that serves a Health-id build must replace the caller's `X-Real-IP` with the address Cloudflare reports, as hid-system's Workers do, and be deployed before a gateway that requires it. |
 
+## Patient enrollment after hid-system#68 (2026-10-14)
+
+Read at hid-system `main` `8f3eff1` (hid-system#68 and the N1 and N2
+decisions). The enrollment page now reads availability, returns a contact
+proved too long ago to the contact step and asks the patient to save the HID;
+these rows are what it cannot settle.
+
+| Item | Current evidence | Needed to close |
+| --- | --- | --- |
+| No new patient can get a Health ID in production at launch | hid-system N1 (decided 2026-10-13) keeps NIN-only enrollment closed in production until the registry-phone holder step (ENR-4 step 2) ships; Identity refuses to start with it on. The enrollment page says registration is not open yet and links to sign-in and recovery; only legacy-migrated patients can sign in. | Product owner: confirm launching with registration closed, or prioritise ENR-4 step 2 (hand-off E20(a); hid-system N1 launch consequence, DEP-1). |
+| Entry links while registration is closed | The sign-in page's "Get your Health ID" link and the public site's sign-up entry (`APP_ENTRY.patientSignUp`) do not read availability, so they lead to the closed notice. hid-system's contract suggests reading it before showing the link too; that adds a public read to every sign-in page view. | Frontend owner: keep the links, or hide or reword them from the availability read. |
+| A phone-only patient who loses the Health ID | The HID is shown only at activation (and, if that response was lost, by `GET .../current` for 15 minutes after it). A patient with only a verified phone signs in and starts recovery with the HID, since both take an email or an HID. The completion screen asks the patient to save it and says why; nothing can show it again later. | hid-system maintainers: N2(a), sending the HID to the verified contact and a public SMS reminder (hand-off E20(b)). |
+| Deploy order for the availability read | An Identity without hid-system#68 answers `GET /identity/patient-enrollments/availability` with 404. The page shows that as a failed check, with Try again, and offers no start. | Release owners: deploy this portal with or after an Identity carrying hid-system#68. |
+
 ## Reference workflows without an audited API
 
 The following remain backend contract work before an operational frontend can

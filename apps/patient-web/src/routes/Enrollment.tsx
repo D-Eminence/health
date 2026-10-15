@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import type { EnrollmentProgress } from '../api'
@@ -27,8 +27,21 @@ const requiresSignOut = (reason: unknown) => isHidApiError(reason) && reason.sta
  * a new key is refused as a duplicate for a day.
  */
 const enrollmentEnded = (reason: unknown) => isHidApiError(reason) && reason.status === 404 && reason.code === 'ENROLLMENT_NOT_FOUND'
-const ENDED_HERE = 'This enrollment ended on this device because someone signed in or out here. Enter the same NIN to continue it.'
+const ENDED = 'This enrollment ended on this device because someone signed in or out here.'
+const ENDED_HERE = `${ENDED} Enter the same NIN to continue it.`
 const ENDS_ENROLLMENT = 'Signing out also ends an enrollment in progress on this device; continue it by entering the same NIN before reloading this page.'
+/**
+ * Whether a new enrollment may start (hid-system#68, FE-4): only `200 { open: true }`
+ * from the availability read says so, and a read that failed is said as such. Only
+ * the start is refused while registration is closed, a start with the same key
+ * included, so an enrollment in progress continues whatever it says, and one that
+ * ended here is told to enter its NIN again only once a read finds it open.
+ * Until then, while the read has failed, Try again stands in for the NIN step,
+ * focus included. Production keeps registration closed until hid-system's N1
+ * holder step ships; the notice is Identity's own wording for the start's 503.
+ */
+type Registration = 'open' | 'closed' | 'unknown'
+const REGISTRATION_CLOSED = 'New Health ID registration is not open yet. If you already have a Health ID, sign in.'
 /**
  * Enrollment's limits (hid-system #61 and #50): wrong codes spend one budget per
  * contact, so the fifth within 15 minutes refuses every code, a correct one too,
@@ -37,6 +50,32 @@ const ENDS_ENROLLMENT = 'Signing out also ends an enrollment in progress on this
  */
 const CODE_BUDGET_HINT = 'After 5 wrong codes within 15 minutes for the same contact, every code is refused, even a correct one, and no new code is sent to it, for 15 minutes.'
 const ACTIVATION_LIMIT_HINT = 'This enrollment has had too many activation attempts. Wait about 15 minutes, then activate again: the enrollment is kept.'
+/**
+ * A contact proved more than 30 minutes before activation is proved again
+ * (hid-system#68, N2(c), ADR-048): activation answers 409 and has already sent
+ * the enrollment back to the contact step without its contact, so the page goes
+ * there too. At the password step a second try would only be refused.
+ */
+const contactReverifyRequired = (reason: unknown) => isHidApiError(reason) && reason.status === 409
+  && reason.code === 'ENROLLMENT_CONTACT_REVERIFY_REQUIRED'
+const REVERIFY_CONTACT = 'Your contact was verified more than 30 minutes ago, so it must be verified again before activation. Send a new code, enter it, then choose your password.'
+const REVERIFY_CODE_SENT = 'Your contact was verified more than 30 minutes ago, so it must be verified again before activation. Enter the new code sent to it, then choose your password.'
+/**
+ * That return seen without its 409, which was lost or answered another tab's
+ * activation: any further activation is refused as not at the password step
+ * (409 ENROLLMENT_STAGE_INVALID), so the enrollment's stage is read again and
+ * the page goes where Identity has it.
+ */
+const notAtPasswordStep = (reason: unknown) => isHidApiError(reason) && reason.status === 409
+  && reason.code === 'ENROLLMENT_STAGE_INVALID'
+/**
+ * The HID is shown only here (hid-system#68, N2(a) and N2(b)): the activation
+ * response expires the enrollment cookie, and if that response is lost
+ * GET /current shows the HID for 15 minutes after activation only. Until it is
+ * also sent to the verified contact, a patient who verified only a phone signs
+ * in and resets their password with it.
+ */
+const SAVE_HID = 'Save your Health ID now: write it down or keep it somewhere safe. This page may not show it again once you leave or reload it, and never more than 15 minutes after activation.'
 
 export function Enrollment() {
   const { state, api, acceptGoogleSession, otherPortalSession, retrySessionCheck } = useSession()
@@ -62,6 +101,7 @@ export function Enrollment() {
   const [checking, setChecking] = useState(true)
   const [checkError, setCheckError] = useState(false)
   const [checkKey, setCheckKey] = useState(0)
+  const [registration, setRegistration] = useState<Registration>('unknown')
   const [signOutRequired, setSignOutRequired] = useState(false)
   // Focus moves to the note when a check the person asked for, or a step, finds
   // the sign-in: it is read there, and its message is an alert only otherwise, so
@@ -82,6 +122,11 @@ export function Enrollment() {
   // the same again (PR-04).
   const retriedCheck = useRef(false)
   const checkRetry = useRef<HTMLButtonElement>(null)
+  // The availability read's Try again is also the NIN step's focus target (above).
+  const retryInPlaceOfNin = useCallback((element: HTMLButtonElement | null) => {
+    checkRetry.current = element
+    stepFocus.target(element)
+  }, [stepFocus.target])
   const focusAfter = useActionFocus()
   // The step shown, for the check, which runs apart from any one render.
   const stageShown = useRef<Stage>(stage)
@@ -107,12 +152,16 @@ export function Enrollment() {
     setChecking(true)
     setCheckError(false)
     setSignOutRequired(false)
-    void Promise.allSettled([api.enrollmentCurrent(), api.googleOnboarding()]).then(([progress, google]) => {
+    void Promise.allSettled([api.enrollmentCurrent(), api.googleOnboarding(), api.enrollmentAvailability()]).then(([progress, google, availability]) => {
       if (!active) return
-      // Only the enrollment's own progress must be known before starting. A failed
-      // check for a pending Google sign-up (for example a browser that sends no
-      // Referer, which that check needs when no Origin is sent) counts as none
-      // pending: an enrollment that requires Google still says so.
+      const registrationNow: Registration = availability.status === 'rejected' ? 'unknown'
+        : availability.value?.open === true ? 'open' : 'closed'
+      setRegistration(registrationNow)
+      // The enrollment's own progress must be known before starting, as must
+      // availability before a new one (below). A failed check for a pending
+      // Google sign-up (for example a browser that sends no Referer, which that
+      // check needs when no Origin is sent) counts as none pending: an
+      // enrollment that requires Google still says so.
       const unavailable = progress.status === 'rejected'
         && (!isHidApiError(progress.reason) || ![401, 404].includes(progress.reason.status))
       const retried = retriedCheck.current
@@ -130,12 +179,17 @@ export function Enrollment() {
         if (retried) focusAfter(() => checkRetry.current)
         return
       }
-      if (progress.status === 'fulfilled') applyProgress(progress.value)
       // An enrollment this page had reached a step of is gone: it ended here.
-      else if (enrollmentEnded(progress.reason) && ['contact', 'otp', 'password'].includes(stageShown.current)) restartAtNin()
+      const ended = progress.status === 'rejected' && enrollmentEnded(progress.reason)
+        && ['contact', 'otp', 'password'].includes(stageShown.current)
+      if (progress.status === 'fulfilled') applyProgress(progress.value)
+      else if (ended) restartAtNin()
       if (google.status === 'fulfilled' && new Date(google.value.expiresAt).getTime() > Date.now()) setGooglePending(true)
       setChecking(false)
-      if (retried) stepFocus.focus()
+      // At the NIN step, a failed availability read is offered Try again in place of the step.
+      const atNin = progress.status === 'rejected' && (ended || stageShown.current === 'nin')
+      if (retried && atNin && registrationNow === 'unknown') focusAfter(() => checkRetry.current)
+      else if (retried) stepFocus.focus()
     })
     return () => { active = false }
   }, [api, checkKey, focusAfter, stepFocus.focus])
@@ -212,6 +266,24 @@ export function Enrollment() {
       setStepHint(null)
       setStage('complete')
     } catch (reason) {
+      if (contactReverifyRequired(reason)) {
+        // The contact typed on this page is kept, so a new code goes to it with one press (PA-10).
+        setStage('contact'); setChallengeId(null); setMaskedContact(''); setCode(''); setPassword(''); setStepHint(null)
+        setError(REVERIFY_CONTACT); setFieldError(false); setErrorAlert(true)
+        return
+      }
+      if (notAtPasswordStep(reason)) {
+        let progress: EnrollmentProgress
+        try { progress = await api.enrollmentCurrent() } catch (again) { displayError(again); return }
+        // Still at the password step, the refusal is about something else and is shown below.
+        if (progress.stage !== 'set_password') {
+          applyProgress(progress); setCode(''); setPassword(''); setStepHint(null)
+          if (progress.stage === 'verify_contact') {
+            setError(progress.challengeId ? REVERIFY_CODE_SENT : REVERIFY_CONTACT); setFieldError(false); setErrorAlert(true)
+          }
+          return
+        }
+      }
       if (isHidApiError(reason) && reason.status === 429) setStepHint('activation')
       displayError(reason, fromField)
     }
@@ -234,6 +306,9 @@ export function Enrollment() {
 
   // No step is offered while the check runs, after it failed, or while a sign-in blocks enrollment.
   const ready = !checking && !checkError && !signOutRequired
+  // A new enrollment is offered only while registration is open; one in progress continues.
+  const startOffered = stage !== 'nin' || registration === 'open'
+  const closed = ready && stage === 'nin' && registration === 'closed'
   // The error is about the stage's field when the server refused its value.
   const invalid = fieldError ? true : undefined
   const errorId = fieldError ? 'enroll-error' : undefined
@@ -244,9 +319,9 @@ export function Enrollment() {
       <p className="patient-eyebrow">Patient enrollment</p>
       <h1 id="enroll-title" className="patient-page-title">Get your Health ID.</h1>
       <p className="patient-page-copy">Verify your identity, confirm a contact, and activate your account.</p>
-      <ol className="patient-step-list" aria-label="Enrollment steps">
+      {!closed && <ol className="patient-step-list" aria-label="Enrollment steps">
         {['NIN', 'Contact', 'Code', 'Activate'].map((label, index) => <li key={label} aria-current={['nin', 'contact', 'otp', 'password'][index] === stage ? 'step' : undefined}>{label}</li>)}
-      </ol>
+      </ol>}
       {checking ? <p role="status">Checking for an enrollment in progress…</p> : null}
       {checkError && <div className="patient-inline-error" role="alert"><p>We could not check for an enrollment in progress. Try again before starting.</p><button ref={checkRetry} type="button" className="patient-secondary-button" onClick={() => { retriedCheck.current = true; setCheckKey(value => value + 1) }}>Try again</button></div>}
       {signOutRequired && <div ref={signOutNote} tabIndex={-1} role="group" aria-labelledby="enroll-sign-out" className="patient-inline-error patient-session-note">
@@ -264,9 +339,17 @@ export function Enrollment() {
         {/* Once it is signed out elsewhere, as asked, the browser's session and the enrollment are checked again. */}
         <button type="button" className="patient-secondary-button" onClick={() => { retriedCheck.current = true; retrySessionCheck(); setCheckKey(value => value + 1) }}>Check again</button>
       </div>}
-      {error && <p id="enroll-error" role={errorAlert ? 'alert' : undefined} className="patient-inline-error">{error}</p>}
-      {googleRequired && !googlePending && <p role="status" className="patient-inline-error">Reconnect the Google account used to start this enrollment.</p>}
-      {ready && stage === 'nin' && <form onSubmit={event => void submitNin(event)} className="patient-form">
+      {error && <p id="enroll-error" role={errorAlert ? 'alert' : undefined} className="patient-inline-error">{error === ENDED_HERE && registration !== 'open' ? ENDED : error}</p>}
+      {/* Not at a NIN step that offers no start, where Google is not offered either. */}
+      {googleRequired && !googlePending && startOffered && <p role="status" className="patient-inline-error">Reconnect the Google account used to start this enrollment.</p>}
+      {ready && stage === 'nin' && registration === 'unknown' && <div className="patient-inline-error" role="alert"><p>We could not check whether new Health ID registration is open. Try again before starting.</p><button ref={retryInPlaceOfNin} type="button" className="patient-secondary-button" onClick={() => { retriedCheck.current = true; setCheckKey(value => value + 1) }}>Try again</button></div>}
+      {closed && <section className="patient-success" aria-labelledby="enroll-closed-title">
+        <h2 id="enroll-closed-title" ref={stepFocus.target} tabIndex={-1}>Registration is not open yet</h2>
+        <p role="status">{REGISTRATION_CLOSED}</p>
+        <Link className="patient-primary-button" to="/sign-in">Sign in</Link>
+        <Link className="patient-text-button" to="/recover">Forgot password?</Link>
+      </section>}
+      {ready && stage === 'nin' && registration === 'open' && <form onSubmit={event => void submitNin(event)} className="patient-form">
         <label>National Identification Number<input ref={stepFocus.target} required inputMode="numeric" autoComplete="off" value={nin} onChange={event => setNin(event.target.value.replace(/\D/g, '').slice(0, 11))} pattern="[0-9]{11}" maxLength={11} placeholder="11 digits"
           aria-invalid={invalid} aria-describedby={describedBy('enroll-nin-hint', errorId)} /></label>
         <p id="enroll-nin-hint" className="patient-field-hint">Your NIN is 11 digits. It is verified by the existing Health ID identity service. It is not stored in this browser.</p>
@@ -296,14 +379,14 @@ export function Enrollment() {
         <button type="submit" className="patient-primary-button" disabled={busy || password.length < 12 || (googleRequired && !googlePending)}>{busy ? 'Activating…' : 'Activate Health ID'}</button>
         {stepHint === 'activation' && <p className="patient-field-hint">{ACTIVATION_LIMIT_HINT}</p>}
       </form>}
-      {ready && stage === 'complete' && <div className="patient-success" role="status"><h2 ref={stepFocus.target} tabIndex={-1}>Your Health ID is ready.</h2><strong>{hidCode}</strong><p>Sign in with your verified email or Health ID and new password.</p><Link className="patient-primary-button" to="/sign-in">Sign in</Link></div>}
-      {import.meta.env.VITE_HID_GOOGLE_CLIENT_ID && ready && stage !== 'complete' && !googlePending && <section className="patient-auth-separator" aria-label="Google enrollment">
+      {ready && stage === 'complete' && <div className="patient-success" role="status"><h2 ref={stepFocus.target} tabIndex={-1}>Your Health ID is ready.</h2><strong>{hidCode}</strong><p>{SAVE_HID}</p><p>Sign in with your verified email or Health ID and new password. With a verified phone number, your Health ID is how you sign in and reset your password.</p><Link className="patient-primary-button" to="/sign-in">Sign in</Link></div>}
+      {import.meta.env.VITE_HID_GOOGLE_CLIENT_ID && ready && startOffered && stage !== 'complete' && !googlePending && <section className="patient-auth-separator" aria-label="Google enrollment">
         <span>{googleRequired ? 'Reconnect Google' : 'Continue with Google'}</span>
         <Turnstile action="patient-login" onTokenChange={setGoogleTurnstileToken} resetKey={googleResetKey} />
         <GoogleButton text="signup_with" disabled={busy || !googleTurnstileToken} onCredential={onGoogle}
           disabledReason={googleTurnstileToken ? undefined : 'Complete the security check to continue with Google.'} />
       </section>}
-      {googlePending && !checkError && stage !== 'complete' && <p role="status" className="patient-field-hint">Google identity confirmed for this enrollment.</p>}
+      {googlePending && !checkError && startOffered && stage !== 'complete' && <p role="status" className="patient-field-hint">Google identity confirmed for this enrollment.</p>}
       <p className="patient-auth-footer">Already have a Health ID? <Link to="/sign-in">Sign in</Link></p>
     </section>
   </main>

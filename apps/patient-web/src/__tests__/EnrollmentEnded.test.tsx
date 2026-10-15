@@ -6,7 +6,7 @@ import { Enrollment } from '../routes/Enrollment'
 
 const api = vi.hoisted(() => ({
   enrollmentCurrent: vi.fn(), googleOnboarding: vi.fn(), enrollmentStart: vi.fn(), enrollmentContact: vi.fn(),
-  enrollmentVerify: vi.fn(), enrollmentActivate: vi.fn(),
+  enrollmentVerify: vi.fn(), enrollmentActivate: vi.fn(), enrollmentAvailability: vi.fn(),
 }))
 
 vi.mock('../session', () => ({
@@ -28,6 +28,7 @@ const signOutFirst = () => new HidApiError(409, 'Sign out before starting or con
 beforeEach(() => {
   api.enrollmentCurrent.mockRejectedValue(new HidApiError(404, 'No enrollment', { code: 'ENROLLMENT_NOT_FOUND' }))
   api.googleOnboarding.mockRejectedValue(new HidApiError(404, 'No Google onboarding'))
+  api.enrollmentAvailability.mockResolvedValue({ open: true })
   api.enrollmentStart.mockResolvedValue({ stage: 'verify_contact', challengeId: 'challenge-1', maskedContact: 'a***@example.com' })
 })
 afterEach(() => { vi.clearAllMocks() })

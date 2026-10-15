@@ -72,6 +72,8 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     'Takes the first TOTP code. Returns a staff session and the recovery codes, once.'),
 
   r('enrollment.start','enrollment','/api/v1/identity/patient-enrollments',P,true),
+  r('enrollment.availability','enrollment','/api/v1/identity/patient-enrollments/availability',G,true,undefined,
+    'hid-system#68 (FE-4). No input; 200 { open: boolean }. Anything but { open: true } means not open.'),
   r('enrollment.current','enrollment','/api/v1/identity/patient-enrollments/current',G,true),
   r('enrollment.google','enrollment','/api/v1/identity/patient-enrollments/google',P,true),
   r('enrollment.contact','enrollment','/api/v1/identity/patient-enrollments/contact',P,true),
