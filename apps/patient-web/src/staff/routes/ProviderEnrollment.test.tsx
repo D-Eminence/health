@@ -10,7 +10,10 @@ import { ProviderEnrollment } from './ProviderEnrollment'
  * routes take the CAC, verify the administrator email and activate the account.
  */
 const api = vi.hoisted(() => ({ start: vi.fn(), verify: vi.fn(), activate: vi.fn() }))
-vi.mock('../api', () => ({ providerEnrollmentApi: api }))
+const staff = vi.hoisted(() => ({ verifyMfa: vi.fn(), sendEnrollmentCode: vi.fn(), startEnrollment: vi.fn(), activateEnrollment: vi.fn() }))
+const tabs = vi.hoisted(() => ({ announceStaffSessionChange: vi.fn() }))
+vi.mock('../api', () => ({ providerEnrollmentApi: api, staffApi: staff }))
+vi.mock('../session', () => tabs)
 vi.mock('../../env', () => ({ getEnvironment: () => ({ name: 'local', turnstileSiteKey: null,
   apiBaseUrl: 'https://gateway.example.test', appOrigin: 'http://localhost:3200' }) }))
 
@@ -74,9 +77,10 @@ describe('provider enrollment', () => {
 
   it('verifies the six-digit code, then activates with a password of at least 12 characters', async () => {
     const reload = vi.fn()
-    // Activation signs the administrator in, so the page reloads into the workspace.
+    // An Identity before hid-system #71 signs the administrator in at activation, so the page reloads into the workspace.
     vi.stubGlobal('location', { ...window.location, hostname: 'localhost', reload })
-    api.activate.mockResolvedValueOnce({ activated: true })
+    api.activate.mockResolvedValueOnce({ activated: true, organizationId: 'org-1', facilityId: 'facility-1', accountId: 'account-1',
+      actor: { id: 'staff-1', roles: ['org_admin'], permissions: [], facilities: [] }, expiresAt: '2026-10-14T12:00:00.000Z' })
     open()
     enterDetails()
     fireEvent.click(screen.getByRole('button', { name: 'Verify CAC and continue' }))
@@ -98,5 +102,96 @@ describe('provider enrollment', () => {
     expect(await screen.findByRole('heading', { name: 'Provider workspace' })).toBeTruthy()
     expect(api.activate).toHaveBeenCalledWith('a-long-enough-password')
     expect(reload).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('provider enrollment activation, then the authenticator (hid-system #71)', () => {
+  const enrollment = { secret: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP', algorithm: 'SHA1', digits: 6, periodSeconds: 30,
+    otpauthUri: 'otpauth://totp/Health%20ID:ada%40example.test?secret=JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP&issuer=Health+ID',
+    expiresAt: '2026-10-14T09:10:00.000Z' }
+  const session = { actor: { id: 'staff-1', roles: ['org_admin'], permissions: [], facilities: [] }, expiresAt: '2026-10-14T12:00:00.000Z' }
+  const activation = (status: 'mfa_required' | 'mfa_enrollment_required') => ({ activated: true, organizationId: 'org-1',
+    facilityId: 'facility-1', accountId: 'account-1', status, expiresAt: '2026-10-14T09:10:00.000Z' })
+
+  async function activate(status: 'mfa_required' | 'mfa_enrollment_required') {
+    const reload = vi.fn()
+    vi.stubGlobal('location', { ...window.location, hostname: 'localhost', reload })
+    api.activate.mockResolvedValueOnce(activation(status))
+    open()
+    enterDetails()
+    fireEvent.click(screen.getByRole('button', { name: 'Verify CAC and continue' }))
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Email verification code' }), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Verify email' }))
+    fireEvent.change(await screen.findByLabelText('Password'), { target: { value: 'a-long-enough-password' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create provider account' }))
+    return reload
+  }
+
+  async function stepShown(name: string) {
+    const heading = await screen.findByRole('heading', { name })
+    await waitFor(() => expect(document.activeElement).toBe(heading))
+    return heading
+  }
+
+  it('continues into the authenticator setup with no emailed code, shows the recovery codes once, then opens the workspace', async () => {
+    staff.startEnrollment.mockResolvedValueOnce(enrollment)
+    staff.activateEnrollment.mockResolvedValueOnce({ ...session, recoveryCodes: ['ABCDE-FGHJK', 'MNPQR-STVWX'] })
+    const reload = await activate('mfa_enrollment_required')
+
+    await stepShown('Set up an authenticator app')
+    expect(screen.getByText(/^Your provider account is active\./)).toBeTruthy()
+    expect(screen.getByRole('list', { name: 'Provider enrollment steps' }).querySelector('[aria-current="step"]')?.textContent).toBe('Authenticator')
+    // Activation is not a sign-in: nothing opens until the authenticator is set up.
+    expect(reload).not.toHaveBeenCalled()
+    expect(screen.queryByRole('heading', { name: 'Provider workspace' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Begin setup' }))
+
+    await stepShown('Add Health ID to your authenticator app')
+    // The activation is the enrolment's proof: no code is emailed (Identity would answer 409 PROOF_COMPLETE).
+    expect(staff.startEnrollment).toHaveBeenCalledWith(undefined)
+    expect(staff.sendEnrollmentCode).not.toHaveBeenCalled()
+    expect(screen.getByRole('img', { name: 'QR code of the setup key, for your authenticator app' })).toBeTruthy()
+    expect(screen.getByText('JBSW Y3DP EHPK 3PXP JBSW Y3DP EHPK 3PXP')).toBeTruthy()
+    fireEvent.change(screen.getByRole('textbox', { name: 'Authenticator code' }), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Activate authenticator' }))
+
+    await stepShown('Save your recovery codes')
+    expect(staff.activateEnrollment).toHaveBeenCalledWith('123456')
+    // The browser holds the session now: the other tabs are told at once.
+    expect(tabs.announceStaffSessionChange).toHaveBeenCalledTimes(1)
+    expect(reload).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByLabelText('I have stored these recovery codes somewhere safe'))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue to the Provider Portal' }))
+
+    expect(await screen.findByRole('heading', { name: 'Provider workspace' })).toBeTruthy()
+    expect(reload).toHaveBeenCalledTimes(1)
+  })
+
+  it('asks an account that already has an authenticator for its code (mfa_required), then opens the workspace', async () => {
+    staff.verifyMfa.mockResolvedValueOnce(session)
+    const reload = await activate('mfa_required')
+
+    await stepShown('Verify it’s you')
+    expect(screen.queryByRole('button', { name: 'Start again' })).toBeNull()
+    fireEvent.change(screen.getByRole('textbox', { name: 'Authenticator code' }), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Verify' }))
+
+    expect(await screen.findByRole('heading', { name: 'Provider workspace' })).toBeTruthy()
+    expect(staff.verifyMfa).toHaveBeenCalledWith({ code: '123456' })
+    expect(tabs.announceStaffSessionChange).toHaveBeenCalledTimes(1)
+    expect(reload).toHaveBeenCalledTimes(1)
+  })
+
+  it('sends the administrator to sign in when the setup step has expired (401 MFA_CHALLENGE_INVALID)', async () => {
+    staff.startEnrollment.mockRejectedValueOnce(new HidApiError(401, 'Sign in again to continue', { code: 'MFA_CHALLENGE_INVALID' }))
+    const reload = await activate('mfa_enrollment_required')
+    await stepShown('Set up an authenticator app')
+    fireEvent.click(screen.getByRole('button', { name: 'Begin setup' }))
+
+    await stepShown('Sign in to finish setting up')
+    expect((await screen.findByRole('alert')).textContent).toBe('This sign-in step expired or ran out of attempts. Sign in again.')
+    expect(screen.getByText(/^Your provider account is active\. Sign in with your administrator email/)).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Sign in to the Provider Portal' }).getAttribute('href')).toBe('/provider/sign-in')
+    expect(reload).not.toHaveBeenCalled()
   })
 })
