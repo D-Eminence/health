@@ -35,6 +35,8 @@ type Step =
   | { kind: 'reopen' }
   /** Nothing more can be done here. */
   | { kind: 'blocked'; message: string }
+  /** An activation went through but its answer, the only one with the recovery codes, never arrived. */
+  | { kind: 'codes-unseen' }
 
 type StepName = 'send' | 'email-code' | 'activate' | 'verify' | 'recovery' | 'reopen'
 
@@ -69,7 +71,9 @@ function outcomeOf(caught: unknown, step: StepName): Outcome {
   switch (caught.code) {
     // The application page ended (30 minutes, or ended elsewhere): only that, never a staff sign-out.
     case 'CLINICIAN_APPLICATION_SESSION_INVALID': return { then: 'ended' }
-    case 'CLINICIAN_APPLICATION_AUTHENTICATOR_READY': return { then: 'ready' }
+    // Already set up. At activation that means an earlier activation went through unseen, its recovery codes with it.
+    case 'CLINICIAN_APPLICATION_AUTHENTICATOR_READY':
+      return step === 'activate' ? { then: 'step', step: { kind: 'codes-unseen' }, message: null } : { then: 'ready' }
     case 'MFA_CHALLENGE_INVALID': return { then: 'step', step: { kind: 'reopen' }, message: EXPIRED }
     case 'STAFF_MFA_FACTOR_UNPROVEN': return { then: 'step', step: { kind: 'blocked', message: FACTOR_UNPROVEN }, message: null }
     case 'CLINICIAN_APPLICATION_ACCOUNT_INELIGIBLE': return { then: 'step', step: { kind: 'blocked', message: ACCOUNT_INELIGIBLE }, message: null }
@@ -137,6 +141,7 @@ export function ClinicianAuthenticator({ start, context, email, reason, doneLabe
     case 'verify': return <VerifyStep key={key} {...common} onVerified={onReady} />
     case 'reopen': return <ReopenStep key={key} {...common} onOpened={purpose => go(purpose === 'verify' ? { kind: 'verify' } : { kind: 'enrol' })} />
     case 'blocked': return <BlockedStep key={key} message={step.message} />
+    case 'codes-unseen': return <CodesUnseenStep key={key} doneLabel={doneLabel} onDone={() => onReady(null)} />
   }
 }
 
@@ -389,6 +394,20 @@ function ReopenStep({ carried, onMoved, onOpened }: StepProps & { onOpened(purpo
     <StepError error={problems.error} />
     <p className="patient-field-hint">Each authenticator step is open for a few minutes. Start it again to continue; your application is kept.</p>
     <PrimaryButton id="clinician-mfa-reopen" onClick={() => void reopen()} disabled={pending}>{pending ? 'Starting…' : 'Start again'}</PrimaryButton>
+  </section>
+}
+
+/**
+ * The authenticator is set up, but this page may never have shown its
+ * recovery codes (P7 is the only answer that carries them, and the provider
+ * portal cannot make new ones): said before the person goes on.
+ */
+function CodesUnseenStep({ doneLabel, onDone }: { doneLabel: string; onDone(): void }) {
+  return <section className="patient-form" aria-labelledby="clinician-mfa-codes-unseen-title">
+    <StepHeading id="clinician-mfa-codes-unseen-title" focus>Your authenticator is set up</StepHeading>
+    <p role="alert">Your authenticator app is already set up. If you didn't see and save its recovery codes, Health ID can't show
+      them again: keep your authenticator app safe, and contact HID support if you lose it.</p>
+    <PrimaryButton onClick={onDone}>{doneLabel}</PrimaryButton>
   </section>
 }
 

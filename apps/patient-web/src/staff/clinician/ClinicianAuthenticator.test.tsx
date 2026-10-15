@@ -177,6 +177,56 @@ describe('the emailed proof before the setup (P5, P6)', () => {
   })
 })
 
+describe('an activation whose answer was lost (P7)', () => {
+  async function toSetup() {
+    show('enrol')
+    await stepShown('Set up your authenticator')
+    fireEvent.click(screen.getByRole('button', { name: 'Email me a code' }))
+    await stepShown('Enter the code we emailed you')
+    typeCode('Email code', '654321')
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    await stepShown('Add Health ID to your authenticator app')
+  }
+
+  it('says the recovery codes cannot be shown again when the activation went through unseen (409 ..._AUTHENTICATOR_READY)', async () => {
+    // The first activation committed (factor, recovery codes and the ready stage), but its answer never arrived.
+    api.authenticator.activate.mockRejectedValueOnce(new HidApiError(0, 'Network', { code: 'NETWORK_ERROR' }))
+      .mockRejectedValueOnce(problem(409, 'CLINICIAN_APPLICATION_AUTHENTICATOR_READY'))
+    await toSetup()
+    typeCode('Authenticator code', '112233')
+    fireEvent.click(screen.getByRole('button', { name: 'Activate authenticator' }))
+    expect((await screen.findByRole('alert')).textContent).toBe("We couldn't complete this step right now. Try again in a few minutes.")
+    fireEvent.click(screen.getByRole('button', { name: 'Activate authenticator' }))
+    await stepShown('Your authenticator is set up')
+    expect(screen.getByRole('alert').textContent).toBe("Your authenticator app is already set up. If you didn't see and save its "
+      + "recovery codes, Health ID can't show them again: keep your authenticator app safe, and contact HID support if you lose it.")
+    expect(handlers.onReady).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Continue to your application' }))
+    expect(handlers.onReady).toHaveBeenCalledWith(null)
+    expect(handlers.onEnded).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['sending the emailed code', 'enrol'],
+    ['the code from the app', 'verify'],
+  ] as const)('goes straight on when the authenticator is already set up at %s', async (_case, start) => {
+    const ready = problem(409, 'CLINICIAN_APPLICATION_AUTHENTICATOR_READY')
+    api.authenticator.sendEmailCode.mockRejectedValueOnce(ready)
+    api.authenticator.verify.mockRejectedValueOnce(ready)
+    show(start)
+    if (start === 'enrol') {
+      await stepShown('Set up your authenticator')
+      fireEvent.click(screen.getByRole('button', { name: 'Email me a code' }))
+    } else {
+      await stepShown('Enter a code from your authenticator app')
+      typeCode('Authenticator code', '123456')
+      fireEvent.click(screen.getByRole('button', { name: 'Verify' }))
+    }
+    await waitFor(() => expect(handlers.onReady).toHaveBeenCalledWith(null))
+    expect(screen.queryByText(/recovery codes, Health ID can't show them again/)).toBeNull()
+  })
+})
+
 describe('opening the step again (P9)', () => {
   it.each([
     ['403 STAFF_MFA_FACTOR_UNPROVEN', problem(403, 'STAFF_MFA_FACTOR_UNPROVEN'),
