@@ -17,6 +17,7 @@ import { SignIn, STAFF_MFA_NOTICE } from './routes/SignIn'
 import { Dashboard } from './routes/Dashboard'
 import { Patients } from './routes/Patients'
 import { Registration } from './routes/Registration'
+import { ASSISTED_REGISTRATION_PERMISSION, InPersonCheck } from './routes/InPersonCheck'
 import { AccessRequests } from './routes/AccessRequests'
 import { FacilityAudit } from './routes/Audit'
 import { Clinical } from './routes/Clinical'
@@ -570,6 +571,8 @@ const navigation = [
   { to: '/provider', label: 'Overview', permission: '' },
   { to: '/provider/patients', label: 'Patient access', permission: 'identity.patient.read' },
   { to: '/provider/registration', label: 'Patient registration', permission: 'identity.registration.write' },
+  // Facility-assisted registration (hid-system #85, ADR-063): doctors, clinicians and nurses.
+  { to: '/provider/in-person-check', label: 'In-person check', permission: ASSISTED_REGISTRATION_PERMISSION },
   { to: '/provider/requests', label: 'Access requests', permission: 'identity.consent.write' },
   { to: '/provider/audit', label: 'Facility audit', permission: 'audit.read' },
   { to: '/provider/clinical', label: 'Clinical record', permission: 'ehr.encounter.read' },
@@ -739,6 +742,7 @@ export function App() {
       <Route index element={<Dashboard />} />
       <Route path="patients" element={<Patients />} />
       <Route path="registration" element={<Registration />} />
+      <Route path="in-person-check" element={<InPersonCheck />} />
       <Route path="requests" element={<AccessRequests />} />
       <Route path="audit" element={<FacilityAudit />} />
       <Route path="clinical" element={<Clinical />} />

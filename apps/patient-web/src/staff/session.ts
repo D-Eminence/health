@@ -233,6 +233,7 @@ export function refusedAsPatient(error: unknown): boolean {
 export const STAFF_RETURN_PATHS: readonly string[] = [
   '/provider', '/provider/patients', '/provider/registration', '/provider/requests', '/provider/audit',
   '/provider/clinical', '/provider/laboratory', '/provider/pharmacy', '/provider/ocr', '/provider/outreach', '/provider/migrate',
+  '/provider/in-person-check',
 ]
 
 export function staffReturnPath(path: string | null): string | null {
