@@ -4,7 +4,7 @@
  * Not in a layer, so it holds over the pages' component rules for the controls
  * it draws (a checkbox in a .patient-form, say).
  */
-.hid-mfa-heading:focus { outline: none; }
+.hid-mfa-heading:focus, .hid-mfa-recovery :is(h1, h2):focus { outline: none; }
 .hid-mfa-links { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; }
 .hid-mfa-setup { display: grid; gap: 14px; margin: 0; padding-left: 20px; color: var(--color-ink); font-size: 14px; line-height: 1.5; }
 .hid-mfa-setup small { display: block; margin-top: 6px; color: var(--color-muted); font-size: 12px; }
