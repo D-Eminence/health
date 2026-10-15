@@ -357,6 +357,45 @@ email") is offered at once. A start with the same account's other identifier
 within that wait gets a challenge for which no code is sent (hand-off section
 11, A13 residuals).
 
+Whether a new enrollment may start comes from hid-system#68's
+`GET /identity/patient-enrollments/availability` (FE-4, read at hid-system
+`main` `8f3eff1`), read with the enrollment check. The NIN step and Google
+sign-up are offered only on `200 { open: true }`, and only then does a NIN step
+ask to reconnect the Google account an ended enrollment required. Any other
+body is not open: the page says, in Identity's own words for the start's 503,
+that new Health ID registration is not open yet, links to sign-in and password
+recovery, and loads no security check. A failed read, a 503 included, says the
+check failed and offers Try again; it is never taken for a sign-out. Only a
+start is refused while registration is closed, a resume with the same key
+included, so an enrollment in progress continues, an activated one still shows
+its HID within its 15 minutes, and one that a sign-in or sign-out ended here is
+told to enter its NIN again only once a read finds registration open. While the
+read has failed, Try again stands in for the NIN step and takes focus when a
+step ends that way. The read predicts only the checks a start makes before it
+reads a NIN, so the start's own refusals (rate limits, the lookup quota,
+`503 ENROLLMENT_RECONCILIATION_REQUIRED`) are shown as before. Production keeps
+NIN-only enrollment closed until hid-system's N1 holder step ships. The
+sign-in page's "Get your Health ID" link and the public site's sign-up entry do
+not read availability; they lead to this notice.
+
+hid-system#68 also bounds activation in time (N2(b), N2(c)). An activation
+whose contact was proved more than 30 minutes earlier answers
+`409 ENROLLMENT_CONTACT_REVERIFY_REQUIRED`, and Identity has already sent the
+enrollment back to the contact step, so the page goes there too: the contact
+typed on the page is kept, the code and password are cleared, and an alert says
+why. When that 409 never reached the page (it was lost, or answered another
+tab's activation), the next try is refused as not at the password step
+(`409 ENROLLMENT_STAGE_INVALID`): the page then reads `GET .../current` and
+goes to the step Identity has, the code step when another tab already sent a
+new code, with the same alert. If Identity still has the password step, or the
+read fails, the refusal or the failure is shown there and the next try reads
+again. Any other activation refusal stays at the password step. The activation
+response expires the enrollment cookie, and `GET .../current` shows the HID
+only if that response was lost and only for 15 minutes after activation, so
+the completion screen asks the patient to save the HID. Until hid-system sends
+it to the verified contact (N2(a)), a patient with only a verified phone signs
+in and resets the password with it.
+
 The platform console's workspace is bound to the administrator who opened it,
 held in memory only. A refresh or session read that answers for another
 administrator ends the workspace with a notice and is refused as a 401, so no

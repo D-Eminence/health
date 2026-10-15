@@ -6,6 +6,7 @@ import { App } from '../App'
 
 const calls = vi.hoisted(() => ({
   patientSession: vi.fn(), patientRefresh: vi.fn(), patientEnrollmentCurrent: vi.fn(), patientGoogleOnboarding: vi.fn(), patientProfile: vi.fn(),
+  patientEnrollmentAvailability: vi.fn(),
   staffSession: vi.fn(), staffRefresh: vi.fn(), staffSelectFacility: vi.fn(), staffLogout: vi.fn(),
   staffLookupPatient: vi.fn(), staffBreakGlass: vi.fn(), staffEmergencyRecords: vi.fn(),
   staffEncounters: vi.fn(), staffRecords: vi.fn(), staffCreateRecord: vi.fn(), staffConsentStatus: vi.fn(),
@@ -19,7 +20,8 @@ vi.mock('../staff/env', () => ({ getEnvironment: () => localEnvironment }))
 vi.mock('../admin/env', () => ({ environment: () => localEnvironment }))
 vi.mock('../api', () => ({
   createPatientApi: () => ({ session: calls.patientSession, refresh: calls.patientRefresh,
-    enrollmentCurrent: calls.patientEnrollmentCurrent, googleOnboarding: calls.patientGoogleOnboarding, profile: calls.patientProfile }),
+    enrollmentCurrent: calls.patientEnrollmentCurrent, googleOnboarding: calls.patientGoogleOnboarding, profile: calls.patientProfile,
+    enrollmentAvailability: calls.patientEnrollmentAvailability }),
 }))
 vi.mock('../staff/api', () => ({
   staffApi: { session: calls.staffSession, refresh: calls.staffRefresh,
@@ -49,6 +51,7 @@ beforeEach(() => {
   calls.patientRefresh.mockRejectedValue(signedOut)
   calls.patientEnrollmentCurrent.mockRejectedValue(new HidApiError(404, 'No enrollment'))
   calls.patientGoogleOnboarding.mockRejectedValue(new HidApiError(404, 'No Google onboarding'))
+  calls.patientEnrollmentAvailability.mockResolvedValue({ open: true })
   calls.staffSession.mockRejectedValue(signedOut)
   calls.staffRefresh.mockRejectedValue(signedOut)
   calls.staffLogout.mockResolvedValue(undefined)

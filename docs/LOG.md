@@ -1351,6 +1351,128 @@ made the portal show something untrue, and Health-id #51
   - a new ask, MOD-1: withdraw closed modules' read permissions, or expose
     the enabled modules.
 
+## 2026-10-14: patient enrollment after hid-system#68 (closed registration, contact proved again, saving the HID)
+
+Read at hid-system `main` `8f3eff1`: the enrollment controller and service,
+`docs/INTERFACE_CONTRACT.md` ("Enrollment availability and the
+closed-registration answer"), ADR-048 and `PHASE_3_LAUNCH_DECISIONS.md` N1
+and N2. hid-system was not changed.
+
+- **Availability (FE-4).** Production keeps NIN-only enrollment closed until
+  hid-system's N1 holder step ships, so every start answers 503. The page
+  still asked for a NIN and a security check, and showed the refusal only
+  after both were spent. It now reads
+  `GET /identity/patient-enrollments/availability` with the enrollment check
+  and offers the NIN step and Google sign-up only on `200 { open: true }`.
+  - Any other body: a notice in Identity's own words ("New Health ID
+    registration is not open yet. If you already have a Health ID, sign
+    in."), with Sign in and Forgot password? links, no security check and no
+    step list.
+  - A failed read, a 503 included: "We could not check whether new Health ID
+    registration is open", with Try again; focus follows Try again as it does
+    for the enrollment check. It is never taken for a sign-out.
+  - Unchanged: an enrollment in progress continues and an activated one shows
+    its HID, since only a start is refused while closed; an open registration
+    behaves as before; the start's own refusals are shown as before. One that a
+    sign-in or sign-out ended while registration is closed is not told to
+    enter its NIN again, because a resume with the same key is refused too.
+  - The route is registered (`enrollment.availability`, public `GET`) and
+    granted to patient-web only.
+  - **Deploy order.** An Identity without hid-system#68 answers the read with
+    404, which the page shows as a failed check, and offers no start. Deploy
+    this portal with or after an Identity carrying hid-system#68.
+  - Not changed: the sign-in page's "Get your Health ID" link and the public
+    site's sign-up entry do not read availability; they lead to the notice
+    (open questions).
+- **Evidence.** 9 tests failed first (8 in `EnrollmentAvailability.test.tsx`,
+  the registry case in `boundaries.test.ts`); 3 more guard what is unchanged.
+  The existing enrollment tests now answer the read as open. Gates:
+  `typecheck`, `lint`, `audit:boundaries` and `build:patient-web` pass;
+  `npm test`: 139 files, 1831 tests.
+- **Contact proved again (N2(c), ADR-048).** An activation whose contact was
+  proved more than 30 minutes earlier answers
+  `409 ENROLLMENT_CONTACT_REVERIFY_REQUIRED`, and Identity has already sent the
+  enrollment back to the contact step without its contact. The page showed the
+  message at the password step, where a second try was refused as
+  `409 ENROLLMENT_STAGE_INVALID`, so only a reload helped. It now returns to
+  the contact step with the contact typed on the page kept, clears the code and
+  password, moves focus to the contact field and says why in an alert. Other
+  activation refusals stay at the password step.
+- **Saving the HID (N2(a), N2(b)).** The completion screen showed the HID
+  without saying it may not be shown again. The activation response expires
+  the enrollment cookie, and `GET .../current` shows the HID only if that
+  response was lost, for 15 minutes after activation. The screen now asks the
+  patient to write it down or keep it somewhere safe, says it may not be shown
+  again, and says that with a verified phone the HID is how they sign in and
+  reset the password (hid-system has not shipped N2(a), which sends it to the
+  verified contact).
+- **Evidence.** 3 tests failed first in `EnrollmentActivation.test.tsx` (the
+  re-verification round trip, and the save note at activation and on a
+  re-display); a fourth guards that other refusals stay at the password step.
+  Gates: `typecheck`, `lint`, `audit:boundaries` and `build:patient-web` pass;
+  `npm test`: 140 files, 1835 tests.
+- **Not verified.** Component tests with the network stubbed. Nothing was run
+  in a browser, at runtime, on staging or against a live hid-system.
+
+## 2026-10-15: patient enrollment after review (a lost re-verification answer, an enrollment that ended while no start is offered)
+
+Read at hid-system `main` `8f3eff1` (`patient-enrollment.service.ts`
+`activate`, `resetStaleContact`; `docs/INTERFACE_CONTRACT.md`).
+
+- **A lost re-verification answer.** Activation that finds a stale contact
+  sends the enrollment back to the contact step, then answers
+  `409 ENROLLMENT_CONTACT_REVERIFY_REQUIRED`. When that answer never reached
+  the page (lost on the network, or it answered the same enrollment's
+  activation in another tab), every further try was refused as not at the
+  password step (`409 ENROLLMENT_STAGE_INVALID`, "Contact verification is
+  required") and the page stayed there until a reload.
+  - Now that refusal reads `GET .../current` and the page goes to the step
+    Identity has: the contact step, or the code step when another tab already
+    sent a new code, with the re-verification alert (worded for the code step
+    there) and focus on the step's field.
+  - If Identity still has the password step (the database check's "Enrollment
+    conditions are not complete"), the refusal is shown there as before; if
+    the read fails, its failure is shown (a 404 returns to the NIN step), and
+    the next try reads again.
+  - Unchanged: the direct 409 path, which needs no read; every other
+    activation refusal (503, 429) stays at the password step without a read.
+  - Evidence: 4 tests failed first in `EnrollmentActivation.test.tsx`; the
+    case that asserted the stuck page now guards a 503 and a 429.
+- **An enrollment that ended while availability was unknown.** When the
+  availability read had failed (a 503 after its retries, or the 404 of an
+  Identity without hid-system#68) and an enrollment in progress then ended
+  here (`404 ENROLLMENT_NOT_FOUND` at a step), the page went to the NIN step,
+  which shows only Try again in that state. Focus fell to the page, since
+  nothing there was the step's focus target, and the alert said "Enter the
+  same NIN to continue it" with no NIN field.
+  - Now Try again is the step's focus target in that state, so focus goes
+    there, and the alert says only that the enrollment ended until a read
+    finds registration open; then the NIN field is shown and the alert asks
+    for the same NIN.
+  - Unchanged: a failed read at load and a Try again that fails again, which
+    already moved focus to Try again; a closed registration, whose heading
+    takes focus.
+  - Evidence: 1 test failed first in `EnrollmentAvailability.test.tsx`, on
+    focus and, with the focus fix alone, on the wording.
+- **Reconnecting Google with no Google control.** An enrollment that
+  required Google (`googleOnboardingRequired: true`, no pending Google
+  sign-up) and then ended here returned to the NIN step still saying
+  "Reconnect the Google account used to start this enrollment.", while a
+  closed or unknown registration hides the Google sign-up, so the patient
+  could not do it.
+  - Now that line is shown only where a start is offered, as the Google
+    section and the "Google identity confirmed" line already were.
+  - Unchanged: the requirement is kept, so once a read finds registration
+    open the line returns with the Google sign-up (guarded by a test); an
+    enrollment in progress still shows it at every step.
+  - Evidence: 2 tests failed first in `EnrollmentAvailability.test.tsx`
+    (closed and unknown); 1 more guards the open case.
+- **Gates** at each of the three commits: `typecheck`, `lint`,
+  `audit:boundaries` and `build:patient-web` pass; `npm test`: 140 files,
+  1840, 1841 and 1844 tests.
+- **Not verified.** Component tests with the network stubbed. Nothing was run
+  in a browser, at runtime, on staging or against a live hid-system.
+
 ## 2026-10-15: staff sign-in with an authenticator, part 1 (hid-system#71)
 
 hid-system `main` `8f3eff1` has staff sign-in with an authenticator

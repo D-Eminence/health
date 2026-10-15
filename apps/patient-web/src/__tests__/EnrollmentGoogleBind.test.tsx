@@ -6,6 +6,7 @@ import { Enrollment } from '../routes/Enrollment'
 
 const api = vi.hoisted(() => ({
   enrollmentCurrent: vi.fn(), googleOnboarding: vi.fn(), googleExchange: vi.fn(), enrollmentBindGoogle: vi.fn(),
+  enrollmentAvailability: vi.fn(),
 }))
 
 vi.mock('../session', () => ({
@@ -21,7 +22,10 @@ vi.mock('../GoogleButton', () => ({
     <button type="button" disabled={disabled} onClick={() => { void onCredential('google-id-token') }}>Sign up with Google</button>,
 }))
 
-beforeEach(() => { vi.stubEnv('VITE_HID_GOOGLE_CLIENT_ID', 'google-client') })
+beforeEach(() => {
+  vi.stubEnv('VITE_HID_GOOGLE_CLIENT_ID', 'google-client')
+  api.enrollmentAvailability.mockResolvedValue({ open: true })
+})
 afterEach(() => { vi.unstubAllEnvs(); vi.clearAllMocks() })
 
 /**
