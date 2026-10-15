@@ -4,12 +4,18 @@ import { isHidApiError } from '@hid/http'
 import { useSession } from '../session'
 import './chat.css'
 import { RecordAnswer } from '../RecordAnswer'
-import { ChatSource } from '../ChatSource'
+import type { PatientChatHistory } from '../api'
+import { ChatSourceContent } from '../ChatSource'
 
 const suggestions = [
   { title: 'Summarise my history', detail: 'History and recent events', question: 'Summarise my medical history and important recent recorded events.' },
   { title: 'Find my prescriptions', detail: 'Previous and latest medicines', question: 'What medicines have I previously been prescribed, and which are the latest recorded?' },
   { title: 'Compare my lab results', detail: 'Changes across previous visits', question: 'Compare my laboratory results across visits and show the records supporting the changes.' },
+]
+const staffSuggestions = [
+  { title: 'Summarise history', detail: 'History and recent events', question: 'Summarise this patient’s medical history and important recent recorded events.' },
+  { title: 'Find prescriptions', detail: 'Previous and latest medicines', question: 'What medications has this patient previously been prescribed, and which are the most recent recorded?' },
+  { title: 'Compare lab results', detail: 'Changes across previous visits', question: 'Compare this patient’s laboratory results across visits and cite the records supporting the changes.' },
 ]
 interface Exchange { id: number; question: string; reply?: PatientChatReply; error?: string }
 function failure(reason: unknown): string {
@@ -29,12 +35,17 @@ function NoteIcon() {
   return <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9l-6-6Z" /><path d="M14 3v6h6M8 13h8M8 17h5" /></svg>
 }
 export function PatientChat() {
-  const { state } = useSession()
+  const { state, api } = useSession()
   if (state.status !== 'authenticated' || state.principal.kind !== 'patient') return null
-  return <ChatConversation key={state.principal.subjectId} />
+  return <ChatConversation key={state.principal.subjectId} api={api} />
 }
-function ChatConversation() {
-  const { api } = useSession()
+export interface ChatConversationApi {
+  chat(question:string,options?:{signal?:AbortSignal}):Promise<PatientChatReply>
+  chatHistory(signal?:AbortSignal):Promise<PatientChatHistory>
+  clearChatHistory(signal?:AbortSignal):Promise<{cleared:true}>
+  chatSource(kind:string,id:string,signal?:AbortSignal):Promise<Record<string,unknown>>
+}
+export function ChatConversation({api,staff}:{api:ChatConversationApi;staff?:{patientName:string;hid:string;facilityName:string}}) {
   const [draft, setDraft] = useState('')
   const [exchanges, setExchanges] = useState<Exchange[]>([])
   const [busy, setBusy] = useState(false)
@@ -108,14 +119,15 @@ function ChatConversation() {
       if (flight.current === controller) { flight.current = null; setBusy(false) }
     }
   }
+  const PageHeading = staff ? 'h2' : 'h1'
   const submit = (event: FormEvent) => { event.preventDefault(); void send() }
   return <section className="patient-section record-chat-page" aria-labelledby="record-chat-title">
     <header className="record-chat-page-header">
-      <div><p className="patient-eyebrow">Your record assistant</p><h1 id="record-chat-title" className="patient-page-title">Ask about your records</h1><p className="patient-page-copy">A little clarity, from your clinical notes.</p></div>
+      <div><p className="patient-eyebrow">{staff ? 'Clinical record assistant' : 'Your record assistant'}</p><PageHeading id="record-chat-title" className="patient-page-title">{staff ? 'Ask about this patient' : 'Ask about your records'}</PageHeading><p className="patient-page-copy">{staff ? 'Answers from this patient’s available records, within your current access.' : 'A little clarity, from your clinical notes.'}</p></div>
       <button type="button" className="record-chat-reset" disabled={resetting || historyStatus === 'loading'} onClick={() => { void reset() }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>New conversation</button>
     </header>
     <div className="record-chat-panel">
-      <header className="record-chat-panel-header"><span className="record-chat-avatar"><NoteIcon /></span><div><h2>Health ID record assistant</h2><p>Uses your available authorized patient records</p></div><span className="record-chat-private">Private to your account</span></header>
+      <header className="record-chat-panel-header"><span className="record-chat-avatar"><NoteIcon /></span><div><h2>Health ID record assistant</h2><p>{staff ? `${staff.patientName} · ${staff.hid} · ${staff.facilityName}` : 'Uses your available authorized patient records'}</p></div><span className="record-chat-private">{staff ? 'Separate for this patient and your facility membership' : 'Private to your account'}</span></header>
       <details className="record-chat-coverage"><summary>Which records can I ask about?</summary><p>Ask about medical history, prescriptions, conditions, observations, investigations and released lab results. Readable documents can be included; unclear or pending scans are identified. Patient-reported history stays labelled. Your care team guides diagnosis and treatment.</p></details>
       <div className="record-chat-coverage"><p>Your latest 10 exchanges are available for 30 days. New conversation deletes saved chats. Up to four recent exchanges help the assistant understand follow-up questions.</p>
         {historyStatus === 'loading' && <p role="status">Loading your saved conversation…</p>}
@@ -127,8 +139,8 @@ function ChatConversation() {
         const element = history.current
         if (element) followLatest.current = element.scrollHeight - element.scrollTop - element.clientHeight < 80
       }}>
-        {exchanges.length === 0 && <div className="record-chat-welcome"><span className="record-chat-welcome-icon"><NoteIcon /></span><h2>Understand your health records</h2><p>Ask about your history, medicines or results. Answers based on records include references you can check.</p>
-          <div className="record-chat-suggestions" aria-label="Suggested questions">{suggestions.map(suggestion => <button key={suggestion.title} type="button" onClick={() => chooseQuestion(suggestion.question)}><span>{suggestion.title}</span><small>{suggestion.detail}</small><span className="record-chat-suggestion-arrow" aria-hidden="true">↗</span></button>)}</div>
+        {exchanges.length === 0 && <div className="record-chat-welcome"><span className="record-chat-welcome-icon"><NoteIcon /></span><h2>{staff ? 'Review this patient’s records' : 'Understand your health records'}</h2><p>{staff ? 'Ask about this patient’s history, medicines or results. Answers include record references you can check.' : 'Ask about your history, medicines or results. Answers based on records include references you can check.'}</p>
+          <div className="record-chat-suggestions" aria-label="Suggested questions">{(staff ? staffSuggestions : suggestions).map(suggestion => <button key={suggestion.title} type="button" onClick={() => chooseQuestion(suggestion.question)}><span>{suggestion.title}</span><small>{suggestion.detail}</small><span className="record-chat-suggestion-arrow" aria-hidden="true">↗</span></button>)}</div>
         </div>}
         <div role="log" aria-label="Record chat" aria-live="polite" aria-relevant="additions text" aria-busy={busy} className="record-chat-messages">
           {exchanges.map(exchange => <article key={exchange.id} className="record-chat-exchange">
@@ -137,7 +149,7 @@ function ChatConversation() {
               {exchange.reply ? <><RecordAnswer text={exchange.reply.answer} />
                 {exchange.reply.coverage && !exchange.reply.coverage.complete && <p className="record-chat-preparing">This answer uses the available matching evidence. Coverage is incomplete{exchange.reply.coverage.pendingDocuments ? `; ${exchange.reply.coverage.pendingDocuments} document(s) are pending, unreadable or not included` : ''}. {exchange.reply.coverage.unavailable.join(' ')}</p>}
                 {exchange.reply.status === 'preparing' && <p className="record-chat-preparing">Your records are being prepared. Please ask again shortly.</p>}
-                {exchange.reply.sources.length > 0 && <details className="record-chat-sources" open><summary>{exchange.reply.sources.length} record {exchange.reply.sources.length === 1 ? 'reference' : 'references'}</summary><ul>{exchange.reply.sources.map(source => <ChatSource key={source.number} source={source} />)}</ul></details>}
+                {exchange.reply.sources.length > 0 && <details className="record-chat-sources" open><summary>{exchange.reply.sources.length} record {exchange.reply.sources.length === 1 ? 'reference' : 'references'}</summary><ul>{exchange.reply.sources.map(source => <ChatSourceContent key={source.number} source={source} loadSource={api.chatSource} />)}</ul></details>}
               </> : exchange.error ? <p role="alert" className="record-chat-error">{exchange.error}</p>
                 : <p role="status" className="record-chat-thinking"><span className="record-chat-thinking-dots" aria-hidden="true"><i /><i /><i /></span>Reading your authorized records…</p>}
             </div></div>
@@ -145,14 +157,14 @@ function ChatConversation() {
         </div>
       </div>
       <form className="record-chat-composer" onSubmit={submit}><label htmlFor="record-question">Your question</label>
-        <div className="record-chat-input-row"><textarea ref={input} id="record-question" rows={1} value={draft} maxLength={500} aria-describedby="record-question-hint" autoComplete="off" placeholder="Ask about your history, medicines or results…"
+        <div className="record-chat-input-row"><textarea ref={input} id="record-question" rows={1} value={draft} maxLength={500} aria-describedby="record-question-hint" autoComplete="off" placeholder={staff ? 'Ask about this patient’s records…' : 'Ask about your history, medicines or results…'}
           onChange={event => setDraft(event.target.value)} onKeyDown={event => {
             if (event.key === 'Enter' && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey && !event.nativeEvent.isComposing && !busy) { event.preventDefault(); void send() }
           }} />
           <button type="submit" disabled={historyStatus !== 'ready' || busy || !draft.trim() || draft.trim().length > 500} aria-label="Send question"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="m5 12 7-7 7 7M12 5v15" /></svg><span>Send</span></button>
         </div>
         <div className="record-chat-composer-hints"><span id="record-question-hint">Enter to send · Shift + Enter for a new line</span><span>{draft.length}/500</span></div>
-        <p className="record-chat-care-note">Check the record references and speak with your care team about medical decisions.</p>
+        <p className="record-chat-care-note">{staff ? 'Check source records and use clinical judgement. The assistant does not make treatment decisions.' : 'Check the record references and speak with your care team about medical decisions.'}</p>
       </form>
     </div>
   </section>

@@ -69,3 +69,11 @@ body { margin: 0; }
 .staff-tabs button.active { background: var(--color-brand-tint); color: var(--color-brand); font-weight: 650; }
 @media (max-width: 900px) { .staff-layout { grid-template-columns: 1fr; } .staff-sidebar { border-right: 0; border-bottom: 1px solid var(--color-line); padding: 10px 14px; gap: 9px; } .staff-nav { display: flex; overflow-x: auto; padding-bottom: 2px; } .staff-nav-link { flex: 0 0 auto; } .staff-sidebar-footer { display: none; } .staff-facility { max-width: 360px; } .staff-main { padding: 24px 16px 60px; } }
 @media (max-width: 700px) { .staff-auth-page { grid-template-columns: 1fr; } .staff-auth-aside { display: none; } .staff-auth { padding: 35px 20px; } .staff-auth .staff-brand { margin-bottom: 52px; } .staff-two-col, .staff-form-row { grid-template-columns: 1fr; } .staff-user { display: none; } }
+
+.staff-patient-chat { margin-block: 20px; min-width: 0; }
+.staff-patient-chat > .record-chat-reset { margin-bottom: 14px; }
+.staff-patient-chat .record-chat-page { max-width: none; padding: 0; }
+.staff-patient-chat .record-chat-page-header { align-items: start; gap: 16px; }
+.staff-patient-chat .record-chat-panel-header { flex-wrap: wrap; }
+.staff-patient-chat .record-chat-panel-header p { overflow-wrap: anywhere; }
+.staff-patient-chat .record-chat-history { max-height: 520px; }

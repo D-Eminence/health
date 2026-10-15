@@ -34,6 +34,9 @@ const one = (method: EndpointMethod, ...permissions: string[]): Partial<Record<E
 export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('support.chat','support','/api/v1/support/chat',P,true),
   r('ehr.patientChat','ehr','/api/v1/ehr/me/chat',P),
+  r('ehr.staffPatientChat','ehr','/api/v1/ehr/patients/:patientId/chat',P,false,one('POST','ehr.note.read')),
+  r('ehr.staffPatientChatHistory','ehr','/api/v1/ehr/patients/:patientId/chat/history',['GET','DELETE'],false,{GET:['ehr.note.read'],DELETE:['ehr.note.read']}),
+  r('ehr.staffPatientChatSource','ehr','/api/v1/ehr/patients/:patientId/chat/sources/:kind/:sourceId',G,false,one('GET','ehr.note.read')),
     r('ehr.patientChatHistory','ehr','/api/v1/ehr/me/chat/history',['GET','DELETE']),
     r('ehr.patientChatSource','ehr','/api/v1/ehr/me/chat/sources/:kind/:sourceId',G),
   r('auth.patientLogin','auth','/api/v1/auth/patient/login',P,true),

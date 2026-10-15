@@ -9,14 +9,18 @@ function fields(value:unknown,depth=0):React.ReactNode {
   return <dl className="chat-source-fields">{Object.entries(value).map(([k,v])=><div key={k}><dt>{k.replace(/([a-z])([A-Z])/g,'$1 $2').replace(/_/g,' ')}</dt><dd>{fields(v,depth+1)}</dd></div>)}</dl>
 }
 export function ChatSource({source}:{source:PatientChatSource}) {
-  const {api}=useSession();const [detail,setDetail]=useState<Record<string,unknown>|null>(null);const [error,setError]=useState('');
+  const {api}=useSession()
+  return <ChatSourceContent source={source} loadSource={api.chatSource} />
+}
+export function ChatSourceContent({source,loadSource}:{source:PatientChatSource;loadSource:(kind:string,id:string,signal?:AbortSignal)=>Promise<Record<string,unknown>>}) {
+  const [detail,setDetail]=useState<Record<string,unknown>|null>(null);const [error,setError]=useState('');
   const [loading,setLoading]=useState(false);const flight=useRef<AbortController|null>(null)
   useEffect(()=>()=>flight.current?.abort(),[])
   const open=async()=>{
     if(!('kind' in source))return
     flight.current?.abort();const controller=new AbortController();flight.current=controller
     setLoading(true);setError('');setDetail(null)
-    try{const value=await api.chatSource(source.kind,source.id,controller.signal);if(!controller.signal.aborted){
+    try{const value=await loadSource(source.kind,source.id,controller.signal);if(!controller.signal.aborted){
       if(value.version!==source.version)setError('This record has changed since the answer was saved. These are its current details.')
       setDetail(value)
     }}

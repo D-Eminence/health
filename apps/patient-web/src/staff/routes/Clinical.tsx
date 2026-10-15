@@ -1,3 +1,4 @@
+import { StaffPatientChat } from './StaffPatientChat'
 import { ImportedPatientHistory } from './ImportedPatientHistory'
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
@@ -527,6 +528,10 @@ export function Clinical() {
     <div className="staff-page-head"><p className="staff-eyebrow">Clinical record · {facility.name}</p><h1>{activePatient.lookup.patient.fullName ?? activePatient.hid}</h1><p>HID {activePatient.hid} · Direct care access. The server rechecks authorization before changes.</p></div>
     <div className="staff-row staff-toolbar"><Badge tone="success">Authorized</Badge><Button tone="secondary" size="sm" onClick={() => void loadEncounters()} disabled={loading}>Refresh encounters</Button><Link className="staff-text-link" to="/provider/patients">Change patient →</Link></div>
     {error && <p className="staff-error" role="alert">{error}</p>}{success && <p className="staff-success" role="status">{success}</p>}
+    {permissions.includes('ehr.note.read') && <StaffPatientChat
+      key={JSON.stringify([state.status==='ready'?state.session.actor.id:'',facility.id,facility.membershipId,patientId,activePatient.purpose,permissions])}
+      facilityId={facility.id} facilityName={facility.name} patientId={patientId!}
+      patientName={activePatient.lookup.patient.fullName??activePatient.hid} hid={activePatient.hid} />}
     {permissions.includes('ehr.note.read') && <ImportedPatientHistory
       key={JSON.stringify([state.status === 'ready' ? state.session.actor.id : '', facility.id, patientId, activePatient.purpose, permissions])}
       facilityId={facility.id} patientId={patientId!} purpose="direct-care" verify={verify}

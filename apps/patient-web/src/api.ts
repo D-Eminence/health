@@ -8,7 +8,7 @@ export interface PatientChatHistory {
   retentionDays: number
   limit: number
 }
-function parseChatHistory(value: unknown): PatientChatHistory {
+export function parseChatHistory(value: unknown): PatientChatHistory {
   if (typeof value !== 'object' || value === null) throw new Error('Saved chat returned an invalid response.')
   const history = value as Record<string, unknown>
   if (!Array.isArray(history.exchanges) || history.exchanges.length > 10 || history.retentionDays !== 30 || history.limit !== 10) {
