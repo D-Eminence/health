@@ -142,7 +142,7 @@ describe('clinician sign-up availability', () => {
     expect(screen.getByRole('link', { name: 'Check an application' }).getAttribute('href')).toBe('/provider/join/status')
     expect(screen.queryByRole('textbox', { name: 'Work email' })).toBeNull()
     expect(screen.queryByText("We couldn't check right now.")).toBeNull()
-    expect(document.title).toBe("Clinician sign-up isn't open yet · Health ID Provider")
+    await waitFor(() => expect(document.title).toBe("Clinician sign-up isn't open yet · Health ID Provider"))
   })
 
   it('treats a 404 as not open, with no retry', async () => {
@@ -166,7 +166,7 @@ describe('clinician sign-up availability', () => {
     open()
     expect(await screen.findByRole('heading', { level: 1, name: 'Apply as a doctor or nurse' })).toBeTruthy()
     expect(currentStep()).toBe('Email')
-    expect(document.title).toBe('Clinician sign-up – Email · Health ID Provider')
+    await waitFor(() => expect(document.title).toBe('Clinician sign-up – Email · Health ID Provider'))
     expect(screen.getByText(/A facility administrator account can't also hold a clinical role at the same facility/)).toBeTruthy()
   })
 
@@ -187,7 +187,7 @@ describe('the email steps', () => {
     expect(api.sendCode).toHaveBeenCalledWith('ada@example.test', 'clinician-application-check-0')
     expect(screen.getByText("If this address can be used, we've sent a 6-digit code to ada@example.test. It expires in 10 minutes.")).toBeTruthy()
     expect(currentStep()).toBe('Code')
-    expect(document.title).toBe('Clinician sign-up – Code · Health ID Provider')
+    await waitFor(() => expect(document.title).toBe('Clinician sign-up – Code · Health ID Provider'))
     const code = textbox('6-digit code')
     expect(code.getAttribute('inputmode')).toBe('numeric')
     expect(code.getAttribute('autocomplete')).toBe('one-time-code')
@@ -486,7 +486,7 @@ describe('the authenticator, before any review', () => {
     press('Continue to your application')
     await stepShown('Application submitted')
     expect(currentStep()).toBe('Done')
-    expect(document.title).toBe('Clinician sign-up – Done · Health ID Provider')
+    await waitFor(() => expect(document.title).toBe('Clinician sign-up – Done · Health ID Provider'))
     for (const code of RECOVERY_CODES) expect(screen.queryByText(code)).toBeNull()
     const text = document.body.textContent ?? ''
     expect(text).toContain("Your application is in HID's verification queue.")

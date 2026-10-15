@@ -13,6 +13,8 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
  * does not prove the session ended: the portal asks the server before ending it.
  */
 vi.mock('./env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.example.test', turnstileSiteKey: null }) }))
+// Provider sign-in also asks whether clinician self sign-up is open (hid-system ADR-064); that has tests of its own.
+vi.mock('./clinicianApplicationApi', () => ({ clinicianApplicationApi: { availability: () => Promise.resolve({ open: false }) } }))
 afterEach(() => { vi.unstubAllGlobals(); vi.resetModules() })
 
 /**

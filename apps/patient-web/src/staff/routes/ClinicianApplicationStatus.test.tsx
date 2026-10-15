@@ -102,7 +102,7 @@ describe('opening the status page', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Check your clinician application' })).toBeTruthy()
     expect(screen.getByText("Enter the email address you applied with. We'll send it a code. This doesn't sign you in to the provider portal.")).toBeTruthy()
     expect(screen.getByRole('textbox', { name: 'Work email' })).toBeTruthy()
-    expect(document.title).toBe('Clinician application · Health ID Provider')
+    await waitFor(() => expect(document.title).toBe('Clinician application · Health ID Provider'))
   })
 
   it('asks for the authenticator code when the page is open but not yet verified', async () => {
