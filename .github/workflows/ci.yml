@@ -50,5 +50,11 @@ jobs:
           npm run build:patient-web
           npm run build:public-web
 
+      # hid-system's staging step refuses a portal build with Google sign-in,
+      # a service worker, a manifest, a source map or an unexpected file. This
+      # build has no Google client ID, as at launch.
+      - name: Launch build check
+        run: npm run audit:launch-build
+
       - name: Dependency audit
         run: npm audit --audit-level=high

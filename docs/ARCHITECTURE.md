@@ -467,6 +467,9 @@ provider forms tie each refused value to its field
 | `packages/ui` | Shared tokens and components; `Field`, `Input`, `Select` and `Textarea` in the `'use client'` module `Field.tsx` |
 
 The root scripts provide `typecheck`, `lint`, `test`, `audit:boundaries`,
-`build:public-web` and `build:patient-web`. These are local code checks. A
+`build:public-web`, `build:patient-web` and `audit:launch-build`, which runs
+hid-system's staging refusals for the portal build
+(`infra/cloudflare/scripts/health-id-artifact.mjs`) over
+`apps/patient-web/dist`. These are local code checks. A
 successful build or mocked test does not establish that the backend routes,
 cookies, Turnstile actions or real credentials work in a deployed environment.
