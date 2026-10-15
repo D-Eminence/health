@@ -282,8 +282,10 @@ no security check. A failed read, a 503 included, says the check failed and
 offers Try again; it is never taken for a sign-out. Only a start is refused
 while registration is closed, a resume with the same key included, so an
 enrollment in progress continues, an activated one still shows its HID within
-its 15 minutes, and one that a sign-in or sign-out ended here is not told to
-enter its NIN again. The read predicts only the checks a start makes before it
+its 15 minutes, and one that a sign-in or sign-out ended here is told to enter
+its NIN again only once a read finds registration open. While the read has
+failed, Try again stands in for the NIN step and takes focus when a step ends
+that way. The read predicts only the checks a start makes before it
 reads a NIN, so the start's own refusals (rate limits, the lookup quota,
 `503 ENROLLMENT_RECONCILIATION_REQUIRED`) are shown as before. Production keeps
 NIN-only enrollment closed until hid-system's N1 holder step ships. The

@@ -141,4 +141,27 @@ describe('new Health ID registration (hid-system#68, FE-4)', () => {
     expect(screen.queryByText(/Enter the same NIN/)).toBeNull()
     expect(screen.queryByLabelText('National Identification Number')).toBeNull()
   })
+
+  it('moves focus to Try again, and asks for the NIN only once it is offered, when an enrollment in progress ends here and availability could not be read', async () => {
+    let open: () => Response = outage
+    let current = () => json({ stage: 'verify_contact', challengeId: 'challenge-1', maskedContact: 'a•••@example.com' })
+    renderPortal(<Enrollment />, gateway(() => open(), () => current(),
+      () => problem(404, 'ENROLLMENT_NOT_FOUND', 'No pending enrollment was found')), anonymous)
+    fireEvent.change(await screen.findByLabelText('Verification code'), { target: { value: '123456' } })
+    // A sign-in or sign-out in another tab expired the enrollment cookie.
+    current = none
+    await press(screen.getByRole('button', { name: 'Verify code' }))
+
+    const retry = await screen.findByRole('button', { name: 'Try again' })
+    await waitFor(() => expect(document.activeElement).toBe(retry))
+    expect(screen.getByText('This enrollment ended on this device because someone signed in or out here.')).toBeTruthy()
+    expect(screen.queryByText(/Enter the same NIN/)).toBeNull()
+    expect(screen.queryByLabelText('National Identification Number')).toBeNull()
+
+    open = () => json({ open: true })
+    await press(retry)
+    const nin = await screen.findByLabelText('National Identification Number')
+    await waitFor(() => expect(document.activeElement).toBe(nin))
+    expect(screen.getByText(/This enrollment ended on this device/).textContent).toMatch(/Enter the same NIN to continue it\.$/)
+  })
 })

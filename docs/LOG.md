@@ -1414,7 +1414,7 @@ and N2. hid-system was not changed.
 - **Not verified.** Component tests with the network stubbed. Nothing was run
   in a browser, at runtime, on staging or against a live hid-system.
 
-## 2026-10-15: patient enrollment after review (a lost re-verification answer)
+## 2026-10-15: patient enrollment after review (a lost re-verification answer, an enrollment ended while availability was unknown)
 
 Read at hid-system `main` `8f3eff1` (`patient-enrollment.service.ts`
 `activate`, `resetStaleContact`; `docs/INTERFACE_CONTRACT.md`).
@@ -1438,3 +1438,19 @@ Read at hid-system `main` `8f3eff1` (`patient-enrollment.service.ts`
     activation refusal (503, 429) stays at the password step without a read.
   - Evidence: 4 tests failed first in `EnrollmentActivation.test.tsx`; the
     case that asserted the stuck page now guards a 503 and a 429.
+- **An enrollment that ended while availability was unknown.** When the
+  availability read had failed (a 503 after its retries, or the 404 of an
+  Identity without hid-system#68) and an enrollment in progress then ended
+  here (`404 ENROLLMENT_NOT_FOUND` at a step), the page went to the NIN step,
+  which shows only Try again in that state. Focus fell to the page, since
+  nothing there was the step's focus target, and the alert said "Enter the
+  same NIN to continue it" with no NIN field.
+  - Now Try again is the step's focus target in that state, so focus goes
+    there, and the alert says only that the enrollment ended until a read
+    finds registration open; then the NIN field is shown and the alert asks
+    for the same NIN.
+  - Unchanged: a failed read at load and a Try again that fails again, which
+    already moved focus to Try again; a closed registration, whose heading
+    takes focus.
+  - Evidence: 1 test failed first in `EnrollmentAvailability.test.tsx`, on
+    focus and, with the focus fix alone, on the wording.

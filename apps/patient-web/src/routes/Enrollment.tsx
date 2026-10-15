@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import type { EnrollmentProgress } from '../api'
@@ -35,9 +35,10 @@ const ENDS_ENROLLMENT = 'Signing out also ends an enrollment in progress on this
  * from the availability read says so, and a read that failed is said as such. Only
  * the start is refused while registration is closed, a start with the same key
  * included, so an enrollment in progress continues whatever it says, and one that
- * ended here is not told to enter its NIN again. Production keeps registration
- * closed until hid-system's N1 holder step ships; the notice is Identity's own
- * wording for the start's 503.
+ * ended here is told to enter its NIN again only once a read finds it open.
+ * Until then, while the read has failed, Try again stands in for the NIN step,
+ * focus included. Production keeps registration closed until hid-system's N1
+ * holder step ships; the notice is Identity's own wording for the start's 503.
  */
 type Registration = 'open' | 'closed' | 'unknown'
 const REGISTRATION_CLOSED = 'New Health ID registration is not open yet. If you already have a Health ID, sign in.'
@@ -121,6 +122,11 @@ export function Enrollment() {
   // the same again (PR-04).
   const retriedCheck = useRef(false)
   const checkRetry = useRef<HTMLButtonElement>(null)
+  // The availability read's Try again is also the NIN step's focus target (above).
+  const retryInPlaceOfNin = useCallback((element: HTMLButtonElement | null) => {
+    checkRetry.current = element
+    stepFocus.target(element)
+  }, [stepFocus.target])
   const focusAfter = useActionFocus()
   // The step shown, for the check, which runs apart from any one render.
   const stageShown = useRef<Stage>(stage)
@@ -333,9 +339,9 @@ export function Enrollment() {
         {/* Once it is signed out elsewhere, as asked, the browser's session and the enrollment are checked again. */}
         <button type="button" className="patient-secondary-button" onClick={() => { retriedCheck.current = true; retrySessionCheck(); setCheckKey(value => value + 1) }}>Check again</button>
       </div>}
-      {error && <p id="enroll-error" role={errorAlert ? 'alert' : undefined} className="patient-inline-error">{closed && error === ENDED_HERE ? ENDED : error}</p>}
+      {error && <p id="enroll-error" role={errorAlert ? 'alert' : undefined} className="patient-inline-error">{error === ENDED_HERE && registration !== 'open' ? ENDED : error}</p>}
       {googleRequired && !googlePending && <p role="status" className="patient-inline-error">Reconnect the Google account used to start this enrollment.</p>}
-      {ready && stage === 'nin' && registration === 'unknown' && <div className="patient-inline-error" role="alert"><p>We could not check whether new Health ID registration is open. Try again before starting.</p><button ref={checkRetry} type="button" className="patient-secondary-button" onClick={() => { retriedCheck.current = true; setCheckKey(value => value + 1) }}>Try again</button></div>}
+      {ready && stage === 'nin' && registration === 'unknown' && <div className="patient-inline-error" role="alert"><p>We could not check whether new Health ID registration is open. Try again before starting.</p><button ref={retryInPlaceOfNin} type="button" className="patient-secondary-button" onClick={() => { retriedCheck.current = true; setCheckKey(value => value + 1) }}>Try again</button></div>}
       {closed && <section className="patient-success" aria-labelledby="enroll-closed-title">
         <h2 id="enroll-closed-title" ref={stepFocus.target} tabIndex={-1}>Registration is not open yet</h2>
         <p role="status">{REGISTRATION_CLOSED}</p>
