@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { adminApi } from './api'
 import { failure, isProblem } from './problems'
+import { SIX_DIGIT_CODE_FIELD, isSixDigitCode, sixDigitCode } from '../mfa/codes'
 
 /** The administrator closed the confirmation: the action was not carried out. */
 export class StepUpCancelledError extends Error {
@@ -86,7 +87,7 @@ function StepUpDialog({ expired, onConfirmed, onCancel }: { expired: boolean; on
   const [code, setCode] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const valid = /^[0-9]{6}$/.test(code)
+  const valid = isSixDigitCode(code)
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -109,8 +110,8 @@ function StepUpDialog({ expired, onConfirmed, onCancel }: { expired: boolean; on
         5 minutes before it carries it out. Nothing has been changed yet.</p>
       {expired && <p className="admin-note">Your last confirmation in this session is more than 5 minutes old.</p>}
       <p className="admin-note">Recovery codes cannot confirm high-risk actions.</p>
-      <label>Authenticator code<input value={code} onChange={event => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
-        inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" required autoFocus /></label>
+      <label>Authenticator code<input value={code} onChange={event => setCode(sixDigitCode(event.target.value))}
+        {...SIX_DIGIT_CODE_FIELD} required autoFocus /></label>
       {error && <p role="alert" className="admin-error">{error}</p>}
       <div className="admin-dialog-actions">
         <button type="button" className="admin-secondary" onClick={onCancel} disabled={busy}>Cancel</button>

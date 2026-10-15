@@ -1,6 +1,6 @@
 /** Domain methods backed by the c4b5445 route registry. */
 import type {
-  CreateDemoRequest, DemoRequestAccepted, HidAuthSession, PatientEnrollmentProgress,
+  CreateDemoRequest, DemoRequestAccepted, HidAuthSession, HidStaffLoginChallenge, PatientEnrollmentProgress,
   PatientRecordSummary, PublicPricingResponse, RecoveryOtpStart, RecoveryOtpVerified,
   UnverifiedPayload,
 } from '@hid/contracts'
@@ -17,7 +17,7 @@ export function createAuthService(context: ServiceContext) {
       return request('auth.patientLogin','POST',{ body, ...options })
     },
     staffLogin(body: { email: string; password: string; turnstileAction?: string; turnstileToken?: string },
-      options: CallOptions = {}): Promise<HidAuthSession> {
+      options: CallOptions = {}): Promise<HidStaffLoginChallenge | HidAuthSession> {
       return request('auth.staffLogin','POST',{ body, ...options })
     },
     session(options: CallOptions = {}): Promise<HidAuthSession> {

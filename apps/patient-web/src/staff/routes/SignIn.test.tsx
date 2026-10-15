@@ -1,11 +1,12 @@
-import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { SignIn } from './SignIn'
 
-const calls = vi.hoisted(() => ({ login: vi.fn(), loginAction: vi.fn((_hostname: string) => 'staff-login') }))
+const calls = vi.hoisted(() => ({ login: vi.fn(), completeSignIn: vi.fn(), loginAction: vi.fn((_hostname: string) => 'staff-login'),
+  state: { status: 'signed-out' } as { status: string; reason?: string } }))
 
-vi.mock('../App', () => ({ useStaff: () => ({ state: { status: 'signed-out' }, login: calls.login }) }))
+vi.mock('../App', () => ({ useStaff: () => ({ state: calls.state, login: calls.login, completeSignIn: calls.completeSignIn }) }))
 vi.mock('../env', () => ({ getEnvironment: () => ({ turnstileSiteKey: 'test-site-key' }) }))
 vi.mock('../../productHostname', async importOriginal => ({
   ...await importOriginal<Record<string, unknown>>(),
@@ -17,7 +18,7 @@ const jsdom = (globalThis as unknown as { jsdom: { reconfigure(options: { url: s
 const servedFrom = window.location.href
 function serveFrom(hostname: string) { jsdom.reconfigure({ url: `https://${hostname}/provider/sign-in` }) }
 
-beforeEach(() => { vi.clearAllMocks() })
+beforeEach(() => { vi.clearAllMocks(); calls.state = { status: 'signed-out' } })
 afterEach(() => { vi.unstubAllGlobals(); jsdom.reconfigure({ url: servedFrom }) })
 
 it('renews the consumed provider login challenge while preserving credentials on failure', async () => {
@@ -103,4 +104,31 @@ it.each([
     await waitFor(() => expect(renderChallenge).toHaveBeenCalledTimes(1))
     expect(renderChallenge.mock.calls[0]?.[1]).toMatchObject({ size })
   } finally { Reflect.deleteProperty(HTMLElement.prototype, 'clientWidth') }
+})
+
+describe('a sign-in that Identity ended for want of an authenticator (403 STAFF_MFA_REQUIRED)', () => {
+  const NOTICE = 'Health ID now asks staff for a code from an authenticator app at sign-in. Sign in again to set one up, or to use the one you have.'
+
+  it.each([
+    ['signed out at load', 'signed-out'],
+    ['ended mid-session', 'ended'],
+  ])('says an authenticator code is now needed when it was %s', (_label, status) => {
+    calls.state = { status, reason: 'mfa-required' }
+    vi.stubGlobal('turnstile', { render: vi.fn(() => 'widget-1'), remove: vi.fn(), reset: vi.fn() })
+    render(<MemoryRouter><SignIn /></MemoryRouter>)
+
+    const notice = screen.getByRole('status')
+    expect(notice.textContent).toBe(NOTICE)
+    expect(notice.className).toBe('staff-notice')
+    expect(screen.getByRole('heading', { name: 'Welcome back.' })).toBeTruthy()
+  })
+
+  it.each([['signed-out'], ['ended']])('says nothing of authenticators for a session %s otherwise', status => {
+    calls.state = { status }
+    vi.stubGlobal('turnstile', { render: vi.fn(() => 'widget-1'), remove: vi.fn(), reset: vi.fn() })
+    render(<MemoryRouter><SignIn /></MemoryRouter>)
+
+    expect(screen.queryByRole('status')).toBeNull()
+    expect(screen.queryByText(/authenticator/)).toBeNull()
+  })
 })

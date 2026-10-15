@@ -1,11 +1,13 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type ButtonHTMLAttributes, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { Field, Input, Select } from '@hid/ui'
 import { BrandLogo } from '../../BrandLogo'
 import { useDocumentTitle } from '../../authSteps'
 import { Turnstile } from '../../Turnstile'
-import { providerEnrollmentApi } from '../api'
+import { providerEnrollmentApi, staffApi, type StaffLoginChallenge } from '../api'
+import { announceStaffSessionChange } from '../session'
+import { StaffMfaSteps, type StaffMfaCalls, type StaffMfaLook } from './StaffMfaSteps'
 
 type Product = 'ehr' | 'migrate' | 'laboratory' | 'pharmacy'
 type OrganizationType = 'clinic' | 'hospital' | 'laboratory' | 'pharmacy' | 'other'
@@ -33,6 +35,40 @@ const productOptions: Record<OrganizationType, Product[]> = {
   other: ['ehr', 'laboratory', 'pharmacy', 'migrate'],
 }
 
+function EnrollmentButton({ primary, ...rest }: { primary?: boolean } & ButtonHTMLAttributes<HTMLButtonElement>) {
+  return <button type="button" className={primary ? 'patient-primary-button' : 'patient-text-button'} {...rest} />
+}
+
+/** The authenticator steps, drawn as the rest of provider enrollment is. */
+const ENROLLMENT_MFA_LOOK: StaffMfaLook = {
+  headingAs: 'h2',
+  classNames: { step: 'patient-form', note: 'patient-field-hint', error: 'patient-inline-error', status: 'patient-field-hint' },
+  Button: EnrollmentButton,
+}
+
+/**
+ * The staff API's sign-in steps, outside the provider workspace. Verify and
+ * activation set the session cookies, so the other tabs are told at once (this
+ * page does not listen, so the announcement goes on a channel of its own); the
+ * page then reloads into the workspace, which reads the session.
+ */
+const ENROLLMENT_MFA_CALLS: StaffMfaCalls = {
+  verify: async proof => {
+    const session = await staffApi.verifyMfa(proof)
+    announceStaffSessionChange()
+    return session
+  },
+  sendEnrollmentCode: () => staffApi.sendEnrollmentCode(),
+  startEnrollment: emailCode => staffApi.startEnrollment(emailCode),
+  activate: async code => {
+    const activation = await staffApi.activateEnrollment(code)
+    announceStaffSessionChange()
+    return activation
+  },
+}
+
+const STEPS = [['details', 'CAC'], ['otp', 'Email'], ['password', 'Password'], ['authenticator', 'Authenticator']] as const
+
 function errorMessage(reason: unknown): string {
   if (isHidApiError(reason)) return reason.message
   return reason instanceof Error ? reason.message : 'We could not complete provider enrollment. Please try again.'
@@ -41,7 +77,10 @@ function errorMessage(reason: unknown): string {
 export function ProviderEnrollment() {
   useDocumentTitle('Provider enrollment · Health ID Provider')
   const navigate = useNavigate()
-  const [stage, setStage] = useState<'details' | 'otp' | 'password'>('details')
+  // After activation the administrator's account is active, but signed in only once its authenticator is (hid-system #71).
+  const [stage, setStage] = useState<'details' | 'otp' | 'password' | 'authenticator' | 'sign-in'>('details')
+  const [challenge, setChallenge] = useState<StaffLoginChallenge | null>(null)
+  const [signInReason, setSignInReason] = useState<string | null>(null)
   const [organizationType, setOrganizationType] = useState<OrganizationType>('hospital')
   const [productCode, setProductCode] = useState<Product>('ehr')
   const [cac, setCac] = useState('')
@@ -108,13 +147,30 @@ export function ProviderEnrollment() {
     setBusy(true)
     setError('')
     try {
-      await providerEnrollmentApi.activate(password)
-      navigate('/provider', { replace: true })
-      window.location.reload()
+      const activated = await providerEnrollmentApi.activate(password)
+      setPassword('')
+      // Since hid-system #71 activation opens the administrator's first staff sign-in, whose second
+      // step comes next: an authenticator set up on the activation's own proof, or the code of one the
+      // account already has. An Identity before #71 answered with the session instead.
+      if (activated.status === 'mfa_enrollment_required' || activated.status === 'mfa_required') {
+        setChallenge({ status: activated.status, expiresAt: activated.expiresAt })
+        setStage('authenticator')
+        setBusy(false)
+        return
+      }
+      // An older Identity's activation answered with the session, which the browser now holds: the other tabs are told.
+      announceStaffSessionChange()
+      openWorkspace()
     } catch (reason) {
       setError(errorMessage(reason))
       setBusy(false)
     }
+  }
+
+  /** The workspace reads the session the browser now holds. */
+  function openWorkspace() {
+    navigate('/provider', { replace: true })
+    window.location.reload()
   }
 
   return (
@@ -123,13 +179,13 @@ export function ProviderEnrollment() {
         <Link to="/provider/sign-in" className="patient-auth-brand"><BrandLogo /></Link>
         <p className="patient-eyebrow">Provider enrollment</p>
         <h1 id="provider-enroll-title" className="patient-page-title">Set up your Health ID facility.</h1>
-        <p className="patient-page-copy">Verify your organization with CAC, confirm your administrator email, and create your provider account. Verified organizations can activate without waiting for routine HID Team approval.</p>
+        <p className="patient-page-copy">Verify your organization with CAC, confirm your administrator email, create your provider account and set up an authenticator app. Verified organizations can activate without waiting for routine HID Team approval.</p>
 
         {error ? <p role="alert" className="patient-inline-error">{error}</p> : null}
 
         <ol className="patient-step-list" aria-label="Provider enrollment steps">
-          {['CAC', 'Email', 'Password'].map((label, index) => (
-            <li key={label} aria-current={['details', 'otp', 'password'][index] === stage ? 'step' : undefined}>{label}</li>
+          {STEPS.map(([step, label]) => (
+            <li key={label} aria-current={step === stage || (step === 'authenticator' && stage === 'sign-in') ? 'step' : undefined}>{label}</li>
           ))}
         </ol>
 
@@ -194,7 +250,7 @@ export function ProviderEnrollment() {
         {stage === 'password' && (
           <form onSubmit={event => void activate(event)} className="patient-form">
             <h2>Create your provider account</h2>
-            <p className="patient-field-hint">Choose a password of at least 12 characters. After activation, you will enter the Provider Portal as your facility administrator.</p>
+            <p className="patient-field-hint">Choose a password of at least 12 characters. After activation, you will set up an authenticator app, then enter the Provider Portal as your facility administrator.</p>
             <label>Password
               <Input required type="password" autoComplete="new-password" minLength={12} maxLength={256}
                 value={password} onChange={event => setPassword(event.target.value)} />
@@ -205,8 +261,34 @@ export function ProviderEnrollment() {
           </form>
         )}
 
+        {stage === 'authenticator' && challenge && (
+          <StaffMfaSteps challenge={challenge} proof={challenge.status === 'mfa_enrollment_required' ? 'activation' : undefined}
+            calls={ENROLLMENT_MFA_CALLS} look={ENROLLMENT_MFA_LOOK} doneLabel="Continue to the Provider Portal"
+            onSignedIn={openWorkspace} onRestart={reason => { setChallenge(null); setSignInReason(reason); setStage('sign-in') }} />
+        )}
+
+        {stage === 'sign-in' && <SignInToFinish reason={signInReason} />}
+
         <p className="patient-auth-footer">Already have provider access? <Link to="/provider/sign-in">Sign in</Link></p>
       </section>
     </main>
   )
+}
+
+/**
+ * The activation's own challenge can no longer go on (it expired, ran out of
+ * attempts, or the account's authenticator must be reset). The account is
+ * active: an ordinary staff sign-in opens a new challenge, and sets up the
+ * authenticator with a code emailed to the administrator.
+ */
+function SignInToFinish({ reason }: { reason: string | null }) {
+  const heading = useRef<HTMLHeadingElement>(null)
+  useEffect(() => { heading.current?.focus() }, [])
+  return <section className="patient-form" aria-labelledby="provider-enroll-sign-in-title">
+    <h2 id="provider-enroll-sign-in-title" ref={heading} tabIndex={-1} className="hid-mfa-heading">Sign in to finish setting up</h2>
+    {reason && <p role="alert" className="patient-inline-error">{reason}</p>}
+    <p className="patient-field-hint">Your provider account is active. Sign in with your administrator email and the password you chose,
+      then set up your authenticator app.</p>
+    <Link className="patient-primary-button" to="/provider/sign-in">Sign in to the Provider Portal</Link>
+  </section>
 }

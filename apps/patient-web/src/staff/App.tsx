@@ -3,13 +3,17 @@ import { NavLink, Navigate, Outlet, Route, Routes, useHref, useLinkClickHandler,
 import { BrandLogo } from '../BrandLogo'
 import { Badge, Button, ButtonLink, Card, EmptyState, Select } from '@hid/ui'
 import { isHidApiError } from '@hid/http'
-import { staffApi, type PatientLookup, type StaffSession } from './api'
+import {
+  staffApi, type PatientLookup, type StaffEnrollmentCodeSent, type StaffLoginResult, type StaffMfaActivation, type StaffMfaEnrollment,
+  type StaffSession,
+} from './api'
 import { facilityChoiceNeeded, type FacilityChoiceReason } from './facilitySelection'
 import {
-  announceStaffSessionChange, onOtherTabSessionChange, onStaffSessionEnded, onStaffSessionRead, setStaffSessionActor,
-  setStaffSessionFacilities, setStaffSessionReady, staffSessionGeneration, staffSignInPath, startStaffSessionGeneration,
+  announceStaffSessionChange, endsStaffSession, onOtherTabSessionChange, onStaffSessionEnded, onStaffSessionRead, setStaffSessionActor,
+  setStaffSessionFacilities, setStaffSessionReady, staffSessionEndReason, staffSessionGeneration, staffSignInPath, startStaffSessionGeneration,
+  type StaffSessionEndReason,
 } from './session'
-import { SignIn } from './routes/SignIn'
+import { SignIn, STAFF_MFA_NOTICE } from './routes/SignIn'
 import { Dashboard } from './routes/Dashboard'
 import { Patients } from './routes/Patients'
 import { Registration } from './routes/Registration'
@@ -23,12 +27,13 @@ import { useDocumentTitle } from '../authSteps'
 import { focusPageHeading, useFocusOnPageChange } from '../pageFocus'
 import './style.css'
 
+/** `reason`: why Identity ended the session, when it said (see StaffSessionEndReason). */
 type SessionState =
   | { status: 'loading'; session: null }
   | { status: 'error'; session: null; error: string }
-  | { status: 'signed-out'; session: null }
+  | { status: 'signed-out'; session: null; reason?: StaffSessionEndReason }
   /** The server stopped accepting the session while it was in use (expired, revoked or ended elsewhere). */
-  | { status: 'ended'; session: null }
+  | { status: 'ended'; session: null; reason?: StaffSessionEndReason }
   /**
    * `facilityLost`: a refresh or check found the facility this tab worked at gone
    * from the actor's facilities; the session is the one it read, and the facility
@@ -59,7 +64,25 @@ interface StaffContextValue {
   /** Asks the server again whether the session holds, locking the workspace meanwhile. */
   checkSession(): void
   activePatient: ActivePatient | null
-  login(email: string, password: string, turnstileToken?: string): Promise<void>
+  /**
+   * The password step. It changes nothing here: since hid-system #71 Identity
+   * answers with the second step it asks for, and an Identity before #71 with
+   * the session, which the page opens with `completeSignIn`.
+   */
+  login(email: string, password: string, turnstileToken?: string): Promise<StaffLoginResult>
+  /** The second step by authenticator or recovery code; answers with the session for `completeSignIn`. */
+  verifyMfa(proof: { code: string } | { recoveryCode: string }): Promise<StaffSession>
+  /** A first enrolment's proof: a code emailed to the account's address. Sets no cookie. */
+  sendEnrollmentCode(): Promise<StaffEnrollmentCodeSent>
+  /** The new authenticator's secret, with the emailed code (none once the proof is verified). Sets no cookie. */
+  startEnrollment(emailCode?: string): Promise<StaffMfaEnrollment>
+  /**
+   * The first code of a new authenticator; answers with the session and its
+   * recovery codes. The page shows the codes, then opens the session.
+   */
+  activateEnrollment(code: string): Promise<StaffMfaActivation>
+  /** Opens the workspace with the session a sign-in step answered with. Throws, opening nothing, for a patient's. */
+  completeSignIn(session: StaffSession): void
   refresh(): Promise<void>
   /** Resolves false, changing nothing, when the session ended while the switch was answered. */
   selectFacility(id: string): Promise<boolean>
@@ -80,7 +103,7 @@ export function useStaff() {
   return context
 }
 
-function StaffProvider({ children }: { children: ReactNode }) {
+export function StaffProvider({ children }: { children: ReactNode }) {
   const [state, setSessionState] = useState<SessionState>({ status: 'loading', session: null })
   // The state as of the last change, read synchronously by the session-end listener.
   const status = useRef<SessionState['status']>('loading')
@@ -168,7 +191,7 @@ function StaffProvider({ children }: { children: ReactNode }) {
         startStaffSessionGeneration()
         startPeriod()
         away.current = null
-        setState({ status: 'ended', session: null })
+        setState({ status: 'ended', session: null, reason: staffSessionEndReason(sentIn) })
         setLock(null)
         announceStaffSessionChange()
       } else if (question.again) ask(sentIn)
@@ -280,7 +303,8 @@ function StaffProvider({ children }: { children: ReactNode }) {
       let session: StaffSession
       try { session = await staffApi.session() }
       catch (error) {
-        if (!isHidApiError(error) || error.status !== 401 || !current()) throw error
+        // A 401, or a sign-in made without an authenticator (403 STAFF_MFA_REQUIRED), which the refresh ends.
+        if (!endsStaffSession(error) || !current()) throw error
         session = await staffApi.refresh()
       }
       if (!current()) return
@@ -289,8 +313,8 @@ function StaffProvider({ children }: { children: ReactNode }) {
       askIfHeardWhileOpening()
     } catch (error) {
       if (!current()) return
-      if (isHidApiError(error) && error.status === 401) {
-        setState({ status: 'signed-out', session: null })
+      if (endsStaffSession(error)) {
+        setState({ status: 'signed-out', session: null, reason: staffSessionEndReason(sentIn) })
       } else {
         setState({ status: 'error', session: null, error: error instanceof Error ? error.message : 'Session could not be verified.' })
       }
@@ -299,9 +323,27 @@ function StaffProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => { void refresh() }, [refresh])
 
+  // Each step that can set the session cookies forgets what other tabs announced before it was sent:
+  // the cookies it sets come after that. A change heard from here on is asked about once the session opens.
   async function login(email: string, password: string, turnstileToken?: string) {
     heardWhileOpening.current = false
-    const session = await staffApi.login(email, password, turnstileToken)
+    return staffApi.login(email, password, turnstileToken)
+  }
+
+  async function verifyMfa(proof: { code: string } | { recoveryCode: string }) {
+    heardWhileOpening.current = false
+    return staffApi.verifyMfa(proof)
+  }
+
+  async function activateEnrollment(code: string) {
+    heardWhileOpening.current = false
+    const activated = await staffApi.activateEnrollment(code)
+    // The browser holds the new session while its recovery codes are shown: the other tabs are told now.
+    announceStaffSessionChange()
+    return activated
+  }
+
+  function completeSignIn(session: StaffSession) {
     if (session.actor.kind === 'patient') throw new Error('A staff account is required for this portal.')
     startStaffSessionGeneration()
     startPeriod()
@@ -338,8 +380,9 @@ function StaffProvider({ children }: { children: ReactNode }) {
   }
 
   const checkSession = useCallback(() => ask(staffSessionGeneration()), [ask])
-  const value = useMemo<StaffContextValue>(() => ({ state, lock, checkSession, activePatient, login, refresh, selectFacility, signOut, setActivePatient }),
-    [state, lock, checkSession, activePatient, refresh, setActivePatient])
+  const value = useMemo<StaffContextValue>(() => ({ state, lock, checkSession, activePatient, login, verifyMfa,
+    sendEnrollmentCode: staffApi.sendEnrollmentCode, startEnrollment: staffApi.startEnrollment, activateEnrollment,
+    completeSignIn, refresh, selectFacility, signOut, setActivePatient }), [state, lock, checkSession, activePatient, refresh, setActivePatient])
   return <StaffContext.Provider value={value}>{children}</StaffContext.Provider>
 }
 
@@ -347,10 +390,11 @@ function StaffProvider({ children }: { children: ReactNode }) {
  * Shown in place of the whole workspace once the server stops accepting the
  * session. The workspace and every page under it are gone, with whatever
  * patient information they held. The wording is fixed: it carries no server
- * detail, and the backend gives staff clients no reason to name. It is announced
- * once, as focus moves to its heading; it is not also a live region.
+ * detail. The backend gives staff clients no reason to name, except for a
+ * sign-in made without an authenticator, which is said. It is announced once,
+ * as focus moves to its heading; it is not also a live region.
  */
-function SessionEnded() {
+function SessionEnded({ reason }: { reason?: StaffSessionEndReason }) {
   const location = useLocation()
   const signIn = staffSignInPath(location.pathname)
   const href = useHref(signIn)
@@ -360,7 +404,7 @@ function SessionEnded() {
   return <main className="staff-centered"><BrandLogo className="staff-state-logo" />
     <section className="staff-session-ended" aria-labelledby="staff-session-ended-title">
       <h1 id="staff-session-ended-title" ref={heading} tabIndex={-1}>Your session has ended</h1>
-      <p>For your security, the provider workspace was closed and the patient information it showed was cleared. Sign in again to continue.</p>
+      <p>For your security, the provider workspace was closed and the patient information it showed was cleared. {reason === 'mfa-required' ? STAFF_MFA_NOTICE : 'Sign in again to continue.'}</p>
       <ButtonLink href={href} onClick={follow}>Sign in again</ButtonLink>
     </section>
   </main>
@@ -403,7 +447,7 @@ function SessionCheck({ unconfirmed }: { unconfirmed: boolean }) {
 
 function Gate({ children }: { children: ReactNode }) {
   const { state, lock, refresh } = useStaff()
-  if (state.status === 'ended') return <SessionEnded />
+  if (state.status === 'ended') return <SessionEnded reason={state.reason} />
   // Each state screen is the page: a main landmark, and an h1 where it has a title.
   if (state.status === 'loading') return <main className="staff-centered"><BrandLogo className="staff-state-logo" /><div role="status"><h1>Checking your secure session…</h1></div></main>
   if (state.status === 'error') return <main className="staff-centered"><BrandLogo className="staff-state-logo" /><EmptyState titleAs="h1" title="Session unavailable" description={state.error} action={<Button onClick={() => void refresh()}>Try again</Button>} /></main>
