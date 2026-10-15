@@ -24,6 +24,21 @@ export interface Facility extends Versioned {
   id: string; organizationId: string; organizationName: string; name: string; code: string; status: string
   statusReason: string | null; statusChangedAt: string | null; createdAt: string; membershipCount: number
 }
+/**
+ * A facility's designation for facility-assisted registration (hid-system main
+ * f9dbaf0: #85, ADR-063). Version 0, with `designated` false and every other
+ * value null, when it has none; that version creates the first one.
+ */
+export interface AssistedRegistrationDesignation {
+  facilityId: string; designated: boolean; status: 'active' | 'suspended' | null; addressLine: string | null
+  town: string | null; lga: string | null; state: string | null; hours: string | null; reason: string | null
+  version: number; updatedAt: string | null
+}
+/** `AssistedRegistrationDesignationDto`: the location patients are shown, and the audited reason. */
+export interface AssistedRegistrationDesignationInput {
+  status: 'active' | 'suspended'; addressLine?: string; town: string; lga: string; state: string; hours?: string; reason: string
+}
+export interface AssistedRegistrationSaved { facilityId: string; status: 'active' | 'suspended'; version: number; replayed: boolean }
 export interface PrincipalMembership { id: string; facilityId: string; facilityName: string; role: string; appRole: string; active: boolean }
 export interface Principal extends Versioned {
   id: string; subject: string; email: string | null; displayName: string | null; status: string; createdAt: string
@@ -373,6 +388,17 @@ export const adminApi = {
   facility(facilityId: string, signal?: AbortSignal) {
     return request<Facility>(at('/api/v1/admin/facilities', facilityId), { signal })
   },
+  assistedRegistration(facilityId: string, signal?: AbortSignal) {
+    return request<AssistedRegistrationDesignation>(at('/api/v1/admin/facilities', facilityId, 'assisted-registration'), { signal })
+  },
+  /**
+   * Designates or suspends a facility (hid-system #85, ADR-063): a high-risk command needing step-up, a
+   * reason, the submission's key and If-Match with the version read, 0 for the first designation.
+   */
+  setAssistedRegistration(facilityId: string, input: AssistedRegistrationDesignationInput, version: number, idempotencyKey: string) {
+    return adminApi.command<AssistedRegistrationSaved>(at('/api/v1/admin/facilities', facilityId, 'assisted-registration'), input,
+      { version, idempotencyKey, creates: true })
+  },
   /**
    * A search term is a name or an email address, so it goes in a POST body, never in a URL that browser
    * history or an access log keeps (hid-system A24). Being a POST, a failed search is not repeated.
@@ -430,15 +456,18 @@ export const adminApi = {
   },
   /**
    * A governed admin command. Pass the submission's idempotency key so a retry
-   * after step-up is the same command, never a second one.
+   * after step-up is the same command, never a second one. `version` goes as
+   * If-Match; it is at least 1, or 0 for a command that `creates` its resource
+   * (the facility designation, hid-system #85), whose If-Match: 0 is sent too.
    */
-  command<T>(path: string, body: unknown, options: { version?: number; idempotencyKey?: string } = {}) {
+  command<T>(path: string, body: unknown, options: { version?: number; idempotencyKey?: string; creates?: boolean } = {}) {
     if (!path.startsWith('/api/v1/admin/')) throw new Error('Admin command route required.')
-    if (options.version !== undefined && (!Number.isSafeInteger(options.version) || options.version < 1)) {
+    if (options.version !== undefined
+      && (!Number.isSafeInteger(options.version) || options.version < (options.creates ? 0 : 1))) {
       throw new Error('Reload this item before changing it.')
     }
     return request<T>(path, { method: 'POST', body, headers: {
-      ...(options.version ? { 'If-Match': `"${options.version}"` } : {}),
+      ...(options.version !== undefined ? { 'If-Match': `"${options.version}"` } : {}),
       ...(options.idempotencyKey ? { 'Idempotency-Key': options.idempotencyKey } : {}),
     } })
   },

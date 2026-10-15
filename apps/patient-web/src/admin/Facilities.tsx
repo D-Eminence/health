@@ -1,6 +1,7 @@
 import { useCallback, useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { adminApi, PAGE_SIZE, type AdminActor, type AuditFilters, type Facility } from './api'
+import { AssistedRegistrationPanel } from './AssistedRegistration'
 import {
   ActionForm, Page, Pager, Refresh, ResourceView, Status, Table, date, has, label, pageNumber, useResource, useUrlFilters,
 } from './ui'
@@ -136,6 +137,8 @@ function FacilityDetail({ facilityId, actor }: { facilityId: string; actor: Admi
         </dl>
         {has(actor, 'platform.facility.manage') && <FacilityStatusAction facility={facility} reload={reload} />}
       </section>
+      {/* A designation change is audited against the facility: the audit excerpts are read again with it. */}
+      <AssistedRegistrationPanel facilityId={facility.id} actor={actor} onChanged={() => setRevision(value => value + 1)} />
       {has(actor, 'platform.audit.read') && <FacilityAudit key={revision} facilityId={facility.id} />}
     </div>}</ResourceView>
   </Page>
