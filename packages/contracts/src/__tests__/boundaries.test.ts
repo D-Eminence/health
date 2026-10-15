@@ -113,8 +113,21 @@ describe('application boundaries', () => {
       path: '/api/v1/admin/principals/:accountId/sessions/:sessionId/revoke', permissions: { POST: ['platform.session.revoke'] } })
     expect(findEndpoint('admin.superAdminRequest')?.permissions).toEqual({ POST: ['platform.role.manage'] })
     expect(findEndpoint('admin.mfaResetRequest')?.permissions).toEqual({ POST: ['platform.mfa.reset'] })
-    expect(findEndpoint('admin.principalsExport')).toMatchObject({ responseKind: 'download',
-      permissions: { GET: ['platform.principal.export'] }, requiredQuery: { GET: ['reason'] } })
+    // hid-system A24: the search terms and the export reason travel in POST bodies; the deprecated GET
+    // forms, which put them in the URL, are not browser routes.
+    expect(findEndpoint('admin.principalsSearch')).toMatchObject({ path: '/api/v1/admin/principals/search',
+      methods: ['POST'], permissions: { POST: ['platform.principal.read'] } })
+    expect(findEndpoint('admin.principalsSearch')?.responseKind).toBeUndefined()
+    expect(findEndpoint('admin.principalsExport')).toMatchObject({ path: '/api/v1/admin/principals/export',
+      methods: ['POST'], responseKind: 'download', permissions: { POST: ['platform.principal.export'] } })
+    expect(findEndpoint('admin.principalsExport')?.requiredQuery).toBeUndefined()
+    expect(findEndpoint('admin.principals')).toBeUndefined()
+    expect(() => assertRegisteredBrowserRequest('GET', '/api/v1/admin/principals', { query: 'ada' }))
+      .toThrow(BrowserRouteError)
+    expect(() => assertRegisteredBrowserRequest('GET', '/api/v1/admin/principals/export', { reason: 'Quarterly access review' }, 'download'))
+      .toThrow(BrowserRouteError)
+    expect(() => assertEndpointAllowed('admin-web', 'admin.principalsSearch')).not.toThrow()
+    expect(() => assertEndpointAllowed('staff-web', 'admin.principalsSearch')).toThrow(BoundaryViolationError)
     expect(() => assertEndpointAllowed('admin-web', 'auth.adminMfaEnrollActivate')).not.toThrow()
     expect(() => assertEndpointAllowed('admin-web', 'auth.staffLogin')).toThrow(BoundaryViolationError)
     expect(() => assertEndpointAllowed('patient-web', 'auth.adminLogin')).toThrow(BoundaryViolationError)

@@ -131,13 +131,14 @@ describe('hid-system cookie transport', () => {
       new Response(JSON.stringify({ code: 'STEP_UP_REQUIRED', detail: 'Confirm', correlationId: 'corr-1' }),
         { status: 403, headers: { 'Content-Type': 'application/problem+json' } }),
     ])
-    const download = await client.request<{ blob: Blob; headers: Headers }>({ method: 'GET',
-      path: '/api/v1/admin/principals/export', query: { reason: 'Quarterly review' }, responseType: 'download' })
+    const download = await client.request<{ blob: Blob; headers: Headers }>({ method: 'POST',
+      path: '/api/v1/admin/principals/export', body: { reason: 'Quarterly review' }, responseType: 'download' })
     expect(await download.blob.text()).toBe('account_id,email\r\n')
     expect(download.headers.get('X-HID-Export-Row-Count')).toBe('0')
     expect(new Headers(calls[0]?.init.headers).get('Accept')).toBe('*/*')
-    await expect(client.request({ method: 'GET', path: '/api/v1/admin/principals/export',
-      query: { reason: 'Another review' }, responseType: 'download' })).rejects.toMatchObject({ status: 403, code: 'STEP_UP_REQUIRED' })
+    expect(calls[0]?.init.body).toBe(JSON.stringify({ reason: 'Quarterly review' }))
+    await expect(client.request({ method: 'POST', path: '/api/v1/admin/principals/export',
+      body: { reason: 'Another review' }, responseType: 'download' })).rejects.toMatchObject({ status: 403, code: 'STEP_UP_REQUIRED' })
   })
 
   it('does not restore the session or resend a code the backend rejected', async () => {

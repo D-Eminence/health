@@ -113,6 +113,51 @@ describe('the patient portal names itself on its cookie refresh and sign-out', (
   })
 })
 
+/**
+ * Since hid-system#74 (EHR) and #76 (Identity, ADR-059) every patient-only route refuses any other session
+ * with 403 PATIENT_SESSION_REQUIRED before its handler runs. With the shared
+ * cookies holding a provider's live sign-in, a patient read gets that refusal
+ * rather than a 401. The portal then asks the server whose session the browser
+ * holds, as it does when another tab announces a change; the 403 alone ends nothing.
+ */
+describe('PATIENT_SESSION_REQUIRED: a patient route refused for the session the browser holds', () => {
+  const patientSessionRequired = () => problem(403, 'PATIENT_SESSION_REQUIRED', 'An active patient session is required')
+  const provider = () => json({ actor: { id: 'staff-1', subject: 'staff-1', roles: ['clinician'] }, expiresAt: '2026-10-12T12:00:00.000Z' })
+
+  it('asks whose session the browser holds, and ends this one when it is a provider\'s', async () => {
+    const sent = await signedIn({ [PROFILE]: [patientSessionRequired], [SESSION]: [provider] })
+    await press('Read profile')
+    expect(outcome).toBe('403 PATIENT_SESSION_REQUIRED')
+    expect(sent.map(call => call.route)).toEqual([SESSION, PROFILE, SESSION])
+    expect(status()).toBe('anonymous')
+    expect(screen.getByTestId('elsewhere').textContent).toBe('true')
+    // Nothing was refreshed or signed out: the provider's sign-in is left alone, and no other tab is told.
+    expect(announced).toEqual([])
+  })
+
+  it.each([
+    // Marked not retryable, so the client's read retries do not repeat the question.
+    ['the session check finds the service unavailable', () => json({ type: 'about:blank', title: 'UPSTREAM_UNAVAILABLE',
+      status: 503, code: 'UPSTREAM_UNAVAILABLE', detail: 'Unavailable', retryable: false }, 503)],
+    ['the session check finds this patient\'s own session', patient],
+  ])('changes nothing when %s, and returns the refusal', async (_, answer) => {
+    const sent = await signedIn({ [PROFILE]: [patientSessionRequired], [SESSION]: [answer] })
+    await press('Read profile')
+    expect(outcome).toBe('403 PATIENT_SESSION_REQUIRED')
+    expect(sent.map(call => call.route)).toEqual([SESSION, PROFILE, SESSION])
+    expect(status()).toBe('authenticated')
+    expect(screen.getByTestId('elsewhere').textContent).toBe('false')
+  })
+
+  it('another 403 asks nothing', async () => {
+    const sent = await signedIn({ [PROFILE]: [() => problem(403, 'PATIENT_RECENT_AUTH_REQUIRED')] })
+    await press('Read profile')
+    expect(outcome).toBe('403 PATIENT_RECENT_AUTH_REQUIRED')
+    expect(sent.map(call => call.route)).toEqual([SESSION, PROFILE])
+    expect(status()).toBe('authenticated')
+  })
+})
+
 describe('SESSION_CLIENT_MISMATCH: the browser holds a provider\'s sign-in now', () => {
   it('ends only this portal\'s session when the refresh for a read is refused, and repeats nothing', async () => {
     const sent = await signedIn({ [PROFILE]: [accessExpired], [REFRESH]: [providerHoldsCookies] })

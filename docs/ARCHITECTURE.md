@@ -133,12 +133,31 @@ dispensable" once a dispensing is refused with
 `PHARMACY_PRESCRIPTION_NOT_DISPENSABLE`, until the page is reloaded. Since
 hid-system#64 (migration 0084) a change of encounter status also closes the
 encounter's records. Cancelling cancels its draft, active and on-hold
-prescriptions and lab requests; entered in error marks those orders, its notes
-and its diagnoses entered in error. The encounter status form says so, and
-says that Pharmacy and the Laboratory are not told. EHR answers with the
-encounter alone, so after either change the records list shown is read again.
-That wording is untrue against an EHR without hid-system#64, so the portal is
-to be deployed with or after it. The Lab and Pharmacy lists say when
+prescriptions and lab requests and changes nothing else. Since hid-system#74
+(migration 0090) entered in error marks its notes, diagnoses and final vitals,
+its draft, active, on-hold and completed prescriptions and lab requests, and
+its initiated or uploaded documents entered in error. The encounter status form
+says so, and says that Pharmacy and the Laboratory are not told. EHR answers
+with the encounter and only the ids it closed, so after either change the
+records list shown is read again. A close that would change a kind of record
+the actor may not write is refused with `403 ENCOUNTER_RETRACTION_NOT_PERMITTED`
+and nothing written (hid-system ENC-RETRACT-1); the form then says the role may
+not make that change, that nothing changed and to ask a colleague whose role
+may change all of the encounter's records, naming no kind of record, as EHR
+does not. Since 0091 no role holds `ehr.lab-request.write` or
+`ehr.document.write`, so an encounter that still holds a lab request, or (to be
+marked entered in error) an initiated or uploaded document, cannot be closed by
+anyone. Since hid-system#74 a vital carries `status`; one entered in error
+(on its own or with its encounter) keeps its values, is marked "Entered in
+error" in the Vitals tab and offers no correction, which EHR would refuse with
+`409 VITAL_NOT_AMENDABLE`. A retraction, like a correction, raises the vital's
+row version, which EHR checks first, so a correction sent at the version
+loaded before either is refused with `412 VERSION_CONFLICT` (the 409 answers
+only the version of a vital already entered in error). Either refusal reads the
+vitals again, says whether they were marked entered in error or changed
+otherwise, and moves focus to the vital. That wording is untrue against an
+EHR without hid-system#74, so the portal is to be deployed with or after it.
+The Lab and Pharmacy lists say when
 they reach the backend's cap of the 200 oldest work items (A2), and Pharmacy
 adds that work it can no longer dispense stays listed and counts toward the
 200.
@@ -175,7 +194,11 @@ proxies only Identity and EHR at launch. Every Lab, Pharmacy, OCR and Outreach
 route answers `404 API_ROUTE_NOT_FOUND` with no detail, while those modules'
 read permissions stay seeded, so their workspaces still open. Each says that
 the module is not in service on this deployment and that refreshing will not
-help, instead of the client's generic "not found" (hand-off MOD-1).
+help, instead of the client's generic "not found" (hand-off MOD-1). Since
+hid-system#75 (migration 0091) no role holds any of those modules'
+permissions, so the workspaces are hidden by permission; the dashboard's
+Health ID Migrate card and `/provider/migrate`, which lead only to Document
+OCR, are shown only with `ocr.job.read`, as the OCR workspace is.
 
 Break-glass access is audited by Identity, and the portal offers it only to a
 role holding every permission the grant and the summary need. EHR's dedicated
@@ -242,7 +265,13 @@ back/forward-cache restore; a 401 there is restored once through refresh, in
 its Web Locks turn, before the answer is judged. The tab stays signed in only
 for a patient session with its own subject: another account's session signs it
 out, an outage changes nothing, and a provider's session found in the shared
-cookies means signed out, not an error. `refreshSession` restores only the
+cookies means signed out, not an error. Since hid-system#74 (EHR) and #76
+(Identity) every patient-only route refuses any other session with
+`403 PATIENT_SESSION_REQUIRED`; a patient request refused so asks the same
+question, as an announcement would, and returns its refusal only once it is
+answered, so a page whose patient has left the browser goes to sign-in instead
+of showing an error. The 403 alone signs nothing out, and a question the
+server cannot answer changes nothing. `refreshSession` restores only the
 patient shown. Session questions judge their own 401
 (`RequestSpec.reportUnauthorized: false` in `@hid/http`) instead of passing it
 to the client's global sign-out.
@@ -339,7 +368,16 @@ authorization. Since Stage 2B the admin UI signs in to the separate MFA-verified
 platform session (`/auth/admin/*`, `hid_access_admin*` cookies) and answers the
 backend's `STEP_UP_REQUIRED` with an authenticator confirmation before repeating
 the same command once; see
-[Phase 4 Stage 2B](./PHASE_4_STAGE_2B_FRONTEND_SECURITY.md).
+[Phase 4 Stage 2B](./PHASE_4_STAGE_2B_FRONTEND_SECURITY.md). Since the launch
+alignment with hid-system `main` `8f3eff1` the user search and the principal
+export send their terms, and the export its audited reason, in a JSON body
+(`POST /admin/principals/search` and `POST /admin/principals/export`,
+hid-system#76, A24), with the platform CSRF token like every platform cookie
+`POST`. The registry holds no `GET` form of either, so no name, email address
+or reason goes into a URL that browser history or an access log keeps. Being
+`POST`s, neither is repeated automatically; the export keeps its download
+transport and row headers. An Identity without hid-system#76 answers both
+`404`, so the console is deployed with or after it.
 
 Clinical responses use `cache: 'no-store'`; screens show loading, empty and
 error states for backend reads. `@hid/observability` handles redaction for

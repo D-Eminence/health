@@ -100,6 +100,8 @@ describe('PEHR-13: every provider state screen has a main landmark and an h1', (
   it.each([
     ['/provider/pharmacy', 'Pharmacy unavailable'],
     ['/provider/ocr', 'Document OCR unavailable'],
+    // Health ID Migrate leads only to Document OCR, closed at launch (no role holds ocr.* since hid-system 0091).
+    ['/provider/migrate', 'Migration workspace unavailable'],
     ['/provider/outreach', 'Outreach unavailable'],
     ['/provider/registration', 'Registration unavailable'],
     ['/provider/audit', 'Audit access unavailable'],
