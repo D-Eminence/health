@@ -14,6 +14,8 @@ import { ContactCodeStep } from './enrollment/ContactCodeStep'
 import { DATE_OF_BIRTH_RULE, PasswordStep, plausibleDateOfBirth } from './enrollment/PasswordStep'
 import { Complete } from './enrollment/Complete'
 import { RegistrationClosed } from './enrollment/RegistrationClosed'
+import { routesOf, type OwnershipRoutes } from './enrollment/availability'
+import { NIN_CHECK_UNAVAILABLE, registrationClosed, temporarilyUnavailable } from './enrollment/problems'
 
 type Stage = 'nin' | 'contact' | 'otp' | 'password' | 'complete'
 
@@ -43,8 +45,11 @@ const ENDS_ENROLLMENT = 'Signing out also ends an enrollment in progress on this
  * included, so an enrollment in progress continues whatever it says, and one that
  * ended here is told to enter its NIN again only once a read finds it open.
  * Until then, while the read has failed, Try again stands in for the NIN step,
- * focus included. Production keeps registration closed until hid-system's N1
- * holder step ships; the notice is Identity's own wording for the start's 503.
+ * focus included. Since hid-system #84 (ADR-062) the answer also names the
+ * routes that prove the NIN holder, `{ open, online, facility }`, and `open`
+ * stays the only gate (Health-id alignment row 14); with no route on, every
+ * start answers 503 PATIENT_REGISTRATION_NOT_OPEN. The notice is Identity's own
+ * wording for that 503.
  */
 type Registration = 'open' | 'closed' | 'unknown'
 /**
@@ -107,6 +112,8 @@ export function Enrollment() {
   const [checkError, setCheckError] = useState(false)
   const [checkKey, setCheckKey] = useState(0)
   const [registration, setRegistration] = useState<Registration>('unknown')
+  // The routes the last availability read named; null from an Identity before the holder step.
+  const [routes, setRoutes] = useState<OwnershipRoutes | null>(null)
   const [signOutRequired, setSignOutRequired] = useState(false)
   // Focus moves to the note when a check the person asked for, or a step, finds
   // the sign-in: it is read there, and its message is an alert only otherwise, so
@@ -165,6 +172,7 @@ export function Enrollment() {
       const registrationNow: Registration = availability.status === 'rejected' ? 'unknown'
         : availability.value?.open === true ? 'open' : 'closed'
       setRegistration(registrationNow)
+      setRoutes(availability.status === 'fulfilled' ? routesOf(availability.value) : null)
       // The enrollment's own progress must be known before starting, as must
       // availability before a new one (below). A failed check for a pending
       // Google sign-up (for example a browser that sends no Referer, which that
@@ -229,7 +237,15 @@ export function Enrollment() {
       const progress = await api.enrollmentStart(nin, turnstileToken, startKey.current.key)
       applyProgress(progress)
       setNin('')
-    } catch (reason) { displayError(reason, fromField) }
+    } catch (reason) {
+      if (registrationClosed(reason)) {
+        // As an availability read would now say: the closed notice, and no NIN step.
+        setNin(''); setRegistration('closed')
+      } else if (temporarilyUnavailable(reason) && !requiresSignOut(reason)) {
+        // Identity's own text for a lookup it could not complete, said for any outage: the step is kept.
+        setError(NIN_CHECK_UNAVAILABLE); setFieldError(false); setErrorAlert(true)
+      } else displayError(reason, fromField)
+    }
     finally { setTurnstileToken(null); setResetKey(value => value + 1); setBusy(false); stepFocus.focus() }
   }
 
@@ -385,7 +401,7 @@ export function Enrollment() {
       {closed && <RegistrationClosed focusTarget={stepFocus.target} />}
       {ready && stage === 'nin' && registration === 'open' && <NinStep {...stepProps} nin={nin} onNin={setNin} onSubmit={event => void submitNin(event)}
         turnstile={<Turnstile action="patient-enrollment" onTokenChange={setTurnstileToken} resetKey={resetKey} />}
-        blocked={!turnstileToken || (googleRequired && !googlePending)} />}
+        blocked={!turnstileToken || (googleRequired && !googlePending)} routes={routes} />}
       {ready && stage === 'contact' && <ContactStep {...stepProps} channel={channel} onChannel={setChannel} contact={contact} onContact={setContact}
         onSubmit={event => void submitContact(event)} />}
       {ready && stage === 'otp' && <ContactCodeStep {...stepProps} maskedContact={maskedContact} code={code} onCode={setCode} onSubmit={event => void submitCode(event)}

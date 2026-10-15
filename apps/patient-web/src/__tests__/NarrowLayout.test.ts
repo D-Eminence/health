@@ -40,6 +40,11 @@ describe('narrow screens', () => {
     expect(valueAt(portalCss, '.patient-field-hint', 'overflow-wrap', PHONE)).toBe('anywhere')
   })
 
+  it('lets the text of an enrollment route option wrap on a phone', () => {
+    // The routes to prove a NIN are full sentences beside their actions; a facility name or address may be long.
+    expect(valueAt(portalCss, '.patient-enroll-option :is(p, li)', 'overflow-wrap', PHONE)).toBe('anywhere')
+  })
+
   it('lets long document names in the provider lists wrap', () => {
     expect(valueAt(staffCss, '.staff-list-item strong', 'overflow-wrap', PHONE)).toBe('anywhere')
   })

@@ -286,7 +286,7 @@ describe('patient enrollment', () => {
     expect(document.title).toBe('Get your Health ID · Health ID')
     fireEvent.change(nin, { target: { value: '12345678901' } })
     fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
-    await press('Verify NIN')
+    await press('Continue')
   }
 
   it('says the NIN is 11 digits in the field\'s description, not only in its placeholder', async () => {
@@ -300,7 +300,7 @@ describe('patient enrollment', () => {
     open()
     fireEvent.change(await screen.findByLabelText('National Identification Number'), { target: { value: '12345678901' } })
     fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
-    await press('Verify NIN')
+    await press('Continue')
     // Focus moves to the note, which is read there once: it is not also an alert.
     const note = await screen.findByRole('group', { name: /Sign out of the patient or provider portal before starting a new Health ID\./ })
     expect(screen.queryByLabelText('National Identification Number')).toBeNull()
@@ -314,7 +314,7 @@ describe('patient enrollment', () => {
     const nin = await screen.findByLabelText('National Identification Number')
     fireEvent.change(nin, { target: { value: '12345678901' } })
     fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
-    await press('Verify NIN')
+    await press('Continue')
     await waitFor(() => expect(document.activeElement).toBe(nin))
     expect(nin.getAttribute('aria-invalid')).toBe('true')
     expect(described(nin)).toContain('The NIN could not be verified')

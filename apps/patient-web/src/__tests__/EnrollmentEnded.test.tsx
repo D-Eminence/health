@@ -37,7 +37,7 @@ async function startEnrollment() {
   render(<MemoryRouter><Enrollment /></MemoryRouter>)
   fireEvent.change(await screen.findByLabelText('National Identification Number'), { target: { value: NIN } })
   fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
-  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Verify NIN' })) })
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Continue' })) })
   return screen.findByLabelText('Verification code')
 }
 
@@ -64,7 +64,7 @@ describe('an enrollment that ended on this device', () => {
 
     fireEvent.change(nin, { target: { value: NIN } })
     fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Verify NIN' })) })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Continue' })) })
     await waitFor(() => expect(api.enrollmentStart).toHaveBeenCalledTimes(2))
     expect(api.enrollmentStart.mock.calls[1]![2]).toBe(api.enrollmentStart.mock.calls[0]![2])
     expect(await screen.findByLabelText('Verification code')).toBeTruthy()
