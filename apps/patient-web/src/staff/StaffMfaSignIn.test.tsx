@@ -1,6 +1,10 @@
+import { readFileSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
+import { parse } from '../__tests__/cssRules'
 
 /**
  * The second step of staff sign-in, as the provider portal shows it
@@ -104,6 +108,34 @@ function type(label: string, value: string) {
 }
 const alertText = async () => (await screen.findByRole('alert')).textContent
 
+/**
+ * The sign-in page's own stylesheets. Neither is in a layer, so each of their
+ * rules wins over Tailwind's utilities (Field's `text-critical`, say) whatever
+ * its specificity; jsdom applies neither, so the rules are read.
+ */
+// A path, not a URL: jsdom replaces the global URL class, which Node's file API refuses.
+const here = dirname(fileURLToPath(import.meta.url))
+const pageRules = [resolve(here, 'style.css'), resolve(here, '../mfa/mfa.css')].flatMap(path => parse(readFileSync(path, 'utf8')))
+
+/** What the page's own rules that match `element` declare for `property`, in source order. */
+function pageDeclares(element: Element, property: string): string[] {
+  const matches = (selector: string) => { try { return element.matches(selector) } catch { return false } }
+  return pageRules.filter(rule => rule.selectors.some(matches))
+    .flatMap(rule => [...rule.body.matchAll(new RegExp(`(?:^|;|\\s)${property}\\s*:\\s*([^;]+)`, 'g'))].map(match => match[1]!.trim()))
+}
+
+/** A refused code's error, as Field draws it: `${field}-error`, in the error colour and size, which the page leaves alone. */
+function expectFieldError(id: string, message: string) {
+  const error = document.getElementById(`${id}-error`)!
+  expect(error.tagName).toBe('P')
+  expect(error.textContent).toBe(message)
+  expect([...error.classList]).toEqual(expect.arrayContaining(['text-critical', 'text-[12px]']))
+  expect(document.getElementById(id)?.getAttribute('aria-describedby')).toBe(`${id}-error`)
+  expect(pageDeclares(error, 'color')).toEqual([])
+  expect(pageDeclares(error, 'font-size')).toEqual([])
+  return error
+}
+
 describe('the authenticator code (mfa_required)', () => {
   it('asks for the code after the password, verifies it and opens the workspace', async () => {
     const { calls, sent } = serve({ [SESSION]: [ended], [REFRESH]: [ended], [LOGIN]: [challenge('mfa_required')],
@@ -160,6 +192,9 @@ describe('the authenticator code (mfa_required)', () => {
     expect(code.getAttribute('aria-invalid')).toBe('true')
     const described = (code.getAttribute('aria-describedby') ?? '').split(' ').map(id => document.getElementById(id)?.textContent)
     expect(described).toContain(message)
+    // Said in the field's error colour, not the step's grey. Focus moving to the field says it, so it is no live region.
+    expect(expectFieldError('staff-mfa-code', message).getAttribute('role')).toBeNull()
+    expect(pageDeclares(screen.getByText('Enter the 6-digit code from your authenticator app.'), 'color')).toEqual(['var(--color-muted)'])
     await waitFor(() => expect(document.activeElement).toBe(code))
     // A 401 on a sign-in step is never refreshed, nor taken for the end of a session.
     expect(calls).toEqual([SESSION, REFRESH, LOGIN, VERIFY])
@@ -177,8 +212,11 @@ describe('the authenticator code (mfa_required)', () => {
     type('Authenticator code', '123456')
     fireEvent.submit(code)
 
-    expect(await alertText()).toBe('That code was not accepted. Each code works once: wait for the next code in your authenticator app, then try again.')
+    const message = 'That code was not accepted. Each code works once: wait for the next code in your authenticator app, then try again.'
+    expect(await alertText()).toBe(message)
     expect(document.activeElement).toBe(code)
+    // The alert is the field's error, in its error colour.
+    expect(screen.getByRole('alert').parentElement).toBe(expectFieldError('staff-mfa-code', message))
   })
 
   it('says verification is locked for up to 15 minutes after too many codes (429), and stays', async () => {
@@ -316,8 +354,9 @@ describe('a first sign-in: setting up an authenticator (mfa_enrollment_required)
     type('Email code', '654321')
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
-    expect(await screen.findByText('That code was not accepted. Check the latest email from Health ID '
-      + '(each new code replaces the one before), then try again.')).toBeTruthy()
+    const message = 'That code was not accepted. Check the latest email from Health ID (each new code replaces the one before), then try again.'
+    expect(await screen.findByText(message)).toBeTruthy()
+    expectFieldError('staff-mfa-email-code', message)
     expect(field('Email code').value).toBe('')
     expect(screen.getByRole('heading', { name: 'Enter the code we emailed you' })).toBeTruthy()
   })
@@ -406,8 +445,9 @@ describe('a first sign-in: setting up an authenticator (mfa_enrollment_required)
     type('Authenticator code', '123456')
     fireEvent.click(screen.getByRole('button', { name: 'Activate authenticator' }))
 
-    expect(await screen.findByText('That code was not accepted. Check that you added the setup key shown here, '
-      + 'then enter the next code the app shows.')).toBeTruthy()
+    const message = 'That code was not accepted. Check that you added the setup key shown here, then enter the next code the app shows.'
+    expect(await screen.findByText(message)).toBeTruthy()
+    expectFieldError('staff-mfa-activation-code', message)
     expect(field('Authenticator code').value).toBe('')
     expect(screen.getByText('JBSW Y3DP EHPK 3PXP JBSW Y3DP EHPK 3PXP')).toBeTruthy()
     expect(TabChannel.posted).toEqual([])

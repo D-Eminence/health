@@ -102,4 +102,5 @@ body { margin: 0; }
 .staff-choice { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 12px; border: 1px solid var(--color-line); border-radius: 8px; overflow-wrap: anywhere; cursor: pointer; }
 .staff-choice input { flex: 0 0 auto; width: 18px; height: 18px; margin: 0; }
 .staff-facility-choice fieldset:disabled .staff-choice { cursor: not-allowed; color: var(--color-muted); background: var(--color-surface-tint); }
-.staff-mfa p { margin: 0; color: var(--color-muted); font-size: 14px; line-height: 1.55; }
+/* The steps' own text only: a Field's error (or hint) is a paragraph inside the Field, and keeps its own colour and size. */
+.staff-mfa > p { margin: 0; color: var(--color-muted); font-size: 14px; line-height: 1.55; }
