@@ -7,7 +7,7 @@ import { GoogleButton } from '../GoogleButton'
 import { Turnstile } from '../Turnstile'
 import { BrandLogo } from '../BrandLogo'
 import { useSession } from '../session'
-import { isFieldProblem, useDocumentTitle, useStepFocus } from '../authSteps'
+import { isFieldProblem, sentFromField, useDocumentTitle, useStepFocus } from '../authSteps'
 import { useActionFocus } from './actionFocus'
 import { useResendWait } from './recoveryWait'
 import { NinStep } from './enrollment/NinStep'
@@ -471,9 +471,8 @@ export function Enrollment() {
 
   const submitHolderCode = async (event: FormEvent) => {
     event.preventDefault()
-    // Sent with Enter in the code field: a refusal about the code is read there, not also as an alert.
-    const form = event.currentTarget
-    const fromField = form instanceof HTMLFormElement && document.activeElement instanceof HTMLInputElement && form.contains(document.activeElement)
+    // Sent with Enter in the code field: a refusal about the code is an alert, since focus stays there.
+    const fromField = sentFromField(event)
     if (busy || !holderChallenge || !/^\d{6}$/.test(code)) return
     setBusy(true); clearError()
     try {
@@ -591,7 +590,9 @@ export function Enrollment() {
 
   const submitPassword = async (event: FormEvent) => {
     event.preventDefault()
-    const fromField = stepFocus.onTarget()
+    // Where focus really is: with a profile field on the step, that field is the step's target, and
+    // Enter in the password field keeps focus there, so a refusal must be an alert to be read.
+    const fromField = sentFromField(event)
     const missing = profileFields.some(field => field === 'dateOfBirth' ? dateOfBirth === '' : gender === '')
     if (busy || password.length < 12 || missing) return
     if (googleRequired && !googlePending) { setError('Reconnect Google before activation.'); setFieldError(false); return }

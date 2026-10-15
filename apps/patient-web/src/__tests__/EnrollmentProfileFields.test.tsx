@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { Enrollment } from '../routes/Enrollment'
 import { described, json, press, problem, renderPortal, type Handler } from './portalHarness'
 
@@ -190,5 +190,45 @@ describe('a NIN record without a date of birth or gender (ADR-061)', () => {
     const ready = await screen.findByRole('heading', { name: 'Your Health ID is ready.' })
     expect(within(ready.closest<HTMLElement>('[role="status"]')!).queryByText(/1990/)).toBeNull()
     expect(document.body.textContent).not.toContain('1990-02-03')
+  })
+})
+
+/**
+ * With a profile field on the step, focus goes to that field, not the password.
+ * A patient who sends the step with Enter in the password field keeps focus
+ * there, so a refusal is read only if it is an alert: its field's description
+ * is not read again, and a description on the focused field is not re-read
+ * when it changes.
+ */
+describe('sending the password step with Enter in the password field', () => {
+  const DATE_DETAIL = 'Enter a real date of birth. It cannot be before 1 January 1900 or in the future.'
+  async function enterInPassword(date: string) {
+    fireEvent.change(await screen.findByLabelText('Date of birth'), { target: { value: date } })
+    const password = screen.getByLabelText('Password')
+    fireEvent.change(password, { target: { value: PASSWORD } })
+    password.focus()
+    await act(async () => { fireEvent.submit(password.closest('form')!) })
+    return password
+  }
+
+  it.each<[string, string, Handler, string]>([
+    ['a date outside 1900 to today, refused here', '1899-12-31', () => json({ stage: 'active', hidCode: 'HID-ABCDEF23' }), DATE_DETAIL],
+    ['400 DATE_OF_BIRTH_INVALID', '1990-02-03', () => problem(400, 'DATE_OF_BIRTH_INVALID', DATE_DETAIL), DATE_DETAIL],
+    ['400 PASSWORD_INVALID', '1990-02-03', () => problem(400, 'PASSWORD_INVALID', 'Choose a password that is harder to guess'), 'Choose a password that is harder to guess'],
+  ])('announces %s as an alert', async (_case, date, activate, text) => {
+    renderPortal(<Enrollment />, gateway(atPassword(['dateOfBirth']), activate), anonymous)
+    const password = await enterInPassword(date)
+    expect((await screen.findByRole('alert')).textContent).toBe(text)
+    expect(document.activeElement).toBe(password)
+  })
+
+  it('announces 400 ENROLLMENT_PROFILE_REQUIRED for a field it now names as an alert', async () => {
+    let current = atPassword(['dateOfBirth'])
+    renderPortal(<Enrollment />, gateway(() => current(), () => problem(400, 'ENROLLMENT_PROFILE_REQUIRED', 'Enter your gender')), anonymous)
+    await screen.findByLabelText('Date of birth')
+    current = atPassword(['dateOfBirth', 'gender'])
+    await enterInPassword('1990-02-03')
+    expect((await screen.findByRole('alert')).textContent).toBe('Enter your gender')
+    expect(screen.getByLabelText('Gender').getAttribute('aria-invalid')).toBe('true')
   })
 })
