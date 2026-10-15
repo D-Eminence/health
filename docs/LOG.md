@@ -1841,3 +1841,57 @@ found wrong.
   screen reader, against a live Identity or on staging (S4v). A cancelled
   step-up still leaves focus on the page, as everywhere in the console: the
   step-up dialog does not return focus when it closes.
+
+## 2026-10-15: facility-assisted screens, second review (hid-system#85)
+
+Five review findings on the screens of the two entries above, checked against
+hid-system `main` `f9dbaf0` (`docs/INTERFACE_CONTRACT.md` section 6 and
+"Facility-assisted registration", `identity-api/src/common/problem.ts`,
+`admin/admin.controller.ts`, `admin/admin.service.ts` and migration 0094's
+`facility_assisted_registration_participating` and
+`list_participating_facilities`). None was found wrong; each was fixed.
+
+- **Problem fields.** `@hid/http` kept any `fields` value of up to 64
+  characters of `[A-Za-z0-9_.-]`, which a surname (`OKAFOR`) or a date of
+  birth (`1990-04-02`) also is, so the entry above overstated it ("never a
+  value"). It now keeps only `match`, `no_match` and `not_in_record`, the
+  three words the contract and `ProblemDetails.fields` define; a new code must
+  be added to the list first. The in-person check already showed only those
+  words and "no result given" for anything else; a test now covers that.
+- **An Identity without #85.** The facility page reads the designation on
+  every facility, flag or not. An Identity without #85 answers the unknown
+  route with its default `404 NOT_FOUND` ("Cannot GET /api/v1/admin/..."),
+  which the panel showed as a raw alert with a Refresh. Any `404` but
+  `ADMIN_FACILITY_NOT_FOUND` is now a quiet note: "Registration in person is
+  not available on this Identity service yet." The entry above's deploy order
+  ("shows a failed read") is replaced by this; `docs/OPEN-QUESTIONS.md` has a
+  "Deploy order for the designation read" row.
+- **An old answer beside a new refusal.** A press of Save refused before
+  sending (an empty reason after a version conflict, or a second change after
+  "Saved.") left the earlier alert or notice on screen. Each press now clears
+  it first, as the staff check does.
+- **The page's Refresh.** It re-read the facility and the audit excerpts but
+  not the designation, so a change made by another administrator stayed hidden
+  and the next change was refused `409 VERSION_CONFLICT`. The page's Refresh,
+  and a change of the facility's status, now read the designation again; the
+  form is kept unless the version changed.
+- **Not in effect.** Identity counts an active designation only for a
+  verified, active facility of an active organization, and nothing suspends it
+  when the facility's status changes. The panel now gets the facility's status
+  and says "Not in effect: the facility must be verified and active, in an
+  active organization." beside an active status when the facility is not
+  verified; its description names the condition. An inactive organization or
+  `facility.active` false is not in the console's facility read, so the panel
+  cannot say those.
+- **Evidence.** 11 new tests: http 1, staff screen 1, designation panel 9
+  (one `it.each` of 3). 10 were run failing first (http 1, panel 9). The staff
+  screen's passes before and after, since the screen already allow-listed the
+  words; making it show an unknown value fails it. The panel's test file now
+  resets its mocks before each test, so an answer one test queued and did not
+  use cannot reach the next (while the new tests failed, one reached an
+  existing test). At each commit `audit:boundaries`, `typecheck`, `lint`,
+  `vitest run` (158 files; 2040 tests after the http change, 2049 after the
+  panel's), `build:patient-web` and `audit:launch-build` pass.
+- **Not verified.** Component tests with the network stubbed. Nothing was run
+  in a browser, with a screen reader, against a live Identity (with or without
+  #85) or on staging (S4v).

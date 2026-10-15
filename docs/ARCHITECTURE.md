@@ -279,9 +279,16 @@ patient's own device shows a desk code; the staff and console screens are:
   command still refuses a version below 1 before sending. A save or a
   `VERSION_CONFLICT` reads the designation again, and the new version replaces
   the form, so focus moves to the panel's heading. The panel clears its last
-  answer when a submission is sent, and shows each answer as a new element (a
-  notice inside a status region that is always present), so the same words
-  answering twice are announced twice.
+  answer on each press of Save, even one refused before sending, and shows
+  each answer as a new element (a notice inside a status region that is always
+  present), so the same words answering twice are announced twice. The page's
+  Refresh, and a change of the facility's status, read the designation again.
+  The panel gets the facility's status: Identity counts a designation only for
+  a verified, active facility of an active organization, so an active one on a
+  facility that is not verified says "Not in effect". An Identity without
+  hid-system#85 answers the read with its default `404 NOT_FOUND`; any `404`
+  but `ADMIN_FACILITY_NOT_FOUND` is shown as a quiet note that this Identity
+  does not offer it yet, not as a failed read.
 
 The patient's facility list, desk code and continuation after the check are
 the patient sign-up screens (alignment list rows 2, 3, 6, 8 and 9).
