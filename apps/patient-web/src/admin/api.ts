@@ -135,6 +135,74 @@ export interface ApprovalRequested extends Versioned { requestId: string; status
 export interface ApprovalDecided extends Versioned {
   requestId: string; status: ApprovalStatus; action: string; targetAccountId: string; executed: boolean; replayed: boolean
 }
+// Clinician self sign-up review (hid-system ADR-064, branch claude/clinician-self-signup at fa58e2b, not
+// merged): ClinicianApplicationAdminService and identity.admin_get_clinician_application (C18). Field names
+// and values are the backend's.
+
+export type ClinicianApplicationState = 'awaiting_authenticator' | 'submitted' | 'under_review' | 'approved' | 'rejected'
+  | 'withdrawn' | 'expired'
+/** `open` lists the three undecided states (not overdue), oldest first; a named state lists newest first. */
+export type ClinicianApplicationFilter = 'open' | ClinicianApplicationState
+/** The reason shown to the applicant; `identity_not_confirmed` also stops the account applying again. */
+export type ClinicianDecisionCode = 'licence_not_verified' | 'licence_not_current' | 'details_mismatch'
+  | 'identity_not_confirmed' | 'employment_not_confirmed' | 'facility_not_available' | 'duplicate' | 'existing_account' | 'other'
+export interface ClinicianApplicationSummary extends Versioned {
+  applicationId: string; state: ClinicianApplicationState | string; submittedAt: string; expiresAt: string
+  applicant: { accountId: string; fullName: string; email: string }
+  profession: 'doctor' | 'nurse' | string; regulator: { code: string; name: string }
+  licenceNumber: string; licenceValidUntil: string
+  facility: { id: string; name: string; organizationName: string }
+  authenticatorReady: boolean
+  step1: { by: { accountId: string; displayName: string | null }; at: string } | null
+}
+/** Why the caller may not take a step (a display hint: the command checks again). */
+export type ClinicianStepRefusal = 'SELF' | 'WORKS_AT_FACILITY' | 'STATE' | 'STEP1_BY_YOU' | 'AUTHENTICATOR_REQUIRED'
+  | 'ACCOUNT_INELIGIBLE'
+export interface ClinicianStepHint { allowed: boolean; reason: ClinicianStepRefusal | string | null }
+export interface ClinicianAttestationChecklist {
+  registerChecked: true; licenceCurrentUntilRecorded: true; identityMethod: 'video_call_photo_id' | 'in_person_photo_id'
+  identityConfirmed: true; employmentChannel: 'facility_public_phone' | 'in_person_visit'; employmentConfirmed: true
+}
+export interface ClinicianApplicationDetail extends Omit<ClinicianApplicationSummary, 'facility' | 'step1'> {
+  account: { status: string; createdAt: string | null; emailVerifiedAt: string | null; patientAccount: boolean; identityRejection: boolean }
+  staff: { id: string; verificationStatus: string; version: number } | null
+  authenticator: { enrolled: boolean; factorId: string | null; activatedAt: string | null; enrolledAfterRecovery: boolean }
+  otherMemberships: Array<{ facilityName: string; state: string; roles: string[] }>
+  facility: {
+    id: string; name: string; organizationName: string; lifecycleStatus: string; active: boolean; cacHint: string | null
+    orgAdmins: Array<{ displayName: string | null; email: string }>
+  }
+  attestation: {
+    id: string; reviewerAccountId: string; reviewerName: string | null; validUntil: string; evidenceReference: string
+    reason: string; recordedAt: string; checklist: Partial<ClinicianAttestationChecklist> | null; factorConfirmedAt: string | null
+  } | null
+  approval: { by: string; at: string; membershipId: string | null } | null
+  decision: { code: ClinicianDecisionCode | string | null; reason: string | null; by: string | null; at: string } | null
+  accessState: 'active' | 'lapsed' | 'ended' | 'account_unavailable' | string | null
+  rolePermissions: string[]
+  flags: {
+    sameLicenceKeyOtherAccounts: number; sameLicenceKeyOtherOpenApplications: number; sameLicenceAttestedElsewhere: boolean
+    orgAdminNameMatch: boolean; orgAdminEmailDomainMatch: boolean
+  }
+  callerHints: { attest: ClinicianStepHint; approve: ClinicianStepHint; reject: ClinicianStepHint }
+}
+/** A3's body. The applicant's code is checked once and never stored; a replay needs no new code. */
+export interface ClinicianAttestation {
+  validUntil: string; evidenceReference: string; checklist: ClinicianAttestationChecklist; authenticatorCode: string; reason: string
+}
+export interface ClinicianAttested extends Versioned {
+  applicationId: string; state: 'under_review'; attestationId: string; attestedRoles: string[]
+  verificationMethod: 'manual_review'; validUntil: string; replayed: boolean
+}
+export interface ClinicianApproved extends Versioned {
+  applicationId: string; state: 'approved'; accountId: string; facilityId: string; membershipId: string; roleCode: string
+  attestationId: string; replayed: boolean
+}
+export interface ClinicianRejected extends Versioned {
+  applicationId: string; state: 'rejected'; decisionCode: ClinicianDecisionCode; replayed: boolean
+}
+type ClinicianApplicationRef = Pick<ClinicianApplicationSummary, 'applicationId' | 'version'>
+
 /** Principal export. Header values are null when the browser may not read them. */
 export interface PrincipalExport { blob: Blob; rowCount: number | null; rowLimit: number | null; truncated: boolean | null }
 
@@ -427,6 +495,35 @@ export const adminApi = {
     return adminApi.command<{ provider: string; enabled: boolean; configuration: Record<string, string>; version: number; replayed: boolean }>(
       at('/api/v1/admin/integrations', provider.provider, 'configuration'), { configuration, reason },
       { version: provider.version, idempotencyKey })
+  },
+  /**
+   * The clinician verification queue (A1), one page per call: `limit` and
+   * `cursor` are sent only when given (the backend's page is 20, at most 50).
+   * The query carries no personal data.
+   */
+  clinicianApplications(state: ClinicianApplicationFilter, page: { cursor?: string; limit?: number } = {}, signal?: AbortSignal) {
+    return cursorPage(request<CursorPage<ClinicianApplicationSummary>>('/api/v1/admin/clinician-applications', { signal,
+      query: { state, ...(page.limit ? { limit: page.limit } : {}), ...(page.cursor ? { cursor: page.cursor } : {}) } }))
+  },
+  /** A2: one application with what both steps need, its warnings and the caller's hints. */
+  clinicianApplication(applicationId: string, signal?: AbortSignal) {
+    return request<ClinicianApplicationDetail>(at('/api/v1/admin/clinician-applications', applicationId), { signal })
+  },
+  /** A3, step 1: the checklist, the evidence reference, the validity and a live code the applicant reads out. */
+  attestClinicianApplication(application: ClinicianApplicationRef, input: ClinicianAttestation, idempotencyKey: string) {
+    return adminApi.command<ClinicianAttested>(at('/api/v1/admin/clinician-applications', application.applicationId, 'attest'),
+      input, { version: application.version, idempotencyKey })
+  },
+  /** A4, step 2: only a Super Admin other than step 1's; attaches the account and grants the role step 1 attested. */
+  approveClinicianApplication(application: ClinicianApplicationRef, reason: string, idempotencyKey: string) {
+    return adminApi.command<ClinicianApproved>(at('/api/v1/admin/clinician-applications', application.applicationId, 'approve'),
+      { reason }, { version: application.version, idempotencyKey })
+  },
+  /** A5: a decision code the applicant sees and a reason they never see. */
+  rejectClinicianApplication(application: ClinicianApplicationRef, decisionCode: ClinicianDecisionCode, reason: string,
+    idempotencyKey: string) {
+    return adminApi.command<ClinicianRejected>(at('/api/v1/admin/clinician-applications', application.applicationId, 'reject'),
+      { decisionCode, reason }, { version: application.version, idempotencyKey })
   },
   /**
    * A governed admin command. Pass the submission's idempotency key so a retry

@@ -83,6 +83,36 @@ describe('admin failure messages', () => {
     expect(failure(new Error('raw'), 'fallback')).toBe('fallback')
   })
 
+  // hid-system ADR-064 (branch claude/clinician-self-signup at fa58e2b), admin-command-error.ts and the
+  // clinician review service: every refusal of the queue's three commands, and the 0087 codes step 2 can return.
+  it('explains every refusal of the clinician verification queue in words the reviewer can act on', () => {
+    const expected: Array<[number, string, RegExp]> = [
+      [404, 'CLINICIAN_APPLICATION_NOT_FOUND', /no longer exists/],
+      [409, 'CLINICIAN_APPLICATION_STATE_INVALID', /no longer at this step/],
+      [400, 'CLINICIAN_APPLICATION_COMMAND_INVALID', /licence expiry/],
+      [403, 'CLINICIAN_APPLICATION_SECOND_ADMIN_REQUIRED', /different Super Admin must approve/],
+      [403, 'CLINICIAN_APPLICATION_AUTHENTICATOR_CODE_INVALID', /^The authenticator code wasn’t accepted\. Ask for a new code and try again\.$/],
+      [429, 'CLINICIAN_APPLICATION_AUTHENTICATOR_RATE_LIMITED', /^Too many wrong codes for this applicant\. Wait 15 minutes\.$/],
+      [409, 'CLINICIAN_APPLICATION_AUTHENTICATOR_REQUIRED', /hasn’t set up their authenticator/],
+      [409, 'CLINICIAN_APPLICATION_AUTHENTICATOR_CHANGED', /reset after step 1\. Reject the application with ‘Other’/],
+      [409, 'CLINICIAN_APPLICATION_ACCOUNT_INELIGIBLE', /can’t be given clinical access/],
+      [403, 'WORKFORCE_SELF_CHANGE_DENIED', /your own/],
+      [403, 'WORKFORCE_FACILITY_CONFLICT', /^You work at this facility, so another Super Admin must do this\.$/],
+      [409, 'WORKFORCE_FACILITY_NOT_VERIFIED', /isn’t verified and active/],
+      [409, 'WORKFORCE_ATTESTATION_REQUIRED', /can no longer support a grant \(it lapsed, or its reviewer now works at the facility\)/],
+      [409, 'WORKFORCE_MEMBERSHIP_EXISTS', /already has access, or pending access, at this facility\. Reject with ‘Duplicate’/],
+      [409, 'WORKFORCE_ROLE_CONFLICT', /facility administrator/],
+      [409, 'WORKFORCE_ACCOUNT_INELIGIBLE', /can’t hold staff access/],
+      [409, 'WORKFORCE_STAFF_INELIGIBLE', /staff record/],
+      [409, 'WORKFORCE_EMAIL_IN_USE', /may have applied by themselves: check Clinician applications/],
+    ]
+    for (const [status, code, message] of expected) {
+      const text = failure(problem(status, code), 'fallback')
+      expect(text, code).toMatch(message)
+      expect(text, code).not.toBe('This item changed. Reload it and try again.')
+    }
+  })
+
   it('explains integration and pricing refusals that are not edits by someone else', () => {
     expect(failure(problem(409, 'INTEGRATION_UNCHANGED'), 'fallback')).toMatch(/^Nothing changed/)
     expect(failure(problem(409, 'PRICING_UNCHANGED'), 'fallback')).toMatch(/^Nothing changed/)

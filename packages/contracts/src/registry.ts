@@ -294,6 +294,20 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     one('POST','platform.mfa.reset')),
   r('admin.approvalDecision','admin','/api/v1/admin/approvals/:requestId/:decision',P,false,one('POST','platform.admin.access'),
     'decision is approve, reject or cancel. The backend decides who may decide.'),
+  // Clinician self sign-up review (hid-system ADR-064, branch claude/clinician-self-signup at fa58e2b, not
+  // merged): the verification queue. Step 1 and step 2 are made by two different Super Admins, neither of
+  // whom works at the facility; each command needs step-up, If-Match, an Idempotency-Key and a reason.
+  r('admin.clinicianApplications','admin','/api/v1/admin/clinician-applications',G,false,one('GET','platform.workforce.manage'),
+    'Query state (open by default: the three undecided states, oldest first), cursor and limit (1-50, default 20).'),
+  r('admin.clinicianApplication','admin','/api/v1/admin/clinician-applications/:applicationId',G,false,
+    one('GET','platform.workforce.manage')),
+  r('admin.clinicianApplicationAttest','admin','/api/v1/admin/clinician-applications/:applicationId/attest',P,false,
+    one('POST','platform.workforce.manage'),
+    'Step 1: the checklist, evidence reference, validity, a live code from the applicant\'s authenticator and a reason.'),
+  r('admin.clinicianApplicationApprove','admin','/api/v1/admin/clinician-applications/:applicationId/approve',P,false,
+    one('POST','platform.workforce.manage'), 'Step 2, by a Super Admin other than step 1\'s: attaches and grants the role.'),
+  r('admin.clinicianApplicationReject','admin','/api/v1/admin/clinician-applications/:applicationId/reject',P,false,
+    one('POST','platform.workforce.manage'), 'A decision code the applicant sees and a reason they never see.'),
 
   r('platform.live','platform','/gateway-health/live',G,true),
   r('platform.ready','platform','/gateway-health/ready',G,true),

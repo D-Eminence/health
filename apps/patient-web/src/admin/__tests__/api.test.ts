@@ -258,6 +258,74 @@ describe('platform admin API', () => {
     for (const request of requests) expect(request.url.search).toBe('')
   })
 
+  // hid-system ADR-064 (branch claude/clinician-self-signup at fa58e2b): the verification queue A1-A5.
+  it('lists and opens clinician applications with the state, cursor and limit the backend takes', async () => {
+    const item = { applicationId: '0f2b6d0e-6a55-4b4c-9a7e-2f4b8c1d3e5a', version: 3 }
+    const requests = recordFetch([json({ items: [item], nextCursor: 'next-page' }), json({ items: [] }),
+      json({ items: [], nextCursor: null }), json({ ...item, state: 'submitted' })])
+    const { adminApi } = await import('../api')
+    await expect(adminApi.clinicianApplications('open')).resolves.toEqual({ items: [item], nextCursor: 'next-page' })
+    // A list without nextCursor is its last page.
+    await expect(adminApi.clinicianApplications('approved', { cursor: 'next-page' })).resolves.toEqual({ items: [], nextCursor: null })
+    await adminApi.clinicianApplications('under_review', { limit: 50 })
+    await expect(adminApi.clinicianApplication(item.applicationId)).resolves.toMatchObject({ state: 'submitted' })
+    expect(requests.map(request => `${request.method} ${request.url.pathname}?${request.url.searchParams.toString()}`)).toEqual([
+      'GET /api/v1/admin/clinician-applications?state=open',
+      'GET /api/v1/admin/clinician-applications?state=approved&cursor=next-page',
+      'GET /api/v1/admin/clinician-applications?state=under_review&limit=50',
+      `GET /api/v1/admin/clinician-applications/${item.applicationId}?`,
+    ])
+    for (const request of requests) {
+      expect(request.headers.has('x-facility-id')).toBe(false)
+      expect(request.headers.has('idempotency-key')).toBe(false)
+    }
+  })
+
+  it('sends the three clinician review commands with the platform CSRF token, If-Match, the key and the contract body', async () => {
+    document.cookie = 'hid_access_admin_csrf=platform-csrf'
+    const applicationId = '0f2b6d0e-6a55-4b4c-9a7e-2f4b8c1d3e5a'
+    const requests = recordFetch([
+      json({ applicationId, state: 'under_review', attestationId: 'attestation-1', attestedRoles: ['doctor'],
+        verificationMethod: 'manual_review', validUntil: '2027-03-31T22:59:59.000Z', version: 4, replayed: false }, 201),
+      json({ applicationId, state: 'approved', accountId: 'account-1', facilityId: 'facility-1', membershipId: 'membership-1',
+        roleCode: 'doctor', attestationId: 'attestation-1', version: 5, replayed: false }, 201),
+      json({ applicationId, state: 'rejected', decisionCode: 'licence_not_current', version: 4, replayed: true }, 201),
+    ])
+    const { adminApi } = await import('../api')
+    const checklist = { registerChecked: true, licenceCurrentUntilRecorded: true, identityMethod: 'video_call_photo_id',
+      identityConfirmed: true, employmentChannel: 'facility_public_phone', employmentConfirmed: true } as const
+    const attest = { validUntil: '2027-03-31T23:59:59+01:00', evidenceReference: 'Ticket HID-VER-1234', checklist,
+      authenticatorCode: '123456', reason: 'Licence and identity confirmed on a video call' }
+    await expect(adminApi.attestClinicianApplication({ applicationId, version: 3 }, attest, 'key-attest'))
+      .resolves.toMatchObject({ state: 'under_review', version: 4, replayed: false })
+    await expect(adminApi.approveClinicianApplication({ applicationId, version: 4 }, 'Step 1 evidence reviewed', 'key-approve'))
+      .resolves.toMatchObject({ state: 'approved', membershipId: 'membership-1' })
+    await expect(adminApi.rejectClinicianApplication({ applicationId, version: 3 }, 'licence_not_current',
+      'The register shows the licence expired', 'key-reject')).resolves.toMatchObject({ replayed: true })
+    expect(requests.map(request => `${request.method} ${request.url.pathname}${request.url.search}`)).toEqual([
+      `POST /api/v1/admin/clinician-applications/${applicationId}/attest`,
+      `POST /api/v1/admin/clinician-applications/${applicationId}/approve`,
+      `POST /api/v1/admin/clinician-applications/${applicationId}/reject`,
+    ])
+    expect(requests.map(request => request.headers.get('if-match'))).toEqual(['"3"', '"4"', '"3"'])
+    expect(requests.map(request => request.headers.get('idempotency-key'))).toEqual(['key-attest', 'key-approve', 'key-reject'])
+    for (const request of requests) {
+      expect(request.headers.get('x-csrf-token')).toBe('platform-csrf')
+      expect(request.headers.has('x-facility-id')).toBe(false)
+    }
+    expect(requests[0]!.body).toEqual(attest)
+    expect(requests[1]!.body).toEqual({ reason: 'Step 1 evidence reviewed' })
+    expect(requests[2]!.body).toEqual({ decisionCode: 'licence_not_current', reason: 'The register shows the licence expired' })
+  })
+
+  it('never sends a clinician review command without a version to match', async () => {
+    const requests = recordFetch()
+    const { adminApi } = await import('../api')
+    expect(() => adminApi.approveClinicianApplication({ applicationId: 'application-1', version: 0 }, 'Reviewed evidence', 'key-1'))
+      .toThrow('Reload this item before changing it.')
+    expect(requests).toHaveLength(0)
+  })
+
   it('keeps sending facility context for provider workflows', async () => {
     const requests = recordFetch()
     // Protected staff requests wait for a ready session, as the provider portal sets once signed in.

@@ -189,6 +189,31 @@ describe('application boundaries', () => {
     expect(APP_ROUTE_GRANTS['staff-web']?.enrollment?.filter(name => name.startsWith('enrollment.clinician'))).toHaveLength(routes.length)
   })
 
+  it('registers the clinician verification queue (hid-system ADR-064) for the platform console only', () => {
+    const base = '/api/v1/admin/clinician-applications'
+    const applicationId = '0f2b6d0e-6a55-4b4c-9a7e-2f4b8c1d3e5a'
+    const routes = [
+      ['admin.clinicianApplications', base, 'GET', base],
+      ['admin.clinicianApplication', `${base}/:applicationId`, 'GET', `${base}/${applicationId}`],
+      ['admin.clinicianApplicationAttest', `${base}/:applicationId/attest`, 'POST', `${base}/${applicationId}/attest`],
+      ['admin.clinicianApplicationApprove', `${base}/:applicationId/approve`, 'POST', `${base}/${applicationId}/approve`],
+      ['admin.clinicianApplicationReject', `${base}/:applicationId/reject`, 'POST', `${base}/${applicationId}/reject`],
+    ] as const
+    for (const [name, path, method, example] of routes) {
+      // Every route needs platform.workforce.manage on an MFA-verified platform session.
+      expect(findEndpoint(name), name).toMatchObject({ service: 'admin', path, methods: [method],
+        auth: { kind: 'authenticated' }, permissions: { [method]: ['platform.workforce.manage'] } })
+      expect(assertRegisteredBrowserRequest(method, example).name).toBe(name)
+      expect(() => assertRegisteredBrowserRequest(method === 'GET' ? 'POST' : 'GET', example), name).toThrow(BrowserRouteError)
+      expect(() => assertEndpointAllowed('admin-web', name)).not.toThrow()
+      for (const app of ['staff-web', 'patient-web', 'public-web'] as const) {
+        expect(() => assertEndpointAllowed(app, name), `${app}: ${name}`).toThrow(BoundaryViolationError)
+      }
+    }
+    // The applicant's own routes stay the provider portal's: the console reviews, it never applies.
+    expect(() => assertEndpointAllowed('admin-web', 'enrollment.clinicianCurrent')).toThrow(BoundaryViolationError)
+  })
+
   it('keeps the public site\'s enrollment routes as they were', () => {
     for (const name of ['enrollment.start', 'enrollment.availability', 'enrollment.current', 'enrollment.google',
       'enrollment.contact', 'enrollment.verifyContact', 'enrollment.activate', 'enrollment.providerStart',
