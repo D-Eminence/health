@@ -57,6 +57,9 @@ function StatusPage() {
   const [withdrawing, setWithdrawing] = useState<ClinicianApplicationView | null>(null)
   const [withdrawError, setWithdrawError] = useState<{ id: number; message: string } | null>(null)
   const [busy, setBusy] = useState<'withdraw' | 'close' | 'reload' | null>(null)
+  // A request of "Apply to another facility" (sending, or a facility search) is running: closing the page, or reading
+  // the list again, waits for its answer, which would otherwise reach a page already closed.
+  const [applyWorking, setApplyWorking] = useState(false)
   const noticeLine = useRef<HTMLParagraphElement>(null)
   // Whether this page holds an application capability (an email code was checked, or the applications were read):
   // only then does a 401 mean that it closed.
@@ -192,7 +195,7 @@ function StatusPage() {
   }
 
   async function closePage() {
-    if (busy) return
+    if (busy || applyWorking) return
     setBusy('close')
     setCloseError(null)
     try {
@@ -256,7 +259,7 @@ function StatusPage() {
     <p ref={noticeLine} tabIndex={-1} role="status" className="patient-field-hint">{notice && <span key={notice.id}>{notice.text}</span>}</p>
     {listError && <div className="clinician-actions">
       <StepError error={listError} />
-      <TextButton id={LIST_RETRY} onClick={() => void retry(true)} disabled={busy !== null}>{busy === 'reload' ? 'Loading…' : 'Retry'}</TextButton>
+      <TextButton id={LIST_RETRY} onClick={() => void retry(true)} disabled={busy !== null || applyWorking}>{busy === 'reload' ? 'Loading…' : 'Retry'}</TextButton>
     </div>}
     {/* The account has no authenticator (reset, or its waiting applications closed) and no card offers to set one up. */}
     {view.stage === 'enrolment_required' && !view.applications.some(application => application.state === 'awaiting_authenticator') &&
@@ -273,14 +276,14 @@ function StatusPage() {
           onWithdraw={() => { setWithdrawError(null); setWithdrawing(application) }} />
       </li>)}
     </ul>
-    <ApplyAnother account={view} takeOver={takeOver} onApplied={async (created, facility) => {
+    <ApplyAnother account={view} takeOver={takeOver} onWorking={setApplyWorking} onApplied={async (created, facility) => {
       await load({ fromList: true, done: { notice: `Your application to ${facility} was sent. It is in HID's verification queue.`,
         change: shown => shown.applications.some(application => application.applicationId === created.applicationId) ? shown
           : { ...shown, applications: [created, ...shown.applications] } } })
     }} />
     <div className="clinician-panel">
       <StepError error={closeError} />
-      <TextButton id={CLOSE} onClick={() => void closePage()} disabled={busy !== null}>{busy === 'close' ? 'Closing…' : 'Close this page'}</TextButton>
+      <TextButton id={CLOSE} onClick={() => void closePage()} disabled={busy !== null || applyWorking}>{busy === 'close' ? 'Closing…' : 'Close this page'}</TextButton>
     </div>
     {withdrawing && <WithdrawDialog view={withdrawing} busy={busy === 'withdraw'} error={withdrawError}
       onConfirm={() => void confirmWithdraw()} onCancel={() => setWithdrawing(null)} />}
@@ -365,9 +368,11 @@ const SEND = 'clinician-apply-send'
 const APPLY_OPEN = 'clinician-apply-open'
 
 /** Applying to another facility (P14), with the sign-up's details and declarations; the account's name is already known. */
-function ApplyAnother({ account, onApplied, takeOver }: {
+function ApplyAnother({ account, onApplied, takeOver, onWorking }: {
   account: ClinicianAccountView; onApplied(created: ClinicianApplicationView, facility: string): Promise<void>
   takeOver(caught: unknown): boolean
+  /** Whether a request of this form (sending, or a facility search) is running. */
+  onWorking(working: boolean): void
 }) {
   const [applying, setApplying] = useState(false)
   const [details, setDetails] = useState<DetailsValue>(EMPTY_DETAILS)
@@ -377,6 +382,9 @@ function ApplyAnother({ account, onApplied, takeOver }: {
   const [summaryKey, setSummaryKey] = useState(0)
   const [error, setError] = useState<{ id: number; message: string } | null>(null)
   const [busy, setBusy] = useState(false)
+  const [searching, setSearching] = useState(false)
+  useEffect(() => { onWorking(busy || searching) }, [busy, searching, onWorking])
+  useEffect(() => () => onWorking(false), [onWorking])
   const submission = useRef<{ key: string; fingerprint: string } | null>(null)
   // Where focus goes after a refusal that keeps the form: its button was disabled while busy.
   const [focusRequest, setFocusRequest] = useState<{ id: string; count: number } | null>(null)
@@ -452,7 +460,7 @@ function ApplyAnother({ account, onApplied, takeOver }: {
       administrators review each application.</p>
     <StepError error={error} />
     <ErrorSummary problems={problems} focusKey={summaryKey} />
-    <DetailsFields value={details} onChange={setDetails} problems={problems} onSearchRefused={takeOver} />
+    <DetailsFields value={details} onChange={setDetails} problems={problems} onSearchRefused={takeOver} onSearching={setSearching} />
     <Declarations accurate={accurate} consent={consent} onAccurate={setAccurate} onConsent={setConsent} regulator={regulator}
       facility={details.facility?.name ?? 'the facility'} problems={problems} />
     <div className="clinician-actions">

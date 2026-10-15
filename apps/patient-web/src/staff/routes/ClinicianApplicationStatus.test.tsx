@@ -581,6 +581,38 @@ describe('applying to another facility', () => {
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Apply to another facility' })))
   })
 
+  it('offers no Close while the application is being sent, so its answer never reaches a closed page', async () => {
+    await applyForm()
+    let answer: (value: unknown) => void = () => {}
+    api.apply.mockReturnValueOnce(new Promise(resolve => { answer = resolve }))
+    press('Send application')
+    const close = screen.getByRole('button', { name: 'Close this page' }) as HTMLButtonElement
+    expect(close.disabled).toBe(true)
+    fireEvent.click(close)
+    expect(api.endSession).not.toHaveBeenCalled()
+    await act(async () => { answer({ ...view({ applicationId: 'a2', facility: { id: OTHER.facilityId, name: OTHER.name } }), replayed: false }) })
+    await waitFor(() => expect(screen.getByRole('status').textContent)
+      .toBe("Your application to Lagos Island Clinic was sent. It is in HID's verification queue."))
+    expect((screen.getByRole('button', { name: 'Close this page' }) as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('offers no Close while a facility search runs', async () => {
+    await listShown()
+    press('Apply to another facility')
+    await headingFocused('Apply to another facility')
+    let answer: (value: unknown) => void = () => {}
+    api.searchFacilities.mockReturnValueOnce(new Promise(resolve => { answer = resolve }))
+    type(screen.getByRole('searchbox', { name: 'Your facility' }), 'Island')
+    press('Search facilities')
+    const close = screen.getByRole('button', { name: 'Close this page' }) as HTMLButtonElement
+    expect(close.disabled).toBe(true)
+    fireEvent.click(close)
+    expect(api.endSession).not.toHaveBeenCalled()
+    await act(async () => { answer([OTHER]) })
+    expect(await screen.findByText('1 facility found.')).toBeTruthy()
+    expect(close.disabled).toBe(false)
+  })
+
   it('sends the same key again after an outage', async () => {
     await applyForm()
     api.apply.mockRejectedValueOnce(problem(503, 'CLINICIAN_APPLICATION_UNAVAILABLE'))

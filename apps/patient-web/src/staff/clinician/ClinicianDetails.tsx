@@ -112,7 +112,7 @@ export function applicationDetails(value: DetailsValue): ClinicianApplicationDet
   }
 }
 
-export function DetailsFields({ value, onChange, problems, fullName, onFullName, onSearchRefused }: {
+export function DetailsFields({ value, onChange, problems, fullName, onFullName, onSearchRefused, onSearching }: {
   value: DetailsValue
   onChange: Dispatch<SetStateAction<DetailsValue>>
   problems: readonly Problem[]
@@ -121,6 +121,8 @@ export function DetailsFields({ value, onChange, problems, fullName, onFullName,
   onFullName?(name: string): void
   /** A search refusal the page takes over (the page ended); true when it did. */
   onSearchRefused(caught: unknown): boolean
+  /** Whether a facility search is running, until its answer, even once the fields are gone. */
+  onSearching?(searching: boolean): void
 }) {
   const set = (patch: Partial<DetailsValue>) => onChange(current => ({ ...current, ...patch }))
   const regulator = value.profession ? CLINICIAN_REGULATOR_OF[value.profession] : null
@@ -157,12 +159,14 @@ export function DetailsFields({ value, onChange, problems, fullName, onFullName,
         onChange={event => set({ licenceValidUntil: event.target.value })} />
     </Field>
 
-    <FacilitySearch value={value} onChange={onChange} error={fieldError(problems, FIELD.facility)} onRefused={onSearchRefused} />
+    <FacilitySearch value={value} onChange={onChange} error={fieldError(problems, FIELD.facility)} onRefused={onSearchRefused}
+      onSearching={onSearching} />
   </>
 }
 
-function FacilitySearch({ value, onChange, error, onRefused }: {
+function FacilitySearch({ value, onChange, error, onRefused, onSearching }: {
   value: DetailsValue; onChange: Dispatch<SetStateAction<DetailsValue>>; error?: string; onRefused(caught: unknown): boolean
+  onSearching?(searching: boolean): void
 }) {
   const [searching, setSearching] = useState(false)
   const [refused, setRefused] = useState<string | null>(null)
@@ -174,6 +178,7 @@ function FacilitySearch({ value, onChange, error, onRefused }: {
   async function search() {
     if (searching || !canSearch) return
     setSearching(true)
+    onSearching?.(true)
     setRefused(null)
     try {
       const results = await clinicianApplicationApi.searchFacilities(query)
@@ -186,6 +191,7 @@ function FacilitySearch({ value, onChange, error, onRefused }: {
         : refusalCopy(caught, "We couldn't search for facilities right now. Try again.", 'Too many searches. Try again later.'))
     } finally {
       setSearching(false)
+      onSearching?.(false)
     }
   }
 
