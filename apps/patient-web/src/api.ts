@@ -1,7 +1,10 @@
 import type { ApiClient } from '@hid/http'
 import { inRefreshTurn, refreshInTurn, signOutInTurn } from './sessionRefreshTurn'
 
-/** Contracts read from hid-system c4b5445 Identity and EHR controllers. */
+/**
+ * Contracts read from hid-system c4b5445 Identity and EHR controllers, and later
+ * where a comment says; patient enrollment from hid-system main f9dbaf0.
+ */
 export interface PatientSession {
   actor: {
     // Patient and platform actors carry a kind; hid-system's staff actor carries none.
@@ -14,8 +17,47 @@ export interface PatientSession {
   expiresAt?: string
 }
 
+/**
+ * What a NIN record lacks and the patient enters at activation (hid-system
+ * ADR-061, on main since #82): named in every progress answer before
+ * activation, in this order, `[]` for a complete record.
+ */
+export const ENROLLMENT_PROFILE_FIELDS = ['dateOfBirth', 'gender'] as const
+export type EnrollmentProfileField = typeof ENROLLMENT_PROFILE_FIELDS[number]
+/** The genders `POST .../activate` takes (hid-system patient-enrollment.dto.ts). */
+export const ENROLLMENT_GENDERS = ['female', 'male', 'intersex', 'other', 'unknown'] as const
+export type EnrollmentGender = typeof ENROLLMENT_GENDERS[number]
+/** Sent only for the fields the record lacks; `dateOfBirth` as YYYY-MM-DD. */
+export interface EnrollmentProfile { dateOfBirth?: string; gender?: EnrollmentGender }
+
+/**
+ * The online route at `verify_holder` (hid-system #84, ADR-062): whether a code
+ * can be texted to the phone on the NIN record, and the open code's timing.
+ */
+export interface EnrollmentOnlineRoute {
+  available: boolean
+  challengeId?: string
+  expiresInSeconds?: number
+  resendAfterSeconds?: number
+}
+/**
+ * The facility route at `verify_holder` (hid-system #85, ADR-063): whether it is
+ * open, and the desk code this device shows at the facility, to its cookie only.
+ */
+export interface EnrollmentFacilityRoute {
+  available: boolean
+  deskCode?: string
+  deskCodeExpiresAt?: string
+}
+
+/**
+ * An enrollment's progress (hid-system main f9dbaf0). Since #84 every start
+ * answers `verify_holder`, with `online` and `facility`; an Identity before it
+ * answers `verify_contact`. `requiredProfileFields` comes only after the holder
+ * proof (ADR-061, ADR-062).
+ */
 export interface EnrollmentProgress {
-  stage: 'verify_contact' | 'set_password' | 'active'
+  stage: 'verify_holder' | 'verify_contact' | 'set_password' | 'active'
   expiresAt?: string
   contactChannel?: 'phone' | 'email'
   maskedContact?: string
@@ -25,6 +67,35 @@ export interface EnrollmentProgress {
   googleOnboardingRequired?: boolean
   googleOnboardingExpiresAt?: string
   hidCode?: string
+  requiredProfileFields?: EnrollmentProfileField[]
+  online?: EnrollmentOnlineRoute
+  facility?: EnrollmentFacilityRoute
+}
+
+/**
+ * GET .../availability (hid-system#68; since #84 `{ open, online, facility }`).
+ * Only `open: true` lets a new enrollment start; `online` and `facility` say how
+ * the NIN will be proved. An Identity before #84 sends `{ open }` only.
+ */
+export interface EnrollmentAvailability {
+  open: boolean
+  online?: boolean
+  facility?: boolean
+}
+
+/** A participating facility as the public list shows it (ADR-063): no id. */
+export interface ParticipatingFacility {
+  name: string
+  addressLine?: string
+  town: string
+  lga: string
+  state: string
+  hours?: string
+}
+export interface ParticipatingFacilities {
+  facilities: ParticipatingFacility[]
+  /** Fixed lines from Identity, shown as sent. */
+  whatToBring: string[]
 }
 
 export interface PatientProfile {
@@ -216,17 +287,31 @@ export function createPatientApi(client: ApiClient) {
     enrollmentCurrent: () => call<EnrollmentProgress>('GET', 'identity/patient-enrollments/current'),
     // hid-system#68 (FE-4): whether a start would pass its checks made before a NIN is read.
     // Only `{ open: true }` means open (INTERFACE_CONTRACT.md, public patient enrollment).
-    enrollmentAvailability: () => call<{ open: boolean }>('GET', 'identity/patient-enrollments/availability'),
+    enrollmentAvailability: () => call<EnrollmentAvailability>('GET', 'identity/patient-enrollments/availability'),
+    // ADR-063: public, by name and place only. Empty while the facility route is off.
+    participatingFacilities: () => call<ParticipatingFacilities>('GET', 'identity/patient-enrollments/participating-facilities'),
     enrollmentStart: (nin: string, turnstileToken: string, idempotencyKey: string) =>
       call<EnrollmentProgress>('POST', 'identity/patient-enrollments', { nin, turnstileAction: 'patient-enrollment', turnstileToken },
         { headers: { 'Idempotency-Key': idempotencyKey } }),
     enrollmentBindGoogle: () => call<{ bound: true }>('POST', 'identity/patient-enrollments/google'),
+    // The NIN holder step (ADR-062): no body; the code goes to the phone on the NIN record, never one typed here.
+    enrollmentHolderCode: () =>
+      call<{ challengeId: string; expiresInSeconds: number; resendAfterSeconds: number }>('POST', 'identity/patient-enrollments/holder'),
+    enrollmentHolderVerify: (challengeId: string, code: string) =>
+      call<{ stage: 'verify_contact'; requiredProfileFields?: EnrollmentProfileField[] }>('POST', 'identity/patient-enrollments/holder/verify', { challengeId, code }),
+    // The facility route (ADR-063): no body; the answer is the verify_holder progress with the desk code.
+    enrollmentFacilityCode: () => call<EnrollmentProgress>('POST', 'identity/patient-enrollments/facility-code'),
     enrollmentContact: (channel: 'email' | 'phone', contact: string) =>
       call<{ challengeId: string; expiresInSeconds: number; resendAfterSeconds: number }>('POST', 'identity/patient-enrollments/contact', { channel, contact }),
     enrollmentVerify: (challengeId: string, code: string) =>
-      call<{ stage: 'set_password' }>('POST', 'identity/patient-enrollments/contact/verify', { challengeId, code }),
-    enrollmentActivate: (password: string) =>
-      call<{ stage: 'active'; hidCode: string }>('POST', 'identity/patient-enrollments/activate', { password }),
+      call<{ stage: 'set_password'; requiredProfileFields?: EnrollmentProfileField[] }>('POST', 'identity/patient-enrollments/contact/verify', { challengeId, code }),
+    // A field is sent only when given (ADR-061: one the NIN record provides is refused).
+    enrollmentActivate: (password: string, profile: EnrollmentProfile = {}) =>
+      call<{ stage: 'active'; hidCode: string }>('POST', 'identity/patient-enrollments/activate', {
+        password,
+        ...(profile.dateOfBirth === undefined ? {} : { dateOfBirth: profile.dateOfBirth }),
+        ...(profile.gender === undefined ? {} : { gender: profile.gender }),
+      }),
     recoveryStart: (identifier: string, turnstileToken: string) =>
       call<RecoveryChallenge>('POST', 'auth/otp/start', { identifier, purpose: 'PASSWORD_RESET', turnstileAction: 'patient-reset-start', turnstileToken }),
     recoveryVerify: (challengeId: string, code: string) =>

@@ -1,6 +1,7 @@
-/** Domain methods backed by the c4b5445 route registry. */
+/** Domain methods backed by the route registry (@hid/contracts registry.ts). */
 import type {
-  CreateDemoRequest, DemoRequestAccepted, HidAuthSession, HidStaffLoginChallenge, PatientEnrollmentProgress,
+  CreateDemoRequest, DemoRequestAccepted, HidAuthSession, HidStaffLoginChallenge, ParticipatingFacilities,
+  PatientEnrollmentAvailability, PatientEnrollmentHolderCode, PatientEnrollmentProfile, PatientEnrollmentProgress,
   PatientRecordSummary, PublicPricingResponse, RecoveryOtpStart, RecoveryOtpVerified,
   UnverifiedPayload,
 } from '@hid/contracts'
@@ -69,19 +70,42 @@ export function createEnrollmentService(context: ServiceContext) {
     current(options: CallOptions = {}): Promise<PatientEnrollmentProgress> {
       return request('enrollment.current','GET',options)
     },
+    /** Only `{ open: true }` opens a start; `online` and `facility` name the routes to prove the NIN holder. */
+    availability(options: CallOptions = {}): Promise<PatientEnrollmentAvailability> {
+      return request('enrollment.availability','GET',options)
+    },
+    participatingFacilities(options: CallOptions = {}): Promise<ParticipatingFacilities> {
+      return request('enrollment.participatingFacilities','GET',options)
+    },
     bindGoogle(options: CallOptions = {}): Promise<{ bound: true }> {
       return request('enrollment.google','POST',options)
     },
+    /** Texts a code to the phone on the NIN record (ADR-062); no body. */
+    sendHolderCode(options: CallOptions = {}): Promise<PatientEnrollmentHolderCode> {
+      return request('enrollment.holder','POST',options)
+    },
+    verifyHolder(body: { challengeId: string; code: string },
+      options: CallOptions = {}): Promise<PatientEnrollmentProgress> {
+      return request('enrollment.holderVerify','POST',{ body, ...options })
+    },
+    /** The desk code the patient's own device shows at a participating facility (ADR-063); no body. */
+    facilityCode(options: CallOptions = {}): Promise<PatientEnrollmentProgress> {
+      return request('enrollment.facilityCode','POST',options)
+    },
     contact(body: { channel: 'phone' | 'email'; contact: string },
-      options: CallOptions = {}): Promise<{ challengeId: string; expiresInSeconds: number }> {
+      options: CallOptions = {}): Promise<{ challengeId: string; expiresInSeconds: number; resendAfterSeconds: number }> {
       return request('enrollment.contact','POST',{ body, ...options })
     },
     verifyContact(body: { challengeId: string; code: string },
       options: CallOptions = {}): Promise<PatientEnrollmentProgress> {
       return request('enrollment.verifyContact','POST',{ body, ...options })
     },
-    activate(password: string, options: CallOptions = {}): Promise<{ stage: 'active'; hidCode: string }> {
-      return request('enrollment.activate','POST',{ body: { password }, ...options })
+    /** A date of birth or gender only for a field the NIN record lacks (ADR-061). */
+    activate(password: string, profile: PatientEnrollmentProfile = {},
+      options: CallOptions = {}): Promise<{ stage: 'active'; hidCode: string }> {
+      return request('enrollment.activate','POST',{ body: { password,
+        ...(profile.dateOfBirth === undefined ? {} : { dateOfBirth: profile.dateOfBirth }),
+        ...(profile.gender === undefined ? {} : { gender: profile.gender }) }, ...options })
     },
     applyOrganization(body: unknown, options: CallOptions = {}): Promise<UnverifiedPayload> {
       return request('identity.organizationApply','POST',{ body, ...options })

@@ -26,6 +26,32 @@ describe('c4b5445 route registry', () => {
     expect(() => assertEndpointAllowed('patient-web', 'enrollment.availability')).not.toThrow()
   })
 
+  it('says what the availability read answers since the NIN holder step (hid-system main f9dbaf0, ADR-062)', () => {
+    const note = findEndpoint('enrollment.availability')?.note ?? ''
+    expect(note).toContain('{ open, online, facility }')
+    expect(note).toContain('only open: true')
+  })
+
+  it('registers the NIN holder step and the facility route for the patient portal (hid-system main f9dbaf0, #84 and #85)', () => {
+    const BASE = '/api/v1/identity/patient-enrollments'
+    const routes = [
+      ['enrollment.holder', `${BASE}/holder`, 'POST'],
+      ['enrollment.holderVerify', `${BASE}/holder/verify`, 'POST'],
+      ['enrollment.facilityCode', `${BASE}/facility-code`, 'POST'],
+      ['enrollment.participatingFacilities', `${BASE}/participating-facilities`, 'GET'],
+    ] as const
+    for (const [name, path, method] of routes) {
+      expect(findEndpoint(name), name).toMatchObject({ service: 'enrollment', path, methods: [method], auth: { kind: 'public' } })
+      expect(assertRegisteredBrowserRequest(method, path).name).toBe(name)
+      expect(() => assertRegisteredBrowserRequest(method === 'GET' ? 'POST' : 'GET', path)).toThrow(BrowserRouteError)
+      expect(() => assertEndpointAllowed('patient-web', name), name).not.toThrow()
+      for (const app of ['staff-web', 'admin-web'] as const) {
+        expect(() => assertEndpointAllowed(app, name), `${app}: ${name}`).toThrow(BoundaryViolationError)
+      }
+    }
+    expect(findEndpoint('enrollment.activate')?.note).toContain('dateOfBirth')
+  })
+
   it('records distinct RBAC permissions per EHR method', () => {
     const encounters = findEndpoint('ehr.encounters')
     expect(encounters?.permissions?.GET).toEqual(['ehr.encounter.read'])

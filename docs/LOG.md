@@ -1720,6 +1720,153 @@ build kept Google's script loader with no Google client ID.
 - **Not verified.** The hid-system stager itself was not run; the rules were
   copied from it and must be kept in step when it changes.
 
+## 2026-10-15: patient sign-up against hid-system `main` `f9dbaf0` (the NIN holder step and the facility route)
+
+hid-system `main` `f9dbaf0` merged ADR-061 (#82, migration 0092: a NIN record
+without a date of birth or gender), the NIN holder step (#84, ADR-062,
+migration 0093: before a contact or a password the patient proves they hold the
+NIN by a code texted to the phone on the NIN record) and the facility route
+(#85, ADR-063, migration 0094: or in person at a participating facility), and
+#86 (integration status and the "Health-id alignment" list,
+`PHASE_4_STAGE_5_RELEASE_READINESS.md` section 3). None is deployed. The
+patient's side of that list, with the owner's decision of 2026-10-14 (both
+routes discoverable from the start, no fake confirmation, an existing Health ID
+sent to account recovery, a pending facility check explained), is on branch
+`claude/patient-signup-online`, rebuilt on Health-id `main` `55a50b0`. Three
+commits of an earlier draft against a hid-system branch that `main` did not
+adopt (routes `holder/code`, `holder/cancel`, `contact/holder-phone`) were
+dropped; the Retry-After helper, the split of the enrollment stages and the
+ADR-061 password step were kept unchanged (same trees).
+
+- **Routes and shared client (rows 1, 14, 15).** The registry and the
+  patient-web grant name `POST .../holder`, `/holder/verify`, `/facility-code`
+  and `GET .../participating-facilities`; staff-web and admin-web are not
+  granted them. Availability is `{ open, online, facility }`, `open` the only
+  gate. `@hid/contracts` (`wire.ts`) and `@hid/api` (`services.ts`) follow.
+- **NIN step (row 14).** It says how the NIN will be proved: a code to the phone
+  linked to the NIN, and, for someone who lost their SIM, changed their number,
+  has no phone linked to the NIN or can't get the code, an in-person check at a
+  participating facility, linking to the public `/enroll/facilities`; or that
+  either is not available. The button is "Continue". `503
+  PATIENT_REGISTRATION_NOT_OPEN` shows the closed notice; a NIN lookup that
+  could not be completed and any outage keep the step.
+- **The holder step (rows 2 and 3, P31, P33).** "Prove this NIN is yours" offers
+  both routes and sends nothing until one is chosen. Online: the code, its
+  expiry, the resend wait (`Retry-After` when sent, else `GET .../current`'s
+  `online.resendAfterSeconds`; Identity sends no `Retry-After`) and the three
+  codes; every answer of the contract table, `NIN_HOLDER_ROUTE_UNAVAILABLE`
+  (409 and 503), `NIN_HOLDER_ROUTE_LIMITED`, `OTP_RESEND_COOLDOWN`,
+  `OTP_INVALID`, `NIN_HOLDER_PROOF_CONFLICT`, `OTP_DELIVERY_UNAVAILABLE` and
+  `404`, is said, with the facility where the code cannot help. Facility: an
+  in-person check of one original photo ID comes first, what to bring and the
+  facilities are listed, the desk code is asked for only on request, shown
+  again after a reload and replaced only if staff ask; "I have been checked"
+  reads `GET .../current`, and its `404` (or one after any facility action)
+  offers account recovery, sign-in or starting again, never "the same NIN". A
+  Google sign-up is offered at the NIN step and after the proof, not while the
+  NIN is being proved, and starting again carries nothing typed (the contact
+  included) into the next registration.
+- **Endings (rows 8, 9, 10).** `409 NIN_ALREADY_REGISTERED`, after a correct code
+  or at activation: account recovery, sign-in and Health ID support with the
+  problem's `correlationId`, the start key dropped. `409
+  ENROLLMENT_HOLDER_PROOF_REQUIRED`: the NIN step with a new key. `404
+  ENROLLMENT_NOT_FOUND` names its other causes (a later proof elsewhere, the
+  24-hour expiry).
+- **Date of birth and gender (row 6).** The password step asks for the fields
+  `requiredProfileFields` names and shows ADR-061's three `400` refusals at them
+  (kept commit).
+- **Verify NIN (row 13).** The profile page's card is hidden until P27:
+  hid-system answers it `503 QOREID_PATIENT_NIN_BINDING_DISABLED` by default.
+- **Docs and comments (row 17).** The comments and docs that said a new start
+  key is refused `409 NIN_ALREADY_REGISTERED`, the registry header citing
+  `c4b5445` for every route, and hand-off E20(d) keeping the facility route out
+  of scope are corrected.
+- **Not on this branch.** The staff in-person check (row 4), the admin
+  designation (row 5), the problem `fields` member (row 7) and the provider rows
+  (11, 12, 16). Health ID support has no address yet (SUPPORT-CONTACT), so the
+  page names it without a link.
+- **Evidence and gates.** Each new commit's tests were written first and failed
+  before its change: 5 (contracts and API), 13 (the NIN step, the public list,
+  the route test and the 320px rule), 34 and a 320px rule (the holder step and
+  the facility stage), 3 (activation refusals and the `404` text), 3 (the
+  Verify NIN card) and 6 (fixes from a review of the branch: a `404` after a
+  facility action, a cooldown or a `409 NIN_HOLDER_ROUTE_UNAVAILABLE` whose
+  re-read finds the registration moved on or gone, the facility route closing
+  before "I have been checked", Google while the NIN is proved, and a contact
+  carried into a new registration). At each commit `audit:boundaries`, `typecheck`, `lint`,
+  `vitest`, `build:patient-web` (local environment) and `audit:launch-build`
+  pass; `vitest` went from 152 files and 1975 tests (after the routes) to 157
+  files and 2028 tests. One full run failed two provider session-end tests on
+  their 5-second timeout under load; they passed alone and on the next full
+  run.
+- **Compatibility.** Against today's deployed Identity, which answers
+  availability `{ open: false }` and refuses every start, the page shows its
+  closed notice as before. An Identity before #84 that answers `{ open: true }`
+  gets the NIN step without the routes, and its `verify_contact` start goes on
+  to the contact step as before.
+- **Not verified.** Component tests with the network stubbed. Nothing was run in
+  a browser, with a screen reader, at runtime, on staging or against a live
+  hid-system; the 320px layout is checked from the stylesheet rules only.
+
+## 2026-10-15: patient sign-up after a second review (the facility stage's start key, a completed registration, the holder proof conflict, announcements)
+
+A second review of branch `claude/patient-signup-online` against hid-system
+`main` `f9dbaf0` (`INTERFACE_CONTRACT.md`, "The NIN holder step" and
+"Facility-assisted registration"; `patient-enrollment.service.ts`; 0094) found
+six defects. Five commits fix them, each with failing tests written first.
+
+- **The facility stage dropped the start key on a `404` (`826d396`; Health-id
+  alignment row 10, P31).** A sign-in, refresh or sign-out in the browser
+  expires only `hid_enrollment` (`auth.controller.ts` `clearEnrollmentCookie`).
+  A start with the same key and NIN resumes the registration, with any
+  recorded in-person check and no new NIN lookup (`resume`). The
+  facility-stage `404` called `freshStart`. So after the sign-out note ("continue
+  it by entering the same NIN"), Check again and the same NIN cost a second paid
+  lookup and a second check at the facility, and an online proof was then
+  refused `409 NIN_HOLDER_PROOF_CONFLICT`. The `404` now keeps the key and
+  clears what was typed. "This registration has ended" still gives the staff
+  member's direction first. It also names a sign-in or sign-out in this
+  browser, and its Start again keeps the key. A `404` found by Check again just
+  after the sign-out note goes to the NIN step, as the note says. A
+  registration that is gone starts afresh with either key, and another NIN
+  gets a new key. "Use a different NIN" and `429 ASSISTED_DESK_CODE_LIMITED`
+  still start with a new key. 3 tests failed first.
+- **The start's `409 IDEMPOTENCY_KEY_REUSED` invited a new paid start
+  (`1205617`).** `resume` answers it only for another NIN or an active row, and
+  the page binds the key to the NIN. So it means the registration this page
+  started was activated (a lost activation answer, or another tab). The page
+  said "That registration has ended. Select Continue to start again". It now
+  shows "This registration was completed", with sign-in and account recovery,
+  no NIN field and no new start. 1 test failed first; the branch had none for
+  this answer.
+- **`409 NIN_HOLDER_PROOF_CONFLICT` sent the registration to "Get my desk code"
+  (`a8d26f7`).** 0094 answers it only when another registration of the NIN was
+  already checked in person and is waiting for its contact and password.
+  The page said "show your desk code" for a registration that had none. A second
+  check would cost the staff and facility daily budgets and delete the
+  registration already checked. The page now stays at the choice. It says to
+  finish that registration on the phone used at the facility, and keeps the
+  facility as the fallback. The text message route says why it can't help.
+  The existing test was rewritten and failed first. The contract's looser
+  wording is in [open questions](./OPEN-QUESTIONS.md).
+- **A refusal after Enter in the password field was not announced
+  (`74fe26a`; ADR-061, P29).** With a profile field on the step, that field is
+  the focus target, and `onTarget()` was false in the password field. So a date
+  refused on the page, `DATE_OF_BIRTH_INVALID`, `ENROLLMENT_PROFILE_REQUIRED`
+  for another field and `PASSWORD_INVALID` were not alerts while focus stayed
+  put. `sentFromField` (`authSteps.ts`) reads where focus really is. 4 tests
+  failed first.
+- **The facility check confirmation was a live region inserted with its text
+  (`2504d72`).** The page's notice region now stays mounted, and the contact
+  field that focus moves to is described by the notice. 1 test failed first.
+- **Gates.** At each commit, `audit:boundaries`, `typecheck`, `lint`, `vitest`,
+  `build:patient-web` (local environment) and `audit:launch-build` pass.
+  `vitest` went from 157 files and 2028 tests to 157 files and 2037 tests.
+- **Not verified.** These are component tests with the network stubbed. Nothing
+  was run in a browser, with a screen reader, on staging or against a live
+  hid-system. How each screen reader reads the mounted status region and the
+  description is not checked.
+
 ## 2026-10-15: facility-assisted registration, staff and console (hid-system#85)
 
 Read at hid-system `main` `f9dbaf0` (D-Eminence/hid-system#84, #85 and #86;
