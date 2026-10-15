@@ -1866,3 +1866,179 @@ six defects. Five commits fix them, each with failing tests written first.
   was run in a browser, with a screen reader, on staging or against a live
   hid-system. How each screen reader reads the mounted status region and the
   description is not checked.
+
+## 2026-10-15: facility-assisted registration, staff and console (hid-system#85)
+
+Read at hid-system `main` `f9dbaf0` (D-Eminence/hid-system#84, #85 and #86;
+migration 0094, ADR-063): `docs/INTERFACE_CONTRACT.md` ("Facility-assisted
+registration", and section 6 on a problem's `fields`),
+`services/identity-api/src/identity/{assisted-verification.controller,assisted-verification.service,assisted-registration.guard,assisted-match,desk-code}.ts`,
+`identity/dto/assisted-verification.dto.ts`,
+`services/identity-api/src/admin/{admin.controller,admin.service,admin-command-error,high-risk-policy}.ts`
+and `admin/dto/admin-command.dto.ts`. These are the staff and console rows of
+the Health-id alignment list (rows 1, 4, 5 and 7); the patient rows (1 to 3,
+6, 8 and 9) are on the patient sign-up branch.
+
+- **Routes (row 1).** The registry names `POST /identity/assisted-verifications`
+  (`identity.patient.assisted_registration`) and `GET` and `POST
+  /admin/facilities/:facilityId/assisted-registration` (`platform.facility.read`,
+  `platform.facility.manage`). The provider portal is granted the check, and
+  the patient portal, public site and console are refused it; only the console
+  may call the designation.
+- **Problem fields (row 7).** `@hid/http` keeps a problem's `fields` member as
+  `HidApiError.fields`: field names to short result codes (up to 64 characters
+  of `[A-Za-z0-9_.-]`), never a value; any other shape is dropped, and the
+  member stays out of log summaries. No code read it before, so nothing
+  depended on its absence.
+- **Staff in-person check (row 4).** `/provider/in-person-check`, after Patient
+  registration in the navigation, for a role holding the permission (doctor,
+  clinician, nurse); others see "In-person check unavailable" and nothing is
+  sent. The desk code (read as Identity reads it), method, document type,
+  names and optional date of birth as written on the document, and the five
+  attestations are refused at their field before sending. One
+  `Idempotency-Key` per submission, held in memory and reused only while the
+  answer is unknown and the details unchanged. Every answer in the contract is
+  handled, the `422` per field (`match`, `no_match`, `not_in_record`) with no
+  record value; no answer restores, ends or signs out the session; nothing
+  typed reaches storage, the address or router state; focus moves to each
+  stage's heading and errors are announced.
+- **Designation (row 5).** "Registration in person" on the console's facility
+  page reads the designation and, with `platform.facility.manage`, designates
+  (always active, as `If-Match: 0` requires), changes or suspends it under
+  step-up with a reason. `adminApi.command` refused version 0 and dropped
+  `If-Match` for it, so the first designation could not be sent; it now takes
+  `creates`, sends `If-Match: "0"` for such a command and still refuses 0 for
+  every other. `admin/problems.ts` has `FACILITY_NOT_ACTIVE` and
+  `ADMIN_FACILITY_NOT_FOUND`; the panel words the command's other refusals and
+  reads the designation again after `VERSION_CONFLICT`.
+- **Evidence.** The tests were written before the code: 71 new tests in 8
+  files (http 5, contracts 2, staff request 8, staff screen 30, staff page 3,
+  console request 4, console panel 17, layout 2). The http, contracts, staff
+  request, staff page and both console files were run failing first. The staff
+  screen's were run once its code existed, and checked by reverting its key
+  handling (always a new key: 4 tests fail; never a new key after a definitive
+  answer: 2 fail); `If-Match: 0` by reverting it (1 fails) and the 320px rules
+  by removing them (2 fail). At each commit
+  `audit:boundaries`, `typecheck`, `lint`, `vitest run`, `build:patient-web`
+  and `audit:launch-build` pass. Three full runs while other worktrees loaded
+  the machine each timed out one test this change does not touch
+  (`PatientSessionRequired`, staff `SessionEnd`, `OcrFields`); each passes
+  alone and in the next full run.
+- **Not verified.** Component tests with the network stubbed. Nothing was run
+  in a browser, against a live Identity or on staging (S4v).
+- **Deploy order.** The staff entry shows only for a role holding
+  `identity.patient.assisted_registration`, which 0094 seeds. The console's
+  panel needs an Identity with #85: an earlier one answers the read with a 404,
+  which the panel shows as a failed read. `ASSISTED_REGISTRATION_ENABLED` must
+  stay off until the patient screens are deployed too (hid-system P31, P33).
+
+## 2026-10-15: facility-assisted staff and console screens after review (hid-system#85)
+
+Six review findings on the screens of the entry above, checked again against
+hid-system `main` `f9dbaf0` (`docs/INTERFACE_CONTRACT.md` "Facility-assisted
+registration", `identity/assisted-registration.guard.ts`,
+`identity/assisted-verification.service.ts`, `identity/assisted-match.ts` and
+migration 0094's `auth.staff_session_is_mfa`). Two of the six are the same
+defect (a partly typed date of birth), so five changes were made; none was
+found wrong.
+
+- **A partly typed date of birth (two findings).** A date control holding an
+  unfinished or impossible date (31 February) reports an empty value, and only
+  `validity.badInput` says so. The check was sent without the date, counted
+  toward the daily budgets (20 per staff member, 100 per facility, every
+  outcome) and, when the NIN record has a date, answered `422` with "None was
+  typed". It is now refused at the field before sending: "Enter the whole date
+  of birth as written on the document, or clear the field if the document
+  shows none."
+- **`503 ASSISTED_REGISTRATION_DISABLED`.** The contract's next step is "None;
+  the route is closed", but any `5xx` kept the key and turned the button into
+  "Check again". This answer is now final: the button stays "Check the details"
+  and the next check takes a new key.
+- **`403 ASSISTED_REGISTRATION_NOT_AUTHORIZED`.** The message named three of
+  the four causes. It now says: "the facility must take part, and you need an
+  active account, a sign-in confirmed with your authenticator, an attested
+  clinical grant and an active membership here", which is what
+  `docs/OPEN-QUESTIONS.md` and `docs/BACKEND_OWNER_HANDOFF.md` already said.
+- **Designation focus.** A save, or a `409 VERSION_CONFLICT`, reads the
+  designation again; its new version replaces the form and the focused button,
+  so focus fell to the page. It now moves to the panel's heading, also after a
+  step-up dialog closes; a refusal that leaves the form in place keeps focus on
+  the button.
+- **Designation announcements.** The panel never cleared its error or notice
+  when a submission started, so the same answer twice (two saves of one status,
+  `ADMIN_STATE_CONFLICT` twice, a cancelled step-up twice) changed nothing and
+  was not announced. The form now clears them as it sends, each answer is a new
+  numbered element, and the notice appears inside a status region that is
+  always present. Two `503`s in a row were already announced: each carries a
+  new reference.
+- **Evidence.** 8 new tests and 2 changed; 9 were run failing first. The staff
+  check: 2 new (the partly typed date; the next check after the closed route
+  takes a new key) and 2 changed (the closed route's test now asserts the
+  button; the 403 row asserts the new message), all 4 failing first. The
+  designation panel: 6 new, 5 failing first (focus after a first designation,
+  after a step-up and after a version conflict; the notice and the alert
+  cleared and shown anew); the sixth, focus kept on the button after a refusal
+  that leaves the form in place, passes before and after. At each commit `audit:boundaries`, `typecheck`, `lint`,
+  `vitest run` (158 files, 2038 tests at the second), `build:patient-web` and
+  `audit:launch-build` pass. One full run while other worktrees loaded the
+  machine (load average 14) timed out `OcrFields` once, a test this change does
+  not touch; it passes alone and in the next full run.
+- **Not verified.** Component tests with the network stubbed; `validity.badInput`
+  is stubbed, since jsdom does not set it. Nothing was run in a browser, with a
+  screen reader, against a live Identity or on staging (S4v). A cancelled
+  step-up still leaves focus on the page, as everywhere in the console: the
+  step-up dialog does not return focus when it closes.
+
+## 2026-10-15: facility-assisted screens, second review (hid-system#85)
+
+Five review findings on the screens of the two entries above, checked against
+hid-system `main` `f9dbaf0` (`docs/INTERFACE_CONTRACT.md` section 6 and
+"Facility-assisted registration", `identity-api/src/common/problem.ts`,
+`admin/admin.controller.ts`, `admin/admin.service.ts` and migration 0094's
+`facility_assisted_registration_participating` and
+`list_participating_facilities`). None was found wrong; each was fixed.
+
+- **Problem fields.** `@hid/http` kept any `fields` value of up to 64
+  characters of `[A-Za-z0-9_.-]`, which a surname (`OKAFOR`) or a date of
+  birth (`1990-04-02`) also is, so the entry above overstated it ("never a
+  value"). It now keeps only `match`, `no_match` and `not_in_record`, the
+  three words the contract and `ProblemDetails.fields` define; a new code must
+  be added to the list first. The in-person check already showed only those
+  words and "no result given" for anything else; a test now covers that.
+- **An Identity without #85.** The facility page reads the designation on
+  every facility, flag or not. An Identity without #85 answers the unknown
+  route with its default `404 NOT_FOUND` ("Cannot GET /api/v1/admin/..."),
+  which the panel showed as a raw alert with a Refresh. Any `404` but
+  `ADMIN_FACILITY_NOT_FOUND` is now a quiet note: "Registration in person is
+  not available on this Identity service yet." The entry above's deploy order
+  ("shows a failed read") is replaced by this; `docs/OPEN-QUESTIONS.md` has a
+  "Deploy order for the designation read" row.
+- **An old answer beside a new refusal.** A press of Save refused before
+  sending (an empty reason after a version conflict, or a second change after
+  "Saved.") left the earlier alert or notice on screen. Each press now clears
+  it first, as the staff check does.
+- **The page's Refresh.** It re-read the facility and the audit excerpts but
+  not the designation, so a change made by another administrator stayed hidden
+  and the next change was refused `409 VERSION_CONFLICT`. The page's Refresh,
+  and a change of the facility's status, now read the designation again; the
+  form is kept unless the version changed.
+- **Not in effect.** Identity counts an active designation only for a
+  verified, active facility of an active organization, and nothing suspends it
+  when the facility's status changes. The panel now gets the facility's status
+  and says "Not in effect: the facility must be verified and active, in an
+  active organization." beside an active status when the facility is not
+  verified; its description names the condition. An inactive organization or
+  `facility.active` false is not in the console's facility read, so the panel
+  cannot say those.
+- **Evidence.** 11 new tests: http 1, staff screen 1, designation panel 9
+  (one `it.each` of 3). 10 were run failing first (http 1, panel 9). The staff
+  screen's passes before and after, since the screen already allow-listed the
+  words; making it show an unknown value fails it. The panel's test file now
+  resets its mocks before each test, so an answer one test queued and did not
+  use cannot reach the next (while the new tests failed, one reached an
+  existing test). At each commit `audit:boundaries`, `typecheck`, `lint`,
+  `vitest run` (158 files; 2040 tests after the http change, 2049 after the
+  panel's), `build:patient-web` and `audit:launch-build` pass.
+- **Not verified.** Component tests with the network stubbed. Nothing was run
+  in a browser, with a screen reader, against a live Identity (with or without
+  #85) or on staging (S4v).

@@ -239,6 +239,60 @@ EHR is used only after `assertSignedStorageUrl` (`@hid/http`) accepts it:
 environment. The document upload's storage PUT and `window.open` for a download
 both check it first.
 
+### Facility-assisted registration (hid-system#85)
+
+hid-system `main` `f9dbaf0` (D-Eminence/hid-system#85, migration 0094,
+ADR-063; merged, not deployed, every flag off) lets a patient without a usable
+registry phone prove at a participating facility that they hold their NIN. The
+patient's own device shows a desk code; the staff and console screens are:
+
+- **The staff in-person check** (`/provider/in-person-check`,
+  `staff/routes/InPersonCheck.tsx`), offered to a facility role holding
+  `identity.patient.assisted_registration` (doctor, clinician, nurse). It sends
+  `POST /identity/assisted-verifications` through the staff client, so
+  `X-Facility-ID`, the CSRF token and the session rules apply as for every
+  staff command, with purpose `healthcare-operations` and an
+  `Idempotency-Key`. The key is held in the page's memory for one submission
+  and reused only while that submission's answer is unknown (a `5xx` or a lost
+  connection) and its details are unchanged: Identity then replays the stored
+  check without counting it again. What staff type is never stored, put in the
+  address or logged, and the screen shows no NIN, record value, contact or
+  Health ID: a mismatch is shown per field as `match`, `no_match` or
+  `not_in_record`, from the problem's `fields` member, which `@hid/http` keeps
+  as `HidApiError.fields` (field names to `match`, `no_match` or
+  `not_in_record` only: any other value, even one shaped like a code such as
+  a surname, is dropped; never in log summaries). A field without one of
+  those three words is shown as "no result given". No answer of this route restores, ends or signs out the
+  session. A date of birth the date control cannot report (partly typed, or
+  impossible such as 31 February: its value is then empty and only
+  `validity.badInput` says so) is refused at the field, so a check is never
+  sent and counted without the date typed. `503 ASSISTED_REGISTRATION_DISABLED`
+  is a final answer, not an unknown one: the key is dropped and nothing offers
+  to check again.
+- **The designation** ("Registration in person" on
+  `/admin/facilities/:facilityId`, `admin/AssistedRegistration.tsx`). It reads
+  `GET /admin/facilities/:facilityId/assisted-registration` and, with
+  `platform.facility.manage`, sends the `POST` under step-up with a reason, an
+  `Idempotency-Key` and `If-Match` with the version read. The first
+  designation is version `0`, so `adminApi.command` accepts `0` for a command
+  that `creates` its resource and sends it as `If-Match: "0"`; every other
+  command still refuses a version below 1 before sending. A save or a
+  `VERSION_CONFLICT` reads the designation again, and the new version replaces
+  the form, so focus moves to the panel's heading. The panel clears its last
+  answer on each press of Save, even one refused before sending, and shows
+  each answer as a new element (a notice inside a status region that is always
+  present), so the same words answering twice are announced twice. The page's
+  Refresh, and a change of the facility's status, read the designation again.
+  The panel gets the facility's status: Identity counts a designation only for
+  a verified, active facility of an active organization, so an active one on a
+  facility that is not verified says "Not in effect". An Identity without
+  hid-system#85 answers the read with its default `404 NOT_FOUND`; any `404`
+  but `ADMIN_FACILITY_NOT_FOUND` is shown as a quiet note that this Identity
+  does not offer it yet, not as a failed read.
+
+The patient's facility list, desk code and continuation after the check are
+the patient sign-up screens (alignment list rows 2, 3, 6, 8 and 9).
+
 ## Authentication and patient data
 
 `hid-system` issues HttpOnly, host-only, SameSite Strict access and refresh

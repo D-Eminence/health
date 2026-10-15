@@ -2,7 +2,8 @@
  * Response envelope handling.
  *
  * hid-system returns RFC 7807 style Problem Details containing `detail`,
- * `code`, `correlationId`, and optional field `errors`. The historical bearer
+ * `code`, `correlationId`, and optional field `errors`; from 0094 a problem
+ * may also carry `fields`, field names to result codes. The historical bearer
  * transport also used a legacy envelope, which remains readable here.
  *
  * This module reads both without guessing at anything else, and is the only
@@ -50,6 +51,32 @@ export interface ParsedErrorEnvelope {
   readonly requestId: string | null
   readonly retryable: boolean | null
   readonly details: unknown
+  /** Field names to result codes (`match`, `no_match`, `not_in_record`); null when the problem has none. */
+  readonly fields: Readonly<Record<string, string>> | null
+}
+
+/**
+ * The result codes the contract defines (hid-system main f9dbaf0,
+ * INTERFACE_CONTRACT.md section 6; `common/problem.ts`). A pattern for short
+ * codes is not enough: a surname such as `OKAFOR` or a date such as
+ * `1990-04-02` fits one.
+ */
+const RESULT_CODES: ReadonlySet<string> = new Set(['match', 'no_match', 'not_in_record'])
+
+/**
+ * The problem's `fields` member (hid-system 0094, INTERFACE_CONTRACT.md
+ * section 6): an object of field names to result codes, never a submitted or
+ * stored value. Only names whose code is one of `RESULT_CODES` are kept, so a
+ * later or malformed shape cannot carry a value into a page; a new code needs
+ * adding here first.
+ */
+function readFields(value: unknown): Readonly<Record<string, string>> | null {
+  if (!isRecord(value)) return null
+  const fields: Record<string, string> = {}
+  for (const [name, code] of Object.entries(value)) {
+    if (typeof code === 'string' && RESULT_CODES.has(code)) fields[name] = code
+  }
+  return Object.keys(fields).length > 0 ? Object.freeze(fields) : null
 }
 
 /**
@@ -88,6 +115,7 @@ export function parseErrorEnvelope(
     retryable: typeof retryableValue === 'boolean' ? retryableValue : null,
     details: record && Object.prototype.hasOwnProperty.call(record, 'errors') ? record.errors
       : record && Object.prototype.hasOwnProperty.call(record, 'details') ? record.details : null,
+    fields: readFields(record?.fields),
   }
 }
 

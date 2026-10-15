@@ -75,6 +75,10 @@ const ADMIN_PROBLEMS: Readonly<Record<string, string>> = {
   INTEGRATION_PROVIDER_INCOMPATIBLE: 'That provider does not support this capability or is not enabled. Enable it first.',
   INTEGRATION_PAUSED: 'This integration is paused. Enable it in Integrations first.',
   PRICING_UNCHANGED: 'Nothing changed: the catalog already has these values.',
+
+  // Facility-assisted registration designations (hid-system #85, ADR-063).
+  FACILITY_NOT_ACTIVE: 'Only a verified, active facility of an active organization can register patients in person. Verify the facility first.',
+  ADMIN_FACILITY_NOT_FOUND: 'This facility was not found. Check the facility link.',
 }
 
 export function problemCode(error: unknown): string | null {

@@ -408,6 +408,7 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
         requestId: envelope.requestId ?? requestId,
         retryable: envelope.retryable ?? isRetryableStatus(response.status),
         details: envelope.details,
+        fields: envelope.fields,
       })
 
       // Attach transport hints the retry loop needs without widening HidApiError.
