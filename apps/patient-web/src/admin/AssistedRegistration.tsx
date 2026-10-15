@@ -67,13 +67,49 @@ function bodyOf(values: Values): AssistedRegistrationDesignationInput {
 
 const TITLE = 'admin-assisted-registration-title'
 
-export function AssistedRegistrationPanel({ facilityId, actor, onChanged }: {
-  facilityId: string; actor: AdminActor; onChanged: () => void
+/** The read's answer when this Identity has no designation route. */
+const NOT_OFFERED = 'not-offered'
+type DesignationRead = AssistedRegistrationDesignation | typeof NOT_OFFERED
+
+/**
+ * An Identity without hid-system #85 has no designation route: the gateway passes /api/v1/admin/ to it, and it
+ * answers with its default 404 (NOT_FOUND, "Cannot GET <route>"). A facility that does not exist is
+ * 404 ADMIN_FACILITY_NOT_FOUND, which stays a failed read.
+ */
+function routeMissing(caught: unknown): boolean {
+  return isHidApiError(caught) && caught.status === 404 && caught.code !== 'ADMIN_FACILITY_NOT_FOUND'
+}
+
+const NOT_IN_EFFECT = 'Not in effect: the facility must be verified and active, in an active organization.'
+
+export function AssistedRegistrationPanel({ facilityId, facilityStatus, refresh, actor, onChanged }: {
+  facilityId: string
+  /** The facility's own status: a designation is in effect only for a verified facility. */
+  facilityStatus: string
+  /** Changes when the page is read again (its Refresh, or a change of the facility's status). */
+  refresh: number
+  actor: AdminActor; onChanged: () => void
 }) {
-  const load = useCallback((signal?: AbortSignal) => adminApi.assistedRegistration(facilityId, signal), [facilityId])
+  const load = useCallback(async (signal?: AbortSignal): Promise<DesignationRead> => {
+    try {
+      return await adminApi.assistedRegistration(facilityId, signal)
+    } catch (caught) {
+      if (routeMissing(caught)) return NOT_OFFERED
+      throw caught
+    }
+  }, [facilityId])
   const resource = useResource(load, 'The designation for registration in person could not be loaded.')
-  // A submission's answer, numbered: each is a new element, and a submission clears the last one when it starts,
-  // so the same words answering again are announced again.
+  // The page's Refresh reads the designation again too, so the version a change is sent with is the current one.
+  const refreshed = useRef(refresh)
+  const reloadDesignation = resource.reload
+  useEffect(() => {
+    if (refreshed.current === refresh) return
+    refreshed.current = refresh
+    reloadDesignation()
+  }, [refresh, reloadDesignation])
+  // A submission's answer, numbered: each is a new element, and each press of Save clears the last one (even a press
+  // refused before sending), so the same words answering again are announced again and an old answer never stays
+  // beside a new refusal.
   const [outcome, setOutcome] = useState<{ tone: 'error' | 'notice'; text: string; seq: number } | null>(null)
   const outcomes = useRef(0)
   const show = (tone: 'error' | 'notice', text: string) => setOutcome({ tone, text, seq: ++outcomes.current })
@@ -87,41 +123,49 @@ export function AssistedRegistrationPanel({ facilityId, actor, onChanged }: {
     <div className="admin-panel-head"><div>
       <h2 id={TITLE} tabIndex={-1}>Registration in person</h2>
       <p>Whether patients who cannot receive a code on the phone of their NIN record can prove here, with an original photo ID,
-        that they hold their NIN. While it is active and registration at a facility is switched on, the public list of
-        participating facilities shows this facility’s name and the location below.</p>
+        that they hold their NIN. It is in effect while the designation is active, the facility is verified and active, in an
+        active organization, and registration at a facility is switched on; the public list of participating facilities then
+        shows this facility’s name and the location below.</p>
     </div></div>
-    <ResourceView resource={resource}>{designation => <>
-      <Designation designation={designation} />
-      {canManage
-        ? <DesignationForm key={`${designation.version}`} facilityId={facilityId} designation={designation}
-          onSubmitting={() => setOutcome(null)}
-          onSaved={(saved, replayed) => {
-            show('notice', replayed ? 'This designation was already saved.'
-              : saved === 'active' ? 'Saved. Patients can now be checked in person here while registration at a facility is switched on.'
-                : 'Saved. No patient can be checked in person here while it is suspended.')
-            setHeadingFocus(count => count + 1)
-            resource.reload(); onChanged()
-          }}
-          onFailed={(caught, message) => {
-            show('error', message)
-            // The command names a version no longer current: read the designation again.
-            if (isProblem(caught, 'VERSION_CONFLICT')) {
+    <ResourceView resource={resource}>{designation => designation === NOT_OFFERED
+      ? <p className="admin-note">Registration in person is not available on this Identity service yet. Nothing can be read or
+        changed here until it is.</p>
+      : <>
+        <Designation designation={designation} facilityStatus={facilityStatus} />
+        {canManage
+          ? <DesignationForm key={`${designation.version}`} facilityId={facilityId} designation={designation}
+            onSubmitting={() => setOutcome(null)}
+            onSaved={(saved, replayed) => {
+              show('notice', replayed ? 'This designation was already saved.'
+                : saved === 'active' ? 'Saved. Patients can now be checked in person here while registration at a facility is switched on.'
+                  : 'Saved. No patient can be checked in person here while it is suspended.')
               setHeadingFocus(count => count + 1)
-              resource.reload()
-            }
-          }} />
-        : <p className="admin-note">Changing it needs the platform.facility.manage permission.</p>}
-    </>}</ResourceView>
+              resource.reload(); onChanged()
+            }}
+            onFailed={(caught, message) => {
+              show('error', message)
+              // The command names a version no longer current: read the designation again.
+              if (isProblem(caught, 'VERSION_CONFLICT')) {
+                setHeadingFocus(count => count + 1)
+                resource.reload()
+              }
+            }} />
+          : <p className="admin-note">Changing it needs the platform.facility.manage permission.</p>}
+      </>}</ResourceView>
     {outcome?.tone === 'error' && <p key={outcome.seq} className="admin-error" role="alert">{outcome.text}</p>}
     {/* Always present, so a notice is announced as it appears in it. */}
     <div role="status">{outcome?.tone === 'notice' && <p key={outcome.seq} className="admin-success">{outcome.text}</p>}</div>
   </section>
 }
 
-function Designation({ designation }: { designation: AssistedRegistrationDesignation }) {
+function Designation({ designation, facilityStatus }: { designation: AssistedRegistrationDesignation; facilityStatus: string }) {
   if (!designation.designated) return <p>This facility does not take part in registration in person.</p>
+  // Identity counts a designation only for a verified, active facility of an active organization (0094's
+  // facility_assisted_registration_participating). The read carries none of those, and this page knows only the
+  // facility's status: an active designation of a facility that is not verified is said not to be in effect.
+  const notInEffect = designation.status === 'active' && facilityStatus.toLowerCase() !== 'verified'
   return <dl className="admin-detail-grid">
-    <div><dt>Status</dt><dd><Status value={designation.status ?? 'unknown'} /></dd></div>
+    <div><dt>Status</dt><dd><Status value={designation.status ?? 'unknown'} />{notInEffect && <small>{NOT_IN_EFFECT}</small>}</dd></div>
     <div><dt>Address line</dt><dd>{designation.addressLine ?? 'Not given'}</dd></div>
     <div><dt>Town</dt><dd>{designation.town}</dd></div>
     <div><dt>Local government area</dt><dd>{designation.lga}</dd></div>
@@ -134,7 +178,7 @@ function Designation({ designation }: { designation: AssistedRegistrationDesigna
 
 function DesignationForm({ facilityId, designation, onSubmitting, onSaved, onFailed }: {
   facilityId: string; designation: AssistedRegistrationDesignation
-  /** A submission is about to be sent: the last answer no longer stands. */
+  /** The form was submitted: the last answer no longer stands, even when this one is refused before sending. */
   onSubmitting: () => void
   onSaved: (status: 'active' | 'suspended', replayed: boolean) => void
   onFailed: (caught: unknown, message: string) => void
@@ -163,6 +207,7 @@ function DesignationForm({ facilityId, designation, onSubmitting, onSaved, onFai
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (busy) return
+    onSubmitting()
     for (const field of ['addressLine', 'town', 'lga', 'state', 'hours', 'reason'] as const) {
       const message = refusal(field, values[field])
       if (message) {
@@ -177,7 +222,6 @@ function DesignationForm({ facilityId, designation, onSubmitting, onSaved, onFai
     const key = pending.current?.signature === signature ? pending.current.key : newIdempotencyKey()
     pending.current = { signature, key }
     setBusy(true)
-    onSubmitting()
     try {
       const saved = await withStepUp(() => adminApi.setAssistedRegistration(facilityId, body, designation.version, key))
       pending.current = null

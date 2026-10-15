@@ -51,7 +51,8 @@ function fillLocation(values: { address?: string; town?: string; lga?: string; s
 }
 
 beforeEach(() => {
-  vi.clearAllMocks(); mocks.keys = 0
+  // Reset, not only cleared: an answer one test queued and did not use must not reach the next.
+  vi.resetAllMocks(); mocks.keys = 0
   mocks.api.facility.mockResolvedValue(facility)
   mocks.api.audit.mockResolvedValue({ items: [], nextBeforeSequenceId: null })
 })
@@ -306,6 +307,116 @@ describe('the facility’s designation for registration in person (hid-system #8
     open(MANAGE)
     const section = await panel()
     expect(await section.findByText('This facility was not found. Check the facility link.')).toBeTruthy()
+  })
+
+  it('says quietly that this Identity does not offer it, never the route text, when the read route is missing', async () => {
+    // An Identity without hid-system #85 answers the unknown route with its default 404, NOT_FOUND "Cannot GET ...".
+    mocks.api.assistedRegistration.mockRejectedValue(new HidApiError(404,
+      `Cannot GET /api/v1/admin/facilities/${FACILITY_ID}/assisted-registration`, { code: 'NOT_FOUND', requestId: 'corr-404' }))
+    open(MANAGE)
+    const section = await panel()
+    const note = await section.findByText('Registration in person is not available on this Identity service yet. Nothing can be read or changed here until it is.')
+    expect(note.className).toBe('admin-note')
+    expect(section.queryByRole('alert')).toBeNull()
+    expect(section.queryByRole('button')).toBeNull()
+    expect(document.body.textContent).not.toMatch(/Cannot GET/)
+    // The rest of the facility page still works.
+    expect(screen.getByRole('heading', { name: 'Ikeja Clinic', level: 1 })).toBeTruthy()
+  })
+
+  it('clears an earlier alert when the next press is refused before sending', async () => {
+    mocks.api.assistedRegistration.mockResolvedValueOnce(NONE).mockResolvedValueOnce(ACTIVE)
+    mocks.api.setAssistedRegistration.mockRejectedValueOnce(problem(409, 'VERSION_CONFLICT'))
+    open(MANAGE)
+    const section = await panel()
+    await section.findByText('This facility does not take part in registration in person.')
+    fillLocation()
+    fireEvent.click(section.getByRole('button', { name: 'Designate facility' }))
+    expect((await section.findByRole('alert')).textContent).toMatch(/^The designation changed since it was read/)
+    // The form is read again with an empty reason; saving it is refused at the reason, before anything is sent.
+    fireEvent.click(await section.findByRole('button', { name: 'Save designation' }))
+    const reason = section.getByLabelText(/^Reason for this designation change/)
+    await waitFor(() => expect(reason.getAttribute('aria-invalid')).toBe('true'))
+    expect(section.queryByRole('alert')).toBeNull()
+    expect(section.queryByText(/The designation changed since it was read/)).toBeNull()
+    expect(mocks.api.setAssistedRegistration).toHaveBeenCalledOnce()
+  })
+
+  it('clears a "Saved." notice when the next change is refused before sending', async () => {
+    mocks.api.assistedRegistration.mockResolvedValueOnce(ACTIVE).mockResolvedValueOnce({ ...ACTIVE, town: 'Ikeja GRA', version: 5 })
+    mocks.api.setAssistedRegistration.mockResolvedValueOnce({ facilityId: FACILITY_ID, status: 'active', version: 5, replayed: false })
+    open(MANAGE)
+    const section = await panel()
+    await section.findByText('12 Marina Road')
+    fillLocation({ town: 'Ikeja GRA', reason: 'The desk moved to the GRA wing' })
+    fireEvent.click(section.getByRole('button', { name: 'Save designation' }))
+    expect(await section.findByText(/^Saved\./)).toBeTruthy()
+    await section.findByText('Ikeja GRA')
+    fireEvent.click(section.getByRole('radio', { name: /Suspended/ }))
+    fireEvent.click(section.getByRole('button', { name: 'Save designation' }))
+    const reason = section.getByLabelText(/^Reason for this designation change/)
+    await waitFor(() => expect(reason.getAttribute('aria-invalid')).toBe('true'))
+    // Only the refusal answers this press: the notice of the save before it is gone.
+    expect(section.getByRole('status').textContent).toBe('')
+    expect(section.queryByText(/^Saved\./)).toBeNull()
+    expect(mocks.api.setAssistedRegistration).toHaveBeenCalledOnce()
+  })
+
+  it('reads the designation again when the page is refreshed, and sends a change with the version read', async () => {
+    mocks.api.assistedRegistration.mockResolvedValueOnce(ACTIVE)
+      .mockResolvedValueOnce({ ...ACTIVE, status: 'suspended', reason: 'Paused by another administrator', version: 5 })
+    mocks.api.setAssistedRegistration.mockResolvedValueOnce({ facilityId: FACILITY_ID, status: 'active', version: 6, replayed: false })
+    open(MANAGE)
+    const section = await panel()
+    expect(await section.findByText('Active')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    expect(await section.findByText('Paused by another administrator')).toBeTruthy()
+    expect(mocks.api.assistedRegistration).toHaveBeenCalledTimes(2)
+    expect(section.getByText('Suspended')).toBeTruthy()
+    fireEvent.click(section.getByRole('radio', { name: /^Active/ }))
+    fireEvent.change(section.getByLabelText(/^Reason for this designation change/), { target: { value: 'The desk is open again' } })
+    fireEvent.click(section.getByRole('button', { name: 'Save designation' }))
+    await waitFor(() => expect(mocks.api.setAssistedRegistration).toHaveBeenCalledOnce())
+    expect(mocks.api.setAssistedRegistration.mock.calls[0]![2]).toBe(5)
+  })
+
+  it.each(['suspended', 'rejected', 'pending'])('says an active designation is not in effect while the facility is %s', async status => {
+    mocks.api.facility.mockResolvedValue({ ...facility, status })
+    mocks.api.assistedRegistration.mockResolvedValue(ACTIVE)
+    open(actor([]))
+    const section = await panel()
+    await section.findByText('12 Marina Road')
+    expect(section.getByText('Active')).toBeTruthy()
+    expect(section.getByText('Not in effect: the facility must be verified and active, in an active organization.')).toBeTruthy()
+  })
+
+  it('adds nothing to an active designation of a verified facility, or to a suspended one', async () => {
+    mocks.api.facility.mockResolvedValueOnce(facility).mockResolvedValue({ ...facility, status: 'suspended', version: 4 })
+    mocks.api.assistedRegistration.mockResolvedValueOnce(ACTIVE).mockResolvedValue({ ...ACTIVE, status: 'suspended', version: 5 })
+    open(actor([]))
+    const section = await panel()
+    await section.findByText('12 Marina Road')
+    // Only a verified facility in an active organization takes part: the description says so.
+    expect(section.getByText(/the facility is verified and active, in an active organization/)).toBeTruthy()
+    expect(section.queryByText(/^Not in effect/)).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    expect(await section.findByText('Suspended')).toBeTruthy()
+    expect(section.queryByText(/^Not in effect/)).toBeNull()
+  })
+
+  it('says the designation is no longer in effect once the facility is suspended on the same page', async () => {
+    mocks.api.facility.mockResolvedValueOnce(facility).mockResolvedValue({ ...facility, status: 'suspended', version: 4 })
+    mocks.api.assistedRegistration.mockResolvedValue(ACTIVE)
+    mocks.api.command.mockResolvedValueOnce({ status: 'suspended', version: 4 })
+    open(MANAGE)
+    const section = await panel()
+    await section.findByText('12 Marina Road')
+    expect(section.queryByText(/^Not in effect/)).toBeNull()
+    fireEvent.change(screen.getByLabelText('New value'), { target: { value: 'suspended' } })
+    fireEvent.change(screen.getByLabelText('Reason for this change'), { target: { value: 'Licence under review' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm change' }))
+    expect(await section.findByText('Not in effect: the facility must be verified and active, in an active organization.')).toBeTruthy()
+    await waitFor(() => expect(mocks.api.assistedRegistration).toHaveBeenCalledTimes(2))
   })
 
   it('keeps the save button working, and says it is saving while it runs', async () => {
