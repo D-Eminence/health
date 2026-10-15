@@ -1946,3 +1946,56 @@ the pages and the queue were built on; still not merged or deployed).
   `npx vitest run`: 157 files and 2191 tests (2157 after the queue).
 - **Not verified.** As before: no browser, no running Identity, no
   two-administrator run.
+
+## 2026-10-15: clinician self sign-up, second review fixes (hid-system ADR-064)
+
+The same branch (`claude/clinician-signup-pages`) after a second review of
+the applicant pages and the queue. Ten findings, all minor; each was checked
+against the code (and the backend branch where it mattered) before it was
+fixed.
+
+- **Licence dates in Lagos** (`f105895`). Identity refuses a licence date not
+  after today, or later than today plus five years, in Africa/Lagos (0094, P4
+  and P14), after it has charged the network's submit quota. The details step
+  took "today" from the device; it now takes it in Lagos (the queue's
+  `lagosToday`, moved to `staff/clinician/copy.ts`), and five years from
+  29 February ends on 28 February, as Postgres adds the interval.
+- **Focus** (`3a7e2c6`): the withdraw dialog's button is only marked disabled
+  (`aria-disabled`) while its request runs, so a browser no longer drops focus
+  outside the modal dialog (Tab and Escape were lost after a refused
+  withdrawal); "Use a different email" gives focus to the email step on both
+  pages; Cancel in "Apply to another facility" gives it back to the button
+  that opened the form; sign-up's availability Retry gives it to the step
+  shown next.
+- **A change said when the list can't be read after it** (`b1fb0fa`): a
+  withdrawal (P13) or a new application (P14) that went through is said, and
+  shown as Identity answered it, beside the load failure and its Retry.
+- **Authenticator setup from the list** (`a901cd1`) when the account must
+  enrol but no application waits for it (a reset after submitting, or its
+  waiting applications closed): the list says so and offers "Set up
+  authenticator".
+- **Close waits for the apply form** (`a47f3ce`): "Close this page" and the
+  list's Retry are disabled while another application or a facility search
+  is being sent, so a late answer no longer reaches a closed page.
+- **Close at the authenticator step** (`3429610`): both pages offer "Close
+  this page" (P15), with the 30-minute warning, below every authenticator step
+  but the recovery codes; an authenticator answer that arrives after closing
+  changes nothing.
+- **The queue**: a client-side timeout (`HidApiError` 408 `REQUEST_TIMEOUT`)
+  on step 1, step 2 or a rejection is reloaded and said unconfirmed, as a lost
+  answer is (`a674e82`); approve and reject say what they still need beside
+  their disabled button, tied to it by `aria-describedby`, as step 1 did
+  (`aecf657`).
+- **Evidence.** Failing first per commit: 2 (`f105895`), 5 (`3a7e2c6`), 2
+  (`b1fb0fa`), 2 (`a901cd1`, a third guards a case already right), 2
+  (`a47f3ce`), 7 (`3429610`), 3 (`a674e82`) and 2 (`aecf657`). At each commit
+  `audit:boundaries`, `typecheck`, `lint`, `npx vitest run`,
+  `build:patient-web` and `audit:launch-build` pass. Two full runs each had one
+  failure that passed alone and in the full rerun before the commit:
+  `FieldProblemsPerForm` (registration, not changed here), and the queue's
+  replayed step 1 and step 2 test, which typed into step 2's form before the
+  reload drew it; it now waits for the form (`a674e82`). `npx vitest run`: 157
+  files and 2217 tests (2191 before).
+- **Not verified.** No browser (the focus a browser drops from a disabled
+  button is reasoned from the HTML focus rules; jsdom keeps it), no running
+  Identity, no two-administrator run.
