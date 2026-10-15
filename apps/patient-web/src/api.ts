@@ -14,6 +14,19 @@ export interface PatientSession {
   expiresAt?: string
 }
 
+/**
+ * What a NIN record lacks and the patient enters at activation (hid-system
+ * ADR-061, on main since #82): named in every progress answer before
+ * activation, in this order, `[]` for a complete record.
+ */
+export const ENROLLMENT_PROFILE_FIELDS = ['dateOfBirth', 'gender'] as const
+export type EnrollmentProfileField = typeof ENROLLMENT_PROFILE_FIELDS[number]
+/** The genders `POST .../activate` takes (hid-system patient-enrollment.dto.ts). */
+export const ENROLLMENT_GENDERS = ['female', 'male', 'intersex', 'other', 'unknown'] as const
+export type EnrollmentGender = typeof ENROLLMENT_GENDERS[number]
+/** Sent only for the fields the record lacks; `dateOfBirth` as YYYY-MM-DD. */
+export interface EnrollmentProfile { dateOfBirth?: string; gender?: EnrollmentGender }
+
 export interface EnrollmentProgress {
   stage: 'verify_contact' | 'set_password' | 'active'
   expiresAt?: string
@@ -25,6 +38,7 @@ export interface EnrollmentProgress {
   googleOnboardingRequired?: boolean
   googleOnboardingExpiresAt?: string
   hidCode?: string
+  requiredProfileFields?: EnrollmentProfileField[]
 }
 
 export interface PatientProfile {
@@ -224,9 +238,14 @@ export function createPatientApi(client: ApiClient) {
     enrollmentContact: (channel: 'email' | 'phone', contact: string) =>
       call<{ challengeId: string; expiresInSeconds: number; resendAfterSeconds: number }>('POST', 'identity/patient-enrollments/contact', { channel, contact }),
     enrollmentVerify: (challengeId: string, code: string) =>
-      call<{ stage: 'set_password' }>('POST', 'identity/patient-enrollments/contact/verify', { challengeId, code }),
-    enrollmentActivate: (password: string) =>
-      call<{ stage: 'active'; hidCode: string }>('POST', 'identity/patient-enrollments/activate', { password }),
+      call<{ stage: 'set_password'; requiredProfileFields?: EnrollmentProfileField[] }>('POST', 'identity/patient-enrollments/contact/verify', { challengeId, code }),
+    // A field is sent only when given (ADR-061: one the NIN record provides is refused).
+    enrollmentActivate: (password: string, profile: EnrollmentProfile = {}) =>
+      call<{ stage: 'active'; hidCode: string }>('POST', 'identity/patient-enrollments/activate', {
+        password,
+        ...(profile.dateOfBirth === undefined ? {} : { dateOfBirth: profile.dateOfBirth }),
+        ...(profile.gender === undefined ? {} : { gender: profile.gender }),
+      }),
     recoveryStart: (identifier: string, turnstileToken: string) =>
       call<RecoveryChallenge>('POST', 'auth/otp/start', { identifier, purpose: 'PASSWORD_RESET', turnstileAction: 'patient-reset-start', turnstileToken }),
     recoveryVerify: (challengeId: string, code: string) =>

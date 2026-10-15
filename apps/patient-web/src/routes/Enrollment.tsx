@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
-import type { EnrollmentProgress } from '../api'
+import { ENROLLMENT_PROFILE_FIELDS, type EnrollmentGender, type EnrollmentProfile, type EnrollmentProfileField, type EnrollmentProgress } from '../api'
 import { GoogleButton } from '../GoogleButton'
 import { Turnstile } from '../Turnstile'
 import { BrandLogo } from '../BrandLogo'
@@ -11,7 +11,7 @@ import { useActionFocus } from './actionFocus'
 import { NinStep } from './enrollment/NinStep'
 import { ContactStep } from './enrollment/ContactStep'
 import { ContactCodeStep } from './enrollment/ContactCodeStep'
-import { PasswordStep } from './enrollment/PasswordStep'
+import { DATE_OF_BIRTH_RULE, PasswordStep, plausibleDateOfBirth } from './enrollment/PasswordStep'
 import { Complete } from './enrollment/Complete'
 import { RegistrationClosed } from './enrollment/RegistrationClosed'
 
@@ -65,6 +65,17 @@ const REVERIFY_CODE_SENT = 'Your contact was verified more than 30 minutes ago, 
  */
 const notAtPasswordStep = (reason: unknown) => isHidApiError(reason) && reason.status === 409
   && reason.code === 'ENROLLMENT_STAGE_INVALID'
+/**
+ * A NIN record without a date of birth or gender (hid-system ADR-061, on main
+ * since #82): activation refuses a field the record lacks and was not sent, and
+ * one it gives that was. Both mean the page's list of fields is out of date, so
+ * it is read again; a date outside 1900 to today is refused at its field.
+ */
+const profileRefusal = (reason: unknown, code: 'ENROLLMENT_PROFILE_REQUIRED' | 'ENROLLMENT_PROFILE_FIELD_VERIFIED' | 'DATE_OF_BIRTH_INVALID') =>
+  isHidApiError(reason) && reason.status === 400 && reason.code === code
+/** The fields a progress answer names, in Identity's order; none from an Identity before ADR-061. */
+const profileFieldsOf = (fields: unknown): EnrollmentProfileField[] | null =>
+  Array.isArray(fields) ? ENROLLMENT_PROFILE_FIELDS.filter(field => fields.includes(field)) : null
 
 export function Enrollment() {
   const { state, api, acceptGoogleSession, otherPortalSession, retrySessionCheck } = useSession()
@@ -77,6 +88,11 @@ export function Enrollment() {
   const [contact, setContact] = useState('')
   const [code, setCode] = useState('')
   const [password, setPassword] = useState('')
+  // What the NIN record lacks (ADR-061), and what the patient entered for it: memory only.
+  const [profileFields, setProfileFields] = useState<EnrollmentProfileField[]>([])
+  const [dateOfBirth, setDateOfBirth] = useState('')
+  const [gender, setGender] = useState<EnrollmentGender | ''>('')
+  const [profileError, setProfileError] = useState<EnrollmentProfileField | null>(null)
   const [challengeId, setChallengeId] = useState<string | null>(null)
   const [hidCode, setHidCode] = useState('')
   const [maskedContact, setMaskedContact] = useState('')
@@ -122,13 +138,16 @@ export function Enrollment() {
   useEffect(() => { stageShown.current = stage }, [stage])
 
   // Back to the NIN step, the enrollment's challenge and contact gone with it.
+  const forgetProfile = () => { setProfileFields([]); setDateOfBirth(''); setGender(''); setProfileError(null) }
   const restartAtNin = () => {
-    setStage('nin'); setChallengeId(null); setMaskedContact(''); setCode(''); setPassword(''); setStepHint(null)
+    setStage('nin'); setChallengeId(null); setMaskedContact(''); setCode(''); setPassword(''); setStepHint(null); forgetProfile()
     setError(ENDED_HERE); setFieldError(false); setErrorAlert(true)
   }
 
   const applyProgress = (progress: EnrollmentProgress) => {
     setGoogleRequired(progress.googleOnboardingRequired === true)
+    const fields = profileFieldsOf(progress.requiredProfileFields)
+    if (fields) setProfileFields(fields)
     setMaskedContact(progress.maskedContact ?? '')
     setChallengeId(progress.challengeId ?? null)
     if (progress.stage === 'active') { setHidCode(progress.hidCode ?? ''); setStage('complete') }
@@ -234,7 +253,12 @@ export function Enrollment() {
     const fromField = stepFocus.onTarget()
     if (busy || !challengeId || !/^\d{6}$/.test(code)) return
     setBusy(true); clearError()
-    try { await api.enrollmentVerify(challengeId, code); setCode(''); setStepHint(null); setStage('password') }
+    try {
+      const result = await api.enrollmentVerify(challengeId, code)
+      const fields = profileFieldsOf(result?.requiredProfileFields)
+      if (fields) setProfileFields(fields)
+      setCode(''); setStepHint(null); setStage('password')
+    }
     catch (reason) {
       if (isHidApiError(reason) && reason.code === 'OTP_INVALID') setStepHint('code')
       displayError(reason, fromField)
@@ -245,12 +269,22 @@ export function Enrollment() {
   const submitPassword = async (event: FormEvent) => {
     event.preventDefault()
     const fromField = stepFocus.onTarget()
-    if (busy || password.length < 12) return
+    const missing = profileFields.some(field => field === 'dateOfBirth' ? dateOfBirth === '' : gender === '')
+    if (busy || password.length < 12 || missing) return
     if (googleRequired && !googlePending) { setError('Reconnect Google before activation.'); setFieldError(false); return }
-    setBusy(true); clearError()
+    if (profileFields.includes('dateOfBirth') && !plausibleDateOfBirth(dateOfBirth)) {
+      setProfileError('dateOfBirth'); setError(DATE_OF_BIRTH_RULE); setFieldError(true); setErrorAlert(fromField); stepFocus.focus()
+      return
+    }
+    // Only the fields the record lacks are sent: Identity refuses one it gives.
+    const profile: EnrollmentProfile = {
+      ...(profileFields.includes('dateOfBirth') ? { dateOfBirth } : {}),
+      ...(profileFields.includes('gender') && gender !== '' ? { gender } : {}),
+    }
+    setBusy(true); clearError(); setProfileError(null)
     try {
-      const result = await api.enrollmentActivate(password)
-      setPassword('')
+      const result = await api.enrollmentActivate(password, profile)
+      setPassword(''); forgetProfile()
       setHidCode(result.hidCode)
       setStepHint(null)
       setStage('complete')
@@ -259,6 +293,21 @@ export function Enrollment() {
         // The contact typed on this page is kept, so a new code goes to it with one press (PA-10).
         setStage('contact'); setChallengeId(null); setMaskedContact(''); setCode(''); setPassword(''); setStepHint(null)
         setError(REVERIFY_CONTACT); setFieldError(false); setErrorAlert(true)
+        return
+      }
+      if (profileRefusal(reason, 'DATE_OF_BIRTH_INVALID') && profileFields.includes('dateOfBirth')) {
+        setProfileError('dateOfBirth'); setError((reason as Error).message); setFieldError(true); setErrorAlert(fromField)
+        return
+      }
+      if (profileRefusal(reason, 'ENROLLMENT_PROFILE_REQUIRED') || profileRefusal(reason, 'ENROLLMENT_PROFILE_FIELD_VERIFIED')) {
+        // The fields are read again; the refusal is said at the first one still missing, or as an alert.
+        let fields = profileFields
+        try { fields = profileFieldsOf((await api.enrollmentCurrent()).requiredProfileFields) ?? fields } catch { /* the refusal is shown */ }
+        setProfileFields(fields)
+        const unsent = profileRefusal(reason, 'ENROLLMENT_PROFILE_REQUIRED')
+          ? fields.find(field => !(field in profile)) ?? null : null
+        setProfileError(unsent); setError((reason as Error).message); setFieldError(unsent !== null)
+        setErrorAlert(unsent === null || fromField)
         return
       }
       if (notAtPasswordStep(reason)) {
@@ -343,7 +392,9 @@ export function Enrollment() {
         onAnotherCode={() => { setCode(''); setChallengeId(null); setStepHint(null); clearError(); setStage('contact'); stepFocus.focus() }}
         budgetNote={stepHint === 'code'} />}
       {ready && stage === 'password' && <PasswordStep {...stepProps} password={password} onPassword={setPassword} onSubmit={event => void submitPassword(event)}
-        blocked={googleRequired && !googlePending} limitNote={stepHint === 'activation'} />}
+        blocked={googleRequired && !googlePending} limitNote={stepHint === 'activation'}
+        profileFields={profileFields} dateOfBirth={dateOfBirth} onDateOfBirth={setDateOfBirth} gender={gender} onGender={setGender}
+        errorField={fieldError ? profileError ?? 'password' : null} />}
       {ready && stage === 'complete' && <Complete focusTarget={stepFocus.target} hidCode={hidCode} />}
       {import.meta.env.VITE_HID_GOOGLE_CLIENT_ID && ready && startOffered && stage !== 'complete' && !googlePending && <section className="patient-auth-separator" aria-label="Google enrollment">
         <span>{googleRequired ? 'Reconnect Google' : 'Continue with Google'}</span>
