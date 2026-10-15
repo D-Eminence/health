@@ -387,8 +387,11 @@ interface PanelProps {
 
 type Submitted<T> = { done: true; value: T } | { done: false; code: string | null }
 
-/** An answer that may never have reached the server, or whose outcome the server did not say. */
-const unanswered = (error: unknown) => !isHidApiError(error) || error.status === 0 || error.status >= 500
+/**
+ * An answer that may never have reached the server, or whose outcome the server did not say: no answer, an outage, or
+ * this side giving up after its time budget (@hid/http's 408 REQUEST_TIMEOUT), which leaves the server running it.
+ */
+const unanswered = (error: unknown) => !isHidApiError(error) || error.status === 0 || error.status === 408 || error.status >= 500
 
 /**
  * useGovernedSubmit (one key per submission, the step-up repeating that same

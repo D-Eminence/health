@@ -561,8 +561,9 @@ describe('changed, replayed and unanswered commands', () => {
       facilityId: 'facility-1', membershipId: 'membership-1', roleCode: 'doctor', attestationId: 'attestation-1', version: 5,
       replayed: true })
     api.clinicianApplication.mockResolvedValueOnce(detail({ state: 'approved', version: 5 }))
-    type('Reason for approval', 'Step 1 evidence reviewed')
-    fireEvent.click(await screen.findByRole('button', { name: 'Approve and give access' }))
+    // Step 2's form comes with the reload after step 1.
+    fireEvent.change(await screen.findByLabelText('Reason for approval'), { target: { value: 'Step 1 evidence reviewed' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Approve and give access' }))
     expect(await screen.findByText('This application was already approved with this submission. Chiamaka Obi can sign in to the provider portal with their password and authenticator.')).toBeTruthy()
   })
 
@@ -575,6 +576,38 @@ describe('changed, replayed and unanswered commands', () => {
     const alert = await screen.findByText('We couldn’t confirm whether this step was recorded. The application was reloaded: check its state before trying again.')
     expect(alert.getAttribute('role')).toBe('alert')
     await waitFor(() => expect(api.clinicianApplication).toHaveBeenCalledTimes(2))
+  })
+
+  it.each([
+    ['step 1', async () => {
+      api.attestClinicianApplication.mockRejectedValueOnce(new HidApiError(408, 'Timeout', { code: 'REQUEST_TIMEOUT' }))
+      await openDetail(detail())
+      api.clinicianApplication.mockResolvedValueOnce(detail())
+      completeStepOne()
+      fireEvent.click(screen.getByRole('button', { name: 'Record verification (step 1)' }))
+    }],
+    ['step 2', async () => {
+      api.approveClinicianApplication.mockRejectedValueOnce(new HidApiError(408, 'Timeout', { code: 'REQUEST_TIMEOUT' }))
+      await openDetail(underReview())
+      api.clinicianApplication.mockResolvedValueOnce(underReview())
+      type('Reason for approval', 'Step 1 evidence reviewed')
+      fireEvent.click(screen.getByRole('button', { name: 'Approve and give access' }))
+    }],
+    ['a rejection', async () => {
+      api.rejectClinicianApplication.mockRejectedValueOnce(new HidApiError(408, 'Timeout', { code: 'REQUEST_TIMEOUT' }))
+      await openDetail(detail())
+      api.clinicianApplication.mockResolvedValueOnce(detail())
+      fireEvent.change(screen.getByLabelText('Reason shown to the applicant'), { target: { value: 'duplicate' } })
+      type('Internal reason (never shown to the applicant)', 'Second application for the same facility')
+      fireEvent.click(screen.getByRole('button', { name: 'Reject application' }))
+    }],
+  ])('reloads after %s timed out on this side, as an answer that was lost, since Identity may have recorded it', async (_step, send) => {
+    // The client gave up after its time budget (HidApiError 408 REQUEST_TIMEOUT); the server may still have carried it out.
+    await send()
+    const alert = await screen.findByText('We couldn’t confirm whether this step was recorded. The application was reloaded: check its state before trying again.')
+    expect(alert.getAttribute('role')).toBe('alert')
+    await waitFor(() => expect(api.clinicianApplication).toHaveBeenCalledTimes(2))
+    expect(screen.queryByText('The request took too long. Please try again.')).toBeNull()
   })
 
   it('keeps the form and says nothing changed when the step-up is cancelled', async () => {
