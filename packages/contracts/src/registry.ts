@@ -105,6 +105,11 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('identity.registrationApprove','identity','/api/v1/identity/registration-cases/:caseId/approve-new',P,false,one('POST','identity.registration.approve')),
   r('identity.registrationEnroll','identity','/api/v1/identity/registration-cases/:caseId/enroll',P,false,one('POST','identity.registration.approve')),
   r('identity.registrationLink','identity','/api/v1/identity/registration-cases/:caseId/link-existing',P,false,one('POST','identity.registration.approve')),
+  // Facility-assisted registration (hid-system main f9dbaf0: #85, migration 0094, ADR-063). A staff
+  // session with MFA, X-Facility-ID, CSRF and an Idempotency-Key; 503 ASSISTED_REGISTRATION_DISABLED while off.
+  r('identity.assistedVerifications','identity','/api/v1/identity/assisted-verifications',P,false,
+    one('POST','identity.patient.assisted_registration'),
+    'Body { deskCode, method, documentType, document, attestations }; 200 { outcome: verified }. The same key replays the stored outcome.'),
   r('enrollment.providerStart','enrollment','/api/v1/identity/provider-enrollments',P,true,undefined,
     'Accountless; refused when signed in. Requires Origin and Turnstile action provider-enrollment.'),
   r('enrollment.providerVerify','enrollment','/api/v1/identity/provider-enrollments/verify',P,true,undefined,
@@ -205,6 +210,10 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('admin.facilities','admin','/api/v1/admin/facilities',G,false,one('GET','platform.facility.read')),
   r('admin.facility','admin','/api/v1/admin/facilities/:facilityId',G,false,one('GET','platform.facility.read')),
   r('admin.facilityStatus','admin','/api/v1/admin/facilities/:facilityId/status',P,false,one('POST','platform.facility.manage')),
+  // hid-system main f9dbaf0 (#85, ADR-063): a facility's designation for assisted registration.
+  r('admin.facilityAssistedRegistration','admin','/api/v1/admin/facilities/:facilityId/assisted-registration',GP,false,
+    {GET:['platform.facility.read'],POST:['platform.facility.manage']},
+    'GET answers version 0 without a designation. POST needs step-up, a reason, Idempotency-Key and If-Match (0 creates).'),
   // hid-system A24 (ADR-059, #76): the search terms and the export reason go in the JSON body, out of
   // URLs and access logs. The deprecated GET forms (GET /principals and GET /principals/export) are not
   // registered, so the browser cannot put a name, an email address or a reason in a URL.
