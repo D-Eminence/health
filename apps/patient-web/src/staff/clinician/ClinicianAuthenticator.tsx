@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ButtonHTMLAttributes, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type ButtonHTMLAttributes, type FormEvent, type ReactNode } from 'react'
 import { isHidApiError } from '@hid/http'
 import { Field, Input } from '@hid/ui'
 import { OtpauthQr } from '../../mfa/OtpauthQr'
@@ -114,9 +114,14 @@ export interface ClinicianAuthenticatorProps {
   onEnded(): void
   /** A way out of the setup's first step, where the page has one (the status page's list). */
   skip?: { label: string; onSkip(): void }
+  /**
+   * Shown after every step but the recovery codes (the page's "Close this page"): leaving there would lose codes
+   * Health ID can't show again.
+   */
+  footer?: ReactNode
 }
 
-export function ClinicianAuthenticator({ start, context, email, reason, doneLabel, onReady, onEnded, skip }: ClinicianAuthenticatorProps) {
+export function ClinicianAuthenticator({ start, context, email, reason, doneLabel, onReady, onEnded, skip, footer }: ClinicianAuthenticatorProps) {
   const [step, setStep] = useState<Step>({ kind: start })
   // Each step shown is new, takes focus at its heading, and says the refusal that led to it.
   const [shown, setShown] = useState({ count: 0, carried: start === 'reopen' ? reason ?? null : null })
@@ -132,20 +137,24 @@ export function ClinicianAuthenticator({ start, context, email, reason, doneLabe
     else go(outcome.step, outcome.message)
   }
 
-  const common = { carried: shown.carried, onMoved: moved }
-  const key = shown.count
-  switch (step.kind) {
-    case 'enrol': return <EnrolStep key={key} {...common} context={context} email={email} skip={skip}
-      onSent={expiresAt => go({ kind: 'email-code', expiresAt })} />
-    case 'email-code': return <EmailCodeStep key={key} {...common} email={email} expiresAt={step.expiresAt}
-      onStarted={setup => go({ kind: 'setup', setup })} />
-    case 'setup': return <SetupStep key={key} {...common} setup={step.setup} onActivated={activation => go({ kind: 'recovery', activation })} />
-    case 'recovery': return <RecoveryStep key={key} activation={step.activation} doneLabel={doneLabel} onDone={onReady} />
-    case 'verify': return <VerifyStep key={key} {...common} onVerified={onReady} />
-    case 'reopen': return <ReopenStep key={key} {...common} onOpened={purpose => go(purpose === 'verify' ? { kind: 'verify' } : { kind: 'enrol' })} />
-    case 'blocked': return <BlockedStep key={key} message={step.message} />
-    case 'codes-unseen': return <CodesUnseenStep key={key} doneLabel={doneLabel} onDone={() => onReady(null)} />
+  function shownStep(): ReactNode {
+    const common = { carried: shown.carried, onMoved: moved }
+    const key = shown.count
+    switch (step.kind) {
+      case 'enrol': return <EnrolStep key={key} {...common} context={context} email={email} skip={skip}
+        onSent={expiresAt => go({ kind: 'email-code', expiresAt })} />
+      case 'email-code': return <EmailCodeStep key={key} {...common} email={email} expiresAt={step.expiresAt}
+        onStarted={setup => go({ kind: 'setup', setup })} />
+      case 'setup': return <SetupStep key={key} {...common} setup={step.setup} onActivated={activation => go({ kind: 'recovery', activation })} />
+      case 'recovery': return <RecoveryStep key={key} activation={step.activation} doneLabel={doneLabel} onDone={onReady} />
+      case 'verify': return <VerifyStep key={key} {...common} onVerified={onReady} />
+      case 'reopen': return <ReopenStep key={key} {...common} onOpened={purpose => go(purpose === 'verify' ? { kind: 'verify' } : { kind: 'enrol' })} />
+      case 'blocked': return <BlockedStep key={key} message={step.message} />
+      case 'codes-unseen': return <CodesUnseenStep key={key} doneLabel={doneLabel} onDone={() => onReady(null)} />
+    }
   }
+
+  return <>{shownStep()}{step.kind === 'recovery' ? null : footer}</>
 }
 
 interface StepProps {

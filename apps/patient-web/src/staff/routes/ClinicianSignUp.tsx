@@ -72,6 +72,8 @@ function SignUp() {
   // The application page (Identity's capability cookie) once the application is submitted: open, being closed, or closed.
   const [pageState, setPageState] = useState<'open' | 'closing' | 'closed'>('open')
   const [closeError, setCloseError] = useState<{ id: number; message: string } | null>(null)
+  // Once closed, an authenticator answer that arrives late changes nothing: the page stays closed.
+  const closed = useRef(false)
   // One key per submission, reused only when the same submission is sent again (never stored).
   const submission = useRef<{ key: string; fingerprint: string } | null>(null)
 
@@ -202,7 +204,8 @@ function SignUp() {
   /**
    * Ends the application page on this device (P15), as the status page's
    * "Close this page" does: until then anyone at this browser could open the
-   * applications without a code, for up to 30 minutes.
+   * applications without a code, for up to 30 minutes. Offered from the
+   * authenticator step on, where an applicant without their phone may leave.
    */
   async function closePage() {
     if (pageState !== 'open') return
@@ -216,6 +219,7 @@ function SignUp() {
       focusOn('clinician-signup-close')
       return
     }
+    closed.current = true
     setPageState('closed')
     focusOn('clinician-signup-closed')
   }
@@ -340,10 +344,23 @@ function SignUp() {
     {/* A replay is only of this same submission (its key follows the password too): nothing new was saved. */}
     {screen === 'steps' && step === 'authenticator' && submitted?.replayed && <p role="status" className="patient-field-hint">
       Your application was already received from your earlier attempt, with the password you entered then.</p>}
-    {screen === 'steps' && step === 'authenticator' && submitted && <ClinicianAuthenticator
+    {screen === 'steps' && step === 'authenticator' && submitted && pageState !== 'closed' && <ClinicianAuthenticator
       start={submitted.authenticator ? (submitted.authenticator.purpose === 'verify' ? 'verify' : 'enrol') : 'reopen'}
       context="signup" email={email} doneLabel="Continue to your application"
-      onReady={() => goTo('done')} onEnded={() => show('ended')} />}
+      onReady={() => { if (!closed.current) goTo('done') }} onEnded={() => { if (!closed.current) show('ended') }}
+      footer={<div className="clinician-panel">
+        <p className="patient-page-copy">Can't set it up now? Your application is saved, and you can finish from the status page.
+          This page stays open on this device for up to 30 minutes, so on a shared computer, close it.</p>
+        <StepError error={closeError} />
+        <div><TextButton id="clinician-signup-close" onClick={() => void closePage()} disabled={pageState === 'closing'}>
+          {pageState === 'closing' ? 'Closing…' : 'Close this page'}</TextButton></div>
+      </div>} />}
+    {screen === 'steps' && step === 'authenticator' && pageState === 'closed' && <section className="clinician-panel">
+      <p id="clinician-signup-closed" tabIndex={-1} role="status" className="patient-inline-success">This page is closed on this device.
+        Your application is saved: to set up your authenticator, enter your email on the status page. HID can't review your
+        application until you do.</p>
+      <div><Link className="patient-primary-button" to={CLINICIAN_STATUS_PATH}>Check your application</Link></div>
+    </section>}
 
     {screen === 'steps' && step === 'done' && submitted && <section className="patient-success" aria-labelledby="clinician-done-title">
       <StepHeading id="clinician-done-title" focus>Application submitted</StepHeading>

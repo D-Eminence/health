@@ -90,6 +90,7 @@ function StatusPage() {
   function toAuthenticator(start: 'enrol' | 'verify') {
     setAuthenticatorStart(start)
     setWithdrawing(null)
+    setCloseError(null)
     move('authenticator')
   }
 
@@ -244,10 +245,19 @@ function StatusPage() {
             toAuthenticator(answer.next === 'authenticator_setup' ? 'enrol' : 'verify')
           }} />
       </>}
+      {/* An answer that arrives once the page was closed here (it no longer holds the capability) changes nothing. */}
       {phase === 'authenticator' && <ClinicianAuthenticator key={formRound} start={authenticatorStart} context="status"
         email={email || account?.account.email || 'your email address'} doneLabel="Continue to your applications"
-        onReady={view => { if (view) showList(view); else void load() }} onEnded={() => toForm(PAGE_EXPIRED)}
-        skip={authenticatorStart === 'enrol' ? { label: 'See your applications first', onSkip: () => void load() } : undefined} />}
+        onReady={view => { if (!held.current) return; if (view) showList(view); else void load() }}
+        onEnded={() => { if (held.current) toForm(PAGE_EXPIRED) }}
+        skip={authenticatorStart === 'enrol' ? { label: 'See your applications first', onSkip: () => void load() } : undefined}
+        footer={<div className="clinician-panel">
+          <p className="patient-field-hint">This page stays open on this device for up to 30 minutes. On a shared computer, close it
+            when you're done.</p>
+          <StepError error={closeError} />
+          <div><TextButton id={CLOSE} onClick={() => void closePage()} disabled={busy !== null}>
+            {busy === 'close' ? 'Closing…' : 'Close this page'}</TextButton></div>
+        </div>} />}
       <p className="patient-auth-footer">Not applied yet? <Link to="/provider/join">Apply as a doctor or nurse</Link>.</p>
     </ClinicianFrame>
   }

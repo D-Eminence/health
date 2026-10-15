@@ -746,6 +746,58 @@ describe('closing the page once the application is submitted', () => {
   })
 })
 
+describe('closing the page at the authenticator step', () => {
+  it('offers to close the page before the authenticator is set up, and says how to finish later', async () => {
+    api.endSession.mockResolvedValueOnce(undefined)
+    await toAuthenticator()
+    expect(screen.getByText(/This page stays open on this device for up to 30 minutes/)).toBeTruthy()
+    press('Close this page')
+    const closed = await screen.findByText(/^This page is closed on this device\. Your application is saved/)
+    await waitFor(() => expect(document.activeElement).toBe(closed))
+    expect(closed.getAttribute('role')).toBe('status')
+    expect(api.endSession).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('heading', { name: 'Set up your authenticator' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Close this page' })).toBeNull()
+    expect(screen.getByRole('link', { name: 'Check your application' }).getAttribute('href')).toBe('/provider/join/status')
+  })
+
+  it('says when the page could not be closed there, and keeps the authenticator step', async () => {
+    api.endSession.mockRejectedValueOnce(problem(503, 'CLINICIAN_APPLICATION_UNAVAILABLE'))
+    await toAuthenticator()
+    press('Close this page')
+    expect((await screen.findByRole('alert')).textContent).toBe("This page couldn't be closed right now. Try again.")
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Close this page' })))
+    expect(screen.getByRole('heading', { name: 'Set up your authenticator' })).toBeTruthy()
+  })
+
+  it('keeps the page closed when an authenticator answer arrives after it', async () => {
+    api.endSession.mockResolvedValueOnce(undefined)
+    let refuse: (reason: unknown) => void = () => {}
+    api.authenticator.sendEmailCode.mockReturnValueOnce(new Promise((_resolve, reject) => { refuse = reject }))
+    await toAuthenticator()
+    press('Email me a code')
+    press('Close this page')
+    expect(await screen.findByText(/^This page is closed on this device\. Your application is saved/)).toBeTruthy()
+    await act(async () => { refuse(problem(401, 'CLINICIAN_APPLICATION_SESSION_INVALID')) })
+    expect(screen.queryByRole('heading', { name: 'This page has closed' })).toBeNull()
+    expect(screen.getByText(/^This page is closed on this device\. Your application is saved/)).toBeTruthy()
+  })
+
+  it('does not offer to close the page while the recovery codes are shown', async () => {
+    await toAuthenticator()
+    press('Email me a code')
+    await stepShown('Enter the code we emailed you')
+    expect(screen.getByRole('button', { name: 'Close this page' })).toBeTruthy()
+    type(textbox('Email code'), '654321')
+    press('Continue')
+    await stepShown('Add Health ID to your authenticator app')
+    type(textbox('Authenticator code'), '112233')
+    press('Activate authenticator')
+    await stepShown('Save your recovery codes')
+    expect(screen.queryByRole('button', { name: 'Close this page' })).toBeNull()
+  })
+})
+
 describe('nothing kept in the browser', () => {
   it('writes nothing to local or session storage and puts nothing identifying in the address', async () => {
     const setItem = vi.spyOn(Storage.prototype, 'setItem')

@@ -260,6 +260,35 @@ describe('the email code and the authenticator', () => {
     expect(screen.queryByText(/Your account has no authenticator app set up/)).toBeNull()
   })
 
+  it.each([
+    ['set up', 'authenticator_setup', 'Set up your authenticator'],
+    ['verified', 'authenticator_verify', 'Enter a code from your authenticator app'],
+  ] as const)('offers to close the page while the authenticator is to be %s', async (_case, next, heading) => {
+    api.verifyStatusCode.mockResolvedValueOnce({ next, expiresAt: '2026-10-15T09:30:00.000Z' })
+    await throughEmail()
+    await headingFocused(heading)
+    expect(screen.getByText(/This page stays open on this device for up to 30 minutes/)).toBeTruthy()
+    press('Close this page')
+    expect(await screen.findByText('This page is closed.')).toBeTruthy()
+    await headingFocused('Check your clinician application', 1)
+    expect(screen.getByRole('textbox', { name: 'Work email' })).toBeTruthy()
+    expect(api.endSession).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps "This page is closed." when an authenticator answer arrives after the page was closed', async () => {
+    api.verifyStatusCode.mockResolvedValueOnce({ next: 'authenticator_setup', expiresAt: '2026-10-15T09:30:00.000Z' })
+    let refuse: (reason: unknown) => void = () => {}
+    api.authenticator.sendEmailCode.mockReturnValueOnce(new Promise((_resolve, reject) => { refuse = reject }))
+    await throughEmail()
+    await headingFocused('Set up your authenticator')
+    press('Email me a code')
+    press('Close this page')
+    expect(await screen.findByText('This page is closed.')).toBeTruthy()
+    await act(async () => { refuse(problem(401, 'CLINICIAN_APPLICATION_SESSION_INVALID')) })
+    expect(screen.getByText('This page is closed.')).toBeTruthy()
+    expect(screen.queryByText(/this page closed after 30 minutes/)).toBeNull()
+  })
+
   it('clears a wrong code and says so', async () => {
     api.verifyStatusCode.mockRejectedValueOnce(problem(401, 'CLINICIAN_APPLICATION_CODE_INVALID'))
     await throughEmail()
