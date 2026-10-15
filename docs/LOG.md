@@ -1695,3 +1695,27 @@ first. hid-system was not changed.
 - **Deploy order.** The admin console needs an Identity with hid-system#76,
   and the encounter and vitals wording an EHR with hid-system#74: this portal
   is to be deployed with or after hid-system `8f3eff1`.
+
+## 2026-10-15: the portal build is checked against hid-system's staging refusals
+
+hid-system's staging step (`infra/cloudflare/scripts/health-id-artifact.mjs`,
+read at hid-system `main` `94889fd`) refuses a Health-id build that carries
+Google sign-in, a service worker (a `service-worker.js`, `sw.js` or
+`workbox*.js` file, or `serviceWorker` in a script), a web app manifest, a
+source map, or any file other than `index.html` and content-hashed files under
+`assets/`. Nothing in Health-id checked this, so a branch could build a portal
+that staging refuses and CI would pass: a review of the PWA branch found its
+build kept Google's script loader with no Google client ID.
+
+- `npm run audit:launch-build` (`scripts/check-launch-build.mjs`) runs those
+  rules over `apps/patient-web/dist`. CI runs it after the builds, which have
+  no Google client ID, as at launch. The environment record and the
+  `index.html` shell depend on the host being staged and are left to the
+  staging step.
+- **Evidence.** A build of `main` `598ddc0` passes (13 files). Seven altered
+  copies of that build each fail with their own reason: an added source map
+  file, a `service-worker.js`, a `health-id.webmanifest`, Google's
+  `gsi/client` URL in a script, a `robots.txt`, a `serviceWorker` registration
+  in a script, and a `sourceMappingURL` comment.
+- **Not verified.** The hid-system stager itself was not run; the rules were
+  copied from it and must be kept in step when it changes.

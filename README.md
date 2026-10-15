@@ -42,7 +42,13 @@ npm run test
 npm run audit:boundaries
 npm run build:public-web
 npm run build:patient-web
+npm run audit:launch-build
 ```
+
+`audit:launch-build` runs hid-system's staging refusals over the patient portal
+build (`apps/patient-web/dist`): no Google sign-in (build without
+`VITE_HID_GOOGLE_CLIENT_ID` at launch), service worker, web app manifest, source
+map, or file outside `index.html` and content-hashed `assets/`.
 
 `npm run check` runs typecheck, lint and tests in sequence. See
 [architecture](./docs/ARCHITECTURE.md) for the request and session model and
