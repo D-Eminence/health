@@ -65,18 +65,27 @@ function bodyOf(values: Values): AssistedRegistrationDesignationInput {
     state: values.state.trim(), ...(hours ? { hours } : {}), reason: values.reason.trim() }
 }
 
+const TITLE = 'admin-assisted-registration-title'
+
 export function AssistedRegistrationPanel({ facilityId, actor, onChanged }: {
   facilityId: string; actor: AdminActor; onChanged: () => void
 }) {
   const load = useCallback((signal?: AbortSignal) => adminApi.assistedRegistration(facilityId, signal), [facilityId])
   const resource = useResource(load, 'The designation for registration in person could not be loaded.')
-  const [error, setError] = useState<string | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
+  // A submission's answer, numbered: each is a new element, and a submission clears the last one when it starts,
+  // so the same words answering again are announced again.
+  const [outcome, setOutcome] = useState<{ tone: 'error' | 'notice'; text: string; seq: number } | null>(null)
+  const outcomes = useRef(0)
+  const show = (tone: 'error' | 'notice', text: string) => setOutcome({ tone, text, seq: ++outcomes.current })
+  // A save or a version conflict reads the designation again, and its new version replaces the form and the
+  // button that had focus: focus moves to the panel's heading instead of falling to the page.
+  const [headingFocus, setHeadingFocus] = useState(0)
+  useEffect(() => { if (headingFocus) document.getElementById(TITLE)?.focus() }, [headingFocus])
   const canManage = has(actor, 'platform.facility.manage')
 
-  return <section className="admin-panel" aria-labelledby="admin-assisted-registration-title">
+  return <section className="admin-panel" aria-labelledby={TITLE}>
     <div className="admin-panel-head"><div>
-      <h2 id="admin-assisted-registration-title">Registration in person</h2>
+      <h2 id={TITLE} tabIndex={-1}>Registration in person</h2>
       <p>Whether patients who cannot receive a code on the phone of their NIN record can prove here, with an original photo ID,
         that they hold their NIN. While it is active and registration at a facility is switched on, the public list of
         participating facilities shows this facility’s name and the location below.</p>
@@ -85,22 +94,27 @@ export function AssistedRegistrationPanel({ facilityId, actor, onChanged }: {
       <Designation designation={designation} />
       {canManage
         ? <DesignationForm key={`${designation.version}`} facilityId={facilityId} designation={designation}
+          onSubmitting={() => setOutcome(null)}
           onSaved={(saved, replayed) => {
-            setError(null)
-            setNotice(replayed ? 'This designation was already saved.'
+            show('notice', replayed ? 'This designation was already saved.'
               : saved === 'active' ? 'Saved. Patients can now be checked in person here while registration at a facility is switched on.'
                 : 'Saved. No patient can be checked in person here while it is suspended.')
+            setHeadingFocus(count => count + 1)
             resource.reload(); onChanged()
           }}
           onFailed={(caught, message) => {
-            setNotice(null); setError(message)
+            show('error', message)
             // The command names a version no longer current: read the designation again.
-            if (isProblem(caught, 'VERSION_CONFLICT')) resource.reload()
+            if (isProblem(caught, 'VERSION_CONFLICT')) {
+              setHeadingFocus(count => count + 1)
+              resource.reload()
+            }
           }} />
         : <p className="admin-note">Changing it needs the platform.facility.manage permission.</p>}
     </>}</ResourceView>
-    {error && <p className="admin-error" role="alert">{error}</p>}
-    {notice && <p className="admin-success" role="status">{notice}</p>}
+    {outcome?.tone === 'error' && <p key={outcome.seq} className="admin-error" role="alert">{outcome.text}</p>}
+    {/* Always present, so a notice is announced as it appears in it. */}
+    <div role="status">{outcome?.tone === 'notice' && <p key={outcome.seq} className="admin-success">{outcome.text}</p>}</div>
   </section>
 }
 
@@ -118,8 +132,10 @@ function Designation({ designation }: { designation: AssistedRegistrationDesigna
   </dl>
 }
 
-function DesignationForm({ facilityId, designation, onSaved, onFailed }: {
+function DesignationForm({ facilityId, designation, onSubmitting, onSaved, onFailed }: {
   facilityId: string; designation: AssistedRegistrationDesignation
+  /** A submission is about to be sent: the last answer no longer stands. */
+  onSubmitting: () => void
   onSaved: (status: 'active' | 'suspended', replayed: boolean) => void
   onFailed: (caught: unknown, message: string) => void
 }) {
@@ -161,6 +177,7 @@ function DesignationForm({ facilityId, designation, onSaved, onFailed }: {
     const key = pending.current?.signature === signature ? pending.current.key : newIdempotencyKey()
     pending.current = { signature, key }
     setBusy(true)
+    onSubmitting()
     try {
       const saved = await withStepUp(() => adminApi.setAssistedRegistration(facilityId, body, designation.version, key))
       pending.current = null
