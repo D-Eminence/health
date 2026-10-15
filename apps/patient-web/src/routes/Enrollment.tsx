@@ -58,6 +58,15 @@ const ACTIVATION_LIMIT_HINT = 'This enrollment has had too many activation attem
 const contactReverifyRequired = (reason: unknown) => isHidApiError(reason) && reason.status === 409
   && reason.code === 'ENROLLMENT_CONTACT_REVERIFY_REQUIRED'
 const REVERIFY_CONTACT = 'Your contact was verified more than 30 minutes ago, so it must be verified again before activation. Send a new code, enter it, then choose your password.'
+const REVERIFY_CODE_SENT = 'Your contact was verified more than 30 minutes ago, so it must be verified again before activation. Enter the new code sent to it, then choose your password.'
+/**
+ * That return seen without its 409, which was lost or answered another tab's
+ * activation: any further activation is refused as not at the password step
+ * (409 ENROLLMENT_STAGE_INVALID), so the enrollment's stage is read again and
+ * the page goes where Identity has it.
+ */
+const notAtPasswordStep = (reason: unknown) => isHidApiError(reason) && reason.status === 409
+  && reason.code === 'ENROLLMENT_STAGE_INVALID'
 /**
  * The HID is shown only here (hid-system#68, N2(a) and N2(b)): the activation
  * response expires the enrollment cookie, and if that response is lost
@@ -256,6 +265,18 @@ export function Enrollment() {
         setStage('contact'); setChallengeId(null); setMaskedContact(''); setCode(''); setPassword(''); setStepHint(null)
         setError(REVERIFY_CONTACT); setFieldError(false); setErrorAlert(true)
         return
+      }
+      if (notAtPasswordStep(reason)) {
+        let progress: EnrollmentProgress
+        try { progress = await api.enrollmentCurrent() } catch (again) { displayError(again); return }
+        // Still at the password step, the refusal is about something else and is shown below.
+        if (progress.stage !== 'set_password') {
+          applyProgress(progress); setCode(''); setPassword(''); setStepHint(null)
+          if (progress.stage === 'verify_contact') {
+            setError(progress.challengeId ? REVERIFY_CODE_SENT : REVERIFY_CONTACT); setFieldError(false); setErrorAlert(true)
+          }
+          return
+        }
       }
       if (isHidApiError(reason) && reason.status === 429) setStepHint('activation')
       displayError(reason, fromField)

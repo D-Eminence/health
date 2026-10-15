@@ -82,15 +82,102 @@ describe('activation that needs the contact proved again', () => {
     expect(api.enrollmentActivate).toHaveBeenCalledTimes(2)
   })
 
-  it('keeps other activation refusals at the password step', async () => {
+  it.each([
+    ['an outage', () => new HidApiError(503, 'Health ID activation is unavailable', { code: 'ENROLLMENT_ACTIVATION_UNAVAILABLE' })],
+    ['the activation limit', () => new HidApiError(429, 'Too many enrollment requests; try again later', { code: 'ENROLLMENT_RATE_LIMITED' })],
+  ])('keeps a refusal for %s at the password step, without reading the stage again', async (_refusal, refusal) => {
     api.enrollmentCurrent.mockResolvedValue({ stage: 'set_password' })
-    api.enrollmentActivate.mockRejectedValue(new HidApiError(409, 'Contact verification is required', { code: 'ENROLLMENT_STAGE_INVALID' }))
+    api.enrollmentActivate.mockRejectedValue(refusal())
     render(<MemoryRouter><Enrollment /></MemoryRouter>)
     fireEvent.change(await screen.findByLabelText('Password'), { target: { value: 'a-long-enough-password' } })
     await press('Activate Health ID')
-    expect((await screen.findByRole('alert')).textContent).toBe('Contact verification is required')
+    expect((await screen.findByRole('alert')).textContent).toBe(refusal().message)
     expect(screen.getByLabelText('Password')).toBeTruthy()
     expect(screen.queryByLabelText('Phone number')).toBeNull()
+    expect(api.enrollmentCurrent).toHaveBeenCalledTimes(1)
+  })
+})
+
+const notAtPassword = (detail = 'Contact verification is required') => new HidApiError(409, detail, { code: 'ENROLLMENT_STAGE_INVALID' })
+const REVERIFY_CONTACT = 'Your contact was verified more than 30 minutes ago, so it must be verified again before activation. '
+  + 'Send a new code, enter it, then choose your password.'
+
+async function activateFromPassword() {
+  render(<MemoryRouter><Enrollment /></MemoryRouter>)
+  fireEvent.change(await screen.findByLabelText('Password'), { target: { value: 'a-long-enough-password' } })
+  await press('Activate Health ID')
+}
+
+/**
+ * The same return to the contact step, seen without its 409: that answer was
+ * lost on the network, or the enrollment's activation in another tab of this
+ * browser made it. Activation then answers any further try
+ * `409 ENROLLMENT_STAGE_INVALID` ("Contact verification is required", the
+ * refusal for an enrollment not at the password step), and the page stayed at
+ * the password step until a reload.
+ */
+describe('activation that finds the enrollment no longer at the password step', () => {
+  it('reads the stage again and goes back to the contact step when the first answer was lost', async () => {
+    api.enrollmentCurrent.mockResolvedValueOnce({ stage: 'set_password' }).mockResolvedValue({ stage: 'verify_contact' })
+    api.enrollmentActivate
+      .mockRejectedValueOnce(new HidApiError(0, 'We could not reach the service. Check your connection and try again.', { code: 'NETWORK_ERROR' }))
+      .mockRejectedValueOnce(notAtPassword())
+      .mockResolvedValueOnce({ stage: 'active', hidCode: 'HID-ABCDEF23' })
+    await activateFromPassword()
+    expect((await screen.findByRole('alert')).textContent).toBe('We could not reach the service. Check your connection and try again.')
+    await press('Activate Health ID')
+
+    const contact = await screen.findByLabelText('Phone number')
+    await waitFor(() => expect(document.activeElement).toBe(contact))
+    expect(screen.getByRole('alert').textContent).toBe(REVERIFY_CONTACT)
+    expect(currentStep()).toBe('Contact')
+    expect(screen.queryByLabelText('Password')).toBeNull()
+    expect(api.enrollmentCurrent).toHaveBeenCalledTimes(2)
+
+    const password = await proveContact() as HTMLInputElement
+    expect(password.value).toBe('')
+    fireEvent.change(password, { target: { value: 'a-long-enough-password' } })
+    await press('Activate Health ID')
+    expect(await screen.findByText('HID-ABCDEF23')).toBeTruthy()
+  })
+
+  it('goes to the code step when another tab has already sent a new code', async () => {
+    api.enrollmentCurrent.mockResolvedValueOnce({ stage: 'set_password' })
+      .mockResolvedValue({ stage: 'verify_contact', challengeId: 'challenge-2', maskedContact: '+234•••0000' })
+    api.enrollmentActivate.mockRejectedValue(notAtPassword())
+    await activateFromPassword()
+
+    const code = await screen.findByLabelText('Verification code')
+    await waitFor(() => expect(document.activeElement).toBe(code))
+    expect(screen.getByText('Enter the six digit code sent to +234•••0000.')).toBeTruthy()
+    expect(screen.getByRole('alert').textContent).toBe('Your contact was verified more than 30 minutes ago, so it must be '
+      + 'verified again before activation. Enter the new code sent to it, then choose your password.')
+    expect(currentStep()).toBe('Code')
+    expect(screen.queryByLabelText('Password')).toBeNull()
+  })
+
+  it('stays at the password step, with the refusal, when Identity still has the enrollment there', async () => {
+    api.enrollmentCurrent.mockResolvedValue({ stage: 'set_password' })
+    api.enrollmentActivate.mockRejectedValue(notAtPassword('Enrollment conditions are not complete'))
+    await activateFromPassword()
+    expect((await screen.findByRole('alert')).textContent).toBe('Enrollment conditions are not complete')
+    expect(screen.getByLabelText('Password')).toBeTruthy()
+    expect(api.enrollmentCurrent).toHaveBeenCalledTimes(2)
+  })
+
+  it('says the stage could not be read, and reads it again on the next try', async () => {
+    api.enrollmentCurrent.mockResolvedValueOnce({ stage: 'set_password' })
+      .mockRejectedValueOnce(new HidApiError(503, 'Enrollment is temporarily unavailable', { code: 'ENROLLMENT_UNAVAILABLE' }))
+      .mockResolvedValue({ stage: 'verify_contact' })
+    api.enrollmentActivate.mockRejectedValue(notAtPassword())
+    await activateFromPassword()
+    expect((await screen.findByRole('alert')).textContent).toBe('Enrollment is temporarily unavailable')
+    expect(screen.getByLabelText('Password')).toBeTruthy()
+
+    await press('Activate Health ID')
+    expect(await screen.findByLabelText('Phone number')).toBeTruthy()
+    expect(screen.getByRole('alert').textContent).toBe(REVERIFY_CONTACT)
+    expect(api.enrollmentCurrent).toHaveBeenCalledTimes(3)
   })
 })
 

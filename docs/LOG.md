@@ -1413,3 +1413,28 @@ and N2. hid-system was not changed.
   `npm test`: 140 files, 1835 tests.
 - **Not verified.** Component tests with the network stubbed. Nothing was run
   in a browser, at runtime, on staging or against a live hid-system.
+
+## 2026-10-15: patient enrollment after review (a lost re-verification answer)
+
+Read at hid-system `main` `8f3eff1` (`patient-enrollment.service.ts`
+`activate`, `resetStaleContact`; `docs/INTERFACE_CONTRACT.md`).
+
+- **A lost re-verification answer.** Activation that finds a stale contact
+  sends the enrollment back to the contact step, then answers
+  `409 ENROLLMENT_CONTACT_REVERIFY_REQUIRED`. When that answer never reached
+  the page (lost on the network, or it answered the same enrollment's
+  activation in another tab), every further try was refused as not at the
+  password step (`409 ENROLLMENT_STAGE_INVALID`, "Contact verification is
+  required") and the page stayed there until a reload.
+  - Now that refusal reads `GET .../current` and the page goes to the step
+    Identity has: the contact step, or the code step when another tab already
+    sent a new code, with the re-verification alert (worded for the code step
+    there) and focus on the step's field.
+  - If Identity still has the password step (the database check's "Enrollment
+    conditions are not complete"), the refusal is shown there as before; if
+    the read fails, its failure is shown (a 404 returns to the NIN step), and
+    the next try reads again.
+  - Unchanged: the direct 409 path, which needs no read; every other
+    activation refusal (503, 429) stays at the password step without a read.
+  - Evidence: 4 tests failed first in `EnrollmentActivation.test.tsx`; the
+    case that asserted the stuck page now guards a 503 and a 429.

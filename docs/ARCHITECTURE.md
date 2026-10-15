@@ -295,7 +295,13 @@ whose contact was proved more than 30 minutes earlier answers
 `409 ENROLLMENT_CONTACT_REVERIFY_REQUIRED`, and Identity has already sent the
 enrollment back to the contact step, so the page goes there too: the contact
 typed on the page is kept, the code and password are cleared, and an alert says
-why. Any other activation refusal stays at the password step. The activation
+why. When that 409 never reached the page (it was lost, or answered another
+tab's activation), the next try is refused as not at the password step
+(`409 ENROLLMENT_STAGE_INVALID`): the page then reads `GET .../current` and
+goes to the step Identity has, the code step when another tab already sent a
+new code, with the same alert. If Identity still has the password step, or the
+read fails, the refusal or the failure is shown there and the next try reads
+again. Any other activation refusal stays at the password step. The activation
 response expires the enrollment cookie, and `GET .../current` shows the HID
 only if that response was lost and only for 15 minutes after activation, so
 the completion screen asks the patient to save the HID. Until hid-system sends
