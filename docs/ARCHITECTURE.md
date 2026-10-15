@@ -275,7 +275,8 @@ within that wait gets a challenge for which no code is sent (hand-off section
 Whether a new enrollment may start comes from hid-system#68's
 `GET /identity/patient-enrollments/availability` (FE-4, read at hid-system
 `main` `8f3eff1`), read with the enrollment check. The NIN step and Google
-sign-up are offered only on `200 { open: true }`. Any other body is not open:
+sign-up are offered only on `200 { open: true }`, and only then does a NIN step
+ask to reconnect the Google account an ended enrollment required. Any other body is not open:
 the page says, in Identity's own words for the start's 503, that new Health ID
 registration is not open yet, links to sign-in and password recovery, and loads
 no security check. A failed read, a 503 included, says the check failed and

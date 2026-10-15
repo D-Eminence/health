@@ -340,7 +340,8 @@ export function Enrollment() {
         <button type="button" className="patient-secondary-button" onClick={() => { retriedCheck.current = true; retrySessionCheck(); setCheckKey(value => value + 1) }}>Check again</button>
       </div>}
       {error && <p id="enroll-error" role={errorAlert ? 'alert' : undefined} className="patient-inline-error">{error === ENDED_HERE && registration !== 'open' ? ENDED : error}</p>}
-      {googleRequired && !googlePending && <p role="status" className="patient-inline-error">Reconnect the Google account used to start this enrollment.</p>}
+      {/* Not at a NIN step that offers no start, where Google is not offered either. */}
+      {googleRequired && !googlePending && startOffered && <p role="status" className="patient-inline-error">Reconnect the Google account used to start this enrollment.</p>}
       {ready && stage === 'nin' && registration === 'unknown' && <div className="patient-inline-error" role="alert"><p>We could not check whether new Health ID registration is open. Try again before starting.</p><button ref={retryInPlaceOfNin} type="button" className="patient-secondary-button" onClick={() => { retriedCheck.current = true; setCheckKey(value => value + 1) }}>Try again</button></div>}
       {closed && <section className="patient-success" aria-labelledby="enroll-closed-title">
         <h2 id="enroll-closed-title" ref={stepFocus.target} tabIndex={-1}>Registration is not open yet</h2>

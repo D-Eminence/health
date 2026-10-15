@@ -1414,7 +1414,7 @@ and N2. hid-system was not changed.
 - **Not verified.** Component tests with the network stubbed. Nothing was run
   in a browser, at runtime, on staging or against a live hid-system.
 
-## 2026-10-15: patient enrollment after review (a lost re-verification answer, an enrollment ended while availability was unknown)
+## 2026-10-15: patient enrollment after review (a lost re-verification answer, an enrollment that ended while no start is offered)
 
 Read at hid-system `main` `8f3eff1` (`patient-enrollment.service.ts`
 `activate`, `resetStaleContact`; `docs/INTERFACE_CONTRACT.md`).
@@ -1454,3 +1454,16 @@ Read at hid-system `main` `8f3eff1` (`patient-enrollment.service.ts`
     takes focus.
   - Evidence: 1 test failed first in `EnrollmentAvailability.test.tsx`, on
     focus and, with the focus fix alone, on the wording.
+- **Reconnecting Google with no Google control.** An enrollment that
+  required Google (`googleOnboardingRequired: true`, no pending Google
+  sign-up) and then ended here returned to the NIN step still saying
+  "Reconnect the Google account used to start this enrollment.", while a
+  closed or unknown registration hides the Google sign-up, so the patient
+  could not do it.
+  - Now that line is shown only where a start is offered, as the Google
+    section and the "Google identity confirmed" line already were.
+  - Unchanged: the requirement is kept, so once a read finds registration
+    open the line returns with the Google sign-up (guarded by a test); an
+    enrollment in progress still shows it at every step.
+  - Evidence: 2 tests failed first in `EnrollmentAvailability.test.tsx`
+    (closed and unknown); 1 more guards the open case.

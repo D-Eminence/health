@@ -164,4 +164,38 @@ describe('new Health ID registration (hid-system#68, FE-4)', () => {
     await waitFor(() => expect(document.activeElement).toBe(nin))
     expect(screen.getByText(/This enrollment ended on this device/).textContent).toMatch(/Enter the same NIN to continue it\.$/)
   })
+
+  it.each([
+    ['is not open', () => json({ open: false })],
+    ['could not be checked', outage],
+  ])('does not ask to reconnect Google when an enrollment that required it ends here while registration %s', async (_state, availability) => {
+    vi.stubEnv('VITE_HID_GOOGLE_CLIENT_ID', 'google-client')
+    renderPortal(<Enrollment />, gateway(availability,
+      () => json({ stage: 'verify_contact', challengeId: 'challenge-1', maskedContact: 'a•••@example.com', googleOnboardingRequired: true }),
+      () => problem(404, 'ENROLLMENT_NOT_FOUND', 'No pending enrollment was found')), anonymous)
+    fireEvent.change(await screen.findByLabelText('Verification code'), { target: { value: '123456' } })
+    expect(screen.getByText('Reconnect the Google account used to start this enrollment.')).toBeTruthy()
+    await press(screen.getByRole('button', { name: 'Verify code' }))
+
+    await screen.findByText(/This enrollment ended on this device/)
+    expect(screen.queryByText('Reconnect the Google account used to start this enrollment.')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Sign up with Google' })).toBeNull()
+  })
+
+  it('asks again to reconnect Google, with the Google sign-up, once an enrollment that required it ended here and registration is found open', async () => {
+    vi.stubEnv('VITE_HID_GOOGLE_CLIENT_ID', 'google-client')
+    let open: () => Response = outage
+    let current = () => json({ stage: 'verify_contact', challengeId: 'challenge-1', maskedContact: 'a•••@example.com', googleOnboardingRequired: true })
+    renderPortal(<Enrollment />, gateway(() => open(), () => current(),
+      () => problem(404, 'ENROLLMENT_NOT_FOUND', 'No pending enrollment was found')), anonymous)
+    fireEvent.change(await screen.findByLabelText('Verification code'), { target: { value: '123456' } })
+    current = none
+    await press(screen.getByRole('button', { name: 'Verify code' }))
+
+    open = () => json({ open: true })
+    await press(await screen.findByRole('button', { name: 'Try again' }))
+    expect(await screen.findByLabelText('National Identification Number')).toBeTruthy()
+    expect(screen.getByText('Reconnect the Google account used to start this enrollment.')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Sign up with Google' })).toBeTruthy()
+  })
 })
