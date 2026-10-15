@@ -157,7 +157,9 @@ The administrator chooses an optional search/status filter, gives a reason and
 ticks a per-export confirmation. (Since changed, found by the 2026-10-12 audit:
 the search term and the export reason travel in the API request's query
 string, which gateway and edge access logs record; backend hand-off A24 and
-D7.) The CSV is fetched through the shared client's
+D7. Since the launch alignment with hid-system `8f3eff1` both go in the body
+of `POST /admin/principals/export`, and the search's in the body of
+`POST /admin/principals/search`, hid-system#76.) The CSV is fetched through the shared client's
 `download` response type and saved without being retained. A failed export is
 never retried automatically, because each one is audited.
 
@@ -170,7 +172,9 @@ where they are readable; otherwise the UI says the count was not shared.
 
 - `@hid/contracts`:
   - registers the Stage 2A routes with their backend permissions;
-  - the export route requires `reason` and `platform.principal.export`;
+  - the export route requires `reason` and `platform.principal.export` (since
+    the launch alignment it is a `POST` with the reason in its body, and the
+    `GET` form is not registered);
   - JSON and download routes are enforced in both directions.
 - `@hid/http`:
   - `responseType: 'download'` returns a `Blob` with readable headers, and

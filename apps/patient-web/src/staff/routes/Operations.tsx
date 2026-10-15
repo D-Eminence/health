@@ -1282,6 +1282,9 @@ export function Outreach() {
 }
 
 export function MigrateGap() {
+  const { facilityId, permissions } = useFacilityAccess()
+  // The workspace leads only to Document OCR, so it opens on the same permission (no role holds it since hid-system 0091).
+  if (!facilityId || !permissions.includes('ocr.job.read')) return <EmptyState titleAs="h1" title="Migration workspace unavailable" description="This facility membership needs OCR job read permission." />
   return <>
     <PageHead eyebrow="HID Migrate" title="Migration workspace">The approved backend snapshot supports document OCR jobs tied to authorized clinical documents. It does not yet expose a project, bulk import, matching queue, or completed migration index.</PageHead>
     <EmptyState title="Project migration requires backend support" description="You can process an eligible clinical document in Document OCR. Bulk migration needs governed project and reconciliation APIs before its controls can safely be enabled." action={<Link className="staff-text-link" to="/provider/ocr">Open document OCR →</Link>} />

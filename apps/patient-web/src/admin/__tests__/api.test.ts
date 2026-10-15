@@ -39,7 +39,7 @@ describe('platform admin API', () => {
     await adminApi.audit(undefined, '41')
 
     expect(requests.map(request => request.url.pathname)).toEqual([
-      '/api/v1/admin/session', '/api/v1/admin/overview', '/api/v1/admin/principals',
+      '/api/v1/admin/session', '/api/v1/admin/overview', '/api/v1/admin/principals/search',
       '/api/v1/admin/audit/events', '/api/v1/admin/audit/events',
     ])
     for (const request of requests) expect(request.headers.has('x-facility-id')).toBe(false)
@@ -209,7 +209,32 @@ describe('platform admin API', () => {
     expect(requests[5]!.url.searchParams.get('status')).toBe('pending')
   })
 
-  it('downloads the principal export with its reason, reads the cap headers and never repeats it', async () => {
+  // hid-system A24 (ADR-059, D-Eminence/hid-system#76): a search term is a name or an email address, and
+  // request-line access logs keep URLs, so the search and the export send their terms, and the export
+  // its audited reason, in a POST body. The GET forms stay one release for older consoles, then go.
+  it('searches users with the terms in a POST body, never in the URL, sending the platform CSRF token', async () => {
+    document.cookie = 'hid_access_admin_csrf=platform-csrf'
+    const page = { items: [], page: 2, pageSize: 25, total: 0 }
+    const requests = recordFetch([json(page), json({ ...page, page: 1 })])
+    const { adminApi } = await import('../api')
+    await expect(adminApi.principals('ada@example.test', { page: 2, status: 'active' })).resolves.toEqual(page)
+    await adminApi.principals('Ada Operator')
+    expect(requests.map(request => `${request.method} ${request.url.pathname}${request.url.search}`)).toEqual([
+      'POST /api/v1/admin/principals/search', 'POST /api/v1/admin/principals/search'])
+    expect(requests[0]!.body).toEqual({ query: 'ada@example.test', page: 2, pageSize: 25, status: 'active' })
+    // An absent status is left out: the backend refuses a null one.
+    expect(requests[1]!.body).toEqual({ query: 'Ada Operator', page: 1, pageSize: 25 })
+    for (const request of requests) {
+      expect(request.headers.get('x-csrf-token')).toBe('platform-csrf')
+      expect(request.headers.has('x-facility-id')).toBe(false)
+      // A search is no governed command: no version or idempotency key.
+      expect(request.headers.has('if-match')).toBe(false)
+      expect(request.headers.has('idempotency-key')).toBe(false)
+    }
+  })
+
+  it('downloads the principal export with its reason in a POST body, reads the cap headers and never repeats it', async () => {
+    document.cookie = 'hid_access_admin_csrf=platform-csrf'
     const requests = recordFetch([
       new Response('account_id,email\r\n', { headers: { 'Content-Type': 'text/csv', 'X-HID-Export-Row-Count': '5000',
         'X-HID-Export-Row-Limit': '5000', 'X-HID-Export-Truncated': 'true' } }),
@@ -220,12 +245,17 @@ describe('platform admin API', () => {
     const capped = await adminApi.exportPrincipals({ reason: 'Quarterly access review', query: 'clinic', status: 'active' })
     expect(capped).toMatchObject({ rowCount: 5000, rowLimit: 5000, truncated: true })
     expect(await capped.blob.text()).toBe('account_id,email\r\n')
-    expect(Object.fromEntries(requests[0]!.url.searchParams)).toEqual({ reason: 'Quarterly access review', query: 'clinic', status: 'active' })
+    expect(`${requests[0]!.method} ${requests[0]!.url.pathname}${requests[0]!.url.search}`).toBe('POST /api/v1/admin/principals/export')
+    expect(requests[0]!.body).toEqual({ reason: 'Quarterly access review', query: 'clinic', status: 'active' })
+    expect(requests[0]!.headers.get('x-csrf-token')).toBe('platform-csrf')
+    expect(requests[0]!.headers.get('accept')).toBe('*/*')
     // Cross-origin, the browser may not expose the backend's export headers.
     await expect(adminApi.exportPrincipals({ reason: 'Quarterly access review' }))
       .resolves.toMatchObject({ rowCount: null, rowLimit: null, truncated: null })
+    expect(requests[1]!.body).toEqual({ reason: 'Quarterly access review' })
     await expect(adminApi.exportPrincipals({ reason: 'Quarterly access review' })).rejects.toMatchObject({ status: 503 })
     expect(requests).toHaveLength(3)
+    for (const request of requests) expect(request.url.search).toBe('')
   })
 
   it('keeps sending facility context for provider workflows', async () => {

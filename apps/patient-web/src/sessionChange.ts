@@ -21,6 +21,18 @@ export function heldByOtherPortal(error: unknown): error is HidApiError {
 }
 
 /**
+ * Whether a patient route refused the request because the session the browser
+ * sent is not a patient's. Since hid-system#74 (EHR) and #76 (Identity, ADR-059) every patient-only route
+ * answers any other session so, with 403 PATIENT_SESSION_REQUIRED, before its
+ * handler runs: the shared cookies may now hold a provider's or an administrator's
+ * sign-in. The portal then asks the server whose session it is, as on hearing of a
+ * change from another tab; it never signs out on the 403 alone.
+ */
+export function patientSessionRequired(error: unknown): error is HidApiError {
+  return isHidApiError(error) && error.status === 403 && error.code === 'PATIENT_SESSION_REQUIRED'
+}
+
+/**
  * The channel this tab listens with, for either portal. A tab announces on the
  * channel it listens with, since a channel never hears its own messages: a tab is
  * not told of its own sign-in or sign-out.

@@ -352,9 +352,11 @@ export const adminApi = {
       { version: approval.version, idempotencyKey })
   },
   async exportPrincipals(input: { reason: string; query?: string; status?: string }, signal?: AbortSignal): Promise<PrincipalExport> {
-    // Every export is audited, so a failed export is never repeated automatically.
-    const result = await request<DownloadResult>('/api/v1/admin/principals/export', { responseType: 'download',
-      retry: NO_RETRY, signal, query: { reason: input.reason, query: input.query, status: input.status } })
+    // Every export is audited, so a failed export is never repeated automatically. Its terms and the
+    // audited reason go in the body, out of URLs and access logs (hid-system A24).
+    const result = await request<DownloadResult>('/api/v1/admin/principals/export', { method: 'POST', responseType: 'download',
+      retry: NO_RETRY, signal, body: { reason: input.reason,
+        ...(input.query !== undefined ? { query: input.query } : {}), ...(input.status !== undefined ? { status: input.status } : {}) } })
     const header = (name: string) => result.headers.get(name)
     const count = header('X-HID-Export-Row-Count')
     const limit = header('X-HID-Export-Row-Limit')
@@ -371,9 +373,13 @@ export const adminApi = {
   facility(facilityId: string, signal?: AbortSignal) {
     return request<Facility>(at('/api/v1/admin/facilities', facilityId), { signal })
   },
+  /**
+   * A search term is a name or an email address, so it goes in a POST body, never in a URL that browser
+   * history or an access log keeps (hid-system A24). Being a POST, a failed search is not repeated.
+   */
   principals(query: string, filters: { page?: number; status?: string } = {}, signal?: AbortSignal) {
-    return request<Page<Principal>>('/api/v1/admin/principals', { signal,
-      query: { page: filters.page ?? 1, pageSize: PAGE_SIZE, query, status: filters.status } })
+    return request<Page<Principal>>('/api/v1/admin/principals/search', { method: 'POST', signal,
+      body: { query, page: filters.page ?? 1, pageSize: PAGE_SIZE, ...(filters.status ? { status: filters.status } : {}) } })
   },
   reviews(filters: { page?: number; status?: string } = {}, signal?: AbortSignal) {
     return request<Page<IdentityReview>>('/api/v1/admin/identity/reviews', { signal,
