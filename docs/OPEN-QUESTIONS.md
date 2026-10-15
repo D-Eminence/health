@@ -176,6 +176,20 @@ these rows are what it cannot settle.
 | A phone-only patient who loses the Health ID | The HID is shown only at activation (and, if that response was lost, by `GET .../current` for 15 minutes after it). A patient with only a verified phone signs in and starts recovery with the HID, since both take an email or an HID. The completion screen asks the patient to save it and says why; nothing can show it again later. | hid-system maintainers: N2(a), sending the HID to the verified contact and a public SMS reminder (hand-off E20(b)). |
 | Deploy order for the availability read | An Identity without hid-system#68 answers `GET /identity/patient-enrollments/availability` with 404. The page shows that as a failed check, with Try again, and offers no start. | Release owners: deploy this portal with or after an Identity carrying hid-system#68. |
 
+## Facility-assisted registration, staff and console (2026-10-15)
+
+Read at hid-system `main` `f9dbaf0` (hid-system#85, migration 0094, ADR-063).
+The staff in-person check and the console designation are built; these rows are
+what they cannot settle.
+
+| Item | Current evidence | Needed to close |
+| --- | --- | --- |
+| The route needs the patient screens too | The staff check and the designation alone open nothing: the patient's facility list, desk code and continuation after the check (alignment list rows 2, 3, 6, 8 and 9) are on the patient sign-up branch. With `ASSISTED_REGISTRATION_ENABLED` on and no patient screens, a patient cannot show a desk code. | Frontend owner: merge the patient sign-up screens before the flag is set anywhere a real patient can use it (hid-system P31, P33). |
+| What the patient does after the check | The staff screen tells staff the patient continues on their own phone and, if it still shows the desk code, to open the registration again on that phone. The patient page's own control for reading `GET .../current` again is the patient branch's. | Frontend owner: match the staff wording to the patient page's control when it lands. |
+| One refusal for four causes | `403 ASSISTED_REGISTRATION_NOT_AUTHORIZED` covers no MFA session in SQL, no attested grant, an inactive membership or account, and a facility that does not take part; the screen names all four and sends staff to a platform administrator. | hid-system maintainers, if staff should be told which: a reason the client may show (no change needed for launch). |
+| A retry after leaving the page | The key that lets an unknown answer be checked again without counting it twice lives in the page's memory only. A staff member who leaves the page after a `503` and checks again sends a new key, which is a new check against the budget (20 per staff member, 100 per facility in 24 hours by default). | None for launch; the screen says to press Check again without changing the details. |
+| Not verified against a running hid-system | Component tests with the network stubbed. Nothing was run in a browser, against a live Identity, or on staging. | Release owners: run S4v (hid-system `PHASE_4_STAGE_5_RELEASE_READINESS.md`) with these screens and the patient screens. |
+
 ## Reference workflows without an audited API
 
 The following remain backend contract work before an operational frontend can
