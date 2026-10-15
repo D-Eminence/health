@@ -227,11 +227,17 @@ describe('changing the status of a prescription Pharmacy may hold', () => {
  * status also closes its records, in the same transaction (encounters.service.ts
  * CLOSE_STEPS; INTERFACE_CONTRACT.md "Encounter status and its records"):
  * cancelling cancels its draft, active and on-hold prescriptions and lab
- * requests, and marking it entered in error marks those orders, its notes and
- * its diagnoses entered in error. Neither Pharmacy nor Lab hears of it. Every
- * status change the portal offers an encounter includes Cancel and Mark entered
- * in error, so the clinician is told so where the change is confirmed. The
- * answer is the encounter alone, so the records shown are read again.
+ * requests, and leaves everything else. Since hid-system #74 (ENC-RETRACT-2,
+ * migration 0090) marking it entered in error marks its notes, its diagnoses,
+ * its final vitals, its draft, active, on-hold and completed prescriptions and
+ * lab requests, and its initiated or uploaded documents entered in error.
+ * Neither Pharmacy nor Lab hears of it. Every status change the portal offers an
+ * encounter includes Cancel and Mark entered in error, so the clinician is told
+ * so where the change is confirmed. The answer is the encounter (with
+ * `cascade`), so the records shown are read again. A close that would change a
+ * kind of record the actor may not write is refused, with nothing written, as
+ * 403 ENCOUNTER_RETRACTION_NOT_PERMITTED and a fixed detail naming no kind
+ * (ENC-RETRACT-1).
  */
 describe('changing the status of an encounter whose orders Pharmacy or Lab may hold', () => {
   it.each(['planned', 'in_progress', 'on_hold'])('says at the action what cancelling a %s encounter does to its orders, and whom to contact', async status => {
@@ -247,9 +253,11 @@ describe('changing the status of an encounter whose orders Pharmacy or Lab may h
     expect(warning).not.toContain('does not cancel')
     expect(warning).not.toContain('Cancel each order itself')
     expect(warning).toContain('Cancelling this encounter also cancels its draft, active and on-hold prescriptions and lab requests')
-    expect(warning).toContain('Marking it entered in error marks those orders, and its notes and diagnoses, entered in error')
-    // CLOSE_STEPS has no step for documents or vitals, nor for an order already completed.
-    expect(warning).toContain('Completed orders, vitals and documents are not changed')
+    // Cancelling has no step for notes, diagnoses, vitals, documents or a completed order.
+    expect(warning).toContain('its notes, diagnoses, vitals, documents and completed orders are not changed')
+    // Since 0090 a retraction also covers final vitals, completed orders and initiated or uploaded documents.
+    expect(warning).toContain('Marking it entered in error also marks entered in error its notes, diagnoses and vitals, its documents (other than rejected uploads), and its prescriptions and lab requests that are not cancelled, completed ones included')
+    expect(warning).not.toContain('Completed orders, vitals and documents are not changed')
     expect(warning).toContain('Pharmacy and the Laboratory are not told')
     expect(warning).toContain('contact the pharmacy or laboratory')
     // Shown in the form before the change is confirmed, not a message that comes and goes.
@@ -282,6 +290,32 @@ describe('changing the status of an encounter whose orders Pharmacy or Lab may h
     // The closed orders are shown as the EHR now holds them, without a status change to offer.
     await waitFor(() => expect(within(entry('Amoxicillin')).queryByRole('button', { name: 'Update status' })).toBeNull())
     expect(within(entry('Ibuprofen')).queryByRole('button', { name: 'Update status' })).toBeNull()
+  })
+
+  it.each([
+    ['cancelled', 'You may not cancel this encounter'],
+    ['entered_in_error', 'You may not mark this encounter entered in error'],
+  ])('says why a change to %s refused for records the role may not change was not made, and changes nothing', async (status, refusal) => {
+    staff.permissions = [...HAND_OFF, 'ehr.encounter.write']
+    await openPrescriptions()
+    api.updateEncounter.mockRejectedValue(new HidApiError(403, 'Cancelling or retracting this encounter changes records you may not write',
+      { code: 'ENCOUNTER_RETRACTION_NOT_PERMITTED' }))
+    const form = screen.getByText('Encounter status').closest('form')!
+    fireEvent.change(within(form).getByLabelText(labelled('New status')), { target: { value: status } })
+    type(form, 'Reason for change', 'Opened on the wrong patient')
+    fireEvent.click(within(form).getByRole('button', { name: 'Update status' }))
+    const alert = await within(form).findByRole('alert')
+    expect(alert.textContent).toContain(`${refusal}: it holds records that this change would also change, and your role may not change all of them.`)
+    expect(alert.textContent).toContain('Nothing was changed.')
+    expect(alert.textContent).toContain('Ask a colleague whose role may change all of its records')
+    // It is not a stale encounter: nothing is read again, and nothing is said to have changed.
+    expect(api.encounter).not.toHaveBeenCalled()
+    expect(api.records).toHaveBeenCalledTimes(1)
+    expect(api.encounters).toHaveBeenCalledTimes(1)
+    expect(screen.queryByText('Encounter status updated.')).toBeNull()
+    // The choice and the reason stay, to be shown to the colleague or changed.
+    expect((within(form).getByLabelText(labelled('New status')) as HTMLSelectElement).value).toBe(status)
+    expect((within(form).getByLabelText(labelled('Reason for change')) as HTMLInputElement).value).toBe('Opened on the wrong patient')
   })
 
   it('reads again the records tab shown when the change is answered, after the clinician moved to another', async () => {

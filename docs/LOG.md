@@ -1350,3 +1350,90 @@ made the portal show something untrue, and Health-id #51
   - hid-system#65 addresses A7, not re-verified;
   - a new ask, MOD-1: withdraw closed modules' read permissions, or expose
     the enabled modules.
+
+## 2026-10-15: launch alignment with hid-system `main` `8f3eff1`
+
+hid-system `main` at `8f3eff1` is what production is to run. Read-only, its
+contract (`docs/INTERFACE_CONTRACT.md`) and code show five things Health-id
+`main` `077b85c` gets wrong or does not use. Each is fixed on
+`claude/launch-alignment-fixes` in its own commit, with tests that failed
+first. hid-system was not changed.
+
+- **Admin principal search and export (A24, hid-system#76).** The console sent
+  the search term (a name or an email address) and the export's audited reason
+  in `GET` query strings, which access logs keep. The search is now
+  `POST /admin/principals/search` with `{ query, page, pageSize, status? }` and
+  the export `POST /admin/principals/export` with `{ reason, query?, status? }`,
+  both with the platform CSRF token. The export keeps its download transport,
+  its row headers and its no-retry; the search, now a `POST`, is not repeated
+  automatically either. The registry drops the `GET` forms, so neither can be
+  sent with its terms in the URL. The screens are unchanged. Failing first: 6
+  tests (the admin API's search, export and route list, the registry and the
+  registered client).
+- **Encounter close since hid-system#74 (migration 0090).** The status form
+  said that a retraction left completed orders, vitals and documents unchanged.
+  Since 0090 marking an encounter entered in error also marks its final vitals,
+  its completed prescriptions and lab requests and its initiated or uploaded
+  documents entered in error; cancelling still changes only open orders. The
+  warning now says so. A close that would change a kind of record the actor may
+  not write answers `403 ENCOUNTER_RETRACTION_NOT_PERMITTED` with nothing
+  written; the form showed EHR's terse detail, and now says the role may not
+  make that change, that nothing changed and to ask a colleague whose role may
+  change all of the encounter's records, naming no kind of record, as EHR does
+  not. It is not read as a stale encounter: nothing is read again, and the
+  choice and reason stay. Not changed: the Documents tab is not read again
+  after a retraction (at launch no role may retract an encounter holding an
+  uploaded document), and a completed encounter is still offered no
+  retraction. Failing first: 5 tests (the three warning cases and the two
+  refusals).
+- **Vitals entered in error (hid-system#74).** A vital now carries `status`,
+  and one entered in error keeps its values but takes no correction
+  (`409 VITAL_NOT_AMENDABLE`). The Vitals tab showed such a vital as current and
+  offered "Correct these vitals", which EHR would refuse. It is now marked
+  "Entered in error", says not to use the values, and offers no correction; its
+  earlier corrections are still shown. A retraction, like a correction, raises
+  the vital's row version, which EHR checks first, so a correction sent at the
+  version loaded before either answers `412 VERSION_CONFLICT`; the 409 answers
+  only the version of a vital already entered in error. Either now reads the
+  vitals again, says whether they were marked entered in error or changed
+  otherwise, and moves focus to the vital; the 412 used to show EHR's detail in
+  the form, with the list unchanged and every resubmission refused. An EHR
+  before #74 sends no status, and every vital stays correctable. Not added: the
+  single-vital retraction route. Failing first: 3 tests (the marker, the marker
+  with a correction, the refused correction), and on review 2 more: the
+  refused correction, which had a 409 EHR does not give there, now with EHR's
+  412, and a 412 for a vital corrected meanwhile. A 409 whose list cannot be
+  read again, added then, passed before the change.
+- **Patient routes answering `403 PATIENT_SESSION_REQUIRED` (hid-system#74 and
+  #76, ADR-059; hand-off A9).** Every patient-only route now refuses a provider's or
+  administrator's session so, where it used to answer a retried `503`. With a
+  provider's sign-in live in the shared cookies, the patient pages showed "An
+  active patient session is required" as if the page had failed. Now such a
+  refusal makes the portal ask `GET /auth/session` whose session the browser
+  holds, the question it asks when another tab announces a change, and the
+  refusal reaches the page only once that is answered: a provider's session
+  signs the tab out, so the page goes to sign-in, which says the sign-in
+  changed elsewhere. The 403 alone ends nothing; a check the server cannot
+  answer (a `503`) or one that finds this patient's own session changes
+  nothing, and the page shows the refusal. No other 403 asks anything. Failing
+  first: 5 tests (the session client's three cases, the shared-browser case
+  and the records page).
+- **Health ID Migrate card (hid-system#75, migration 0091).** OCR is closed
+  at launch, and since 0091 no role holds any `ocr.*` permission, so the
+  Document OCR workspace is hidden. The provider dashboard still showed every
+  role a "Health ID Migrate" card leading to it, and `/provider/migrate` opened
+  for anyone with its own link to Document OCR. Both now show only with
+  `ocr.job.read`, as the OCR workspace does; the page otherwise says it is
+  unavailable, with its own main landmark and h1 (the investigation asked for
+  the route as well as the card). Failing first: 2 tests (the card hidden, the
+  page unavailable).
+- **Evidence and gates.** Each commit's failing and passing runs are kept
+  outside the repository. At each commit `typecheck`, `lint`,
+  `audit:boundaries` and `build:patient-web` pass, and `npm test` passes in
+  full (from 138 files and 1819 tests on `main` to 140 files and 1837 tests).
+- **Not verified.** Component tests with the network stubbed. Nothing was run
+  in a browser, at runtime, on staging or against a live hid-system.
+- **Deploy order.** The admin console needs an Identity with hid-system#76,
+  and the encounter and vitals wording an EHR with hid-system#74: this portal
+  is to be deployed with or after hid-system `8f3eff1`.
+

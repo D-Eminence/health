@@ -84,21 +84,25 @@ describe('registered browser client', () => {
     const { client, fetchImpl } = harness('admin-web')
     await expect(client.get('/api/v1/ehr/patients/%2E%2E/encounters'))
       .rejects.toBeInstanceOf(BrowserRouteError)
-    await expect(client.get('/api/v1/admin/principals/export'))
+    await expect(client.post('/api/v1/admin/principals/export', { reason: 'Quarterly access review' }))
       .rejects.toMatchObject({ code: 'UNSUPPORTED_RESPONSE' })
     expect(fetchImpl).not.toHaveBeenCalled()
   })
 
-  it('sends the principal export only as a download that states its reason', async () => {
+  it('sends the principal search and export only as POSTs, so their terms and reason stay out of the URL', async () => {
     const { client, fetchImpl } = harness('admin-web')
-    await client.request({ method: 'GET', path: '/api/v1/admin/principals/export', responseType: 'download',
-      query: { reason: 'Quarterly access review' } })
-    expect(new URL(String(fetchImpl.mock.calls[0]?.[0])).searchParams.get('reason')).toBe('Quarterly access review')
-    await expect(client.request({ method: 'GET', path: '/api/v1/admin/principals/export', responseType: 'download' }))
-      .rejects.toMatchObject({ code: 'REQUIRED_QUERY' })
+    await client.post('/api/v1/admin/principals/search', { query: 'ada@example.test', page: 1, pageSize: 25 })
+    await client.request({ method: 'POST', path: '/api/v1/admin/principals/export', responseType: 'download',
+      body: { reason: 'Quarterly access review' } })
+    expect(fetchImpl.mock.calls.map(call => new URL(String(call[0])).search)).toEqual(['', ''])
+    // The deprecated GET forms carried the terms and the reason in the query string (hid-system A24).
+    await expect(client.get('/api/v1/admin/principals', { query: { query: 'ada@example.test' } }))
+      .rejects.toBeInstanceOf(BrowserRouteError)
+    await expect(client.request({ method: 'GET', path: '/api/v1/admin/principals/export', responseType: 'download',
+      query: { reason: 'Quarterly access review' } })).rejects.toMatchObject({ code: 'WRONG_METHOD' })
     await expect(client.request({ method: 'GET', path: '/api/v1/admin/overview', responseType: 'download' }))
       .rejects.toMatchObject({ code: 'UNSUPPORTED_RESPONSE' })
-    expect(fetchImpl).toHaveBeenCalledTimes(1)
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
   })
 
   it('gives platform administration its own sign-in routes and no staff session routes', async () => {
