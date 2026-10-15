@@ -1892,3 +1892,57 @@ could be approved.
   Against an Identity without it the queue says it is not deployed there.
   `clinician_signup_enabled` stays off until the release checklist's P25
   conditions hold; this queue was one of them.
+
+## 2026-10-15: clinician self sign-up, review fixes (hid-system ADR-064)
+
+The same branch (`claude/clinician-signup-pages`) after a review of its
+applicant pages and a re-check against hid-system's review fixes on
+`claude/clinician-self-signup` (`5dd639c` to `fc29731`, after the `fa58e2b`
+the pages and the queue were built on; still not merged or deployed).
+
+- **A changed password is a new submission** (`1464b59`). Identity's submit
+  digest leaves the password out, so a retry with the same key and another
+  password replayed the first submission and kept the first password. The
+  key now follows a SHA-256 digest of the password as well as the details
+  (only the digest is kept, in memory); a replayed answer says the
+  application was received from the earlier attempt, with the password
+  entered then.
+- **Recovery codes of a lost activation** (`81de3f9`). P7 is the only answer
+  with the ten recovery codes. When an activation went through but its
+  answer was lost, the retry's `409 CLINICIAN_APPLICATION_AUTHENTICATOR_READY`
+  now shows "Your authenticator is set up" and says the codes can't be shown
+  again, before the person goes on.
+- **Details changed during a facility search** (`c31d076`) are kept: every
+  change to the details is made to the current value, so a late search
+  answer no longer puts back the profession, licence, date or facility.
+- **Focus after a refusal that keeps the form** (`33d962c`): the cleared
+  password field (sign-up submit); the facility search, the licence number or
+  "Send application" (apply to another facility); the not-open screen's
+  heading, with why, when sign-up closes after the page opened.
+- **Close the page after sign-up** (`932cfde`). The last sign-up step says the
+  page stays open on this device for up to 30 minutes and offers "Close this
+  page" (P15), as the status page does.
+- **Status page** (`73f81c8`): a 401 after an outage on a first visit shows the
+  form with nothing said (the "closed after 30 minutes" notice is only for a
+  page that held a capability); Retry meeting the same failure says it again
+  and gives focus back to Retry; a failed close says so beside its own button.
+- **hid-system's review fixes** (`7387c94`): `403
+  CLINICIAN_APPLICATION_STAFF_SIGN_IN_REQUIRED` (a reset authenticator of an
+  approved clinician or staff member) gives Identity's fixed words at the
+  status code check (P11), activation (P7) and a new step (P9) instead of an
+  outage message; `403 CLINICIAN_APPLICATION_ACCOUNT_INELIGIBLE` on a read
+  (P12) or a withdrawal (P13) leaves for the email form saying the account
+  can't be used, with no Retry. The queue needed no change: no admin answer
+  changed shape, and step 1's concurrent replay and refusals before the code
+  are answers it already handles.
+- **Evidence.** Failing first per commit: 1 (`81de3f9`, two more tests cover
+  behaviour already there), 1 (`c31d076`), 13 (`33d962c`), 2 (`932cfde`), 4
+  (`73f81c8`, a fifth guards a case already right) and 6 (`7387c94`). At each
+  commit `audit:boundaries`, `typecheck`, `lint`, `npx vitest run`,
+  `build:patient-web` and `audit:launch-build` pass. Two full runs each had one
+  failure in a file this branch does not change (`FieldProblemsPerForm`,
+  registration; `StaffMfaRequired`, the facility switch's request order);
+  each passed alone three times and in the full rerun before the commit.
+  `npx vitest run`: 157 files and 2191 tests (2157 after the queue).
+- **Not verified.** As before: no browser, no running Identity, no
+  two-administrator run.

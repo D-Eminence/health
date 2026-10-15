@@ -478,6 +478,15 @@ rejection shows the applicant come from the status page's own copy
 (`decisionCopy` in `staff/clinician/copy.ts`), so the console and the
 applicant read the same sentence.
 
+The clinician pages make every change to the application details to the
+current value (a state updater), so an answer that arrives late, such as a
+facility search, never puts back what was changed while it ran. The status
+page says an application page "closed" only once it has held a capability
+(an email code was checked or the applications were read); a 401 before that
+just shows the email form. A refusal that keeps a form moves focus to the
+control that can deal with it, since the one pressed was disabled while the
+request ran.
+
 Clinical responses use `cache: 'no-store'`; screens show loading, empty and
 error states for backend reads. `@hid/observability` handles redaction for
 diagnostics. Public variables are checked for secret-like names and values at
