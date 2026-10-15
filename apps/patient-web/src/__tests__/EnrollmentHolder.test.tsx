@@ -251,14 +251,30 @@ describe('the NIN holder step: the code texted to the phone on the NIN record', 
     expect(sent.filter(request => request.path.startsWith('/auth/') && request.path !== '/auth/google/onboarding')).toEqual([])
   })
 
-  it('leads to the facility on 409 NIN_HOLDER_PROOF_CONFLICT after a code', async () => {
-    renderPortal(<Enrollment />, gateway({ post: { ...sending,
+  /**
+   * hid-system 0094 answers 'facility_conflict' only when another registration
+   * of this NIN was already checked in person (holder_method facility_in_person,
+   * at verify_contact or set_password, unexpired); a desk code still waiting is
+   * replaced by the phone proof. That registration is finished on the phone used
+   * at the facility. A desk code for this one would only cost a second check,
+   * which deletes the one already done.
+   */
+  it('says on 409 NIN_HOLDER_PROOF_CONFLICT that the NIN was already checked in person, and stays at the choice without a desk code', async () => {
+    const { sent } = renderPortal(<Enrollment />, gateway({ post: { ...sending,
       'holder/verify': () => problem(409, 'NIN_HOLDER_PROOF_CONFLICT', 'Registration for this NIN is in progress at a facility.') } }), anonymous)
     await toCode()
     await enterCode()
-    const heading = await screen.findByRole('heading', { level: 2, name: 'Register at a healthcare facility' })
-    expect((await screen.findByRole('alert')).textContent).toBe('Registration for this NIN is in progress at a facility. Finish it there: show your desk code to the staff member.')
+    const heading = await choice()
+    expect((await screen.findByRole('alert')).textContent).toBe('This NIN was already checked in person at a facility, in another registration. Finish that registration on the phone used at the facility: add a contact and choose a password there. Only if you can\'t, register at a facility and be checked again.')
     await waitFor(() => expect(document.activeElement).toBe(heading))
+    expect(screen.queryByRole('heading', { level: 2, name: 'Register at a healthcare facility' })).toBeNull()
+    expect(document.body.textContent).not.toMatch(/desk code/)
+    // A text message code can't help while that registration is open.
+    const online = screen.getByRole('region', { name: 'Get a code by text message' })
+    expect(within(online).queryByRole('button')).toBeNull()
+    expect(online.textContent).toContain('A code by text message can\'t prove this NIN while the registration checked at a facility is open.')
+    expect(screen.getByRole('button', { name: 'Register at a facility' })).toBeTruthy()
+    expect(sentTo(sent, 'facility-code')).toEqual([])
   })
 
   it.each([

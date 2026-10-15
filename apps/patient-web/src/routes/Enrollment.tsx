@@ -53,8 +53,19 @@ const HOLDER_CODE_REFUSED = 'That code is wrong or has expired. Check the latest
 const HOLDER_LIMITED = 'This NIN can\'t be proved by a text message code now. Use a participating facility to register.'
 /** 503 OTP_DELIVERY_UNAVAILABLE: the provider refused the text, which still counts as one of the codes. */
 const DELIVERY_FAILED = 'We couldn\'t send the code just now. Try again later, or register at a participating facility. Each try counts toward this registration\'s 3 codes.'
-/** 409 NIN_HOLDER_PROOF_CONFLICT: an in-person proof of this NIN is open at a facility. */
-const PROOF_AT_FACILITY = 'Registration for this NIN is in progress at a facility. Finish it there: show your desk code to the staff member.'
+/**
+ * 409 NIN_HOLDER_PROOF_CONFLICT after a correct code: another registration of
+ * this NIN was already checked in person and waits for its contact and
+ * password (hid-system 0094 record_public_patient_holder_proof answers
+ * 'facility_conflict' only for one at verify_contact or set_password,
+ * unexpired; a desk code still waiting is simply replaced). It is finished on
+ * the phone used at the facility. This registration has no desk code, and a
+ * second in-person check would delete the one already done, so the page stays
+ * at the choice and the facility is the fallback only.
+ */
+const PROOF_CHECKED_IN_PERSON = 'This NIN was already checked in person at a facility, in another registration. Finish that registration on the phone used at the facility: add a contact and choose a password there. Only if you can\'t, register at a facility and be checked again.'
+/** Why no code can be texted while that registration is open: each would be refused the same way. */
+const ONLINE_WHILE_CHECKED = 'A code by text message can\'t prove this NIN while the registration checked at a facility is open.'
 /** "I have been checked" found the facility route closed (no facility takes part, or the flag is off). */
 const FACILITY_CLOSED = 'Registration at a facility is not available now, so no check can be recorded. Try again later, or get a code by text message if you can.'
 /** GET .../current at verify_contact after "I have been checked". */
@@ -436,7 +447,10 @@ export function Enrollment() {
       return
     }
     if (refusedWith(reason, 503, 'OTP_DELIVERY_UNAVAILABLE')) { setStage('holder'); sayError(DELIVERY_FAILED); return }
-    if (refusedWith(reason, 409, 'NIN_HOLDER_PROOF_CONFLICT')) { setCode(''); setStage('facility'); sayError(PROOF_AT_FACILITY); return }
+    if (refusedWith(reason, 409, 'NIN_HOLDER_PROOF_CONFLICT')) {
+      setOnlineRefusal(ONLINE_WHILE_CHECKED); setHolderChallenge(null); setCode(''); setStage('holder'); sayError(PROOF_CHECKED_IN_PERSON)
+      return
+    }
     if (temporarilyUnavailable(reason)) return sayError(STEP_UNAVAILABLE)
     displayError(reason, fromField)
   }
