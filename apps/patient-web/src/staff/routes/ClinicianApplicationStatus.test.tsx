@@ -234,6 +234,32 @@ describe('the email code and the authenticator', () => {
     expect(textbox('Work email').value).toBe('ada@example.test')
   })
 
+  it.each([
+    ['an application HID is reviewing', [view()],
+      "Your account has no authenticator app set up. HID can't go on with your applications until you set one up."],
+    ['only closed applications', [view({ state: 'withdrawn', canWithdraw: false })], 'Your account has no authenticator app set up.'],
+  ])('offers to set up the authenticator from the list when the account needs one and no application waits for it (%s)',
+    async (_case, applications, copy) => {
+      // An authenticator reset after submitting, or applications closed while they waited for one: none shows the card's button.
+      await listShown(account({ stage: 'enrolment_required', canApply: false,
+        applyRefusal: 'CLINICIAN_APPLICATION_AUTHENTICATOR_REQUIRED', applications }))
+      expect(screen.getByText(copy)).toBeTruthy()
+      expect(screen.getByText('Set up your authenticator before applying to another facility.')).toBeTruthy()
+      expect(screen.getAllByRole('button', { name: 'Set up authenticator' })).toHaveLength(1)
+      press('Set up authenticator')
+      await headingFocused('Set up your authenticator')
+      press('Email me a code')
+      await headingFocused('Enter the code we emailed you')
+    })
+
+  it('offers one way to set up the authenticator when an application waits for it', async () => {
+    await listShown(account({ stage: 'enrolment_required', canApply: false, applyRefusal: 'CLINICIAN_APPLICATION_AUTHENTICATOR_REQUIRED',
+      applications: [view({ state: 'awaiting_authenticator' }), view({ applicationId: 'a2', facility: { id: OTHER.facilityId, name: OTHER.name } })] }))
+    expect(within(article(FACILITY.name)).getByRole('button', { name: 'Set up authenticator' })).toBeTruthy()
+    expect(screen.getAllByRole('button', { name: 'Set up authenticator' })).toHaveLength(1)
+    expect(screen.queryByText(/Your account has no authenticator app set up/)).toBeNull()
+  })
+
   it('clears a wrong code and says so', async () => {
     api.verifyStatusCode.mockRejectedValueOnce(problem(401, 'CLINICIAN_APPLICATION_CODE_INVALID'))
     await throughEmail()

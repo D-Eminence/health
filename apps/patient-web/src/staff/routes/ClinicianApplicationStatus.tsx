@@ -258,6 +258,14 @@ function StatusPage() {
       <StepError error={listError} />
       <TextButton id={LIST_RETRY} onClick={() => void retry(true)} disabled={busy !== null}>{busy === 'reload' ? 'Loading…' : 'Retry'}</TextButton>
     </div>}
+    {/* The account has no authenticator (reset, or its waiting applications closed) and no card offers to set one up. */}
+    {view.stage === 'enrolment_required' && !view.applications.some(application => application.state === 'awaiting_authenticator') &&
+      <div className="clinician-panel">
+        <p className="patient-page-copy">Your account has no authenticator app set up.
+          {view.applications.some(application => OPEN_STATES.has(application.state))
+            ? " HID can't go on with your applications until you set one up." : ''}</p>
+        <div><PrimaryButton onClick={() => toAuthenticator('enrol')}>Set up authenticator</PrimaryButton></div>
+      </div>}
     {view.applications.length === 0 && <p className="patient-page-copy">There are no applications for this address.</p>}
     <ul className="clinician-applications">
       {view.applications.map(application => <li key={application.applicationId}>
