@@ -459,7 +459,7 @@ export function SettingsPage() {
       {profile.data.accessPinConfigured && <button ref={revokePinButton} type="button" className="patient-secondary-button" disabled={busy || profile.loading} onClick={() => void revokePin()}>Revoke Access PIN</button>}
     </div>}
     <EmergencyContactsCard />
-    {googleClientId() && <div className="patient-card"><h2>Link a Google account</h2><p className="patient-field-hint">Confirm your existing Health ID credentials before linking.</p>
+    {import.meta.env.VITE_HID_GOOGLE_CLIENT_ID && googleClientId() && <div className="patient-card"><h2>Link a Google account</h2><p className="patient-field-hint">Confirm your existing Health ID credentials before linking.</p>
       <div className="patient-form"><label>Email or Health ID<input autoComplete="username" value={googlePrincipal} onChange={event => setGooglePrincipal(event.target.value)} /></label>
         {/* No form is sent here (Google's button sends it), so each attempt remounts the field masked. */}
         <div className="patient-field"><label htmlFor="google-link-password">Current password</label><PasswordInput appearance="plain" key={googleReset} id="google-link-password" autoComplete="current-password" value={googlePassword} onChange={event => setGooglePassword(event.target.value)} /></div>

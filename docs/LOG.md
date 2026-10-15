@@ -1458,3 +1458,28 @@ audits, each checked by a second agent, came first.
   - `npm audit`: 0 vulnerabilities.
 - **Not verified.** Firefox, Safari and iOS, screen readers, installation on a
   real device, and anything deployed or against a live hid-system.
+
+## 2026-10-15: Google's script loader left out of a build without a client ID
+
+A review against hid-system `main` `94889fd` found that this branch's portal
+build kept Google Identity Services (`accounts.google.com/gsi/client`,
+`google.accounts.id`) with no `VITE_HID_GOOGLE_CLIENT_ID`. The branch had
+moved the Google check into `googleClient()`, a function the bundler cannot
+fold, so `GoogleButton` and its loader stayed in the bundle. hid-system's
+staging step (`infra/cloudflare/scripts/health-id-artifact.mjs`) refuses any
+build that carries them, and Google sign-in is off at launch.
+
+- Each condition that renders `GoogleButton` (sign-in, enrollment, the Settings
+  link card) tests `import.meta.env.VITE_HID_GOOGLE_CLIENT_ID` inline as well,
+  as `main` did. A blank ID still counts as none at run time.
+- **Evidence.** Failing first: the build without a client ID carried the loader
+  in `assets/index-CzvMHzDs.js` (the rules of Health-id #55's
+  `audit:launch-build`, Google only). After the change it carries none, and a
+  build with a client ID still carries it. Gates: `typecheck`, `lint`,
+  `audit:boundaries`, `npm test` (147 files, 1878 tests) and
+  `build:patient-web` pass.
+- **Still refused by staging.** This branch's build also contains
+  `service-worker.js`, `health-id.webmanifest` and `icons/`, which the staging
+  step refuses (ADR-052: the portal registers no service worker and is not
+  installable). The PWA part waits on the owner's decision and that hid-system
+  change (D6), as recorded above.

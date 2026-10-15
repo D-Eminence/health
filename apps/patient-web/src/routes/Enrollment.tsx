@@ -315,7 +315,7 @@ export function Enrollment() {
       {googleOffered && stage === 'nin' && !googleChosen && <section className="patient-auth-separator" aria-label="Google enrollment">
         <button type="button" className="patient-secondary-button" disabled={busy} onClick={chooseGoogle}>{googleRequired ? 'Reconnect Google' : 'Continue with Google'}</button>
       </section>}
-      {googleOffered && (stage !== 'nin' || googleChosen) && <section className="patient-auth-separator" aria-label="Google enrollment">
+      {import.meta.env.VITE_HID_GOOGLE_CLIENT_ID && googleOffered && (stage !== 'nin' || googleChosen) && <section className="patient-auth-separator" aria-label="Google enrollment">
         {/* On the NIN step, the chosen path's start is also where the step's focus goes (useStepFocus). */}
         <span ref={element => { googleHeading.current = element; if (element && stage === 'nin') stepFocus.target(element) }} tabIndex={-1}>{googleRequired ? 'Reconnect Google' : 'Continue with Google'}</span>
         {stage === 'nin' && <p className="patient-field-hint">You will still verify your NIN after Google confirms your account, unless that Google account already has a Health ID.</p>}
