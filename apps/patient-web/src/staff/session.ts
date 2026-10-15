@@ -1,5 +1,5 @@
 import { HidApiError, isHidApiError } from '@hid/http'
-import { announceToListeningTabs, onOtherTabSessionChange } from '../sessionChange'
+import { announceSessionChange, onOtherTabSessionChange } from '../sessionChange'
 import type { StaffSession } from './api'
 
 /**
@@ -125,13 +125,15 @@ export function assertStaffSessionFacility(headers: Readonly<Record<string, stri
  * The origin's other tabs share this tab's cookies. Each tells the others when
  * its session changes (a staff or patient sign-in, a sign-out, a session end),
  * naming nothing; a tab that hears it asks the server itself. This tab announces
- * on the channel it listens with, since a channel never hears its own messages.
- * The channel is shared with the patient portal's code (../sessionChange).
+ * on the channel it listens with, since a channel never hears its own messages;
+ * a page that does not listen (provider enrollment, outside the workspace)
+ * announces on a channel opened for the message. The channel is shared with the
+ * patient portal's code (../sessionChange).
  */
 export { onOtherTabSessionChange }
 
 export function announceStaffSessionChange(): void {
-  announceToListeningTabs()
+  announceSessionChange()
 }
 
 /** Calls `listener` each time a request sent in `generation` is refused as if the session had ended. */

@@ -48,7 +48,8 @@ const ENROLLMENT_MFA_LOOK: StaffMfaLook = {
 
 /**
  * The staff API's sign-in steps, outside the provider workspace. Verify and
- * activation set the session cookies, so the other tabs are told at once; the
+ * activation set the session cookies, so the other tabs are told at once (this
+ * page does not listen, so the announcement goes on a channel of its own); the
  * page then reloads into the workspace, which reads the session.
  */
 const ENROLLMENT_MFA_CALLS: StaffMfaCalls = {
@@ -157,6 +158,8 @@ export function ProviderEnrollment() {
         setBusy(false)
         return
       }
+      // An older Identity's activation answered with the session, which the browser now holds: the other tabs are told.
+      announceStaffSessionChange()
       openWorkspace()
     } catch (reason) {
       setError(errorMessage(reason))

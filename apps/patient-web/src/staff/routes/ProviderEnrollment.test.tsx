@@ -11,14 +11,30 @@ import { ProviderEnrollment } from './ProviderEnrollment'
  */
 const api = vi.hoisted(() => ({ start: vi.fn(), verify: vi.fn(), activate: vi.fn() }))
 const staff = vi.hoisted(() => ({ verifyMfa: vi.fn(), sendEnrollmentCode: vi.fn(), startEnrollment: vi.fn(), activateEnrollment: vi.fn() }))
-const tabs = vi.hoisted(() => ({ announceStaffSessionChange: vi.fn() }))
 vi.mock('../api', () => ({ providerEnrollmentApi: api, staffApi: staff }))
-vi.mock('../session', () => tabs)
 vi.mock('../../env', () => ({ getEnvironment: () => ({ name: 'local', turnstileSiteKey: null,
   apiBaseUrl: 'https://gateway.example.test', appOrigin: 'http://localhost:3200' }) }))
 
+/**
+ * The portal's other tabs, as BroadcastChannel would connect them; `posted` is what this tab told them,
+ * on which channel. The announcer is the real one: this page is outside the provider workspace and the
+ * patient portal, so nothing on it listens, and it must still tell the tabs that do.
+ */
+class TabChannel extends EventTarget {
+  static posted: Array<{ name: string; message: unknown }> = []
+  static open = new Set<TabChannel>()
+  constructor(readonly name: string) { super(); TabChannel.open.add(this) }
+  postMessage(message: unknown) { TabChannel.posted.push({ name: this.name, message }) }
+  close() { TabChannel.open.delete(this) }
+}
+/** What the provider workspace and the patient portal listen for. */
+const TOLD = { name: 'hid-session-change', message: 'changed' }
+
 beforeEach(() => {
   vi.clearAllMocks()
+  TabChannel.posted = []
+  TabChannel.open.clear()
+  vi.stubGlobal('BroadcastChannel', TabChannel)
   api.start.mockResolvedValue({ accepted: true, challengeId: 'challenge-1' })
   api.verify.mockResolvedValue({ verified: true })
 })
@@ -101,6 +117,9 @@ describe('provider enrollment', () => {
 
     expect(await screen.findByRole('heading', { name: 'Provider workspace' })).toBeTruthy()
     expect(api.activate).toHaveBeenCalledWith('a-long-enough-password')
+    // The browser holds the session the activation answered with: the other tabs are told.
+    expect(TabChannel.posted).toEqual([TOLD])
+    expect(TabChannel.open.size).toBe(0)
     expect(reload).toHaveBeenCalledTimes(1)
   })
 })
@@ -144,6 +163,7 @@ describe('provider enrollment activation, then the authenticator (hid-system #71
     // Activation is not a sign-in: nothing opens until the authenticator is set up.
     expect(reload).not.toHaveBeenCalled()
     expect(screen.queryByRole('heading', { name: 'Provider workspace' })).toBeNull()
+    expect(TabChannel.posted).toEqual([])
     fireEvent.click(screen.getByRole('button', { name: 'Begin setup' }))
 
     await stepShown('Add Health ID to your authenticator app')
@@ -157,13 +177,16 @@ describe('provider enrollment activation, then the authenticator (hid-system #71
 
     await stepShown('Save your recovery codes')
     expect(staff.activateEnrollment).toHaveBeenCalledWith('123456')
-    // The browser holds the session now: the other tabs are told at once.
-    expect(tabs.announceStaffSessionChange).toHaveBeenCalledTimes(1)
+    // The browser holds the session now: the other tabs are told at once, though nothing on this page listens,
+    // on a channel opened for the message and closed again.
+    expect(TabChannel.posted).toEqual([TOLD])
+    expect(TabChannel.open.size).toBe(0)
     expect(reload).not.toHaveBeenCalled()
     fireEvent.click(screen.getByLabelText('I have stored these recovery codes somewhere safe'))
     fireEvent.click(screen.getByRole('button', { name: 'Continue to the Provider Portal' }))
 
     expect(await screen.findByRole('heading', { name: 'Provider workspace' })).toBeTruthy()
+    expect(TabChannel.posted).toEqual([TOLD])
     expect(reload).toHaveBeenCalledTimes(1)
   })
 
@@ -173,12 +196,14 @@ describe('provider enrollment activation, then the authenticator (hid-system #71
 
     await stepShown('Verify it’s you')
     expect(screen.queryByRole('button', { name: 'Start again' })).toBeNull()
+    expect(TabChannel.posted).toEqual([])
     fireEvent.change(screen.getByRole('textbox', { name: 'Authenticator code' }), { target: { value: '123456' } })
     fireEvent.click(screen.getByRole('button', { name: 'Verify' }))
 
     expect(await screen.findByRole('heading', { name: 'Provider workspace' })).toBeTruthy()
     expect(staff.verifyMfa).toHaveBeenCalledWith({ code: '123456' })
-    expect(tabs.announceStaffSessionChange).toHaveBeenCalledTimes(1)
+    expect(TabChannel.posted).toEqual([TOLD])
+    expect(TabChannel.open.size).toBe(0)
     expect(reload).toHaveBeenCalledTimes(1)
   })
 
@@ -193,5 +218,7 @@ describe('provider enrollment activation, then the authenticator (hid-system #71
     expect(screen.getByText(/^Your provider account is active\. Sign in with your administrator email/)).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Sign in to the Provider Portal' }).getAttribute('href')).toBe('/provider/sign-in')
     expect(reload).not.toHaveBeenCalled()
+    // No session was set.
+    expect(TabChannel.posted).toEqual([])
   })
 })
