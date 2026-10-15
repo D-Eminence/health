@@ -195,7 +195,8 @@ export function Enrollment() {
   const [errorAlert, setErrorAlert] = useState(true)
   // What a refusal at the code or password step may mean, said under that step.
   const [stepHint, setStepHint] = useState<'code' | 'activation' | null>(null)
-  // A step done that is not an error, said once (role status): the facility's check recorded.
+  // A step done that is not an error, said once (role status): the facility's check recorded. Focus
+  // moves to the contact field as it is set, so that field is described by it too.
   const [notice, setNotice] = useState<string | null>(null)
   // The holder step (ADR-062, ADR-063): what Identity last said of each route, in page state only.
   const [online, setOnline] = useState<EnrollmentOnlineRoute>(NO_ONLINE)
@@ -712,7 +713,8 @@ export function Enrollment() {
         <button type="button" className="patient-secondary-button" onClick={() => { retriedCheck.current = true; retrySessionCheck(); setCheckKey(value => value + 1) }}>Check again</button>
       </div>}
       {error && <p id="enroll-error" role={errorAlert ? 'alert' : undefined} className="patient-inline-error">{error === ENDED_HERE && registration !== 'open' ? ENDED : error}</p>}
-      {notice && <p role="status" className="patient-inline-success">{notice}</p>}
+      {/* Kept mounted, so a notice set with a step change is a change of a live region, not a new one. */}
+      <div role="status">{notice && <p id="enroll-notice" className="patient-inline-success">{notice}</p>}</div>
       {/* Not at a NIN step that offers no start, where Google is not offered either. */}
       {googleRequired && !googlePending && startOffered && <p role="status" className="patient-inline-error">Reconnect the Google account used to start this enrollment.</p>}
       {ready && stage === 'nin' && registration === 'unknown' && <div className="patient-inline-error" role="alert"><p>We could not check whether new Health ID registration is open. Try again before starting.</p><button ref={retryInPlaceOfNin} type="button" className="patient-secondary-button" onClick={() => { retriedCheck.current = true; setCheckKey(value => value + 1) }}>Try again</button></div>}
@@ -735,7 +737,7 @@ export function Enrollment() {
       {ready && stage === 'registration_ended' && <RegistrationEnded focusTarget={stepFocus.target} onStartAgain={againAtNin} />}
       {ready && stage === 'registration_completed' && <RegistrationCompleted focusTarget={stepFocus.target} />}
       {ready && stage === 'contact' && <ContactStep {...stepProps} channel={channel} onChannel={setChannel} contact={contact} onContact={setContact}
-        onSubmit={event => void submitContact(event)} />}
+        onSubmit={event => void submitContact(event)} noticeId={notice ? 'enroll-notice' : undefined} />}
       {ready && stage === 'otp' && <ContactCodeStep {...stepProps} maskedContact={maskedContact} code={code} onCode={setCode} onSubmit={event => void submitCode(event)}
         onAnotherCode={() => { setCode(''); setChallengeId(null); setStepHint(null); clearError(); setStage('contact'); stepFocus.focus() }}
         budgetNote={stepHint === 'code'} />}

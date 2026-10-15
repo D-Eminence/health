@@ -1,4 +1,5 @@
 import type { FormEvent } from 'react'
+import { describedBy } from '../../authSteps'
 import type { StepProps } from './stepProps'
 
 interface ContactStepProps extends StepProps {
@@ -7,15 +8,17 @@ interface ContactStepProps extends StepProps {
   contact: string
   onContact: (contact: string) => void
   onSubmit: (event: FormEvent) => void
+  /** The page's notice that led here (the facility's check recorded), read when focus lands on the field. */
+  noticeId?: string
 }
 
 /** The contact Identity sends a code to, which becomes the account's. */
-export function ContactStep({ focusTarget, busy, invalid, errorId, channel, onChannel, contact, onContact, onSubmit }: ContactStepProps) {
+export function ContactStep({ focusTarget, busy, invalid, errorId, channel, onChannel, contact, onContact, onSubmit, noticeId }: ContactStepProps) {
   return <form onSubmit={onSubmit} className="patient-form">
     <h2>Where should we send your code?</h2>
     <label>Contact method<select value={channel} onChange={event => onChannel(event.target.value as 'phone' | 'email')}><option value="phone">Phone</option><option value="email">Email</option></select></label>
     <label>{channel === 'phone' ? 'Phone number' : 'Email address'}<input ref={focusTarget} required type={channel === 'phone' ? 'tel' : 'email'} autoComplete={channel === 'phone' ? 'tel' : 'email'} value={contact} onChange={event => onContact(event.target.value)}
-      aria-invalid={invalid} aria-describedby={errorId} /></label>
+      aria-invalid={invalid} aria-describedby={describedBy(noticeId, errorId)} /></label>
     <button type="submit" className="patient-primary-button" disabled={busy}>{busy ? 'Sending…' : 'Send verification code'}</button>
   </form>
 }

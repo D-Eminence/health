@@ -320,3 +320,33 @@ describe('the facility stage when the enrollment cookie is lost', () => {
     expect(keys[1]).toBe(keys[0])
   })
 })
+
+/**
+ * A live region inserted with its text already in it is often not read, and
+ * focus moving to the contact field at the same time speaks over it. The
+ * page's notice region stays mounted and its text changes, as the portal's
+ * other notices do; the contact field is also described by it, so the
+ * confirmation is read where focus lands.
+ */
+describe('the facility check confirmation', () => {
+  it('is said in a status region already on the page, and describes the contact field focus moves to', async () => {
+    let current = () => json(withCode())
+    renderPortal(<Enrollment />, gateway({ current: () => current(),
+      post: { contact: () => json({ challengeId: 'contact-challenge', expiresInSeconds: 600, resendAfterSeconds: 60 }) } }), anonymous)
+    await screen.findByRole('heading', { name: 'Your desk code' })
+    const regions = screen.getAllByRole('status')
+    current = () => json({ stage: 'verify_contact', expiresAt: '2026-10-16T10:00:00.000Z', googleOnboardingRequired: false, requiredProfileFields: [] })
+    await press(screen.getByRole('button', { name: 'I have been checked' }))
+    const contact = await screen.findByLabelText('Phone number')
+    await waitFor(() => expect(document.activeElement).toBe(contact))
+    const text = 'Your identity was checked at the facility. Now add a contact we can send a code to.'
+    const region = screen.getByText(text).closest('[role="status"]')
+    expect(regions).toContain(region)
+    expect(described(contact)).toContain(text)
+    // Said once: the next step clears it.
+    fireEvent.change(contact, { target: { value: '+2348000000000' } })
+    await press(screen.getByRole('button', { name: 'Send verification code' }))
+    await screen.findByLabelText('Verification code')
+    expect(screen.queryByText(text)).toBeNull()
+  })
+})
