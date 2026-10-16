@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { Clinical } from '../Clinical'
@@ -27,7 +27,10 @@ beforeEach(() => {
   fixture.api.encounters.mockResolvedValue({ items: [], nextCursor: null })
   fixture.api.consentStatus.mockResolvedValue({ readAllowed: true, writeAllowed: false })
   fixture.api.importedRecords.mockResolvedValue({ importedRecords: historyFixture, limit: 50 })
+  // A build for a backend that serves imported records; hid-system main does not (StagingOnlyClinicalFeatures.test.tsx).
+  vi.stubEnv('VITE_HID_IMPORTED_RECORDS_ENABLED', 'true')
 })
+afterEach(() => { vi.unstubAllEnvs() })
 describe('hospital record screen', () => {
   it('shows imported history when this facility has no encounter for the patient', async () => {
     render(<MemoryRouter><Clinical /></MemoryRouter>)
