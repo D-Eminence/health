@@ -2604,3 +2604,20 @@ build that carries them, and Google sign-in is off at launch.
   step refuses (ADR-052: the portal registers no service worker and is not
   installable). The PWA part waits on the owner's decision and that hid-system
   change (D6), as recorded above.
+
+## 2026-10-16: Clinician sign-up references follow hid-system's renumber (ADR-066)
+
+hid-system `main` `60b4d12` merged #90 (migration 0095, ADR-064: Novu receives
+the patient's verified email) and #91 (0096, ADR-065: patient record release).
+The clinician sign-up backend, D-Eminence/hid-system#87, was renumbered on top:
+migration `0098_clinician_self_signup.sql`, decision record ADR-066, release
+row P37 and staging row S4z. Its routes and answers did not change.
+
+- Every Health-id reference to the clinician decision record now says ADR-066
+  (code comments, tests, the console's "no clinician queue" message, and the
+  docs other than this log's history). ADR-064 now names hid-system's Novu
+  change, so the old references would have pointed at the wrong record.
+- The clinician control note names 0098, and the test reasons name P37.
+- OPEN-QUESTIONS and BACKEND_OWNER_HANDOFF §12 record that #87 is pushed and
+  open, not merged or deployed.
+- No behaviour changed: only text and comments.

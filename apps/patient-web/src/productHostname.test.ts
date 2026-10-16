@@ -181,7 +181,7 @@ describe('staffRecoveryHref', () => {
 })
 
 /**
- * Clinician self sign-up (hid-system ADR-064) is checked by Turnstile actions
+ * Clinician self sign-up (hid-system ADR-066) is checked by Turnstile actions
  * hid-system accepts only on the main site, as the staff password reset is.
  */
 describe('clinicianMainSiteHref', () => {

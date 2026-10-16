@@ -258,7 +258,7 @@ describe('platform admin API', () => {
     for (const request of requests) expect(request.url.search).toBe('')
   })
 
-  // hid-system ADR-064 (branch claude/clinician-self-signup at fa58e2b): the verification queue A1-A5.
+  // hid-system ADR-066 (branch claude/clinician-self-signup at fa58e2b): the verification queue A1-A5.
   it('lists and opens clinician applications with the state, cursor and limit the backend takes', async () => {
     const item = { applicationId: '0f2b6d0e-6a55-4b4c-9a7e-2f4b8c1d3e5a', version: 3 }
     const requests = recordFetch([json({ items: [item], nextCursor: 'next-page' }), json({ items: [] }),

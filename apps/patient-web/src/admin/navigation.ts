@@ -42,7 +42,7 @@ export const NAVIGATION: readonly NavigationSection[] = [
       description: 'Two-person Super Admin grants and authenticator resets.' },
     { path: '/admin/reviews', title: 'Identity review', visible: can('platform.identity-review.read'),
       description: 'Registration cases that need identity oversight.' },
-    // hid-system ADR-064: every route of the queue needs platform.workforce.manage.
+    // hid-system ADR-066: every route of the queue needs platform.workforce.manage.
     { path: '/admin/clinicians', title: 'Clinician applications', visible: can('platform.workforce.manage'),
       description: 'Doctors and nurses who applied by themselves: one Super Admin verifies, then a second Super Admin approves.' },
   ] },

@@ -293,7 +293,7 @@ export function ProviderEnrollment() {
 
         {stage === 'sign-in' && <SignInToFinish reason={signInReason} />}
 
-        {/* Clinician self sign-up (hid-system ADR-064): a doctor or nurse applies with their own account, not this one. */}
+        {/* Clinician self sign-up (hid-system ADR-066): a doctor or nurse applies with their own account, not this one. */}
         <p className="patient-auth-footer">Provider enrollment sets up a facility and its administrator's account, which can't also hold a
           clinical role there: doctors and nurses apply with their own email address.</p>
         <ClinicianSignUpEntry className="patient-auth-footer" />

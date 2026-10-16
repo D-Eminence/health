@@ -6,7 +6,7 @@ import { ClinicianApplicationStatus } from './ClinicianApplicationStatus'
 
 /**
  * The clinician application status page at /provider/join/status (hid-system
- * ADR-064, P10-P15): an emailed code, then the applicant's authenticator (or
+ * ADR-066, P10-P15): an emailed code, then the applicant's authenticator (or
  * its setup), then the applications in fixed words, with withdraw, apply to
  * another facility and close. It never signs anyone in to the provider portal,
  * and an outage never sends the person back to the email step.

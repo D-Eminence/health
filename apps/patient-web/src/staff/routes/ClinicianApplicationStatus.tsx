@@ -16,7 +16,7 @@ import { ClinicianFrame, ErrorSummary, MainSiteOnly, PrimaryButton, StepError, S
 
 /**
  * The clinician application status page at /provider/join/status (hid-system
- * ADR-064, P10-P15). The applicant proves the email address with a code, then
+ * ADR-066, P10-P15). The applicant proves the email address with a code, then
  * their authenticator (or sets it up), and sees each application in fixed
  * words; they can withdraw one, apply to another facility, or close the page.
  * Nothing here signs anyone in to the provider portal: the capability

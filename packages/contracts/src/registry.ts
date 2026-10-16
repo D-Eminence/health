@@ -144,7 +144,7 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     'Accountless; verifies the emailed code and sets the enrollment cookie.'),
   r('enrollment.providerActivate','enrollment','/api/v1/identity/provider-enrollments/activate',P,true,undefined,
     'Accountless; uses the enrollment cookie. Since hid-system #71 returns an MFA status, not a session.'),
-  // Clinician self sign-up and its status page (hid-system ADR-064, branch
+  // Clinician self sign-up and its status page (hid-system ADR-066, branch
   // claude/clinician-self-signup at fa58e2b, re-checked at 9e981e4, and P3's
   // search limit at 1d6ff6f; not merged). Every route needs
   // Origin and no CSRF or session; after the email code the browser holds only
@@ -343,7 +343,7 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     one('POST','platform.mfa.reset')),
   r('admin.approvalDecision','admin','/api/v1/admin/approvals/:requestId/:decision',P,false,one('POST','platform.admin.access'),
     'decision is approve, reject or cancel. The backend decides who may decide.'),
-  // Clinician self sign-up review (hid-system ADR-064, branch claude/clinician-self-signup at fa58e2b, not
+  // Clinician self sign-up review (hid-system ADR-066, branch claude/clinician-self-signup at fa58e2b, not
   // merged): the verification queue. Step 1 and step 2 are made by two different Super Admins, neither of
   // whom works at the facility; each command needs step-up, If-Match, an Idempotency-Key and a reason.
   r('admin.clinicianApplications','admin','/api/v1/admin/clinician-applications',G,false,one('GET','platform.workforce.manage'),

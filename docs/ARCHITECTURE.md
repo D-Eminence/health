@@ -386,7 +386,7 @@ Identity refuses (`403 GOOGLE_STAFF_SIGN_IN_DISABLED`). The platform console's
 setup-key grouping, six-digit code rules and recovery-code step are shared
 from `src/mfa/`, and file saving from `src/download.ts`.
 
-Clinician self sign-up (hid-system ADR-064, built against the unmerged backend
+Clinician self sign-up (hid-system ADR-066, built against the unmerged backend
 branch `claude/clinician-self-signup` at `fa58e2b`, re-checked at `9e981e4`,
 and at `1d6ff6f` for the facility search's limit) has two public pages, `/provider/join` and `/provider/join/status`, routed
 before `/provider/*` and
@@ -589,7 +589,7 @@ transport and row headers. An Identity without hid-system#76 answers both
 `404`, so the console is deployed with or after it.
 
 The console's clinician verification queue (`/admin/clinicians`,
-`admin/ClinicianApplications.tsx`; hid-system ADR-064, built against the
+`admin/ClinicianApplications.tsx`; hid-system ADR-066, built against the
 unmerged branch `claude/clinician-self-signup` at `fa58e2b`, re-checked at
 `9e981e4`) is shown for
 `platform.workforce.manage` and links an application by its ID only. It uses

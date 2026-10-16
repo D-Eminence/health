@@ -58,7 +58,7 @@ beforeEach(() => {
   calls.patientEnrollmentCurrent.mockRejectedValue(new HidApiError(404, 'No enrollment'))
   calls.patientGoogleOnboarding.mockRejectedValue(new HidApiError(404, 'No Google onboarding'))
   calls.patientEnrollmentAvailability.mockResolvedValue({ open: true })
-  // Provider sign-in asks whether clinician self sign-up is open (hid-system ADR-064).
+  // Provider sign-in asks whether clinician self sign-up is open (hid-system ADR-066).
   clinician.availability.mockResolvedValue({ open: false })
   calls.patientParticipatingFacilities.mockResolvedValue({ facilities: [], whatToBring: ['Your own phone with this registration open'] })
   calls.staffSession.mockRejectedValue(signedOut)

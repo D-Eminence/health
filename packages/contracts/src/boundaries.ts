@@ -137,7 +137,7 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       'auth.staffMfaEnrollActivate', 'auth.session', 'auth.refresh', 'auth.logout', 'auth.facility',
       'auth.otpStart', 'auth.otpVerify', 'auth.otpComplete'],
     enrollment: ['enrollment.providerStart', 'enrollment.providerVerify', 'enrollment.providerActivate',
-      // Clinician self sign-up and its status page (hid-system ADR-064), public pages outside the workspace.
+      // Clinician self sign-up and its status page (hid-system ADR-066), public pages outside the workspace.
       'enrollment.clinicianAvailability', 'enrollment.clinicianEmailCode', 'enrollment.clinicianEmailVerify',
       'enrollment.clinicianFacilitySearch', 'enrollment.clinicianSubmit', 'enrollment.clinicianAuthenticatorEmailCode',
       'enrollment.clinicianAuthenticatorStart', 'enrollment.clinicianAuthenticatorActivate',

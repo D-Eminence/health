@@ -83,7 +83,7 @@ describe('admin failure messages', () => {
     expect(failure(new Error('raw'), 'fallback')).toBe('fallback')
   })
 
-  // hid-system ADR-064 (branch claude/clinician-self-signup at fa58e2b), admin-command-error.ts and the
+  // hid-system ADR-066 (branch claude/clinician-self-signup at fa58e2b), admin-command-error.ts and the
   // clinician review service: every refusal of the queue's three commands, and the 0087 codes step 2 can return.
   it('explains every refusal of the clinician verification queue in words the reviewer can act on', () => {
     const expected: Array<[number, string, RegExp]> = [
@@ -105,8 +105,8 @@ describe('admin failure messages', () => {
       [409, 'WORKFORCE_ACCOUNT_INELIGIBLE', /can’t hold staff access/],
       [409, 'WORKFORCE_STAFF_INELIGIBLE', /staff record/],
       [409, 'WORKFORCE_EMAIL_IN_USE', /may have applied by themselves: check Clinician applications/],
-      // An Identity without ADR-064 (admin/api.ts names its bare 404 so).
-      [404, 'CLINICIAN_QUEUE_UNAVAILABLE', /^This Identity has no clinician queue yet \(hid-system ADR-064 is not deployed\)/],
+      // An Identity without ADR-066 (admin/api.ts names its bare 404 so).
+      [404, 'CLINICIAN_QUEUE_UNAVAILABLE', /^This Identity has no clinician queue yet \(hid-system ADR-066 is not deployed\)/],
     ]
     for (const [status, code, message] of expected) {
       const text = failure(problem(status, code), 'fallback')

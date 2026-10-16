@@ -398,7 +398,7 @@
   .admin-search .admin-primary { justify-self: start; }
 }
 
-/* Clinician applications (hid-system ADR-064). */
+/* Clinician applications (hid-system ADR-066). */
 .admin-status[data-state='approved'] { border-color: #b8e8c8; background: #effaf3; color: #13643c; }
 .admin-status[data-state='awaiting_authenticator'],
 .admin-status[data-state='submitted'],

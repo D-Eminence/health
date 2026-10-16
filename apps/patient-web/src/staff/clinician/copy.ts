@@ -3,7 +3,7 @@ import type { ClinicianAccessState, ClinicianApplicationState, ClinicianApplicat
   ClinicianProfession, ClinicianRegulatorCode } from '../clinicianApplicationApi'
 
 /**
- * The words of clinician self sign-up and its status page (hid-system ADR-064).
+ * The words of clinician self sign-up and its status page (hid-system ADR-066).
  * Every state and decision is said in fixed words chosen here: an
  * administrator's own notes never reach the applicant, and nothing is called
  * verified or approved before Identity says so.

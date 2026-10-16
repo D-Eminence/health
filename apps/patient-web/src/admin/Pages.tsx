@@ -213,7 +213,7 @@ export function DemosPage({ actor }: { actor: AdminActor }) {
 
 /** What a control does, where its key alone does not say it. */
 const CONTROL_NOTES: Readonly<Record<string, string>> = {
-  // hid-system ADR-064 (0094), seeded off.
+  // hid-system ADR-066 (0098), seeded off.
   clinician_signup_enabled: 'Lets doctors and nurses apply by themselves at /provider/join. Their applications wait in '
     + 'Clinician applications until one Super Admin verifies and a second approves, so open it only when the queue is '
     + 'staffed. Applying also needs the provider portal on and maintenance off.',

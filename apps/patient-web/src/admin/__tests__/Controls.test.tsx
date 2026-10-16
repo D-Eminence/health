@@ -80,20 +80,20 @@ describe('platform controls', () => {
     expect(mocks.api.controls).toHaveBeenCalledTimes(1)
   })
 
-  // hid-system ADR-064: POST /admin/controls accepts clinician_signup_enabled (seeded off).
+  // hid-system ADR-066: POST /admin/controls accepts clinician_signup_enabled (seeded off).
   it('says what the clinician sign-up control opens, and turns it on like any other control', async () => {
     mocks.api.controls.mockResolvedValueOnce([control({ controlKey: 'clinician_signup_enabled',
-      reason: 'Off until an administrator opens clinician self sign-up (0094, ADR-064)' })])
+      reason: 'Off until an administrator opens clinician self sign-up (0098, ADR-066)' })])
     mocks.api.command.mockResolvedValueOnce({ controlKey: 'clinician_signup_enabled', enabled: true, version: 4 })
     mocks.api.controls.mockResolvedValueOnce([control({ controlKey: 'clinician_signup_enabled', enabled: true, version: 4,
-      reason: 'Release checklist P25 approved' })])
+      reason: 'Release checklist P37 approved' })])
     open(['platform.control.manage'])
     expect(await screen.findByRole('heading', { name: 'Clinician signup enabled' })).toBeTruthy()
     expect(screen.getByText(/^Lets doctors and nurses apply by themselves at \/provider\/join\. Their applications wait in Clinician applications/)).toBeTruthy()
-    fireEvent.change(screen.getByLabelText('Reason for this change'), { target: { value: 'Release checklist P25 approved' } })
+    fireEvent.change(screen.getByLabelText('Reason for this change'), { target: { value: 'Release checklist P37 approved' } })
     fireEvent.click(screen.getByRole('button', { name: 'Confirm change' }))
     await waitFor(() => expect(mocks.api.command).toHaveBeenCalledWith('/api/v1/admin/controls',
-      { controlKey: 'clinician_signup_enabled', enabled: true, reason: 'Release checklist P25 approved' }, { version: 3 }))
+      { controlKey: 'clinician_signup_enabled', enabled: true, reason: 'Release checklist P37 approved' }, { version: 3 }))
     // Other controls keep their generic tile.
     expect(screen.queryByText(/apply by themselves/)).toBeTruthy()
   })

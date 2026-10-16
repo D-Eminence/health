@@ -150,7 +150,7 @@ export interface ApprovalRequested extends Versioned { requestId: string; status
 export interface ApprovalDecided extends Versioned {
   requestId: string; status: ApprovalStatus; action: string; targetAccountId: string; executed: boolean; replayed: boolean
 }
-// Clinician self sign-up review (hid-system ADR-064, branch claude/clinician-self-signup at fa58e2b, not
+// Clinician self sign-up review (hid-system ADR-066, branch claude/clinician-self-signup at fa58e2b, not
 // merged): ClinicianApplicationAdminService and identity.admin_get_clinician_application (C18). Field names
 // and values are the backend's.
 
@@ -350,7 +350,7 @@ async function cursorPage<T>(page: Promise<CursorPage<T>>): Promise<CursorPage<T
 }
 
 /**
- * An Identity without hid-system ADR-064 has no queue: its 404 names no
+ * An Identity without hid-system ADR-066 has no queue: its 404 names no
  * clinician code (`NOT_FOUND`, with a detail naming the route). It is said as
  * that, never as a missing application or in the router's words.
  */

@@ -11,7 +11,7 @@ import { fieldError, type Problem } from './ui'
  * The licence and facility of an application (sign-up's "Your details", and
  * applying to another facility from the status page), and the two
  * declarations. Only doctor with MDCN and nurse with NMCN can apply (hid-system
- * ADR-064): the regulator follows the profession and is never typed. The
+ * ADR-066): the regulator follows the profession and is never typed. The
  * values live in the page's state only, and every change is made to the
  * current value (an updater), so a facility search that answers late never
  * puts back what was changed while it ran.

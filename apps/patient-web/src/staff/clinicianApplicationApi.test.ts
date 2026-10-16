@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 /**
- * Clinician self sign-up and its status page (hid-system ADR-064, branch
+ * Clinician self sign-up and its status page (hid-system ADR-066, branch
  * claude/clinician-self-signup), as the portal sends them. Every route is
  * public: the browser holds only the httpOnly capability cookie
  * hid_clinician_application (path /api/v1/identity/clinician-applications),

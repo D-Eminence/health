@@ -5,7 +5,7 @@ import { HidApiError } from '@hid/http'
 import { ClinicianSignUp } from './ClinicianSignUp'
 
 /**
- * Clinician self sign-up at /provider/join (hid-system ADR-064, P0-P9): a
+ * Clinician self sign-up at /provider/join (hid-system ADR-066, P0-P9): a
  * doctor or nurse proves a work email, gives a licence and a facility, chooses
  * a password, and sets up an authenticator before two HID administrators
  * review the application. No session is opened and nothing is said to be
