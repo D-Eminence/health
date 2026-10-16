@@ -2413,3 +2413,61 @@ deployed.
 - **Not verified.** No browser, no running Identity (with or without the
   clinician routes), no two-administrator run, and no run against the backend
   branch's head past `9e981e4`.
+
+## 2026-10-16: clinician facility search once its searches are used up (hid-system `7cd8038`)
+
+The same branch (`claude/clinician-signup-pages`, not pushed), from a review
+finding against the backend branch's local head `1d6ff6f`, which contains
+`7cd8038`. That head is not pushed, merged or deployed.
+
+- **The refusal.** P3 allows 30 searches per capability: a sign-up draft or
+  the status page's ready capability. The 31st search now gets `429
+  CLINICIAN_APPLICATION_SEARCH_LIMITED` with no `Retry-After` ("Too many
+  searches in this session. Verify your email address again to continue.").
+  Before `7cd8038` it was `429 CLINICIAN_APPLICATION_RATE_LIMITED` with
+  `Retry-After: 3600`. The searches never come back for that capability.
+  Neither page took this code over, and `refusalCopy` has no entry for it, so
+  both said "We couldn't search for facilities right now. Try again." A retry
+  could never succeed.
+- **The fix** (`b10d11a`). The facility search now handles the code after the
+  page's own refusals and before `refusalCopy`. It turns Search off for that
+  capability and shows the page's words for spent searches:
+  - Sign-up: "You've used all the facility searches for this email
+    confirmation. To search again, confirm your email again: your details stay
+    on this page." "Confirm email again" (`confirmEmailAgain`) is offered
+    beside the search.
+  - Status page: "You've used all the facility searches for this page. To
+    search again, close this page, then enter your email for a new code; what
+    you've typed here isn't kept." "Close this page" is still below the list.
+
+  A facility chosen before then can still be continued with (sign-up) or sent
+  (status page). After a new email confirmation the search is offered again,
+  and the details are kept. The network quota's `429
+  CLINICIAN_APPLICATION_RATE_LIMITED` (`Retry-After: 86400`) keeps "Too many
+  searches. Try again later." The `enrollment.clinicianFacilitySearch`
+  registry note names the 30-search limit and the code.
+- **The rest of the backend past `9e981e4`, for the applicant routes.**
+  Between `9e981e4` and `1d6ff6f`, `clinician-application.service.ts` changes
+  only this answer and a migration number in a comment;
+  `clinician-application.controller.ts` and the clinician DTOs do not change.
+  `0096_clinician_self_signup.sql` is `0094` renumbered.
+  - The merged launch fixes name a refused nested field by its dotted path.
+    That changes nothing the pages read, because they read no field list from
+    `VALIDATION_FAILED`.
+  - The merged launch fixes also change the `Retry-After` values. That changes
+    nothing either, because the pages show no countdown.
+  - The console's queue was not re-checked past `9e981e4`.
+- **Evidence.**
+  - Failing first: 3 tests (sign-up 2, status page 1), each failing on the
+    fallback words or the missing "Confirm email again". A fourth test
+    (sending a facility already chosen on the status page) passed before the
+    fix and guards that path.
+  - The status page test waits for "Close this page" to be enabled before
+    pressing it. Close waits for the search's answer, which reaches the page
+    in an effect after the form draws. Without the wait, the test failed
+    once in four runs.
+  - At each commit `audit:boundaries`, `typecheck`, `lint`, `npx vitest run`,
+    `build:patient-web` (local environment) and `audit:launch-build` pass.
+  - `npx vitest run`: 172 files and 2405 tests (2401 before).
+- **Not verified.** No browser, no running Identity, and no 31st search
+  against a real capability.

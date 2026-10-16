@@ -367,8 +367,8 @@ setup-key grouping, six-digit code rules and recovery-code step are shared
 from `src/mfa/`, and file saving from `src/download.ts`.
 
 Clinician self sign-up (hid-system ADR-064, built against the unmerged backend
-branch `claude/clinician-self-signup` at `fa58e2b`, re-checked at `9e981e4`)
-has two public pages, `/provider/join` and `/provider/join/status`, routed
+branch `claude/clinician-self-signup` at `fa58e2b`, re-checked at `9e981e4`,
+and at `1d6ff6f` for the facility search's limit) has two public pages, `/provider/join` and `/provider/join/status`, routed
 before `/provider/*` and
 outside the provider workspace, as `/provider/enroll` is. They never ask
 `GET /auth/session`, hold no staff session and open none. Identity keeps the
@@ -597,7 +597,12 @@ page says an application page "closed" only once it has held a capability
 (an email code was checked or the applications were read); a 401 before that
 just shows the email form. A closed intake is answered before the capability
 (hid-system `9e981e4`), so it does not show that the page is still open: the
-status page reads the applications again after one. A refusal that keeps a
+status page reads the applications again after one. A capability's 30
+facility searches never come back (`429 CLINICIAN_APPLICATION_SEARCH_LIMITED`,
+no `Retry-After`; hid-system `7cd8038`), so once they are spent the search is
+turned off and the page says how to get new ones: sign-up offers "Confirm
+email again" (the details stay), and the status page says to close the page
+and enter the email for a new code. A refusal that keeps a
 form moves focus to the control that can deal with it, since the one pressed
 was disabled while the request ran.
 
