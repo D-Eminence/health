@@ -399,12 +399,58 @@ describe('your details', () => {
     expect(textbox('Licence or registration number').value).toBe('MDCN/12345')
   })
 
+  // The network's search quota (Retry-After 86400): waiting helps.
   it('says when there are too many searches, with no countdown', async () => {
     api.searchFacilities.mockRejectedValueOnce(problem(429, 'CLINICIAN_APPLICATION_RATE_LIMITED'))
     await toDetails()
     type(screen.getByRole('searchbox', { name: 'Your facility' }), 'Lagos')
     press('Search facilities')
     expect((await screen.findByRole('alert')).textContent).toBe('Too many searches. Try again later.')
+  })
+
+  // Since hid-system 7cd8038 a draft's 30 searches, once spent, are answered 429 CLINICIAN_APPLICATION_SEARCH_LIMITED
+  // with no Retry-After: they never come back, so waiting or searching again cannot help; a new email confirmation can.
+  it('offers to confirm the email again once the searches are used up, keeping the details', async () => {
+    await toDetails()
+    await fillDetails()
+    api.searchFacilities.mockRejectedValueOnce(problem(429, 'CLINICIAN_APPLICATION_SEARCH_LIMITED',
+      'Too many searches in this session. Verify your email address again to continue.'))
+    type(screen.getByRole('searchbox', { name: 'Your facility' }), 'Island')
+    press('Search facilities')
+    expect((await screen.findByRole('alert')).textContent).toBe("You've used all the facility searches for this email confirmation. "
+      + 'To search again, confirm your email again: your details stay on this page.')
+    expect((screen.getByRole('button', { name: 'Search facilities' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(api.searchFacilities).toHaveBeenCalledTimes(2)
+    press('Confirm email again')
+    await stepShown('Your work email')
+    expect(textbox('Work email').value).toBe('ada@example.test')
+    press('Complete check')
+    press('Send code')
+    await stepShown('Enter the 6-digit code')
+    type(textbox('6-digit code'), '123456')
+    press('Verify email')
+    await stepShown('Your details')
+    expect(textbox('Licence or registration number').value).toBe('MDCN/12345')
+    expect((screen.getByRole('radio', { name: /Lagos General Hospital/ }) as HTMLInputElement).checked).toBe(true)
+    expect(screen.queryByRole('alert')).toBeNull()
+    press('Search facilities')
+    await waitFor(() => expect(api.searchFacilities).toHaveBeenCalledTimes(3))
+    expect(api.searchFacilities).toHaveBeenLastCalledWith('Island')
+  })
+
+  it('still continues with a facility chosen before the searches were used up', async () => {
+    await toDetails()
+    await fillDetails()
+    api.searchFacilities.mockRejectedValueOnce(problem(429, 'CLINICIAN_APPLICATION_SEARCH_LIMITED'))
+    type(screen.getByRole('searchbox', { name: 'Your facility' }), 'Island')
+    press('Search facilities')
+    await screen.findByRole('button', { name: 'Confirm email again' })
+    press('Continue')
+    await stepShown('Password and declarations')
+    fillPassword()
+    press('Submit application')
+    await stepShown('Set up your authenticator')
+    expect(api.submit).toHaveBeenCalledWith(expect.objectContaining({ facilityId: FACILITY.facilityId }), 'submission-key-1')
   })
 
   it('lists every missing detail, linked to its field, and marks each field', async () => {

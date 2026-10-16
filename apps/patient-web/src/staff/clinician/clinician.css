@@ -18,6 +18,7 @@
 .clinician-choice small { display: block; color: var(--color-muted); font-size: 12px; }
 .clinician-field-error { margin: 0; color: #9b211d; font-size: 12px; line-height: 1.45; }
 .clinician-search { display: grid; gap: 10px; }
+.clinician-search-spent { display: grid; gap: 10px; justify-items: start; }
 .clinician-help summary { color: var(--color-brand); font-size: 13px; font-weight: 600; cursor: pointer; }
 .clinician-help p { margin: 8px 0 0; color: var(--color-muted); font-size: 13px; line-height: 1.5; }
 .clinician-help a, .clinician-links a, .clinician-panel a { color: var(--color-brand); font-weight: 600; text-decoration: underline; }

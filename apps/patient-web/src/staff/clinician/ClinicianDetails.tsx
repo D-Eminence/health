@@ -112,7 +112,7 @@ export function applicationDetails(value: DetailsValue): ClinicianApplicationDet
   }
 }
 
-export function DetailsFields({ value, onChange, problems, fullName, onFullName, onSearchRefused, onSearching }: {
+export function DetailsFields({ value, onChange, problems, fullName, onFullName, onSearchRefused, searchesUsed, onSearching }: {
   value: DetailsValue
   onChange: Dispatch<SetStateAction<DetailsValue>>
   problems: readonly Problem[]
@@ -121,6 +121,8 @@ export function DetailsFields({ value, onChange, problems, fullName, onFullName,
   onFullName?(name: string): void
   /** A search refusal the page takes over (the page ended, or intake closed while applying again); true when it did. */
   onSearchRefused(caught: unknown): boolean
+  /** What the page says, and offers, once its capability's searches are spent; the rest of the details stay usable. */
+  searchesUsed: SearchesUsed
   /** Whether a facility search is running, until its answer, even once the fields are gone. */
   onSearching?(searching: boolean): void
 }) {
@@ -160,23 +162,31 @@ export function DetailsFields({ value, onChange, problems, fullName, onFullName,
     </Field>
 
     <FacilitySearch value={value} onChange={onChange} error={fieldError(problems, FIELD.facility)} onRefused={onSearchRefused}
-      onSearching={onSearching} />
+      searchesUsed={searchesUsed} onSearching={onSearching} />
   </>
 }
 
-function FacilitySearch({ value, onChange, error, onRefused, onSearching }: {
+/**
+ * A capability's facility searches are spent (hid-system 7cd8038: 429 CLINICIAN_APPLICATION_SEARCH_LIMITED, no
+ * Retry-After). They never come back, so the page says how to get new ones, and may offer the control that does.
+ */
+export interface SearchesUsed { message: string; action?: { label: string; onClick(): void } }
+
+function FacilitySearch({ value, onChange, error, onRefused, searchesUsed, onSearching }: {
   value: DetailsValue; onChange: Dispatch<SetStateAction<DetailsValue>>; error?: string; onRefused(caught: unknown): boolean
-  onSearching?(searching: boolean): void
+  searchesUsed: SearchesUsed; onSearching?(searching: boolean): void
 }) {
   const [searching, setSearching] = useState(false)
   const [refused, setRefused] = useState<string | null>(null)
+  // The capability's searches are spent: another search would meet the same refusal, so none is offered.
+  const [spent, setSpent] = useState(false)
   // Each answer is announced once, even when the count is the same.
   const [answered, setAnswered] = useState(0)
   const query = searchQuery(value.query)
   const canSearch = query.length >= 3 && query.length <= 80
 
   async function search() {
-    if (searching || !canSearch) return
+    if (searching || spent || !canSearch) return
     setSearching(true)
     onSearching?.(true)
     setRefused(null)
@@ -187,6 +197,7 @@ function FacilitySearch({ value, onChange, error, onRefused, onSearching }: {
       setAnswered(count => count + 1)
     } catch (caught) {
       if (onRefused(caught)) return
+      if (codeOf(caught) === 'CLINICIAN_APPLICATION_SEARCH_LIMITED') { setSpent(true); return }
       setRefused(codeOf(caught) === 'CLINICIAN_SIGNUP_CLOSED' ? SIGNUP_CLOSED_KEPT
         : refusalCopy(caught, "We couldn't search for facilities right now. Try again.", 'Too many searches. Try again later.'))
     } finally {
@@ -210,11 +221,16 @@ function FacilitySearch({ value, onChange, error, onRefused, onSearching }: {
       <Input id={FIELD.facility} type="search" autoComplete="off" maxLength={80} value={value.query}
         onChange={event => { const query = event.target.value; onChange(current => ({ ...current, query })) }} onKeyDown={enter} />
     </Field>
-    <button type="button" className="patient-secondary-button" onClick={() => void search()} disabled={searching || !canSearch}>
+    <button type="button" className="patient-secondary-button" onClick={() => void search()} disabled={searching || spent || !canSearch}>
       {searching ? 'Searching…' : 'Search facilities'}</button>
     <p role="status" className="patient-field-hint">{searching ? 'Searching…' : results === null ? null
       : <span key={answered}>{count === 0 ? 'No verified facility matches that name.' : count === 1 ? '1 facility found.' : `${count} facilities found.`}</span>}</p>
     {refused && <p role="alert" className="patient-inline-error">{refused}</p>}
+    {spent && <div className="clinician-search-spent">
+      <p role="alert" className="patient-inline-error">{searchesUsed.message}</p>
+      {searchesUsed.action && <button type="button" className="patient-secondary-button" onClick={searchesUsed.action.onClick}>
+        {searchesUsed.action.label}</button>}
+    </div>}
     {value.facility && !results?.some(facility => facility.facilityId === value.facility?.facilityId) &&
       <p className="patient-field-hint">Chosen: <strong>{value.facility.name}</strong> ({value.facility.organizationName})</p>}
     {results && count > 0 && <fieldset className="clinician-fieldset">

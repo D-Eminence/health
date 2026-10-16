@@ -9,8 +9,8 @@ import { ClinicianAuthenticator } from '../clinician/ClinicianAuthenticator'
 import { Declarations, DetailsFields, EMPTY_DETAILS, applicationDetails, declarationProblems, detailsProblems,
   type DetailsValue } from '../clinician/ClinicianDetails'
 import { EmailCode } from '../clinician/EmailCode'
-import { APPLICATIONS_LIMITED, FACILITY_UNAVAILABLE, PROFESSION_NAME, REGULATOR_NAME, SIGNUP_CLOSED, SIGNUP_CLOSED_KEPT, codeOf,
-  codeSentCopy, formatDate, isUnavailable, refusalCopy } from '../clinician/copy'
+import { APPLICATIONS_LIMITED, FACILITY_UNAVAILABLE, PROFESSION_NAME, REGULATOR_NAME, SIGNUP_CLOSED, SIGNUP_CLOSED_KEPT,
+  SIGNUP_SEARCHES_USED, codeOf, codeSentCopy, formatDate, isUnavailable, refusalCopy } from '../clinician/copy'
 import { ClinicianFrame, ErrorSummary, MainSiteOnly, PrimaryButton, StepError, StepHeading, TextButton, fieldError, shownError,
   type Problem } from '../clinician/ui'
 
@@ -316,7 +316,8 @@ function SignUp() {
       <StepError error={error} />
       <ErrorSummary problems={problems} focusKey={summaryKey} />
       <DetailsFields value={details} onChange={setDetails} problems={problems} fullName={fullName} onFullName={setFullName}
-        onSearchRefused={searchRefused} />
+        onSearchRefused={searchRefused}
+        searchesUsed={{ message: SIGNUP_SEARCHES_USED, action: { label: 'Confirm email again', onClick: confirmEmailAgain } }} />
       <button type="submit" className="patient-primary-button">Continue</button>
     </form>}
 

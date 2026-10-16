@@ -676,6 +676,38 @@ describe('applying to another facility', () => {
     await waitFor(() => expect(document.activeElement).toBe(target()))
   })
 
+  // Since hid-system 7cd8038 a ready capability's 30 searches, once spent, are answered 429
+  // CLINICIAN_APPLICATION_SEARCH_LIMITED with no Retry-After: only a new capability (the email code again) searches again.
+  it('says the searches for this page are used up and how to search again, and keeps the form and Close', async () => {
+    await applyForm()
+    api.searchFacilities.mockRejectedValueOnce(problem(429, 'CLINICIAN_APPLICATION_SEARCH_LIMITED',
+      'Too many searches in this session. Verify your email address again to continue.'))
+    type(screen.getByRole('searchbox', { name: 'Your facility' }), 'General')
+    press('Search facilities')
+    expect((await screen.findByRole('alert')).textContent).toBe("You've used all the facility searches for this page. To search "
+      + "again, close this page, then enter your email for a new code; what you've typed here isn't kept.")
+    expect((screen.getByRole('button', { name: 'Search facilities' }) as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByRole('heading', { name: 'Apply to another facility' })).toBeTruthy()
+    expect(textbox('Licence or registration number').value).toBe('NMCN 778899')
+    expect(api.current).toHaveBeenCalledTimes(1)
+    // Close waits for the search's answer, which the page learns of once the form has drawn it.
+    await waitFor(() => expect((screen.getByRole('button', { name: 'Close this page' }) as HTMLButtonElement).disabled).toBe(false))
+    press('Close this page')
+    await headingFocused('Check your clinician application', 1)
+    expect(api.endSession).toHaveBeenCalledTimes(1)
+    expect(screen.getByText('This page is closed.')).toBeTruthy()
+  })
+
+  it('still sends a facility chosen before the searches were used up', async () => {
+    await applyForm()
+    api.searchFacilities.mockRejectedValueOnce(problem(429, 'CLINICIAN_APPLICATION_SEARCH_LIMITED'))
+    type(screen.getByRole('searchbox', { name: 'Your facility' }), 'General')
+    press('Search facilities')
+    await screen.findByRole('alert')
+    press('Send application')
+    await waitFor(() => expect(api.apply).toHaveBeenCalledWith(expect.objectContaining({ facilityId: OTHER.facilityId }), 'apply-key-1'))
+  })
+
   it('gives focus back to "Apply to another facility" when the form is cancelled', async () => {
     await listShown()
     press('Apply to another facility')

@@ -132,7 +132,8 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('enrollment.providerActivate','enrollment','/api/v1/identity/provider-enrollments/activate',P,true,undefined,
     'Accountless; uses the enrollment cookie. Since hid-system #71 returns an MFA status, not a session.'),
   // Clinician self sign-up and its status page (hid-system ADR-064, branch
-  // claude/clinician-self-signup at fa58e2b, re-checked at 9e981e4; not merged). Every route needs
+  // claude/clinician-self-signup at fa58e2b, re-checked at 9e981e4, and P3's
+  // search limit at 1d6ff6f; not merged). Every route needs
   // Origin and no CSRF or session; after the email code the browser holds only
   // the httpOnly capability cookie hid_clinician_application (path
   // /api/v1/identity/clinician-applications). Nothing here issues a session.
@@ -143,7 +144,8 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('enrollment.clinicianEmailVerify','enrollment','/api/v1/identity/clinician-applications/email-code/verify',P,true,undefined,
     'Sets the draft capability cookie. 409 CLINICIAN_EMAIL_IN_USE only after a correct code.'),
   r('enrollment.clinicianFacilitySearch','enrollment','/api/v1/identity/clinician-applications/facility-search',P,true,undefined,
-    'Draft or ready capability; at most 10 verified facilities.'),
+    'Draft or ready capability; at most 10 verified facilities. 30 searches per capability, then (since 7cd8038) '
+    + '429 CLINICIAN_APPLICATION_SEARCH_LIMITED with no Retry-After: only a new capability searches again.'),
   r('enrollment.clinicianSubmit','enrollment','/api/v1/identity/clinician-applications',P,true,undefined,
     'Draft capability and Idempotency-Key. Creates the account and the application; no session, no role. '
     + 'Since 9e981e4 a draft takes at most five hashed submissions (then 401).'),

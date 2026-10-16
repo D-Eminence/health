@@ -44,6 +44,16 @@ export const SIGNUP_CLOSED_NOT_SENT = "New clinician applications aren't open ri
  */
 export const APPLICATIONS_LIMITED = 'Too many applications have been sent, from your network or to Health ID today. '
   + 'Your details are still here; try again later.'
+/**
+ * The facility searches of this capability are spent (hid-system 7cd8038: 30 per draft or ready capability, then 429
+ * CLINICIAN_APPLICATION_SEARCH_LIMITED with no Retry-After). They never come back, so neither waiting nor searching
+ * again helps; a new capability does: on sign-up, the email confirmed again (the details stay), and on the status page,
+ * a new code once the page is closed (the apply form is not kept).
+ */
+export const SIGNUP_SEARCHES_USED = "You've used all the facility searches for this email confirmation. "
+  + 'To search again, confirm your email again: your details stay on this page.'
+export const STATUS_SEARCHES_USED = "You've used all the facility searches for this page. To search again, close this page, "
+  + "then enter your email for a new code; what you've typed here isn't kept."
 export const FACILITY_UNAVAILABLE = "This facility can't accept clinicians on Health ID right now. Choose another or ask your facility administrator."
 export const FACILITY_BUSY = 'This facility has many applications waiting. Try again in a few days or contact HID support.'
 export const ACCOUNT_INELIGIBLE = "This account can't apply for a clinical role. Contact HID support."

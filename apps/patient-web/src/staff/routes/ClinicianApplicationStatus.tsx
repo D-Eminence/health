@@ -9,8 +9,8 @@ import { Declarations, DetailsFields, EMPTY_DETAILS, FIELD, applicationDetails, 
   type DetailsValue } from '../clinician/ClinicianDetails'
 import { EmailCode } from '../clinician/EmailCode'
 import { ACCOUNT_UNAVAILABLE, APPLICATIONS_LIMITED, APPLICATION_CHANGED, APPLY_REFUSAL, FACILITY_UNAVAILABLE, MAINTENANCE, PAGE_EXPIRED,
-  PROFESSION_NAME, REGULATOR_NAME, SIGNUP_CLOSED_NOT_SENT, STAFF_SIGN_IN_REQUIRED, STATE_LABEL, codeOf, formatDate, refusalCopy,
-  stateCopy, statusCodeSentCopy } from '../clinician/copy'
+  PROFESSION_NAME, REGULATOR_NAME, SIGNUP_CLOSED_NOT_SENT, STAFF_SIGN_IN_REQUIRED, STATE_LABEL, STATUS_SEARCHES_USED, codeOf, formatDate,
+  refusalCopy, stateCopy, statusCodeSentCopy } from '../clinician/copy'
 import { ClinicianFrame, ErrorSummary, MainSiteOnly, PrimaryButton, StepError, StepHeading, TextButton, shownError,
   type Problem } from '../clinician/ui'
 
@@ -512,7 +512,8 @@ function ApplyAnother({ account, onApplied, takeOver, onWorking, onClosed }: {
     <StepError error={error} />
     <ErrorSummary problems={problems} focusKey={summaryKey} />
     <DetailsFields value={details} onChange={setDetails} problems={problems}
-      onSearchRefused={caught => closedRefusal(caught) || takeOver(caught)} onSearching={setSearching} />
+      onSearchRefused={caught => closedRefusal(caught) || takeOver(caught)} onSearching={setSearching}
+      searchesUsed={{ message: STATUS_SEARCHES_USED }} />
     <Declarations accurate={accurate} consent={consent} onAccurate={setAccurate} onConsent={setConsent} regulator={regulator}
       facility={details.facility?.name ?? 'the facility'} problems={problems} />
     <div className="clinician-actions">
