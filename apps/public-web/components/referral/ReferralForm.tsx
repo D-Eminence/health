@@ -1,13 +1,14 @@
 'use client'
 
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react'
+import { isHidApiError } from '@hid/http'
 import { Button, cx } from '@hid/ui'
 import { TurnstileWidget } from '@/components/shared/TurnstileWidget'
 import { submitDemoRequest } from '@/lib/commercial-api'
 import { getEnvironment } from '@/lib/env'
 import {
-  EMPTY_REFERRAL, FACILITY_FIELDS, FACILITY_TYPES, REFERRER_FIELDS, stepErrors, toReferralSubmission, validateReferral,
-  type ReferralErrors, type ReferralRequest,
+  EMPTY_REFERRAL, FACILITY_FIELDS, FACILITY_TYPES, REFERRER_FIELDS, refusedReferralFields, stepErrors, toReferralSubmission,
+  validateReferral, type ReferralErrors, type ReferralRequest,
 } from '@/lib/referral'
 
 type TextField = Exclude<keyof ReferralRequest, 'consent'>
@@ -33,6 +34,8 @@ export function ReferralForm({ lede }: { readonly lede?: string }) {
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
   const [resetKey, setResetKey] = useState(0)
   const moved = useRef(false)
+  // A field to focus once the step it is on has rendered, instead of the step's heading.
+  const focusAfterMove = useRef<keyof ReferralRequest | null>(null)
   const submissionKey = useRef<string | null>(null)
   const environment = getEnvironment()
   const siteKey = environment.turnstileSiteKey
@@ -41,7 +44,11 @@ export function ReferralForm({ lede }: { readonly lede?: string }) {
 
   // Move focus to the step's heading when the step changes, not on first load.
   useEffect(() => {
-    if (moved.current) headingRef.current?.focus()
+    if (!moved.current) return
+    const field = focusAfterMove.current
+    focusAfterMove.current = null
+    const target = field ? formRef.current?.querySelector<HTMLElement>(`[name="${field}"]`) : null
+    ;(target ?? headingRef.current)?.focus()
   }, [step, sent])
 
   function set<K extends keyof ReferralRequest>(field: K, value: ReferralRequest[K]) {
@@ -98,7 +105,20 @@ export function ReferralForm({ lede }: { readonly lede?: string }) {
       moved.current = true
       setSent(true)
     } catch (reason) {
-      setSubmitError(reason instanceof Error ? reason.message : 'Your referral could not be sent. Please try again.')
+      // hid-system names the fields it refused; mark those, on their own step, rather than one message for the form.
+      const refused = isHidApiError(reason) && reason.code === 'VALIDATION_FAILED' ? refusedReferralFields(reason.details) : {}
+      const facilityRefused = stepErrors(refused, FACILITY_FIELDS)
+      const referrerRefused = stepErrors(refused, REFERRER_FIELDS)
+      if (Object.keys(facilityRefused).length > 0) {
+        setErrors(facilityRefused)
+        focusAfterMove.current = FACILITY_FIELDS.find(name => facilityRefused[name]) ?? null
+        go(0)
+      } else if (Object.keys(referrerRefused).length > 0) {
+        setErrors(referrerRefused)
+        focusFirst(referrerRefused, REFERRER_FIELDS)
+      } else {
+        setSubmitError(reason instanceof Error ? reason.message : 'Your referral could not be sent. Please try again.')
+      }
     } finally {
       setPending(false)
       setTurnstileToken(null)

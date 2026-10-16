@@ -1,4 +1,5 @@
 import type { DemoSubmission } from './commercial-api'
+import { isContactEmail } from './contact-email'
 
 /**
  * A facility referral ("Earn with Health ID").
@@ -56,21 +57,57 @@ export function stepErrors(errors: ReferralErrors, fields: readonly (keyof Refer
 /** hid-system's demo-request message limit. */
 const MESSAGE_MAX = 2000
 
+/** What each field says when its value cannot be sent, whether this site or hid-system refuses it. */
+const PROBLEMS = {
+  referrerName: 'Enter your full name.',
+  referrerEmail: 'Enter a valid email address.',
+  referrerPhone: 'Enter a valid phone number.',
+  facilityName: 'Enter the facility’s name.',
+  facilityType: 'Choose the type of facility.',
+} as const satisfies ReferralErrors
+
 export function validateReferral(request: ReferralRequest): ReferralErrors {
   const errors: ReferralErrors = {}
   const name = request.referrerName.trim()
-  if (name.length < 2 || name.length > 160) errors.referrerName = 'Enter your full name.'
+  if (name.length < 2 || name.length > 160) errors.referrerName = PROBLEMS.referrerName
   const email = request.referrerEmail.trim()
-  if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) errors.referrerEmail = 'Enter a valid email address.'
+  if (!isContactEmail(email)) errors.referrerEmail = PROBLEMS.referrerEmail
   if (request.referrerPhone.trim() && !/^\+?[0-9 ()-]{7,32}$/.test(request.referrerPhone.trim())) {
-    errors.referrerPhone = 'Enter a valid phone number.'
+    errors.referrerPhone = PROBLEMS.referrerPhone
   }
   const facility = request.facilityName.trim()
-  if (facility.length < 2 || facility.length > 200) errors.facilityName = 'Enter the facility’s name.'
-  if (!FACILITY_TYPES.some(type => type.value === request.facilityType)) errors.facilityType = 'Choose the type of facility.'
+  if (facility.length < 2 || facility.length > 200) errors.facilityName = PROBLEMS.facilityName
+  if (!FACILITY_TYPES.some(type => type.value === request.facilityType)) errors.facilityType = PROBLEMS.facilityType
   if (request.facilityLocation.trim().length > 120) errors.facilityLocation = 'Keep the location under 120 characters.'
   if (request.facilityContact.trim().length > 300) errors.facilityContact = 'Keep this under 300 characters.'
   if (!request.consent) errors.consent = 'Confirm the facility knows you are introducing them.'
+  return errors
+}
+
+/** The referral's fields by the names hid-system's CreateDemoRequestDto gives them. */
+const BACKEND_FIELDS: Readonly<Record<string, keyof typeof PROBLEMS>> = {
+  contactName: 'referrerName',
+  contactEmail: 'referrerEmail',
+  contactPhone: 'referrerPhone',
+  organizationName: 'facilityName',
+  organizationType: 'facilityType',
+}
+
+/**
+ * The fields a 400 VALIDATION_FAILED names (the problem's `errors`, which the
+ * HTTP client keeps as HidApiError.details: `{ field, messages }[]`), as this
+ * form's errors. A field the referrer did not type is left out, so the caller
+ * keeps the backend's message for it.
+ */
+export function refusedReferralFields(details: unknown): ReferralErrors {
+  const errors: ReferralErrors = {}
+  if (!Array.isArray(details)) return errors
+  for (const entry of details as unknown[]) {
+    const field = typeof entry === 'object' && entry !== null ? (entry as { field?: unknown }).field : undefined
+    if (typeof field !== 'string' || !Object.hasOwn(BACKEND_FIELDS, field)) continue
+    const name = BACKEND_FIELDS[field]!
+    errors[name] = PROBLEMS[name]
+  }
   return errors
 }
 
@@ -98,6 +135,8 @@ export function toReferralSubmission(request: ReferralRequest, sourcePage: strin
     ...(request.referrerPhone.trim() ? { contactPhone: request.referrerPhone.trim() } : {}),
     contactRole: 'Referral partner',
     organizationName: request.facilityName.trim(),
+    // The five facility types are hid-system's organizationType values.
+    ...(request.facilityType ? { organizationType: request.facilityType } : {}),
     productCode: 'general',
     message: referralMessage(request),
     sourcePage: sourcePage.slice(0, 200),

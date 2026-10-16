@@ -21,6 +21,8 @@ export interface DemoSubmission {
   contactPhone?: string
   contactRole?: string
   organizationName?: string
+  /** hid-system's CreateDemoRequestDto.organizationType values. */
+  organizationType?: 'clinic' | 'hospital' | 'laboratory' | 'pharmacy' | 'other'
   message?: string
   sourcePage?: string
   sourceSection?: string
