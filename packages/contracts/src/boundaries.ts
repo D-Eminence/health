@@ -55,7 +55,7 @@ export const APP_BOUNDARIES = {
   'staff-web': {
     app: 'staff-web',
     purpose: 'Provider workflows: care, laboratory, pharmacy, OCR and outreach.',
-    services: ['auth', 'enrollment', 'identity', 'ehr', 'access', 'files', 'lab', 'pharmacy', 'ocr', 'outreach'],
+    services: ['auth', 'enrollment', 'identity', 'ehr', 'access', 'files', 'lab', 'pharmacy', 'ocr', 'outreach', 'commercial'],
     handlesPhi: true,
   },
   'ehr-web': {
@@ -140,6 +140,9 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       'ehr.vitalCorrections', 'ehr.notes', 'ehr.note', 'ehr.noteRevisions', 'ehr.diagnoses',
       'ehr.diagnosis', 'ehr.prescriptions', 'ehr.prescription', 'ehr.prescriptionPharmacy',
       'ehr.labRequests', 'ehr.labRequest', 'ehr.labRequestLabWorkItem'],
+    // Facility billing (docs/BILLING_SPEC.md; proposed routes) and the price catalogue it shows. Not demo requests.
+    commercial: ['commercial.pricing', 'commercial.subscription', 'commercial.subscriptionTrial',
+      'commercial.subscriptionCheckout', 'commercial.invoices'],
   },
   'admin-web': {
     // Platform administration uses its own MFA-verified session (Stage 2A);

@@ -5,7 +5,7 @@ import { Button, Field, Input } from '@hid/ui'
 import { getEnvironment } from '../env'
 import { useStaff } from '../App'
 import type { StaffLoginChallenge, StaffSession } from '../api'
-import { BrandLogo } from '../../BrandLogo'
+import { AuthLayout } from '../../AuthLayout'
 import { turnstileSize } from '../../Turnstile'
 import { resolveStaffProductHostname, STAFF_RECOVERY_PATH, staffLoginAction, staffRecoveryHref } from '../../productHostname'
 import { staffReturnPath } from '../session'
@@ -94,7 +94,7 @@ export function SignIn() {
   // The second step Identity asked for, while it is shown. The password form is gone meanwhile, so each is a new one.
   const [challenge, setChallenge] = useState<StaffLoginChallenge | null>(null)
   // Back at the password step from a later one, its heading takes focus: the step left is gone.
-  const heading = useRef<HTMLHeadingElement>(null)
+  const heading = useRef<HTMLHeadingElement & HTMLParagraphElement>(null)
   const [returned, setReturned] = useState(0)
   useEffect(() => { if (returned) heading.current?.focus() }, [returned])
   const siteKey = getEnvironment().turnstileSiteKey
@@ -135,33 +135,25 @@ export function SignIn() {
     setReturned(value => value + 1)
   }
 
-  return <div className="staff-auth-page">
-    <main className="staff-auth">
-      <div className="staff-brand"><BrandLogo /><small>Provider</small></div>
-      <p className="staff-eyebrow">Secure clinical workspace</p>
-      {challenge ? <StaffMfaSteps challenge={challenge} look={STAFF_MFA_LOOK}
-        calls={{ verify: verifyMfa, sendEnrollmentCode, startEnrollment, activate: activateEnrollment }}
-        doneLabel="Continue to the Provider Portal" onSignedIn={finish} onRestart={restart} restartLabel="Start again" /> : <>
-        <h1 ref={heading} tabIndex={-1} className="hid-mfa-heading">Welcome back.</h1>
-        <p>Sign in with the staff account assigned to your facility. Your permissions and facility are verified by Health ID.</p>
-        {mfaRequired && <p role="status" className="staff-notice">{STAFF_MFA_NOTICE}</p>}
-        <form className="staff-form" onSubmit={event => void submit(event)}>
-          <Field label="Work email" htmlFor="staff-email" required><Input id="staff-email" type="email" autoComplete="username" value={email} onChange={event => setEmail(event.target.value)} required /></Field>
-          <Field label="Password" htmlFor="staff-password" required><Input id="staff-password" type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} required /></Field>
-          <TurnstileChallenge onToken={setToken} resetKey={turnstileResetKey} />
-          {error && <p className="staff-error" role="alert">{error}</p>}
-          <Button type="submit" disabled={busy || !!siteKey && !token}>{busy ? 'Signing in…' : 'Sign in'}</Button>
-        </form>
-        <RecoveryLink />
-      </>}
-    </main>
-    <aside className="staff-auth-aside" aria-label="About secure access">
-      <p className="staff-eyebrow">One connected care record</p>
-      <h2>The right information, at the point of care.</h2>
-      <p>Patient records open only after a server-approved grant, a patient PIN, or a documented emergency access event.</p>
-      <div className="staff-steps"><div className="staff-step"><span>1</span>Choose your active facility.</div><div className="staff-step"><span>2</span>Request governed patient access.</div><div className="staff-step"><span>3</span>Record care within an authorized encounter.</div></div>
-    </aside>
-  </div>
+  return <AuthLayout brandTo="/provider/sign-in" brandLabel="Health ID provider sign in"
+    headerLink={{ to: '/provider/enroll', label: 'Set up your facility' }}
+    title="Welcome back." titleId="staff-sign-in-title" titleAs={challenge ? 'p' : 'h1'}
+    titleRef={heading} titleFocusable={!challenge}
+    lede="Sign in with the staff account assigned to your facility. Health ID verifies your permissions and facility.">
+    {challenge ? <StaffMfaSteps challenge={challenge} look={STAFF_MFA_LOOK}
+      calls={{ verify: verifyMfa, sendEnrollmentCode, startEnrollment, activate: activateEnrollment }}
+      doneLabel="Continue to the Provider Portal" onSignedIn={finish} onRestart={restart} restartLabel="Start again" /> : <>
+      {mfaRequired && <p role="status" className="staff-notice">{STAFF_MFA_NOTICE}</p>}
+      <form className="staff-form" onSubmit={event => void submit(event)}>
+        <Field label="Work email" htmlFor="staff-email" required><Input id="staff-email" type="email" autoComplete="username" value={email} onChange={event => setEmail(event.target.value)} required /></Field>
+        <Field label="Password" htmlFor="staff-password" required><Input id="staff-password" type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} required /></Field>
+        <TurnstileChallenge onToken={setToken} resetKey={turnstileResetKey} />
+        {error && <p className="staff-error" role="alert">{error}</p>}
+        <Button type="submit" disabled={busy || !!siteKey && !token}>{busy ? 'Signing in…' : 'Sign in'}</Button>
+      </form>
+      <RecoveryLink />
+    </>}
+  </AuthLayout>
 }
 
 /**

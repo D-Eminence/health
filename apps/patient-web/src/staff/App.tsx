@@ -22,6 +22,7 @@ import { AccessRequests } from './routes/AccessRequests'
 import { FacilityAudit } from './routes/Audit'
 import { Clinical } from './routes/Clinical'
 import { Laboratory, Pharmacy, Ocr, Outreach, MigrateGap } from './routes/Operations'
+import { Billing, BillingBanner } from './routes/Billing'
 import { resolveStaffProductHostname } from '../productHostname'
 import { revealFocusedLink } from '../navStrip'
 import { useDocumentTitle } from '../authSteps'
@@ -580,6 +581,7 @@ const navigation = [
   { to: '/provider/pharmacy', label: 'Pharmacy', permission: 'pharmacy.work-item.read' },
   { to: '/provider/ocr', label: 'Document OCR', permission: 'ocr.job.read' },
   { to: '/provider/outreach', label: 'Outreach', permission: 'outreach.registration.read' },
+  { to: '/provider/billing', label: 'Plan & billing', permission: 'billing.subscription.read' },
 ] as const
 
 // The pages the browser tab can name, by path. A title never carries a patient's
@@ -730,7 +732,7 @@ function Shell() {
       {/* Hidden itself while the workspace is locked: only the session check's main is exposed then. */}
       <main ref={main} className="staff-main" hidden={lock !== null}>{signOutError && <p role="alert" className="staff-error">{signOutError}</p>}
         {/* Asked again for another reason (an answer to the choice that reports another facility), it starts afresh. */}
-        {choiceNeeded ? <FacilityChoice key={choiceNeeded} reason={choiceNeeded} onChosen={() => setFocusHeading(true)} /> : <Outlet />}</main>
+        {choiceNeeded ? <FacilityChoice key={choiceNeeded} reason={choiceNeeded} onChosen={() => setFocusHeading(true)} /> : <><BillingBanner /><Outlet /></>}</main>
     </div>
   </div>
 }
@@ -751,6 +753,7 @@ export function App() {
       <Route path="ocr" element={<Ocr />} />
       <Route path="outreach" element={<Outreach />} />
       <Route path="migrate" element={<MigrateGap />} />
+      <Route path="billing" element={<Billing />} />
       <Route path="*" element={<EmptyState titleAs="h1" title="Page not found" description="This provider page is unavailable." action={<NavLink className="staff-text-link" to="/provider">Go to provider overview →</NavLink>} />} />
     </Route>
   </Routes></StaffProvider>

@@ -110,3 +110,25 @@ body { margin: 0; }
 .staff-in-person legend { margin-bottom: 6px; padding: 0; color: var(--color-ink); font-size: 13px; font-weight: 650; }
 .staff-in-person .staff-choice { padding: 10px 12px; line-height: 1.4; color: var(--color-ink); font-size: 13px; }
 .staff-in-person ul { margin: 0 0 10px; padding-left: 18px; color: var(--color-ink); font-size: 13px; line-height: 1.6; }
+
+/* Plan & billing (docs/BILLING_SPEC.md). */
+.billing-section { display: grid; gap: 12px; max-width: 760px; margin-top: 28px; }
+.billing-heading { margin: 0; color: var(--color-ink); font-size: 15px; font-weight: 600; }
+.billing-plan { display: grid; gap: 10px; padding: 20px 22px; }
+.billing-plan-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
+.billing-product { color: var(--color-ink); font-size: 17px; font-weight: 600; }
+.billing-detail { margin: 0; color: var(--color-muted); font-size: 14px; line-height: 1.55; }
+.billing-price { margin: 0; color: var(--color-ink); font-size: 14px; font-variant-numeric: tabular-nums; }
+.billing-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 6px; }
+.billing-problem { display: grid; justify-items: start; gap: 10px; }
+.billing-note { max-width: 760px; margin: 20px 0 0; }
+.billing-table-wrap { overflow-x: auto; border: 0.5px solid var(--color-line-strong); border-radius: var(--radius-card); }
+.billing-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.billing-table th { padding: 10px 14px; color: var(--color-muted); font-size: 12px; font-weight: 600; text-align: left; background: var(--color-surface-sunk); }
+.billing-table td { padding: 12px 14px; border-top: 0.5px solid var(--color-line-strong); color: var(--color-ink); }
+.billing-amount { font-variant-numeric: tabular-nums; }
+.billing-banner { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; margin: 0 0 20px; padding: 10px 14px; border-radius: var(--radius-control); font-size: 13px; line-height: 1.45; }
+.billing-banner a { color: inherit; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+.billing-banner-warning { background: #fff6e0; color: var(--color-caution-ink); }
+.billing-banner-danger { background: #fff0ef; color: #9b211d; }
+.billing-banner-information { background: var(--color-brand-tint); color: var(--color-ink); }

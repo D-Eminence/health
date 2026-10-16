@@ -24,6 +24,8 @@ const FOOTER_GROUPS = [
     title: 'Company',
     links: [
       { label: 'About Health ID', href: ROUTES.about },
+      { label: 'Blog', href: ROUTES.blog },
+      { label: 'Earn with us', href: ROUTES.earn },
       { label: 'Contact', href: ROUTES.contact },
       { label: 'Resources', href: ROUTES.resources },
       { label: 'Documentation', href: ROUTES.documentation },

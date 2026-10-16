@@ -1,0 +1,78 @@
+/*
+ * Provider enrollment's facility-type choice: one grouped list of radio rows,
+ * like a settings screen. The page itself is the shared AuthLayout.
+ */
+
+.auth-panel .provider-setup-form { gap: 36px; }
+
+.provider-setup-choice {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.provider-setup-choice legend {
+  margin-bottom: 12px;
+  padding: 0;
+  color: var(--color-muted);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.provider-setup-options {
+  overflow: hidden;
+  border: 1px solid var(--color-line-strong);
+  border-radius: 10px;
+}
+
+.provider-setup-option {
+  position: relative;
+  display: flex;
+  min-height: 52px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 18px;
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.provider-setup-option + .provider-setup-option { border-top: 1px solid var(--color-line); }
+.provider-setup-option:hover { background: var(--color-surface-sunk); }
+
+/* The native radio stays in the accessibility tree; the dot is drawn after the label. */
+.provider-setup-option input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.provider-setup-option::after {
+  box-sizing: border-box;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  border: 1px solid var(--color-line-control);
+  border-radius: var(--radius-pill);
+  content: '';
+}
+
+.provider-setup-option:has(input:checked) { background: var(--color-brand-tint); font-weight: 500; }
+.provider-setup-option:has(input:checked)::after { border: 5px solid var(--color-brand); }
+.provider-setup-option:has(input:focus-visible) { outline: 2px solid var(--color-brand); outline-offset: -2px; }
+
+.provider-setup-fields { display: flex; flex-direction: column; gap: 22px; }
+.provider-setup-fields label { color: var(--color-muted); font-weight: 500; }
+.provider-setup-fields :is(input, select) { height: 48px; border-color: var(--color-line-control); border-radius: 8px; font-size: 15px; }
+.provider-setup-fields :is(input, select):focus { border-color: var(--color-ink); }
+
+.provider-setup-actions { display: flex; flex-direction: column; gap: 16px; }
+
+.provider-setup-submit { width: 100%; min-height: 50px; border-radius: 8px; font-size: 15px; font-weight: 500; }
+
+.provider-setup-fineprint { margin: 0; color: var(--color-faint); font-size: 12px; line-height: 1.6; }
+

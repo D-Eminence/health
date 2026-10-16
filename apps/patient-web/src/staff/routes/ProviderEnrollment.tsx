@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type ButtonHTMLAttributes, type FormEvent } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { Field, Input, Select } from '@hid/ui'
-import { BrandLogo } from '../../BrandLogo'
+import './providerSetup.css'
+import { AuthLayout } from '../../AuthLayout'
 import { useDocumentTitle } from '../../authSteps'
 import { Turnstile } from '../../Turnstile'
 import { providerEnrollmentApi, staffApi, type StaffLoginChallenge } from '../api'
@@ -67,7 +68,15 @@ const ENROLLMENT_MFA_CALLS: StaffMfaCalls = {
   },
 }
 
-const STEPS = [['details', 'CAC'], ['otp', 'Email'], ['password', 'Password'], ['authenticator', 'Authenticator']] as const
+const STEPS = [['details', 'Organization'], ['otp', 'Email confirmation'], ['password', 'Password'], ['authenticator', 'Authenticator']] as const
+
+function isOrganizationType(value: string | null): value is OrganizationType {
+  return organizationTypes.some(option => option.value === value)
+}
+
+function isProduct(value: string | null): value is Product {
+  return products.some(product => product.code === value)
+}
 
 function errorMessage(reason: unknown): string {
   if (isHidApiError(reason)) return reason.message
@@ -81,8 +90,18 @@ export function ProviderEnrollment() {
   const [stage, setStage] = useState<'details' | 'otp' | 'password' | 'authenticator' | 'sign-in'>('details')
   const [challenge, setChallenge] = useState<StaffLoginChallenge | null>(null)
   const [signInReason, setSignInReason] = useState<string | null>(null)
-  const [organizationType, setOrganizationType] = useState<OrganizationType>('hospital')
-  const [productCode, setProductCode] = useState<Product>('ehr')
+  // The public site's product links arrive here with ?product= (and may name ?type=), preselecting the choice.
+  const [params] = useSearchParams()
+  const [organizationType, setOrganizationType] = useState<OrganizationType>(() => {
+    const type = params.get('type')
+    return isOrganizationType(type) ? type : 'hospital'
+  })
+  const [productCode, setProductCode] = useState<Product>(() => {
+    const product = params.get('product')
+    const type = params.get('type')
+    const allowed = productOptions[isOrganizationType(type) ? type : 'hospital']
+    return isProduct(product) && allowed.includes(product) ? product : allowed[0]!
+  })
   const [cac, setCac] = useState('')
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
@@ -173,59 +192,63 @@ export function ProviderEnrollment() {
     window.location.reload()
   }
 
-  return (
-    <main className="patient-auth-page">
-      <section className="patient-auth-card" aria-labelledby="provider-enroll-title">
-        <Link to="/provider/sign-in" className="patient-auth-brand"><BrandLogo /></Link>
-        <p className="patient-eyebrow">Provider enrollment</p>
-        <h1 id="provider-enroll-title" className="patient-page-title">Set up your Health ID facility.</h1>
-        <p className="patient-page-copy">Verify your organization with CAC, confirm your administrator email, create your provider account and set up an authenticator app. Verified organizations can activate without waiting for routine HID Team approval.</p>
+  const currentStep = stage === 'sign-in' ? 'authenticator' : stage
 
+  return (
+    <AuthLayout brandTo="/provider/sign-in" brandLabel="Health ID provider sign in"
+      headerLink={{ to: '/provider/sign-in', label: 'Sign in' }}
+      title="Set up your facility." titleId="provider-enroll-title"
+      lede="Verify your CAC registration and your facility can start using Health ID straight away."
+      steps={STEPS.map(([step, label]) => ({ label, current: step === currentStep }))} stepsLabel="Provider enrollment steps">
         {error ? <p role="alert" className="patient-inline-error">{error}</p> : null}
 
-        <ol className="patient-step-list" aria-label="Provider enrollment steps">
-          {STEPS.map(([step, label]) => (
-            <li key={label} aria-current={step === stage || (step === 'authenticator' && stage === 'sign-in') ? 'step' : undefined}>{label}</li>
-          ))}
-        </ol>
-
         {stage === 'details' && (
-          <form onSubmit={event => void start(event)} className="patient-form">
-            <label>Facility type
-              <Select value={organizationType} onChange={event => setType(event.target.value as OrganizationType)}>
-                {organizationTypes.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-              </Select>
-            </label>
+          <form onSubmit={event => void start(event)} className="auth-form provider-setup-form">
+            <fieldset className="provider-setup-choice">
+              <legend>Facility type</legend>
+              <div className="provider-setup-options">
+                {organizationTypes.map(option => (
+                  <label key={option.value} className="provider-setup-option">
+                    <input type="radio" name="provider-facility-type" value={option.value}
+                      checked={organizationType === option.value} onChange={() => setType(option.value)} />
+                    <span>{option.label}</span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
 
-            <label>Product
-              <Select value={productCode} onChange={event => setProductCode(event.target.value as Product)}>
-                {productOptions[organizationType].map(code => <option key={code} value={code}>{products.find(product => product.code === code)?.label}</option>)}
-              </Select>
-            </label>
+            <div className="provider-setup-fields">
+              <Field label="Product" htmlFor="provider-product">
+                <Select id="provider-product" value={productCode} onChange={event => setProductCode(event.target.value as Product)}>
+                  {productOptions[organizationType].map(code => <option key={code} value={code}>{products.find(product => product.code === code)?.label}</option>)}
+                </Select>
+              </Field>
 
-            <Field label="CAC registration number" htmlFor="provider-cac">
-              <Input id="provider-cac" required value={cac}
-                onChange={event => setCac(event.target.value.replace(/\s+/g, '').toUpperCase())}
-                autoCapitalize="characters" autoComplete="off" spellCheck={false}
-                pattern="(RC|BN|IT)[0-9]{4,20}" maxLength={22} placeholder="RC123456" />
-            </Field>
+              <Field label="CAC registration number" htmlFor="provider-cac">
+                <Input id="provider-cac" required value={cac}
+                  onChange={event => setCac(event.target.value.replace(/\s+/g, '').toUpperCase())}
+                  autoCapitalize="characters" autoComplete="off" spellCheck={false}
+                  pattern="(RC|BN|IT)[0-9]{4,20}" maxLength={22} placeholder="RC123456" />
+              </Field>
 
-            <Field label="Administrator full name" htmlFor="provider-admin-name">
-              <Input id="provider-admin-name" required minLength={2} maxLength={200}
-                autoComplete="name" value={name} onChange={event => setName(event.target.value)} />
-            </Field>
+              <Field label="Administrator full name" htmlFor="provider-admin-name">
+                <Input id="provider-admin-name" required minLength={2} maxLength={200}
+                  autoComplete="name" value={name} onChange={event => setName(event.target.value)} />
+              </Field>
 
-            <Field label="Administrator email" htmlFor="provider-admin-email">
-              <Input id="provider-admin-email" required type="email" maxLength={254}
-                autoComplete="email" value={email} onChange={event => setEmail(event.target.value)} />
-            </Field>
+              <Field label="Administrator email" htmlFor="provider-admin-email">
+                <Input id="provider-admin-email" required type="email" maxLength={254}
+                  autoComplete="email" value={email} onChange={event => setEmail(event.target.value)} />
+              </Field>
+            </div>
 
-            <p className="patient-field-hint">Your CAC registration is checked against the official registry. If the CAC is already linked to an HID organization or needs manual resolution, enrollment will stop and require HID Team review.</p>
-
-            <Turnstile action="provider-enrollment" onTokenChange={setTurnstileToken} resetKey={resetKey} />
-            <button type="submit" className="patient-primary-button" disabled={busy || !turnstileToken}>
-              {busy ? 'Verifying CAC…' : 'Verify CAC and continue'}
-            </button>
+            <div className="provider-setup-actions">
+              <Turnstile action="provider-enrollment" onTokenChange={setTurnstileToken} resetKey={resetKey} />
+              <button type="submit" className="patient-primary-button provider-setup-submit" disabled={busy || !turnstileToken}>
+                {busy ? 'Verifying CAC…' : 'Continue'}
+              </button>
+              <p className="provider-setup-fineprint">We check your CAC against the official registry. Registrations already linked to Health ID are reviewed by our team before activation.</p>
+            </div>
           </form>
         )}
 
@@ -269,9 +292,7 @@ export function ProviderEnrollment() {
 
         {stage === 'sign-in' && <SignInToFinish reason={signInReason} />}
 
-        <p className="patient-auth-footer">Already have provider access? <Link to="/provider/sign-in">Sign in</Link></p>
-      </section>
-    </main>
+    </AuthLayout>
   )
 }
 
