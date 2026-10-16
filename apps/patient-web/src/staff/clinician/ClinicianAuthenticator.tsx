@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ButtonHTMLAttributes, type FormEvent, type ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { Field, Input } from '@hid/ui'
 import { OtpauthQr } from '../../mfa/OtpauthQr'
@@ -34,7 +35,8 @@ type Step =
   /** The challenge expired, ran out, or none was opened: P9 opens a new one. */
   | { kind: 'reopen' }
   /** Nothing more can be done here. */
-  | { kind: 'blocked'; message: string }
+  /** `signIn`: the way on is staff sign-in, where the authenticator is set up again. */
+  | { kind: 'blocked'; message: string; signIn?: boolean }
   /** An activation went through but its answer, the only one with the recovery codes, never arrived. */
   | { kind: 'codes-unseen' }
 
@@ -79,7 +81,7 @@ function outcomeOf(caught: unknown, step: StepName): Outcome {
     case 'CLINICIAN_APPLICATION_ACCOUNT_INELIGIBLE': return { then: 'step', step: { kind: 'blocked', message: ACCOUNT_INELIGIBLE }, message: null }
     // A reset authenticator of an approved clinician or a staff member: set up again only at staff sign-in (P7, P9).
     case 'CLINICIAN_APPLICATION_STAFF_SIGN_IN_REQUIRED':
-      return { then: 'step', step: { kind: 'blocked', message: STAFF_SIGN_IN_REQUIRED }, message: null }
+      return { then: 'step', step: { kind: 'blocked', message: STAFF_SIGN_IN_REQUIRED, signIn: true }, message: null }
     case 'MFA_ENROLLMENT_PROOF_UNAVAILABLE': return { then: 'step', step: { kind: 'blocked',
       message: 'There is no email address on this account to confirm the setup. Contact HID support.' }, message: null }
     // The email proof of this challenge was already used, by a start whose answer never arrived: a new challenge (P9) needs a new proof.
@@ -149,7 +151,7 @@ export function ClinicianAuthenticator({ start, context, email, reason, doneLabe
       case 'recovery': return <RecoveryStep key={key} activation={step.activation} doneLabel={doneLabel} onDone={onReady} />
       case 'verify': return <VerifyStep key={key} {...common} onVerified={onReady} />
       case 'reopen': return <ReopenStep key={key} {...common} onOpened={purpose => go(purpose === 'verify' ? { kind: 'verify' } : { kind: 'enrol' })} />
-      case 'blocked': return <BlockedStep key={key} message={step.message} />
+      case 'blocked': return <BlockedStep key={key} message={step.message} signIn={step.signIn ?? false} />
       case 'codes-unseen': return <CodesUnseenStep key={key} doneLabel={doneLabel} onDone={() => onReady(null)} />
     }
   }
@@ -423,9 +425,10 @@ function CodesUnseenStep({ doneLabel, onDone }: { doneLabel: string; onDone(): v
   </section>
 }
 
-function BlockedStep({ message }: { message: string }) {
+function BlockedStep({ message, signIn }: { message: string; signIn: boolean }) {
   return <section className="patient-form" aria-labelledby="clinician-mfa-blocked-title">
     <StepHeading id="clinician-mfa-blocked-title" focus>Your authenticator can't be set up here</StepHeading>
     <p role="alert" className="patient-inline-error">{message}</p>
+    {signIn && <div><Link className="patient-primary-button" to="/provider/sign-in">Sign in to the provider portal</Link></div>}
   </section>
 }

@@ -4,7 +4,7 @@ import { Field, Input } from '@hid/ui'
 import { describedBy } from '../../authSteps'
 import { CLINICIAN_REGULATOR_OF, clinicianApplicationApi, type ClinicianApplicationDetails, type ClinicianFacility,
   type ClinicianProfession } from '../clinicianApplicationApi'
-import { PROFESSION_CHOICE, REGULATOR_NAME, SIGNUP_CLOSED, codeOf, lagosToday, refusalCopy } from './copy'
+import { PROFESSION_CHOICE, REGULATOR_NAME, SIGNUP_CLOSED_KEPT, codeOf, lagosToday, refusalCopy } from './copy'
 import { fieldError, type Problem } from './ui'
 
 /**
@@ -119,7 +119,7 @@ export function DetailsFields({ value, onChange, problems, fullName, onFullName,
   /** Sign-up asks for the name too; applying again does not. */
   fullName?: string
   onFullName?(name: string): void
-  /** A search refusal the page takes over (the page ended); true when it did. */
+  /** A search refusal the page takes over (the page ended, or intake closed while applying again); true when it did. */
   onSearchRefused(caught: unknown): boolean
   /** Whether a facility search is running, until its answer, even once the fields are gone. */
   onSearching?(searching: boolean): void
@@ -187,7 +187,7 @@ function FacilitySearch({ value, onChange, error, onRefused, onSearching }: {
       setAnswered(count => count + 1)
     } catch (caught) {
       if (onRefused(caught)) return
-      setRefused(codeOf(caught) === 'CLINICIAN_SIGNUP_CLOSED' ? SIGNUP_CLOSED
+      setRefused(codeOf(caught) === 'CLINICIAN_SIGNUP_CLOSED' ? SIGNUP_CLOSED_KEPT
         : refusalCopy(caught, "We couldn't search for facilities right now. Try again.", 'Too many searches. Try again later.'))
     } finally {
       setSearching(false)

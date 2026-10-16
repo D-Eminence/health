@@ -299,9 +299,6 @@ describe('the email code and the authenticator', () => {
 
   it.each([
     ['STAFF_MFA_FACTOR_UNPROVEN', 403, 'Your authenticator was set up at platform sign-in. Contact HID support to reset it.'],
-    // A reset authenticator of an approved clinician or a facility's staff member: set up again only at staff sign-in.
-    ['CLINICIAN_APPLICATION_STAFF_SIGN_IN_REQUIRED', 403,
-      'Your authenticator was reset. Sign in to the provider portal to set it up again, or contact HID support.'],
     ['CLINICIAN_APPLICATION_RATE_LIMITED', 429, 'Too many attempts from your network. Try again later.'],
     ['PLATFORM_MAINTENANCE', 503, 'Health ID is under maintenance. Try again later.'],
     ['CLINICIAN_APPLICATION_UNAVAILABLE', 503, "We couldn't check the code right now. Try again."],
@@ -310,6 +307,23 @@ describe('the email code and the authenticator', () => {
     await throughEmail()
     expect((await screen.findByRole('alert')).textContent).toBe(message)
     expect(screen.getByRole('heading', { name: 'Enter the 6-digit code' })).toBeTruthy()
+  })
+
+  // A reset authenticator of an account with an approved application or a staff membership is set up again only at staff
+  // sign-in (P11, after a correct code, with no capability opened): another code here would meet the same answer.
+  it('sends an account whose authenticator is set up at staff sign-in to provider sign-in, with no code step', async () => {
+    api.verifyStatusCode.mockRejectedValueOnce(problem(403, 'CLINICIAN_APPLICATION_STAFF_SIGN_IN_REQUIRED'))
+    await throughEmail()
+    await headingFocused("Your authenticator can't be set up here")
+    expect(screen.getByRole('alert').textContent)
+      .toBe('Your authenticator was reset. Sign in to the provider portal to set it up again, or contact HID support.')
+    expect(screen.getByRole('link', { name: 'Sign in to the provider portal' }).getAttribute('href')).toBe('/provider/sign-in')
+    expect(screen.queryByRole('textbox', { name: '6-digit code' })).toBeNull()
+    // Another address can still be checked from here.
+    press('Check another email address')
+    await headingFocused('Check your clinician application', 1)
+    expect(screen.getByRole('textbox', { name: 'Work email' })).toBeTruthy()
+    expect(screen.queryByRole('alert')).toBeNull()
   })
 
   it('says why a status code was not sent, with no countdown', async () => {
@@ -578,7 +592,9 @@ describe('applying to another facility', () => {
     ['CLINICIAN_APPLICATION_LIMIT_REACHED', 409, 'You have too many applications open. Wait for a decision or withdraw one.'],
     ['CLINICIAN_APPLICATION_FACILITY_BUSY', 409, 'This facility has many applications waiting. Try again in a few days or contact HID support.'],
     ['CLINICIAN_APPLICATION_ACCOUNT_INELIGIBLE', 403, "This account can't apply for a clinical role. Contact HID support."],
-    ['CLINICIAN_SIGNUP_CLOSED', 503, "New clinician applications aren't open right now."],
+    // A quota of the network or of Health ID, or (since hid-system 9e981e4) the platform's daily cap met as the application is created.
+    ['CLINICIAN_APPLICATION_RATE_LIMITED', 429, 'Too many applications have been sent, from your network or to Health ID today. '
+      + 'Your details are still here; try again later.'],
     ['CLINICIAN_APPLICATION_UNAVAILABLE', 503, "We couldn't send your application right now. Your details are still here; try again."],
   ])('says why another application was refused (%s), keeping the details', async (code, status, message) => {
     await applyForm()
@@ -586,6 +602,45 @@ describe('applying to another facility', () => {
     press('Send application')
     expect((await screen.findByRole('alert')).textContent).toBe(message)
     expect(textbox('Licence or registration number').value).toBe('NMCN 778899')
+  })
+
+  // Since hid-system 9e981e4 (354917c) a closed intake is answered before the capability, whatever cookie is sent, so it
+  // no longer shows that this page is still open: the page reads the applications again, which says both.
+  it.each([['sending', 'Send application'], ['searching', 'Search facilities']] as const)(
+    'closes the form and reads the applications again when intake has closed (%s)', async (_case, button) => {
+      await applyForm()
+      if (button === 'Send application') api.apply.mockRejectedValueOnce(problem(503, 'CLINICIAN_SIGNUP_CLOSED'))
+      else api.searchFacilities.mockRejectedValueOnce(problem(503, 'CLINICIAN_SIGNUP_CLOSED'))
+      api.current.mockResolvedValueOnce(account({ canApply: false, applyRefusal: 'CLINICIAN_SIGNUP_CLOSED' }))
+      press(button)
+      const notice = await screen.findByText("New clinician applications aren't open right now, so no application was sent.")
+      await waitFor(() => expect(document.activeElement).toBe(notice.closest('p')))
+      expect(api.current).toHaveBeenCalledTimes(2)
+      expect(screen.queryByRole('heading', { name: 'Apply to another facility' })).toBeNull()
+      expect(screen.queryByRole('button', { name: 'Apply to another facility' })).toBeNull()
+      expect(screen.getByText("New clinician applications aren't open right now.")).toBeTruthy()
+      expect(api.apply).toHaveBeenCalledTimes(button === 'Send application' ? 1 : 0)
+    })
+
+  it('asks for the email again when intake has closed and this page has closed too', async () => {
+    await applyForm()
+    api.apply.mockRejectedValueOnce(problem(503, 'CLINICIAN_SIGNUP_CLOSED'))
+    api.current.mockRejectedValueOnce(problem(401, 'CLINICIAN_APPLICATION_SESSION_INVALID'))
+    press('Send application')
+    await headingFocused('Check your clinician application', 1)
+    expect(screen.getByRole('alert').textContent).toBe('For your security, this page closed after 30 minutes. Enter your email to continue.')
+  })
+
+  it('says intake has closed, and keeps the list, when the applications cannot be read again', async () => {
+    await applyForm()
+    api.apply.mockRejectedValueOnce(problem(503, 'CLINICIAN_SIGNUP_CLOSED'))
+    api.current.mockRejectedValueOnce(problem(503, 'CLINICIAN_APPLICATION_UNAVAILABLE'))
+    press('Send application')
+    expect((await screen.findByRole('alert')).textContent).toBe("We couldn't load your application right now. Try again.")
+    expect(screen.getByRole('status').textContent).toBe("New clinician applications aren't open right now, so no application was sent.")
+    expect(screen.queryByRole('heading', { name: 'Apply to another facility' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Apply to another facility' })).toBeNull()
+    expect(article(FACILITY.name)).toBeTruthy()
   })
 
   it.each([

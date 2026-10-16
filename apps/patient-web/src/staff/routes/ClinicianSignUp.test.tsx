@@ -385,6 +385,20 @@ describe('your details', () => {
       licenceValidUntil: LATER, facilityId: OTHER.facilityId }), 'submission-key-1')
   })
 
+  // Since hid-system 9e981e4 (354917c) a closed intake is answered before the capability, whatever cookie is sent: the
+  // details stay on the page, as at submit.
+  it('says sign-up has closed at the facility search, keeping the details', async () => {
+    api.searchFacilities.mockRejectedValueOnce(problem(503, 'CLINICIAN_SIGNUP_CLOSED'))
+    await toDetails()
+    type(textbox('Licence or registration number'), 'MDCN/12345')
+    type(screen.getByRole('searchbox', { name: 'Your facility' }), 'Lagos')
+    press('Search facilities')
+    expect((await screen.findByRole('alert')).textContent)
+      .toBe("New clinician applications aren't open right now. Your details are still here; try again later.")
+    expect(screen.getByRole('heading', { name: 'Your details' })).toBeTruthy()
+    expect(textbox('Licence or registration number').value).toBe('MDCN/12345')
+  })
+
   it('says when there are too many searches, with no countdown', async () => {
     api.searchFacilities.mockRejectedValueOnce(problem(429, 'CLINICIAN_APPLICATION_RATE_LIMITED'))
     await toDetails()
@@ -550,13 +564,17 @@ describe('the password, declarations and submit', () => {
     expect(api.submit.mock.calls.map(call => call[1])).toEqual(['submission-key-1', 'submission-key-2'])
   })
 
-  it('offers the status page or the email step when the email confirmation has expired, keeping the details', async () => {
+  // Since hid-system 9e981e4 (8dac32f) P4 also answers 401 once its draft has had five submissions hashed: the
+  // confirmation has ended either way, and the page cannot tell which, so it names both.
+  it('offers the status page or the email step when the email confirmation has ended (an hour, or five submissions), keeping the details', async () => {
     api.submit.mockRejectedValueOnce(problem(401, 'CLINICIAN_APPLICATION_SESSION_INVALID'))
     await toPassword()
     fillPassword()
     press('Submit application')
     await stepShown('Confirm your email again')
-    expect(screen.getByText(/Your email confirmation expired. If you already submitted, check your application status; otherwise confirm your email again. Your other details are kept on this page./)).toBeTruthy()
+    expect(screen.getByRole('alert').textContent).toBe('Your email confirmation has ended: it lasts an hour and covers up to five '
+      + 'attempts to submit. If you already submitted, check your application status; otherwise confirm your email again. Your '
+      + 'other details are kept on this page.')
     expect(screen.getByRole('link', { name: 'Check application status' }).getAttribute('href')).toBe('/provider/join/status')
     press('Confirm email again')
     await stepShown('Your work email')
@@ -585,7 +603,9 @@ describe('the password, declarations and submit', () => {
 
   it.each([
     ['CLINICIAN_APPLICATION_FACILITY_BUSY', 409, 'This facility has many applications waiting. Try again in a few days or contact HID support.'],
-    ['CLINICIAN_APPLICATION_RATE_LIMITED', 429, 'Too many applications were sent from your network. Try again later.'],
+    // A quota of the network or of Health ID, or (since hid-system 9e981e4) the platform's daily cap met as the application is created.
+    ['CLINICIAN_APPLICATION_RATE_LIMITED', 429, 'Too many applications have been sent, from your network or to Health ID today. '
+      + 'Your details are still here; try again later.'],
     ['PLATFORM_MAINTENANCE', 503, 'Health ID is under maintenance. Your details are still here; try again later.'],
     ['CLINICIAN_SIGNUP_CLOSED', 503, "New clinician applications aren't open right now. Your details are still here; try again later."],
     ['CLINICIAN_APPLICATION_REQUIRES_SIGN_OUT', 409, "You're signed in to Health ID in this browser. Sign out, then come back to apply."],

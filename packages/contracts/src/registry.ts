@@ -132,7 +132,7 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('enrollment.providerActivate','enrollment','/api/v1/identity/provider-enrollments/activate',P,true,undefined,
     'Accountless; uses the enrollment cookie. Since hid-system #71 returns an MFA status, not a session.'),
   // Clinician self sign-up and its status page (hid-system ADR-064, branch
-  // claude/clinician-self-signup at fa58e2b, not merged). Every route needs
+  // claude/clinician-self-signup at fa58e2b, re-checked at 9e981e4; not merged). Every route needs
   // Origin and no CSRF or session; after the email code the browser holds only
   // the httpOnly capability cookie hid_clinician_application (path
   // /api/v1/identity/clinician-applications). Nothing here issues a session.
@@ -145,7 +145,8 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('enrollment.clinicianFacilitySearch','enrollment','/api/v1/identity/clinician-applications/facility-search',P,true,undefined,
     'Draft or ready capability; at most 10 verified facilities.'),
   r('enrollment.clinicianSubmit','enrollment','/api/v1/identity/clinician-applications',P,true,undefined,
-    'Draft capability and Idempotency-Key. Creates the account and the application; no session, no role.'),
+    'Draft capability and Idempotency-Key. Creates the account and the application; no session, no role. '
+    + 'Since 9e981e4 a draft takes at most five hashed submissions (then 401).'),
   r('enrollment.clinicianAuthenticatorEmailCode','enrollment','/api/v1/identity/clinician-applications/authenticator/email-code',P,true,undefined,
     'No body. Emails the enrolment proof code (0088).'),
   r('enrollment.clinicianAuthenticatorStart','enrollment','/api/v1/identity/clinician-applications/authenticator/start',P,true,undefined,

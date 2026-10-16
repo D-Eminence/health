@@ -9,8 +9,8 @@ import { ClinicianAuthenticator } from '../clinician/ClinicianAuthenticator'
 import { Declarations, DetailsFields, EMPTY_DETAILS, applicationDetails, declarationProblems, detailsProblems,
   type DetailsValue } from '../clinician/ClinicianDetails'
 import { EmailCode } from '../clinician/EmailCode'
-import { FACILITY_UNAVAILABLE, PROFESSION_NAME, REGULATOR_NAME, SIGNUP_CLOSED, codeOf, codeSentCopy,
-  formatDate, isUnavailable, refusalCopy } from '../clinician/copy'
+import { APPLICATIONS_LIMITED, FACILITY_UNAVAILABLE, PROFESSION_NAME, REGULATOR_NAME, SIGNUP_CLOSED, SIGNUP_CLOSED_KEPT, codeOf,
+  codeSentCopy, formatDate, isUnavailable, refusalCopy } from '../clinician/copy'
 import { ClinicianFrame, ErrorSummary, MainSiteOnly, PrimaryButton, StepError, StepHeading, TextButton, fieldError, shownError,
   type Problem } from '../clinician/ui'
 
@@ -38,7 +38,7 @@ const KEPT = 'Your details are still here; try again later.'
 const SUBMIT_REFUSAL: Readonly<Record<string, string>> = {
   PASSWORD_INVALID: 'Choose a password of 12 to 256 characters.',
   PLATFORM_MAINTENANCE: `Health ID is under maintenance. ${KEPT}`,
-  CLINICIAN_SIGNUP_CLOSED: `New clinician applications aren't open right now. ${KEPT}`,
+  CLINICIAN_SIGNUP_CLOSED: SIGNUP_CLOSED_KEPT,
 }
 
 export function ClinicianSignUp() {
@@ -197,7 +197,7 @@ function SignUp() {
     const code = codeOf(caught)
     setError(shownError((code && Object.hasOwn(SUBMIT_REFUSAL, code) ? SUBMIT_REFUSAL[code] : undefined)
       ?? refusalCopy(caught, "We couldn't submit your application right now. Your details are still here; try again.",
-        'Too many applications were sent from your network. Try again later.')))
+        APPLICATIONS_LIMITED)))
     focusOn('clinician-password')
   }
 
@@ -284,8 +284,9 @@ function SignUp() {
 
     {screen === 'expired' && <section className="clinician-panel" aria-labelledby="clinician-expired-title">
       <StepHeading id="clinician-expired-title" focus>Confirm your email again</StepHeading>
-      <p role="alert">Your email confirmation expired. If you already submitted, check your application status; otherwise confirm your
-        email again. Your other details are kept on this page.</p>
+      {/* P4 also ends a draft after five hashed submissions (hid-system 9e981e4), with the same 401 as its expiry. */}
+      <p role="alert">Your email confirmation has ended: it lasts an hour and covers up to five attempts to submit. If you already
+        submitted, check your application status; otherwise confirm your email again. Your other details are kept on this page.</p>
       <div className="clinician-actions">
         <PrimaryButton onClick={confirmEmailAgain}>Confirm email again</PrimaryButton>
         <Link className="patient-secondary-button" to={CLINICIAN_STATUS_PATH}>Check application status</Link>

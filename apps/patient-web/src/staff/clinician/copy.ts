@@ -31,6 +31,19 @@ export const REQUIRES_SIGN_OUT = "You're signed in to Health ID in this browser.
 export const SECURITY_CHECK = 'Complete the security check again.'
 export const SECURITY_CHECK_UNAVAILABLE = "The security check isn't available right now. Try again in a few minutes."
 export const SIGNUP_CLOSED = "New clinician applications aren't open right now."
+/** A form that keeps what was typed when intake has closed (sign-up's search and submit). */
+export const SIGNUP_CLOSED_KEPT = `${SIGNUP_CLOSED} Your details are still here; try again later.`
+/**
+ * Intake closed while applying to another facility. Since hid-system 9e981e4 a closed intake is answered before the
+ * capability, so the status page reads the applications again to learn whether it is still open.
+ */
+export const SIGNUP_CLOSED_NOT_SENT = "New clinician applications aren't open right now, so no application was sent."
+/**
+ * A submission or another application refused by a quota: the network's, Health ID's, or (hid-system 9e981e4) the
+ * platform's daily cap met as the application is created. Which one is not said, and no countdown is shown.
+ */
+export const APPLICATIONS_LIMITED = 'Too many applications have been sent, from your network or to Health ID today. '
+  + 'Your details are still here; try again later.'
 export const FACILITY_UNAVAILABLE = "This facility can't accept clinicians on Health ID right now. Choose another or ask your facility administrator."
 export const FACILITY_BUSY = 'This facility has many applications waiting. Try again in a few days or contact HID support.'
 export const ACCOUNT_INELIGIBLE = "This account can't apply for a clinical role. Contact HID support."

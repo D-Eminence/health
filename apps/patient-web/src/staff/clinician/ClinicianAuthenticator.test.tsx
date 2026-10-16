@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
 import { ClinicianAuthenticator, type ClinicianAuthenticatorProps } from './ClinicianAuthenticator'
 
@@ -32,8 +33,8 @@ beforeEach(() => {
 })
 
 function show(start: ClinicianAuthenticatorProps['start']) {
-  render(<ClinicianAuthenticator start={start} context="signup" email="ada@example.test" doneLabel="Continue to your application"
-    onReady={handlers.onReady} onEnded={handlers.onEnded} />)
+  render(<MemoryRouter><ClinicianAuthenticator start={start} context="signup" email="ada@example.test"
+    doneLabel="Continue to your application" onReady={handlers.onReady} onEnded={handlers.onEnded} /></MemoryRouter>)
 }
 
 async function stepShown(name: string) {
@@ -242,6 +243,8 @@ describe('an account that sets its authenticator up only at staff sign-in (403 C
     await stepShown("Your authenticator can't be set up here")
     expect(screen.getByRole('alert').textContent)
       .toBe('Your authenticator was reset. Sign in to the provider portal to set it up again, or contact HID support.')
+    // The way on is staff sign-in, where the authenticator is set up again.
+    expect(screen.getByRole('link', { name: 'Sign in to the provider portal' }).getAttribute('href')).toBe('/provider/sign-in')
     expect(screen.queryByRole('button')).toBeNull()
     expect(handlers.onEnded).not.toHaveBeenCalled()
   })
@@ -263,6 +266,9 @@ describe('opening the step again (P9)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Start again' }))
     await stepShown("Your authenticator can't be set up here")
     expect(screen.getByRole('alert').textContent).toBe(words)
+    // Only staff sign-in can help an account that sets its authenticator up there.
+    expect(screen.queryByRole('link', { name: 'Sign in to the provider portal' }) !== null)
+      .toBe(_case.includes('STAFF_SIGN_IN_REQUIRED'))
   })
 
   it('says the step was started too many times (429 MFA_RATE_LIMITED), and stays', async () => {

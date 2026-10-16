@@ -8,8 +8,9 @@ import { ClinicianAuthenticator } from '../clinician/ClinicianAuthenticator'
 import { Declarations, DetailsFields, EMPTY_DETAILS, FIELD, applicationDetails, declarationProblems, detailsProblems,
   type DetailsValue } from '../clinician/ClinicianDetails'
 import { EmailCode } from '../clinician/EmailCode'
-import { ACCOUNT_UNAVAILABLE, APPLICATION_CHANGED, APPLY_REFUSAL, FACILITY_UNAVAILABLE, MAINTENANCE, PAGE_EXPIRED, PROFESSION_NAME,
-  REGULATOR_NAME, STATE_LABEL, codeOf, formatDate, refusalCopy, stateCopy, statusCodeSentCopy } from '../clinician/copy'
+import { ACCOUNT_UNAVAILABLE, APPLICATIONS_LIMITED, APPLICATION_CHANGED, APPLY_REFUSAL, FACILITY_UNAVAILABLE, MAINTENANCE, PAGE_EXPIRED,
+  PROFESSION_NAME, REGULATOR_NAME, SIGNUP_CLOSED_NOT_SENT, STAFF_SIGN_IN_REQUIRED, STATE_LABEL, codeOf, formatDate, refusalCopy,
+  stateCopy, statusCodeSentCopy } from '../clinician/copy'
 import { ClinicianFrame, ErrorSummary, MainSiteOnly, PrimaryButton, StepError, StepHeading, TextButton, shownError,
   type Problem } from '../clinician/ui'
 
@@ -24,7 +25,8 @@ import { ClinicianFrame, ErrorSummary, MainSiteOnly, PrimaryButton, StepError, S
  * offers Retry, and never asks for the email again.
  */
 
-type Phase = 'loading' | 'failed' | 'form' | 'authenticator' | 'list'
+/** `staff-sign-in`: the account's authenticator is set up again only at staff sign-in (P11's 403). */
+type Phase = 'loading' | 'failed' | 'form' | 'authenticator' | 'list' | 'staff-sign-in'
 
 const OPEN_STATES = new Set(['awaiting_authenticator', 'submitted', 'under_review'])
 const COULD_NOT_LOAD = "We couldn't load your application right now."
@@ -164,9 +166,21 @@ function StatusPage() {
     if (failed) focusOn(fromList ? LIST_RETRY : RETRY)
   }
 
-  function statusRefused(caught: unknown, call: 'send' | 'verify'): string {
+  function statusRefused(caught: unknown, call: 'send' | 'verify'): string | null {
+    // After a correct code, with no capability opened: another code would meet the same answer, so the code step ends.
+    if (call === 'verify' && codeOf(caught) === 'CLINICIAN_APPLICATION_STAFF_SIGN_IN_REQUIRED') { move('staff-sign-in'); return null }
     return refusalCopy(caught, call === 'send' ? "We couldn't send a code right now. Try again in a few minutes."
       : "We couldn't check the code right now. Try again.", 'Too many attempts from your network. Try again later.')
+  }
+
+  /**
+   * Intake closed while applying to another facility (P14, or its facility search). Identity answers that before it
+   * reads the capability (hid-system 9e981e4), so the applications are read again: the list says whether this page is
+   * still open, and that no other application can be made now.
+   */
+  async function intakeClosed() {
+    await load({ fromList: true, done: { notice: SIGNUP_CLOSED_NOT_SENT,
+      change: shown => ({ ...shown, canApply: false, applyRefusal: 'CLINICIAN_SIGNUP_CLOSED' }) } })
   }
 
   async function confirmWithdraw() {
@@ -223,6 +237,20 @@ function StatusPage() {
       <StepError error={failure} />
       <PrimaryButton id={RETRY} onClick={() => { setMoved(true); void retry(false) }} disabled={busy !== null}>
         {busy === 'reload' ? 'Loading…' : 'Retry'}</PrimaryButton>
+    </ClinicianFrame>
+  }
+
+  if (phase === 'staff-sign-in') {
+    return <ClinicianFrame labelledBy="clinician-status-title">
+      <StepHeading id="clinician-status-title" level={1} focus={false}>Check your clinician application</StepHeading>
+      <section className="clinician-panel" aria-labelledby="clinician-status-staff-title">
+        <StepHeading id="clinician-status-staff-title" focus>Your authenticator can't be set up here</StepHeading>
+        <p role="alert" className="patient-inline-error">{STAFF_SIGN_IN_REQUIRED}</p>
+        <div className="clinician-actions">
+          <Link className="patient-primary-button" to="/provider/sign-in">Sign in to the provider portal</Link>
+          <TextButton onClick={() => toForm(null)}>Check another email address</TextButton>
+        </div>
+      </section>
     </ClinicianFrame>
   }
 
@@ -286,7 +314,7 @@ function StatusPage() {
           onWithdraw={() => { setWithdrawError(null); setWithdrawing(application) }} />
       </li>)}
     </ul>
-    <ApplyAnother account={view} takeOver={takeOver} onWorking={setApplyWorking} onApplied={async (created, facility) => {
+    <ApplyAnother account={view} takeOver={takeOver} onWorking={setApplyWorking} onClosed={intakeClosed} onApplied={async (created, facility) => {
       await load({ fromList: true, done: { notice: `Your application to ${facility} was sent. It is in HID's verification queue.`,
         change: shown => shown.applications.some(application => application.applicationId === created.applicationId) ? shown
           : { ...shown, applications: [created, ...shown.applications] } } })
@@ -378,9 +406,11 @@ const SEND = 'clinician-apply-send'
 const APPLY_OPEN = 'clinician-apply-open'
 
 /** Applying to another facility (P14), with the sign-up's details and declarations; the account's name is already known. */
-function ApplyAnother({ account, onApplied, takeOver, onWorking }: {
+function ApplyAnother({ account, onApplied, takeOver, onWorking, onClosed }: {
   account: ClinicianAccountView; onApplied(created: ClinicianApplicationView, facility: string): Promise<void>
   takeOver(caught: unknown): boolean
+  /** Intake closed: the form closes (what was typed is kept) and the page reads the applications again. */
+  onClosed(): Promise<void>
   /** Whether a request of this form (sending, or a facility search) is running. */
   onWorking(working: boolean): void
 }) {
@@ -414,6 +444,14 @@ function ApplyAnother({ account, onApplied, takeOver, onWorking }: {
     </div>
   }
 
+  /** Takes over a closed intake, from sending or from the facility search; true when it did. */
+  function closedRefusal(caught: unknown): boolean {
+    if (codeOf(caught) !== 'CLINICIAN_SIGNUP_CLOSED') return false
+    setApplying(false)
+    void onClosed()
+    return true
+  }
+
   function keyFor(input: ClinicianApplicationDetails): string {
     const fingerprint = JSON.stringify(input)
     if (submission.current?.fingerprint !== fingerprint) submission.current = { key: newClinicianIdempotencyKey(), fingerprint }
@@ -439,7 +477,7 @@ function ApplyAnother({ account, onApplied, takeOver, onWorking }: {
       setConsent(false)
       await onApplied(created, created.facility?.name ?? details.facility?.name ?? 'the facility')
     } catch (caught) {
-      if (takeOver(caught)) return
+      if (closedRefusal(caught) || takeOver(caught)) return
       const code = codeOf(caught)
       if (code === 'CLINICIAN_APPLICATION_FACILITY_UNAVAILABLE') {
         setDetails(value => ({ ...value, facility: null }))
@@ -455,7 +493,7 @@ function ApplyAnother({ account, onApplied, takeOver, onWorking }: {
         focusOn(FIELD.licenceNumber)
       } else {
         setError(shownError(refusalCopy(caught, "We couldn't send your application right now. Your details are still here; try again.",
-          'Too many applications were sent from your network. Try again later.')))
+          APPLICATIONS_LIMITED)))
         focusOn(SEND)
       }
     } finally {
@@ -470,7 +508,8 @@ function ApplyAnother({ account, onApplied, takeOver, onWorking }: {
       administrators review each application.</p>
     <StepError error={error} />
     <ErrorSummary problems={problems} focusKey={summaryKey} />
-    <DetailsFields value={details} onChange={setDetails} problems={problems} onSearchRefused={takeOver} onSearching={setSearching} />
+    <DetailsFields value={details} onChange={setDetails} problems={problems}
+      onSearchRefused={caught => closedRefusal(caught) || takeOver(caught)} onSearching={setSearching} />
     <Declarations accurate={accurate} consent={consent} onAccurate={setAccurate} onConsent={setConsent} regulator={regulator}
       facility={details.facility?.name ?? 'the facility'} problems={problems} />
     <div className="clinician-actions">
