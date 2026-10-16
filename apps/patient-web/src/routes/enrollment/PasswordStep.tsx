@@ -1,4 +1,5 @@
 import type { FormEvent } from 'react'
+import { PasswordInput } from '@hid/ui'
 import { describedBy } from '../../authSteps'
 import { ENROLLMENT_GENDERS, type EnrollmentGender, type EnrollmentProfileField } from '../../api'
 import type { StepProps } from './stepProps'
@@ -75,8 +76,8 @@ export function PasswordStep({ focusTarget, busy, errorId, password, onPassword,
       {ENROLLMENT_GENDERS.map(value => <option key={value} value={value}>{GENDER_LABELS[value]}</option>)}
     </select></label>}
     <p id="enroll-password-hint" className="patient-field-hint">Choose a password of at least 12 characters.</p>
-    <label>Password<input ref={target('password')} required type="password" autoComplete="new-password" minLength={12} maxLength={256} value={password} onChange={event => onPassword(event.target.value)}
-      aria-invalid={invalid('password')} aria-describedby={describedBy('enroll-password-hint', errorFor('password'))} /></label>
+    <div className="patient-field"><label htmlFor="enroll-password">Password</label><PasswordInput appearance="plain" id="enroll-password" ref={target('password')} required autoComplete="new-password" minLength={12} maxLength={256} value={password} onChange={event => onPassword(event.target.value)}
+      aria-invalid={invalid('password')} aria-describedby={describedBy('enroll-password-hint', errorFor('password'))} /></div>
     {missing.length > 0 && <p id="enroll-profile-missing" className="patient-field-hint">Enter your {missing.map(field => FIELD_NAMES[field]).join(' and ')} to activate.</p>}
     <button type="submit" className="patient-primary-button" disabled={busy || password.length < 12 || blocked || missing.length > 0}
       aria-describedby={missing.length > 0 ? 'enroll-profile-missing' : undefined}>{busy ? 'Activating…' : 'Activate Health ID'}</button>

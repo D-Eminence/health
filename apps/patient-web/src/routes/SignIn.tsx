@@ -1,7 +1,9 @@
 import { useState, type FormEvent } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
+import { PasswordInput } from '@hid/ui'
 import { GoogleButton } from '../GoogleButton'
+import { googleClientId } from '../googleClient'
 import { Turnstile } from '../Turnstile'
 import { AuthLayout } from '../AuthLayout'
 import { useSession } from '../session'
@@ -66,12 +68,12 @@ export function SignIn() {
     </div>}
     <form onSubmit={event => void submit(event)} className="patient-form">
       <label>Email or Health ID<input required autoComplete="username" value={email} onChange={event => setEmail(event.target.value)} placeholder="you@example.com or HID-…" /></label>
-      <label>Password<input required type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} minLength={6} /></label>
+      <div className="patient-field"><label htmlFor="sign-in-password">Password</label><PasswordInput appearance="plain" id="sign-in-password" required autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} minLength={6} /></div>
       <div className="patient-form-aside"><Link to="/recover">Forgot password?</Link></div>
       <Turnstile action="patient-login" onTokenChange={setTurnstileToken} resetKey={resetKey} />
       <button type="submit" className="patient-primary-button" disabled={busy || !turnstileToken}>{busy ? 'Signing in…' : 'Sign in'}</button>
     </form>
-    {import.meta.env.VITE_HID_GOOGLE_CLIENT_ID && <div className="patient-auth-separator"><span>or continue with Google</span>
+    {import.meta.env.VITE_HID_GOOGLE_CLIENT_ID && googleClientId() && <div className="patient-auth-separator"><span>or continue with Google</span>
       <GoogleButton text="signin_with" disabled={busy || !turnstileToken} onCredential={google}
         disabledReason={turnstileToken ? undefined : 'Complete the security check to continue with Google.'} /></div>}
     <p className="patient-auth-footer">New to Health ID? <Link to="/enroll">Get your Health ID</Link></p>

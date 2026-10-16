@@ -77,9 +77,11 @@ describe('new Health ID registration (hid-system#68, FE-4)', () => {
     vi.stubEnv('VITE_HID_GOOGLE_CLIENT_ID', 'google-client')
     renderPortal(<Enrollment />, gateway(() => json({ open: true })), anonymous)
     expect(await screen.findByLabelText('National Identification Number')).toBeTruthy()
-    expect(screen.getAllByRole('button', { name: 'Complete check' })).toHaveLength(2)
+    // One security check on the page: Google is a path of its own, opened by a button.
+    expect(screen.getAllByRole('button', { name: 'Complete check' })).toHaveLength(1)
     expect(screen.getByRole('list', { name: 'Enrollment steps' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Sign up with Google' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Continue with Google' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Sign up with Google' })).toBeNull()
     expect(screen.queryByRole('region', { name: 'Registration is not open yet' })).toBeNull()
   })
 
@@ -197,6 +199,7 @@ describe('new Health ID registration (hid-system#68, FE-4)', () => {
     await press(await screen.findByRole('button', { name: 'Try again' }))
     expect(await screen.findByLabelText('National Identification Number')).toBeTruthy()
     expect(screen.getByText('Reconnect the Google account used to start this enrollment.')).toBeTruthy()
+    await press(screen.getByRole('button', { name: 'Reconnect Google' }))
     expect(screen.getByRole('button', { name: 'Sign up with Google' })).toBeTruthy()
   })
 })

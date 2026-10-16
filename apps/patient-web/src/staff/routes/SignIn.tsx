@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState, type ButtonHTMLAttributes } from 'react'
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
-import { Button, Field, Input } from '@hid/ui'
+import { Button, Field, Input, PasswordInput } from '@hid/ui'
 import { getEnvironment } from '../env'
 import { useStaff } from '../App'
 import type { StaffLoginChallenge, StaffSession } from '../api'
 import { AuthLayout } from '../../AuthLayout'
-import { turnstileSize } from '../../Turnstile'
+import { loadTurnstileScript, turnstileSize } from '../../Turnstile'
 import { CLINICIAN_STATUS_PATH, resolveStaffProductHostname, STAFF_RECOVERY_PATH, staffLoginAction, staffRecoveryHref } from '../../productHostname'
 import { staffReturnPath } from '../session'
 import { STAFF_MFA_FACTOR_UNPROVEN, STAFF_MFA_UNAVAILABLE, StaffMfaSteps, type StaffMfaLook } from './StaffMfaSteps'
@@ -46,37 +46,35 @@ function getStaffLandingPath(search: string): string {
     ?? resolveStaffProductHostname(window.location.hostname)?.route ?? '/provider'
 }
 
+const CHALLENGE_UNAVAILABLE = 'Human verification could not load. Refresh the page and try again.'
+
 function TurnstileChallenge({ onToken, resetKey }: { onToken: (token: string) => void; resetKey: number }) {
   const siteKey = getEnvironment().turnstileSiteKey
   const host = useRef<HTMLDivElement>(null)
   const [error, setError] = useState('')
+  // Read when the widget answers, so a new callback does not render the widget again.
+  const tokenTo = useRef(onToken)
+  useEffect(() => { tokenTo.current = onToken }, [onToken])
 
   useEffect(() => {
     if (!siteKey || !host.current) return
     let active = true
     let widgetId: string | null = null
-    const render = () => {
+    // The portal's one loader (Turnstile.tsx): this page adds no script of its own.
+    void loadTurnstileScript().then(() => {
       if (!active || !host.current || !window.turnstile) return
+      setError('')
       widgetId = window.turnstile.render(host.current, {
         sitekey: siteKey,
         action: staffLoginAction(window.location.hostname),
         size: turnstileSize(host.current, 'normal'),
-        callback: onToken,
-        'expired-callback': () => onToken(''),
-        'error-callback': () => { onToken(''); setError('Human verification could not load. Refresh the page and try again.') },
+        callback: (token: string) => tokenTo.current(token),
+        'expired-callback': () => tokenTo.current(''),
+        'error-callback': () => { tokenTo.current(''); setError(CHALLENGE_UNAVAILABLE) },
       })
-    }
-    if (window.turnstile) render()
-    else {
-      const script = document.createElement('script')
-      script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit'
-      script.async = true
-      script.onload = render
-      script.onerror = () => setError('Human verification could not load. Refresh the page and try again.')
-      document.head.append(script)
-    }
+    }).catch(() => { if (active) setError(CHALLENGE_UNAVAILABLE) })
     return () => { active = false; if (widgetId && window.turnstile) window.turnstile.remove(widgetId) }
-  }, [siteKey, onToken, resetKey])
+  }, [siteKey, resetKey])
 
   if (!siteKey) return null
   return <div><div ref={host} />{error && <p role="alert" className="staff-error">{error}</p>}</div>
@@ -153,7 +151,7 @@ export function SignIn() {
       {mfaRequired && <p role="status" className="staff-notice">{STAFF_MFA_NOTICE}</p>}
       <form className="staff-form" onSubmit={event => void submit(event)}>
         <Field label="Work email" htmlFor="staff-email" required><Input id="staff-email" type="email" autoComplete="username" value={email} onChange={event => setEmail(event.target.value)} required /></Field>
-        <Field label="Password" htmlFor="staff-password" required><Input id="staff-password" type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} required /></Field>
+        <Field label="Password" htmlFor="staff-password" required><PasswordInput id="staff-password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} required /></Field>
         <TurnstileChallenge onToken={setToken} resetKey={turnstileResetKey} />
         {error && <p className="staff-error" role="alert">{error}</p>}
         {error && noFacility && <p className="staff-muted">Applied as a doctor or nurse? You can sign in once two HID administrators

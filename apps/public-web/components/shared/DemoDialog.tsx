@@ -43,6 +43,10 @@ export function DemoDialog() {
   const [verificationError, setVerificationError] = useState<string | null>(null)
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
   const [resetKey, setResetKey] = useState(0)
+  // The security check exists only while the dialog is open: the dialog is mounted,
+  // closed, on most pages, which would otherwise each render a hidden widget (a
+  // second one beside a page's own form), and each opening needs a fresh token.
+  const [isOpen, setIsOpen] = useState(false)
   const submissionKeyRef = useRef<string | null>(null)
   const environment = getEnvironment()
   const siteKey = environment.turnstileSiteKey
@@ -54,6 +58,7 @@ export function DemoDialog() {
   }, [])
 
   const onDialogClose = useCallback(() => {
+    setIsOpen(false)
     setRequest(EMPTY)
     setTurnstileToken(null)
     setSubmitError(null)
@@ -70,6 +75,7 @@ export function DemoDialog() {
       setSubmitError(null)
       setVerificationError(null)
       openerRef.current = opener
+      setIsOpen(true)
 
       const dialog = dialogRef.current
       if (dialog && !dialog.open) dialog.showModal()
@@ -255,8 +261,8 @@ export function DemoDialog() {
 
           {localNoWidget
             ? <p className="text-xs text-muted">Local development: security verification is disabled on the local gateway.</p>
-            : <TurnstileWidget siteKey={siteKey} action="book-demo" resetKey={resetKey}
-                onToken={setTurnstileToken} onError={setVerificationError} />}
+            : isOpen ? <TurnstileWidget siteKey={siteKey} action="book-demo" resetKey={resetKey}
+                onToken={setTurnstileToken} onError={setVerificationError} /> : null}
           {verificationError ? <p role="alert" className="text-sm text-critical">{verificationError}</p> : null}
           {submitError ? <p role="alert" className="text-sm text-critical">{submitError}</p> : null}
 

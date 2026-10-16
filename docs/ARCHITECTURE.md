@@ -293,6 +293,26 @@ patient's own device shows a desk code; the staff and console screens are:
 The patient's facility list, desk code and continuation after the check are
 the patient sign-up screens (alignment list rows 2, 3, 6, 8 and 9).
 
+Each protected submission sends a single-use token from a widget carrying the
+action hid-system pins for its endpoint (sign-in's password and Google
+submissions share its one `patient-login` check, using each token once), and a
+page shows one check at a time. The enrollment NIN step offers the NIN start (`patient-enrollment`) and
+Google sign-up (`patient-login`) as two paths: "Continue with Google" replaces
+the NIN form and its check with Google's, so the two are never on screen
+together. Cloudflare's script loads once for the whole portal through
+`loadTurnstileScript` (`src/Turnstile.tsx`), shared by the patient, provider and
+administration pages; a failed load is removed so the next page tries again. The
+public site's demo dialog renders its check only while it is open. Every
+password field (nine, on eight screens) is a `@hid/ui` `PasswordInput`: a Show
+toggle beside the field with `aria-pressed`, named "Show password" (where a
+form has two, each toggle is named for its own field: "Show new password",
+"Show confirmed password"). It changes only how the password is displayed, and
+masks it again when its form is sent, the page is left, or the person switches
+to another tab or app; the Google-link password, sent by Google's button rather
+than a form, is masked again after each attempt. Edge's own reveal button is
+hidden. PIN and NIN fields have no toggle (PINs and registration's NIN are
+masked; the patient NIN fields are plain text).
+
 ## Authentication and patient data
 
 `hid-system` issues HttpOnly, host-only, SameSite Strict access and refresh
@@ -642,6 +662,27 @@ whose `X-Facility-ID` is no longer one of the session's facilities
 (`setStaffSessionFacilities` and `assertStaffSessionFacility` in
 `staff/session.ts`).
 
+The browser keeps nothing about a person beyond the portal hint (`@hid/auth`):
+no localStorage, sessionStorage, IndexedDB, Cache API, service worker or push
+subscription. ESLint enforces each where it is used plainly, through a property
+or by destructuring (`eslint.config.js`: `NO_BROWSER_STORAGE`, `NO_INDEXED_DB`,
+`NO_SERVICE_WORKER`, `NO_CACHE_STORAGE`); computed or aliased access is left to
+review. The portal can be
+installed as an app: a web app manifest (`public/health-id.webmanifest`, named
+Health ID, standalone, `start_url` `/` so that each product and admin host opens
+its own workspace) and icons derived from the supplied mark. Its `id` is `/`,
+which deliberately continues the identity of an earlier HID app installed on
+the same host. That is installability only: with no service worker nothing is
+available offline, and an installed app that cannot reach the network shows the
+browser's own offline page. Each app also serves `/service-worker.js`, which no
+Health ID page registers: when the browser checks a worker that hid-system's
+earlier apps registered on a host (scope `/`, caches named `hid-…`) for an
+update, this script replaces it, deletes those caches and unregisters itself.
+It serves and stores nothing and reloads no page itself, but it takes over at
+once, so an open page of hid-system's EHR, which reloads when its worker
+changes, reloads once, as on any EHR release. Web push is not offered: no
+backend route accepts a subscription (hand-off B15).
+
 ## Production requirements
 
 Because the session cookies are host-only and SameSite Strict, the portal's
@@ -654,6 +695,22 @@ hid-system#65 the gateway in staging and production also refuses, with
 `403 CLIENT_ADDRESS_REQUIRED`, any request whose edge did not set `X-Real-IP`
 to the client's address, so that forwarding must set it as hid-system's
 Workers do.
+
+Installing the portal and retiring an earlier worker need each host to serve
+the built files as files, never the single-page fallback:
+`/health-id.webmanifest` as `application/manifest+json`, `/icons/*.png`, and
+`/service-worker.js` as JavaScript with `Cache-Control: no-cache`.
+hid-system's frontend worker sets no-cache for a path ending
+`/service-worker.js` from the asset response's URL, a branch its tests do not
+reach. The script must answer `200` at the URL the earlier worker was
+registered with, query included, with no redirect: a redirect or `index.html`
+makes the earlier worker's update fail, so it keeps the host. Retiring needs no
+CSP allowance (no Health ID page registers a worker); a CSP must allow
+`manifest-src 'self'` (hand-off D1, D6). A HID worker on the apex,
+`healthidentitydirectory.com`, outside Health ID's hosts, was observed on 2026-10-13 by Health-id's PWA audit with a read-only request to `https://healthidentitydirectory.com/service-worker.js`: 200 JavaScript, cache `hid-static-v2026-04-29-1`, served by Vercel, with `www` redirecting there; its scope was not seen.
+hid-system's apex redirect would answer that path with a 308, so the apex must
+instead answer `/service-worker.js` itself with this script, for months after
+the switch (hand-off D1).
 
 The portal build publishes no source maps (`build.sourcemap: false`, guarded by
 `apps/patient-web/src/__tests__/buildConfig.test.ts`): hid-system's frontend

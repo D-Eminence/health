@@ -4,6 +4,7 @@ import { isHidApiError, retryAfterSeconds } from '@hid/http'
 import { ENROLLMENT_PROFILE_FIELDS, type EnrollmentFacilityRoute, type EnrollmentGender, type EnrollmentOnlineRoute, type EnrollmentProfile,
   type EnrollmentProfileField, type EnrollmentProgress } from '../api'
 import { GoogleButton } from '../GoogleButton'
+import { googleClientId } from '../googleClient'
 import { Turnstile } from '../Turnstile'
 import { AuthLayout } from '../AuthLayout'
 import { useSession } from '../session'
@@ -171,6 +172,11 @@ export function Enrollment() {
   const [googleTurnstileToken, setGoogleTurnstileToken] = useState<string | null>(null)
   const [resetKey, setResetKey] = useState(0)
   const [googleResetKey, setGoogleResetKey] = useState(0)
+  // The NIN step's two submissions, the NIN start and Google sign-up, each need
+  // their own single-use security check with its own action ('patient-enrollment'
+  // and 'patient-login'), so one is shown at a time: the path the person chose.
+  const [ninPath, setNinPath] = useState<'nin' | 'google'>('nin')
+  const googleHeading = useRef<HTMLSpanElement>(null)
   const [busy, setBusy] = useState(false)
   const [checking, setChecking] = useState(true)
   const [checkError, setCheckError] = useState(false)
@@ -236,7 +242,7 @@ export function Enrollment() {
     setHolderCodeError(false); setNotRecordedYet(false); resend.reset()
   }
   const restartAtNin = () => {
-    setStage('nin'); setChallengeId(null); setMaskedContact(''); setCode(''); setPassword(''); setStepHint(null); forgetProfile(); forgetHolder()
+    setNinPath('nin'); setStage('nin'); setChallengeId(null); setMaskedContact(''); setCode(''); setPassword(''); setStepHint(null); forgetProfile(); forgetHolder()
     setNotice(null); setError(ENDED_HERE); setFieldError(false); setErrorAlert(true)
   }
   /**
@@ -244,7 +250,7 @@ export function Enrollment() {
    * be someone else's on a shared phone. The start key is left as it is.
    */
   const forgetRegistration = () => {
-    setStage('nin'); setNin(''); setCode(''); setChallengeId(null); setMaskedContact(''); setPassword(''); setStepHint(null)
+    setNinPath('nin'); setStage('nin'); setNin(''); setCode(''); setChallengeId(null); setMaskedContact(''); setPassword(''); setStepHint(null)
     setContact(''); setChannel('phone'); setReference(null)
     forgetProfile(); forgetHolder(); setNotice(null)
   }
@@ -663,6 +669,7 @@ export function Enrollment() {
       const result = await api.googleExchange(idToken, googleTurnstileToken, 'enroll')
       if ('actor' in result) { acceptGoogleSession(result); navigate('/', { replace: true }); return }
       setGooglePending(true)
+      setNinPath('nin')
       // Binding answers only that it bound; the enrollment's own progress is read
       // again, so a patient already past the contact step is not sent back to it.
       if (stage !== 'nin') { await api.enrollmentBindGoogle(); applyProgress(await api.enrollmentCurrent()) }
@@ -675,6 +682,13 @@ export function Enrollment() {
   // A new enrollment is offered only while registration is open; one in progress continues.
   const startOffered = GOOGLE_STAGES.includes(stage) && (stage !== 'nin' || registration === 'open')
   const closed = ready && stage === 'nin' && registration === 'closed'
+  // Google sign-up is offered until it is pending for this enrollment. On the NIN
+  // step it is a path of its own, opened by a button: its check replaces the NIN
+  // form's rather than appearing beside it.
+  const googleOffered = Boolean(googleClientId()) && ready && startOffered && stage !== 'complete' && !googlePending
+  const googleChosen = googleOffered && stage === 'nin' && ninPath === 'google'
+  const chooseGoogle = () => { setNinPath('google'); stepFocus.focus() }
+  const chooseNin = () => { setNinPath('nin'); stepFocus.focus() }
   // The holder step is listed only where Identity has it.
   const steps: Array<[string, readonly Stage[]]> = [['NIN', ['nin']],
     ...(holderSeen ? [['Prove it\'s yours', HOLDER_STAGES] as [string, readonly Stage[]]] : []),
@@ -714,7 +728,7 @@ export function Enrollment() {
       {googleRequired && !googlePending && startOffered && <p role="status" className="patient-inline-error">Reconnect the Google account used to start this enrollment.</p>}
       {ready && stage === 'nin' && registration === 'unknown' && <div className="patient-inline-error" role="alert"><p>We could not check whether new Health ID registration is open. Try again before starting.</p><button ref={retryInPlaceOfNin} type="button" className="patient-secondary-button" onClick={() => { retriedCheck.current = true; setCheckKey(value => value + 1) }}>Try again</button></div>}
       {closed && <RegistrationClosed focusTarget={stepFocus.target} />}
-      {ready && stage === 'nin' && registration === 'open' && <NinStep {...stepProps} nin={nin} onNin={setNin} onSubmit={event => void submitNin(event)}
+      {ready && stage === 'nin' && registration === 'open' && !googleChosen && <NinStep {...stepProps} nin={nin} onNin={setNin} onSubmit={event => void submitNin(event)}
         turnstile={<Turnstile action="patient-enrollment" onTokenChange={setTurnstileToken} resetKey={resetKey} />}
         blocked={!turnstileToken || (googleRequired && !googlePending)} routes={routes} />}
       {ready && stage === 'holder' && <RouteChoice focusTarget={stepFocus.target} busy={busy} online={onlineOpen} onlineNote={onlineNote}
@@ -741,11 +755,17 @@ export function Enrollment() {
         profileFields={profileFields} dateOfBirth={dateOfBirth} onDateOfBirth={setDateOfBirth} gender={gender} onGender={setGender}
         errorField={fieldError ? profileError ?? 'password' : null} />}
       {ready && stage === 'complete' && <Complete focusTarget={stepFocus.target} hidCode={hidCode} />}
-      {import.meta.env.VITE_HID_GOOGLE_CLIENT_ID && ready && startOffered && stage !== 'complete' && !googlePending && <section className="patient-auth-separator" aria-label="Google enrollment">
-        <span>{googleRequired ? 'Reconnect Google' : 'Continue with Google'}</span>
+      {import.meta.env.VITE_HID_GOOGLE_CLIENT_ID && googleOffered && stage === 'nin' && !googleChosen && <section className="patient-auth-separator" aria-label="Google enrollment">
+        <button type="button" className="patient-secondary-button" disabled={busy} onClick={chooseGoogle}>{googleRequired ? 'Reconnect Google' : 'Continue with Google'}</button>
+      </section>}
+      {import.meta.env.VITE_HID_GOOGLE_CLIENT_ID && googleOffered && (stage !== 'nin' || googleChosen) && <section className="patient-auth-separator" aria-label="Google enrollment">
+        {/* On the NIN step, the chosen path's start is also where the step's focus goes (useStepFocus). */}
+        <span ref={element => { googleHeading.current = element; if (element && stage === 'nin') stepFocus.target(element) }} tabIndex={-1}>{googleRequired ? 'Reconnect Google' : 'Continue with Google'}</span>
+        {stage === 'nin' && <p className="patient-field-hint">You will still verify your NIN after Google confirms your account, unless that Google account already has a Health ID.</p>}
         <Turnstile action="patient-login" onTokenChange={setGoogleTurnstileToken} resetKey={googleResetKey} />
         <GoogleButton text="signup_with" disabled={busy || !googleTurnstileToken} onCredential={onGoogle}
           disabledReason={googleTurnstileToken ? undefined : 'Complete the security check to continue with Google.'} />
+        {stage === 'nin' && <button type="button" className="patient-text-button" disabled={busy} onClick={chooseNin}>Verify your NIN without Google</button>}
       </section>}
       {googlePending && !checkError && startOffered && stage !== 'complete' && <p role="status" className="patient-field-hint">Google identity confirmed for this enrollment.</p>}
       <p className="patient-auth-footer">Already have a Health ID? <Link to="/sign-in">Sign in</Link></p>

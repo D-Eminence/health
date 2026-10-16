@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
-import { Field, Input } from '@hid/ui'
+import { Field, PasswordInput } from '@hid/ui'
 import { useDocumentTitle } from '../../authSteps'
 import { CLINICIAN_SIGNUP_PATH, CLINICIAN_STATUS_PATH, STAFF_RECOVERY_PATH, clinicianMainSiteHref } from '../../productHostname'
 import { CLINICIAN_REGULATOR_OF, clinicianApplicationApi, newClinicianIdempotencyKey, type ClinicianSignUp as SignUpInput,
@@ -328,11 +328,11 @@ function SignUp() {
       <StepError error={error} />
       <ErrorSummary problems={problems} focusKey={summaryKey} />
       <Field label="Password" htmlFor="clinician-password" hint="At least 12 characters." error={fieldError(problems, 'clinician-password')} required>
-        <Input id="clinician-password" type="password" autoComplete="new-password" maxLength={256} value={password}
+        <PasswordInput id="clinician-password" autoComplete="new-password" maxLength={256} value={password}
           onChange={event => setPassword(event.target.value)} />
       </Field>
       <Field label="Confirm password" htmlFor="clinician-password-confirm" error={fieldError(problems, 'clinician-password-confirm')} required>
-        <Input id="clinician-password-confirm" type="password" autoComplete="new-password" maxLength={256} value={confirm}
+        <PasswordInput id="clinician-password-confirm" toggleLabel="Show confirmed password" autoComplete="new-password" maxLength={256} value={confirm}
           onChange={event => setConfirm(event.target.value)} />
       </Field>
       <Declarations accurate={accurate} consent={consent} onAccurate={setAccurate} onConsent={setConsent} regulator={regulator}

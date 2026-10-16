@@ -206,6 +206,26 @@ what they cannot settle.
 | A retry after leaving the page | The key that lets an unknown answer be checked again without counting it twice lives in the page's memory only. A staff member who leaves the page after a `503` and checks again sends a new key, which is a new check against the budget (20 per staff member, 100 per facility in 24 hours by default). | None for launch; the screen says to press Check again without changing the details. |
 | Not verified against a running hid-system | Component tests with the network stubbed. Nothing was run in a browser, against a live Identity, or on staging. | Release owners: run S4v (hid-system `PHASE_4_STAGE_5_RELEASE_READINESS.md`) with these screens and the patient screens. |
 
+## Found in the Turnstile, password, PWA and push work (2026-10-13)
+
+Raised by branch `claude/turnstile-password-pwa-push` (not merged; to be
+coordinated with the staging integration), which shows one Turnstile check per
+submission, adds a Show toggle to every password field, makes the portal
+installable and documents web push. Each was checked read-only at hid-system
+`b69a6ab`; the apex worker was observed once with a read-only request to the
+live site, as its row says.
+
+| Item | Current evidence | Needed to close |
+| --- | --- | --- |
+| Which hosts are installable, and as which app | The portal's one manifest (`public/health-id.webmanifest`) is served on every portal host: www or the chosen patient host, the product hosts and the administration console. `start_url` `/` opens each host's own workspace. Its `id` `/` continues the identity of an earlier HID app installed on the same host. The public site has icons but no manifest. | Product owner: confirm that the administration console may be installed, and that Health ID should replace an installed HID app rather than appear beside it. Installing it then needs no further change. |
+| Earlier HID service workers | hid-system's apps register `/service-worker.js` at scope `/`, with caches named `hid-…`. A HID worker on the apex, `healthidentitydirectory.com`, was observed on 2026-10-13 (a read-only request answered 200 JavaScript with cache `hid-static-v2026-04-29-1`, served by Vercel; `www` redirected there; its scope was not seen). Each Health ID app serves a `/service-worker.js` that retires such a worker, but only on hosts it serves, and only for root-scoped registrations. It takes over at once, and hid-system's EHR reloads its open tabs when that happens. hid-system's apex redirect answers every path with a 308, so it would leave the apex worker in place for good. | Infrastructure owner: hand-off D1 (the apex redirect answers `/service-worker.js` itself with the retirement script, for months after cutover; switch the EHR host outside clinic hours; report where earlier HID builds were served, and at which scopes, including path-scoped and `ocr.*`). |
+| Icon artwork | The icons are the mark cropped from `logo.png` (269×264), scaled: the 512 icon about 1.4× (plain) and 1.1× (maskable). At 32 px the fingerprint lines blur. | Design: an SVG master, or a 1024 px PNG, and a simplified mark for small sizes. Until then the derived icons are used. |
+| Offline page | No service worker, so an installed portal that cannot reach the network shows the browser's own offline page. Nothing is kept for offline use, and nothing claims it. | Product owner: keep the browser's page, or add a navigation-only worker serving one static page (rules: never `/api`, no runtime cache, network first). |
+| Web push decisions | No browser route accepts a push registration (hand-off B15). The portal asks for no permission and registers no worker (lint-enforced). | Product and backend owners: B15's decisions (transport under ADR-033, owning service, events, sign-out, staff scope); then the backend contract; then the portal's opt-in. |
+| Google sign-up on later enrollment steps | Enrollment offers the Google section, with its own security check, on the contact, code and password steps for every enrollment. hid-system's own `apps/web` shows it there only when the enrollment requires Google. It is one check on those steps, not a duplicate. | Product owner: keep it, or show it only when Google is required. |
+| The demo dialog on provider onboarding pages | `/provider/complete` and `/provider/apply` mount the demo dialog, but no link on them appears to open it. Its check now exists only while it is open. | Product owner: keep the dialog there, or remove it from those pages. |
+| hid-system's own web app | `apps/web` (served on www by hid-system's Cloudflare configuration) shows both enrollment checks at once, asks for notification permission on mount, and puts inbox titles and messages into system notifications (`PatientNotificationWatcher.tsx:24-27, 50`). | hid-system maintainers: change it there, or retire it when Health ID takes www. |
+
 ## Reference workflows without an audited API
 
 The following remain backend contract work before an operational frontend can
@@ -277,3 +297,14 @@ settle.
 | A public read on every provider sign-in | The provider sign-in and enrollment pages ask availability on every view (Identity caches it for 30 seconds), and offer nothing about clinician sign-up until it answers. A change of the control can take 30 seconds to show. | None needed unless the read's cost matters; it could be dropped for a link that leads to the not-open notice. |
 | Password show/hide | The clinician password fields are `@hid/ui` `Input`: the shared `PasswordInput` is on the unmerged branch `claude/turnstile-password-pwa-push`. | Frontend owner: switch the two fields once that branch merges. |
 | Recovery codes of a lost activation | P7's answer is the only one with the applicant's ten recovery codes. If it is lost, the retry's `409 CLINICIAN_APPLICATION_AUTHENTICATOR_READY` shows that the authenticator is set up and that the codes can't be shown again; nothing in the contract issues new ones. | hid-system maintainers: decide whether an applicant or an administrator can issue new recovery codes (hand-off section 12). |
+
+## Installable portal held back at merge (2026-10-16)
+
+The Turnstile and password Show toggle work from `claude/turnstile-password-pwa-push`
+is merged. Its patient-portal web manifest, `service-worker.js` and `icons/` are
+not: `audit:launch-build` (hid-system's staging refusals, which this repository
+runs in CI) fails a portal build that holds a service worker, a web app manifest
+or any file outside `index.html` and content-hashed `assets/`. The files and their
+tests remain in that branch's history. To ship an installable portal, hid-system's
+`inspectHealthIdBuild` must first accept them, then `scripts/check-launch-build.mjs`
+can follow it. Decision needed from the product owner and the hid-system owner.

@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
+import { PasswordInput } from '@hid/ui'
 import { adminApi, type MfaEnrollment, type PlatformLoginChallenge } from './api'
 import { environment } from './env'
 import { failure, isProblem } from './problems'
@@ -104,7 +105,7 @@ function CredentialsStep({ error, onError, onChallenge }: {
   return <form onSubmit={event => void submit(event)} className="admin-auth-form">
     <h1>Administration sign in</h1>
     <label>Email<input type="email" autoComplete="username" required value={email} onChange={event => setEmail(event.target.value)} /></label>
-    <label>Password<input type="password" autoComplete="current-password" required value={password} onChange={event => setPassword(event.target.value)} /></label>
+    <div className="admin-field"><label htmlFor="admin-password">Password</label><PasswordInput appearance="plain" id="admin-password" autoComplete="current-password" required value={password} onChange={event => setPassword(event.target.value)} /></div>
     {(config.turnstileSiteKey || config.name !== 'local') &&
       <Turnstile siteKey={config.turnstileSiteKey} resetKey={resetKey} onChange={setToken} />}
     {error ? <p role="alert" className="admin-error">{error}</p> : null}

@@ -13,6 +13,10 @@ import { cx } from '@hid/ui'
  * They are rendered as the supplied files rather than redrawn, so there is
  * exactly one source of truth and no second interpretation of the mark. The
  * accessible names are the design's own.
+ *
+ * The app icons (app/icon.png and app/apple-icon.png here; the portal's
+ * public/icons/*) are the mark cropped from `logo.png` (269×264, sharper than
+ * `logo-icon.png`) and scaled onto square canvases, not redrawn either.
  */
 
 const LOGO_ALT = 'Health ID: Health Identity Directory'
