@@ -73,6 +73,8 @@ export function TurnstileWidget({ siteKey, action, resetKey, onToken, onError }:
       active = false
       if (widgetRef.current && window.turnstile) window.turnstile.remove(widgetRef.current)
       widgetRef.current = null
+      // The removed widget can no longer refresh or expire its token, so the form must not keep it.
+      callbackRef.current.onToken(null)
     }
   }, [siteKey, action])
 

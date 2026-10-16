@@ -59,6 +59,8 @@ export function ReferralForm({ lede }: { readonly lede?: string }) {
 
   function go(next: 0 | 1) {
     moved.current = true
+    // Leaving step 2 removes its security check; what it last said goes with it.
+    if (next === 0) setVerificationError(null)
     setStep(next)
   }
 
