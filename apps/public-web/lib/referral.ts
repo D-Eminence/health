@@ -1,5 +1,4 @@
 import type { DemoSubmission } from './commercial-api'
-import { DEMO_PRODUCTS, type DemoProductCode } from './demo-request'
 
 /**
  * A facility referral ("Earn with Health ID").
@@ -27,10 +26,6 @@ export const FACILITY_TYPES = [
 
 export type FacilityType = (typeof FACILITY_TYPES)[number]['value']
 
-/** The products a referred facility can be interested in; Outreach and the API are sold differently. */
-export const REFERRAL_PRODUCTS = DEMO_PRODUCTS.filter(product =>
-  ['ehr', 'laboratory', 'pharmacy', 'migrate', 'general'].includes(product.code))
-
 export interface ReferralRequest {
   readonly referrerName: string
   readonly referrerEmail: string
@@ -38,9 +33,7 @@ export interface ReferralRequest {
   readonly facilityName: string
   readonly facilityType: FacilityType | ''
   readonly facilityLocation: string
-  readonly product: DemoProductCode | ''
   readonly facilityContact: string
-  readonly notes: string
   readonly consent: boolean
 }
 
@@ -48,7 +41,16 @@ export type ReferralErrors = Partial<Record<keyof ReferralRequest, string>>
 
 export const EMPTY_REFERRAL: ReferralRequest = {
   referrerName: '', referrerEmail: '', referrerPhone: '', facilityName: '', facilityType: '',
-  facilityLocation: '', product: '', facilityContact: '', notes: '', consent: false,
+  facilityLocation: '', facilityContact: '', consent: false,
+}
+
+/** The form's two steps: the facility first, then the referrer. */
+export const FACILITY_FIELDS = ['facilityName', 'facilityType', 'facilityLocation', 'facilityContact'] as const
+export const REFERRER_FIELDS = ['referrerName', 'referrerEmail', 'referrerPhone', 'consent'] as const
+
+/** The errors that belong to one step, in the order the fields appear. */
+export function stepErrors(errors: ReferralErrors, fields: readonly (keyof ReferralRequest)[]): ReferralErrors {
+  return Object.fromEntries(fields.filter(field => errors[field]).map(field => [field, errors[field]]))
 }
 
 /** hid-system's demo-request message limit. */
@@ -67,9 +69,7 @@ export function validateReferral(request: ReferralRequest): ReferralErrors {
   if (facility.length < 2 || facility.length > 200) errors.facilityName = 'Enter the facility’s name.'
   if (!FACILITY_TYPES.some(type => type.value === request.facilityType)) errors.facilityType = 'Choose the type of facility.'
   if (request.facilityLocation.trim().length > 120) errors.facilityLocation = 'Keep the location under 120 characters.'
-  if (request.product && !REFERRAL_PRODUCTS.some(product => product.code === request.product)) errors.product = 'Choose a product.'
   if (request.facilityContact.trim().length > 300) errors.facilityContact = 'Keep this under 300 characters.'
-  if (request.notes.trim().length > 800) errors.notes = 'Keep this under 800 characters.'
   if (!request.consent) errors.consent = 'Confirm the facility knows you are introducing them.'
   return errors
 }
@@ -82,7 +82,6 @@ export function referralMessage(request: ReferralRequest): string {
     `Facility type: ${type}.`,
     request.facilityLocation.trim() ? `Location: ${request.facilityLocation.trim()}.` : '',
     request.facilityContact.trim() ? `Who to speak to: ${request.facilityContact.trim()}` : '',
-    request.notes.trim() ? `Notes: ${request.notes.trim()}` : '',
     'The referrer confirmed the facility knows about this introduction.',
   ].filter(Boolean)
   return lines.join('\n').slice(0, MESSAGE_MAX)
@@ -99,7 +98,7 @@ export function toReferralSubmission(request: ReferralRequest, sourcePage: strin
     ...(request.referrerPhone.trim() ? { contactPhone: request.referrerPhone.trim() } : {}),
     contactRole: 'Referral partner',
     organizationName: request.facilityName.trim(),
-    productCode: (request.product || 'general') as DemoSubmission['productCode'],
+    productCode: 'general',
     message: referralMessage(request),
     sourcePage: sourcePage.slice(0, 200),
     sourceSection: REFERRAL_SECTION,
