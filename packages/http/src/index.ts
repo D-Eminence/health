@@ -1,9 +1,10 @@
-export { createApiClient, createRequestId } from './client'
+export { createApiClient, createRequestId, retryAfterSeconds } from './client'
 export type {
   ApiClient,
   ApiClientLogger,
   ApiClientOptions,
   AuthRequirement,
+  DownloadResult,
   HttpMethod,
   QueryValue,
   RequestSpec,
@@ -32,5 +33,5 @@ export {
   shouldRetry,
 } from './retry'
 export type { RetryPolicy } from './retry'
-export { uploadPresignedObject } from './upload'
-export type { PresignedUpload, PresignedUploadOptions } from './upload'
+export { assertSignedStorageUrl, uploadPresignedObject } from './upload'
+export type { PresignedUpload, PresignedUploadOptions, SignedStorageUrlOptions } from './upload'

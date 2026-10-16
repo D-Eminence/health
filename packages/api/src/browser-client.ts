@@ -8,7 +8,7 @@ export function createRegisteredBrowserClient(transport: ApiClient, app: HidApp)
   const client: ApiClient = {
     baseUrl: transport.baseUrl,
     async request<T>(spec: RequestSpec): Promise<T> {
-      const endpoint = assertRegisteredBrowserRequest(spec.method, spec.path, spec.query)
+      const endpoint = assertRegisteredBrowserRequest(spec.method, spec.path, spec.query, spec.responseType)
       assertEndpointAllowed(app, endpoint.name)
       return transport.request<T>(spec)
     },

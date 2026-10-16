@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createApiClient } from '../client'
-import { uploadPresignedObject } from '../upload'
+import { HidApiError } from '../errors'
+import { assertSignedStorageUrl, uploadPresignedObject } from '../upload'
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -27,6 +28,66 @@ describe('hid-system cookie transport', () => {
     expect(headers.has('X-Request-ID')).toBe(false)
     expect(headers.has('X-HID-Client')).toBe(false)
     expect(headers.has('Authorization')).toBe(false)
+  })
+
+  // hid-system #39: Identity reads X-HID-Client on these two cookie calls only, so a
+  // portal refreshes or ends only its own kind of sign-in on the shared cookies.
+  it.each(['/api/v1/auth/refresh', '/api/v1/auth/logout'])('names the application on POST %s', async path => {
+    vi.stubGlobal('document', { cookie: 'hid_access_csrf=csrf-value' })
+    const { client, calls } = harness([new Response(null, { status: 204 })])
+    await client.post(path)
+    const headers = new Headers(calls[0]?.init.headers)
+    expect(headers.get('X-HID-Client')).toBe('patient-web')
+    // The CSRF token and cookies go as before.
+    expect(headers.get('X-CSRF-Token')).toBe('csrf-value')
+    expect(calls[0]?.init.credentials).toBe('include')
+    expect(headers.has('Authorization')).toBe(false)
+  })
+
+  it('names the application on no other cookie call', async () => {
+    vi.stubGlobal('document', { cookie: 'hid_access_csrf=csrf-value' })
+    const { client, calls } = harness(Array.from({ length: 8 }, () => new Response('{}')),
+      { getDefaultHeaders: () => ({ 'X-HID-Client': 'staff-web' }) })
+    await client.get('/api/v1/auth/session')
+    await client.get('/api/v1/auth/refresh')
+    await client.post('/api/v1/auth/login', {})
+    await client.post('/api/v1/auth/facility', { facilityId: 'facility-1' })
+    await client.post('/api/v1/auth/admin/refresh')
+    await client.post('/api/v1/auth/admin/logout')
+    await client.post('/api/v1/auth/refresh/extra')
+    await client.post('/api/v1/identity/me/access-pin', { pin: '123456' })
+    expect(calls.map(call => new Headers(call.init.headers).has('X-HID-Client'))).toEqual(Array(8).fill(false))
+  })
+
+  it('names only its own application, whatever a caller asks', async () => {
+    const { client, calls } = harness([new Response(null, { status: 204 })],
+      { getDefaultHeaders: () => ({ 'X-HID-Client': 'staff-web' }) })
+    await client.request({ method: 'POST', path: '/api/v1/auth/logout', headers: { 'X-HID-Client': 'staff-web' } })
+    expect(new Headers(calls[0]?.init.headers).get('X-HID-Client')).toBe('patient-web')
+  })
+
+  it('names the application on the refresh made for a protected request, and not on its repeat', async () => {
+    vi.stubGlobal('document', { cookie: 'hid_access_csrf=csrf-value' })
+    const refreshSession = vi.fn(async () => { await fixture.client.post('/api/v1/auth/refresh') })
+    const fixture = harness([
+      new Response('{}', { status: 401 }),
+      new Response(JSON.stringify({ actor: { kind: 'patient' } })),
+      new Response(JSON.stringify({ patientId: 'patient-1' })),
+    ], { refreshSession })
+    await fixture.client.get('/api/v1/identity/me')
+    expect(fixture.calls.map(call => new Headers(call.init.headers).get('X-HID-Client'))).toEqual([null, 'patient-web', null])
+  })
+
+  it('does not restore the session or repeat the request when the refresh names the other application', async () => {
+    const mismatch = () => new Response(JSON.stringify({ code: 'SESSION_CLIENT_MISMATCH',
+      detail: 'This sign-in belongs to the staff application, not patient-web' }),
+    { status: 403, headers: { 'Content-Type': 'application/problem+json' } })
+    const onUnauthorized = vi.fn()
+    const refreshSession = vi.fn(async () => { await fixture.client.post('/api/v1/auth/refresh') })
+    const fixture = harness([new Response('{}', { status: 401 }), mismatch()], { refreshSession, onUnauthorized })
+    await expect(fixture.client.get('/api/v1/identity/me')).rejects.toMatchObject({ status: 403, code: 'SESSION_CLIENT_MISMATCH' })
+    expect(fixture.calls.map(call => new URL(call.url).pathname)).toEqual(['/api/v1/identity/me', '/api/v1/auth/refresh'])
+    expect(refreshSession).toHaveBeenCalledTimes(1)
   })
 
   it('reads CSRF cookie for writes and does not add it to reads', async () => {
@@ -64,6 +125,57 @@ describe('hid-system cookie transport', () => {
     expect(new Headers(fixture.calls[1]?.init.headers).get('X-CSRF-Token')).toBe('csrf-value')
   })
 
+  it('returns a download with its readable headers and still reads a refused download as a problem', async () => {
+    const { client, calls } = harness([
+      new Response('account_id,email\r\n', { headers: { 'Content-Type': 'text/csv', 'X-HID-Export-Row-Count': '0' } }),
+      new Response(JSON.stringify({ code: 'STEP_UP_REQUIRED', detail: 'Confirm', correlationId: 'corr-1' }),
+        { status: 403, headers: { 'Content-Type': 'application/problem+json' } }),
+    ])
+    const download = await client.request<{ blob: Blob; headers: Headers }>({ method: 'POST',
+      path: '/api/v1/admin/principals/export', body: { reason: 'Quarterly review' }, responseType: 'download' })
+    expect(await download.blob.text()).toBe('account_id,email\r\n')
+    expect(download.headers.get('X-HID-Export-Row-Count')).toBe('0')
+    expect(new Headers(calls[0]?.init.headers).get('Accept')).toBe('*/*')
+    expect(calls[0]?.init.body).toBe(JSON.stringify({ reason: 'Quarterly review' }))
+    await expect(client.request({ method: 'POST', path: '/api/v1/admin/principals/export',
+      body: { reason: 'Another review' }, responseType: 'download' })).rejects.toMatchObject({ status: 403, code: 'STEP_UP_REQUIRED' })
+  })
+
+  it('does not restore the session or resend a code the backend rejected', async () => {
+    const refreshSession = vi.fn(async () => undefined)
+    const { client, calls } = harness([
+      new Response(JSON.stringify({ code: 'MFA_INVALID_CODE', detail: 'The code is not valid' }), { status: 401 }),
+      new Response(JSON.stringify({ code: 'AUTHENTICATION_REQUIRED', detail: 'Expired' }), { status: 401 }),
+      new Response(JSON.stringify({ stepUpExpiresAt: '2026-10-08T12:05:00.000Z' })),
+    ], { refreshSession })
+    const keepCodeRejection = (error: { code: string }) => error.code !== 'MFA_INVALID_CODE'
+    await expect(client.request({ method: 'POST', path: '/api/v1/admin/mfa/step-up', body: { code: '123456' },
+      refreshOnUnauthorized: keepCodeRejection })).rejects.toMatchObject({ status: 401, code: 'MFA_INVALID_CODE' })
+    expect(calls).toHaveLength(1)
+    expect(refreshSession).not.toHaveBeenCalled()
+    // An expired access token is still restored once for the same kind of request.
+    await expect(client.request({ method: 'POST', path: '/api/v1/admin/mfa/step-up', body: { code: '654321' },
+      refreshOnUnauthorized: keepCodeRejection })).resolves.toEqual({ stepUpExpiresAt: '2026-10-08T12:05:00.000Z' })
+    expect(refreshSession).toHaveBeenCalledTimes(1)
+    expect(calls).toHaveLength(3)
+  })
+
+  it('passes a final 401 to onUnauthorized, except from a call that judges its own', async () => {
+    const onUnauthorized = vi.fn()
+    const refused = () => new Response(JSON.stringify({ code: 'AUTHENTICATION_REQUIRED', detail: 'Valid authentication is required' }), { status: 401 })
+    const { client, calls } = harness([refused(), refused(), refused()], { onUnauthorized })
+    await expect(client.request({ method: 'GET', path: '/api/v1/auth/session', reportUnauthorized: false }))
+      .rejects.toMatchObject({ status: 401 })
+    expect(onUnauthorized).not.toHaveBeenCalled()
+    // Asked together, a call that judges its 401 and one that does not are not one read.
+    await Promise.allSettled([
+      client.request({ method: 'GET', path: '/api/v1/auth/session', reportUnauthorized: false }),
+      client.get('/api/v1/auth/session'),
+    ])
+    expect(calls).toHaveLength(3)
+    expect(onUnauthorized).toHaveBeenCalledOnce()
+  })
+
   it('preserves domain data envelopes and reads Problem Details', async () => {
     const problem = { type: 'about:blank', title: 'Bad Request', status: 400,
       detail: 'One or more request fields are invalid.', code: 'VALIDATION_FAILED',
@@ -78,64 +190,6 @@ describe('hid-system cookie transport', () => {
       status: 400, code: 'VALIDATION_FAILED', message: problem.detail,
       requestId: 'abc-123', details: problem.errors,
     })
-  })
-
-  it.each(['/api/v1/auth/session', '/api/v1/admin/session'])('does not refresh anonymous bootstrap %s', async (path) => {
-    vi.stubGlobal('document', { cookie: '' })
-    const refreshSession = vi.fn()
-    const onUnauthorized = vi.fn()
-    const { client, calls } = harness([new Response('{}', { status: 401 })], { refreshSession, onUnauthorized })
-    await expect(client.get(path)).rejects.toMatchObject({ status: 401 })
-    expect(refreshSession).not.toHaveBeenCalled()
-    expect(onUnauthorized).toHaveBeenCalledOnce()
-    expect(calls).toHaveLength(1)
-  })
-
-  it('restores auth/session bootstrap through the same single refresh path', async () => {
-    vi.stubGlobal('document', { cookie: 'hid_access_csrf=csrf-value' })
-    const refreshSession = vi.fn(async () => { await fixture.client.post('/api/v1/auth/refresh') })
-    const fixture = harness([
-      new Response('{}', { status: 401 }), new Response('{}'),
-      new Response(JSON.stringify({ actor: { kind: 'staff' } })),
-    ], { refreshSession })
-    await expect(fixture.client.get('/api/v1/auth/session', { auth: 'optional' })).resolves.toEqual({ actor: { kind: 'staff' } })
-    expect(refreshSession).toHaveBeenCalledOnce()
-    expect(fixture.calls.map(call => new URL(call.url).pathname)).toEqual([
-      '/api/v1/auth/session', '/api/v1/auth/refresh', '/api/v1/auth/session',
-    ])
-  })
-
-  it('returns the original unauthorized result when stale refresh CSRF is rejected', async () => {
-    vi.stubGlobal('document', { cookie: 'hid_access_csrf=stale-value' })
-    const refreshSession = vi.fn(async () => { await fixture.client.post('/api/v1/auth/refresh') })
-    const fixture = harness([
-      new Response('{}', { status: 401 }),
-      new Response(JSON.stringify({ code: 'CSRF_VALIDATION_FAILED', detail: 'Refresh CSRF validation failed' }), { status: 403 }),
-    ], { refreshSession })
-    await expect(fixture.client.get('/api/v1/auth/session')).rejects.toMatchObject({ status: 401 })
-    expect(refreshSession).toHaveBeenCalledOnce()
-    expect(fixture.calls).toHaveLength(2)
-  })
-
-  it('preserves CSRF rejection of a protected write without refreshing or repeating it', async () => {
-    vi.stubGlobal('document', { cookie: 'hid_access_csrf=stale-value' })
-    const refreshSession = vi.fn()
-    const { client, calls } = harness([
-      new Response(JSON.stringify({ code: 'CSRF_VALIDATION_FAILED' }), { status: 403 }),
-    ], { refreshSession })
-    await expect(client.post('/api/v1/identity/me/access-pin', {})).rejects.toMatchObject({ status: 403, code: 'CSRF_VALIDATION_FAILED' })
-    expect(refreshSession).not.toHaveBeenCalled()
-    expect(calls).toHaveLength(1)
-  })
-
-  it.each([403, 503])('does not hide a refresh failure with status %s', async (status) => {
-    vi.stubGlobal('document', { cookie: 'hid_access_csrf=csrf-value' })
-    const refreshSession = vi.fn(async () => { await fixture.client.post('/api/v1/auth/refresh') })
-    const fixture = harness([
-      new Response('{}', { status: 401 }), new Response('{}', { status }),
-    ], { refreshSession })
-    await expect(fixture.client.get('/api/v1/auth/session')).rejects.toMatchObject({ status })
-    expect(fixture.calls).toHaveLength(2)
   })
 
   it('redacts patient UUIDs from transport logs', async () => {
@@ -165,6 +219,23 @@ describe('presigned document upload', () => {
     expect(new Headers(calls[0]?.headers).get('x-amz-checksum-sha256')).toBe('checksum')
   })
 
+  it('refuses plain http to this machine unless the caller allows it (a local environment)', async () => {
+    const fetchImpl = vi.fn(async () => new Response(null, { status: 200 }))
+    await expect(uploadPresignedObject({ url: 'http://localhost:4566/bucket/signed',
+      body: new Blob(['data']), requiredHeaders: {}, fetchImpl })).rejects.toMatchObject({ code: 'INVALID_UPLOAD_URL' })
+    expect(fetchImpl).not.toHaveBeenCalled()
+    await uploadPresignedObject({ url: 'http://localhost:4566/bucket/signed', allowLocalHttp: true,
+      body: new Blob(['data']), requiredHeaders: {}, fetchImpl })
+    expect(fetchImpl).toHaveBeenCalledOnce()
+  })
+
+  it('refuses a link that is not a URL as an invalid link, not a TypeError', async () => {
+    const fetchImpl = vi.fn()
+    await expect(uploadPresignedObject({ url: 'not a url',
+      body: new Blob(['data']), requiredHeaders: {}, fetchImpl })).rejects.toMatchObject({ code: 'INVALID_UPLOAD_URL' })
+    expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
   it('refuses an insecure remote upload URL', async () => {
     const fetchImpl = vi.fn()
     await expect(uploadPresignedObject({ url: 'http://storage.example.org/signed',
@@ -172,5 +243,36 @@ describe('presigned document upload', () => {
       code: 'INVALID_UPLOAD_URL',
     })
     expect(fetchImpl).not.toHaveBeenCalled()
+  })
+})
+
+describe('signed storage links', () => {
+  it.each([
+    'https://storage.example.org/bucket/key?X-Amz-Signature=abc',
+  ])('accepts %s', url => {
+    expect(assertSignedStorageUrl(url).href).toBe(url)
+  })
+
+  it.each([
+    'javascript:alert(1)',
+    'data:text/html,<script>alert(1)</script>',
+    'blob:https://storage.example.org/1',
+    'ftp://storage.example.org/key',
+    'http://storage.example.org/key',
+    'https://user:secret@storage.example.org/key',
+    'not a url',
+  ])('refuses %s', url => {
+    expect(() => assertSignedStorageUrl(url, { allowLocalHttp: true })).toThrow(HidApiError)
+  })
+
+  it.each(['http://localhost:4566/key', 'http://127.0.0.1:9000/key', 'http://[::1]:9000/key'])(
+    'accepts plain http to this machine (%s) only when allowed', url => {
+      expect(() => assertSignedStorageUrl(url)).toThrow(HidApiError)
+      expect(assertSignedStorageUrl(url, { allowLocalHttp: true }).href).toBe(url)
+    })
+
+  it('names its refusal with the code and message the caller gives', () => {
+    expect(() => assertSignedStorageUrl('javascript:alert(1)', { code: 'INVALID_DOWNLOAD_URL', message: 'Document could not be opened.' }))
+      .toThrow(expect.objectContaining({ code: 'INVALID_DOWNLOAD_URL', message: 'Document could not be opened.' }))
   })
 })

@@ -2,6 +2,7 @@ import { parseImportedRecords, type ImportedMedicalRecord, type ImportedAttachme
 import type { ApiClient } from '@hid/http'
 import { createEhrService, createSupportService } from '@hid/api'
 import { parsePatientChat, type PatientChatReply } from '@hid/contracts'
+import { inRefreshTurn, refreshInTurn, signOutInTurn } from './sessionRefreshTurn'
 
 export interface PatientChatHistory {
   exchanges: Array<{ id: string; question: string; reply: PatientChatReply; createdAt: string }>
@@ -27,10 +28,14 @@ export function parseChatHistory(value: unknown): PatientChatHistory {
   return { exchanges, retentionDays: 30, limit: 10 }
 }
 
-/** Contracts read from hid-system c4b5445 Identity and EHR controllers. */
+/**
+ * Contracts read from hid-system c4b5445 Identity and EHR controllers, and later
+ * where a comment says; patient enrollment from hid-system main f9dbaf0.
+ */
 export interface PatientSession {
   actor: {
-    kind?: 'patient' | 'staff'
+    // Patient and platform actors carry a kind; hid-system's staff actor carries none.
+    kind?: 'patient' | 'platform'
     subject: string
     patientId?: string
     accountId: string
@@ -39,8 +44,47 @@ export interface PatientSession {
   expiresAt?: string
 }
 
+/**
+ * What a NIN record lacks and the patient enters at activation (hid-system
+ * ADR-061, on main since #82): named in every progress answer before
+ * activation, in this order, `[]` for a complete record.
+ */
+export const ENROLLMENT_PROFILE_FIELDS = ['dateOfBirth', 'gender'] as const
+export type EnrollmentProfileField = typeof ENROLLMENT_PROFILE_FIELDS[number]
+/** The genders `POST .../activate` takes (hid-system patient-enrollment.dto.ts). */
+export const ENROLLMENT_GENDERS = ['female', 'male', 'intersex', 'other', 'unknown'] as const
+export type EnrollmentGender = typeof ENROLLMENT_GENDERS[number]
+/** Sent only for the fields the record lacks; `dateOfBirth` as YYYY-MM-DD. */
+export interface EnrollmentProfile { dateOfBirth?: string; gender?: EnrollmentGender }
+
+/**
+ * The online route at `verify_holder` (hid-system #84, ADR-062): whether a code
+ * can be texted to the phone on the NIN record, and the open code's timing.
+ */
+export interface EnrollmentOnlineRoute {
+  available: boolean
+  challengeId?: string
+  expiresInSeconds?: number
+  resendAfterSeconds?: number
+}
+/**
+ * The facility route at `verify_holder` (hid-system #85, ADR-063): whether it is
+ * open, and the desk code this device shows at the facility, to its cookie only.
+ */
+export interface EnrollmentFacilityRoute {
+  available: boolean
+  deskCode?: string
+  deskCodeExpiresAt?: string
+}
+
+/**
+ * An enrollment's progress (hid-system main f9dbaf0). Since #84 every start
+ * answers `verify_holder`, with `online` and `facility`; an Identity before it
+ * answers `verify_contact`. `requiredProfileFields` comes only after the holder
+ * proof (ADR-061, ADR-062).
+ */
 export interface EnrollmentProgress {
-  stage: 'verify_contact' | 'set_password' | 'active'
+  stage: 'verify_holder' | 'verify_contact' | 'set_password' | 'active'
   expiresAt?: string
   contactChannel?: 'phone' | 'email'
   maskedContact?: string
@@ -50,6 +94,35 @@ export interface EnrollmentProgress {
   googleOnboardingRequired?: boolean
   googleOnboardingExpiresAt?: string
   hidCode?: string
+  requiredProfileFields?: EnrollmentProfileField[]
+  online?: EnrollmentOnlineRoute
+  facility?: EnrollmentFacilityRoute
+}
+
+/**
+ * GET .../availability (hid-system#68; since #84 `{ open, online, facility }`).
+ * Only `open: true` lets a new enrollment start; `online` and `facility` say how
+ * the NIN will be proved. An Identity before #84 sends `{ open }` only.
+ */
+export interface EnrollmentAvailability {
+  open: boolean
+  online?: boolean
+  facility?: boolean
+}
+
+/** A participating facility as the public list shows it (ADR-063): no id. */
+export interface ParticipatingFacility {
+  name: string
+  addressLine?: string
+  town: string
+  lga: string
+  state: string
+  hours?: string
+}
+export interface ParticipatingFacilities {
+  facilities: ParticipatingFacility[]
+  /** Fixed lines from Identity, shown as sent. */
+  whatToBring: string[]
 }
 
 export interface PatientProfile {
@@ -75,15 +148,98 @@ export interface PatientNinVerification {
   recordedAt: string
 }
 
+/** The seven sections of a record summary (INTERFACE_CONTRACT.md, Record summaries), in the order EHR names them. */
+export type RecordSection = 'encounters' | 'notes' | 'vitals' | 'diagnoses' | 'prescriptions' | 'labRequests' | 'documents'
+
+/**
+ * GET /ehr/me/records (hid-system patient-records.service.ts readSelf). Since
+ * hid-system #52 only encounters and signed notes are released to the patient:
+ * `released` names them, `withheld` names the other five, whose arrays are then
+ * always empty and mean "not released to you", never "no records". `limits` and
+ * `truncated` say, per released section, the most rows it shows and whether
+ * more exist. An EHR before #52 sends none of these four and every section.
+ */
 export interface PatientRecords {
   importedRecords?: ImportedMedicalRecord[]
   encounters: Array<{ id: string; facilityId: string; encounterType: string; status: string; startedAt: string; endedAt: string | null }>
   notes: Array<{ id: string; encounterId: string; facilityId: string; noteType: string; title: string; status: string; revisionNo: number; content: string; signedAt: string | null }>
+  vitals: Array<{ id: string; encounterId: string; facilityId: string; recordedAt: string; heightCm: number | null; weightKg: number | null; temperatureC: number | null; pulseBpm: number | null; respiratoryRate: number | null; systolicMmhg: number | null; diastolicMmhg: number | null; oxygenSaturationPercent: number | null; source: string }>
+  diagnoses: Array<{ id: string; encounterId: string; facilityId: string; codeSystem: string; code: string; display: string; clinicalStatus: string; verificationStatus: string; onsetAt: string | null; abatementAt: string | null; notes: string | null }>
+  prescriptions: Array<{ id: string; encounterId: string; facilityId: string; medicationCodeSystem: string | null; medicationCode: string | null; medicationDisplay: string; doseQuantity: number | null; doseUnit: string | null; routeCode: string | null; frequency: string; instructions: string; startsOn: string | null; endsOn: string | null; status: string }>
+  labRequests: Array<{ id: string; encounterId: string; facilityId: string; testCodeSystem: string; testCode: string; testDisplay: string; priority: string; status: string; specimenTypeCode: string | null; clinicalInformation: string | null; externalOrderReference: string | null; createdAt: string }>
+  documents: Array<{ id: string; encounterId: string | null; facilityId: string; fileName: string; mediaType: string; sizeBytes: number | string | null; classification: string; status: string; createdAt: string }>
+  released?: RecordSection[]
+  withheld?: RecordSection[]
+  limits?: Partial<Record<RecordSection, number>>
+  truncated?: Partial<Record<RecordSection, boolean>>
+  /** The smallest section limit, 50 since hid-system #52 (100 before); `limits` and `truncated` say more. */
   limit: number
 }
 
 export interface AccessHistory {
-  items: Array<{ consentGrantId: string; scope: string; purpose: string; status: string; startsAt: string; expiresAt: string; reason: string | null; facilityName: string }>
+  items: Array<{
+    consentGrantId: string; scope: string; purpose: string; status: string; startsAt: string; expiresAt: string
+    reason: string | null; facilityName: string
+    /** Emergency (break-glass) access; never revocable by the patient. */
+    breakGlass?: boolean
+    /** The backend decides whether this patient may revoke the grant. */
+    patientRevocable?: boolean
+  }>
+}
+
+export type AccountDeletionState =
+  | 'awaiting_confirmation' | 'pending' | 'blocked' | 'cancelled' | 'completed' | 'expired' | 'superseded'
+export type AccountDeletionBlockedReason = 'LEGAL_HOLD' | 'RETENTION_POLICY_UNAVAILABLE' | 'WORKFORCE_ACCOUNT'
+
+export interface AccountDeletionStatus {
+  waitingPeriodSeconds: number
+  confirmationTtlSeconds: number
+  request: {
+    requestId: string
+    state: AccountDeletionState
+    requestedAt: string
+    confirmationExpiresAt: string | null
+    scheduledFor: string | null
+    blockedReasonCode: AccountDeletionBlockedReason | null
+    cancelledAt: string | null
+    cancellable: boolean
+  } | null
+}
+
+export interface AccountDeletionRequested {
+  requestId: string
+  /** Single use and short lived; held in memory only. */
+  confirmationToken: string
+  confirmationExpiresAt: string
+  waitingPeriodSeconds: number
+}
+
+export interface AccountDeletionConfirmed {
+  requestId: string
+  state: 'pending' | 'blocked' | 'completed'
+  scheduledFor: string | null
+  blockedReasonCode: AccountDeletionBlockedReason | null
+}
+
+export const EMERGENCY_CONTACT_RELATIONSHIPS = [
+  'spouse', 'partner', 'parent', 'child', 'sibling', 'relative', 'guardian', 'caregiver', 'friend', 'other',
+] as const
+export type EmergencyContactRelationship = typeof EMERGENCY_CONTACT_RELATIONSHIPS[number]
+
+export interface EmergencyContact {
+  contactId: string
+  name: string
+  relationship: EmergencyContactRelationship
+  channel: 'email' | 'sms'
+  /** Masked by the backend; the full destination is never returned. */
+  destinationHint: string
+  status: 'unverified' | 'verified'
+  verifiedAt: string | null
+  notifyOnEmergencyAccess: boolean
+  eligibleForEmergencyNotification: boolean
+  version: number
+  pendingVerification: { expiresAt: string; deliveryOutcome: string } | null
+  lastNotification: { status: string; createdAt: string } | null
 }
 
 export interface AccessRequest {
@@ -120,9 +276,14 @@ export interface RecoveryChallenge {
 
 export function createPatientApi(client: ApiClient) {
   const call = <T>(method: 'GET' | 'POST' | 'DELETE', path: string, body?: unknown,
-    options?: { signal?: AbortSignal; headers?: Readonly<Record<string, string>> }) =>
+    options?: { signal?: AbortSignal; headers?: Readonly<Record<string, string>>; reportUnauthorized?: boolean }) =>
     client.request<T>({ method, path: `/api/v1/${path}`, auth: path.startsWith('auth/') || path.startsWith('identity/patient-enrollments') ? 'optional' : 'required',
       ...(body === undefined ? {} : { body }), ...options })
+
+  // A question about the session, and a refresh, judge their own 401: it may mean
+  // only an expired access token, which the refresh restores. The client's
+  // onUnauthorized is left to the final 401 of every other request.
+  const judged = { reportUnauthorized: false } as const
 
   return {
     chat: createEhrService({ app: 'patient-web', client }).chat,
@@ -131,29 +292,60 @@ export function createPatientApi(client: ApiClient) {
     chatHistory: async (signal?: AbortSignal) => parseChatHistory(await call<unknown>('GET', 'ehr/me/chat/history', undefined, { signal })),
     clearChatHistory: (signal?: AbortSignal) => call<{ cleared: true }>('DELETE', 'ehr/me/chat/history', undefined, { signal }),
     supportChat: createSupportService({ app: 'patient-web', client }).chat,
-    session: () => call<PatientSession>('GET', 'auth/session'),
-    refresh: () => call<PatientSession>('POST', 'auth/refresh'),
+    session: () => call<PatientSession>('GET', 'auth/session', undefined, judged),
+    // Windows of the portal take turns to refresh; one that waited reads the session
+    // first, and takes only a patient's as restored: a provider's is refreshed, and refused.
+    refresh: () => refreshInTurn(
+      () => call<PatientSession>('GET', 'auth/session', undefined, judged).then(session => session?.actor?.kind === 'patient' ? session : null, () => null),
+      () => call<PatientSession>('POST', 'auth/refresh', undefined, judged)),
+    // A sign-in waits for another window's refresh, whose answer would otherwise replace its cookies.
     login: (email: string, password: string, turnstileToken: string) =>
-      call<PatientSession>('POST', 'auth/patient/login', { email, password, turnstileAction: 'patient-login', turnstileToken }),
-    logout: () => call<void>('POST', 'auth/logout'),
+      inRefreshTurn(() => call<PatientSession>('POST', 'auth/patient/login', { email, password, turnstileAction: 'patient-login', turnstileToken })),
+    // Signing out takes the same turn, and ends the session only while the browser
+    // still holds this patient's. The portal hears other windows sign in on the
+    // session-change channel, but a browser without the channel, or an
+    // announcement still on its way, says nothing, so it always asks. A refused
+    // question is handled as a refused sign-out. The sign-out judges the 401 of
+    // either call (session.tsx restores the session and signs out again), so the
+    // tab is not signed out here while the server session may still be live.
+    logout: (subject: string | undefined) => signOutInTurn(() => call<PatientSession>('GET', 'auth/session', undefined, judged).then(
+      session => session.actor?.kind === 'patient' && subject !== undefined && session.actor.subject === subject),
+    () => call<void>('POST', 'auth/logout', undefined, judged), { alwaysAsk: true }),
     googleNonce: () => call<{ nonce: string }>('GET', 'auth/google/nonce'),
     googleExchange: (idToken: string, turnstileToken: string, intent: 'sign_in' | 'enroll') =>
-      call<PatientSession | { stage: 'GOOGLE_AUTHENTICATED_PENDING_IDENTITY'; expiresAt: string }>(
-        'POST', 'auth/oidc/exchange', { idToken, turnstileToken, turnstileAction: 'patient-login', intent }),
+      inRefreshTurn(() => call<PatientSession | { stage: 'GOOGLE_AUTHENTICATED_PENDING_IDENTITY'; expiresAt: string }>(
+        'POST', 'auth/oidc/exchange', { idToken, turnstileToken, turnstileAction: 'patient-login', intent })),
     googleOnboarding: () => call<{ stage: 'GOOGLE_AUTHENTICATED_PENDING_IDENTITY'; expiresAt: string }>('GET', 'auth/google/onboarding'),
     googleLink: (idToken: string, principal: string, password: string, turnstileToken: string) =>
       call<{ linked: true }>('POST', 'auth/google/link', { idToken, principal, password, turnstileToken, turnstileAction: 'patient-login' }),
     enrollmentCurrent: () => call<EnrollmentProgress>('GET', 'identity/patient-enrollments/current'),
+    // hid-system#68 (FE-4): whether a start would pass its checks made before a NIN is read.
+    // Only `{ open: true }` means open (INTERFACE_CONTRACT.md, public patient enrollment).
+    enrollmentAvailability: () => call<EnrollmentAvailability>('GET', 'identity/patient-enrollments/availability'),
+    // ADR-063: public, by name and place only. Empty while the facility route is off.
+    participatingFacilities: () => call<ParticipatingFacilities>('GET', 'identity/patient-enrollments/participating-facilities'),
     enrollmentStart: (nin: string, turnstileToken: string, idempotencyKey: string) =>
       call<EnrollmentProgress>('POST', 'identity/patient-enrollments', { nin, turnstileAction: 'patient-enrollment', turnstileToken },
         { headers: { 'Idempotency-Key': idempotencyKey } }),
-    enrollmentBindGoogle: () => call<EnrollmentProgress>('POST', 'identity/patient-enrollments/google'),
+    enrollmentBindGoogle: () => call<{ bound: true }>('POST', 'identity/patient-enrollments/google'),
+    // The NIN holder step (ADR-062): no body; the code goes to the phone on the NIN record, never one typed here.
+    enrollmentHolderCode: () =>
+      call<{ challengeId: string; expiresInSeconds: number; resendAfterSeconds: number }>('POST', 'identity/patient-enrollments/holder'),
+    enrollmentHolderVerify: (challengeId: string, code: string) =>
+      call<{ stage: 'verify_contact'; requiredProfileFields?: EnrollmentProfileField[] }>('POST', 'identity/patient-enrollments/holder/verify', { challengeId, code }),
+    // The facility route (ADR-063): no body; the answer is the verify_holder progress with the desk code.
+    enrollmentFacilityCode: () => call<EnrollmentProgress>('POST', 'identity/patient-enrollments/facility-code'),
     enrollmentContact: (channel: 'email' | 'phone', contact: string) =>
       call<{ challengeId: string; expiresInSeconds: number; resendAfterSeconds: number }>('POST', 'identity/patient-enrollments/contact', { channel, contact }),
     enrollmentVerify: (challengeId: string, code: string) =>
-      call<{ stage: 'set_password' }>('POST', 'identity/patient-enrollments/contact/verify', { challengeId, code }),
-    enrollmentActivate: (password: string) =>
-      call<{ stage: 'active'; hidCode: string }>('POST', 'identity/patient-enrollments/activate', { password }),
+      call<{ stage: 'set_password'; requiredProfileFields?: EnrollmentProfileField[] }>('POST', 'identity/patient-enrollments/contact/verify', { challengeId, code }),
+    // A field is sent only when given (ADR-061: one the NIN record provides is refused).
+    enrollmentActivate: (password: string, profile: EnrollmentProfile = {}) =>
+      call<{ stage: 'active'; hidCode: string }>('POST', 'identity/patient-enrollments/activate', {
+        password,
+        ...(profile.dateOfBirth === undefined ? {} : { dateOfBirth: profile.dateOfBirth }),
+        ...(profile.gender === undefined ? {} : { gender: profile.gender }),
+      }),
     recoveryStart: (identifier: string, turnstileToken: string) =>
       call<RecoveryChallenge>('POST', 'auth/otp/start', { identifier, purpose: 'PASSWORD_RESET', turnstileAction: 'patient-reset-start', turnstileToken }),
     recoveryVerify: (challengeId: string, code: string) =>
@@ -170,16 +362,42 @@ export function createPatientApi(client: ApiClient) {
     importedAttachment: (id: string, signal?: AbortSignal) => call<ImportedAttachmentDownload>('GET',
       `ehr/me/imported-attachments/${encodeURIComponent(id)}/download`, undefined, { signal }),
     accessHistory: (signal?: AbortSignal) => call<AccessHistory>('GET', 'identity/me/access-history', undefined, { signal }),
-    accessRequests: (signal?: AbortSignal) => call<AccessRequest[]>('GET', 'identity/me/access-requests', undefined,
-      { signal, headers: { 'X-Purpose-Of-Use': 'direct-care' } }),
-    approveAccess: (id: string) => call<unknown>('POST', `identity/access-requests/${encodeURIComponent(id)}/approve`, undefined,
-      { headers: { 'X-Purpose-Of-Use': 'direct-care' } }),
-    denyAccess: (id: string, reason: string) => call<unknown>('POST', `identity/access-requests/${encodeURIComponent(id)}/deny`, { reason },
-      { headers: { 'X-Purpose-Of-Use': 'direct-care' } }),
+    // Patient-owned revocation; the staff `consent-grants/:id/close` route is not a patient route.
+    revokeAccess: (grantId: string, reason: string) => call<{ consentGrantId: string; status: 'revoked'; replayed: boolean }>(
+      'POST', `identity/me/consent-grants/${encodeURIComponent(grantId)}/revoke`, { reason }),
+    // The patient's own decisions carry no purpose of use: Identity binds them to the
+    // patient session, and would audit a purpose header as the purpose of the decision.
+    accessRequests: (signal?: AbortSignal) => call<AccessRequest[]>('GET', 'identity/me/access-requests', undefined, { signal }),
+    approveAccess: (id: string) => call<unknown>('POST', `identity/access-requests/${encodeURIComponent(id)}/approve`),
+    denyAccess: (id: string, reason: string) => call<unknown>('POST', `identity/access-requests/${encodeURIComponent(id)}/deny`, { reason }),
     notifications: (signal?: AbortSignal) => call<PatientNotification[]>('GET', 'identity/me/notifications', undefined, { signal }),
     markNotificationRead: (id: string) => call<{ id: string; readAt: string }>('POST', `identity/me/notifications/${encodeURIComponent(id)}/read`),
     setAccessPin: (pin: string) => call<{ configured: true }>('POST', 'identity/me/access-pin', { pin }),
     revokeAccessPin: () => call<{ revoked: true }>('DELETE', 'identity/me/access-pin'),
+    accountDeletionStatus: (signal?: AbortSignal) =>
+      call<AccountDeletionStatus>('GET', 'identity/me/account-deletion', undefined, { signal }),
+    requestAccountDeletion: () => call<AccountDeletionRequested>('POST', 'identity/me/account-deletion'),
+    confirmAccountDeletion: (requestId: string, confirmationToken: string, confirmation: string) =>
+      call<AccountDeletionConfirmed>('POST', 'identity/me/account-deletion/confirm', { requestId, confirmationToken, confirmation }),
+    cancelAccountDeletion: (requestId: string) =>
+      call<{ requestId: string; state: 'cancelled'; replayed: boolean }>('POST', 'identity/me/account-deletion/cancel', { requestId }),
+    emergencyContacts: (signal?: AbortSignal) =>
+      call<EmergencyContact[]>('GET', 'identity/me/emergency-contacts', undefined, { signal }),
+    addEmergencyContact: (input: { name: string; relationship: EmergencyContactRelationship; channel: 'email' | 'sms';
+      destination: string; notifyOnEmergencyAccess: boolean }) =>
+      call<EmergencyContact>('POST', 'identity/me/emergency-contacts', input),
+    updateEmergencyContact: (contactId: string, input: { expectedVersion: number; name?: string;
+      relationship?: EmergencyContactRelationship; notifyOnEmergencyAccess?: boolean }) =>
+      call<EmergencyContact>('POST', `identity/me/emergency-contacts/${encodeURIComponent(contactId)}`, input),
+    deactivateEmergencyContact: (contactId: string) =>
+      call<{ contactId: string; status: 'deactivated'; replayed: boolean }>(
+        'POST', `identity/me/emergency-contacts/${encodeURIComponent(contactId)}/deactivate`),
+    sendEmergencyContactVerification: (contactId: string) =>
+      call<{ challengeId: string; expiresAt: string; deliveryOutcome: string }>(
+        'POST', `identity/me/emergency-contacts/${encodeURIComponent(contactId)}/verification`),
+    confirmEmergencyContactVerification: (contactId: string, challengeId: string, code: string) =>
+      call<{ contactId: string; status: 'verified' }>(
+        'POST', `identity/me/emergency-contacts/${encodeURIComponent(contactId)}/verification/confirm`, { challengeId, code }),
   }
 }
 

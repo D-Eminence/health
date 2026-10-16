@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { useEffect, useState } from 'react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { createApiClient } from '@hid/http'
 import { PATIENT_ROUTE, STAFF_ROUTE, type SessionState } from '@hid/auth'
@@ -7,6 +8,7 @@ import { RequireAccess } from '../RequireAccess'
 import { createTestSessionValue, SessionContext } from '../session'
 import { createPatientApi, type PatientApi } from '../api'
 import type { PatientPrincipal, StaffPrincipal } from '@hid/auth'
+import { pressOnArrival } from './portalHarness'
 
 const patient: PatientPrincipal = {
   kind: 'patient',
@@ -80,6 +82,67 @@ describe('RequireAccess', () => {
     expect(screen.queryByText('Sign-in screen')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
     expect(retry).toHaveBeenCalledOnce()
+  })
+
+  it('names the session check with a level-one heading while it runs and when it fails', () => {
+    const { unmount } = renderGuard({ status: 'unknown', principal: null })
+    expect(screen.getByRole('heading', { level: 1, name: 'Checking your session…' })).toBeDefined()
+    unmount()
+    renderGuard({ status: 'unknown', principal: null }, PATIENT_ROUTE, 'We could not check your session. Try again.')
+    // The heading names the state; what to do follows it.
+    expect(screen.getByRole('heading', { level: 1, name: 'We could not check your session' })).toBeDefined()
+    // The check also fails for an outage or a session this portal cannot use, not
+    // only for a lost connection, so the advice blames none of them.
+    expect(screen.getByRole('alert').textContent).toBe('We could not check your sessionTry again in a moment.Try again')
+  })
+
+  it('after Try again, moves focus to the page that opens, or to Try again when the check fails again', async () => {
+    const failed = 'We could not check your session. Try again.'
+    function Checking({ outcomes }: { outcomes: Array<'allow' | 'fail'> }) {
+      const [value, setValue] = useState<{ state: SessionState; sessionError: string | null }>({ state: { status: 'unknown', principal: null }, sessionError: failed })
+      const retrySessionCheck = () => {
+        setValue({ state: { status: 'unknown', principal: null }, sessionError: null })
+        setTimeout(() => setValue(outcomes.shift() === 'allow'
+          ? { state: { status: 'authenticated', principal: patient }, sessionError: null }
+          : { state: { status: 'unknown', principal: null }, sessionError: failed }), 0)
+      }
+      return <MemoryRouter><SessionContext.Provider value={{ ...createTestSessionValue(null, stubApi()), ...value, retrySessionCheck }}>
+        <RequireAccess requirement={PATIENT_ROUTE}><main id="main"><h1>Your health, connected.</h1></main></RequireAccess>
+      </SessionContext.Provider></MemoryRouter>
+    }
+    render(<Checking outcomes={['fail', 'allow']} />)
+    const first = screen.getByRole('button', { name: 'Try again' })
+    first.focus()
+    await act(async () => { fireEvent.click(first) })
+    const second = await screen.findByRole('button', { name: 'Try again' })
+    await waitFor(() => expect(document.activeElement).toBe(second))
+    await act(async () => { fireEvent.click(second) })
+    const heading = await screen.findByRole('heading', { level: 1, name: 'Your health, connected.' })
+    await waitFor(() => expect(document.activeElement).toBe(heading))
+  })
+
+  it('moves focus to the page that opens when Try again is pressed before the failed check\'s effects have run', async () => {
+    // A press that comes after the render showing 'Try again' commits, and before
+    // its effects run: an effect still pending from that render once took the press
+    // for the outcome, and focus stayed on the button the check replaced.
+    const failed = 'We could not check your session. Try again.'
+    const unknown: SessionState = { status: 'unknown', principal: null }
+    function Checking() {
+      const [value, setValue] = useState<{ state: SessionState; sessionError: string | null }>({ state: unknown, sessionError: null })
+      useEffect(() => { const timer = setTimeout(() => setValue({ state: unknown, sessionError: failed }), 0); return () => clearTimeout(timer) }, [])
+      const retrySessionCheck = () => {
+        setValue({ state: unknown, sessionError: null })
+        setTimeout(() => setValue({ state: { status: 'authenticated', principal: patient }, sessionError: null }), 0)
+      }
+      return <MemoryRouter><SessionContext.Provider value={{ ...createTestSessionValue(null, stubApi()), ...value, retrySessionCheck }}>
+        <RequireAccess requirement={PATIENT_ROUTE}><main id="main"><h1>Your health, connected.</h1></main></RequireAccess>
+      </SessionContext.Provider></MemoryRouter>
+    }
+    const pressed = pressOnArrival('Try again')
+    render(<Checking />)
+    await waitFor(() => expect(pressed()).toBe(true))
+    const heading = await screen.findByRole('heading', { level: 1, name: 'Your health, connected.' })
+    await waitFor(() => expect(document.activeElement).toBe(heading))
   })
 
   it('redirects an anonymous visitor to sign-in', () => {

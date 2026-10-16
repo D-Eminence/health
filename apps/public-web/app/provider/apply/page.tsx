@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
 import { Suspense } from 'react'
-import { ProviderApplyContent } from './ProviderApplyContent'
+import { ProviderApplyRedirect } from './ProviderApplyRedirect'
 
 export const metadata: Metadata = {
   title: 'Setup Your Facility',
@@ -8,5 +8,5 @@ export const metadata: Metadata = {
 }
 
 export default function Page() {
-  return <Suspense fallback={<main role="status">Opening facility form?</main>}><ProviderApplyContent /></Suspense>
+  return <Suspense fallback={<main id="main"><p role="status">Opening facility setup…</p></main>}><ProviderApplyRedirect /></Suspense>
 }

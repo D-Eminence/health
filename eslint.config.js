@@ -28,6 +28,28 @@ const NO_INDEXED_DB = {
   message: 'IndexedDB must not be used to hold Health ID data. See docs/ARCHITECTURE.md, PHI handling.',
 }
 
+// Plain, dotted and destructured uses are caught; computed (navigator['serviceWorker'])
+// and aliased ones (const N = Notification) are not: review catches those.
+const NO_SERVICE_WORKER = {
+  selector: [
+    "MemberExpression[property.name=/^(serviceWorker|pushManager|showNotification)$/]",
+    "Identifier[name='PushManager']",
+    "MemberExpression[property.name='requestPermission'][object.name='Notification']",
+    "MemberExpression[property.name='requestPermission'][object.property.name='Notification']",
+    "NewExpression[callee.name='Notification']",
+    "NewExpression[callee.property.name='Notification']",
+    "ObjectPattern > Property[key.name=/^(serviceWorker|pushManager|showNotification|requestPermission)$/]",
+  ].join(', '),
+  message:
+    'Health ID registers no service worker, subscribes to no push messages, shows no system notification and asks for no notification permission: no backend route accepts a push subscription. See docs/ARCHITECTURE.md (PHI handling) and hand-off B15.',
+}
+
+const NO_CACHE_STORAGE = {
+  selector: "Identifier[name='caches'], MemberExpression[property.name='caches'], ObjectPattern > Property[key.name='caches']",
+  message:
+    'The Cache API must not hold Health ID pages or data: nothing is kept for offline use. See docs/ARCHITECTURE.md (PHI handling).',
+}
+
 const NO_CONSOLE = {
   selector: "MemberExpression[object.name='console']",
   message:
@@ -64,7 +86,7 @@ export default tseslint.config(
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
       ],
       eqeqeq: ['error', 'always', { null: 'ignore' }],
-      'no-restricted-syntax': ['error', NO_RAW_FETCH, NO_BROWSER_STORAGE, NO_INDEXED_DB, NO_CONSOLE],
+      'no-restricted-syntax': ['error', NO_RAW_FETCH, NO_BROWSER_STORAGE, NO_INDEXED_DB, NO_SERVICE_WORKER, NO_CACHE_STORAGE, NO_CONSOLE],
 
       'no-restricted-imports': [
         'error',
@@ -99,17 +121,24 @@ export default tseslint.config(
     // The transport layer is where fetch is allowed to exist. That is the point
     // of having a transport layer.
     files: ['packages/http/src/client.ts'],
-    rules: { 'no-restricted-syntax': ['error', NO_BROWSER_STORAGE, NO_INDEXED_DB, NO_CONSOLE] },
+    rules: { 'no-restricted-syntax': ['error', NO_BROWSER_STORAGE, NO_INDEXED_DB, NO_SERVICE_WORKER, NO_CACHE_STORAGE, NO_CONSOLE] },
   },
   {
     // The logger is the sanctioned console call.
     files: ['packages/observability/src/logger.ts'],
-    rules: { 'no-restricted-syntax': ['error', NO_RAW_FETCH, NO_BROWSER_STORAGE, NO_INDEXED_DB] },
+    rules: { 'no-restricted-syntax': ['error', NO_RAW_FETCH, NO_BROWSER_STORAGE, NO_INDEXED_DB, NO_SERVICE_WORKER, NO_CACHE_STORAGE] },
   },
   {
     // The session module owns the portal hint, the single permitted persisted value.
     files: ['packages/auth/src/session.ts'],
-    rules: { 'no-restricted-syntax': ['error', NO_RAW_FETCH, NO_INDEXED_DB, NO_CONSOLE] },
+    rules: { 'no-restricted-syntax': ['error', NO_RAW_FETCH, NO_INDEXED_DB, NO_SERVICE_WORKER, NO_CACHE_STORAGE, NO_CONSOLE] },
+  },
+  {
+    // The script that retires an earlier HID service worker (no Health ID page
+    // registers it): a classic worker script that deletes that app's caches.
+    files: ['apps/*/public/service-worker.js'],
+    languageOptions: { sourceType: 'script', globals: { self: 'readonly', caches: 'readonly' } },
+    rules: { 'no-restricted-syntax': ['error', NO_RAW_FETCH, NO_BROWSER_STORAGE, NO_INDEXED_DB, NO_SERVICE_WORKER, NO_CONSOLE] },
   },
   {
     // Tests construct fake transports and assert on storage behaviour.

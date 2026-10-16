@@ -2,6 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 vi.mock('./env', () => ({ getEnvironment: () => ({ name: 'local', apiBaseUrl: 'https://gateway.test' }) }))
 
 beforeEach(() => vi.resetModules())
+
+/** The staff API with a session in use and ready, as the provider portal sets it once signed in: protected requests wait for that. */
+async function signedInStaffApi() {
+  const { setStaffSessionReady } = await import('./session')
+  setStaffSessionReady(true)
+  return import('./api')
+}
+
 afterEach(() => vi.unstubAllGlobals())
 describe('hospital imported-history requests', () => {
   it('uses the patient endpoint with facility and purpose headers and no encounter identifier', async () => {
@@ -9,7 +17,7 @@ describe('hospital imported-history requests', () => {
       headers: { 'content-type': 'application/json' },
     }))
     vi.stubGlobal('fetch', fetch)
-    const { staffApi } = await import('./api')
+    const { staffApi } = await signedInStaffApi()
     await staffApi.importedRecords('facility-a', '11111111-1111-4111-8111-111111111111', 'direct-care')
     const [url, options] = fetch.mock.calls[0]!
     expect(new URL(String(url)).pathname).toBe('/api/v1/ehr/patients/11111111-1111-4111-8111-111111111111/imported-records')
@@ -24,7 +32,7 @@ it('routes hospital chat history and sources through the selected patient, facil
  const fetch=vi.fn().mockImplementation((url:string,_options:RequestInit)=>Promise.resolve(new Response(JSON.stringify(String(url).endsWith('/history')?
    {exchanges:[],retentionDays:30,limit:10}:{kind:'prescription',fields:{}}),{headers:{'content-type':'application/json'}})))
  vi.stubGlobal('fetch',fetch)
- const {staffApi}=await import('./api')
+ const {staffApi}=await signedInStaffApi()
  const patient='11111111-1111-4111-8111-111111111111'
  await staffApi.patientChatHistory('facility-a',patient)
  await staffApi.patientChatHistory('facility-b',patient)

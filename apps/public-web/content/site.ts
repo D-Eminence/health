@@ -21,6 +21,9 @@ export const ROUTES = {
   about: '/about',
   contact: '/contact',
   resources: '/resources',
+  blog: '/blog',
+  earn: '/earn',
+  blogPost: (slug: string) => `/blog/${slug}`,
   documentation: '/resources/documentation',
   security: '/resources/security',
   privacy: '/resources/privacy',
@@ -72,6 +75,7 @@ export const APP_ENTRY = {
   patientSignIn: `${PORTAL_ORIGIN}/sign-in`,
   patientSignUp: `${PORTAL_ORIGIN}/enroll`,
   staffSignIn: `${PORTAL_ORIGIN}/provider/sign-in`,
+  providerSignUp: `${PORTAL_ORIGIN}/provider/enroll`,
 } as const
 
 export interface Audience {

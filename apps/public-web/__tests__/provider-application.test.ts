@@ -1,8 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
-  initialApplicationSelection, organizationApplicationBody, providerApplicationHref,
-  missingOrganizationProfileFields, saveOrganizationCompletionProfile,
-  startOrganizationCompletion, submitOrganizationApplication, verifyOrganizationCompletion,
+  isApplicationProduct, providerApplicationHref, missingOrganizationProfileFields, saveOrganizationCompletionProfile,
+  startOrganizationCompletion, validateOrganizationProfileEntries, verifyOrganizationCompletion,
   type OrganizationCompletionProfile,
 } from '@/lib/provider-application'
 
@@ -16,54 +15,18 @@ beforeEach(() => request.mockReset())
 
 describe('provider application routes and contract', () => {
   it.each([
-    ['ehr', 'hospital', 'ehr', '/provider/apply?product=ehr'],
-    ['laboratory', 'laboratory', 'laboratory', '/provider/apply?product=laboratory'],
-    ['pharmacy', 'pharmacy', 'pharmacy', '/provider/apply?product=pharmacy'],
-    ['migrate', 'hospital', 'migrate', '/provider/apply?product=migrate'],
-  ] as const)('preserves %s when opening the existing application flow', (product, organizationType, productCode, href) => {
+    ['ehr', '/provider/apply?product=ehr'],
+    ['laboratory', '/provider/apply?product=laboratory'],
+    ['pharmacy', '/provider/apply?product=pharmacy'],
+    ['migrate', '/provider/apply?product=migrate'],
+  ] as const)('preserves %s when opening the application page', (product, href) => {
     expect(providerApplicationHref(product)).toBe(href)
-    expect(initialApplicationSelection(product)).toEqual({ organizationType, productCode })
   })
 
-  it('keeps the generic provider application route selectable and excludes API from its product choices', () => {
+  it('keeps the generic provider application route and excludes API from the application products', () => {
     expect(providerApplicationHref()).toBe('/provider/apply')
-    expect(initialApplicationSelection(undefined)).toEqual({ organizationType: 'hospital', productCode: 'ehr' })
-    expect(initialApplicationSelection('api')).toEqual({ organizationType: 'hospital', productCode: 'ehr' })
-  })
-
-  it('submits the existing public organization application contract, including provider type', async () => {
-    const body = organizationApplicationBody({
-      organizationType: 'laboratory', productCode: 'laboratory',
-      cacRegistrationNumber: ' rc 123456 ', administratorName: '  Ada Example  ',
-      administratorEmail: ' ADA@EXAMPLE.ORG ',
-    }, 'widget-token')
-    expect(body).toEqual({
-      productCode: 'laboratory', organizationType: 'laboratory',
-      cacRegistrationNumber: 'RC123456', administratorName: 'Ada Example',
-      administratorEmail: 'ada@example.org', turnstileAction: 'organization-application',
-      turnstileToken: 'widget-token',
-    })
-    request.mockResolvedValue({ accepted: true })
-    await submitOrganizationApplication(body)
-    expect(request).toHaveBeenCalledWith({
-      method: 'POST', path: '/api/v1/identity/organization-applications', auth: 'none', body,
-    })
-  })
-
-  it('rejects product and facility combinations the existing application does not offer', () => {
-    expect(() => organizationApplicationBody({
-      organizationType: 'laboratory', productCode: 'pharmacy',
-      cacRegistrationNumber: 'RC123456', administratorName: 'Ada Example',
-      administratorEmail: 'ada@example.org',
-    }, 'widget-token')).toThrow(/Choose a product/)
-  })
-
-  it('accepts the backend-supported other provider type without inventing a new product code', () => {
-    expect(organizationApplicationBody({
-      organizationType: 'other', productCode: 'ehr',
-      cacRegistrationNumber: 'BN123456', administratorName: 'Ada Example',
-      administratorEmail: 'ada@example.org',
-    }, 'widget-token')).toMatchObject({ organizationType: 'other', productCode: 'ehr' })
+    expect(isApplicationProduct('api')).toBe(false)
+    expect(isApplicationProduct('laboratory')).toBe(true)
   })
 
   it('uses the existing completion endpoints and preserves the required If-Match version', async () => {
@@ -100,5 +63,26 @@ describe('provider application routes and contract', () => {
       method: 'PATCH', path: '/api/v1/identity/organization-applications/completion/profile', auth: 'none',
       headers: { 'If-Match': '"4"' }, body: { entityType: 'Limited company' },
     })
+  })
+
+  // hid-system CompleteOrganizationProfileDto: companyName 2-200, entityType 2-120 and
+  // address 5-1000 characters, each after trimming.
+  it('refuses profile details shorter than the backend accepts', () => {
+    const profile: OrganizationCompletionProfile = {
+      status: 'pending_verification', profileState: 'incomplete', version: 4,
+      productCode: 'ehr', registrationNumber: 'RC123456', fields: {
+        companyName: { value: null, source: null }, entityType: { value: null, source: null },
+        registrationDate: { value: null, source: null }, address: { value: null, source: null },
+        registryStatus: { value: null, source: null },
+      },
+    }
+    expect(validateOrganizationProfileEntries({ companyName: 'A', entityType: ' X ', address: 'abcd' })).toEqual({
+      companyName: 'Enter the registered organization name in 2 to 200 characters.',
+      entityType: 'Enter the legal entity type in 2 to 120 characters.',
+      address: 'Enter the registered address in 5 to 1,000 characters.',
+    })
+    expect(validateOrganizationProfileEntries({ companyName: 'AB', entityType: 'Ltd', address: ' 12 Rd ', registryStatus: '' })).toEqual({})
+    expect(() => missingOrganizationProfileFields(profile, { address: 'abc' })).toThrow(/registered address in 5/)
+    expect(missingOrganizationProfileFields(profile, { address: '  12 Marina Road  ' })).toEqual({ address: '12 Marina Road' })
   })
 })

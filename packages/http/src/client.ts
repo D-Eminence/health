@@ -60,6 +60,37 @@ export interface RequestSpec {
   readonly dedupe?: boolean
   /** Extra headers for this call. Must never carry a secret. */
   readonly headers?: Readonly<Record<string, string>>
+  /**
+   * `download` resolves a successful response as a {@link DownloadResult}
+   * instead of parsing JSON. Failures still parse as problem details.
+   */
+  readonly responseType?: 'json' | 'download'
+  /**
+   * Whether a 401 should restore the cookie session and repeat the request.
+   * Defaults to always. A request that submits a one-time credential (such as
+   * an authenticator code) returns false for the backend's own rejection, so
+   * the same code is never sent twice.
+   */
+  readonly refreshOnUnauthorized?: (error: HidApiError) => boolean
+  /**
+   * Whether this call's final 401 is passed to `onUnauthorized`. Defaults to
+   * true. A call that asks about the session itself, and judges its own 401
+   * (an expired access token that a refresh may still restore), passes false.
+   */
+  readonly reportUnauthorized?: boolean
+  /**
+   * Awaited immediately before every attempt is sent, retries and the repeat
+   * after a refresh included. A caller can hold the request (for example while
+   * its session is being checked) or end it by rejecting; the rejection is not
+   * retried when its error says it is not retryable.
+   */
+  readonly beforeAttempt?: () => Promise<void>
+}
+
+/** A successful `download` response. Headers are those the browser may read. */
+export interface DownloadResult {
+  readonly blob: Blob
+  readonly headers: Headers
 }
 
 export interface ApiClientLogger {
@@ -110,11 +141,31 @@ export interface ApiClientOptions {
 
 const DEFAULT_TIMEOUT_MS = 15_000
 
+/** The cookie session calls on which Identity reads `X-HID-Client`. */
+const NAMED_CLIENT_PATHS: ReadonlySet<string> = new Set(['/api/v1/auth/refresh', '/api/v1/auth/logout'])
+
+/** A deduplicated read and the callers still waiting for it. */
+interface SharedRead {
+  readonly controller: AbortController
+  waiting: number
+  promise: Promise<unknown>
+}
+
 /**
  * Per-error `Retry-After` hints. A WeakMap keeps the value off the public error
  * surface; it is transport bookkeeping, not something a caller should branch on.
  */
 const retryAfterByError = new WeakMap<HidApiError, number | null>()
+
+/**
+ * The `Retry-After` of a request this client refused, in seconds, or null when
+ * the response named none (or `error` is not such a refusal). For a wait the
+ * page must show, such as a code's resend cooldown; the retry loop reads the
+ * same value for reads.
+ */
+export function retryAfterSeconds(error: unknown): number | null {
+  return error instanceof HidApiError ? retryAfterByError.get(error) ?? null : null
+}
 
 function defaultSleep(ms: number, signal?: AbortSignal): Promise<void> {
   if (ms <= 0) return Promise.resolve()
@@ -228,25 +279,29 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
   const defaultTimeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS
   const sleep = options.sleep ?? defaultSleep
   const logger = options.logger
-  const inflight = new Map<string, Promise<unknown>>()
+  const inflight = new Map<string, SharedRead>()
   const cookieMode = options.sessionMode === 'cookie'
   let responseCsrfToken: string | null = null
   let refreshInFlight: Promise<void> | null = null
 
-  function csrfToken(): string | null {
-    return options.getCsrfToken?.() ?? readCookie(options.csrfCookieName ?? 'hid_access_csrf') ?? responseCsrfToken
-  }
-
-  async function resolveHeaders(spec: RequestSpec, requestId: string): Promise<Headers> {
+  async function resolveHeaders(spec: RequestSpec, url: URL, requestId: string): Promise<Headers> {
     const headers = new Headers(await options.getDefaultHeaders?.())
 
     for (const [key, value] of Object.entries(spec.headers ?? {})) headers.set(key, value)
 
-    headers.set('Accept', 'application/json')
+    headers.set('Accept', spec.responseType === 'download' ? '*/*' : 'application/json')
     if (cookieMode) {
-      // These are on the hid-system CORS allow-list. X-HID-Client and
-      // X-Request-ID are not, so adding them would block browser preflight.
+      // On the hid-system CORS allow-list. X-Request-ID is not, so adding it
+      // would block a cross-origin preflight.
       headers.set('X-Correlation-ID', requestId)
+      // The staff and patient apps share the session cookies on one origin.
+      // Identity reads X-HID-Client on these two calls only (hid-system #39) and
+      // refuses the other app's sign-in with 403 SESSION_CLIENT_MISMATCH, so
+      // neither app rotates or ends the other's. It names this client and no
+      // other, whatever a caller passed. Identity builds before #39 ignore it on
+      // the same origin but lack it on their CORS allow-list.
+      headers.delete('X-HID-Client')
+      if (spec.method === 'POST' && NAMED_CLIENT_PATHS.has(url.pathname)) headers.set('X-HID-Client', options.clientId)
     } else {
       headers.set('X-Request-ID', requestId)
       headers.set('X-HID-Client', options.clientId)
@@ -260,7 +315,8 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
       // The backend decides whether the session is present and authorized.
       headers.delete('Authorization')
       if (!['GET', 'HEAD', 'OPTIONS'].includes(spec.method)) {
-        const csrf = csrfToken()
+        const csrf = options.getCsrfToken?.() ?? readCookie(options.csrfCookieName ?? 'hid_access_csrf')
+          ?? responseCsrfToken
         if (csrf) headers.set('X-CSRF-Token', csrf)
       }
     } else if (requirement !== 'none') {
@@ -280,7 +336,11 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
   }
 
   async function attempt<T>(spec: RequestSpec, url: URL, requestId: string): Promise<T> {
-    const headers = await resolveHeaders(spec, requestId)
+    // Awaited before every attempt: the first, each retry after a backoff, and
+    // the repeat after a refresh. A rejection ends the request. Headers (the CSRF
+    // token among them) are read only after it, since a wait can outlast a refresh.
+    await spec.beforeAttempt?.()
+    const headers = await resolveHeaders(spec, url, requestId)
     const timeoutMs = spec.timeoutMs ?? defaultTimeoutMs
     const attemptSignal = createAttemptSignal(timeoutMs, spec.signal)
 
@@ -327,6 +387,10 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
     const headerRequestId = response.headers.get('X-Correlation-ID')
       ?? response.headers.get('X-Request-ID')
     if (cookieMode) responseCsrfToken = response.headers.get('X-CSRF-Token') ?? responseCsrfToken
+    if (response.ok && spec.responseType === 'download') {
+      const download: DownloadResult = { blob: await response.blob(), headers: response.headers }
+      return download as T
+    }
     const rawBody = await response.text()
     const payload = parseJsonBody(rawBody)
 
@@ -344,6 +408,7 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
         requestId: envelope.requestId ?? requestId,
         retryable: envelope.retryable ?? isRetryableStatus(response.status),
         details: envelope.details,
+        fields: envelope.fields,
       })
 
       // Attach transport hints the retry loop needs without widening HidApiError.
@@ -386,10 +451,9 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
         return await attempt<T>(spec, url, requestId)
       } catch (error) {
         if (cookieMode && options.refreshSession && !refreshed
-          && spec.auth !== 'none'
-          && (spec.path === '/api/v1/auth/session' || !spec.path.startsWith('/api/v1/auth/'))
-          && csrfToken()
-          && error instanceof HidApiError && error.status === 401) {
+          && spec.auth !== 'none' && !spec.path.startsWith('/api/v1/auth/')
+          && error instanceof HidApiError && error.status === 401
+          && (spec.refreshOnUnauthorized?.(error) ?? true)) {
           refreshed = true
           try {
             refreshInFlight ??= Promise.resolve().then(options.refreshSession)
@@ -397,18 +461,13 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
             await refreshInFlight
             continue
           } catch (refreshError) {
-            // A stale/missing refresh cookie cannot restore a session. Preserve
-            // the original 401 so anonymous entry can reach sign-in. This does
-            // not suppress CSRF failures from the original protected request.
-            if (!(refreshError instanceof HidApiError)
-              || (refreshError.status !== 401
-                && !(refreshError.status === 403 && refreshError.code === 'CSRF_VALIDATION_FAILED'))) {
+            if (!(refreshError instanceof HidApiError) || refreshError.status !== 401) {
               throw refreshError
             }
           }
         }
         if (!shouldRetry({ error, method: spec.method, attempt: attemptIndex, policy, idempotent })) {
-          if (error instanceof HidApiError && error.status === 401) options.onUnauthorized?.(error)
+          if (error instanceof HidApiError && error.status === 401 && spec.reportUnauthorized !== false) options.onUnauthorized?.(error)
           throw error
         }
 
@@ -434,7 +493,39 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
 
   function dedupeKey(spec: RequestSpec): string {
     return JSON.stringify([spec.method, spec.path, spec.query ?? null, spec.auth ?? 'required',
-      spec.headers ?? null])
+      spec.headers ?? null, spec.responseType ?? 'json', spec.reportUnauthorized ?? true])
+  }
+
+  /**
+   * One caller's view of a shared read. The caller's own cancellation rejects
+   * only its view; the shared request is cancelled when no caller still waits.
+   */
+  function join<T>(key: string, shared: SharedRead, signal: AbortSignal | undefined, requestId: string): Promise<T> {
+    shared.waiting += 1
+    let settled = false
+    const leave = () => {
+      if (settled) return
+      settled = true
+      shared.waiting -= 1
+      if (shared.waiting > 0) return
+      // Abandoned: a later caller (for example a remounted component) starts afresh.
+      if (inflight.get(key) === shared) inflight.delete(key)
+      shared.controller.abort()
+    }
+    return new Promise<T>((resolve, reject) => {
+      const onAbort = () => {
+        leave()
+        reject(new HidApiError(0, 'The request was cancelled.', {
+          code: 'REQUEST_CANCELLED', requestId, retryable: false,
+        }))
+      }
+      if (signal?.aborted) { onAbort(); return }
+      signal?.addEventListener('abort', onAbort, { once: true })
+      shared.promise.then(
+        value => { signal?.removeEventListener('abort', onAbort); settled = true; resolve(value as T) },
+        (error: unknown) => { signal?.removeEventListener('abort', onAbort); settled = true; reject(error) },
+      )
+    })
   }
 
   const client: ApiClient = {
@@ -445,14 +536,20 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
       if (!canDedupe) return run<T>(spec)
 
       const key = dedupeKey(spec)
-      const existing = inflight.get(key)
-      if (existing) return existing as Promise<T>
-
-      const pending = run<T>(spec).finally(() => {
-        inflight.delete(key)
-      })
-      inflight.set(key, pending)
-      return pending
+      let shared = inflight.get(key)
+      if (!shared) {
+        const controller = new AbortController()
+        const entry: SharedRead = { controller, waiting: 0, promise: Promise.resolve() }
+        entry.promise = run<unknown>({ ...spec, signal: controller.signal }).finally(() => {
+          if (inflight.get(key) === entry) inflight.delete(key)
+        })
+        // Each caller observes the outcome through join(); this keeps an
+        // abandoned shared read from reporting an unhandled rejection.
+        entry.promise.catch(() => undefined)
+        inflight.set(key, entry)
+        shared = entry
+      }
+      return join<T>(key, shared, spec.signal, createRequestId())
     },
 
     get<T>(path: string, spec?: Omit<RequestSpec, 'method' | 'path' | 'body'>): Promise<T> {

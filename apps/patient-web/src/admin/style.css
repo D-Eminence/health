@@ -50,6 +50,11 @@
   overflow: auto;
   padding: 8px 12px 20px;
 }
+.admin-nav-section { display: grid; gap: 3px; }
+.admin-nav-section + .admin-nav-section { margin-top: 10px; }
+.admin-nav-section ul { display: grid; gap: 3px; margin: 0; padding: 0; list-style: none; }
+.admin-nav-heading { margin: 0; padding: 6px 11px 2px; color: var(--color-muted); font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.admin-forbidden a { color: var(--color-brand); font-weight: 700; }
 .admin-nav-link,
 .admin-mobile-nav a {
   display: flex;
@@ -248,13 +253,15 @@
   min-width: 0;
   min-height: 38px;
   padding: 8px 10px;
-  border: 1px solid var(--color-line-strong);
+  border: 1px solid var(--color-line-control);
   border-radius: var(--radius-control);
   background: var(--color-surface);
   color: var(--color-ink);
   font: inherit;
   font-size: 13px;
 }
+.admin-app ::placeholder,
+.admin-auth ::placeholder { color: var(--color-faint); }
 .admin-action-form textarea { resize: vertical; }
 .admin-action-form .admin-checkbox { display: flex; align-items: center; gap: 8px; }
 .admin-action-form .admin-checkbox input { accent-color: var(--color-brand); }
@@ -273,6 +280,7 @@
 .admin-detail-grid > div { padding: 11px; border-radius: var(--radius-control); background: var(--color-surface-tint); }
 .admin-detail-grid dt { color: var(--color-muted); font-size: 11px; }
 .admin-detail-grid dd { margin: 5px 0 0; font-weight: 700; }
+.admin-detail-grid dd small { display: block; margin-top: 3px; color: var(--color-muted); font-size: 11px; font-weight: 400; overflow-wrap: anywhere; }
 .admin-price-list { display: grid; gap: 10px; margin-top: 20px; }
 .admin-price { display: flex; flex-wrap: wrap; align-items: start; justify-content: space-between; gap: 12px; padding: 14px; border: 1px solid var(--color-line-strong); border-radius: var(--radius-control); }
 .admin-price strong,
@@ -292,6 +300,68 @@
 .admin-state-logo { display: block; width: auto; height: 32px; }
 .admin-message h1 { margin: 0; font-family: var(--font-display); font-size: 38px; font-weight: 400; }
 .admin-message p { color: var(--color-muted); }
+
+/* Platform security (Stage 2B): sign-in steps, step-up, recovery codes, approvals. */
+.admin-auth-form { display: grid; gap: 17px; }
+/* A label tied by id to a field it does not wrap: a password with its Show toggle beside it.
+   Its typed text as in the fields whose label wraps them (they inherit the label's weight). */
+.admin-field { display: grid; gap: 6px; }
+.admin-field input { font-weight: 700; }
+.admin-auth-form > p { margin: 0; color: var(--color-muted); font-size: 14px; }
+.admin-auth-form .admin-primary { justify-self: start; }
+.admin-auth-card .admin-checkbox,
+.admin-recovery .admin-checkbox { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.admin-link { justify-self: start; padding: 0; border: 0; background: none; color: var(--color-brand); font: inherit; font-size: 13px; font-weight: 700; text-decoration: underline; cursor: pointer; }
+.admin-warning { margin: 0; padding: 10px 12px; border-radius: var(--radius-control); background: #fff8e6; color: #7a4b00; font-size: 12px; line-height: 1.45; }
+.admin-steps { display: grid; gap: 12px; margin: 0; padding-left: 20px; font-size: 14px; }
+.admin-steps small { display: block; margin-top: 6px; color: var(--color-muted); font-size: 12px; }
+.admin-setup-key { display: block; margin-top: 10px; padding: 12px; border-radius: var(--radius-control); background: var(--color-surface-tint); font-size: 16px; letter-spacing: .08em; overflow-wrap: anywhere; }
+.admin-recovery { display: grid; gap: 14px; }
+.admin-recovery h2 { margin: 0; }
+.admin-recovery p { margin: 0; color: var(--color-muted); font-size: 13px; }
+.admin-recovery-codes { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin: 0; padding-left: 22px; font-size: 14px; }
+.admin-recovery .admin-primary { justify-self: start; }
+.admin-dialog-backdrop { position: fixed; z-index: 200; inset: 0; display: grid; place-items: center; padding: 16px; background: rgb(15 23 42 / 45%); }
+.admin-dialog { display: grid; width: min(100%, 440px); gap: 14px; padding: 24px; border-radius: var(--radius-dialog); background: var(--color-surface); box-shadow: var(--shadow-dialog); }
+.admin-dialog h2 { margin: 0; }
+.admin-dialog p { margin: 0; font-size: 13px; }
+.admin-dialog label { display: grid; gap: 6px; font-size: 12px; font-weight: 700; }
+.admin-dialog input { min-height: 38px; padding: 8px 10px; border: 1px solid var(--color-line-control); border-radius: var(--radius-control); font: inherit; font-size: 18px; letter-spacing: .2em; }
+.admin-dialog-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
+.admin-filter { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.admin-session-warning { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
+.admin-session-warning p { margin: 0; }
+.admin-export { width: min(100%, 560px); margin: 0 0 16px; }
+.admin-export ul { margin: 0; padding-left: 18px; }
+.admin-approval .admin-action-form { margin-top: 0; }
+
+/* Consolidated admin surfaces (Stage 3): filters, paging, overview sections, application review. */
+.admin-filters { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; margin-bottom: 16px; padding: 14px; border: 1px solid var(--color-line-strong); border-radius: var(--radius-card); background: var(--color-surface); }
+.admin-filters label,
+.admin-picker label { display: grid; gap: 6px; color: var(--color-ink); font-size: 12px; font-weight: 700; }
+.admin-filters input,
+.admin-filters select,
+.admin-picker input { min-width: 0; min-height: 38px; padding: 8px 10px; border: 1px solid var(--color-line-control); border-radius: var(--radius-control); background: var(--color-surface); color: var(--color-ink); font: inherit; font-size: 13px; }
+.admin-filters input[aria-invalid='true'] { border-color: #c4413b; }
+.admin-filters > .admin-error,
+.admin-filters > .admin-action-row { flex-basis: 100%; }
+.admin-audit-filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); }
+.admin-audit-filters > .admin-action-row,
+.admin-audit-filters > .admin-error { grid-column: 1 / -1; }
+.admin-pager { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 14px; font-size: 13px; }
+.admin-section-title { margin: 0 0 12px; font-size: 16px; }
+.admin-attention > p { margin-top: 12px; }
+.admin-attention-count { color: var(--color-ink); font-family: var(--font-display); font-size: 28px; font-weight: 400; }
+.admin-area-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 10px; margin: 0; padding: 0; list-style: none; }
+.admin-area-list li { display: grid; gap: 4px; padding: 13px; border: 1px solid var(--color-line-strong); border-radius: var(--radius-control); background: var(--color-surface); font-size: 13px; }
+.admin-area-list span { color: var(--color-muted); font-size: 12px; }
+.admin-picker { display: grid; gap: 8px; }
+.admin-picker .admin-secondary { justify-self: start; }
+.admin-pick-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; font-size: 13px; }
+.admin-pick-list li { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; }
+.admin-pick-list span { color: var(--color-muted); font-size: 12px; }
+.admin-evidence { margin: 4px 0 12px; }
+.admin-evidence summary { margin-bottom: 10px; color: var(--color-brand); font-size: 12px; font-weight: 700; cursor: pointer; }
 
 @media (max-width: 900px) {
   .admin-app { display: block; }
@@ -327,3 +397,29 @@
   .admin-search input { width: 100%; }
   .admin-search .admin-primary { justify-self: start; }
 }
+
+/* Clinician applications (hid-system ADR-064). */
+.admin-status[data-state='approved'] { border-color: #b8e8c8; background: #effaf3; color: #13643c; }
+.admin-status[data-state='awaiting_authenticator'],
+.admin-status[data-state='submitted'],
+.admin-status[data-state='under_review'] { border-color: #f3dba5; background: #fff9e9; color: #845600; }
+.admin-review-form { max-width: 720px; }
+.admin-review-form fieldset { display: grid; gap: 10px; min-width: 0; margin: 0; padding: 12px; border: 1px solid var(--color-line-strong); border-radius: var(--radius-control); }
+.admin-review-form legend { padding: 0 4px; color: var(--color-ink); font-size: 12px; font-weight: 700; }
+.admin-review-form .admin-checkbox { align-items: flex-start; font-weight: 400; line-height: 1.45; }
+.admin-review-form .admin-checkbox input { flex: none; margin-top: 2px; }
+.admin-review-form > p:not(.admin-note, .admin-hint, .admin-error, .admin-warning) { margin: 0; font-size: 13px; }
+.admin-hint { margin: 0; color: var(--color-muted); font-size: 12px; font-weight: 400; line-height: 1.45; }
+.admin-plain-list { display: grid; gap: 4px; margin: 0; padding-left: 18px; font-size: 13px; }
+.admin-plain-list span { color: var(--color-muted); font-size: 12px; }
+
+/* The designation for registration in person (hid-system #85): a label above each control, its hint or error below. */
+.admin-designation-form h3 { margin: 0; }
+.admin-designation-field { display: grid; gap: 6px; }
+.admin-designation-field label { color: var(--color-ink); font-size: 12px; font-weight: 700; }
+.admin-field-error { color: #9b211d; font-size: 12px; line-height: 1.45; }
+.admin-designation-status { display: grid; gap: 8px; margin: 0; padding: 0; border: 0; min-width: 0; }
+.admin-designation-status legend { margin-bottom: 6px; padding: 0; color: var(--color-ink); font-size: 12px; font-weight: 700; }
+.admin-designation-status label { font-weight: 400; line-height: 1.45; align-items: flex-start; }
+.admin-designation-form input[type='radio'] { width: auto; min-height: 0; margin: 2px 0 0; padding: 0; flex: 0 0 auto; }
+.admin-designation-form .admin-primary[aria-disabled='true'] { opacity: .6; cursor: not-allowed; }

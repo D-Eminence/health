@@ -6,6 +6,7 @@ import { HealthIcon } from './HealthIcon'
 import { TurnstileWidget } from './TurnstileWidget'
 import {
   DEMO_PRODUCTS,
+  ROLE_MAX_LENGTH,
   toDemoSubmission,
   validateDemoRequest,
   type DemoRequest,
@@ -15,6 +16,8 @@ import { submitDemoRequest } from '@/lib/commercial-api'
 import { getEnvironment } from '@/lib/env'
 
 const EMPTY: DemoRequest = { service: '', facility: '', contactName: '', role: '', otherRole: '', email: '', phone: '', notes: '' }
+/** The fields in the order the form shows them. */
+const FIELD_ORDER: readonly (keyof DemoRequest)[] = ['service', 'facility', 'contactName', 'role', 'otherRole', 'email', 'phone', 'notes']
 
 /**
  * The demo request dialog.
@@ -40,6 +43,10 @@ export function DemoDialog() {
   const [verificationError, setVerificationError] = useState<string | null>(null)
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
   const [resetKey, setResetKey] = useState(0)
+  // The security check exists only while the dialog is open: the dialog is mounted,
+  // closed, on most pages, which would otherwise each render a hidden widget (a
+  // second one beside a page's own form), and each opening needs a fresh token.
+  const [isOpen, setIsOpen] = useState(false)
   const submissionKeyRef = useRef<string | null>(null)
   const environment = getEnvironment()
   const siteKey = environment.turnstileSiteKey
@@ -51,6 +58,7 @@ export function DemoDialog() {
   }, [])
 
   const onDialogClose = useCallback(() => {
+    setIsOpen(false)
     setRequest(EMPTY)
     setTurnstileToken(null)
     setSubmitError(null)
@@ -67,6 +75,7 @@ export function DemoDialog() {
       setSubmitError(null)
       setVerificationError(null)
       openerRef.current = opener
+      setIsOpen(true)
 
       const dialog = dialogRef.current
       if (dialog && !dialog.open) dialog.showModal()
@@ -98,7 +107,13 @@ export function DemoDialog() {
     if (pending) return
     const found = validateDemoRequest(request)
     setErrors(found)
-    if (Object.keys(found).length > 0) return
+    if (Object.keys(found).length > 0) {
+      // Nothing announces the errors: the first field to correct takes focus once
+      // it is marked, and its error is read with it.
+      const first = FIELD_ORDER.find(name => found[name])
+      if (first) requestAnimationFrame(() => dialogRef.current?.querySelector<HTMLElement>(`[name="${first}"]`)?.focus())
+      return
+    }
     const localToken = localNoWidget && ['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname)
       ? 'local-turnstile-disabled' : null
     const verificationToken = turnstileToken ?? localToken
@@ -172,12 +187,15 @@ export function DemoDialog() {
             <span className="text-[13px] font-semibold text-ink">Service of interest</span>
             <select name="service" value={request.service}
               onChange={event => { setRequest(current => ({ ...current, service: event.target.value as DemoRequest['service'] })); submissionKeyRef.current = null }}
-              aria-invalid={Boolean(errors.service)}
-              className="h-[38px] rounded-(--radius-control) border border-line-strong bg-surface px-3 text-[14px] text-ink">
+              aria-invalid={Boolean(errors.service)} aria-describedby={errors.service ? 'service-error' : undefined}
+              className={cx(
+                'h-[38px] rounded-(--radius-control) border bg-surface px-3 text-[14px] text-ink',
+                errors.service ? 'border-critical' : 'border-line-control',
+              )}>
               <option value="">Select a service</option>
               {DEMO_PRODUCTS.map(product => <option key={product.code} value={product.code}>{product.label}</option>)}
             </select>
-            {errors.service ? <span className="text-[12px] font-medium text-critical">{errors.service}</span> : null}
+            {errors.service ? <span id="service-error" className="text-[12px] font-medium text-critical">{errors.service}</span> : null}
           </label>
           <Field
             label="Facility"
@@ -195,8 +213,8 @@ export function DemoDialog() {
             onChange={update('contactName')}
             autoComplete="name"
           />
-          <Field label="Your role" name="role" value={request.role} error={errors.role} onChange={update('role')} autoComplete="organization-title" />
-          {request.role === 'Other' ? <Field label="Specify your role" name="otherRole" value={request.otherRole} error={errors.otherRole} onChange={update('otherRole')} /> : null}
+          <Field label="Your role" name="role" value={request.role} error={errors.role} onChange={update('role')} autoComplete="organization-title" maxLength={ROLE_MAX_LENGTH} />
+          {request.role === 'Other' ? <Field label="Specify your role" name="otherRole" value={request.otherRole} error={errors.otherRole} onChange={update('otherRole')} maxLength={ROLE_MAX_LENGTH} /> : null}
           <div className="grid gap-4 sm:grid-cols-2">
             <Field
               label="Email"
@@ -228,9 +246,14 @@ export function DemoDialog() {
               rows={3}
               value={request.notes}
               onChange={update('notes')}
-              className="min-h-28 resize-y rounded-(--radius-control) border border-line-strong bg-surface px-3 py-2.5 text-[14px] text-ink focus:border-brand focus:outline-2 focus:outline-offset-0 focus:outline-brand"
+              aria-invalid={errors.notes ? true : undefined}
+              aria-describedby={errors.notes ? 'notes-error' : undefined}
+              className={cx(
+                'min-h-28 resize-y rounded-(--radius-control) border bg-surface px-3 py-2.5 text-[14px] text-ink focus:outline-2 focus:outline-offset-0 focus:outline-brand',
+                errors.notes ? 'border-critical' : 'border-line-control focus:border-brand',
+              )}
             />
-            {errors.notes ? <span className="text-[12px] font-medium text-critical">{errors.notes}</span> : null}
+            {errors.notes ? <span id="notes-error" className="text-[12px] font-medium text-critical">{errors.notes}</span> : null}
             <span className="text-[12px] text-faint">
               Please do not include any patient information.
             </span>
@@ -238,8 +261,8 @@ export function DemoDialog() {
 
           {localNoWidget
             ? <p className="text-xs text-muted">Local development: security verification is disabled on the local gateway.</p>
-            : <TurnstileWidget siteKey={siteKey} action="book-demo" resetKey={resetKey}
-                onToken={setTurnstileToken} onError={setVerificationError} />}
+            : isOpen ? <TurnstileWidget siteKey={siteKey} action="book-demo" resetKey={resetKey}
+                onToken={setTurnstileToken} onError={setVerificationError} /> : null}
           {verificationError ? <p role="alert" className="text-sm text-critical">{verificationError}</p> : null}
           {submitError ? <p role="alert" className="text-sm text-critical">{submitError}</p> : null}
 
@@ -268,6 +291,7 @@ interface FieldProps {
   readonly type?: string
   readonly optional?: boolean
   readonly autoComplete?: string
+  readonly maxLength?: number
 }
 
 function Field({
@@ -279,6 +303,7 @@ function Field({
   type = 'text',
   optional = false,
   autoComplete,
+  maxLength,
 }: FieldProps) {
   const errorId = `${name}-error`
 
@@ -294,11 +319,12 @@ function Field({
         value={value}
         onChange={onChange}
         {...(autoComplete ? { autoComplete } : {})}
+        {...(maxLength ? { maxLength } : {})}
         aria-invalid={error ? true : undefined}
         aria-describedby={error ? errorId : undefined}
         className={cx(
           'h-[38px] rounded-(--radius-control) border bg-surface px-3 py-2.5 text-[14px] text-ink focus:outline-2 focus:outline-offset-0 focus:outline-brand',
-          error ? 'border-critical' : 'border-line-strong focus:border-brand',
+          error ? 'border-critical' : 'border-line-control focus:border-brand',
         )}
       />
       {error ? (

@@ -33,6 +33,30 @@ describe('registered browser client', () => {
     expect(fetchImpl).not.toHaveBeenCalled()
   })
 
+  it('lets only the staff portal call the accountless provider-enrollment routes', async () => {
+    const { client, fetchImpl } = harness('staff-web')
+    await client.post('/api/v1/identity/provider-enrollments', { turnstileAction: 'provider-enrollment' }, { auth: 'none' })
+    await client.post('/api/v1/identity/provider-enrollments/verify', { challengeId: 'c', code: '123456' }, { auth: 'none' })
+    await client.post('/api/v1/identity/provider-enrollments/activate', { password: 'x' }, { auth: 'none' })
+    expect(fetchImpl.mock.calls.map(call => new URL(String(call[0])).pathname)).toEqual([
+      '/api/v1/identity/provider-enrollments',
+      '/api/v1/identity/provider-enrollments/verify',
+      '/api/v1/identity/provider-enrollments/activate',
+    ])
+    await expect(client.get('/api/v1/identity/provider-enrollments')).rejects.toMatchObject({ code: 'WRONG_METHOD' })
+    // The staff grant is limited to provider enrollment, not patient enrollment.
+    await expect(client.post('/api/v1/identity/patient-enrollments', {}, { auth: 'none' }))
+      .rejects.toBeInstanceOf(BoundaryViolationError)
+
+    // public-web keeps its existing service-wide public enrollment grant.
+    for (const app of ['patient-web', 'admin-web'] as const) {
+      const other = harness(app)
+      await expect(other.client.post('/api/v1/identity/provider-enrollments', {}, { auth: 'none' }))
+        .rejects.toBeInstanceOf(BoundaryViolationError)
+      expect(other.fetchImpl).not.toHaveBeenCalled()
+    }
+  })
+
   it('rejects workload routes even when a dynamic browser route could match them', async () => {
     const { client, fetchImpl } = harness()
     await expect(client.get('/api/v1/lab/imports/from-ocr')).rejects.toMatchObject({ code: 'INTERNAL_ROUTE' })
@@ -60,9 +84,43 @@ describe('registered browser client', () => {
     const { client, fetchImpl } = harness('admin-web')
     await expect(client.get('/api/v1/ehr/patients/%2E%2E/encounters'))
       .rejects.toBeInstanceOf(BrowserRouteError)
-    await expect(client.get('/api/v1/admin/principals/export'))
+    await expect(client.post('/api/v1/admin/principals/export', { reason: 'Quarterly access review' }))
       .rejects.toMatchObject({ code: 'UNSUPPORTED_RESPONSE' })
     expect(fetchImpl).not.toHaveBeenCalled()
+  })
+
+  it('sends the principal search and export only as POSTs, so their terms and reason stay out of the URL', async () => {
+    const { client, fetchImpl } = harness('admin-web')
+    await client.post('/api/v1/admin/principals/search', { query: 'ada@example.test', page: 1, pageSize: 25 })
+    await client.request({ method: 'POST', path: '/api/v1/admin/principals/export', responseType: 'download',
+      body: { reason: 'Quarterly access review' } })
+    expect(fetchImpl.mock.calls.map(call => new URL(String(call[0])).search)).toEqual(['', ''])
+    // The deprecated GET forms carried the terms and the reason in the query string (hid-system A24).
+    await expect(client.get('/api/v1/admin/principals', { query: { query: 'ada@example.test' } }))
+      .rejects.toBeInstanceOf(BrowserRouteError)
+    await expect(client.request({ method: 'GET', path: '/api/v1/admin/principals/export', responseType: 'download',
+      query: { reason: 'Quarterly access review' } })).rejects.toMatchObject({ code: 'WRONG_METHOD' })
+    await expect(client.request({ method: 'GET', path: '/api/v1/admin/overview', responseType: 'download' }))
+      .rejects.toMatchObject({ code: 'UNSUPPORTED_RESPONSE' })
+    expect(fetchImpl).toHaveBeenCalledTimes(2)
+  })
+
+  it('gives platform administration its own sign-in routes and no staff session routes', async () => {
+    const admin = harness('admin-web')
+    for (const path of ['/api/v1/auth/admin/login', '/api/v1/auth/admin/mfa/verify', '/api/v1/auth/admin/mfa/enroll/start',
+      '/api/v1/auth/admin/mfa/enroll/activate', '/api/v1/auth/admin/refresh', '/api/v1/auth/admin/logout',
+      '/api/v1/admin/mfa/step-up', '/api/v1/admin/approvals/7a1c2f8e-58c4-4a51-9bd4-28f0d5f0f7f1/approve']) {
+      await admin.client.post(path, {})
+    }
+    for (const path of ['/api/v1/auth/login', '/api/v1/auth/refresh', '/api/v1/auth/logout']) {
+      await expect(admin.client.post(path, {})).rejects.toBeInstanceOf(BoundaryViolationError)
+    }
+    expect(admin.fetchImpl).toHaveBeenCalledTimes(8)
+
+    const staff = harness('staff-web')
+    await expect(staff.client.post('/api/v1/auth/admin/login', {})).rejects.toBeInstanceOf(BoundaryViolationError)
+    await expect(staff.client.get('/api/v1/admin/sessions')).rejects.toBeInstanceOf(BoundaryViolationError)
+    expect(staff.fetchImpl).not.toHaveBeenCalled()
   })
 
   it('limits shared service routes to the patient or provider workflow', async () => {
@@ -77,6 +135,30 @@ describe('registered browser client', () => {
     await expect(staff.client.get('/api/v1/identity/me'))
       .rejects.toBeInstanceOf(BoundaryViolationError)
     expect(staff.fetchImpl).toHaveBeenCalledTimes(1)
+  })
+
+  it('grants Phase 3 patient-safety routes only to the patient portal', async () => {
+    const patient = harness('patient-web')
+    const grant = '60000000-0000-4000-8000-000000000001'
+    const contact = 'a0000000-0000-4000-8000-000000000001'
+    await patient.client.get('/api/v1/identity/me/account-deletion')
+    await patient.client.post('/api/v1/identity/me/account-deletion/confirm', {})
+    await patient.client.post(`/api/v1/identity/me/emergency-contacts/${contact}/verification/confirm`, {})
+    await patient.client.post(`/api/v1/identity/me/consent-grants/${grant}/revoke`, { reason: 'No longer needed' })
+    // The staff grant-close command is never reachable from the patient portal.
+    await expect(patient.client.post(`/api/v1/identity/consent-grants/${grant}/close`, { reason: 'x' }))
+      .rejects.toBeInstanceOf(BoundaryViolationError)
+    // Emergency-contact alert delivery is a workload route, not a browser route.
+    await expect(patient.client.post('/api/v1/notifications/emergency-contact-alert', {}))
+      .rejects.toMatchObject({ code: 'INTERNAL_ROUTE' })
+    expect(patient.fetchImpl).toHaveBeenCalledTimes(4)
+
+    const staff = harness('staff-web')
+    await expect(staff.client.get('/api/v1/identity/me/emergency-contacts'))
+      .rejects.toBeInstanceOf(BoundaryViolationError)
+    await expect(staff.client.post('/api/v1/identity/me/account-deletion', {}))
+      .rejects.toBeInstanceOf(BoundaryViolationError)
+    expect(staff.fetchImpl).not.toHaveBeenCalled()
   })
 
   it('grants provider modules while isolating public and admin clients', async () => {

@@ -1,39 +1,76 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
-import { Link, Navigate, NavLink, Route, Routes } from 'react-router-dom'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { Link, Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
-import { adminApi, type AdminActor, type AdminSession } from './api'
-import { environment } from './env'
-import { Turnstile } from './Turnstile'
-import { BrandLogo } from '../BrandLogo'
 import {
-  ApplicationsPage, AuditPage, ControlsPage, DemosPage, FacilitiesPage,
-  IntegrationsPage, OperationsPage, OverviewPage, PricingPage, PrincipalsPage, ReviewsPage,
-} from './Pages'
+  adminApi, adminSessionAccount, closeAdminSession, setAdminSessionAccount, type AdminActor, type AdminSession,
+} from './api'
+import { ApprovalsPage } from './Approvals'
+import { ClinicianApplicationPage, ClinicianApplicationsPage } from './ClinicianApplications'
+import { AuditPage } from './Audit'
+import { BrandLogo } from '../BrandLogo'
+import { OverviewPage } from './Dashboard'
+import { FacilitiesPage, FacilityDetailPage } from './Facilities'
+import { IntegrationsPage } from './Integrations'
+import { ApplicationsPage } from './Organizations'
+import { ControlsPage, DemosPage, OperationsPage, PricingPage, ReviewsPage } from './Pages'
+import { PrincipalsPage } from './Principals'
+import { failure } from './problems'
+import { SecurityPage } from './SecurityPage'
+import {
+  clearSessionWindow, currentSessionWindow, onSessionEnded, onSessionWindow, reportSessionEnded, type SessionEndReason,
+} from './session-window'
+import { navigationItemFor, visibleNavigation } from './navigation'
+import { AdminSignIn } from './SignIn'
+import { StepUpProvider } from './StepUp'
+import { announceAdminSessionChange, onOtherAdminTabSessionChange } from './tabs'
+import { date, has } from './ui'
 import './style.css'
 
-const NAVIGATION = [
-  { path: '/admin/overview', title: 'Overview', permission: 'platform.admin.access' },
-  { path: '/admin/facilities', title: 'Facilities', permission: 'platform.facility.read' },
-  { path: '/admin/principals', title: 'Users & roles', permission: 'platform.principal.read' },
-  { path: '/admin/applications', title: 'Applications', permission: 'platform.identity-review.read' },
-  { path: '/admin/reviews', title: 'Identity review', permission: 'platform.identity-review.read' },
-  { path: '/admin/audit', title: 'Audit', permission: 'platform.audit.read' },
-  { path: '/admin/operations', title: 'Operations', permission: 'platform.operations.read' },
-  { path: '/admin/pricing', title: 'Pricing', permission: 'platform.pricing.read' },
-  { path: '/admin/demos', title: 'Demo requests', permission: 'platform.demo.read' },
-  { path: '/admin/integrations', title: 'Integrations', permission: 'platform.integration.read' },
-  { path: '/admin/controls', title: 'Platform controls', permission: 'platform.control.read' },
-] as const
+/** The server's PLATFORM_SESSION_EXPIRED / PLATFORM_SESSION_REVOKED, or the reading of its reported expiry. */
+export const SESSION_ENDED_MESSAGES: Readonly<Record<SessionEndReason, string>> = {
+  expired: 'Your platform session expired after 15 minutes without activity or at its 8-hour limit. Sign in again to continue.',
+  revoked: 'Your platform session was ended before it expired: it was signed out or revoked from another session or by '
+    + 'another administrator, your account or roles changed, or your authenticator was reset. Sign in again, and tell your '
+    + 'security team if you did not expect this.',
+  switched: 'Platform administration in this browser is now signed in as another administrator, so your workspace was '
+    + 'closed. Sign in again to continue.',
+}
+const NO_ACCESS = 'This account has no platform administration access.'
+const SIGNED_OUT = 'You have signed out of platform administration.'
 
-function has(actor: AdminActor, permission: string) {
-  return actor.platformPermissions.includes(permission)
+/** A tab back in view after this long asks the server whose session the browser holds. */
+const RECHECK_AFTER_HIDDEN_MS = 60_000
+
+/**
+ * Guards an area with the same rule that shows it in the navigation. A
+ * forbidden page says so instead of looking empty; the backend still refuses
+ * the area's requests on its own.
+ */
+function Area({ path, actor, children }: { path: string; actor: AdminActor; children: ReactNode }) {
+  const item = navigationItemFor(path)
+  if (item?.visible(actor)) return <>{children}</>
+  return <section className="admin-message admin-forbidden" role="alert" aria-labelledby="admin-forbidden-title">
+    <h1 id="admin-forbidden-title">Access denied</h1>
+    <p>Your platform account does not have permission for {item ? item.title : 'this area'}. Ask a Super Admin if you
+      need it; access is granted through platform roles.</p>
+    <Link to="/admin/overview">Go to overview</Link>
+  </section>
 }
 
-function Guard({ actor, permission, children }: { actor: AdminActor; permission: string; children: ReactNode }) {
-  return has(actor, permission) ? <>{children}</> : (
-    <main className="admin-message" role="alert"><h1>Access denied</h1>
-      <p>Your platform account does not have permission for this area.</p></main>
-  )
+function NotFound() {
+  return <section className="admin-message" aria-labelledby="admin-not-found-title">
+    <h1 id="admin-not-found-title">Page not found</h1>
+    <p>This platform page is unavailable.</p><Link to="/admin/overview">Go to overview</Link>
+  </section>
+}
+
+/** Names the browser tab after the current area. */
+function useAreaTitle() {
+  const location = useLocation()
+  useEffect(() => {
+    const item = navigationItemFor(location.pathname)
+    document.title = `${item ? item.title : 'Platform'} · Health ID Platform`
+  }, [location.pathname])
 }
 
 export function App() {
@@ -41,132 +78,277 @@ export function App() {
   const [checking, setChecking] = useState(true)
   const [checkError, setCheckError] = useState<string | null>(null)
   const [checkRevision, setCheckRevision] = useState(0)
-  const [entryError, setEntryError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+  const [signOutError, setSignOutError] = useState<string | null>(null)
+  const [signingOut, setSigningOut] = useState(false)
+  const signedIn = useRef(false)
+  const checkingSession = useRef(false)
+  const signOutRunning = useRef(false)
+  // Another admin tab spoke while no workspace was open. The answer that opens
+  // the next one may predate it, so the server is asked again once it opens.
+  const heardWhileOpening = useRef(false)
+  const recheckSession = useRef<() => void>(() => undefined)
+  useAreaTitle()
+
+  const end = useCallback((message: string | null) => {
+    signedIn.current = false
+    // Until the next session check or sign-in, nothing this workspace sent restores a session.
+    closeAdminSession()
+    clearSessionWindow()
+    setSession(null)
+    setNotice(message)
+    // A sign-out that failed belonged to this workspace, not to the next one.
+    setSignOutError(null)
+  }, [])
+
+  // The server stopped accepting this platform session (401 after refresh).
+  // While the page checks for a session (a reload or a new tab), only a reason
+  // the server gave is shown: a first visit gets no session-ended notice.
+  useEffect(() => onSessionEnded(reason => {
+    if (signedIn.current) end(reason ? SESSION_ENDED_MESSAGES[reason] : 'Your platform session has ended. Sign in again to continue.')
+    else if (checkingSession.current && reason) setNotice(SESSION_ENDED_MESSAGES[reason])
+  }), [end])
+
+  const open = useCallback((value: AdminSession) => {
+    if (!has(value.actor, 'platform.admin.access')) throw new Error(NO_ACCESS)
+    signedIn.current = true
+    // From here a refresh that answers for another administrator ends the workspace.
+    setAdminSessionAccount(value.actor.accountId)
+    setNotice(null)
+    setSession(value)
+    // Records the server's idle and absolute expiry for the session warning.
+    void adminApi.mfaStatus().catch(() => undefined)
+    if (heardWhileOpening.current) { heardWhileOpening.current = false; recheckSession.current() }
+  }, [])
 
   useEffect(() => {
     let active = true
+    checkingSession.current = true
+    heardWhileOpening.current = false
+    setAdminSessionAccount(null)
     setChecking(true)
     setCheckError(null)
+    // A missing or expired access token is restored once by the API client's refresh.
     void adminApi.session().then(value => {
       if (!active) return
-      if (has(value.actor, 'platform.admin.access')) setSession(value)
-      else { setSession(null); setEntryError('This account has no platform administration access.') }
-    })
-      .catch(error => {
-        if (!active) return
-        setSession(null)
-        if (isHidApiError(error) && error.status === 403) {
-          setEntryError('This account has no platform administration access.')
-        } else if (!isHidApiError(error) || error.status !== 401) {
-          setCheckError('We could not check your platform session. Try again.')
-        }
-      })
-      .finally(() => { if (active) setChecking(false) })
-    return () => { active = false }
-  }, [checkRevision])
+      try { open(value) } catch { setSession(null); setNotice(NO_ACCESS) }
+    }).catch(error => {
+      if (!active) return
+      setSession(null)
+      if (isHidApiError(error) && error.status === 403) setNotice(failure(error, NO_ACCESS))
+      else if (!isHidApiError(error) || error.status !== 401) setCheckError('We could not check your platform session. Try again.')
+    }).finally(() => { if (active) { checkingSession.current = false; setChecking(false) } })
+    return () => { active = false; checkingSession.current = false }
+  }, [checkRevision, open])
 
-  async function signIn(email: string, password: string, token: string) {
-    setEntryError(null)
+  useEffect(() => () => closeAdminSession(), [])
+
+  // Nothing else reveals that another tab signed a different administrator in,
+  // or this one out, while this tab sent no request. When another admin tab
+  // says so, or the page returns after a while away or from the back/forward
+  // cache, the server is asked whose session the browser holds. Another
+  // administrator's ends the workspace; a refused session ends it through the
+  // client's 401; a question the server could not answer (an outage) changes
+  // nothing. A change announced while the next workspace is being opened is asked
+  // about once it opens.
+  useEffect(() => {
+    let asking = false
+    let again = false
+    let hiddenSince: number | null = null
+    const recheck = () => {
+      const accountId = adminSessionAccount()
+      if (!signedIn.current || accountId === null) return
+      if (asking) { again = true; return }
+      asking = true
+      void adminApi.session().then(value => {
+        if (signedIn.current && adminSessionAccount() === accountId && value.actor.accountId !== accountId) {
+          reportSessionEnded('switched')
+        }
+      }).catch(() => undefined).finally(() => {
+        asking = false
+        if (again) { again = false; recheck() }
+      })
+    }
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') { hiddenSince ??= Date.now(); return }
+      const away = hiddenSince === null ? 0 : Date.now() - hiddenSince
+      hiddenSince = null
+      if (away >= RECHECK_AFTER_HIDDEN_MS) recheck()
+    }
+    const onPageShow = (event: PageTransitionEvent) => { if (event.persisted) recheck() }
+    recheckSession.current = recheck
+    const stopListening = onOtherAdminTabSessionChange(() => {
+      if (signedIn.current) recheck()
+      else heardWhileOpening.current = true
+    })
+    document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener('pageshow', onPageShow)
+    return () => {
+      stopListening()
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener('pageshow', onPageShow)
+    }
+  }, [])
+
+  // MFA verification or activation has already replaced the browser's platform
+  // cookies and told the other admin tabs (api.ts), whether or not this workspace opens.
+  async function signedInNow() {
+    heardWhileOpening.current = false
+    setAdminSessionAccount(null)
+    let value: AdminSession
+    try { value = await adminApi.session() }
+    catch (error) { throw new Error(failure(error, 'Platform administration could not be opened. Try again.')) }
+    open(value)
+  }
+
+  // The check before logout can take a second of retries: a second press starts nothing more.
+  async function signOut() {
+    if (signOutRunning.current) return
+    signOutRunning.current = true
+    setSigningOut(true)
+    try { await signOutOnce() }
+    finally { signOutRunning.current = false; setSigningOut(false) }
+  }
+
+  async function signOutOnce() {
+    setSignOutError(null)
+    const accountId = adminSessionAccount()
+    // The reason the workspace ended with while signing out, if it did and had one.
+    let ended = null as SessionEndReason | null
+    const stopWatching = onSessionEnded(reason => { if (reason) ended ??= reason })
     try {
-      await adminApi.login(email, password, token)
-      const next = await adminApi.session()
-      if (!has(next.actor, 'platform.admin.access')) {
-        setEntryError('This account has no platform administration access.')
+      // Logout ends whichever platform session the browser's cookies carry, and a
+      // tab that has not yet heard of another administrator's sign-in would end
+      // theirs. The server is asked first, restoring a lapsed access token on the
+      // way, so the logout also reaches a session idle for a few minutes.
+      if (accountId !== null && (await adminApi.session()).actor.accountId !== accountId) {
+        end(SESSION_ENDED_MESSAGES.switched)
         return
       }
-      setSession(next)
+      await adminApi.logout()
+      end(SIGNED_OUT)
     } catch (reason) {
-      setEntryError(reason instanceof Error ? reason.message : 'Sign-in could not be completed.')
-    }
+      if (!isHidApiError(reason) || reason.status !== 401) {
+        // A refusal that ended the workspace (403 PLATFORM_SESSION_REQUIRED) has said why already.
+        if (signedIn.current) setSignOutError(failure(reason, 'Sign-out could not be completed.'))
+        return
+      }
+      // The browser holds another administrator's session, which is left alone.
+      if (ended === 'switched') return
+      // A session that expired or was revoked has already ended the workspace with that
+      // reason, whichever request was refused (on a lapsed access token, the refresh
+      // gives it), and the notice is kept. Only an end with no reason reads as signed out.
+      if (!ended) end(SIGNED_OUT)
+    } finally { stopWatching() }
+    // The other admin tabs used the same session.
+    announceAdminSessionChange()
   }
 
-  async function signOut() {
-    setEntryError(null)
-    try { await adminApi.logout(); setSession(null) }
-    catch (reason) { setEntryError(reason instanceof Error ? reason.message : 'Sign-out could not be completed.') }
-  }
-
-  if (checking) return <main className="admin-message" role="status"><BrandLogo className="admin-state-logo" />Checking your platform session…</main>
-  if (checkError) return <main className="admin-message" role="alert"><BrandLogo className="admin-state-logo" /><h1>Session unavailable</h1>
-    <p>{checkError}</p><button type="button" className="admin-primary" onClick={() => setCheckRevision(value => value + 1)}>Try again</button></main>
-  if (!session) return <AdminSignIn onSubmit={signIn} error={entryError} />
+  // Each screen is a main landmark holding its status or alert: a role on the main element itself would replace the landmark.
+  if (checking) return <main className="admin-message"><BrandLogo className="admin-state-logo" /><p role="status">Checking your platform session…</p></main>
+  if (checkError) return <main className="admin-message"><BrandLogo className="admin-state-logo" /><h1>Session unavailable</h1>
+    <p role="alert">{checkError}</p><button type="button" className="admin-primary" onClick={() => setCheckRevision(value => value + 1)}>Try again</button></main>
+  if (!session) return <AdminSignIn onSignedIn={signedInNow} notice={notice} />
   const actor = session.actor
+  const sections = visibleNavigation(actor)
 
   return (
-    <div className="admin-app">
-      <a className="admin-skip" href="#admin-main">Skip to content</a>
-      <aside className="admin-sidebar" aria-label="Platform administration">
-        <div className="admin-brand"><BrandLogo /><small>Platform</small></div>
-        <nav className="admin-nav" aria-label="Platform areas">
-          {NAVIGATION.filter(item => has(actor, item.permission)).map(item => (
-            <NavLink key={item.path} to={item.path} className={({ isActive }) => `admin-nav-link${isActive ? ' active' : ''}`}>
-              {item.title}
-            </NavLink>
-          ))}
-        </nav>
-        <div className="admin-sidebar-footer"><span>{actor.displayName || actor.email || 'Platform administrator'}</span>
-          <button type="button" onClick={() => void signOut()}>Sign out</button></div>
-      </aside>
-      <div className="admin-main-wrap">
-        <header className="admin-mobile-header"><Link to="/admin/overview" className="admin-mobile-logo"><BrandLogo /><span>Platform</span></Link>
-          <button type="button" onClick={() => void signOut()}>Sign out</button></header>
-        <nav className="admin-mobile-nav" aria-label="Platform areas">
-          {NAVIGATION.filter(item => has(actor, item.permission)).map(item => <NavLink key={item.path} to={item.path}>{item.title}</NavLink>)}
-        </nav>
-        <main id="admin-main" className="admin-main">
-          {entryError ? <p role="alert" className="admin-error">{entryError}</p> : null}
-          <Routes>
-            <Route index element={<Navigate to="/admin/overview" replace />} />
-            <Route path="sign-in" element={<Navigate to="/admin/overview" replace />} />
-            <Route path="overview" element={<OverviewPage />} />
-            <Route path="facilities" element={<Guard actor={actor} permission="platform.facility.read"><FacilitiesPage actor={actor} /></Guard>} />
-            <Route path="principals" element={<Guard actor={actor} permission="platform.principal.read"><PrincipalsPage actor={actor} /></Guard>} />
-            <Route path="applications" element={<Guard actor={actor} permission="platform.identity-review.read"><ApplicationsPage actor={actor} /></Guard>} />
-            <Route path="reviews" element={<Guard actor={actor} permission="platform.identity-review.read"><ReviewsPage /></Guard>} />
-            <Route path="audit" element={<Guard actor={actor} permission="platform.audit.read"><AuditPage /></Guard>} />
-            <Route path="operations" element={<Guard actor={actor} permission="platform.operations.read"><OperationsPage /></Guard>} />
-            <Route path="pricing" element={<Guard actor={actor} permission="platform.pricing.read"><PricingPage actor={actor} /></Guard>} />
-            <Route path="demos" element={<Guard actor={actor} permission="platform.demo.read"><DemosPage actor={actor} /></Guard>} />
-            <Route path="integrations" element={<Guard actor={actor} permission="platform.integration.read"><IntegrationsPage actor={actor} /></Guard>} />
-            <Route path="controls" element={<Guard actor={actor} permission="platform.control.read"><ControlsPage actor={actor} /></Guard>} />
-            <Route path="*" element={<section className="admin-message"><h1>Page not found</h1>
-              <p>This platform page is unavailable.</p><Link to="/admin/overview">Go to overview</Link></section>} />
-          </Routes>
-        </main>
+    <StepUpProvider>
+      <div className="admin-app">
+        <a className="admin-skip" href="#admin-main">Skip to content</a>
+        <aside className="admin-sidebar" aria-label="Platform administration">
+          <div className="admin-brand"><BrandLogo /><small>Platform</small></div>
+          <nav className="admin-nav" aria-label="Platform areas">
+            {sections.map(section => <div className="admin-nav-section" key={section.title}>
+              <p className="admin-nav-heading">{section.title}</p>
+              <ul>{section.items.map(item => <li key={item.path}>
+                <NavLink to={item.path} className={({ isActive }) => `admin-nav-link${isActive ? ' active' : ''}`}>
+                  {item.title}
+                </NavLink></li>)}</ul>
+            </div>)}
+          </nav>
+          <div className="admin-sidebar-footer"><span>{actor.displayName || actor.email || 'Platform administrator'}</span>
+            <button type="button" disabled={signingOut} onClick={() => void signOut()}>Sign out</button></div>
+        </aside>
+        <div className="admin-main-wrap">
+          <header className="admin-mobile-header"><Link to="/admin/overview" className="admin-mobile-logo"><BrandLogo /><span>Platform</span></Link>
+            <button type="button" disabled={signingOut} onClick={() => void signOut()}>Sign out</button></header>
+          <nav className="admin-mobile-nav" aria-label="Platform areas">
+            {sections.flatMap(section => section.items).map(item => <NavLink key={item.path} to={item.path}>{item.title}</NavLink>)}
+          </nav>
+          <main id="admin-main" className="admin-main">
+            <SessionWarning />
+            {signOutError ? <p role="alert" className="admin-error">{signOutError}</p> : null}
+            <Routes>
+              <Route index element={<Navigate to="/admin/overview" replace />} />
+              <Route path="sign-in" element={<Navigate to="/admin/overview" replace />} />
+              <Route path="overview" element={<Area path="/admin/overview" actor={actor}><OverviewPage actor={actor} /></Area>} />
+              <Route path="applications" element={<Area path="/admin/applications" actor={actor}><ApplicationsPage actor={actor} /></Area>} />
+              <Route path="facilities" element={<Area path="/admin/facilities" actor={actor}><FacilitiesPage actor={actor} /></Area>} />
+              <Route path="facilities/:facilityId" element={<Area path="/admin/facilities" actor={actor}><FacilityDetailPage actor={actor} /></Area>} />
+              <Route path="principals" element={<Area path="/admin/principals" actor={actor}><PrincipalsPage actor={actor} /></Area>} />
+              <Route path="approvals" element={<Area path="/admin/approvals" actor={actor}><ApprovalsPage actor={actor} /></Area>} />
+              <Route path="reviews" element={<Area path="/admin/reviews" actor={actor}><ReviewsPage /></Area>} />
+              <Route path="clinicians" element={<Area path="/admin/clinicians" actor={actor}><ClinicianApplicationsPage actor={actor} /></Area>} />
+              <Route path="clinicians/:applicationId" element={<Area path="/admin/clinicians" actor={actor}><ClinicianApplicationPage actor={actor} /></Area>} />
+              <Route path="audit" element={<Area path="/admin/audit" actor={actor}><AuditPage /></Area>} />
+              <Route path="security" element={<Area path="/admin/security" actor={actor}><SecurityPage onSignOut={() => void signOut()} /></Area>} />
+              <Route path="operations" element={<Area path="/admin/operations" actor={actor}><OperationsPage /></Area>} />
+              <Route path="integrations" element={<Area path="/admin/integrations" actor={actor}><IntegrationsPage actor={actor} /></Area>} />
+              <Route path="controls" element={<Area path="/admin/controls" actor={actor}><ControlsPage actor={actor} /></Area>} />
+              <Route path="pricing" element={<Area path="/admin/pricing" actor={actor}><PricingPage actor={actor} /></Area>} />
+              <Route path="demos" element={<Area path="/admin/demos" actor={actor}><DemosPage actor={actor} /></Area>} />
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </main>
+        </div>
       </div>
-    </div>
+    </StepUpProvider>
   )
 }
 
-function AdminSignIn({ onSubmit, error }: { onSubmit: (email: string, password: string, token: string) => Promise<void>; error: string | null }) {
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [token, setToken] = useState<string | null>(null)
-  const [resetKey, setResetKey] = useState(0)
-  const [pending, setPending] = useState(false)
-  const config = environment()
-  const requiresToken = Boolean(config.turnstileSiteKey) || config.name !== 'local'
+/** Warn before the idle or absolute expiry the server last reported. */
+export const SESSION_WARNING_MS = 2 * 60_000
 
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (pending || (requiresToken && !token)) return
-    setPending(true)
-    try { await onSubmit(email.trim(), password, token ?? '') }
-    finally { setPending(false); setToken(null); setResetKey(value => value + 1) }
+/**
+ * Shows the server-reported end of the session when it is near. The session is
+ * extended only by user activity (a request or this button), never by a timer.
+ */
+export function SessionWarning() {
+  const [, setTick] = useState(0)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    const unsubscribe = onSessionWindow(() => setTick(value => value + 1))
+    // Re-read once: the window may have changed between this render and the subscription.
+    setTick(value => value + 1)
+    const timer = setInterval(() => setTick(value => value + 1), 15_000)
+    return () => { unsubscribe(); clearInterval(timer) }
+  }, [])
+
+  const { idleExpiresAt, absoluteExpiresAt } = currentSessionWindow()
+  const now = Date.now()
+  if (idleExpiresAt === null || now >= idleExpiresAt || idleExpiresAt - now > SESSION_WARNING_MS) return null
+  // The idle window never extends past the absolute limit; at that point only a new sign-in helps.
+  const atLimit = absoluteExpiresAt !== null && idleExpiresAt >= absoluteExpiresAt - 1000
+  const ends = date(new Date(idleExpiresAt).toISOString())
+
+  async function stay() {
+    setBusy(true); setError(null)
+    try { await adminApi.refresh() }
+    catch (caught) {
+      if (isHidApiError(caught) && caught.status === 401) reportSessionEnded()
+      else setError(failure(caught, 'Your session could not be extended.'))
+    } finally { setBusy(false) }
   }
 
-  return <main className="admin-auth"><form className="admin-auth-card" onSubmit={event => void submit(event)}>
-    <BrandLogo className="admin-auth-logo" />
-    <p className="admin-eyebrow">Health ID platform</p><h1>Administration sign in</h1>
-    <p>Access is limited to accounts with platform permissions.</p>
-    <label>Email<input type="email" autoComplete="username" required value={email} onChange={event => setEmail(event.target.value)} /></label>
-    <label>Password<input type="password" autoComplete="current-password" required value={password} onChange={event => setPassword(event.target.value)} /></label>
-    {(config.turnstileSiteKey || config.name !== 'local') &&
-      <Turnstile siteKey={config.turnstileSiteKey} resetKey={resetKey} onChange={setToken} />}
-    {error ? <p role="alert" className="admin-error">{error}</p> : null}
-    <button type="submit" className="admin-primary" disabled={pending || (requiresToken && !token)}>
-      {pending ? 'Signing in…' : 'Sign in'}
-    </button>
-    <p><Link to="/admin/recover">Forgot your password?</Link></p>
-  </form></main>
+  return <div className="admin-warning admin-session-warning" role="alert">
+    {atLimit
+      ? <p>Your session reaches its 8-hour limit at {ends}. Save your work; you will need to sign in again.</p>
+      : <p>For security, your session ends at {ends} unless you continue working.</p>}
+    {!atLimit && <button type="button" className="admin-secondary" disabled={busy} onClick={() => void stay()}>
+      {busy ? 'Extending…' : 'Stay signed in'}</button>}
+    {error && <p className="admin-error">{error}</p>}
+  </div>
 }

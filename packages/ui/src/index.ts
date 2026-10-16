@@ -2,8 +2,10 @@ export { ErrorState, toDisplayMessage } from './ErrorState'
 export { TabList, TabPanel, useTabs } from './Tabs'
 export { ToastProvider, toast, useToast } from './Toast'
 export { CommandPalette } from './CommandPalette'
+export { Field, Input, PasswordInput, Select, Textarea } from './Field'
 export type { TabItem, TabPanelProps, TabsProps } from './Tabs'
 export type { ErrorStateProps } from './ErrorState'
+export type { FieldProps, InputProps, PasswordInputProps, SelectProps, TextareaProps } from './Field'
 export type {
   ToastAction,
   ToastApi,
@@ -31,16 +33,12 @@ export {
   Display,
   EmptyState,
   Eyebrow,
-  Field,
   IconButton,
-  Input,
   Lede,
   SearchField,
   Section,
   SectionHeader,
-  Select,
   Skeleton,
-  Textarea,
   TextLink,
   Wrap,
   cx,
@@ -54,15 +52,11 @@ export type {
   DisplayProps,
   EmptyStateProps,
   EyebrowProps,
-  FieldProps,
   IconButtonProps,
-  InputProps,
   LedeProps,
   SearchFieldProps,
   SectionHeaderProps,
   SectionProps,
-  SelectProps,
-  TextareaProps,
   TextLinkProps,
   WrapProps,
 } from './primitives'

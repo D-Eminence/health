@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, type FormEvent } from 'react'
+import { isHidApiError } from '@hid/http'
 import { Button, Card, Field, Input, Select } from '@hid/ui'
 import { TurnstileWidget } from '@/components/shared/TurnstileWidget'
 import { APP_ENTRY, ROUTES } from '@/content/site'
@@ -11,9 +12,11 @@ import {
   normalizeCacRegistrationNumber,
   saveOrganizationCompletionProfile,
   startOrganizationCompletion,
+  validateOrganizationProfileEntries,
   verifyOrganizationCompletion,
   type ApplicationProductCode,
   type OrganizationCompletionProfile,
+  type OrganizationProfileErrors,
   type OrganizationProfileFieldName,
   type OrganizationProfilePatch,
 } from '@/lib/provider-application'
@@ -30,8 +33,30 @@ const PROFILE_FIELDS: readonly {
   { name: 'registryStatus', label: 'Registry status', hint: 'A self reported status is reviewed by Health ID.' },
 ]
 
+/**
+ * The refusals hid-system words for the applicant on the completion routes
+ * (organization-profile-completion.service.ts, turnstile.service.ts and the
+ * request validation). Others there are worded for developers (428
+ * IF_MATCH_REQUIRED, 403 ORIGIN_DENIED) or say nothing useful to the applicant
+ * (409 ORGANIZATION_REVIEW_REQUIRED).
+ */
+const APPLICANT_REFUSALS: ReadonlySet<string> = new Set([
+  'VALIDATION_FAILED', 'VERSION_CONFLICT', 'APPLICATION_RATE_LIMITED', 'ORGANIZATION_PROFILE_INVALID',
+  'ORGANIZATION_COMPLETION_CODE_INVALID', 'ORGANIZATION_COMPLETION_SESSION_INVALID',
+  'TURNSTILE_REQUIRED', 'TURNSTILE_REJECTED', 'TURNSTILE_EXPIRED_OR_REPLAYED', 'TURNSTILE_HOSTNAME_MISMATCH',
+  'TURNSTILE_ACTION_MISMATCH', 'TURNSTILE_CONTEXT_MISMATCH',
+])
+
+/**
+ * A refusal's own message when hid-system words it for the applicant; any other
+ * refusal, and a server failure whose detail the backend withholds, keeps the
+ * form's own wording.
+ */
 function applicationError(reason: unknown, fallback: string): string {
-  return reason instanceof Error && !('status' in reason) ? reason.message : fallback
+  if (isHidApiError(reason)) {
+    return reason.status >= 400 && reason.status < 500 && APPLICANT_REFUSALS.has(reason.code) ? reason.message : fallback
+  }
+  return reason instanceof Error ? reason.message : fallback
 }
 
 export function ProviderCompletionForm({ initialProduct }: { readonly initialProduct: ApplicationProductCode }) {
@@ -44,6 +69,7 @@ export function ProviderCompletionForm({ initialProduct }: { readonly initialPro
   const [code, setCode] = useState('')
   const [profile, setProfile] = useState<OrganizationCompletionProfile | null>(null)
   const [entries, setEntries] = useState<OrganizationProfilePatch>({})
+  const [fieldErrors, setFieldErrors] = useState<OrganizationProfileErrors>({})
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -110,6 +136,16 @@ export function ProviderCompletionForm({ initialProduct }: { readonly initialPro
     event.preventDefault()
     if (!profile || busy) return
     setError('')
+    const found = validateOrganizationProfileEntries(entries)
+    setFieldErrors(found)
+    const first = PROFILE_FIELDS.find(({ name }) => found[name])
+    if (first) {
+      setError('Check the details marked below.')
+      // The summary reads the same on every attempt, so it is not announced again.
+      // The first field to correct takes focus once it is marked, and its error is read with it.
+      requestAnimationFrame(() => document.getElementById(`completion-${first.name}`)?.focus())
+      return
+    }
     setBusy(true)
     try {
       const result = await saveOrganizationCompletionProfile(profile, entries)
@@ -143,7 +179,8 @@ export function ProviderCompletionForm({ initialProduct }: { readonly initialPro
                 ? 'Provided by the registry'
                 : field.source === 'user_provided' ? 'Provided by applicant; subject to review' : hint
 
-              return <Field key={name} label={label} htmlFor={`completion-${name}`} hint={fieldHint}>
+              const fieldError = editable ? fieldErrors[name] : undefined
+              return <Field key={name} label={label} htmlFor={`completion-${name}`} hint={fieldHint} error={fieldError}>
                 {editable && name === 'registryStatus' ? (
                   <Select id={`completion-${name}`} value={value}
                     onChange={event => setEntries(current => ({ ...current, [name]: event.target.value }))}>
@@ -152,6 +189,7 @@ export function ProviderCompletionForm({ initialProduct }: { readonly initialPro
                   </Select>
                 ) : (
                   <Input id={`completion-${name}`} value={value} readOnly={!editable}
+                    invalid={Boolean(fieldError)} aria-describedby={fieldError ? `completion-${name}-error` : undefined}
                     type={name === 'registrationDate' ? 'date' : 'text'}
                     maxLength={name === 'address' ? 1000 : name === 'companyName' ? 200 : 120}
                     onChange={editable ? event => setEntries(current => ({ ...current, [name]: event.target.value })) : undefined} />

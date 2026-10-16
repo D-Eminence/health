@@ -3,7 +3,8 @@
 This repository contains the public website and one authenticated portal for the
 Health ID platform. It consumes the existing `hid-system` gateway and services;
 it does not contain the clinical backend or a database. The integration was
-checked against `hid-system` commit `c4b5445`. The supplied `Dashboard.zip`,
+first checked against `hid-system` commit `c4b5445`; later work was checked
+against `hid-system` `main`, most recently at `54f79d2`. The supplied `Dashboard.zip`,
 `HID.html` and `hid-1.0` are workflow and visual references, not API contracts.
 
 | App | Local origin | Purpose |
@@ -41,7 +42,13 @@ npm run test
 npm run audit:boundaries
 npm run build:public-web
 npm run build:patient-web
+npm run audit:launch-build
 ```
+
+`audit:launch-build` runs hid-system's staging refusals over the patient portal
+build (`apps/patient-web/dist`): no Google sign-in (build without
+`VITE_HID_GOOGLE_CLIENT_ID` at launch), service worker, web app manifest, source
+map, or file outside `index.html` and content-hashed `assets/`.
 
 `npm run check` runs typecheck, lint and tests in sequence. See
 [architecture](./docs/ARCHITECTURE.md) for the request and session model and

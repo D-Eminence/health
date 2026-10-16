@@ -9,6 +9,7 @@ import { ProductsSection } from '@/components/provider/Products'
 import { PricingSection } from '@/components/provider/Pricing'
 import { ProviderClosing } from '@/components/provider/Closing'
 import { ROUTES } from '@/content/site'
+import { EarnBand } from '@/components/referral/EarnBand'
 
 export const metadata: Metadata = {
   title: 'For healthcare providers',
@@ -42,6 +43,7 @@ export default function ProvidersPage() {
         <TrustStrip />
         <ProductsSection />
         <PricingSection headingAs="h2" />
+        <EarnBand />
         <ProviderClosing
           title="Get in touch."
           lede="Talk with the Health ID team about connecting your healthcare operations."

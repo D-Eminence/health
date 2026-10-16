@@ -1,359 +1,49 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
-import { isHidApiError } from '@hid/http'
+import { useCallback, useMemo, useState, type FormEvent } from 'react'
 import {
   adminApi,
   type AdminActor,
   type CommercialPrice,
   type DemoRequest,
-  type Facility,
-  type IntegrationCapability,
-  type IntegrationProvider,
+  type DemoStatus,
   type PlatformControl,
-  type Principal,
 } from './api'
+import {
+  ActionForm, LoadMore, Page, Pager, Refresh, ResourceView, Status, Table, date, has, label, pageNumber, useCursorPages,
+  useGovernedSubmit, useResource, useUrlFilters,
+} from './ui'
 
-function has(actor: AdminActor, permission: string) {
-  return actor.platformPermissions.includes(permission)
-}
-
-function label(value: string) {
-  return value.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/[_-]/g, ' ').replace(/^./, first => first.toUpperCase())
-}
-
-function date(value: string | null | undefined) {
-  if (!value) return 'Not available'
-  const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? 'Not available' : new Intl.DateTimeFormat('en-NG', {
-    dateStyle: 'medium', timeStyle: 'short',
-  }).format(parsed)
-}
-
-function failure(error: unknown, fallback: string) {
-  if (isHidApiError(error)) {
-    if (error.status === 409) return 'This item changed. Reload it and try again.'
-    if (error.status === 403) return 'Your account does not have permission for this action.'
-    if (error.status === 401) return 'Your session has expired. Sign in again to continue.'
-    if (error.status === 0 || error.status >= 500) return fallback
-    return error.message
-  }
-  return fallback
-}
-
-interface Resource<T> {
-  data: T | null
-  loading: boolean
-  error: string | null
-  reload: () => void
-}
-
-function useResource<T>(load: (signal?: AbortSignal) => Promise<T>, errorMessage: string): Resource<T> {
-  const [data, setData] = useState<T | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [revision, setRevision] = useState(0)
-
-  useEffect(() => {
-    const controller = new AbortController()
-    setLoading(true)
-    setError(null)
-    void load(controller.signal).then(value => {
-      if (!controller.signal.aborted) setData(value)
-    }).catch(reason => {
-      if (!controller.signal.aborted) setError(failure(reason, errorMessage))
-    }).finally(() => {
-      if (!controller.signal.aborted) setLoading(false)
-    })
-    return () => controller.abort()
-  }, [load, errorMessage, revision])
-
-  return { data, loading, error, reload: () => setRevision(value => value + 1) }
-}
-
-function Page({ eyebrow, title, description, children, action }: {
-  eyebrow: string; title: string; description: string; children: ReactNode; action?: ReactNode
-}) {
-  return <section className="admin-page">
-    <header className="admin-page-head">
-      <div><p className="admin-eyebrow">{eyebrow}</p><h1>{title}</h1><p>{description}</p></div>
-      {action}
-    </header>
-    {children}
-  </section>
-}
-
-function Refresh({ onClick, disabled = false }: { onClick: () => void; disabled?: boolean }) {
-  return <button type="button" className="admin-secondary" onClick={onClick} disabled={disabled}>Refresh</button>
-}
-
-function ResourceView<T>({ resource, empty, children }: {
-  resource: Resource<T>; empty?: (value: T) => boolean; children: (value: T) => ReactNode
-}) {
-  if (resource.loading) return <div className="admin-state" role="status">Loading current information…</div>
-  if (resource.error) return <div className="admin-state admin-state-error" role="alert">
-    <p>{resource.error}</p><Refresh onClick={resource.reload} />
-  </div>
-  if (!resource.data) return <div className="admin-state">No information was returned.</div>
-  if (empty?.(resource.data)) return <div className="admin-state">No items are available in this area.</div>
-  return <>{children(resource.data)}</>
-}
-
-function Status({ value }: { value: string }) {
-  return <span className="admin-status" data-state={value.toLowerCase()}>{label(value)}</span>
-}
-
-function Table({ headings, children }: { headings: string[]; children: ReactNode }) {
-  return <div className="admin-table-scroll"><table className="admin-table">
-    <thead><tr>{headings.map(heading => <th key={heading} scope="col">{heading}</th>)}</tr></thead>
-    <tbody>{children}</tbody>
-  </table></div>
-}
-
-interface Choice { value: string; title: string }
-
-function ActionForm({ title, options, onSubmit, disabled = false }: {
-  title: string; options?: Choice[]; disabled?: boolean
-  onSubmit: (choice: string, reason: string) => Promise<void>
-}) {
-  const [choice, setChoice] = useState(options?.[0]?.value ?? '')
-  const [reason, setReason] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
-
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (busy || disabled || reason.trim().length < 8 || (options && !choice)) return
-    setBusy(true); setError(null); setNotice(null)
-    try {
-      await onSubmit(choice, reason.trim())
-      setNotice('Saved. Current information is being refreshed.')
-      setReason('')
-    } catch (caught) {
-      setError(failure(caught, 'The change could not be saved. Try again.'))
-    } finally { setBusy(false) }
-  }
-
-  return <details className="admin-action">
-    <summary>{title}</summary>
-    <form onSubmit={event => void submit(event)} className="admin-action-form">
-      {options && <label>New value<select value={choice} onChange={event => setChoice(event.target.value)} required>
-        {options.map(option => <option key={option.value} value={option.value}>{option.title}</option>)}
-      </select></label>}
-      <label>Reason for this change<textarea required minLength={8} maxLength={500} rows={3}
-        value={reason} onChange={event => setReason(event.target.value)} /></label>
-      <button type="submit" className="admin-primary" disabled={busy || disabled || reason.trim().length < 8 || Boolean(options && !choice)}>
-        {busy ? 'Saving…' : 'Confirm change'}
-      </button>
-      {error && <p className="admin-error" role="alert">{error}</p>}
-      {notice && <p className="admin-success" role="status">{notice}</p>}
-    </form>
-  </details>
-}
-
-export function OverviewPage() {
-  const resource = useResource(adminApi.overview, 'The platform overview could not be loaded.')
-  return <Page eyebrow="Platform" title="Overview" description="Current totals from the Health ID administration service."
-    action={<Refresh onClick={resource.reload} disabled={resource.loading} />}>
-    <ResourceView resource={resource}>{overview => <div className="admin-metric-grid">
-      {Object.entries(overview).map(([key, value]) => <article className="admin-metric" key={key}>
-        <span>{label(key)}</span><strong>{new Intl.NumberFormat('en-NG').format(value)}</strong>
-      </article>)}
-    </div>}</ResourceView>
-  </Page>
-}
-
-function FacilityStatusAction({ facility, reload }: { facility: Facility; reload: () => void }) {
-  return <ActionForm title="Change facility status" options={[
-    { value: 'verified', title: 'Verified' }, { value: 'rejected', title: 'Rejected' },
-    { value: 'suspended', title: 'Suspended' },
-  ].filter(option => option.value !== facility.status)} onSubmit={async (status, reason) => {
-    await adminApi.command(`/api/v1/admin/facilities/${encodeURIComponent(facility.id)}/status`,
-      { status, reason }, { version: facility.version, idempotent: true })
-    reload()
-  }} />
-}
-
-export function FacilitiesPage({ actor }: { actor: AdminActor }) {
-  const resource = useResource(adminApi.facilities, 'Facilities could not be loaded.')
-  return <Page eyebrow="Governance" title="Facilities" description="Facility status and membership counts come from the platform record."
-    action={<Refresh onClick={resource.reload} disabled={resource.loading} />}>
-    <ResourceView resource={resource} empty={page => page.items.length === 0}>{page => <>
-      <p className="admin-result-count">Showing {page.items.length} of {page.total} facilities</p>
-      <Table headings={['Facility', 'Organization', 'Status', 'Members', 'Action']}>
-        {page.items.map(facility => <tr key={facility.id}>
-          <td><strong>{facility.name}</strong><small>{facility.code}</small></td>
-          <td>{facility.organizationName}</td><td><Status value={facility.status} /></td>
-          <td>{facility.membershipCount}</td><td>{has(actor, 'platform.facility.manage')
-            ? <FacilityStatusAction facility={facility} reload={resource.reload} /> : 'View only'}</td>
-        </tr>)}
-      </Table>
-    </>}</ResourceView>
-  </Page>
-}
-
-export function PrincipalsPage({ actor }: { actor: AdminActor }) {
-  const [input, setInput] = useState('')
-  const [query, setQuery] = useState('')
-  const [revision, setRevision] = useState(0)
-  const [page, setPage] = useState<Awaited<ReturnType<typeof adminApi.principals>> | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (query.length < 2) return
-    const controller = new AbortController()
-    setLoading(true); setError(null)
-    void adminApi.principals(query, controller.signal).then(value => {
-      if (!controller.signal.aborted) setPage(value)
-    }).catch(reason => {
-      if (!controller.signal.aborted) setError(failure(reason, 'Users could not be loaded.'))
-    }).finally(() => {
-      if (!controller.signal.aborted) setLoading(false)
-    })
-    return () => controller.abort()
-  }, [query, revision])
-
-  function search(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const value = input.trim()
-    if (value.length < 2) { setError('Enter at least two characters to search users.'); return }
-    setPage(null); setQuery(value); setRevision(current => current + 1)
-  }
-
-  return <Page eyebrow="Access governance" title="Users and roles" description="Search by account name, email, or subject. Searches are limited to authorized administrators."
-    action={query ? <Refresh onClick={() => setRevision(value => value + 1)} disabled={loading} /> : null}>
-    <form className="admin-search" onSubmit={search}><label htmlFor="admin-principal-query">Search users</label>
-      <div><input id="admin-principal-query" type="search" minLength={2} value={input}
-        onChange={event => setInput(event.target.value)} placeholder="At least two characters" />
-        <button className="admin-primary" type="submit" disabled={loading || input.trim().length < 2}>Search</button></div>
-    </form>
-    {!query && !error && <div className="admin-state">Enter at least two characters to search.</div>}
-    {loading && <div className="admin-state" role="status">Searching users…</div>}
-    {error && !loading && <div className="admin-state admin-state-error" role="alert"><p>{error}</p>
-      {query && <Refresh onClick={() => setRevision(value => value + 1)} />}</div>}
-    {page && !loading && !error && (page.items.length === 0 ? <div className="admin-state">No users match “{query}”.</div> : <>
-      <p className="admin-result-count">Showing {page.items.length} of {page.total} matching users</p>
-      <Table headings={['User', 'Status', 'Platform roles', 'Sessions', 'Facility memberships', 'Actions']}>
-        {page.items.map(principal => <tr key={principal.id}>
-          <td><strong>{principal.displayName || principal.email || 'Account'}</strong><small>{principal.email || principal.id}</small></td>
-          <td><Status value={principal.status} /></td>
-          <td>{principal.platformRoles.length ? principal.platformRoles.map(label).join(', ') : 'None'}</td>
-          <td>{principal.activeSessionCount}</td>
-          <td>{principal.memberships.length ? principal.memberships.map(item => `${item.facilityName} · ${label(item.role)}`).join('; ') : 'None'}</td>
-          <td><PrincipalActions principal={principal} actor={actor} reload={() => setRevision(value => value + 1)} /></td>
-        </tr>)}
-      </Table>
-    </>)}
-  </Page>
-}
-
-const PLATFORM_ROLES = [
-  'platform_super_admin', 'platform_operations_admin', 'identity_review_admin',
-  'facility_review_admin', 'security_auditor', 'support_admin',
-] as const
-
-function RoleAction({ principal, reload }: { principal: Principal; reload: () => void }) {
-  const [role, setRole] = useState<(typeof PLATFORM_ROLES)[number]>('support_admin')
-  const [action, setAction] = useState<'grant' | 'revoke'>('grant')
-  const [reason, setReason] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (busy || reason.trim().length < 8) return
-    setBusy(true); setError(null)
-    try {
-      await adminApi.command(`/api/v1/admin/principals/${encodeURIComponent(principal.id)}/platform-roles`,
-        { roleCode: role, action, reason: reason.trim() },
-        { version: principal.version, idempotent: true })
-      setReason(''); reload()
-    } catch (caught) { setError(failure(caught, 'The role change could not be saved.')) }
-    finally { setBusy(false) }
-  }
-
-  return <details className="admin-action"><summary>Change platform role</summary>
-    <form className="admin-action-form" onSubmit={event => void submit(event)}>
-      <label>Role<select value={role} onChange={event => setRole(event.target.value as (typeof PLATFORM_ROLES)[number])}>
-        {PLATFORM_ROLES.map(value => <option key={value} value={value}>{label(value)}</option>)}
-      </select></label>
-      <label>Action<select value={action} onChange={event => setAction(event.target.value as 'grant' | 'revoke')}>
-        <option value="grant">Grant</option><option value="revoke">Revoke</option>
-      </select></label>
-      <label>Reason for this change<textarea required minLength={8} maxLength={500} rows={3}
-        value={reason} onChange={event => setReason(event.target.value)} /></label>
-      <button className="admin-primary" type="submit" disabled={busy || reason.trim().length < 8}>
-        {busy ? 'Saving…' : 'Confirm role change'}
-      </button>
-      {error && <p role="alert" className="admin-error">{error}</p>}
-    </form>
-  </details>
-}
-
-function PrincipalActions({ principal, actor, reload }: {
-  principal: Principal; actor: AdminActor; reload: () => void
-}) {
-  const canStatus = has(actor, 'platform.principal.manage')
-  const canRole = has(actor, 'platform.role.manage')
-  const canRevoke = has(actor, 'platform.session.revoke')
-  if (!canStatus && !canRole && !canRevoke) return <>View only</>
-  return <div className="admin-principal-actions">
-    {canStatus && <ActionForm title="Change account status" options={[
-      { value: 'active', title: 'Active' }, { value: 'disabled', title: 'Disabled' },
-    ].filter(option => option.value !== principal.status)} onSubmit={async (status, reason) => {
-      await adminApi.command(`/api/v1/admin/principals/${encodeURIComponent(principal.id)}/status`,
-        { status, reason }, { version: principal.version, idempotent: true })
-      reload()
-    }} />}
-    {canRole && <RoleAction principal={principal} reload={reload} />}
-    {canRevoke && principal.activeSessionCount > 0 && <ActionForm title="Revoke active sessions"
-      onSubmit={async (_, reason) => {
-        await adminApi.command(`/api/v1/admin/principals/${encodeURIComponent(principal.id)}/sessions/revoke`,
-          { reason }, { idempotent: true })
-        reload()
-      }} />}
-  </div>
-}
-
-export function ApplicationsPage({ actor }: { actor: AdminActor }) {
-  const resource = useResource(adminApi.applications, 'Organization applications could not be loaded.')
-  return <Page eyebrow="Provider admission" title="Applications" description="Review submitted organization applications and their verification state."
-    action={<Refresh onClick={resource.reload} disabled={resource.loading} />}>
-    <ResourceView resource={resource} empty={result => result.items.length === 0}>{result => <Table headings={['Organization', 'Product', 'Administrator', 'Status', 'Verification']}>
-      {result.items.map(item => <tr key={item.applicationId}>
-        <td><strong>{item.organizationName || 'Name pending'}</strong><small>{item.applicationId}</small></td>
-        <td>{label(item.productCode)}</td><td>{item.administratorEmail}</td>
-        <td><Status value={item.status} /></td><td>{item.verificationResult ? label(item.verificationResult) : 'Pending'}</td>
-      </tr>)}
-    </Table>}</ResourceView>
-    {has(actor, 'platform.facility.manage') && <p className="admin-note">Approval requires verified legal details and an administrator review. This summary does not expose a partial approval command.</p>}
-  </Page>
-}
+/** `ListIdentityReviewsDto` statuses. */
+const REVIEW_STATUSES = ['pending_new_identity_approval', 'review_required', 'resolved_existing_identity',
+  'linked_existing', 'approved_new_identity', 'rejected', 'cancelled'] as const
+/** `ListDemoRequestsDto` values. */
+const DEMO_STATUSES: readonly DemoStatus[] = ['new', 'contacted', 'qualified', 'closed']
+const DEMO_PRODUCTS = ['ehr', 'migrate', 'laboratory', 'pharmacy', 'outreach', 'api', 'general'] as const
 
 export function ReviewsPage() {
-  const resource = useResource(adminApi.reviews, 'Identity reviews could not be loaded.')
-  return <Page eyebrow="Identity governance" title="Identity review" description="Current registration cases requiring platform oversight."
+  const [filters, setFilters] = useUrlFilters(['status', 'page'] as const)
+  const page = pageNumber(filters.page)
+  const load = useCallback((signal?: AbortSignal) => adminApi.reviews({ page,
+    ...(filters.status ? { status: filters.status } : {}) }, signal), [page, filters.status])
+  const resource = useResource(load, 'Identity reviews could not be loaded.')
+  return <Page eyebrow="People and access" title="Identity review"
+    description="Registration cases that need identity oversight. Decisions are made in the facility workflow; this view is read-only."
     action={<Refresh onClick={resource.reload} disabled={resource.loading} />}>
-    <ResourceView resource={resource} empty={page => page.items.length === 0}>{page => <>
-      <p className="admin-result-count">Showing {page.items.length} of {page.total} reviews</p>
-      <Table headings={['Case', 'Facility', 'Provider', 'Candidates', 'Status', 'Updated']}>
-        {page.items.map(review => <tr key={review.id}><td>{review.maskedNin}</td><td>{review.facilityName}</td>
+    <div className="admin-filters">
+      <label>Status<select value={filters.status} onChange={event => setFilters({ status: event.target.value, page: '' })}>
+        <option value="">Any status</option>
+        {REVIEW_STATUSES.map(value => <option key={value} value={value}>{label(value)}</option>)}
+      </select></label>
+    </div>
+    <ResourceView resource={resource} empty={result => result.items.length === 0}>{result => <>
+      <p className="admin-result-count">Showing {result.items.length} of {result.total} reviews</p>
+      <Table headings={['Case', 'Facility', 'Provider', 'Candidates', 'Status', 'Opened', 'Updated']}>
+        {result.items.map(review => <tr key={review.id}><td>{review.maskedNin}</td><td>{review.facilityName}</td>
           <td>{label(review.provider)}</td><td>{review.candidateCount}</td><td><Status value={review.status} /></td>
-          <td>{date(review.updatedAt)}</td></tr>)}
+          <td>{date(review.createdAt)}</td><td>{date(review.updatedAt)}</td></tr>)}
       </Table>
+      <Pager page={result.page} pageSize={result.pageSize} total={result.total} disabled={resource.loading}
+        onPage={next => setFilters({ page: String(next) })} />
     </>}</ResourceView>
-  </Page>
-}
-
-export function AuditPage() {
-  const resource = useResource(adminApi.audit, 'Audit events could not be loaded.')
-  return <Page eyebrow="Accountability" title="Audit" description="Recent platform events. The backend controls visibility and the returned history."
-    action={<Refresh onClick={resource.reload} disabled={resource.loading} />}>
-    <ResourceView resource={resource} empty={result => result.items.length === 0}>{result => <Table headings={['Occurred', 'Action', 'Outcome', 'Actor', 'Correlation']}>
-      {result.items.map(item => <tr key={item.eventId}><td>{date(item.occurredAt)}</td>
-        <td>{label(item.action)}</td><td><Status value={item.outcome} /></td>
-        <td>{item.actorSubject || 'System'}</td><td><code>{item.correlationId}</code></td></tr>)}
-    </Table>}</ResourceView>
   </Page>
 }
 
@@ -376,20 +66,36 @@ export function OperationsPage() {
         <p><Status value={result.state} /> {result.code ? label(result.code) : null}</p>
         {result.metrics && <dl className="admin-detail-grid">{Object.entries(result.metrics).map(([key, value]) =>
           <div key={key}><dt>{label(key)}</dt><dd>{typeof value === 'boolean' ? value ? 'Yes' : 'No' : new Intl.NumberFormat('en-NG').format(value)}</dd></div>)}</dl>}
-        <p className="admin-note">{result.failures.length} recent delivery failures reported.</p>
+        {result.failures.length === 0 ? <p className="admin-note">No recent delivery failures reported.</p> : <>
+          <p className="admin-note">{result.failures.length} recent delivery failures (newest 50 from the event dispatcher).</p>
+          <Table headings={['Failed', 'Event type', 'Producer', 'Attempts', 'Error']}>
+            {result.failures.map((item, index) => <tr key={item.eventId ?? index}><td>{date(item.failedAt)}</td>
+              <td>{item.eventType ?? 'Unknown'}</td><td>{item.producer ?? 'Unknown'}</td><td>{item.attemptCount ?? '—'}</td>
+              <td>{item.errorCode ? label(item.errorCode) : 'Not reported'}{item.errorSummary ? <small>{item.errorSummary}</small> : null}</td></tr>)}
+          </Table>
+        </>}
       </>}</ResourceView>
     </section></div>
   </Page>
 }
 
-function PriceEditor({ price, reload }: { price: CommercialPrice; reload: () => void }) {
+/** The editor restarts from the server's values for each version; the confirmation outlives that reset. */
+function PriceEdit({ price, reload }: { price: CommercialPrice; reload: () => void }) {
+  const [notice, setNotice] = useState<string | null>(null)
+  return <>
+    <PriceEditor key={price.version} price={price} onEdit={() => setNotice(null)}
+      onSaved={() => { setNotice('Pricing saved. Current catalog is being refreshed.'); reload() }} />
+    {notice && <p role="status" className="admin-success">{notice}</p>}
+  </>
+}
+
+function PriceEditor({ price, onEdit, onSaved }: { price: CommercialPrice; onEdit: () => void; onSaved: () => void }) {
   const [visibility, setVisibility] = useState<CommercialPrice['visibility']>(price.visibility)
   const [amount, setAmount] = useState(price.amount_minor === null ? '' : String(price.amount_minor))
   const [active, setActive] = useState(price.active)
   const [reason, setReason] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [notice, setNotice] = useState<string | null>(null)
+  const governed = useGovernedSubmit()
+  const { busy, error } = governed
   const needsAmount = visibility === 'fixed' || visibility === 'starting_from'
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -397,17 +103,15 @@ function PriceEditor({ price, reload }: { price: CommercialPrice; reload: () => 
     if (busy || reason.trim().length < 8) return
     const amountMinor = needsAmount ? Number(amount) : null
     if (needsAmount && (!/^(0|[1-9]\d*)$/.test(amount) || !Number.isSafeInteger(amountMinor))) {
-      setError('Enter a valid whole number of minor currency units.'); return
+      governed.setError('Enter a valid whole number of minor currency units.'); return
     }
-    setBusy(true); setError(null); setNotice(null)
-    try {
-      await adminApi.command(`/api/v1/admin/pricing/products/${encodeURIComponent(price.product_slug)}/prices/${encodeURIComponent(price.context)}`,
-        { visibility, amountMinor, currency: price.currency, billingPeriod: price.billing_period,
-          unit: price.unit, active, reason: reason.trim() },
-        { version: price.version, idempotent: true })
-      setReason(''); setNotice('Pricing saved. Current catalog is being refreshed.'); reload()
-    } catch (caught) { setError(failure(caught, 'Pricing could not be updated.')) }
-    finally { setBusy(false) }
+    onEdit()
+    const done = await governed.submit(idempotencyKey => adminApi.command(
+      `/api/v1/admin/pricing/products/${encodeURIComponent(price.product_slug)}/prices/${encodeURIComponent(price.context)}`,
+      { visibility, amountMinor, currency: price.currency, billingPeriod: price.billing_period,
+        unit: price.unit, active, reason: reason.trim() },
+      { version: price.version, idempotencyKey }), 'Pricing could not be updated.')
+    if (done !== null) onSaved()
   }
 
   return <details className="admin-action"><summary>Edit price</summary><form className="admin-action-form" onSubmit={event => void submit(event)}>
@@ -420,7 +124,7 @@ function PriceEditor({ price, reload }: { price: CommercialPrice; reload: () => 
     <label>Reason for this change<textarea minLength={8} maxLength={500} required rows={3}
       value={reason} onChange={event => setReason(event.target.value)} /></label>
     <button className="admin-primary" type="submit" disabled={busy || reason.trim().length < 8}>{busy ? 'Saving…' : 'Save price'}</button>
-    {error && <p role="alert" className="admin-error">{error}</p>}{notice && <p role="status" className="admin-success">{notice}</p>}
+    {error && <p role="alert" className="admin-error">{error}</p>}
   </form></details>
 }
 
@@ -435,9 +139,9 @@ export function PricingPage({ actor }: { actor: AdminActor }) {
         {canManage && <ActionForm title="Change product status" options={
           ['active', 'coming_soon', 'draft', 'retired'].filter(value => value !== product.status)
             .map(value => ({ value, title: label(value) }))
-        } onSubmit={async (status, reason) => {
+        } onSubmit={async (status, reason, idempotencyKey) => {
           await adminApi.command(`/api/v1/admin/pricing/products/${encodeURIComponent(product.slug)}`,
-            { name: product.name, status, reason }, { version: product.version, idempotent: true })
+            { name: product.name, status, reason }, { version: product.version, idempotencyKey })
           resource.reload()
         }} />}
         {catalog.prices.filter(price => price.product_slug === product.slug).length === 0
@@ -447,97 +151,72 @@ export function PricingPage({ actor }: { actor: AdminActor }) {
               <div><strong>{label(price.context)}</strong><span>{label(price.visibility)} · {price.active ? 'Active' : 'Inactive'}</span>
                 <small>{price.amount_minor === null ? 'Amount available on request' : `${new Intl.NumberFormat('en-NG').format(price.amount_minor)} minor ${price.currency} units`}
                   {price.billing_period ? ` · ${label(price.billing_period)}` : ''}{price.unit ? ` · ${price.unit}` : ''}</small></div>
-              {canManage && <PriceEditor key={`${price.context}:${price.version}`} price={price} reload={resource.reload} />}
+              {canManage && <div><PriceEdit price={price} reload={resource.reload} /></div>}
             </div>)}</div>}
       </section>)}
     </div>}</ResourceView>
   </Page>
 }
 
-function DemoAction({ request, reload }: { request: DemoRequest; reload: () => void }) {
-  return <ActionForm title="Change status" options={['new', 'contacted', 'qualified', 'closed']
+/**
+ * The confirmation is page-level because the reload starts the list again from
+ * its first page, which removes a row loaded with "Load more".
+ */
+function DemoAction({ request, onSaved }: { request: DemoRequest; onSaved: (message: string) => void }) {
+  return <ActionForm title="Change status" options={DEMO_STATUSES
     .filter(value => value !== request.status).map(value => ({ value, title: label(value) }))}
     onSubmit={async (status, reason) => {
       await adminApi.command(`/api/v1/admin/demo-requests/${encodeURIComponent(request.id)}/status`,
         { status, reason }, { version: request.version })
-      reload()
+      onSaved(`The request from ${request.contactName} is now ${label(status).toLowerCase()}.`)
     }} />
 }
 
 export function DemosPage({ actor }: { actor: AdminActor }) {
-  const resource = useResource(adminApi.demos, 'Demo requests could not be loaded.')
+  const [filters, setFilters] = useUrlFilters(['status', 'product'] as const)
+  const status = DEMO_STATUSES.find(value => value === filters.status)
+  const product = DEMO_PRODUCTS.find(value => value === filters.product)
+  const query = useMemo(() => ({ ...(status ? { status } : {}), ...(product ? { productCode: product } : {}) }),
+    [status, product])
+  const load = useCallback((signal?: AbortSignal) => adminApi.demos(query, {}, signal), [query])
+  const resource = useResource(load, 'Demo requests could not be loaded.')
+  const pages = useCursorPages(resource, (cursor, signal) => adminApi.demos(query, { cursor }, signal),
+    'More demo requests could not be loaded.')
+  const [notice, setNotice] = useState<string | null>(null)
+  const saved = (message: string) => { setNotice(message); resource.reload() }
   return <Page eyebrow="Commercial" title="Demo requests" description="Requests submitted through the public Health ID website."
     action={<Refresh onClick={resource.reload} disabled={resource.loading} />}>
-    <ResourceView resource={resource} empty={result => result.items.length === 0}>{result => <Table headings={['Contact', 'Organization', 'Product', 'Submitted', 'Status', 'Action']}>
-      {result.items.map(item => <tr key={item.id}>
+    <div className="admin-filters">
+      <label>Status<select value={filters.status} onChange={event => { setNotice(null); setFilters({ status: event.target.value }) }}>
+        <option value="">Any status</option>
+        {DEMO_STATUSES.map(value => <option key={value} value={value}>{label(value)}</option>)}
+      </select></label>
+      <label>Product<select value={filters.product} onChange={event => { setNotice(null); setFilters({ product: event.target.value }) }}>
+        <option value="">Any product</option>
+        {DEMO_PRODUCTS.map(value => <option key={value} value={value}>{label(value)}</option>)}
+      </select></label>
+    </div>
+    {notice && <p role="status" className="admin-success">{notice}</p>}
+    <ResourceView resource={resource} empty={result => result.items.length === 0}>{() => <>
+      <p className="admin-result-count">Showing {pages.items.length} requests, newest first{pages.hasMore ? '; more are available' : ''}</p>
+      <Table headings={['Contact', 'Organization', 'Product', 'Submitted', 'Status', 'Action']}>
+      {pages.items.map(item => <tr key={item.id}>
         <td><strong>{item.contactName}</strong><small>{item.contactEmail}</small></td>
         <td>{item.organizationName || 'Not provided'}</td><td>{label(item.productCode)}</td><td>{date(item.createdAt)}</td>
         <td><Status value={item.status} /></td>
-        <td>{has(actor, 'platform.demo.manage') ? <DemoAction request={item} reload={resource.reload} /> : 'View only'}</td>
+        <td>{has(actor, 'platform.demo.manage') ? <DemoAction request={item} onSaved={saved} /> : 'View only'}</td>
       </tr>)}
-    </Table>}</ResourceView>
+    </Table>
+      <LoadMore pages={pages} label="Load more requests" /></>}</ResourceView>
   </Page>
 }
 
-function IntegrationAction({ provider, reload, actor }: {
-  provider: IntegrationProvider; reload: () => void; actor: AdminActor
-}) {
-  const options = provider.availableActions.filter(action => action === 'enable' || action === 'pause')
-    .map(value => ({ value, title: label(value) }))
-  return <div className="admin-action-row">
-    {has(actor, 'platform.integration.manage') && options.length > 0 && <ActionForm title="Change provider state" options={options}
-      onSubmit={async (action, reason) => {
-        await adminApi.command(`/api/v1/admin/integrations/${encodeURIComponent(provider.provider)}/${action}`,
-          { reason }, { version: provider.version, idempotent: true })
-        reload()
-      }} />}
-    {has(actor, 'platform.integration.test') && provider.availableActions.includes('test') && <ActionForm title="Test connection"
-      onSubmit={async (_, reason) => {
-        await adminApi.command(`/api/v1/admin/integrations/${encodeURIComponent(provider.provider)}/test`,
-          { reason }, { version: provider.version, idempotent: true })
-        reload()
-      }} />}
-  </div>
-}
-
-function CapabilityAction({ capability, actor, reload }: {
-  capability: IntegrationCapability; actor: AdminActor; reload: () => void
-}) {
-  if (!has(actor, 'platform.integration.manage') || capability.eligibleProviders.length === 0) return null
-  const options = capability.eligibleProviders.map(provider => ({ value: provider, title: label(provider) }))
-  return <div className="admin-action-row">
-    <ActionForm title="Select active provider" options={options} onSubmit={async (provider, reason) => {
-      await adminApi.command(`/api/v1/admin/integrations/capabilities/${encodeURIComponent(capability.capability)}/selection`,
-        { provider, reason }, { version: capability.version, idempotent: true })
-      reload()
-    }} />
-    <ActionForm title="Select fallback provider" options={options} onSubmit={async (provider, reason) => {
-      await adminApi.command(`/api/v1/admin/integrations/capabilities/${encodeURIComponent(capability.capability)}/fallback`,
-        { provider, reason }, { version: capability.version, idempotent: true })
-      reload()
-    }} />
-  </div>
-}
-
-export function IntegrationsPage({ actor }: { actor: AdminActor }) {
-  const resource = useResource(adminApi.integrations, 'Integration configuration could not be loaded.')
-  return <Page eyebrow="Configuration" title="Integrations" description="Provider health and active routing from the platform configuration service."
-    action={<Refresh onClick={resource.reload} disabled={resource.loading} />}>
-    <ResourceView resource={resource} empty={catalog => catalog.items.length === 0 && catalog.capabilities.length === 0}>{catalog => <div className="admin-stack">
-      <section className="admin-panel"><h2>Providers</h2>{catalog.items.length === 0 ? <p className="admin-note">No providers are configured.</p> :
-        <div className="admin-tile-grid">{catalog.items.map(provider => <article className="admin-tile" key={provider.provider}>
-          <div className="admin-panel-head"><h3>{provider.name}</h3><Status value={provider.enabled ? 'enabled' : 'paused'} /></div>
-          <p>Health: <Status value={provider.health} /></p><p>Management: {label(provider.managementMode)}</p>
-          <IntegrationAction provider={provider} reload={resource.reload} actor={actor} />
-        </article>)}</div>}</section>
-      <section className="admin-panel"><h2>Capability routing</h2>{catalog.capabilities.length === 0 ? <p className="admin-note">No capability routes are configured.</p> :
-        <div className="admin-tile-grid">{catalog.capabilities.map(capability => <article className="admin-tile" key={capability.capability}>
-          <h3>{label(capability.capability)}</h3><p>Active: <strong>{capability.activeProvider ? label(capability.activeProvider) : 'None'}</strong></p>
-          <p>Fallback: <strong>{capability.fallbackProvider ? label(capability.fallbackProvider) : 'None'}</strong></p>
-          <CapabilityAction capability={capability} actor={actor} reload={resource.reload} />
-        </article>)}</div>}</section>
-    </div>}</ResourceView>
-  </Page>
+/** What a control does, where its key alone does not say it. */
+const CONTROL_NOTES: Readonly<Record<string, string>> = {
+  // hid-system ADR-064 (0094), seeded off.
+  clinician_signup_enabled: 'Lets doctors and nurses apply by themselves at /provider/join. Their applications wait in '
+    + 'Clinician applications until one Super Admin verifies and a second approves, so open it only when the queue is '
+    + 'staffed. Applying also needs the provider portal on and maintenance off.',
 }
 
 function ControlAction({ control, reload }: { control: PlatformControl; reload: () => void }) {
@@ -555,6 +234,7 @@ export function ControlsPage({ actor }: { actor: AdminActor }) {
     <ResourceView resource={resource} empty={controls => controls.length === 0}>{controls => <div className="admin-tile-grid">
       {controls.map(control => <article className="admin-tile" key={control.controlKey}>
         <div className="admin-panel-head"><h2>{label(control.controlKey)}</h2><Status value={control.enabled ? 'enabled' : 'disabled'} /></div>
+        {Object.hasOwn(CONTROL_NOTES, control.controlKey) && <p className="admin-note">{CONTROL_NOTES[control.controlKey]}</p>}
         <p>{control.reason}</p><p className="admin-note">Updated {date(control.updatedAt)}</p>
         {has(actor, 'platform.control.manage') && <ControlAction control={control} reload={resource.reload} />}
       </article>)}

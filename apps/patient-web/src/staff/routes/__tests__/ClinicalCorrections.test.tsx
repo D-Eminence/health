@@ -1,0 +1,450 @@
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { HidApiError } from '@hid/http'
+import { Clinical } from '../Clinical'
+
+/**
+ * Corrections follow hid-system EHR (ehr/shared/clinical.dto.ts and the
+ * diagnoses, vitals and lab-requests services): a diagnosis PATCH names only
+ * clinicalStatus, verificationStatus, abatementAt and notes; a vital is never
+ * edited, it gets an appended correction whose values the list must show as
+ * current; and a lab request's hold, cancellation, completion or entered in error
+ * is not passed to Lab, so only a draft that Lab never received can be cancelled
+ * or marked entered in error. Since hid-system #56 activating a draft sends it to
+ * Lab, for an actor who holds lab.work-item.accept (LabRequestHandoff.test.tsx).
+ */
+const api = vi.hoisted(() => ({
+  lookupPatient: vi.fn(), consentStatus: vi.fn(), encounters: vi.fn(), records: vi.fn(), createRecord: vi.fn(),
+  updateRecord: vi.fn(), updateDiagnosis: vi.fn(), vitalCorrections: vi.fn(), correctVital: vi.fn(),
+}))
+const staff = vi.hoisted(() => ({ activePatient: null as unknown }))
+
+vi.mock('../../api', () => ({
+  isAllowedPatientLookup: (lookup: { authorization: { decision: string }; patient?: unknown }) =>
+    lookup.authorization.decision === 'allow' && !!lookup.patient,
+  staffApi: api,
+}))
+vi.mock('../../App', () => ({
+  useStaff: () => ({
+    state: { status: 'ready', session: { actor: { displayName: 'Ada Clinician', facility: {
+      id: 'facility-1', membershipId: 'member-1', name: 'General Hospital', roles: ['doctor'],
+      permissions: ['ehr.encounter.read', 'ehr.vital.read', 'ehr.vital.write', 'ehr.diagnosis.read',
+        'ehr.diagnosis.write', 'ehr.lab-request.read', 'ehr.lab-request.write'],
+    } } } },
+    activePatient: staff.activePatient,
+    setActivePatient: vi.fn(),
+  }),
+}))
+
+const PATIENT = 'a0000000-0000-4000-8000-000000000001'
+const ENCOUNTER = 'e0000000-0000-4000-8000-000000000001'
+const lookup = { patient: { patientId: PATIENT, hid: 'HID-ABCDEF', fullName: 'Ada Patient', version: 1 },
+  authorization: { decision: 'allow', consentGrantId: null, expiresAt: '2026-10-11T09:00:00.000Z', breakGlass: false } }
+const base = { patientId: PATIENT, encounterId: ENCOUNTER, facilityId: 'facility-1', createdAt: '2026-10-10T08:05:00.000Z' }
+const diagnosis = { ...base, id: 'diagnosis-1', codeSystem: 'ICD-10', code: 'B54', display: 'Malaria',
+  clinicalStatus: 'active', verificationStatus: 'provisional', notes: 'Fever for three days', rowVersion: '2' }
+const vital = { ...base, id: 'vital-1', recordedAt: '2026-10-10T08:05:00.000Z', systolicMmhg: 120, diastolicMmhg: 80,
+  pulseBpm: 72, temperatureC: '36.6', respiratoryRate: null, oxygenSaturationPercent: null, weightKg: null, heightCm: null,
+  source: 'manual', currentCorrectionNo: 0, rowVersion: '1' }
+const labRequest = { ...base, id: 'lab-1', testCodeSystem: 'LOINC', testCode: '718-7', testDisplay: 'Haemoglobin',
+  priority: 'routine', status: 'draft', clinicalInformation: null, rowVersion: '1' }
+
+let records: Record<string, unknown[]>
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  staff.activePatient = { hid: 'HID-ABCDEF', purpose: 'direct-care', lookup }
+  records = { vitals: [vital], diagnoses: [diagnosis], 'lab-requests': [labRequest] }
+  api.lookupPatient.mockResolvedValue(lookup)
+  api.consentStatus.mockResolvedValue({ patientId: PATIENT, facilityId: 'facility-1', purpose: 'direct-care', readAllowed: true, writeAllowed: true })
+  api.encounters.mockResolvedValue({ items: [{ id: ENCOUNTER, patientId: PATIENT, facilityId: 'facility-1',
+    encounterType: 'ambulatory', status: 'in_progress', startedAt: '2026-10-10T08:00:00.000Z', chiefComplaint: null, rowVersion: 1 }], nextCursor: null })
+  api.records.mockImplementation(async (_facility: string, _patient: string, _encounter: string, kind: string) =>
+    ({ items: records[kind] ?? [], nextCursor: null }))
+  api.updateDiagnosis.mockResolvedValue({ ...diagnosis, rowVersion: '3' })
+  api.updateRecord.mockResolvedValue({ ...labRequest, rowVersion: '2' })
+  api.correctVital.mockResolvedValue({ id: 'correction-1', vitalId: 'vital-1', correctionNo: 1 })
+  api.vitalCorrections.mockResolvedValue([])
+})
+
+async function openTab(name: string) {
+  render(<MemoryRouter><Clinical /></MemoryRouter>)
+  fireEvent.click(await screen.findByRole('tab', { name }))
+}
+
+// A required field's label ends in a marker the reader does not hear.
+function labelled(label: string) { return new RegExp(`^${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\*?$`) }
+
+function type(scope: HTMLElement, label: string, value: string) {
+  fireEvent.change(within(scope).getByLabelText(labelled(label)), { target: { value } })
+}
+
+async function correctionForm() {
+  fireEvent.click(await screen.findByRole('button', { name: 'Correct these vitals' }))
+  return screen.getByRole('button', { name: 'Save correction' }).closest('form')!
+}
+
+/** What describes `element`: a refusal is tied to its field, or to the group of fields its rule covers (PEHR-04). */
+function described(element: Element) {
+  return document.getElementById(element.getAttribute('aria-describedby') ?? '')?.textContent ?? ''
+}
+
+function value(scope: HTMLElement, label: string) {
+  return (within(scope).getByLabelText(labelled(label)) as HTMLInputElement).value
+}
+
+describe('changing a diagnosis', () => {
+  async function diagnosisForm() {
+    await openTab('Diagnoses')
+    return (await screen.findByRole('button', { name: 'Update diagnosis' })).closest('form')!
+  }
+
+  it('sends only the changed fields with the loaded version and the reason, after rechecking access', async () => {
+    const form = await diagnosisForm()
+    expect(value(form, 'Verification')).toBe('provisional')
+    expect(value(form, 'Clinical status')).toBe('active')
+
+    type(form, 'Verification', 'confirmed')
+    type(form, 'Reason for change', 'Confirmed by blood film')
+    api.lookupPatient.mockClear(); api.records.mockClear()
+    fireEvent.click(within(form).getByRole('button', { name: 'Update diagnosis' }))
+
+    await waitFor(() => expect(api.updateDiagnosis).toHaveBeenCalledWith('facility-1', PATIENT, ENCOUNTER, 'diagnosis-1',
+      { expectedRowVersion: 2, changeReason: 'Confirmed by blood film', verificationStatus: 'confirmed' }))
+    expect(api.lookupPatient.mock.invocationCallOrder[0]).toBeLessThan(api.updateDiagnosis.mock.invocationCallOrder[0]!)
+    expect(api.updateRecord).not.toHaveBeenCalled()
+    expect(await screen.findByText('Diagnosis updated.')).toBeTruthy()
+    expect(api.records).toHaveBeenCalledWith('facility-1', PATIENT, ENCOUNTER, 'diagnoses', { cursor: undefined, fresh: true })
+  })
+
+  it('sends changed notes and clinical status together', async () => {
+    const form = await diagnosisForm()
+    expect(value(form, 'Notes')).toBe('Fever for three days')
+
+    type(form, 'Clinical status', 'resolved')
+    type(form, 'Notes', 'Fever settled after treatment')
+    type(form, 'Reason for change', 'Treatment complete')
+    fireEvent.click(within(form).getByRole('button', { name: 'Update diagnosis' }))
+
+    await waitFor(() => expect(api.updateDiagnosis).toHaveBeenCalledWith('facility-1', PATIENT, ENCOUNTER, 'diagnosis-1',
+      { expectedRowVersion: 2, changeReason: 'Treatment complete', clinicalStatus: 'resolved', notes: 'Fever settled after treatment' }))
+  })
+
+  it('refuses a submission that changes nothing', async () => {
+    const form = await diagnosisForm()
+    type(form, 'Reason for change', 'No real change')
+    fireEvent.click(within(form).getByRole('button', { name: 'Update diagnosis' }))
+
+    const changes = within(form).getByRole('group', { name: 'Diagnosis changes' })
+    await waitFor(() => expect(described(changes)).toContain('Change the clinical status, verification or notes'))
+    expect(api.updateDiagnosis).not.toHaveBeenCalled()
+  })
+
+  it('can mark a diagnosis entered in error, after which it offers no further change', async () => {
+    const form = await diagnosisForm()
+    type(form, 'Verification', 'entered_in_error')
+    type(form, 'Reason for change', 'Recorded against the wrong patient')
+    records.diagnoses = [{ ...diagnosis, verificationStatus: 'entered_in_error', rowVersion: '3' }]
+    fireEvent.click(within(form).getByRole('button', { name: 'Update diagnosis' }))
+
+    await waitFor(() => expect(api.updateDiagnosis).toHaveBeenCalledWith('facility-1', PATIENT, ENCOUNTER, 'diagnosis-1',
+      { expectedRowVersion: 2, changeReason: 'Recorded against the wrong patient', verificationStatus: 'entered_in_error' }))
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Update diagnosis' })).toBeNull())
+    expect(screen.getByText('Entered in error')).toBeTruthy()
+  })
+
+  it('shows the server refusal and keeps the form', async () => {
+    api.updateDiagnosis.mockRejectedValueOnce(new Error('Diagnosis changed since it was loaded'))
+    const form = await diagnosisForm()
+    type(form, 'Verification', 'confirmed')
+    type(form, 'Reason for change', 'Confirmed by blood film')
+    fireEvent.click(within(form).getByRole('button', { name: 'Update diagnosis' }))
+
+    expect((await within(form).findByRole('alert')).textContent).toContain('Diagnosis changed since it was loaded')
+  })
+
+  it('is not offered when the access is read-only', async () => {
+    api.consentStatus.mockResolvedValue({ patientId: PATIENT, facilityId: 'facility-1', purpose: 'direct-care', readAllowed: true, writeAllowed: false })
+    await openTab('Diagnoses')
+    expect(await screen.findByText('Malaria')).toBeTruthy()
+    expect(await screen.findByText(/Read-only access/)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Update diagnosis' })).toBeNull()
+  })
+})
+
+describe('correcting vitals', () => {
+  it('appends a correction with the full replacement values, the loaded version and a reason', async () => {
+    await openTab('Vitals')
+    const form = await correctionForm()
+    expect(value(form, 'Pulse (bpm)')).toBe('72')
+    expect(value(form, 'Temperature (°C)')).toBe('36.6')
+
+    type(form, 'Pulse (bpm)', '78')
+    type(form, 'Reason for correction', 'Pulse misread from the monitor')
+    api.lookupPatient.mockClear()
+    fireEvent.click(within(form).getByRole('button', { name: 'Save correction' }))
+
+    await waitFor(() => expect(api.correctVital).toHaveBeenCalledWith('facility-1', PATIENT, ENCOUNTER, 'vital-1', {
+      expectedRowVersion: 1, changeReason: 'Pulse misread from the monitor',
+      replacementValues: { systolicMmhg: 120, diastolicMmhg: 80, pulseBpm: 78, temperatureC: 36.6 },
+    }, expect.any(String)))
+    expect(api.lookupPatient.mock.invocationCallOrder[0]).toBeLessThan(api.correctVital.mock.invocationCallOrder[0]!)
+    expect(await screen.findByText('Vital correction saved.')).toBeTruthy()
+  })
+
+  it('reuses the submission key when the same correction is retried', async () => {
+    api.correctVital.mockRejectedValueOnce(new Error('Network error'))
+    await openTab('Vitals')
+    const form = await correctionForm()
+    type(form, 'Pulse (bpm)', '78')
+    type(form, 'Reason for correction', 'Pulse misread from the monitor')
+    fireEvent.click(within(form).getByRole('button', { name: 'Save correction' }))
+    expect((await within(form).findByRole('alert')).textContent).toContain('Network error')
+
+    fireEvent.click(within(form).getByRole('button', { name: 'Save correction' }))
+    await waitFor(() => expect(api.correctVital).toHaveBeenCalledTimes(2))
+    expect(api.correctVital.mock.calls[1]![5]).toBe(api.correctVital.mock.calls[0]![5])
+  })
+
+  it('refuses blood pressure without both readings, and a correction that changes nothing', async () => {
+    await openTab('Vitals')
+    const form = await correctionForm()
+    type(form, 'Reason for correction', 'Checking the reading')
+    fireEvent.click(within(form).getByRole('button', { name: 'Save correction' }))
+    const values = within(form).getByRole('group', { name: 'Corrected vital measurements' })
+    await waitFor(() => expect(described(values)).toContain('Change at least one value'))
+
+    type(form, 'Diastolic BP (mmHg)', '')
+    fireEvent.click(within(form).getByRole('button', { name: 'Save correction' }))
+    const diastolic = within(form).getByLabelText(labelled('Diastolic BP (mmHg)'))
+    await waitFor(() => expect(described(diastolic)).toContain('Enter both systolic and diastolic'))
+    expect(diastolic.getAttribute('aria-invalid')).toBe('true')
+    expect(api.correctVital).not.toHaveBeenCalled()
+  })
+
+  it('shows the latest correction as the current values and the original as superseded', async () => {
+    records.vitals = [{ ...vital, currentCorrectionNo: 2, rowVersion: '3' }]
+    api.vitalCorrections.mockResolvedValue([
+      { id: 'c2', vitalId: 'vital-1', correctionNo: 2, replacementValues: { systolicMmhg: 118, diastolicMmhg: 76, pulseBpm: 80 },
+        reason: 'Second reading confirmed', createdAt: '2026-10-10T09:00:00.000Z' },
+      { id: 'c1', vitalId: 'vital-1', correctionNo: 1, replacementValues: { pulseBpm: 78 },
+        reason: 'Pulse misread', createdAt: '2026-10-10T08:30:00.000Z' },
+    ])
+    await openTab('Vitals')
+
+    const current = await screen.findByText(/Corrected \(correction 2\)/)
+    expect(current.closest('div')?.textContent).toContain('BP 118/76 mmHg · 80 bpm')
+    expect(screen.getByText(/Originally recorded/).closest('div')?.textContent).toContain('BP 120/80 mmHg · 36.6 °C · 72 bpm')
+    expect(screen.getByText(/Second reading confirmed/)).toBeTruthy()
+    expect(api.vitalCorrections).toHaveBeenCalledWith('facility-1', PATIENT, ENCOUNTER, 'vital-1')
+
+    const form = await correctionForm()
+    expect(value(form, 'Pulse (bpm)')).toBe('80')
+    expect(value(form, 'Temperature (°C)')).toBe('')
+    type(form, 'Pulse (bpm)', '82')
+    type(form, 'Reason for correction', 'Third reading')
+    fireEvent.click(within(form).getByRole('button', { name: 'Save correction' }))
+    await waitFor(() => expect(api.correctVital).toHaveBeenCalledWith('facility-1', PATIENT, ENCOUNTER, 'vital-1', {
+      expectedRowVersion: 3, changeReason: 'Third reading', replacementValues: { systolicMmhg: 118, diastolicMmhg: 76, pulseBpm: 82 },
+    }, expect.any(String)))
+  })
+
+  it('never presents the original values as current when the corrections cannot be read', async () => {
+    records.vitals = [{ ...vital, currentCorrectionNo: 1, rowVersion: '2' }]
+    api.vitalCorrections.mockRejectedValue(new Error('Service unavailable'))
+    await openTab('Vitals')
+
+    expect(await screen.findByText(/These vitals were corrected, but the correction could not be loaded/)).toBeTruthy()
+    expect(screen.getByText(/Originally recorded/)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Correct these vitals' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Save correction' })).toBeNull()
+  })
+})
+
+/**
+ * Since hid-system #74 (ENC-RETRACT-2, migration 0090) a vital carries `status`: `final`, or
+ * `entered_in_error` once retracted on its own or with its encounter. It keeps its values and
+ * takes no correction (INTERFACE_CONTRACT.md "Encounter status and its records"). A retraction
+ * updates the vital, so its row version rises (0004's vitals_versioned), and a correction sent
+ * at the version loaded answers 412 VERSION_CONFLICT, which EHR checks first (vitals.service.ts
+ * correct); 409 VITAL_NOT_AMENDABLE answers only the version of a vital already entered in
+ * error. An EHR before #74 sends no status, and every vital is final.
+ */
+describe('vitals entered in error', () => {
+  const retracted = { ...vital, status: 'entered_in_error', rowVersion: '2' }
+  const entry = () => screen.getByText('Vitals recorded').closest<HTMLElement>('.staff-list-item')!
+
+  it('are marked entered in error, keep their values and offer no correction', async () => {
+    records.vitals = [retracted]
+    await openTab('Vitals')
+    await screen.findByText('Vitals recorded')
+    expect(within(entry()).getByText('Entered in error')).toBeTruthy()
+    expect(entry().textContent).toContain('Recorded in error: do not use these values. They can no longer be corrected.')
+    expect(entry().textContent).toContain('BP 120/80 mmHg · 36.6 °C · 72 bpm')
+    expect(within(entry()).queryByRole('button', { name: 'Correct these vitals' })).toBeNull()
+  })
+
+  it('keep their corrections made before, with no further correction offered', async () => {
+    records.vitals = [{ ...retracted, currentCorrectionNo: 1, rowVersion: '3' }]
+    api.vitalCorrections.mockResolvedValue([{ id: 'c1', vitalId: 'vital-1', correctionNo: 1, replacementValues: { pulseBpm: 78 },
+      reason: 'Pulse misread', createdAt: '2026-10-10T08:30:00.000Z' }])
+    await openTab('Vitals')
+    expect(await screen.findByText(/Corrected \(correction 1\)/)).toBeTruthy()
+    expect(within(entry()).getByText('Entered in error')).toBeTruthy()
+    expect(within(entry()).queryByRole('button', { name: 'Correct these vitals' })).toBeNull()
+  })
+
+  it('a final vital is not marked, and still takes a correction', async () => {
+    records.vitals = [{ ...vital, status: 'final' }]
+    await openTab('Vitals')
+    expect(await screen.findByRole('button', { name: 'Correct these vitals' })).toBeTruthy()
+    expect(within(entry()).queryByText('Entered in error')).toBeNull()
+  })
+
+  async function submitCorrection() {
+    await openTab('Vitals')
+    const form = await correctionForm()
+    type(form, 'Pulse (bpm)', '78')
+    type(form, 'Reason for correction', 'Pulse misread from the monitor')
+    fireEvent.click(within(form).getByRole('button', { name: 'Save correction' }))
+  }
+
+  it('a correction refused because the vitals were marked entered in error meanwhile reads them again and says so', async () => {
+    records.vitals = [{ ...vital, status: 'final' }]
+    // EHR's answer: the retraction raised the vital's row version from the 1 loaded to 2.
+    api.correctVital.mockImplementationOnce(async () => {
+      records.vitals = [retracted]
+      throw new HidApiError(412, 'Vitals changed since they were loaded', { code: 'VERSION_CONFLICT' })
+    })
+    await submitCorrection()
+
+    expect(await screen.findByText('These vitals were marked entered in error since they were loaded, so the correction was not saved. The list was reloaded.')).toBeTruthy()
+    expect(api.records).toHaveBeenCalledTimes(2)
+    expect(api.records).toHaveBeenLastCalledWith('facility-1', PATIENT, ENCOUNTER, 'vitals', expect.objectContaining({ fresh: true }))
+    await waitFor(() => expect(within(entry()).getByText('Entered in error')).toBeTruthy())
+    expect(screen.queryByRole('button', { name: 'Save correction' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Correct these vitals' })).toBeNull()
+    expect(screen.queryByText('Vital correction saved.')).toBeNull()
+    await waitFor(() => expect(document.activeElement).toBe(document.getElementById('record-vital-1-title')))
+  })
+
+  it('a correction refused because the vitals were corrected meanwhile reads them again and offers the correction at their new version', async () => {
+    records.vitals = [{ ...vital, status: 'final' }]
+    api.correctVital.mockImplementationOnce(async () => {
+      records.vitals = [{ ...vital, status: 'final', currentCorrectionNo: 1, rowVersion: '2' }]
+      api.vitalCorrections.mockResolvedValue([{ id: 'c1', vitalId: 'vital-1', correctionNo: 1, replacementValues: { pulseBpm: 76 },
+        reason: 'Recounted by a colleague', createdAt: '2026-10-10T08:30:00.000Z' }])
+      throw new HidApiError(412, 'Vitals changed since they were loaded', { code: 'VERSION_CONFLICT' })
+    })
+    await submitCorrection()
+
+    expect(await screen.findByText('These vitals changed since they were loaded, so the correction was not saved: check them, and correct them again if it is still needed. The list was reloaded.')).toBeTruthy()
+    expect(api.records).toHaveBeenLastCalledWith('facility-1', PATIENT, ENCOUNTER, 'vitals', expect.objectContaining({ fresh: true }))
+    expect(await screen.findByText(/Recounted by a colleague/)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Save correction' })).toBeNull()
+    expect(within(entry()).queryByText('Entered in error')).toBeNull()
+    await waitFor(() => expect(document.activeElement).toBe(document.getElementById('record-vital-1-title')))
+
+    const form = await correctionForm()
+    expect(value(form, 'Pulse (bpm)')).toBe('76')
+    type(form, 'Pulse (bpm)', '78')
+    type(form, 'Reason for correction', 'Pulse misread from the monitor')
+    fireEvent.click(within(form).getByRole('button', { name: 'Save correction' }))
+    await waitFor(() => expect(api.correctVital).toHaveBeenLastCalledWith('facility-1', PATIENT, ENCOUNTER, 'vital-1',
+      expect.objectContaining({ expectedRowVersion: 2 }), expect.any(String)))
+    expect(await screen.findByText('Vital correction saved.')).toBeTruthy()
+  })
+
+  it('a correction answered 409 VITAL_NOT_AMENDABLE says the vitals were entered in error even when they cannot be read again', async () => {
+    records.vitals = [{ ...vital, status: 'final' }]
+    api.correctVital.mockImplementationOnce(async () => {
+      api.records.mockRejectedValueOnce(new HidApiError(503, 'Service unavailable'))
+      throw new HidApiError(409, 'A vital entered in error cannot be changed', { code: 'VITAL_NOT_AMENDABLE' })
+    })
+    await submitCorrection()
+
+    expect(await screen.findByText('These vitals were marked entered in error since they were loaded, so the correction was not saved. The list could not be reloaded; refresh it to see the vitals.')).toBeTruthy()
+    expect(screen.queryByText(/The change was saved/)).toBeNull()
+    expect(screen.queryByText('Vital correction saved.')).toBeNull()
+  })
+})
+
+describe('changing a lab request status', () => {
+  it('lets a draft be cancelled or marked entered in error, and not activated by a role that cannot send it to Lab', async () => {
+    await openTab('Lab requests')
+    const select = await screen.findByLabelText(labelled('New status'))
+    const options = within(select).getAllByRole('option').map(option => (option as HTMLOptionElement).value)
+    // This role lacks lab.work-item.accept: EHR would activate the draft without sending it (labHandoff
+    // not_sent), and the role could then neither send nor cancel it.
+    expect(options).toEqual(['cancelled', 'entered_in_error'])
+
+    const form = select.closest('form')!
+    type(form, 'Reason for change', 'Ordered twice')
+    fireEvent.click(within(form).getByRole('button', { name: 'Update status' }))
+
+    await waitFor(() => expect(api.updateRecord).toHaveBeenCalledWith('facility-1', PATIENT, ENCOUNTER, 'lab-requests', 'lab-1',
+      { expectedRowVersion: 1, changeReason: 'Ordered twice', status: 'cancelled' }))
+    expect(await screen.findByText('Lab request status updated.')).toBeTruthy()
+  })
+
+  it('offers no status change for a request Lab may already be working on', async () => {
+    records['lab-requests'] = [{ ...labRequest, status: 'active' }]
+    await openTab('Lab requests')
+    expect(await screen.findByText(/Holding, cancelling, completing or marking it entered in error is not passed to Lab/)).toBeTruthy()
+    expect(screen.queryByLabelText(labelled('New status'))).toBeNull()
+  })
+
+  it('gives no Laboratory warning on cancelling a draft, which Lab never received', async () => {
+    await openTab('Lab requests')
+    const button = (await screen.findByLabelText(labelled('New status'))).closest('form')!.querySelector('button[type="submit"]')!
+    expect(button.getAttribute('aria-describedby')).toBeNull()
+  })
+})
+
+/** The text of everything that describes `element`, in order. */
+function descriptions(element: Element) {
+  return (element.getAttribute('aria-describedby') ?? '').split(/\s+/).filter(Boolean)
+    .map(id => document.getElementById(id)?.textContent ?? '').join(' ')
+}
+
+/**
+ * Since hid-system #56 EHR sends a request to Lab when it is created active and
+ * when a draft is activated later (lab-requests.service.ts create() and update()),
+ * so a draft can still be ordered. Where a draft is chosen the portal says it does
+ * not reach the Laboratory until then.
+ */
+describe('creating a lab request', () => {
+  it('says at the choice and at the action that a draft does not reach the Laboratory until it is activated', async () => {
+    await openTab('Lab requests')
+    const handling = await screen.findByLabelText(labelled('Request handling'))
+    const button = screen.getByRole('button', { name: 'Create lab request' })
+    for (const element of [handling, button]) {
+      const warning = descriptions(element)
+      expect(warning).toContain('A draft is not sent to the Laboratory until it is activated.')
+      expect(warning).not.toContain('cannot be sent later')
+    }
+    const shown = document.getElementById(button.getAttribute('aria-describedby')!)!
+    expect(button.closest('form')!.contains(shown)).toBe(true)
+    expect(shown.closest('[role="alert"], [role="status"]')).toBeNull()
+  })
+
+  it('keeps the warning on the choice when EHR refuses it, described after the refusal', async () => {
+    api.createRecord.mockRejectedValueOnce(new HidApiError(400, 'One or more request fields are invalid.', { code: 'VALIDATION_FAILED',
+      details: [{ field: 'status', messages: ['status must be one of the following values: draft, active'] }] }))
+    await openTab('Lab requests')
+    const form = screen.getByRole('button', { name: 'Create lab request' }).closest('form')!
+    type(form, 'Test code system', 'LOINC')
+    type(form, 'Test code', '718-7')
+    type(form, 'Test display', 'Haemoglobin')
+    fireEvent.click(within(form).getByRole('button', { name: 'Create lab request' }))
+
+    expect((await within(form).findByRole('alert')).textContent).toContain('Status must be one of the following values')
+    const handling = within(form).getByLabelText(labelled('Request handling'))
+    expect(handling.getAttribute('aria-invalid')).toBe('true')
+    const description = descriptions(handling)
+    expect(description).toMatch(/^Status must be one of the following values: draft, active\./)
+    expect(description).toContain('A draft is not sent to the Laboratory until it is activated.')
+    expect(description).not.toContain('cannot be sent later')
+  })
+})

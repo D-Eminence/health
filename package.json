@@ -21,6 +21,7 @@
     "build:public-web": "npm run build --workspace @hid/public-web",
     "build:patient-web": "npm run build --workspace @hid/patient-web",
     "audit:boundaries": "node scripts/check-boundaries.mjs",
+    "audit:launch-build": "node scripts/check-launch-build.mjs",
     "build:staging": "python scripts/build-staging.py",
     "test:release": "python -m unittest discover -s scripts -p test_staging_release.py"
   },
@@ -36,7 +37,7 @@
     "jsdom": "^30.0.1",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.46.0",
-    "vitest": "5.0.3",
+    "vitest": "^4.1.11",
     "wrangler": "4.147.0"
   }
 }

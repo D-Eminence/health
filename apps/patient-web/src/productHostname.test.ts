@@ -4,9 +4,13 @@ import {
   isPlatformAdminRoute,
   isStaffProductRoute,
   resolveStaffProductHostname,
-  resolveStaffLoginAction,
-  resolveStaffRecoveryUrl,
-  resolveRecoverySignInUrl,
+  STAFF_RECOVERY_PATH,
+  staffLoginAction,
+  staffRecoveryHref,
+  CLINICIAN_SIGNUP_PATH,
+  CLINICIAN_STATUS_PATH,
+  clinicianMainSiteHref,
+  clinicianPageHref,
 } from './productHostname'
 
 describe('resolveStaffProductHostname', () => {
@@ -16,13 +20,34 @@ describe('resolveStaffProductHostname', () => {
     ['pharmacy.healthidentitydirectory.com', '/provider/pharmacy'],
     ['migrate.healthidentitydirectory.com', '/provider/ocr'],
     ['outreach.healthidentitydirectory.com', '/provider/outreach'],
+  ])('maps %s to %s', (hostname, route) => {
+    expect(resolveStaffProductHostname(hostname)?.route).toBe(route)
+  })
+
+  // hid-system infra/cloudflare/src/frontend-worker.mjs (DEPLOYMENT_PROFILES.staging).
+  it.each([
     ['ehr.staging.healthidentitydirectory.com', '/provider/clinical'],
     ['lab.staging.healthidentitydirectory.com', '/provider/laboratory'],
     ['pharmacy.staging.healthidentitydirectory.com', '/provider/pharmacy'],
     ['migrate.staging.healthidentitydirectory.com', '/provider/ocr'],
     ['outreach.staging.healthidentitydirectory.com', '/provider/outreach'],
-  ])('maps %s to %s', (hostname, route) => {
+  ])('maps the staging host %s to %s', (hostname, route) => {
     expect(resolveStaffProductHostname(hostname)?.route).toBe(route)
+  })
+
+  it.each([
+    'staging.healthidentitydirectory.com',
+    'www.healthidentitydirectory.com',
+    'admin.staging.healthidentitydirectory.com',
+    'ocr.staging.healthidentitydirectory.com',
+    'lab.staging.staging.healthidentitydirectory.com',
+    'lab.preview.healthidentitydirectory.com',
+    'evil-lab.staging.healthidentitydirectory.com',
+    'lab.staging.healthidentitydirectory.com.evil.test',
+    'constructor',
+    '__proto__',
+  ])('maps no other host to a workspace (%s)', hostname => {
+    expect(resolveStaffProductHostname(hostname)).toBeNull()
   })
 
   it('normalizes hostname casing and a trailing dot', () => {
@@ -57,8 +82,17 @@ describe('platform admin hostname', () => {
   it('recognizes the admin hostname', () => {
     expect(isPlatformAdminHostname('admin.healthidentitydirectory.com')).toBe(true)
     expect(isPlatformAdminHostname('ADMIN.HEALTHIDENTITYDIRECTORY.COM.')).toBe(true)
-    expect(isPlatformAdminHostname('admin.staging.healthidentitydirectory.com')).toBe(true)
     expect(isPlatformAdminHostname('healthidentitydirectory.com')).toBe(false)
+  })
+
+  it('recognizes the staging admin hostname and no other', () => {
+    expect(isPlatformAdminHostname('admin.staging.healthidentitydirectory.com')).toBe(true)
+    expect(isPlatformAdminHostname('Admin.Staging.HealthIdentityDirectory.com.')).toBe(true)
+    for (const hostname of ['staging.healthidentitydirectory.com', 'admin.staging.staging.healthidentitydirectory.com',
+      'admin.preview.healthidentitydirectory.com', 'admin.staging.healthidentitydirectory.com.evil.test',
+      'evil-admin.staging.healthidentitydirectory.com']) {
+      expect(isPlatformAdminHostname(hostname), hostname).toBe(false)
+    }
   })
 
   it('recognizes the admin routes', () => {
@@ -69,31 +103,103 @@ describe('platform admin hostname', () => {
   })
 })
 
-describe('staging provider authentication context', () => {
+/** hid-system's Turnstile allowlist accepts only these actions on each staff product host. */
+describe('staffLoginAction', () => {
   it.each([
-    ['ehr', 'ehr-login'], ['lab', 'lab-login'], ['pharmacy', 'pharmacy-login'],
-    ['migrate', 'ocr-login'], ['outreach', 'outreach-login'],
-  ])('selects the backend action for %s', (product, action) => {
-    expect(resolveStaffLoginAction(`${product}.staging.healthidentitydirectory.com`)).toBe(action)
+    ['ehr.healthidentitydirectory.com', 'staff-login'],
+    ['lab.healthidentitydirectory.com', 'lab-login'],
+    ['pharmacy.healthidentitydirectory.com', 'pharmacy-login'],
+    ['migrate.healthidentitydirectory.com', 'ocr-login'],
+    ['outreach.healthidentitydirectory.com', 'outreach-login'],
+    ['ehr.staging.healthidentitydirectory.com', 'staff-login'],
+    ['lab.staging.healthidentitydirectory.com', 'lab-login'],
+    ['pharmacy.staging.healthidentitydirectory.com', 'pharmacy-login'],
+    ['migrate.staging.healthidentitydirectory.com', 'ocr-login'],
+    ['outreach.staging.healthidentitydirectory.com', 'outreach-login'],
+    ['MIGRATE.HEALTHIDENTITYDIRECTORY.COM.', 'ocr-login'],
+  ])('signs in on %s with %s', (hostname, action) => {
+    expect(staffLoginAction(hostname)).toBe(action)
   })
 
-  it('uses staff-login on the canonical portal', () => {
-    expect(resolveStaffLoginAction('staging.healthidentitydirectory.com')).toBe('staff-login')
+  it.each(['www.healthidentitydirectory.com', 'staging.healthidentitydirectory.com', 'localhost',
+    'migrate.example.com', 'evil-migrate.healthidentitydirectory.com', 'migrate.healthidentitydirectory.com.evil.test'])(
+    'uses the general staff action on %s', hostname => {
+      expect(staffLoginAction(hostname)).toBe('staff-login')
+    })
+})
+
+/**
+ * hid-system accepts the staff password-reset check ('staff-reset') only on the
+ * main site: www in production, staging on staging (turnstile.service.ts). A
+ * staff product host therefore sends staff to the main site's recovery page.
+ */
+describe('staffRecoveryHref', () => {
+  const WWW = 'https://www.healthidentitydirectory.com/provider/recover'
+  const STAGING = 'https://staging.healthidentitydirectory.com/provider/recover'
+
+  it.each([
+    ['lab.healthidentitydirectory.com', WWW],
+    ['pharmacy.healthidentitydirectory.com', WWW],
+    ['migrate.healthidentitydirectory.com', WWW],
+    ['outreach.healthidentitydirectory.com', WWW],
+    ['ehr.healthidentitydirectory.com', WWW],
+    ['lab.staging.healthidentitydirectory.com', STAGING],
+    ['pharmacy.staging.healthidentitydirectory.com', STAGING],
+    ['migrate.staging.healthidentitydirectory.com', STAGING],
+    ['outreach.staging.healthidentitydirectory.com', STAGING],
+    ['ehr.staging.healthidentitydirectory.com', STAGING],
+    ['LAB.HEALTHIDENTITYDIRECTORY.COM.', WWW],
+    // The admin site accepts only admin-login and admin-reset, so a staff reset is refused there too.
+    ['admin.healthidentitydirectory.com', WWW],
+    ['admin.staging.healthidentitydirectory.com', STAGING],
+  ])('sends staff on %s to the main site recovery page', (hostname, href) => {
+    expect(staffRecoveryHref(hostname)).toBe(href)
   })
 
-  it('keeps product recovery on the permitted root and returns to that product', () => {
-    expect(resolveStaffRecoveryUrl('lab.staging.healthidentitydirectory.com')).toBe(
-      'https://staging.healthidentitydirectory.com/provider/recover?returnTo=lab')
-    expect(resolveRecoverySignInUrl('staging.healthidentitydirectory.com', '?returnTo=lab')).toBe(
-      'https://lab.staging.healthidentitydirectory.com/provider/sign-in')
-    expect(resolveStaffRecoveryUrl('lab.healthidentitydirectory.com')).toBe(
-      'https://www.healthidentitydirectory.com/provider/recover?returnTo=lab')
+  it.each([
+    'www.healthidentitydirectory.com',
+    'staging.healthidentitydirectory.com',
+    'localhost',
+    '127.0.0.1',
+  ])('keeps recovery on %s, the main site or a local build', hostname => {
+    expect(staffRecoveryHref(hostname)).toBe(STAFF_RECOVERY_PATH)
   })
 
-  it('rejects unknown recovery return destinations and deceptive hosts', () => {
-    expect(resolveRecoverySignInUrl('staging.healthidentitydirectory.com', '?returnTo=https://evil.example')).toBe('/provider/sign-in')
-    expect(resolveRecoverySignInUrl('evil.example', '?returnTo=lab')).toBe('/provider/sign-in')
-    expect(resolveStaffProductHostname('lab.staging.healthidentitydirectory.com.evil.example')).toBeNull()
-    expect(isPlatformAdminHostname('admin.staging.healthidentitydirectory.com.evil.example')).toBe(false)
+  it.each([
+    'lab.healthidentitydirectory.com.evil.example',
+    'evil-lab.healthidentitydirectory.com',
+    'lab.evil.healthidentitydirectory.com',
+    'lab.healthidentitydirectory.co',
+    'lab.staging.staging.healthidentitydirectory.com',
+    'https://lab.healthidentitydirectory.com',
+    'lab.healthidentitydirectory.com/provider/recover?next=https://evil.example',
+    '',
+  ])('never builds an address from an unrecognised host (%s)', hostname => {
+    // Only three fixed destinations exist; nothing in the hostname is copied into the link.
+    expect(staffRecoveryHref(hostname)).toBe(STAFF_RECOVERY_PATH)
+  })
+})
+
+/**
+ * Clinician self sign-up (hid-system ADR-064) is checked by Turnstile actions
+ * hid-system accepts only on the main site, as the staff password reset is.
+ */
+describe('clinicianMainSiteHref', () => {
+  it.each([
+    ['ehr.healthidentitydirectory.com', 'https://www.healthidentitydirectory.com'],
+    ['lab.healthidentitydirectory.com', 'https://www.healthidentitydirectory.com'],
+    ['admin.healthidentitydirectory.com', 'https://www.healthidentitydirectory.com'],
+    ['pharmacy.staging.healthidentitydirectory.com', 'https://staging.healthidentitydirectory.com'],
+    ['admin.staging.healthidentitydirectory.com', 'https://staging.healthidentitydirectory.com'],
+  ])('sends %s to the main site', (hostname, origin) => {
+    expect(clinicianMainSiteHref(hostname, CLINICIAN_SIGNUP_PATH)).toBe(`${origin}/provider/join`)
+    expect(clinicianMainSiteHref(hostname, CLINICIAN_STATUS_PATH)).toBe(`${origin}/provider/join/status`)
+    expect(clinicianPageHref(hostname, CLINICIAN_SIGNUP_PATH)).toBe(`${origin}/provider/join`)
+  })
+
+  it.each(['www.healthidentitydirectory.com', 'staging.healthidentitydirectory.com', 'localhost',
+    'lab.healthidentitydirectory.com.evil.example', 'evil-lab.healthidentitydirectory.com'])('keeps the page on %s', hostname => {
+    expect(clinicianMainSiteHref(hostname, CLINICIAN_SIGNUP_PATH)).toBeNull()
+    expect(clinicianPageHref(hostname, CLINICIAN_STATUS_PATH)).toBe('/provider/join/status')
   })
 })

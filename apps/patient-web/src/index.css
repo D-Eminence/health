@@ -40,6 +40,13 @@
     color-scheme: light;
   }
 
+  /* Keyboard focus scrolled into view stays clear of the sticky headers: the
+     patient header (67px), the provider top bar (62px) and the admin mobile
+     header (56px). */
+  html {
+    scroll-padding-top: 80px;
+  }
+
   #root {
     min-height: 100svh;
   }
@@ -175,13 +182,15 @@
 
   .patient-state-logo { display: block; width: auto; height: 32px; margin: 48px 16px 0; }
 
-  .patient-access-state p {
+  .patient-access-state p,
+  .patient-access-state h1 {
     margin: 0;
     font-size: 15px;
     line-height: 1.45;
   }
 
-  .patient-access-state p + p {
+  .patient-access-state p + p,
+  .patient-access-state h1 + p {
     margin-top: 8px;
     color: var(--color-muted);
   }
@@ -224,8 +233,13 @@
   .patient-form { display: grid; gap: 18px; margin-top: 28px; }
   .patient-form h2, .patient-card h2, .patient-success h2 { margin: 0 0 6px; color: var(--color-ink); font-size: 20px; font-weight: 600; }
   .patient-form label, .patient-deny-form label { display: grid; gap: 7px; color: var(--color-ink); font-size: 13px; font-weight: 600; }
-  .patient-form input, .patient-form select, .patient-deny-form input { width: 100%; min-height: 46px; padding: 10px 12px; border: 1px solid var(--color-line-strong); border-radius: var(--radius-control); background: var(--color-surface); color: var(--color-ink); font: inherit; font-size: 15px; }
+  /* A label tied by id to a field it does not wrap: a password with its Show toggle beside it. */
+  .patient-field { display: grid; gap: 7px; }
+  .patient-form input, .patient-form select, .patient-deny-form input { width: 100%; min-height: 46px; padding: 10px 12px; border: 1px solid var(--color-line-control); border-radius: var(--radius-control); background: var(--color-surface); color: var(--color-ink); font: inherit; font-size: 15px; }
   .patient-form input:focus, .patient-form select:focus, .patient-deny-form input:focus { border-color: var(--color-brand); }
+  /* The typed text as in the fields whose label wraps them (they inherit the label's weight). */
+  .patient-field input { font-weight: 600; }
+  .patient-form input::placeholder, .patient-deny-form input::placeholder { color: var(--color-faint); }
   .patient-form-aside { text-align: right; }
   .patient-form-aside a, .patient-auth-footer a, .patient-text-button { color: var(--color-brand); font-weight: 600; }
   .patient-primary-button, .patient-secondary-button { display: inline-flex; min-height: 44px; align-items: center; justify-content: center; padding: 10px 16px; border: 1px solid var(--color-brand); border-radius: var(--radius-button); font-size: 14px; font-weight: 600; text-decoration: none; cursor: pointer; }
@@ -240,13 +254,27 @@
   .patient-inline-error, .patient-inline-success { margin: 18px 0; padding: 12px 14px; border-radius: var(--radius-control); font-size: 14px; line-height: 1.45; }
   .patient-inline-error { background: #fff0ef; color: #9b211d; }
   .patient-inline-success { background: #ecf9f1; color: #126239; }
-  .patient-field-hint { margin: 0; color: var(--color-muted); font-size: 13px; line-height: 1.5; }
+  /* A note about the browser's session, such as a provider's sign-in, and the link that resolves it. */
+  .patient-session-note { display: grid; justify-items: start; gap: 6px; }
+  .patient-session-note p { margin: 0; }
+  .patient-session-note a { color: var(--color-brand); font-weight: 600; text-decoration: underline; }
+  .patient-field-hint { margin: 0; color: var(--color-muted); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
   .patient-text-button { justify-self: start; padding: 0; border: 0; background: transparent; font-size: 13px; cursor: pointer; }
   .patient-step-list { display: flex; gap: 8px; margin: 26px 0 0; padding: 0; list-style: none; }
   .patient-step-list li { flex: 1; padding: 9px 4px; border-bottom: 2px solid var(--color-line-strong); color: var(--color-muted); font-size: 12px; text-align: center; }
   .patient-step-list li[aria-current] { border-color: var(--color-brand); color: var(--color-brand); font-weight: 700; }
   .patient-success { display: grid; gap: 14px; margin-top: 26px; }
   .patient-success strong { color: var(--color-brand); font-family: var(--font-mono); font-size: 22px; overflow-wrap: anywhere; }
+  /* Enrollment: a route to prove the NIN is the patient's, or a way on when one cannot help, described before its action. */
+  .patient-enroll-option { display: grid; justify-items: start; gap: 10px; min-width: 0; padding: 14px 16px; border: 1px solid var(--color-line-strong); border-radius: var(--radius-control); }
+  .patient-enroll-option :is(h2, h3), .patient-form .patient-enroll-option h2 { margin: 0; color: var(--color-ink); font-size: 16px; font-weight: 600; }
+  .patient-enroll-option :is(p, li) { margin: 0; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+  .patient-enroll-routes { display: grid; gap: 6px; margin: 0; padding-left: 20px; }
+  .patient-enroll-facilities { display: grid; gap: 12px; }
+  .patient-enroll-facility { display: grid; gap: 2px; }
+  /* The desk code a staff member reads from the patient's phone: large, fixed-width, never split mid-group. */
+  .patient-enroll-option .patient-desk-code { color: var(--color-ink); font-family: var(--font-mono); font-size: clamp(22px, 7vw, 28px); font-weight: 700; letter-spacing: 0.08em; overflow-wrap: normal; white-space: nowrap; }
+  .patient-enroll-option a:not(.patient-primary-button):not(.patient-secondary-button) { color: var(--color-brand); font-weight: 600; text-decoration: underline; }
 
   .patient-app { min-height: 100svh; background: var(--color-surface-sunk); }
   .patient-app-header { position: sticky; top: 0; z-index: 20; border-bottom: 1px solid var(--color-line-strong); background: var(--color-surface); }
@@ -287,13 +315,31 @@
   .patient-list strong { color: var(--color-ink); font-size: 15px; }
   .patient-list span { color: var(--color-muted); font-size: 13px; }
   .patient-list p { margin: 4px 0 0; color: var(--color-muted); font-size: 13px; }
+  /* Long values without spaces (file and facility names) wrap instead of widening
+     the page. A trailing note beside the title column wraps only between words:
+     anywhere would let the row squeeze it until short words split. */
+  .patient-list li > div:first-child :is(strong, span, p) { overflow-wrap: anywhere; }
+  .patient-list li > p { overflow-wrap: break-word; }
   .patient-note { flex-direction: column; }
   .patient-note p { white-space: pre-wrap; overflow-wrap: anywhere; }
   .patient-access-item { flex-wrap: wrap; }
   .patient-decision-actions { display: flex; align-items: start; gap: 8px; }
-  .patient-deny-form { display: flex; width: 100%; align-items: end; gap: 10px; }
+  .patient-deny-form { display: flex; flex-wrap: wrap; width: 100%; align-items: end; gap: 10px; }
   .patient-deny-form label { flex: 1; }
+  /* A field's rule takes its own line under the field, as it is read: the buttons follow it. */
+  .patient-deny-form .patient-field-hint { flex-basis: 100%; }
   .patient-inline-form { grid-template-columns: minmax(0, 1fr) auto; align-items: end; max-width: 420px; }
+  .patient-contact-form { width: 100%; max-width: 520px; margin-top: 12px; }
+  .patient-card .patient-checkbox, .patient-form .patient-checkbox { display: flex; align-items: center; gap: 10px; font-weight: 500; }
+  .patient-card .patient-checkbox input, .patient-form .patient-checkbox input { width: auto; min-height: 0; }
+  .patient-status-tag { justify-self: start; padding: 3px 9px; border-radius: 999px; background: #fff4e5; color: #8a4b08; font-size: 12px; font-weight: 600; }
+  .patient-status-tag-ok { background: #ecf9f1; color: #126239; }
+  .patient-danger-card { border-color: #f1c9c6; }
+  .patient-consequences { display: grid; gap: 8px; margin: 12px 0 18px; padding-left: 20px; color: var(--color-ink); font-size: 14px; line-height: 1.5; }
+  .patient-danger-button { display: inline-flex; min-height: 44px; align-items: center; justify-content: center; padding: 10px 16px; border: 1px solid #b42318; border-radius: var(--radius-button); background: #b42318; color: #fff; font-size: 14px; font-weight: 600; cursor: pointer; }
+  .patient-danger-button:disabled { cursor: not-allowed; opacity: .55; }
+  /* Read by assistive technology, not shown: the item a repeated button acts on. */
+  .patient-visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 }
 
 @media (max-width: 900px) {
@@ -310,5 +356,6 @@
   .patient-overview-grid, .patient-details { grid-template-columns: 1fr; }
   .patient-card { padding: 18px; }
   .patient-list li, .patient-deny-form, .patient-inline-form { display: grid; grid-template-columns: 1fr; }
+  .patient-list li > p { overflow-wrap: anywhere; }
   .patient-decision-actions { justify-content: start; }
 }

@@ -9,6 +9,7 @@ import {
   type CommandPaletteItem,
 } from '@hid/ui'
 import { HealthIcon, type HealthIconName } from '@/components/shared/HealthIcon'
+import { BLOG_POSTS } from '@/content/blog'
 import { PRODUCTS } from '@/content/products'
 import { APP_ENTRY, ROUTES, SOLUTION_AUDIENCES } from '@/content/site'
 
@@ -98,6 +99,33 @@ const SITE_SEARCH_ITEMS: readonly SiteSearchItem[] = [
     icon: 'file',
     keywords: ['guides', 'help', 'documentation'],
   }),
+  item({
+    id: 'earn',
+    label: 'Earn with Health ID',
+    category: 'company',
+    description: 'Refer a facility, and earn when it starts a paid plan.',
+    href: ROUTES.earn,
+    icon: 'hospital',
+    keywords: ['referral', 'refer', 'partner', 'commission', 'earn'],
+  }),
+  item({
+    id: 'blog',
+    label: 'Blog',
+    category: 'resources',
+    description: 'Notes on connected records, patient control and facility setup.',
+    href: ROUTES.blog,
+    icon: 'file',
+    keywords: ['articles', 'news', 'posts', 'updates'],
+  }),
+  ...BLOG_POSTS.map(post => item({
+    id: `blog-${post.slug}`,
+    label: post.title,
+    category: 'resources',
+    description: post.summary,
+    href: ROUTES.blogPost(post.slug),
+    icon: 'file',
+    keywords: ['blog', post.topic.toLowerCase()],
+  })),
   item({
     id: 'documentation',
     label: 'Documentation',
@@ -266,7 +294,7 @@ export function GlobalSearch() {
         >
           <HealthIcon name="search" size={18} />
           <span aria-hidden="true" className="hidden min-[1180px]:inline text-[13px] font-semibold">Search</span>
-          <kbd aria-hidden="true" className="hidden min-[1320px]:inline-flex min-h-5 items-center rounded-(--radius-compact) bg-surface-selected px-1.5 font-mono text-[10px] text-faint">⌘ K</kbd>
+          <kbd aria-hidden="true" className="hidden min-[1320px]:inline-flex min-h-5 items-center rounded-(--radius-compact) bg-surface-selected px-1.5 font-mono text-[10px] text-muted">⌘ K</kbd>
         </button>
       )}
       groups={SEARCH_GROUPS}

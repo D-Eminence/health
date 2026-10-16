@@ -31,6 +31,8 @@ export interface HidApiErrorOptions {
   readonly requestId?: string | null
   readonly retryable?: boolean
   readonly details?: unknown
+  /** Field names to result codes from the problem's `fields` member. */
+  readonly fields?: Readonly<Record<string, string>> | null
   readonly cause?: unknown
 }
 
@@ -41,6 +43,13 @@ export class HidApiError extends Error {
   readonly requestId: string | null
   readonly retryable: boolean
   readonly details: unknown
+  /**
+   * The problem's `fields` member: field names to the result codes `match`,
+   * `no_match` or `not_in_record`, never a submitted or stored value
+   * (hid-system 0094); the client drops any other value. Null when the problem
+   * has none.
+   */
+  readonly fields: Readonly<Record<string, string>> | null
 
   constructor(status: number, message: string, options: HidApiErrorOptions = {}) {
     super(message, options.cause === undefined ? undefined : { cause: options.cause })
@@ -50,6 +59,7 @@ export class HidApiError extends Error {
     this.requestId = options.requestId ?? null
     this.retryable = options.retryable ?? isRetryableStatus(status)
     this.details = options.details ?? null
+    this.fields = options.fields ?? null
   }
 
   /** True when the caller should send the user back through authentication. */
@@ -66,7 +76,7 @@ export class HidApiError extends Error {
     return this.code === 'REQUEST_CANCELLED'
   }
 
-  /** A log-safe summary. Deliberately excludes `details`, which may echo input. */
+  /** A log-safe summary. Deliberately excludes `details`, which may echo input, and `fields`. */
   toLogContext(): Record<string, unknown> {
     return {
       status: this.status,

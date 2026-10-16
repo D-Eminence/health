@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { createApiClient } from '../client'
+import { createApiClient, retryAfterSeconds } from '../client'
 import { HidApiError } from '../errors'
 import type { ApiClientOptions } from '../client'
 
@@ -298,6 +298,72 @@ describe('createApiClient: retries and deduplication', () => {
     expect(first).toEqual(second)
   })
 
+  function pendingFetch() {
+    const calls: RequestInit[] = []
+    let release: (response: Response) => void = () => undefined
+    const impl = ((_url: string, init?: RequestInit) => {
+      calls.push(init ?? {})
+      return new Promise<Response>((resolve, reject) => {
+        release = resolve
+        if (init?.signal?.aborted) reject(new DOMException('Aborted', 'AbortError'))
+        init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
+      })
+    }) as unknown as typeof fetch
+    return { calls, impl, release: (response: Response) => release(response) }
+  }
+
+  it('keeps a shared read alive for a caller that did not cancel', async () => {
+    // A remounted component (for example under React StrictMode) cancels the
+    // first read and immediately asks again for the same data.
+    const fetch = pendingFetch()
+    const client = createApiClient({ baseUrl: BASE_URL, clientId: 'test-web', fetchImpl: fetch.impl, sleep: async () => {} })
+    const first = new AbortController()
+    const firstRead = client.get('/patients-me', { auth: 'none', signal: first.signal })
+    const secondRead = client.get('/patients-me', { auth: 'none', signal: new AbortController().signal })
+    await vi.waitFor(() => expect(fetch.calls).toHaveLength(1))
+    first.abort()
+    await expect(firstRead).rejects.toMatchObject({ code: 'REQUEST_CANCELLED', retryable: false })
+    fetch.release(jsonResponse({ body: { data: { ok: true } } }))
+    await expect(secondRead).resolves.toEqual({ ok: true })
+    expect(fetch.calls).toHaveLength(1)
+  })
+
+  it('starts afresh for a caller that asks again right after the only caller cancelled', async () => {
+    // React StrictMode runs an effect, its cleanup, then the effect again.
+    const fetch = pendingFetch()
+    const client = createApiClient({ baseUrl: BASE_URL, clientId: 'test-web', fetchImpl: fetch.impl, sleep: async () => {} })
+    const first = new AbortController()
+    const firstRead = client.get('/patients-me', { auth: 'none', signal: first.signal })
+    first.abort()
+    const secondRead = client.get('/patients-me', { auth: 'none', signal: new AbortController().signal })
+    await expect(firstRead).rejects.toMatchObject({ code: 'REQUEST_CANCELLED' })
+    await vi.waitFor(() => expect(fetch.calls).toHaveLength(2))
+    fetch.release(jsonResponse({ body: { data: { ok: true } } }))
+    await expect(secondRead).resolves.toEqual({ ok: true })
+    expect(fetch.calls[0]?.signal?.aborted).toBe(true)
+  })
+
+  it('cancels a shared read once every caller has cancelled', async () => {
+    const fetch = pendingFetch()
+    const client = createApiClient({ baseUrl: BASE_URL, clientId: 'test-web', fetchImpl: fetch.impl, sleep: async () => {} })
+    const first = new AbortController()
+    const second = new AbortController()
+    const reads = [client.get('/patients-me', { auth: 'none', signal: first.signal }),
+      client.get('/patients-me', { auth: 'none', signal: second.signal })]
+    await vi.waitFor(() => expect(fetch.calls).toHaveLength(1))
+    first.abort()
+    expect(fetch.calls[0]?.signal?.aborted).toBe(false)
+    second.abort()
+    for (const read of reads) await expect(read).rejects.toMatchObject({ code: 'REQUEST_CANCELLED' })
+    expect(fetch.calls[0]?.signal?.aborted).toBe(true)
+    // A later read starts a fresh request.
+    const later = client.get('/patients-me', { auth: 'none' })
+    await vi.waitFor(() => expect(fetch.calls).toHaveLength(2))
+    fetch.release(jsonResponse({ body: { data: { fresh: true } } }))
+    await expect(later).resolves.toEqual({ fresh: true })
+    expect(fetch.calls).toHaveLength(2)
+  })
+
   it('keeps different queries separate', async () => {
     const { client, calls } = makeClient({}, [{ body: { data: {} } }])
 
@@ -318,5 +384,60 @@ describe('createApiClient: retries and deduplication', () => {
     ])
 
     expect(calls).toHaveLength(2)
+  })
+})
+
+describe('retryAfterSeconds', () => {
+  // A wait the server names, such as a code's resend cooldown, is the caller's to show;
+  // the error itself stays without it (the retry loop's own bookkeeping).
+  it('gives the Retry-After of a refused request, in seconds', async () => {
+    const { client } = makeClient({}, [{ status: 429, body: { code: 'OTP_RESEND_COOLDOWN', message: 'Wait.' }, headers: { 'Retry-After': '42' } }])
+    const error = await client.post('/codes', undefined, { auth: 'none' }).catch((reason: unknown) => reason)
+    expect(error).toBeInstanceOf(HidApiError)
+    expect(retryAfterSeconds(error)).toBe(42)
+    expect(Object.keys(error as object)).not.toContain('retryAfter')
+  })
+
+  it('is null without the header, for an error the client did not make, and for anything else', async () => {
+    const { client } = makeClient({}, [{ status: 429, body: { message: 'Slow down.' } }])
+    const error = await client.post('/codes', undefined, { auth: 'none' }).catch((reason: unknown) => reason)
+    expect(retryAfterSeconds(error)).toBeNull()
+    expect(retryAfterSeconds(new HidApiError(429, 'Slow down.'))).toBeNull()
+    expect(retryAfterSeconds(new Error('no'))).toBeNull()
+    expect(retryAfterSeconds(undefined)).toBeNull()
+  })
+})
+
+describe('beforeAttempt', () => {
+  it('runs before every attempt, the retries after a backoff included', async () => {
+    const order: string[] = []
+    const { client, fetchImpl } = makeClient({}, [{ status: 503, body: { code: 'SERVICE_UNAVAILABLE' } }, { body: { ok: true } }])
+    ;(fetchImpl as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(async () => {
+      order.push('fetch-1')
+      return jsonResponse({ status: 503, body: { code: 'SERVICE_UNAVAILABLE' } })
+    }).mockImplementationOnce(async () => {
+      order.push('fetch-2')
+      return jsonResponse({ body: { ok: true } })
+    })
+
+    await expect(client.get('/records', { auth: 'none', beforeAttempt: async () => { order.push('before') } })).resolves.toEqual({ ok: true })
+    expect(order).toEqual(['before', 'fetch-1', 'before', 'fetch-2'])
+  })
+
+  it('ends the request without sending it when it rejects, and does not retry', async () => {
+    const { client, calls } = makeClient()
+    const stopped = new HidApiError(0, 'Stopped', { code: 'REQUEST_CANCELLED', retryable: false })
+
+    await expect(client.get('/records', { auth: 'none', beforeAttempt: async () => { throw stopped } })).rejects.toBe(stopped)
+    expect(calls).toHaveLength(0)
+  })
+})
+
+describe('beforeAttempt and the CSRF token', () => {
+  it('reads the CSRF token after the wait, so a token rotated meanwhile is the one sent', async () => {
+    let csrf = 'token-before'
+    const { client, calls } = makeClient({ sessionMode: 'cookie', getCsrfToken: () => csrf })
+    await client.post('/records-create', { a: 1 }, { auth: 'none', beforeAttempt: async () => { csrf = 'token-after' } })
+    expect(new Headers(calls[0]!.init.headers).get('X-CSRF-Token')).toBe('token-after')
   })
 })

@@ -11,7 +11,7 @@ vi.mock('../env', () => ({ getEnvironment: () => ({ name: 'local' }) }))
 
 describe('patient imported-record API integration', () => {
   it('renders imported history from the patient-self endpoint even with no encounters or clinical notes', async () => {
-    const fetchImpl = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify({ encounters: [], notes: [], importedRecords: historyFixture, limit: 50 }),
+    const fetchImpl = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify({ encounters: [], notes: [], vitals: [], diagnoses: [], prescriptions: [], labRequests: [], documents: [], importedRecords: historyFixture, limit: 50 }),
       { headers: { 'content-type': 'application/json' } }))
     const api = createPatientApi(createRegisteredBrowserClient(createApiClient({ baseUrl: 'https://gateway.test',
       clientId: 'patient-web', sessionMode: 'cookie', fetchImpl: fetchImpl as typeof fetch }), 'patient-web'))

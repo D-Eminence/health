@@ -55,6 +55,29 @@ describe('hid-system service routing', () => {
     expect(new Headers(calls[0]?.init.headers).get('X-Purpose-Of-Use')).toBe('direct-care')
   })
 
+  it('sends the patient enrollment steps of hid-system main f9dbaf0 to their routes (ADR-061, ADR-062, ADR-063)', async () => {
+    const { api, calls } = harness('patient-web')
+    await api.enrollment.availability()
+    await api.enrollment.participatingFacilities()
+    await api.enrollment.sendHolderCode()
+    await api.enrollment.verifyHolder({ challengeId: '0f2b6d0e-6a55-4b4c-9a7e-2f4b8c1d3e5a', code: '123456' })
+    await api.enrollment.facilityCode()
+    await api.enrollment.activate('a-long-enough-password', { dateOfBirth: '1990-02-03', gender: 'female' })
+    await api.enrollment.activate('a-long-enough-password')
+    const base = 'https://api.staging.example/api/v1/identity/patient-enrollments'
+    expect(calls.map(call => [call.init.method ?? 'GET', call.url, call.init.body ? JSON.parse(String(call.init.body)) as unknown : null])).toEqual([
+      ['GET', `${base}/availability`, null],
+      ['GET', `${base}/participating-facilities`, null],
+      ['POST', `${base}/holder`, null],
+      ['POST', `${base}/holder/verify`, { challengeId: '0f2b6d0e-6a55-4b4c-9a7e-2f4b8c1d3e5a', code: '123456' }],
+      ['POST', `${base}/facility-code`, null],
+      ['POST', `${base}/activate`, { password: 'a-long-enough-password', dateOfBirth: '1990-02-03', gender: 'female' }],
+      ['POST', `${base}/activate`, { password: 'a-long-enough-password' }],
+    ])
+    // Only the start carries an Idempotency-Key.
+    expect(calls.map(call => new Headers(call.init.headers).get('Idempotency-Key'))).toEqual(calls.map(() => null))
+  })
+
   it('does not pretend public Outreach signup or global Migrate operations exist', () => {
     const { client } = harness('outreach-web')
     const outreach = createServiceBinding({ app: 'outreach-web', client }, 'outreach')
