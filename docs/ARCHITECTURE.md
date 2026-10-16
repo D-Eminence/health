@@ -367,8 +367,9 @@ setup-key grouping, six-digit code rules and recovery-code step are shared
 from `src/mfa/`, and file saving from `src/download.ts`.
 
 Clinician self sign-up (hid-system ADR-064, built against the unmerged backend
-branch `claude/clinician-self-signup` at `fa58e2b`) has two public pages,
-`/provider/join` and `/provider/join/status`, routed before `/provider/*` and
+branch `claude/clinician-self-signup` at `fa58e2b`, re-checked at `9e981e4`)
+has two public pages, `/provider/join` and `/provider/join/status`, routed
+before `/provider/*` and
 outside the provider workspace, as `/provider/enroll` is. They never ask
 `GET /auth/session`, hold no staff session and open none. Identity keeps the
 applicant's state in an httpOnly capability cookie (`hid_clinician_application`,
@@ -569,7 +570,8 @@ transport and row headers. An Identity without hid-system#76 answers both
 
 The console's clinician verification queue (`/admin/clinicians`,
 `admin/ClinicianApplications.tsx`; hid-system ADR-064, built against the
-unmerged branch `claude/clinician-self-signup` at `fa58e2b`) is shown for
+unmerged branch `claude/clinician-self-signup` at `fa58e2b`, re-checked at
+`9e981e4`) is shown for
 `platform.workforce.manage` and links an application by its ID only. It uses
 the console's own pieces: the state filter in the address, the backend's
 cursor per state, `useGovernedSubmit` (one Idempotency-Key per submission,
@@ -581,7 +583,9 @@ code the applicant reads from their own authenticator, from a field with
 `autocomplete="off"`, so the browser never offers the reviewer's one-time
 code there. Every outcome reloads the application; a changed application
 (`VERSION_CONFLICT`, or a step no longer open) is reloaded and said to have
-changed, and a lost answer is reloaded and said to be unconfirmed. The words a
+changed, and a lost answer is reloaded and said to be unconfirmed; a step-1
+refusal Identity makes before it checks the applicant's code keeps the form and
+says the code was not checked. The words a
 rejection shows the applicant come from the status page's own copy
 (`decisionCopy` in `staff/clinician/copy.ts`), so the console and the
 applicant read the same sentence.
@@ -591,9 +595,11 @@ current value (a state updater), so an answer that arrives late, such as a
 facility search, never puts back what was changed while it ran. The status
 page says an application page "closed" only once it has held a capability
 (an email code was checked or the applications were read); a 401 before that
-just shows the email form. A refusal that keeps a form moves focus to the
-control that can deal with it, since the one pressed was disabled while the
-request ran.
+just shows the email form. A closed intake is answered before the capability
+(hid-system `9e981e4`), so it does not show that the page is still open: the
+status page reads the applications again after one. A refusal that keeps a
+form moves focus to the control that can deal with it, since the one pressed
+was disabled while the request ran.
 
 Clinical responses use `cache: 'no-store'`; screens show loading, empty and
 error states for backend reads. `@hid/observability` handles redaction for

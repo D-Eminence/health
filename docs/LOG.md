@@ -2322,3 +2322,91 @@ fixed.
 - **Not verified.** No browser (the focus a browser drops from a disabled
   button is reasoned from the HTML focus rules; jsdom keeps it), no running
   Identity, no two-administrator run.
+
+## 2026-10-16: clinician self sign-up after main's #56 and #57, and hid-system's second review round (`9e981e4`)
+
+The same branch (`claude/clinician-signup-pages`, not pushed), with `main`
+`a59b23a` merged in and the pages and queue re-checked against the backend
+branch `claude/clinician-self-signup` from `fc29731` to `9e981e4` (its second
+review round: `e57aa98` to `9e981e4`, read in `services/identity-api` and
+`docs/INTERFACE_CONTRACT.md`). The backend branch is still not merged or
+deployed.
+
+- **Merge of `main`** (`1b93602`, a merge commit; no rebase). Conflicts, each
+  resolved keeping both sides: `admin/problems.ts` (the queue's codes and the
+  designation panel's `FACILITY_NOT_ACTIVE` and `ADMIN_FACILITY_NOT_FOUND`),
+  `admin/style.css` (both blocks), `__tests__/UnifiedPortalRoutes.test.tsx`
+  (the clinician availability mock and main's participating-facilities mock)
+  and this log (main's entries first, then the clinician ones). One merge that
+  applied cleanly needed a change: this branch lists the public site's
+  enrollment routes instead of granting the whole service, so main's four new
+  patient routes (`enrollment.holder`, `holderVerify`, `facilityCode`,
+  `participatingFacilities`) were added to that list, which the public site
+  could reach on `main` (`packages/contracts/src/boundaries.ts` and its test).
+- **The intake gate before the capability** (backend `354917c`). P3, P4 and
+  P14 now answer a closed intake (`503 CLINICIAN_SIGNUP_CLOSED`) before they
+  read the capability, whatever cookie is sent or missing, so the answer no
+  longer shows that the page is still open. Sign-up's facility search keeps
+  the details and says to try again later, as its submit did; the status
+  page's "Apply to another facility" closes (what was typed is kept), the
+  applications are read again, and the status line says no application was
+  sent. That read shows the email form if the page has closed meanwhile, or
+  the list with "New clinician applications aren't open right now." in place
+  of the apply button; if it fails, the list stays with that change and the
+  failure's Retry (`47b604c`).
+- **Five hashed submissions per draft** (`8dac32f`). P4 answers `401
+  CLINICIAN_APPLICATION_SESSION_INVALID` once a draft has had five
+  submissions hashed, as it does for an expired draft; the page cannot tell
+  them apart, so "Confirm your email again" now says the confirmation "lasts
+  an hour and covers up to five attempts to submit" (`47b604c`). P4's 400 and
+  409 refusals are answered without hashing and the draft stays usable: the
+  page already kept the step for them, and a replay (not hashed) still shows
+  "already received ... with the password you entered then".
+- **The caps where the application is created** (`b13410e`). A `429
+  CLINICIAN_APPLICATION_RATE_LIMITED` at P4 or P14 can now be the platform's
+  daily cap met inside the creating transaction (nothing is created), so it
+  is said as "Too many applications have been sent, from your network or to
+  Health ID today", with the details kept (`47b604c`). `409
+  CLINICIAN_APPLICATION_FACILITY_BUSY` held under concurrency changes no
+  answer: both pages already said it and kept the form.
+- **Step 1's pre-check** (`b8c5739`). Before the applicant's code is checked,
+  step 1 now also refuses the request's own fields (`400
+  CLINICIAN_APPLICATION_COMMAND_INVALID`: `validUntil` range and the licence's
+  end, the checklist, a blank evidence reference or reason), a key already
+  used for a credential attestation (`409 IDEMPOTENCY_CONFLICT`), and an
+  account or staff record the attestation cannot be recorded for (`409
+  WORKFORCE_ACCOUNT_INELIGIBLE`, `409 WORKFORCE_STAFF_INELIGIBLE`, `404
+  WORKFORCE_STAFF_NOT_FOUND`). The console says for each that nothing was
+  recorded and the code was not checked (so it did not count against the
+  applicant), keeps the code and the form, and names the next step; a `404`
+  no longer shows Identity's bare detail (`8ac7106`).
+- **`403 CLINICIAN_APPLICATION_STAFF_SIGN_IN_REQUIRED`** (round 1, unchanged
+  by round 2) now has its next step: at the status page's code check (P11) the
+  code step gives way to "Your authenticator can't be set up here" with a link
+  to provider sign-in and "Check another email address"; the authenticator
+  step's blocked screen (P7, P9) links to provider sign-in for this answer
+  only (`47b604c`).
+- **Unchanged by round 2, checked:** P3's `409
+  CLINICIAN_APPLICATION_REQUIRES_SIGN_OUT` for a draft in a signed-in browser
+  (now after the gate; the same words); P5-P13's `401` for a missing or
+  malformed cookie (already "this page closed", or the email form before a
+  capability was held); P4's `400 PASSWORD_INVALID` and pairing refusal moved
+  to the body checks (the same answers); the SQLSTATE assertions of
+  `1e15213` and the tests of `c1af25a` and `c64909f` (backend only).
+- **Past `9e981e4`, not handled here.** The local backend branch has since
+  merged hid-system `main`, renumbered its migration to `0096` (`168f64d`) and
+  answers P3's spent search budget with `429
+  CLINICIAN_APPLICATION_SEARCH_LIMITED` and no `Retry-After` (`7cd8038`, head
+  `1d6ff6f`); the search would show that code's fallback, "We couldn't search
+  for facilities right now. Try again." (OPEN-QUESTIONS).
+- **Evidence.** Failing first: 5 for the console (`8ac7106`), 11 for the
+  applicant pages (`47b604c`: 3 sign-up, 6 status page, 2 authenticator). At
+  each commit `audit:boundaries`, `typecheck`, `lint`, `npx vitest run`,
+  `build:patient-web` and `audit:launch-build` pass. `npx vitest run`: 172
+  files and 2389 tests after the merge, 2394 after the console, 2399 after
+  the pages. The first full run after the merge had one failure,
+  `OcrFields.test.tsx` "NEW-OCR-CREATE-DISABLED" (not changed here), which
+  passed alone and in the full rerun.
+- **Not verified.** No browser, no running Identity (with or without the
+  clinician routes), no two-administrator run, and no run against the backend
+  branch's head past `9e981e4`.
