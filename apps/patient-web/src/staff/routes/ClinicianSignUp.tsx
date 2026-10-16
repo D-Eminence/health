@@ -15,7 +15,7 @@ import { ClinicianFrame, ErrorSummary, MainSiteOnly, PrimaryButton, StepError, S
   type Problem } from '../clinician/ui'
 
 /**
- * Clinician self sign-up at /provider/join (hid-system ADR-064, owner decision
+ * Clinician self sign-up at /provider/join (hid-system ADR-066, owner decision
  * 2): a doctor or nurse proves a work email with a code, gives their name,
  * licence and facility, chooses a password, and sets up an authenticator
  * before two HID administrators review the application. Identity creates the

@@ -3,7 +3,7 @@ import { createRegisteredBrowserClient } from '@hid/api'
 import { getEnvironment } from './env'
 
 /**
- * Clinician self sign-up and its status page (hid-system ADR-064, branch
+ * Clinician self sign-up and its status page (hid-system ADR-066, branch
  * claude/clinician-self-signup; INTERFACE_CONTRACT "Clinician self sign-up").
  * A doctor or nurse proves a work email with a code, applies with a licence
  * and a facility, and sets up an authenticator before two HID administrators

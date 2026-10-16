@@ -79,7 +79,7 @@ export function App() {
   return <ProductHostnameGate><Routes>
     <Route path={STAFF_RECOVERY_PATH} element={<PrincipalRecovery audience="staff" />} />
     <Route path="/provider/enroll" element={<Suspense fallback={<main><p role="status">Opening provider enrollment…</p></main>}><ProviderEnrollment /></Suspense>} />
-    {/* Clinician self sign-up (hid-system ADR-064): public, outside the provider workspace and its session. */}
+    {/* Clinician self sign-up (hid-system ADR-066): public, outside the provider workspace and its session. */}
     <Route path={CLINICIAN_SIGNUP_PATH} element={<Suspense fallback={<main><p role="status">Opening clinician sign-up…</p></main>}><ClinicianSignUp /></Suspense>} />
     <Route path={CLINICIAN_STATUS_PATH} element={<Suspense fallback={<main><p role="status">Opening your clinician application…</p></main>}><ClinicianApplicationStatus /></Suspense>} />
     <Route path="/admin/recover" element={<PrincipalRecovery audience="admin" />} />

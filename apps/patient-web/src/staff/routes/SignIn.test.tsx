@@ -21,7 +21,7 @@ function serveFrom(hostname: string) { jsdom.reconfigure({ url: `https://${hostn
 
 beforeEach(() => { vi.clearAllMocks(); calls.state = { status: 'signed-out' } })
 
-// Clinician self sign-up's way in (hid-system ADR-064) asks Identity whether intake is open.
+// Clinician self sign-up's way in (hid-system ADR-066) asks Identity whether intake is open.
 const clinician = vi.hoisted(() => ({ availability: vi.fn() }))
 vi.mock('../clinicianApplicationApi', () => ({ clinicianApplicationApi: clinician }))
 beforeEach(() => { clinician.availability.mockReset(); clinician.availability.mockResolvedValue({ open: false }) })
@@ -139,7 +139,7 @@ describe('a sign-in that Identity ended for want of an authenticator (403 STAFF_
   })
 })
 
-describe('clinician self sign-up from the provider sign-in page (hid-system ADR-064)', () => {
+describe('clinician self sign-up from the provider sign-in page (hid-system ADR-066)', () => {
   it('offers clinician sign-up while Identity says it is open', async () => {
     clinician.availability.mockResolvedValueOnce({ open: true })
     vi.stubGlobal('turnstile', { render: vi.fn(() => 'widget-1'), remove: vi.fn(), reset: vi.fn() })

@@ -181,7 +181,7 @@ describe('application boundaries', () => {
     expect(() => assertEndpointAllowed('staff-web', 'auth.googleExchange')).toThrow(BoundaryViolationError)
   })
 
-  it('registers clinician self sign-up (hid-system ADR-064) for the provider portal only', () => {
+  it('registers clinician self sign-up (hid-system ADR-066) for the provider portal only', () => {
     const base = '/api/v1/identity/clinician-applications'
     const applicationId = '0f2b6d0e-6a55-4b4c-9a7e-2f4b8c1d3e5a'
     const routes = [
@@ -215,7 +215,7 @@ describe('application boundaries', () => {
     expect(APP_ROUTE_GRANTS['staff-web']?.enrollment?.filter(name => name.startsWith('enrollment.clinician'))).toHaveLength(routes.length)
   })
 
-  it('registers the clinician verification queue (hid-system ADR-064) for the platform console only', () => {
+  it('registers the clinician verification queue (hid-system ADR-066) for the platform console only', () => {
     const base = '/api/v1/admin/clinician-applications'
     const applicationId = '0f2b6d0e-6a55-4b4c-9a7e-2f4b8c1d3e5a'
     const routes = [

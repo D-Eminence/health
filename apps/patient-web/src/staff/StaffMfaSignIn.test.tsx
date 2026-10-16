@@ -14,7 +14,7 @@ import { parse } from '../__tests__/cssRules'
  * and HTTP client run; only the network is replaced.
  */
 vi.mock('./env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.example.test', turnstileSiteKey: null }) }))
-// Provider sign-in also asks whether clinician self sign-up is open (hid-system ADR-064); that has tests of its own.
+// Provider sign-in also asks whether clinician self sign-up is open (hid-system ADR-066); that has tests of its own.
 vi.mock('./clinicianApplicationApi', () => ({ clinicianApplicationApi: { availability: () => Promise.resolve({ open: false }) } }))
 
 const SESSION = 'GET /api/v1/auth/session'

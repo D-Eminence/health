@@ -7,7 +7,7 @@ import type { AdminActor, ClinicianApplicationDetail, ClinicianApplicationSummar
 import { StepUpProvider } from '../StepUp'
 
 /**
- * The clinician verification queue (hid-system ADR-064, branch
+ * The clinician verification queue (hid-system ADR-066, branch
  * claude/clinician-self-signup at fa58e2b): A1 list, A2 detail, A3 step 1,
  * A4 step 2 by a different Super Admin, A5 reject. The network is stubbed at
  * adminApi; the contract is the backend's ClinicianApplicationAdminService and

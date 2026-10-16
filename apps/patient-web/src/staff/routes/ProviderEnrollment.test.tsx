@@ -12,7 +12,7 @@ import { ProviderEnrollment } from './ProviderEnrollment'
 const api = vi.hoisted(() => ({ start: vi.fn(), verify: vi.fn(), activate: vi.fn() }))
 const staff = vi.hoisted(() => ({ verifyMfa: vi.fn(), sendEnrollmentCode: vi.fn(), startEnrollment: vi.fn(), activateEnrollment: vi.fn() }))
 vi.mock('../api', () => ({ providerEnrollmentApi: api, staffApi: staff }))
-// Clinician self sign-up's way in (hid-system ADR-064) asks Identity whether intake is open.
+// Clinician self sign-up's way in (hid-system ADR-066) asks Identity whether intake is open.
 const clinician = vi.hoisted(() => ({ availability: vi.fn() }))
 vi.mock('../clinicianApplicationApi', () => ({ clinicianApplicationApi: clinician }))
 vi.mock('../../env', () => ({ getEnvironment: () => ({ name: 'local', turnstileSiteKey: null,
@@ -242,7 +242,7 @@ describe('provider enrollment activation, then the authenticator (hid-system #71
   })
 })
 
-describe('clinician self sign-up from provider enrollment (hid-system ADR-064)', () => {
+describe('clinician self sign-up from provider enrollment (hid-system ADR-066)', () => {
   it('sends a doctor or nurse to clinician sign-up while it is open: provider enrollment is for facility administrators', async () => {
     clinician.availability.mockResolvedValueOnce({ open: true })
     open()

@@ -90,7 +90,7 @@ export function SignIn() {
   const [turnstileResetKey, setTurnstileResetKey] = useState(0)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  // A right password for an account with no active facility: a clinician applicant not yet approved, perhaps (ADR-064).
+  // A right password for an account with no active facility: a clinician applicant not yet approved, perhaps (ADR-066).
   const [noFacility, setNoFacility] = useState(false)
   // The second step Identity asked for, while it is shown. The password form is gone meanwhile, so each is a new one.
   const [challenge, setChallenge] = useState<StaffLoginChallenge | null>(null)

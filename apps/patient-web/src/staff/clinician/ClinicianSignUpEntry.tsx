@@ -4,7 +4,7 @@ import { CLINICIAN_SIGNUP_PATH, CLINICIAN_STATUS_PATH, clinicianPageHref, type C
 import { clinicianApplicationApi } from '../clinicianApplicationApi'
 
 /**
- * The way into clinician self sign-up (hid-system ADR-064) from the provider
+ * The way into clinician self sign-up (hid-system ADR-066) from the provider
  * sign-in and provider enrollment pages. "Sign up as a clinician" is offered
  * only while Identity says intake is open (`{ open: true }`); anything else,
  * an outage included, says sign-up is not open yet. The status page is always

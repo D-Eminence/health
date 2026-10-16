@@ -5,7 +5,7 @@ import { HidApiError } from '@hid/http'
 import { ClinicianAuthenticator, type ClinicianAuthenticatorProps } from './ClinicianAuthenticator'
 
 /**
- * The applicant's authenticator steps (hid-system ADR-064, P5-P9) and each
+ * The applicant's authenticator steps (hid-system ADR-066, P5-P9) and each
  * 0088 answer they can meet. None of them signs anyone out: a refused code
  * stays on its step, an outage keeps what was typed, an expired step is
  * opened again, and only the end of the application page (401

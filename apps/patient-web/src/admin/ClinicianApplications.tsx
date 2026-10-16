@@ -13,7 +13,7 @@ import { isSixDigitCode, sixDigitCode } from '../mfa/codes'
 import { decisionCopy, lagosToday, REGULATOR_NAME } from '../staff/clinician/copy'
 
 /**
- * The clinician verification queue (hid-system ADR-064, branch
+ * The clinician verification queue (hid-system ADR-066, branch
  * claude/clinician-self-signup at fa58e2b): doctors and nurses who applied by
  * themselves at /provider/join. One Super Admin checks the licence, the person
  * (with a live code from the applicant's own authenticator, read out on the

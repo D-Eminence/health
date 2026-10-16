@@ -14,7 +14,7 @@ import { PrimaryButton, StepError, StepHeading, TextButton, shownError } from '.
 
 /**
  * The authenticator an applicant sets up, or verifies, before any review
- * (hid-system ADR-064, P5-P9), on the application page: no session is issued
+ * (hid-system ADR-066, P5-P9), on the application page: no session is issued
  * and nothing here signs anyone in. The capability cookie drives a 0088
  * challenge Identity derives and never sends, so the steps are the staff
  * sign-in's (an emailed proof, the setup key, the first code and the recovery
