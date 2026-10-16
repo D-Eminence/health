@@ -55,7 +55,7 @@ export const APP_BOUNDARIES = {
   'staff-web': {
     app: 'staff-web',
     purpose: 'Provider workflows: care, laboratory, pharmacy, OCR and outreach.',
-    services: ['auth', 'enrollment', 'identity', 'ehr', 'access', 'files', 'lab', 'pharmacy', 'ocr', 'outreach'],
+    services: ['auth', 'enrollment', 'identity', 'ehr', 'access', 'files', 'lab', 'pharmacy', 'ocr', 'outreach', 'commercial'],
     handlesPhi: true,
   },
   'ehr-web': {
@@ -106,13 +106,23 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
   'public-web': {
     auth: ['auth.patientLogin', 'auth.staffLogin', 'auth.googleNonce', 'auth.googleOnboarding',
       'auth.googleExchange', 'auth.otpStart', 'auth.otpVerify', 'auth.otpComplete'],
+    // The enrollment routes the public site could reach before clinician self
+    // sign-up, unchanged (with the patient NIN holder and facility routes main
+    // added, hid-system #84 and #85); clinician sign-up is the provider portal's (staff-web).
+    enrollment: ['enrollment.availability', 'enrollment.start', 'enrollment.current', 'enrollment.google',
+      'enrollment.holder', 'enrollment.holderVerify', 'enrollment.facilityCode', 'enrollment.participatingFacilities',
+      'enrollment.contact', 'enrollment.verifyContact', 'enrollment.activate',
+      'enrollment.providerStart', 'enrollment.providerVerify', 'enrollment.providerActivate',
+      'identity.organizationApply', 'identity.organizationCompletionStart', 'identity.organizationCompletionVerify',
+      'identity.organizationCompletionProfile'],
   },
   'patient-web': {
     auth: ['auth.patientLogin', 'auth.googleNonce', 'auth.googleOnboarding', 'auth.googleExchange',
       'auth.googleLink', 'auth.session', 'auth.refresh', 'auth.logout', 'auth.otpStart',
       'auth.otpVerify', 'auth.otpComplete'],
-    enrollment: ['enrollment.start', 'enrollment.current', 'enrollment.google', 'enrollment.contact',
-      'enrollment.verifyContact', 'enrollment.activate'],
+    enrollment: ['enrollment.availability', 'enrollment.start', 'enrollment.current', 'enrollment.google',
+      'enrollment.holder', 'enrollment.holderVerify', 'enrollment.facilityCode', 'enrollment.participatingFacilities',
+      'enrollment.contact', 'enrollment.verifyContact', 'enrollment.activate'],
     identity: ['identity.me', 'identity.accessHistory', 'identity.accessPin', 'identity.verifyNin',
       'identity.accountDeletion', 'identity.accountDeletionConfirm', 'identity.accountDeletionCancel',
       'identity.emergencyContacts', 'identity.emergencyContact', 'identity.emergencyContactDeactivate',
@@ -121,19 +131,34 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
     ehr: ['ehr.myRecords'],
   },
   'staff-web': {
-    auth: ['auth.staffLogin', 'auth.session', 'auth.refresh', 'auth.logout', 'auth.facility',
+    // Staff sign-in is two steps since hid-system #71: the password, then an
+    // authenticator code, or a first enrolment. Google sign-in is for patients only.
+    auth: ['auth.staffLogin', 'auth.staffMfaVerify', 'auth.staffMfaEnrollEmailCode', 'auth.staffMfaEnrollStart',
+      'auth.staffMfaEnrollActivate', 'auth.session', 'auth.refresh', 'auth.logout', 'auth.facility',
       'auth.otpStart', 'auth.otpVerify', 'auth.otpComplete'],
-    enrollment: ['enrollment.providerStart', 'enrollment.providerVerify', 'enrollment.providerActivate'],
+    enrollment: ['enrollment.providerStart', 'enrollment.providerVerify', 'enrollment.providerActivate',
+      // Clinician self sign-up and its status page (hid-system ADR-064), public pages outside the workspace.
+      'enrollment.clinicianAvailability', 'enrollment.clinicianEmailCode', 'enrollment.clinicianEmailVerify',
+      'enrollment.clinicianFacilitySearch', 'enrollment.clinicianSubmit', 'enrollment.clinicianAuthenticatorEmailCode',
+      'enrollment.clinicianAuthenticatorStart', 'enrollment.clinicianAuthenticatorActivate',
+      'enrollment.clinicianAuthenticatorVerify', 'enrollment.clinicianAuthenticatorChallenge',
+      'enrollment.clinicianStatusEmailCode', 'enrollment.clinicianStatusEmailVerify', 'enrollment.clinicianCurrent',
+      'enrollment.clinicianWithdraw', 'enrollment.clinicianApply', 'enrollment.clinicianSessionEnd'],
     identity: ['identity.patientLookup', 'identity.authorization', 'identity.consentStatus',
       'identity.facilityAudit',
       'identity.registrationCapabilities', 'identity.resolveNin', 'identity.registrationCase',
       'identity.registrationApprove', 'identity.registrationEnroll', 'identity.registrationLink',
-      'identity.organizationVerifyCac'],
+      'identity.organizationVerifyCac',
+      // The in-person check of facility-assisted registration (hid-system #85, ADR-063).
+      'identity.assistedVerifications'],
     access: ['access.staffRequests', 'access.breakGlass', 'access.verifyPin', 'access.closeOwnGrant'],
     ehr: ['ehr.emergencyRecords', 'ehr.encounters', 'ehr.encounter', 'ehr.vitals', 'ehr.vital',
       'ehr.vitalCorrections', 'ehr.notes', 'ehr.note', 'ehr.noteRevisions', 'ehr.diagnoses',
       'ehr.diagnosis', 'ehr.prescriptions', 'ehr.prescription', 'ehr.prescriptionPharmacy',
       'ehr.labRequests', 'ehr.labRequest', 'ehr.labRequestLabWorkItem'],
+    // Facility billing (docs/BILLING_SPEC.md; proposed routes) and the price catalogue it shows. Not demo requests.
+    commercial: ['commercial.pricing', 'commercial.subscription', 'commercial.subscriptionTrial',
+      'commercial.subscriptionCheckout', 'commercial.invoices'],
   },
   'admin-web': {
     // Platform administration uses its own MFA-verified session (Stage 2A);

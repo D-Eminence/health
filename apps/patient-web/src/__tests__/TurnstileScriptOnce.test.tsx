@@ -13,7 +13,7 @@ import { MemoryRouter } from 'react-router-dom'
  * again, and a script that loads without Turnstile is reported, not ignored.
  */
 vi.mock('../env', () => ({ getEnvironment: () => ({ name: 'production', turnstileSiteKey: 'site-key', apiBaseUrl: 'https://gateway.test' }) }))
-vi.mock('../staff/env', () => ({ getEnvironment: () => ({ name: 'production', turnstileSiteKey: 'site-key' }) }))
+vi.mock('../staff/env', () => ({ getEnvironment: () => ({ name: 'production', turnstileSiteKey: 'site-key', apiBaseUrl: 'https://gateway.test' }) }))
 vi.mock('../staff/App', () => ({ useStaff: () => ({ state: { status: 'signed-out' }, login: vi.fn() }) }))
 vi.mock('../admin/env', () => ({ environment: () => ({ name: 'production', turnstileSiteKey: 'site-key', apiBaseUrl: 'https://gateway.test' }) }))
 vi.mock('../admin/api', () => ({ adminApi: {} }))

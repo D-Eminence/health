@@ -60,11 +60,21 @@ const encounterTransitions: Readonly<Record<string, readonly StatusOption[]>> = 
 }
 // Since hid-system #64 (CLIN-EIE, migration 0084) EHR closes an encounter's records
 // in the same change (encounters.service.ts CLOSE_STEPS): cancelling cancels its
-// draft, active and on-hold prescriptions and lab requests; entered in error marks
-// those orders, its notes and its diagnoses entered in error. Completed orders,
-// vitals and documents keep their state, and neither Pharmacy nor Lab is told. Every
-// encounter status form offers Cancel and Mark entered in error, and any encounter may hold orders.
-const ENCOUNTER_CLOSES_RECORDS = 'Cancelling this encounter also cancels its draft, active and on-hold prescriptions and lab requests. Marking it entered in error marks those orders, and its notes and diagnoses, entered in error. Completed orders, vitals and documents are not changed. Pharmacy and the Laboratory are not told: contact the pharmacy or laboratory about any order sent to them.'
+// draft, active and on-hold prescriptions and lab requests and keeps everything else.
+// Since hid-system #74 (ENC-RETRACT-2, migration 0090) entered in error marks its
+// notes, its diagnoses, its final vitals, its draft, active, on-hold and completed
+// orders, and its initiated or uploaded documents entered in error. Neither Pharmacy
+// nor Lab is told. Every encounter status form offers Cancel and Mark entered in
+// error, and any encounter may hold these records.
+const ENCOUNTER_CLOSES_RECORDS = 'Cancelling this encounter also cancels its draft, active and on-hold prescriptions and lab requests; its notes, diagnoses, vitals, documents and completed orders are not changed. Marking it entered in error also marks entered in error its notes, diagnoses and vitals, its documents (other than rejected uploads), and its prescriptions and lab requests that are not cancelled, completed ones included. Pharmacy and the Laboratory are not told: contact the pharmacy or laboratory about any order sent to them.'
+/**
+ * Since hid-system #74 (ENC-RETRACT-1) a close that would change a kind of record the actor
+ * may not write is refused, with nothing written, as 403 ENCOUNTER_RETRACTION_NOT_PERMITTED.
+ * Its fixed detail names no kind, so as not to tell a role which records it holds; nor does this.
+ */
+function retractionNotPermitted(status: string) {
+  return `You may not ${status === 'cancelled' ? 'cancel this encounter' : 'mark this encounter entered in error'}: it holds records that this change would also change, and your role may not change all of them. Nothing was changed. Ask a colleague whose role may change all of its records (usually a doctor or clinician) to make this change.`
+}
 // The statuses whose change also changes the encounter's records (above).
 const CLOSING_STATUSES: ReadonlySet<string> = new Set(['cancelled', 'entered_in_error'])
 const prescriptionTransitions: Readonly<Record<string, readonly StatusOption[]>> = {
@@ -662,11 +672,15 @@ function VitalCorrectionForm({ id, current, disabled, onCorrect }: {
  * A vital is never edited: EHR appends a correction and the list row keeps the
  * recorded values. Where a correction exists its values are shown as current,
  * and if it cannot be read the recorded values are not passed off as current.
+ * Since hid-system #74 (migration 0090) a vital marked entered in error keeps its
+ * values and corrections and takes no further correction (409 VITAL_NOT_AMENDABLE),
+ * so it is marked and offers none. An EHR before #74 sends no status: every vital is final.
  */
 function VitalPanel({ facilityId, patientId, encounterId, vital, canCorrect, disabled, onCorrect }: {
   facilityId: string; patientId: string; encounterId: string; vital: ClinicalRecord
   canCorrect: boolean; disabled: boolean; onCorrect: VitalCorrect
 }) {
+  const retracted = vital.status === 'entered_in_error'
   const correctionNo = Number(vital.currentCorrectionNo ?? 0)
   const corrected = correctionNo > 0
   const [latest, setLatest] = useState<VitalCorrection | null>(null)
@@ -685,6 +699,7 @@ function VitalPanel({ facilityId, patientId, encounterId, vital, canCorrect, dis
   }, [facilityId, patientId, encounterId, vital.id, corrected, correctionNo])
   const current: VitalValues | null = corrected ? latest?.replacementValues ?? null : vital
   return <>
+    {retracted && <><Badge tone="warning">Entered in error</Badge><p>Recorded in error: do not use these values. They can no longer be corrected.</p></>}
     {!corrected && <p>{vitalSummary(vital)}</p>}
     {corrected && !latest && !loadError && <p role="status">Loading the correction…</p>}
     {latest && <><Detail label={`Corrected (correction ${latest.correctionNo})`} value={vitalSummary(latest.replacementValues)} />
@@ -692,7 +707,7 @@ function VitalPanel({ facilityId, patientId, encounterId, vital, canCorrect, dis
       <Detail label="Corrected at" value={latest.createdAt ? new Date(latest.createdAt).toLocaleString() : ''} /></>}
     {loadError && <p className="staff-error" role="alert">These vitals were corrected, but the correction could not be loaded, so the values below are as first recorded and may not be current. {loadError}</p>}
     {corrected && <Detail label="Originally recorded" value={vitalSummary(vital)} />}
-    {canCorrect && current && <>
+    {canCorrect && current && !retracted && <>
       <Button id={`vital-${vital.id}-correct`} tone="secondary" size="sm" aria-expanded={open} onClick={() => setOpen(value => !value)}>{open ? 'Close correction' : 'Correct these vitals'}</Button>
       {open && <VitalCorrectionForm id={`vital-${vital.id}`} current={current} disabled={disabled} onCorrect={onCorrect} />}
     </>}
@@ -1356,6 +1371,9 @@ export function Clinical() {
         ...(status === 'completed' ? { endedAt: isoNow() } : {}),
       })
     } catch (caught) {
+      if (isHidApiError(caught) && caught.status === 403 && caught.code === 'ENCOUNTER_RETRACTION_NOT_PERMITTED') {
+        throw new Error(retractionNotPermitted(status))
+      }
       // Someone changed the encounter first: show it as it is now (the status
       // form is rebuilt for it) and say why the change was not made.
       if (!isHidApiError(caught) || (caught.status !== 409 && caught.status !== 412)) throw caught
@@ -1370,8 +1388,9 @@ export function Clinical() {
     // The changed encounter may not be on the page shown; it stays documented as changed.
     if (updated?.id) setSelection(current => current?.id === updated.id ? updated : current)
     await loadEncounters({ cursors: 'shown', fresh: true })
-    // The answer is the encounter alone: the records it closed are read again (hid-system #64),
-    // in the tab shown now, which the clinician may have changed while the change was sent.
+    // The answer does not carry the records it closed (hid-system #64; since #74 only their ids, in
+    // `cascade`): they are read again, in the tab shown now, which the clinician may have changed
+    // while the change was sent.
     if (CLOSING_STATUSES.has(status)) {
       const [, , shownEncounter, shownTab] = JSON.parse(recordScopeShown.current) as unknown[]
       if (shownEncounter === selected.id && typeof shownTab === 'string' && shownTab !== 'documents') await loadRecords(shownTab as RecordKind, 'shown', true)
@@ -1440,8 +1459,24 @@ export function Clinical() {
     if (!expectedRowVersion) throw new Error('Reload the vitals before correcting them.')
     setSuccess('')
     await verify()
-    await staffApi.correctVital(facility.id, patientId, encounterId, record.id,
-      { expectedRowVersion, changeReason: reason, replacementValues }, key)
+    try {
+      await staffApi.correctVital(facility.id, patientId, encounterId, record.id,
+        { expectedRowVersion, changeReason: reason, replacementValues }, key)
+    } catch (caught) {
+      // Changed since it was loaded: corrected, or (hid-system #74) marked entered in error on its
+      // own or with its encounter. Either change raises its row version, which EHR checks first, so
+      // it answers 412; 409 VITAL_NOT_AMENDABLE answers only the version of a vital already entered
+      // in error, which offers no correction here. What was shown is read again, the form, built for
+      // the old version, goes, and what is said follows the vital as read.
+      if (!isHidApiError(caught) || (caught.status !== 412 && caught.code !== 'VITAL_NOT_AMENDABLE')) throw caught
+      const items = await loadRecords('vitals', 'shown', true)
+      const retracted = caught.code === 'VITAL_NOT_AMENDABLE'
+        || (Array.isArray(items) && items.some(item => item.id === record.id && item.status === 'entered_in_error'))
+      setError(`${retracted ? 'These vitals were marked entered in error since they were loaded, so the correction was not saved.'
+        : 'These vitals changed since they were loaded, so the correction was not saved: check them, and correct them again if it is still needed.'}${reloadSentence(items, 'vitals', true)}`)
+      focus([`record-${record.id}-title`, 'clinical-records-title'], true)
+      return
+    }
     setSuccess('Vital correction saved.')
     await loadRecords('vitals', 'shown', true)
     // The rebuilt vitals show their correction only once it is read, so the record itself takes focus.

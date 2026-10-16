@@ -5,8 +5,9 @@ import { adminApi, type MfaEnrollment, type PlatformLoginChallenge } from './api
 import { environment } from './env'
 import { failure, isProblem } from './problems'
 import { RecoveryCodes } from './RecoveryCodes'
+import { SIX_DIGIT_CODE_FIELD, formatSetupKey, isRecoveryCode, isSixDigitCode, sixDigitCode } from '../mfa/codes'
 import { Turnstile } from './Turnstile'
-import { BrandLogo } from '../BrandLogo'
+import { AuthLayout } from '../AuthLayout'
 import { date } from './ui'
 
 type Step =
@@ -18,10 +19,8 @@ type Step =
 
 const SIGN_IN_FAILED = 'Sign-in failed. Check your email and password. Only platform administrators can sign in here.'
 
-/** Groups a base32 setup key for manual entry (`ABCD EFGH …`). */
-export function formatSetupKey(secret: string) {
-  return secret.replace(/(.{4})(?=.)/g, '$1 ')
-}
+/** The setup key's grouping is shared with the provider portal; re-exported for the console's callers. */
+export { formatSetupKey }
 
 /**
  * Platform administration sign-in (hid-system Stage 2A): a password, then a
@@ -48,15 +47,21 @@ export function AdminSignIn({ onSignedIn, notice }: {
     catch (caught) { restart(caught instanceof Error ? caught.message : 'Platform administration could not be opened.') }
   }
 
-  /** The challenge cookie expired, was used up or was never set. */
+  /**
+   * The challenge cookie expired, was used up or was never set; or, for an
+   * account that also works at a facility, Identity enrols the authenticator
+   * at staff sign-in only (hid-system #71), so this challenge cannot go on.
+   */
   function mfaFailure(caught: unknown, fallback: string) {
-    if (isProblem(caught, 'MFA_CHALLENGE_INVALID')) { restart(failure(caught, fallback)); return }
+    if (isProblem(caught, 'MFA_CHALLENGE_INVALID') || isProblem(caught, 'MFA_ENROLLMENT_STAFF_SIGN_IN_REQUIRED')) {
+      restart(failure(caught, fallback)); return
+    }
     setError(failure(caught, fallback))
   }
 
-  return <main className="admin-auth"><div className="admin-auth-card">
-    <BrandLogo className="admin-auth-logo" />
-    <p className="admin-eyebrow">Health ID platform</p>
+  return <AuthLayout brandTo="/admin/sign-in" brandLabel="Health ID platform administration"
+    title="Platform administration." titleId="admin-sign-in-title" titleAs="p"
+    lede="Access is limited to accounts with platform permissions. You will also need your authenticator app.">
     {notice && step.kind === 'credentials' && <p role="status" className="admin-warning">{notice}</p>}
     {step.kind === 'credentials' && <CredentialsStep error={error} onError={setError}
       onChallenge={challenge => { setError(null); setStep(challenge.status === 'mfa_required'
@@ -71,7 +76,7 @@ export function AdminSignIn({ onSignedIn, notice }: {
     {step.kind === 'recovery-codes' && <RecoveryCodes codes={step.codes} doneLabel="Continue to platform administration"
       onDone={() => void finish()} />}
     {step.kind === 'finishing' && <p role="status">Opening platform administration…</p>}
-  </div></main>
+  </AuthLayout>
 }
 
 function CredentialsStep({ error, onError, onChallenge }: {
@@ -99,7 +104,6 @@ function CredentialsStep({ error, onError, onChallenge }: {
 
   return <form onSubmit={event => void submit(event)} className="admin-auth-form">
     <h1>Administration sign in</h1>
-    <p>Access is limited to accounts with platform permissions. You will also need your authenticator app.</p>
     <label>Email<input type="email" autoComplete="username" required value={email} onChange={event => setEmail(event.target.value)} /></label>
     <div className="admin-field"><label htmlFor="admin-password">Password</label><PasswordInput appearance="plain" id="admin-password" autoComplete="current-password" required value={password} onChange={event => setPassword(event.target.value)} /></div>
     {(config.turnstileSiteKey || config.name !== 'local') &&
@@ -120,7 +124,7 @@ function VerifyStep({ challenge, error, onFailure, onVerified, onRestart }: {
   const [code, setCode] = useState('')
   const [recoveryCode, setRecoveryCode] = useState('')
   const [pending, setPending] = useState(false)
-  const valid = mode === 'totp' ? /^[0-9]{6}$/.test(code) : recoveryCode.trim().length >= 10
+  const valid = mode === 'totp' ? isSixDigitCode(code) : isRecoveryCode(recoveryCode)
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -141,8 +145,8 @@ function VerifyStep({ challenge, error, onFailure, onVerified, onRestart }: {
     <h1>Verify it’s you</h1>
     {mode === 'totp' ? <>
       <p>Enter the 6-digit code from your authenticator app. Email codes are not accepted for administrators.</p>
-      <label>Authenticator code<input value={code} onChange={event => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
-        inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" required autoFocus /></label>
+      <label>Authenticator code<input value={code} onChange={event => setCode(sixDigitCode(event.target.value))}
+        {...SIX_DIGIT_CODE_FIELD} required autoFocus /></label>
     </> : <>
       <p>Enter one of your recovery codes. Each code works once. You can sign in with it, but high-risk actions still
         need your authenticator app.</p>
@@ -180,7 +184,7 @@ function EnrollStep({ challenge, error, onFailure, onActivated, onRestart }: {
 
   async function activate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (pending || !/^[0-9]{6}$/.test(code)) return
+    if (pending || !isSixDigitCode(code)) return
     setPending(true)
     try {
       const activated = await adminApi.activateEnrollment(code)
@@ -213,11 +217,11 @@ function EnrollStep({ challenge, error, onFailure, onActivated, onRestart }: {
           This key is shown only during setup and cannot be retrieved later.</small></li>
       <li>Enter the code the app now shows.</li>
     </ol>
-    <label>Authenticator code<input value={code} onChange={event => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
-      inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" required autoFocus /></label>
+    <label>Authenticator code<input value={code} onChange={event => setCode(sixDigitCode(event.target.value))}
+      {...SIX_DIGIT_CODE_FIELD} required autoFocus /></label>
     <p className="admin-note">Setup must be finished by {date(enrollment.expiresAt)}.</p>
     {error ? <p role="alert" className="admin-error">{error}</p> : null}
-    <button type="submit" className="admin-primary" disabled={pending || !/^[0-9]{6}$/.test(code)}>
+    <button type="submit" className="admin-primary" disabled={pending || !isSixDigitCode(code)}>
       {pending ? 'Activating…' : 'Activate authenticator'}</button>
     <button type="button" className="admin-link" onClick={onRestart}>Start again</button>
   </form>

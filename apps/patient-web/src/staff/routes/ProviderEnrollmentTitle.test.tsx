@@ -6,6 +6,8 @@ import { ProviderEnrollment } from './ProviderEnrollment'
 /** PEHR-05: provider enrollment names the browser tab, which index.html names for patients. */
 vi.mock('../../Turnstile', () => ({ Turnstile: () => null }))
 vi.mock('../api', () => ({ providerEnrollmentApi: {} }))
+// The page asks whether clinician self sign-up is open (hid-system ADR-064); that has tests of its own.
+vi.mock('../clinicianApplicationApi', () => ({ clinicianApplicationApi: { availability: () => Promise.resolve({ open: false }) } }))
 beforeEach(() => { document.title = 'Health ID: Patient' })
 
 describe('PEHR-05: provider enrollment', () => {

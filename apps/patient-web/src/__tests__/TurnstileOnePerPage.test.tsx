@@ -20,7 +20,7 @@ import { Turnstile } from '../Turnstile'
  * path the person chose is shown: both used to be on screen together.
  */
 const api = vi.hoisted(() => ({
-  enrollmentCurrent: vi.fn(), googleOnboarding: vi.fn(), enrollmentStart: vi.fn(), googleExchange: vi.fn(),
+  enrollmentAvailability: vi.fn(), enrollmentCurrent: vi.fn(), googleOnboarding: vi.fn(), enrollmentStart: vi.fn(), googleExchange: vi.fn(),
   enrollmentBindGoogle: vi.fn(), googleNonce: vi.fn(),
 }))
 vi.mock('../env', () => ({ getEnvironment: () => ({ name: 'production', turnstileSiteKey: 'site-key', apiBaseUrl: 'https://gateway.test' }) }))
@@ -63,6 +63,7 @@ beforeEach(() => {
   widgets.clear(); issued = 0
   window.turnstile = turnstile
   vi.stubEnv('VITE_HID_GOOGLE_CLIENT_ID', 'google-client')
+  api.enrollmentAvailability.mockResolvedValue({ open: true })
   api.enrollmentCurrent.mockRejectedValue(new HidApiError(404, 'No enrollment', { code: 'ENROLLMENT_NOT_FOUND' }))
   api.googleOnboarding.mockRejectedValue(new HidApiError(404, 'No Google onboarding'))
 })
@@ -107,10 +108,10 @@ describe('the enrollment NIN step with Google sign-up configured', () => {
     const nin = screen.getByLabelText('National Identification Number')
     expect(document.activeElement).toBe(nin)
     fireEvent.change(nin, { target: { value: '12345678901' } })
-    expect(screen.getByRole('button', { name: 'Verify NIN' })).toHaveProperty('disabled', true)
+    expect(screen.getByRole('button', { name: 'Continue' })).toHaveProperty('disabled', true)
     solve('patient-enrollment', 'nin-token')
-    expect(screen.getByRole('button', { name: 'Verify NIN' })).toHaveProperty('disabled', false)
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Verify NIN' })) })
+    expect(screen.getByRole('button', { name: 'Continue' })).toHaveProperty('disabled', false)
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Continue' })) })
     expect(api.enrollmentStart).toHaveBeenCalledWith('12345678901', 'nin-token', expect.any(String))
   })
 

@@ -20,6 +20,38 @@ describe('c4b5445 route registry', () => {
     expect(findEndpoint('auth.otpComplete')?.path).toBe('/api/v1/auth/otp/complete')
   })
 
+  it('registers the public enrollment availability read for the patient portal (hid-system#68, FE-4)', () => {
+    expect(findEndpoint('enrollment.availability')).toMatchObject({
+      path: '/api/v1/identity/patient-enrollments/availability', methods: ['GET'], auth: { kind: 'public' } })
+    expect(() => assertEndpointAllowed('patient-web', 'enrollment.availability')).not.toThrow()
+  })
+
+  it('says what the availability read answers since the NIN holder step (hid-system main f9dbaf0, ADR-062)', () => {
+    const note = findEndpoint('enrollment.availability')?.note ?? ''
+    expect(note).toContain('{ open, online, facility }')
+    expect(note).toContain('only open: true')
+  })
+
+  it('registers the NIN holder step and the facility route for the patient portal (hid-system main f9dbaf0, #84 and #85)', () => {
+    const BASE = '/api/v1/identity/patient-enrollments'
+    const routes = [
+      ['enrollment.holder', `${BASE}/holder`, 'POST'],
+      ['enrollment.holderVerify', `${BASE}/holder/verify`, 'POST'],
+      ['enrollment.facilityCode', `${BASE}/facility-code`, 'POST'],
+      ['enrollment.participatingFacilities', `${BASE}/participating-facilities`, 'GET'],
+    ] as const
+    for (const [name, path, method] of routes) {
+      expect(findEndpoint(name), name).toMatchObject({ service: 'enrollment', path, methods: [method], auth: { kind: 'public' } })
+      expect(assertRegisteredBrowserRequest(method, path).name).toBe(name)
+      expect(() => assertRegisteredBrowserRequest(method === 'GET' ? 'POST' : 'GET', path)).toThrow(BrowserRouteError)
+      expect(() => assertEndpointAllowed('patient-web', name), name).not.toThrow()
+      for (const app of ['staff-web', 'admin-web'] as const) {
+        expect(() => assertEndpointAllowed(app, name), `${app}: ${name}`).toThrow(BoundaryViolationError)
+      }
+    }
+    expect(findEndpoint('enrollment.activate')?.note).toContain('dateOfBirth')
+  })
+
   it('records distinct RBAC permissions per EHR method', () => {
     const encounters = findEndpoint('ehr.encounters')
     expect(encounters?.permissions?.GET).toEqual(['ehr.encounter.read'])
@@ -107,11 +139,115 @@ describe('application boundaries', () => {
       path: '/api/v1/admin/principals/:accountId/sessions/:sessionId/revoke', permissions: { POST: ['platform.session.revoke'] } })
     expect(findEndpoint('admin.superAdminRequest')?.permissions).toEqual({ POST: ['platform.role.manage'] })
     expect(findEndpoint('admin.mfaResetRequest')?.permissions).toEqual({ POST: ['platform.mfa.reset'] })
-    expect(findEndpoint('admin.principalsExport')).toMatchObject({ responseKind: 'download',
-      permissions: { GET: ['platform.principal.export'] }, requiredQuery: { GET: ['reason'] } })
+    // hid-system A24: the search terms and the export reason travel in POST bodies; the deprecated GET
+    // forms, which put them in the URL, are not browser routes.
+    expect(findEndpoint('admin.principalsSearch')).toMatchObject({ path: '/api/v1/admin/principals/search',
+      methods: ['POST'], permissions: { POST: ['platform.principal.read'] } })
+    expect(findEndpoint('admin.principalsSearch')?.responseKind).toBeUndefined()
+    expect(findEndpoint('admin.principalsExport')).toMatchObject({ path: '/api/v1/admin/principals/export',
+      methods: ['POST'], responseKind: 'download', permissions: { POST: ['platform.principal.export'] } })
+    expect(findEndpoint('admin.principalsExport')?.requiredQuery).toBeUndefined()
+    expect(findEndpoint('admin.principals')).toBeUndefined()
+    expect(() => assertRegisteredBrowserRequest('GET', '/api/v1/admin/principals', { query: 'ada' }))
+      .toThrow(BrowserRouteError)
+    expect(() => assertRegisteredBrowserRequest('GET', '/api/v1/admin/principals/export', { reason: 'Quarterly access review' }, 'download'))
+      .toThrow(BrowserRouteError)
+    expect(() => assertEndpointAllowed('admin-web', 'admin.principalsSearch')).not.toThrow()
+    expect(() => assertEndpointAllowed('staff-web', 'admin.principalsSearch')).toThrow(BoundaryViolationError)
     expect(() => assertEndpointAllowed('admin-web', 'auth.adminMfaEnrollActivate')).not.toThrow()
     expect(() => assertEndpointAllowed('admin-web', 'auth.staffLogin')).toThrow(BoundaryViolationError)
     expect(() => assertEndpointAllowed('patient-web', 'auth.adminLogin')).toThrow(BoundaryViolationError)
+  })
+
+  it('registers staff sign-in with an authenticator (hid-system #71) for the provider portal only', () => {
+    const steps = [
+      ['auth.staffMfaVerify', '/api/v1/auth/mfa/verify'],
+      ['auth.staffMfaEnrollEmailCode', '/api/v1/auth/mfa/enroll/email-code'],
+      ['auth.staffMfaEnrollStart', '/api/v1/auth/mfa/enroll/start'],
+      ['auth.staffMfaEnrollActivate', '/api/v1/auth/mfa/enroll/activate'],
+    ] as const
+    for (const [name, path] of steps) {
+      expect(findEndpoint(name)).toMatchObject({ service: 'auth', path, methods: ['POST'], auth: { kind: 'public' } })
+      expect(assertRegisteredBrowserRequest('POST', path).name).toBe(name)
+      expect(() => assertRegisteredBrowserRequest('GET', path)).toThrow(BrowserRouteError)
+      expect(() => assertEndpointAllowed('staff-web', name)).not.toThrow()
+      for (const app of ['patient-web', 'admin-web', 'public-web'] as const) {
+        expect(() => assertEndpointAllowed(app, name), `${app}: ${name}`).toThrow(BoundaryViolationError)
+      }
+    }
+    // The platform steps stay the console's, and Identity refuses a staff Google
+    // exchange (403 GOOGLE_STAFF_SIGN_IN_DISABLED), so the portal is granted none.
+    expect(() => assertEndpointAllowed('staff-web', 'auth.adminMfaVerify')).toThrow(BoundaryViolationError)
+    expect(() => assertEndpointAllowed('staff-web', 'auth.googleExchange')).toThrow(BoundaryViolationError)
+  })
+
+  it('registers clinician self sign-up (hid-system ADR-064) for the provider portal only', () => {
+    const base = '/api/v1/identity/clinician-applications'
+    const applicationId = '0f2b6d0e-6a55-4b4c-9a7e-2f4b8c1d3e5a'
+    const routes = [
+      ['enrollment.clinicianAvailability', `${base}/availability`, 'GET', `${base}/availability`],
+      ['enrollment.clinicianEmailCode', `${base}/email-code`, 'POST', `${base}/email-code`],
+      ['enrollment.clinicianEmailVerify', `${base}/email-code/verify`, 'POST', `${base}/email-code/verify`],
+      ['enrollment.clinicianFacilitySearch', `${base}/facility-search`, 'POST', `${base}/facility-search`],
+      ['enrollment.clinicianSubmit', base, 'POST', base],
+      ['enrollment.clinicianAuthenticatorEmailCode', `${base}/authenticator/email-code`, 'POST', `${base}/authenticator/email-code`],
+      ['enrollment.clinicianAuthenticatorStart', `${base}/authenticator/start`, 'POST', `${base}/authenticator/start`],
+      ['enrollment.clinicianAuthenticatorActivate', `${base}/authenticator/activate`, 'POST', `${base}/authenticator/activate`],
+      ['enrollment.clinicianAuthenticatorVerify', `${base}/authenticator/verify`, 'POST', `${base}/authenticator/verify`],
+      ['enrollment.clinicianAuthenticatorChallenge', `${base}/authenticator/challenge`, 'POST', `${base}/authenticator/challenge`],
+      ['enrollment.clinicianStatusEmailCode', `${base}/status/email-code`, 'POST', `${base}/status/email-code`],
+      ['enrollment.clinicianStatusEmailVerify', `${base}/status/email-code/verify`, 'POST', `${base}/status/email-code/verify`],
+      ['enrollment.clinicianCurrent', `${base}/current`, 'GET', `${base}/current`],
+      ['enrollment.clinicianWithdraw', `${base}/:applicationId/withdraw`, 'POST', `${base}/${applicationId}/withdraw`],
+      ['enrollment.clinicianApply', `${base}/current/applications`, 'POST', `${base}/current/applications`],
+      ['enrollment.clinicianSessionEnd', `${base}/session/end`, 'POST', `${base}/session/end`],
+    ] as const
+    for (const [name, path, method, example] of routes) {
+      expect(findEndpoint(name), name).toMatchObject({ service: 'enrollment', path, methods: [method], auth: { kind: 'public' } })
+      expect(assertRegisteredBrowserRequest(method, example).name).toBe(name)
+      expect(() => assertRegisteredBrowserRequest(method === 'GET' ? 'POST' : 'GET', example), name).toThrow(BrowserRouteError)
+      expect(() => assertEndpointAllowed('staff-web', name)).not.toThrow()
+      // The pages sit in the portal's provider area: the patient portal, the console and the public site are refused.
+      for (const app of ['patient-web', 'admin-web', 'public-web'] as const) {
+        expect(() => assertEndpointAllowed(app, name), `${app}: ${name}`).toThrow(BoundaryViolationError)
+      }
+    }
+    expect(APP_ROUTE_GRANTS['staff-web']?.enrollment?.filter(name => name.startsWith('enrollment.clinician'))).toHaveLength(routes.length)
+  })
+
+  it('registers the clinician verification queue (hid-system ADR-064) for the platform console only', () => {
+    const base = '/api/v1/admin/clinician-applications'
+    const applicationId = '0f2b6d0e-6a55-4b4c-9a7e-2f4b8c1d3e5a'
+    const routes = [
+      ['admin.clinicianApplications', base, 'GET', base],
+      ['admin.clinicianApplication', `${base}/:applicationId`, 'GET', `${base}/${applicationId}`],
+      ['admin.clinicianApplicationAttest', `${base}/:applicationId/attest`, 'POST', `${base}/${applicationId}/attest`],
+      ['admin.clinicianApplicationApprove', `${base}/:applicationId/approve`, 'POST', `${base}/${applicationId}/approve`],
+      ['admin.clinicianApplicationReject', `${base}/:applicationId/reject`, 'POST', `${base}/${applicationId}/reject`],
+    ] as const
+    for (const [name, path, method, example] of routes) {
+      // Every route needs platform.workforce.manage on an MFA-verified platform session.
+      expect(findEndpoint(name), name).toMatchObject({ service: 'admin', path, methods: [method],
+        auth: { kind: 'authenticated' }, permissions: { [method]: ['platform.workforce.manage'] } })
+      expect(assertRegisteredBrowserRequest(method, example).name).toBe(name)
+      expect(() => assertRegisteredBrowserRequest(method === 'GET' ? 'POST' : 'GET', example), name).toThrow(BrowserRouteError)
+      expect(() => assertEndpointAllowed('admin-web', name)).not.toThrow()
+      for (const app of ['staff-web', 'patient-web', 'public-web'] as const) {
+        expect(() => assertEndpointAllowed(app, name), `${app}: ${name}`).toThrow(BoundaryViolationError)
+      }
+    }
+    // The applicant's own routes stay the provider portal's: the console reviews, it never applies.
+    expect(() => assertEndpointAllowed('admin-web', 'enrollment.clinicianCurrent')).toThrow(BoundaryViolationError)
+  })
+
+  it('keeps the public site\'s enrollment routes as they were', () => {
+    for (const name of ['enrollment.start', 'enrollment.availability', 'enrollment.current', 'enrollment.google',
+      'enrollment.holder', 'enrollment.holderVerify', 'enrollment.facilityCode', 'enrollment.participatingFacilities',
+      'enrollment.contact', 'enrollment.verifyContact', 'enrollment.activate', 'enrollment.providerStart',
+      'enrollment.providerVerify', 'enrollment.providerActivate', 'identity.organizationApply',
+      'identity.organizationCompletionStart', 'identity.organizationCompletionVerify', 'identity.organizationCompletionProfile']) {
+      expect(() => assertEndpointAllowed('public-web', name), name).not.toThrow()
+    }
   })
 
   it('refuses an admin endpoint in a patient application', () => {
@@ -120,5 +256,14 @@ describe('application boundaries', () => {
 
   it('does not treat a missing route as a backend capability', () => {
     expect(() => assertEndpointAllowed('outreach-web','outreach.signup')).toThrow(/not a known/)
+  })
+
+  it('lets the provider portal read and manage facility billing, but not send demo requests', () => {
+    for (const name of ['commercial.pricing', 'commercial.subscription', 'commercial.subscriptionTrial',
+      'commercial.subscriptionCheckout', 'commercial.invoices']) {
+      expect(() => assertEndpointAllowed('staff-web', name)).not.toThrow()
+    }
+    expect(() => assertEndpointAllowed('staff-web', 'commercial.demo')).toThrow(BoundaryViolationError)
+    expect(() => assertEndpointAllowed('patient-web', 'commercial.subscription')).toThrow(BoundaryViolationError)
   })
 })

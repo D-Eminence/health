@@ -36,6 +36,7 @@ describe('admin failure messages', () => {
       [429, 'MFA_RATE_LIMITED', /locked for up to 15 minutes/],
       [503, 'MFA_UNAVAILABLE', /temporarily unavailable/],
       [409, 'MFA_NOT_ENROLLED', /no authenticator to reset/],
+      [409, 'MFA_ENROLLMENT_STAFF_SIGN_IN_REQUIRED', /set up at staff sign-in/],
       [403, 'STEP_UP_REQUIRED', /fresh authenticator confirmation \(they last 5 minutes\)\. It was not carried out/],
       [400, 'REASON_REQUIRED', /reason of 8 to 500 characters/],
       [428, 'IF_MATCH_REQUIRED', /Reload this item/],
@@ -80,6 +81,38 @@ describe('admin failure messages', () => {
     expect(failure(problem(500, 'INTERNAL_ERROR'), 'Audit events could not be loaded.'))
       .toBe('Audit events could not be loaded.')
     expect(failure(new Error('raw'), 'fallback')).toBe('fallback')
+  })
+
+  // hid-system ADR-064 (branch claude/clinician-self-signup at fa58e2b), admin-command-error.ts and the
+  // clinician review service: every refusal of the queue's three commands, and the 0087 codes step 2 can return.
+  it('explains every refusal of the clinician verification queue in words the reviewer can act on', () => {
+    const expected: Array<[number, string, RegExp]> = [
+      [404, 'CLINICIAN_APPLICATION_NOT_FOUND', /no longer exists/],
+      [409, 'CLINICIAN_APPLICATION_STATE_INVALID', /no longer at this step/],
+      [400, 'CLINICIAN_APPLICATION_COMMAND_INVALID', /licence expiry/],
+      [403, 'CLINICIAN_APPLICATION_SECOND_ADMIN_REQUIRED', /different Super Admin must approve/],
+      [403, 'CLINICIAN_APPLICATION_AUTHENTICATOR_CODE_INVALID', /^The authenticator code wasn’t accepted\. Ask for a new code and try again\.$/],
+      [429, 'CLINICIAN_APPLICATION_AUTHENTICATOR_RATE_LIMITED', /^Too many wrong codes for this applicant\. Wait 15 minutes\.$/],
+      [409, 'CLINICIAN_APPLICATION_AUTHENTICATOR_REQUIRED', /hasn’t set up their authenticator/],
+      [409, 'CLINICIAN_APPLICATION_AUTHENTICATOR_CHANGED', /reset after step 1\. Reject the application with ‘Other’/],
+      [409, 'CLINICIAN_APPLICATION_ACCOUNT_INELIGIBLE', /can’t be given clinical access/],
+      [403, 'WORKFORCE_SELF_CHANGE_DENIED', /your own/],
+      [403, 'WORKFORCE_FACILITY_CONFLICT', /^You work at this facility, so another Super Admin must do this\.$/],
+      [409, 'WORKFORCE_FACILITY_NOT_VERIFIED', /isn’t verified and active/],
+      [409, 'WORKFORCE_ATTESTATION_REQUIRED', /can no longer support a grant \(it lapsed, or its reviewer now works at the facility\)/],
+      [409, 'WORKFORCE_MEMBERSHIP_EXISTS', /already has access, or pending access, at this facility\. Reject with ‘Duplicate’/],
+      [409, 'WORKFORCE_ROLE_CONFLICT', /facility administrator/],
+      [409, 'WORKFORCE_ACCOUNT_INELIGIBLE', /can’t hold staff access/],
+      [409, 'WORKFORCE_STAFF_INELIGIBLE', /staff record/],
+      [409, 'WORKFORCE_EMAIL_IN_USE', /may have applied by themselves: check Clinician applications/],
+      // An Identity without ADR-064 (admin/api.ts names its bare 404 so).
+      [404, 'CLINICIAN_QUEUE_UNAVAILABLE', /^This Identity has no clinician queue yet \(hid-system ADR-064 is not deployed\)/],
+    ]
+    for (const [status, code, message] of expected) {
+      const text = failure(problem(status, code), 'fallback')
+      expect(text, code).toMatch(message)
+      expect(text, code).not.toBe('This item changed. Reload it and try again.')
+    }
   })
 
   it('explains integration and pricing refusals that are not edits by someone else', () => {

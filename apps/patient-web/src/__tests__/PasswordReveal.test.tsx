@@ -18,7 +18,7 @@ import { AdminSignIn } from '../admin/SignIn'
  * submission; a refused attempt keeps what was typed and masks it again.
  */
 const api = vi.hoisted(() => ({
-  enrollmentCurrent: vi.fn(), googleOnboarding: vi.fn(), recoveryStart: vi.fn(), recoveryVerify: vi.fn(), recoveryComplete: vi.fn(),
+  enrollmentAvailability: vi.fn(), enrollmentCurrent: vi.fn(), googleOnboarding: vi.fn(), recoveryStart: vi.fn(), recoveryVerify: vi.fn(), recoveryComplete: vi.fn(),
 }))
 const signIn = vi.hoisted(() => vi.fn())
 const principal = vi.hoisted(() => ({ start: vi.fn(), verify: vi.fn(), complete: vi.fn() }))
@@ -35,12 +35,13 @@ vi.mock('../Turnstile', () => ({
 }))
 vi.mock('../recoveryApi', () => ({ createPrincipalRecoveryApi: () => principal }))
 vi.mock('../staff/App', () => ({ useStaff: () => ({ state: { status: 'signed-out' }, login: staffLogin }) }))
-vi.mock('../staff/env', () => ({ getEnvironment: () => ({ turnstileSiteKey: null }) }))
+vi.mock('../staff/env', () => ({ getEnvironment: () => ({ turnstileSiteKey: null, apiBaseUrl: 'https://gateway.test' }) }))
 vi.mock('../admin/api', () => ({ adminApi }))
 vi.mock('../admin/env', () => ({ environment: () => ({ name: 'local', turnstileSiteKey: null, apiBaseUrl: 'https://gateway.test' }) }))
 
 beforeEach(() => {
   vi.stubEnv('VITE_HID_GOOGLE_CLIENT_ID', '')
+  api.enrollmentAvailability.mockResolvedValue({ open: true })
   api.enrollmentCurrent.mockRejectedValue(new HidApiError(404, 'No enrollment', { code: 'ENROLLMENT_NOT_FOUND' }))
   api.googleOnboarding.mockRejectedValue(new HidApiError(404, 'No Google onboarding'))
 })

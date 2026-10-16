@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { PasswordInput } from '@hid/ui'
 import { Turnstile } from '../Turnstile'
-import { BrandLogo } from '../BrandLogo'
+import { AuthLayout } from '../AuthLayout'
 import { createPrincipalRecoveryApi, type RecoveryAudience } from '../recoveryApi'
 import { STAFF_RECOVERY_PATH, staffRecoveryHref } from '../productHostname'
 import { describedBy, isFieldProblem, useDocumentTitle, useStepFocus } from '../authSteps'
@@ -41,14 +41,11 @@ export function PrincipalRecovery({ audience }: { audience: RecoveryAudience }) 
   // product or admin site (a bookmark, history), the page points there instead.
   const mainSiteRecovery = audience === 'staff' ? staffRecoveryHref(window.location.hostname) : STAFF_RECOVERY_PATH
   if (mainSiteRecovery !== STAFF_RECOVERY_PATH) {
-    return <main className="patient-auth-page"><section className="patient-auth-card" aria-labelledby="principal-recovery-title">
-      <Link to={signInPath} className="patient-auth-brand"><BrandLogo /></Link>
-      <p className="patient-eyebrow">{accountLabel} account recovery</p>
-      <h1 id="principal-recovery-title" className="patient-page-title">Reset your password.</h1>
-      <p className="patient-page-copy">Password resets are done on the main Health ID site.</p>
-      <a className="patient-primary-button" href={mainSiteRecovery}>Reset your password on the main site</a>
+    return <AuthLayout brandTo={signInPath} title="Reset your password." titleId="principal-recovery-title"
+      lede={`${accountLabel} account recovery. Password resets are done on the main Health ID site.`}>
+      <a className="patient-primary-button auth-primary" href={mainSiteRecovery}>Reset your password on the main site</a>
       <p className="patient-auth-footer"><Link to={signInPath}>Back to {accountLabel.toLowerCase()} sign in</Link></p>
-    </section></main>
+    </AuthLayout>
   }
 
   async function run(operation: () => Promise<void>, stepCodes: readonly string[] = []) {
@@ -132,10 +129,8 @@ export function PrincipalRecovery({ audience }: { audience: RecoveryAudience }) 
   // Not while the confirmation is still being typed and agrees so far.
   const mismatch = confirmPassword !== '' && password !== confirmPassword && !password.startsWith(confirmPassword)
 
-  return <main className="patient-auth-page"><section className="patient-auth-card" aria-labelledby="principal-recovery-title">
-    <Link to={signInPath} className="patient-auth-brand"><BrandLogo /></Link>
-    <p className="patient-eyebrow">{accountLabel} account recovery</p>
-    <h1 id="principal-recovery-title" className="patient-page-title">Reset your password.</h1>
+  return <AuthLayout brandTo={signInPath} title="Reset your password." titleId="principal-recovery-title"
+    lede={`For ${accountLabel.toLowerCase()} accounts.`}>
     {error && <p id="principal-recovery-error" role={errorAlert ? 'alert' : undefined} className="patient-inline-error">{error}</p>}
     {step === 'start' && <form onSubmit={start} className="patient-form">
       <p id="principal-recovery-start-hint" className="patient-page-copy">Enter your work email. If an eligible account exists, we will send a code to its verified contact.</p>
@@ -173,5 +168,5 @@ export function PrincipalRecovery({ audience }: { audience: RecoveryAudience }) 
       <div role="status">{resend.ready && <><p className="patient-field-hint">No code, or a code refused? Start again with the same work email to get a new code.</p>
         <button className="patient-text-button" type="button" onClick={restart} disabled={busy}>Start again for a new code</button></>}</div></div>}
     <p className="patient-auth-footer"><Link to={signInPath}>Back to {accountLabel.toLowerCase()} sign in</Link></p>
-  </section></main>
+  </AuthLayout>
 }

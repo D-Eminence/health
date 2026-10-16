@@ -1,0 +1,312 @@
+/*
+ * The shared sign-in, sign-up and recovery shell (AuthLayout).
+ *
+ * A quiet two-column page: the title and step progress on the left, one form
+ * on the right with no card around it. Blue is kept for the primary action and
+ * the selected choice. The forms inside keep their own markup; the rules under
+ * .auth-panel give them one calm look. Stacks to one column on narrow screens.
+ */
+
+.auth-page {
+  min-height: 100svh;
+  background: var(--color-surface);
+  color: var(--color-ink);
+}
+
+.auth-bar,
+.auth-body {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+}
+
+.auth-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-block: 28px;
+}
+
+.auth-brand { display: inline-flex; }
+.auth-brand img { display: block; width: auto; height: 26px; }
+
+.auth-bar-link {
+  color: var(--color-ink);
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+}
+.auth-bar-link:hover { color: var(--color-brand); }
+
+.auth-body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 48px 120px;
+  padding-block: 56px 120px;
+}
+
+.auth-intro {
+  display: flex;
+  flex: 1 1 300px;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  max-width: 380px;
+}
+
+.auth-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(36px, 5vw, 48px);
+  font-weight: 400;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+.auth-title:focus { outline: none; }
+
+.auth-lede {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.auth-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  margin: 32px 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--color-faint);
+  font-size: 14px;
+}
+
+.auth-steps li {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.auth-steps li::before {
+  box-sizing: border-box;
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border: 1px solid var(--color-line-control);
+  border-radius: var(--radius-pill);
+  content: '';
+}
+
+.auth-steps li[aria-current] { color: var(--color-ink); font-weight: 500; }
+.auth-steps li[aria-current]::before { border-color: var(--color-brand); background: var(--color-brand); }
+
+/* ---- The panel and the forms inside it ---- */
+
+.auth-panel {
+  display: flex;
+  flex: 1 1 440px;
+  flex-direction: column;
+  gap: 28px;
+  min-width: 0;
+  max-width: 520px;
+  font-size: 15px;
+}
+
+.auth-panel > * { margin-block: 0; }
+
+.auth-panel :is(.patient-form, .staff-form, .auth-form) {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  margin: 0;
+}
+
+.auth-panel :is(.patient-form, .staff-form) h2,
+.auth-panel :is(.patient-success, .staff-form) :is(h1, h2) {
+  margin: 0;
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+/* Labels: quiet, above their control. (A shared Field's label holds only its text.) */
+.auth-panel .staff-form label {
+  color: var(--color-muted);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.auth-panel .patient-form label,
+.auth-panel .auth-field-label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--color-muted);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.auth-panel .patient-form .patient-checkbox,
+.auth-panel .staff-form .patient-checkbox {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  color: var(--color-ink);
+  font-size: 14px;
+}
+
+.auth-panel :is(.patient-form, .staff-form) :is(input:not([type='checkbox']):not([type='radio']), select) {
+  box-sizing: border-box;
+  width: 100%;
+  height: 48px;
+  min-height: 48px;
+  padding: 0 14px;
+  border: 1px solid var(--color-line-control);
+  border-radius: 8px;
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 400;
+}
+
+.auth-panel :is(.patient-form, .staff-form) :is(input, select):focus {
+  border-color: var(--color-ink);
+  outline: none;
+  box-shadow: none;
+}
+
+.auth-panel :is(.patient-form, .staff-form) input::placeholder { color: var(--color-faint); }
+
+/* The one primary action fills the column. */
+.auth-panel :is(.patient-form, .patient-success) .patient-primary-button,
+.auth-panel .staff-form button[type='submit'],
+.auth-panel .auth-primary {
+  width: 100%;
+  min-height: 50px;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.auth-panel .patient-text-button { align-self: flex-start; font-size: 14px; font-weight: 500; }
+
+.auth-panel :is(.patient-field-hint, .staff-muted) {
+  margin: 0;
+  color: var(--color-faint);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.auth-panel .patient-form-aside { margin-top: -8px; text-align: right; font-size: 13px; }
+.auth-panel .patient-form-aside a { font-weight: 500; text-decoration: none; }
+
+.auth-panel :is(.patient-inline-error, .patient-inline-success, .staff-notice) {
+  margin: 0;
+  border-left: 0;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.auth-panel .staff-notice { padding: 12px 14px; }
+.auth-panel .staff-error { font-size: 13px !important; }
+
+.auth-panel .patient-success {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+/* Another way in (Google), set off by a hairline. */
+.auth-panel .patient-auth-separator {
+  margin: 0;
+  padding-top: 24px;
+  border-top: 1px solid var(--color-line);
+}
+
+/* "Already have…?" and similar lines close the panel, quietly. */
+.auth-panel .patient-auth-footer {
+  margin: 0;
+  color: var(--color-faint);
+  font-size: 13px;
+}
+.auth-panel .patient-auth-footer a { font-weight: 500; }
+
+@media (max-width: 720px) {
+  .auth-bar { padding-block: 20px; }
+  .auth-body { padding-block: 24px 72px; }
+  .auth-intro, .auth-panel { max-width: none; }
+  .auth-steps { flex-direction: row; flex-wrap: wrap; gap: 10px 20px; margin-top: 16px; font-size: 13px; }
+}
+
+/* Step hints written as page copy inside a form. */
+.auth-panel :is(.patient-form, .patient-success) .patient-page-copy {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+/* Platform administration's sign-in steps. */
+.auth-panel .admin-auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  margin: 0;
+}
+
+.auth-panel .admin-auth-form h1 {
+  margin: 0;
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.auth-panel .admin-auth-form > p { margin: 0; color: var(--color-muted); font-size: 14px; line-height: 1.6; }
+
+.auth-panel .admin-auth-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--color-muted);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.auth-panel .admin-auth-form :is(input:not([type='checkbox']):not([type='radio']), select) {
+  box-sizing: border-box;
+  width: 100%;
+  height: 48px;
+  padding: 0 14px;
+  border: 1px solid var(--color-line-control);
+  border-radius: 8px;
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font: inherit;
+  font-size: 15px;
+}
+
+.auth-panel .admin-auth-form :is(input, select):focus { border-color: var(--color-ink); outline: none; }
+
+.auth-panel .admin-auth-form .admin-primary {
+  width: 100%;
+  min-height: 50px;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.auth-panel .admin-warning { margin: 0; border-radius: 8px; }
+.auth-panel .admin-auth-form > p a { color: var(--color-brand); font-size: 13px; font-weight: 500; }

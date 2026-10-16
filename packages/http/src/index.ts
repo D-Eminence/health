@@ -1,4 +1,4 @@
-export { createApiClient, createRequestId } from './client'
+export { createApiClient, createRequestId, retryAfterSeconds } from './client'
 export type {
   ApiClient,
   ApiClientLogger,

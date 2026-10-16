@@ -24,6 +24,21 @@ export interface Facility extends Versioned {
   id: string; organizationId: string; organizationName: string; name: string; code: string; status: string
   statusReason: string | null; statusChangedAt: string | null; createdAt: string; membershipCount: number
 }
+/**
+ * A facility's designation for facility-assisted registration (hid-system main
+ * f9dbaf0: #85, ADR-063). Version 0, with `designated` false and every other
+ * value null, when it has none; that version creates the first one.
+ */
+export interface AssistedRegistrationDesignation {
+  facilityId: string; designated: boolean; status: 'active' | 'suspended' | null; addressLine: string | null
+  town: string | null; lga: string | null; state: string | null; hours: string | null; reason: string | null
+  version: number; updatedAt: string | null
+}
+/** `AssistedRegistrationDesignationDto`: the location patients are shown, and the audited reason. */
+export interface AssistedRegistrationDesignationInput {
+  status: 'active' | 'suspended'; addressLine?: string; town: string; lga: string; state: string; hours?: string; reason: string
+}
+export interface AssistedRegistrationSaved { facilityId: string; status: 'active' | 'suspended'; version: number; replayed: boolean }
 export interface PrincipalMembership { id: string; facilityId: string; facilityName: string; role: string; appRole: string; active: boolean }
 export interface Principal extends Versioned {
   id: string; subject: string; email: string | null; displayName: string | null; status: string; createdAt: string
@@ -135,6 +150,74 @@ export interface ApprovalRequested extends Versioned { requestId: string; status
 export interface ApprovalDecided extends Versioned {
   requestId: string; status: ApprovalStatus; action: string; targetAccountId: string; executed: boolean; replayed: boolean
 }
+// Clinician self sign-up review (hid-system ADR-064, branch claude/clinician-self-signup at fa58e2b, not
+// merged): ClinicianApplicationAdminService and identity.admin_get_clinician_application (C18). Field names
+// and values are the backend's.
+
+export type ClinicianApplicationState = 'awaiting_authenticator' | 'submitted' | 'under_review' | 'approved' | 'rejected'
+  | 'withdrawn' | 'expired'
+/** `open` lists the three undecided states (not overdue), oldest first; a named state lists newest first. */
+export type ClinicianApplicationFilter = 'open' | ClinicianApplicationState
+/** The reason shown to the applicant; `identity_not_confirmed` also stops the account applying again. */
+export type ClinicianDecisionCode = 'licence_not_verified' | 'licence_not_current' | 'details_mismatch'
+  | 'identity_not_confirmed' | 'employment_not_confirmed' | 'facility_not_available' | 'duplicate' | 'existing_account' | 'other'
+export interface ClinicianApplicationSummary extends Versioned {
+  applicationId: string; state: ClinicianApplicationState | string; submittedAt: string; expiresAt: string
+  applicant: { accountId: string; fullName: string; email: string }
+  profession: 'doctor' | 'nurse' | string; regulator: { code: string; name: string }
+  licenceNumber: string; licenceValidUntil: string
+  facility: { id: string; name: string; organizationName: string }
+  authenticatorReady: boolean
+  step1: { by: { accountId: string; displayName: string | null }; at: string } | null
+}
+/** Why the caller may not take a step (a display hint: the command checks again). */
+export type ClinicianStepRefusal = 'SELF' | 'WORKS_AT_FACILITY' | 'STATE' | 'STEP1_BY_YOU' | 'AUTHENTICATOR_REQUIRED'
+  | 'ACCOUNT_INELIGIBLE'
+export interface ClinicianStepHint { allowed: boolean; reason: ClinicianStepRefusal | string | null }
+export interface ClinicianAttestationChecklist {
+  registerChecked: true; licenceCurrentUntilRecorded: true; identityMethod: 'video_call_photo_id' | 'in_person_photo_id'
+  identityConfirmed: true; employmentChannel: 'facility_public_phone' | 'in_person_visit'; employmentConfirmed: true
+}
+export interface ClinicianApplicationDetail extends Omit<ClinicianApplicationSummary, 'facility' | 'step1'> {
+  account: { status: string; createdAt: string | null; emailVerifiedAt: string | null; patientAccount: boolean; identityRejection: boolean }
+  staff: { id: string; verificationStatus: string; version: number } | null
+  authenticator: { enrolled: boolean; factorId: string | null; activatedAt: string | null; enrolledAfterRecovery: boolean }
+  otherMemberships: Array<{ facilityName: string; state: string; roles: string[] }>
+  facility: {
+    id: string; name: string; organizationName: string; lifecycleStatus: string; active: boolean; cacHint: string | null
+    orgAdmins: Array<{ displayName: string | null; email: string }>
+  }
+  attestation: {
+    id: string; reviewerAccountId: string; reviewerName: string | null; validUntil: string; evidenceReference: string
+    reason: string; recordedAt: string; checklist: Partial<ClinicianAttestationChecklist> | null; factorConfirmedAt: string | null
+  } | null
+  approval: { by: string; at: string; membershipId: string | null } | null
+  decision: { code: ClinicianDecisionCode | string | null; reason: string | null; by: string | null; at: string } | null
+  accessState: 'active' | 'lapsed' | 'ended' | 'account_unavailable' | string | null
+  rolePermissions: string[]
+  flags: {
+    sameLicenceKeyOtherAccounts: number; sameLicenceKeyOtherOpenApplications: number; sameLicenceAttestedElsewhere: boolean
+    orgAdminNameMatch: boolean; orgAdminEmailDomainMatch: boolean
+  }
+  callerHints: { attest: ClinicianStepHint; approve: ClinicianStepHint; reject: ClinicianStepHint }
+}
+/** A3's body. The applicant's code is checked once and never stored; a replay needs no new code. */
+export interface ClinicianAttestation {
+  validUntil: string; evidenceReference: string; checklist: ClinicianAttestationChecklist; authenticatorCode: string; reason: string
+}
+export interface ClinicianAttested extends Versioned {
+  applicationId: string; state: 'under_review'; attestationId: string; attestedRoles: string[]
+  verificationMethod: 'manual_review'; validUntil: string; replayed: boolean
+}
+export interface ClinicianApproved extends Versioned {
+  applicationId: string; state: 'approved'; accountId: string; facilityId: string; membershipId: string; roleCode: string
+  attestationId: string; replayed: boolean
+}
+export interface ClinicianRejected extends Versioned {
+  applicationId: string; state: 'rejected'; decisionCode: ClinicianDecisionCode; replayed: boolean
+}
+type ClinicianApplicationRef = Pick<ClinicianApplicationSummary, 'applicationId' | 'version'>
+
 /** Principal export. Header values are null when the browser may not read them. */
 export interface PrincipalExport { blob: Blob; rowCount: number | null; rowLimit: number | null; truncated: boolean | null }
 
@@ -266,6 +349,23 @@ async function cursorPage<T>(page: Promise<CursorPage<T>>): Promise<CursorPage<T
   return { items: value.items, nextCursor: value.nextCursor ?? null }
 }
 
+/**
+ * An Identity without hid-system ADR-064 has no queue: its 404 names no
+ * clinician code (`NOT_FOUND`, with a detail naming the route). It is said as
+ * that, never as a missing application or in the router's words.
+ */
+async function clinicianQueue<T>(read: Promise<T>): Promise<T> {
+  try {
+    return await read
+  } catch (error) {
+    if (isHidApiError(error) && error.status === 404 && error.code === 'NOT_FOUND') {
+      throw new HidApiError(404, 'The clinician queue is not available from this Identity.',
+        { code: 'CLINICIAN_QUEUE_UNAVAILABLE', requestId: error.requestId, retryable: false })
+    }
+    throw error
+  }
+}
+
 export const adminApi = {
   login(email: string, password: string, token: string) {
     return request<PlatformLoginChallenge>('/api/v1/auth/admin/login', { method: 'POST', auth: 'none',
@@ -352,9 +452,11 @@ export const adminApi = {
       { version: approval.version, idempotencyKey })
   },
   async exportPrincipals(input: { reason: string; query?: string; status?: string }, signal?: AbortSignal): Promise<PrincipalExport> {
-    // Every export is audited, so a failed export is never repeated automatically.
-    const result = await request<DownloadResult>('/api/v1/admin/principals/export', { responseType: 'download',
-      retry: NO_RETRY, signal, query: { reason: input.reason, query: input.query, status: input.status } })
+    // Every export is audited, so a failed export is never repeated automatically. Its terms and the
+    // audited reason go in the body, out of URLs and access logs (hid-system A24).
+    const result = await request<DownloadResult>('/api/v1/admin/principals/export', { method: 'POST', responseType: 'download',
+      retry: NO_RETRY, signal, body: { reason: input.reason,
+        ...(input.query !== undefined ? { query: input.query } : {}), ...(input.status !== undefined ? { status: input.status } : {}) } })
     const header = (name: string) => result.headers.get(name)
     const count = header('X-HID-Export-Row-Count')
     const limit = header('X-HID-Export-Row-Limit')
@@ -371,9 +473,24 @@ export const adminApi = {
   facility(facilityId: string, signal?: AbortSignal) {
     return request<Facility>(at('/api/v1/admin/facilities', facilityId), { signal })
   },
+  assistedRegistration(facilityId: string, signal?: AbortSignal) {
+    return request<AssistedRegistrationDesignation>(at('/api/v1/admin/facilities', facilityId, 'assisted-registration'), { signal })
+  },
+  /**
+   * Designates or suspends a facility (hid-system #85, ADR-063): a high-risk command needing step-up, a
+   * reason, the submission's key and If-Match with the version read, 0 for the first designation.
+   */
+  setAssistedRegistration(facilityId: string, input: AssistedRegistrationDesignationInput, version: number, idempotencyKey: string) {
+    return adminApi.command<AssistedRegistrationSaved>(at('/api/v1/admin/facilities', facilityId, 'assisted-registration'), input,
+      { version, idempotencyKey, creates: true })
+  },
+  /**
+   * A search term is a name or an email address, so it goes in a POST body, never in a URL that browser
+   * history or an access log keeps (hid-system A24). Being a POST, a failed search is not repeated.
+   */
   principals(query: string, filters: { page?: number; status?: string } = {}, signal?: AbortSignal) {
-    return request<Page<Principal>>('/api/v1/admin/principals', { signal,
-      query: { page: filters.page ?? 1, pageSize: PAGE_SIZE, query, status: filters.status } })
+    return request<Page<Principal>>('/api/v1/admin/principals/search', { method: 'POST', signal,
+      body: { query, page: filters.page ?? 1, pageSize: PAGE_SIZE, ...(filters.status ? { status: filters.status } : {}) } })
   },
   reviews(filters: { page?: number; status?: string } = {}, signal?: AbortSignal) {
     return request<Page<IdentityReview>>('/api/v1/admin/identity/reviews', { signal,
@@ -423,16 +540,48 @@ export const adminApi = {
       { version: provider.version, idempotencyKey })
   },
   /**
-   * A governed admin command. Pass the submission's idempotency key so a retry
-   * after step-up is the same command, never a second one.
+   * The clinician verification queue (A1), one page per call: `limit` and
+   * `cursor` are sent only when given (the backend's page is 20, at most 50).
+   * The query carries no personal data.
    */
-  command<T>(path: string, body: unknown, options: { version?: number; idempotencyKey?: string } = {}) {
+  clinicianApplications(state: ClinicianApplicationFilter, page: { cursor?: string; limit?: number } = {}, signal?: AbortSignal) {
+    return clinicianQueue(cursorPage(request<CursorPage<ClinicianApplicationSummary>>('/api/v1/admin/clinician-applications', {
+      signal, query: { state, ...(page.limit ? { limit: page.limit } : {}), ...(page.cursor ? { cursor: page.cursor } : {}) } })))
+  },
+  /** A2: one application with what both steps need, its warnings and the caller's hints. */
+  clinicianApplication(applicationId: string, signal?: AbortSignal) {
+    return clinicianQueue(request<ClinicianApplicationDetail>(at('/api/v1/admin/clinician-applications', applicationId), { signal }))
+  },
+  /** A3, step 1: the checklist, the evidence reference, the validity and a live code the applicant reads out. */
+  attestClinicianApplication(application: ClinicianApplicationRef, input: ClinicianAttestation, idempotencyKey: string) {
+    return adminApi.command<ClinicianAttested>(at('/api/v1/admin/clinician-applications', application.applicationId, 'attest'),
+      input, { version: application.version, idempotencyKey })
+  },
+  /** A4, step 2: only a Super Admin other than step 1's; attaches the account and grants the role step 1 attested. */
+  approveClinicianApplication(application: ClinicianApplicationRef, reason: string, idempotencyKey: string) {
+    return adminApi.command<ClinicianApproved>(at('/api/v1/admin/clinician-applications', application.applicationId, 'approve'),
+      { reason }, { version: application.version, idempotencyKey })
+  },
+  /** A5: a decision code the applicant sees and a reason they never see. */
+  rejectClinicianApplication(application: ClinicianApplicationRef, decisionCode: ClinicianDecisionCode, reason: string,
+    idempotencyKey: string) {
+    return adminApi.command<ClinicianRejected>(at('/api/v1/admin/clinician-applications', application.applicationId, 'reject'),
+      { decisionCode, reason }, { version: application.version, idempotencyKey })
+  },
+  /**
+   * A governed admin command. Pass the submission's idempotency key so a retry
+   * after step-up is the same command, never a second one. `version` goes as
+   * If-Match; it is at least 1, or 0 for a command that `creates` its resource
+   * (the facility designation, hid-system #85), whose If-Match: 0 is sent too.
+   */
+  command<T>(path: string, body: unknown, options: { version?: number; idempotencyKey?: string; creates?: boolean } = {}) {
     if (!path.startsWith('/api/v1/admin/')) throw new Error('Admin command route required.')
-    if (options.version !== undefined && (!Number.isSafeInteger(options.version) || options.version < 1)) {
+    if (options.version !== undefined
+      && (!Number.isSafeInteger(options.version) || options.version < (options.creates ? 0 : 1))) {
       throw new Error('Reload this item before changing it.')
     }
     return request<T>(path, { method: 'POST', body, headers: {
-      ...(options.version ? { 'If-Match': `"${options.version}"` } : {}),
+      ...(options.version !== undefined ? { 'If-Match': `"${options.version}"` } : {}),
       ...(options.idempotencyKey ? { 'Idempotency-Key': options.idempotencyKey } : {}),
     } })
   },

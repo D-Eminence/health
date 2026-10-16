@@ -2,8 +2,9 @@ import { createApiClient, HidApiError, isHidApiError, uploadPresignedObject, typ
 import { createRegisteredBrowserClient } from '@hid/api'
 import { getEnvironment } from './env'
 import {
-  assertStaffSessionFacility, endsStaffSession, nextStaffSessionChange, refusedAsPatient, reportStaffSessionEnded, reportStaffSessionRead,
-  staffSessionActor, staffSessionGeneration, staffSessionReadyFor, staffSessionSignal, untilStaffSessionReady,
+  assertStaffSessionFacility, endsStaffSession, nextStaffSessionChange, noteStaffSessionRefusal, refusedAsPatient, reportStaffSessionEnded,
+  reportStaffSessionRead, staffMfaRequired, staffSessionActor, staffSessionGeneration, staffSessionReadyFor, staffSessionSignal,
+  untilStaffSessionReady,
 } from './session'
 import { inRefreshTurn, refreshInTurn, signOutInTurn } from '../sessionRefreshTurn'
 import { heldByOtherPortal } from '../sessionChange'
@@ -49,6 +50,60 @@ export interface StaffSession {
   facilitySelection?: FacilitySelection
 }
 
+/**
+ * Staff sign-in with an authenticator (hid-system #71, ADR-054, migration 0088).
+ * The password step answers with the second step Identity asks for, and only an
+ * httpOnly challenge cookie the browser sends to /auth/mfa (5 minutes to verify,
+ * 10 to set up an authenticator); the session comes from verify, or from
+ * activation after a first enrolment. Nothing of a challenge, code or secret is
+ * kept outside the step's own state.
+ */
+export interface StaffLoginChallenge {
+  status: 'mfa_required' | 'mfa_enrollment_required'
+  expiresAt: string
+}
+
+/**
+ * What the password step answered: the second step Identity asks for, or, from
+ * an Identity before #71, the session itself. The portal accepts either, so
+ * Identity and the portal may be deployed in either order.
+ */
+export type StaffLoginResult =
+  | { kind: 'challenge'; challenge: StaffLoginChallenge }
+  | { kind: 'session'; session: StaffSession }
+
+/** Reads the password step's answer. Anything else (a later contract's step, say) opens nothing. */
+function loginResult(answer: unknown): StaffLoginResult {
+  const read = answer as Partial<StaffLoginChallenge> & Partial<StaffSession> | null
+  if ((read?.status === 'mfa_required' || read?.status === 'mfa_enrollment_required') && typeof read.expiresAt === 'string') {
+    return { kind: 'challenge', challenge: { status: read.status, expiresAt: read.expiresAt } }
+  }
+  if (typeof read?.actor?.id === 'string') return { kind: 'session', session: read as StaffSession }
+  throw new HidApiError(502, 'The service returned an unreadable response.', { code: 'INVALID_RESPONSE', retryable: false })
+}
+
+/** The enrolment code was emailed to the account's address. `expiresAt` is the challenge's, not the code's. */
+export interface StaffEnrollmentCodeSent {
+  accepted: true
+  channel: 'email'
+  expiresAt: string
+}
+
+/** The new authenticator's secret, which Identity returns this once (enrolment start). */
+export interface StaffMfaEnrollment {
+  secret: string
+  otpauthUri: string
+  algorithm: 'SHA1'
+  digits: number
+  periodSeconds: number
+  expiresAt: string
+}
+
+/** The session of a first sign-in with the new authenticator, and its recovery codes, shown once. */
+export interface StaffMfaActivation extends StaffSession {
+  recoveryCodes: string[]
+}
+
 export interface RegistrationCapabilities {
   nin: { enabled: boolean; state: string }
   newPatientRegistrationRequiresNin: boolean
@@ -78,6 +133,36 @@ export interface ResolveNinInput {
   dateOfBirth: string
   gender?: 'female' | 'male' | 'intersex' | 'other' | 'unknown'
 }
+
+/**
+ * Facility-assisted registration (hid-system main f9dbaf0: #85, migration 0094,
+ * ADR-063). At a participating facility a staff member types the desk code the
+ * patient's own phone shows, and the names and date of birth as written on one
+ * original photo ID, with five attestations. The answer is verified, a result
+ * per field, or a refusal: never the NIN, a record value, the contact or a
+ * Health ID. Nothing typed is kept outside the screen's own state.
+ */
+export const ASSISTED_DOCUMENT_TYPES = ['national_id_card', 'international_passport', 'drivers_licence', 'voters_card'] as const
+export type AssistedDocumentType = (typeof ASSISTED_DOCUMENT_TYPES)[number]
+
+export interface AssistedVerificationInput {
+  /** As the patient's phone shows it; Identity ignores spaces, hyphens and case. */
+  deskCode: string
+  method: 'government_photo_id_in_person'
+  documentType: AssistedDocumentType
+  /** As written on the document; the date of birth only when it shows one. */
+  document: { firstName: string; lastName: string; dateOfBirth?: string }
+  /** Each must be true; Identity refuses the check otherwise. */
+  attestations: {
+    patientPresent: true
+    originalDocumentSeen: true
+    photoMatchesPerson: true
+    codeShownOnPatientsOwnDevice: true
+    patientConsents: true
+  }
+}
+
+export interface AssistedVerificationResult { outcome: 'verified' }
 
 /** `ListStaffAccessRequestsDto` statuses: the request's own status. */
 export const ACCESS_REQUEST_STATUSES = ['pending', 'approved', 'denied', 'revoked', 'expired'] as const
@@ -683,7 +768,10 @@ function reportingSessionEnd(inner: ApiClient): ApiClient {
       }
       try { return await inner.request<T>(own) }
       catch (error) {
-        // A 403 is reported only when it says the session is a patient's; the server is then asked.
+        // Heard on any call, a refresh or session read included: the provider says why once it finds the session ended.
+        noteStaffSessionRefusal(error, sentIn)
+        // A 403 is reported only when it says the session is a patient's, or one without an
+        // authenticator (endsStaffSession); the server is then asked.
         if (protectedCall && (endsStaffSession(error) || refusedAsPatient(error))) reportStaffSessionEnded(sentIn)
         throw error
       }
@@ -706,8 +794,10 @@ let refreshing: Promise<StaffSession> | null = null
  * restored already. Without the refresh cookie (dropped by the browser at the
  * idle or absolute limit, or cleared by a sign-out elsewhere) the server answers
  * 403 CSRF_VALIDATION_FAILED; with a patient's sign-in in the cookies, which
- * this portal never rotates, 403 SESSION_CLIENT_MISMATCH. Nothing can restore
- * the session then, so it is reported as the ended session it is.
+ * this portal never rotates, 403 SESSION_CLIENT_MISMATCH; for a sign-in made
+ * without an authenticator, 403 STAFF_MFA_REQUIRED, having ended it and cleared
+ * the cookies (hid-system #71). Nothing can restore the session then, so it is
+ * reported as the ended session it is.
  */
 function refreshStaffSession(): Promise<StaffSession> {
   refreshing ??= refreshInTurn(
@@ -716,7 +806,7 @@ function refreshStaffSession(): Promise<StaffSession> {
     () => client.post<StaffSession>('/api/v1/auth/refresh'))
     .catch((error: unknown) => {
       if (isHidApiError(error) && error.status === 403 && error.code === 'CSRF_VALIDATION_FAILED') throw sessionEnded(error)
-      if (heldByOtherPortal(error)) throw sessionEnded(error)
+      if (heldByOtherPortal(error) || staffMfaRequired(error)) throw sessionEnded(error)
       throw error
     })
     .finally(() => { refreshing = null })
@@ -772,6 +862,18 @@ const SIGN_OUT_ATTEMPTS = 3
  * by then could be the new session's.
  */
 let leaving: Promise<unknown> = Promise.resolve()
+
+/**
+ * Sends a sign-in step whose answer sets the session cookies (the password step
+ * of an Identity before hid-system #71, verify and enrolment activation) once a
+ * sign-out in progress and a refresh in flight have answered, and in the
+ * session turn, so no other window's refresh answers after it: each of those
+ * answers can clear or replace the new session's cookies.
+ */
+async function settingSession<T>(step: () => Promise<T>): Promise<T> {
+  await Promise.all([leaving, refreshing?.catch(() => undefined)])
+  return inRefreshTurn(step)
+}
 
 function signOut(confirmFirst = false): Promise<void> {
   const signingOut = signOutStaffSession(confirmFirst)
@@ -884,12 +986,20 @@ export interface ProviderEnrollmentStart {
   resendAfterSeconds?: number
 }
 
+/**
+ * Since hid-system #71 activation sets the administrator's password and opens a
+ * staff MFA enrolment whose proof is the activation itself (`status`
+ * 'mfa_enrollment_required', or 'mfa_required' for an account that already has
+ * an authenticator), with the challenge cookie and no session. An Identity
+ * before #71 answers with the session's `actor` instead.
+ */
 export interface ProviderEnrollmentActivation {
   activated: true
   organizationId: string
   facilityId: string
   accountId: string
-  actor: StaffSession['actor']
+  status?: StaffLoginChallenge['status']
+  actor?: StaffSession['actor']
   expiresAt: string
 }
 
@@ -916,18 +1026,44 @@ export const providerEnrollmentApi = {
       { password }, { auth: 'none' })),
 }
 
+/**
+ * Facility billing (docs/BILLING_SPEC.md), scoped to the active facility's organization.
+ * Proposed routes: a 404 or 501 means billing is not available yet (see billing.ts).
+ */
+export const billingApi = {
+  subscription: (facilityId: string) => client.get<unknown>('/api/v1/commercial/subscription',
+    { headers: { 'X-Facility-ID': facilityId } }),
+  startTrial: (facilityId: string, idempotencyKey?: string) => client.post<unknown>('/api/v1/commercial/subscription/trial', {},
+    { headers: { 'X-Facility-ID': facilityId, ...keyHeaders(idempotencyKey) } }),
+  checkout: (facilityId: string, idempotencyKey?: string) => client.post<unknown>('/api/v1/commercial/subscription/checkout', {},
+    { headers: { 'X-Facility-ID': facilityId, ...keyHeaders(idempotencyKey) } }),
+  invoices: (facilityId: string) => client.get<unknown>('/api/v1/commercial/invoices',
+    { headers: { 'X-Facility-ID': facilityId } }),
+  /** The public price catalogue, which hid-system already serves. */
+  pricing: () => client.get<unknown>('/api/v1/commercial/pricing', { auth: 'none' }),
+}
+
 export const staffApi = {
-  login: async (email: string, password: string, turnstileToken?: string) => {
-    await Promise.all([leaving, refreshing?.catch(() => undefined)])
-    // Nor may another window's refresh answer after it: its cookies would replace this sign-in's.
-    return inRefreshTurn(() => client.post<StaffSession>('/api/v1/auth/login', {
+  login: (email: string, password: string, turnstileToken?: string) =>
+    settingSession(() => client.post<unknown>('/api/v1/auth/login', {
       email, password, turnstileToken, turnstileAction: staffLoginAction(window.location.hostname),
-    }, { auth: 'none' }))
-  },
+    }, { auth: 'none' })).then(loginResult),
   session: () => client.get<StaffSession>('/api/v1/auth/session', { auth: 'optional' }),
   refresh: () => refreshStaffSession(),
   logout: signOut,
   checkSession: checkStaffSession,
+  // The second steps of staff sign-in need no Turnstile token, CSRF token or session: the challenge
+  // cookie is their credential. Under /api/v1/auth/ with auth 'none', a 401 there (a wrong code, a
+  // spent challenge) is never refreshed and never taken for the end of a session.
+  verifyMfa: (proof: { code: string } | { recoveryCode: string }) =>
+    settingSession(() => client.post<StaffSession>('/api/v1/auth/mfa/verify', proof, { auth: 'none' })),
+  sendEnrollmentCode: () =>
+    client.post<StaffEnrollmentCodeSent>('/api/v1/auth/mfa/enroll/email-code', undefined, { auth: 'none' }),
+  /** With the emailed code; with none only after provider activation, which is its own proof. */
+  startEnrollment: (emailCode?: string) =>
+    client.post<StaffMfaEnrollment>('/api/v1/auth/mfa/enroll/start', emailCode === undefined ? {} : { emailCode }, { auth: 'none' }),
+  activateEnrollment: (code: string) =>
+    settingSession(() => client.post<StaffMfaActivation>('/api/v1/auth/mfa/enroll/activate', { code }, { auth: 'none' })),
   selectFacility: async (facilityId: string) => {
     const sentIn = staffSessionGeneration()
     const actorId = staffSessionActor()
@@ -979,6 +1115,13 @@ export const staffApi = {
   enrollRegistration: (facilityId: string, registrationCase: RegistrationCase, email: string, reason: string, idempotencyKey: string) =>
     client.post<RegistrationEnrollment>(`/api/v1/identity/registration-cases/${encodeURIComponent(registrationCase.caseId)}/enroll`,
       { expectedVersion: registrationCase.version, email, reason, purpose: 'healthcare-operations' },
+      { headers: { ...facilityHeaders(facilityId, 'healthcare-operations'), ...keyHeaders(idempotencyKey) } }),
+
+  // The in-person check of facility-assisted registration (hid-system #85, ADR-063). Identity records it
+  // as healthcare operations. One key per submission: the same key replays the stored outcome, so a
+  // retry after a 503 or a lost answer is not charged again.
+  assistedVerification: (facilityId: string, input: AssistedVerificationInput, idempotencyKey: string) =>
+    client.post<AssistedVerificationResult>('/api/v1/identity/assisted-verifications', input,
       { headers: { ...facilityHeaders(facilityId, 'healthcare-operations'), ...keyHeaders(idempotencyKey) } }),
 
   lookupPatient: (facilityId: string, hid: string, purpose: 'direct-care' | 'emergency' = 'direct-care') =>

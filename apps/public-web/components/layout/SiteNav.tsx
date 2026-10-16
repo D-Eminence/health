@@ -163,18 +163,18 @@ export function SiteNav({ entries, signInHref, signInLabel, action, audience }: 
         <nav
         aria-label="Primary"
         className={cx(
-          'relative max-lg:z-50 mx-auto flex w-full max-w-[1180px] items-center gap-4 rounded-(--radius-card) border-[0.5px] px-4 py-2.5 transition-[background-color,border-color] duration-150 motion-reduce:transition-none sm:px-5',
+          'relative max-[1120px]:z-50 mx-auto flex w-full max-w-[1180px] items-center gap-4 rounded-(--radius-card) border-[0.5px] px-4 py-2.5 transition-[background-color,border-color] duration-150 motion-reduce:transition-none sm:px-5',
           openMenu !== null || scrolled
             ? 'border-line-strong bg-surface'
             : 'border-line bg-surface',
         )}
       >
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           <Logo />
           <AudienceSwitch audience={audience} />
         </div>
 
-        <div className="ml-auto hidden items-center gap-6 lg:flex">
+        <div className="ml-auto hidden shrink-0 items-center gap-5 whitespace-nowrap min-[1120px]:flex xl:gap-6">
           {entries.map(entry =>
             entry.type === 'menu' ? (
               entry.presentation === 'mega' ? <MegaNavMenu
@@ -200,7 +200,7 @@ export function SiteNav({ entries, signInHref, signInLabel, action, audience }: 
               <Link
                 key={entry.href}
                 href={entry.href}
-                className="inline-flex min-h-11 items-center text-sm font-medium text-muted hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand"
+                className="inline-flex min-h-11 shrink-0 items-center whitespace-nowrap text-sm font-medium text-muted hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand"
               >
                 {entry.label}
               </Link>
@@ -208,15 +208,15 @@ export function SiteNav({ entries, signInHref, signInLabel, action, audience }: 
           )}
         </div>
 
-        <div className="ml-auto flex items-center gap-2.5 lg:ml-7">
+        <div className="ml-auto flex shrink-0 items-center gap-2.5 whitespace-nowrap min-[1120px]:ml-6 xl:ml-7">
           <GlobalSearch />
           <a
             href={signInHref}
-            className="hidden min-h-11 items-center text-sm font-semibold text-ink hover:text-brand focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand lg:inline-flex"
+            className="hidden min-h-11 shrink-0 items-center whitespace-nowrap text-sm font-semibold text-ink hover:text-brand focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-brand min-[1120px]:inline-flex"
           >
             {signInLabel}
           </a>
-          <HeroDemoButton href={action.href} size="sm" className="max-lg:!hidden lg:inline-flex">
+          <HeroDemoButton href={action.href} size="sm" className="shrink-0 whitespace-nowrap max-[1120px]:!hidden min-[1120px]:inline-flex">
             {action.label}
           </HeroDemoButton>
 
@@ -232,7 +232,7 @@ export function SiteNav({ entries, signInHref, signInLabel, action, audience }: 
               setMobileOpenGroup(null)
               setMenuOpen(open => !open)
             }}
-            className="grid h-11 w-11 place-items-center rounded-full border border-line text-ink hover:border-brand hover:text-brand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand lg:hidden"
+            className="grid h-11 w-11 place-items-center rounded-full border border-line text-ink hover:border-brand hover:text-brand focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand min-[1120px]:hidden"
           >
             <HealthIcon name={menuOpen ? 'close' : 'menu'} size={20} />
           </button>
@@ -251,7 +251,7 @@ export function SiteNav({ entries, signInHref, signInLabel, action, audience }: 
             id={menuId}
             role="region"
             aria-labelledby={menuButtonId}
-            className="fixed inset-0 z-40 w-full max-w-none overflow-y-auto overscroll-contain rounded-none border-0 bg-white px-6 pb-8 pt-24 shadow-none lg:hidden"
+            className="fixed inset-0 z-40 w-full max-w-none overflow-y-auto overscroll-contain rounded-none border-0 bg-white px-6 pb-8 pt-24 shadow-none min-[1120px]:hidden"
           >
           <ul className="mx-auto flex w-full max-w-[720px] flex-col">
             {entries.map(entry =>
@@ -561,8 +561,8 @@ export function ProviderNav({ preserveDemoAction = false, applicationProduct }: 
         PRODUCT_MENU,
         SOLUTIONS_MENU,
         { type: 'link', label: 'Pricing', href: ROUTES.pricing },
-        { type: 'link', label: 'How it works', href: ROUTES.howItWorksProvider },
         { type: 'link', label: 'About', href: ROUTES.about },
+        { type: 'link', label: 'Blog', href: ROUTES.blog },
         { type: 'link', label: 'Contact', href: ROUTES.contact },
       ]}
       signInHref={APP_ENTRY.staffSignIn}

@@ -1,12 +1,45 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ButtonHTMLAttributes } from 'react'
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { isHidApiError } from '@hid/http'
 import { Button, Field, Input, PasswordInput } from '@hid/ui'
 import { getEnvironment } from '../env'
 import { useStaff } from '../App'
-import { BrandLogo } from '../../BrandLogo'
+import type { StaffLoginChallenge, StaffSession } from '../api'
+import { AuthLayout } from '../../AuthLayout'
 import { loadTurnstileScript, turnstileSize } from '../../Turnstile'
-import { resolveStaffProductHostname, STAFF_RECOVERY_PATH, staffLoginAction, staffRecoveryHref } from '../../productHostname'
+import { CLINICIAN_STATUS_PATH, resolveStaffProductHostname, STAFF_RECOVERY_PATH, staffLoginAction, staffRecoveryHref } from '../../productHostname'
 import { staffReturnPath } from '../session'
+import { STAFF_MFA_FACTOR_UNPROVEN, STAFF_MFA_UNAVAILABLE, StaffMfaSteps, type StaffMfaLook } from './StaffMfaSteps'
+import { ClinicianSignUpEntry, PageLink } from '../clinician/ClinicianSignUpEntry'
+
+/**
+ * Said when Identity ended the sign-in for want of an authenticator
+ * (403 STAFF_MFA_REQUIRED, hid-system #71): here, and on the session-ended screen.
+ */
+export const STAFF_MFA_NOTICE = 'Health ID now asks staff for a code from an authenticator app at sign-in. '
+  + 'Sign in again to set one up, or to use the one you have.'
+
+function StaffMfaButton({ primary, ...rest }: { primary?: boolean } & ButtonHTMLAttributes<HTMLButtonElement>) {
+  return <Button tone={primary ? 'primary' : 'quiet'} {...rest} />
+}
+
+/** The authenticator steps, drawn as the rest of the provider sign-in page is. */
+const STAFF_MFA_LOOK: StaffMfaLook = {
+  headingAs: 'h1',
+  classNames: { step: 'staff-form staff-mfa', note: 'staff-muted', error: 'staff-error', status: 'staff-success' },
+  Button: StaffMfaButton,
+}
+
+/**
+ * What the page says for a refused password step: the portal's words for the
+ * refusals of a right password that mean something for staff sign-in with an
+ * authenticator, and otherwise Identity's own.
+ */
+function passwordRefusal(caught: unknown): string {
+  if (isHidApiError(caught) && caught.code === 'STAFF_MFA_FACTOR_UNPROVEN') return STAFF_MFA_FACTOR_UNPROVEN
+  if (isHidApiError(caught) && caught.code === 'MFA_UNAVAILABLE') return STAFF_MFA_UNAVAILABLE
+  return caught instanceof Error ? caught.message : 'Sign in failed.'
+}
 
 function getStaffLandingPath(search: string): string {
   return staffReturnPath(new URLSearchParams(search).get('returnTo'))
@@ -48,7 +81,7 @@ function TurnstileChallenge({ onToken, resetKey }: { onToken: (token: string) =>
 }
 
 export function SignIn() {
-  const { state, login } = useStaff()
+  const { state, login, verifyMfa, sendEnrollmentCode, startEnrollment, activateEnrollment, completeSignIn } = useStaff()
   const location = useLocation()
   const navigate = useNavigate()
   const [email, setEmail] = useState('')
@@ -57,16 +90,37 @@ export function SignIn() {
   const [turnstileResetKey, setTurnstileResetKey] = useState(0)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  // A right password for an account with no active facility: a clinician applicant not yet approved, perhaps (ADR-064).
+  const [noFacility, setNoFacility] = useState(false)
+  // The second step Identity asked for, while it is shown. The password form is gone meanwhile, so each is a new one.
+  const [challenge, setChallenge] = useState<StaffLoginChallenge | null>(null)
+  // Back at the password step from a later one, its heading takes focus: the step left is gone.
+  const heading = useRef<HTMLHeadingElement & HTMLParagraphElement>(null)
+  const [returned, setReturned] = useState(0)
+  useEffect(() => { if (returned) heading.current?.focus() }, [returned])
   const siteKey = getEnvironment().turnstileSiteKey
   const landingPath = getStaffLandingPath(location.search)
+  const mfaRequired = (state.status === 'signed-out' || state.status === 'ended') && state.reason === 'mfa-required'
 
   if (state.status === 'ready') return <Navigate to={landingPath} replace />
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setError('')
+    setNoFacility(false)
     setBusy(true)
-    try { await login(email.trim(), password, token || undefined); navigate(getStaffLandingPath(location.search)) }
-    catch (caught) { setError(caught instanceof Error ? caught.message : 'Sign in failed.') }
+    try {
+      const answer = await login(email.trim(), password, token || undefined)
+      if (answer.kind === 'challenge') {
+        // The password has done its part; a new challenge asks for it again.
+        setPassword('')
+        setChallenge(answer.challenge)
+      }
+      else finish(answer.session)
+    }
+    catch (caught) {
+      setError(passwordRefusal(caught))
+      setNoFacility(isHidApiError(caught) && caught.code === 'NO_ACTIVE_FACILITY_MEMBERSHIP')
+    }
     finally {
       setToken('')
       setTurnstileResetKey(value => value + 1)
@@ -74,28 +128,40 @@ export function SignIn() {
     }
   }
 
-  return <div className="staff-auth-page">
-    <main className="staff-auth">
-      <div className="staff-brand"><BrandLogo /><small>Provider</small></div>
-      <p className="staff-eyebrow">Secure clinical workspace</p>
-      <h1>Welcome back.</h1>
-      <p>Sign in with the staff account assigned to your facility. Your permissions and facility are verified by Health ID.</p>
+  function finish(session: StaffSession) {
+    try { completeSignIn(session) }
+    catch (caught) { restart(caught instanceof Error ? caught.message : 'Sign in failed.'); return }
+    navigate(getStaffLandingPath(location.search))
+  }
+
+  function restart(message: string | null) {
+    setChallenge(null)
+    setError(message ?? '')
+    setReturned(value => value + 1)
+  }
+
+  return <AuthLayout brandTo="/provider/sign-in" brandLabel="Health ID provider sign in"
+    headerLink={{ to: '/provider/enroll', label: 'Set up your facility' }}
+    title="Welcome back." titleId="staff-sign-in-title" titleAs={challenge ? 'p' : 'h1'}
+    titleRef={heading} titleFocusable={!challenge}
+    lede="Sign in with the staff account assigned to your facility. Health ID verifies your permissions and facility.">
+    {challenge ? <StaffMfaSteps challenge={challenge} look={STAFF_MFA_LOOK}
+      calls={{ verify: verifyMfa, sendEnrollmentCode, startEnrollment, activate: activateEnrollment }}
+      doneLabel="Continue to the Provider Portal" onSignedIn={finish} onRestart={restart} restartLabel="Start again" /> : <>
+      {mfaRequired && <p role="status" className="staff-notice">{STAFF_MFA_NOTICE}</p>}
       <form className="staff-form" onSubmit={event => void submit(event)}>
         <Field label="Work email" htmlFor="staff-email" required><Input id="staff-email" type="email" autoComplete="username" value={email} onChange={event => setEmail(event.target.value)} required /></Field>
         <Field label="Password" htmlFor="staff-password" required><PasswordInput id="staff-password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} required /></Field>
         <TurnstileChallenge onToken={setToken} resetKey={turnstileResetKey} />
         {error && <p className="staff-error" role="alert">{error}</p>}
+        {error && noFacility && <p className="staff-muted">Applied as a doctor or nurse? You can sign in once two HID administrators
+          have approved your application. <PageLink path={CLINICIAN_STATUS_PATH}>Check your clinician application</PageLink>.</p>}
         <Button type="submit" disabled={busy || !!siteKey && !token}>{busy ? 'Signing in…' : 'Sign in'}</Button>
       </form>
       <RecoveryLink />
-    </main>
-    <aside className="staff-auth-aside" aria-label="About secure access">
-      <p className="staff-eyebrow">One connected care record</p>
-      <h2>The right information, at the point of care.</h2>
-      <p>Patient records open only after a server-approved grant, a patient PIN, or a documented emergency access event.</p>
-      <div className="staff-steps"><div className="staff-step"><span>1</span>Choose your active facility.</div><div className="staff-step"><span>2</span>Request governed patient access.</div><div className="staff-step"><span>3</span>Record care within an authorized encounter.</div></div>
-    </aside>
-  </div>
+      <ClinicianSignUpEntry className="staff-muted" />
+    </>}
+  </AuthLayout>
 }
 
 /**

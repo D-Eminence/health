@@ -11,8 +11,9 @@
  * once (skipWaiting), so a page whose own code reloads when its worker changes
  * reloads then: hid-system's EHR does, on controllerchange, as on its releases.
  *
- * Kept identical in apps/patient-web/public and apps/public-web/public, so
- * whichever app serves a host retires a worker there (legacyServiceWorker.test.ts).
+ * Served by the public site only. The patient portal serves none: hid-system's
+ * staging refusals (audit:launch-build) reject a service worker in its build.
+ * See legacyServiceWorker.test.ts.
  */
 self.addEventListener('install', event => {
   event.waitUntil(self.skipWaiting())

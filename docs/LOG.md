@@ -1351,6 +1351,1127 @@ made the portal show something untrue, and Health-id #51
   - a new ask, MOD-1: withdraw closed modules' read permissions, or expose
     the enabled modules.
 
+## 2026-10-14: patient enrollment after hid-system#68 (closed registration, contact proved again, saving the HID)
+
+Read at hid-system `main` `8f3eff1`: the enrollment controller and service,
+`docs/INTERFACE_CONTRACT.md` ("Enrollment availability and the
+closed-registration answer"), ADR-048 and `PHASE_3_LAUNCH_DECISIONS.md` N1
+and N2. hid-system was not changed.
+
+- **Availability (FE-4).** Production keeps NIN-only enrollment closed until
+  hid-system's N1 holder step ships, so every start answers 503. The page
+  still asked for a NIN and a security check, and showed the refusal only
+  after both were spent. It now reads
+  `GET /identity/patient-enrollments/availability` with the enrollment check
+  and offers the NIN step and Google sign-up only on `200 { open: true }`.
+  - Any other body: a notice in Identity's own words ("New Health ID
+    registration is not open yet. If you already have a Health ID, sign
+    in."), with Sign in and Forgot password? links, no security check and no
+    step list.
+  - A failed read, a 503 included: "We could not check whether new Health ID
+    registration is open", with Try again; focus follows Try again as it does
+    for the enrollment check. It is never taken for a sign-out.
+  - Unchanged: an enrollment in progress continues and an activated one shows
+    its HID, since only a start is refused while closed; an open registration
+    behaves as before; the start's own refusals are shown as before. One that a
+    sign-in or sign-out ended while registration is closed is not told to
+    enter its NIN again, because a resume with the same key is refused too.
+  - The route is registered (`enrollment.availability`, public `GET`) and
+    granted to patient-web only.
+  - **Deploy order.** An Identity without hid-system#68 answers the read with
+    404, which the page shows as a failed check, and offers no start. Deploy
+    this portal with or after an Identity carrying hid-system#68.
+  - Not changed: the sign-in page's "Get your Health ID" link and the public
+    site's sign-up entry do not read availability; they lead to the notice
+    (open questions).
+- **Evidence.** 9 tests failed first (8 in `EnrollmentAvailability.test.tsx`,
+  the registry case in `boundaries.test.ts`); 3 more guard what is unchanged.
+  The existing enrollment tests now answer the read as open. Gates:
+  `typecheck`, `lint`, `audit:boundaries` and `build:patient-web` pass;
+  `npm test`: 139 files, 1831 tests.
+- **Contact proved again (N2(c), ADR-048).** An activation whose contact was
+  proved more than 30 minutes earlier answers
+  `409 ENROLLMENT_CONTACT_REVERIFY_REQUIRED`, and Identity has already sent the
+  enrollment back to the contact step without its contact. The page showed the
+  message at the password step, where a second try was refused as
+  `409 ENROLLMENT_STAGE_INVALID`, so only a reload helped. It now returns to
+  the contact step with the contact typed on the page kept, clears the code and
+  password, moves focus to the contact field and says why in an alert. Other
+  activation refusals stay at the password step.
+- **Saving the HID (N2(a), N2(b)).** The completion screen showed the HID
+  without saying it may not be shown again. The activation response expires
+  the enrollment cookie, and `GET .../current` shows the HID only if that
+  response was lost, for 15 minutes after activation. The screen now asks the
+  patient to write it down or keep it somewhere safe, says it may not be shown
+  again, and says that with a verified phone the HID is how they sign in and
+  reset the password (hid-system has not shipped N2(a), which sends it to the
+  verified contact).
+- **Evidence.** 3 tests failed first in `EnrollmentActivation.test.tsx` (the
+  re-verification round trip, and the save note at activation and on a
+  re-display); a fourth guards that other refusals stay at the password step.
+  Gates: `typecheck`, `lint`, `audit:boundaries` and `build:patient-web` pass;
+  `npm test`: 140 files, 1835 tests.
+- **Not verified.** Component tests with the network stubbed. Nothing was run
+  in a browser, at runtime, on staging or against a live hid-system.
+
+## 2026-10-15: patient enrollment after review (a lost re-verification answer, an enrollment that ended while no start is offered)
+
+Read at hid-system `main` `8f3eff1` (`patient-enrollment.service.ts`
+`activate`, `resetStaleContact`; `docs/INTERFACE_CONTRACT.md`).
+
+- **A lost re-verification answer.** Activation that finds a stale contact
+  sends the enrollment back to the contact step, then answers
+  `409 ENROLLMENT_CONTACT_REVERIFY_REQUIRED`. When that answer never reached
+  the page (lost on the network, or it answered the same enrollment's
+  activation in another tab), every further try was refused as not at the
+  password step (`409 ENROLLMENT_STAGE_INVALID`, "Contact verification is
+  required") and the page stayed there until a reload.
+  - Now that refusal reads `GET .../current` and the page goes to the step
+    Identity has: the contact step, or the code step when another tab already
+    sent a new code, with the re-verification alert (worded for the code step
+    there) and focus on the step's field.
+  - If Identity still has the password step (the database check's "Enrollment
+    conditions are not complete"), the refusal is shown there as before; if
+    the read fails, its failure is shown (a 404 returns to the NIN step), and
+    the next try reads again.
+  - Unchanged: the direct 409 path, which needs no read; every other
+    activation refusal (503, 429) stays at the password step without a read.
+  - Evidence: 4 tests failed first in `EnrollmentActivation.test.tsx`; the
+    case that asserted the stuck page now guards a 503 and a 429.
+- **An enrollment that ended while availability was unknown.** When the
+  availability read had failed (a 503 after its retries, or the 404 of an
+  Identity without hid-system#68) and an enrollment in progress then ended
+  here (`404 ENROLLMENT_NOT_FOUND` at a step), the page went to the NIN step,
+  which shows only Try again in that state. Focus fell to the page, since
+  nothing there was the step's focus target, and the alert said "Enter the
+  same NIN to continue it" with no NIN field.
+  - Now Try again is the step's focus target in that state, so focus goes
+    there, and the alert says only that the enrollment ended until a read
+    finds registration open; then the NIN field is shown and the alert asks
+    for the same NIN.
+  - Unchanged: a failed read at load and a Try again that fails again, which
+    already moved focus to Try again; a closed registration, whose heading
+    takes focus.
+  - Evidence: 1 test failed first in `EnrollmentAvailability.test.tsx`, on
+    focus and, with the focus fix alone, on the wording.
+- **Reconnecting Google with no Google control.** An enrollment that
+  required Google (`googleOnboardingRequired: true`, no pending Google
+  sign-up) and then ended here returned to the NIN step still saying
+  "Reconnect the Google account used to start this enrollment.", while a
+  closed or unknown registration hides the Google sign-up, so the patient
+  could not do it.
+  - Now that line is shown only where a start is offered, as the Google
+    section and the "Google identity confirmed" line already were.
+  - Unchanged: the requirement is kept, so once a read finds registration
+    open the line returns with the Google sign-up (guarded by a test); an
+    enrollment in progress still shows it at every step.
+  - Evidence: 2 tests failed first in `EnrollmentAvailability.test.tsx`
+    (closed and unknown); 1 more guards the open case.
+- **Gates** at each of the three commits: `typecheck`, `lint`,
+  `audit:boundaries` and `build:patient-web` pass; `npm test`: 140 files,
+  1840, 1841 and 1844 tests.
+- **Not verified.** Component tests with the network stubbed. Nothing was run
+  in a browser, at runtime, on staging or against a live hid-system.
+
+## 2026-10-15: staff sign-in with an authenticator, part 1 (hid-system#71)
+
+hid-system `main` `8f3eff1` has staff sign-in with an authenticator
+(hid-system#71, ADR-054, migration 0088), the `403 NO_ACTIVE_FACILITY_MEMBERSHIP`
+answer of hid-system#76 and the Turnstile contract of hid-system#79. None is
+deployed. Against it, Health-id `main` `077b85c` could not sign staff in: it
+took the password step's `{ status, expiresAt }` for a session, none of the
+`/auth/mfa/*` steps was registered, and a `403 STAFF_MFA_REQUIRED` was handled
+as an ordinary refusal ("Session unavailable" at load, a locked or still open
+workspace mid-session). This branch (`claude/staff-mfa-signin`) lays the
+plumbing; the second-step screens follow in part 2.
+
+- **Shared MFA pieces.** The platform console's setup-key grouping, six-digit
+  code rules and recovery-code step move to `src/mfa/` (`codes.ts`,
+  `RecoveryCodes.tsx`, drawn with each portal's classes, button and file
+  name), and `saveFile` to `src/download.ts`. The console looks and behaves as
+  before; a characterization test pins its recovery codes.
+- **Contracts.** `auth.staffMfaVerify`, `auth.staffMfaEnrollEmailCode`,
+  `auth.staffMfaEnrollStart` and `auth.staffMfaEnrollActivate` are registered
+  and granted to `staff-web` only. Staff verify takes a recovery code; there
+  is no separate staff recovery-code route.
+- **Staff API.** `verifyMfa`, `sendEnrollmentCode`, `startEnrollment` (with the
+  emailed code, or none after provider activation) and `activateEnrollment`.
+  Verify and activation wait for a sign-out or refresh in flight and take the
+  session turn. `login` reads the answer as the second step or, from an
+  Identity before #71, the session; anything else opens nothing.
+- **`403 STAFF_MFA_REQUIRED`.** Treated as the end of the session: at load the
+  refresh ends it and the portal goes to sign-in; mid-session, after a refused
+  request, a facility switch or another tab's announcement, the portal asks
+  the server and shows the session-ended screen. Both screens say Health ID now
+  asks for an authenticator code. The staff client notes the session that
+  heard the refusal, since the refresh clears the cookies and later answers no
+  longer say why. A 503 still leaves the session alone.
+- **Provider.** `login` (the password step) changes no state; `verifyMfa` and
+  `activateEnrollment` forget other tabs' announcements made before they were
+  sent; `completeSignIn` opens the workspace. The sign-in page opens an older
+  Identity's session and, against #71, says it cannot ask for the code yet.
+  Identity's own detail is shown for `403 NO_ACTIVE_FACILITY_MEMBERSHIP` and
+  `STAFF_MFA_FACTOR_UNPROVEN`; there is no staff Google sign-in.
+- **Departures from the investigation.** The registry header keeps its basis;
+  the new routes carry their own `8f3eff1` note, as other additions do. The
+  reason for an end is a per-session note in `staff/session.ts`, not the
+  refused refresh's cause, which the HTTP client drops when a protected
+  request's own refresh fails. `RecoveryCodes` takes the portal's button so
+  the staff step can use `@hid/ui`. Activation announces to other tabs at
+  once. Not done here: the admin copy for
+  `409 MFA_ENROLLMENT_STAFF_SIGN_IN_REQUIRED`, the provider enrollment
+  continuation and the QR code (part 2 and owner decisions).
+- **Evidence.** 55 tests failed first across the five commits (12 shared
+  pieces, 1 contracts, 15 API steps, 13 `STAFF_MFA_REQUIRED`, 14 two-step
+  sign-in); 9 more were written as guards that already passed (the console's
+  recovery codes, an ordinary end, the older Identity's session, Identity's
+  refusal details, no Google). At the branch head every gate passes:
+  `typecheck`, `lint`, `npm test` (144 files, 1883 tests), `audit:boundaries`
+  and `build:patient-web`.
+- **Not verified.** Component and API-client tests with the network stubbed.
+  Nothing was run in a browser, on staging or against a live hid-system.
+
+## 2026-10-15: staff sign-in with an authenticator, part 2 (hid-system#71)
+
+Part 1 laid the plumbing; against hid-system `main` `8f3eff1` (not deployed)
+the provider sign-in page still stopped after the password, provider
+enrollment activation still reloaded into a workspace with no session, and
+the platform console answered the dual-role enrolment refusal with "This item
+changed". This part (`claude/staff-mfa-signin`) builds the screens.
+
+- **QR code.** `src/mfa/OtpauthQr.tsx` draws the `otpauth://` URI Identity
+  returns at enrolment start as inline SVG (one path, a four-module quiet
+  zone, dark on light, presentation attributes only, as `style-src 'self'`
+  allows), with `qrcode-generator` 2.0.4 (MIT, no dependencies) pinned
+  exactly. No remote service sees the secret. The drawn modules were decoded
+  back to the URI with jsQR outside the repository.
+- **Staff second step** (`staff/routes/StaffMfaSteps.tsx`). `mfa_required`: the
+  six-digit code or one recovery code. `mfa_enrollment_required`: an
+  explanation and "Email me a code" (sent only on the press; sends and setup
+  starts count against 5 per 15 minutes; "Send a new code" replaces it), the
+  emailed code, the setup (QR code, grouped key, open-in-app link, deadline),
+  the first code, and the ten recovery codes shown once; the workspace opens
+  after "I have stored these recovery codes", with a session that does not
+  keep them. Refusals: a wrong code is cleared and said at its field; 429,
+  `503 MFA_UNAVAILABLE` and `MFA_ENROLLMENT_CODE_UNDELIVERABLE` keep the step;
+  `MFA_CHALLENGE_INVALID` and `STAFF_MFA_FACTOR_UNPROVEN` (two platform
+  administrators must reset the authenticator) go back to the password step;
+  `MFA_ENROLLMENT_PROOF_REQUIRED` to the email step;
+  `MFA_ENROLLMENT_PROOF_COMPLETE` on to setup with no code;
+  `MFA_ENROLLMENT_PROOF_UNAVAILABLE` stops. Each step's heading takes focus;
+  "Start again" waits for a step on its way. The password step says
+  `STAFF_MFA_FACTOR_UNPROVEN` and `MFA_UNAVAILABLE` in the portal's words.
+- **Provider enrollment.** Activation continues into the same steps on its own
+  page, with no emailed code (the activation is the proof); an account that
+  has an authenticator is asked for its code; the page reloads into the
+  workspace only after the recovery codes. A lapsed challenge sends the
+  administrator to `/provider/sign-in`. An older Identity's session still
+  opens the workspace at once.
+- **Platform console.** `409 MFA_ENROLLMENT_STAFF_SIGN_IN_REQUIRED` goes back
+  to the credentials step and says to set the authenticator up at staff
+  sign-in first.
+- **Departures from the investigation.** The steps live in one component that
+  the sign-in page and provider enrollment both draw, each with its own
+  heading level, classes and button, since enrollment sits outside the
+  provider workspace. The provider's context also offers the email code and
+  setup start. Provider activation's setup starts on "Begin setup", not on
+  arrival, so a remount never spends a start. Our words, not Identity's, for
+  `STAFF_MFA_FACTOR_UNPROVEN` at the password step. The console's copy names
+  the Provider Portal rather than linking to it: the admin host accepts no
+  staff sign-in check. No `PasswordInput` exists on this base, so the
+  password field is unchanged.
+- **Evidence.** 33 tests failed first (4 QR, 24 sign-in steps of which 2 were
+  part 1's expectations of "cannot ask for the code yet", 3 provider
+  enrollment, 2 console). At the branch head every gate passes: `typecheck`,
+  `lint`, `npm test` (146 files, 1914 tests), `audit:boundaries` and
+  `build:patient-web`. One full run before the last style commit failed once in
+  `OcrFocus.test.tsx` ("a short retry reason takes focus", a 1-second
+  `waitFor` under load); it passes alone (three runs) and in the full re-run.
+- **Review fixes.** A review found two minor defects; each test failed first.
+  - Provider enrollment never told the other tabs that verify or activation
+    set the session: the staff announcer posted only on the channel the tab
+    listens with, and `/provider/enroll`, outside the workspace, listens on
+    none. Its test passed only because it mocked the announcer. The announcer
+    now goes through `announceSessionChange`, which opens a channel for the
+    message when the tab has none (the workspace, which listens, is
+    unchanged), and an older Identity's activation announces too. The test
+    stubs `BroadcastChannel` instead; 3 cases failed before the fix.
+  - `.staff-mfa p` matched a Field's error paragraph and, being in no layer,
+    beat its `text-critical`: a refused code showed in the steps' grey. The
+    rule is `.staff-mfa > p`. The sign-in tests read the unlayered rules and
+    pin each refused code's error (id, class, description, alert); 4 cases
+    failed before the fix. `.staff-card p` (on `main` before this branch)
+    does the same to Field errors in the workspace's cards, Registration's
+    among them; it is not changed here.
+  - Every gate passes after each fix: `typecheck`, `lint`, `npm test` (146
+    files, 1914 tests), `audit:boundaries`, `build:patient-web`.
+- **Not verified.** Component tests with the network stubbed; nothing was run
+  in a browser, with a real authenticator app, on staging or against a live
+  hid-system. The QR code's look on a phone camera, and the email delivery of
+  enrolment codes (an operator item), are unchecked.
+
+## 2026-10-15: launch alignment with hid-system `main` `8f3eff1`
+
+hid-system `main` at `8f3eff1` is what production is to run. Read-only, its
+contract (`docs/INTERFACE_CONTRACT.md`) and code show five things Health-id
+`main` `077b85c` gets wrong or does not use. Each is fixed on
+`claude/launch-alignment-fixes` in its own commit, with tests that failed
+first. hid-system was not changed.
+
+- **Admin principal search and export (A24, hid-system#76).** The console sent
+  the search term (a name or an email address) and the export's audited reason
+  in `GET` query strings, which access logs keep. The search is now
+  `POST /admin/principals/search` with `{ query, page, pageSize, status? }` and
+  the export `POST /admin/principals/export` with `{ reason, query?, status? }`,
+  both with the platform CSRF token. The export keeps its download transport,
+  its row headers and its no-retry; the search, now a `POST`, is not repeated
+  automatically either. The registry drops the `GET` forms, so neither can be
+  sent with its terms in the URL. The screens are unchanged. Failing first: 6
+  tests (the admin API's search, export and route list, the registry and the
+  registered client).
+- **Encounter close since hid-system#74 (migration 0090).** The status form
+  said that a retraction left completed orders, vitals and documents unchanged.
+  Since 0090 marking an encounter entered in error also marks its final vitals,
+  its completed prescriptions and lab requests and its initiated or uploaded
+  documents entered in error; cancelling still changes only open orders. The
+  warning now says so. A close that would change a kind of record the actor may
+  not write answers `403 ENCOUNTER_RETRACTION_NOT_PERMITTED` with nothing
+  written; the form showed EHR's terse detail, and now says the role may not
+  make that change, that nothing changed and to ask a colleague whose role may
+  change all of the encounter's records, naming no kind of record, as EHR does
+  not. It is not read as a stale encounter: nothing is read again, and the
+  choice and reason stay. Not changed: the Documents tab is not read again
+  after a retraction (at launch no role may retract an encounter holding an
+  uploaded document), and a completed encounter is still offered no
+  retraction. Failing first: 5 tests (the three warning cases and the two
+  refusals).
+- **Vitals entered in error (hid-system#74).** A vital now carries `status`,
+  and one entered in error keeps its values but takes no correction
+  (`409 VITAL_NOT_AMENDABLE`). The Vitals tab showed such a vital as current and
+  offered "Correct these vitals", which EHR would refuse. It is now marked
+  "Entered in error", says not to use the values, and offers no correction; its
+  earlier corrections are still shown. A retraction, like a correction, raises
+  the vital's row version, which EHR checks first, so a correction sent at the
+  version loaded before either answers `412 VERSION_CONFLICT`; the 409 answers
+  only the version of a vital already entered in error. Either now reads the
+  vitals again, says whether they were marked entered in error or changed
+  otherwise, and moves focus to the vital; the 412 used to show EHR's detail in
+  the form, with the list unchanged and every resubmission refused. An EHR
+  before #74 sends no status, and every vital stays correctable. Not added: the
+  single-vital retraction route. Failing first: 3 tests (the marker, the marker
+  with a correction, the refused correction), and on review 2 more: the
+  refused correction, which had a 409 EHR does not give there, now with EHR's
+  412, and a 412 for a vital corrected meanwhile. A 409 whose list cannot be
+  read again, added then, passed before the change.
+- **Patient routes answering `403 PATIENT_SESSION_REQUIRED` (hid-system#74 and
+  #76, ADR-059; hand-off A9).** Every patient-only route now refuses a provider's or
+  administrator's session so, where it used to answer a retried `503`. With a
+  provider's sign-in live in the shared cookies, the patient pages showed "An
+  active patient session is required" as if the page had failed. Now such a
+  refusal makes the portal ask `GET /auth/session` whose session the browser
+  holds, the question it asks when another tab announces a change, and the
+  refusal reaches the page only once that is answered: a provider's session
+  signs the tab out, so the page goes to sign-in, which says the sign-in
+  changed elsewhere. The 403 alone ends nothing; a check the server cannot
+  answer (a `503`) or one that finds this patient's own session changes
+  nothing, and the page shows the refusal. No other 403 asks anything. Failing
+  first: 5 tests (the session client's three cases, the shared-browser case
+  and the records page).
+- **Health ID Migrate card (hid-system#75, migration 0091).** OCR is closed
+  at launch, and since 0091 no role holds any `ocr.*` permission, so the
+  Document OCR workspace is hidden. The provider dashboard still showed every
+  role a "Health ID Migrate" card leading to it, and `/provider/migrate` opened
+  for anyone with its own link to Document OCR. Both now show only with
+  `ocr.job.read`, as the OCR workspace does; the page otherwise says it is
+  unavailable, with its own main landmark and h1 (the investigation asked for
+  the route as well as the card). Failing first: 2 tests (the card hidden, the
+  page unavailable).
+- **Evidence and gates.** Each commit's failing and passing runs are kept
+  outside the repository. At each commit `typecheck`, `lint`,
+  `audit:boundaries` and `build:patient-web` pass, and `npm test` passes in
+  full (from 138 files and 1819 tests on `main` to 140 files and 1837 tests).
+- **Not verified.** Component tests with the network stubbed. Nothing was run
+  in a browser, at runtime, on staging or against a live hid-system.
+- **Deploy order.** The admin console needs an Identity with hid-system#76,
+  and the encounter and vitals wording an EHR with hid-system#74: this portal
+  is to be deployed with or after hid-system `8f3eff1`.
+
+## 2026-10-15: the portal build is checked against hid-system's staging refusals
+
+hid-system's staging step (`infra/cloudflare/scripts/health-id-artifact.mjs`,
+read at hid-system `main` `94889fd`) refuses a Health-id build that carries
+Google sign-in, a service worker (a `service-worker.js`, `sw.js` or
+`workbox*.js` file, or `serviceWorker` in a script), a web app manifest, a
+source map, or any file other than `index.html` and content-hashed files under
+`assets/`. Nothing in Health-id checked this, so a branch could build a portal
+that staging refuses and CI would pass: a review of the PWA branch found its
+build kept Google's script loader with no Google client ID.
+
+- `npm run audit:launch-build` (`scripts/check-launch-build.mjs`) runs those
+  rules over `apps/patient-web/dist`. CI runs it after the builds, which have
+  no Google client ID, as at launch. The environment record and the
+  `index.html` shell depend on the host being staged and are left to the
+  staging step.
+- **Evidence.** A build of `main` `598ddc0` passes (13 files). Seven altered
+  copies of that build each fail with their own reason: an added source map
+  file, a `service-worker.js`, a `health-id.webmanifest`, Google's
+  `gsi/client` URL in a script, a `robots.txt`, a `serviceWorker` registration
+  in a script, and a `sourceMappingURL` comment.
+- **Not verified.** The hid-system stager itself was not run; the rules were
+  copied from it and must be kept in step when it changes.
+
+## 2026-10-15: patient sign-up against hid-system `main` `f9dbaf0` (the NIN holder step and the facility route)
+
+hid-system `main` `f9dbaf0` merged ADR-061 (#82, migration 0092: a NIN record
+without a date of birth or gender), the NIN holder step (#84, ADR-062,
+migration 0093: before a contact or a password the patient proves they hold the
+NIN by a code texted to the phone on the NIN record) and the facility route
+(#85, ADR-063, migration 0094: or in person at a participating facility), and
+#86 (integration status and the "Health-id alignment" list,
+`PHASE_4_STAGE_5_RELEASE_READINESS.md` section 3). None is deployed. The
+patient's side of that list, with the owner's decision of 2026-10-14 (both
+routes discoverable from the start, no fake confirmation, an existing Health ID
+sent to account recovery, a pending facility check explained), is on branch
+`claude/patient-signup-online`, rebuilt on Health-id `main` `55a50b0`. Three
+commits of an earlier draft against a hid-system branch that `main` did not
+adopt (routes `holder/code`, `holder/cancel`, `contact/holder-phone`) were
+dropped; the Retry-After helper, the split of the enrollment stages and the
+ADR-061 password step were kept unchanged (same trees).
+
+- **Routes and shared client (rows 1, 14, 15).** The registry and the
+  patient-web grant name `POST .../holder`, `/holder/verify`, `/facility-code`
+  and `GET .../participating-facilities`; staff-web and admin-web are not
+  granted them. Availability is `{ open, online, facility }`, `open` the only
+  gate. `@hid/contracts` (`wire.ts`) and `@hid/api` (`services.ts`) follow.
+- **NIN step (row 14).** It says how the NIN will be proved: a code to the phone
+  linked to the NIN, and, for someone who lost their SIM, changed their number,
+  has no phone linked to the NIN or can't get the code, an in-person check at a
+  participating facility, linking to the public `/enroll/facilities`; or that
+  either is not available. The button is "Continue". `503
+  PATIENT_REGISTRATION_NOT_OPEN` shows the closed notice; a NIN lookup that
+  could not be completed and any outage keep the step.
+- **The holder step (rows 2 and 3, P31, P33).** "Prove this NIN is yours" offers
+  both routes and sends nothing until one is chosen. Online: the code, its
+  expiry, the resend wait (`Retry-After` when sent, else `GET .../current`'s
+  `online.resendAfterSeconds`; Identity sends no `Retry-After`) and the three
+  codes; every answer of the contract table, `NIN_HOLDER_ROUTE_UNAVAILABLE`
+  (409 and 503), `NIN_HOLDER_ROUTE_LIMITED`, `OTP_RESEND_COOLDOWN`,
+  `OTP_INVALID`, `NIN_HOLDER_PROOF_CONFLICT`, `OTP_DELIVERY_UNAVAILABLE` and
+  `404`, is said, with the facility where the code cannot help. Facility: an
+  in-person check of one original photo ID comes first, what to bring and the
+  facilities are listed, the desk code is asked for only on request, shown
+  again after a reload and replaced only if staff ask; "I have been checked"
+  reads `GET .../current`, and its `404` (or one after any facility action)
+  offers account recovery, sign-in or starting again, never "the same NIN". A
+  Google sign-up is offered at the NIN step and after the proof, not while the
+  NIN is being proved, and starting again carries nothing typed (the contact
+  included) into the next registration.
+- **Endings (rows 8, 9, 10).** `409 NIN_ALREADY_REGISTERED`, after a correct code
+  or at activation: account recovery, sign-in and Health ID support with the
+  problem's `correlationId`, the start key dropped. `409
+  ENROLLMENT_HOLDER_PROOF_REQUIRED`: the NIN step with a new key. `404
+  ENROLLMENT_NOT_FOUND` names its other causes (a later proof elsewhere, the
+  24-hour expiry).
+- **Date of birth and gender (row 6).** The password step asks for the fields
+  `requiredProfileFields` names and shows ADR-061's three `400` refusals at them
+  (kept commit).
+- **Verify NIN (row 13).** The profile page's card is hidden until P27:
+  hid-system answers it `503 QOREID_PATIENT_NIN_BINDING_DISABLED` by default.
+- **Docs and comments (row 17).** The comments and docs that said a new start
+  key is refused `409 NIN_ALREADY_REGISTERED`, the registry header citing
+  `c4b5445` for every route, and hand-off E20(d) keeping the facility route out
+  of scope are corrected.
+- **Not on this branch.** The staff in-person check (row 4), the admin
+  designation (row 5), the problem `fields` member (row 7) and the provider rows
+  (11, 12, 16). Health ID support has no address yet (SUPPORT-CONTACT), so the
+  page names it without a link.
+- **Evidence and gates.** Each new commit's tests were written first and failed
+  before its change: 5 (contracts and API), 13 (the NIN step, the public list,
+  the route test and the 320px rule), 34 and a 320px rule (the holder step and
+  the facility stage), 3 (activation refusals and the `404` text), 3 (the
+  Verify NIN card) and 6 (fixes from a review of the branch: a `404` after a
+  facility action, a cooldown or a `409 NIN_HOLDER_ROUTE_UNAVAILABLE` whose
+  re-read finds the registration moved on or gone, the facility route closing
+  before "I have been checked", Google while the NIN is proved, and a contact
+  carried into a new registration). At each commit `audit:boundaries`, `typecheck`, `lint`,
+  `vitest`, `build:patient-web` (local environment) and `audit:launch-build`
+  pass; `vitest` went from 152 files and 1975 tests (after the routes) to 157
+  files and 2028 tests. One full run failed two provider session-end tests on
+  their 5-second timeout under load; they passed alone and on the next full
+  run.
+- **Compatibility.** Against today's deployed Identity, which answers
+  availability `{ open: false }` and refuses every start, the page shows its
+  closed notice as before. An Identity before #84 that answers `{ open: true }`
+  gets the NIN step without the routes, and its `verify_contact` start goes on
+  to the contact step as before.
+- **Not verified.** Component tests with the network stubbed. Nothing was run in
+  a browser, with a screen reader, at runtime, on staging or against a live
+  hid-system; the 320px layout is checked from the stylesheet rules only.
+
+## 2026-10-15: patient sign-up after a second review (the facility stage's start key, a completed registration, the holder proof conflict, announcements)
+
+A second review of branch `claude/patient-signup-online` against hid-system
+`main` `f9dbaf0` (`INTERFACE_CONTRACT.md`, "The NIN holder step" and
+"Facility-assisted registration"; `patient-enrollment.service.ts`; 0094) found
+six defects. Five commits fix them, each with failing tests written first.
+
+- **The facility stage dropped the start key on a `404` (`826d396`; Health-id
+  alignment row 10, P31).** A sign-in, refresh or sign-out in the browser
+  expires only `hid_enrollment` (`auth.controller.ts` `clearEnrollmentCookie`).
+  A start with the same key and NIN resumes the registration, with any
+  recorded in-person check and no new NIN lookup (`resume`). The
+  facility-stage `404` called `freshStart`. So after the sign-out note ("continue
+  it by entering the same NIN"), Check again and the same NIN cost a second paid
+  lookup and a second check at the facility, and an online proof was then
+  refused `409 NIN_HOLDER_PROOF_CONFLICT`. The `404` now keeps the key and
+  clears what was typed. "This registration has ended" still gives the staff
+  member's direction first. It also names a sign-in or sign-out in this
+  browser, and its Start again keeps the key. A `404` found by Check again just
+  after the sign-out note goes to the NIN step, as the note says. A
+  registration that is gone starts afresh with either key, and another NIN
+  gets a new key. "Use a different NIN" and `429 ASSISTED_DESK_CODE_LIMITED`
+  still start with a new key. 3 tests failed first.
+- **The start's `409 IDEMPOTENCY_KEY_REUSED` invited a new paid start
+  (`1205617`).** `resume` answers it only for another NIN or an active row, and
+  the page binds the key to the NIN. So it means the registration this page
+  started was activated (a lost activation answer, or another tab). The page
+  said "That registration has ended. Select Continue to start again". It now
+  shows "This registration was completed", with sign-in and account recovery,
+  no NIN field and no new start. 1 test failed first; the branch had none for
+  this answer.
+- **`409 NIN_HOLDER_PROOF_CONFLICT` sent the registration to "Get my desk code"
+  (`a8d26f7`).** 0094 answers it only when another registration of the NIN was
+  already checked in person and is waiting for its contact and password.
+  The page said "show your desk code" for a registration that had none. A second
+  check would cost the staff and facility daily budgets and delete the
+  registration already checked. The page now stays at the choice. It says to
+  finish that registration on the phone used at the facility, and keeps the
+  facility as the fallback. The text message route says why it can't help.
+  The existing test was rewritten and failed first. The contract's looser
+  wording is in [open questions](./OPEN-QUESTIONS.md).
+- **A refusal after Enter in the password field was not announced
+  (`74fe26a`; ADR-061, P29).** With a profile field on the step, that field is
+  the focus target, and `onTarget()` was false in the password field. So a date
+  refused on the page, `DATE_OF_BIRTH_INVALID`, `ENROLLMENT_PROFILE_REQUIRED`
+  for another field and `PASSWORD_INVALID` were not alerts while focus stayed
+  put. `sentFromField` (`authSteps.ts`) reads where focus really is. 4 tests
+  failed first.
+- **The facility check confirmation was a live region inserted with its text
+  (`2504d72`).** The page's notice region now stays mounted, and the contact
+  field that focus moves to is described by the notice. 1 test failed first.
+- **Gates.** At each commit, `audit:boundaries`, `typecheck`, `lint`, `vitest`,
+  `build:patient-web` (local environment) and `audit:launch-build` pass.
+  `vitest` went from 157 files and 2028 tests to 157 files and 2037 tests.
+- **Not verified.** These are component tests with the network stubbed. Nothing
+  was run in a browser, with a screen reader, on staging or against a live
+  hid-system. How each screen reader reads the mounted status region and the
+  description is not checked.
+
+## 2026-10-15: facility-assisted registration, staff and console (hid-system#85)
+
+Read at hid-system `main` `f9dbaf0` (D-Eminence/hid-system#84, #85 and #86;
+migration 0094, ADR-063): `docs/INTERFACE_CONTRACT.md` ("Facility-assisted
+registration", and section 6 on a problem's `fields`),
+`services/identity-api/src/identity/{assisted-verification.controller,assisted-verification.service,assisted-registration.guard,assisted-match,desk-code}.ts`,
+`identity/dto/assisted-verification.dto.ts`,
+`services/identity-api/src/admin/{admin.controller,admin.service,admin-command-error,high-risk-policy}.ts`
+and `admin/dto/admin-command.dto.ts`. These are the staff and console rows of
+the Health-id alignment list (rows 1, 4, 5 and 7); the patient rows (1 to 3,
+6, 8 and 9) are on the patient sign-up branch.
+
+- **Routes (row 1).** The registry names `POST /identity/assisted-verifications`
+  (`identity.patient.assisted_registration`) and `GET` and `POST
+  /admin/facilities/:facilityId/assisted-registration` (`platform.facility.read`,
+  `platform.facility.manage`). The provider portal is granted the check, and
+  the patient portal, public site and console are refused it; only the console
+  may call the designation.
+- **Problem fields (row 7).** `@hid/http` keeps a problem's `fields` member as
+  `HidApiError.fields`: field names to short result codes (up to 64 characters
+  of `[A-Za-z0-9_.-]`), never a value; any other shape is dropped, and the
+  member stays out of log summaries. No code read it before, so nothing
+  depended on its absence.
+- **Staff in-person check (row 4).** `/provider/in-person-check`, after Patient
+  registration in the navigation, for a role holding the permission (doctor,
+  clinician, nurse); others see "In-person check unavailable" and nothing is
+  sent. The desk code (read as Identity reads it), method, document type,
+  names and optional date of birth as written on the document, and the five
+  attestations are refused at their field before sending. One
+  `Idempotency-Key` per submission, held in memory and reused only while the
+  answer is unknown and the details unchanged. Every answer in the contract is
+  handled, the `422` per field (`match`, `no_match`, `not_in_record`) with no
+  record value; no answer restores, ends or signs out the session; nothing
+  typed reaches storage, the address or router state; focus moves to each
+  stage's heading and errors are announced.
+- **Designation (row 5).** "Registration in person" on the console's facility
+  page reads the designation and, with `platform.facility.manage`, designates
+  (always active, as `If-Match: 0` requires), changes or suspends it under
+  step-up with a reason. `adminApi.command` refused version 0 and dropped
+  `If-Match` for it, so the first designation could not be sent; it now takes
+  `creates`, sends `If-Match: "0"` for such a command and still refuses 0 for
+  every other. `admin/problems.ts` has `FACILITY_NOT_ACTIVE` and
+  `ADMIN_FACILITY_NOT_FOUND`; the panel words the command's other refusals and
+  reads the designation again after `VERSION_CONFLICT`.
+- **Evidence.** The tests were written before the code: 71 new tests in 8
+  files (http 5, contracts 2, staff request 8, staff screen 30, staff page 3,
+  console request 4, console panel 17, layout 2). The http, contracts, staff
+  request, staff page and both console files were run failing first. The staff
+  screen's were run once its code existed, and checked by reverting its key
+  handling (always a new key: 4 tests fail; never a new key after a definitive
+  answer: 2 fail); `If-Match: 0` by reverting it (1 fails) and the 320px rules
+  by removing them (2 fail). At each commit
+  `audit:boundaries`, `typecheck`, `lint`, `vitest run`, `build:patient-web`
+  and `audit:launch-build` pass. Three full runs while other worktrees loaded
+  the machine each timed out one test this change does not touch
+  (`PatientSessionRequired`, staff `SessionEnd`, `OcrFields`); each passes
+  alone and in the next full run.
+- **Not verified.** Component tests with the network stubbed. Nothing was run
+  in a browser, against a live Identity or on staging (S4v).
+- **Deploy order.** The staff entry shows only for a role holding
+  `identity.patient.assisted_registration`, which 0094 seeds. The console's
+  panel needs an Identity with #85: an earlier one answers the read with a 404,
+  which the panel shows as a failed read. `ASSISTED_REGISTRATION_ENABLED` must
+  stay off until the patient screens are deployed too (hid-system P31, P33).
+
+## 2026-10-15: facility-assisted staff and console screens after review (hid-system#85)
+
+Six review findings on the screens of the entry above, checked again against
+hid-system `main` `f9dbaf0` (`docs/INTERFACE_CONTRACT.md` "Facility-assisted
+registration", `identity/assisted-registration.guard.ts`,
+`identity/assisted-verification.service.ts`, `identity/assisted-match.ts` and
+migration 0094's `auth.staff_session_is_mfa`). Two of the six are the same
+defect (a partly typed date of birth), so five changes were made; none was
+found wrong.
+
+- **A partly typed date of birth (two findings).** A date control holding an
+  unfinished or impossible date (31 February) reports an empty value, and only
+  `validity.badInput` says so. The check was sent without the date, counted
+  toward the daily budgets (20 per staff member, 100 per facility, every
+  outcome) and, when the NIN record has a date, answered `422` with "None was
+  typed". It is now refused at the field before sending: "Enter the whole date
+  of birth as written on the document, or clear the field if the document
+  shows none."
+- **`503 ASSISTED_REGISTRATION_DISABLED`.** The contract's next step is "None;
+  the route is closed", but any `5xx` kept the key and turned the button into
+  "Check again". This answer is now final: the button stays "Check the details"
+  and the next check takes a new key.
+- **`403 ASSISTED_REGISTRATION_NOT_AUTHORIZED`.** The message named three of
+  the four causes. It now says: "the facility must take part, and you need an
+  active account, a sign-in confirmed with your authenticator, an attested
+  clinical grant and an active membership here", which is what
+  `docs/OPEN-QUESTIONS.md` and `docs/BACKEND_OWNER_HANDOFF.md` already said.
+- **Designation focus.** A save, or a `409 VERSION_CONFLICT`, reads the
+  designation again; its new version replaces the form and the focused button,
+  so focus fell to the page. It now moves to the panel's heading, also after a
+  step-up dialog closes; a refusal that leaves the form in place keeps focus on
+  the button.
+- **Designation announcements.** The panel never cleared its error or notice
+  when a submission started, so the same answer twice (two saves of one status,
+  `ADMIN_STATE_CONFLICT` twice, a cancelled step-up twice) changed nothing and
+  was not announced. The form now clears them as it sends, each answer is a new
+  numbered element, and the notice appears inside a status region that is
+  always present. Two `503`s in a row were already announced: each carries a
+  new reference.
+- **Evidence.** 8 new tests and 2 changed; 9 were run failing first. The staff
+  check: 2 new (the partly typed date; the next check after the closed route
+  takes a new key) and 2 changed (the closed route's test now asserts the
+  button; the 403 row asserts the new message), all 4 failing first. The
+  designation panel: 6 new, 5 failing first (focus after a first designation,
+  after a step-up and after a version conflict; the notice and the alert
+  cleared and shown anew); the sixth, focus kept on the button after a refusal
+  that leaves the form in place, passes before and after. At each commit `audit:boundaries`, `typecheck`, `lint`,
+  `vitest run` (158 files, 2038 tests at the second), `build:patient-web` and
+  `audit:launch-build` pass. One full run while other worktrees loaded the
+  machine (load average 14) timed out `OcrFields` once, a test this change does
+  not touch; it passes alone and in the next full run.
+- **Not verified.** Component tests with the network stubbed; `validity.badInput`
+  is stubbed, since jsdom does not set it. Nothing was run in a browser, with a
+  screen reader, against a live Identity or on staging (S4v). A cancelled
+  step-up still leaves focus on the page, as everywhere in the console: the
+  step-up dialog does not return focus when it closes.
+
+## 2026-10-15: facility-assisted screens, second review (hid-system#85)
+
+Five review findings on the screens of the two entries above, checked against
+hid-system `main` `f9dbaf0` (`docs/INTERFACE_CONTRACT.md` section 6 and
+"Facility-assisted registration", `identity-api/src/common/problem.ts`,
+`admin/admin.controller.ts`, `admin/admin.service.ts` and migration 0094's
+`facility_assisted_registration_participating` and
+`list_participating_facilities`). None was found wrong; each was fixed.
+
+- **Problem fields.** `@hid/http` kept any `fields` value of up to 64
+  characters of `[A-Za-z0-9_.-]`, which a surname (`OKAFOR`) or a date of
+  birth (`1990-04-02`) also is, so the entry above overstated it ("never a
+  value"). It now keeps only `match`, `no_match` and `not_in_record`, the
+  three words the contract and `ProblemDetails.fields` define; a new code must
+  be added to the list first. The in-person check already showed only those
+  words and "no result given" for anything else; a test now covers that.
+- **An Identity without #85.** The facility page reads the designation on
+  every facility, flag or not. An Identity without #85 answers the unknown
+  route with its default `404 NOT_FOUND` ("Cannot GET /api/v1/admin/..."),
+  which the panel showed as a raw alert with a Refresh. Any `404` but
+  `ADMIN_FACILITY_NOT_FOUND` is now a quiet note: "Registration in person is
+  not available on this Identity service yet." The entry above's deploy order
+  ("shows a failed read") is replaced by this; `docs/OPEN-QUESTIONS.md` has a
+  "Deploy order for the designation read" row.
+- **An old answer beside a new refusal.** A press of Save refused before
+  sending (an empty reason after a version conflict, or a second change after
+  "Saved.") left the earlier alert or notice on screen. Each press now clears
+  it first, as the staff check does.
+- **The page's Refresh.** It re-read the facility and the audit excerpts but
+  not the designation, so a change made by another administrator stayed hidden
+  and the next change was refused `409 VERSION_CONFLICT`. The page's Refresh,
+  and a change of the facility's status, now read the designation again; the
+  form is kept unless the version changed.
+- **Not in effect.** Identity counts an active designation only for a
+  verified, active facility of an active organization, and nothing suspends it
+  when the facility's status changes. The panel now gets the facility's status
+  and says "Not in effect: the facility must be verified and active, in an
+  active organization." beside an active status when the facility is not
+  verified; its description names the condition. An inactive organization or
+  `facility.active` false is not in the console's facility read, so the panel
+  cannot say those.
+- **Evidence.** 11 new tests: http 1, staff screen 1, designation panel 9
+  (one `it.each` of 3). 10 were run failing first (http 1, panel 9). The staff
+  screen's passes before and after, since the screen already allow-listed the
+  words; making it show an unknown value fails it. The panel's test file now
+  resets its mocks before each test, so an answer one test queued and did not
+  use cannot reach the next (while the new tests failed, one reached an
+  existing test). At each commit `audit:boundaries`, `typecheck`, `lint`,
+  `vitest run` (158 files; 2040 tests after the http change, 2049 after the
+  panel's), `build:patient-web` and `audit:launch-build` pass.
+- **Not verified.** Component tests with the network stubbed. Nothing was run
+  in a browser, with a screen reader, against a live Identity (with or without
+  #85) or on staging (S4v).
+
+## 2026-10-15: clinician self sign-up, the applicant's pages (hid-system ADR-064)
+
+Owner decision 2 of 2026-10-14: doctors and nurses sign up themselves and two
+HID administrators approve. hid-system built the backend on branch
+`claude/clinician-self-signup` (head `fa58e2b`, migration `0094` to be
+renumbered `0096`, ADR-064 proposed): **not pushed, merged or deployed**. This
+branch (`claude/clinician-signup-pages`, from `main` `55a50b0`) builds the
+applicant's side against that branch's contract; the administrators' queue is
+not built.
+
+- **Contracts.** Sixteen public routes (`enrollment.clinician*`: availability,
+  the sign-up email code and its check, facility search, the submit, the five
+  authenticator steps, the status page's email code and its check, the
+  applications, withdraw, apply again, the end of the page), granted to the
+  provider portal (`staff-web`) only. The public site's enrollment grant now
+  names the routes it could reach before, so it cannot reach these; a new
+  enrollment route for the public site must be added to that list.
+  `staff/clinicianApplicationApi.ts` has a client of its own that restores no
+  staff session on a 401 and reports nothing to the workspace: a 401 means
+  only that the application page or its authenticator step ended. Commands
+  are sent once with the page's Idempotency-Key; withdraw sends `If-Match`.
+- **Sign-up, `/provider/join`** (`staff/routes/ClinicianSignUp.tsx`), outside
+  the provider workspace and its session. Only `200 { open: true }` shows the
+  form; otherwise "Clinician sign-up isn't open yet", with Retry after an
+  outage. Email, then code (the same words for every address; a new security
+  check, `clinician-application`, for every send; the wait for a new code said
+  once, with no countdown); details (name, doctor or nurse with MDCN or NMCN
+  derived, never typed, licence number and expiry, a facility searched from 3
+  letters with the count announced); password and the two declarations; one
+  submit with a key kept in memory. Then the authenticator with no session
+  (`staff/clinician/ClinicianAuthenticator.tsx`): the emailed proof, the QR
+  code and setup key (`src/mfa/OtpauthQr.tsx`), the first code and the
+  recovery codes once (`src/mfa/RecoveryCodes.tsx`), or a code when the account
+  has one, and "Start again" (P9) when a step expired. "Application
+  submitted" never says verified or approved.
+- **Status, `/provider/join/status`** (`staff/routes/ClinicianApplicationStatus.tsx`):
+  an email code (`clinician-application-status`), then the authenticator code
+  or its setup; each application's state in fixed words (decision codes for a
+  rejected one, the access state of an approved one, the licence's last four
+  characters); withdraw in a dialog that holds focus, with `If-Match` (a 409
+  reloads and says it changed); apply to another facility; "Close this page".
+- **Ways in.** Provider sign-in and provider enrollment ask for availability
+  (`staff/clinician/ClinicianSignUpEntry.tsx`) and offer "Sign up as a
+  clinician" only on `{ open: true }`, otherwise "Clinician sign-up isn't open
+  yet"; both link the status page. Sign-in after a right password for an
+  account with no active facility (`403 NO_ACTIVE_FACILITY_MEMBERSHIP`) keeps
+  Identity's words and points an applicant to the status page. Enrollment says
+  its administrator account cannot also hold a clinical role. On a staff
+  product host or the admin site every clinician link goes to the main site,
+  the only host whose Turnstile accepts the two actions.
+- **Refusals.** Every code in the contract has words: intake closed, the rate
+  limits (no countdown), the address in use (sign in, reset, status page),
+  facility busy or unavailable, a signed-in browser, the email proof expired,
+  the authenticator set up at platform sign-in, the 0088 codes (a refused code
+  cleared at its field, an expired step opened again, an email proof already
+  used restarted through P9), a changed application. A 503 or a network
+  failure keeps the page and what was typed and signs no one out. Nothing is
+  written to browser storage or the address; step headings take focus and
+  errors are alerts; the CSS keeps both pages inside 320px.
+- **Departures from the design.** The applicant authenticator is its own
+  component reusing `src/mfa/`, not a generic `StaffMfaSteps`, so staff
+  sign-in is unchanged. The entry says "Sign up as a clinician" as asked, not
+  the design's "Apply to join your facility". Sign-in keeps Identity's detail
+  for `NO_ACTIVE_FACILITY_MEMBERSHIP` and adds a line. The password fields use
+  `@hid/ui` `Input`: the shared `PasswordInput` is on the unmerged branch
+  `claude/turnstile-password-pwa-push`, not on `main`.
+- **Evidence.** Each commit's tests failed first: the boundary test and the
+  API module; the sign-up page's 42 tests and its route test; the status page's
+  50 and its route test; 9 entry tests; 1 authenticator test (17 more cover
+  0088 answers the page already handled). At each commit `audit:boundaries`,
+  `typecheck`, `lint`, `npx vitest run`, `build:patient-web` and
+  `audit:launch-build` pass. `npx vitest run`: `main` 150 files, 1957 tests;
+  this branch 156 files, 2118 tests. The staff sign-in integration tests that
+  list every request now stub the availability read, and the clinician pages'
+  title checks wait for the title effect (one failed once under load).
+- **Not verified.** Component tests with the network stubbed, against the
+  backend branch's code and its RESULT notes; nothing was run in a browser,
+  with an authenticator app, or against a running Identity.
+- **Deploy order.** hid-system merges ADR-064 and deploys 0094 (renumbered),
+  the role bootstrap and Identity; then this portal. Against an Identity
+  without ADR-064 the availability read answers 404, so sign-up and the
+  provider pages say sign-up isn't open yet, but the status page (always
+  linked) says it couldn't load the applications, with Retry.
+  Intake must stay off (`clinician_signup_enabled`) until the administrators'
+  queue ships: without it no application can be approved.
+
+## 2026-10-15: clinician self sign-up, the administrators' queue (hid-system ADR-064)
+
+The same branch (`claude/clinician-signup-pages`) adds the platform console's
+clinician verification queue, against hid-system's unmerged branch
+`claude/clinician-self-signup` (`fa58e2b`): its RESULT contract §4.3 (A1-A5),
+`ClinicianApplicationAdminService`, `admin-command-error.ts` and
+`identity.admin_get_clinician_application` (C18). Until this, no application
+could be approved.
+
+- **Contracts.** Five admin routes (`admin.clinicianApplications`,
+  `admin.clinicianApplication`, `admin.clinicianApplicationAttest`,
+  `...Approve`, `...Reject`), each `platform.workforce.manage`, reached by the
+  console through its `admin` grant only. `admin/api.ts` lists by state with
+  the cursor and limit only when given, and sends the three commands through
+  `adminApi.command` with `If-Match`, the submission's `Idempotency-Key` and
+  the platform CSRF token.
+- **Queue, `/admin/clinicians`** (`admin/ClinicianApplications.tsx`, "People
+  and access", shown for `platform.workforce.manage`): Open (the three
+  undecided states, oldest first) and each state, newest first, as
+  `aria-pressed` filters kept in the address; Load more with that state's
+  cursor. Each card: applicant, profession and regulator, licence and expiry,
+  facility and organisation, dates, authenticator, and who recorded step 1
+  ("You", with "Needs a different Super Admin").
+- **Application, `/admin/clinicians/:applicationId`** (by ID only, never a
+  name, email or licence in the address): every field in a `dl`; Identity's
+  warnings in words; the account, its other facilities and its
+  authenticator ("Set up on", "Not set up: step 1 is unavailable", "Set up
+  after a password reset"); the facility with its CAC hint and its
+  administrators "(not sufficient alone to confirm employment)"; the step-1
+  record, the approval and the decision with both reasons.
+- **Step 1 (A3)**, shown while the application is submitted and the caller's
+  hint allows it (otherwise the reason in words): the licence, identity and
+  employment checklist in fieldsets, the applicant's live code read out on
+  the call (`autocomplete="off"`, so the browser never offers the reviewer's
+  own one-time code), the evidence reference, the verification date and a
+  reason. The date defaults to the earlier of the licence expiry and a year,
+  is limited to the licence expiry and three years, and is sent as the end
+  of that day in Lagos (`T23:59:59+01:00`), the cap the backend applies. A
+  refused or rate-limited code clears and focuses only that field.
+- **Step 2 (A4)** is never offered to the administrator who recorded step 1,
+  whatever a hint says. It names the grant ("Grants Doctor at {facility} to
+  {name}"), the role's permissions in plain words, and explains
+  `CLINICIAN_APPLICATION_SECOND_ADMIN_REQUIRED` and an authenticator reset
+  after step 1 (reject with "Other").
+- **Reject (A5)**: the nine decision codes, each with the words the applicant
+  will see (the status page's copy, now exported from
+  `staff/clinician/copy.ts` as `decisionCopy`), an internal reason, and for
+  `identity_not_confirmed` that the account cannot apply again, with a link
+  to Users & roles to lock it.
+- **Outcomes.** A focused notice, then the application is read again. A
+  replay says it was already done with that submission; `VERSION_CONFLICT` or
+  `CLINICIAN_APPLICATION_STATE_INVALID` reloads and says the application
+  changed; an answer that was lost (a network failure or a 5xx) reloads and
+  says the outcome is unconfirmed, never success or failure. The step-up
+  repeats the same submission (same key and body), as everywhere in the
+  console. `admin/problems.ts` words every refusal of the three commands and
+  the workforce codes step 2 can return.
+- **Controls.** `clinician_signup_enabled` gets a note on the Platform controls
+  page (what it opens, and to open it only when the queue is staffed); it is
+  turned on and off like any other control.
+- **Departures from the design.** The code field is labelled "Applicant’s
+  authenticator code" (the step-up dialog's own field is "Authenticator
+  code"). C18 gives only a flag for a facility administrator with the
+  applicant's name, so the warning names no administrator; the facility's
+  administrators are listed below it. A retry after a lost answer is a new
+  submission with a new key, as the console's other commands are; the
+  reload shows whether the first went through. The Overview has no clinician
+  tile.
+- **An Identity without the queue.** Its bare `404 NOT_FOUND` (whose detail
+  names the route) is read by `admin/api.ts`, on the list and on one
+  application, as `CLINICIAN_QUEUE_UNAVAILABLE`, which says the queue is not
+  deployed; the queue's own `CLINICIAN_APPLICATION_NOT_FOUND` is kept.
+- **Evidence.** Failing first: the boundary test, three API tests and the
+  problems test (`381561d`); the queue's 30 tests (the page missing), and the
+  controls, navigation and route tests (`0b3b798`); the bare-404 API test and
+  its problems row (`3c82383`). At each commit `audit:boundaries`,
+  `typecheck`, `lint`, `npx vitest run`, `build:patient-web` and
+  `audit:launch-build` pass. `npx vitest run`: before the queue 156 files and
+  2118 tests; now 157 files and 2157 tests.
+- **Not verified.** Component tests with the network stubbed, against the
+  backend branch's code; nothing was run in a browser or against a running
+  Identity, and no step was taken by two real administrators.
+- **Deploy order.** As for the applicant pages: Identity with ADR-064 first.
+  Against an Identity without it the queue says it is not deployed there.
+  `clinician_signup_enabled` stays off until the release checklist's P25
+  conditions hold; this queue was one of them.
+
+## 2026-10-15: clinician self sign-up, review fixes (hid-system ADR-064)
+
+The same branch (`claude/clinician-signup-pages`) after a review of its
+applicant pages and a re-check against hid-system's review fixes on
+`claude/clinician-self-signup` (`5dd639c` to `fc29731`, after the `fa58e2b`
+the pages and the queue were built on; still not merged or deployed).
+
+- **A changed password is a new submission** (`1464b59`). Identity's submit
+  digest leaves the password out, so a retry with the same key and another
+  password replayed the first submission and kept the first password. The
+  key now follows a SHA-256 digest of the password as well as the details
+  (only the digest is kept, in memory); a replayed answer says the
+  application was received from the earlier attempt, with the password
+  entered then.
+- **Recovery codes of a lost activation** (`81de3f9`). P7 is the only answer
+  with the ten recovery codes. When an activation went through but its
+  answer was lost, the retry's `409 CLINICIAN_APPLICATION_AUTHENTICATOR_READY`
+  now shows "Your authenticator is set up" and says the codes can't be shown
+  again, before the person goes on.
+- **Details changed during a facility search** (`c31d076`) are kept: every
+  change to the details is made to the current value, so a late search
+  answer no longer puts back the profession, licence, date or facility.
+- **Focus after a refusal that keeps the form** (`33d962c`): the cleared
+  password field (sign-up submit); the facility search, the licence number or
+  "Send application" (apply to another facility); the not-open screen's
+  heading, with why, when sign-up closes after the page opened.
+- **Close the page after sign-up** (`932cfde`). The last sign-up step says the
+  page stays open on this device for up to 30 minutes and offers "Close this
+  page" (P15), as the status page does.
+- **Status page** (`73f81c8`): a 401 after an outage on a first visit shows the
+  form with nothing said (the "closed after 30 minutes" notice is only for a
+  page that held a capability); Retry meeting the same failure says it again
+  and gives focus back to Retry; a failed close says so beside its own button.
+- **hid-system's review fixes** (`7387c94`): `403
+  CLINICIAN_APPLICATION_STAFF_SIGN_IN_REQUIRED` (a reset authenticator of an
+  approved clinician or staff member) gives Identity's fixed words at the
+  status code check (P11), activation (P7) and a new step (P9) instead of an
+  outage message; `403 CLINICIAN_APPLICATION_ACCOUNT_INELIGIBLE` on a read
+  (P12) or a withdrawal (P13) leaves for the email form saying the account
+  can't be used, with no Retry. The queue needed no change: no admin answer
+  changed shape, and step 1's concurrent replay and refusals before the code
+  are answers it already handles.
+- **Evidence.** Failing first per commit: 1 (`81de3f9`, two more tests cover
+  behaviour already there), 1 (`c31d076`), 13 (`33d962c`), 2 (`932cfde`), 4
+  (`73f81c8`, a fifth guards a case already right) and 6 (`7387c94`). At each
+  commit `audit:boundaries`, `typecheck`, `lint`, `npx vitest run`,
+  `build:patient-web` and `audit:launch-build` pass. Two full runs each had one
+  failure in a file this branch does not change (`FieldProblemsPerForm`,
+  registration; `StaffMfaRequired`, the facility switch's request order);
+  each passed alone three times and in the full rerun before the commit.
+  `npx vitest run`: 157 files and 2191 tests (2157 after the queue).
+- **Not verified.** As before: no browser, no running Identity, no
+  two-administrator run.
+
+## 2026-10-15: clinician self sign-up, second review fixes (hid-system ADR-064)
+
+The same branch (`claude/clinician-signup-pages`) after a second review of
+the applicant pages and the queue. Ten findings, all minor; each was checked
+against the code (and the backend branch where it mattered) before it was
+fixed.
+
+- **Licence dates in Lagos** (`f105895`). Identity refuses a licence date not
+  after today, or later than today plus five years, in Africa/Lagos (0094, P4
+  and P14), after it has charged the network's submit quota. The details step
+  took "today" from the device; it now takes it in Lagos (the queue's
+  `lagosToday`, moved to `staff/clinician/copy.ts`), and five years from
+  29 February ends on 28 February, as Postgres adds the interval.
+- **Focus** (`3a7e2c6`): the withdraw dialog's button is only marked disabled
+  (`aria-disabled`) while its request runs, so a browser no longer drops focus
+  outside the modal dialog (Tab and Escape were lost after a refused
+  withdrawal); "Use a different email" gives focus to the email step on both
+  pages; Cancel in "Apply to another facility" gives it back to the button
+  that opened the form; sign-up's availability Retry gives it to the step
+  shown next.
+- **A change said when the list can't be read after it** (`b1fb0fa`): a
+  withdrawal (P13) or a new application (P14) that went through is said, and
+  shown as Identity answered it, beside the load failure and its Retry.
+- **Authenticator setup from the list** (`a901cd1`) when the account must
+  enrol but no application waits for it (a reset after submitting, or its
+  waiting applications closed): the list says so and offers "Set up
+  authenticator".
+- **Close waits for the apply form** (`a47f3ce`): "Close this page" and the
+  list's Retry are disabled while another application or a facility search
+  is being sent, so a late answer no longer reaches a closed page.
+- **Close at the authenticator step** (`3429610`): both pages offer "Close
+  this page" (P15), with the 30-minute warning, below every authenticator step
+  but the recovery codes; an authenticator answer that arrives after closing
+  changes nothing.
+- **The queue**: a client-side timeout (`HidApiError` 408 `REQUEST_TIMEOUT`)
+  on step 1, step 2 or a rejection is reloaded and said unconfirmed, as a lost
+  answer is (`a674e82`); approve and reject say what they still need beside
+  their disabled button, tied to it by `aria-describedby`, as step 1 did
+  (`aecf657`).
+- **Evidence.** Failing first per commit: 2 (`f105895`), 5 (`3a7e2c6`), 2
+  (`b1fb0fa`), 2 (`a901cd1`, a third guards a case already right), 2
+  (`a47f3ce`), 7 (`3429610`), 3 (`a674e82`) and 2 (`aecf657`). At each commit
+  `audit:boundaries`, `typecheck`, `lint`, `npx vitest run`,
+  `build:patient-web` and `audit:launch-build` pass. Two full runs each had one
+  failure that passed alone and in the full rerun before the commit:
+  `FieldProblemsPerForm` (registration, not changed here), and the queue's
+  replayed step 1 and step 2 test, which typed into step 2's form before the
+  reload drew it; it now waits for the form (`a674e82`). `npx vitest run`: 157
+  files and 2217 tests (2191 before).
+- **Not verified.** No browser (the focus a browser drops from a disabled
+  button is reasoned from the HTML focus rules; jsdom keeps it), no running
+  Identity, no two-administrator run.
+
+## 2026-10-16: clinician self sign-up after main's #56 and #57, and hid-system's second review round (`9e981e4`)
+
+The same branch (`claude/clinician-signup-pages`, not pushed), with `main`
+`a59b23a` merged in and the pages and queue re-checked against the backend
+branch `claude/clinician-self-signup` from `fc29731` to `9e981e4` (its second
+review round: `e57aa98` to `9e981e4`, read in `services/identity-api` and
+`docs/INTERFACE_CONTRACT.md`). The backend branch is still not merged or
+deployed.
+
+- **Merge of `main`** (`1b93602`, a merge commit; no rebase). Conflicts, each
+  resolved keeping both sides: `admin/problems.ts` (the queue's codes and the
+  designation panel's `FACILITY_NOT_ACTIVE` and `ADMIN_FACILITY_NOT_FOUND`),
+  `admin/style.css` (both blocks), `__tests__/UnifiedPortalRoutes.test.tsx`
+  (the clinician availability mock and main's participating-facilities mock)
+  and this log (main's entries first, then the clinician ones). One merge that
+  applied cleanly needed a change: this branch lists the public site's
+  enrollment routes instead of granting the whole service, so main's four new
+  patient routes (`enrollment.holder`, `holderVerify`, `facilityCode`,
+  `participatingFacilities`) were added to that list, which the public site
+  could reach on `main` (`packages/contracts/src/boundaries.ts` and its test).
+- **The intake gate before the capability** (backend `354917c`). P3, P4 and
+  P14 now answer a closed intake (`503 CLINICIAN_SIGNUP_CLOSED`) before they
+  read the capability, whatever cookie is sent or missing, so the answer no
+  longer shows that the page is still open. Sign-up's facility search keeps
+  the details and says to try again later, as its submit did; the status
+  page's "Apply to another facility" closes (what was typed is kept), the
+  applications are read again, and the status line says no application was
+  sent. That read shows the email form if the page has closed meanwhile, or
+  the list with "New clinician applications aren't open right now." in place
+  of the apply button; if it fails, the list stays with that change and the
+  failure's Retry (`47b604c`). "Close this page" and the list's Retry wait
+  for that read, as they wait for the form's own requests, so its answer
+  never reaches a closed page (the commit after `d14bff2`).
+- **Five hashed submissions per draft** (`8dac32f`). P4 answers `401
+  CLINICIAN_APPLICATION_SESSION_INVALID` once a draft has had five
+  submissions hashed, as it does for an expired draft; the page cannot tell
+  them apart, so "Confirm your email again" now says the confirmation "lasts
+  an hour and covers up to five attempts to submit" (`47b604c`). P4's 400 and
+  409 refusals are answered without hashing and the draft stays usable: the
+  page already kept the step for them, and a replay (not hashed) still shows
+  "already received ... with the password you entered then".
+- **The caps where the application is created** (`b13410e`). A `429
+  CLINICIAN_APPLICATION_RATE_LIMITED` at P4 or P14 can now be the platform's
+  daily cap met inside the creating transaction (nothing is created), so it
+  is said as "Too many applications have been sent, from your network or to
+  Health ID today", with the details kept (`47b604c`). `409
+  CLINICIAN_APPLICATION_FACILITY_BUSY` held under concurrency changes no
+  answer: both pages already said it and kept the form.
+- **Step 1's pre-check** (`b8c5739`). Before the applicant's code is checked,
+  step 1 now also refuses the request's own fields (`400
+  CLINICIAN_APPLICATION_COMMAND_INVALID`: `validUntil` range and the licence's
+  end, the checklist, a blank evidence reference or reason), a key already
+  used for a credential attestation (`409 IDEMPOTENCY_CONFLICT`), and an
+  account or staff record the attestation cannot be recorded for (`409
+  WORKFORCE_ACCOUNT_INELIGIBLE`, `409 WORKFORCE_STAFF_INELIGIBLE`, `404
+  WORKFORCE_STAFF_NOT_FOUND`). The console says for each that nothing was
+  recorded and the code was not checked (so it did not count against the
+  applicant), keeps the code and the form, and names the next step; a `404`
+  no longer shows Identity's bare detail (`8ac7106`).
+- **`403 CLINICIAN_APPLICATION_STAFF_SIGN_IN_REQUIRED`** (round 1, unchanged
+  by round 2) now has its next step: at the status page's code check (P11) the
+  code step gives way to "Your authenticator can't be set up here" with a link
+  to provider sign-in and "Check another email address"; the authenticator
+  step's blocked screen (P7, P9) links to provider sign-in for this answer
+  only (`47b604c`).
+- **Unchanged by round 2, checked:** P3's `409
+  CLINICIAN_APPLICATION_REQUIRES_SIGN_OUT` for a draft in a signed-in browser
+  (now after the gate; the same words); P5-P13's `401` for a missing or
+  malformed cookie (already "this page closed", or the email form before a
+  capability was held); P4's `400 PASSWORD_INVALID` and pairing refusal moved
+  to the body checks (the same answers); the SQLSTATE assertions of
+  `1e15213` and the tests of `c1af25a` and `c64909f` (backend only).
+- **Past `9e981e4`, not handled here.** The local backend branch has since
+  merged hid-system `main`, renumbered its migration to `0096` (`168f64d`) and
+  answers P3's spent search budget with `429
+  CLINICIAN_APPLICATION_SEARCH_LIMITED` and no `Retry-After` (`7cd8038`, head
+  `1d6ff6f`); the search would show that code's fallback, "We couldn't search
+  for facilities right now. Try again." (OPEN-QUESTIONS).
+- **Evidence.** Failing first: 5 for the console (`8ac7106`), 11 for the
+  applicant pages (`47b604c`: 3 sign-up, 6 status page, 2 authenticator) and
+  2 for Close during the read after intake closed. At each commit
+  `audit:boundaries`, `typecheck`, `lint`, `npx vitest run`,
+  `build:patient-web` and `audit:launch-build` pass. `npx vitest run`: 172
+  files and 2389 tests after the merge, 2394 after the console, 2399 after
+  the pages, 2401 after the Close fix. The first full run after the merge had one failure,
+  `OcrFields.test.tsx` "NEW-OCR-CREATE-DISABLED" (not changed here), which
+  passed alone and in the full rerun.
+- **Not verified.** No browser, no running Identity (with or without the
+  clinician routes), no two-administrator run, and no run against the backend
+  branch's head past `9e981e4`.
+
+## 2026-10-16: clinician facility search once its searches are used up (hid-system `7cd8038`)
+
+The same branch (`claude/clinician-signup-pages`, not pushed), from a review
+finding against the backend branch's local head `1d6ff6f`, which contains
+`7cd8038`. That head is not pushed, merged or deployed.
+
+- **The refusal.** P3 allows 30 searches per capability: a sign-up draft or
+  the status page's ready capability. The 31st search now gets `429
+  CLINICIAN_APPLICATION_SEARCH_LIMITED` with no `Retry-After` ("Too many
+  searches in this session. Verify your email address again to continue.").
+  Before `7cd8038` it was `429 CLINICIAN_APPLICATION_RATE_LIMITED` with
+  `Retry-After: 3600`. The searches never come back for that capability.
+  Neither page took this code over, and `refusalCopy` has no entry for it, so
+  both said "We couldn't search for facilities right now. Try again." A retry
+  could never succeed.
+- **The fix** (`b10d11a`). The facility search now handles the code after the
+  page's own refusals and before `refusalCopy`. It turns Search off for that
+  capability and shows the page's words for spent searches:
+  - Sign-up: "You've used all the facility searches for this email
+    confirmation. To search again, confirm your email again: your details stay
+    on this page." "Confirm email again" (`confirmEmailAgain`) is offered
+    beside the search.
+  - Status page: "You've used all the facility searches for this page. To
+    search again, close this page, then enter your email for a new code; what
+    you've typed here isn't kept." "Close this page" is still below the list.
+
+  A facility chosen before then can still be continued with (sign-up) or sent
+  (status page). After a new email confirmation the search is offered again,
+  and the details are kept. The network quota's `429
+  CLINICIAN_APPLICATION_RATE_LIMITED` (`Retry-After: 86400`) keeps "Too many
+  searches. Try again later." The `enrollment.clinicianFacilitySearch`
+  registry note names the 30-search limit and the code.
+- **The rest of the backend past `9e981e4`, for the applicant routes.**
+  Between `9e981e4` and `1d6ff6f`, `clinician-application.service.ts` changes
+  only this answer and a migration number in a comment;
+  `clinician-application.controller.ts` and the clinician DTOs do not change.
+  `0096_clinician_self_signup.sql` is `0094` renumbered.
+  - The merged launch fixes name a refused nested field by its dotted path.
+    That changes nothing the pages read, because they read no field list from
+    `VALIDATION_FAILED`.
+  - The merged launch fixes also change the `Retry-After` values. That changes
+    nothing either, because the pages show no countdown.
+  - The console's queue was not re-checked past `9e981e4`.
+- **Evidence.**
+  - Failing first: 3 tests (sign-up 2, status page 1), each failing on the
+    fallback words or the missing "Confirm email again". A fourth test
+    (sending a facility already chosen on the status page) passed before the
+    fix and guards that path.
+  - The status page test waits for "Close this page" to be enabled before
+    pressing it. Close waits for the search's answer, which reaches the page
+    in an effect after the form draws. Without the wait, the test failed
+    once in four runs.
+  - At each commit `audit:boundaries`, `typecheck`, `lint`, `npx vitest run`,
+    `build:patient-web` (local environment) and `audit:launch-build` pass.
+  - `npx vitest run`: 172 files and 2405 tests (2401 before).
+- **Not verified.** No browser, no running Identity, and no 31st search
+  against a real capability.
+
 ## 2026-10-13: one Turnstile check per submission, password Show toggle, installable portal, web push readiness
 
 Branch `claude/turnstile-password-pwa-push`, from `main` `077b85c`. Not merged:

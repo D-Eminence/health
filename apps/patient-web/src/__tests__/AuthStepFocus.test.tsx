@@ -19,6 +19,7 @@ import { PrincipalRecovery } from '../routes/PrincipalRecovery'
 const api = vi.hoisted(() => ({
   enrollmentCurrent: vi.fn(), googleOnboarding: vi.fn(), enrollmentStart: vi.fn(), enrollmentContact: vi.fn(),
   enrollmentVerify: vi.fn(), enrollmentActivate: vi.fn(), recoveryStart: vi.fn(), recoveryVerify: vi.fn(), recoveryComplete: vi.fn(),
+  enrollmentAvailability: vi.fn(),
 }))
 const principal = vi.hoisted(() => ({ start: vi.fn(), verify: vi.fn(), complete: vi.fn() }))
 
@@ -37,6 +38,7 @@ beforeEach(() => {
   document.title = TAB_TITLE
   api.enrollmentCurrent.mockRejectedValue(new HidApiError(404, 'No enrollment'))
   api.googleOnboarding.mockRejectedValue(new HidApiError(404, 'No Google onboarding'))
+  api.enrollmentAvailability.mockResolvedValue({ open: true })
 })
 afterEach(() => { cleanup() })
 
@@ -284,7 +286,7 @@ describe('patient enrollment', () => {
     expect(document.title).toBe('Get your Health ID · Health ID')
     fireEvent.change(nin, { target: { value: '12345678901' } })
     fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
-    await press('Verify NIN')
+    await press('Continue')
   }
 
   it('says the NIN is 11 digits in the field\'s description, not only in its placeholder', async () => {
@@ -298,7 +300,7 @@ describe('patient enrollment', () => {
     open()
     fireEvent.change(await screen.findByLabelText('National Identification Number'), { target: { value: '12345678901' } })
     fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
-    await press('Verify NIN')
+    await press('Continue')
     // Focus moves to the note, which is read there once: it is not also an alert.
     const note = await screen.findByRole('group', { name: /Sign out of the patient or provider portal before starting a new Health ID\./ })
     expect(screen.queryByLabelText('National Identification Number')).toBeNull()
@@ -312,7 +314,7 @@ describe('patient enrollment', () => {
     const nin = await screen.findByLabelText('National Identification Number')
     fireEvent.change(nin, { target: { value: '12345678901' } })
     fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
-    await press('Verify NIN')
+    await press('Continue')
     await waitFor(() => expect(document.activeElement).toBe(nin))
     expect(nin.getAttribute('aria-invalid')).toBe('true')
     expect(described(nin)).toContain('The NIN could not be verified')

@@ -35,6 +35,20 @@ export function useStepFocus() {
   }
 }
 
+/**
+ * Whether a form was sent with Enter in one of its fields, where focus stays.
+ * A refusal must then be an alert: focus does not move, so a description on
+ * the focused field (or on another field) is not read. On a step with more
+ * than one field, `useStepFocus().onTarget()` cannot tell: the target may be
+ * another field.
+ */
+export function sentFromField(event: { currentTarget: EventTarget | null }): boolean {
+  const form = event.currentTarget
+  const active = document.activeElement
+  return form instanceof HTMLFormElement && active instanceof HTMLElement && form.contains(active)
+    && active.matches('input, select, textarea')
+}
+
 /** Refusals sent as 400 that are not about the value typed: the security check, the request's own key. */
 const NOT_ABOUT_THE_VALUE = new Set(['TURNSTILE_REQUIRED', 'IDEMPOTENCY_KEY_INVALID'])
 

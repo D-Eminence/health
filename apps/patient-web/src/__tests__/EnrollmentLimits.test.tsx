@@ -6,7 +6,7 @@ import { Enrollment } from '../routes/Enrollment'
 
 const api = vi.hoisted(() => ({
   enrollmentCurrent: vi.fn(), googleOnboarding: vi.fn(), enrollmentStart: vi.fn(), enrollmentContact: vi.fn(),
-  enrollmentVerify: vi.fn(), enrollmentActivate: vi.fn(),
+  enrollmentVerify: vi.fn(), enrollmentActivate: vi.fn(), enrollmentAvailability: vi.fn(),
 }))
 
 vi.mock('../session', () => ({
@@ -18,7 +18,10 @@ vi.mock('../Turnstile', () => ({
     <button type="button" onClick={() => onTokenChange('turnstile-token')}>Complete check</button>,
 }))
 
-beforeEach(() => { api.googleOnboarding.mockRejectedValue(new HidApiError(404, 'No Google onboarding')) })
+beforeEach(() => {
+  api.googleOnboarding.mockRejectedValue(new HidApiError(404, 'No Google onboarding'))
+  api.enrollmentAvailability.mockResolvedValue({ open: true })
+})
 afterEach(() => { vi.clearAllMocks() })
 
 /**

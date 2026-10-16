@@ -30,6 +30,9 @@ const ADMIN_PROBLEMS: Readonly<Record<string, string>> = {
   MFA_RATE_LIMITED: 'Too many incorrect codes. Verification is locked for up to 15 minutes; try again later.',
   MFA_UNAVAILABLE: 'Administrator MFA is temporarily unavailable, so platform sign-in cannot be completed. Contact platform operations.',
   MFA_NOT_ENROLLED: 'This administrator has no authenticator to reset.',
+  // A first platform enrolment of an account with an eligible staff membership (hid-system #71): no factor is created.
+  MFA_ENROLLMENT_STAFF_SIGN_IN_REQUIRED: 'This account also works at a facility, so its authenticator is set up at staff sign-in. '
+    + 'Sign in to the Health ID Provider Portal and set it up there first, then use the same authenticator here.',
 
   // Step-up and the high-risk policy: STEP_UP_REQUIRED when this session has no
   // confirmation, STEP_UP_EXPIRED when the last one is older than 5 minutes.
@@ -72,6 +75,46 @@ const ADMIN_PROBLEMS: Readonly<Record<string, string>> = {
   INTEGRATION_PROVIDER_INCOMPATIBLE: 'That provider does not support this capability or is not enabled. Enable it first.',
   INTEGRATION_PAUSED: 'This integration is paused. Enable it in Integrations first.',
   PRICING_UNCHANGED: 'Nothing changed: the catalog already has these values.',
+
+  // Clinician applications (hid-system ADR-064, branch claude/clinician-self-signup at fa58e2b): the queue's
+  // three commands, and the workforce codes (0087) step 2 can return. None of them means someone else edited.
+  CLINICIAN_QUEUE_UNAVAILABLE: 'This Identity has no clinician queue yet (hid-system ADR-064 is not deployed), so '
+    + 'applications cannot be listed or reviewed here.',
+  CLINICIAN_APPLICATION_NOT_FOUND: 'This application no longer exists or is not available to you. Reload the list.',
+  CLINICIAN_APPLICATION_STATE_INVALID: 'This application is no longer at this step. Reload it to see its current state.',
+  CLINICIAN_APPLICATION_COMMAND_INVALID: 'The server refused this step as incomplete. Tick every check, choose how identity '
+    + 'and employment were confirmed, give an evidence reference and a reason of 8 to 500 characters, and a verification '
+    + 'date after today, no later than the licence expiry and within three years.',
+  CLINICIAN_APPLICATION_SECOND_ADMIN_REQUIRED: 'You recorded step 1 for this application, so a different Super Admin must '
+    + 'approve it. Nothing was changed.',
+  CLINICIAN_APPLICATION_AUTHENTICATOR_CODE_INVALID: 'The authenticator code wasn’t accepted. Ask for a new code and try again.',
+  CLINICIAN_APPLICATION_AUTHENTICATOR_RATE_LIMITED: 'Too many wrong codes for this applicant. Wait 15 minutes.',
+  CLINICIAN_APPLICATION_AUTHENTICATOR_REQUIRED: 'The applicant hasn’t set up their authenticator, or it wasn’t confirmed '
+    + 'in this step. Step 1 needs a code from it.',
+  CLINICIAN_APPLICATION_AUTHENTICATOR_CHANGED: 'The applicant’s authenticator was reset after step 1. Reject the '
+    + 'application with ‘Other’; they can apply again.',
+  CLINICIAN_APPLICATION_ACCOUNT_INELIGIBLE: 'This applicant’s account can’t be given clinical access in its current state: '
+    + 'it is not active, or an application of it was refused for identity. Reject the application.',
+  WORKFORCE_SELF_CHANGE_DENIED: 'You cannot review your own application or give yourself facility access. Another Super '
+    + 'Admin must do this.',
+  WORKFORCE_FACILITY_CONFLICT: 'You work at this facility, so another Super Admin must do this.',
+  WORKFORCE_FACILITY_NOT_VERIFIED: 'This facility isn’t verified and active, so it can’t take clinicians now. Reject the '
+    + 'application with ‘Facility not available’, or wait until the facility is active again.',
+  WORKFORCE_ATTESTATION_REQUIRED: 'The step-1 verification can no longer support a grant (it lapsed, or its reviewer now '
+    + 'works at the facility). Reject the application; the clinician can apply again.',
+  WORKFORCE_MEMBERSHIP_EXISTS: 'This account already has access, or pending access, at this facility. Reject with '
+    + '‘Duplicate’; nothing else is changed.',
+  WORKFORCE_ROLE_CONFLICT: 'This account is a facility administrator here and can’t also hold a clinical role at this '
+    + 'facility. Reject the application; the clinician must apply with a separate email address.',
+  WORKFORCE_ACCOUNT_INELIGIBLE: 'This account can’t hold staff access in its current state (for example it is locked). '
+    + 'Nothing was changed.',
+  WORKFORCE_STAFF_INELIGIBLE: 'The applicant’s staff record can’t be given a role in its current state. Nothing was changed.',
+  WORKFORCE_EMAIL_IN_USE: 'An account already uses this email address. This person may have applied by themselves: check '
+    + 'Clinician applications.',
+
+  // Facility-assisted registration designations (hid-system #85, ADR-063).
+  FACILITY_NOT_ACTIVE: 'Only a verified, active facility of an active organization can register patients in person. Verify the facility first.',
+  ADMIN_FACILITY_NOT_FOUND: 'This facility was not found. Check the facility link.',
 }
 
 export function problemCode(error: unknown): string | null {

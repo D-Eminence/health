@@ -61,7 +61,7 @@ function specificity(path: string): number {
 }
 
 /**
- * Validate a browser request against the c4b5445 gateway surface before transport.
+ * Validate a browser request against the registered gateway surface (registry.ts) before transport.
  * Static routes win over parameter routes, and workload-only routes always lose.
  */
 export function assertRegisteredBrowserRequest(

@@ -73,6 +73,7 @@ body { margin: 0; }
 .staff-auth { display: grid; align-content: center; width: min(100%,510px); padding: clamp(28px,5vw,72px); margin: auto; }
 .staff-auth .staff-brand { margin-bottom: 50px; }
 .staff-auth > p { color: var(--color-muted); font-size: 14px; line-height: 1.55; margin: 12px 0 30px; }
+.staff-auth > .staff-notice { color: var(--color-ink); font-size: 13px; line-height: 1.45; margin: 0 0 24px; }
 .staff-auth-aside { display: grid; align-content: center; gap: 18px; background: var(--color-brand-tint); padding: clamp(28px,5vw,70px); border-left: 1px solid var(--color-brand-border); }
 .staff-auth-aside h2 { font-family: var(--font-display); font-weight: 400; font-size: clamp(30px,3vw,44px); line-height: 1.12; color: var(--color-ink); max-width: 14ch; }
 .staff-auth-aside p { color: var(--color-muted); max-width: 45ch; line-height: 1.6; }
@@ -101,3 +102,33 @@ body { margin: 0; }
 .staff-choice { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 12px; border: 1px solid var(--color-line); border-radius: 8px; overflow-wrap: anywhere; cursor: pointer; }
 .staff-choice input { flex: 0 0 auto; width: 18px; height: 18px; margin: 0; }
 .staff-facility-choice fieldset:disabled .staff-choice { cursor: not-allowed; color: var(--color-muted); background: var(--color-surface-tint); }
+/* The steps' own text only: a Field's error (or hint) is a paragraph inside the Field, and keeps its own colour and size. */
+.staff-mfa > p { margin: 0; color: var(--color-muted); font-size: 14px; line-height: 1.55; }
+/* The in-person check (hid-system #85): its groups lose the fieldset's default border and min-content width, so a
+   long statement wraps at 320px instead of widening the page; a wrapped statement keeps space above and below. */
+.staff-in-person fieldset { display: grid; gap: 8px; margin: 0; padding: 0; border: 0; min-width: 0; }
+.staff-in-person legend { margin-bottom: 6px; padding: 0; color: var(--color-ink); font-size: 13px; font-weight: 650; }
+.staff-in-person .staff-choice { padding: 10px 12px; line-height: 1.4; color: var(--color-ink); font-size: 13px; }
+.staff-in-person ul { margin: 0 0 10px; padding-left: 18px; color: var(--color-ink); font-size: 13px; line-height: 1.6; }
+
+/* Plan & billing (docs/BILLING_SPEC.md). */
+.billing-section { display: grid; gap: 12px; max-width: 760px; margin-top: 28px; }
+.billing-heading { margin: 0; color: var(--color-ink); font-size: 15px; font-weight: 600; }
+.billing-plan { display: grid; gap: 10px; padding: 20px 22px; }
+.billing-plan-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
+.billing-product { color: var(--color-ink); font-size: 17px; font-weight: 600; }
+.billing-detail { margin: 0; color: var(--color-muted); font-size: 14px; line-height: 1.55; }
+.billing-price { margin: 0; color: var(--color-ink); font-size: 14px; font-variant-numeric: tabular-nums; }
+.billing-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 6px; }
+.billing-problem { display: grid; justify-items: start; gap: 10px; }
+.billing-note { max-width: 760px; margin: 20px 0 0; }
+.billing-table-wrap { overflow-x: auto; border: 0.5px solid var(--color-line-strong); border-radius: var(--radius-card); }
+.billing-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.billing-table th { padding: 10px 14px; color: var(--color-muted); font-size: 12px; font-weight: 600; text-align: left; background: var(--color-surface-sunk); }
+.billing-table td { padding: 12px 14px; border-top: 0.5px solid var(--color-line-strong); color: var(--color-ink); }
+.billing-amount { font-variant-numeric: tabular-nums; }
+.billing-banner { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; margin: 0 0 20px; padding: 10px 14px; border-radius: var(--radius-control); font-size: 13px; line-height: 1.45; }
+.billing-banner a { color: inherit; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+.billing-banner-warning { background: #fff6e0; color: var(--color-caution-ink); }
+.billing-banner-danger { background: #fff0ef; color: #9b211d; }
+.billing-banner-information { background: var(--color-brand-tint); color: var(--color-ink); }
