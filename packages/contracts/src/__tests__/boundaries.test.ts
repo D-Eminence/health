@@ -257,4 +257,13 @@ describe('application boundaries', () => {
   it('does not treat a missing route as a backend capability', () => {
     expect(() => assertEndpointAllowed('outreach-web','outreach.signup')).toThrow(/not a known/)
   })
+
+  it('lets the provider portal read and manage facility billing, but not send demo requests', () => {
+    for (const name of ['commercial.pricing', 'commercial.subscription', 'commercial.subscriptionTrial',
+      'commercial.subscriptionCheckout', 'commercial.invoices']) {
+      expect(() => assertEndpointAllowed('staff-web', name)).not.toThrow()
+    }
+    expect(() => assertEndpointAllowed('staff-web', 'commercial.demo')).toThrow(BoundaryViolationError)
+    expect(() => assertEndpointAllowed('patient-web', 'commercial.subscription')).toThrow(BoundaryViolationError)
+  })
 })

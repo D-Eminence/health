@@ -7,7 +7,12 @@ export type HidService = 'auth' | 'enrollment' | 'identity' | 'access' | 'ehr' |
   | 'notifications' | 'lab' | 'pharmacy' | 'ocr' | 'outreach' | 'admin' | 'commercial' | 'platform'
 export type EndpointMethod = 'GET' | 'POST' | 'PATCH' | 'DELETE'
 export type EndpointAuth = { readonly kind: 'public' | 'authenticated' }
-export type ContractStatus = 'surface-verified'
+/**
+ * 'surface-verified': hid-system serves the route. 'proposed': specified in
+ * docs/BILLING_SPEC.md and built against, not yet served; callers treat a 404
+ * as "not available yet".
+ */
+export type ContractStatus = 'surface-verified' | 'proposed'
 export interface EndpointDescriptor {
   readonly name: string
   readonly path: string
@@ -32,6 +37,7 @@ const r = (name: string, service: HidService, path: string, methods: readonly En
     auth: { kind: isPublic ? 'public' : 'authenticated' },
     ...(permissions ? { permissions } : {}), status: 'surface-verified',
     ...(note ? { note } : {}) })
+const proposed = (descriptor: EndpointDescriptor): EndpointDescriptor => ({ ...descriptor, status: 'proposed' })
 const one = (method: EndpointMethod, ...permissions: string[]): Partial<Record<EndpointMethod, readonly string[]>> =>
   ({ [method]: permissions })
 
@@ -258,6 +264,12 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
 
   r('commercial.pricing','commercial','/api/v1/commercial/pricing',G,true),
   r('commercial.demo','commercial','/api/v1/commercial/demo-requests',P,true),
+  // Facility billing (docs/BILLING_SPEC.md): proposed, not yet served by hid-system.
+  proposed(r('commercial.subscription','commercial','/api/v1/commercial/subscription',G,false,one('GET','billing.subscription.read'))),
+  proposed(r('commercial.subscriptionTrial','commercial','/api/v1/commercial/subscription/trial',P,false,one('POST','billing.subscription.manage'))),
+  proposed(r('commercial.subscriptionCheckout','commercial','/api/v1/commercial/subscription/checkout',P,false,one('POST','billing.subscription.manage'),
+    'Answers a Paystack authorizationUrl; payment is confirmed only by the server (webhook or verify).')),
+  proposed(r('commercial.invoices','commercial','/api/v1/commercial/invoices',G,false,one('GET','billing.subscription.read'))),
 
   r('admin.session','admin','/api/v1/admin/session',G,false,one('GET','platform.admin.access')),
   r('admin.overview','admin','/api/v1/admin/overview',G,false,one('GET','platform.admin.access')),

@@ -44,8 +44,8 @@ beforeEach(() => {
 })
 afterEach(() => vi.unstubAllGlobals())
 
-function open() {
-  render(<MemoryRouter initialEntries={['/provider/enroll']}><Routes>
+function open(entry = '/provider/enroll') {
+  render(<MemoryRouter initialEntries={[entry]}><Routes>
     <Route path="/provider/enroll" element={<ProviderEnrollment />} />
     <Route path="/provider" element={<h1>Provider workspace</h1>} />
   </Routes></MemoryRouter>)
@@ -60,22 +60,34 @@ function enterDetails() {
 }
 
 describe('provider enrollment', () => {
+  it('opens with the product the public site linked to', () => {
+    open('/provider/enroll?product=pharmacy')
+    expect(select('Product').value).toBe('pharmacy')
+    expect((screen.getByRole('radio', { name: 'Hospital' }) as HTMLInputElement).checked).toBe(true)
+  })
+
+  it('ignores a product the linked facility type cannot enroll for', () => {
+    open('/provider/enroll?type=laboratory&product=ehr')
+    expect((screen.getByRole('radio', { name: 'Laboratory' }) as HTMLInputElement).checked).toBe(true)
+    expect(select('Product').value).toBe('laboratory')
+  })
+
   it('offers only the products a facility type may enroll for', () => {
     open()
     expect([...select('Product').options].map(option => option.value)).toEqual(['ehr', 'laboratory', 'pharmacy', 'migrate'])
-    fireEvent.change(select('Facility type'), { target: { value: 'laboratory' } })
+    fireEvent.click(screen.getByRole('radio', { name: 'Laboratory' }))
     expect([...select('Product').options].map(option => option.value)).toEqual(['laboratory'])
     expect(select('Product').value).toBe('laboratory')
-    fireEvent.change(select('Facility type'), { target: { value: 'clinic' } })
+    fireEvent.click(screen.getByRole('radio', { name: 'Clinic' }))
     expect(select('Product').value).toBe('laboratory')
   })
 
   it('sends the CAC in capitals with the facility details and the provider-enrollment check', async () => {
     open()
-    fireEvent.change(select('Facility type'), { target: { value: 'pharmacy' } })
+    fireEvent.click(screen.getByRole('radio', { name: 'Pharmacy' }))
     enterDetails()
     expect((screen.getByRole('textbox', { name: 'CAC registration number' }) as HTMLInputElement).value).toBe('RC123456')
-    fireEvent.click(screen.getByRole('button', { name: 'Verify CAC and continue' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     expect(await screen.findByRole('heading', { name: 'Confirm your administrator email' })).toBeTruthy()
     expect(api.start).toHaveBeenCalledWith({ productCode: 'pharmacy', organizationType: 'pharmacy',
@@ -88,11 +100,11 @@ describe('provider enrollment', () => {
       { code: 'PROVIDER_ENROLLMENT_REQUIRES_REVIEW' }))
     open()
     enterDetails()
-    fireEvent.click(screen.getByRole('button', { name: 'Verify CAC and continue' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     expect((await screen.findByRole('alert')).textContent).toBe('This provider application requires manual resolution')
     expect(screen.queryByRole('heading', { name: 'Confirm your administrator email' })).toBeNull()
-    expect(screen.getByRole('button', { name: 'Verify CAC and continue' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Continue' })).toBeTruthy()
   })
 
   it('verifies the six-digit code, then activates with a password of at least 12 characters', async () => {
@@ -103,7 +115,7 @@ describe('provider enrollment', () => {
       actor: { id: 'staff-1', roles: ['org_admin'], permissions: [], facilities: [] }, expiresAt: '2026-10-14T12:00:00.000Z' })
     open()
     enterDetails()
-    fireEvent.click(screen.getByRole('button', { name: 'Verify CAC and continue' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     const code = await screen.findByRole('textbox', { name: 'Email verification code' }) as HTMLInputElement
     fireEvent.change(code, { target: { value: '12a34' } })
@@ -142,7 +154,7 @@ describe('provider enrollment activation, then the authenticator (hid-system #71
     api.activate.mockResolvedValueOnce(activation(status))
     open()
     enterDetails()
-    fireEvent.click(screen.getByRole('button', { name: 'Verify CAC and continue' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
     fireEvent.change(await screen.findByRole('textbox', { name: 'Email verification code' }), { target: { value: '123456' } })
     fireEvent.click(screen.getByRole('button', { name: 'Verify email' }))
     fireEvent.change(await screen.findByLabelText('Password'), { target: { value: 'a-long-enough-password' } })

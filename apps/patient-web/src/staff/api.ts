@@ -1026,6 +1026,23 @@ export const providerEnrollmentApi = {
       { password }, { auth: 'none' })),
 }
 
+/**
+ * Facility billing (docs/BILLING_SPEC.md), scoped to the active facility's organization.
+ * Proposed routes: a 404 or 501 means billing is not available yet (see billing.ts).
+ */
+export const billingApi = {
+  subscription: (facilityId: string) => client.get<unknown>('/api/v1/commercial/subscription',
+    { headers: { 'X-Facility-ID': facilityId } }),
+  startTrial: (facilityId: string, idempotencyKey?: string) => client.post<unknown>('/api/v1/commercial/subscription/trial', {},
+    { headers: { 'X-Facility-ID': facilityId, ...keyHeaders(idempotencyKey) } }),
+  checkout: (facilityId: string, idempotencyKey?: string) => client.post<unknown>('/api/v1/commercial/subscription/checkout', {},
+    { headers: { 'X-Facility-ID': facilityId, ...keyHeaders(idempotencyKey) } }),
+  invoices: (facilityId: string) => client.get<unknown>('/api/v1/commercial/invoices',
+    { headers: { 'X-Facility-ID': facilityId } }),
+  /** The public price catalogue, which hid-system already serves. */
+  pricing: () => client.get<unknown>('/api/v1/commercial/pricing', { auth: 'none' }),
+}
+
 export const staffApi = {
   login: (email: string, password: string, turnstileToken?: string) =>
     settingSession(() => client.post<unknown>('/api/v1/auth/login', {

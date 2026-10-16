@@ -3,7 +3,7 @@ import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { GoogleButton } from '../GoogleButton'
 import { Turnstile } from '../Turnstile'
-import { BrandLogo } from '../BrandLogo'
+import { AuthLayout } from '../AuthLayout'
 import { useSession } from '../session'
 import { useDocumentTitle } from '../authSteps'
 
@@ -55,29 +55,25 @@ export function SignIn() {
     }
   }
 
-  return <main className="patient-auth-page">
-    <section className="patient-auth-card" aria-labelledby="sign-in-title">
-      <Link to="/" className="patient-auth-brand"><BrandLogo /></Link>
-      <p className="patient-eyebrow">Your Health ID</p>
-      <h1 id="sign-in-title" className="patient-page-title">Welcome back.</h1>
-      <p className="patient-page-copy">Sign in to view your health information and manage access to it.</p>
-      {(error || sessionError) && <p role="alert" className="patient-inline-error">{error || sessionError}</p>}
-      {signedOutElsewhere && !error && <p role="alert" className="patient-inline-error">You were signed out because this browser's Health ID sign-in changed in another tab or window. Sign in again to continue.</p>}
-      {otherPortalSession && <div className="patient-session-note">
-        <p>A provider sign-in is active in this browser. Signing in here as a patient replaces it.</p>
-        <Link to="/provider">Go to the provider portal</Link>
-      </div>}
-      <form onSubmit={event => void submit(event)} className="patient-form">
-        <label>Email or Health ID<input required autoComplete="username" value={email} onChange={event => setEmail(event.target.value)} placeholder="you@example.com or HID-…" /></label>
-        <label>Password<input required type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} minLength={6} /></label>
-        <div className="patient-form-aside"><Link to="/recover">Forgot password?</Link></div>
-        <Turnstile action="patient-login" onTokenChange={setTurnstileToken} resetKey={resetKey} />
-        <button type="submit" className="patient-primary-button" disabled={busy || !turnstileToken}>{busy ? 'Signing in…' : 'Sign in'}</button>
-      </form>
-      {import.meta.env.VITE_HID_GOOGLE_CLIENT_ID && <div className="patient-auth-separator"><span>or continue with Google</span>
-        <GoogleButton text="signin_with" disabled={busy || !turnstileToken} onCredential={google}
-          disabledReason={turnstileToken ? undefined : 'Complete the security check to continue with Google.'} /></div>}
-      <p className="patient-auth-footer">New to Health ID? <Link to="/enroll">Get your Health ID</Link></p>
-    </section>
-  </main>
+  return <AuthLayout brandTo="/"
+    title="Welcome back." titleId="sign-in-title"
+    lede="Sign in to view your health information and manage who can see it.">
+    {(error || sessionError) && <p role="alert" className="patient-inline-error">{error || sessionError}</p>}
+    {signedOutElsewhere && !error && <p role="alert" className="patient-inline-error">You were signed out because this browser's Health ID sign-in changed in another tab or window. Sign in again to continue.</p>}
+    {otherPortalSession && <div className="patient-session-note">
+      <p>A provider sign-in is active in this browser. Signing in here as a patient replaces it.</p>
+      <Link to="/provider">Go to the provider portal</Link>
+    </div>}
+    <form onSubmit={event => void submit(event)} className="patient-form">
+      <label>Email or Health ID<input required autoComplete="username" value={email} onChange={event => setEmail(event.target.value)} placeholder="you@example.com or HID-…" /></label>
+      <label>Password<input required type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} minLength={6} /></label>
+      <div className="patient-form-aside"><Link to="/recover">Forgot password?</Link></div>
+      <Turnstile action="patient-login" onTokenChange={setTurnstileToken} resetKey={resetKey} />
+      <button type="submit" className="patient-primary-button" disabled={busy || !turnstileToken}>{busy ? 'Signing in…' : 'Sign in'}</button>
+    </form>
+    {import.meta.env.VITE_HID_GOOGLE_CLIENT_ID && <div className="patient-auth-separator"><span>or continue with Google</span>
+      <GoogleButton text="signin_with" disabled={busy || !turnstileToken} onCredential={google}
+        disabledReason={turnstileToken ? undefined : 'Complete the security check to continue with Google.'} /></div>}
+    <p className="patient-auth-footer">New to Health ID? <Link to="/enroll">Get your Health ID</Link></p>
+  </AuthLayout>
 }

@@ -2,7 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { Turnstile } from '../Turnstile'
-import { BrandLogo } from '../BrandLogo'
+import { AuthLayout } from '../AuthLayout'
 import { useSession } from '../session'
 import { describedBy, isFieldProblem, useDocumentTitle, useStepFocus } from '../authSteps'
 import { CODE_BUDGET_HINT, useCodeBudgetNote, useResendWait } from './recoveryWait'
@@ -94,9 +94,7 @@ export function Recovery() {
   const invalid = fieldError ? true : undefined
   const errorId = fieldError ? 'recovery-error' : undefined
 
-  return <main className="patient-auth-page"><section className="patient-auth-card" aria-labelledby="recovery-title">
-    <Link to="/sign-in" className="patient-auth-brand"><BrandLogo /></Link>
-    <p className="patient-eyebrow">Account recovery</p><h1 id="recovery-title" className="patient-page-title">Reset your password.</h1>
+  return <AuthLayout brandTo="/sign-in" title="Reset your password." titleId="recovery-title">
     {error && <p id="recovery-error" role={errorAlert ? 'alert' : undefined} className="patient-inline-error">{error}</p>}
     {step === 'start' && <form onSubmit={start} className="patient-form"><p id="recovery-start-hint" className="patient-page-copy">Enter your email or Health ID. We will send a code to your verified contact.</p>
       <label>Email or Health ID<input ref={stepFocus.target} required autoComplete="username" value={identifier} onChange={event => setIdentifier(event.target.value)}
@@ -125,5 +123,5 @@ export function Recovery() {
       <div role="status">{resend.ready && <><p className="patient-field-hint">No code, or a code refused? Start again with the same email or Health ID to get a new code.</p>
         <button className="patient-text-button" type="button" onClick={restart} disabled={busy}>Start again for a new code</button></>}</div></div>}
     <p className="patient-auth-footer"><Link to="/sign-in">Back to sign in</Link></p>
-  </section></main>
+  </AuthLayout>
 }

@@ -6,7 +6,7 @@ import { failure, isProblem } from './problems'
 import { RecoveryCodes } from './RecoveryCodes'
 import { SIX_DIGIT_CODE_FIELD, formatSetupKey, isRecoveryCode, isSixDigitCode, sixDigitCode } from '../mfa/codes'
 import { Turnstile } from './Turnstile'
-import { BrandLogo } from '../BrandLogo'
+import { AuthLayout } from '../AuthLayout'
 import { date } from './ui'
 
 type Step =
@@ -58,9 +58,9 @@ export function AdminSignIn({ onSignedIn, notice }: {
     setError(failure(caught, fallback))
   }
 
-  return <main className="admin-auth"><div className="admin-auth-card">
-    <BrandLogo className="admin-auth-logo" />
-    <p className="admin-eyebrow">Health ID platform</p>
+  return <AuthLayout brandTo="/admin/sign-in" brandLabel="Health ID platform administration"
+    title="Platform administration." titleId="admin-sign-in-title" titleAs="p"
+    lede="Access is limited to accounts with platform permissions. You will also need your authenticator app.">
     {notice && step.kind === 'credentials' && <p role="status" className="admin-warning">{notice}</p>}
     {step.kind === 'credentials' && <CredentialsStep error={error} onError={setError}
       onChallenge={challenge => { setError(null); setStep(challenge.status === 'mfa_required'
@@ -75,7 +75,7 @@ export function AdminSignIn({ onSignedIn, notice }: {
     {step.kind === 'recovery-codes' && <RecoveryCodes codes={step.codes} doneLabel="Continue to platform administration"
       onDone={() => void finish()} />}
     {step.kind === 'finishing' && <p role="status">Opening platform administration…</p>}
-  </div></main>
+  </AuthLayout>
 }
 
 function CredentialsStep({ error, onError, onChallenge }: {
@@ -103,7 +103,6 @@ function CredentialsStep({ error, onError, onChallenge }: {
 
   return <form onSubmit={event => void submit(event)} className="admin-auth-form">
     <h1>Administration sign in</h1>
-    <p>Access is limited to accounts with platform permissions. You will also need your authenticator app.</p>
     <label>Email<input type="email" autoComplete="username" required value={email} onChange={event => setEmail(event.target.value)} /></label>
     <label>Password<input type="password" autoComplete="current-password" required value={password} onChange={event => setPassword(event.target.value)} /></label>
     {(config.turnstileSiteKey || config.name !== 'local') &&

@@ -5,7 +5,7 @@ import { ENROLLMENT_PROFILE_FIELDS, type EnrollmentFacilityRoute, type Enrollmen
   type EnrollmentProfileField, type EnrollmentProgress } from '../api'
 import { GoogleButton } from '../GoogleButton'
 import { Turnstile } from '../Turnstile'
-import { BrandLogo } from '../BrandLogo'
+import { AuthLayout } from '../AuthLayout'
 import { useSession } from '../session'
 import { isFieldProblem, sentFromField, useDocumentTitle, useStepFocus } from '../authSteps'
 import { useActionFocus } from './actionFocus'
@@ -686,15 +686,10 @@ export function Enrollment() {
   const errorId = fieldError ? 'enroll-error' : undefined
   const stepProps = { focusTarget: stepFocus.target, busy, invalid, errorId }
 
-  return <main className="patient-auth-page">
-    <section className="patient-auth-card patient-enroll-card" aria-labelledby="enroll-title">
-      <Link to="/" className="patient-auth-brand"><BrandLogo /></Link>
-      <p className="patient-eyebrow">Patient enrollment</p>
-      <h1 id="enroll-title" className="patient-page-title">Get your Health ID.</h1>
-      <p className="patient-page-copy">Verify your identity, confirm a contact, and activate your account.</p>
-      {!closed && STEP_STAGES.includes(stage) && <ol className="patient-step-list" aria-label="Enrollment steps">
-        {steps.map(([label, stages]) => <li key={label} aria-current={stages.includes(stage) ? 'step' : undefined}>{label}</li>)}
-      </ol>}
+  return <AuthLayout brandTo="/" title="Get your Health ID." titleId="enroll-title"
+    lede="Verify your identity, confirm a contact, and activate your account."
+    steps={!closed && STEP_STAGES.includes(stage) ? steps.map(([label, stages]) => ({ label, current: stages.includes(stage) })) : undefined}
+    stepsLabel="Enrollment steps">
       {checking ? <p role="status">Checking for an enrollment in progress…</p> : null}
       {checkError && <div className="patient-inline-error" role="alert"><p>We could not check for an enrollment in progress. Try again before starting.</p><button ref={checkRetry} type="button" className="patient-secondary-button" onClick={() => { retriedCheck.current = true; setCheckKey(value => value + 1) }}>Try again</button></div>}
       {signOutRequired && <div ref={signOutNote} tabIndex={-1} role="group" aria-labelledby="enroll-sign-out" className="patient-inline-error patient-session-note">
@@ -754,6 +749,5 @@ export function Enrollment() {
       </section>}
       {googlePending && !checkError && startOffered && stage !== 'complete' && <p role="status" className="patient-field-hint">Google identity confirmed for this enrollment.</p>}
       <p className="patient-auth-footer">Already have a Health ID? <Link to="/sign-in">Sign in</Link></p>
-    </section>
-  </main>
+  </AuthLayout>
 }
