@@ -411,7 +411,7 @@ function ApplyAnother({ account, onApplied, takeOver, onWorking, onClosed }: {
   takeOver(caught: unknown): boolean
   /** Intake closed: the form closes (what was typed is kept) and the page reads the applications again. */
   onClosed(): Promise<void>
-  /** Whether a request of this form (sending, or a facility search) is running. */
+  /** Whether a request of this form (sending, a facility search, or the read after intake closed) is running. */
   onWorking(working: boolean): void
 }) {
   const [applying, setApplying] = useState(false)
@@ -423,7 +423,9 @@ function ApplyAnother({ account, onApplied, takeOver, onWorking, onClosed }: {
   const [error, setError] = useState<{ id: number; message: string } | null>(null)
   const [busy, setBusy] = useState(false)
   const [searching, setSearching] = useState(false)
-  useEffect(() => { onWorking(busy || searching) }, [busy, searching, onWorking])
+  // The applications are being read again after intake closed: Close and Retry wait for it too.
+  const [rereading, setRereading] = useState(false)
+  useEffect(() => { onWorking(busy || searching || rereading) }, [busy, searching, rereading, onWorking])
   useEffect(() => () => onWorking(false), [onWorking])
   const submission = useRef<{ key: string; fingerprint: string } | null>(null)
   // Where focus goes after a refusal that keeps the form: its button was disabled while busy.
@@ -448,7 +450,8 @@ function ApplyAnother({ account, onApplied, takeOver, onWorking, onClosed }: {
   function closedRefusal(caught: unknown): boolean {
     if (codeOf(caught) !== 'CLINICIAN_SIGNUP_CLOSED') return false
     setApplying(false)
-    void onClosed()
+    setRereading(true)
+    void onClosed().finally(() => setRereading(false))
     return true
   }
 

@@ -2353,7 +2353,9 @@ deployed.
   sent. That read shows the email form if the page has closed meanwhile, or
   the list with "New clinician applications aren't open right now." in place
   of the apply button; if it fails, the list stays with that change and the
-  failure's Retry (`47b604c`).
+  failure's Retry (`47b604c`). "Close this page" and the list's Retry wait
+  for that read, as they wait for the form's own requests, so its answer
+  never reaches a closed page (the commit after `d14bff2`).
 - **Five hashed submissions per draft** (`8dac32f`). P4 answers `401
   CLINICIAN_APPLICATION_SESSION_INVALID` once a draft has had five
   submissions hashed, as it does for an expired draft; the page cannot tell
@@ -2400,11 +2402,12 @@ deployed.
   `1d6ff6f`); the search would show that code's fallback, "We couldn't search
   for facilities right now. Try again." (OPEN-QUESTIONS).
 - **Evidence.** Failing first: 5 for the console (`8ac7106`), 11 for the
-  applicant pages (`47b604c`: 3 sign-up, 6 status page, 2 authenticator). At
-  each commit `audit:boundaries`, `typecheck`, `lint`, `npx vitest run`,
+  applicant pages (`47b604c`: 3 sign-up, 6 status page, 2 authenticator) and
+  2 for Close during the read after intake closed. At each commit
+  `audit:boundaries`, `typecheck`, `lint`, `npx vitest run`,
   `build:patient-web` and `audit:launch-build` pass. `npx vitest run`: 172
   files and 2389 tests after the merge, 2394 after the console, 2399 after
-  the pages. The first full run after the merge had one failure,
+  the pages, 2401 after the Close fix. The first full run after the merge had one failure,
   `OcrFields.test.tsx` "NEW-OCR-CREATE-DISABLED" (not changed here), which
   passed alone and in the full rerun.
 - **Not verified.** No browser, no running Identity (with or without the

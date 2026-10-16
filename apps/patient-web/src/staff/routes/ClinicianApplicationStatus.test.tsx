@@ -622,6 +622,25 @@ describe('applying to another facility', () => {
       expect(api.apply).toHaveBeenCalledTimes(button === 'Send application' ? 1 : 0)
     })
 
+  it.each([['sending', 'Send application'], ['searching', 'Search facilities']] as const)(
+    'offers no Close while the applications are read again after intake closed (%s)', async (_case, button) => {
+      await applyForm()
+      if (button === 'Send application') api.apply.mockRejectedValueOnce(problem(503, 'CLINICIAN_SIGNUP_CLOSED'))
+      else api.searchFacilities.mockRejectedValueOnce(problem(503, 'CLINICIAN_SIGNUP_CLOSED'))
+      let answer: (value: unknown) => void = () => {}
+      api.current.mockReturnValueOnce(new Promise(resolve => { answer = resolve }))
+      press(button)
+      await waitFor(() => expect(api.current).toHaveBeenCalledTimes(2))
+      // Every answer but the read's has been drawn: the refused request's own end included.
+      await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+      const close = screen.getByRole('button', { name: 'Close this page' }) as HTMLButtonElement
+      expect(close.disabled).toBe(true)
+      fireEvent.click(close)
+      expect(api.endSession).not.toHaveBeenCalled()
+      await act(async () => { answer(account({ canApply: false, applyRefusal: 'CLINICIAN_SIGNUP_CLOSED' })) })
+      await waitFor(() => expect((screen.getByRole('button', { name: 'Close this page' }) as HTMLButtonElement).disabled).toBe(false))
+    })
+
   it('asks for the email again when intake has closed and this page has closed too', async () => {
     await applyForm()
     api.apply.mockRejectedValueOnce(problem(503, 'CLINICIAN_SIGNUP_CLOSED'))
