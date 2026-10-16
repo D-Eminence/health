@@ -45,7 +45,9 @@ const one = (method: EndpointMethod, ...permissions: string[]): Partial<Record<E
 
 /**
  * hid-system main 51047e2 (and 585ef8d) serves none of these. They are on its `staging`,
- * `staging-novu-ci-20261005` and `launch/patient-record-chat` branches.
+ * `staging-novu-ci-20261005` and `launch/patient-record-chat` branches. Main 221ddbf
+ * (#94) serves imported history at a different route, /ehr/patients/:id/imported-history,
+ * with its own answer shape; the /imported-records entries here are not that route.
  */
 const NOT_ON_MAIN = 'Built against hid-system branches; not served by hid-system main (51047e2).'
 const CHAT_NOTE = `${NOT_ON_MAIN} The screen is off unless the build turns it on.`
