@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 import type { EmergencyContact } from '../api'
-import { AccessPage, ProfilePage, SettingsPage } from '../routes/Portal'
+import { AccessPage, SettingsPage } from '../routes/Portal'
 import { EmergencyContactsCard } from '../routes/AccountSafety'
 import { described, json, press, problem, profile, renderPortal, type Handler } from './portalHarness'
 
@@ -9,10 +9,11 @@ import { described, json, press, problem, profile, renderPortal, type Handler } 
  * A rule the server enforces is stated where it is typed, not left to a button
  * that stays disabled until it is met (PR-07, PR-08, NEW-UNSTATED-INPUT-RULES).
  * The rules are hid-system's: an Access PIN of 4 to 8 digits
- * (set-patient-access-pin.dto.ts), an 11-digit NIN (verify-nin.dto.ts), a reason
- * of 3 to 500 characters to deny or revoke (deny-access-request.dto.ts,
- * revoke-consent-grant.dto.ts), a contact name of 2 to 120 characters
- * (emergency-contact.dto.ts) and up to five contacts (emergency-contact.service.ts).
+ * (set-patient-access-pin.dto.ts), a reason of 3 to 500 characters to deny or
+ * revoke (deny-access-request.dto.ts, revoke-consent-grant.dto.ts), a contact
+ * name of 2 to 120 characters (emergency-contact.dto.ts) and up to five contacts
+ * (emergency-contact.service.ts). The profile's 11-digit NIN is not offered
+ * until P27 (ProfileNinVerification.test.tsx).
  * A refusal about the value is tied to its field.
  */
 const settings = (pin: Handler) => renderPortal(<SettingsPage />, (path, method, body) => {
@@ -44,43 +45,6 @@ describe('Access PIN', () => {
     fireEvent.change(input, { target: { value: '1234' } })
     await press(screen.getByRole('button', { name: 'Save PIN' }))
     expect((await screen.findByRole('alert')).textContent).toContain('sign in again')
-    expect(input.getAttribute('aria-invalid')).toBeNull()
-  })
-})
-
-describe('profile NIN verification', () => {
-  const open = (verify: () => Response) => renderPortal(<ProfilePage />, path => path === '/identity/me/verification/nin' ? verify() : json(profile))
-
-  it('says the NIN is 11 digits', async () => {
-    open(() => json({}))
-    expect(described(await screen.findByRole('textbox', { name: 'National Identification Number' }))).toContain('11 digits')
-  })
-
-  it('ties a NIN that could not be verified to the field, and returns focus to it', async () => {
-    open(() => json({ entityType: 'patient', verificationType: 'nin', provider: 'qoreid', state: 'not_verified', recordedAt: '2026-01-01T00:00:00.000Z' }))
-    const input = await screen.findByRole('textbox', { name: 'National Identification Number' })
-    fireEvent.change(input, { target: { value: '12345678901' } })
-    await press(screen.getByRole('button', { name: 'Verify NIN' }))
-    await waitFor(() => expect(input.getAttribute('aria-invalid')).toBe('true'))
-    expect(described(input)).toContain('could not be verified')
-    expect(document.activeElement).toBe(input)
-  })
-
-  it('ties a malformed NIN refused by the server to the field', async () => {
-    open(() => problem(400, 'VALIDATION_FAILED', 'nin must be 11 digits'))
-    const input = await screen.findByRole('textbox', { name: 'National Identification Number' })
-    fireEvent.change(input, { target: { value: '12345678901' } })
-    await press(screen.getByRole('button', { name: 'Verify NIN' }))
-    await waitFor(() => expect(input.getAttribute('aria-invalid')).toBe('true'))
-    expect(described(input)).toContain('nin must be 11 digits')
-  })
-
-  it('leaves the field valid when the NIN needs identity review', async () => {
-    open(() => problem(409, 'PATIENT_NIN_BINDING_CONFLICT', 'This NIN requires identity review before it can be verified'))
-    const input = await screen.findByRole('textbox', { name: 'National Identification Number' })
-    fireEvent.change(input, { target: { value: '12345678901' } })
-    await press(screen.getByRole('button', { name: 'Verify NIN' }))
-    expect((await screen.findByRole('alert')).textContent).toContain('identity review')
     expect(input.getAttribute('aria-invalid')).toBeNull()
   })
 })

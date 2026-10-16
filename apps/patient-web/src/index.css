@@ -261,6 +261,16 @@
   .patient-step-list li[aria-current] { border-color: var(--color-brand); color: var(--color-brand); font-weight: 700; }
   .patient-success { display: grid; gap: 14px; margin-top: 26px; }
   .patient-success strong { color: var(--color-brand); font-family: var(--font-mono); font-size: 22px; overflow-wrap: anywhere; }
+  /* Enrollment: a route to prove the NIN is the patient's, or a way on when one cannot help, described before its action. */
+  .patient-enroll-option { display: grid; justify-items: start; gap: 10px; min-width: 0; padding: 14px 16px; border: 1px solid var(--color-line-strong); border-radius: var(--radius-control); }
+  .patient-enroll-option :is(h2, h3), .patient-form .patient-enroll-option h2 { margin: 0; color: var(--color-ink); font-size: 16px; font-weight: 600; }
+  .patient-enroll-option :is(p, li) { margin: 0; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; }
+  .patient-enroll-routes { display: grid; gap: 6px; margin: 0; padding-left: 20px; }
+  .patient-enroll-facilities { display: grid; gap: 12px; }
+  .patient-enroll-facility { display: grid; gap: 2px; }
+  /* The desk code a staff member reads from the patient's phone: large, fixed-width, never split mid-group. */
+  .patient-enroll-option .patient-desk-code { color: var(--color-ink); font-family: var(--font-mono); font-size: clamp(22px, 7vw, 28px); font-weight: 700; letter-spacing: 0.08em; overflow-wrap: normal; white-space: nowrap; }
+  .patient-enroll-option a:not(.patient-primary-button):not(.patient-secondary-button) { color: var(--color-brand); font-weight: 600; text-decoration: underline; }
 
   .patient-app { min-height: 100svh; background: var(--color-surface-sunk); }
   .patient-app-header { position: sticky; top: 0; z-index: 20; border-bottom: 1px solid var(--color-line-strong); background: var(--color-surface); }

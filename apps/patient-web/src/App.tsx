@@ -7,6 +7,7 @@ import { SessionProvider } from './session'
 import { Overview } from './routes/Overview'
 import { SignIn } from './routes/SignIn'
 import { Enrollment } from './routes/Enrollment'
+import { ParticipatingFacilitiesPage } from './routes/ParticipatingFacilities'
 import { Recovery } from './routes/Recovery'
 import { PrincipalRecovery } from './routes/PrincipalRecovery'
 import { AccessPage, NotificationsPage, PortalShell, ProfilePage, RecordsPage, SettingsPage } from './routes/Portal'
@@ -34,6 +35,7 @@ function PatientRoutes() {
     <Routes>
       <Route path="/sign-in" element={<SignIn />} />
       <Route path="/enroll" element={<Enrollment />} />
+      <Route path="/enroll/facilities" element={<ParticipatingFacilitiesPage />} />
       <Route path="/recover" element={<Recovery />} />
       <Route path="/" element={<RequireAccess requirement={PATIENT_ROUTE}><PortalShell /></RequireAccess>}>
         <Route index element={<Overview />} />

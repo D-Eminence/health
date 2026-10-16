@@ -134,6 +134,36 @@ export interface ResolveNinInput {
   gender?: 'female' | 'male' | 'intersex' | 'other' | 'unknown'
 }
 
+/**
+ * Facility-assisted registration (hid-system main f9dbaf0: #85, migration 0094,
+ * ADR-063). At a participating facility a staff member types the desk code the
+ * patient's own phone shows, and the names and date of birth as written on one
+ * original photo ID, with five attestations. The answer is verified, a result
+ * per field, or a refusal: never the NIN, a record value, the contact or a
+ * Health ID. Nothing typed is kept outside the screen's own state.
+ */
+export const ASSISTED_DOCUMENT_TYPES = ['national_id_card', 'international_passport', 'drivers_licence', 'voters_card'] as const
+export type AssistedDocumentType = (typeof ASSISTED_DOCUMENT_TYPES)[number]
+
+export interface AssistedVerificationInput {
+  /** As the patient's phone shows it; Identity ignores spaces, hyphens and case. */
+  deskCode: string
+  method: 'government_photo_id_in_person'
+  documentType: AssistedDocumentType
+  /** As written on the document; the date of birth only when it shows one. */
+  document: { firstName: string; lastName: string; dateOfBirth?: string }
+  /** Each must be true; Identity refuses the check otherwise. */
+  attestations: {
+    patientPresent: true
+    originalDocumentSeen: true
+    photoMatchesPerson: true
+    codeShownOnPatientsOwnDevice: true
+    patientConsents: true
+  }
+}
+
+export interface AssistedVerificationResult { outcome: 'verified' }
+
 /** `ListStaffAccessRequestsDto` statuses: the request's own status. */
 export const ACCESS_REQUEST_STATUSES = ['pending', 'approved', 'denied', 'revoked', 'expired'] as const
 /** Outcome filters an Identity build with hid-system 0074 also accepts. */
@@ -1068,6 +1098,13 @@ export const staffApi = {
   enrollRegistration: (facilityId: string, registrationCase: RegistrationCase, email: string, reason: string, idempotencyKey: string) =>
     client.post<RegistrationEnrollment>(`/api/v1/identity/registration-cases/${encodeURIComponent(registrationCase.caseId)}/enroll`,
       { expectedVersion: registrationCase.version, email, reason, purpose: 'healthcare-operations' },
+      { headers: { ...facilityHeaders(facilityId, 'healthcare-operations'), ...keyHeaders(idempotencyKey) } }),
+
+  // The in-person check of facility-assisted registration (hid-system #85, ADR-063). Identity records it
+  // as healthcare operations. One key per submission: the same key replays the stored outcome, so a
+  // retry after a 503 or a lost answer is not charged again.
+  assistedVerification: (facilityId: string, input: AssistedVerificationInput, idempotencyKey: string) =>
+    client.post<AssistedVerificationResult>('/api/v1/identity/assisted-verifications', input,
       { headers: { ...facilityHeaders(facilityId, 'healthcare-operations'), ...keyHeaders(idempotencyKey) } }),
 
   lookupPatient: (facilityId: string, hid: string, purpose: 'direct-care' | 'emergency' = 'direct-care') =>

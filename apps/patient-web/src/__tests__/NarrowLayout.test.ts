@@ -40,6 +40,17 @@ describe('narrow screens', () => {
     expect(valueAt(portalCss, '.patient-field-hint', 'overflow-wrap', PHONE)).toBe('anywhere')
   })
 
+  it('lets the text of an enrollment route option wrap on a phone', () => {
+    // The routes to prove a NIN are full sentences beside their actions; a facility name or address may be long.
+    expect(valueAt(portalCss, '.patient-enroll-option :is(p, li)', 'overflow-wrap', PHONE)).toBe('anywhere')
+  })
+
+  it('keeps the desk code on one line within a phone\'s width', () => {
+    // 10 characters and a space in a fixed-width face: 7vw keeps them inside the card at 320px, 28px at most.
+    expect(valueAt(portalCss, '.patient-enroll-option .patient-desk-code', 'white-space', PHONE)).toBe('nowrap')
+    expect(valueAt(portalCss, '.patient-enroll-option .patient-desk-code', 'font-size', PHONE)).toBe('clamp(22px, 7vw, 28px)')
+  })
+
   it('lets long document names in the provider lists wrap', () => {
     expect(valueAt(staffCss, '.staff-list-item strong', 'overflow-wrap', PHONE)).toBe('anywhere')
   })

@@ -408,3 +408,14 @@
 .admin-hint { margin: 0; color: var(--color-muted); font-size: 12px; font-weight: 400; line-height: 1.45; }
 .admin-plain-list { display: grid; gap: 4px; margin: 0; padding-left: 18px; font-size: 13px; }
 .admin-plain-list span { color: var(--color-muted); font-size: 12px; }
+
+/* The designation for registration in person (hid-system #85): a label above each control, its hint or error below. */
+.admin-designation-form h3 { margin: 0; }
+.admin-designation-field { display: grid; gap: 6px; }
+.admin-designation-field label { color: var(--color-ink); font-size: 12px; font-weight: 700; }
+.admin-field-error { color: #9b211d; font-size: 12px; line-height: 1.45; }
+.admin-designation-status { display: grid; gap: 8px; margin: 0; padding: 0; border: 0; min-width: 0; }
+.admin-designation-status legend { margin-bottom: 6px; padding: 0; color: var(--color-ink); font-size: 12px; font-weight: 700; }
+.admin-designation-status label { font-weight: 400; line-height: 1.45; align-items: flex-start; }
+.admin-designation-form input[type='radio'] { width: auto; min-height: 0; margin: 2px 0 0; padding: 0; flex: 0 0 auto; }
+.admin-designation-form .admin-primary[aria-disabled='true'] { opacity: .6; cursor: not-allowed; }

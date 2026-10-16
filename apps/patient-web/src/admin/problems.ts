@@ -111,6 +111,10 @@ const ADMIN_PROBLEMS: Readonly<Record<string, string>> = {
   WORKFORCE_STAFF_INELIGIBLE: 'The applicant’s staff record can’t be given a role in its current state. Nothing was changed.',
   WORKFORCE_EMAIL_IN_USE: 'An account already uses this email address. This person may have applied by themselves: check '
     + 'Clinician applications.',
+
+  // Facility-assisted registration designations (hid-system #85, ADR-063).
+  FACILITY_NOT_ACTIVE: 'Only a verified, active facility of an active organization can register patients in person. Verify the facility first.',
+  ADMIN_FACILITY_NOT_FOUND: 'This facility was not found. Check the facility link.',
 }
 
 export function problemCode(error: unknown): string | null {

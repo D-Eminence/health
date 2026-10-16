@@ -36,8 +36,9 @@ const availabilityReads = (sent: Array<{ path: string }>) => sent.filter(request
 
 /**
  * hid-system#68 (FE-4) answers `GET /identity/patient-enrollments/availability`
- * with `200 { open: boolean }`, and a client treats any other answer as not open.
- * Production keeps NIN-only enrollment closed until the N1 holder step ships, and
+ * with `200 { open: boolean }` (since hid-system#84 also `online` and `facility`),
+ * and a client treats any other answer as not open. With every flag at its
+ * default each start answers 503 (since #84 `PATIENT_REGISTRATION_NOT_OPEN`), and
  * the page used to ask for a NIN and a security check anyway, only for the start
  * to answer 503. It now says registration is not open, with sign-in and recovery,
  * and asks for nothing; an enrollment already in progress continues, since only a
@@ -137,8 +138,8 @@ describe('new Health ID registration (hid-system#68, FE-4)', () => {
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Verify code' })) })
 
     await closedNotice()
-    expect(screen.getByText('This enrollment ended on this device because someone signed in or out here.')).toBeTruthy()
-    expect(screen.queryByText(/Enter the same NIN/)).toBeNull()
+    expect(screen.getByText('This registration is no longer open on this device. It may have expired after 24 hours, been replaced by a newer registration for the same NIN, or ended when someone signed in or out in this browser.')).toBeTruthy()
+    expect(screen.queryByText(/Enter your NIN to start again/)).toBeNull()
     expect(screen.queryByLabelText('National Identification Number')).toBeNull()
   })
 
@@ -154,15 +155,15 @@ describe('new Health ID registration (hid-system#68, FE-4)', () => {
 
     const retry = await screen.findByRole('button', { name: 'Try again' })
     await waitFor(() => expect(document.activeElement).toBe(retry))
-    expect(screen.getByText('This enrollment ended on this device because someone signed in or out here.')).toBeTruthy()
-    expect(screen.queryByText(/Enter the same NIN/)).toBeNull()
+    expect(screen.getByText('This registration is no longer open on this device. It may have expired after 24 hours, been replaced by a newer registration for the same NIN, or ended when someone signed in or out in this browser.')).toBeTruthy()
+    expect(screen.queryByText(/Enter your NIN to start again/)).toBeNull()
     expect(screen.queryByLabelText('National Identification Number')).toBeNull()
 
     open = () => json({ open: true })
     await press(retry)
     const nin = await screen.findByLabelText('National Identification Number')
     await waitFor(() => expect(document.activeElement).toBe(nin))
-    expect(screen.getByText(/This enrollment ended on this device/).textContent).toMatch(/Enter the same NIN to continue it\.$/)
+    expect(screen.getByText(/This registration is no longer open on this device/).textContent).toMatch(/Enter your NIN to start again\.$/)
   })
 
   it.each([
@@ -177,7 +178,7 @@ describe('new Health ID registration (hid-system#68, FE-4)', () => {
     expect(screen.getByText('Reconnect the Google account used to start this enrollment.')).toBeTruthy()
     await press(screen.getByRole('button', { name: 'Verify code' }))
 
-    await screen.findByText(/This enrollment ended on this device/)
+    await screen.findByText(/This registration is no longer open on this device/)
     expect(screen.queryByText('Reconnect the Google account used to start this enrollment.')).toBeNull()
     expect(screen.queryByRole('button', { name: 'Sign up with Google' })).toBeNull()
   })

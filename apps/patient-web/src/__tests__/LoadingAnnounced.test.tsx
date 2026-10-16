@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import type { AccessRequest, EmergencyContact } from '../api'
-import { AccessPage, ProfilePage, SettingsPage } from '../routes/Portal'
+import { AccessPage, SettingsPage } from '../routes/Portal'
 import { AccountDeletionCard, EmergencyContactsCard } from '../routes/AccountSafety'
 import { json, press, profile, renderPortal } from './portalHarness'
 
@@ -153,14 +153,5 @@ describe('an action\'s notice is not inside the region that reloads', () => {
     await press(await screen.findByRole('button', { name: 'Cancel deletion' }))
     await noticeOutsideBusy('Account deletion cancelled. Your account stays open.',
       'Until then you can keep using Health ID and cancel at any time. After that date this cannot be undone.')
-  })
-
-  it('NIN verification succeeded', async () => {
-    const reads = heldReload(() => json(profile))
-    renderPortal(<ProfilePage />, (path, method) => method === 'GET' ? reads.read()
-      : json({ entityType: 'patient', verificationType: 'nin', provider: 'qoreid', state: 'verified', recordedAt: '2026-01-01T00:00:00.000Z' }))
-    fireEvent.change(await screen.findByRole('textbox', { name: 'National Identification Number' }), { target: { value: '12345678901' } })
-    await press(screen.getByRole('button', { name: 'Verify NIN' }))
-    await noticeOutsideBusy('NIN verification succeeded. Identity evidence was recorded.', 'Your NIN is 11 digits.')
   })
 })

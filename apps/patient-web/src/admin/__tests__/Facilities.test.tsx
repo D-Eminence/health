@@ -8,7 +8,9 @@ import { FacilitiesPage, FacilityDetailPage } from '../Facilities'
 import { StepUpProvider } from '../StepUp'
 
 const mocks = vi.hoisted(() => ({
-  api: { facilities: vi.fn(), facility: vi.fn(), audit: vi.fn(), command: vi.fn(), stepUp: vi.fn() },
+  api: { facilities: vi.fn(), facility: vi.fn(), audit: vi.fn(), command: vi.fn(), stepUp: vi.fn(),
+    // The facility page reads its designation for registration in person (hid-system #85; AssistedRegistration.test.tsx).
+    assistedRegistration: vi.fn() },
   keys: 0,
 }))
 vi.mock('../api', () => ({ adminApi: mocks.api, PAGE_SIZE: 25, newIdempotencyKey: () => `key-${++mocks.keys}` }))
@@ -33,7 +35,11 @@ function open(path: string, element: ReactElement, route = '/admin/facilities') 
 
 const location = () => screen.getByTestId('location').textContent
 
-beforeEach(() => { vi.clearAllMocks(); mocks.keys = 0 })
+beforeEach(() => {
+  vi.clearAllMocks(); mocks.keys = 0
+  mocks.api.assistedRegistration.mockResolvedValue({ facilityId: FACILITY_ID, designated: false, status: null, addressLine: null,
+    town: null, lga: null, state: null, hours: null, reason: null, version: 0, updatedAt: null })
+})
 
 describe('facilities list', () => {
   it('loads the filters and page in the link', async () => {

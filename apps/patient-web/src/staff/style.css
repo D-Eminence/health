@@ -104,3 +104,9 @@ body { margin: 0; }
 .staff-facility-choice fieldset:disabled .staff-choice { cursor: not-allowed; color: var(--color-muted); background: var(--color-surface-tint); }
 /* The steps' own text only: a Field's error (or hint) is a paragraph inside the Field, and keeps its own colour and size. */
 .staff-mfa > p { margin: 0; color: var(--color-muted); font-size: 14px; line-height: 1.55; }
+/* The in-person check (hid-system #85): its groups lose the fieldset's default border and min-content width, so a
+   long statement wraps at 320px instead of widening the page; a wrapped statement keeps space above and below. */
+.staff-in-person fieldset { display: grid; gap: 8px; margin: 0; padding: 0; border: 0; min-width: 0; }
+.staff-in-person legend { margin-bottom: 6px; padding: 0; color: var(--color-ink); font-size: 13px; font-weight: 650; }
+.staff-in-person .staff-choice { padding: 10px 12px; line-height: 1.4; color: var(--color-ink); font-size: 13px; }
+.staff-in-person ul { margin: 0 0 10px; padding-left: 18px; color: var(--color-ink); font-size: 13px; line-height: 1.6; }

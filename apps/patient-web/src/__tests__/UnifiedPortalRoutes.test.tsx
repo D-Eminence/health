@@ -6,7 +6,7 @@ import { App } from '../App'
 
 const calls = vi.hoisted(() => ({
   patientSession: vi.fn(), patientRefresh: vi.fn(), patientEnrollmentCurrent: vi.fn(), patientGoogleOnboarding: vi.fn(), patientProfile: vi.fn(),
-  patientEnrollmentAvailability: vi.fn(),
+  patientEnrollmentAvailability: vi.fn(), patientParticipatingFacilities: vi.fn(),
   staffSession: vi.fn(), staffRefresh: vi.fn(), staffSelectFacility: vi.fn(), staffLogout: vi.fn(),
   staffLookupPatient: vi.fn(), staffBreakGlass: vi.fn(), staffEmergencyRecords: vi.fn(),
   staffEncounters: vi.fn(), staffRecords: vi.fn(), staffCreateRecord: vi.fn(), staffConsentStatus: vi.fn(),
@@ -21,7 +21,7 @@ vi.mock('../admin/env', () => ({ environment: () => localEnvironment }))
 vi.mock('../api', () => ({
   createPatientApi: () => ({ session: calls.patientSession, refresh: calls.patientRefresh,
     enrollmentCurrent: calls.patientEnrollmentCurrent, googleOnboarding: calls.patientGoogleOnboarding, profile: calls.patientProfile,
-    enrollmentAvailability: calls.patientEnrollmentAvailability }),
+    enrollmentAvailability: calls.patientEnrollmentAvailability, participatingFacilities: calls.patientParticipatingFacilities }),
 }))
 vi.mock('../staff/api', () => ({
   staffApi: { session: calls.staffSession, refresh: calls.staffRefresh,
@@ -60,6 +60,7 @@ beforeEach(() => {
   calls.patientEnrollmentAvailability.mockResolvedValue({ open: true })
   // Provider sign-in asks whether clinician self sign-up is open (hid-system ADR-064).
   clinician.availability.mockResolvedValue({ open: false })
+  calls.patientParticipatingFacilities.mockResolvedValue({ facilities: [], whatToBring: ['Your own phone with this registration open'] })
   calls.staffSession.mockRejectedValue(signedOut)
   calls.staffRefresh.mockRejectedValue(signedOut)
   calls.staffLogout.mockResolvedValue(undefined)
@@ -96,6 +97,17 @@ describe('unified authenticated portal routes', () => {
     expect(calls.staffSession).not.toHaveBeenCalled()
     expect(calls.adminSession).not.toHaveBeenCalled()
     expect(screen.queryByRole('textbox', { name: /Work email/ })).toBeNull()
+  })
+
+  it('opens the public list of participating facilities at /enroll/facilities without a sign-in', async () => {
+    open('/enroll/facilities')
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Register at a healthcare facility' })).toBeTruthy()
+    expect(await screen.findByRole('region', { name: 'What to bring' })).toBeTruthy()
+    expect(screen.getByTestId('portal-path').textContent).toBe('/enroll/facilities')
+    expect(calls.patientParticipatingFacilities).toHaveBeenCalledOnce()
+    expect(calls.patientEnrollmentCurrent).not.toHaveBeenCalled()
+    expect(calls.staffSession).not.toHaveBeenCalled()
   })
 
   it('blocks a new enrollment while progress restoration is unavailable, then retries', async () => {

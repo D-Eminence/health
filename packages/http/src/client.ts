@@ -157,6 +157,16 @@ interface SharedRead {
  */
 const retryAfterByError = new WeakMap<HidApiError, number | null>()
 
+/**
+ * The `Retry-After` of a request this client refused, in seconds, or null when
+ * the response named none (or `error` is not such a refusal). For a wait the
+ * page must show, such as a code's resend cooldown; the retry loop reads the
+ * same value for reads.
+ */
+export function retryAfterSeconds(error: unknown): number | null {
+  return error instanceof HidApiError ? retryAfterByError.get(error) ?? null : null
+}
+
 function defaultSleep(ms: number, signal?: AbortSignal): Promise<void> {
   if (ms <= 0) return Promise.resolve()
   return new Promise((resolve, reject) => {
@@ -398,6 +408,7 @@ export function createApiClient(options: ApiClientOptions): ApiClient {
         requestId: envelope.requestId ?? requestId,
         retryable: envelope.retryable ?? isRetryableStatus(response.status),
         details: envelope.details,
+        fields: envelope.fields,
       })
 
       // Attach transport hints the retry loop needs without widening HidApiError.

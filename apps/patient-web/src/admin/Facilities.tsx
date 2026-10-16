@@ -1,6 +1,7 @@
 import { useCallback, useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { adminApi, PAGE_SIZE, type AdminActor, type AuditFilters, type Facility } from './api'
+import { AssistedRegistrationPanel } from './AssistedRegistration'
 import {
   ActionForm, Page, Pager, Refresh, ResourceView, Status, Table, date, has, label, pageNumber, useResource, useUrlFilters,
 } from './ui'
@@ -119,7 +120,9 @@ function FacilityDetail({ facilityId, actor }: { facilityId: string; actor: Admi
   const resource = useResource(load, 'This facility could not be loaded.')
   // A refresh or status change reloads the audit excerpts too: the change is audited with it.
   const [revision, setRevision] = useState(0)
-  const reload = () => { resource.reload(); setRevision(value => value + 1) }
+  // ... and the designation for registration in person, which its own change reads again by itself.
+  const [refreshes, setRefreshes] = useState(0)
+  const reload = () => { resource.reload(); setRevision(value => value + 1); setRefreshes(value => value + 1) }
   return <Page eyebrow="Facility" title={resource.data?.name ?? 'Facility'} description="The platform record for one facility."
     action={<Refresh onClick={reload} disabled={resource.loading} />}>
     <p><Link to="/admin/facilities">← All facilities</Link></p>
@@ -136,6 +139,9 @@ function FacilityDetail({ facilityId, actor }: { facilityId: string; actor: Admi
         </dl>
         {has(actor, 'platform.facility.manage') && <FacilityStatusAction facility={facility} reload={reload} />}
       </section>
+      {/* A designation change is audited against the facility: the audit excerpts are read again with it. */}
+      <AssistedRegistrationPanel facilityId={facility.id} facilityStatus={facility.status} refresh={refreshes} actor={actor}
+        onChanged={() => setRevision(value => value + 1)} />
       {has(actor, 'platform.audit.read') && <FacilityAudit key={revision} facilityId={facility.id} />}
     </div>}</ResourceView>
   </Page>

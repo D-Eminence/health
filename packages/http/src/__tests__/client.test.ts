@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { createApiClient } from '../client'
+import { createApiClient, retryAfterSeconds } from '../client'
 import { HidApiError } from '../errors'
 import type { ApiClientOptions } from '../client'
 
@@ -384,6 +384,27 @@ describe('createApiClient: retries and deduplication', () => {
     ])
 
     expect(calls).toHaveLength(2)
+  })
+})
+
+describe('retryAfterSeconds', () => {
+  // A wait the server names, such as a code's resend cooldown, is the caller's to show;
+  // the error itself stays without it (the retry loop's own bookkeeping).
+  it('gives the Retry-After of a refused request, in seconds', async () => {
+    const { client } = makeClient({}, [{ status: 429, body: { code: 'OTP_RESEND_COOLDOWN', message: 'Wait.' }, headers: { 'Retry-After': '42' } }])
+    const error = await client.post('/codes', undefined, { auth: 'none' }).catch((reason: unknown) => reason)
+    expect(error).toBeInstanceOf(HidApiError)
+    expect(retryAfterSeconds(error)).toBe(42)
+    expect(Object.keys(error as object)).not.toContain('retryAfter')
+  })
+
+  it('is null without the header, for an error the client did not make, and for anything else', async () => {
+    const { client } = makeClient({}, [{ status: 429, body: { message: 'Slow down.' } }])
+    const error = await client.post('/codes', undefined, { auth: 'none' }).catch((reason: unknown) => reason)
+    expect(retryAfterSeconds(error)).toBeNull()
+    expect(retryAfterSeconds(new HidApiError(429, 'Slow down.'))).toBeNull()
+    expect(retryAfterSeconds(new Error('no'))).toBeNull()
+    expect(retryAfterSeconds(undefined)).toBeNull()
   })
 })
 
