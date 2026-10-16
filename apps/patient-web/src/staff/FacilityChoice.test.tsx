@@ -21,6 +21,8 @@ import type { StaffSession } from './api'
  * that facility is still one of the actor's, and asks again once it is gone.
  */
 vi.mock('./env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.example.test', turnstileSiteKey: null }) }))
+// Provider sign-in also asks whether clinician self sign-up is open (hid-system ADR-064); that has tests of its own.
+vi.mock('./clinicianApplicationApi', () => ({ clinicianApplicationApi: { availability: () => Promise.resolve({ open: false }) } }))
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.resetModules() })
 
 /** The portal's other tabs, as BroadcastChannel would connect them; `fromAnotherTab` delivers what another tab announces. */

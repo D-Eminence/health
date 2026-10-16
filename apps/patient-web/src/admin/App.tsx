@@ -5,6 +5,7 @@ import {
   adminApi, adminSessionAccount, closeAdminSession, setAdminSessionAccount, type AdminActor, type AdminSession,
 } from './api'
 import { ApprovalsPage } from './Approvals'
+import { ClinicianApplicationPage, ClinicianApplicationsPage } from './ClinicianApplications'
 import { AuditPage } from './Audit'
 import { BrandLogo } from '../BrandLogo'
 import { OverviewPage } from './Dashboard'
@@ -288,6 +289,8 @@ export function App() {
               <Route path="principals" element={<Area path="/admin/principals" actor={actor}><PrincipalsPage actor={actor} /></Area>} />
               <Route path="approvals" element={<Area path="/admin/approvals" actor={actor}><ApprovalsPage actor={actor} /></Area>} />
               <Route path="reviews" element={<Area path="/admin/reviews" actor={actor}><ReviewsPage /></Area>} />
+              <Route path="clinicians" element={<Area path="/admin/clinicians" actor={actor}><ClinicianApplicationsPage actor={actor} /></Area>} />
+              <Route path="clinicians/:applicationId" element={<Area path="/admin/clinicians" actor={actor}><ClinicianApplicationPage actor={actor} /></Area>} />
               <Route path="audit" element={<Area path="/admin/audit" actor={actor}><AuditPage /></Area>} />
               <Route path="security" element={<Area path="/admin/security" actor={actor}><SecurityPage onSignOut={() => void signOut()} /></Area>} />
               <Route path="operations" element={<Area path="/admin/operations" actor={actor}><OperationsPage /></Area>} />

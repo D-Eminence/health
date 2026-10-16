@@ -9,6 +9,7 @@ import { Turnstile } from '../../Turnstile'
 import { providerEnrollmentApi, staffApi, type StaffLoginChallenge } from '../api'
 import { announceStaffSessionChange } from '../session'
 import { StaffMfaSteps, type StaffMfaCalls, type StaffMfaLook } from './StaffMfaSteps'
+import { ClinicianSignUpEntry } from '../clinician/ClinicianSignUpEntry'
 
 type Product = 'ehr' | 'migrate' | 'laboratory' | 'pharmacy'
 type OrganizationType = 'clinic' | 'hospital' | 'laboratory' | 'pharmacy' | 'other'
@@ -292,6 +293,10 @@ export function ProviderEnrollment() {
 
         {stage === 'sign-in' && <SignInToFinish reason={signInReason} />}
 
+        {/* Clinician self sign-up (hid-system ADR-064): a doctor or nurse applies with their own account, not this one. */}
+        <p className="patient-auth-footer">Provider enrollment sets up a facility and its administrator's account, which can't also hold a
+          clinical role there: doctors and nurses apply with their own email address.</p>
+        <ClinicianSignUpEntry className="patient-auth-footer" />
     </AuthLayout>
   )
 }

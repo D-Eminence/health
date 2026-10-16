@@ -137,6 +137,46 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     'Accountless; verifies the emailed code and sets the enrollment cookie.'),
   r('enrollment.providerActivate','enrollment','/api/v1/identity/provider-enrollments/activate',P,true,undefined,
     'Accountless; uses the enrollment cookie. Since hid-system #71 returns an MFA status, not a session.'),
+  // Clinician self sign-up and its status page (hid-system ADR-064, branch
+  // claude/clinician-self-signup at fa58e2b, re-checked at 9e981e4, and P3's
+  // search limit at 1d6ff6f; not merged). Every route needs
+  // Origin and no CSRF or session; after the email code the browser holds only
+  // the httpOnly capability cookie hid_clinician_application (path
+  // /api/v1/identity/clinician-applications). Nothing here issues a session.
+  r('enrollment.clinicianAvailability','enrollment','/api/v1/identity/clinician-applications/availability',G,true,undefined,
+    'No input; 200 { open: boolean }. Anything but { open: true } means not open.'),
+  r('enrollment.clinicianEmailCode','enrollment','/api/v1/identity/clinician-applications/email-code',P,true,undefined,
+    'Turnstile action clinician-application (main site only). The same 202 for every address. Refused while signed in.'),
+  r('enrollment.clinicianEmailVerify','enrollment','/api/v1/identity/clinician-applications/email-code/verify',P,true,undefined,
+    'Sets the draft capability cookie. 409 CLINICIAN_EMAIL_IN_USE only after a correct code.'),
+  r('enrollment.clinicianFacilitySearch','enrollment','/api/v1/identity/clinician-applications/facility-search',P,true,undefined,
+    'Draft or ready capability; at most 10 verified facilities. 30 searches per capability, then (since 7cd8038) '
+    + '429 CLINICIAN_APPLICATION_SEARCH_LIMITED with no Retry-After: only a new capability searches again.'),
+  r('enrollment.clinicianSubmit','enrollment','/api/v1/identity/clinician-applications',P,true,undefined,
+    'Draft capability and Idempotency-Key. Creates the account and the application; no session, no role. '
+    + 'Since 9e981e4 a draft takes at most five hashed submissions (then 401).'),
+  r('enrollment.clinicianAuthenticatorEmailCode','enrollment','/api/v1/identity/clinician-applications/authenticator/email-code',P,true,undefined,
+    'No body. Emails the enrolment proof code (0088).'),
+  r('enrollment.clinicianAuthenticatorStart','enrollment','/api/v1/identity/clinician-applications/authenticator/start',P,true,undefined,
+    'Takes the emailed code. The only response that contains the TOTP secret.'),
+  r('enrollment.clinicianAuthenticatorActivate','enrollment','/api/v1/identity/clinician-applications/authenticator/activate',P,true,undefined,
+    'Takes the first TOTP code. Returns the recovery codes once and the applications; no session.'),
+  r('enrollment.clinicianAuthenticatorVerify','enrollment','/api/v1/identity/clinician-applications/authenticator/verify',P,true,undefined,
+    'A TOTP code or one recovery code. Returns the applications; no session.'),
+  r('enrollment.clinicianAuthenticatorChallenge','enrollment','/api/v1/identity/clinician-applications/authenticator/challenge',P,true,undefined,
+    'Opens the authenticator step again after it expired.'),
+  r('enrollment.clinicianStatusEmailCode','enrollment','/api/v1/identity/clinician-applications/status/email-code',P,true,undefined,
+    'Turnstile action clinician-application-status (main site only). The same 202 for every address.'),
+  r('enrollment.clinicianStatusEmailVerify','enrollment','/api/v1/identity/clinician-applications/status/email-code/verify',P,true,undefined,
+    'Sets the account capability cookie; answers which authenticator step comes next.'),
+  r('enrollment.clinicianCurrent','enrollment','/api/v1/identity/clinician-applications/current',G,true,undefined,
+    'The applicant\'s applications, from the capability cookie.'),
+  r('enrollment.clinicianWithdraw','enrollment','/api/v1/identity/clinician-applications/:applicationId/withdraw',P,true,undefined,
+    'If-Match "<version>".'),
+  r('enrollment.clinicianApply','enrollment','/api/v1/identity/clinician-applications/current/applications',P,true,undefined,
+    'Ready capability and Idempotency-Key: apply to another facility.'),
+  r('enrollment.clinicianSessionEnd','enrollment','/api/v1/identity/clinician-applications/session/end',P,true,undefined,
+    'Always 204; ends the capability and clears its cookie.'),
   r('identity.organizationApply','enrollment','/api/v1/identity/organization-applications',P,true),
   r('identity.organizationCompletionStart','enrollment','/api/v1/identity/organization-applications/completion/start',P,true),
   r('identity.organizationCompletionVerify','enrollment','/api/v1/identity/organization-applications/completion/verify',P,true),
@@ -293,6 +333,20 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     one('POST','platform.mfa.reset')),
   r('admin.approvalDecision','admin','/api/v1/admin/approvals/:requestId/:decision',P,false,one('POST','platform.admin.access'),
     'decision is approve, reject or cancel. The backend decides who may decide.'),
+  // Clinician self sign-up review (hid-system ADR-064, branch claude/clinician-self-signup at fa58e2b, not
+  // merged): the verification queue. Step 1 and step 2 are made by two different Super Admins, neither of
+  // whom works at the facility; each command needs step-up, If-Match, an Idempotency-Key and a reason.
+  r('admin.clinicianApplications','admin','/api/v1/admin/clinician-applications',G,false,one('GET','platform.workforce.manage'),
+    'Query state (open by default: the three undecided states, oldest first), cursor and limit (1-50, default 20).'),
+  r('admin.clinicianApplication','admin','/api/v1/admin/clinician-applications/:applicationId',G,false,
+    one('GET','platform.workforce.manage')),
+  r('admin.clinicianApplicationAttest','admin','/api/v1/admin/clinician-applications/:applicationId/attest',P,false,
+    one('POST','platform.workforce.manage'),
+    'Step 1: the checklist, evidence reference, validity, a live code from the applicant\'s authenticator and a reason.'),
+  r('admin.clinicianApplicationApprove','admin','/api/v1/admin/clinician-applications/:applicationId/approve',P,false,
+    one('POST','platform.workforce.manage'), 'Step 2, by a Super Admin other than step 1\'s: attaches and grants the role.'),
+  r('admin.clinicianApplicationReject','admin','/api/v1/admin/clinician-applications/:applicationId/reject',P,false,
+    one('POST','platform.workforce.manage'), 'A decision code the applicant sees and a reason they never see.'),
 
   r('platform.live','platform','/gateway-health/live',G,true),
   r('platform.ready','platform','/gateway-health/ready',G,true),
