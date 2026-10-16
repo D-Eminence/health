@@ -7,6 +7,10 @@ import {
   STAFF_RECOVERY_PATH,
   staffLoginAction,
   staffRecoveryHref,
+  CLINICIAN_SIGNUP_PATH,
+  CLINICIAN_STATUS_PATH,
+  clinicianMainSiteHref,
+  clinicianPageHref,
 } from './productHostname'
 
 describe('resolveStaffProductHostname', () => {
@@ -173,5 +177,29 @@ describe('staffRecoveryHref', () => {
   ])('never builds an address from an unrecognised host (%s)', hostname => {
     // Only three fixed destinations exist; nothing in the hostname is copied into the link.
     expect(staffRecoveryHref(hostname)).toBe(STAFF_RECOVERY_PATH)
+  })
+})
+
+/**
+ * Clinician self sign-up (hid-system ADR-064) is checked by Turnstile actions
+ * hid-system accepts only on the main site, as the staff password reset is.
+ */
+describe('clinicianMainSiteHref', () => {
+  it.each([
+    ['ehr.healthidentitydirectory.com', 'https://www.healthidentitydirectory.com'],
+    ['lab.healthidentitydirectory.com', 'https://www.healthidentitydirectory.com'],
+    ['admin.healthidentitydirectory.com', 'https://www.healthidentitydirectory.com'],
+    ['pharmacy.staging.healthidentitydirectory.com', 'https://staging.healthidentitydirectory.com'],
+    ['admin.staging.healthidentitydirectory.com', 'https://staging.healthidentitydirectory.com'],
+  ])('sends %s to the main site', (hostname, origin) => {
+    expect(clinicianMainSiteHref(hostname, CLINICIAN_SIGNUP_PATH)).toBe(`${origin}/provider/join`)
+    expect(clinicianMainSiteHref(hostname, CLINICIAN_STATUS_PATH)).toBe(`${origin}/provider/join/status`)
+    expect(clinicianPageHref(hostname, CLINICIAN_SIGNUP_PATH)).toBe(`${origin}/provider/join`)
+  })
+
+  it.each(['www.healthidentitydirectory.com', 'staging.healthidentitydirectory.com', 'localhost',
+    'lab.healthidentitydirectory.com.evil.example', 'evil-lab.healthidentitydirectory.com'])('keeps the page on %s', hostname => {
+    expect(clinicianMainSiteHref(hostname, CLINICIAN_SIGNUP_PATH)).toBeNull()
+    expect(clinicianPageHref(hostname, CLINICIAN_STATUS_PATH)).toBe('/provider/join/status')
   })
 })

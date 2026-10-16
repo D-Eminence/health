@@ -109,3 +109,28 @@ export function isPlatformAdminHostname(hostname: string): boolean {
 export function isPlatformAdminRoute(pathname: string): boolean {
   return pathname === '/admin' || pathname === PLATFORM_ADMIN_ROUTE || pathname.startsWith('/admin/')
 }
+
+/** Clinician self sign-up and its status page (hid-system ADR-064): public pages outside the provider workspace. */
+export const CLINICIAN_SIGNUP_PATH = '/provider/join'
+export const CLINICIAN_STATUS_PATH = '/provider/join/status'
+export type ClinicianPagePath = typeof CLINICIAN_SIGNUP_PATH | typeof CLINICIAN_STATUS_PATH
+
+/**
+ * The main site's address of a clinician page, on a staff product host (ehr,
+ * lab, pharmacy, migrate, outreach) or the admin site, in production or
+ * staging; null anywhere else, where the page works itself. hid-system accepts
+ * the clinician pages' security checks (`clinician-application`,
+ * `clinician-application-status`) only on the main site, so a form shown on a
+ * product host would always be refused. As staffRecoveryHref: one of four
+ * fixed values, nothing copied from the hostname, no return address.
+ */
+export function clinicianMainSiteHref(hostname: string, path: ClinicianPagePath): string | null {
+  const productHost = /^(?:ehr|lab|pharmacy|migrate|outreach|admin)\.(staging\.)?healthidentitydirectory\.com$/.exec(normalizeHostname(hostname))
+  if (!productHost) return null
+  return `${productHost[1] ? MAIN_SITE_ORIGINS.staging : MAIN_SITE_ORIGINS.production}${path}`
+}
+
+/** Where a clinician page is opened from here: this site's own page, or the main site's on a product or admin host. */
+export function clinicianPageHref(hostname: string, path: ClinicianPagePath): string {
+  return clinicianMainSiteHref(hostname, path) ?? path
+}

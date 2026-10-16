@@ -106,6 +106,15 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
   'public-web': {
     auth: ['auth.patientLogin', 'auth.staffLogin', 'auth.googleNonce', 'auth.googleOnboarding',
       'auth.googleExchange', 'auth.otpStart', 'auth.otpVerify', 'auth.otpComplete'],
+    // The enrollment routes the public site could reach before clinician self
+    // sign-up, unchanged (with the patient NIN holder and facility routes main
+    // added, hid-system #84 and #85); clinician sign-up is the provider portal's (staff-web).
+    enrollment: ['enrollment.availability', 'enrollment.start', 'enrollment.current', 'enrollment.google',
+      'enrollment.holder', 'enrollment.holderVerify', 'enrollment.facilityCode', 'enrollment.participatingFacilities',
+      'enrollment.contact', 'enrollment.verifyContact', 'enrollment.activate',
+      'enrollment.providerStart', 'enrollment.providerVerify', 'enrollment.providerActivate',
+      'identity.organizationApply', 'identity.organizationCompletionStart', 'identity.organizationCompletionVerify',
+      'identity.organizationCompletionProfile'],
   },
   'patient-web': {
     auth: ['auth.patientLogin', 'auth.googleNonce', 'auth.googleOnboarding', 'auth.googleExchange',
@@ -127,7 +136,14 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
     auth: ['auth.staffLogin', 'auth.staffMfaVerify', 'auth.staffMfaEnrollEmailCode', 'auth.staffMfaEnrollStart',
       'auth.staffMfaEnrollActivate', 'auth.session', 'auth.refresh', 'auth.logout', 'auth.facility',
       'auth.otpStart', 'auth.otpVerify', 'auth.otpComplete'],
-    enrollment: ['enrollment.providerStart', 'enrollment.providerVerify', 'enrollment.providerActivate'],
+    enrollment: ['enrollment.providerStart', 'enrollment.providerVerify', 'enrollment.providerActivate',
+      // Clinician self sign-up and its status page (hid-system ADR-064), public pages outside the workspace.
+      'enrollment.clinicianAvailability', 'enrollment.clinicianEmailCode', 'enrollment.clinicianEmailVerify',
+      'enrollment.clinicianFacilitySearch', 'enrollment.clinicianSubmit', 'enrollment.clinicianAuthenticatorEmailCode',
+      'enrollment.clinicianAuthenticatorStart', 'enrollment.clinicianAuthenticatorActivate',
+      'enrollment.clinicianAuthenticatorVerify', 'enrollment.clinicianAuthenticatorChallenge',
+      'enrollment.clinicianStatusEmailCode', 'enrollment.clinicianStatusEmailVerify', 'enrollment.clinicianCurrent',
+      'enrollment.clinicianWithdraw', 'enrollment.clinicianApply', 'enrollment.clinicianSessionEnd'],
     identity: ['identity.patientLookup', 'identity.authorization', 'identity.consentStatus',
       'identity.facilityAudit',
       'identity.registrationCapabilities', 'identity.resolveNin', 'identity.registrationCase',

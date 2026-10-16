@@ -7,9 +7,10 @@ import { useStaff } from '../App'
 import type { StaffLoginChallenge, StaffSession } from '../api'
 import { BrandLogo } from '../../BrandLogo'
 import { turnstileSize } from '../../Turnstile'
-import { resolveStaffProductHostname, STAFF_RECOVERY_PATH, staffLoginAction, staffRecoveryHref } from '../../productHostname'
+import { CLINICIAN_STATUS_PATH, resolveStaffProductHostname, STAFF_RECOVERY_PATH, staffLoginAction, staffRecoveryHref } from '../../productHostname'
 import { staffReturnPath } from '../session'
 import { STAFF_MFA_FACTOR_UNPROVEN, STAFF_MFA_UNAVAILABLE, StaffMfaSteps, type StaffMfaLook } from './StaffMfaSteps'
+import { ClinicianSignUpEntry, PageLink } from '../clinician/ClinicianSignUpEntry'
 
 /**
  * Said when Identity ended the sign-in for want of an authenticator
@@ -91,6 +92,8 @@ export function SignIn() {
   const [turnstileResetKey, setTurnstileResetKey] = useState(0)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  // A right password for an account with no active facility: a clinician applicant not yet approved, perhaps (ADR-064).
+  const [noFacility, setNoFacility] = useState(false)
   // The second step Identity asked for, while it is shown. The password form is gone meanwhile, so each is a new one.
   const [challenge, setChallenge] = useState<StaffLoginChallenge | null>(null)
   // Back at the password step from a later one, its heading takes focus: the step left is gone.
@@ -105,6 +108,7 @@ export function SignIn() {
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setError('')
+    setNoFacility(false)
     setBusy(true)
     try {
       const answer = await login(email.trim(), password, token || undefined)
@@ -115,7 +119,10 @@ export function SignIn() {
       }
       else finish(answer.session)
     }
-    catch (caught) { setError(passwordRefusal(caught)) }
+    catch (caught) {
+      setError(passwordRefusal(caught))
+      setNoFacility(isHidApiError(caught) && caught.code === 'NO_ACTIVE_FACILITY_MEMBERSHIP')
+    }
     finally {
       setToken('')
       setTurnstileResetKey(value => value + 1)
@@ -150,9 +157,12 @@ export function SignIn() {
           <Field label="Password" htmlFor="staff-password" required><Input id="staff-password" type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} required /></Field>
           <TurnstileChallenge onToken={setToken} resetKey={turnstileResetKey} />
           {error && <p className="staff-error" role="alert">{error}</p>}
+          {error && noFacility && <p className="staff-muted">Applied as a doctor or nurse? You can sign in once two HID administrators
+            have approved your application. <PageLink path={CLINICIAN_STATUS_PATH}>Check your clinician application</PageLink>.</p>}
           <Button type="submit" disabled={busy || !!siteKey && !token}>{busy ? 'Signing in…' : 'Sign in'}</Button>
         </form>
         <RecoveryLink />
+        <ClinicianSignUpEntry className="staff-muted" />
       </>}
     </main>
     <aside className="staff-auth-aside" aria-label="About secure access">

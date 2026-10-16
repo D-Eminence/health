@@ -366,6 +366,31 @@ Identity refuses (`403 GOOGLE_STAFF_SIGN_IN_DISABLED`). The platform console's
 setup-key grouping, six-digit code rules and recovery-code step are shared
 from `src/mfa/`, and file saving from `src/download.ts`.
 
+Clinician self sign-up (hid-system ADR-064, built against the unmerged backend
+branch `claude/clinician-self-signup` at `fa58e2b`, re-checked at `9e981e4`,
+and at `1d6ff6f` for the facility search's limit) has two public pages, `/provider/join` and `/provider/join/status`, routed
+before `/provider/*` and
+outside the provider workspace, as `/provider/enroll` is. They never ask
+`GET /auth/session`, hold no staff session and open none. Identity keeps the
+applicant's state in an httpOnly capability cookie (`hid_clinician_application`,
+path `/api/v1/identity/clinician-applications`), which the page sends and never
+reads. `staff/clinicianApplicationApi.ts` uses a client of its own, registered
+as `staff-web`, that restores nothing on a 401 and reports nothing to the
+workspace: a 401 means only that the application page or its authenticator
+step ended. The applicant's authenticator steps
+(`staff/clinician/ClinicianAuthenticator.tsx`) run Identity's 0088 challenge
+with no session and reuse `src/mfa/` (QR code, setup key, six-digit codes,
+recovery codes); staff sign-in's `StaffMfaSteps` is unchanged. Form values,
+security-check tokens, the password, the setup key, recovery codes and the
+applications live only in component state; the Idempotency-Key of a submission
+is kept in memory and reused only for that submission. The pages' security
+checks (`clinician-application`, `clinician-application-status`) are accepted
+only on the main site, so on a staff product host or the admin site each page,
+and every link to it, goes to the main site's address
+(`clinicianPageHref` in `productHostname.ts`). Provider sign-in and provider
+enrollment offer the way in only while `GET .../availability` answers
+`{ open: true }`.
+
 Each patient tab is bound to the patient it shows. Both portals announce sign-in
 and sign-out on one `BroadcastChannel`, `hid-session-change`
 (`src/sessionChange.ts`), and both listen on it. A patient tab asks
@@ -542,6 +567,44 @@ or reason goes into a URL that browser history or an access log keeps. Being
 `POST`s, neither is repeated automatically; the export keeps its download
 transport and row headers. An Identity without hid-system#76 answers both
 `404`, so the console is deployed with or after it.
+
+The console's clinician verification queue (`/admin/clinicians`,
+`admin/ClinicianApplications.tsx`; hid-system ADR-064, built against the
+unmerged branch `claude/clinician-self-signup` at `fa58e2b`, re-checked at
+`9e981e4`) is shown for
+`platform.workforce.manage` and links an application by its ID only. It uses
+the console's own pieces: the state filter in the address, the backend's
+cursor per state, `useGovernedSubmit` (one Idempotency-Key per submission,
+repeated only by the step-up), `If-Match` with the version shown, and a
+reason on every command. The server's caller hints choose which panel shows
+(step 1, step 2, reject); the commands decide. Step 2 is never offered to the
+administrator who recorded step 1, whatever a hint says. Step 1 sends a live
+code the applicant reads from their own authenticator, from a field with
+`autocomplete="off"`, so the browser never offers the reviewer's one-time
+code there. Every outcome reloads the application; a changed application
+(`VERSION_CONFLICT`, or a step no longer open) is reloaded and said to have
+changed, and a lost answer is reloaded and said to be unconfirmed; a step-1
+refusal Identity makes before it checks the applicant's code keeps the form and
+says the code was not checked. The words a
+rejection shows the applicant come from the status page's own copy
+(`decisionCopy` in `staff/clinician/copy.ts`), so the console and the
+applicant read the same sentence.
+
+The clinician pages make every change to the application details to the
+current value (a state updater), so an answer that arrives late, such as a
+facility search, never puts back what was changed while it ran. The status
+page says an application page "closed" only once it has held a capability
+(an email code was checked or the applications were read); a 401 before that
+just shows the email form. A closed intake is answered before the capability
+(hid-system `9e981e4`), so it does not show that the page is still open: the
+status page reads the applications again after one. A capability's 30
+facility searches never come back (`429 CLINICIAN_APPLICATION_SEARCH_LIMITED`,
+no `Retry-After`; hid-system `7cd8038`), so once they are spent the search is
+turned off and the page says how to get new ones: sign-up offers "Confirm
+email again" (the details stay), and the status page says to close the page
+and enter the email for a new code. A refusal that keeps a
+form moves focus to the control that can deal with it, since the one pressed
+was disabled while the request ran.
 
 Clinical responses use `cache: 'no-store'`; screens show loading, empty and
 error states for backend reads. `@hid/observability` handles redaction for

@@ -12,6 +12,8 @@ import type * as AppModule from './App'
  * API module and HTTP client run; only the network is replaced.
  */
 vi.mock('./env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.example.test', turnstileSiteKey: null }) }))
+// Provider sign-in also asks whether clinician self sign-up is open (hid-system ADR-064); that has tests of its own.
+vi.mock('./clinicianApplicationApi', () => ({ clinicianApplicationApi: { availability: () => Promise.resolve({ open: false }) } }))
 
 const SESSION = 'GET /api/v1/auth/session'
 const REFRESH = 'POST /api/v1/auth/refresh'

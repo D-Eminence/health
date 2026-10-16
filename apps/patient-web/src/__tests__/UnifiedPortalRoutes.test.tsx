@@ -31,6 +31,12 @@ vi.mock('../staff/api', () => ({
     records: calls.staffRecords, createRecord: calls.staffCreateRecord, consentStatus: calls.staffConsentStatus },
   isAllowedPatientLookup: (value: { authorization?: { decision?: string } }) => value.authorization?.decision === 'allow',
 }))
+const clinician = vi.hoisted(() => ({ availability: vi.fn(), current: vi.fn() }))
+vi.mock('../staff/clinicianApplicationApi', () => ({
+  clinicianApplicationApi: clinician,
+  newClinicianIdempotencyKey: () => 'key-1',
+  CLINICIAN_REGULATOR_OF: { doctor: 'MDCN', nurse: 'NMCN' },
+}))
 vi.mock('../admin/api', () => ({
   adminApi: { session: calls.adminSession, refresh: calls.adminRefresh },
   adminSessionAccount: () => null, setAdminSessionAccount: () => undefined, closeAdminSession: () => undefined,
@@ -52,6 +58,8 @@ beforeEach(() => {
   calls.patientEnrollmentCurrent.mockRejectedValue(new HidApiError(404, 'No enrollment'))
   calls.patientGoogleOnboarding.mockRejectedValue(new HidApiError(404, 'No Google onboarding'))
   calls.patientEnrollmentAvailability.mockResolvedValue({ open: true })
+  // Provider sign-in asks whether clinician self sign-up is open (hid-system ADR-064).
+  clinician.availability.mockResolvedValue({ open: false })
   calls.patientParticipatingFacilities.mockResolvedValue({ facilities: [], whatToBring: ['Your own phone with this registration open'] })
   calls.staffSession.mockRejectedValue(signedOut)
   calls.staffRefresh.mockRejectedValue(signedOut)
@@ -253,6 +261,27 @@ describe('unified authenticated portal routes', () => {
     expect(screen.getByTestId('portal-path').textContent).toBe('/provider/recover')
     expect(calls.staffSession).not.toHaveBeenCalled()
     expect(calls.patientSession).not.toHaveBeenCalled()
+  })
+
+  it('opens clinician sign-up outside the provider workspace, without a staff session', async () => {
+    clinician.availability.mockResolvedValue({ open: true })
+    open('/provider/join')
+    expect(await screen.findByRole('heading', { level: 1, name: 'Apply as a doctor or nurse' })).toBeTruthy()
+    expect(screen.getByRole('textbox', { name: 'Work email' })).toBeTruthy()
+    expect(calls.staffSession).not.toHaveBeenCalled()
+    expect(calls.staffRefresh).not.toHaveBeenCalled()
+    expect(calls.patientSession).not.toHaveBeenCalled()
+    expect(screen.getByTestId('portal-path').textContent).toBe('/provider/join')
+  })
+
+  it('opens the clinician application status page outside the provider workspace, without a staff session', async () => {
+    clinician.current.mockRejectedValue(new HidApiError(401, 'Verify your email address again',
+      { code: 'CLINICIAN_APPLICATION_SESSION_INVALID' }))
+    open('/provider/join/status')
+    expect(await screen.findByRole('heading', { level: 1, name: 'Check your clinician application' })).toBeTruthy()
+    expect(calls.staffSession).not.toHaveBeenCalled()
+    expect(calls.staffRefresh).not.toHaveBeenCalled()
+    expect(screen.getByTestId('portal-path').textContent).toBe('/provider/join/status')
   })
 
   it('opens platform administration sign in directly under /admin', async () => {

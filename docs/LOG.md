@@ -2042,3 +2042,432 @@ hid-system `main` `f9dbaf0` (`docs/INTERFACE_CONTRACT.md` section 6 and
 - **Not verified.** Component tests with the network stubbed. Nothing was run
   in a browser, with a screen reader, against a live Identity (with or without
   #85) or on staging (S4v).
+
+## 2026-10-15: clinician self sign-up, the applicant's pages (hid-system ADR-064)
+
+Owner decision 2 of 2026-10-14: doctors and nurses sign up themselves and two
+HID administrators approve. hid-system built the backend on branch
+`claude/clinician-self-signup` (head `fa58e2b`, migration `0094` to be
+renumbered `0096`, ADR-064 proposed): **not pushed, merged or deployed**. This
+branch (`claude/clinician-signup-pages`, from `main` `55a50b0`) builds the
+applicant's side against that branch's contract; the administrators' queue is
+not built.
+
+- **Contracts.** Sixteen public routes (`enrollment.clinician*`: availability,
+  the sign-up email code and its check, facility search, the submit, the five
+  authenticator steps, the status page's email code and its check, the
+  applications, withdraw, apply again, the end of the page), granted to the
+  provider portal (`staff-web`) only. The public site's enrollment grant now
+  names the routes it could reach before, so it cannot reach these; a new
+  enrollment route for the public site must be added to that list.
+  `staff/clinicianApplicationApi.ts` has a client of its own that restores no
+  staff session on a 401 and reports nothing to the workspace: a 401 means
+  only that the application page or its authenticator step ended. Commands
+  are sent once with the page's Idempotency-Key; withdraw sends `If-Match`.
+- **Sign-up, `/provider/join`** (`staff/routes/ClinicianSignUp.tsx`), outside
+  the provider workspace and its session. Only `200 { open: true }` shows the
+  form; otherwise "Clinician sign-up isn't open yet", with Retry after an
+  outage. Email, then code (the same words for every address; a new security
+  check, `clinician-application`, for every send; the wait for a new code said
+  once, with no countdown); details (name, doctor or nurse with MDCN or NMCN
+  derived, never typed, licence number and expiry, a facility searched from 3
+  letters with the count announced); password and the two declarations; one
+  submit with a key kept in memory. Then the authenticator with no session
+  (`staff/clinician/ClinicianAuthenticator.tsx`): the emailed proof, the QR
+  code and setup key (`src/mfa/OtpauthQr.tsx`), the first code and the
+  recovery codes once (`src/mfa/RecoveryCodes.tsx`), or a code when the account
+  has one, and "Start again" (P9) when a step expired. "Application
+  submitted" never says verified or approved.
+- **Status, `/provider/join/status`** (`staff/routes/ClinicianApplicationStatus.tsx`):
+  an email code (`clinician-application-status`), then the authenticator code
+  or its setup; each application's state in fixed words (decision codes for a
+  rejected one, the access state of an approved one, the licence's last four
+  characters); withdraw in a dialog that holds focus, with `If-Match` (a 409
+  reloads and says it changed); apply to another facility; "Close this page".
+- **Ways in.** Provider sign-in and provider enrollment ask for availability
+  (`staff/clinician/ClinicianSignUpEntry.tsx`) and offer "Sign up as a
+  clinician" only on `{ open: true }`, otherwise "Clinician sign-up isn't open
+  yet"; both link the status page. Sign-in after a right password for an
+  account with no active facility (`403 NO_ACTIVE_FACILITY_MEMBERSHIP`) keeps
+  Identity's words and points an applicant to the status page. Enrollment says
+  its administrator account cannot also hold a clinical role. On a staff
+  product host or the admin site every clinician link goes to the main site,
+  the only host whose Turnstile accepts the two actions.
+- **Refusals.** Every code in the contract has words: intake closed, the rate
+  limits (no countdown), the address in use (sign in, reset, status page),
+  facility busy or unavailable, a signed-in browser, the email proof expired,
+  the authenticator set up at platform sign-in, the 0088 codes (a refused code
+  cleared at its field, an expired step opened again, an email proof already
+  used restarted through P9), a changed application. A 503 or a network
+  failure keeps the page and what was typed and signs no one out. Nothing is
+  written to browser storage or the address; step headings take focus and
+  errors are alerts; the CSS keeps both pages inside 320px.
+- **Departures from the design.** The applicant authenticator is its own
+  component reusing `src/mfa/`, not a generic `StaffMfaSteps`, so staff
+  sign-in is unchanged. The entry says "Sign up as a clinician" as asked, not
+  the design's "Apply to join your facility". Sign-in keeps Identity's detail
+  for `NO_ACTIVE_FACILITY_MEMBERSHIP` and adds a line. The password fields use
+  `@hid/ui` `Input`: the shared `PasswordInput` is on the unmerged branch
+  `claude/turnstile-password-pwa-push`, not on `main`.
+- **Evidence.** Each commit's tests failed first: the boundary test and the
+  API module; the sign-up page's 42 tests and its route test; the status page's
+  50 and its route test; 9 entry tests; 1 authenticator test (17 more cover
+  0088 answers the page already handled). At each commit `audit:boundaries`,
+  `typecheck`, `lint`, `npx vitest run`, `build:patient-web` and
+  `audit:launch-build` pass. `npx vitest run`: `main` 150 files, 1957 tests;
+  this branch 156 files, 2118 tests. The staff sign-in integration tests that
+  list every request now stub the availability read, and the clinician pages'
+  title checks wait for the title effect (one failed once under load).
+- **Not verified.** Component tests with the network stubbed, against the
+  backend branch's code and its RESULT notes; nothing was run in a browser,
+  with an authenticator app, or against a running Identity.
+- **Deploy order.** hid-system merges ADR-064 and deploys 0094 (renumbered),
+  the role bootstrap and Identity; then this portal. Against an Identity
+  without ADR-064 the availability read answers 404, so sign-up and the
+  provider pages say sign-up isn't open yet, but the status page (always
+  linked) says it couldn't load the applications, with Retry.
+  Intake must stay off (`clinician_signup_enabled`) until the administrators'
+  queue ships: without it no application can be approved.
+
+## 2026-10-15: clinician self sign-up, the administrators' queue (hid-system ADR-064)
+
+The same branch (`claude/clinician-signup-pages`) adds the platform console's
+clinician verification queue, against hid-system's unmerged branch
+`claude/clinician-self-signup` (`fa58e2b`): its RESULT contract §4.3 (A1-A5),
+`ClinicianApplicationAdminService`, `admin-command-error.ts` and
+`identity.admin_get_clinician_application` (C18). Until this, no application
+could be approved.
+
+- **Contracts.** Five admin routes (`admin.clinicianApplications`,
+  `admin.clinicianApplication`, `admin.clinicianApplicationAttest`,
+  `...Approve`, `...Reject`), each `platform.workforce.manage`, reached by the
+  console through its `admin` grant only. `admin/api.ts` lists by state with
+  the cursor and limit only when given, and sends the three commands through
+  `adminApi.command` with `If-Match`, the submission's `Idempotency-Key` and
+  the platform CSRF token.
+- **Queue, `/admin/clinicians`** (`admin/ClinicianApplications.tsx`, "People
+  and access", shown for `platform.workforce.manage`): Open (the three
+  undecided states, oldest first) and each state, newest first, as
+  `aria-pressed` filters kept in the address; Load more with that state's
+  cursor. Each card: applicant, profession and regulator, licence and expiry,
+  facility and organisation, dates, authenticator, and who recorded step 1
+  ("You", with "Needs a different Super Admin").
+- **Application, `/admin/clinicians/:applicationId`** (by ID only, never a
+  name, email or licence in the address): every field in a `dl`; Identity's
+  warnings in words; the account, its other facilities and its
+  authenticator ("Set up on", "Not set up: step 1 is unavailable", "Set up
+  after a password reset"); the facility with its CAC hint and its
+  administrators "(not sufficient alone to confirm employment)"; the step-1
+  record, the approval and the decision with both reasons.
+- **Step 1 (A3)**, shown while the application is submitted and the caller's
+  hint allows it (otherwise the reason in words): the licence, identity and
+  employment checklist in fieldsets, the applicant's live code read out on
+  the call (`autocomplete="off"`, so the browser never offers the reviewer's
+  own one-time code), the evidence reference, the verification date and a
+  reason. The date defaults to the earlier of the licence expiry and a year,
+  is limited to the licence expiry and three years, and is sent as the end
+  of that day in Lagos (`T23:59:59+01:00`), the cap the backend applies. A
+  refused or rate-limited code clears and focuses only that field.
+- **Step 2 (A4)** is never offered to the administrator who recorded step 1,
+  whatever a hint says. It names the grant ("Grants Doctor at {facility} to
+  {name}"), the role's permissions in plain words, and explains
+  `CLINICIAN_APPLICATION_SECOND_ADMIN_REQUIRED` and an authenticator reset
+  after step 1 (reject with "Other").
+- **Reject (A5)**: the nine decision codes, each with the words the applicant
+  will see (the status page's copy, now exported from
+  `staff/clinician/copy.ts` as `decisionCopy`), an internal reason, and for
+  `identity_not_confirmed` that the account cannot apply again, with a link
+  to Users & roles to lock it.
+- **Outcomes.** A focused notice, then the application is read again. A
+  replay says it was already done with that submission; `VERSION_CONFLICT` or
+  `CLINICIAN_APPLICATION_STATE_INVALID` reloads and says the application
+  changed; an answer that was lost (a network failure or a 5xx) reloads and
+  says the outcome is unconfirmed, never success or failure. The step-up
+  repeats the same submission (same key and body), as everywhere in the
+  console. `admin/problems.ts` words every refusal of the three commands and
+  the workforce codes step 2 can return.
+- **Controls.** `clinician_signup_enabled` gets a note on the Platform controls
+  page (what it opens, and to open it only when the queue is staffed); it is
+  turned on and off like any other control.
+- **Departures from the design.** The code field is labelled "Applicant’s
+  authenticator code" (the step-up dialog's own field is "Authenticator
+  code"). C18 gives only a flag for a facility administrator with the
+  applicant's name, so the warning names no administrator; the facility's
+  administrators are listed below it. A retry after a lost answer is a new
+  submission with a new key, as the console's other commands are; the
+  reload shows whether the first went through. The Overview has no clinician
+  tile.
+- **An Identity without the queue.** Its bare `404 NOT_FOUND` (whose detail
+  names the route) is read by `admin/api.ts`, on the list and on one
+  application, as `CLINICIAN_QUEUE_UNAVAILABLE`, which says the queue is not
+  deployed; the queue's own `CLINICIAN_APPLICATION_NOT_FOUND` is kept.
+- **Evidence.** Failing first: the boundary test, three API tests and the
+  problems test (`381561d`); the queue's 30 tests (the page missing), and the
+  controls, navigation and route tests (`0b3b798`); the bare-404 API test and
+  its problems row (`3c82383`). At each commit `audit:boundaries`,
+  `typecheck`, `lint`, `npx vitest run`, `build:patient-web` and
+  `audit:launch-build` pass. `npx vitest run`: before the queue 156 files and
+  2118 tests; now 157 files and 2157 tests.
+- **Not verified.** Component tests with the network stubbed, against the
+  backend branch's code; nothing was run in a browser or against a running
+  Identity, and no step was taken by two real administrators.
+- **Deploy order.** As for the applicant pages: Identity with ADR-064 first.
+  Against an Identity without it the queue says it is not deployed there.
+  `clinician_signup_enabled` stays off until the release checklist's P25
+  conditions hold; this queue was one of them.
+
+## 2026-10-15: clinician self sign-up, review fixes (hid-system ADR-064)
+
+The same branch (`claude/clinician-signup-pages`) after a review of its
+applicant pages and a re-check against hid-system's review fixes on
+`claude/clinician-self-signup` (`5dd639c` to `fc29731`, after the `fa58e2b`
+the pages and the queue were built on; still not merged or deployed).
+
+- **A changed password is a new submission** (`1464b59`). Identity's submit
+  digest leaves the password out, so a retry with the same key and another
+  password replayed the first submission and kept the first password. The
+  key now follows a SHA-256 digest of the password as well as the details
+  (only the digest is kept, in memory); a replayed answer says the
+  application was received from the earlier attempt, with the password
+  entered then.
+- **Recovery codes of a lost activation** (`81de3f9`). P7 is the only answer
+  with the ten recovery codes. When an activation went through but its
+  answer was lost, the retry's `409 CLINICIAN_APPLICATION_AUTHENTICATOR_READY`
+  now shows "Your authenticator is set up" and says the codes can't be shown
+  again, before the person goes on.
+- **Details changed during a facility search** (`c31d076`) are kept: every
+  change to the details is made to the current value, so a late search
+  answer no longer puts back the profession, licence, date or facility.
+- **Focus after a refusal that keeps the form** (`33d962c`): the cleared
+  password field (sign-up submit); the facility search, the licence number or
+  "Send application" (apply to another facility); the not-open screen's
+  heading, with why, when sign-up closes after the page opened.
+- **Close the page after sign-up** (`932cfde`). The last sign-up step says the
+  page stays open on this device for up to 30 minutes and offers "Close this
+  page" (P15), as the status page does.
+- **Status page** (`73f81c8`): a 401 after an outage on a first visit shows the
+  form with nothing said (the "closed after 30 minutes" notice is only for a
+  page that held a capability); Retry meeting the same failure says it again
+  and gives focus back to Retry; a failed close says so beside its own button.
+- **hid-system's review fixes** (`7387c94`): `403
+  CLINICIAN_APPLICATION_STAFF_SIGN_IN_REQUIRED` (a reset authenticator of an
+  approved clinician or staff member) gives Identity's fixed words at the
+  status code check (P11), activation (P7) and a new step (P9) instead of an
+  outage message; `403 CLINICIAN_APPLICATION_ACCOUNT_INELIGIBLE` on a read
+  (P12) or a withdrawal (P13) leaves for the email form saying the account
+  can't be used, with no Retry. The queue needed no change: no admin answer
+  changed shape, and step 1's concurrent replay and refusals before the code
+  are answers it already handles.
+- **Evidence.** Failing first per commit: 1 (`81de3f9`, two more tests cover
+  behaviour already there), 1 (`c31d076`), 13 (`33d962c`), 2 (`932cfde`), 4
+  (`73f81c8`, a fifth guards a case already right) and 6 (`7387c94`). At each
+  commit `audit:boundaries`, `typecheck`, `lint`, `npx vitest run`,
+  `build:patient-web` and `audit:launch-build` pass. Two full runs each had one
+  failure in a file this branch does not change (`FieldProblemsPerForm`,
+  registration; `StaffMfaRequired`, the facility switch's request order);
+  each passed alone three times and in the full rerun before the commit.
+  `npx vitest run`: 157 files and 2191 tests (2157 after the queue).
+- **Not verified.** As before: no browser, no running Identity, no
+  two-administrator run.
+
+## 2026-10-15: clinician self sign-up, second review fixes (hid-system ADR-064)
+
+The same branch (`claude/clinician-signup-pages`) after a second review of
+the applicant pages and the queue. Ten findings, all minor; each was checked
+against the code (and the backend branch where it mattered) before it was
+fixed.
+
+- **Licence dates in Lagos** (`f105895`). Identity refuses a licence date not
+  after today, or later than today plus five years, in Africa/Lagos (0094, P4
+  and P14), after it has charged the network's submit quota. The details step
+  took "today" from the device; it now takes it in Lagos (the queue's
+  `lagosToday`, moved to `staff/clinician/copy.ts`), and five years from
+  29 February ends on 28 February, as Postgres adds the interval.
+- **Focus** (`3a7e2c6`): the withdraw dialog's button is only marked disabled
+  (`aria-disabled`) while its request runs, so a browser no longer drops focus
+  outside the modal dialog (Tab and Escape were lost after a refused
+  withdrawal); "Use a different email" gives focus to the email step on both
+  pages; Cancel in "Apply to another facility" gives it back to the button
+  that opened the form; sign-up's availability Retry gives it to the step
+  shown next.
+- **A change said when the list can't be read after it** (`b1fb0fa`): a
+  withdrawal (P13) or a new application (P14) that went through is said, and
+  shown as Identity answered it, beside the load failure and its Retry.
+- **Authenticator setup from the list** (`a901cd1`) when the account must
+  enrol but no application waits for it (a reset after submitting, or its
+  waiting applications closed): the list says so and offers "Set up
+  authenticator".
+- **Close waits for the apply form** (`a47f3ce`): "Close this page" and the
+  list's Retry are disabled while another application or a facility search
+  is being sent, so a late answer no longer reaches a closed page.
+- **Close at the authenticator step** (`3429610`): both pages offer "Close
+  this page" (P15), with the 30-minute warning, below every authenticator step
+  but the recovery codes; an authenticator answer that arrives after closing
+  changes nothing.
+- **The queue**: a client-side timeout (`HidApiError` 408 `REQUEST_TIMEOUT`)
+  on step 1, step 2 or a rejection is reloaded and said unconfirmed, as a lost
+  answer is (`a674e82`); approve and reject say what they still need beside
+  their disabled button, tied to it by `aria-describedby`, as step 1 did
+  (`aecf657`).
+- **Evidence.** Failing first per commit: 2 (`f105895`), 5 (`3a7e2c6`), 2
+  (`b1fb0fa`), 2 (`a901cd1`, a third guards a case already right), 2
+  (`a47f3ce`), 7 (`3429610`), 3 (`a674e82`) and 2 (`aecf657`). At each commit
+  `audit:boundaries`, `typecheck`, `lint`, `npx vitest run`,
+  `build:patient-web` and `audit:launch-build` pass. Two full runs each had one
+  failure that passed alone and in the full rerun before the commit:
+  `FieldProblemsPerForm` (registration, not changed here), and the queue's
+  replayed step 1 and step 2 test, which typed into step 2's form before the
+  reload drew it; it now waits for the form (`a674e82`). `npx vitest run`: 157
+  files and 2217 tests (2191 before).
+- **Not verified.** No browser (the focus a browser drops from a disabled
+  button is reasoned from the HTML focus rules; jsdom keeps it), no running
+  Identity, no two-administrator run.
+
+## 2026-10-16: clinician self sign-up after main's #56 and #57, and hid-system's second review round (`9e981e4`)
+
+The same branch (`claude/clinician-signup-pages`, not pushed), with `main`
+`a59b23a` merged in and the pages and queue re-checked against the backend
+branch `claude/clinician-self-signup` from `fc29731` to `9e981e4` (its second
+review round: `e57aa98` to `9e981e4`, read in `services/identity-api` and
+`docs/INTERFACE_CONTRACT.md`). The backend branch is still not merged or
+deployed.
+
+- **Merge of `main`** (`1b93602`, a merge commit; no rebase). Conflicts, each
+  resolved keeping both sides: `admin/problems.ts` (the queue's codes and the
+  designation panel's `FACILITY_NOT_ACTIVE` and `ADMIN_FACILITY_NOT_FOUND`),
+  `admin/style.css` (both blocks), `__tests__/UnifiedPortalRoutes.test.tsx`
+  (the clinician availability mock and main's participating-facilities mock)
+  and this log (main's entries first, then the clinician ones). One merge that
+  applied cleanly needed a change: this branch lists the public site's
+  enrollment routes instead of granting the whole service, so main's four new
+  patient routes (`enrollment.holder`, `holderVerify`, `facilityCode`,
+  `participatingFacilities`) were added to that list, which the public site
+  could reach on `main` (`packages/contracts/src/boundaries.ts` and its test).
+- **The intake gate before the capability** (backend `354917c`). P3, P4 and
+  P14 now answer a closed intake (`503 CLINICIAN_SIGNUP_CLOSED`) before they
+  read the capability, whatever cookie is sent or missing, so the answer no
+  longer shows that the page is still open. Sign-up's facility search keeps
+  the details and says to try again later, as its submit did; the status
+  page's "Apply to another facility" closes (what was typed is kept), the
+  applications are read again, and the status line says no application was
+  sent. That read shows the email form if the page has closed meanwhile, or
+  the list with "New clinician applications aren't open right now." in place
+  of the apply button; if it fails, the list stays with that change and the
+  failure's Retry (`47b604c`). "Close this page" and the list's Retry wait
+  for that read, as they wait for the form's own requests, so its answer
+  never reaches a closed page (the commit after `d14bff2`).
+- **Five hashed submissions per draft** (`8dac32f`). P4 answers `401
+  CLINICIAN_APPLICATION_SESSION_INVALID` once a draft has had five
+  submissions hashed, as it does for an expired draft; the page cannot tell
+  them apart, so "Confirm your email again" now says the confirmation "lasts
+  an hour and covers up to five attempts to submit" (`47b604c`). P4's 400 and
+  409 refusals are answered without hashing and the draft stays usable: the
+  page already kept the step for them, and a replay (not hashed) still shows
+  "already received ... with the password you entered then".
+- **The caps where the application is created** (`b13410e`). A `429
+  CLINICIAN_APPLICATION_RATE_LIMITED` at P4 or P14 can now be the platform's
+  daily cap met inside the creating transaction (nothing is created), so it
+  is said as "Too many applications have been sent, from your network or to
+  Health ID today", with the details kept (`47b604c`). `409
+  CLINICIAN_APPLICATION_FACILITY_BUSY` held under concurrency changes no
+  answer: both pages already said it and kept the form.
+- **Step 1's pre-check** (`b8c5739`). Before the applicant's code is checked,
+  step 1 now also refuses the request's own fields (`400
+  CLINICIAN_APPLICATION_COMMAND_INVALID`: `validUntil` range and the licence's
+  end, the checklist, a blank evidence reference or reason), a key already
+  used for a credential attestation (`409 IDEMPOTENCY_CONFLICT`), and an
+  account or staff record the attestation cannot be recorded for (`409
+  WORKFORCE_ACCOUNT_INELIGIBLE`, `409 WORKFORCE_STAFF_INELIGIBLE`, `404
+  WORKFORCE_STAFF_NOT_FOUND`). The console says for each that nothing was
+  recorded and the code was not checked (so it did not count against the
+  applicant), keeps the code and the form, and names the next step; a `404`
+  no longer shows Identity's bare detail (`8ac7106`).
+- **`403 CLINICIAN_APPLICATION_STAFF_SIGN_IN_REQUIRED`** (round 1, unchanged
+  by round 2) now has its next step: at the status page's code check (P11) the
+  code step gives way to "Your authenticator can't be set up here" with a link
+  to provider sign-in and "Check another email address"; the authenticator
+  step's blocked screen (P7, P9) links to provider sign-in for this answer
+  only (`47b604c`).
+- **Unchanged by round 2, checked:** P3's `409
+  CLINICIAN_APPLICATION_REQUIRES_SIGN_OUT` for a draft in a signed-in browser
+  (now after the gate; the same words); P5-P13's `401` for a missing or
+  malformed cookie (already "this page closed", or the email form before a
+  capability was held); P4's `400 PASSWORD_INVALID` and pairing refusal moved
+  to the body checks (the same answers); the SQLSTATE assertions of
+  `1e15213` and the tests of `c1af25a` and `c64909f` (backend only).
+- **Past `9e981e4`, not handled here.** The local backend branch has since
+  merged hid-system `main`, renumbered its migration to `0096` (`168f64d`) and
+  answers P3's spent search budget with `429
+  CLINICIAN_APPLICATION_SEARCH_LIMITED` and no `Retry-After` (`7cd8038`, head
+  `1d6ff6f`); the search would show that code's fallback, "We couldn't search
+  for facilities right now. Try again." (OPEN-QUESTIONS).
+- **Evidence.** Failing first: 5 for the console (`8ac7106`), 11 for the
+  applicant pages (`47b604c`: 3 sign-up, 6 status page, 2 authenticator) and
+  2 for Close during the read after intake closed. At each commit
+  `audit:boundaries`, `typecheck`, `lint`, `npx vitest run`,
+  `build:patient-web` and `audit:launch-build` pass. `npx vitest run`: 172
+  files and 2389 tests after the merge, 2394 after the console, 2399 after
+  the pages, 2401 after the Close fix. The first full run after the merge had one failure,
+  `OcrFields.test.tsx` "NEW-OCR-CREATE-DISABLED" (not changed here), which
+  passed alone and in the full rerun.
+- **Not verified.** No browser, no running Identity (with or without the
+  clinician routes), no two-administrator run, and no run against the backend
+  branch's head past `9e981e4`.
+
+## 2026-10-16: clinician facility search once its searches are used up (hid-system `7cd8038`)
+
+The same branch (`claude/clinician-signup-pages`, not pushed), from a review
+finding against the backend branch's local head `1d6ff6f`, which contains
+`7cd8038`. That head is not pushed, merged or deployed.
+
+- **The refusal.** P3 allows 30 searches per capability: a sign-up draft or
+  the status page's ready capability. The 31st search now gets `429
+  CLINICIAN_APPLICATION_SEARCH_LIMITED` with no `Retry-After` ("Too many
+  searches in this session. Verify your email address again to continue.").
+  Before `7cd8038` it was `429 CLINICIAN_APPLICATION_RATE_LIMITED` with
+  `Retry-After: 3600`. The searches never come back for that capability.
+  Neither page took this code over, and `refusalCopy` has no entry for it, so
+  both said "We couldn't search for facilities right now. Try again." A retry
+  could never succeed.
+- **The fix** (`b10d11a`). The facility search now handles the code after the
+  page's own refusals and before `refusalCopy`. It turns Search off for that
+  capability and shows the page's words for spent searches:
+  - Sign-up: "You've used all the facility searches for this email
+    confirmation. To search again, confirm your email again: your details stay
+    on this page." "Confirm email again" (`confirmEmailAgain`) is offered
+    beside the search.
+  - Status page: "You've used all the facility searches for this page. To
+    search again, close this page, then enter your email for a new code; what
+    you've typed here isn't kept." "Close this page" is still below the list.
+
+  A facility chosen before then can still be continued with (sign-up) or sent
+  (status page). After a new email confirmation the search is offered again,
+  and the details are kept. The network quota's `429
+  CLINICIAN_APPLICATION_RATE_LIMITED` (`Retry-After: 86400`) keeps "Too many
+  searches. Try again later." The `enrollment.clinicianFacilitySearch`
+  registry note names the 30-search limit and the code.
+- **The rest of the backend past `9e981e4`, for the applicant routes.**
+  Between `9e981e4` and `1d6ff6f`, `clinician-application.service.ts` changes
+  only this answer and a migration number in a comment;
+  `clinician-application.controller.ts` and the clinician DTOs do not change.
+  `0096_clinician_self_signup.sql` is `0094` renumbered.
+  - The merged launch fixes name a refused nested field by its dotted path.
+    That changes nothing the pages read, because they read no field list from
+    `VALIDATION_FAILED`.
+  - The merged launch fixes also change the `Retry-After` values. That changes
+    nothing either, because the pages show no countdown.
+  - The console's queue was not re-checked past `9e981e4`.
+- **Evidence.**
+  - Failing first: 3 tests (sign-up 2, status page 1), each failing on the
+    fallback words or the missing "Confirm email again". A fourth test
+    (sending a facility already chosen on the status page) passed before the
+    fix and guards that path.
+  - The status page test waits for "Close this page" to be enabled before
+    pressing it. Close waits for the search's answer, which reaches the page
+    in an effect after the form draws. Without the wait, the test failed
+    once in four runs.
+  - At each commit `audit:boundaries`, `typecheck`, `lint`, `npx vitest run`,
+    `build:patient-web` (local environment) and `audit:launch-build` pass.
+  - `npx vitest run`: 172 files and 2405 tests (2401 before).
+- **Not verified.** No browser, no running Identity, and no 31st search
+  against a real capability.

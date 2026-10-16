@@ -12,6 +12,9 @@ import { ProviderEnrollment } from './ProviderEnrollment'
 const api = vi.hoisted(() => ({ start: vi.fn(), verify: vi.fn(), activate: vi.fn() }))
 const staff = vi.hoisted(() => ({ verifyMfa: vi.fn(), sendEnrollmentCode: vi.fn(), startEnrollment: vi.fn(), activateEnrollment: vi.fn() }))
 vi.mock('../api', () => ({ providerEnrollmentApi: api, staffApi: staff }))
+// Clinician self sign-up's way in (hid-system ADR-064) asks Identity whether intake is open.
+const clinician = vi.hoisted(() => ({ availability: vi.fn() }))
+vi.mock('../clinicianApplicationApi', () => ({ clinicianApplicationApi: clinician }))
 vi.mock('../../env', () => ({ getEnvironment: () => ({ name: 'local', turnstileSiteKey: null,
   apiBaseUrl: 'https://gateway.example.test', appOrigin: 'http://localhost:3200' }) }))
 
@@ -37,6 +40,7 @@ beforeEach(() => {
   vi.stubGlobal('BroadcastChannel', TabChannel)
   api.start.mockResolvedValue({ accepted: true, challengeId: 'challenge-1' })
   api.verify.mockResolvedValue({ verified: true })
+  clinician.availability.mockResolvedValue({ open: false })
 })
 afterEach(() => vi.unstubAllGlobals())
 
@@ -220,5 +224,20 @@ describe('provider enrollment activation, then the authenticator (hid-system #71
     expect(reload).not.toHaveBeenCalled()
     // No session was set.
     expect(TabChannel.posted).toEqual([])
+  })
+})
+
+describe('clinician self sign-up from provider enrollment (hid-system ADR-064)', () => {
+  it('sends a doctor or nurse to clinician sign-up while it is open: provider enrollment is for facility administrators', async () => {
+    clinician.availability.mockResolvedValueOnce({ open: true })
+    open()
+    expect((await screen.findByRole('link', { name: 'Sign up as a clinician' })).getAttribute('href')).toBe('/provider/join')
+    expect(screen.getByText(/Provider enrollment sets up a facility and its administrator's account/)).toBeTruthy()
+  })
+
+  it('says clinician sign-up is not open yet otherwise', async () => {
+    open()
+    expect(await screen.findByText(/Clinician sign-up isn't open yet\./)).toBeTruthy()
+    expect(screen.queryByRole('link', { name: 'Sign up as a clinician' })).toBeNull()
   })
 })
