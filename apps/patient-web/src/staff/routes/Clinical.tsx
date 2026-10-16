@@ -1,5 +1,6 @@
 import { StaffPatientChat } from './StaffPatientChat'
 import { ImportedPatientHistory } from './ImportedPatientHistory'
+import { importedRecordsEnabled, staffPatientChatEnabled } from '../stagingOnlyFeatures'
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { assertSignedStorageUrl, isHidApiError } from '@hid/http'
@@ -1520,11 +1521,12 @@ export function Clinical() {
     {error && <p className="staff-error" role="alert">{error}</p>}
     {/* Mounted throughout, so what a change says is announced. */}
     <div id="clinical-status" role="status">{success && <p className="staff-success">{success}</p>}</div>
-    {permissions.includes('ehr.note.read') && <StaffPatientChat
+    {/* Off unless the build turns them on: hid-system main does not serve their routes (stagingOnlyFeatures.ts). */}
+    {permissions.includes('ehr.note.read') && staffPatientChatEnabled() && <StaffPatientChat
       key={JSON.stringify([state.status==='ready'?state.session.actor.id:'',facility.id,facility.membershipId,patientId,activePatient.purpose,permissions])}
       facilityId={facility.id} facilityName={facility.name} patientId={patientId!}
       patientName={activePatient.lookup.patient.fullName??activePatient.hid} hid={activePatient.hid} />}
-    {permissions.includes('ehr.note.read') && <ImportedPatientHistory
+    {permissions.includes('ehr.note.read') && importedRecordsEnabled() && <ImportedPatientHistory
       key={JSON.stringify([state.status === 'ready' ? state.session.actor.id : '', facility.id, patientId, activePatient.purpose, permissions])}
       facilityId={facility.id} patientId={patientId!} purpose="direct-care" verify={verify}
       canDownload={permissions.includes('ehr.document.read')} />}
