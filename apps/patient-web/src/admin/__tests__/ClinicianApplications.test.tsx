@@ -353,6 +353,42 @@ describe('step 1: verify the licence and the person (A3)', () => {
     expect(api.clinicianApplication).toHaveBeenCalledTimes(1)
   })
 
+  // hid-system 9e981e4 (b8c5739): step 1 refuses these before it checks the applicant's code, so the code was never
+  // checked and the refusal never counted against the applicant. The console says so, keeps the code and the form,
+  // and says what to do next.
+  it.each([
+    ['CLINICIAN_APPLICATION_COMMAND_INVALID', 400, 'Nothing was recorded, and the applicant’s code wasn’t checked. The server '
+      + 'refused step 1 as incomplete: tick every check, choose how identity and employment were confirmed, and give an evidence '
+      + 'reference, a reason of 8 to 500 characters, and a verification date after today, within three years and no later '
+      + 'than the licence expiry.'],
+    ['IDEMPOTENCY_CONFLICT', 409, 'Nothing was recorded, and the applicant’s code wasn’t checked: this submission’s key was '
+      + 'already used for another verification. Record step 1 again; it is sent as a new submission.'],
+    ['WORKFORCE_ACCOUNT_INELIGIBLE', 409, 'Nothing was recorded, and the applicant’s code wasn’t checked: the applicant’s account '
+      + 'is disabled, locked or not active, or has no active staff record, so step 1 can’t be recorded for it. If it stays '
+      + 'so, reject the application with ‘Other’.'],
+    ['WORKFORCE_STAFF_INELIGIBLE', 409, 'Nothing was recorded, and the applicant’s code wasn’t checked: the applicant’s staff '
+      + 'record can’t be verified in its current state. If it stays so, reject the application with ‘Other’.'],
+    ['WORKFORCE_STAFF_NOT_FOUND', 404, 'Nothing was recorded, and the applicant’s code wasn’t checked: the applicant has no '
+      + 'staff record. Reject the application with ‘Other’.'],
+  ])('says a step-1 refusal made before the applicant’s code left that code unchecked (%s), and keeps the form', async (
+    code, status, text) => {
+    api.attestClinicianApplication.mockRejectedValueOnce(problem(status, code)).mockRejectedValueOnce(problem(status, code))
+    await openDetail(detail())
+    completeStepOne()
+    fireEvent.click(screen.getByRole('button', { name: 'Record verification (step 1)' }))
+
+    const panel = screen.getByRole('region', { name: 'Step 1 of 2: verify the licence and the person' })
+    expect((await within(panel).findByRole('alert')).textContent).toBe(text)
+    // The code was never checked: it stays, with everything else, for a submission made at once.
+    expect((within(panel).getByLabelText('Applicant’s authenticator code') as HTMLInputElement).value).toBe('123456')
+    expect((within(panel).getByLabelText('Evidence reference') as HTMLInputElement).value).toBe('Ticket HID-VER-1234')
+    expect(api.clinicianApplication).toHaveBeenCalledTimes(1)
+    // A second submission is a new one, with its own key.
+    fireEvent.click(within(panel).getByRole('button', { name: 'Record verification (step 1)' }))
+    await waitFor(() => expect(api.attestClinicianApplication).toHaveBeenCalledTimes(2))
+    expect(api.attestClinicianApplication.mock.calls.map(call => call[2])).toEqual(['key-1', 'key-2'])
+  })
+
   it('offers a verification date up to the licence expiry or three years, defaulting to one year', async () => {
     await openDetail(detail({ licenceValidUntil: '2030-06-30' }))
     const validity = screen.getByLabelText('Verification valid until') as HTMLInputElement

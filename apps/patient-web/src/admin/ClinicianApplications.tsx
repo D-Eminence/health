@@ -412,12 +412,13 @@ const unanswered = (error: unknown) => !isHidApiError(error) || error.status ===
 function useReviewCommand(onOutcome: (outcome: Outcome) => void) {
   const governed = useGovernedSubmit()
 
-  async function submit<T>(command: (idempotencyKey: string) => Promise<T>, fallback: string): Promise<Submitted<T>> {
+  async function submit<T>(command: (idempotencyKey: string) => Promise<T>, fallback: string,
+    context?: Readonly<Record<string, string>>): Promise<Submitted<T>> {
     const attempt: { failed: unknown } = { failed: null }
     const value = await governed.submit(async idempotencyKey => {
       attempt.failed = null
       try { return await command(idempotencyKey) } catch (caught) { attempt.failed = caught; throw caught }
-    }, fallback)
+    }, fallback, context)
     if (value !== null) return { done: true, value }
     const code = problemCode(attempt.failed)
     if (code === 'VERSION_CONFLICT' || code === 'CLINICIAN_APPLICATION_STATE_INVALID') {
@@ -439,6 +440,29 @@ const ATTEST_REFUSAL: Readonly<Record<string, string>> = {
   WORKS_AT_FACILITY: 'You work at this facility, so another Super Admin must verify it.',
   AUTHENTICATOR_REQUIRED: 'The applicant hasn’t set up their authenticator.',
   ACCOUNT_INELIGIBLE: INELIGIBLE,
+}
+
+const NOT_CHECKED = 'Nothing was recorded, and the applicant’s code wasn’t checked'
+
+/**
+ * Step 1's refusals that Identity answers before it checks the applicant's
+ * code (hid-system 9e981e4: the request's own fields, the key, the applicant
+ * account and staff record), so such a call never counts against the
+ * applicant: the code is kept for a submission made at once. The version,
+ * state, identity refusal, facility, insider and self were already checked
+ * first, and keep their console-wide words.
+ */
+const ATTEST_PRECHECK: Readonly<Record<string, string>> = {
+  CLINICIAN_APPLICATION_COMMAND_INVALID: `${NOT_CHECKED}. The server refused step 1 as incomplete: tick every check, choose `
+    + 'how identity and employment were confirmed, and give an evidence reference, a reason of 8 to 500 characters, and a '
+    + 'verification date after today, within three years and no later than the licence expiry.',
+  IDEMPOTENCY_CONFLICT: `${NOT_CHECKED}: this submission’s key was already used for another verification. Record step 1 `
+    + 'again; it is sent as a new submission.',
+  WORKFORCE_ACCOUNT_INELIGIBLE: `${NOT_CHECKED}: the applicant’s account is disabled, locked or not active, or has no active `
+    + 'staff record, so step 1 can’t be recorded for it. If it stays so, reject the application with ‘Other’.',
+  WORKFORCE_STAFF_INELIGIBLE: `${NOT_CHECKED}: the applicant’s staff record can’t be verified in its current state. If it `
+    + 'stays so, reject the application with ‘Other’.',
+  WORKFORCE_STAFF_NOT_FOUND: `${NOT_CHECKED}: the applicant has no staff record. Reject the application with ‘Other’.`,
 }
 
 /** A3, step 1. Shown while the application waits for step 1; the form only when the server's hint allows it. */
@@ -505,7 +529,7 @@ function AttestForm({ application, onOutcome, onStart, validity }: PanelProps & 
       reason: reason.trim(),
     }
     const result = await command.submit(key => adminApi.attestClinicianApplication(application, input, key),
-      'Step 1 could not be recorded. Try again.')
+      'Step 1 could not be recorded. Try again.', ATTEST_PRECHECK)
     if (result.done) {
       onOutcome({ text: result.value.replayed
         ? 'Step 1 was already recorded with this submission. A different Super Admin must now approve it.'
