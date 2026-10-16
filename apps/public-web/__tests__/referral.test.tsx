@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { HidApiError } from '@hid/http'
 import { EMPTY_REFERRAL, FACILITY_FIELDS, REFERRER_FIELDS, referralMessage, stepErrors, toReferralSubmission, validateReferral, type ReferralRequest } from '../lib/referral'
 
 const submitDemoRequest = vi.hoisted(() => vi.fn())
@@ -38,7 +39,7 @@ describe('referral rules', () => {
     const body = toReferralSubmission(FILLED, '/earn', 'token')
     expect(body).toMatchObject({
       contactName: 'Ada Okafor', contactEmail: 'ada@example.test', contactRole: 'Referral partner',
-      organizationName: 'Lagos General Hospital', productCode: 'general', sourcePage: '/earn',
+      organizationName: 'Lagos General Hospital', organizationType: 'hospital', productCode: 'general', sourcePage: '/earn',
       sourceSection: 'referral', ctaLabel: 'Refer a facility', turnstileAction: 'book-demo', turnstileToken: 'token',
     })
     expect(body.message).toContain('Referral from Ada Okafor')
@@ -108,5 +109,59 @@ describe('referral form', () => {
     expect(typeof key).toBe('string')
     fireEvent.click(screen.getByRole('button', { name: 'Refer another facility' }))
     expect(screen.getByText('Step 1 of 2')).toBeTruthy()
+  })
+
+  // hid-system answers a field it refuses with 400 VALIDATION_FAILED and the
+  // field's name in the problem's `errors` (HidApiError.details). The form used
+  // to show only "One or more request fields are invalid." at the bottom.
+  const refused = (...fields: string[]) => new HidApiError(400, 'One or more request fields are invalid.', {
+    code: 'VALIDATION_FAILED', details: fields.map(field => ({ field, messages: [`${field} is invalid`] })),
+  })
+  async function sendFilled() {
+    fill('facilityName', 'Lagos General Hospital')
+    fill('facilityType', 'clinic')
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    fill('referrerName', 'Ada Okafor')
+    fill('referrerEmail', 'ada@example.test')
+    fill('referrerPhone', '+234 803 000 0000')
+    fireEvent.click(screen.getByRole('checkbox', { name: 'The facility knows I am introducing them to Health ID.' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Send referral' }))
+    await waitFor(() => expect(submitDemoRequest).toHaveBeenCalledTimes(1))
+  }
+
+  it.each([
+    ['contactEmail', 'referrerEmail', 'Enter a valid email address.'],
+    ['contactPhone', 'referrerPhone', 'Enter a valid phone number.'],
+    ['contactName', 'referrerName', 'Enter your full name.'],
+  ])('marks and focuses the field hid-system refused (%s)', async (backendField, formField, message) => {
+    submitDemoRequest.mockRejectedValueOnce(refused(backendField))
+    render(<ReferralForm />)
+    await sendFilled()
+    expect(await screen.findByText(message)).toBeTruthy()
+    const input = document.querySelector(`[name="${formField}"]`)!
+    expect(input.getAttribute('aria-invalid')).toBe('true')
+    expect(input.getAttribute('aria-describedby')).toBe(`${formField}-error`)
+    await waitFor(() => expect(document.activeElement).toBe(input))
+    expect(screen.queryByText('One or more request fields are invalid.')).toBeNull()
+    expect(screen.queryByText('Thank you. Your referral is in.')).toBeNull()
+  })
+
+  it('takes the referrer back to the facility step when hid-system refuses the facility’s name', async () => {
+    submitDemoRequest.mockRejectedValueOnce(refused('organizationName'))
+    render(<ReferralForm />)
+    await sendFilled()
+    expect(await screen.findByText('Enter the facility’s name.')).toBeTruthy()
+    expect(screen.getByText('Step 1 of 2')).toBeTruthy()
+    const input = document.querySelector('[name="facilityName"]')!
+    expect(input.getAttribute('aria-invalid')).toBe('true')
+    await waitFor(() => expect(document.activeElement).toBe(input))
+  })
+
+  it('keeps the backend’s message when the refused field is not one the referrer typed', async () => {
+    submitDemoRequest.mockRejectedValueOnce(refused('sourcePage'))
+    render(<ReferralForm />)
+    await sendFilled()
+    expect(await screen.findByText('One or more request fields are invalid.')).toBeTruthy()
+    expect(screen.getByText('Step 2 of 2')).toBeTruthy()
   })
 })

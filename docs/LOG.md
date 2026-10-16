@@ -2621,3 +2621,82 @@ row P37 and staging row S4z. Its routes and answers did not change.
 - OPEN-QUESTIONS and BACKEND_OWNER_HANDOFF §12 record that #87 is pushed and
   open, not merged or deployed.
 - No behaviour changed: only text and comments.
+
+## 2026-10-16: Fixes to the newly merged features, with Health-id #68 merged in
+
+Branch `claude/recent-features-fixes`, from `main` `4113531`. It reviews what
+merged today: #59 (the new sign-in and sign-up pages, the "Set up your
+facility" redesign, Plan & billing, the navigation fix, the Blog and Earn with
+Health ID), #60 (one Turnstile check per page, the password Show toggle and the
+installable portal) and #61 (the staging pipeline, support and patient chat,
+imported records and hospital chat). The review was made against hid-system
+`main` `51047e2` and re-checked at `585ef8d`.
+
+Health-id #68 ("Clean up Earn with Health ID", `origin/claude/earn-cleanup`
+`214a23d`) is another contributor's open PR. It is not edited: it is merged
+into this branch (`ac3d7b1`), and the referral fixes sit on top of it.
+
+- **Staging refused every portal build (blocker).** #60 left
+  `<meta name="theme-color">` in `apps/patient-web/index.html`.
+  - **Why it was refused.** hid-system's staging step allow-lists the shell
+    (`health-id-artifact.mjs`, `inspectIndexHtml`): a meta may only be a
+    charset, or a viewport or robots name. So the step refused the build for
+    www and admin in every environment, and none of the new sign-in and
+    sign-up pages could reach production.
+  - **Fix.** The tag is removed. `audit:launch-build` now also runs that shell
+    allow-list, copied from `51047e2`. It depends only on the HTML and the
+    file list, not on the host, as the script's header used to claim.
+  - **Check.** Main's build was refused for this one reason. A production-shaped
+    build of this branch is ACCEPTED (21 files) for www and admin by
+    hid-system `main`'s own `inspectHealthIdBuild`. That build used
+    `VITE_HID_ENVIRONMENT=production`, the host's own origin, a `0x` Turnstile
+    key and no Google client ID.
+- **Charts called routes hid-system main does not serve (major and minor).**
+  - **What happened.** #61 mounted imported medical history and "Ask about this
+    patient" on every chart for `ehr.note.read`. On `main`, ehr-api answers
+    `GET /ehr/patients/:id/imported-records` and `/ehr/patients/:id/chat*` with
+    404. So each production chart showed "Cannot GET /api/v1/ehr/patients/…"
+    in an alert, and an assistant that could not load.
+  - **Fix.** Each feature is now mounted only when its build flag is exactly
+    `true`: `VITE_HID_IMPORTED_RECORDS_ENABLED` or
+    `VITE_HID_STAFF_PATIENT_CHAT_ENABLED` (`staff/stagingOnlyFeatures.ts`).
+    No launch build sets either, and the build compiles each check to `false`.
+  - **Registry.** The registry now records record chat, support chat and
+    imported records as `proposed`, not served by `main`.
+- **Referrals were invisible in the console (major).** The admin list returns
+  each request's phone, role, organization type, message and source, but the
+  console showed none of them. A referral therefore read like the referrer
+  booking a demo. Demo requests now mark a referral, and show the phone and
+  role, the facility type, and the message with its lines. An ordinary
+  request's notes now show too.
+- **Referral form (PR #68 and older, minor).**
+  - **Stale security token.** Back or Change removed step 2's Turnstile widget
+    but kept its token, so Send went out with a token that could have expired.
+    The shared widget now clears its token when it is removed.
+  - **Widget too wide on phones.** The widget measured 300px in a 238px slot at
+    a 320px screen. It now uses the compact widget below 300px, as the portal
+    does.
+  - **Email check looser than the backend's.** It now follows validator's
+    `isEmail`, as hid-system's `@IsEmail()` does. 300,000 generated addresses
+    gave the same answer as hid-system's own validator. The demo form and
+    facility completion's start use the same check.
+  - **Refused fields.** A `400 VALIDATION_FAILED` now marks and focuses the
+    referral field it names.
+  - **Facility type.** The referral now sends it as `organizationType`.
+- **Evidence.** Every change has a tests-only commit that failed against the
+  code before it, then the fix. Gates at the head:
+  - `audit:boundaries`, `typecheck` and `lint` pass;
+  - `npx vitest run`: 204 files, 2687 tests;
+  - `build:patient-web` passes;
+  - `audit:launch-build` passes (22 files);
+  - `build:public-web` passes. It was run in an export of the branch with real
+    `node_modules`, because Turbopack refuses this checkout's `node_modules`,
+    which link outside the workspace.
+- **Not verified.** There was no browser run: the compact widget and the
+  console's layout were checked in jsdom and against the CSS. The staging
+  pipeline's builds were not run, and nothing was deployed.
+- **Observed, not changed.** The portal's `publicEnvironment.ts` does not read
+  `VITE_HID_PATIENT_CHAT_ENABLED`, `VITE_HID_SUPPORT_CHAT_ENABLED` or
+  `VITE_HID_SUPPORT_CONTACT`. So patient chat and support chat are off in every
+  portal build, staging included, whatever `config/staging.json` says. This
+  fails closed; see OPEN-QUESTIONS.

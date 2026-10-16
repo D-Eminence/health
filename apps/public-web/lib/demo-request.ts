@@ -1,4 +1,5 @@
 import type { DemoSubmission } from './commercial-api'
+import { isContactEmail } from './contact-email'
 
 /** Public contact address used on informational pages. Demo forms submit to the API. */
 export const DEMO_INBOX = 'hello@healthidentitydirectory.com'
@@ -59,7 +60,7 @@ export function validateDemoRequest(request: DemoRequest): DemoRequestErrors {
   if (request.role === 'Other' && !isRoleLength(request.otherRole)) {
     errors.otherRole = 'Tell us your role, in 2 to 120 characters.'
   }
-  if (request.email.trim().length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(request.email.trim())) {
+  if (!isContactEmail(request.email)) {
     errors.email = 'Enter a valid email address.'
   }
   if (request.phone.trim() && !/^\+?[0-9 ()-]{7,32}$/.test(request.phone.trim())) {

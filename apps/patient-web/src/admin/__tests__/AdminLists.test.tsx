@@ -245,6 +245,54 @@ describe('demo requests, operations and identity reviews', () => {
     await waitFor(() => expect(screen.queryByText('The request from Contact 1 is now contacted.')).toBeNull())
   })
 
+  // A referral from the public site's "Earn with Health ID" form is sent as a demo request tagged
+  // sourceSection 'referral'; what the team needs (who to contact, where, the referrer's phone) is in
+  // the fields hid-system returns beside the list's columns (demo-requests.service.ts DEMO_PROJECTION).
+  const referral = { id: 'r-1', contactName: 'Ada Okafor', contactEmail: 'ada@example.test',
+    contactPhone: '+234 803 000 0000', contactRole: 'Referral partner', organizationName: 'Lagos General Hospital',
+    organizationType: 'hospital', productCode: 'general',
+    message: 'Referral from Ada Okafor (Earn with Health ID).\nFacility type: Hospital.\nLocation: Ikeja.\n'
+      + 'Who to speak to: Dr Bello, medical director\nThe referrer confirmed the facility knows about this introduction.',
+    sourcePage: '/earn', sourceSection: 'referral', ctaLabel: 'Refer a facility', status: 'new',
+    createdAt: '2026-10-16T12:00:00.000Z', updatedAt: '2026-10-16T12:00:00.000Z', version: 1 }
+
+  it('marks a referral as one and shows who to contact, where, and the referrer’s phone', async () => {
+    mocks.demos.mockResolvedValue({ items: [referral], nextCursor: null })
+    open('/admin/demos', <DemosPage actor={actor(['platform.demo.read'])} />)
+    const row = (await screen.findByText('Ada Okafor')).closest('tr')!
+    expect(within(row).getByText('Referral')).toBeTruthy()
+    expect(within(row).getByText('Referral partner')).toBeTruthy()
+    expect(within(row).getByText('+234 803 000 0000')).toBeTruthy()
+    expect(within(row).getByText('Hospital')).toBeTruthy()
+    const message = within(row).getByText(/Who to speak to: Dr Bello, medical director/)
+    expect(message.textContent).toContain('Location: Ikeja.')
+    expect(message.textContent).toContain('Referral from Ada Okafor (Earn with Health ID).')
+  })
+
+  it('shows a demo request’s notes, role and phone, without a referral mark', async () => {
+    mocks.demos.mockResolvedValue({ items: [{ ...referral, id: 'd-9', contactName: 'Bola Ade', contactRole: 'Medical director',
+      contactPhone: '08030000001', organizationType: null, productCode: 'ehr', message: 'Please call after 3pm on weekdays.',
+      sourcePage: '/pricing', sourceSection: 'pricing', ctaLabel: 'Book a demo' }], nextCursor: null })
+    open('/admin/demos', <DemosPage actor={actor(['platform.demo.read'])} />)
+    const row = (await screen.findByText('Bola Ade')).closest('tr')!
+    expect(within(row).queryByText('Referral')).toBeNull()
+    expect(within(row).getByText('Medical director')).toBeTruthy()
+    expect(within(row).getByText('08030000001')).toBeTruthy()
+    expect(within(row).getByText('Please call after 3pm on weekdays.')).toBeTruthy()
+  })
+
+  it('adds nothing for a request without a message, phone, role or type', async () => {
+    mocks.demos.mockResolvedValue({ items: [{ id: 'd-1', contactName: 'Chidi Eze', contactEmail: 'chidi@example.test',
+      contactPhone: null, contactRole: null, organizationName: null, organizationType: null, productCode: 'ehr', message: null,
+      sourcePage: null, sourceSection: null, ctaLabel: null, status: 'new', createdAt: '2026-10-16T12:00:00.000Z', version: 1 }],
+    nextCursor: null })
+    open('/admin/demos', <DemosPage actor={actor(['platform.demo.read'])} />)
+    const row = (await screen.findByText('Chidi Eze')).closest('tr')!
+    expect(within(row).queryByText('Referral')).toBeNull()
+    expect(within(row).queryByText('Message')).toBeNull()
+    expect(within(row).getByText('Not provided')).toBeTruthy()
+  })
+
   it('lists event delivery failures as the dispatcher reports them', async () => {
     mocks.services.mockResolvedValue({ checkedAt: '2026-10-08T12:00:00.000Z', services: [] })
     mocks.events.mockResolvedValue({ state: 'degraded', code: null, metrics: { pending: 3 }, failures: [{ eventId: 'evt-1',

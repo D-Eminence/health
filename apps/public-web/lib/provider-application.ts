@@ -1,5 +1,6 @@
 import { createRegisteredBrowserClient } from '@hid/api'
 import { createApiClient } from '@hid/http'
+import { isContactEmail } from './contact-email'
 import { getEnvironment } from './env'
 
 /** The hid-system organization application products. */
@@ -26,7 +27,6 @@ export function normalizeCacRegistrationNumber(value: string): string {
   return value.replace(/\s+/g, '').toUpperCase()
 }
 
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const CAC_PATTERN = /^(RC|BN|IT)[0-9]{4,20}$/
 
 function publicClient() {
@@ -68,7 +68,7 @@ export async function startOrganizationCompletion(input: {
   const cacRegistrationNumber = normalizeCacRegistrationNumber(input.cacRegistrationNumber)
   const administratorEmail = input.administratorEmail.trim().toLowerCase()
   if (!CAC_PATTERN.test(cacRegistrationNumber)) throw new Error('Enter a valid CAC registration number.')
-  if (!EMAIL_PATTERN.test(administratorEmail) || administratorEmail.length > 254) {
+  if (!isContactEmail(administratorEmail)) {
     throw new Error('Enter the administrator email used on the application.')
   }
   if (!input.turnstileToken) throw new Error('Complete the security verification.')

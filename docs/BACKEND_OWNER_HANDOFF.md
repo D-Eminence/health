@@ -1116,3 +1116,26 @@ Each review correction was re-checked against hid-system `6b49a06` (and #47 at `
 **Past `9e981e4` (handled at `1d6ff6f`).** The local backend branch answers P3's spent search budget (30 searches per draft or ready capability) with `429 CLINICIAN_APPLICATION_SEARCH_LIMITED` and no `Retry-After` (`7cd8038`). Health-id turns the search off for that capability and says how to get new searches: sign-up offers "Confirm email again" beside the search and keeps the details; the status page says to close the page and enter the email for a new code (the apply form is not kept). A facility chosen before then can still be sent on either page, and the network quota's `429 CLINICIAN_APPLICATION_RATE_LIMITED` keeps "Too many searches. Try again later." Please keep the code, the missing `Retry-After` and the budget per capability, or tell Health-id. Between `9e981e4` and `1d6ff6f` the applicant routes' service and controller change only this answer; the dotted `VALIDATION_FAILED` paths and the new `Retry-After` values change nothing the pages read (they read no field list and show no countdown).
 
 **Ask.** Tell Health-id when the branch merges (with the migration's final number and any contract change), when Identity with it is deployed per environment, and when the control is opened.
+
+## 13. Routes Health-id is built against that `main` does not serve, and referrals (2026-10-16)
+
+**Status.** Found while reviewing Health-id #59, #60 and #61 against hid-system `main` `51047e2` (re-checked at `585ef8d`). Health-id now fails closed on each of them (branch `claude/recent-features-fixes`); nothing here blocks sign-up or sign-in.
+
+**Routes on hid-system branches, not on `main`.** Health-id's registry records them as `proposed`:
+
+- `GET /api/v1/ehr/patients/:patientId/imported-records` and `GET /api/v1/ehr/patients/:patientId/imported-attachments/:fileId/download` (purpose and facility headers; `ehr.note.read`, and `ehr.document.read` for the download). These are on `staging` only. Health-id's chart asks for them only when the build sets `VITE_HID_IMPORTED_RECORDS_ENABLED=true`. `GET /api/v1/ehr/me/imported-attachments/:fileId/download` is offered only when `/ehr/me/records` carries `importedRecords`, which `main`'s does not.
+- `POST /api/v1/ehr/patients/:patientId/chat`, `GET` and `DELETE .../chat/history`, and `GET .../chat/sources/:kind/:sourceId` (`ehr.note.read`). These are on `staging-novu-ci-20261005` only. They are shown only when the build sets `VITE_HID_STAFF_PATIENT_CHAT_ENABLED=true`.
+- `POST /api/v1/ehr/me/chat` (on `staging`; with `/ehr/me/chat/history` and `/ehr/me/chat/sources/:kind/:sourceId` on `launch/patient-record-chat`), and `POST /api/v1/support/chat` (support-api, on `staging`). These are off in every Health-id portal build.
+
+**Since then: hid-system #94 (`main` `221ddbf`, 0099, ADR-067)** serves imported history under its own contract, not the `staging` one Health-id was built against: `GET /api/v1/ehr/patients/:patientId/imported-history` (permission `ehr.imported-history.read`, direct-care purpose only, `503 IMPORTED_HISTORY_DISABLED` until `EHR_STAFF_IMPORTED_HISTORY_ENABLED`), answering `{ shared, records, healthProfile, limits, truncated, nextCursor, provenance }`, and `GET /api/v1/ehr/me/imported-history` for the patient. `/imported-records` and `/imported-attachments/...` are still not on `main`. So `VITE_HID_IMPORTED_RECORDS_ENABLED` must stay off against `main`: turning it on brings back the raw 404 on every chart. Health-id first has to move the chart to `/imported-history` and its shape (an open Health-id item).
+
+**Ask.** Merge whichever of the remaining routes are meant for launch onto `main`, with their contract in `INTERFACE_CONTRACT.md`, and tell Health-id. Health-id will then turn on the build flag for the environments that serve them, after moving any screen whose contract changed (as imported history's did in #94).
+
+**Referrals (optional).** Health-id's "Earn with Health ID" form sends a referral as a demo request with `sourceSection: 'referral'`, `contactRole: 'Referral partner'` and `organizationType`. The facility's location and contact go in `message`. The console shows these, but:
+
+- `GET /admin/demo-requests` cannot filter by `sourceSection`;
+- a new request notifies no one (only the row and a `commercial.demo-request.submitted` audit event are written).
+
+A `sourceSection` filter, and a notice to the team on a new request, would let the team act on referrals without polling the list.
+
+**Shell allow-list.** Health-id's `audit:launch-build` now copies `health-id-artifact.mjs`'s `SHELL_ELEMENTS` and `inspectIndexHtml` (at `51047e2`). Please tell Health-id when they change. A `theme-color` meta, or anything else for an installable portal, needs `SHELL_ELEMENTS` widened first.

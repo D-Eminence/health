@@ -71,7 +71,16 @@ export interface CommercialProduct extends Versioned { slug: string; name: strin
 export interface CommercialPrice extends Versioned { product_slug: string; context: string; visibility: 'fixed' | 'starting_from' | 'contact_sales' | 'custom_quote' | 'hidden'; amount_minor: number | null; currency: string; billing_period: string | null; unit: string | null; active: boolean }
 export interface PricingCatalog { products: CommercialProduct[]; prices: CommercialPrice[] }
 export type DemoStatus = 'new' | 'contacted' | 'qualified' | 'closed'
-export interface DemoRequest extends Versioned { id: string; contactName: string; contactEmail: string; organizationName: string | null; productCode: string; status: DemoStatus; createdAt: string }
+/**
+ * A demo request as `GET /admin/demo-requests` returns it (hid-system demo-requests.service.ts
+ * DEMO_PROJECTION). The public site's referrals are demo requests with `sourceSection` 'referral':
+ * the facility's type, location and contact are in `message`, the referrer's phone in `contactPhone`.
+ */
+export interface DemoRequest extends Versioned {
+  id: string; contactName: string; contactEmail: string; contactPhone: string | null; contactRole: string | null
+  organizationName: string | null; organizationType: string | null; productCode: string; message: string | null
+  sourcePage: string | null; sourceSection: string | null; ctaLabel: string | null; status: DemoStatus; createdAt: string
+}
 export type ApplicationStatus = 'pending_verification' | 'ready_for_review' | 'approved' | 'rejected'
 export interface OrganizationApplication extends Versioned {
   applicationId: string; productCode: string; organizationName: string | null; organizationType: string | null

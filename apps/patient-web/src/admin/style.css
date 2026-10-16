@@ -240,6 +240,9 @@
 
 .admin-action { width: min(100%, 260px); margin-top: 10px; }
 .admin-action summary { color: var(--color-brand); font-size: 12px; font-weight: 700; cursor: pointer; }
+/* A demo request's or referral's message keeps the lines it was sent with. */
+.admin-demo-message { margin: 8px 0 0; color: var(--color-ink); font-size: 12px; line-height: 1.5; white-space: pre-line; }
+.admin-table td .admin-status[data-state='referral'] { margin-bottom: 6px; }
 .admin-action-form { display: grid; gap: 12px; margin-top: 12px; padding: 14px; border: 1px solid var(--color-line-strong); border-radius: var(--radius-control); background: var(--color-surface-tint); }
 .admin-action-form label,
 .admin-auth-card label,

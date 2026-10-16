@@ -6,6 +6,7 @@ interface TurnstileApi {
   render(element: HTMLElement, options: {
     sitekey: string
     action: string
+    size: TurnstileSize
     callback: (token: string) => void
     'expired-callback': () => void
     'error-callback': () => void
@@ -19,6 +20,19 @@ declare global {
 }
 
 let turnstileScript: Promise<void> | null = null
+
+type TurnstileSize = 'normal' | 'compact'
+
+/**
+ * Cloudflare's normal widget is 300px wide; in a narrower slot (the referral
+ * card on a 320px phone leaves 238px) it pushes the page sideways, so the
+ * compact widget is used there. A slot not laid out yet (width 0) keeps the
+ * normal widget. The portal does the same (apps/patient-web/src/Turnstile.tsx).
+ */
+function turnstileSize(slot: HTMLElement): TurnstileSize {
+  const width = slot.clientWidth
+  return width > 0 && width < 300 ? 'compact' : 'normal'
+}
 
 function loadTurnstile(): Promise<void> {
   if (window.turnstile) return Promise.resolve()
@@ -60,6 +74,7 @@ export function TurnstileWidget({ siteKey, action, resetKey, onToken, onError }:
         widgetRef.current = window.turnstile.render(mountRef.current, {
           sitekey: siteKey,
           action,
+          size: turnstileSize(mountRef.current),
           callback: token => callbackRef.current.onToken(token),
           'expired-callback': () => callbackRef.current.onToken(null),
           'error-callback': () => {
@@ -73,6 +88,8 @@ export function TurnstileWidget({ siteKey, action, resetKey, onToken, onError }:
       active = false
       if (widgetRef.current && window.turnstile) window.turnstile.remove(widgetRef.current)
       widgetRef.current = null
+      // The removed widget can no longer refresh or expire its token, so the form must not keep it.
+      callbackRef.current.onToken(null)
     }
   }, [siteKey, action])
 

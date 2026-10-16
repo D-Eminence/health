@@ -18,6 +18,8 @@ const REVIEW_STATUSES = ['pending_new_identity_approval', 'review_required', 're
 /** `ListDemoRequestsDto` values. */
 const DEMO_STATUSES: readonly DemoStatus[] = ['new', 'contacted', 'qualified', 'closed']
 const DEMO_PRODUCTS = ['ehr', 'migrate', 'laboratory', 'pharmacy', 'outreach', 'api', 'general'] as const
+/** The public site's "Earn with Health ID" referrals (apps/public-web/lib/referral.ts REFERRAL_SECTION). */
+const REFERRAL_SECTION = 'referral'
 
 export function ReviewsPage() {
   const [filters, setFilters] = useUrlFilters(['status', 'page'] as const)
@@ -201,8 +203,14 @@ export function DemosPage({ actor }: { actor: AdminActor }) {
       <p className="admin-result-count">Showing {pages.items.length} requests, newest first{pages.hasMore ? '; more are available' : ''}</p>
       <Table headings={['Contact', 'Organization', 'Product', 'Submitted', 'Status', 'Action']}>
       {pages.items.map(item => <tr key={item.id}>
-        <td><strong>{item.contactName}</strong><small>{item.contactEmail}</small></td>
-        <td>{item.organizationName || 'Not provided'}</td><td>{label(item.productCode)}</td><td>{date(item.createdAt)}</td>
+        <td><strong>{item.contactName}</strong><small>{item.contactEmail}</small>
+          {item.contactPhone && <small>{item.contactPhone}</small>}{item.contactRole && <small>{item.contactRole}</small>}</td>
+        <td>{item.sourceSection === REFERRAL_SECTION && <span className="admin-status" data-state="referral">Referral</span>}
+          {item.organizationName ? <strong>{item.organizationName}</strong> : 'Not provided'}
+          {item.organizationType && <small>{label(item.organizationType)}</small>}
+          {item.message && <details className="admin-action"><summary>Message</summary>
+            <p className="admin-demo-message">{item.message}</p></details>}</td>
+        <td>{label(item.productCode)}</td><td>{date(item.createdAt)}</td>
         <td><Status value={item.status} /></td>
         <td>{has(actor, 'platform.demo.manage') ? <DemoAction request={item} onSaved={saved} /> : 'View only'}</td>
       </tr>)}

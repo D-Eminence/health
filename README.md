@@ -48,7 +48,9 @@ npm run audit:launch-build
 `audit:launch-build` runs hid-system's staging refusals over the patient portal
 build (`apps/patient-web/dist`): no Google sign-in (build without
 `VITE_HID_GOOGLE_CLIENT_ID` at launch), service worker, web app manifest, source
-map, or file outside `index.html` and content-hashed `assets/`.
+map, file outside `index.html` and content-hashed `assets/`, or an `index.html`
+other than the Vite shell staging allow-lists (a meta tag may only be a charset
+or a viewport or robots name, so no `theme-color`).
 
 `npm run check` runs typecheck, lint and tests in sequence. See
 [architecture](./docs/ARCHITECTURE.md) for the request and session model and
