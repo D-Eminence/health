@@ -305,6 +305,10 @@ is merged. Its patient-portal web manifest, `service-worker.js` and `icons/` are
 not: `audit:launch-build` (hid-system's staging refusals, which this repository
 runs in CI) fails a portal build that holds a service worker, a web app manifest
 or any file outside `index.html` and content-hashed `assets/`. The files and their
-tests remain in that branch's history. To ship an installable portal, hid-system's
-`inspectHealthIdBuild` must first accept them, then `scripts/check-launch-build.mjs`
-can follow it. Decision needed from the product owner and the hid-system owner.
+tests remain in that branch's history. Its `<meta name="theme-color">` did reach
+`main` and made hid-system refuse every portal build for www and admin; it was
+removed on 2026-10-16, and `audit:launch-build` now runs hid-system's
+`index.html` allow-list too. To ship an installable portal, hid-system's
+`inspectHealthIdBuild` (its file rules and its shell's `SHELL_ELEMENTS`) must
+first accept them, then `scripts/check-launch-build.mjs` can follow it. Decision
+needed from the product owner and the hid-system owner.
