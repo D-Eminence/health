@@ -312,3 +312,15 @@ removed on 2026-10-16, and `audit:launch-build` now runs hid-system's
 `inspectHealthIdBuild` (its file rules and its shell's `SHELL_ELEMENTS`) must
 first accept them, then `scripts/check-launch-build.mjs` can follow it. Decision
 needed from the product owner and the hid-system owner.
+
+## Found reviewing the newly merged features (2026-10-16)
+
+Raised by branch `claude/recent-features-fixes`, which fixes what #59, #60, #61
+and the open #68 left. Checked against hid-system `main` `51047e2` (and
+`585ef8d`).
+
+| Item | Current evidence | Needed to close |
+| --- | --- | --- |
+| Chart features whose routes `main` does not serve | None of these routes is on hid-system `main`. Imported medical history (`GET /ehr/patients/:id/imported-records` and the imported-attachment downloads), `POST /ehr/me/chat` and support-api's `POST /support/chat` are on its `staging` branch. "Ask about this patient" (`/ehr/patients/:id/chat`, `/chat/history`, `/chat/sources/:kind/:id`) is only on `staging-novu-ci-20261005`. Patient chat's history and sources are on `launch/patient-record-chat`. The chart mounts imported history and the assistant only when `VITE_HID_IMPORTED_RECORDS_ENABLED` or `VITE_HID_STAFF_PATIENT_CHAT_ENABLED` is `true`, and the registry records these routes as `proposed`. | hid-system maintainers: merge the routes onto `main` (hand-off section 13). Then turn on the flag in the builds for a backend that serves them. The staging pipeline (`scripts/build-staging.py`) sets neither flag, so its builds no longer show these features. |
+| Patient and support chat flags never reach the portal | `apps/patient-web/src/publicEnvironment.ts` reads five variables; `VITE_HID_PATIENT_CHAT_ENABLED`, `VITE_HID_SUPPORT_CHAT_ENABLED` and `VITE_HID_SUPPORT_CONTACT` are not among them. So `getEnvironment()` reports both chats off in every portal build, though `build-staging.py` sets them for the staging web build. This fails closed. | #61's owner: decide whether staging should show them. If so, add the variables to the record (hid-system's stager checks only its five keys) once the backend routes exist. |
+| Referrals have no filter or notice | The console now marks a referral (`sourceSection: 'referral'`) and shows its message, phone and facility type. hid-system's list filters only by status and product, so there is no Referrals filter: one built on a paged list would be incomplete. A submission writes the row and an audit event only: no one is told. | hid-system maintainers: optionally, a `sourceSection` filter on `GET /admin/demo-requests`, and a notice to the team on a new request (hand-off section 13). |

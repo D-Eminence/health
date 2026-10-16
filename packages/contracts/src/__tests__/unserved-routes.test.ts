@@ -4,9 +4,9 @@ import { HID_ENDPOINTS } from '../index'
 /**
  * Routes the frontend is built against that hid-system main (51047e2, and
  * 585ef8d) does not serve: record chat, support chat and imported records came
- * from hid-system's staging branches with Health-id #61. On main, ehr-api and
- * identity-api answer each with 404 NOT_FOUND, so the registry must not record
- * them as served.
+ * from other hid-system branches with Health-id #61. On main, each is answered
+ * 404 (by ehr-api, or by the gateway for support chat), so the registry must
+ * not record them as served.
  */
 const NOT_ON_MAIN = [
   'support.chat',

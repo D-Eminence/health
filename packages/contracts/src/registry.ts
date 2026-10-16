@@ -11,7 +11,7 @@ export type EndpointAuth = { readonly kind: 'public' | 'authenticated' }
  * 'surface-verified': hid-system serves the route. 'proposed': built against
  * but not served by hid-system main: facility billing (specified in
  * docs/BILLING_SPEC.md; callers treat a 404 as "not available yet"), and record
- * chat, support chat and imported records (from hid-system's staging branches;
+ * chat, support chat and imported records (from other hid-system branches;
  * their screens are off unless the build turns them on).
  */
 export type ContractStatus = 'surface-verified' | 'proposed'
@@ -43,8 +43,11 @@ const proposed = (descriptor: EndpointDescriptor): EndpointDescriptor => ({ ...d
 const one = (method: EndpointMethod, ...permissions: string[]): Partial<Record<EndpointMethod, readonly string[]>> =>
   ({ [method]: permissions })
 
-/** hid-system main 51047e2 (and 585ef8d) has no such controller; these came from its staging branches. */
-const NOT_ON_MAIN = 'Built against hid-system\'s staging branches; not served by hid-system main (51047e2).'
+/**
+ * hid-system main 51047e2 (and 585ef8d) serves none of these. They are on its `staging`,
+ * `staging-novu-ci-20261005` and `launch/patient-record-chat` branches.
+ */
+const NOT_ON_MAIN = 'Built against hid-system branches; not served by hid-system main (51047e2).'
 const CHAT_NOTE = `${NOT_ON_MAIN} The screen is off unless the build turns it on.`
 
 export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
