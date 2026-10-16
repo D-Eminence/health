@@ -26,6 +26,14 @@ describe('normalizeBaseUrl', () => {
 })
 
 describe('resolveEnvironment', () => {
+  it('defaults chat off and rejects non-boolean public flags', () => {
+    expect(resolveEnvironment(env(), PREFIX).patientChatEnabled).toBe(false)
+    expect(resolveEnvironment(env(), PREFIX).supportChatEnabled).toBe(false)
+    expect(() => resolveEnvironment(env({ VITE_HID_PATIENT_CHAT_ENABLED: 'yes' }), PREFIX)).toThrow()
+    expect(() => resolveEnvironment(env({ VITE_HID_SUPPORT_CHAT_ENABLED: 'true' }), PREFIX)).toThrow()
+    expect(resolveEnvironment(env({ VITE_HID_SUPPORT_CHAT_ENABLED: 'true',
+      VITE_HID_SUPPORT_CONTACT: 'mailto:support@healthidentitydirectory.com' }), PREFIX).supportChatEnabled).toBe(true)
+  })
   it('resolves a complete staging configuration', () => {
     const resolved = resolveEnvironment(env(), PREFIX)
     expect(resolved.name).toBe('staging')

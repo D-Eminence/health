@@ -5,6 +5,9 @@ import type { PatientApi } from '../api'
 import { createTestSessionValue, SessionContext } from '../session'
 import { PortalShell } from '../routes/Portal'
 
+// Record chat is a staging feature; these tests run without a configured environment.
+vi.mock('../chatFeatures', () => ({ patientChatEnabled: () => false, patientChatHost: () => false }))
+
 /**
  * Below 900px the patient pages' navigation is a horizontal strip. Chromium
  * does not scroll a focused link that is partly showing, so tabbing backwards

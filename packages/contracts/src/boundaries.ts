@@ -43,13 +43,13 @@ export const APP_BOUNDARIES = {
   'public-web': {
     app: 'public-web',
     purpose: 'Public information and the entry point into patient or provider sign-up.',
-    services: ['auth', 'enrollment', 'commercial', 'platform'],
+    services: ['auth', 'enrollment', 'commercial', 'platform', 'support'],
     handlesPhi: true,
   },
   'patient-web': {
     app: 'patient-web',
     purpose: 'A patient viewing and managing their own health information and consent.',
-    services: ['auth', 'enrollment', 'identity', 'ehr', 'access', 'notifications'],
+    services: ['auth', 'enrollment', 'identity', 'ehr', 'access', 'notifications', 'support'],
     handlesPhi: true,
   },
   'staff-web': {
@@ -128,7 +128,7 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       'identity.emergencyContacts', 'identity.emergencyContact', 'identity.emergencyContactDeactivate',
       'identity.emergencyContactVerification', 'identity.emergencyContactVerificationConfirm'],
     access: ['access.patientRequests', 'access.approve', 'access.deny', 'access.revokeMyGrant'],
-    ehr: ['ehr.myRecords'],
+    ehr: ['ehr.myRecords', 'ehr.myImportedAttachment', 'ehr.patientChat', 'ehr.patientChatHistory', 'ehr.patientChatSource'],
   },
   'staff-web': {
     // Staff sign-in is two steps since hid-system #71: the password, then an
@@ -152,7 +152,7 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       // The in-person check of facility-assisted registration (hid-system #85, ADR-063).
       'identity.assistedVerifications'],
     access: ['access.staffRequests', 'access.breakGlass', 'access.verifyPin', 'access.closeOwnGrant'],
-    ehr: ['ehr.emergencyRecords', 'ehr.encounters', 'ehr.encounter', 'ehr.vitals', 'ehr.vital',
+    ehr: ['ehr.staffPatientChat','ehr.staffPatientChatHistory','ehr.staffPatientChatSource','ehr.importedRecords', 'ehr.importedAttachment', 'ehr.emergencyRecords', 'ehr.encounters', 'ehr.encounter', 'ehr.vitals', 'ehr.vital',
       'ehr.vitalCorrections', 'ehr.notes', 'ehr.note', 'ehr.noteRevisions', 'ehr.diagnoses',
       'ehr.diagnosis', 'ehr.prescriptions', 'ehr.prescription', 'ehr.prescriptionPharmacy',
       'ehr.labRequests', 'ehr.labRequest', 'ehr.labRequestLabWorkItem'],
@@ -196,6 +196,16 @@ export function canUseService(app: HidApp, service: HidService): boolean {
  * time a user reaches an unusual screen.
  */
 export function assertEndpointAllowed(app: HidApp, endpointName: string): void {
+  if (['ehr.staffPatientChat','ehr.staffPatientChatHistory','ehr.staffPatientChatSource'].includes(endpointName) && !['staff-web','ehr-web'].includes(app)) {
+    throw new BoundaryViolationError('Hospital record chat requires a provider patient context.')
+  }
+  if ((endpointName === 'ehr.myImportedAttachment' && app !== 'patient-web')
+    || (['ehr.importedRecords', 'ehr.importedAttachment'].includes(endpointName) && !['staff-web', 'ehr-web'].includes(app))) {
+    throw new BoundaryViolationError('Imported medical history is available only in its patient or provider context.')
+  }
+  if (['ehr.patientChat','ehr.patientChatHistory','ehr.patientChatSource'].includes(endpointName) && app !== 'patient-web') {
+    throw new BoundaryViolationError('Patient record chat is available only to the patient application.')
+  }
   const descriptor = findEndpoint(endpointName)
 
   if (!descriptor) {

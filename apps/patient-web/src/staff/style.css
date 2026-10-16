@@ -132,3 +132,10 @@ body { margin: 0; }
 .billing-banner-warning { background: #fff6e0; color: var(--color-caution-ink); }
 .billing-banner-danger { background: #fff0ef; color: #9b211d; }
 .billing-banner-information { background: var(--color-brand-tint); color: var(--color-ink); }
+.staff-patient-chat { margin-block: 20px; min-width: 0; }
+.staff-patient-chat > .record-chat-reset { margin-bottom: 14px; }
+.staff-patient-chat .record-chat-page { max-width: none; padding: 0; }
+.staff-patient-chat .record-chat-page-header { align-items: start; gap: 16px; }
+.staff-patient-chat .record-chat-panel-header { flex-wrap: wrap; }
+.staff-patient-chat .record-chat-panel-header p { overflow-wrap: anywhere; }
+.staff-patient-chat .record-chat-history { max-height: 520px; }

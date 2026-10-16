@@ -1,46 +1,12 @@
 import type { Metadata } from 'next'
-import { Section, SectionHeader, Wrap } from '@hid/ui'
-import { ProviderNav } from '@/components/layout/SiteNav'
-import { SiteFooter } from '@/components/layout/SiteFooter'
-import { DemoDialog } from '@/components/shared/DemoDialog'
-import { BackToTop } from '@/components/shared/BackToTop'
-import { isApplicationProduct, type ApplicationProductCode } from '@/lib/provider-application'
-import { ProviderCompletionForm } from './ProviderCompletionForm'
+import { Suspense } from 'react'
+import { ProviderCompletionContent } from './ProviderCompletionContent'
 
 export const metadata: Metadata = {
   title: 'Complete your facility profile',
   description: 'Complete missing organization details after Health ID verifies your facility registration.',
 }
 
-export default async function ProviderCompletionPage({
-  searchParams,
-}: {
-  readonly searchParams: Promise<{ readonly product?: string | string[] }>
-}) {
-  const product = (await searchParams).product
-  const initialProduct: ApplicationProductCode = typeof product === 'string' && isApplicationProduct(product)
-    ? product : 'ehr'
-
-  return (
-    <>
-      <ProviderNav applicationProduct={initialProduct} />
-      <main id="main">
-        <Section labelledBy="provider-completion-title" tone="sunk">
-          <Wrap>
-            <SectionHeader
-              eyebrow="Organization onboarding"
-              id="provider-completion-title"
-              title="Complete your facility profile."
-              lede="After your CAC registration is verified, you can supply details the registry did not return. Health ID reviews the completed profile before granting access."
-              as="h1"
-            />
-            <ProviderCompletionForm initialProduct={initialProduct} />
-          </Wrap>
-        </Section>
-      </main>
-      <SiteFooter />
-      <BackToTop />
-      <DemoDialog />
-    </>
-  )
+export default function Page() {
+  return <Suspense fallback={<main role="status">Opening facility form?</main>}><ProviderCompletionContent /></Suspense>
 }

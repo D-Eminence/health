@@ -1,3 +1,6 @@
+import { chatQuestion,parsePatientChat } from '@hid/contracts'
+import { parseChatHistory } from '../api'
+import type { ImportedRecordsResponse, ImportedAttachmentDownload } from '../importedRecords'
 import { createApiClient, HidApiError, isHidApiError, uploadPresignedObject, type ApiClient, type RequestSpec } from '@hid/http'
 import { createRegisteredBrowserClient } from '@hid/api'
 import { getEnvironment } from './env'
@@ -1151,6 +1154,24 @@ export const staffApi = {
   // One encounter, read afresh: the documented one may be on a page not shown.
   encounter: (facilityId: string, patientId: string, encounterId: string) =>
     client.get<Encounter>(encounterPath(patientId, encounterId), { headers: facilityHeaders(facilityId), dedupe: false }),
+  patientChat: async (facilityId:string,patientId:string,question:string,signal?:AbortSignal) =>
+    parsePatientChat(await client.post<unknown>(`/api/v1/ehr/patients/${encodeURIComponent(patientId)}/chat`,
+      {question:chatQuestion(question)},{headers:facilityHeaders(facilityId),signal,timeoutMs:65_000})),
+  patientChatHistory: async (facilityId:string,patientId:string,signal?:AbortSignal) =>
+    parseChatHistory(await client.get<unknown>(`/api/v1/ehr/patients/${encodeURIComponent(patientId)}/chat/history`,
+      {headers:facilityHeaders(facilityId),signal,dedupe:false})),
+  clearPatientChatHistory: (facilityId:string,patientId:string,signal?:AbortSignal) =>
+    client.request<{cleared:true}>({method:'DELETE',path:`/api/v1/ehr/patients/${encodeURIComponent(patientId)}/chat/history`,
+      headers:facilityHeaders(facilityId),signal}),
+  patientChatSource: (facilityId:string,patientId:string,kind:string,id:string,signal?:AbortSignal) =>
+    client.get<Record<string,unknown>>(`/api/v1/ehr/patients/${encodeURIComponent(patientId)}/chat/sources/${encodeURIComponent(kind)}/${encodeURIComponent(id)}`,
+      {headers:facilityHeaders(facilityId),signal,dedupe:false}),
+  importedRecords: (facilityId: string, patientId: string, purpose: 'direct-care' | 'emergency', signal?: AbortSignal) =>
+    client.get<ImportedRecordsResponse>(`/api/v1/ehr/patients/${encodeURIComponent(patientId)}/imported-records`,
+      { headers: facilityHeaders(facilityId, purpose), signal, dedupe: false }),
+  importedAttachment: (facilityId: string, patientId: string, fileId: string, purpose: 'direct-care' | 'emergency', signal?: AbortSignal) =>
+    client.get<ImportedAttachmentDownload>(`/api/v1/ehr/patients/${encodeURIComponent(patientId)}/imported-attachments/${encodeURIComponent(fileId)}/download`,
+      { headers: facilityHeaders(facilityId, purpose), signal, dedupe: false }),
   emergencyRecords: (facilityId: string, patientId: string) =>
     client.get<EmergencyRecords>(`/api/v1/ehr/patients/${encodeURIComponent(patientId)}/emergency-records`,
       { headers: facilityHeaders(facilityId, 'emergency') }),

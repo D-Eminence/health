@@ -20,6 +20,8 @@ vi.mock('@/lib/provider-application', async importOriginal => ({
   ...await importOriginal<Record<string, unknown>>(),
   getOrganizationCompletionProfile: vi.fn(),
 }))
+// The page is a static export that reads its query in the browser.
+vi.mock('next/navigation', () => ({ useSearchParams: () => new URLSearchParams() }))
 // Page chrome that is not under test.
 vi.mock('@/components/layout/SiteNav', () => ({ ProviderNav: () => null }))
 vi.mock('@/components/layout/SiteFooter', () => ({ SiteFooter: () => null }))
@@ -92,7 +94,7 @@ describe('the demo dialog’s security check', () => {
 describe('the provider completion page', () => {
   it('shows one security check, its own, while the demo dialog is closed', async () => {
     vi.mocked(getOrganizationCompletionProfile).mockRejectedValue(new Error('No completion session'))
-    render(await ProviderCompletionPage({ searchParams: Promise.resolve({}) }))
+    render(<ProviderCompletionPage />)
     await waitFor(() => expect(turnstile.render).toHaveBeenCalled())
     await act(async () => {})
     expect(shown()).toEqual(['organization-completion'])

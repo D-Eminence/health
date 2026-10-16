@@ -20,6 +20,8 @@ interface PageProps {
   readonly params: Promise<{ readonly slug: string }>
 }
 
+export const dynamicParams = false
+
 /** Every product page is known at build time, so all of them are pre-rendered. */
 export function generateStaticParams() {
   return PRODUCT_DETAILS.filter(product => product.slug !== 'identity').map(product => ({ slug: product.slug }))

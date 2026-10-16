@@ -6,6 +6,7 @@ import type {
   UnverifiedPayload,
 } from '@hid/contracts'
 import { createServiceBinding, type CallOptions, type ServiceContext } from './service'
+import { chatQuestion, parseSupportChat, parsePatientChat } from '@hid/contracts'
 
 type Item = Record<string, unknown>
 
@@ -172,6 +173,11 @@ export function createEhrService(context: ServiceContext) {
   const request = createServiceBinding(context, 'ehr')
   return {
     request,
+    async chat(question: string, options: CallOptions = {}) {
+      return parsePatientChat(await request('ehr.patientChat', 'POST', {
+        ...options, body: { question: chatQuestion(question) }, timeoutMs: 65_000,
+      }))
+    },
     listRecords(options: CallOptions = {}): Promise<PatientRecordSummary> {
       return request('ehr.myRecords','GET',options)
     },
@@ -275,6 +281,17 @@ export function createPlatformService(context: ServiceContext) {
     request,
     healthCheck(options: CallOptions = {}): Promise<{ status: 'ok' }> {
       return request('platform.live','GET',options)
+    },
+  }
+}
+
+export function createSupportService(context: ServiceContext) {
+  const request = createServiceBinding(context, 'support')
+  return {
+    async chat(text: string, sessionId?: string, options: CallOptions = {}) {
+      return parseSupportChat(await request('support.chat', 'POST', {
+        ...options, body: { text: chatQuestion(text), ...(sessionId ? { sessionId } : {}) }, timeoutMs: 10_000,
+      }))
     },
   }
 }

@@ -1,3 +1,5 @@
+import { ImportedHistory } from '../ImportedHistory'
+import { getEnvironment } from '../env'
 import { useRef, useState, type FormEvent, type RefObject } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
@@ -9,6 +11,7 @@ import { BrandLogo } from '../BrandLogo'
 import { ItemName } from '../ItemName'
 import { useSession } from '../session'
 import type { PatientNotification, PatientRecords, RecordSection } from '../api'
+import { patientChatEnabled } from '../chatFeatures'
 import { usePatientResource } from './usePatientResource'
 import { useActionFocus, useRetryFocus } from './actionFocus'
 import { AccountDeletionCard, EmergencyContactsCard } from './AccountSafety'
@@ -111,6 +114,7 @@ export function PortalShell() {
       <button ref={signOutButton} type="button" className="patient-signout" onClick={() => void logout()} disabled={signingOut}>{signingOut ? 'Signing out…' : 'Sign out'}</button>
     </div></header>
     <div className="patient-app-body"><nav className="patient-side-nav" aria-label="Patient pages" onFocus={revealFocusedLink}>
+      {patientChatEnabled() && <NavLink to="/chat" className="patient-nav-link">Ask about your records</NavLink>}
       {links.map(link => <NavLink key={link.to} to={link.to} end={'end' in link ? link.end : false} className={({ isActive }) => isActive ? 'patient-nav-link active' : 'patient-nav-link'}>{link.label}</NavLink>)}
     </nav><main ref={main} className="patient-main" id="main">{error && <p role="alert" className="patient-inline-error">{error}</p>}<Outlet /></main></div>
   </div>
@@ -194,6 +198,8 @@ export function RecordsPage() {
     <p className="patient-page-copy">{recordsIntro(records.error ? null : data)}</p>
     <LoadState loading={records.loading} error={records.error} retry={records.reload} hasData={data !== null} focusTarget={heading} />
     {data && !records.error && <>
+      {data.importedRecords !== undefined && <ImportedHistory records={data.importedRecords}
+        limit={data.limit} download={api.importedAttachment} allowLocalHttp={getEnvironment().name === 'local'} />}
       <div className="patient-card"><h2>Encounters</h2>{data.encounters.length === 0 ? <p className="patient-empty">{emptyText(data, 'encounters', 'No completed encounters are available.')}</p> : <ul className="patient-list">
         {data.encounters.map(item => <li key={item.id}><div><strong>{item.encounterType}</strong><span>{date(item.startedAt)} · {item.status}</span></div></li>)}
       </ul>}<Truncated data={data} section="encounters" /></div>

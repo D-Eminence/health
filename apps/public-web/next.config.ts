@@ -10,6 +10,9 @@ import type { NextConfig } from 'next'
  * pre-rendering; they stay on Vite. Framework choice follows the workload.
  */
 const nextConfig: NextConfig = {
+  // Production assets are served by the protected Cloudflare Worker.
+  output: process.env.NODE_ENV === 'production' ? 'export' : undefined,
+  images: { unoptimized: true },
   reactStrictMode: true,
   devIndicators: false,
 
@@ -18,7 +21,7 @@ const nextConfig: NextConfig = {
 
   // Local development exposes the gateway under the public site's origin.
   // Production routing is supplied by the deployment's frontend worker.
-  async rewrites() {
+  rewrites: process.env.NODE_ENV === 'production' ? undefined : async () => {
     if (process.env.NODE_ENV !== 'development') return []
     const target = process.env.HID_LOCAL_GATEWAY_ORIGIN ?? 'http://localhost:3000'
     const url = new URL(target)
@@ -30,7 +33,9 @@ const nextConfig: NextConfig = {
     return [{ source: '/api/v1/:path*', destination: `${url.origin}/api/v1/:path*` }]
   },
 
-  async headers() {
+  headers: process.env.NODE_ENV === 'production' ? undefined : async () => {
+    // Exported assets get these headers from the Worker; no Next server exists.
+    if (process.env.NODE_ENV === 'production') return []
     return [
       {
         source: '/:path*',

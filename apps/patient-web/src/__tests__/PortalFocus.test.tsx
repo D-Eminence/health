@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { useRef } from 'react'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom'
@@ -9,6 +9,9 @@ import { Overview } from '../routes/Overview'
 import { AccountDeletionCard, EmergencyContactsCard } from '../routes/AccountSafety'
 import { useFocusOnPageChange } from '../pageFocus'
 import { json, press, pressOnArrival, problem, profile, renderPortal, type Handler } from './portalHarness'
+
+// Record chat is a staging feature; these tests run without a configured environment.
+vi.mock('../chatFeatures', () => ({ patientChatEnabled: () => false, patientChatHost: () => false }))
 
 /**
  * Keyboard focus after the portal's actions (PR-03, PR-04, PR-05) and the notices

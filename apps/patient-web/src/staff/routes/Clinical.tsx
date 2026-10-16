@@ -1,3 +1,5 @@
+import { StaffPatientChat } from './StaffPatientChat'
+import { ImportedPatientHistory } from './ImportedPatientHistory'
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { assertSignedStorageUrl, isHidApiError } from '@hid/http'
@@ -1518,6 +1520,14 @@ export function Clinical() {
     {error && <p className="staff-error" role="alert">{error}</p>}
     {/* Mounted throughout, so what a change says is announced. */}
     <div id="clinical-status" role="status">{success && <p className="staff-success">{success}</p>}</div>
+    {permissions.includes('ehr.note.read') && <StaffPatientChat
+      key={JSON.stringify([state.status==='ready'?state.session.actor.id:'',facility.id,facility.membershipId,patientId,activePatient.purpose,permissions])}
+      facilityId={facility.id} facilityName={facility.name} patientId={patientId!}
+      patientName={activePatient.lookup.patient.fullName??activePatient.hid} hid={activePatient.hid} />}
+    {permissions.includes('ehr.note.read') && <ImportedPatientHistory
+      key={JSON.stringify([state.status === 'ready' ? state.session.actor.id : '', facility.id, patientId, activePatient.purpose, permissions])}
+      facilityId={facility.id} patientId={patientId!} purpose="direct-care" verify={verify}
+      canDownload={permissions.includes('ehr.document.read')} />}
     <div className="staff-two-col staff-encounter-grid"><Card className="staff-card"><h2>Encounters</h2>{loading && <p role="status">Loading encounters…</p>}
       <Notice notice={encounterNotice} scope={encounterScope} />
       <Pager label="Encounter pages" position={encounterPosition} busy={loading} onShow={cursors => void loadEncounters({ cursors, paging: true })} />

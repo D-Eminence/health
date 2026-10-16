@@ -29,6 +29,7 @@ import {
   createOutreachService,
   createPharmacyService,
   createPlatformService,
+  createSupportService,
 } from './services'
 import type { ServiceContext } from './service'
 
@@ -52,6 +53,7 @@ const SERVICE_FACTORIES = {
   admin: createAdminService,
   commercial: createCommercialService,
   platform: createPlatformService,
+  support: createSupportService,
 } as const
 
 type ServiceFactories = typeof SERVICE_FACTORIES
@@ -101,4 +103,5 @@ export {
   createOutreachService,
   createPharmacyService,
   createPlatformService,
+  createSupportService,
 } from './services'

@@ -4,7 +4,7 @@
  * (#82, #84, #85 and #86: ADR-061, ADR-062 and ADR-063). Paths include /api/v1.
  */
 export type HidService = 'auth' | 'enrollment' | 'identity' | 'access' | 'ehr' | 'files'
-  | 'notifications' | 'lab' | 'pharmacy' | 'ocr' | 'outreach' | 'admin' | 'commercial' | 'platform'
+  | 'notifications' | 'lab' | 'pharmacy' | 'ocr' | 'outreach' | 'admin' | 'commercial' | 'platform' | 'support'
 export type EndpointMethod = 'GET' | 'POST' | 'PATCH' | 'DELETE'
 export type EndpointAuth = { readonly kind: 'public' | 'authenticated' }
 /**
@@ -42,6 +42,13 @@ const one = (method: EndpointMethod, ...permissions: string[]): Partial<Record<E
   ({ [method]: permissions })
 
 export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
+  r('support.chat','support','/api/v1/support/chat',P,true),
+  r('ehr.patientChat','ehr','/api/v1/ehr/me/chat',P),
+  r('ehr.staffPatientChat','ehr','/api/v1/ehr/patients/:patientId/chat',P,false,one('POST','ehr.note.read')),
+  r('ehr.staffPatientChatHistory','ehr','/api/v1/ehr/patients/:patientId/chat/history',['GET','DELETE'],false,{GET:['ehr.note.read'],DELETE:['ehr.note.read']}),
+  r('ehr.staffPatientChatSource','ehr','/api/v1/ehr/patients/:patientId/chat/sources/:kind/:sourceId',G,false,one('GET','ehr.note.read')),
+    r('ehr.patientChatHistory','ehr','/api/v1/ehr/me/chat/history',['GET','DELETE']),
+    r('ehr.patientChatSource','ehr','/api/v1/ehr/me/chat/sources/:kind/:sourceId',G),
   r('auth.patientLogin','auth','/api/v1/auth/patient/login',P,true),
   r('auth.staffLogin','auth','/api/v1/auth/login',P,true,undefined,
     'Requires Origin and a workforce Turnstile action. Since hid-system #71 returns an MFA status, not a session.'),
@@ -195,6 +202,9 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('notifications.read','notifications','/api/v1/identity/me/notifications/:notificationId/read',P),
 
   r('ehr.myRecords','ehr','/api/v1/ehr/me/records',G),
+  r('ehr.myImportedAttachment','ehr','/api/v1/ehr/me/imported-attachments/:fileId/download',G),
+  r('ehr.importedRecords','ehr','/api/v1/ehr/patients/:patientId/imported-records',G,false,one('GET','ehr.note.read')),
+  r('ehr.importedAttachment','ehr','/api/v1/ehr/patients/:patientId/imported-attachments/:fileId/download',G,false,one('GET','ehr.note.read','ehr.document.read')),
   r('ehr.emergencyRecords','ehr','/api/v1/ehr/patients/:patientId/emergency-records',G,false,one('GET','ehr.encounter.read','ehr.note.read')),
   r('ehr.encounters','ehr','/api/v1/ehr/patients/:patientId/encounters',GP,false,{GET:['ehr.encounter.read'],POST:['ehr.encounter.write']}),
   r('ehr.encounter','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId',GPA,false,{GET:['ehr.encounter.read'],PATCH:['ehr.encounter.write']}),

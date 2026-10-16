@@ -1,5 +1,32 @@
+import { parseImportedRecords, type ImportedMedicalRecord, type ImportedAttachmentDownload } from './importedRecords'
 import type { ApiClient } from '@hid/http'
+import { createEhrService, createSupportService } from '@hid/api'
+import { parsePatientChat, type PatientChatReply } from '@hid/contracts'
 import { inRefreshTurn, refreshInTurn, signOutInTurn } from './sessionRefreshTurn'
+
+export interface PatientChatHistory {
+  exchanges: Array<{ id: string; question: string; reply: PatientChatReply; createdAt: string }>
+  retentionDays: number
+  limit: number
+}
+export function parseChatHistory(value: unknown): PatientChatHistory {
+  if (typeof value !== 'object' || value === null) throw new Error('Saved chat returned an invalid response.')
+  const history = value as Record<string, unknown>
+  if (!Array.isArray(history.exchanges) || history.exchanges.length > 10 || history.retentionDays !== 30 || history.limit !== 10) {
+    throw new Error('Saved chat returned an invalid response.')
+  }
+  const ids = new Set<string>()
+  const exchanges = history.exchanges.map((item: unknown) => {
+    if (typeof item !== 'object' || item === null) throw new Error('Saved chat returned an invalid response.')
+    const row = item as Record<string, unknown>
+    if (typeof row.id !== 'string' || !/^[a-f0-9-]{36}$/i.test(row.id) || ids.has(row.id)
+      || typeof row.question !== 'string' || !row.question.trim() || row.question.length > 500
+      || typeof row.createdAt !== 'string' || !Number.isFinite(Date.parse(row.createdAt))) throw new Error('Saved chat returned an invalid response.')
+    ids.add(row.id)
+    return { id: row.id, question: row.question, createdAt: row.createdAt, reply: parsePatientChat(row.reply) }
+  })
+  return { exchanges, retentionDays: 30, limit: 10 }
+}
 
 /**
  * Contracts read from hid-system c4b5445 Identity and EHR controllers, and later
@@ -133,6 +160,7 @@ export type RecordSection = 'encounters' | 'notes' | 'vitals' | 'diagnoses' | 'p
  * more exist. An EHR before #52 sends none of these four and every section.
  */
 export interface PatientRecords {
+  importedRecords?: ImportedMedicalRecord[]
   encounters: Array<{ id: string; facilityId: string; encounterType: string; status: string; startedAt: string; endedAt: string | null }>
   notes: Array<{ id: string; encounterId: string; facilityId: string; noteType: string; title: string; status: string; revisionNo: number; content: string; signedAt: string | null }>
   vitals: Array<{ id: string; encounterId: string; facilityId: string; recordedAt: string; heightCm: number | null; weightKg: number | null; temperatureC: number | null; pulseBpm: number | null; respiratoryRate: number | null; systolicMmhg: number | null; diastolicMmhg: number | null; oxygenSaturationPercent: number | null; source: string }>
@@ -258,6 +286,12 @@ export function createPatientApi(client: ApiClient) {
   const judged = { reportUnauthorized: false } as const
 
   return {
+    chat: createEhrService({ app: 'patient-web', client }).chat,
+    chatSource: (kind:string,id:string,signal?:AbortSignal) => call<Record<string,unknown>>('GET',
+      `ehr/me/chat/sources/${encodeURIComponent(kind)}/${encodeURIComponent(id)}`,undefined,{signal}),
+    chatHistory: async (signal?: AbortSignal) => parseChatHistory(await call<unknown>('GET', 'ehr/me/chat/history', undefined, { signal })),
+    clearChatHistory: (signal?: AbortSignal) => call<{ cleared: true }>('DELETE', 'ehr/me/chat/history', undefined, { signal }),
+    supportChat: createSupportService({ app: 'patient-web', client }).chat,
     session: () => call<PatientSession>('GET', 'auth/session', undefined, judged),
     // Windows of the portal take turns to refresh; one that waited reads the session
     // first, and takes only a patient's as restored: a provider's is refreshed, and refused.
@@ -320,7 +354,13 @@ export function createPatientApi(client: ApiClient) {
       call<{ completed: true }>('POST', 'auth/otp/complete', { challengeId, verificationToken, newPassword, purpose: 'PASSWORD_RESET' }),
     profile: (signal?: AbortSignal) => call<PatientProfile>('GET', 'identity/me', undefined, { signal }),
     verifyNin: (nin: string) => call<PatientNinVerification>('POST', 'identity/me/verification/nin', { nin }),
-    records: (signal?: AbortSignal) => call<PatientRecords>('GET', 'ehr/me/records', undefined, { signal }),
+    records: async (signal?: AbortSignal) => {
+      const value = await call<PatientRecords>('GET', 'ehr/me/records', undefined, { signal })
+      if (value.importedRecords !== undefined) value.importedRecords = parseImportedRecords(value.importedRecords)
+      return value
+    },
+    importedAttachment: (id: string, signal?: AbortSignal) => call<ImportedAttachmentDownload>('GET',
+      `ehr/me/imported-attachments/${encodeURIComponent(id)}/download`, undefined, { signal }),
     accessHistory: (signal?: AbortSignal) => call<AccessHistory>('GET', 'identity/me/access-history', undefined, { signal }),
     // Patient-owned revocation; the staff `consent-grants/:id/close` route is not a patient route.
     revokeAccess: (grantId: string, reason: string) => call<{ consentGrantId: string; status: 'revoked'; replayed: boolean }>(

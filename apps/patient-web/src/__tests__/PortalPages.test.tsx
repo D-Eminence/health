@@ -5,6 +5,10 @@ import type * as SessionModule from '../session'
 import { App } from '../App'
 import { json, patientApi, press, profile } from './portalHarness'
 
+// Record chat is a staging feature; these tests run without a configured environment.
+vi.mock('../chatFeatures', () => ({ patientChatEnabled: () => false, patientChatHost: () => false }))
+vi.mock('../PatientSupport', () => ({ PatientSupport: () => null }))
+
 /**
  * The portal's pages, as App routes them for a signed-in patient. Each page
  * names the browser tab (PR-06), and a link inside a page that opens another

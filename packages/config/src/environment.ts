@@ -15,6 +15,9 @@ export const HID_ENVIRONMENT_NAMES = ['local', 'staging', 'production'] as const
 export type HidEnvironmentName = (typeof HID_ENVIRONMENT_NAMES)[number]
 
 export interface HidEnvironment {
+  readonly supportChatEnabled: boolean
+  readonly patientChatEnabled: boolean
+  readonly supportContact: string | null
   /** Which deployment tier this build is talking to. */
   readonly name: HidEnvironmentName
   /**
@@ -125,6 +128,18 @@ export function resolveEnvironment(raw: RawEnvironment, prefix: string): HidEnvi
     }
   }
 
+  const flag = (suffix: string) => {
+    const value = raw[key(suffix)]
+    if (value === undefined || value === '') return false
+    if (value !== 'true' && value !== 'false') issues.push(`${key(suffix)} must be true or false`)
+    return value === 'true'
+  }
+  const supportChatEnabled = flag('SUPPORT_CHAT_ENABLED')
+  const patientChatEnabled = flag('PATIENT_CHAT_ENABLED')
+  const supportContact = readString(raw, key('SUPPORT_CONTACT'))
+  if (supportChatEnabled && supportContact !== 'mailto:support@healthidentitydirectory.com') {
+    issues.push('Support chat requires the approved support contact')
+  }
   if (issues.length > 0) throw new EnvironmentConfigError(issues)
 
   return Object.freeze({
@@ -134,5 +149,6 @@ export function resolveEnvironment(raw: RawEnvironment, prefix: string): HidEnvi
     turnstileSiteKey: readString(raw, key('TURNSTILE_SITE_KEY')),
     sentryDsn: readString(raw, key('SENTRY_DSN')),
     handlesRealData: name !== 'local',
+    supportChatEnabled, patientChatEnabled, supportContact,
   })
 }
