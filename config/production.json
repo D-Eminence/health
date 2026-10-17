@@ -1,0 +1,22 @@
+{
+  "environment": "production",
+  "api_origin": "https://api.healthidentitydirectory.com",
+  "portal_origin": "https://app.healthidentitydirectory.com",
+  "turnstile_site_key": "0x4AAAAAAE_uqBcWRLakgoCm",
+  "google_client_id": "690536667193-l90c5cqm86g5pt5o93dpvplms2h507l6.apps.googleusercontent.com",
+  "hosts": {
+    "admin": "admin.healthidentitydirectory.com",
+    "web": "app.healthidentitydirectory.com",
+    "ehr": "ehr.healthidentitydirectory.com",
+    "lab": "lab.healthidentitydirectory.com",
+    "pharmacy": "pharmacy.healthidentitydirectory.com",
+    "ocr": "migrate.healthidentitydirectory.com",
+    "outreach": "outreach.healthidentitydirectory.com",
+    "public": "healthidentitydirectory.com"
+  },
+  "chat": {
+    "supportChatEnabled": true,
+    "patientChatEnabled": true,
+    "supportContact": "mailto:support@healthidentitydirectory.com"
+  }
+}

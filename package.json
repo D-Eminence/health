@@ -23,7 +23,9 @@
     "audit:boundaries": "node scripts/check-boundaries.mjs",
     "audit:launch-build": "node scripts/check-launch-build.mjs",
     "build:staging": "python scripts/build-staging.py",
-    "test:release": "python -m unittest discover -s scripts -p test_staging_release.py"
+    "test:release": "python -m unittest discover -s scripts -p test_staging_release.py",
+    "build:production": "python scripts/build-production.py",
+    "test:production-release": "python -m unittest discover -s scripts -p test_production_release.py"
   },
   "overrides": {
     "sharp": "0.35.5"

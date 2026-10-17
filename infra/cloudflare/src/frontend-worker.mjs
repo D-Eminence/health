@@ -11,7 +11,8 @@ const DEPLOYMENT_PROFILES = Object.freeze({
   production: Object.freeze({
     apiOrigin: 'https://api.healthidentitydirectory.com',
     hosts: Object.freeze({
-      web: 'www.healthidentitydirectory.com',
+      web: 'app.healthidentitydirectory.com',
+      public: 'healthidentitydirectory.com',
       ehr: 'ehr.healthidentitydirectory.com',
       lab: 'lab.healthidentitydirectory.com',
       pharmacy: 'pharmacy.healthidentitydirectory.com',
@@ -128,7 +129,7 @@ function applicationRouteRedirect(request, requestUrl, deployment) {
   const products = { ehr: 'ehr', lab: 'lab', pharmacy: 'pharmacy', ocr: 'migrate', outreach: 'outreach' }
   if (products[deployment.application] && requestUrl.pathname === '/provider/recover') {
     const staging = deployment.expectedHost.includes('.staging.')
-    const target = new URL(`https://${staging ? 'staging' : 'www'}.healthidentitydirectory.com/provider/recover`)
+    const target = new URL(`https://${staging ? 'staging' : 'app'}.healthidentitydirectory.com/provider/recover`)
     target.searchParams.set('returnTo', products[deployment.application])
     return Response.redirect(target, 302)
   }

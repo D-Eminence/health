@@ -1,0 +1,48 @@
+name: Production frontend candidates
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: production-frontend-build-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22.23.2'
+          package-manager-cache: false
+      - run: npm ci
+      - name: Validate production source and host boundaries
+        run: |
+          npm run audit:boundaries
+          npm run check
+          npm run test:edge
+          npm run test:release
+          npm run test:production-release
+          npm audit --audit-level=high
+      - name: Build immutable production frontend candidates
+        run: npm run build:production
+      - name: Compile Workers without deployment
+        run: python scripts/prepare-production-workers.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: production-frontends-${{ github.sha }}
+          path: |
+            build/production/*.zip
+            build/production/manifest.json
+            build/production/worker-preparation.json
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0

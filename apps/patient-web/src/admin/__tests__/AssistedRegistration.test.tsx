@@ -268,17 +268,19 @@ describe('the facility’s designation for registration in person (hid-system #8
     fireEvent.click(section.getByRole('button', { name: 'Save designation' }))
     const saved = 'Saved. Patients can now be checked in person here while registration at a facility is switched on.'
     const first = await section.findByText(saved)
-    expect(section.getByRole('status').textContent).toBe(saved)
+    // Refreshing has its own status region; assert the save announcement itself.
+    const announcement = first.closest('[role="status"]')!
+    expect(announcement.textContent).toBe(saved)
     await section.findByText('Ikeja GRA')
     fillLocation({ town: 'Ikeja GRA', hours: 'Mon to Sat, 9am to 4pm', reason: 'Open on Saturdays from this week' })
     fireEvent.click(section.getByRole('button', { name: 'Save designation' }))
     await section.findByRole('button', { name: 'Saving…' })
     // The live region empties while the save runs, so the same words are announced again when they return.
-    expect(section.getByRole('status').textContent).toBe('')
+    expect(announcement.textContent).toBe('')
     second({ facilityId: FACILITY_ID, status: 'active', version: 6, replayed: false })
     const again = await section.findByText(saved)
     expect(again).not.toBe(first)
-    expect(section.getByRole('status').textContent).toBe(saved)
+    expect(announcement.textContent).toBe(saved)
   })
 
   it('alerts a second identical refusal: the alert is removed while it saves, then shown anew', async () => {

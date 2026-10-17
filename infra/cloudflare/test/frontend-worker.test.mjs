@@ -12,7 +12,7 @@ const deploymentProfiles = Object.freeze({
   production: Object.freeze({
     apiOrigin: 'https://api.healthidentitydirectory.com',
     hosts: Object.freeze({
-      web: 'www.healthidentitydirectory.com', ehr: 'ehr.healthidentitydirectory.com',
+      web: 'app.healthidentitydirectory.com', public: 'healthidentitydirectory.com', ehr: 'ehr.healthidentitydirectory.com',
       lab: 'lab.healthidentitydirectory.com', pharmacy: 'pharmacy.healthidentitydirectory.com',
       ocr: 'migrate.healthidentitydirectory.com', outreach: 'outreach.healthidentitydirectory.com',
       admin: 'admin.healthidentitydirectory.com',
@@ -94,7 +94,7 @@ test('serves Migrate from its canonical hostname root and redirects legacy paths
   assert.equal(retiredWebRoute.headers.get('location'), 'https://migrate.healthidentitydirectory.com/?view=safe')
 
   const webLegacyRoute = await worker.fetch(
-    new Request('https://www.healthidentitydirectory.com/migrate/jobs?view=safe'),
+    new Request('https://app.healthidentitydirectory.com/migrate/jobs?view=safe'),
     environment({ APP_NAME: 'web' }),
   )
   assert.equal(webLegacyRoute.status, 308)

@@ -18,6 +18,26 @@ HOSTS = {
     'public': 'www.staging.healthidentitydirectory.com',
 }
 
+PRODUCTION_HOSTS = {
+    'admin': 'admin.healthidentitydirectory.com',
+    'web': 'app.healthidentitydirectory.com',
+    'ehr': 'ehr.healthidentitydirectory.com',
+    'lab': 'lab.healthidentitydirectory.com',
+    'pharmacy': 'pharmacy.healthidentitydirectory.com',
+    'ocr': 'migrate.healthidentitydirectory.com',
+    'outreach': 'outreach.healthidentitydirectory.com',
+    'public': 'healthidentitydirectory.com',
+}
+
+
+def release_profile(environment):
+    if environment == 'staging':
+        return HOSTS, 'https://api.staging.healthidentitydirectory.com', 'https://staging.healthidentitydirectory.com'
+    if environment == 'production':
+        return PRODUCTION_HOSTS, 'https://api.healthidentitydirectory.com', 'https://app.healthidentitydirectory.com'
+    raise ValueError('Explicit staging or production environment required')
+
+
 
 def digest(path):
     return hashlib.sha256(pathlib.Path(path).read_bytes()).hexdigest()
@@ -29,11 +49,12 @@ def tree_digest(folder):
     return hashlib.sha256(json.dumps(entries, sort_keys=True).encode()).hexdigest()
 
 
-def validate_config(config):
-    if config.get('environment') != 'staging' or config.get('hosts') != HOSTS:
-        raise ValueError('Exact staging frontend hosts required')
-    if config.get('api_origin') != 'https://api.staging.healthidentitydirectory.com' or config.get('portal_origin') != 'https://staging.healthidentitydirectory.com':
-        raise ValueError('Exact staging API/portal required')
+def validate_config(config, environment='staging'):
+    hosts, api_origin, portal_origin = release_profile(environment)
+    if config.get('environment') != environment or config.get('hosts') != hosts:
+        raise ValueError('Exact ' + environment + ' frontend hosts required')
+    if config.get('api_origin') != api_origin or config.get('portal_origin') != portal_origin:
+        raise ValueError('Exact ' + environment + ' API/portal required')
     if set(config) != {'environment', 'hosts', 'api_origin', 'portal_origin', 'turnstile_site_key', 'google_client_id', 'chat'}:
         raise ValueError('Unexpected configuration fields')
     chat = config.get('chat')
@@ -73,23 +94,24 @@ def chat_features(config, app):
             'supportContact': config['chat']['supportContact']}
 
 
-def verify_manifest(manifest, folder, source_commit, config_path, lock_path, edge_path):
+def verify_manifest(manifest, folder, source_commit, config_path, lock_path, edge_path, environment='staging'):
+    hosts, _, _ = release_profile(environment)
     config = json.loads(pathlib.Path(config_path).read_text())
-    validate_config(config)
-    if manifest.get('schema_version') != 1 or manifest.get('environment') != 'staging' or manifest.get('source_repository') != 'D-Eminence/Health-id':
+    validate_config(config, environment)
+    if manifest.get('schema_version') != 1 or manifest.get('environment') != environment or manifest.get('source_repository') != 'D-Eminence/Health-id':
         raise ValueError('Unexpected frontend component')
     if not re.fullmatch(r'[a-f0-9]{40}', source_commit) or manifest.get('source_commit') != source_commit:
         raise ValueError('Exact source commit required')
     if manifest.get('configuration_sha256') != digest(config_path) or manifest.get('lockfile_sha256') != digest(lock_path) or manifest.get('edge_tree_sha256') != tree_digest(edge_path):
         raise ValueError('Configuration, dependencies or edge source changed')
     entries = manifest.get('entries', [])
-    if len(entries) != len(HOSTS) or {e.get('app') for e in entries} != set(HOSTS):
+    if len(entries) != len(hosts) or {e.get('app') for e in entries} != set(hosts):
         raise ValueError('Exactly eight frontend artifacts required')
     for entry in entries:
         app = entry['app']
         if entry.get('chat_features') != chat_features(config, app):
             raise ValueError('Artifact chat configuration differs')
-        if entry.get('hostname') != HOSTS[app] or entry.get('archive') != app + '.zip':
+        if entry.get('hostname') != hosts[app] or entry.get('archive') != app + '.zip':
             raise ValueError('Artifact destination differs')
         path = folder / entry['archive']
         if path.stat().st_size != entry.get('size_bytes') or digest(path) != entry.get('sha256') or archive_files(path) != entry.get('files'):

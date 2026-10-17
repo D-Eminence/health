@@ -8,15 +8,15 @@ import zipfile
 from staging_release import ROOT, digest, verify_manifest
 
 
-def prepare(dry_run=False):
-    folder = ROOT / 'build/staging'
+def prepare(dry_run=False, environment='staging'):
+    folder = ROOT / ('build/' + environment)
     git = ['git', '-c', 'safe.directory=' + ROOT.as_posix(), '-C', str(ROOT)]
     if subprocess.check_output(git + ['status', '--porcelain', '--untracked-files=all'], text=True).strip():
         raise RuntimeError('Clean source required')
     source = subprocess.check_output(git + ['rev-parse', 'HEAD'], text=True).strip()
     manifest_path = folder / 'manifest.json'
     manifest = json.loads(manifest_path.read_text())
-    entries = verify_manifest(manifest, folder, source, ROOT / 'config/staging.json', ROOT / 'package-lock.json', ROOT / 'infra/cloudflare/src')
+    entries = verify_manifest(manifest, folder, source, ROOT / ('config/' + environment + '.json'), ROOT / 'package-lock.json', ROOT / 'infra/cloudflare/src', environment)
     configs = []
     for entry in entries:
         app = entry['app']
@@ -34,13 +34,13 @@ def prepare(dry_run=False):
         actual = {p.relative_to(assets).as_posix(): digest(p) for p in assets.rglob('*') if p.is_file()}
         if actual != entry['files']:
             raise ValueError('Extracted assets differ from the accepted archive')
-        config = {'name': 'hid-' + app + '-staging', 'main': (ROOT / 'infra/cloudflare/src/frontend-worker.mjs').as_posix(),
+        config = {'name': 'hid-' + app + '-' + environment, 'main': (ROOT / 'infra/cloudflare/src/frontend-worker.mjs').as_posix(),
                   'compatibility_date': '2026-10-01', 'workers_dev': False, 'preview_urls': False,
                   'routes': [{'pattern': entry['hostname'], 'custom_domain': True}],
                   'assets': {'directory': assets.as_posix(), 'binding': 'ASSETS', 'run_worker_first': True,
                              'not_found_handling': '404-page' if app == 'public' else 'single-page-application'},
-                  'vars': {'DEPLOYMENT_ENV': 'staging', 'APP_NAME': app, 'EXPECTED_HOST': entry['hostname'],
-                           'API_ORIGIN': 'https://api.staging.healthidentitydirectory.com'}}
+                  'vars': {'DEPLOYMENT_ENV': environment, 'APP_NAME': app, 'EXPECTED_HOST': entry['hostname'],
+                           'API_ORIGIN': json.loads((ROOT / ('config/' + environment + '.json')).read_text(encoding='utf-8'))['api_origin']}}
         path = folder / (app + '.wrangler.json')
         path.write_text(json.dumps(config, indent=2) + '\n')
         if dry_run:
