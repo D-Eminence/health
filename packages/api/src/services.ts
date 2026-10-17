@@ -6,7 +6,10 @@ import type {
   UnverifiedPayload,
 } from '@hid/contracts'
 import { createServiceBinding, type CallOptions, type ServiceContext } from './service'
-import { chatQuestion, parseSupportChat, parsePatientChat } from '@hid/contracts'
+import {
+  chatQuestion, parseSupportChat, parsePatientChat, parsePatientChatAvailability, parsePatientChatHistory,
+  parsePatientChatCleared,
+} from '@hid/contracts'
 
 type Item = Record<string, unknown>
 
@@ -173,10 +176,29 @@ export function createEhrService(context: ServiceContext) {
   const request = createServiceBinding(context, 'ehr')
   return {
     request,
-    async chat(question: string, options: CallOptions = {}) {
+    /** Whether record chat is offered now, and the notice version a question must acknowledge. No model call. */
+    async chatAvailability(options: CallOptions = {}) {
+      return parsePatientChatAvailability(await request('ehr.patientChatAvailability', 'GET', options))
+    },
+    /**
+     * One question about the patient's own released records (hid-system ADR-068). The key makes a retry of the
+     * same question answer the stored reply; send a new key for a new question. The service's own deadline is
+     * 25 seconds, so the client waits a little longer than that.
+     */
+    async chat(question: string, ask: { noticeVersion: string; idempotencyKey: string; maxQuestionLength?: number },
+      options: CallOptions = {}) {
       return parsePatientChat(await request('ehr.patientChat', 'POST', {
-        ...options, body: { question: chatQuestion(question) }, timeoutMs: 65_000,
+        ...options,
+        body: { question: chatQuestion(question, ask.maxQuestionLength ?? 1000), noticeVersion: ask.noticeVersion },
+        headers: { ...options.headers, 'Idempotency-Key': ask.idempotencyKey },
+        timeoutMs: 35_000,
       }))
+    },
+    async chatHistory(options: CallOptions = {}) {
+      return parsePatientChatHistory(await request('ehr.patientChatHistory', 'GET', options))
+    },
+    async clearChatHistory(options: CallOptions = {}) {
+      return parsePatientChatCleared(await request('ehr.patientChatHistory', 'DELETE', options))
     },
     listRecords(options: CallOptions = {}): Promise<PatientRecordSummary> {
       return request('ehr.myRecords','GET',options)

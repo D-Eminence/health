@@ -57,5 +57,16 @@ export type {
   RecoveryOtpStart,
   RecoveryOtpVerified,
 } from './wire'
-export { chatQuestion, parseSupportChat, parsePatientChat } from './chat'
-export type { SupportChatReply, PatientChatReply, PatientChatSource } from './chat'
+export {
+  chatQuestion, parseSupportChat, parsePatientChat, parsePatientChatAvailability, parsePatientChatHistory,
+  parsePatientChatCleared,
+} from './chat'
+export { stagingChatQuestion, parseStagingPatientChat, parseStagingChatHistory } from './stagingChat'
+export type {
+  StagingPatientChatReply, StagingPatientChatSource, StagingPatientChatHistory,
+} from './stagingChat'
+export type {
+  SupportChatReply, PatientChatReply, PatientChatSource, PatientChatSourceKind, PatientChatStatus, PatientChatBlock,
+  PatientChatBlockKind, PatientChatCoverage, PatientChatStoredReply, PatientChatExchange, PatientChatHistory,
+  PatientChatAvailability,
+} from './chat'

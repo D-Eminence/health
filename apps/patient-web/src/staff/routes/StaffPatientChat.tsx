@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { isHidApiError } from '@hid/http'
-import { ChatConversation, type ChatConversationApi } from '../../routes/Chat'
+import { StagingChatConversation, type StagingChatConversationApi } from '../../routes/StagingChat'
 import { staffApi } from '../api'
 
 /** The caller keys this component by actor/membership/facility/patient/purpose. */
@@ -9,7 +9,7 @@ export function StaffPatientChat({facilityId,facilityName,patientId,patientName,
 }) {
   const [open,setOpen]=useState(false)
   const [denied,setDenied]=useState(false)
-  const api=useMemo<ChatConversationApi>(()=>{
+  const api=useMemo<StagingChatConversationApi>(()=>{
     const protect=async<T,>(operation:Promise<T>):Promise<T>=>{
       try{return await operation}
       catch(error){
@@ -29,6 +29,6 @@ export function StaffPatientChat({facilityId,facilityName,patientId,patientName,
       {open?'Close patient assistant':'Ask about this patient'}
     </button>
     {open&&(denied?<p role="alert">Patient access has ended or changed. Reopen the patient through governed access.</p>
-      :<ChatConversation api={api} staff={{patientName,hid,facilityName}} />)}
+      :<StagingChatConversation api={api} staff={{patientName,hid,facilityName}} />)}
   </section>
 }

@@ -1,5 +1,6 @@
 import { StaffPatientChat } from './StaffPatientChat'
 import { ImportedPatientHistory } from './ImportedPatientHistory'
+import { StaffImportedHistory } from './StaffImportedHistory'
 import { importedRecordsEnabled, staffPatientChatEnabled } from '../stagingOnlyFeatures'
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
@@ -1522,6 +1523,9 @@ export function Clinical() {
     {/* Mounted throughout, so what a change says is announced. */}
     <div id="clinical-status" role="status">{success && <p className="staff-success">{success}</p>}</div>
     {/* Off unless the build turns them on: hid-system main does not serve their routes (stagingOnlyFeatures.ts). */}
+    {permissions.includes('ehr.imported-history.read') && activePatient.purpose === 'direct-care' && <StaffImportedHistory
+      key={JSON.stringify([state.status === 'ready' ? state.session.actor.id : '', facility.id, patientId, activePatient.purpose, permissions])}
+      facilityId={facility.id} patientId={patientId!} />}
     {permissions.includes('ehr.note.read') && staffPatientChatEnabled() && <StaffPatientChat
       key={JSON.stringify([state.status==='ready'?state.session.actor.id:'',facility.id,facility.membershipId,patientId,activePatient.purpose,permissions])}
       facilityId={facility.id} facilityName={facility.name} patientId={patientId!}

@@ -1,4 +1,5 @@
 import { ImportedHistory } from '../ImportedHistory'
+import { PatientImportedHistory } from '../ImportedHistoryPage'
 import { getEnvironment } from '../env'
 import { useRef, useState, type FormEvent, type RefObject } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
@@ -197,6 +198,7 @@ export function RecordsPage() {
   return <section className="patient-section"><p className="patient-eyebrow">Care history</p><h1 ref={heading} tabIndex={-1} className="patient-page-title">Health records</h1>
     <p className="patient-page-copy">{recordsIntro(records.error ? null : data)}</p>
     <LoadState loading={records.loading} error={records.error} retry={records.reload} hasData={data !== null} focusTarget={heading} />
+    <PatientImportedHistory api={api} />
     {data && !records.error && <>
       {data.importedRecords !== undefined && <ImportedHistory records={data.importedRecords}
         limit={data.limit} download={api.importedAttachment} allowLocalHttp={getEnvironment().name === 'local'} />}

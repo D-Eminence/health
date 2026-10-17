@@ -1,6 +1,5 @@
-import { chatQuestion,parsePatientChat } from '@hid/contracts'
-import { parseChatHistory } from '../api'
-import type { ImportedRecordsResponse, ImportedAttachmentDownload } from '../importedRecords'
+import { stagingChatQuestion, parseStagingPatientChat, parseStagingChatHistory } from '@hid/contracts'
+import { parseImportedHistory, type ImportedRecordsResponse, type ImportedAttachmentDownload, type ImportedHistoryPage } from '../importedRecords'
 import { createApiClient, HidApiError, isHidApiError, uploadPresignedObject, type ApiClient, type RequestSpec } from '@hid/http'
 import { createRegisteredBrowserClient } from '@hid/api'
 import { getEnvironment } from './env'
@@ -1155,10 +1154,10 @@ export const staffApi = {
   encounter: (facilityId: string, patientId: string, encounterId: string) =>
     client.get<Encounter>(encounterPath(patientId, encounterId), { headers: facilityHeaders(facilityId), dedupe: false }),
   patientChat: async (facilityId:string,patientId:string,question:string,signal?:AbortSignal) =>
-    parsePatientChat(await client.post<unknown>(`/api/v1/ehr/patients/${encodeURIComponent(patientId)}/chat`,
-      {question:chatQuestion(question)},{headers:facilityHeaders(facilityId),signal,timeoutMs:65_000})),
+    parseStagingPatientChat(await client.post<unknown>(`/api/v1/ehr/patients/${encodeURIComponent(patientId)}/chat`,
+      {question:stagingChatQuestion(question)},{headers:facilityHeaders(facilityId),signal,timeoutMs:65_000})),
   patientChatHistory: async (facilityId:string,patientId:string,signal?:AbortSignal) =>
-    parseChatHistory(await client.get<unknown>(`/api/v1/ehr/patients/${encodeURIComponent(patientId)}/chat/history`,
+    parseStagingChatHistory(await client.get<unknown>(`/api/v1/ehr/patients/${encodeURIComponent(patientId)}/chat/history`,
       {headers:facilityHeaders(facilityId),signal,dedupe:false})),
   clearPatientChatHistory: (facilityId:string,patientId:string,signal?:AbortSignal) =>
     client.request<{cleared:true}>({method:'DELETE',path:`/api/v1/ehr/patients/${encodeURIComponent(patientId)}/chat/history`,
@@ -1166,6 +1165,11 @@ export const staffApi = {
   patientChatSource: (facilityId:string,patientId:string,kind:string,id:string,signal?:AbortSignal) =>
     client.get<Record<string,unknown>>(`/api/v1/ehr/patients/${encodeURIComponent(patientId)}/chat/sources/${encodeURIComponent(kind)}/${encodeURIComponent(id)}`,
       {headers:facilityHeaders(facilityId),signal,dedupe:false}),
+  // Imported legacy medical history as hid-system main serves it (#94, ADR-067): direct care only, at the selected
+  // facility, a page at a time; `shared: false` with no record until the patient shares.
+  importedHistory: async (facilityId: string, patientId: string, cursor: string | null, signal?: AbortSignal): Promise<ImportedHistoryPage> =>
+    parseImportedHistory(await client.get<unknown>(`/api/v1/ehr/patients/${encodeURIComponent(patientId)}/imported-history`,
+      { headers: facilityHeaders(facilityId, 'direct-care'), signal, dedupe: false, ...(cursor ? { query: { cursor } } : {}) }), true),
   importedRecords: (facilityId: string, patientId: string, purpose: 'direct-care' | 'emergency', signal?: AbortSignal) =>
     client.get<ImportedRecordsResponse>(`/api/v1/ehr/patients/${encodeURIComponent(patientId)}/imported-records`,
       { headers: facilityHeaders(facilityId, purpose), signal, dedupe: false }),

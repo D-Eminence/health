@@ -1,5 +1,5 @@
 import { useEffect,useRef,useState } from 'react'
-import type { PatientChatSource } from '@hid/contracts'
+import type { StagingPatientChatSource } from '@hid/contracts'
 import { useSession } from './session'
 function fields(value:unknown,depth=0):React.ReactNode {
   if(value===null||value===undefined)return 'Not recorded'
@@ -8,11 +8,11 @@ function fields(value:unknown,depth=0):React.ReactNode {
   if(Array.isArray(value))return <ul>{value.map((v,i)=><li key={i}>{fields(v,depth+1)}</li>)}</ul>
   return <dl className="chat-source-fields">{Object.entries(value).map(([k,v])=><div key={k}><dt>{k.replace(/([a-z])([A-Z])/g,'$1 $2').replace(/_/g,' ')}</dt><dd>{fields(v,depth+1)}</dd></div>)}</dl>
 }
-export function ChatSource({source}:{source:PatientChatSource}) {
+export function ChatSource({source}:{source:StagingPatientChatSource}) {
   const {api}=useSession()
   return <ChatSourceContent source={source} loadSource={api.chatSource} />
 }
-export function ChatSourceContent({source,loadSource}:{source:PatientChatSource;loadSource:(kind:string,id:string,signal?:AbortSignal)=>Promise<Record<string,unknown>>}) {
+export function ChatSourceContent({source,loadSource}:{source:StagingPatientChatSource;loadSource:(kind:string,id:string,signal?:AbortSignal)=>Promise<Record<string,unknown>>}) {
   const [detail,setDetail]=useState<Record<string,unknown>|null>(null);const [error,setError]=useState('');
   const [loading,setLoading]=useState(false);const flight=useRef<AbortController|null>(null)
   useEffect(()=>()=>flight.current?.abort(),[])

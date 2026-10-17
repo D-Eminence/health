@@ -1,6 +1,16 @@
+/**
+ * Imported legacy medical history as hid-system `main` serves it (#94, migration
+ * 0099, ADR-067; docs/INTERFACE_CONTRACT.md, "Imported legacy medical history").
+ * It is never part of `GET /ehr/me/records`: the patient reads
+ * `GET /ehr/me/imported-history`, staff read
+ * `GET /ehr/patients/:patientId/imported-history`, and each answer is a page.
+ * Legacy text is data, rendered as text and never as markup.
+ */
+
 export interface ImportedRecordFile {
   id: string; recordVersionId: string | null; fileName: string | null; mediaType: string | null
   sizeBytes: number | string | null; createdAt: string
+  /** Every file is "pending-safety-verification" for now: no attachment or download exists yet. */
   accessStatus: 'available' | 'rejected' | 'pending-safety-verification'
 }
 export interface ImportedRecordVersion {
@@ -10,12 +20,90 @@ export interface ImportedRecordVersion {
 export interface ImportedMedicalRecord {
   id: string; origin: 'patient-provided' | 'provider-authored'; currentVersionId: string
   title: string | null; category: string | null; infoType: string | null
-  createdAt: string; updatedAt: string; versions: ImportedRecordVersion[]; files: ImportedRecordFile[]
+  createdAt: string; updatedAt: string
+  /** Newest first; at most `limits.versionsPerRecord`. */
+  versions: ImportedRecordVersion[]; versionsTruncated?: boolean
+  /** Oldest first; at most `limits.filesPerRecord`. */
+  files: ImportedRecordFile[]; filesTruncated?: boolean
 }
+export interface ImportedHistoryLimits { records: number; versionsPerRecord: number; filesPerRecord: number }
+export interface ImportedHistoryPage {
+  /** Staff reads only: whether the patient shares, as the database decides for this request. Absent on the patient's own read. */
+  shared?: boolean
+  records: ImportedMedicalRecord[]
+  limits: ImportedHistoryLimits
+  /** True when more records exist; `nextCursor` then fetches the next page. */
+  moreRecords: boolean
+  nextCursor: string | null
+}
+
+/** The patient's choice to share imported history with the staff who treat them (Identity). */
+export interface ImportedHistorySharing { shared: boolean; updatedAt: string | null }
+export interface ImportedHistorySharingChange extends ImportedHistorySharing { changed: boolean }
+
+const bad = () => new Error('Imported medical history returned an invalid response.')
+const object = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+const optionalText = (value: unknown) => value == null || typeof value === 'string'
+
+function parseVersion(value: unknown): ImportedRecordVersion {
+  if (!object(value) || typeof value.id !== 'string' || !Number.isInteger(value.versionNo) || Number(value.versionNo) < 1
+    || typeof value.createdAt !== 'string' || typeof value.origin !== 'string') throw bad()
+  return value as unknown as ImportedRecordVersion
+}
+
+function parseFile(value: unknown): ImportedRecordFile {
+  if (!object(value) || typeof value.id !== 'string' || !optionalText(value.fileName) || !optionalText(value.mediaType)
+    || typeof value.createdAt !== 'string'
+    || !['available', 'rejected', 'pending-safety-verification'].includes(String(value.accessStatus))) throw bad()
+  return value as unknown as ImportedRecordFile
+}
+
+function parseRecord(value: unknown): ImportedMedicalRecord {
+  if (!object(value) || typeof value.id !== 'string' || !['patient-provided', 'provider-authored'].includes(String(value.origin))
+    || typeof value.currentVersionId !== 'string' || typeof value.createdAt !== 'string' || typeof value.updatedAt !== 'string'
+    || !optionalText(value.title) || !optionalText(value.category) || !optionalText(value.infoType)
+    || !Array.isArray(value.versions) || !Array.isArray(value.files)
+    || typeof value.versionsTruncated !== 'boolean' || typeof value.filesTruncated !== 'boolean') throw bad()
+  return { ...(value as unknown as ImportedMedicalRecord), versions: value.versions.map(parseVersion), files: value.files.map(parseFile) }
+}
+
+/** Only the public history answer is consumed, never a raw migration payload. */
+export function parseImportedHistory(value: unknown, staff: boolean): ImportedHistoryPage {
+  if (!object(value) || !Array.isArray(value.records) || !object(value.limits) || !object(value.truncated)
+    || typeof value.truncated.records !== 'boolean' || !(value.nextCursor === null || typeof value.nextCursor === 'string')
+    || (staff && typeof value.shared !== 'boolean')) throw bad()
+  const { records, versionsPerRecord, filesPerRecord } = value.limits
+  if (![records, versionsPerRecord, filesPerRecord].every(limit => Number.isSafeInteger(limit) && Number(limit) > 0)) throw bad()
+  const ids = new Set<string>()
+  const parsed = value.records.map(parseRecord)
+  for (const record of parsed) {
+    if (ids.has(record.id)) throw bad()
+    ids.add(record.id)
+  }
+  return {
+    ...(staff ? { shared: value.shared as boolean } : {}), records: parsed,
+    limits: { records: Number(records), versionsPerRecord: Number(versionsPerRecord), filesPerRecord: Number(filesPerRecord) },
+    moreRecords: value.truncated.records, nextCursor: value.nextCursor,
+  }
+}
+
+export function parseImportedHistorySharing(value: unknown): ImportedHistorySharing {
+  if (!object(value) || typeof value.shared !== 'boolean' || !(value.updatedAt === null || typeof value.updatedAt === 'string')) {
+    throw new Error('Imported history sharing returned an invalid response.')
+  }
+  return { shared: value.shared, updatedAt: value.updatedAt }
+}
+
+export function parseImportedHistorySharingChange(value: unknown): ImportedHistorySharingChange {
+  if (!object(value) || typeof value.changed !== 'boolean') throw new Error('Imported history sharing returned an invalid response.')
+  return { ...parseImportedHistorySharing(value), changed: value.changed }
+}
+
 export interface ImportedRecordsResponse { importedRecords: ImportedMedicalRecord[]; limit: number }
 export interface ImportedAttachmentDownload { url: string; expiresInSeconds: number }
 
-/** Only the public history response is consumed, never raw migration payloads. */
+/** The staging branches' imported-records answer (`/imported-records`), which hid-system main does not serve. */
 export function parseImportedRecords(value: unknown): ImportedMedicalRecord[] {
   if (!Array.isArray(value)) throw new Error('Imported medical history returned an invalid response.')
   const ids = new Set<string>()

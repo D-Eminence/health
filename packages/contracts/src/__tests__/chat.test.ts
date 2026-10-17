@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { chatQuestion, parsePatientChat, parseSupportChat } from '../chat'
+import { chatQuestion, parseSupportChat } from '../chat'
+import { parseStagingPatientChat as parsePatientChat } from '../stagingChat'
 import { assertEndpointAllowed } from '../boundaries'
 
 const sessionId = '11111111-1111-4111-8111-111111111111'
 const source = { number: 1, noteId: 'note-a', revisionNo: 2, title: 'Released note', signedAt: '2026-10-07T10:00:00Z' }
+/** Support chat and the staging branches' patient chat contract (stagingChat.ts); hid-system main's is in patient-record-chat.test.ts. */
 describe('deployed chat contracts', () => {
   it('accepts bounded replies, including preparing and empty history', () => {
     expect(parseSupportChat({ sessionId, messages: ['FAQ'] }).messages).toEqual(['FAQ'])

@@ -18,3 +18,6 @@
 .imported-history-card button { border: 1px solid #0870d9; border-radius: .5rem; padding: .5rem .75rem; background: #fff; color: #075ab6; cursor: pointer; }
 .imported-history-card button:focus-visible { outline: 3px solid #0870d9; outline-offset: 3px; }
 .imported-history-card button:disabled { opacity: .6; cursor: wait; }
+.imported-history > button { border: 1px solid #0870d9; border-radius: .5rem; padding: .5rem .75rem; background: #fff; color: #075ab6; cursor: pointer; }
+.imported-history > button:focus-visible { outline: 3px solid #0870d9; outline-offset: 3px; }
+.imported-history > button:disabled { opacity: .6; cursor: wait; }

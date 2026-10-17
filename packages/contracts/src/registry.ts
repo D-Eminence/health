@@ -10,9 +10,10 @@ export type EndpointAuth = { readonly kind: 'public' | 'authenticated' }
 /**
  * 'surface-verified': hid-system serves the route. 'proposed': built against
  * but not served by hid-system main: facility billing (specified in
- * docs/BILLING_SPEC.md; callers treat a 404 as "not available yet"), and record
- * chat, support chat and imported records (from other hid-system branches;
- * their screens are off unless the build turns them on).
+ * docs/BILLING_SPEC.md; callers treat a 404 as "not available yet"), support
+ * chat, and the staging-branch routes for hospital chat and `/imported-records`,
+ * which hid-system's `staging` and `staging-novu-ci-20261005` branches serve (their
+ * screens are off unless the build turns them on).
  */
 export type ContractStatus = 'surface-verified' | 'proposed'
 export interface EndpointDescriptor {
@@ -44,22 +45,30 @@ const one = (method: EndpointMethod, ...permissions: string[]): Partial<Record<E
   ({ [method]: permissions })
 
 /**
- * hid-system main 51047e2 (and 585ef8d) serves none of these. They are on its `staging`,
- * `staging-novu-ci-20261005` and `launch/patient-record-chat` branches. Main 221ddbf
- * (#94) serves imported history at a different route, /ehr/patients/:id/imported-history,
- * with its own answer shape; the /imported-records entries here are not that route.
+ * hid-system main 41542fc does not serve these: support chat, hospital ("ask about this patient") chat and
+ * `/imported-records` are served by its `staging` and `staging-novu-ci-20261005` branches, which Health-id's
+ * staging chain (#61) was built against. Patient record chat, imported history and its sharing choice are
+ * served by main (#94, #95) under the contracts in the entries further down.
  */
-const NOT_ON_MAIN = 'Built against hid-system branches; not served by hid-system main (51047e2).'
+const NOT_ON_MAIN = 'Served by a hid-system staging branch; not served by hid-system main (41542fc).'
 const CHAT_NOTE = `${NOT_ON_MAIN} The screen is off unless the build turns it on.`
+const RECORD_CHAT_NOTE = 'Patient sessions only (403 PATIENT_SESSION_REQUIRED otherwise). Off by default in hid-system '
+  + '(ADR-068, 0100): 503 RECORD_CHAT_DISABLED until the flag and the platform control are on.'
 
 export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   proposed(r('support.chat','support','/api/v1/support/chat',P,true,undefined,CHAT_NOTE)),
-  proposed(r('ehr.patientChat','ehr','/api/v1/ehr/me/chat',P,false,undefined,CHAT_NOTE)),
+  r('ehr.patientChatAvailability','ehr','/api/v1/ehr/me/chat/availability',G,false,undefined,
+    `${RECORD_CHAT_NOTE} 200 { available: false } while off; no model call.`),
+  r('ehr.patientChat','ehr','/api/v1/ehr/me/chat',P,false,undefined,
+    `${RECORD_CHAT_NOTE} Needs Idempotency-Key (16 to 128 URL-safe characters) and { question (1 to 1000), noticeVersion } `
+    + 'taken from availability (428 CHAT_NOTICE_REQUIRED otherwise).'),
+  proposed(r('ehr.patientChatSource','ehr','/api/v1/ehr/me/chat/sources/:kind/:sourceId',G,false,undefined,CHAT_NOTE)),
   proposed(r('ehr.staffPatientChat','ehr','/api/v1/ehr/patients/:patientId/chat',P,false,one('POST','ehr.note.read'),CHAT_NOTE)),
   proposed(r('ehr.staffPatientChatHistory','ehr','/api/v1/ehr/patients/:patientId/chat/history',['GET','DELETE'],false,{GET:['ehr.note.read'],DELETE:['ehr.note.read']},CHAT_NOTE)),
   proposed(r('ehr.staffPatientChatSource','ehr','/api/v1/ehr/patients/:patientId/chat/sources/:kind/:sourceId',G,false,one('GET','ehr.note.read'),CHAT_NOTE)),
-    proposed(r('ehr.patientChatHistory','ehr','/api/v1/ehr/me/chat/history',['GET','DELETE'],false,undefined,CHAT_NOTE)),
-    proposed(r('ehr.patientChatSource','ehr','/api/v1/ehr/me/chat/sources/:kind/:sourceId',G,false,undefined,CHAT_NOTE)),
+  r('ehr.patientChatHistory','ehr','/api/v1/ehr/me/chat/history',['GET','DELETE'],false,undefined,
+    'Patient sessions only; available while chat is off. Newest first, at most 50. DELETE answers 200 { cleared, deletedCount }, '
+    + 'or 409 CHAT_HISTORY_ON_HOLD.'),
   r('auth.patientLogin','auth','/api/v1/auth/patient/login',P,true),
   r('auth.staffLogin','auth','/api/v1/auth/login',P,true,undefined,
     'Requires Origin and a workforce Turnstile action. Since hid-system #71 returns an MFA status, not a session.'),
@@ -213,10 +222,20 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('notifications.read','notifications','/api/v1/identity/me/notifications/:notificationId/read',P),
 
   r('ehr.myRecords','ehr','/api/v1/ehr/me/records',G),
+  r('ehr.myImportedHistory','ehr','/api/v1/ehr/me/imported-history',G,false,undefined,
+    'Patient sessions only. 503 IMPORTED_HISTORY_DISABLED until hid-system turns the patient read on (ADR-067, 0099). '
+    + 'Optional cursor. Not part of ehr.myRecords.'),
+  r('ehr.importedHistory','ehr','/api/v1/ehr/patients/:patientId/imported-history',G,false,one('GET','ehr.imported-history.read'),
+    'Direct care only (X-Purpose-Of-Use: direct-care, else 400 DIRECT_CARE_PURPOSE_REQUIRED) at the selected facility; '
+    + '{ shared: false } with no record until the patient shares. 503 IMPORTED_HISTORY_DISABLED while off. Optional cursor.'),
+  r('identity.importedHistorySharing','identity','/api/v1/identity/me/imported-history-sharing',GP,false,undefined,
+    'Patient sessions only. GET { shared, updatedAt }; POST { shared } answers { shared, changed, updatedAt }. Turning sharing on '
+    + 'needs a recent sign-in (403 PATIENT_RECENT_AUTH_REQUIRED) and no recovery in the last 24 hours (403 PATIENT_RECENT_RECOVERY_HOLD); '
+    + '503 IMPORTED_HISTORY_SHARING_DISABLED while the switch is off.'),
   proposed(r('ehr.myImportedAttachment','ehr','/api/v1/ehr/me/imported-attachments/:fileId/download',G,false,undefined,
     `${NOT_ON_MAIN} Offered only when ehr.myRecords carries importedRecords, which main's does not.`)),
   proposed(r('ehr.importedRecords','ehr','/api/v1/ehr/patients/:patientId/imported-records',G,false,one('GET','ehr.note.read'),
-    `${NOT_ON_MAIN} The chart asks only when VITE_HID_IMPORTED_RECORDS_ENABLED is true.`)),
+    `${NOT_ON_MAIN} The chart asks only when VITE_HID_IMPORTED_RECORDS_ENABLED is true. Main serves imported history at ehr.importedHistory instead.`)),
   proposed(r('ehr.importedAttachment','ehr','/api/v1/ehr/patients/:patientId/imported-attachments/:fileId/download',G,false,one('GET','ehr.note.read','ehr.document.read'),
     `${NOT_ON_MAIN} The chart asks only when VITE_HID_IMPORTED_RECORDS_ENABLED is true.`)),
   r('ehr.emergencyRecords','ehr','/api/v1/ehr/patients/:patientId/emergency-records',G,false,one('GET','ehr.encounter.read','ehr.note.read')),

@@ -89,3 +89,20 @@
 .chat-source-fields { display: grid; gap: .5rem; margin: .75rem 0; }
 .chat-source-fields dt { font-weight: 600; text-transform: capitalize; }
 .chat-source-fields dd { margin: .2rem 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* Record chat per hid-system ADR-068: the notice, answer blocks, references and coverage. */
+.record-chat-notice { padding: 14px 24px; border-bottom: 1px solid var(--color-line); background: #fbfcfe; color: var(--color-ink); font-size: 13px; line-height: 1.6; }
+.record-chat-notice h2 { margin: 0 0 8px; font-size: 14px; font-weight: 650; }
+.record-chat-notice p { max-width: 75ch; margin: 0 0 8px; color: var(--color-muted); }
+.record-chat-accept { display: flex; align-items: flex-start; gap: 10px; margin-top: 10px; color: var(--color-ink); font-size: 13px; font-weight: 600; cursor: pointer; }
+.record-chat-accept input { flex: 0 0 auto; width: 18px; height: 18px; margin: 1px 0 0; }
+.record-chat-answer-blocks { display: grid; gap: 10px; }
+.record-chat-block p { margin: 0; color: var(--color-ink); font-size: 14px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+.record-chat-block-safety { padding: 10px 12px; border-radius: 9px; background: #fff7e6; }
+.record-chat-block-fixed p { color: var(--color-muted); }
+.record-chat-block-label { margin-right: 8px; color: var(--color-muted); font-size: 11px; font-weight: 650; }
+.record-chat-references { margin-top: 4px !important; font-size: 12px !important; }
+.record-chat-references a { margin-right: 6px; color: var(--color-brand); font-weight: 650; text-decoration: none; }
+.record-chat-references a:hover { text-decoration: underline; }
+.record-chat-coverage button { margin-top: 8px; }
+@media (max-width: 640px) { .record-chat-notice { padding-inline: 16px; } }

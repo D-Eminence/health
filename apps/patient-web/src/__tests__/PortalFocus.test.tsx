@@ -214,7 +214,8 @@ describe('Try again pressed as soon as it is shown', () => {
 describe('pages that load once', () => {
   it('moves focus to the page heading after Try again loads the records, and to Try again when it fails again', async () => {
     let reads = 0
-    renderPortal(<RecordsPage />, () => ++reads <= 2 ? unavailable()
+    // Only the records read is counted: the page also reads imported history (hid-system main, #94), which an older backend answers 404.
+    renderPortal(<RecordsPage />, path => !path.endsWith('/ehr/me/records') ? json({}, 404) : ++reads <= 2 ? unavailable()
       : json({ encounters: [], notes: [], vitals: [], diagnoses: [], prescriptions: [], labRequests: [], documents: [], limit: 100 }))
     await press(await screen.findByRole('button', { name: 'Try again' }))
     const again = await screen.findByRole('button', { name: 'Try again' })

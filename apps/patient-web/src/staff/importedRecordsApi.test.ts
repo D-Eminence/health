@@ -45,3 +45,23 @@ it('routes hospital chat history and sources through the selected patient, facil
  }
  expect(new Headers(fetch.mock.calls[1]![1].headers).get('X-Facility-ID')).toBe('facility-b')
 })
+
+/** Imported legacy medical history as hid-system main serves it (#94, ADR-067): direct care only, a page at a time. */
+it('reads a page of imported history from the patient route with the facility, direct-care purpose and cursor', async () => {
+  const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ shared: false, records: [], healthProfile: null,
+    limits: { records: 50, versionsPerRecord: 20, filesPerRecord: 20 }, truncated: { records: false }, nextCursor: null, provenance: 'legacy-import' }),
+  { headers: { 'content-type': 'application/json' } }))
+  vi.stubGlobal('fetch', fetch)
+  const { staffApi } = await signedInStaffApi()
+  const patient = '11111111-1111-4111-8111-111111111111'
+  const answer = await staffApi.importedHistory('facility-a', patient, 'cursor-abcdefghijklmnop')
+  expect(answer.shared).toBe(false)
+  const [url, options] = fetch.mock.calls[0]!
+  const parsed = new URL(String(url))
+  expect(parsed.pathname).toBe(`/api/v1/ehr/patients/${patient}/imported-history`)
+  expect(parsed.searchParams.get('cursor')).toBe('cursor-abcdefghijklmnop')
+  const headers = new Headers(options.headers)
+  expect(headers.get('X-Facility-ID')).toBe('facility-a')
+  expect(headers.get('X-Purpose-Of-Use')).toBe('direct-care')
+  expect(options.credentials).toBe('include')
+})

@@ -11,7 +11,8 @@ vi.mock('../env', () => ({ getEnvironment: () => ({ name: 'local' }) }))
 
 describe('patient imported-record API integration', () => {
   it('renders imported history from the patient-self endpoint even with no encounters or clinical notes', async () => {
-    const fetchImpl = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify({ encounters: [], notes: [], vitals: [], diagnoses: [], prescriptions: [], labRequests: [], documents: [], importedRecords: historyFixture, limit: 50 }),
+    const notServed = (input: RequestInfo | URL) => /imported-history/.test(String(input))
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => notServed(input) ? new Response('{}', { status: 404, headers: { 'content-type': 'application/json' } }) : new Response(JSON.stringify({ encounters: [], notes: [], vitals: [], diagnoses: [], prescriptions: [], labRequests: [], documents: [], importedRecords: historyFixture, limit: 50 }),
       { headers: { 'content-type': 'application/json' } }))
     const api = createPatientApi(createRegisteredBrowserClient(createApiClient({ baseUrl: 'https://gateway.test',
       clientId: 'patient-web', sessionMode: 'cookie', fetchImpl: fetchImpl as typeof fetch }), 'patient-web'))
@@ -19,6 +20,8 @@ describe('patient imported-record API integration', () => {
       <RecordsPage /></SessionContext.Provider>)
     expect(await screen.findByRole('heading', { name: 'Imported medical history' })).toBeTruthy()
     expect(screen.getByText('Preserved report')).toBeTruthy()
-    expect(new URL(String(fetchImpl.mock.calls[0]![0])).pathname).toBe('/api/v1/ehr/me/records')
+    expect(fetchImpl.mock.calls.map(([url]) => new URL(String(url)).pathname)).toContain('/api/v1/ehr/me/records')
+    // An older backend does not serve main's imported-history route: the new section stays silent, and shows no second heading.
+    expect(screen.getAllByRole('heading', { name: 'Imported medical history' })).toHaveLength(1)
   })
 })
