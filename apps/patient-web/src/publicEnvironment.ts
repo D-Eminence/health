@@ -9,4 +9,8 @@ export const PUBLIC_ENVIRONMENT = {
   VITE_HID_APP_ORIGIN: import.meta.env.VITE_HID_APP_ORIGIN as string | undefined,
   VITE_HID_TURNSTILE_SITE_KEY: import.meta.env.VITE_HID_TURNSTILE_SITE_KEY as string | undefined,
   VITE_HID_SENTRY_DSN: import.meta.env.VITE_HID_SENTRY_DSN as string | undefined,
+  // The patient's record chat screen, off unless a build sets it to exactly "true" (config/staging.json does for
+  // the staging patient host). It was not read here before, so no portal build could turn it on. hid-system keeps
+  // the chat itself off (ADR-068), and the screen says so when availability answers { available: false }.
+  VITE_HID_PATIENT_CHAT_ENABLED: import.meta.env.VITE_HID_PATIENT_CHAT_ENABLED as string | undefined,
 }

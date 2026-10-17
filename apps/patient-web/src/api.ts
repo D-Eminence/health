@@ -1,32 +1,11 @@
-import { parseImportedRecords, type ImportedMedicalRecord, type ImportedAttachmentDownload } from './importedRecords'
+import {
+  parseImportedHistory, parseImportedHistorySharing, parseImportedHistorySharingChange, parseImportedRecords,
+  type ImportedAttachmentDownload, type ImportedHistoryPage, type ImportedHistorySharing, type ImportedHistorySharingChange,
+  type ImportedMedicalRecord,
+} from './importedRecords'
 import type { ApiClient } from '@hid/http'
 import { createEhrService, createSupportService } from '@hid/api'
-import { parsePatientChat, type PatientChatReply } from '@hid/contracts'
 import { inRefreshTurn, refreshInTurn, signOutInTurn } from './sessionRefreshTurn'
-
-export interface PatientChatHistory {
-  exchanges: Array<{ id: string; question: string; reply: PatientChatReply; createdAt: string }>
-  retentionDays: number
-  limit: number
-}
-export function parseChatHistory(value: unknown): PatientChatHistory {
-  if (typeof value !== 'object' || value === null) throw new Error('Saved chat returned an invalid response.')
-  const history = value as Record<string, unknown>
-  if (!Array.isArray(history.exchanges) || history.exchanges.length > 10 || history.retentionDays !== 30 || history.limit !== 10) {
-    throw new Error('Saved chat returned an invalid response.')
-  }
-  const ids = new Set<string>()
-  const exchanges = history.exchanges.map((item: unknown) => {
-    if (typeof item !== 'object' || item === null) throw new Error('Saved chat returned an invalid response.')
-    const row = item as Record<string, unknown>
-    if (typeof row.id !== 'string' || !/^[a-f0-9-]{36}$/i.test(row.id) || ids.has(row.id)
-      || typeof row.question !== 'string' || !row.question.trim() || row.question.length > 500
-      || typeof row.createdAt !== 'string' || !Number.isFinite(Date.parse(row.createdAt))) throw new Error('Saved chat returned an invalid response.')
-    ids.add(row.id)
-    return { id: row.id, question: row.question, createdAt: row.createdAt, reply: parsePatientChat(row.reply) }
-  })
-  return { exchanges, retentionDays: 30, limit: 10 }
-}
 
 /**
  * Contracts read from hid-system c4b5445 Identity and EHR controllers, and later
@@ -160,6 +139,7 @@ export type RecordSection = 'encounters' | 'notes' | 'vitals' | 'diagnoses' | 'p
  * more exist. An EHR before #52 sends none of these four and every section.
  */
 export interface PatientRecords {
+  /** The staging branches' shape: imported history inside the records answer. hid-system main serves it at importedHistory instead. */
   importedRecords?: ImportedMedicalRecord[]
   encounters: Array<{ id: string; facilityId: string; encounterType: string; status: string; startedAt: string; endedAt: string | null }>
   notes: Array<{ id: string; encounterId: string; facilityId: string; noteType: string; title: string; status: string; revisionNo: number; content: string; signedAt: string | null }>
@@ -276,7 +256,7 @@ export interface RecoveryChallenge {
 
 export function createPatientApi(client: ApiClient) {
   const call = <T>(method: 'GET' | 'POST' | 'DELETE', path: string, body?: unknown,
-    options?: { signal?: AbortSignal; headers?: Readonly<Record<string, string>>; reportUnauthorized?: boolean }) =>
+    options?: { signal?: AbortSignal; headers?: Readonly<Record<string, string>>; query?: Readonly<Record<string, string>>; reportUnauthorized?: boolean }) =>
     client.request<T>({ method, path: `/api/v1/${path}`, auth: path.startsWith('auth/') || path.startsWith('identity/patient-enrollments') ? 'optional' : 'required',
       ...(body === undefined ? {} : { body }), ...options })
 
@@ -285,12 +265,24 @@ export function createPatientApi(client: ApiClient) {
   // onUnauthorized is left to the final 401 of every other request.
   const judged = { reportUnauthorized: false } as const
 
+  const chatService = createEhrService({ app: 'patient-web', client })
+
   return {
-    chat: createEhrService({ app: 'patient-web', client }).chat,
-    chatSource: (kind:string,id:string,signal?:AbortSignal) => call<Record<string,unknown>>('GET',
-      `ehr/me/chat/sources/${encodeURIComponent(kind)}/${encodeURIComponent(id)}`,undefined,{signal}),
-    chatHistory: async (signal?: AbortSignal) => parseChatHistory(await call<unknown>('GET', 'ehr/me/chat/history', undefined, { signal })),
-    clearChatHistory: (signal?: AbortSignal) => call<{ cleared: true }>('DELETE', 'ehr/me/chat/history', undefined, { signal }),
+    // Patient record chat (hid-system #95, ADR-068): the service's own methods, parsed against its contract.
+    chatAvailability: chatService.chatAvailability,
+    chat: chatService.chat,
+    chatHistory: (signal?: AbortSignal) => chatService.chatHistory({ signal }),
+    clearChatHistory: (signal?: AbortSignal) => chatService.clearChatHistory({ signal }),
+    // The staging branches' source-record read; hid-system main does not serve it. Kept for ChatSource.tsx.
+    chatSource: (kind: string, id: string, signal?: AbortSignal) => call<Record<string, unknown>>('GET',
+      `ehr/me/chat/sources/${encodeURIComponent(kind)}/${encodeURIComponent(id)}`, undefined, { signal }),
+    // Imported legacy medical history (#94, ADR-067): its own route, a page at a time, and the patient's sharing choice.
+    importedHistory: async (cursor?: string | null, signal?: AbortSignal): Promise<ImportedHistoryPage> =>
+      parseImportedHistory(await call<unknown>('GET', 'ehr/me/imported-history', undefined, { signal, ...(cursor ? { query: { cursor } } : {}) }), false),
+    importedHistorySharing: async (signal?: AbortSignal): Promise<ImportedHistorySharing> =>
+      parseImportedHistorySharing(await call<unknown>('GET', 'identity/me/imported-history-sharing', undefined, { signal })),
+    setImportedHistorySharing: async (shared: boolean, signal?: AbortSignal): Promise<ImportedHistorySharingChange> =>
+      parseImportedHistorySharingChange(await call<unknown>('POST', 'identity/me/imported-history-sharing', { shared }, { signal })),
     supportChat: createSupportService({ app: 'patient-web', client }).chat,
     session: () => call<PatientSession>('GET', 'auth/session', undefined, judged),
     // Windows of the portal take turns to refresh; one that waited reads the session
@@ -356,6 +348,7 @@ export function createPatientApi(client: ApiClient) {
     verifyNin: (nin: string) => call<PatientNinVerification>('POST', 'identity/me/verification/nin', { nin }),
     records: async (signal?: AbortSignal) => {
       const value = await call<PatientRecords>('GET', 'ehr/me/records', undefined, { signal })
+      // Only the staging branches' answer carries importedRecords; main's does not (it keeps exactly its keys).
       if (value.importedRecords !== undefined) value.importedRecords = parseImportedRecords(value.importedRecords)
       return value
     },

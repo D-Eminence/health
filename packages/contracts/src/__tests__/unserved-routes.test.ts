@@ -2,15 +2,18 @@ import { describe, expect, it } from 'vitest'
 import { HID_ENDPOINTS } from '../index'
 
 /**
- * Routes the frontend is built against that hid-system main (51047e2, and
- * 585ef8d) does not serve: record chat, support chat and imported records came
- * from other hid-system branches with Health-id #61. On main, each is answered
- * 404 (by ehr-api, or by the gateway for support chat), so the registry must
- * not record them as served.
+ * Routes the frontend is built against that hid-system main (41542fc) does not
+ * serve: support chat, hospital chat, the patient chat source read and
+ * `/imported-records` are served by hid-system's staging branches, which
+ * Health-id #61 was built against. On main each is answered 404 (by ehr-api, or
+ * by the gateway for support chat), so the registry must not record them as
+ * served. Patient record chat and imported history are served by main (#94,
+ * #95), under the entries `ehr.patientChat*`, `ehr.myImportedHistory`,
+ * `ehr.importedHistory` and `identity.importedHistorySharing`.
  */
 const NOT_ON_MAIN = [
   'support.chat',
-  'ehr.patientChat', 'ehr.patientChatHistory', 'ehr.patientChatSource',
+  'ehr.patientChatSource',
   'ehr.staffPatientChat', 'ehr.staffPatientChatHistory', 'ehr.staffPatientChatSource',
   'ehr.myImportedAttachment', 'ehr.importedRecords', 'ehr.importedAttachment',
 ] as const

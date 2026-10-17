@@ -53,7 +53,8 @@ describe('a patient page refused because the browser holds a provider\'s sign-in
 
     expect(await screen.findByRole('heading', { level: 1, name: 'Welcome back.' })).toBeTruthy()
     expect(screen.getByText(/signed out because this browser's Health ID sign-in changed in another tab or window/)).toBeTruthy()
-    expect(sent).toEqual(['GET /api/v1/auth/session', 'GET /api/v1/ehr/me/records', 'GET /api/v1/auth/session'])
+    // The records page also reads imported history (hid-system main, #94) beside the records; that read is not what is checked here.
+    expect(sent.filter(request => !request.includes('imported-history'))).toEqual(['GET /api/v1/auth/session', 'GET /api/v1/ehr/me/records', 'GET /api/v1/auth/session'])
     expect(shownRefusal).toBe(false)
   })
 })

@@ -126,9 +126,14 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
     identity: ['identity.me', 'identity.accessHistory', 'identity.accessPin', 'identity.verifyNin',
       'identity.accountDeletion', 'identity.accountDeletionConfirm', 'identity.accountDeletionCancel',
       'identity.emergencyContacts', 'identity.emergencyContact', 'identity.emergencyContactDeactivate',
-      'identity.emergencyContactVerification', 'identity.emergencyContactVerificationConfirm'],
+      'identity.emergencyContactVerification', 'identity.emergencyContactVerificationConfirm',
+      // The patient's choice to share imported history with staff (hid-system #94, ADR-067).
+      'identity.importedHistorySharing'],
     access: ['access.patientRequests', 'access.approve', 'access.deny', 'access.revokeMyGrant'],
-    ehr: ['ehr.myRecords', 'ehr.myImportedAttachment', 'ehr.patientChat', 'ehr.patientChatHistory', 'ehr.patientChatSource'],
+    // Imported history (#94) and patient record chat (#95, ADR-068) are patient-only routes.
+    ehr: ['ehr.myRecords', 'ehr.myImportedHistory', 'ehr.patientChatAvailability', 'ehr.patientChat', 'ehr.patientChatHistory',
+      // Served by hid-system's staging branches, not main; off unless the build turns the screens on.
+      'ehr.myImportedAttachment', 'ehr.patientChatSource'],
   },
   'staff-web': {
     // Staff sign-in is two steps since hid-system #71: the password, then an
@@ -152,7 +157,8 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       // The in-person check of facility-assisted registration (hid-system #85, ADR-063).
       'identity.assistedVerifications'],
     access: ['access.staffRequests', 'access.breakGlass', 'access.verifyPin', 'access.closeOwnGrant'],
-    ehr: ['ehr.staffPatientChat','ehr.staffPatientChatHistory','ehr.staffPatientChatSource','ehr.importedRecords', 'ehr.importedAttachment', 'ehr.emergencyRecords', 'ehr.encounters', 'ehr.encounter', 'ehr.vitals', 'ehr.vital',
+    ehr: ['ehr.importedHistory', 'ehr.staffPatientChat', 'ehr.staffPatientChatHistory', 'ehr.staffPatientChatSource',
+      'ehr.importedRecords', 'ehr.importedAttachment', 'ehr.emergencyRecords', 'ehr.encounters', 'ehr.encounter', 'ehr.vitals', 'ehr.vital',
       'ehr.vitalCorrections', 'ehr.notes', 'ehr.note', 'ehr.noteRevisions', 'ehr.diagnoses',
       'ehr.diagnosis', 'ehr.prescriptions', 'ehr.prescription', 'ehr.prescriptionPharmacy',
       'ehr.labRequests', 'ehr.labRequest', 'ehr.labRequestLabWorkItem'],
@@ -196,14 +202,14 @@ export function canUseService(app: HidApp, service: HidService): boolean {
  * time a user reaches an unusual screen.
  */
 export function assertEndpointAllowed(app: HidApp, endpointName: string): void {
-  if (['ehr.staffPatientChat','ehr.staffPatientChatHistory','ehr.staffPatientChatSource'].includes(endpointName) && !['staff-web','ehr-web'].includes(app)) {
+  if (['ehr.staffPatientChat', 'ehr.staffPatientChatHistory', 'ehr.staffPatientChatSource'].includes(endpointName) && !['staff-web', 'ehr-web'].includes(app)) {
     throw new BoundaryViolationError('Hospital record chat requires a provider patient context.')
   }
-  if ((endpointName === 'ehr.myImportedAttachment' && app !== 'patient-web')
-    || (['ehr.importedRecords', 'ehr.importedAttachment'].includes(endpointName) && !['staff-web', 'ehr-web'].includes(app))) {
+  if ((['ehr.myImportedHistory', 'ehr.myImportedAttachment', 'identity.importedHistorySharing'].includes(endpointName) && app !== 'patient-web')
+    || (['ehr.importedHistory', 'ehr.importedRecords', 'ehr.importedAttachment'].includes(endpointName) && !['staff-web', 'ehr-web'].includes(app))) {
     throw new BoundaryViolationError('Imported medical history is available only in its patient or provider context.')
   }
-  if (['ehr.patientChat','ehr.patientChatHistory','ehr.patientChatSource'].includes(endpointName) && app !== 'patient-web') {
+  if (['ehr.patientChatAvailability', 'ehr.patientChat', 'ehr.patientChatHistory', 'ehr.patientChatSource'].includes(endpointName) && app !== 'patient-web') {
     throw new BoundaryViolationError('Patient record chat is available only to the patient application.')
   }
   const descriptor = findEndpoint(endpointName)

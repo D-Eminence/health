@@ -86,7 +86,9 @@ describe('patient health records', () => {
       'No prescriptions are available.', 'No laboratory requests are available.', 'No clinical documents are available.']) {
       expect(screen.getByText(text)).toBeTruthy()
     }
-    expect(fetchImpl).toHaveBeenCalledOnce()
+    // The page also asks for imported history (hid-system main, #94), a read of its own; the records are read once.
+    expect((fetchImpl as unknown as { mock: { calls: Array<[RequestInfo | URL]> } }).mock.calls
+      .filter(([url]) => new URL(String(url)).pathname === '/api/v1/ehr/me/records')).toHaveLength(1)
   })
 
   /**

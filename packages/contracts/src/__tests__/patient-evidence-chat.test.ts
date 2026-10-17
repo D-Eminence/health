@@ -1,5 +1,5 @@
 import {expect,it} from 'vitest'
-import {parsePatientChat} from '../chat'
+import {parseStagingPatientChat as parsePatientChat} from '../stagingChat'
 const source={number:1,kind:'prescription',id:'22222222-2222-4222-8222-222222222222',version:'3',title:'Recorded prescription',recordedAt:'2026-10-01',effectiveAt:null,provenance:'Clinician prescription',quality:'active'}
 it('accepts typed references and declared gaps while stripping unexpected private source fields',()=>{
  const value=parsePatientChat({status:'ready',answer:'Recorded medicine [1].',sources:[{...source,hash:'private-binding'}],coverage:{complete:false,unavailable:['Lab service unavailable'],pendingDocuments:1,recordCount:3,selectedCount:1}})

@@ -49,8 +49,10 @@ function VersionContent({ version }: { version: ImportedRecordVersion }) {
   })}</div>
 }
 
-export function ImportedHistory({ records, limit, download, allowLocalHttp = false }: {
+export function ImportedHistory({ records, limit, download, allowLocalHttp = false, paged = false }: {
   records: ImportedMedicalRecord[]; limit: number
+  /** Read a page at a time (hid-system main): the footer counts what is shown rather than naming a limit. */
+  paged?: boolean
   download?: (fileId: string, signal: AbortSignal) => Promise<ImportedAttachmentDownload>
   allowLocalHttp?: boolean
 }) {
@@ -101,6 +103,6 @@ export function ImportedHistory({ records, limit, download, allowLocalHttp = fal
         </article>
       })}
     </div>}
-    {records.length > 0 && <p>Showing up to {limit} imported records, newest first.</p>}
+    {records.length > 0 && <p>{paged ? `Showing ${records.length} imported ${records.length === 1 ? 'record' : 'records'}, newest first.` : `Showing up to ${limit} imported records, newest first.`}</p>}
   </section>
 }
