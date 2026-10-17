@@ -134,11 +134,12 @@ describe('registration', () => {
     fireEvent.submit(caseId.closest('form')!)
     const reason = await screen.findByLabelText(/^Approval reason/)
     fireEvent.submit(reason.closest('form')!)
-    await waitFor(() => expectRefused(reason, 'Enter a review reason between 8 and 500 characters.'))
+    // A slow CI runner can take longer than waitFor's one second to show the refusal (main run 38983273017 failed here once).
+    await waitFor(() => expectRefused(reason, 'Enter a review reason between 8 and 500 characters.'), { timeout: 5000 })
 
     fireEvent.change(caseId, { target: { value: second } })
     fireEvent.submit(caseId.closest('form')!)
-    await screen.findByRole('heading', { name: `Case ${second}` })
+    await screen.findByRole('heading', { name: `Case ${second}` }, { timeout: 5000 })
     const next = screen.getByLabelText(/^Approval reason/)
     expect(next.getAttribute('aria-invalid')).toBeNull()
     expect(document.getElementById('registration-approve-reason-error')).toBeNull()

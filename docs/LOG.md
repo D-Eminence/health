@@ -2700,3 +2700,10 @@ into this branch (`ac3d7b1`), and the referral fixes sit on top of it.
   `VITE_HID_SUPPORT_CONTACT`. So patient chat and support chat are off in every
   portal build, staging included, whatever `config/staging.json` says. This
   fails closed; see OPEN-QUESTIONS.
+
+## 2026-10-17: main's CI flake, and hid-system's merges checked against Health-id
+
+- **CI on `main`.** The run for #69's merge (`cf99479`, run 38983273017) failed once, in `FieldProblemsPerForm.test.tsx` ("a refusal in one case's review form does not follow to the next case loaded"): a `waitFor` of the default one second, on a slow runner. The same test passed on #69's own run, and 6 of 6 times locally with the CPU loaded, so it is a timing limit, not a regression. Its two waits now allow five seconds.
+- **hid-system merged** #80, #83, #87, #88, #94 and #95 into `main` (`41542fc`). The clinician sign-up routes in Health-id's registry (17 applicant routes and 5 console routes) match the backend's controllers by method and path. Record chat and imported history are served under a different contract from the one #61 was built for; OPEN-QUESTIONS has the differences.
+- Not run: a browser, a live Identity, and the staging pipeline's builds on this change.
+
