@@ -29,7 +29,9 @@
  * these (buildConfig.test.ts).
  */
 export function importedRecordsEnabled(): boolean {
-  return import.meta.env.VITE_HID_IMPORTED_RECORDS_ENABLED === 'true'
+  // New release builds use HISTORY to avoid the public guard's RDS_ fragment match.
+  return import.meta.env.VITE_HID_IMPORTED_HISTORY_ENABLED === 'true'
+    || import.meta.env.VITE_HID_IMPORTED_RECORDS_ENABLED === 'true'
 }
 
 export function staffPatientChatEnabled(): boolean {

@@ -84,7 +84,7 @@ describe('a chart built for hid-system main (no flags set)', () => {
 describe('a chart built for a backend that serves them (flags set to true)', () => {
   it('production Novu chart uses its existing read permission, imported records and scoped chat history', async () => {
     vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
-    vi.stubEnv('VITE_HID_IMPORTED_RECORDS_ENABLED', 'true')
+    vi.stubEnv('VITE_HID_IMPORTED_HISTORY_ENABLED', 'true')
     vi.stubEnv('VITE_HID_STAFF_PATIENT_CHAT_ENABLED', 'true')
     fixture.permissions = ['ehr.encounter.read', 'ehr.note.read', 'ehr.document.read']
     await openChart()

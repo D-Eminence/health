@@ -41,7 +41,7 @@ def main(environment='staging'):
                     'NEXT_TELEMETRY_DISABLED': '1'})
         if not public:
             env[prefix + 'BACKEND_CONTRACT'] = config.get('backend_contract', 'main-v1')
-            env[prefix + 'IMPORTED_RECORDS_ENABLED'] = str(config.get('backend_contract') == 'novu-v1' and app == 'ehr').lower()
+            env[prefix + 'IMPORTED_HISTORY_ENABLED'] = str(config.get('backend_contract') == 'novu-v1' and app == 'ehr').lower()
             env[prefix + 'STAFF_PATIENT_CHAT_ENABLED'] = str(config.get('backend_contract') == 'novu-v1' and app == 'ehr').lower()
         if public:
             env[prefix + 'PORTAL_ORIGIN'] = config['portal_origin']
