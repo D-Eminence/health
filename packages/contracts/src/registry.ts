@@ -52,6 +52,8 @@ const one = (method: EndpointMethod, ...permissions: string[]): Partial<Record<E
  */
 const NOT_ON_MAIN = 'Served by a hid-system staging branch; not served by hid-system main (41542fc).'
 const CHAT_NOTE = `${NOT_ON_MAIN} The screen is off unless the build turns it on.`
+const STAFF_CHAT_NOTE = 'Staff sessions holding ehr.record-chat.use, for direct care only (X-Purpose-Of-Use: direct-care, never break-glass). '
+  + 'Off by default in hid-system (ADR-069, 0101): 503 RECORD_CHAT_DISABLED until RECORD_CHAT_STAFF_ENABLED and the platform control are on.'
 const RECORD_CHAT_NOTE = 'Patient sessions only (403 PATIENT_SESSION_REQUIRED otherwise). Off by default in hid-system '
   + '(ADR-068, 0100): 503 RECORD_CHAT_DISABLED until the flag and the platform control are on.'
 
@@ -63,8 +65,13 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     `${RECORD_CHAT_NOTE} Needs Idempotency-Key (16 to 128 URL-safe characters) and { question (1 to 1000), noticeVersion } `
     + 'taken from availability (428 CHAT_NOTICE_REQUIRED otherwise).'),
   proposed(r('ehr.patientChatSource','ehr','/api/v1/ehr/me/chat/sources/:kind/:sourceId',G,false,undefined,CHAT_NOTE)),
-  proposed(r('ehr.staffPatientChat','ehr','/api/v1/ehr/patients/:patientId/chat',P,false,one('POST','ehr.note.read'),CHAT_NOTE)),
-  proposed(r('ehr.staffPatientChatHistory','ehr','/api/v1/ehr/patients/:patientId/chat/history',['GET','DELETE'],false,{GET:['ehr.note.read'],DELETE:['ehr.note.read']},CHAT_NOTE)),
+  r('ehr.staffPatientChatAvailability','ehr','/api/v1/ehr/patients/:patientId/chat/availability',G,false,one('GET','ehr.record-chat.use'),
+    `${STAFF_CHAT_NOTE} 200 { available: false } while off; otherwise names the categories this member's permissions let chat read (released) and the rest (withheld, Lab always among them). No model call.`),
+  r('ehr.staffPatientChat','ehr','/api/v1/ehr/patients/:patientId/chat',P,false,one('POST','ehr.record-chat.use'),
+    `${STAFF_CHAT_NOTE} Needs Idempotency-Key (16 to 128 URL-safe characters) and { question (1 to 1000), noticeVersion } taken from availability (428 CHAT_NOTICE_REQUIRED otherwise). 403 CONSENT_REQUIRED without a standard consent, 403 BREAK_GLASS_EXCLUDED under break-glass.`),
+  r('ehr.staffPatientChatHistory','ehr','/api/v1/ehr/patients/:patientId/chat/history',['GET','DELETE'],false,
+    {GET:['ehr.record-chat.use'],DELETE:['ehr.record-chat.use']},
+    `${STAFF_CHAT_NOTE} The asking member's own exchanges only; available while chat is off. DELETE answers 200 { cleared, deletedCount }, or 409 CHAT_HISTORY_ON_HOLD.`),
   proposed(r('ehr.staffPatientChatSource','ehr','/api/v1/ehr/patients/:patientId/chat/sources/:kind/:sourceId',G,false,one('GET','ehr.note.read'),CHAT_NOTE)),
   r('ehr.patientChatHistory','ehr','/api/v1/ehr/me/chat/history',['GET','DELETE'],false,undefined,
     'Patient sessions only; available while chat is off. Newest first, at most 50. DELETE answers 200 { cleared, deletedCount }, '

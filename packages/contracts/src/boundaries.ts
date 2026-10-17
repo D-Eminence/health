@@ -157,7 +157,7 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       // The in-person check of facility-assisted registration (hid-system #85, ADR-063).
       'identity.assistedVerifications'],
     access: ['access.staffRequests', 'access.breakGlass', 'access.verifyPin', 'access.closeOwnGrant'],
-    ehr: ['ehr.importedHistory', 'ehr.staffPatientChat', 'ehr.staffPatientChatHistory', 'ehr.staffPatientChatSource',
+    ehr: ['ehr.importedHistory', 'ehr.staffPatientChatAvailability', 'ehr.staffPatientChat', 'ehr.staffPatientChatHistory', 'ehr.staffPatientChatSource',
       'ehr.importedRecords', 'ehr.importedAttachment', 'ehr.emergencyRecords', 'ehr.encounters', 'ehr.encounter', 'ehr.vitals', 'ehr.vital',
       'ehr.vitalCorrections', 'ehr.notes', 'ehr.note', 'ehr.noteRevisions', 'ehr.diagnoses',
       'ehr.diagnosis', 'ehr.prescriptions', 'ehr.prescription', 'ehr.prescriptionPharmacy',
@@ -202,8 +202,8 @@ export function canUseService(app: HidApp, service: HidService): boolean {
  * time a user reaches an unusual screen.
  */
 export function assertEndpointAllowed(app: HidApp, endpointName: string): void {
-  if (['ehr.staffPatientChat', 'ehr.staffPatientChatHistory', 'ehr.staffPatientChatSource'].includes(endpointName) && !['staff-web', 'ehr-web'].includes(app)) {
-    throw new BoundaryViolationError('Hospital record chat requires a provider patient context.')
+  if (['ehr.staffPatientChatAvailability', 'ehr.staffPatientChat', 'ehr.staffPatientChatHistory', 'ehr.staffPatientChatSource'].includes(endpointName) && !['staff-web', 'ehr-web'].includes(app)) {
+    throw new BoundaryViolationError('Staff record chat requires a provider patient context.')
   }
   if ((['ehr.myImportedHistory', 'ehr.myImportedAttachment', 'identity.importedHistorySharing'].includes(endpointName) && app !== 'patient-web')
     || (['ehr.importedHistory', 'ehr.importedRecords', 'ehr.importedAttachment'].includes(endpointName) && !['staff-web', 'ehr-web'].includes(app))) {

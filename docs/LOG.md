@@ -2717,3 +2717,10 @@ into this branch (`ac3d7b1`), and the referral fixes sit on top of it.
 - **Tests.** About 70 new cases (`Chat`, `ImportedHistoryServed`, `publicEnvironment`, `patient-record-chat`) and updated ones; the old chat test is kept as `StagingChat.test.tsx`.
 - **Not verified.** No browser run and no live backend; the chat notice text is a draft for the owner or DPO.
 
+## 2026-10-17: staff "Ask about this patient" follows hid-system main (ADR-069)
+
+- **Why.** hid-system main now serves it (0101), on the record chat module of #95; the staging branch's embedding design was not ported. Health-id's chart used the staging contract (`ready | preparing`, no notice, no key).
+- **Change.** `StaffRecordChat` and its API calls (`recordChatAvailability`, `recordChat`, `recordChatHistory`, `clearRecordChatHistory`), a clinician notice draft, `staffAskFailure` and `staffClearFailure`, and the chart gate (`ehr.record-chat.use`, direct care). The registry marks three routes served; availability may carry `withheld`. The old screen is kept as `StagingStaffPatientChat` with its test, unmounted. Nothing was deleted.
+- **Tests.** About 40 new cases (component, API, contract and registry, chart gating).
+- **Not verified.** No browser run and no live backend; the notice text is a draft.
+

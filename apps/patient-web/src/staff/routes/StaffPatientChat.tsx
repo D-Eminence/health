@@ -1,34 +1,30 @@
-import { useMemo, useState } from 'react'
-import { isHidApiError } from '@hid/http'
-import { StagingChatConversation, type StagingChatConversationApi } from '../../routes/StagingChat'
+import { useCallback, useMemo, useState } from 'react'
+import { StaffRecordChat, type StaffRecordChatApi } from './StaffRecordChat'
 import { staffApi } from '../api'
 
-/** The caller keys this component by actor/membership/facility/patient/purpose. */
+/**
+ * "Ask about this patient" on a patient's chart (hid-system ADR-069, 0101). The caller keys this component by
+ * actor/membership/facility/patient/purpose, and mounts it only for a member who holds `ehr.record-chat.use`.
+ * It is for direct care: when Identity ends or changes the member's access to the patient (consent withdrawn, a
+ * session that ended, break-glass), the assistant closes and says so.
+ */
 export function StaffPatientChat({facilityId,facilityName,patientId,patientName,hid}:{
   facilityId:string;facilityName:string;patientId:string;patientName:string;hid:string
 }) {
   const [open,setOpen]=useState(false)
   const [denied,setDenied]=useState(false)
-  const api=useMemo<StagingChatConversationApi>(()=>{
-    const protect=async<T,>(operation:Promise<T>):Promise<T>=>{
-      try{return await operation}
-      catch(error){
-        if(isHidApiError(error)&&([401,403].includes(error.status)||error.code==='CHAT_ACCESS_CHANGED'))setDenied(true)
-        throw error
-      }
-    }
-    return {
-      chat:(question,options)=>protect(staffApi.patientChat(facilityId,patientId,question,options?.signal)),
-      chatHistory:signal=>protect(staffApi.patientChatHistory(facilityId,patientId,signal)),
-      clearChatHistory:signal=>protect(staffApi.clearPatientChatHistory(facilityId,patientId,signal)),
-      chatSource:(kind,id,signal)=>protect(staffApi.patientChatSource(facilityId,patientId,kind,id,signal)),
-    }
-  },[facilityId,patientId])
+  const onAccessEnded=useCallback(()=>setDenied(true),[])
+  const api=useMemo<StaffRecordChatApi>(()=>({
+    availability:signal=>staffApi.recordChatAvailability(facilityId,patientId,signal),
+    ask:(question,ask,options)=>staffApi.recordChat(facilityId,patientId,question,ask,options?.signal),
+    history:signal=>staffApi.recordChatHistory(facilityId,patientId,signal),
+    clear:signal=>staffApi.clearRecordChatHistory(facilityId,patientId,signal),
+  }),[facilityId,patientId])
   return <section className="staff-patient-chat" aria-label={`Record assistant for ${patientName}`}>
     <button type="button" className="record-chat-reset" aria-expanded={open} onClick={()=>setOpen(value=>!value)}>
       {open?'Close patient assistant':'Ask about this patient'}
     </button>
     {open&&(denied?<p role="alert">Patient access has ended or changed. Reopen the patient through governed access.</p>
-      :<StagingChatConversation api={api} staff={{patientName,hid,facilityName}} />)}
+      :<StaffRecordChat api={api} patientName={patientName} hid={hid} facilityName={facilityName} onAccessEnded={onAccessEnded} />)}
   </section>
 }

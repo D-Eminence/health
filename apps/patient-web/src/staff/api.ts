@@ -1,4 +1,5 @@
-import { stagingChatQuestion, parseStagingPatientChat, parseStagingChatHistory } from '@hid/contracts'
+import { stagingChatQuestion, parseStagingPatientChat, parseStagingChatHistory, chatQuestion, parsePatientChat,
+  parsePatientChatAvailability, parsePatientChatHistory, parsePatientChatCleared } from '@hid/contracts'
 import { parseImportedHistory, type ImportedRecordsResponse, type ImportedAttachmentDownload, type ImportedHistoryPage } from '../importedRecords'
 import { createApiClient, HidApiError, isHidApiError, uploadPresignedObject, type ApiClient, type RequestSpec } from '@hid/http'
 import { createRegisteredBrowserClient } from '@hid/api'
@@ -1162,6 +1163,25 @@ export const staffApi = {
   clearPatientChatHistory: (facilityId:string,patientId:string,signal?:AbortSignal) =>
     client.request<{cleared:true}>({method:'DELETE',path:`/api/v1/ehr/patients/${encodeURIComponent(patientId)}/chat/history`,
       headers:facilityHeaders(facilityId),signal}),
+  // Staff record chat as hid-system main serves it (ADR-069, 0101): direct care only, one patient at the selected
+  // facility, the asking member's own history. `/chat/sources/...` is not served, so a source is not opened.
+  recordChatAvailability: async (facilityId: string, patientId: string, signal?: AbortSignal) =>
+    parsePatientChatAvailability(await client.get<unknown>(`/api/v1/ehr/patients/${encodeURIComponent(patientId)}/chat/availability`,
+      { headers: facilityHeaders(facilityId, 'direct-care'), signal, dedupe: false })),
+  // One question. The key makes a retry of the same question answer the stored reply; the service's own deadline
+  // is 25 seconds, so the client waits a little longer than that.
+  recordChat: async (facilityId: string, patientId: string, question: string,
+    ask: { noticeVersion: string; idempotencyKey: string; maxQuestionLength?: number }, signal?: AbortSignal) =>
+    parsePatientChat(await client.post<unknown>(`/api/v1/ehr/patients/${encodeURIComponent(patientId)}/chat`,
+      { question: chatQuestion(question, ask.maxQuestionLength ?? 1000), noticeVersion: ask.noticeVersion },
+      { headers: { ...facilityHeaders(facilityId, 'direct-care'), 'Idempotency-Key': ask.idempotencyKey }, signal, timeoutMs: 35_000 })),
+  recordChatHistory: async (facilityId: string, patientId: string, signal?: AbortSignal) =>
+    parsePatientChatHistory(await client.get<unknown>(`/api/v1/ehr/patients/${encodeURIComponent(patientId)}/chat/history`,
+      { headers: facilityHeaders(facilityId, 'direct-care'), signal, dedupe: false })),
+  clearRecordChatHistory: async (facilityId: string, patientId: string, signal?: AbortSignal) =>
+    parsePatientChatCleared(await client.request<unknown>({ method: 'DELETE',
+      path: `/api/v1/ehr/patients/${encodeURIComponent(patientId)}/chat/history`,
+      headers: facilityHeaders(facilityId, 'direct-care'), signal })),
   patientChatSource: (facilityId:string,patientId:string,kind:string,id:string,signal?:AbortSignal) =>
     client.get<Record<string,unknown>>(`/api/v1/ehr/patients/${encodeURIComponent(patientId)}/chat/sources/${encodeURIComponent(kind)}/${encodeURIComponent(id)}`,
       {headers:facilityHeaders(facilityId),signal,dedupe:false}),

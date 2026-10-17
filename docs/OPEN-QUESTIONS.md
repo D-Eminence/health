@@ -330,7 +330,7 @@ and the open #68 left. Checked against hid-system `main` `51047e2` (and
 hid-system `main` `41542fc` merged #94 (0099, ADR-067) and #95 (0100, ADR-068). Both cover what Health-id's staging chain (#61) was built for, but not on its routes or shapes, so neither feature works against `main` as built:
 
 - **Patient record chat (#95).** Served at `GET /ehr/me/chat/availability`, `POST /ehr/me/chat`, `GET` and `DELETE /ehr/me/chat/history`. Not served: `.../chat/sources/:kind/:id`. The question needs `noticeVersion` (taken from availability; `428 CHAT_NOTICE_REQUIRED` otherwise) and an `Idempotency-Key`, up to 1000 characters (Health-id sends 500). An answer is `status` `answered | no_evidence | declined | unverified` with `blocks` and `sources`, not Health-id's `ready | preparing`. History is `{ conversationId, exchanges: [{ messageId, question, reply }], limit }`. It is off by default (`503 RECORD_CHAT_DISABLED`). Health-id's patient chat is off in every portal build today (see the 2026-10-16 entry), so nothing breaks; turning it on needs a client for this contract: the notice acknowledgement, availability, the idempotency key and the new answer shape.
-- **Staff "Ask about this patient"** has no route in hid-system `main`: #95 is patient-only. It stays off (`VITE_HID_STAFF_PATIENT_CHAT_ENABLED`).
+- **Staff "Ask about this patient"** is served by hid-system `main` since ADR-069 (migration 0101, a separate change from #95, which is patient-only): `GET .../chat/availability`, `POST .../chat`, `GET` and `DELETE .../chat/history` under `/ehr/patients/:patientId/chat`, for staff holding `ehr.record-chat.use`, direct care only, never break-glass, off by default (`RECORD_CHAT_STAFF_ENABLED`). Health-id follows it (see "Staff chat" below). `/chat/sources/...` is not served.
 - **Imported history (#94).** Served at `GET /ehr/me/imported-history` and `GET /ehr/patients/:patientId/imported-history`, with the patient's sharing choice at `GET` and `POST /identity/me/imported-history-sharing`, not Health-id's `/imported-records` and attachment-download routes. Its flag stays off until the chart and the patient records page move to it.
 - **Decision (2026-10-17): built.** Health-id now follows `main`'s contract for both; see "What Health-id now does" below. The hospital chat and the staging-only routes were kept, not removed, because hid-system's staging branches serve them.
 
@@ -346,4 +346,20 @@ hid-system `main` `41542fc` merged #94 (0099, ADR-067) and #95 (0100, ADR-068). 
 | Chat notice wording | `chatNotice.ts` holds draft wording and a version. `noticeVersion` must match what hid-system has recorded, or a question answers `428 CHAT_NOTICE_REQUIRED`; availability supplies the version, so the screen shows the draft text only. | Owner or DPO: confirm the wording (what is sent, that answers are generated, that they are not medical advice, retention and deletion). |
 | Not run against a real backend | The behaviour was tested against fixtures written from `INTERFACE_CONTRACT.md` and the controllers, not a live hid-system. | Run both features against a staging backend with `RECORD_CHAT_*` and imported-history sharing turned on. |
 | Source viewer | `GET /ehr/me/chat/sources/:kind/:id` is not served by `main`. Sources are listed by title and date, not opened. | hid-system: serve it, or confirm that it is not planned. |
+
+## Staff chat follows hid-system main (ADR-069, 0101) (2026-10-17)
+
+hid-system now serves staff "Ask about this patient" on `main`, rebuilt on #95's record chat module (not the staging branch's embedding design, which the owner did not approve). Health-id's chart now uses it.
+
+**What Health-id now does (branch `claude/staff-record-chat`).**
+
+- The chart offers the assistant only when the build sets `VITE_HID_STAFF_PATIENT_CHAT_ENABLED` to `true`, the member holds `ehr.record-chat.use` (not `ehr.note.read`) and the open patient is a direct-care one (never an emergency one).
+- `StaffRecordChat` asks `GET /ehr/patients/:patientId/chat/availability` first (nothing to ask while it answers `available: false`), shows a clinician notice before the first question, sends `noticeVersion` and an `Idempotency-Key` (reused on a retry of the same question), shows `answered | no_evidence | declined | unverified` answers as blocks with references and coverage (`ChatAnswer`), and lists, and deletes, the member's own history of this patient (`409 CHAT_HISTORY_ON_HOLD` explained). It says which categories this member may read and which are withheld (Lab always). Refusals that mean access ended (`403 CONSENT_REQUIRED`, `BREAK_GLASS_EXCLUDED`, a lost session) close the assistant.
+- Registry: `ehr.staffPatientChatAvailability`, `ehr.staffPatientChat` and `ehr.staffPatientChatHistory` are `surface-verified` with `ehr.record-chat.use`; `ehr.staffPatientChatSource` stays `proposed` (not served). The staging screen and contract (`StagingStaffPatientChat`, `Staging*`) are kept, unmounted.
+
+| Item | Current evidence | Needed to close |
+| --- | --- | --- |
+| Clinician notice wording | `staffChatNotice.ts` is draft wording; availability supplies the version. A clinician's acknowledgement may not be a lawful basis (hid-system P40 (3)). | Owner or DPO: confirm the wording and the basis. |
+| Not run against a real backend | Tested against fixtures written from `INTERFACE_CONTRACT.md` "Staff record chat" and the controller, not a live hid-system. | Run the screen against staging with `RECORD_CHAT_STAFF_ENABLED` on (hid-system S4ac). |
+| Staff quotas | Messages name hid-system's proposed 20 an hour and 100 a day; the owner may change them. | Owner: confirm, then keep the message in step. |
 
