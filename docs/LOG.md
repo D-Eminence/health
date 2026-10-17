@@ -2707,3 +2707,13 @@ into this branch (`ac3d7b1`), and the referral fixes sit on top of it.
 - **hid-system merged** #80, #83, #87, #88, #94 and #95 into `main` (`41542fc`). The clinician sign-up routes in Health-id's registry (17 applicant routes and 5 console routes) match the backend's controllers by method and path. Record chat and imported history are served under a different contract from the one #61 was built for; OPEN-QUESTIONS has the differences.
 - Not run: a browser, a live Identity, and the staging pipeline's builds on this change.
 
+## 2026-10-17: patient record chat and imported history follow hid-system main
+
+- **Why.** hid-system `main` serves both under different routes and shapes from the staging branches #61 was built for (#94, ADR-067, 0099; #95, ADR-068, 0100). The earlier entry records the differences.
+- **Chat.** New contract and client for availability, the notice, the idempotency key, the four answer statuses with blocks, sources and coverage, and history (read, clear). New screen pieces `ChatAnswer`, `chatErrors` and `chatNotice`. The old chat contract moved to `stagingChat.ts` and its screen to `StagingChat.tsx`, unchanged, for the hospital chat. Nothing was deleted.
+- **Imported history.** Paged patient and staff reads, the patient's sharing choice, and a staff view mounted for `ehr.imported-history.read` under direct care. The old `/imported-records` parser and attachment code stay for the staging routes.
+- **Registry and boundaries.** Six served routes are `surface-verified`; the staging-only routes stay `proposed`, with a note that they are served by hid-system staging branches and not `main` (`41542fc`).
+- **Flags.** `VITE_HID_PATIENT_CHAT_ENABLED` is now read.
+- **Tests.** About 70 new cases (`Chat`, `ImportedHistoryServed`, `publicEnvironment`, `patient-record-chat`) and updated ones; the old chat test is kept as `StagingChat.test.tsx`.
+- **Not verified.** No browser run and no live backend; the chat notice text is a draft for the owner or DPO.
+
