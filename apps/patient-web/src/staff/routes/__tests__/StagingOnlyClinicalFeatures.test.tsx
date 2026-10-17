@@ -16,7 +16,11 @@ import { historyFixture } from '../../../__tests__/importedHistoryFixture'
  */
 const fixture = vi.hoisted(() => ({
   patient: { authorization: { decision: 'allow' }, patient: { patientId: 'patient-a', hid: 'HID-TEST', fullName: 'Test patient' } },
-  api: { lookupPatient: vi.fn(), encounters: vi.fn(), consentStatus: vi.fn(), importedRecords: vi.fn(), patientChatHistory: vi.fn() },
+  api: { lookupPatient: vi.fn(), encounters: vi.fn(), consentStatus: vi.fn(), importedRecords: vi.fn(), patientChatHistory: vi.fn(),
+    recordChatAvailability: vi.fn(), recordChatHistory: vi.fn() },
+  // The member's permissions and the purpose of the open patient, which a test may change.
+  permissions: ['ehr.encounter.read', 'ehr.note.read', 'ehr.document.read', 'ehr.record-chat.use'],
+  purpose: 'direct-care',
 }))
 vi.mock('../../api', () => ({ staffApi: fixture.api,
   isAllowedPatientLookup: (value: { authorization: { decision: string } }) => value.authorization.decision === 'allow',
@@ -25,9 +29,9 @@ vi.mock('../../env', () => ({ getEnvironment: () => ({ name: 'production' }) }))
 vi.mock('../../App', () => ({ useStaff: () => ({
   state: { status: 'ready', session: { actor: { id: 'staff-a', facility: {
     id: 'facility-a', name: 'Test facility',
-    permissions: ['ehr.encounter.read', 'ehr.note.read', 'ehr.document.read'],
+    permissions: fixture.permissions,
   } } } },
-  activePatient: { hid: 'HID-TEST', purpose: 'direct-care', lookup: fixture.patient },
+  activePatient: { hid: 'HID-TEST', purpose: fixture.purpose, lookup: fixture.patient },
   setActivePatient: vi.fn(),
 }) }))
 
@@ -38,6 +42,10 @@ beforeEach(() => {
   fixture.api.consentStatus.mockResolvedValue({ readAllowed: true, writeAllowed: false })
   fixture.api.importedRecords.mockResolvedValue({ importedRecords: historyFixture, limit: 50 })
   fixture.api.patientChatHistory.mockResolvedValue({ exchanges: [], retentionDays: 30, limit: 10 })
+  fixture.api.recordChatAvailability.mockResolvedValue({ available: true, noticeVersion: 'n-1', historyLimit: 50, maxQuestionLength: 1000, released: ['notes'] })
+  fixture.api.recordChatHistory.mockResolvedValue({ conversationId: null, exchanges: [], limit: 50 })
+  fixture.permissions = ['ehr.encounter.read', 'ehr.note.read', 'ehr.document.read', 'ehr.record-chat.use']
+  fixture.purpose = 'direct-care'
 })
 afterEach(() => { vi.unstubAllEnvs() })
 
@@ -55,11 +63,13 @@ describe('a chart built for hid-system main (no flags set)', () => {
     expect(screen.queryByText('Loading imported medical history…')).toBeNull()
   })
 
-  it('offers no patient assistant, whose routes main does not serve', async () => {
+  it('offers no patient assistant while the build leaves its flag off', async () => {
     await openChart()
     expect(screen.queryByRole('button', { name: 'Ask about this patient' })).toBeNull()
     expect(screen.queryByRole('region', { name: /Record assistant/ })).toBeNull()
     expect(fixture.api.patientChatHistory).not.toHaveBeenCalled()
+    expect(fixture.api.recordChatAvailability).not.toHaveBeenCalled()
+    expect(fixture.api.recordChatHistory).not.toHaveBeenCalled()
   })
 
   it.each(['false', '1', 'yes', ''])('keeps both off for a flag value of %j', async value => {
@@ -85,7 +95,27 @@ describe('a chart built for a backend that serves them (flags set to true)', () 
     await openChart()
     fireEvent.click(screen.getByRole('button', { name: 'Ask about this patient' }))
     await screen.findByLabelText('Your question')
-    expect(fixture.api.patientChatHistory).toHaveBeenCalledWith('facility-a', 'patient-a', expect.any(AbortSignal))
+    // The served contract (ADR-069): availability and the member's own history, never the staging branch's routes.
+    expect(fixture.api.recordChatAvailability).toHaveBeenCalledWith('facility-a', 'patient-a', expect.any(AbortSignal))
+    expect(fixture.api.recordChatHistory).toHaveBeenCalledWith('facility-a', 'patient-a', expect.any(AbortSignal))
+    expect(fixture.api.patientChatHistory).not.toHaveBeenCalled()
     expect(fixture.api.importedRecords).not.toHaveBeenCalled()
+  })
+
+  it('offers it only to a member holding ehr.record-chat.use, for direct care', async () => {
+    vi.stubEnv('VITE_HID_STAFF_PATIENT_CHAT_ENABLED', 'true')
+    fixture.permissions = ['ehr.encounter.read', 'ehr.note.read', 'ehr.document.read']
+    await openChart()
+    expect(screen.queryByRole('button', { name: 'Ask about this patient' })).toBeNull()
+  })
+
+  it('offers it for no other purpose than direct care (never under break-glass)', async () => {
+    vi.stubEnv('VITE_HID_STAFF_PATIENT_CHAT_ENABLED', 'true')
+    fixture.purpose = 'emergency'
+    // An emergency chart is not the direct-care chart; give it time to settle, then look for the assistant.
+    render(<MemoryRouter><Clinical /></MemoryRouter>)
+    await new Promise(resolve => setTimeout(resolve, 100))
+    expect(screen.queryByRole('button', { name: 'Ask about this patient' })).toBeNull()
+    expect(fixture.api.recordChatAvailability).not.toHaveBeenCalled()
   })
 })

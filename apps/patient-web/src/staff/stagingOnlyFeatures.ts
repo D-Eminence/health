@@ -5,9 +5,16 @@
  * - imported medical history: GET /ehr/patients/:patientId/imported-records and
  *   GET /ehr/patients/:patientId/imported-attachments/:fileId/download
  *   (hid-system `staging`);
- * - "Ask about this patient": POST /ehr/patients/:patientId/chat, GET and
- *   DELETE .../chat/history, GET .../chat/sources/:kind/:sourceId (hid-system
- *   `staging-novu-ci-20261005` only).
+ * - "Ask about this patient"'s source viewer: GET
+ *   /ehr/patients/:patientId/chat/sources/:kind/:sourceId (hid-system
+ *   `staging-novu-ci-20261005` only; main does not serve it).
+ *
+ * "Ask about this patient" itself is served by main since ADR-069 (0101):
+ * POST /ehr/patients/:patientId/chat, GET .../chat/availability and GET and
+ * DELETE .../chat/history, for staff holding ehr.record-chat.use, for direct
+ * care, off by default in hid-system. Its screen (StaffRecordChat) stays off
+ * unless the build sets VITE_HID_STAFF_PATIENT_CHAT_ENABLED to "true", which is
+ * set only for a backend that has turned the feature on.
  *
  * On main, ehr-api answers each with 404 NOT_FOUND, which reached every chart
  * as "Cannot GET /api/v1/ehr/patients/…" in an alert. hid-system main 221ddbf

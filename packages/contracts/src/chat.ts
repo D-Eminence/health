@@ -79,6 +79,8 @@ export type PatientChatAvailability =
     maxQuestionLength: number
     /** The record categories chat may read now. */
     released: string[]
+    /** Staff chat only (ADR-069): the categories it does not read for this member, Lab always among them. */
+    withheld?: string[]
   }
 
 const object = (value: unknown): value is Record<string, unknown> =>
@@ -181,9 +183,13 @@ export function parsePatientChatAvailability(value: unknown): PatientChatAvailab
   if (!value.available) return { available: false }
   if (!text(value.noticeVersion, 40) || !Number.isSafeInteger(value.historyLimit) || Number(value.historyLimit) < 1
     || !Number.isSafeInteger(value.maxQuestionLength) || Number(value.maxQuestionLength) < 1
-    || !Array.isArray(value.released) || !value.released.every(item => text(item, 100))) throw invalid('availability')
+    || !Array.isArray(value.released) || !value.released.every(item => text(item, 100))
+    || (value.withheld !== undefined && (!Array.isArray(value.withheld) || !value.withheld.every(item => text(item, 100))))) {
+    throw invalid('availability')
+  }
   return { available: true, noticeVersion: value.noticeVersion, historyLimit: Number(value.historyLimit),
-    maxQuestionLength: Number(value.maxQuestionLength), released: value.released as string[] }
+    maxQuestionLength: Number(value.maxQuestionLength), released: value.released as string[],
+    ...(value.withheld !== undefined ? { withheld: value.withheld as string[] } : {}) }
 }
 
 export function parsePatientChatHistory(value: unknown): PatientChatHistory {

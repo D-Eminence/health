@@ -1526,7 +1526,7 @@ export function Clinical() {
     {permissions.includes('ehr.imported-history.read') && activePatient.purpose === 'direct-care' && <StaffImportedHistory
       key={JSON.stringify([state.status === 'ready' ? state.session.actor.id : '', facility.id, patientId, activePatient.purpose, permissions])}
       facilityId={facility.id} patientId={patientId!} />}
-    {permissions.includes('ehr.note.read') && staffPatientChatEnabled() && <StaffPatientChat
+    {permissions.includes('ehr.record-chat.use') && activePatient.purpose === 'direct-care' && staffPatientChatEnabled() && <StaffPatientChat
       key={JSON.stringify([state.status==='ready'?state.session.actor.id:'',facility.id,facility.membershipId,patientId,activePatient.purpose,permissions])}
       facilityId={facility.id} facilityName={facility.name} patientId={patientId!}
       patientName={activePatient.lookup.patient.fullName??activePatient.hid} hid={activePatient.hid} />}

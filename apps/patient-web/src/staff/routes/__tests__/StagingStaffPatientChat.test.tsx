@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { StaffPatientChat } from '../StaffPatientChat'
+import { StagingStaffPatientChat as StaffPatientChat } from '../StagingStaffPatientChat'
 import { HidApiError } from '@hid/http'
 const api=vi.hoisted(()=>({patientChat:vi.fn(),patientChatHistory:vi.fn(),clearPatientChatHistory:vi.fn(),patientChatSource:vi.fn()}))
 vi.mock('../../api',()=>({staffApi:api}))
