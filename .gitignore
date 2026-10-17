@@ -33,3 +33,6 @@ hid-preview*.html
 play_around
 play_around*
 /play around/
+
+# Generated production approval report; never a source input.
+/release/
