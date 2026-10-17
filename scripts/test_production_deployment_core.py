@@ -43,6 +43,17 @@ class CoreTests(unittest.TestCase):
                 'GITHUB_SHA':'a'*40,'GITHUB_RUN_ID':'42','GITHUB_RUN_ATTEMPT':'1',field:value}
             with self.assertRaises(c.ReleaseError): c.context('backend',env)
 
+    def test_production_uses_exact_novu_backend_and_main_frontend_branches(self):
+        self.assertEqual(ctx('backend')['branch'], 'staging-novu-ci-20261005')
+        self.assertEqual(ctx('frontend')['branch'], 'main')
+        for kind, bad in [('backend', 'main'), ('backend', 'staging'), ('frontend', 'staging-novu-ci-20261005')]:
+            target=c.TARGETS[kind]
+            env={'GITHUB_ACTIONS':'true','GITHUB_REPOSITORY':target['repo'],
+                'GITHUB_REPOSITORY_ID':target['id'],'GITHUB_REPOSITORY_OWNER_ID':c.OWNER_ID,
+                'GITHUB_REF':'refs/heads/'+bad,'GITHUB_EVENT_NAME':'push',
+                'GITHUB_SHA':'a'*40,'GITHUB_RUN_ID':'42','GITHUB_RUN_ATTEMPT':'1'}
+            with self.assertRaisesRegex(c.ReleaseError, 'UNTRUSTED_BRANCH'): c.context(kind,env)
+
     def test_candidate_bound_to_artifacts_run_and_expiry(self):
         value=self.candidate(); c.validate_candidate(value,ctx())
         for bad in [dict(value,run_id='43'),dict(value,evidence={}),dict(value,checks={'select':'skipped'})]:

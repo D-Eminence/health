@@ -23,7 +23,7 @@ CLUSTER = "hid-staging"
 OWNER_ID = "182018869"
 TARGETS = {
     "backend": {"repo": "D-Eminence/hid-system", "id": "1317340803",
-                "branch": "main", "environment": "production-backend"},
+                "branch": "staging-novu-ci-20261005", "environment": "production-backend"},
     "frontend": {"repo": "D-Eminence/Health-id", "id": "1396718647",
                  "branch": "main", "environment": "production-frontend"},
 }

@@ -82,6 +82,21 @@ describe('a chart built for hid-system main (no flags set)', () => {
 })
 
 describe('a chart built for a backend that serves them (flags set to true)', () => {
+  it('production Novu chart uses its existing read permission, imported records and scoped chat history', async () => {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
+    vi.stubEnv('VITE_HID_IMPORTED_RECORDS_ENABLED', 'true')
+    vi.stubEnv('VITE_HID_STAFF_PATIENT_CHAT_ENABLED', 'true')
+    fixture.permissions = ['ehr.encounter.read', 'ehr.note.read', 'ehr.document.read']
+    await openChart()
+    expect(await screen.findByText('Preserved report')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Ask about this patient' }))
+    await screen.findByLabelText('Your question')
+    expect(fixture.api.patientChatHistory).toHaveBeenCalledWith('facility-a', 'patient-a', expect.any(AbortSignal))
+    expect(fixture.api.importedRecords).toHaveBeenCalledWith('facility-a', 'patient-a', 'direct-care', expect.any(AbortSignal))
+    expect(fixture.api.recordChatAvailability).not.toHaveBeenCalled()
+    expect(fixture.api.recordChatHistory).not.toHaveBeenCalled()
+  })
+
   it('shows imported history when VITE_HID_IMPORTED_RECORDS_ENABLED is true', async () => {
     vi.stubEnv('VITE_HID_IMPORTED_RECORDS_ENABLED', 'true')
     await openChart()

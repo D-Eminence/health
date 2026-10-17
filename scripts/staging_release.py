@@ -55,8 +55,10 @@ def validate_config(config, environment='staging'):
         raise ValueError('Exact ' + environment + ' frontend hosts required')
     if config.get('api_origin') != api_origin or config.get('portal_origin') != portal_origin:
         raise ValueError('Exact ' + environment + ' API/portal required')
-    if set(config) != {'environment', 'hosts', 'api_origin', 'portal_origin', 'turnstile_site_key', 'google_client_id', 'chat'}:
+    if set(config) - {'backend_contract'} != {'environment', 'hosts', 'api_origin', 'portal_origin', 'turnstile_site_key', 'google_client_id', 'chat'}:
         raise ValueError('Unexpected configuration fields')
+    if config.get('backend_contract', 'main-v1') not in ('main-v1', 'novu-v1'):
+        raise ValueError('Unsupported backend contract')
     chat = config.get('chat')
     if not isinstance(chat, dict) or set(chat) != {'supportChatEnabled', 'patientChatEnabled', 'supportContact'}:
         raise ValueError('Exact chat configuration required')
@@ -91,7 +93,10 @@ def archive_files(archive):
 def chat_features(config, app):
     return {'supportChatEnabled': config['chat']['supportChatEnabled'] and app in ('web', 'public'),
             'patientChatEnabled': config['chat']['patientChatEnabled'] and app == 'web',
-            'supportContact': config['chat']['supportContact']}
+            'supportContact': config['chat']['supportContact'],
+            'backendContract': config.get('backend_contract', 'main-v1'),
+            'staffPatientChatEnabled': config.get('backend_contract') == 'novu-v1' and app == 'ehr',
+            'importedRecordsEnabled': config.get('backend_contract') == 'novu-v1' and app == 'ehr'}
 
 
 def verify_manifest(manifest, folder, source_commit, config_path, lock_path, edge_path, environment='staging'):

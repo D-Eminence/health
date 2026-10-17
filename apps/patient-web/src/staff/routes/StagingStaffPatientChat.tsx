@@ -6,7 +6,7 @@ import { staffApi } from '../api'
 /**
  * The hospital chat of hid-system's staging branches (`staging-novu-ci-20261005`), kept as it was: the staging
  * contract (`ready | preparing`, no notice, 500 characters). hid-system main serves staff record chat under the
- * contract StaffRecordChat follows (ADR-069), so this is no longer mounted.
+ * contract StaffRecordChat follows (ADR-069). The explicit novu-v1 build profile selects this implementation.
  */
 /** The caller keys this component by actor/membership/facility/patient/purpose. */
 export function StagingStaffPatientChat({facilityId,facilityName,patientId,patientName,hid}:{

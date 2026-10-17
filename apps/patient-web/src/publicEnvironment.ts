@@ -13,4 +13,6 @@ export const PUBLIC_ENVIRONMENT = {
   // the staging patient host). It was not read here before, so no portal build could turn it on. hid-system keeps
   // the chat itself off (ADR-068), and the screen says so when availability answers { available: false }.
   VITE_HID_PATIENT_CHAT_ENABLED: import.meta.env.VITE_HID_PATIENT_CHAT_ENABLED as string | undefined,
+  VITE_HID_SUPPORT_CHAT_ENABLED: import.meta.env.VITE_HID_SUPPORT_CHAT_ENABLED as string | undefined,
+  VITE_HID_SUPPORT_CONTACT: import.meta.env.VITE_HID_SUPPORT_CONTACT as string | undefined,
 }

@@ -1,4 +1,5 @@
 import { StaffPatientChat } from './StaffPatientChat'
+import { usesNovuBackend } from '../../backendContract'
 import { ImportedPatientHistory } from './ImportedPatientHistory'
 import { StaffImportedHistory } from './StaffImportedHistory'
 import { importedRecordsEnabled, staffPatientChatEnabled } from '../stagingOnlyFeatures'
@@ -1523,10 +1524,10 @@ export function Clinical() {
     {/* Mounted throughout, so what a change says is announced. */}
     <div id="clinical-status" role="status">{success && <p className="staff-success">{success}</p>}</div>
     {/* Off unless the build turns them on: hid-system main does not serve their routes (stagingOnlyFeatures.ts). */}
-    {permissions.includes('ehr.imported-history.read') && activePatient.purpose === 'direct-care' && <StaffImportedHistory
+    {!usesNovuBackend() && permissions.includes('ehr.imported-history.read') && activePatient.purpose === 'direct-care' && <StaffImportedHistory
       key={JSON.stringify([state.status === 'ready' ? state.session.actor.id : '', facility.id, patientId, activePatient.purpose, permissions])}
       facilityId={facility.id} patientId={patientId!} />}
-    {permissions.includes('ehr.record-chat.use') && activePatient.purpose === 'direct-care' && staffPatientChatEnabled() && <StaffPatientChat
+    {permissions.includes(usesNovuBackend() ? 'ehr.note.read' : 'ehr.record-chat.use') && activePatient.purpose === 'direct-care' && staffPatientChatEnabled() && <StaffPatientChat
       key={JSON.stringify([state.status==='ready'?state.session.actor.id:'',facility.id,facility.membershipId,patientId,activePatient.purpose,permissions])}
       facilityId={facility.id} facilityName={facility.name} patientId={patientId!}
       patientName={activePatient.lookup.patient.fullName??activePatient.hid} hid={activePatient.hid} />}

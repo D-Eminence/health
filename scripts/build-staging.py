@@ -39,6 +39,10 @@ def main(environment='staging'):
                     prefix + 'PATIENT_CHAT_ENABLED': str(config['chat']['patientChatEnabled'] and app == 'web').lower(),
                     prefix + 'SUPPORT_CONTACT': config['chat']['supportContact'],
                     'NEXT_TELEMETRY_DISABLED': '1'})
+        if not public:
+            env[prefix + 'BACKEND_CONTRACT'] = config.get('backend_contract', 'main-v1')
+            env[prefix + 'IMPORTED_RECORDS_ENABLED'] = str(config.get('backend_contract') == 'novu-v1' and app == 'ehr').lower()
+            env[prefix + 'STAFF_PATIENT_CHAT_ENABLED'] = str(config.get('backend_contract') == 'novu-v1' and app == 'ehr').lower()
         if public:
             env[prefix + 'PORTAL_ORIGIN'] = config['portal_origin']
             assets = ROOT / 'apps/public-web/out'

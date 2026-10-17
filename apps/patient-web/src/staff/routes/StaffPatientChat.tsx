@@ -1,6 +1,8 @@
 import { useCallback, useMemo, useState } from 'react'
 import { StaffRecordChat, type StaffRecordChatApi } from './StaffRecordChat'
 import { staffApi } from '../api'
+import { usesNovuBackend } from '../../backendContract'
+import { StagingStaffPatientChat } from './StagingStaffPatientChat'
 
 /**
  * "Ask about this patient" on a patient's chart (hid-system ADR-069, 0101). The caller keys this component by
@@ -8,7 +10,11 @@ import { staffApi } from '../api'
  * It is for direct care: when Identity ends or changes the member's access to the patient (consent withdrawn, a
  * session that ended, break-glass), the assistant closes and says so.
  */
-export function StaffPatientChat({facilityId,facilityName,patientId,patientName,hid}:{
+type PatientChatProps = { facilityId: string; facilityName: string; patientId: string; patientName: string; hid: string }
+export function StaffPatientChat(props: PatientChatProps) {
+  return usesNovuBackend() ? <StagingStaffPatientChat {...props} /> : <MainStaffPatientChat {...props} />
+}
+function MainStaffPatientChat({facilityId,facilityName,patientId,patientName,hid}:{
   facilityId:string;facilityName:string;patientId:string;patientName:string;hid:string
 }) {
   const [open,setOpen]=useState(false)

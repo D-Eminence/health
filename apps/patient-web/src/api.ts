@@ -3,6 +3,7 @@ import {
   type ImportedAttachmentDownload, type ImportedHistoryPage, type ImportedHistorySharing, type ImportedHistorySharingChange,
   type ImportedMedicalRecord,
 } from './importedRecords'
+import { stagingChatQuestion, parseStagingPatientChat, parseStagingChatHistory } from '@hid/contracts'
 import type { ApiClient } from '@hid/http'
 import { createEhrService, createSupportService } from '@hid/api'
 import { inRefreshTurn, refreshInTurn, signOutInTurn } from './sessionRefreshTurn'
@@ -256,7 +257,7 @@ export interface RecoveryChallenge {
 
 export function createPatientApi(client: ApiClient) {
   const call = <T>(method: 'GET' | 'POST' | 'DELETE', path: string, body?: unknown,
-    options?: { signal?: AbortSignal; headers?: Readonly<Record<string, string>>; query?: Readonly<Record<string, string>>; reportUnauthorized?: boolean }) =>
+    options?: { signal?: AbortSignal; headers?: Readonly<Record<string, string>>; query?: Readonly<Record<string, string>>; reportUnauthorized?: boolean; timeoutMs?: number }) =>
     client.request<T>({ method, path: `/api/v1/${path}`, auth: path.startsWith('auth/') || path.startsWith('identity/patient-enrollments') ? 'optional' : 'required',
       ...(body === undefined ? {} : { body }), ...options })
 
@@ -268,6 +269,18 @@ export function createPatientApi(client: ApiClient) {
   const chatService = createEhrService({ app: 'patient-web', client })
 
   return {
+    // Retained Novu backend: real ready/preparing replies, 10 exchanges/30 days,
+    // source reads and a 500-character question. No main-only notice endpoint.
+    novuChat: async (question: string, signal?: AbortSignal) =>
+      parseStagingPatientChat(await call<unknown>('POST', 'ehr/me/chat',
+        { question: stagingChatQuestion(question) }, { signal, timeoutMs: 65_000 })),
+    novuChatHistory: async (signal?: AbortSignal) =>
+      parseStagingChatHistory(await call<unknown>('GET', 'ehr/me/chat/history', undefined, { signal })),
+    clearNovuChatHistory: async (signal?: AbortSignal): Promise<{ cleared: true }> => {
+      const answer = await call<{ cleared?: unknown }>('DELETE', 'ehr/me/chat/history', undefined, { signal })
+      if (answer?.cleared !== true) throw new Error('The conversation could not be cleared.')
+      return { cleared: true }
+    },
     // Patient record chat (hid-system #95, ADR-068): the service's own methods, parsed against its contract.
     chatAvailability: chatService.chatAvailability,
     chat: chatService.chat,
