@@ -11,10 +11,16 @@ describe('the portal public environment', () => {
     vi.stubEnv('VITE_HID_PATIENT_CHAT_ENABLED', '')
     expect((await import('../publicEnvironment')).PUBLIC_ENVIRONMENT.VITE_HID_PATIENT_CHAT_ENABLED).toBe('')
   })
-  it('does not read the support chat or staff switches', async () => {
+  it('reads the approved support configuration by name without unrelated or staff variables', async () => {
     vi.stubEnv('VITE_HID_SUPPORT_CHAT_ENABLED', 'true')
-    const names = Object.keys((await import('../publicEnvironment')).PUBLIC_ENVIRONMENT)
-    expect(names).not.toContain('VITE_HID_SUPPORT_CHAT_ENABLED')
+    vi.stubEnv('VITE_HID_SUPPORT_CONTACT', 'mailto:support@healthidentitydirectory.com')
+    vi.stubEnv('VITE_HID_UNRELATED_VALUE', 'unrelated')
+    const environment = (await import('../publicEnvironment')).PUBLIC_ENVIRONMENT
+    const names = Object.keys(environment)
+    expect(environment.VITE_HID_SUPPORT_CHAT_ENABLED).toBe('true')
+    expect(environment.VITE_HID_SUPPORT_CONTACT).toBe('mailto:support@healthidentitydirectory.com')
     expect(names).toContain('VITE_HID_PATIENT_CHAT_ENABLED')
+    expect(names).not.toContain('VITE_HID_UNRELATED_VALUE')
+    expect(names).not.toContain('VITE_HID_STAFF_PATIENT_CHAT_ENABLED')
   })
 })
