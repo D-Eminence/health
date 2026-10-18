@@ -12,10 +12,17 @@ import time
 import urllib.error
 import urllib.request
 from html.parser import HTMLParser
-from production_deployment_core import (ACCOUNT, REGION, INDEX_KEY, AWS, GitHub, Lease, Store, ReleaseError,
+from production_deployment_core import (ACCOUNT, REGION, INDEX_KEY, COMPONENTS, AWS, GitHub, Lease, Store, ReleaseError,
     atomic_json, canonical, changed_paths, context, file_sha, git, make_candidate, notify,
     require, sha, summarize, validate_candidate, validate_index)
 from staging_release import ROOT, PRODUCTION_HOSTS as HOSTS, verify_manifest, archive_files
+
+# All eight portals ship together. These are the Novu gateway and its seven
+# browser-facing upstreams; background workers are optional additional pins.
+REQUIRED_BACKEND_SERVICES = {"novu-v1": frozenset({
+    "gateway", "identity-api", "ehr-api", "lab-api", "pharmacy-api", "ocr-api",
+    "outreach-api", "support-api",
+})}
 
 def entries():
     folder = ROOT/"build/production"
@@ -32,9 +39,7 @@ def candidate():
     dependencies = {"declared":False}
     if declarations.exists():
         dependencies = json.loads(declarations.read_text())
-        require(dependencies.get("schema") == "hid.frontend-dependencies/v1"
-                and dependencies.get("declared") is True and dependencies.get("reviewed_by")
-                and isinstance(dependencies.get("backend_commits"),dict), "REVIEWED_FRONTEND_DEPENDENCIES_REQUIRED")
+        dependency_commits(dependencies, json.loads((ROOT/"config/production.json").read_text())["backend_contract"])
         dependencies["declaration_sha256"] = file_sha(declarations)
     evidence = {e["app"]:{"sha256":e["sha256"],"size_bytes":e["size_bytes"],"hostname":e["hostname"]} for e in selected}
     release = make_candidate(ctx,list(HOSTS),evidence,{"build":"success"},dependencies=dependencies)
@@ -57,6 +62,7 @@ def rollback_candidate(release_id):
     old,meta = Store(aws).read("production/releases/"+release_id+"/complete.json")
     require(old.get("status") == "success" and old.get("kind") == "frontend", "HEALTHY_WORKER_RECEIPT_REQUIRED")
     require(set(old["after"]) == set(HOSTS), "COMPLETE_WORKER_ROLLBACK_REQUIRED")
+    dependency_commits(old["candidate"]["backend_dependencies"])
     evidence = {app:{"version_id":row["version_id"],"hostname":HOSTS[app]} for app,row in old["after"].items()}
     release = make_candidate(ctx,list(HOSTS),evidence,{"prepare":"success"},
         dependencies=old["candidate"]["backend_dependencies"],
@@ -110,6 +116,23 @@ class Cloudflare:
                 "WORKER_ORIGIN_SECRET_BINDING_REQUIRED")
         return details
 
+    def uploaded_version(self, app, release_id):
+        versions = self.call(app,"versions")
+        values = versions.get("items",[]) if isinstance(versions,dict) else versions
+        require(isinstance(values,list) and all(isinstance(v,dict) for v in values),
+                "INVALID_WORKER_VERSION_LIST")
+        matching = [v for v in values if isinstance(v.get("annotations"),dict)
+                    and v["annotations"].get("workers/tag") == release_id]
+        require(len(matching) == 1, "EXACT_UPLOADED_WORKER_VERSION_REQUIRED")
+        target = matching[0].get("id", "")
+        require(isinstance(target,str) and re.fullmatch(r"[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}",target),
+                "INVALID_UPLOADED_WORKER_VERSION")
+        details = self.check_version(app,target)
+        require(details.get("id") == target and isinstance(details.get("annotations"),dict)
+                and details["annotations"].get("workers/tag") == release_id,
+                "UPLOADED_WORKER_VERSION_TAG_DIFFERS")
+        return target
+
     def deploy_version(self, app, version, lease):
         self.check_version(app,version)
         lease.assert_owned()
@@ -132,14 +155,25 @@ class Cloudflare:
         domains = {r["hostname"]:r.get("service") for r in data["result"]}
         require(all(domains.get(host) == "hid-"+app+"-production" for app,host in HOSTS.items()), "STAGING_WORKER_DOMAINS_DIFFER")
 
-def assert_dependencies(candidate,index):
-    value = candidate.get("backend_dependencies",{})
-    require(value.get("schema") == "hid.frontend-dependencies/v1" and value.get("declared") is True
-            and value.get("reviewed_by") and isinstance(value.get("backend_commits"),dict),
+def dependency_commits(value, expected_contract=None):
+    require(isinstance(value,dict) and value.get("schema") == "hid.frontend-dependencies/v1"
+            and value.get("declared") is True and isinstance(value.get("reviewed_by"),str)
+            and value["reviewed_by"].strip() and isinstance(value.get("backend_commits"),dict),
             "HID_FRONTEND_BACKEND_COMPATIBILITY_DECLARATION_REQUIRED")
-    for name, commit in value["backend_commits"].items():
-        require(name in index["backend"] and re.fullmatch(r"[a-f0-9]{40}",commit)
-                and index["backend"][name].get("source_commit") == commit, "REQUIRED_BACKEND_NOT_DEPLOYED")
+    contract = value.get("backend_contract")
+    require(isinstance(contract,str) and contract in REQUIRED_BACKEND_SERVICES
+            and (expected_contract is None or contract == expected_contract), "BACKEND_CONTRACT_DIFFERS_OR_UNSUPPORTED")
+    commits = value["backend_commits"]
+    require(REQUIRED_BACKEND_SERVICES[contract] <= commits.keys(), "REQUIRED_BACKEND_DEPENDENCIES_MISSING")
+    require(commits.keys() <= set(COMPONENTS), "UNKNOWN_BACKEND_DEPENDENCY")
+    require(all(isinstance(commit,str) and re.fullmatch(r"[a-f0-9]{40}",commit) for commit in commits.values()),
+            "INVALID_BACKEND_DEPENDENCY_COMMIT")
+    return commits
+
+
+def assert_dependencies(candidate,index,expected_contract=None):
+    for name, commit in dependency_commits(candidate.get("backend_dependencies"),expected_contract).items():
+        require(index.get("backend",{}).get(name,{}).get("source_commit") == commit, "REQUIRED_BACKEND_NOT_DEPLOYED")
 
 def prepared_configs():
     spec = importlib.util.spec_from_file_location("prepare_workers",ROOT/"scripts/prepare-production-workers.py")
@@ -215,7 +249,8 @@ def deploy(mode):
     prefix = "production/releases/"+release["release_id"]+"/"
     try:
         index,meta = store.read(INDEX_KEY); validate_index(index)
-        assert_dependencies(release,index)
+        expected_contract = json.loads((ROOT/"config/production.json").read_text())["backend_contract"] if mode == "deploy" else None
+        assert_dependencies(release,index,expected_contract)
         require(set(index.get("frontend",{})) == set(HOSTS), "BOOTSTRAPPED_WORKER_INDEX_REQUIRED")
         before = copy.deepcopy(index["frontend"])
         current = {app:cloud.version(app) for app in HOSTS}
@@ -284,12 +319,7 @@ def deploy(mode):
                         capture_output=True,text=True,timeout=180)
                 # A failed/uncertain upload is inspected, never retried automatically.
                 require(result.returncode == 0, "WORKER_VERSION_UPLOAD_FAILED")
-                versions = cloud.call(app,"versions")
-                values = versions.get("items",[]) if isinstance(versions,dict) else versions
-                matching = [v for v in values if v.get("metadata",{}).get("annotations",{}).get("workers/tag") == release["release_id"]]
-                require(len(matching) == 1, "EXACT_UPLOADED_WORKER_VERSION_REQUIRED")
-                target = matching[0]["id"]
-                cloud.check_version(app,target)
+                target = cloud.uploaded_version(app,release["release_id"])
                 store.put(prefix+"intent-"+app+".json",{"app":app,"before":before[app],"target_version":target})
                 updated.append(app)
                 cloud.deploy_version(app,target,lease)

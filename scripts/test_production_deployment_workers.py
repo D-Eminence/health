@@ -18,7 +18,8 @@ class WorkerTests(unittest.TestCase):
         value={'backend_dependencies':{'declared':False}}
         with self.assertRaisesRegex(c.ReleaseError,'DECLARATION'): w.assert_dependencies(value,index())
         value['backend_dependencies']={'schema':'hid.frontend-dependencies/v1','declared':True,
-            'reviewed_by':'HID reviewer','backend_commits':{'identity-api':'c'*40}}
+            'reviewed_by':'test reviewer','backend_contract':'novu-v1',
+            'backend_commits':{name:'c'*40 for name in w.REQUIRED_BACKEND_SERVICES['novu-v1']}}
         w.assert_dependencies(value,index())
         value['backend_dependencies']['backend_commits']['identity-api']='a'*40
         with self.assertRaisesRegex(c.ReleaseError,'NOT_DEPLOYED'): w.assert_dependencies(value,index())
@@ -73,7 +74,8 @@ class WorkerTests(unittest.TestCase):
         old_id='frontend-12-1-'+'b'*16
         old={'status':'success','kind':'frontend','after':{app:{**row,'version_id':target} for app,row in before.items()}}
         objects['production/releases/'+old_id+'/complete.json']=old
-        dependencies={'schema':'hid.frontend-dependencies/v1','declared':True,'reviewed_by':'HID','backend_commits':{}}
+        dependencies={'schema':'hid.frontend-dependencies/v1','declared':True,'reviewed_by':'test reviewer',
+            'backend_contract':'novu-v1','backend_commits':{name:'c'*40 for name in w.REQUIRED_BACKEND_SERVICES['novu-v1']}}
         candidate=c.make_candidate(ctx('frontend'),list(w.HOSTS),{app:{'version_id':target} for app in w.HOSTS},{'prepare':'success'},
             dependencies=dependencies,rollback_ref={'release_id':old_id,'version_id':'v1','sha256':c.sha(c.canonical(old))})
         with tempfile.TemporaryDirectory() as folder:
