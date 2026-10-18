@@ -175,7 +175,9 @@ async function proxyApi(request, deployment, requestUrl) {
     headers,
     redirect: 'manual',
     signal: request.signal,
-    cf: { cacheEverything: false, cacheTtl: 0 },
+    // cacheTtl: 0 still forces cache eligibility and can strip Set-Cookie.
+    // Authentication and patient API responses must bypass the cache entirely.
+    cache: 'no-store',
   }
   if (request.method !== 'GET' && request.method !== 'HEAD') init.body = request.body
 
