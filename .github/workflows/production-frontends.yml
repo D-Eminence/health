@@ -109,7 +109,7 @@ jobs:
           allowed-account-ids: '659225405023'
           role-duration-seconds: 7200
           unset-current-credentials: true
+      - name: Load scoped Cloudflare deployment token from AWS
+        run: python scripts/load-production-cloudflare-token.py
       - name: Deploy exact Worker versions and verify or roll back
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: python scripts/deploy-production-workers.py deploy
