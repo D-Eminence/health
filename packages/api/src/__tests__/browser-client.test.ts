@@ -16,6 +16,15 @@ function harness(app: HidApp = 'staff-web') {
 }
 
 describe('registered browser client', () => {
+  it('admits only the three Novu workforce auth routes for the explicit admin contract', async () => {
+    const transport = createApiClient({ baseUrl: 'https://gateway.example', clientId: 'admin-web', sessionMode: 'cookie',
+      fetchImpl: vi.fn(async () => new Response('{}', { headers: { 'Content-Type': 'application/json' } })) as typeof fetch })
+    const client = createRegisteredBrowserClient(transport, 'admin-web', { backendContract: 'novu-v1' })
+    for (const path of ['/api/v1/auth/login', '/api/v1/auth/refresh', '/api/v1/auth/logout']) await client.post(path, {}, { auth: 'none' })
+    await expect(client.post('/api/v1/auth/patient/login', {}, { auth: 'none' })).rejects.toBeInstanceOf(BoundaryViolationError)
+    await expect(client.post('/api/v1/auth/staff/login', {}, { auth: 'none' })).rejects.toMatchObject({ code: 'UNKNOWN_ROUTE' })
+    await expect(createRegisteredBrowserClient(transport, 'admin-web').post('/api/v1/auth/login', {}, { auth: 'none' })).rejects.toBeInstanceOf(BoundaryViolationError)
+  })
   it('passes registered dynamic routes and browser Lab import creation to transport', async () => {
     const { client, fetchImpl } = harness()
     const patientId = '123e4567-e89b-42d3-a456-426614174000'

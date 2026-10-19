@@ -21,6 +21,8 @@ import {
 } from './session-window'
 import { navigationItemFor, visibleNavigation } from './navigation'
 import { AdminSignIn } from './SignIn'
+import { NovuAdminSignIn } from './NovuSignIn'
+import { usesNovuBackend } from '../backendContract'
 import { StepUpProvider } from './StepUp'
 import { announceAdminSessionChange, onOtherAdminTabSessionChange } from './tabs'
 import { date, has } from './ui'
@@ -117,7 +119,7 @@ export function App() {
     setNotice(null)
     setSession(value)
     // Records the server's idle and absolute expiry for the session warning.
-    void adminApi.mfaStatus().catch(() => undefined)
+    if (!usesNovuBackend()) void adminApi.mfaStatus().catch(() => undefined)
     if (heardWhileOpening.current) { heardWhileOpening.current = false; recheckSession.current() }
   }, [])
 
@@ -197,7 +199,10 @@ export function App() {
     setAdminSessionAccount(null)
     let value: AdminSession
     try { value = await adminApi.session() }
-    catch (error) { throw new Error(failure(error, 'Platform administration could not be opened. Try again.')) }
+    catch (error) {
+      if (usesNovuBackend() && isHidApiError(error) && error.status === 403) throw new Error(NO_ACCESS)
+      throw new Error(failure(error, 'Platform administration could not be opened. Try again.'))
+    }
     open(value)
   }
 
@@ -248,7 +253,9 @@ export function App() {
   if (checking) return <main className="admin-message"><BrandLogo className="admin-state-logo" /><p role="status">Checking your platform session…</p></main>
   if (checkError) return <main className="admin-message"><BrandLogo className="admin-state-logo" /><h1>Session unavailable</h1>
     <p role="alert">{checkError}</p><button type="button" className="admin-primary" onClick={() => setCheckRevision(value => value + 1)}>Try again</button></main>
-  if (!session) return <AdminSignIn onSignedIn={signedInNow} notice={notice} />
+  if (!session) return usesNovuBackend()
+    ? <NovuAdminSignIn onSignedIn={signedInNow} notice={notice} />
+    : <AdminSignIn onSignedIn={signedInNow} notice={notice} />
   const actor = session.actor
   const sections = visibleNavigation(actor)
 

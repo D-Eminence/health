@@ -1,6 +1,7 @@
 import { createApiClient, HidApiError, isHidApiError, NO_RETRY, type DownloadResult, type RequestSpec } from '@hid/http'
 import { createRegisteredBrowserClient } from '@hid/api'
 import { environment } from './env'
+import { backendContract, usesNovuBackend } from '../backendContract'
 import { recordServerSessionEnd, recordSessionWindow, reportSessionEnded, serverSessionEnd } from './session-window'
 import { announceAdminSessionChange } from './tabs'
 
@@ -236,13 +237,14 @@ const keepCodeRejection = (error: HidApiError) => error.code !== 'MFA_INVALID_CO
 let client: ReturnType<typeof createApiClient> | null = null
 function gateway() {
   client ??= createRegisteredBrowserClient(createApiClient({ baseUrl: environment().apiBaseUrl,
-    clientId: 'admin-web', sessionMode: 'cookie', csrfCookieName: 'hid_access_admin_csrf',
-    refreshSession: async () => { await adminApi.refresh() } }), 'admin-web')
+    clientId: 'admin-web', sessionMode: 'cookie', csrfCookieName: usesNovuBackend() ? 'hid_access_csrf' : 'hid_access_admin_csrf',
+    refreshSession: async () => { await adminApi.refresh() } }), 'admin-web', { backendContract: backendContract() })
   return client
 }
 
 /** Platform sign-in steps whose 401 is an answer to the submitted credential. */
-const SIGN_IN_PATHS = ['/api/v1/auth/admin/login', '/api/v1/auth/admin/mfa/', '/api/v1/auth/admin/refresh']
+const SIGN_IN_PATHS = ['/api/v1/auth/admin/login', '/api/v1/auth/admin/mfa/', '/api/v1/auth/admin/refresh',
+  '/api/v1/auth/login', '/api/v1/auth/refresh']
 
 async function request<T>(path: string, options: Partial<RequestSpec> = {}): Promise<T> {
   if (!path.startsWith('/api/v1/admin/') && !path.startsWith('/api/v1/auth/')) {
@@ -376,6 +378,12 @@ async function clinicianQueue<T>(read: Promise<T>): Promise<T> {
 }
 
 export const adminApi = {
+  async novuLogin(email: string, password: string, token: string): Promise<void> {
+    if (!usesNovuBackend()) throw new Error('Novu authentication requires the configured novu-v1 backend.')
+    await request('/api/v1/auth/login', { method: 'POST', auth: 'none',
+      body: { email, password, turnstileAction: 'admin-login', ...(token ? { turnstileToken: token } : {}) } })
+    announceAdminSessionChange()
+  },
   login(email: string, password: string, token: string) {
     return request<PlatformLoginChallenge>('/api/v1/auth/admin/login', { method: 'POST', auth: 'none',
       body: { email, password, turnstileAction: 'admin-login', ...(token ? { turnstileToken: token } : {}) } })
@@ -393,6 +401,18 @@ export const adminApi = {
   session() { return request<AdminSession>('/api/v1/admin/session') },
   async refresh() {
     if (workspaceClosed) throw sessionNotRestored()
+    if (usesNovuBackend()) {
+      // With no readable CSRF cookie there is no safely refreshable Novu session.
+      // Treat a first visit as signed out, not as a failed admin/MFA endpoint.
+      if (!document.cookie.split(';').some(cookie => cookie.trim().startsWith('hid_access_csrf='))) throw sessionNotRestored()
+      const value = await request<{ actor: { accountId: string }; expiresAt?: string }>(
+        '/api/v1/auth/refresh', { method: 'POST', auth: 'optional' })
+      if (openAccount !== null && value.actor.accountId !== openAccount) {
+        reportSessionEnded('switched')
+        throw sessionNotRestored()
+      }
+      return value
+    }
     let refreshed: PlatformSessionGrant
     try {
       refreshed = await request<PlatformSessionGrant>('/api/v1/auth/admin/refresh', { method: 'POST', auth: 'optional' })
@@ -410,7 +430,7 @@ export const adminApi = {
     }
     return grant(refreshed)
   },
-  logout() { return request<void>('/api/v1/auth/admin/logout', { method: 'POST' }) },
+  logout() { return request<void>(usesNovuBackend() ? '/api/v1/auth/logout' : '/api/v1/auth/admin/logout', { method: 'POST' }) },
   async mfaStatus(signal?: AbortSignal) {
     const status = await request<MfaStatus>('/api/v1/admin/mfa', { signal })
     if (status.session) {

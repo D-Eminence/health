@@ -6,7 +6,7 @@
   "review_reference": "Owner session authorization, 2026-10-18; deployment additionally requires recorded GitHub approval",
   "backend_commits": {
     "gateway": "844935c4e7b42da96f31d8c1229c79925f2b020f",
-    "identity-api": "844935c4e7b42da96f31d8c1229c79925f2b020f",
+    "identity-api": "7ebf47493be51b56895df970fdec3586628f4ea8",
     "ehr-api": "844935c4e7b42da96f31d8c1229c79925f2b020f",
     "lab-api": "844935c4e7b42da96f31d8c1229c79925f2b020f",
     "pharmacy-api": "844935c4e7b42da96f31d8c1229c79925f2b020f",
