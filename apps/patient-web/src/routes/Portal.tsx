@@ -169,6 +169,7 @@ const RECORD_UNREAD = 'Your health record, as it is shared with patients in Heal
  */
 function recordsIntro(data: PatientRecords | null) {
   if (!data) return RECORD_UNREAD
+  if (usesNovuBackend()) return 'Your completed encounters, signed clinical notes and imported medical history.'
   if (!data.released) return ALL_SECTIONS
   const names = data.released.filter(section => section in SECTION_NAMES).map(section => SECTION_NAMES[section])
   if (names.length === 0) return 'No part of your record is shared with patients in Health ID yet.'
@@ -209,6 +210,9 @@ export function RecordsPage() {
       <div className="patient-card"><h2>Clinical notes</h2>{data.notes.length === 0 ? <p className="patient-empty">{emptyText(data, 'notes', 'No signed clinical notes are available.')}</p> : <ul className="patient-list">
         {data.notes.map(item => <li key={item.id} className="patient-note"><div><strong>{item.title || item.noteType}</strong><span>{date(item.signedAt)} · {item.status}</span></div><p>{item.content}</p></li>)}
       </ul>}<Truncated data={data} section="notes" /></div>
+      {/* Novu serves encounters, notes and imported history; these additional
+          aggregate sections belong to main-v1 and are absent from its response. */}
+      {!usesNovuBackend() && <>
       <div className="patient-card"><h2>Vitals</h2>{data.vitals.length === 0 ? <p className="patient-empty">{emptyText(data, 'vitals', 'No vitals are available.')}</p> : <ul className="patient-list">
         {data.vitals.map(item => <li key={item.id}><div><strong>{date(item.recordedAt)}</strong><span>{vitalsSummary(item)}</span></div></li>)}
       </ul>}<Truncated data={data} section="vitals" /></div>
@@ -224,6 +228,7 @@ export function RecordsPage() {
       <div className="patient-card"><h2>Clinical documents</h2>{data.documents.length === 0 ? <p className="patient-empty">{emptyText(data, 'documents', 'No clinical documents are available.')}</p> : <ul className="patient-list">
         {data.documents.map(item => <li key={item.id}><div><strong>{item.fileName}</strong><span>{item.mediaType} · {bytes(item.sizeBytes)} · {date(item.createdAt)}</span></div></li>)}
       </ul>}<Truncated data={data} section="documents" /></div>
+      </>}
       <p className="patient-field-hint">The record aggregate is scoped to your authenticated patient identity and audited by the backend.</p>
     </>}
   </section>
