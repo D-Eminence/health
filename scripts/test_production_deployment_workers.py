@@ -34,6 +34,23 @@ class WorkerTests(unittest.TestCase):
                 self.assertFalse(w.matches(html+b'<script>unknown</script>',digest,html=True))
                 self.assertFalse(w.matches(html+b'<script>approved-analytics</script>',digest,html=False))
 
+    def test_recorded_mixed_bootstrap_can_be_selected_for_rollback(self):
+        deps={'schema':'hid.frontend-dependencies/v1','declared':True,'reviewed_by':'test reviewer',
+            'backend_contract':'novu-v1','backend_commits':{name:'c'*40 for name in w.REQUIRED_BACKEND_SERVICES['novu-v1']}}
+        old={'status':'success','kind':'frontend','operation':'bootstrap-inventory','deployment_performed':False,
+            'candidate':{'backend_dependencies':deps},'after':{app:{'version_id':'11111111-1111-1111-1111-111111111111'} for app in w.HOSTS}}
+        store=unittest.mock.Mock();store.read.return_value=(old,{'VersionId':'baseline-version'})
+        with tempfile.TemporaryDirectory() as folder,patch.object(w,'ROOT',pathlib.Path(folder)), \
+             patch.object(w,'AWS'),patch.object(w,'Store',return_value=store), \
+             patch.object(w,'context',return_value=ctx('frontend')),patch.dict(os.environ,{'GITHUB_OUTPUT':''}):
+            release_id='frontend-bootstrap-'+'a'*24
+            w.rollback_candidate(release_id)
+            candidate=json.loads((pathlib.Path(folder)/'release/candidate.json').read_text())
+            self.assertEqual(candidate['rollback_ref']['release_id'],release_id)
+            self.assertEqual(set(candidate['evidence']),set(w.HOSTS))
+            old['operation']='unverified'
+            with self.assertRaisesRegex(c.ReleaseError,'BOOTSTRAP_RECEIPT'):w.rollback_candidate(release_id)
+
     def test_weighted_versions_and_missing_origin_secret_are_rejected(self):
         cloud=w.Cloudflare('a'*32,'test')
         with patch.object(cloud,'call',return_value={'deployments':[{'versions':[{'version_id':'a'*36,'percentage':50}]}]}):

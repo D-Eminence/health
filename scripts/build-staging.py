@@ -65,7 +65,7 @@ def main(environment='staging'):
                         'sha256': digest(archive), 'size_bytes': archive.stat().st_size, 'files': files,
                         'chat_features': chat_features(config, app)})
         print(json.dumps({'built': app, 'files': len(files), 'sha256': digest(archive)}), flush=True)
-    manifest = {'schema_version': 1, 'environment': environment, 'source_repository': 'D-Eminence/Health-id',
+    manifest = {'schema_version': 1, 'environment': environment, 'source_repository': 'D-Eminence/health' if environment == 'production' else 'D-Eminence/Health-id',
                 'source_commit': source, 'source_branch': run(*git, 'branch', '--show-current'),
                 'node_version': node_version, 'configuration_sha256': digest(config_path),
                 'lockfile_sha256': digest(ROOT / 'package-lock.json'),

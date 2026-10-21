@@ -57,10 +57,13 @@ def candidate():
 
 def rollback_candidate(release_id):
     ctx = context("frontend")
-    require(re.fullmatch(r"frontend-[0-9]+-[0-9]+-[a-f0-9]{16}",release_id or ""), "RECORDED_ROLLBACK_RELEASE_REQUIRED")
+    require(re.fullmatch(r"frontend-(?:[0-9]+-[0-9]+-[a-f0-9]{16}|bootstrap-[a-f0-9]{24})",release_id or ""), "RECORDED_ROLLBACK_RELEASE_REQUIRED")
     aws = AWS(); aws.account()
     old,meta = Store(aws).read("production/releases/"+release_id+"/complete.json")
     require(old.get("status") == "success" and old.get("kind") == "frontend", "HEALTHY_WORKER_RECEIPT_REQUIRED")
+    if release_id.startswith("frontend-bootstrap-"):
+        require(old.get("operation") == "bootstrap-inventory" and old.get("deployment_performed") is False,
+                "VERIFIED_BOOTSTRAP_RECEIPT_REQUIRED")
     require(set(old["after"]) == set(HOSTS), "COMPLETE_WORKER_ROLLBACK_REQUIRED")
     dependency_commits(old["candidate"]["backend_dependencies"])
     evidence = {app:{"version_id":row["version_id"],"hostname":HOSTS[app]} for app,row in old["after"].items()}

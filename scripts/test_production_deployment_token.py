@@ -22,7 +22,7 @@ class TokenTests(unittest.TestCase):
     def test_valid_secret_is_captured_without_printing_it(self):
         with tempfile.TemporaryDirectory() as folder:
             path=pathlib.Path(folder)/'environment';path.touch()
-            env={'GITHUB_ACTIONS':'true','GITHUB_REPOSITORY':'D-Eminence/Health-id','GITHUB_REPOSITORY_ID':'1396718647',
+            env={'GITHUB_ACTIONS':'true','GITHUB_REPOSITORY':'D-Eminence/health','GITHUB_REPOSITORY_ID':'1428636965',
                  'GITHUB_REPOSITORY_OWNER_ID':'182018869','GITHUB_REF':'refs/heads/main','GITHUB_EVENT_NAME':'push',
                  'GITHUB_SHA':'a'*40,'GITHUB_RUN_ID':'42','GITHUB_RUN_ATTEMPT':'1',
                  'RUNNER_TEMP':folder,'GITHUB_ENV':str(path),'PRODUCTION_DEPLOYMENT_ENABLED':'true',

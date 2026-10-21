@@ -41,7 +41,7 @@ class ProductionContractTests(unittest.TestCase):
                 entries.append({'app': app, 'hostname': host, 'archive': path.name,
                     'size_bytes': path.stat().st_size, 'sha256': digest(path), 'files': archive_files(path),
                     'chat_features': chat_features(self.config, app)})
-            manifest = {'schema_version': 1, 'environment': 'production', 'source_repository': 'D-Eminence/Health-id',
+            manifest = {'schema_version': 1, 'environment': 'production', 'source_repository': 'D-Eminence/health',
                 'source_commit': 'a' * 40, 'configuration_sha256': digest(config), 'lockfile_sha256': digest(lock),
                 'edge_tree_sha256': tree_digest(edge), 'entries': entries}
             verify_manifest(manifest, folder, 'a' * 40, config, lock, edge, 'production')

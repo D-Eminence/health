@@ -103,7 +103,7 @@ def verify_manifest(manifest, folder, source_commit, config_path, lock_path, edg
     hosts, _, _ = release_profile(environment)
     config = json.loads(pathlib.Path(config_path).read_text())
     validate_config(config, environment)
-    if manifest.get('schema_version') != 1 or manifest.get('environment') != environment or manifest.get('source_repository') != 'D-Eminence/Health-id':
+    if manifest.get('schema_version') != 1 or manifest.get('environment') != environment or manifest.get('source_repository') != ('D-Eminence/health' if environment == 'production' else 'D-Eminence/Health-id'):
         raise ValueError('Unexpected frontend component')
     if not re.fullmatch(r'[a-f0-9]{40}', source_commit) or manifest.get('source_commit') != source_commit:
         raise ValueError('Exact source commit required')

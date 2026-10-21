@@ -7,6 +7,8 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+env:
+  PRODUCTION_APPROVAL_MODE: ${{ vars.PRODUCTION_APPROVAL_MODE || 'protected' }}
 concurrency:
   group: production-frontend-build-${{ github.ref }}
   cancel-in-progress: false
@@ -41,10 +43,10 @@ jobs:
         run: python scripts/prepare-production-workers.py
       - name: Prepare exact production approval report
         id: candidate
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && github.repository_id == '1396718647'
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && github.repository_id == '1428636965'
         run: python scripts/deploy-production-workers.py candidate
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && github.repository_id == '1396718647'
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && github.repository_id == '1428636965'
         with:
           name: production-frontend-candidate-${{ github.run_id }}-${{ github.run_attempt }}
           path: release/candidate.json
@@ -63,7 +65,7 @@ jobs:
 
   deploy:
     needs: build
-    if: vars.PRODUCTION_DEPLOYMENT_ENABLED == 'true' && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && github.repository_id == '1396718647'
+    if: vars.PRODUCTION_DEPLOYMENT_ENABLED == 'true' && github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && github.repository_id == '1428636965'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     environment: production-frontend
@@ -94,7 +96,7 @@ jobs:
         with:
           name: production-frontend-candidate-${{ github.run_id }}-${{ github.run_attempt }}
           path: release
-      - name: Verify reviewer protection and exact approved candidate
+      - name: Verify deployment policy and exact candidate
         run: python scripts/verify-production-approval.py release/candidate.json
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
