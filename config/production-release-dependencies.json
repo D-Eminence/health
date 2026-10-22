@@ -3,9 +3,9 @@
   "declared": true,
   "backend_contract": "novu-v1",
   "reviewed_by": "HID project owner: approved Novu production baseline and authorized production activation",
-  "review_reference": "Owner production baseline authorization, 2026-10-18; automatic deployment requested 2026-10-21; runtime policy enforced by PRODUCTION_APPROVAL_MODE",
+  "review_reference": "Owner production baseline authorization, 2026-10-18; automatic deployment requested 2026-10-21; runtime policy enforced by PRODUCTION_APPROVAL_MODE; gateway activation verified by Actions 39751158762",
   "backend_commits": {
-    "gateway": "8ef35c2aa563e6b7e47ff036c1ef87b4874be6ae",
+    "gateway": "7bb7cdb7360faa556c186af5b363163da324fe07",
     "identity-api": "e41a35d534cc63301fe3b10dc6931ac811a25f5f",
     "ehr-api": "844935c4e7b42da96f31d8c1229c79925f2b020f",
     "lab-api": "844935c4e7b42da96f31d8c1229c79925f2b020f",
