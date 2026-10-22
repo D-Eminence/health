@@ -70,11 +70,11 @@ it('asks the challenge for the sign-in action of the host the portal is served o
 })
 
 it.each([
-  ['lab.healthidentitydirectory.com', 'https://www.healthidentitydirectory.com/provider/recover'],
-  ['pharmacy.healthidentitydirectory.com', 'https://www.healthidentitydirectory.com/provider/recover'],
-  ['migrate.healthidentitydirectory.com', 'https://www.healthidentitydirectory.com/provider/recover'],
-  ['outreach.healthidentitydirectory.com', 'https://www.healthidentitydirectory.com/provider/recover'],
-  ['ehr.healthidentitydirectory.com', 'https://www.healthidentitydirectory.com/provider/recover'],
+  ['lab.healthidentitydirectory.com', 'https://app.healthidentitydirectory.com/provider/recover'],
+  ['pharmacy.healthidentitydirectory.com', 'https://app.healthidentitydirectory.com/provider/recover'],
+  ['migrate.healthidentitydirectory.com', 'https://app.healthidentitydirectory.com/provider/recover'],
+  ['outreach.healthidentitydirectory.com', 'https://app.healthidentitydirectory.com/provider/recover'],
+  ['ehr.healthidentitydirectory.com', 'https://app.healthidentitydirectory.com/provider/recover'],
   ['lab.staging.healthidentitydirectory.com', 'https://staging.healthidentitydirectory.com/provider/recover'],
 ])('on %s, links password recovery to the main site, where hid-system accepts it', async (hostname, href) => {
   serveFrom(hostname)

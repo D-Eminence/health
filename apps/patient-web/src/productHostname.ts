@@ -74,14 +74,15 @@ export function staffLoginAction(hostname: string): StaffLoginAction {
 export const STAFF_RECOVERY_PATH = '/provider/recover'
 
 /**
- * The main site of each deployment: the only host where hid-system accepts the
- * staff password-reset check, `staff-reset` (turnstile.service.ts: www in
- * production, staging on staging). Staff product hosts accept only their own
- * sign-in action, and the admin site only admin-login and admin-reset, so a
- * staff recovery started there is refused.
+ * The main site of each deployment, where this portal serves the staff pages:
+ * app in production (www only redirects to the public site), staging on
+ * staging. hid-system accepts the staff password-reset check, `staff-reset`,
+ * there (turnstile.service.ts, hid-system#41). Staff product hosts accept only
+ * their own sign-in action, and the admin site only admin-login and
+ * admin-reset, so a staff recovery started there is refused.
  */
 export const MAIN_SITE_ORIGINS = {
-  production: 'https://www.healthidentitydirectory.com',
+  production: 'https://app.healthidentitydirectory.com',
   staging: 'https://staging.healthidentitydirectory.com',
 } as const
 

@@ -134,23 +134,23 @@ describe('staffLoginAction', () => {
  * staff product host therefore sends staff to the main site's recovery page.
  */
 describe('staffRecoveryHref', () => {
-  const WWW = 'https://www.healthidentitydirectory.com/provider/recover'
+  const APP = 'https://app.healthidentitydirectory.com/provider/recover'
   const STAGING = 'https://staging.healthidentitydirectory.com/provider/recover'
 
   it.each([
-    ['lab.healthidentitydirectory.com', WWW],
-    ['pharmacy.healthidentitydirectory.com', WWW],
-    ['migrate.healthidentitydirectory.com', WWW],
-    ['outreach.healthidentitydirectory.com', WWW],
-    ['ehr.healthidentitydirectory.com', WWW],
+    ['lab.healthidentitydirectory.com', APP],
+    ['pharmacy.healthidentitydirectory.com', APP],
+    ['migrate.healthidentitydirectory.com', APP],
+    ['outreach.healthidentitydirectory.com', APP],
+    ['ehr.healthidentitydirectory.com', APP],
     ['lab.staging.healthidentitydirectory.com', STAGING],
     ['pharmacy.staging.healthidentitydirectory.com', STAGING],
     ['migrate.staging.healthidentitydirectory.com', STAGING],
     ['outreach.staging.healthidentitydirectory.com', STAGING],
     ['ehr.staging.healthidentitydirectory.com', STAGING],
-    ['LAB.HEALTHIDENTITYDIRECTORY.COM.', WWW],
+    ['LAB.HEALTHIDENTITYDIRECTORY.COM.', APP],
     // The admin site accepts only admin-login and admin-reset, so a staff reset is refused there too.
-    ['admin.healthidentitydirectory.com', WWW],
+    ['admin.healthidentitydirectory.com', APP],
     ['admin.staging.healthidentitydirectory.com', STAGING],
   ])('sends staff on %s to the main site recovery page', (hostname, href) => {
     expect(staffRecoveryHref(hostname)).toBe(href)
@@ -186,9 +186,9 @@ describe('staffRecoveryHref', () => {
  */
 describe('clinicianMainSiteHref', () => {
   it.each([
-    ['ehr.healthidentitydirectory.com', 'https://www.healthidentitydirectory.com'],
-    ['lab.healthidentitydirectory.com', 'https://www.healthidentitydirectory.com'],
-    ['admin.healthidentitydirectory.com', 'https://www.healthidentitydirectory.com'],
+    ['ehr.healthidentitydirectory.com', 'https://app.healthidentitydirectory.com'],
+    ['lab.healthidentitydirectory.com', 'https://app.healthidentitydirectory.com'],
+    ['admin.healthidentitydirectory.com', 'https://app.healthidentitydirectory.com'],
     ['pharmacy.staging.healthidentitydirectory.com', 'https://staging.healthidentitydirectory.com'],
     ['admin.staging.healthidentitydirectory.com', 'https://staging.healthidentitydirectory.com'],
   ])('sends %s to the main site', (hostname, origin) => {

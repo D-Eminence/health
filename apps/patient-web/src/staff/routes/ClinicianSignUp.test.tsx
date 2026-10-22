@@ -196,7 +196,7 @@ describe('clinician sign-up availability', () => {
     vi.stubGlobal('location', { ...window.location, hostname: 'ehr.healthidentitydirectory.com' })
     open()
     expect(screen.getByRole('link', { name: 'Continue on the Health ID site' }).getAttribute('href'))
-      .toBe('https://www.healthidentitydirectory.com/provider/join')
+      .toBe('https://app.healthidentitydirectory.com/provider/join')
     expect(screen.queryByRole('textbox', { name: 'Work email' })).toBeNull()
     await act(async () => { await Promise.resolve() })
     expect(api.availability).not.toHaveBeenCalled()

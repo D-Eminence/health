@@ -86,10 +86,10 @@ describe('staff and admin password recovery', () => {
   })
 
   it.each([
-    ['lab.healthidentitydirectory.com', 'https://www.healthidentitydirectory.com/provider/recover'],
-    ['ehr.healthidentitydirectory.com', 'https://www.healthidentitydirectory.com/provider/recover'],
+    ['lab.healthidentitydirectory.com', 'https://app.healthidentitydirectory.com/provider/recover'],
+    ['ehr.healthidentitydirectory.com', 'https://app.healthidentitydirectory.com/provider/recover'],
     ['outreach.staging.healthidentitydirectory.com', 'https://staging.healthidentitydirectory.com/provider/recover'],
-    ['admin.healthidentitydirectory.com', 'https://www.healthidentitydirectory.com/provider/recover'],
+    ['admin.healthidentitydirectory.com', 'https://app.healthidentitydirectory.com/provider/recover'],
   ])('opened directly on %s, sends staff to the main site instead of a reset hid-system refuses there', (hostname, href) => {
     // A bookmark, history or a typed address can still reach this page on a product site.
     jsdom.reconfigure({ url: `https://${hostname}/provider/recover` })
