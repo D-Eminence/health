@@ -242,7 +242,8 @@ def deploy(mode):
     release = json.loads(candidate_path.read_text())
     require(file_sha(candidate_path) == os.environ.get("EXPECTED_CANDIDATE_SHA256"), "APPROVED_ARTIFACT_CHANGED")
     validate_candidate(release,ctx)
-    github = GitHub(ctx["repository"]); approval = github.assert_approval(release)
+    # The approval step before cloud credentials already waited for GitHub's job records to settle.
+    github = GitHub(ctx["repository"]); approval = github.assert_approval(release, settle=120)
     aws = AWS(); aws.account()
     store = Store(aws); cloud = Cloudflare()
     cloud.assert_domains()

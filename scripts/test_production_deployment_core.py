@@ -184,6 +184,21 @@ class CoreTests(unittest.TestCase):
         with patch.object(gh,'jobs',return_value=[{'name':name,'conclusion':'success'} for name in ['select','build (identity-api)','publish (identity-api)']]):
             gh.assert_checks(value)
 
+    def test_remote_checks_wait_for_github_to_settle_but_never_pass_unfinished_jobs(self):
+        value=self.candidate(); gh=c.GitHub(value['repository'],token='test')
+        names=['select','build (identity-api)','publish (identity-api)']
+        done=[{'name':name,'status':'completed','conclusion':'success'} for name in names]
+        stale=[dict(row,status='in_progress',conclusion=None) if row['name']=='build (identity-api)' else row for row in done]
+        with patch.object(gh,'jobs',side_effect=[stale,stale,done]) as jobs,patch.object(c.time,'sleep') as sleep:
+            gh.assert_checks(value,settle=60,poll=7)
+        self.assertEqual(jobs.call_count,3); sleep.assert_called_with(7)
+        failed=[dict(stale[0],conclusion='failure')]+stale[1:]
+        with patch.object(gh,'jobs',return_value=failed),patch.object(c.time,'sleep') as sleep:
+            with self.assertRaisesRegex(c.ReleaseError,'REMOTE_REQUIRED_JOB_FAILED_OR_MISSING'): gh.assert_checks(value,settle=60,poll=7)
+        sleep.assert_not_called()
+        with patch.object(gh,'jobs',return_value=stale),patch.object(c.time,'sleep'):
+            with self.assertRaisesRegex(c.ReleaseError,'REMOTE_REQUIRED_JOB_STATUS_UNSETTLED'): gh.assert_checks(value,settle=0,poll=7)
+
     def test_remote_superseded_branch_rejected(self):
         value=self.candidate(); gh=c.GitHub(value['repository'],token='test')
         with patch.object(gh,'get',side_effect=[{'id':int(value['repository_id']),'owner':{'id':int(c.OWNER_ID)}},{'commit':{'sha':'b'*40}}]):
@@ -225,7 +240,7 @@ class CoreTests(unittest.TestCase):
              patch.object(gh,'assert_checks') as checks,patch.object(gh,'assert_current_source') as current:
             result=gh.assert_approval(value)
             self.assertEqual(result,{'mode':'automatic','reviewer_ids':[],'environment_id':7})
-            checks.assert_called_once_with(value);current.assert_called_once_with(value)
+            checks.assert_called_once_with(value,settle=c.CHECK_SETTLE_SECONDS);current.assert_called_once_with(value)
 
     def test_automatic_mode_cannot_ignore_an_existing_gate_or_wrong_branch(self):
         value=self.automatic_candidate();gh=c.GitHub(value['repository'],token='test')

@@ -2,16 +2,16 @@
   "schema": "hid.frontend-dependencies/v1",
   "declared": true,
   "backend_contract": "novu-v1",
-  "reviewed_by": "HID project owner: approved Novu production baseline and authorized production activation",
-  "review_reference": "Owner production baseline authorization, 2026-10-18; automatic deployment requested 2026-10-21; runtime policy enforced by PRODUCTION_APPROVAL_MODE; gateway activation verified by Actions 39751158762",
+  "reviewed_by": "",
+  "review_reference": "Backend release backend-39826552603-1-7829619c3691588c (D-Eminence/hid-system staging-novu-ci-20261005 at 19dd9c3, Actions run 39826552603, deployed 2026-10-22 18:41 UTC with status success for all 12 services). Browser-facing changes since 844935c/e41a35d/7bb7cdb are the ports of main #31 #33 #38 #43 #45 #46 #51 #55 #56 #59 #60 #61, which this frontend already codes for.",
   "backend_commits": {
-    "gateway": "7bb7cdb7360faa556c186af5b363163da324fe07",
-    "identity-api": "e41a35d534cc63301fe3b10dc6931ac811a25f5f",
-    "ehr-api": "844935c4e7b42da96f31d8c1229c79925f2b020f",
-    "lab-api": "844935c4e7b42da96f31d8c1229c79925f2b020f",
-    "pharmacy-api": "844935c4e7b42da96f31d8c1229c79925f2b020f",
-    "ocr-api": "844935c4e7b42da96f31d8c1229c79925f2b020f",
-    "outreach-api": "844935c4e7b42da96f31d8c1229c79925f2b020f",
-    "support-api": "844935c4e7b42da96f31d8c1229c79925f2b020f"
+    "gateway": "19dd9c312cb0953fb77bf78970705fdad83e9278",
+    "identity-api": "19dd9c312cb0953fb77bf78970705fdad83e9278",
+    "ehr-api": "19dd9c312cb0953fb77bf78970705fdad83e9278",
+    "lab-api": "19dd9c312cb0953fb77bf78970705fdad83e9278",
+    "pharmacy-api": "19dd9c312cb0953fb77bf78970705fdad83e9278",
+    "ocr-api": "19dd9c312cb0953fb77bf78970705fdad83e9278",
+    "outreach-api": "19dd9c312cb0953fb77bf78970705fdad83e9278",
+    "support-api": "19dd9c312cb0953fb77bf78970705fdad83e9278"
   }
 }
