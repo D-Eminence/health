@@ -231,7 +231,7 @@ def verify_assets(app,manifest_entry):
     for path in refs.paths:
         require(path in manifest_entry["files"] and matches(get(path),manifest_entry["files"][path]), "LIVE_ENTRY_ASSET_BYTES_DIFFER")
     if app != "public":
-        require(matches(get("sign-in"),manifest_entry["files"]["index.html"],html=True), "WORKER_DEEP_LINK_DIFFERS")
+        require(matches(get("admin/sign-in" if app == "admin" else "sign-in"),manifest_entry["files"]["index.html"],html=True), "WORKER_DEEP_LINK_DIFFERS")
     else:
         require(matches(get("about"),manifest_entry["files"]["about.html"],html=True), "PUBLIC_DEEP_LINK_DIFFERS")
     return {"entry_assets_verified":len(refs.paths),"deep_link_verified":True}

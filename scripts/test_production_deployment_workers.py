@@ -5,6 +5,7 @@ import os
 import pathlib
 import tempfile
 import unittest
+from io import BytesIO
 from unittest.mock import patch
 import production_deployment_core as c
 from test_production_deployment_core import ctx, index
@@ -14,6 +15,29 @@ w=importlib.util.module_from_spec(spec); spec.loader.exec_module(w)
 
 
 class WorkerTests(unittest.TestCase):
+    def test_health_checks_use_canonical_portal_paths_without_redirects(self):
+        html = b'<html><script src="/entry.js"></script></html>'
+        script = b'console.log("release")'
+        for app in w.HOSTS:
+            with self.subTest(app=app):
+                paths = []
+                deep_link = 'about' if app == 'public' else 'admin/sign-in' if app == 'admin' else 'sign-in'
+                def open_request(request, timeout):
+                    path = request.full_url.split(w.HOSTS[app] + '/', 1)[1]
+                    self.assertIn(path, ('', 'entry.js', deep_link))
+                    paths.append(path)
+                    response = BytesIO(script if path == 'entry.js' else html)
+                    response.status = 200
+                    response.headers = {'x-content-type-options': 'nosniff', 'x-frame-options': 'DENY'}
+                    return response
+                opener = unittest.mock.Mock()
+                opener.open.side_effect = open_request
+                entry = {'files': {'index.html': c.sha(html), 'about.html': c.sha(html), 'entry.js': c.sha(script)}}
+                with patch.object(w.urllib.request, 'build_opener', return_value=opener) as build:
+                    self.assertTrue(w.verify_assets(app, entry)['deep_link_verified'])
+                    self.assertIsNone(build.call_args.args[0].redirect_request(None))
+                self.assertEqual(paths, ['', 'entry.js', deep_link])
+
     def test_undeclared_and_unreleased_backend_dependencies_block(self):
         value={'backend_dependencies':{'declared':False}}
         with self.assertRaisesRegex(c.ReleaseError,'DECLARATION'): w.assert_dependencies(value,index())
