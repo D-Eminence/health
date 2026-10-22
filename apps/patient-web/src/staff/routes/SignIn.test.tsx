@@ -87,6 +87,27 @@ it.each([
   expect(screen.getByText(/Password resets are done on the main Health ID site/)).toBeTruthy()
 })
 
+it('on the production portal sends staff to the EHR site to sign in, with no form hid-system would refuse', () => {
+  serveFrom('app.healthidentitydirectory.com')
+  vi.stubGlobal('turnstile', { render: vi.fn(() => 'widget-1'), remove: vi.fn(), reset: vi.fn() })
+
+  render(<MemoryRouter><SignIn /></MemoryRouter>)
+
+  expect(screen.getByRole('link', { name: 'Continue to provider sign in' }).getAttribute('href'))
+    .toBe('https://ehr.healthidentitydirectory.com/provider/sign-in')
+  expect(screen.queryByLabelText('Work email')).toBeNull()
+  expect((window as unknown as { turnstile: { render: ReturnType<typeof vi.fn> } }).turnstile.render).not.toHaveBeenCalled()
+})
+
+it.each(['staging.healthidentitydirectory.com', 'ehr.healthidentitydirectory.com'])(
+  'on %s keeps its own staff sign-in form', hostname => {
+    serveFrom(hostname)
+    vi.stubGlobal('turnstile', { render: vi.fn(() => 'widget-1'), remove: vi.fn(), reset: vi.fn() })
+    render(<MemoryRouter><SignIn /></MemoryRouter>)
+    expect(screen.getByLabelText(/Work email/)).toBeTruthy()
+    expect(screen.queryByRole('link', { name: 'Continue to provider sign in' })).toBeNull()
+  })
+
 it('keeps password recovery on this site where the portal is not a product site', async () => {
   vi.stubGlobal('turnstile', { render: vi.fn(() => 'widget-1'), remove: vi.fn(), reset: vi.fn() })
 

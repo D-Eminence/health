@@ -7,6 +7,7 @@ import {
   STAFF_RECOVERY_PATH,
   staffLoginAction,
   staffRecoveryHref,
+  staffSignInHref,
   CLINICIAN_SIGNUP_PATH,
   CLINICIAN_STATUS_PATH,
   clinicianMainSiteHref,
@@ -202,4 +203,17 @@ describe('clinicianMainSiteHref', () => {
     expect(clinicianMainSiteHref(hostname, CLINICIAN_SIGNUP_PATH)).toBeNull()
     expect(clinicianPageHref(hostname, CLINICIAN_STATUS_PATH)).toBe('/provider/join/status')
   })
+})
+
+describe('staffSignInHref', () => {
+  it.each(['app.healthidentitydirectory.com', 'APP.HEALTHIDENTITYDIRECTORY.COM.'])(
+    'sends staff on the production portal %s to the EHR site', hostname => {
+      expect(staffSignInHref(hostname)).toBe('https://ehr.healthidentitydirectory.com/provider/sign-in')
+    })
+
+  it.each(['staging.healthidentitydirectory.com', 'ehr.healthidentitydirectory.com', 'lab.healthidentitydirectory.com',
+    'www.healthidentitydirectory.com', 'app.healthidentitydirectory.com.evil.example', 'localhost'])(
+    'keeps staff sign-in on %s itself', hostname => {
+      expect(staffSignInHref(hostname)).toBeNull()
+    })
 })

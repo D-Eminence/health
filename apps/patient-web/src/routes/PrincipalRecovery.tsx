@@ -5,7 +5,7 @@ import { PasswordInput } from '@hid/ui'
 import { Turnstile } from '../Turnstile'
 import { AuthLayout } from '../AuthLayout'
 import { createPrincipalRecoveryApi, type RecoveryAudience } from '../recoveryApi'
-import { STAFF_RECOVERY_PATH, staffRecoveryHref } from '../productHostname'
+import { STAFF_RECOVERY_PATH, staffRecoveryHref, staffSignInHref } from '../productHostname'
 import { describedBy, isFieldProblem, useDocumentTitle, useStepFocus } from '../authSteps'
 import { CODE_BUDGET_HINT, useCodeBudgetNote, useResendWait } from './recoveryWait'
 
@@ -15,6 +15,11 @@ type Step = 'start' | 'code' | 'password' | 'complete'
 export function PrincipalRecovery({ audience }: { audience: RecoveryAudience }) {
   const api = useMemo(() => createPrincipalRecoveryApi(audience), [audience])
   const signInPath = audience === 'staff' ? '/provider/sign-in' : '/admin/sign-in'
+  // On the production portal, staff sign in on the EHR site (staffSignInHref).
+  const signInElsewhere = audience === 'staff' ? staffSignInHref(window.location.hostname) : null
+  const signInLink = (label: string, className?: string) => signInElsewhere
+    ? <a className={className} href={signInElsewhere}>{label}</a>
+    : <Link className={className} to={signInPath}>{label}</Link>
   const accountLabel = audience === 'staff' ? 'Provider' : 'Platform'
   useDocumentTitle(`Reset your password · Health ID ${accountLabel}`)
   const stepFocus = useStepFocus()
@@ -44,7 +49,7 @@ export function PrincipalRecovery({ audience }: { audience: RecoveryAudience }) 
     return <AuthLayout brandTo={signInPath} title="Reset your password." titleId="principal-recovery-title"
       lede={`${accountLabel} account recovery. Password resets are done on the main Health ID site.`}>
       <a className="patient-primary-button auth-primary" href={mainSiteRecovery}>Reset your password on the main site</a>
-      <p className="patient-auth-footer"><Link to={signInPath}>Back to {accountLabel.toLowerCase()} sign in</Link></p>
+      <p className="patient-auth-footer">{signInLink(`Back to ${accountLabel.toLowerCase()} sign in`)}</p>
     </AuthLayout>
   }
 
@@ -158,7 +163,7 @@ export function PrincipalRecovery({ audience }: { audience: RecoveryAudience }) 
       <button className="patient-primary-button" type="submit" disabled={busy || password.length < 12 || password !== confirmPassword}>{busy ? 'Saving…' : 'Reset password'}</button>
     </form>}
     {step === 'complete' && <div role="status" className="patient-success"><h2 ref={stepFocus.target} tabIndex={-1}>Password reset complete.</h2>
-      <Link className="patient-primary-button" to={signInPath}>Sign in</Link></div>}
+      {signInLink('Sign in', 'patient-primary-button')}</div>}
     {/* A start within the previous one's wait sends no code for the same identifier, which answers the same
         challenge (hid-system #55, migration 0081), nor for the same account's other identifier; another
         account's work email may be entered at once. A new code is offered once the wait has passed, in a region
@@ -167,6 +172,6 @@ export function PrincipalRecovery({ audience }: { audience: RecoveryAudience }) 
       <button className="patient-text-button" type="button" onClick={restart} disabled={busy}>Use a different work email</button>
       <div role="status">{resend.ready && <><p className="patient-field-hint">No code, or a code refused? Start again with the same work email to get a new code.</p>
         <button className="patient-text-button" type="button" onClick={restart} disabled={busy}>Start again for a new code</button></>}</div></div>}
-    <p className="patient-auth-footer"><Link to={signInPath}>Back to {accountLabel.toLowerCase()} sign in</Link></p>
+    <p className="patient-auth-footer">{signInLink(`Back to ${accountLabel.toLowerCase()} sign in`)}</p>
   </AuthLayout>
 }
