@@ -11,7 +11,7 @@ export function RecordName({ name }: { name: string }) {
     <p><strong>NIN verified</strong></p>
     <div id={RECORD_NAME_ID}>
       <p>Name on your NIN record: <strong>{name}</strong></p>
-      <p>Check that this is your name before you continue. If it is not, do not continue: the NIN you typed may be wrong. Check it on your NIN slip or in the NIMC app.</p>
+      <p>Check that this is your name before you continue. If it is not, stop here: the NIN you typed may be wrong. Check it on your NIN slip or in the NIMC app. This registration closes by itself within 24 hours, and you can then start again with the right NIN. For help sooner, contact Health ID support.</p>
     </div>
   </div>
 }
