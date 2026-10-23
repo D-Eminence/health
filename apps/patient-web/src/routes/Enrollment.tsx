@@ -538,6 +538,17 @@ export function Enrollment() {
     if (busy) return
     freshStart(); clearError(); stepFocus.focus()
   }
+  /**
+   * "Use a different NIN" under the name on the NIN record: back to the NIN step
+   * with nothing typed. Unlike startAgain, the start key is kept. It is bound to
+   * the NIN, so typing the same NIN again resumes this registration with no new
+   * lookup, and another NIN gets a new key and a new registration. This one is
+   * not cancelled: it closes by itself within 24 hours.
+   */
+  const differentNin = () => {
+    if (busy) return
+    forgetRegistration(); clearError(); stepFocus.focus()
+  }
   /** "Start again" after a registration ended at the facility stage: the kept key resumes it if it is still open. */
   const againAtNin = () => {
     if (busy) return
@@ -751,7 +762,7 @@ export function Enrollment() {
       {ready && stage === 'already_registered' && <AlreadyRegistered focusTarget={stepFocus.target} reference={reference} />}
       {ready && stage === 'registration_ended' && <RegistrationEnded focusTarget={stepFocus.target} onStartAgain={againAtNin} />}
       {ready && stage === 'registration_completed' && <RegistrationCompleted focusTarget={stepFocus.target} />}
-      {ready && recordName && RECORD_NAME_STAGES.includes(stage) && <RecordName name={recordName} />}
+      {ready && recordName && RECORD_NAME_STAGES.includes(stage) && <RecordName name={recordName} busy={busy} onDifferentNin={differentNin} />}
       {ready && stage === 'contact' && <ContactStep {...stepProps} channel={channel} onChannel={setChannel} contact={contact} onContact={setContact}
         onSubmit={event => void submitContact(event)} noticeId={notice ? 'enroll-notice' : undefined}
         recordNameId={recordName ? RECORD_NAME_ID : undefined} />}
