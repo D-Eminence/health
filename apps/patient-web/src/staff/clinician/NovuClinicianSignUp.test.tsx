@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
+import type { ReactElement } from 'react'
 
 /**
  * Novu has no clinician self sign-up (hid-system ADR-066 is main's): the
@@ -20,7 +21,7 @@ beforeEach(() => {
 })
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs() })
 
-const show = (element: JSX.Element) => render(<MemoryRouter>{element}</MemoryRouter>)
+const show = (element: ReactElement) => render(<MemoryRouter>{element}</MemoryRouter>)
 
 describe('clinician sign-up on Novu', () => {
   it('says sign-up is not open on the provider pages and links no application', async () => {

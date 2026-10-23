@@ -35,7 +35,7 @@ describe('the Novu admin navigation', () => {
     expect(titles(SECURITY_AUDITOR)).toEqual(['Overview', 'Audit', 'Service health', 'Integrations'])
     expect(titles(SUPER_ADMIN)).not.toContain('Approvals')
     const unserved = NAVIGATION_ITEMS.filter(item => !isServed(item)).map(item => item.path)
-    expect(unserved).toEqual(['/admin/approvals', '/admin/security'])
+    expect(unserved).toEqual(['/admin/approvals', '/admin/clinicians', '/admin/security'])
     expect(NAVIGATION_ITEMS.filter(item => !isServed(item)).some(item => canOpen(item, actor(SUPER_ADMIN)))).toBe(false)
   })
 
@@ -66,12 +66,14 @@ describe('the Novu admin workspace', () => {
     render(<MemoryRouter initialEntries={[path]}><Routes><Route path="/admin/*" element={<App />} /></Routes></MemoryRouter>)
   }
 
-  it.each([['/admin/approvals'], ['/admin/security']])('answers %s with page not found, without asking the backend', async path => {
+  it.each([['/admin/approvals'], ['/admin/security'], ['/admin/clinicians'], ['/admin/clinicians/0f2b6d0e-6a55-4b4c-9a7e-2f4b8c1d3e5a']])('answers %s with page not found, without asking the backend', async path => {
     const calls = serve(SUPER_ADMIN)
     await openAt(path)
     expect(await screen.findByRole('heading', { name: 'Page not found' })).toBeTruthy()
     expect(screen.queryByRole('heading', { name: 'Access denied' })).toBeNull()
-    expect(calls.filter(called => called.includes('/approvals') || called.includes('/sessions') || called.includes('/mfa'))).toEqual([])
+    expect(document.title).toBe('Platform · Health ID Platform')
+    expect(calls.filter(called => called.includes('/approvals') || called.includes('/sessions') || called.includes('/mfa')
+      || called.includes('clinician'))).toEqual([])
   })
 
   it('shows no pending approvals on the overview of an administrator who manages roles', async () => {

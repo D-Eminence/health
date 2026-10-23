@@ -82,6 +82,8 @@ function IntegrationHealth() {
 export function OverviewPage({ actor }: { actor: AdminActor }) {
   const totals = useResource(adminApi.overview, 'The platform overview could not be loaded.')
   const areas = visibleNavigation(actor).flatMap(section => section.items).filter(item => item.path !== '/admin/overview')
+  // A total links to its area only for an administrator who may open it there.
+  const opens = (link: string) => { const item = navigationItemFor(link.split('?')[0] ?? link); return item !== undefined && canOpen(item, actor) }
   const approvals = navigationItemFor('/admin/approvals')
   const attention = [
     approvals !== undefined && canOpen(approvals, actor) && <PendingApprovals key="approvals" />,
@@ -97,7 +99,7 @@ export function OverviewPage({ actor }: { actor: AdminActor }) {
         <h2 id="admin-totals-title" className="admin-section-title">Platform totals</h2>
         <ResourceView resource={totals}>{overview => <div className="admin-metric-grid">
           {TOTALS.map(metric => <article className="admin-metric" key={metric.key}>
-            <span>{metric.link ? <Link to={metric.link}>{metric.title}</Link> : metric.title}</span>
+            <span>{metric.link && opens(metric.link) ? <Link to={metric.link}>{metric.title}</Link> : metric.title}</span>
             <strong>{number(overview[metric.key])}</strong>
           </article>)}
         </div>}</ResourceView>

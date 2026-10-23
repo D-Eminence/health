@@ -72,7 +72,7 @@ function useAreaTitle() {
   const location = useLocation()
   useEffect(() => {
     const item = navigationItemFor(location.pathname)
-    document.title = `${item ? item.title : 'Platform'} · Health ID Platform`
+    document.title = `${item && isServed(item) ? item.title : 'Platform'} · Health ID Platform`
   }, [location.pathname])
 }
 

@@ -46,6 +46,16 @@ describe('Users and roles on Novu', () => {
     expect(mocks.principalSessions).not.toHaveBeenCalled()
   })
 
+  it('says View only to a support administrator for an account with no session to revoke', async () => {
+    mocks.principals.mockResolvedValue({ items: [{ ...principal, activeSessionCount: 0 }], page: 1, pageSize: 25, total: 1 })
+    render(<MemoryRouter><StepUpProvider><PrincipalsPage actor={actor(SUPPORT_ADMIN)} /></StepUpProvider></MemoryRouter>)
+    fireEvent.change(screen.getByLabelText('Search users'), { target: { value: 'ada' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }))
+    const row = (await screen.findByText('Ada Operator')).closest('tr')!
+    expect(within(row).getByText('View only')).toBeTruthy()
+    expect(within(row).queryByText('Revoke all sessions')).toBeNull()
+  })
+
   it('offers a support administrator only the revoke-all command', async () => {
     const row = await search(SUPPORT_ADMIN)
     expect(within(row).getByText('Revoke all sessions')).toBeTruthy()

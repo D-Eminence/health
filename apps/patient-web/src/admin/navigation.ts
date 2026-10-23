@@ -25,7 +25,7 @@ export interface NavigationSection {
 }
 
 const can = (permission: string) => (actor: AdminActor) => actor.platformPermissions.includes(permission)
-/** Novu has no two-person approvals and no administrator authenticator or session list. */
+/** Novu has no two-person approvals, no administrator authenticator or session list, and no clinician applications. */
 const onMainBackend = () => !usesNovuBackend()
 
 /** Approvals are listed for these permissions (hid-system PlatformSecurityService.listApprovals). */
@@ -51,7 +51,7 @@ export const NAVIGATION: readonly NavigationSection[] = [
     { path: '/admin/reviews', title: 'Identity review', visible: can('platform.identity-review.read'),
       description: 'Registration cases that need identity oversight.' },
     // hid-system ADR-066: every route of the queue needs platform.workforce.manage.
-    { path: '/admin/clinicians', title: 'Clinician applications', visible: can('platform.workforce.manage'),
+    { path: '/admin/clinicians', title: 'Clinician applications', served: onMainBackend, visible: can('platform.workforce.manage'),
       description: 'Doctors and nurses who applied by themselves: one Super Admin verifies, then a second Super Admin approves.' },
   ] },
   { title: 'Security', items: [

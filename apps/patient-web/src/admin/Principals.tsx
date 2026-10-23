@@ -166,7 +166,8 @@ function PrincipalActions({ principal, actor, reload }: {
   // form stays (disabled) so its confirmation is not removed with it.
   const [revokedAll, setRevokedAll] = useState(false)
   const canElevate = canRole && !principal.platformRoles.includes('platform_super_admin')
-  if (!canStatus && !canRole && !canRevoke && !canResetMfa) return <>View only</>
+  const offersRevokeAll = canRevoke && (principal.activeSessionCount > 0 || revokedAll)
+  if (!canStatus && !canRole && !offersRevokeAll && !(onMain && (canRevoke || canResetMfa))) return <>View only</>
   return <div className="admin-principal-actions">
     {canStatus && <ActionForm title="Change account status" options={[
       { value: 'active', title: 'Active' }, { value: 'disabled', title: 'Disabled' },
@@ -179,7 +180,7 @@ function PrincipalActions({ principal, actor, reload }: {
     {onMain && canElevate && <ApprovalRequestForm kind="super-admin" principal={principal} />}
     {onMain && canResetMfa && <ApprovalRequestForm kind="mfa-reset" principal={principal} />}
     {onMain && canRevoke && <PrincipalSessions principal={principal} />}
-    {canRevoke && (principal.activeSessionCount > 0 || revokedAll) && <ActionForm title="Revoke all sessions"
+    {offersRevokeAll && <ActionForm title="Revoke all sessions"
       disabled={principal.activeSessionCount === 0}
       note={<p className="admin-note">{principal.activeSessionCount > 0
         ? 'Signs this account out everywhere. Use it when an account may be compromised.'

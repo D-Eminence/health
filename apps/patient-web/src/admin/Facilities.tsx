@@ -1,5 +1,6 @@
 import { useCallback, useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
+import { usesNovuBackend } from '../backendContract'
 import { adminApi, PAGE_SIZE, type AdminActor, type AuditFilters, type Facility } from './api'
 import { AssistedRegistrationPanel } from './AssistedRegistration'
 import {
@@ -94,10 +95,11 @@ function AuditExcerpt({ id, title, description, filters, search, withReason = fa
 
 function FacilityAudit({ facilityId }: { facilityId: string }) {
   const target = new URLSearchParams({ resourceType: 'facility', resourceId: facilityId }).toString()
+  // Novu's audit read has no target filter (it refuses resourceType and resourceId with 400).
   return <>
-    <AuditExcerpt id="admin-facility-platform-audit-title" title="Platform changes to this facility"
+    {!usesNovuBackend() && <AuditExcerpt id="admin-facility-platform-audit-title" title="Platform changes to this facility"
       description="Platform administration commands that targeted this facility, such as status changes, with their reasons."
-      filters={{ resourceType: 'facility', resourceId: facilityId }} search={target} withReason />
+      filters={{ resourceType: 'facility', resourceId: facilityId }} search={target} withReason />}
     <AuditExcerpt id="admin-facility-audit-title" title="Activity inside this facility"
       description="Audit events recorded in this facility's scope, such as staff activity."
       filters={{ facilityId }} search={new URLSearchParams({ facilityId }).toString()} />
