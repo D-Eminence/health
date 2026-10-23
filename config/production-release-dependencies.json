@@ -2,8 +2,8 @@
   "schema": "hid.frontend-dependencies/v1",
   "declared": true,
   "backend_contract": "novu-v1",
-  "reviewed_by": "",
-  "review_reference": "Backend release backend-39877881297-1-41d5af6c04c934a4 (D-Eminence/hid-system staging-novu-ci-20261005 at 2556260, Actions run 39877881297, deployed 2026-10-23 01:11 UTC with status success for all 12 services). Browser-facing changes since 19dd9c3: W01 (#101, 6a2ab4a) makes the admin platform controls and platform audit list work and answers 503 OCR_PUBLICATION_PAUSED to OCR publication; W02 (#102) makes OCR patient confirmation work and answers a repeated one with 409 OCR_PATIENT_ALREADY_CONFIRMED. This frontend handles both answers (staff/routes/Operations.tsx: the repeated confirmation reloads the job, a paused publication shows its refusal).",
+  "reviewed_by": "D-Eminence",
+  "review_reference": "Backend release backend-39877881297-1-41d5af6c04c934a4 (D-Eminence/hid-system staging-novu-ci-20261005 at 2556260, Actions run 39877881297, deployed 2026-10-23 01:11 UTC with status success for all 12 services). Browser-facing changes since 19dd9c3: W01 (#101, 6a2ab4a) makes the admin platform controls and platform audit list work and answers 503 OCR_PUBLICATION_PAUSED to OCR publication; W02 (#102) makes OCR patient confirmation work and answers a repeated one with 409 OCR_PATIENT_ALREADY_CONFIRMED. This frontend handles both answers (staff/routes/Operations.tsx: the repeated confirmation reloads the job, a paused publication shows its refusal). Reviewed and approved by the repository owner, D-Eminence.",
   "backend_commits": {
     "gateway": "25562601e3b24a2b8bee44c6bc343b3b317bcd8d",
     "identity-api": "25562601e3b24a2b8bee44c6bc343b3b317bcd8d",
