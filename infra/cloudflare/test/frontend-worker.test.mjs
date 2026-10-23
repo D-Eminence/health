@@ -244,6 +244,16 @@ test('product recovery cannot use a caller-selected redirect destination', async
   assert.equal(response.headers.get('location'), 'https://staging.healthidentitydirectory.com/provider/recover?returnTo=lab')
 })
 
+test('the production portal sends staff sign-in to the EHR site, and staging keeps its own', async () => {
+  const production = await worker.fetch(new Request('https://app.healthidentitydirectory.com/provider/sign-in?returnTo=https://evil.example'),
+    environment({ DEPLOYMENT_ENV: 'production', APP_NAME: 'web', EXPECTED_HOST: 'app.healthidentitydirectory.com' }))
+  assert.equal(production.status, 302)
+  assert.equal(production.headers.get('location'), 'https://ehr.healthidentitydirectory.com/provider/sign-in')
+  const staging = await worker.fetch(new Request('https://staging.healthidentitydirectory.com/provider/sign-in'),
+    environment({ DEPLOYMENT_ENV: 'staging', APP_NAME: 'web' }))
+  assert.notEqual(staging.status, 302)
+})
+
 test('patient popup policy allows Google messaging without relaxing other portals', async () => {
   const patient = await worker.fetch(new Request('https://staging.healthidentitydirectory.com/sign-in'), environment({ DEPLOYMENT_ENV: 'staging', APP_NAME: 'web' }))
   assert.equal(patient.headers.get('cross-origin-opener-policy'), 'same-origin-allow-popups')

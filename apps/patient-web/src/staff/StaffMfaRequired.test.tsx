@@ -156,6 +156,7 @@ describe('a sign-in without an authenticator refused mid-session', () => {
     const calls = serve({ [SESSION]: [staffSession, ended], [REQUESTS]: [() => json([])], [FACILITY]: [mfaRequired],
       [REFRESH]: [mfaRequired, refreshCookieGone] })
     await open('/provider')
+    expect(await screen.findByText('0 pending requests')).toBeTruthy()
     fireEvent.change(await screen.findByRole('combobox', { name: 'Working at' }), { target: { value: 'facility-2' } })
     fireEvent.click(screen.getByRole('button', { name: 'Switch facility' }))
 

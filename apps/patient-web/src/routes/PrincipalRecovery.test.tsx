@@ -64,6 +64,28 @@ describe('staff and admin password recovery', () => {
     expect(screen.getByRole('link', { name: 'Sign in' }).getAttribute('href')).toBe('/provider/sign-in')
   })
 
+  it('on the production portal links staff to the EHR site to sign in after the reset', async () => {
+    jsdom.reconfigure({ url: 'https://app.healthidentitydirectory.com/provider/recover' })
+    calls.start.mockResolvedValueOnce({ accepted: true, challengeId: 'challenge-1' })
+    calls.verify.mockResolvedValueOnce({ verified: true, challengeId: 'challenge-1', verificationToken: 'verified' })
+    calls.complete.mockResolvedValueOnce({ completed: true })
+    open('staff', '/provider/recover')
+
+    const ehr = 'https://ehr.healthidentitydirectory.com/provider/sign-in'
+    expect(screen.getByRole('link', { name: 'Back to provider sign in' }).getAttribute('href')).toBe(ehr)
+    fireEvent.change(screen.getByLabelText('Work email'), { target: { value: 'nurse@example.test' } })
+    fireEvent.click(screen.getByRole('button', { name: /Complete staff-reset security check/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Send recovery code' }))
+    fireEvent.change(await screen.findByLabelText('Recovery code'), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Verify code' }))
+    fireEvent.change(await screen.findByLabelText('New password'), { target: { value: 'correct horse battery' } })
+    fireEvent.change(screen.getByLabelText('Confirm new password'), { target: { value: 'correct horse battery' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Reset password' }))
+
+    await screen.findByText('Password reset complete.')
+    expect(screen.getByRole('link', { name: 'Sign in' }).getAttribute('href')).toBe(ehr)
+  })
+
   it('follows no return address given in the link, so it cannot send anyone to another site', async () => {
     // Product sites link here without one; a crafted link must not turn this page into a redirect.
     calls.start.mockResolvedValueOnce({ accepted: true, challengeId: 'challenge-1' })
@@ -86,10 +108,10 @@ describe('staff and admin password recovery', () => {
   })
 
   it.each([
-    ['lab.healthidentitydirectory.com', 'https://www.healthidentitydirectory.com/provider/recover'],
-    ['ehr.healthidentitydirectory.com', 'https://www.healthidentitydirectory.com/provider/recover'],
+    ['lab.healthidentitydirectory.com', 'https://app.healthidentitydirectory.com/provider/recover'],
+    ['ehr.healthidentitydirectory.com', 'https://app.healthidentitydirectory.com/provider/recover'],
     ['outreach.staging.healthidentitydirectory.com', 'https://staging.healthidentitydirectory.com/provider/recover'],
-    ['admin.healthidentitydirectory.com', 'https://www.healthidentitydirectory.com/provider/recover'],
+    ['admin.healthidentitydirectory.com', 'https://app.healthidentitydirectory.com/provider/recover'],
   ])('opened directly on %s, sends staff to the main site instead of a reset hid-system refuses there', (hostname, href) => {
     // A bookmark, history or a typed address can still reach this page on a product site.
     jsdom.reconfigure({ url: `https://${hostname}/provider/recover` })

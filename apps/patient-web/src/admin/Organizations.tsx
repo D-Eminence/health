@@ -156,7 +156,7 @@ function ApplicationCard({ application, actor, onReviewed }: {
 
 /** Organization applications. The backend has no organization directory, so organizations are reached through these and facilities. */
 // Staff password setup ('staff-reset' Turnstile) is accepted only on the main
-// site: www in production, staging on staging (hid-system turnstile.service.ts).
+// site: app in production, staging on staging (hid-system turnstile.service.ts).
 function staffRecoveryUrl(): string {
   let name = 'local'
   try { name = environment().name } catch { /* A configuration problem is reported where the API is used. */ }

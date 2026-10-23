@@ -133,6 +133,13 @@ function applicationRouteRedirect(request, requestUrl, deployment) {
     target.searchParams.set('returnTo', products[deployment.application])
     return Response.redirect(target, 302)
   }
+  // hid-system refuses staff-login on the production portal, so its staff
+  // sign-in page sends staff to the EHR site's (owner decision, 2026-10-22).
+  // One fixed address: nothing from the request is copied into it.
+  if (deployment.application === 'web' && deployment.expectedHost === 'app.healthidentitydirectory.com'
+    && requestUrl.pathname === '/provider/sign-in') {
+    return Response.redirect('https://ehr.healthidentitydirectory.com/provider/sign-in', 302)
+  }
   if (deployment.application === 'public' && requestUrl.pathname === '/products/identity') {
     return Response.redirect(new URL('/patients', requestUrl), 308)
   }

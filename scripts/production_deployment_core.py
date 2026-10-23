@@ -30,6 +30,8 @@ TARGETS = {
 COMPONENTS = ("identity-api","ehr-api","lab-api","pharmacy-api","ocr-api","ocr-worker",
               "outreach-api","notification-api","notification-worker","event-dispatcher","gateway","support-api")
 INDEX_KEY = "production/current.json"
+CHECK_SETTLE_SECONDS = 1200
+CHECK_POLL_SECONDS = 20
 
 class ReleaseError(RuntimeError):
     pass
@@ -147,8 +149,23 @@ class GitHub:
                 return values
         raise ReleaseError("JOB_PAGINATION_LIMIT")
 
-    def assert_checks(self, candidate):
-        rows = self.jobs(candidate)
+    def assert_checks(self, candidate, settle=CHECK_SETTLE_SECONDS, poll=CHECK_POLL_SECONDS):
+        # GitHub can report a finished job as queued or in progress for minutes,
+        # so wait for every required job to show a conclusion before judging.
+        # A concluded job that did not succeed still fails at once.
+        matrix = set()
+        if candidate["kind"] == "backend" and candidate.get("operation") != "rollback":
+            matrix = {prefix+" ("+component+")" for component in candidate["components"] for prefix in ("build", "publish")}
+        end = time.monotonic()+settle
+        while True:
+            rows = self.jobs(candidate)
+            required = [r for r in rows if r.get("name") in matrix or any(
+                r.get("name") == prefix or r.get("name","").startswith(prefix+" (") for prefix in candidate["checks"])]
+            require(all(r.get("conclusion") in (None, "success") for r in required), "REMOTE_REQUIRED_JOB_FAILED_OR_MISSING")
+            if all(r.get("conclusion") is not None for r in required):
+                break
+            require(time.monotonic() < end, "REMOTE_REQUIRED_JOB_STATUS_UNSETTLED")
+            time.sleep(poll)
         required = candidate["checks"]
         for prefix in required:
             matched = [r for r in rows if r.get("name") == prefix or r.get("name","").startswith(prefix+" (")]
@@ -170,7 +187,7 @@ class GitHub:
                 and str(run.get("run_attempt")) == candidate["run_attempt"]
                 and run.get("event") in ("push","workflow_dispatch"), "REMOTE_RUN_DIFFERS")
 
-    def assert_approval(self, candidate):
+    def assert_approval(self, candidate, settle=CHECK_SETTLE_SECONDS):
         # Review history is run-scoped. Never reuse an older attempt's approval.
         require(candidate["run_attempt"] == "1", "NEW_WORKFLOW_RUN_REQUIRED_FOR_APPROVAL")
         require(os.environ.get("PRODUCTION_DEPLOYMENT_ENABLED") == "true", "DEPLOYMENT_DISABLED")
@@ -190,7 +207,7 @@ class GitHub:
             branches = policies.get("branch_policies", [])
             require(len(branches) == 1 and branches[0].get("name") == candidate["branch"]
                     and branches[0].get("type", "branch") == "branch", "DEPLOYMENT_BRANCH_RULE_DIFFERS")
-            self.assert_checks(candidate)
+            self.assert_checks(candidate, settle=settle)
             self.assert_current_source(candidate)
             return {"mode": "automatic", "reviewer_ids": [], "environment_id": settings["id"]}
         rules = [r for r in settings.get("protection_rules",[]) if r.get("type") == "required_reviewers"]
@@ -211,7 +228,7 @@ class GitHub:
             and r.get("user",{}).get("id") in allowed
             and any(e.get("id") == settings["id"] for e in r.get("environments",[]))]
         require(bool(matches), "RECORDED_AUTHORIZED_APPROVAL_REQUIRED")
-        self.assert_checks(candidate)
+        self.assert_checks(candidate, settle=settle)
         self.assert_current_source(candidate)
         return {"reviewer_ids":sorted({r["user"]["id"] for r in matches}), "environment_id":settings["id"]}
 

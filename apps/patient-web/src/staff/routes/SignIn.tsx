@@ -7,7 +7,7 @@ import { useStaff } from '../App'
 import type { StaffLoginChallenge, StaffSession } from '../api'
 import { AuthLayout } from '../../AuthLayout'
 import { loadTurnstileScript, turnstileSize } from '../../Turnstile'
-import { CLINICIAN_STATUS_PATH, resolveStaffProductHostname, STAFF_RECOVERY_PATH, staffLoginAction, staffRecoveryHref } from '../../productHostname'
+import { CLINICIAN_STATUS_PATH, resolveStaffProductHostname, STAFF_RECOVERY_PATH, staffLoginAction, staffRecoveryHref, staffSignInHref } from '../../productHostname'
 import { staffReturnPath } from '../session'
 import { STAFF_MFA_FACTOR_UNPROVEN, STAFF_MFA_UNAVAILABLE, StaffMfaSteps, type StaffMfaLook } from './StaffMfaSteps'
 import { ClinicianSignUpEntry, PageLink } from '../clinician/ClinicianSignUpEntry'
@@ -103,6 +103,15 @@ export function SignIn() {
   const mfaRequired = (state.status === 'signed-out' || state.status === 'ended') && state.reason === 'mfa-required'
 
   if (state.status === 'ready') return <Navigate to={landingPath} replace />
+  // The production portal sends staff to the EHR site's sign-in, which
+  // hid-system accepts; a form here would always be refused.
+  const elsewhere = staffSignInHref(window.location.hostname)
+  if (elsewhere) return <AuthLayout brandTo="/provider/sign-in" brandLabel="Health ID provider sign in"
+    title="Sign in on the EHR site." titleId="staff-sign-in-title"
+    lede="Provider staff sign in at ehr.healthidentitydirectory.com, with the staff account assigned to your facility.">
+    <p><a className="patient-primary-button" href={elsewhere}>Continue to provider sign in</a></p>
+    <ClinicianSignUpEntry className="staff-muted" />
+  </AuthLayout>
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setError('')

@@ -73,15 +73,34 @@ export function staffLoginAction(hostname: string): StaffLoginAction {
 /** The portal's staff password-recovery page. */
 export const STAFF_RECOVERY_PATH = '/provider/recover'
 
+/** The portal's staff sign-in page. */
+export const STAFF_SIGN_IN_PATH = '/provider/sign-in'
+
+/** Where production staff sign in: the EHR site, which hid-system accepts `staff-login` on. */
+export const PRODUCTION_STAFF_SIGN_IN = 'https://ehr.healthidentitydirectory.com/provider/sign-in'
+
 /**
- * The main site of each deployment: the only host where hid-system accepts the
- * staff password-reset check, `staff-reset` (turnstile.service.ts: www in
- * production, staging on staging). Staff product hosts accept only their own
- * sign-in action, and the admin site only admin-login and admin-reset, so a
- * staff recovery started there is refused.
+ * Where staff sign in from here, when it is not this site. hid-system refuses
+ * `staff-login` on the production portal (app.healthidentitydirectory.com),
+ * which serves patients, so staff there are sent to the EHR site's sign-in
+ * (owner decision, 2026-10-22). One fixed value, nothing copied from the
+ * hostname, no return address; null anywhere else, staging included, where
+ * the portal's own staff sign-in is accepted.
+ */
+export function staffSignInHref(hostname: string): string | null {
+  return normalizeHostname(hostname) === 'app.healthidentitydirectory.com' ? PRODUCTION_STAFF_SIGN_IN : null
+}
+
+/**
+ * The main site of each deployment, where this portal serves the staff pages:
+ * app in production (www only redirects to the public site), staging on
+ * staging. hid-system accepts the staff password-reset check, `staff-reset`,
+ * there (turnstile.service.ts, hid-system#41). Staff product hosts accept only
+ * their own sign-in action, and the admin site only admin-login and
+ * admin-reset, so a staff recovery started there is refused.
  */
 export const MAIN_SITE_ORIGINS = {
-  production: 'https://www.healthidentitydirectory.com',
+  production: 'https://app.healthidentitydirectory.com',
   staging: 'https://staging.healthidentitydirectory.com',
 } as const
 
