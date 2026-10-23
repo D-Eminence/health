@@ -252,4 +252,16 @@ describe('"Use a different NIN" at the contact, code and password steps', () => 
     await screen.findByLabelText('Phone number')
     expect(button()).toBeNull()
   })
+
+  // Identity ties a Google sign-up to one registration only: another NIN's start would be refused
+  // (404 GOOGLE_ONBOARDING_NOT_FOUND) after its paid lookup, so the way back is not offered.
+  it.each([
+    ['with the name', { stage: 'verify_contact', recordName: NAME, googleOnboardingRequired: true }],
+    ['without the name', { stage: 'verify_contact', googleOnboardingRequired: true }],
+  ])('is not offered for a registration tied to a Google sign-up, %s', async (label, progress) => {
+    renderPortal(<Enrollment />, gateway({ stage: 'verify_contact' }, progress), anonymous)
+    await screen.findByLabelText('Phone number')
+    expect(button()).toBeNull()
+    if (label === 'with the name') expect(document.getElementById('enroll-record-name')?.textContent).toBe(`Name on your NIN record: ${NAME}${STOP}`)
+  })
 })

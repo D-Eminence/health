@@ -546,8 +546,8 @@ export function Enrollment() {
    * typed. Unlike startAgain, the start keys are kept, one per NIN, so a NIN
    * already started here resumes its registration with no new lookup, and
    * another NIN gets a new key and a new registration. Nothing is cancelled: a
-   * registration left closes by itself within 24 hours. Offered only while
-   * registration is open, so that the NIN step it goes back to is there.
+   * registration left closes by itself within 24 hours. Offered only as
+   * differentNinOffered says (below).
    */
   const differentNin = () => {
     if (busy) return
@@ -703,6 +703,10 @@ export function Enrollment() {
   const ready = !checking && !checkError && !signOutRequired
   // A new enrollment is offered only while registration is open; one in progress continues.
   const startOffered = GOOGLE_STAGES.includes(stage) && (stage !== 'nin' || registration === 'open')
+  // "Use a different NIN" needs a NIN step to go back to, so registration must be open. It is not offered
+  // for a registration tied to a Google sign-up: Identity ties a Google sign-up to one registration only,
+  // so the start of another NIN would be refused (404 GOOGLE_ONBOARDING_NOT_FOUND) after its paid lookup.
+  const differentNinOffered = registration === 'open' && !googleRequired
   const closed = ready && stage === 'nin' && registration === 'closed'
   // Google sign-up is offered until it is pending for this enrollment. On the NIN
   // step it is a path of its own, opened by a button: its check replaces the NIN
@@ -768,7 +772,7 @@ export function Enrollment() {
       {ready && stage === 'registration_ended' && <RegistrationEnded focusTarget={stepFocus.target} onStartAgain={againAtNin} />}
       {ready && stage === 'registration_completed' && <RegistrationCompleted focusTarget={stepFocus.target} />}
       {ready && recordName && RECORD_NAME_STAGES.includes(stage) && <RecordName name={recordName} busy={busy}
-        onDifferentNin={registration === 'open' ? differentNin : undefined} />}
+        onDifferentNin={differentNinOffered ? differentNin : undefined} />}
       {ready && stage === 'contact' && <ContactStep {...stepProps} channel={channel} onChannel={setChannel} contact={contact} onContact={setContact}
         onSubmit={event => void submitContact(event)} noticeId={notice ? 'enroll-notice' : undefined}
         recordNameId={recordName ? RECORD_NAME_ID : undefined} />}
@@ -780,7 +784,7 @@ export function Enrollment() {
         profileFields={profileFields} dateOfBirth={dateOfBirth} onDateOfBirth={setDateOfBirth} gender={gender} onGender={setGender}
         errorField={fieldError ? profileError ?? 'password' : null} />}
       {/* Without the name (sent only within 15 minutes of the start), the way back to the NIN step is still offered. */}
-      {ready && !recordName && registration === 'open' && RECORD_NAME_STAGES.includes(stage)
+      {ready && !recordName && differentNinOffered && RECORD_NAME_STAGES.includes(stage)
         && <button type="button" className="patient-text-button" disabled={busy} onClick={differentNin}>Use a different NIN</button>}
       {ready && stage === 'complete' && <Complete focusTarget={stepFocus.target} hidCode={hidCode} />}
       {import.meta.env.VITE_HID_GOOGLE_CLIENT_ID && googleOffered && stage === 'nin' && !googleChosen && <section className="patient-auth-separator" aria-label="Google enrollment">
