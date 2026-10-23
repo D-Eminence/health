@@ -100,27 +100,53 @@ describe('the name on the NIN record, under "NIN verified"', () => {
     await submitNin()
     await screen.findByLabelText('Phone number')
     expect(verified()).toBeNull()
-    expect(screen.queryByRole('button', { name: 'Use a different NIN' })).toBeNull()
   })
 })
 
-describe('"Use a different NIN" under the name on the NIN record', () => {
+describe('"Use a different NIN" at the contact, code and password steps', () => {
   const OTHER_NIN = '10987654321'
   const OTHER_NAME = 'Bola Fixture Adeyemi'
-  /** The start answers the name on the record of the NIN it was sent. */
-  const byNin: Handler = (path, method, body) => path === BASE && method === 'POST'
-    ? json({ stage: 'verify_contact', recordName: (body as { nin: string }).nin === NIN ? NAME : OTHER_NAME })
-    : gateway({ stage: 'verify_contact' })(path, method, body)
-  const startKeys = (headers: ReturnType<typeof renderPortal>['headers']) =>
+  const UNKNOWN_NIN = '19999999999'
+  const STOP = 'Check that this is your name before you continue. If it is not, stop here: the NIN you typed may be wrong. '
+    + 'Check it on your NIN slip or in the NIMC app. This registration closes by itself within 24 hours, and you can then start '
+    + 'again with the right NIN. For help sooner, contact Health ID support.'
+  const names: Record<string, string> = { [NIN]: NAME, [OTHER_NIN]: OTHER_NAME }
+  const button = () => screen.queryByRole('button', { name: 'Use a different NIN' })
+  type Headers = ReturnType<typeof renderPortal>['headers']
+
+  /**
+   * Identity at ec2b351: a start for a NIN pending under another key is refused
+   * (409 NIN_ALREADY_REGISTERED), and one under its own key resumes. A NIN the
+   * registry does not know is refused (422) and leaves nothing pending.
+   */
+  function identity(headers: () => Headers): Handler {
+    const pending = new Map<string, string>()
+    return (path, method, body) => {
+      if (path !== BASE || method !== 'POST') return gateway({ stage: 'verify_contact' })(path, method, body)
+      const nin = (body as { nin: string }).nin
+      const key = headers().at(-1)?.headers.get('Idempotency-Key') ?? ''
+      if (!names[nin]) return problem(422, 'NIN_NOT_VERIFIED', 'The NIN could not be verified')
+      const held = pending.get(nin)
+      if (held && held !== key) return problem(409, 'NIN_ALREADY_REGISTERED', 'This identity already has a Health ID or a pending enrollment')
+      pending.set(nin, key)
+      return json({ stage: 'verify_contact', recordName: names[nin] })
+    }
+  }
+  function renderIdentity() {
+    let sentHeaders: Headers = []
+    const view = renderPortal(<Enrollment />, identity(() => sentHeaders), anonymous)
+    sentHeaders = view.headers
+    return view
+  }
+  const startKeys = (headers: Headers) =>
     headers.filter(sent => sent.path === BASE && sent.method === 'POST').map(sent => sent.headers.get('Idempotency-Key'))
 
-  it('goes back to an empty NIN step, and the same NIN resumes with its key while another NIN gets a new one', async () => {
-    const { headers } = renderPortal(<Enrollment />, byNin, anonymous)
+  it('goes back to an empty NIN step, and the same NIN again resumes its registration with its key', async () => {
+    const { headers } = renderIdentity()
     await submitNin()
-    await screen.findByLabelText('Phone number')
-    fireEvent.change(screen.getByLabelText('Phone number'), { target: { value: '+2348000000000' } })
+    fireEvent.change(await screen.findByLabelText('Phone number'), { target: { value: '+2348000000000' } })
 
-    await press(screen.getByRole('button', { name: 'Use a different NIN' }))
+    await press(button()!)
     const ninField = await screen.findByLabelText('National Identification Number')
     expect((ninField as HTMLInputElement).value).toBe('')
     expect(document.activeElement).toBe(ninField)
@@ -128,33 +154,58 @@ describe('"Use a different NIN" under the name on the NIN record', () => {
     expect(screen.queryByLabelText('Phone number')).toBeNull()
     expect(screen.queryByText(NAME, { exact: false })).toBeNull()
 
-    // The same NIN again is the same registration: its key, so Identity resumes it with no new lookup.
     await submitNin()
     await screen.findByLabelText('Phone number')
     expect(verified()?.textContent).toContain(NAME)
-    // Nothing typed for it before the button is kept.
+    // Nothing typed before the button is kept.
     expect((screen.getByLabelText('Phone number') as HTMLInputElement).value).toBe('')
+    const [first, again] = startKeys(headers)
+    expect(first).toBeTruthy()
+    expect(again).toBe(first)
+  })
 
-    await press(screen.getByRole('button', { name: 'Use a different NIN' }))
+  it('resumes the first NIN with its own key after another NIN was started in between', async () => {
+    const { headers } = renderIdentity()
+    await submitNin()
+    await screen.findByLabelText('Phone number')
+    await press(button()!)
     await submitNin(OTHER_NIN)
     await screen.findByLabelText('Phone number')
     expect(verified()?.textContent).toContain(OTHER_NAME)
     expect(screen.queryByText(NAME, { exact: false })).toBeNull()
 
-    const [first, again, other] = startKeys(headers)
-    expect(first).toBeTruthy()
-    expect(again).toBe(first)
-    expect(other).toBeTruthy()
+    await press(button()!)
+    await submitNin()
+    await screen.findByLabelText('Phone number')
+    expect(verified()?.textContent).toContain(NAME)
+    expect(screen.queryByText('This identity already has a Health ID or a pending enrollment')).toBeNull()
+    const [first, other, back] = startKeys(headers)
     expect(other).not.toBe(first)
+    expect(back).toBe(first)
+  })
+
+  it('resumes the first NIN with its own key after another NIN was refused in between', async () => {
+    const { headers } = renderIdentity()
+    await submitNin()
+    await screen.findByLabelText('Phone number')
+    await press(button()!)
+    await submitNin(UNKNOWN_NIN)
+    expect(await screen.findByText('The NIN could not be verified')).toBeTruthy()
+    await submitNin()
+    await screen.findByLabelText('Phone number')
+    expect(verified()?.textContent).toContain(NAME)
+    const [first, refused, back] = startKeys(headers)
+    expect(refused).not.toBe(first)
+    expect(back).toBe(first)
   })
 
   it('is offered at the code and password steps too, and asks Identity for nothing', async () => {
-    const { sent } = renderPortal(<Enrollment />, gateway({ stage: 'verify_contact', recordName: NAME }), anonymous)
+    const { sent } = renderIdentity()
     await submitNin()
     fireEvent.change(await screen.findByLabelText('Phone number'), { target: { value: '+2348000000000' } })
     await press(screen.getByRole('button', { name: 'Send verification code' }))
     await screen.findByLabelText('Verification code')
-    await press(screen.getByRole('button', { name: 'Use a different NIN' }))
+    await press(button()!)
     expect((await screen.findByLabelText('National Identification Number') as HTMLInputElement).value).toBe('')
     expect(screen.queryByLabelText('Verification code')).toBeNull()
 
@@ -165,10 +216,40 @@ describe('"Use a different NIN" under the name on the NIN record', () => {
     await press(screen.getByRole('button', { name: 'Verify code' }))
     fireEvent.change(await screen.findByLabelText('Password'), { target: { value: 'a-long-enough-password' } })
     const before = sent.length
-    await press(screen.getByRole('button', { name: 'Use a different NIN' }))
+    await press(button()!)
     expect((await screen.findByLabelText('National Identification Number') as HTMLInputElement).value).toBe('')
     expect(screen.queryByLabelText('Password')).toBeNull()
     // Going back cancels nothing: no request is sent for it.
     expect(sent.length).toBe(before)
+  })
+
+  it('is offered without the name too, as after a reload more than 15 minutes after the start', async () => {
+    renderPortal(<Enrollment />, gateway({ stage: 'verify_contact' }, { stage: 'verify_contact' }), anonymous)
+    await screen.findByLabelText('Phone number')
+    expect(verified()).toBeNull()
+    await press(button()!)
+    expect((await screen.findByLabelText('National Identification Number') as HTMLInputElement).value).toBe('')
+  })
+
+  it.each([
+    ['closed', () => json({ open: false })],
+    ['not known', () => problem(503, 'SERVICE_UNAVAILABLE', 'Unavailable')],
+  ])('is not offered while registration is %s: the advice is to stop and let this registration close', async (_, availability) => {
+    const handler = gateway({ stage: 'verify_contact' }, { stage: 'verify_contact', recordName: NAME })
+    renderPortal(<Enrollment />, (path, method, body) => path === `${BASE}/availability` ? availability() : handler(path, method, body), anonymous)
+    await screen.findByLabelText('Phone number')
+    expect(verified()?.textContent).toContain(`Name on your NIN record: ${NAME}`)
+    expect(document.getElementById('enroll-record-name')?.textContent).toBe(`Name on your NIN record: ${NAME}${STOP}`)
+    expect(button()).toBeNull()
+  })
+
+  it.each([
+    ['closed', () => json({ open: false })],
+    ['not known', () => problem(503, 'SERVICE_UNAVAILABLE', 'Unavailable')],
+  ])('is not offered without the name either while registration is %s', async (_, availability) => {
+    const handler = gateway({ stage: 'verify_contact' }, { stage: 'verify_contact' })
+    renderPortal(<Enrollment />, (path, method, body) => path === `${BASE}/availability` ? availability() : handler(path, method, body), anonymous)
+    await screen.findByLabelText('Phone number')
+    expect(button()).toBeNull()
   })
 })
