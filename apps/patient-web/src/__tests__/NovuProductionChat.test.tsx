@@ -4,7 +4,7 @@ import { SessionContext, createTestSessionValue } from '../session'
 import { SelectedPatientChat } from '../routes/SelectedPatientChat'
 import { backendContract } from '../backendContract'
 import { SettingsPage } from '../routes/Portal'
-import { json, profile, renderPortal } from './portalHarness'
+import { json, problem, profile, renderPortal } from './portalHarness'
 
 afterEach(() => vi.unstubAllEnvs())
 const patient = { kind: 'patient', subjectId: 'patient-a', appRole: 'patient', assuranceLevel: 'aal1' } as const
@@ -42,11 +42,15 @@ it('rejects an unknown configured backend rather than guessing an API contract',
   expect(() => backendContract()).toThrow('Unsupported backend contract')
 });
 
-it('Novu settings retain supported controls without calling the newer account-deletion API', async () => {
+// Novu (staging-novu-ci-20261005 at ec2b351) serves neither account deletion nor
+// identity/me/emergency-contacts: production answers 404 "Cannot GET" to both.
+it('Novu settings retain supported controls without calling the account-deletion or emergency-contacts APIs', async () => {
   vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
-  const { sent } = renderPortal(<SettingsPage />, path => path.endsWith('/emergency-contacts') ? json([]) : json(profile))
+  const { sent } = renderPortal(<SettingsPage />, path => path === '/identity/me'
+    ? json(profile) : problem(404, 'NOT_FOUND', `Cannot GET /api/v1${path}`))
   expect(await screen.findByRole('heading', { name: 'Access PIN' })).toBeTruthy()
-  await waitFor(() => expect(sent.some(request => request.path.endsWith('/emergency-contacts'))).toBe(true))
   expect(sent.some(request => request.path.includes('account-deletion'))).toBe(false)
+  expect(sent.some(request => request.path.includes('emergency-contacts'))).toBe(false)
   expect(screen.queryByRole('heading', { name: /Delete.*account/i })).toBeNull()
+  expect(screen.queryByRole('heading', { name: 'Emergency contacts' })).toBeNull()
 });
