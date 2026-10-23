@@ -40,7 +40,8 @@ export function useFocusById() {
   const [request, setRequest] = useState<FocusRequest | null>(null)
   useEffect(() => {
     if (!request || lock != null) return
-    setRequest(null)
+    // Clears only the request handled here: one made since (a press handled before this effect ran) keeps its turn.
+    setRequest(current => current === request ? null : current)
     const target = request.ids.map(id => document.getElementById(id)).find(element => element !== null) ?? null
     if (!request.ifLost || focusIsLost(target)) target?.focus()
   }, [request, lock])
