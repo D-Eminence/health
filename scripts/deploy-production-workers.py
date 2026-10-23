@@ -209,7 +209,22 @@ def matches(data,digest,html=False):
             if data.count(beacon) == 1 and sha(data.replace(beacon,b"")) == digest: return True
     return False
 
+# Cloudflare reports a version at 100% before every edge serves it; until then the previous
+# version can answer with its own HTML, or a 404 or index.html for the new assets.
+PROPAGATION_SECONDS = 90
+PROPAGATION_RETRY_SECONDS = 3
+PROPAGATION_CODES = frozenset({"WORKER_ASSET_REQUEST_FAILED","LIVE_HTML_BYTES_DIFFER",
+    "LIVE_ENTRY_ASSET_BYTES_DIFFER","WORKER_DEEP_LINK_DIFFERS","PUBLIC_DEEP_LINK_DIFFERS"})
+
 def verify_assets(app,manifest_entry):
+    deadline = time.monotonic()+PROPAGATION_SECONDS
+    while True:
+        try: return verify_live_assets(app,manifest_entry)
+        except ReleaseError as error:
+            if str(error) not in PROPAGATION_CODES or time.monotonic() >= deadline: raise
+            time.sleep(PROPAGATION_RETRY_SECONDS)
+
+def verify_live_assets(app,manifest_entry):
     class NoRedirect(urllib.request.HTTPRedirectHandler):
         def redirect_request(self,*args,**kwargs): return None
     opener = urllib.request.build_opener(NoRedirect())
