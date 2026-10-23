@@ -38,6 +38,84 @@ class WorkerTests(unittest.TestCase):
                     self.assertIsNone(build.call_args.args[0].redirect_request(None))
                 self.assertEqual(paths, ['', 'entry.js', deep_link])
 
+    def propagation(self, app, answers):
+        """Runs verify_assets against an edge that answers each path from its queue first, on a fake clock."""
+        html, script = b'<html><script src="/entry.js"></script></html>', b'console.log("release")'
+        entry = {'files': {'index.html': c.sha(html), 'about.html': c.sha(html), 'entry.js': c.sha(script)}}
+        released = {'': html, 'entry.js': script, 'about': html, 'admin/sign-in': html, 'sign-in': html}
+        clock = {'now': 1000.0, 'sleeps': [], 'requests': 0, 'printed': []}
+        def open_request(request, timeout):
+            path = request.full_url.split(w.HOSTS[app] + '/', 1)[1]
+            clock['requests'] += 1
+            queued = answers.get(path)
+            body, status, headers = queued.pop(0) if queued else (released[path], 200, None)
+            if status == 'unreachable': raise w.urllib.error.URLError('connection reset')
+            if status != 200: raise w.urllib.error.HTTPError(request.full_url, status, 'Refused', {}, None)
+            response = BytesIO(body)
+            response.status = 200
+            response.headers = headers or {'x-content-type-options': 'nosniff', 'x-frame-options': 'DENY'}
+            return response
+        def sleep(seconds):
+            clock['sleeps'].append(seconds); clock['now'] += seconds
+        opener = unittest.mock.Mock()
+        opener.open.side_effect = open_request
+        with patch.object(w.urllib.request, 'build_opener', return_value=opener), \
+             patch.object(w.time, 'monotonic', side_effect=lambda: clock['now']), \
+             patch.object(w.time, 'sleep', side_effect=sleep), \
+             patch.object(w, 'print', create=True, side_effect=lambda line, **_: clock['printed'].append(json.loads(line))):
+            try: return w.verify_assets(app, entry), clock
+            except c.ReleaseError as error: return error, clock
+
+    def test_health_checks_wait_until_the_edge_serves_the_new_version(self):
+        previous = (b'<html><script src="/previous.js"></script></html>', 200, None)
+        result, clock = self.propagation('admin', {'': [previous, previous]})
+        self.assertTrue(result['deep_link_verified'])
+        self.assertEqual(clock['sleeps'], [w.PROPAGATION_RETRY_SECONDS] * 2)
+        # The previous public version has no new chunk yet (404), then serves the release.
+        result, clock = self.propagation('public', {'entry.js': [(b'', 404, None)]})
+        self.assertTrue(result['deep_link_verified'])
+        self.assertEqual(clock['sleeps'], [w.PROPAGATION_RETRY_SECONDS])
+        # A single-page portal answers an unknown asset with its old index.html.
+        result, clock = self.propagation('ehr', {'entry.js': [(b'<html>previous</html>', 200, None)]})
+        self.assertTrue(result['deep_link_verified'])
+        # A deep link still on the previous version, and a host the runner briefly cannot reach.
+        result, clock = self.propagation('pharmacy', {'sign-in': [previous], '': [(b'', 'unreachable', None)]})
+        self.assertTrue(result['deep_link_verified'])
+        self.assertEqual([line['waiting_for_edge'] for line in clock['printed']],
+                         ['WORKER_ASSET_UNREACHABLE', 'WORKER_DEEP_LINK_DIFFERS'])
+
+    def test_a_failed_html_check_says_what_the_edge_served(self):
+        previous = b'<html><script src="/previous.js"></script></html>'
+        result, clock = self.propagation('admin', {'': [(previous, 200, None)]})
+        self.assertTrue(result['deep_link_verified'])
+        self.assertEqual(clock['printed'][0], {'app': 'admin', 'live_html_sha256': c.sha(previous),
+                                               'live_html_bytes': len(previous), 'analytics_beacon': False})
+        self.assertEqual(clock['printed'][1]['waiting_for_edge'], 'LIVE_HTML_BYTES_DIFFER')
+
+    def test_statuses_the_previous_version_never_gives_fail_at_once(self):
+        for path, status in [('', 404), ('', 421), ('', 500), ('', 502), ('', 308), ('sign-in', 404),
+                             ('entry.js', 403), ('entry.js', 500), ('entry.js', 502), ('entry.js', 301)]:
+            with self.subTest(path=path, status=status):
+                result, clock = self.propagation('web', {path: [(b'', status, None)] * 1000})
+                self.assertEqual(str(result), 'WORKER_ASSET_REQUEST_FAILED')
+                self.assertEqual(clock['sleeps'], [])
+
+    def test_html_that_never_matches_still_fails_after_propagation(self):
+        previous = (b'<html><script src="/previous.js"></script></html>', 200, None)
+        result, clock = self.propagation('admin', {'': [previous] * 1000})
+        self.assertIsInstance(result, c.ReleaseError)
+        self.assertEqual(str(result), 'LIVE_HTML_BYTES_DIFFER')
+        self.assertEqual(sum(clock['sleeps']), w.PROPAGATION_SECONDS)
+        self.assertLessEqual(w.PROPAGATION_SECONDS, 120)
+
+    def test_header_and_size_failures_are_not_retried(self):
+        unsafe = (b'<html><script src="/entry.js"></script></html>', 200, {'x-content-type-options': 'nosniff'})
+        result, clock = self.propagation('lab', {'': [unsafe] * 1000})
+        self.assertEqual(str(result), 'WORKER_HEADERS_OR_STATUS_DIFFER')
+        self.assertEqual((clock['sleeps'], clock['requests']), ([], 1))
+        self.assertNotIn('WORKER_HEADERS_OR_STATUS_DIFFER', w.PROPAGATION_CODES)
+        self.assertNotIn('LIVE_ASSET_SIZE_LIMIT', w.PROPAGATION_CODES)
+
     def test_undeclared_and_unreleased_backend_dependencies_block(self):
         value={'backend_dependencies':{'declared':False}}
         with self.assertRaisesRegex(c.ReleaseError,'DECLARATION'): w.assert_dependencies(value,index())

@@ -209,11 +209,29 @@ def matches(data,digest,html=False):
             if data.count(beacon) == 1 and sha(data.replace(beacon,b"")) == digest: return True
     return False
 
+# Cloudflare reports a version at 100% before every edge serves it; until then the previous
+# version can answer with its own HTML, or a 404 or index.html for the new assets. Any other
+# status, a header or a size failure is the new version's, so it fails at once.
+PROPAGATION_SECONDS = 90
+PROPAGATION_RETRY_SECONDS = 3
+PROPAGATION_CODES = frozenset({"WORKER_ASSET_NOT_YET_SERVED","WORKER_ASSET_UNREACHABLE","LIVE_HTML_BYTES_DIFFER",
+    "LIVE_ENTRY_ASSET_BYTES_DIFFER","WORKER_DEEP_LINK_DIFFERS","PUBLIC_DEEP_LINK_DIFFERS"})
+
 def verify_assets(app,manifest_entry):
+    deadline = time.monotonic()+PROPAGATION_SECONDS
+    while True:
+        try: return verify_live_assets(app,manifest_entry)
+        except ReleaseError as error:
+            if str(error) not in PROPAGATION_CODES or time.monotonic() >= deadline: raise
+            print(json.dumps({"app":app,"waiting_for_edge":str(error),
+                "seconds_left":round(deadline-time.monotonic())}), flush=True)
+            time.sleep(PROPAGATION_RETRY_SECONDS)
+
+def verify_live_assets(app,manifest_entry):
     class NoRedirect(urllib.request.HTTPRedirectHandler):
         def redirect_request(self,*args,**kwargs): return None
     opener = urllib.request.build_opener(NoRedirect())
-    def get(path):
+    def get(path, asset=False):
         request = urllib.request.Request("https://"+HOSTS[app]+"/"+path,
             headers={"User-Agent":"HID-Production-Release/1","Accept-Encoding":"identity","Cache-Control":"no-cache"})
         try:
@@ -223,13 +241,22 @@ def verify_assets(app,manifest_entry):
                 payload = response.read(25_000_001)
                 require(len(payload) <= 25_000_000, "LIVE_ASSET_SIZE_LIMIT")
                 return payload
-        except (urllib.error.HTTPError,urllib.error.URLError):
-            raise ReleaseError("WORKER_ASSET_REQUEST_FAILED") from None
+        except urllib.error.HTTPError as error:
+            # Only a new asset can be missing from an edge that still runs the previous version.
+            raise ReleaseError("WORKER_ASSET_NOT_YET_SERVED" if asset and error.code == 404
+                               else "WORKER_ASSET_REQUEST_FAILED") from None
+        except urllib.error.URLError:
+            raise ReleaseError("WORKER_ASSET_UNREACHABLE") from None
     html = get("")
-    require(matches(html,manifest_entry["files"]["index.html"],html=True), "LIVE_HTML_BYTES_DIFFER")
+    if not matches(html,manifest_entry["files"]["index.html"],html=True):
+        # Bytes only, never the page: enough to tell the previous release or an unknown insertion apart.
+        print(json.dumps({"app":app,"live_html_sha256":sha(html),"live_html_bytes":len(html),
+            "analytics_beacon":b"cloudflareinsights" in html}), flush=True)
+        raise ReleaseError("LIVE_HTML_BYTES_DIFFER")
     refs = AssetRefs(); refs.feed(html.decode("utf-8"))
     for path in refs.paths:
-        require(path in manifest_entry["files"] and matches(get(path),manifest_entry["files"][path]), "LIVE_ENTRY_ASSET_BYTES_DIFFER")
+        require(path in manifest_entry["files"] and matches(get(path,asset=True),manifest_entry["files"][path]),
+                "LIVE_ENTRY_ASSET_BYTES_DIFFER")
     if app != "public":
         require(matches(get("admin/sign-in" if app == "admin" else "sign-in"),manifest_entry["files"]["index.html"],html=True), "WORKER_DEEP_LINK_DIFFERS")
     else:
