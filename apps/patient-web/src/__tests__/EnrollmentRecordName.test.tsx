@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, screen, within } from '@testing-library/react'
+import { fireEvent, screen } from '@testing-library/react'
 import { Enrollment } from '../routes/Enrollment'
 import { json, press, problem, renderPortal, type Handler } from './portalHarness'
 
@@ -35,7 +35,9 @@ async function submitNin() {
   await press(screen.getByRole('button', { name: 'Continue' }))
 }
 
-const verified = () => screen.queryByRole('region', { name: 'NIN verified' })
+const CHECK = 'Check that this is your name before you continue. If it is not, do not continue: the NIN you typed may be wrong. '
+  + 'Check it on your NIN slip or in the NIMC app.'
+const verified = () => screen.queryByText('NIN verified')?.closest<HTMLElement>('.patient-inline-success') ?? null
 
 describe('the name on the NIN record, under "NIN verified"', () => {
   it('is shown once the NIN is checked, describes the contact field, and stays until activation', async () => {
@@ -44,12 +46,11 @@ describe('the name on the NIN record, under "NIN verified"', () => {
 
     const phone = await screen.findByLabelText('Phone number')
     const panel = verified()!
-    expect(within(panel).getByText('NIN verified')).toBeTruthy()
     expect(panel.textContent).toContain(`Name on your NIN record: ${NAME}`)
-    expect(panel.textContent).toContain('Check that this is your name before you continue.')
-    // A screen reader user, whose focus lands on the field, hears the name too.
+    expect(panel.textContent).toContain(CHECK)
+    // A screen reader user, whose focus lands on the field, hears the name and what to do about it.
     expect(phone.getAttribute('aria-describedby')?.split(' ')).toContain('enroll-record-name')
-    expect(document.getElementById('enroll-record-name')?.textContent).toBe(`Name on your NIN record: ${NAME}`)
+    expect(document.getElementById('enroll-record-name')?.textContent).toBe(`Name on your NIN record: ${NAME}${CHECK}`)
 
     fireEvent.change(phone, { target: { value: '+2348000000000' } })
     await press(screen.getByRole('button', { name: 'Send verification code' }))
@@ -77,6 +78,21 @@ describe('the name on the NIN record, under "NIN verified"', () => {
     const phone = await screen.findByLabelText('Phone number')
     expect(verified()).toBeNull()
     expect(phone.getAttribute('aria-describedby') ?? '').not.toContain('enroll-record-name')
+  })
+
+  it("reads the contact field's own error before the name", async () => {
+    const handler = gateway({ stage: 'verify_contact', recordName: NAME })
+    renderPortal(<Enrollment />, (path, method, body) => path === `${BASE}/contact` && method === 'POST'
+      ? problem(409, 'CONTACT_ALREADY_REGISTERED', 'This contact is already associated with a Health ID')
+      : handler(path, method, body), anonymous)
+    await submitNin()
+    const phone = await screen.findByLabelText('Phone number')
+    fireEvent.change(phone, { target: { value: '+2348000000000' } })
+    await press(screen.getByRole('button', { name: 'Send verification code' }))
+    await screen.findByText('This contact is already associated with a Health ID')
+    const described = phone.getAttribute('aria-describedby')?.split(' ') ?? []
+    expect(described).toContain('enroll-error')
+    expect(described.indexOf('enroll-error')).toBeLessThan(described.indexOf('enroll-record-name'))
   })
 
   it('is not shown for a blank name', async () => {

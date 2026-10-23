@@ -8,7 +8,7 @@ import { googleClientId } from '../googleClient'
 import { Turnstile } from '../Turnstile'
 import { AuthLayout } from '../AuthLayout'
 import { useSession } from '../session'
-import { describedBy, isFieldProblem, sentFromField, useDocumentTitle, useStepFocus } from '../authSteps'
+import { isFieldProblem, sentFromField, useDocumentTitle, useStepFocus } from '../authSteps'
 import { useActionFocus } from './actionFocus'
 import { useResendWait } from './recoveryWait'
 import { NinStep } from './enrollment/NinStep'
@@ -621,7 +621,7 @@ export function Enrollment() {
     setBusy(true); clearError(); setProfileError(null)
     try {
       const result = await api.enrollmentActivate(password, profile)
-      setPassword(''); forgetProfile()
+      setPassword(''); forgetProfile(); setRecordName(null)
       setHidCode(result.hidCode)
       setStepHint(null)
       setStage('complete')
@@ -753,7 +753,8 @@ export function Enrollment() {
       {ready && stage === 'registration_completed' && <RegistrationCompleted focusTarget={stepFocus.target} />}
       {ready && recordName && RECORD_NAME_STAGES.includes(stage) && <RecordName name={recordName} />}
       {ready && stage === 'contact' && <ContactStep {...stepProps} channel={channel} onChannel={setChannel} contact={contact} onContact={setContact}
-        onSubmit={event => void submitContact(event)} noticeId={describedBy(notice && 'enroll-notice', recordName && RECORD_NAME_ID)} />}
+        onSubmit={event => void submitContact(event)} noticeId={notice ? 'enroll-notice' : undefined}
+        recordNameId={recordName ? RECORD_NAME_ID : undefined} />}
       {ready && stage === 'otp' && <ContactCodeStep {...stepProps} maskedContact={maskedContact} code={code} onCode={setCode} onSubmit={event => void submitCode(event)}
         onAnotherCode={() => { setCode(''); setChallengeId(null); setStepHint(null); clearError(); setStage('contact'); stepFocus.focus() }}
         budgetNote={stepHint === 'code'} />}
