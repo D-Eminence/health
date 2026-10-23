@@ -8,11 +8,12 @@ import { googleClientId } from '../googleClient'
 import { Turnstile } from '../Turnstile'
 import { AuthLayout } from '../AuthLayout'
 import { useSession } from '../session'
-import { isFieldProblem, sentFromField, useDocumentTitle, useStepFocus } from '../authSteps'
+import { describedBy, isFieldProblem, sentFromField, useDocumentTitle, useStepFocus } from '../authSteps'
 import { useActionFocus } from './actionFocus'
 import { useResendWait } from './recoveryWait'
 import { NinStep } from './enrollment/NinStep'
 import { ContactStep } from './enrollment/ContactStep'
+import { RECORD_NAME_ID, RecordName } from './enrollment/RecordName'
 import { ContactCodeStep } from './enrollment/ContactCodeStep'
 import { DATE_OF_BIRTH_RULE, PasswordStep, plausibleDateOfBirth } from './enrollment/PasswordStep'
 import { Complete } from './enrollment/Complete'
@@ -45,6 +46,8 @@ const STEP_STAGES: readonly Stage[] = ['nin', ...HOLDER_STAGES, 'contact', 'otp'
  * bound to a registration nobody has shown is theirs.
  */
 const GOOGLE_STAGES: readonly Stage[] = ['nin', 'contact', 'otp', 'password']
+/** Where the name on the NIN record is shown, under "NIN verified": after the NIN check, until activation. */
+const RECORD_NAME_STAGES: readonly Stage[] = ['contact', 'otp', 'password']
 const NO_ONLINE: EnrollmentOnlineRoute = { available: false }
 const NO_FACILITY: EnrollmentFacilityRoute = { available: false }
 
@@ -166,6 +169,7 @@ export function Enrollment() {
   const [challengeId, setChallengeId] = useState<string | null>(null)
   const [hidCode, setHidCode] = useState('')
   const [maskedContact, setMaskedContact] = useState('')
+  const [recordName, setRecordName] = useState<string | null>(null)
   const [googleRequired, setGoogleRequired] = useState(false)
   const [googlePending, setGooglePending] = useState(false)
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
@@ -242,7 +246,7 @@ export function Enrollment() {
     setHolderCodeError(false); setNotRecordedYet(false); resend.reset()
   }
   const restartAtNin = () => {
-    setNinPath('nin'); setStage('nin'); setChallengeId(null); setMaskedContact(''); setCode(''); setPassword(''); setStepHint(null); forgetProfile(); forgetHolder()
+    setNinPath('nin'); setStage('nin'); setChallengeId(null); setMaskedContact(''); setRecordName(null); setCode(''); setPassword(''); setStepHint(null); forgetProfile(); forgetHolder()
     setNotice(null); setError(ENDED_HERE); setFieldError(false); setErrorAlert(true)
   }
   /**
@@ -250,7 +254,7 @@ export function Enrollment() {
    * be someone else's on a shared phone. The start key is left as it is.
    */
   const forgetRegistration = () => {
-    setNinPath('nin'); setStage('nin'); setNin(''); setCode(''); setChallengeId(null); setMaskedContact(''); setPassword(''); setStepHint(null)
+    setNinPath('nin'); setStage('nin'); setNin(''); setCode(''); setChallengeId(null); setMaskedContact(''); setRecordName(null); setPassword(''); setStepHint(null)
     setContact(''); setChannel('phone'); setReference(null)
     forgetProfile(); forgetHolder(); setNotice(null)
   }
@@ -275,6 +279,8 @@ export function Enrollment() {
 
   const applyProgress = (progress: EnrollmentProgress) => {
     setGoogleRequired(progress.googleOnboardingRequired === true)
+    setRecordName(progress.stage !== 'active' && typeof progress.recordName === 'string' && progress.recordName.trim()
+      ? progress.recordName.trim() : null)
     const fields = profileFieldsOf(progress.requiredProfileFields)
     if (fields) setProfileFields(fields)
     if (progress.stage === 'verify_holder') {
@@ -745,8 +751,9 @@ export function Enrollment() {
       {ready && stage === 'already_registered' && <AlreadyRegistered focusTarget={stepFocus.target} reference={reference} />}
       {ready && stage === 'registration_ended' && <RegistrationEnded focusTarget={stepFocus.target} onStartAgain={againAtNin} />}
       {ready && stage === 'registration_completed' && <RegistrationCompleted focusTarget={stepFocus.target} />}
+      {ready && recordName && RECORD_NAME_STAGES.includes(stage) && <RecordName name={recordName} />}
       {ready && stage === 'contact' && <ContactStep {...stepProps} channel={channel} onChannel={setChannel} contact={contact} onContact={setContact}
-        onSubmit={event => void submitContact(event)} noticeId={notice ? 'enroll-notice' : undefined} />}
+        onSubmit={event => void submitContact(event)} noticeId={describedBy(notice && 'enroll-notice', recordName && RECORD_NAME_ID)} />}
       {ready && stage === 'otp' && <ContactCodeStep {...stepProps} maskedContact={maskedContact} code={code} onCode={setCode} onSubmit={event => void submitCode(event)}
         onAnotherCode={() => { setCode(''); setChallengeId(null); setStepHint(null); clearError(); setStage('contact'); stepFocus.focus() }}
         budgetNote={stepHint === 'code'} />}
