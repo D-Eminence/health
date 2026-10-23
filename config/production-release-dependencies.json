@@ -3,15 +3,15 @@
   "declared": true,
   "backend_contract": "novu-v1",
   "reviewed_by": "",
-  "review_reference": "Backend release backend-39826552603-1-7829619c3691588c (D-Eminence/hid-system staging-novu-ci-20261005 at 19dd9c3, Actions run 39826552603, deployed 2026-10-22 18:41 UTC with status success for all 12 services). Browser-facing changes since 844935c/e41a35d/7bb7cdb are the ports of main #31 #33 #38 #43 #45 #46 #51 #55 #56 #59 #60 #61, which this frontend already codes for.",
+  "review_reference": "Backend release backend-39877881297-1-41d5af6c04c934a4 (D-Eminence/hid-system staging-novu-ci-20261005 at 2556260, Actions run 39877881297, deployed 2026-10-23 01:11 UTC with status success for all 12 services). Browser-facing changes since 19dd9c3: W01 (#101, 6a2ab4a) makes the admin platform controls and platform audit list work and answers 503 OCR_PUBLICATION_PAUSED to OCR publication; W02 (#102) makes OCR patient confirmation work and answers a repeated one with 409 OCR_PATIENT_ALREADY_CONFIRMED. This frontend handles both answers (staff/routes/Operations.tsx: the repeated confirmation reloads the job, a paused publication shows its refusal).",
   "backend_commits": {
-    "gateway": "19dd9c312cb0953fb77bf78970705fdad83e9278",
-    "identity-api": "19dd9c312cb0953fb77bf78970705fdad83e9278",
-    "ehr-api": "19dd9c312cb0953fb77bf78970705fdad83e9278",
-    "lab-api": "19dd9c312cb0953fb77bf78970705fdad83e9278",
-    "pharmacy-api": "19dd9c312cb0953fb77bf78970705fdad83e9278",
-    "ocr-api": "19dd9c312cb0953fb77bf78970705fdad83e9278",
-    "outreach-api": "19dd9c312cb0953fb77bf78970705fdad83e9278",
-    "support-api": "19dd9c312cb0953fb77bf78970705fdad83e9278"
+    "gateway": "25562601e3b24a2b8bee44c6bc343b3b317bcd8d",
+    "identity-api": "25562601e3b24a2b8bee44c6bc343b3b317bcd8d",
+    "ehr-api": "25562601e3b24a2b8bee44c6bc343b3b317bcd8d",
+    "lab-api": "25562601e3b24a2b8bee44c6bc343b3b317bcd8d",
+    "pharmacy-api": "25562601e3b24a2b8bee44c6bc343b3b317bcd8d",
+    "ocr-api": "25562601e3b24a2b8bee44c6bc343b3b317bcd8d",
+    "outreach-api": "25562601e3b24a2b8bee44c6bc343b3b317bcd8d",
+    "support-api": "25562601e3b24a2b8bee44c6bc343b3b317bcd8d"
   }
 }
