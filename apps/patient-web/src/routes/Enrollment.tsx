@@ -13,6 +13,7 @@ import { useActionFocus } from './actionFocus'
 import { useResendWait } from './recoveryWait'
 import { NinStep } from './enrollment/NinStep'
 import { ContactStep } from './enrollment/ContactStep'
+import { RECORD_NAME_ID, RecordName } from './enrollment/RecordName'
 import { ContactCodeStep } from './enrollment/ContactCodeStep'
 import { DATE_OF_BIRTH_RULE, PasswordStep, plausibleDateOfBirth } from './enrollment/PasswordStep'
 import { Complete } from './enrollment/Complete'
@@ -45,6 +46,8 @@ const STEP_STAGES: readonly Stage[] = ['nin', ...HOLDER_STAGES, 'contact', 'otp'
  * bound to a registration nobody has shown is theirs.
  */
 const GOOGLE_STAGES: readonly Stage[] = ['nin', 'contact', 'otp', 'password']
+/** Where the name on the NIN record is shown, under "NIN verified": after the NIN check, until activation. */
+const RECORD_NAME_STAGES: readonly Stage[] = ['contact', 'otp', 'password']
 const NO_ONLINE: EnrollmentOnlineRoute = { available: false }
 const NO_FACILITY: EnrollmentFacilityRoute = { available: false }
 
@@ -166,6 +169,7 @@ export function Enrollment() {
   const [challengeId, setChallengeId] = useState<string | null>(null)
   const [hidCode, setHidCode] = useState('')
   const [maskedContact, setMaskedContact] = useState('')
+  const [recordName, setRecordName] = useState<string | null>(null)
   const [googleRequired, setGoogleRequired] = useState(false)
   const [googlePending, setGooglePending] = useState(false)
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
@@ -219,7 +223,9 @@ export function Enrollment() {
   const [reference, setReference] = useState<string | null>(null)
   const resend = useResendWait()
   const [resendWaitSeconds, setResendWaitSeconds] = useState(0)
-  const startKey = useRef<{ nin: string; key: string } | null>(null)
+  // One start key per NIN started on this page, in memory only: going back to a NIN after another resumes
+  // its registration, which Identity would otherwise refuse under a new key (409 NIN_ALREADY_REGISTERED).
+  const startKeys = useRef(new Map<string, string>())
   // 'Try again' and 'Check again' are replaced while the check runs: focus then
   // goes to the step's field, or to what replaced them when the check finds
   // the same again (PR-04).
@@ -242,7 +248,7 @@ export function Enrollment() {
     setHolderCodeError(false); setNotRecordedYet(false); resend.reset()
   }
   const restartAtNin = () => {
-    setNinPath('nin'); setStage('nin'); setChallengeId(null); setMaskedContact(''); setCode(''); setPassword(''); setStepHint(null); forgetProfile(); forgetHolder()
+    setNinPath('nin'); setStage('nin'); setChallengeId(null); setMaskedContact(''); setRecordName(null); setCode(''); setPassword(''); setStepHint(null); forgetProfile(); forgetHolder()
     setNotice(null); setError(ENDED_HERE); setFieldError(false); setErrorAlert(true)
   }
   /**
@@ -250,12 +256,12 @@ export function Enrollment() {
    * be someone else's on a shared phone. The start key is left as it is.
    */
   const forgetRegistration = () => {
-    setNinPath('nin'); setStage('nin'); setNin(''); setCode(''); setChallengeId(null); setMaskedContact(''); setPassword(''); setStepHint(null)
+    setNinPath('nin'); setStage('nin'); setNin(''); setCode(''); setChallengeId(null); setMaskedContact(''); setRecordName(null); setPassword(''); setStepHint(null)
     setContact(''); setChannel('phone'); setReference(null)
     forgetProfile(); forgetHolder(); setNotice(null)
   }
-  /** Back to the NIN step with a new key: the next start is a new registration (and a new NIN lookup). */
-  const freshStart = () => { startKey.current = null; forgetRegistration() }
+  /** Back to the NIN step with no start key kept: the next start is a new registration (and a new NIN lookup). */
+  const freshStart = () => { startKeys.current.clear(); forgetRegistration() }
   /**
    * GET .../current answered 404 at the facility stage (P31): the staff member's
    * direction first. The start key is kept, as restartAtNin keeps it: a sign-in
@@ -275,6 +281,8 @@ export function Enrollment() {
 
   const applyProgress = (progress: EnrollmentProgress) => {
     setGoogleRequired(progress.googleOnboardingRequired === true)
+    setRecordName(progress.stage !== 'active' && typeof progress.recordName === 'string' && progress.recordName.trim()
+      ? progress.recordName.trim() : null)
     const fields = profileFieldsOf(progress.requiredProfileFields)
     if (fields) setProfileFields(fields)
     if (progress.stage === 'verify_holder') {
@@ -532,6 +540,19 @@ export function Enrollment() {
     if (busy) return
     freshStart(); clearError(); stepFocus.focus()
   }
+  /**
+   * "Use a different NIN" at the contact, code and password steps, under the name
+   * on the NIN record when Identity sends it: back to the NIN step with nothing
+   * typed. Unlike startAgain, the start keys are kept, one per NIN, so a NIN
+   * already started here resumes its registration with no new lookup, and
+   * another NIN gets a new key and a new registration. Nothing is cancelled: a
+   * registration left closes by itself within 24 hours. Offered only while
+   * registration is open, so that the NIN step it goes back to is there.
+   */
+  const differentNin = () => {
+    if (busy) return
+    forgetRegistration(); clearError(); stepFocus.focus()
+  }
   /** "Start again" after a registration ended at the facility stage: the kept key resumes it if it is still open. */
   const againAtNin = () => {
     if (busy) return
@@ -544,9 +565,10 @@ export function Enrollment() {
     if (!/^\d{11}$/.test(nin) || !turnstileToken || busy) return
     if (googleRequired && !googlePending) { setError('Reconnect Google before continuing.'); setFieldError(false); return }
     setBusy(true); clearError()
-    if (startKey.current?.nin !== nin) startKey.current = { nin, key: crypto.randomUUID() }
+    const key = startKeys.current.get(nin) ?? crypto.randomUUID()
+    startKeys.current.set(nin, key)
     try {
-      const progress = await api.enrollmentStart(nin, turnstileToken, startKey.current.key)
+      const progress = await api.enrollmentStart(nin, turnstileToken, key)
       applyProgress(progress)
       setNin('')
     } catch (reason) {
@@ -615,7 +637,7 @@ export function Enrollment() {
     setBusy(true); clearError(); setProfileError(null)
     try {
       const result = await api.enrollmentActivate(password, profile)
-      setPassword(''); forgetProfile()
+      setPassword(''); forgetProfile(); setRecordName(null)
       setHidCode(result.hidCode)
       setStepHint(null)
       setStage('complete')
@@ -745,8 +767,11 @@ export function Enrollment() {
       {ready && stage === 'already_registered' && <AlreadyRegistered focusTarget={stepFocus.target} reference={reference} />}
       {ready && stage === 'registration_ended' && <RegistrationEnded focusTarget={stepFocus.target} onStartAgain={againAtNin} />}
       {ready && stage === 'registration_completed' && <RegistrationCompleted focusTarget={stepFocus.target} />}
+      {ready && recordName && RECORD_NAME_STAGES.includes(stage) && <RecordName name={recordName} busy={busy}
+        onDifferentNin={registration === 'open' ? differentNin : undefined} />}
       {ready && stage === 'contact' && <ContactStep {...stepProps} channel={channel} onChannel={setChannel} contact={contact} onContact={setContact}
-        onSubmit={event => void submitContact(event)} noticeId={notice ? 'enroll-notice' : undefined} />}
+        onSubmit={event => void submitContact(event)} noticeId={notice ? 'enroll-notice' : undefined}
+        recordNameId={recordName ? RECORD_NAME_ID : undefined} />}
       {ready && stage === 'otp' && <ContactCodeStep {...stepProps} maskedContact={maskedContact} code={code} onCode={setCode} onSubmit={event => void submitCode(event)}
         onAnotherCode={() => { setCode(''); setChallengeId(null); setStepHint(null); clearError(); setStage('contact'); stepFocus.focus() }}
         budgetNote={stepHint === 'code'} />}
@@ -754,6 +779,9 @@ export function Enrollment() {
         blocked={googleRequired && !googlePending} limitNote={stepHint === 'activation'}
         profileFields={profileFields} dateOfBirth={dateOfBirth} onDateOfBirth={setDateOfBirth} gender={gender} onGender={setGender}
         errorField={fieldError ? profileError ?? 'password' : null} />}
+      {/* Without the name (sent only within 15 minutes of the start), the way back to the NIN step is still offered. */}
+      {ready && !recordName && registration === 'open' && RECORD_NAME_STAGES.includes(stage)
+        && <button type="button" className="patient-text-button" disabled={busy} onClick={differentNin}>Use a different NIN</button>}
       {ready && stage === 'complete' && <Complete focusTarget={stepFocus.target} hidCode={hidCode} />}
       {import.meta.env.VITE_HID_GOOGLE_CLIENT_ID && googleOffered && stage === 'nin' && !googleChosen && <section className="patient-auth-separator" aria-label="Google enrollment">
         <button type="button" className="patient-secondary-button" disabled={busy} onClick={chooseGoogle}>{googleRequired ? 'Reconnect Google' : 'Continue with Google'}</button>

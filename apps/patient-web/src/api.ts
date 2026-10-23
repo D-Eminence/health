@@ -74,6 +74,12 @@ export interface EnrollmentProgress {
   googleOnboardingRequired?: boolean
   googleOnboardingExpiresAt?: string
   hidCode?: string
+  /**
+   * The full name on the NIN record, before activation, so the person can check
+   * that the NIN they typed is theirs (hid-system staging-novu-ci-20261005, an
+   * owner decision). Absent from an Identity without it.
+   */
+  recordName?: string
   requiredProfileFields?: EnrollmentProfileField[]
   online?: EnrollmentOnlineRoute
   facility?: EnrollmentFacilityRoute
