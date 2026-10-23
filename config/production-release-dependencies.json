@@ -3,15 +3,15 @@
   "declared": true,
   "backend_contract": "novu-v1",
   "reviewed_by": "D-Eminence",
-  "review_reference": "Backend release backend-39877881297-1-41d5af6c04c934a4 (D-Eminence/hid-system staging-novu-ci-20261005 at 2556260, Actions run 39877881297, deployed 2026-10-23 01:11 UTC with status success for all 12 services). Browser-facing changes since 19dd9c3: W01 (#101, 6a2ab4a) makes the admin platform controls and platform audit list work and answers 503 OCR_PUBLICATION_PAUSED to OCR publication; W02 (#102) makes OCR patient confirmation work and answers a repeated one with 409 OCR_PATIENT_ALREADY_CONFIRMED. This frontend handles both answers (staff/routes/Operations.tsx: the repeated confirmation reloads the job, a paused publication shows its refusal). Reviewed and approved by the repository owner, D-Eminence.",
+  "review_reference": "Backend releases backend-39893314723-1-d9bc36aeb69af7f4 (W03, D-Eminence/hid-system#103 at d92b696, deployed 2026-10-23 03:56 UTC with status success for all 12 services) and backend-39897903246-1-cc1125ef8cd7026f (W04, #104 at 15789f7, 04:10 UTC, identity-api only). Browser-facing changes since 2556260: W03 binds patient-self reads to the patient's live session (the portal's own sessions keep reading); W04 answers every refused sign-in credential with 401 'Invalid credentials', a Google session refusal with 401 GOOGLE_SIGN_IN_DENIED, Turnstile configuration errors with 503 TURNSTILE_UNAVAILABLE and a missing token with 400 TURNSTILE_REQUIRED, accepts staff-reset on app.healthidentitydirectory.com, and drops patientId from the access-request create answer. This frontend shows those refusals' messages and reads only accessRequestId and status from the create answer (staff/routes/Patients.tsx). Reviewed and approved by the repository owner, D-Eminence.",
   "backend_commits": {
-    "gateway": "25562601e3b24a2b8bee44c6bc343b3b317bcd8d",
-    "identity-api": "25562601e3b24a2b8bee44c6bc343b3b317bcd8d",
-    "ehr-api": "25562601e3b24a2b8bee44c6bc343b3b317bcd8d",
-    "lab-api": "25562601e3b24a2b8bee44c6bc343b3b317bcd8d",
-    "pharmacy-api": "25562601e3b24a2b8bee44c6bc343b3b317bcd8d",
-    "ocr-api": "25562601e3b24a2b8bee44c6bc343b3b317bcd8d",
-    "outreach-api": "25562601e3b24a2b8bee44c6bc343b3b317bcd8d",
-    "support-api": "25562601e3b24a2b8bee44c6bc343b3b317bcd8d"
+    "gateway": "d92b69681f21056e712c9ad8d1ce76e079555478",
+    "identity-api": "15789f702cee732014fae7fce15702cc3b9f6e99",
+    "ehr-api": "d92b69681f21056e712c9ad8d1ce76e079555478",
+    "lab-api": "d92b69681f21056e712c9ad8d1ce76e079555478",
+    "pharmacy-api": "d92b69681f21056e712c9ad8d1ce76e079555478",
+    "ocr-api": "d92b69681f21056e712c9ad8d1ce76e079555478",
+    "outreach-api": "d92b69681f21056e712c9ad8d1ce76e079555478",
+    "support-api": "d92b69681f21056e712c9ad8d1ce76e079555478"
   }
 }
