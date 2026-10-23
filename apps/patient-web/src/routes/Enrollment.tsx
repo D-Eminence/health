@@ -110,9 +110,11 @@ const HOLDER_PROOF_REQUIRED = 'We could not confirm that this NIN is yours, so t
  * Google sign-up to one registration only (0059), for 30 minutes, so another NIN's start would be
  * refused (404 GOOGLE_ONBOARDING_NOT_FOUND) after its paid lookup.
  */
-const googleTiedUntil = (ends: number | null) => `You continued with Google for this registration, so a different NIN can be used here only ${ends === null
+const googleTiedUntil = (ends: number | null, named: boolean) => `You continued with Google for this registration, so a different NIN can be used here only ${ends === null
   ? 'once that Google sign-up ends, 30 minutes after you continued'
-  : `after ${new Date(ends).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`}. If the name is not yours, stop here and come back then.`
+  // Rounded up to the minute shown: a press during the minute named would still be refused.
+  : `after ${new Date(Math.ceil(ends / 60_000) * 60_000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`}. ${named
+  ? 'If the name is not yours, stop here and come back then.' : 'If you meant to use a different NIN, stop here and come back then.'}`
 const DIFFERENT_NIN_UNCHECKED = 'We could not check this registration just now, so you are still on it. Try again.'
 const ENDS_ENROLLMENT = 'Signing out also ends an enrollment in progress on this device; continue it by entering the same NIN before reloading this page.'
 /**
@@ -561,7 +563,9 @@ export function Enrollment() {
    * It asks Identity first (GET .../current), not this page's last read: a Google
    * sign-up may have been tied to this registration since, in another tab or by a
    * Google step whose answer was lost. While one is, the person stays on this
-   * registration and is told until when; if the check fails, they stay too.
+   * registration and is told until when; if the check fails, they stay too. A
+   * registration activated meanwhile (in another tab, or by an activation whose
+   * answer was lost) shows its Health ID, as a reload would.
    */
   const differentNin = async () => {
     if (busy) return
@@ -575,9 +579,18 @@ export function Enrollment() {
       setBusy(false); stepFocus.focus()
       return
     }
+    if (progress.stage === 'active') {
+      applyProgress(progress); setPassword(''); forgetProfile(); setStepHint(null)
+      setBusy(false); stepFocus.focus()
+      return
+    }
     const googleEnds = progress.googleOnboardingRequired === true ? Date.parse(progress.googleOnboardingExpiresAt ?? '') : NaN
     if (progress.googleOnboardingRequired === true && !(Number.isFinite(googleEnds) && googleEnds <= Date.now())) {
-      applyProgress(progress); sayError(googleTiedUntil(Number.isFinite(googleEnds) ? googleEnds : null))
+      // Identity sends the name only within 15 minutes of the start; the name this page already shows stays,
+      // since the message asks the person to check it.
+      const name = progress.recordName ?? recordName ?? undefined
+      applyProgress({ ...progress, ...(name ? { recordName: name } : {}) })
+      sayError(googleTiedUntil(Number.isFinite(googleEnds) ? googleEnds : null, Boolean(name?.trim())))
       setBusy(false); stepFocus.focus()
       return
     }
