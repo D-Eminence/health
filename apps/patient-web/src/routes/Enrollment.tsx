@@ -172,6 +172,8 @@ export function Enrollment() {
   const [recordName, setRecordName] = useState<string | null>(null)
   const [googleRequired, setGoogleRequired] = useState(false)
   const [googlePending, setGooglePending] = useState(false)
+  // When the Google sign-up tied to this registration ends (progress.googleOnboardingExpiresAt), as Identity said.
+  const [googleEndsAt, setGoogleEndsAt] = useState<number | null>(null)
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
   const [googleTurnstileToken, setGoogleTurnstileToken] = useState<string | null>(null)
   const [resetKey, setResetKey] = useState(0)
@@ -281,6 +283,8 @@ export function Enrollment() {
 
   const applyProgress = (progress: EnrollmentProgress) => {
     setGoogleRequired(progress.googleOnboardingRequired === true)
+    const googleEnds = typeof progress.googleOnboardingExpiresAt === 'string' ? Date.parse(progress.googleOnboardingExpiresAt) : NaN
+    setGoogleEndsAt(Number.isFinite(googleEnds) ? googleEnds : null)
     setRecordName(progress.stage !== 'active' && typeof progress.recordName === 'string' && progress.recordName.trim()
       ? progress.recordName.trim() : null)
     const fields = profileFieldsOf(progress.requiredProfileFields)
@@ -551,7 +555,11 @@ export function Enrollment() {
    */
   const differentNin = () => {
     if (busy) return
-    forgetRegistration(); clearError(); stepFocus.focus()
+    forgetRegistration()
+    // Offered for a Google registration only once its Google sign-up has ended: the NIN step then
+    // neither waits for Google nor says it is confirmed, and the next start carries no Google sign-up.
+    if (googleRequired) { setGoogleRequired(false); setGooglePending(false); setGoogleEndsAt(null) }
+    clearError(); stepFocus.focus()
   }
   /** "Start again" after a registration ended at the facility stage: the kept key resumes it if it is still open. */
   const againAtNin = () => {
@@ -704,9 +712,12 @@ export function Enrollment() {
   // A new enrollment is offered only while registration is open; one in progress continues.
   const startOffered = GOOGLE_STAGES.includes(stage) && (stage !== 'nin' || registration === 'open')
   // "Use a different NIN" needs a NIN step to go back to, so registration must be open. It is not offered
-  // for a registration tied to a Google sign-up: Identity ties a Google sign-up to one registration only,
-  // so the start of another NIN would be refused (404 GOOGLE_ONBOARDING_NOT_FOUND) after its paid lookup.
-  const differentNinOffered = registration === 'open' && !googleRequired
+  // while the Google sign-up tied to this registration lasts (assumed to, when Identity did not say until
+  // when): Identity ties a Google sign-up to one registration only, so the start of another NIN would be
+  // refused (404 GOOGLE_ONBOARDING_NOT_FOUND) after its paid lookup. Once it has ended the browser no
+  // longer sends it (its cookie expires then), and another NIN starts without Google.
+  const googleTied = googleRequired && (googleEndsAt === null || googleEndsAt > Date.now())
+  const differentNinOffered = registration === 'open' && !googleTied
   const closed = ready && stage === 'nin' && registration === 'closed'
   // Google sign-up is offered until it is pending for this enrollment. On the NIN
   // step it is a path of its own, opened by a button: its check replaces the NIN

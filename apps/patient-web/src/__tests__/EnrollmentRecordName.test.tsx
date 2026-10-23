@@ -253,15 +253,48 @@ describe('"Use a different NIN" at the contact, code and password steps', () => 
     expect(button()).toBeNull()
   })
 
-  // Identity ties a Google sign-up to one registration only: another NIN's start would be refused
-  // (404 GOOGLE_ONBOARDING_NOT_FOUND) after its paid lookup, so the way back is not offered.
+  // Identity ties a Google sign-up to one registration only: while it lasts, another NIN's start would be
+  // refused (404 GOOGLE_ONBOARDING_NOT_FOUND) after its paid lookup, so the way back is not offered.
+  const SOON = '2099-01-01T00:00:00.000Z'
+  const PAST = '2020-01-01T00:00:00.000Z'
+  const RECONNECT = 'Reconnect the Google account used to start this enrollment.'
+  /** The gateway with a Google sign-up pending in this browser (GET auth/google/onboarding answers it). */
+  const withGoogleSignUp = (handler: Handler): Handler => (path, method, body) => path === '/auth/google/onboarding'
+    ? json({ stage: 'GOOGLE_AUTHENTICATED_PENDING_IDENTITY', expiresAt: SOON }) : handler(path, method, body)
+
   it.each([
-    ['with the name', { stage: 'verify_contact', recordName: NAME, googleOnboardingRequired: true }],
-    ['without the name', { stage: 'verify_contact', googleOnboardingRequired: true }],
-  ])('is not offered for a registration tied to a Google sign-up, %s', async (label, progress) => {
-    renderPortal(<Enrollment />, gateway({ stage: 'verify_contact' }, progress), anonymous)
+    ['with the name', { stage: 'verify_contact', recordName: NAME, googleOnboardingRequired: true, googleOnboardingExpiresAt: SOON }],
+    ['without the name', { stage: 'verify_contact', googleOnboardingRequired: true, googleOnboardingExpiresAt: SOON }],
+  ])('is not offered while the Google sign-up tied to the registration lasts, %s', async (label, progress) => {
+    renderPortal(<Enrollment />, withGoogleSignUp(gateway({ stage: 'verify_contact' }, progress)), anonymous)
     await screen.findByLabelText('Phone number')
+    expect(screen.getByText('Google identity confirmed for this enrollment.')).toBeTruthy()
+    expect(screen.queryByText(RECONNECT)).toBeNull()
     expect(button()).toBeNull()
     if (label === 'with the name') expect(document.getElementById('enroll-record-name')?.textContent).toBe(`Name on your NIN record: ${NAME}${STOP}`)
+  })
+
+  it('is not offered after a start with Google, whose answer does not say until when it lasts', async () => {
+    const handler = gateway({ stage: 'verify_contact', recordName: NAME, googleOnboardingRequired: true })
+    renderPortal(<Enrollment />, withGoogleSignUp(handler), anonymous)
+    await submitNin()
+    await screen.findByLabelText('Phone number')
+    expect(verified()?.textContent).toContain(NAME)
+    expect(button()).toBeNull()
+  })
+
+  it('is offered once that Google sign-up has ended, and the NIN step it opens does not wait for Google', async () => {
+    const progress = { stage: 'verify_contact', googleOnboardingRequired: true, googleOnboardingExpiresAt: PAST }
+    const { sent } = renderPortal(<Enrollment />, gateway({ stage: 'verify_contact', recordName: NAME }, progress), anonymous)
+    await screen.findByLabelText('Phone number')
+    expect(screen.getByText(RECONNECT)).toBeTruthy()
+    await press(button()!)
+    expect((await screen.findByLabelText('National Identification Number') as HTMLInputElement).value).toBe('')
+    expect(screen.queryByText(RECONNECT)).toBeNull()
+    await submitNin()
+    await screen.findByLabelText('Phone number')
+    expect(screen.queryByText('Reconnect Google before continuing.')).toBeNull()
+    expect(sent.filter(request => request.path === BASE && request.method === 'POST')).toHaveLength(1)
+    expect(verified()?.textContent).toContain(NAME)
   })
 })
