@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, screen } from '@testing-library/react'
+import { fireEvent, screen, within } from '@testing-library/react'
 import { Enrollment } from '../routes/Enrollment'
 import { json, press, problem, renderPortal, type Handler } from './portalHarness'
 
@@ -7,8 +7,13 @@ vi.mock('../Turnstile', () => ({
   Turnstile: ({ onTokenChange }: { onTokenChange: (token: string | null) => void }) =>
     <button type="button" onClick={() => onTokenChange('turnstile-token')}>Complete check</button>,
 }))
+// Offered only where a test sets VITE_HID_GOOGLE_CLIENT_ID.
+vi.mock('../GoogleButton', () => ({
+  GoogleButton: ({ onCredential, disabled }: { onCredential: (token: string) => Promise<void>; disabled: boolean }) =>
+    <button type="button" disabled={disabled} onClick={() => { void onCredential('google-id-token') }}>Sign up with Google</button>,
+}))
 
-afterEach(() => { vi.restoreAllMocks() })
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs() })
 
 const BASE = '/identity/patient-enrollments'
 const NIN = '12345678901'
@@ -261,6 +266,8 @@ describe('"Use a different NIN" at the contact, code and password steps', () => 
   // Identity ties a Google sign-up to one registration only, for 30 minutes (0059): another NIN's start
   // carrying it would be refused (404 GOOGLE_ONBOARDING_NOT_FOUND) after its paid lookup. The button asks
   // Identity when it is pressed, so a sign-up tied in another tab, or by an answer this page lost, counts too.
+  /** The registration's expiry, fixed at its first start. */
+  const EXPIRES = new Date(Date.now() + 23 * 60 * 60 * 1000).toISOString()
   /** On a whole minute, so the time said is exactly this one. */
   const SOON = new Date(Math.floor((Date.now() + 20 * 60 * 1000) / 60_000) * 60_000).toISOString()
   const PAST = new Date(Date.now() - 60 * 1000).toISOString()
@@ -298,13 +305,45 @@ describe('"Use a different NIN" at the contact, code and password steps', () => 
   })
 
   it('keeps the name it shows while the registration is tied, though Identity no longer sends it 15 minutes after the start', async () => {
-    const tied = { stage: 'verify_contact', googleOnboardingRequired: true, googleOnboardingExpiresAt: SOON }
-    renderPortal(<Enrollment />, pressedWith({ stage: 'verify_contact', recordName: NAME }, () => json(tied)), anonymous)
+    const tied = { stage: 'verify_contact', expiresAt: EXPIRES, googleOnboardingRequired: true, googleOnboardingExpiresAt: SOON }
+    renderPortal(<Enrollment />, pressedWith({ stage: 'verify_contact', expiresAt: EXPIRES, recordName: NAME }, () => json(tied)), anonymous)
     const phone = await screen.findByLabelText('Phone number')
     await press(button()!)
     expect(await screen.findByText(TIED(at(SOON)))).toBeTruthy()
     expect(verified()?.textContent).toContain(NAME)
     expect(phone.getAttribute('aria-describedby')?.split(' ')).toContain('enroll-record-name')
+  })
+
+  it('drops the name it shows when Identity answers for another registration, started since in another tab', async () => {
+    const other = { stage: 'set_password', expiresAt: new Date(Date.parse(EXPIRES) + 10 * 60 * 1000).toISOString(),
+      googleOnboardingRequired: true, googleOnboardingExpiresAt: SOON }
+    renderPortal(<Enrollment />, pressedWith({ stage: 'verify_contact', expiresAt: EXPIRES, recordName: NAME }, () => json(other)), anonymous)
+    await screen.findByLabelText('Phone number')
+    await press(button()!)
+    expect(await screen.findByText(TIED_UNNAMED(`after ${at(SOON)}`))).toBeTruthy()
+    expect(screen.queryByText(NAME)).toBeNull()
+    expect(verified()).toBeNull()
+  })
+
+  it('keeps the name it shows after Continue with Google, which reads the registration again', async () => {
+    vi.stubEnv('VITE_HID_GOOGLE_CLIENT_ID', 'google-client')
+    const tied = { stage: 'verify_contact', expiresAt: EXPIRES, googleOnboardingRequired: true, googleOnboardingExpiresAt: SOON }
+    let reads = 0
+    renderPortal(<Enrollment />, (path, method, body) => {
+      if (path === `${BASE}/current`) return json(++reads === 1 ? { stage: 'verify_contact', expiresAt: EXPIRES, recordName: NAME } : tied)
+      if (path === '/auth/oidc/exchange') return json({ stage: 'GOOGLE_AUTHENTICATED_PENDING_IDENTITY', expiresAt: SOON })
+      if (path === `${BASE}/google` && method === 'POST') return json({ bound: true })
+      return gateway({ stage: 'verify_contact' })(path, method, body)
+    }, anonymous)
+    await screen.findByLabelText('Phone number')
+    const google = within(screen.getByRole('region', { name: 'Google enrollment' }))
+    fireEvent.click(google.getByRole('button', { name: 'Complete check' }))
+    await press(google.getByRole('button', { name: 'Sign up with Google' }))
+    expect(await screen.findByText(PENDING)).toBeTruthy()
+    expect(reads).toBe(2)
+    expect(verified()?.textContent).toContain(NAME)
+    await press(button()!)
+    expect(await screen.findByText(TIED(at(SOON)))).toBeTruthy()
   })
 
   it('says the time a press is let through, rounded up from an expiry within a minute', async () => {

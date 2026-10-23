@@ -115,6 +115,11 @@ const googleTiedUntil = (ends: number | null, named: boolean) => `You continued 
   // Rounded up to the minute shown: a press during the minute named would still be refused.
   : `after ${new Date(Math.ceil(ends / 60_000) * 60_000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`}. ${named
   ? 'If the name is not yours, stop here and come back then.' : 'If you meant to use a different NIN, stop here and come back then.'}`
+/**
+ * Within this of each other, two expiries are of one registration: Identity fixes the expiry at the first
+ * start (clock_timestamp() + 24 hours), and the start answer computes it again just after.
+ */
+const SAME_REGISTRATION_MS = 5_000
 const DIFFERENT_NIN_UNCHECKED = 'We could not check this registration just now, so you are still on it. Try again.'
 const ENDS_ENROLLMENT = 'Signing out also ends an enrollment in progress on this device; continue it by entering the same NIN before reloading this page.'
 /**
@@ -181,6 +186,10 @@ export function Enrollment() {
   const [hidCode, setHidCode] = useState('')
   const [maskedContact, setMaskedContact] = useState('')
   const [recordName, setRecordName] = useState<string | null>(null)
+  // The name shown and the expiry of the registration it is for (fixed at its first start). Identity sends
+  // the name only within 15 minutes of that start: a later answer for the same registration keeps it, and
+  // one for another registration (another tab started another NIN; the cookie is shared) drops it.
+  const shownName = useRef<{ name: string; expiresAt: number } | null>(null)
   const [googleRequired, setGoogleRequired] = useState(false)
   const [googlePending, setGooglePending] = useState(false)
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
@@ -252,6 +261,7 @@ export function Enrollment() {
   const stageShown = useRef<Stage>(stage)
   useEffect(() => { stageShown.current = stage }, [stage])
 
+  const forgetRecordName = () => { shownName.current = null; setRecordName(null) }
   // Back to the NIN step, the enrollment's challenge and contact gone with it.
   const forgetProfile = () => { setProfileFields([]); setDateOfBirth(''); setGender(''); setProfileError(null) }
   const forgetHolder = () => {
@@ -259,7 +269,7 @@ export function Enrollment() {
     setHolderCodeError(false); setNotRecordedYet(false); resend.reset()
   }
   const restartAtNin = () => {
-    setNinPath('nin'); setStage('nin'); setChallengeId(null); setMaskedContact(''); setRecordName(null); setCode(''); setPassword(''); setStepHint(null); forgetProfile(); forgetHolder()
+    setNinPath('nin'); setStage('nin'); setChallengeId(null); setMaskedContact(''); forgetRecordName(); setCode(''); setPassword(''); setStepHint(null); forgetProfile(); forgetHolder()
     setNotice(null); setError(ENDED_HERE); setFieldError(false); setErrorAlert(true)
   }
   /**
@@ -267,7 +277,7 @@ export function Enrollment() {
    * be someone else's on a shared phone. The start key is left as it is.
    */
   const forgetRegistration = () => {
-    setNinPath('nin'); setStage('nin'); setNin(''); setCode(''); setChallengeId(null); setMaskedContact(''); setRecordName(null); setPassword(''); setStepHint(null)
+    setNinPath('nin'); setStage('nin'); setNin(''); setCode(''); setChallengeId(null); setMaskedContact(''); forgetRecordName(); setPassword(''); setStepHint(null)
     setContact(''); setChannel('phone'); setReference(null)
     forgetProfile(); forgetHolder(); setNotice(null)
   }
@@ -290,10 +300,16 @@ export function Enrollment() {
     setResendWaitSeconds(typeof seconds === 'number' && Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : 0)
   }
 
-  const applyProgress = (progress: EnrollmentProgress) => {
+  /** Applies an answer for the registration; returns the name on the NIN record it leaves shown. */
+  const applyProgress = (progress: EnrollmentProgress): string | null => {
     setGoogleRequired(progress.googleOnboardingRequired === true)
-    setRecordName(progress.stage !== 'active' && typeof progress.recordName === 'string' && progress.recordName.trim()
-      ? progress.recordName.trim() : null)
+    const expiresAt = Date.parse(progress.expiresAt ?? '')
+    const sent = typeof progress.recordName === 'string' && progress.recordName.trim() ? progress.recordName.trim() : null
+    const kept = shownName.current !== null && Number.isFinite(expiresAt)
+      && Math.abs(shownName.current.expiresAt - expiresAt) < SAME_REGISTRATION_MS ? shownName.current.name : null
+    const name = progress.stage === 'active' ? null : sent ?? kept
+    shownName.current = name !== null && Number.isFinite(expiresAt) ? { name, expiresAt } : null
+    setRecordName(name)
     const fields = profileFieldsOf(progress.requiredProfileFields)
     if (fields) setProfileFields(fields)
     if (progress.stage === 'verify_holder') {
@@ -313,7 +329,7 @@ export function Enrollment() {
         : shown === 'holder' ? 'holder'
           : shown === 'holder_code' && onlineNow.challengeId ? 'holder_code'
             : facilityNow.deskCode ? 'facility' : onlineNow.challengeId ? 'holder_code' : 'holder')
-      return
+      return name
     }
     if (HOLDER_STAGES.includes(stageShown.current)) forgetHolder()
     setMaskedContact(progress.maskedContact ?? '')
@@ -321,6 +337,7 @@ export function Enrollment() {
     if (progress.stage === 'active') { setHidCode(progress.hidCode ?? ''); setStage('complete') }
     else if (progress.stage === 'set_password') setStage('password')
     else setStage(progress.challengeId ? 'otp' : 'contact')
+    return name
   }
 
   useEffect(() => {
@@ -586,11 +603,8 @@ export function Enrollment() {
     }
     const googleEnds = progress.googleOnboardingRequired === true ? Date.parse(progress.googleOnboardingExpiresAt ?? '') : NaN
     if (progress.googleOnboardingRequired === true && !(Number.isFinite(googleEnds) && googleEnds <= Date.now())) {
-      // Identity sends the name only within 15 minutes of the start; the name this page already shows stays,
-      // since the message asks the person to check it.
-      const name = progress.recordName ?? recordName ?? undefined
-      applyProgress({ ...progress, ...(name ? { recordName: name } : {}) })
-      sayError(googleTiedUntil(Number.isFinite(googleEnds) ? googleEnds : null, Boolean(name?.trim())))
+      const named = applyProgress(progress) !== null
+      sayError(googleTiedUntil(Number.isFinite(googleEnds) ? googleEnds : null, named))
       setBusy(false); stepFocus.focus()
       return
     }
@@ -684,7 +698,7 @@ export function Enrollment() {
     setBusy(true); clearError(); setProfileError(null)
     try {
       const result = await api.enrollmentActivate(password, profile)
-      setPassword(''); forgetProfile(); setRecordName(null)
+      setPassword(''); forgetProfile(); forgetRecordName()
       setHidCode(result.hidCode)
       setStepHint(null)
       setStage('complete')
