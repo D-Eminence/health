@@ -19,7 +19,7 @@ import { SecurityPage } from './SecurityPage'
 import {
   clearSessionWindow, currentSessionWindow, onSessionEnded, onSessionWindow, reportSessionEnded, type SessionEndReason,
 } from './session-window'
-import { navigationItemFor, visibleNavigation } from './navigation'
+import { isServed, navigationItemFor, visibleNavigation } from './navigation'
 import { AdminSignIn } from './SignIn'
 import { NovuAdminSignIn } from './NovuSignIn'
 import { usesNovuBackend } from '../backendContract'
@@ -50,6 +50,7 @@ const RECHECK_AFTER_HIDDEN_MS = 60_000
  */
 function Area({ path, actor, children }: { path: string; actor: AdminActor; children: ReactNode }) {
   const item = navigationItemFor(path)
+  if (item && !isServed(item)) return <NotFound />
   if (item?.visible(actor)) return <>{children}</>
   return <section className="admin-message admin-forbidden" role="alert" aria-labelledby="admin-forbidden-title">
     <h1 id="admin-forbidden-title">Access denied</h1>

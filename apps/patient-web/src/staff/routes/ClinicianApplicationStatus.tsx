@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { useDocumentTitle } from '../../authSteps'
+import { servesClinicianApplications } from '../../backendContract'
 import { CLINICIAN_STATUS_PATH, clinicianMainSiteHref } from '../../productHostname'
 import { CLINICIAN_REGULATOR_OF, clinicianApplicationApi, newClinicianIdempotencyKey, type ClinicianAccountView,
   type ClinicianApplicationDetails, type ClinicianApplicationView, type ClinicianStatusVerified } from '../clinicianApplicationApi'
@@ -39,7 +40,19 @@ interface Done { notice: string; change(view: ClinicianAccountView): ClinicianAc
 
 export function ClinicianApplicationStatus() {
   const mainSite = clinicianMainSiteHref(window.location.hostname, CLINICIAN_STATUS_PATH)
+  if (!servesClinicianApplications()) return <NoApplications />
   return mainSite ? <MainSiteOnly href={mainSite} path={CLINICIAN_STATUS_PATH} /> : <StatusPage />
+}
+
+/** On a backend without clinician sign-up (Novu) there is no application to check. */
+function NoApplications() {
+  useDocumentTitle("Clinician sign-up isn't open yet · Health ID Provider")
+  return <ClinicianFrame labelledBy="clinician-status-none-title">
+    <StepHeading id="clinician-status-none-title" level={1} focus={false}>Clinician sign-up isn't open yet</StepHeading>
+    <p className="patient-page-copy">Nobody can apply as a clinician on Health ID yet, so there is no application to check. If you
+      already have a provider account, sign in.</p>
+    <ul className="clinician-links clinician-panel"><li><Link to="/provider/sign-in">Sign in</Link></li></ul>
+  </ClinicianFrame>
 }
 
 function StatusPage() {

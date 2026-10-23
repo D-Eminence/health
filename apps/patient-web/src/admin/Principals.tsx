@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
+import { usesNovuBackend } from '../backendContract'
 import { adminApi, type AdminActor, type Page as ResultPage, type Principal } from './api'
 import { failure } from './problems'
 import { ApprovalRequestForm, ExportPanel, PrincipalSessions } from './PrincipalSecurity'
@@ -136,8 +137,9 @@ function RoleAction({ principal, reload }: { principal: Principal; reload: () =>
       <label>Role<select value={role} onChange={event => setRole(event.target.value as (typeof PLATFORM_ROLES)[number])}>
         {roles.map(value => <option key={value} value={value}>{label(value)}</option>)}
       </select></label>
-      {action === 'grant' && <p className="admin-note">Super Admin is granted only through an elevation request that a
-        second Super Admin approves.</p>}
+      {action === 'grant' && <p className="admin-note">{usesNovuBackend()
+        ? 'Super Admin is not granted from this console.'
+        : 'Super Admin is granted only through an elevation request that a second Super Admin approves.'}</p>}
       <label>Reason for this change<textarea required minLength={8} maxLength={500} rows={3}
         value={reason} onChange={event => setReason(event.target.value)} /></label>
       <button className="admin-primary" type="submit" disabled={governed.busy || reason.trim().length < 8}>
@@ -158,6 +160,8 @@ function PrincipalActions({ principal, actor, reload }: {
   // backend still refuses one without (MFA_NOT_ENROLLED) if this list is stale.
   // It stays offered when the backend does not report enrolment (before Stage 4A).
   const canResetMfa = has(actor, 'platform.mfa.reset') && principal.mfaEnrolled !== false
+  // Novu has no two-person approvals and lists no single session: it revokes all of an account's sessions at once.
+  const onMain = !usesNovuBackend()
   // After "Revoke all sessions" succeeds, the reload reports no sessions; the
   // form stays (disabled) so its confirmation is not removed with it.
   const [revokedAll, setRevokedAll] = useState(false)
@@ -172,9 +176,9 @@ function PrincipalActions({ principal, actor, reload }: {
       reload()
     }} />}
     {canRole && <RoleAction principal={principal} reload={reload} />}
-    {canElevate && <ApprovalRequestForm kind="super-admin" principal={principal} />}
-    {canResetMfa && <ApprovalRequestForm kind="mfa-reset" principal={principal} />}
-    {canRevoke && <PrincipalSessions principal={principal} />}
+    {onMain && canElevate && <ApprovalRequestForm kind="super-admin" principal={principal} />}
+    {onMain && canResetMfa && <ApprovalRequestForm kind="mfa-reset" principal={principal} />}
+    {onMain && canRevoke && <PrincipalSessions principal={principal} />}
     {canRevoke && (principal.activeSessionCount > 0 || revokedAll) && <ActionForm title="Revoke all sessions"
       disabled={principal.activeSessionCount === 0}
       note={<p className="admin-note">{principal.activeSessionCount > 0

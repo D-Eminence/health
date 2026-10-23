@@ -7,3 +7,6 @@ export function backendContract(): 'main-v1' | 'novu-v1' {
 }
 
 export function usesNovuBackend(): boolean { return backendContract() === 'novu-v1' }
+
+/** Novu has no clinician self sign-up, so nobody can have applied there and no application can be checked. */
+export function servesClinicianApplications(): boolean { return !usesNovuBackend() }
