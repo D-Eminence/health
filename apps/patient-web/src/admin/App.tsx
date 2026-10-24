@@ -15,6 +15,7 @@ import { IntegrationsPage } from './Integrations'
 import { ApplicationsPage } from './Organizations'
 import { ControlsPage, DemosPage, OperationsPage, PricingPage, ReviewsPage } from './Pages'
 import { PrincipalsPage } from './Principals'
+import { SelfServiceFacilitiesPage } from './SelfServiceFacilities'
 import { failure } from './problems'
 import { SecurityPage } from './SecurityPage'
 import {
@@ -293,6 +294,7 @@ export function App() {
               <Route path="sign-in" element={<Navigate to="/admin/overview" replace />} />
               <Route path="overview" element={<Area path="/admin/overview" actor={actor}><OverviewPage actor={actor} /></Area>} />
               <Route path="applications" element={<Area path="/admin/applications" actor={actor}><ApplicationsPage actor={actor} /></Area>} />
+              <Route path="self-service-facilities" element={<Area path="/admin/self-service-facilities" actor={actor}><SelfServiceFacilitiesPage actor={actor} /></Area>} />
               <Route path="facilities" element={<Area path="/admin/facilities" actor={actor}><FacilitiesPage actor={actor} /></Area>} />
               <Route path="facilities/:facilityId" element={<Area path="/admin/facilities" actor={actor}><FacilityDetailPage actor={actor} /></Area>} />
               <Route path="principals" element={<Area path="/admin/principals" actor={actor}><PrincipalsPage actor={actor} /></Area>} />

@@ -112,6 +112,13 @@ const ADMIN_PROBLEMS: Readonly<Record<string, string>> = {
   WORKFORCE_EMAIL_IN_USE: 'An account already uses this email address. This person may have applied by themselves: check '
     + 'Clinician applications.',
 
+  // Support's review of facilities that signed themselves up (P4, Novu only).
+  SELF_SERVICE_REVIEW_UNAVAILABLE: 'This Identity does not list new facility sign-ups yet (facility self sign-up is not '
+    + 'deployed), so there is nothing to review here.',
+  SELF_SERVICE_FACILITY_NOT_FOUND: 'This sign-up is no longer in the list. The list has been refreshed.',
+  SELF_SERVICE_FACILITY_ALREADY_REVIEWED: 'Another administrator has already reviewed this sign-up. The list has been refreshed.',
+  SELF_SERVICE_FACILITY_REQUEST_INVALID: 'Enter a note of 8 to 500 characters about what you checked.',
+
   // Facility-assisted registration designations (hid-system #85, ADR-063).
   FACILITY_NOT_ACTIVE: 'Only a verified, active facility of an active organization can register patients in person. Verify the facility first.',
   ADMIN_FACILITY_NOT_FOUND: 'This facility was not found. Check the facility link.',

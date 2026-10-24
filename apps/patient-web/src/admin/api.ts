@@ -98,6 +98,21 @@ export interface OrganizationApplication extends Versioned {
   profileAddress: string | null; profileRegistryStatus: string | null; profileState: string | null
   fieldSources: Record<string, string | null> | null; createdAt: string; verifiedAt: string | null; reviewedAt: string | null
 }
+/** Which facility sign-ups to list: the ones support has not checked yet (the default), the checked ones, or both. */
+export type SelfServiceFacilityState = 'unreviewed' | 'reviewed' | 'all'
+/**
+ * A facility that signed itself up (P4, Novu only): `GET /admin/self-service-facilities`, one row per activated
+ * self-service application, newest activation first, at most 200. `version` is the application's, for the review.
+ */
+export interface SelfServiceFacility extends Versioned {
+  applicationId: string; organizationId: string; organizationName: string; facilityId: string; facilityName: string
+  facilityLifecycleStatus: string; productCode: string; organizationType: string; cacHint: string
+  administratorName: string; administratorEmail: string; administratorAccountId: string | null
+  administratorAccountStatus: string | null; activatedAt: string | null; reviewedAt: string | null
+  reviewedByAccountId: string | null; reviewNote: string | null
+}
+/** `POST /admin/self-service-facilities/:applicationId/review`. */
+export interface SelfServiceFacilityReviewed extends Versioned { applicationId: string; reviewedAt: string }
 export interface IntegrationProvider extends Versioned {
   provider: string; name: string; enabled: boolean; health: string; managementMode: string; availableActions: string[]
   capabilities?: string[]; activeCapabilities?: string[]
@@ -383,6 +398,22 @@ async function clinicianQueue<T>(read: Promise<T>): Promise<T> {
   }
 }
 
+/**
+ * An Identity without facility self sign-up (hid-system main, or Novu before P4) has no list: its 404 names no code
+ * of its own (`NOT_FOUND`, with a detail naming the route). It is said as that, never in the router's words.
+ */
+async function selfServiceList<T>(read: Promise<T>): Promise<T> {
+  try {
+    return await read
+  } catch (error) {
+    if (isHidApiError(error) && error.status === 404 && error.code === 'NOT_FOUND') {
+      throw new HidApiError(404, 'New facility sign-ups are not available from this Identity.',
+        { code: 'SELF_SERVICE_REVIEW_UNAVAILABLE', requestId: error.requestId, retryable: false })
+    }
+    throw error
+  }
+}
+
 export const adminApi = {
   async novuLogin(email: string, password: string, token: string): Promise<void> {
     if (!usesNovuBackend()) throw new Error('Novu authentication requires the configured novu-v1 backend.')
@@ -579,6 +610,19 @@ export const adminApi = {
   rejectApplication(application: Pick<OrganizationApplication, 'applicationId' | 'version'>, reason: string) {
     return adminApi.command<{ status: string; version: number }>(
       at('/api/v1/admin/organization-applications', application.applicationId, 'reject'), { reason }, { version: application.version })
+  },
+  /** Facilities that signed themselves up (P4, Novu only), for support's review within a working day. */
+  selfServiceFacilities(state: SelfServiceFacilityState, signal?: AbortSignal) {
+    return selfServiceList(request<{ items: SelfServiceFacility[] }>('/api/v1/admin/self-service-facilities',
+      { signal, query: { state } }))
+  },
+  /**
+   * Records that support checked a self-signed-up facility: a note of 8 to 500 characters and If-Match with the
+   * version listed, as the organization-application commands take it. Novu has no step-up or Idempotency-Key here.
+   */
+  reviewSelfServiceFacility(facility: Pick<SelfServiceFacility, 'applicationId' | 'version'>, note: string) {
+    return adminApi.command<SelfServiceFacilityReviewed>(
+      at('/api/v1/admin/self-service-facilities', facility.applicationId, 'review'), { note }, { version: facility.version })
   },
   integrations(signal?: AbortSignal) { return request<IntegrationCatalog>('/api/v1/admin/integrations', { signal }) },
   integrationHistory(provider: string, signal?: AbortSignal) {
