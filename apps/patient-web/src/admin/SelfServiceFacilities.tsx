@@ -92,7 +92,7 @@ function SignUpCard({ facility, actor, onDone }: { facility: SelfServiceFacility
       <div><dt>Reviewed</dt><dd>{facility.reviewedAt ? date(facility.reviewedAt) : 'Not yet'}</dd></div>
     </dl>
     {facility.reviewNote && <p className="admin-note">Review note: {facility.reviewNote}</p>}
-    {(canOpenFacility || canFindAdministrator) && <p className="admin-note">If it looks wrong,{' '}
+    {(canOpenFacility || canFindAdministrator) && <p className="admin-note admin-inline-links">If it looks wrong,{' '}
       {canOpenFacility && <>suspend the facility on its <Link to={`/admin/facilities/${encodeURIComponent(facility.facilityId)}`}>
         facility page</Link></>}
       {canOpenFacility && canFindAdministrator && ' and '}

@@ -204,7 +204,7 @@ function SupportContact({ purpose }: { purpose: 'plain' | 'cac' | 'register' | '
     : purpose === 'inline' ? 'contact Health ID support' : 'Contact Health ID support'
   const tail = purpose === 'cac' ? ', and give your CAC registration number.' : purpose === 'finish'
     ? ' to finish setting up your facility.' : '.'
-  return <>{lead}{address ? <> at <a href={`mailto:${address}`}>{address}</a></> : null}{tail}</>
+  return <>{lead}{address ? <> at <a className="provider-setup-link" href={`mailto:${address}`}>{address}</a></> : null}{tail}</>
 }
 
 /** Where this administrator signs in next time: the EHR site in production, this portal elsewhere. */

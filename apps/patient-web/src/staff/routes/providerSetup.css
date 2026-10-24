@@ -80,3 +80,6 @@
 /* "Didn't get the code?": a quieter block under the code step. */
 .provider-setup-resend { margin-top: 28px; padding-top: 20px; border-top: 1px solid var(--color-line); }
 .provider-setup-resend h3 { margin: 0; color: var(--color-ink); font-size: 15px; font-weight: 600; }
+
+/* Health ID support's address, inside a sentence: marked as a link, not only by colour. */
+.provider-setup-link { color: var(--color-brand); font-weight: 600; text-decoration: underline; overflow-wrap: anywhere; }
