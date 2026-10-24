@@ -397,7 +397,7 @@ describe('facility self sign-up on Novu (P4)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Verify email' }))
     expect((await screen.findByLabelText('Password')).getAttribute('aria-describedby')).toBe('provider-password-hint')
     expect(document.getElementById('provider-password-hint')?.textContent).toBe('Choose a password of at least 12 characters. '
-      + 'You’ll sign in with it and ada@example.test. Once your account is created, you go straight into the Provider Portal '
+      + 'You’ll use it with ada@example.test to sign in. Once your account is created, you go straight into the Provider Portal '
       + 'as your facility’s administrator.')
     expect(screen.queryByText(/authenticator/i)).toBeNull()
     expect(steps()).toEqual(['Organization', 'Email confirmation', 'Password'])
@@ -493,9 +493,9 @@ describe('facility self sign-up on Novu (P4)', () => {
       [429, 'VERIFICATION_QUOTA_EXCEEDED', 'The limit on CAC checks has been reached for now. Please try again later.'],
       [403, 'ORIGIN_DENIED', 'This site isn’t allowed to send facility sign-ups. Open Set up your facility from '
         + 'healthidentitydirectory.com and try again.'],
-      [400, 'TURNSTILE_REQUIRED', 'The security check didn’t go through. Complete it again, then try again.'],
-      [403, 'TURNSTILE_REJECTED', 'The security check didn’t go through. Complete it again, then try again.'],
-      [403, 'TURNSTILE_EXPIRED_OR_REPLAYED', 'The security check didn’t go through. Complete it again, then try again.'],
+      [400, 'TURNSTILE_REQUIRED', 'The security check didn’t go through. Please complete it again, then retry.'],
+      [403, 'TURNSTILE_REJECTED', 'The security check didn’t go through. Please complete it again, then retry.'],
+      [403, 'TURNSTILE_EXPIRED_OR_REPLAYED', 'The security check didn’t go through. Please complete it again, then retry.'],
       [403, 'TURNSTILE_CONTEXT_MISMATCH', 'The security check was made for another Health ID site. Open Set up your facility '
         + 'from healthidentitydirectory.com and try again.'],
       [403, 'TURNSTILE_HOSTNAME_MISMATCH', 'The security check was made for another Health ID site. Open Set up your facility '

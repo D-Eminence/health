@@ -184,7 +184,7 @@ function refusalOf(reason: unknown, step: Step, activationUncertain: boolean, no
     text: 'The security check was made for another Health ID site. Open Set up your facility from '
       + 'healthidentitydirectory.com and try again.' }
   if (code.startsWith('TURNSTILE_')) return { kind: 'message',
-    text: 'The security check didn’t go through. Complete it again, then try again.' }
+    text: 'The security check didn’t go through. Please complete it again, then retry.' }
   if (code === 'PROVIDER_ENROLLMENT_DENIED') return { kind: 'message', text: STEP_UNAVAILABLE }
   if (code === 'VALIDATION_FAILED') return { kind: 'message', text: 'Some of the details weren’t accepted. Check them and try again.' }
   return { kind: 'message', text: reason.message }
@@ -597,8 +597,8 @@ function EnrollmentSteps() {
           <form onSubmit={event => void activate(event)} className="patient-form">
             <h2>Create your provider account</h2>
             <p id="provider-password-hint" className="patient-field-hint">{novu
-              ? `Choose a password of at least 12 characters. You’ll sign in with it and ${administratorEmail}. Once your account is created, `
-                + 'you go straight into the Provider Portal as your facility’s administrator.'
+              ? `Choose a password of at least 12 characters. You’ll use it with ${administratorEmail} to sign in. Once your account `
+                + 'is created, you go straight into the Provider Portal as your facility’s administrator.'
               : 'Choose a password of at least 12 characters. After activation, you will set up an authenticator app, then enter '
                 + 'the Provider Portal as your facility administrator.'}</p>
             {/* Lets a password manager save the new password with its email. */}

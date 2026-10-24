@@ -2724,3 +2724,12 @@ into this branch (`ac3d7b1`), and the referral fixes sit on top of it.
 - **Tests.** About 40 new cases (component, API, contract and registry, chart gating).
 - **Not verified.** No browser run and no live backend; the notice text is a draft.
 
+
+## 2026-10-24: facility self sign-up on Novu (P4)
+
+- **Why.** The owner said yes to facility self sign-up (D14): a hospital, laboratory or pharmacy signs itself up through "Set up your facility", with no administrator approving it first, and finishes by setting a password, not an authenticator. Novu (the production backend) gains main's provider-enrollment routes, closed by the platform control `provider_self_service_enabled`; support reviews each new facility within a working day ("alert + daily review").
+- **The link.** "Set up your facility" on a staff product host (ehr, lab, pharmacy, migrate, outreach, admin) opens the main site's `/provider/enroll`, because Identity accepts the `provider-enrollment` check on app.* and staging.* only; the page itself, opened on a product host, links there too (`providerEnrollmentHref`).
+- **The page on a Novu build.** Three steps (Organization, Email confirmation, Password); availability is asked on opening and a closed sign-up says so with support's address; refusals are said by code; any status of 500 or more, or the gateway's `UPSTREAM_UNAVAILABLE`, is "temporarily unavailable" after availability is asked again (the gateway replaces every 502, 503 and 504 body, so the closed gate is a 423); recovery at activation; a 35 s start; "Send a new code" after `resendAfterSeconds`; where staff sign in next time; and what each product's administrator really gets (the Provider Portal; no clinical, Laboratory, Pharmacy or migration workspace and no staff accounts yet). A main-v1 build keeps its authenticator step.
+- **Console.** "New facility sign-ups" (`/admin/self-service-facilities`, Novu only) lists them for support, with "Mark reviewed" (a note, If-Match) and links to suspend the facility and disable its administrator through the existing pages.
+- **Registry.** The availability read and the two console routes are `proposed` (Novu only); the three enrollment routes' notes say what Novu answers.
+- **Not verified.** No browser run and no live Identity: the backend is not deployed. Component, API and contract tests only.
