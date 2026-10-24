@@ -196,4 +196,28 @@ describe('clinician self sign-up from the provider sign-in page (hid-system ADR-
       .toBeTruthy()
     expect(screen.getByRole('link', { name: 'Check your clinician application' }).getAttribute('href')).toBe('/provider/join/status')
   })
+
+  it('points nobody to a clinician application on Novu, which has none', async () => {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
+    try {
+      const callbacks: Array<(token: string) => void> = []
+      vi.stubGlobal('turnstile', { render: vi.fn((_host: HTMLElement, options: Record<string, unknown>) => {
+        callbacks.push(options.callback as (token: string) => void)
+        return `widget-${callbacks.length}`
+      }), remove: vi.fn(), reset: vi.fn() })
+      const detail = 'Your account has no active facility membership. Ask your organization administrator for access.'
+      calls.login.mockRejectedValueOnce(new HidApiError(403, detail, { code: 'NO_ACTIVE_FACILITY_MEMBERSHIP' }))
+      render(<MemoryRouter><SignIn /></MemoryRouter>)
+      await waitFor(() => expect(callbacks).toHaveLength(1))
+      fireEvent.change(screen.getByRole('textbox', { name: 'Work email' }), { target: { value: 'ada@example.test' } })
+      fireEvent.change(screen.getByLabelText(/^Password/), { target: { value: 'a-long-enough-password' } })
+      act(() => callbacks[0]?.('token-1'))
+      fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+
+      expect((await screen.findByRole('alert')).textContent).toBe(detail)
+      expect(await screen.findByText(/Clinician sign-up isn't open yet\./)).toBeTruthy()
+      expect(screen.queryByText(/Applied as a doctor or nurse/)).toBeNull()
+      expect(screen.queryByRole('link', { name: /clinician application|Check your application/ })).toBeNull()
+    } finally { vi.unstubAllEnvs() }
+  })
 })

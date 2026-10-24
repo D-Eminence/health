@@ -1,14 +1,16 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { CLINICIAN_SIGNUP_PATH, CLINICIAN_STATUS_PATH, clinicianPageHref, type ClinicianPagePath } from '../../productHostname'
+import { servesClinicianApplications } from '../../backendContract'
 import { clinicianApplicationApi } from '../clinicianApplicationApi'
 
 /**
  * The way into clinician self sign-up (hid-system ADR-066) from the provider
  * sign-in and provider enrollment pages. "Sign up as a clinician" is offered
  * only while Identity says intake is open (`{ open: true }`); anything else,
- * an outage included, says sign-up is not open yet. The status page is always
- * linked: it works whether intake is open or not. On a staff product host or
+ * an outage included, says sign-up is not open yet. The status page is linked
+ * whether intake is open or not, unless the backend has no clinician
+ * applications (Novu), when nobody can have applied. On a staff product host or
  * the admin site both go to the main site, where their security checks are
  * accepted.
  */
@@ -28,7 +30,8 @@ export function ClinicianSignUpEntry({ className }: { className: string }) {
   return <p className={className}>
     {open ? <>New doctor or nurse? <PageLink path={CLINICIAN_SIGNUP_PATH}>Sign up as a clinician</PageLink>.</>
       : "Clinician sign-up isn't open yet."}
-    {' '}Already applied as a clinician? <PageLink path={CLINICIAN_STATUS_PATH}>Check your application</PageLink>.
+    {servesClinicianApplications() && <>
+      {' '}Already applied as a clinician? <PageLink path={CLINICIAN_STATUS_PATH}>Check your application</PageLink>.</>}
   </p>
 }
 

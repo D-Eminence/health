@@ -1,3 +1,4 @@
+import { usesNovuBackend } from '../backendContract'
 import type { AdminActor } from './api'
 
 /**
@@ -11,6 +12,11 @@ export interface NavigationItem {
   readonly title: string
   readonly description: string
   readonly visible: (actor: AdminActor) => boolean
+  /**
+   * Whether the configured backend serves this area at all (default: yes). An
+   * area it does not serve is neither linked nor routed, whatever the actor holds.
+   */
+  readonly served?: () => boolean
 }
 
 export interface NavigationSection {
@@ -19,6 +25,8 @@ export interface NavigationSection {
 }
 
 const can = (permission: string) => (actor: AdminActor) => actor.platformPermissions.includes(permission)
+/** Novu has no two-person approvals, no administrator authenticator or session list, and no clinician applications. */
+const onMainBackend = () => !usesNovuBackend()
 
 /** Approvals are listed for these permissions (hid-system PlatformSecurityService.listApprovals). */
 export const APPROVAL_PERMISSIONS = ['platform.role.manage', 'platform.mfa.reset', 'platform.audit.read'] as const
@@ -37,19 +45,19 @@ export const NAVIGATION: readonly NavigationSection[] = [
   { title: 'People and access', items: [
     { path: '/admin/principals', title: 'Users & roles', visible: can('platform.principal.read'),
       description: 'Account lookup, status, platform roles, sessions and support lookups.' },
-    { path: '/admin/approvals', title: 'Approvals',
+    { path: '/admin/approvals', title: 'Approvals', served: onMainBackend,
       visible: actor => APPROVAL_PERMISSIONS.some(code => actor.platformPermissions.includes(code)),
       description: 'Two-person Super Admin grants and authenticator resets.' },
     { path: '/admin/reviews', title: 'Identity review', visible: can('platform.identity-review.read'),
       description: 'Registration cases that need identity oversight.' },
     // hid-system ADR-066: every route of the queue needs platform.workforce.manage.
-    { path: '/admin/clinicians', title: 'Clinician applications', visible: can('platform.workforce.manage'),
+    { path: '/admin/clinicians', title: 'Clinician applications', served: onMainBackend, visible: can('platform.workforce.manage'),
       description: 'Doctors and nurses who applied by themselves: one Super Admin verifies, then a second Super Admin approves.' },
   ] },
   { title: 'Security', items: [
     { path: '/admin/audit', title: 'Audit', visible: can('platform.audit.read'),
       description: 'Platform and facility audit events.' },
-    { path: '/admin/security', title: 'My security', visible: can('platform.admin.access'),
+    { path: '/admin/security', title: 'My security', served: onMainBackend, visible: can('platform.admin.access'),
       description: 'Your authenticator, recovery codes and sessions.' },
   ] },
   { title: 'Operations', items: [
@@ -75,9 +83,15 @@ export function navigationItemFor(pathname: string): NavigationItem | undefined 
   return NAVIGATION_ITEMS.find(item => pathname === item.path || pathname.startsWith(`${item.path}/`))
 }
 
+/** Whether the configured backend serves this area. */
+export function isServed(item: NavigationItem): boolean { return item.served?.() ?? true }
+
+/** Whether this administrator may open this area on the configured backend. */
+export function canOpen(item: NavigationItem, actor: AdminActor): boolean { return isServed(item) && item.visible(actor) }
+
 /** The sections and items this administrator may see, without empty sections. */
 export function visibleNavigation(actor: AdminActor): NavigationSection[] {
-  return NAVIGATION.map(section => ({ ...section, items: section.items.filter(item => item.visible(actor)) }))
+  return NAVIGATION.map(section => ({ ...section, items: section.items.filter(item => canOpen(item, actor)) }))
     .filter(section => section.items.length > 0)
 }
 

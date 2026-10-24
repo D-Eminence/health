@@ -11,6 +11,7 @@ import { CLINICIAN_STATUS_PATH, resolveStaffProductHostname, STAFF_RECOVERY_PATH
 import { staffReturnPath } from '../session'
 import { STAFF_MFA_FACTOR_UNPROVEN, STAFF_MFA_UNAVAILABLE, StaffMfaSteps, type StaffMfaLook } from './StaffMfaSteps'
 import { ClinicianSignUpEntry, PageLink } from '../clinician/ClinicianSignUpEntry'
+import { servesClinicianApplications } from '../../backendContract'
 
 /**
  * Said when Identity ended the sign-in for want of an authenticator
@@ -163,7 +164,7 @@ export function SignIn() {
         <Field label="Password" htmlFor="staff-password" required><PasswordInput id="staff-password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} required /></Field>
         <TurnstileChallenge onToken={setToken} resetKey={turnstileResetKey} />
         {error && <p className="staff-error" role="alert">{error}</p>}
-        {error && noFacility && <p className="staff-muted">Applied as a doctor or nurse? You can sign in once two HID administrators
+        {error && noFacility && servesClinicianApplications() && <p className="staff-muted">Applied as a doctor or nurse? You can sign in once two HID administrators
           have approved your application. <PageLink path={CLINICIAN_STATUS_PATH}>Check your clinician application</PageLink>.</p>}
         <Button type="submit" disabled={busy || !!siteKey && !token}>{busy ? 'Signing in…' : 'Sign in'}</Button>
       </form>

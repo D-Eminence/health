@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { Field, PasswordInput } from '@hid/ui'
 import { useDocumentTitle } from '../../authSteps'
 import { CLINICIAN_SIGNUP_PATH, CLINICIAN_STATUS_PATH, STAFF_RECOVERY_PATH, clinicianMainSiteHref } from '../../productHostname'
+import { servesClinicianApplications } from '../../backendContract'
 import { CLINICIAN_REGULATOR_OF, clinicianApplicationApi, newClinicianIdempotencyKey, type ClinicianSignUp as SignUpInput,
   type ClinicianSubmitted } from '../clinicianApplicationApi'
 import { ClinicianAuthenticator } from '../clinician/ClinicianAuthenticator'
@@ -250,7 +251,7 @@ function SignUp() {
       </div>}
       <ul className="clinician-links clinician-panel">
         <li><Link to="/provider/sign-in">Sign in</Link></li>
-        <li><Link to={CLINICIAN_STATUS_PATH}>Check an application</Link></li>
+        {servesClinicianApplications() && <li><Link to={CLINICIAN_STATUS_PATH}>Check an application</Link></li>}
       </ul>
     </ClinicianFrame>
   }

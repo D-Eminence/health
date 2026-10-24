@@ -43,6 +43,14 @@ describe('platform overview', () => {
     expect(screen.queryByRole('link', { name: 'Registered patients' })).toBeNull()
   })
 
+  it('links a total only to an area the administrator may open', async () => {
+    open(['platform.principal.read', 'platform.session.revoke'])
+    expect(await screen.findByText('1,200')).toBeTruthy()
+    expect(screen.getByText('Suspended facilities')).toBeTruthy()
+    expect(screen.queryByRole('link', { name: 'Suspended facilities' })).toBeNull()
+    expect(screen.queryByRole('link', { name: 'Pending identity reviews' })).toBeNull()
+  })
+
   it('counts waiting work from the lists the administrator can open, marking lists with more pages', async () => {
     open(ALL)
     await screen.findByText('1,200')

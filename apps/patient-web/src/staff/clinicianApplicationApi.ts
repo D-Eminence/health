@@ -1,5 +1,6 @@
 import { createApiClient } from '@hid/http'
 import { createRegisteredBrowserClient } from '@hid/api'
+import { servesClinicianApplications } from '../backendContract'
 import { getEnvironment } from './env'
 
 /**
@@ -140,6 +141,7 @@ export function newClinicianIdempotencyKey(): string {
 export const clinicianApplicationApi = {
   /** P0. Anything but `{ open: true }` is not open. */
   availability: async (): Promise<{ open: boolean }> => {
+    if (!servesClinicianApplications()) return { open: false }
     const answer = await client.get<{ open?: unknown } | null>(`${BASE}/availability`, PUBLIC)
     return { open: answer?.open === true }
   },

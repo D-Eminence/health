@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
+import { usesNovuBackend } from '../backendContract'
 import { adminApi, type AuditEvent, type AuditFilters } from './api'
 import { failure } from './problems'
 import { Page, Refresh, ResourceView, Status, Table, date, label, useResource, useUrlFilters } from './ui'
@@ -25,6 +26,9 @@ function instant(value: string): string | undefined {
   return Number.isNaN(parsed.getTime()) ? undefined : parsed.toISOString()
 }
 
+/** Novu's audit read (ListPlatformAuditDto) has no target filter: it refuses resourceType and resourceId with 400. */
+const servesTargetFilter = () => !usesNovuBackend()
+
 function toFilters(values: Record<(typeof FILTER_KEYS)[number], string>): AuditFilters {
   const outcome = OUTCOMES.find(value => value === values.outcome)
   return {
@@ -32,8 +36,8 @@ function toFilters(values: Record<(typeof FILTER_KEYS)[number], string>): AuditF
     ...(values.action ? { action: values.action } : {}),
     ...(outcome ? { outcome } : {}),
     ...(UUID.test(values.facilityId) ? { facilityId: values.facilityId } : {}),
-    ...(validTarget(values) && values.resourceType ? { resourceType: values.resourceType } : {}),
-    ...(validTarget(values) && values.resourceType && values.resourceId ? { resourceId: values.resourceId } : {}),
+    ...(servesTargetFilter() && validTarget(values) && values.resourceType ? { resourceType: values.resourceType } : {}),
+    ...(servesTargetFilter() && validTarget(values) && values.resourceType && values.resourceId ? { resourceId: values.resourceId } : {}),
     ...(values.correlationId ? { correlationId: values.correlationId } : {}),
     ...(instant(values.from) ? { from: instant(values.from) } : {}),
     ...(instant(values.to) ? { to: instant(values.to) } : {}),
@@ -60,7 +64,7 @@ export function AuditPage() {
   useEffect(() => { setOlder(null); setOlderError(null) }, [resource.data])
   const next = older ? older.next : resource.data?.nextBeforeSequenceId ?? null
   const invalidFacility = Boolean(draft.facilityId) && !UUID.test(draft.facilityId)
-  const invalidTarget = !validTarget(draft)
+  const invalidTarget = servesTargetFilter() && !validTarget(draft)
 
   async function loadOlder() {
     if (!next || loadingOlder) return
@@ -96,8 +100,9 @@ export function AuditPage() {
       <label>Outcome<select {...field('outcome')}><option value="">Any outcome</option>
         {OUTCOMES.map(value => <option key={value} value={value}>{label(value)}</option>)}</select></label>
       <label>Facility ID<input {...field('facilityId')} aria-invalid={invalidFacility} /></label>
-      <label>Target type<input {...field('resourceType')} placeholder="For example facility" aria-invalid={invalidTarget} /></label>
-      <label>Target ID<input {...field('resourceId')} aria-invalid={invalidTarget} /></label>
+      {servesTargetFilter() && <>
+        <label>Target type<input {...field('resourceType')} placeholder="For example facility" aria-invalid={invalidTarget} /></label>
+        <label>Target ID<input {...field('resourceId')} aria-invalid={invalidTarget} /></label></>}
       <label>Correlation ID<input {...field('correlationId')} /></label>
       <label>From<input type="datetime-local" {...field('from')} /></label>
       <label>To<input type="datetime-local" {...field('to')} /></label>

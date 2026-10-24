@@ -1,7 +1,7 @@
 import { useCallback, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { adminApi, type AdminActor, type CursorPage, type PlatformOverview } from './api'
-import { APPROVAL_PERMISSIONS, UNAVAILABLE_CAPABILITIES, visibleNavigation } from './navigation'
+import { UNAVAILABLE_CAPABILITIES, canOpen, navigationItemFor, visibleNavigation } from './navigation'
 import { Page, Refresh, ResourceView, has, useResource, type Resource } from './ui'
 
 const number = (value: number) => new Intl.NumberFormat('en-NG').format(value)
@@ -82,8 +82,11 @@ function IntegrationHealth() {
 export function OverviewPage({ actor }: { actor: AdminActor }) {
   const totals = useResource(adminApi.overview, 'The platform overview could not be loaded.')
   const areas = visibleNavigation(actor).flatMap(section => section.items).filter(item => item.path !== '/admin/overview')
+  // A total links to its area only for an administrator who may open it there.
+  const opens = (link: string) => { const item = navigationItemFor(link.split('?')[0] ?? link); return item !== undefined && canOpen(item, actor) }
+  const approvals = navigationItemFor('/admin/approvals')
   const attention = [
-    APPROVAL_PERMISSIONS.some(code => has(actor, code)) && <PendingApprovals key="approvals" />,
+    approvals !== undefined && canOpen(approvals, actor) && <PendingApprovals key="approvals" />,
     has(actor, 'platform.identity-review.read') && <OpenApplications key="applications" />,
     has(actor, 'platform.demo.read') && <NewDemoRequests key="demos" />,
     has(actor, 'platform.integration.read') && <IntegrationHealth key="integrations" />,
@@ -96,7 +99,7 @@ export function OverviewPage({ actor }: { actor: AdminActor }) {
         <h2 id="admin-totals-title" className="admin-section-title">Platform totals</h2>
         <ResourceView resource={totals}>{overview => <div className="admin-metric-grid">
           {TOTALS.map(metric => <article className="admin-metric" key={metric.key}>
-            <span>{metric.link ? <Link to={metric.link}>{metric.title}</Link> : metric.title}</span>
+            <span>{metric.link && opens(metric.link) ? <Link to={metric.link}>{metric.title}</Link> : metric.title}</span>
             <strong>{number(overview[metric.key])}</strong>
           </article>)}
         </div>}</ResourceView>
