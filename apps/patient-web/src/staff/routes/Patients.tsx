@@ -165,6 +165,11 @@ export function Patients() {
           // seed `emergency`, Identity refuses break-glass as a consent command that failed integrity validation.
           // It answers so for any SQLSTATE 22023 from activate_break_glass (0031), a bad duration or reason
           // too; this form checks both, so the missing purpose is likely, not certain.
+          // hid-system #111 (0085 seeds `emergency`; Identity checks break_glass_enabled): a platform
+          // administrator switched emergency access off, or the emergency purpose was deactivated.
+          if (isHidApiError(caught) && caught.status === 423 && caught.code === 'BREAK_GLASS_DISABLED') {
+            throw new Error('Emergency access is switched off for Health ID right now, so the record was not opened. Ask your Health ID administrator.')
+          }
           if (isHidApiError(caught) && caught.status === 400 && caught.code === 'INVALID_CONSENT_COMMAND') {
             throw new Error('Emergency access may not be enabled for this deployment: Identity refused it (INVALID_CONSENT_COMMAND). Ask your Health ID administrator to enable it.')
           }
