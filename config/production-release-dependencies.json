@@ -3,16 +3,16 @@
   "declared": true,
   "backend_contract": "novu-v1",
   "reviewed_by": "D-Eminence",
-  "review_reference": "Backend release backend-40089515889-1-6e0593071817bac9 (D-Eminence/hid-system#111 at ba0d8d6, deployed 2026-10-24 12:09 UTC with status success for all 12 services, migration 0085_emergency_purpose_of_use applied first), which every pinned service runs. notification-api stays pinned for the emergency-contact code and alert texts (#109). Browser-facing change since 0d32961: staff break-glass (POST /api/v1/identity/break-glass) is usable in production (0085 seeds the active emergency purpose of use), and Identity now checks the break_glass_enabled platform control in the activation, answering 423 BREAK_GLASS_DISABLED when it is off or the emergency purpose is missing, and 503 PLATFORM_CONTROL_UNAVAILABLE when the control cannot be read. This frontend maps 423 on the staff emergency-access form and, on novu-v1, tells staff that verified emergency contacts are told. Reviewed and approved by the repository owner, D-Eminence.",
+  "review_reference": "Backend releases backend-40095869594-1-ef6167e208c13eaf (D-Eminence/hid-system#112 at 4775137, notification-api only, deployed 2026-10-24 13:04 UTC with status success) and backend-40097864701-1-06a119910d775cd8 (D-Eminence/hid-system#113 at 57a94db, identity-api only, deployed 2026-10-24 13:33 UTC with status success). gateway, ehr-api, lab-api, pharmacy-api, ocr-api, outreach-api and support-api still run ba0d8d6 (#111, release backend-40089515889-1-6e0593071817bac9). Neither release has a migration. Browser-facing change since ba0d8d6: emergency-contact delivery is on by default in both services (owner approval of 2026-10-24), so GET /api/v1/identity/me/emergency-contacts/availability answers {\"delivery\":true,\"channels\":[\"email\"]} for every patient, and adding a contact and sending a verification code no longer answer 409 EMERGENCY_CONTACT_DELIVERY_UNAVAILABLE. No route, payload or error code changed; this frontend already shows the Settings card whenever delivery is on. Reviewed and approved by the repository owner, D-Eminence.",
   "backend_commits": {
     "gateway": "ba0d8d68864eac0055a9721c89159f9881c0fd79",
-    "identity-api": "ba0d8d68864eac0055a9721c89159f9881c0fd79",
+    "identity-api": "57a94dbd410e32bac71d7a2edf88334ba141c930",
     "ehr-api": "ba0d8d68864eac0055a9721c89159f9881c0fd79",
     "lab-api": "ba0d8d68864eac0055a9721c89159f9881c0fd79",
     "pharmacy-api": "ba0d8d68864eac0055a9721c89159f9881c0fd79",
     "ocr-api": "ba0d8d68864eac0055a9721c89159f9881c0fd79",
     "outreach-api": "ba0d8d68864eac0055a9721c89159f9881c0fd79",
     "support-api": "ba0d8d68864eac0055a9721c89159f9881c0fd79",
-    "notification-api": "ba0d8d68864eac0055a9721c89159f9881c0fd79"
+    "notification-api": "47751377be849bd6ba5a09c3b887bd45ce4accea"
   }
 }
