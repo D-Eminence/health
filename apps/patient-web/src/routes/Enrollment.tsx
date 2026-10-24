@@ -105,6 +105,22 @@ const ENDED_HERE = `${ENDED} Enter your NIN to start again.`
  * is dropped and the patient starts again at the NIN step (row 9).
  */
 const HOLDER_PROOF_REQUIRED = 'We could not confirm that this NIN is yours, so this registration can\'t be finished. Start again with your NIN, and prove it with a code or at a participating facility.'
+/**
+ * "Use a different NIN" refused while a Google sign-up is tied to this registration: Identity ties a
+ * Google sign-up to one registration only (0059), for 30 minutes, so another NIN's start would be
+ * refused (404 GOOGLE_ONBOARDING_NOT_FOUND) after its paid lookup.
+ */
+const googleTiedUntil = (ends: number | null, named: boolean) => `You continued with Google for this registration, so a different NIN can be used here only ${ends === null
+  ? 'once that Google sign-up ends, 30 minutes after you continued'
+  // Rounded up to the minute shown: a press during the minute named would still be refused.
+  : `after ${new Date(Math.ceil(ends / 60_000) * 60_000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`}. ${named
+  ? 'If the name is not yours, stop here and come back then.' : 'If you meant to use a different NIN, stop here and come back then.'}`
+/**
+ * Within this of each other, two expiries are of one registration: Identity fixes the expiry at the first
+ * start (clock_timestamp() + 24 hours), and the start answer computes it again just after.
+ */
+const SAME_REGISTRATION_MS = 5_000
+const DIFFERENT_NIN_UNCHECKED = 'We could not check this registration just now, so you are still on it. Try again.'
 const ENDS_ENROLLMENT = 'Signing out also ends an enrollment in progress on this device; continue it by entering the same NIN before reloading this page.'
 /**
  * Whether a new enrollment may start (hid-system#68, FE-4): only `200 { open: true }`
@@ -170,6 +186,10 @@ export function Enrollment() {
   const [hidCode, setHidCode] = useState('')
   const [maskedContact, setMaskedContact] = useState('')
   const [recordName, setRecordName] = useState<string | null>(null)
+  // The name shown and the expiry of the registration it is for (fixed at its first start). Identity sends
+  // the name only within 15 minutes of that start: a later answer for the same registration keeps it, and
+  // one for another registration (another tab started another NIN; the cookie is shared) drops it.
+  const shownName = useRef<{ name: string; expiresAt: number } | null>(null)
   const [googleRequired, setGoogleRequired] = useState(false)
   const [googlePending, setGooglePending] = useState(false)
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
@@ -241,6 +261,7 @@ export function Enrollment() {
   const stageShown = useRef<Stage>(stage)
   useEffect(() => { stageShown.current = stage }, [stage])
 
+  const forgetRecordName = () => { shownName.current = null; setRecordName(null) }
   // Back to the NIN step, the enrollment's challenge and contact gone with it.
   const forgetProfile = () => { setProfileFields([]); setDateOfBirth(''); setGender(''); setProfileError(null) }
   const forgetHolder = () => {
@@ -248,7 +269,7 @@ export function Enrollment() {
     setHolderCodeError(false); setNotRecordedYet(false); resend.reset()
   }
   const restartAtNin = () => {
-    setNinPath('nin'); setStage('nin'); setChallengeId(null); setMaskedContact(''); setRecordName(null); setCode(''); setPassword(''); setStepHint(null); forgetProfile(); forgetHolder()
+    setNinPath('nin'); setStage('nin'); setChallengeId(null); setMaskedContact(''); forgetRecordName(); setCode(''); setPassword(''); setStepHint(null); forgetProfile(); forgetHolder()
     setNotice(null); setError(ENDED_HERE); setFieldError(false); setErrorAlert(true)
   }
   /**
@@ -256,7 +277,7 @@ export function Enrollment() {
    * be someone else's on a shared phone. The start key is left as it is.
    */
   const forgetRegistration = () => {
-    setNinPath('nin'); setStage('nin'); setNin(''); setCode(''); setChallengeId(null); setMaskedContact(''); setRecordName(null); setPassword(''); setStepHint(null)
+    setNinPath('nin'); setStage('nin'); setNin(''); setCode(''); setChallengeId(null); setMaskedContact(''); forgetRecordName(); setPassword(''); setStepHint(null)
     setContact(''); setChannel('phone'); setReference(null)
     forgetProfile(); forgetHolder(); setNotice(null)
   }
@@ -279,10 +300,16 @@ export function Enrollment() {
     setResendWaitSeconds(typeof seconds === 'number' && Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : 0)
   }
 
-  const applyProgress = (progress: EnrollmentProgress) => {
+  /** Applies an answer for the registration; returns the name on the NIN record it leaves shown. */
+  const applyProgress = (progress: EnrollmentProgress): string | null => {
     setGoogleRequired(progress.googleOnboardingRequired === true)
-    setRecordName(progress.stage !== 'active' && typeof progress.recordName === 'string' && progress.recordName.trim()
-      ? progress.recordName.trim() : null)
+    const expiresAt = Date.parse(progress.expiresAt ?? '')
+    const sent = typeof progress.recordName === 'string' && progress.recordName.trim() ? progress.recordName.trim() : null
+    const kept = shownName.current !== null && Number.isFinite(expiresAt)
+      && Math.abs(shownName.current.expiresAt - expiresAt) < SAME_REGISTRATION_MS ? shownName.current.name : null
+    const name = progress.stage === 'active' ? null : sent ?? kept
+    shownName.current = name !== null && Number.isFinite(expiresAt) ? { name, expiresAt } : null
+    setRecordName(name)
     const fields = profileFieldsOf(progress.requiredProfileFields)
     if (fields) setProfileFields(fields)
     if (progress.stage === 'verify_holder') {
@@ -302,7 +329,7 @@ export function Enrollment() {
         : shown === 'holder' ? 'holder'
           : shown === 'holder_code' && onlineNow.challengeId ? 'holder_code'
             : facilityNow.deskCode ? 'facility' : onlineNow.challengeId ? 'holder_code' : 'holder')
-      return
+      return name
     }
     if (HOLDER_STAGES.includes(stageShown.current)) forgetHolder()
     setMaskedContact(progress.maskedContact ?? '')
@@ -310,6 +337,7 @@ export function Enrollment() {
     if (progress.stage === 'active') { setHidCode(progress.hidCode ?? ''); setStage('complete') }
     else if (progress.stage === 'set_password') setStage('password')
     else setStage(progress.challengeId ? 'otp' : 'contact')
+    return name
   }
 
   useEffect(() => {
@@ -546,12 +574,45 @@ export function Enrollment() {
    * typed. Unlike startAgain, the start keys are kept, one per NIN, so a NIN
    * already started here resumes its registration with no new lookup, and
    * another NIN gets a new key and a new registration. Nothing is cancelled: a
-   * registration left closes by itself within 24 hours. Offered only while
+   * registration left closes by itself within 24 hours. Offered while
    * registration is open, so that the NIN step it goes back to is there.
+   *
+   * It asks Identity first (GET .../current), not this page's last read: a Google
+   * sign-up may have been tied to this registration since, in another tab or by a
+   * Google step whose answer was lost. While one is, the person stays on this
+   * registration and is told until when; if the check fails, they stay too. A
+   * registration activated meanwhile (in another tab, or by an activation whose
+   * answer was lost) shows its Health ID, as a reload would.
    */
-  const differentNin = () => {
+  const differentNin = async () => {
     if (busy) return
-    forgetRegistration(); clearError(); stepFocus.focus()
+    setBusy(true); clearError()
+    let progress: EnrollmentProgress
+    try { progress = await api.enrollmentCurrent() }
+    catch (reason) {
+      // A registration that is gone leaves nothing to keep (back to the NIN step); a sign-in is said as usual.
+      if (enrollmentEnded(reason) || requiresSignOut(reason)) displayError(reason)
+      else sayError(DIFFERENT_NIN_UNCHECKED)
+      setBusy(false); stepFocus.focus()
+      return
+    }
+    if (progress.stage === 'active') {
+      applyProgress(progress); setPassword(''); forgetProfile(); setStepHint(null)
+      setBusy(false); stepFocus.focus()
+      return
+    }
+    const googleEnds = progress.googleOnboardingRequired === true ? Date.parse(progress.googleOnboardingExpiresAt ?? '') : NaN
+    if (progress.googleOnboardingRequired === true && !(Number.isFinite(googleEnds) && googleEnds <= Date.now())) {
+      const named = applyProgress(progress) !== null
+      sayError(googleTiedUntil(Number.isFinite(googleEnds) ? googleEnds : null, named))
+      setBusy(false); stepFocus.focus()
+      return
+    }
+    forgetRegistration()
+    // A registration left that asked for Google: the NIN step neither waits for Google nor says it is
+    // confirmed, and the next start carries no Google sign-up (its cookie ended with it).
+    if (googleRequired || progress.googleOnboardingRequired === true) { setGoogleRequired(false); setGooglePending(false) }
+    setBusy(false); stepFocus.focus()
   }
   /** "Start again" after a registration ended at the facility stage: the kept key resumes it if it is still open. */
   const againAtNin = () => {
@@ -637,7 +698,7 @@ export function Enrollment() {
     setBusy(true); clearError(); setProfileError(null)
     try {
       const result = await api.enrollmentActivate(password, profile)
-      setPassword(''); forgetProfile(); setRecordName(null)
+      setPassword(''); forgetProfile(); forgetRecordName()
       setHidCode(result.hidCode)
       setStepHint(null)
       setStage('complete')
@@ -703,6 +764,9 @@ export function Enrollment() {
   const ready = !checking && !checkError && !signOutRequired
   // A new enrollment is offered only while registration is open; one in progress continues.
   const startOffered = GOOGLE_STAGES.includes(stage) && (stage !== 'nin' || registration === 'open')
+  // "Use a different NIN" needs a NIN step to go back to, so registration must be open. Whether a Google
+  // sign-up still ties this registration is asked when it is pressed (differentNin).
+  const differentNinOffered = registration === 'open'
   const closed = ready && stage === 'nin' && registration === 'closed'
   // Google sign-up is offered until it is pending for this enrollment. On the NIN
   // step it is a path of its own, opened by a button: its check replaces the NIN
@@ -768,7 +832,7 @@ export function Enrollment() {
       {ready && stage === 'registration_ended' && <RegistrationEnded focusTarget={stepFocus.target} onStartAgain={againAtNin} />}
       {ready && stage === 'registration_completed' && <RegistrationCompleted focusTarget={stepFocus.target} />}
       {ready && recordName && RECORD_NAME_STAGES.includes(stage) && <RecordName name={recordName} busy={busy}
-        onDifferentNin={registration === 'open' ? differentNin : undefined} />}
+        onDifferentNin={differentNinOffered ? () => void differentNin() : undefined} />}
       {ready && stage === 'contact' && <ContactStep {...stepProps} channel={channel} onChannel={setChannel} contact={contact} onContact={setContact}
         onSubmit={event => void submitContact(event)} noticeId={notice ? 'enroll-notice' : undefined}
         recordNameId={recordName ? RECORD_NAME_ID : undefined} />}
@@ -780,8 +844,8 @@ export function Enrollment() {
         profileFields={profileFields} dateOfBirth={dateOfBirth} onDateOfBirth={setDateOfBirth} gender={gender} onGender={setGender}
         errorField={fieldError ? profileError ?? 'password' : null} />}
       {/* Without the name (sent only within 15 minutes of the start), the way back to the NIN step is still offered. */}
-      {ready && !recordName && registration === 'open' && RECORD_NAME_STAGES.includes(stage)
-        && <button type="button" className="patient-text-button" disabled={busy} onClick={differentNin}>Use a different NIN</button>}
+      {ready && !recordName && differentNinOffered && RECORD_NAME_STAGES.includes(stage)
+        && <button type="button" className="patient-text-button" disabled={busy} onClick={() => void differentNin()}>Use a different NIN</button>}
       {ready && stage === 'complete' && <Complete focusTarget={stepFocus.target} hidCode={hidCode} />}
       {import.meta.env.VITE_HID_GOOGLE_CLIENT_ID && googleOffered && stage === 'nin' && !googleChosen && <section className="patient-auth-separator" aria-label="Google enrollment">
         <button type="button" className="patient-secondary-button" disabled={busy} onClick={chooseGoogle}>{googleRequired ? 'Reconnect Google' : 'Continue with Google'}</button>

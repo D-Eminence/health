@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, screen } from '@testing-library/react'
+import { fireEvent, screen, within } from '@testing-library/react'
 import { Enrollment } from '../routes/Enrollment'
 import { json, press, problem, renderPortal, type Handler } from './portalHarness'
 
@@ -7,8 +7,13 @@ vi.mock('../Turnstile', () => ({
   Turnstile: ({ onTokenChange }: { onTokenChange: (token: string | null) => void }) =>
     <button type="button" onClick={() => onTokenChange('turnstile-token')}>Complete check</button>,
 }))
+// Offered only where a test sets VITE_HID_GOOGLE_CLIENT_ID.
+vi.mock('../GoogleButton', () => ({
+  GoogleButton: ({ onCredential, disabled }: { onCredential: (token: string) => Promise<void>; disabled: boolean }) =>
+    <button type="button" disabled={disabled} onClick={() => { void onCredential('google-id-token') }}>Sign up with Google</button>,
+}))
 
-afterEach(() => { vi.restoreAllMocks() })
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs() })
 
 const BASE = '/identity/patient-enrollments'
 const NIN = '12345678901'
@@ -117,11 +122,15 @@ describe('"Use a different NIN" at the contact, code and password steps', () => 
   /**
    * Identity at ec2b351: a start for a NIN pending under another key is refused
    * (409 NIN_ALREADY_REGISTERED), and one under its own key resumes. A NIN the
-   * registry does not know is refused (422) and leaves nothing pending.
+   * registry does not know is refused (422) and leaves nothing pending. GET
+   * .../current answers the registration the last successful start set the
+   * cookie to.
    */
   function identity(headers: () => Headers): Handler {
     const pending = new Map<string, string>()
+    let latest: unknown = null
     return (path, method, body) => {
+      if (path === `${BASE}/current`) return latest ? json(latest) : problem(404, 'ENROLLMENT_NOT_FOUND', 'No pending enrollment was found')
       if (path !== BASE || method !== 'POST') return gateway({ stage: 'verify_contact' })(path, method, body)
       const nin = (body as { nin: string }).nin
       const key = headers().at(-1)?.headers.get('Idempotency-Key') ?? ''
@@ -129,7 +138,8 @@ describe('"Use a different NIN" at the contact, code and password steps', () => 
       const held = pending.get(nin)
       if (held && held !== key) return problem(409, 'NIN_ALREADY_REGISTERED', 'This identity already has a Health ID or a pending enrollment')
       pending.set(nin, key)
-      return json({ stage: 'verify_contact', recordName: names[nin] })
+      latest = { stage: 'verify_contact', recordName: names[nin] }
+      return json(latest)
     }
   }
   function renderIdentity() {
@@ -199,7 +209,7 @@ describe('"Use a different NIN" at the contact, code and password steps', () => 
     expect(back).toBe(first)
   })
 
-  it('is offered at the code and password steps too, and asks Identity for nothing', async () => {
+  it('is offered at the code and password steps too, and only reads the registration before leaving it', async () => {
     const { sent } = renderIdentity()
     await submitNin()
     fireEvent.change(await screen.findByLabelText('Phone number'), { target: { value: '+2348000000000' } })
@@ -219,8 +229,8 @@ describe('"Use a different NIN" at the contact, code and password steps', () => 
     await press(button()!)
     expect((await screen.findByLabelText('National Identification Number') as HTMLInputElement).value).toBe('')
     expect(screen.queryByLabelText('Password')).toBeNull()
-    // Going back cancels nothing: no request is sent for it.
-    expect(sent.length).toBe(before)
+    // Going back cancels nothing: the only request is the read of the registration.
+    expect(sent.slice(before).map(request => `${request.method} ${request.path}`)).toEqual([`GET ${BASE}/current`])
   })
 
   it('is offered without the name too, as after a reload more than 15 minutes after the start', async () => {
@@ -251,5 +261,203 @@ describe('"Use a different NIN" at the contact, code and password steps', () => 
     renderPortal(<Enrollment />, (path, method, body) => path === `${BASE}/availability` ? availability() : handler(path, method, body), anonymous)
     await screen.findByLabelText('Phone number')
     expect(button()).toBeNull()
+  })
+
+  // Identity ties a Google sign-up to one registration only, for 30 minutes (0059): another NIN's start
+  // carrying it would be refused (404 GOOGLE_ONBOARDING_NOT_FOUND) after its paid lookup. The button asks
+  // Identity when it is pressed, so a sign-up tied in another tab, or by an answer this page lost, counts too.
+  /** The registration's expiry, fixed at its first start. */
+  const EXPIRES = new Date(Date.now() + 23 * 60 * 60 * 1000).toISOString()
+  /** On a whole minute, so the time said is exactly this one. */
+  const SOON = new Date(Math.floor((Date.now() + 20 * 60 * 1000) / 60_000) * 60_000).toISOString()
+  const PAST = new Date(Date.now() - 60 * 1000).toISOString()
+  const at = (iso: string) => new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+  const TIED = (until: string) => `You continued with Google for this registration, so a different NIN can be used here only after ${until}. `
+    + 'If the name is not yours, stop here and come back then.'
+  const TIED_UNNAMED = (until: string) => `You continued with Google for this registration, so a different NIN can be used here only ${until}. `
+    + 'If you meant to use a different NIN, stop here and come back then.'
+  const PENDING = 'Google identity confirmed for this enrollment.'
+  /**
+   * The page's own reads say one thing; GET .../current, read when the button is pressed, says `current`.
+   * GET auth/google/onboarding answers `onboarding`, or 404 (no Google sign-up pending in this browser).
+   */
+  function pressedWith(shown: unknown, current: () => Response, onboarding?: unknown): Handler {
+    let pressed = false
+    return (path, method, body) => {
+      if (path === `${BASE}/current`) { if (pressed) return current(); pressed = true; return json(shown) }
+      if (path === '/auth/google/onboarding' && onboarding) return json(onboarding)
+      return gateway({ stage: 'verify_contact' })(path, method, body)
+    }
+  }
+
+  it.each([
+    ['tied to this registration by the page', { stage: 'verify_contact', recordName: NAME, googleOnboardingRequired: true, googleOnboardingExpiresAt: SOON }],
+    ['tied since, in another tab', { stage: 'verify_contact', recordName: NAME }],
+  ])('keeps the registration while a Google sign-up is %s, and says until when', async (_, shown) => {
+    const tied = { stage: 'verify_contact', recordName: NAME, googleOnboardingRequired: true, googleOnboardingExpiresAt: SOON }
+    renderPortal(<Enrollment />, pressedWith(shown, () => json(tied)), anonymous)
+    await screen.findByLabelText('Phone number')
+    await press(button()!)
+    expect(await screen.findByText(TIED(at(SOON)))).toBeTruthy()
+    expect(screen.getByLabelText('Phone number')).toBeTruthy()
+    expect(screen.queryByLabelText('National Identification Number')).toBeNull()
+    expect(verified()?.textContent).toContain(NAME)
+  })
+
+  it('keeps the name it shows while the registration is tied, though Identity no longer sends it 15 minutes after the start', async () => {
+    const tied = { stage: 'verify_contact', expiresAt: EXPIRES, googleOnboardingRequired: true, googleOnboardingExpiresAt: SOON }
+    renderPortal(<Enrollment />, pressedWith({ stage: 'verify_contact', expiresAt: EXPIRES, recordName: NAME }, () => json(tied)), anonymous)
+    const phone = await screen.findByLabelText('Phone number')
+    await press(button()!)
+    expect(await screen.findByText(TIED(at(SOON)))).toBeTruthy()
+    expect(verified()?.textContent).toContain(NAME)
+    expect(phone.getAttribute('aria-describedby')?.split(' ')).toContain('enroll-record-name')
+  })
+
+  it.each([
+    ['keeps', 30, true],
+    ['keeps', 4_000, true],
+    ['drops', 6_000, false],
+  ])('%s the start answer\'s name when a later read of the registration differs in expiry by %i ms', async (_, gap, kept) => {
+    // The start answer computes the expiry just after the insert; later reads return the row's, a little earlier.
+    const row = Date.parse(EXPIRES)
+    const tied = { stage: 'verify_contact', expiresAt: EXPIRES, googleOnboardingRequired: true, googleOnboardingExpiresAt: SOON }
+    let started = false
+    renderPortal(<Enrollment />, (path, method, body) => {
+      if (path === `${BASE}/current`) return started ? json(tied) : problem(404, 'ENROLLMENT_NOT_FOUND', 'No pending enrollment was found')
+      if (path === BASE && method === 'POST') {
+        started = true
+        return json({ stage: 'verify_contact', recordName: NAME, expiresAt: new Date(row + gap).toISOString() })
+      }
+      return gateway({ stage: 'verify_contact' })(path, method, body)
+    }, anonymous)
+    await submitNin()
+    await screen.findByLabelText('Phone number')
+    expect(verified()?.textContent).toContain(NAME)
+    await press(button()!)
+    expect(await screen.findByText(kept ? TIED(at(SOON)) : TIED_UNNAMED(`after ${at(SOON)}`))).toBeTruthy()
+    expect(Boolean(verified()?.textContent?.includes(NAME))).toBe(kept)
+  })
+
+  it('drops the name it shows when Identity answers for another registration, started since in another tab', async () => {
+    const other = { stage: 'set_password', expiresAt: new Date(Date.parse(EXPIRES) + 10 * 60 * 1000).toISOString(),
+      googleOnboardingRequired: true, googleOnboardingExpiresAt: SOON }
+    renderPortal(<Enrollment />, pressedWith({ stage: 'verify_contact', expiresAt: EXPIRES, recordName: NAME }, () => json(other)), anonymous)
+    await screen.findByLabelText('Phone number')
+    await press(button()!)
+    expect(await screen.findByText(TIED_UNNAMED(`after ${at(SOON)}`))).toBeTruthy()
+    expect(screen.queryByText(NAME)).toBeNull()
+    expect(verified()).toBeNull()
+  })
+
+  it('keeps the name it shows after Continue with Google, which reads the registration again', async () => {
+    vi.stubEnv('VITE_HID_GOOGLE_CLIENT_ID', 'google-client')
+    const tied = { stage: 'verify_contact', expiresAt: EXPIRES, googleOnboardingRequired: true, googleOnboardingExpiresAt: SOON }
+    let reads = 0
+    renderPortal(<Enrollment />, (path, method, body) => {
+      if (path === `${BASE}/current`) return json(++reads === 1 ? { stage: 'verify_contact', expiresAt: EXPIRES, recordName: NAME } : tied)
+      if (path === '/auth/oidc/exchange') return json({ stage: 'GOOGLE_AUTHENTICATED_PENDING_IDENTITY', expiresAt: SOON })
+      if (path === `${BASE}/google` && method === 'POST') return json({ bound: true })
+      return gateway({ stage: 'verify_contact' })(path, method, body)
+    }, anonymous)
+    await screen.findByLabelText('Phone number')
+    const google = within(screen.getByRole('region', { name: 'Google enrollment' }))
+    fireEvent.click(google.getByRole('button', { name: 'Complete check' }))
+    await press(google.getByRole('button', { name: 'Sign up with Google' }))
+    expect(await screen.findByText(PENDING)).toBeTruthy()
+    expect(reads).toBe(2)
+    expect(verified()?.textContent).toContain(NAME)
+    await press(button()!)
+    expect(await screen.findByText(TIED(at(SOON)))).toBeTruthy()
+  })
+
+  it('says the time a press is let through, rounded up from an expiry within a minute', async () => {
+    const minute = Math.floor((Date.now() + 20 * 60 * 1000) / 60_000) * 60_000
+    const tied = { stage: 'verify_contact', recordName: NAME, googleOnboardingRequired: true,
+      googleOnboardingExpiresAt: new Date(minute + 30_000).toISOString() }
+    renderPortal(<Enrollment />, pressedWith(tied, () => json(tied)), anonymous)
+    await screen.findByLabelText('Phone number')
+    await press(button()!)
+    expect(await screen.findByText(TIED(at(new Date(minute + 60_000).toISOString())))).toBeTruthy()
+  })
+
+  it('keeps the registration when Identity says it is tied to Google but not until when, with no name to check', async () => {
+    const tied = { stage: 'verify_contact', googleOnboardingRequired: true }
+    renderPortal(<Enrollment />, pressedWith({ stage: 'verify_contact' }, () => json(tied)), anonymous)
+    await screen.findByLabelText('Phone number')
+    await press(button()!)
+    expect(await screen.findByText(TIED_UNNAMED('once that Google sign-up ends, 30 minutes after you continued'))).toBeTruthy()
+    expect(screen.queryByLabelText('National Identification Number')).toBeNull()
+    expect(verified()).toBeNull()
+  })
+
+  it.each([
+    ['tied to Google', { googleOnboardingRequired: true, googleOnboardingExpiresAt: SOON }],
+    ['not tied to Google', {}],
+  ])('shows the Health ID of a registration activated meanwhile and %s, with no message', async (_, google) => {
+    const shown = { stage: 'set_password', recordName: NAME, ...google }
+    renderPortal(<Enrollment />, pressedWith(shown, () => json({ stage: 'active', hidCode: 'HID-ABCDEF23', ...google })), anonymous)
+    await screen.findByLabelText(/^Password/)
+    await press(button()!)
+    expect(await screen.findByRole('heading', { name: 'Your Health ID is ready.' })).toBeTruthy()
+    expect(screen.getByText('HID-ABCDEF23')).toBeTruthy()
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.queryByLabelText('National Identification Number')).toBeNull()
+    expect(screen.queryByText(NAME)).toBeNull()
+  })
+
+  it.each([
+    ['this page knew was tied', { googleOnboardingRequired: true, googleOnboardingExpiresAt: SOON }],
+    ['tied since, in another tab', {}],
+  ])('forgets the Google sign-up %s once it has ended, as it leaves', async (_, google) => {
+    const shown = { stage: 'verify_contact', recordName: NAME, ...google }
+    const ended = { stage: 'verify_contact', googleOnboardingRequired: true, googleOnboardingExpiresAt: PAST }
+    renderPortal(<Enrollment />, pressedWith(shown, () => json(ended), { stage: 'GOOGLE_AUTHENTICATED_PENDING_IDENTITY', expiresAt: SOON }), anonymous)
+    await screen.findByLabelText('Phone number')
+    expect(screen.getByText(PENDING)).toBeTruthy()
+    await press(button()!)
+    expect((await screen.findByLabelText('National Identification Number') as HTMLInputElement).value).toBe('')
+    expect(screen.queryByText(PENDING)).toBeNull()
+    expect(screen.queryByText('Reconnect the Google account used to start this enrollment.')).toBeNull()
+  })
+
+  it('keeps a Google sign-up pending in this browser that is not tied to the registration left', async () => {
+    renderPortal(<Enrollment />, pressedWith({ stage: 'verify_contact', recordName: NAME }, () => json({ stage: 'verify_contact' }),
+      { stage: 'GOOGLE_AUTHENTICATED_PENDING_IDENTITY', expiresAt: SOON }), anonymous)
+    await screen.findByLabelText('Phone number')
+    await press(button()!)
+    expect(await screen.findByLabelText('National Identification Number')).toBeTruthy()
+    expect(screen.getByText(PENDING)).toBeTruthy()
+  })
+
+  it('goes back to the NIN step once the Google sign-up has ended, and that step does not wait for Google', async () => {
+    const ended = { stage: 'verify_contact', googleOnboardingRequired: true, googleOnboardingExpiresAt: PAST }
+    const { sent } = renderPortal(<Enrollment />, pressedWith(ended, () => json(ended)), anonymous)
+    await screen.findByLabelText('Phone number')
+    expect(screen.getByText('Reconnect the Google account used to start this enrollment.')).toBeTruthy()
+    await press(button()!)
+    expect((await screen.findByLabelText('National Identification Number') as HTMLInputElement).value).toBe('')
+    expect(screen.queryByText('Reconnect the Google account used to start this enrollment.')).toBeNull()
+    await submitNin()
+    await screen.findByLabelText('Phone number')
+    expect(screen.queryByText('Reconnect Google before continuing.')).toBeNull()
+    expect(sent.filter(request => request.path === BASE && request.method === 'POST')).toHaveLength(1)
+  })
+
+  it('keeps the registration when the check fails, and says so', async () => {
+    renderPortal(<Enrollment />, pressedWith({ stage: 'verify_contact' }, () => problem(503, 'SERVICE_UNAVAILABLE', 'Unavailable')), anonymous)
+    await screen.findByLabelText('Phone number')
+    await press(button()!)
+    expect(await screen.findByText('We could not check this registration just now, so you are still on it. Try again.')).toBeTruthy()
+    expect(screen.getByLabelText('Phone number')).toBeTruthy()
+    expect(button()).toBeTruthy()
+  })
+
+  it('goes back to the NIN step, saying so, when the registration has already ended', async () => {
+    renderPortal(<Enrollment />, pressedWith({ stage: 'verify_contact' }, () => problem(404, 'ENROLLMENT_NOT_FOUND', 'No pending enrollment was found')), anonymous)
+    await screen.findByLabelText('Phone number')
+    await press(button()!)
+    expect(await screen.findByLabelText('National Identification Number')).toBeTruthy()
+    expect(screen.getByText(/This registration is no longer open on this device/)).toBeTruthy()
   })
 })

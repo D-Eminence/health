@@ -424,7 +424,8 @@ export function SettingsPage() {
         <button type="submit" className="patient-primary-button" disabled={busy || !/^\d{4,8}$/.test(pin)}>Save PIN</button></form>
       {profile.data.accessPinConfigured && <button ref={revokePinButton} type="button" className="patient-secondary-button" disabled={busy || profile.loading} onClick={() => void revokePin()}>Revoke Access PIN</button>}
     </div>}
-    <EmergencyContactsCard />
+    {/* Novu (staging-novu-ci-20261005) serves no identity/me/emergency-contacts: the card could only fail. */}
+    {!usesNovuBackend() && <EmergencyContactsCard />}
     {import.meta.env.VITE_HID_GOOGLE_CLIENT_ID && googleClientId() && <div className="patient-card"><h2>Link a Google account</h2><p className="patient-field-hint">Confirm your existing Health ID credentials before linking.</p>
       <div className="patient-form"><label>Email or Health ID<input autoComplete="username" value={googlePrincipal} onChange={event => setGooglePrincipal(event.target.value)} /></label>
         {/* No form is sent here (Google's button sends it), so each attempt remounts the field masked. */}
