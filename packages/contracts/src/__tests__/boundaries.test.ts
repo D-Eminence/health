@@ -240,6 +240,34 @@ describe('application boundaries', () => {
     expect(() => assertEndpointAllowed('admin-web', 'enrollment.clinicianCurrent')).toThrow(BoundaryViolationError)
   })
 
+  it('registers hid-system #109\'s emergency-contact availability for the patient portal and its commands for the console', () => {
+    const contacts = '/api/v1/identity/me/emergency-contacts'
+    // The static availability path wins over a contact id, which takes POST only.
+    expect(assertRegisteredBrowserRequest('GET', `${contacts}/availability`).name).toBe('identity.emergencyContactsAvailability')
+    expect(findEndpoint('identity.emergencyContactsAvailability')).toMatchObject({ service: 'identity', methods: ['GET'],
+      auth: { kind: 'authenticated' }, status: 'proposed' })
+    expect(findEndpoint('identity.emergencyContacts')?.note).toContain('409 EMERGENCY_CONTACT_DELIVERY_UNAVAILABLE')
+    expect(() => assertEndpointAllowed('patient-web', 'identity.emergencyContactsAvailability')).not.toThrow()
+    for (const app of ['staff-web', 'admin-web', 'public-web'] as const) {
+      expect(() => assertEndpointAllowed(app, 'identity.emergencyContactsAvailability'), app).toThrow(BoundaryViolationError)
+    }
+    const facilityId = '0f8c6d2e-4b1a-4c3d-9e5f-1a2b3c4d5e6f'
+    const routes = [
+      ['admin.facilityAlertPhone', `/api/v1/admin/facilities/${facilityId}/alert-phone`, 'platform.facility.manage'],
+      ['admin.emergencyContactOptOut', '/api/v1/admin/emergency-contacts/opt-out', 'platform.emergency-contact.manage'],
+    ] as const
+    for (const [name, example, permission] of routes) {
+      expect(findEndpoint(name), name).toMatchObject({ service: 'admin', methods: ['POST'], status: 'proposed',
+        permissions: { POST: [permission] } })
+      expect(assertRegisteredBrowserRequest('POST', example).name).toBe(name)
+      expect(() => assertRegisteredBrowserRequest('GET', example), name).toThrow(BrowserRouteError)
+      expect(() => assertEndpointAllowed('admin-web', name)).not.toThrow()
+      for (const app of ['staff-web', 'patient-web', 'public-web'] as const) {
+        expect(() => assertEndpointAllowed(app, name), `${app}: ${name}`).toThrow(BoundaryViolationError)
+      }
+    }
+  })
+
   it('keeps the public site\'s enrollment routes as they were', () => {
     for (const name of ['enrollment.start', 'enrollment.availability', 'enrollment.current', 'enrollment.google',
       'enrollment.holder', 'enrollment.holderVerify', 'enrollment.facilityCode', 'enrollment.participatingFacilities',

@@ -27,6 +27,8 @@ export interface NavigationSection {
 const can = (permission: string) => (actor: AdminActor) => actor.platformPermissions.includes(permission)
 /** Novu has no two-person approvals, no administrator authenticator or session list, and no clinician applications. */
 const onMainBackend = () => !usesNovuBackend()
+/** Emergency-contact administration is hid-system #109's, which only Novu serves. */
+const onNovuBackend = () => usesNovuBackend()
 
 /** Approvals are listed for these permissions (hid-system PlatformSecurityService.listApprovals). */
 export const APPROVAL_PERMISSIONS = ['platform.role.manage', 'platform.mfa.reset', 'platform.audit.read'] as const
@@ -45,6 +47,10 @@ export const NAVIGATION: readonly NavigationSection[] = [
   { title: 'People and access', items: [
     { path: '/admin/principals', title: 'Users & roles', visible: can('platform.principal.read'),
       description: 'Account lookup, status, platform roles, sessions and support lookups.' },
+    // hid-system #109: support_admin, and every role with platform.principal.manage, holds the permission.
+    { path: '/admin/emergency-contacts', title: 'Emergency contact alerts', served: onNovuBackend,
+      visible: can('platform.emergency-contact.manage'),
+      description: 'Stop emergency-access alerts to someone who asked Health ID support to stop them.' },
     { path: '/admin/approvals', title: 'Approvals', served: onMainBackend,
       visible: actor => APPROVAL_PERMISSIONS.some(code => actor.platformPermissions.includes(code)),
       description: 'Two-person Super Admin grants and authenticator resets.' },

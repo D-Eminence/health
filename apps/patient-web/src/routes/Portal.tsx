@@ -61,15 +61,21 @@ function vitalsSummary(item: PatientRecords['vitals'][number]) {
 }
 
 /**
- * What each inbox code means to the patient. Identity writes these two today
- * (hid-system 0037_patient_notification_inbox.sql); a code added later reads as
- * a general account update until it has its own words, never as the code itself.
+ * What each inbox code means to the patient. Identity writes the first two
+ * (hid-system 0037_patient_notification_inbox.sql), and on Novu hid-system #109
+ * the third when support removes a contact who asked to stop receiving alerts
+ * (its payload holds only the relationship and channel, and is never shown); a
+ * code added later reads as a general account update until it has its own
+ * words, never as the code itself.
  */
 const NOTIFICATION_TITLES: Readonly<Record<string, string>> = {
   ACCESS_REQUEST_RECEIVED: 'A facility asked to access your health information',
   EMERGENCY_ACCESS_ACTIVATED: 'A provider used emergency access to your health information',
+  EMERGENCY_CONTACT_OPTED_OUT: 'One of your emergency contacts asked Health ID to stop sending them alerts, so they were removed',
 }
-const NOTIFICATION_SUBJECTS: Readonly<Record<string, string>> = { 'access-request': 'Access request', 'consent-grant': 'Access grant' }
+const NOTIFICATION_SUBJECTS: Readonly<Record<string, string>> = {
+  'access-request': 'Access request', 'consent-grant': 'Access grant', 'emergency-contact': 'Emergency contact',
+}
 
 function notificationTitle(item: PatientNotification) {
   return NOTIFICATION_TITLES[item.notificationCode] ?? 'An update about your Health ID account'
@@ -424,8 +430,10 @@ export function SettingsPage() {
         <button type="submit" className="patient-primary-button" disabled={busy || !/^\d{4,8}$/.test(pin)}>Save PIN</button></form>
       {profile.data.accessPinConfigured && <button ref={revokePinButton} type="button" className="patient-secondary-button" disabled={busy || profile.loading} onClick={() => void revokePin()}>Revoke Access PIN</button>}
     </div>}
-    {/* Novu (staging-novu-ci-20261005) serves no identity/me/emergency-contacts: the card could only fail. */}
-    {!usesNovuBackend() && <EmergencyContactsCard />}
+    {/* Both backends: main's patient-safety routes, and hid-system #109's on Novu (staging-novu-ci-20261005). The card
+        reads availability first, and shows nothing where the routes are not served (Novu's 404), or while delivery
+        is off for a patient without contacts. */}
+    <EmergencyContactsCard />
     {import.meta.env.VITE_HID_GOOGLE_CLIENT_ID && googleClientId() && <div className="patient-card"><h2>Link a Google account</h2><p className="patient-field-hint">Confirm your existing Health ID credentials before linking.</p>
       <div className="patient-form"><label>Email or Health ID<input autoComplete="username" value={googlePrincipal} onChange={event => setGooglePrincipal(event.target.value)} /></label>
         {/* No form is sent here (Google's button sends it), so each attempt remounts the field masked. */}

@@ -10,13 +10,16 @@ import { HID_ENDPOINTS } from '../index'
  * served. Patient record chat and imported history are served by main (#94,
  * #95), under the entries `ehr.patientChat*`, `ehr.myImportedHistory`, and since ADR-069 (0101) staff record chat
  * under `ehr.staffPatientChat`, `ehr.staffPatientChatAvailability` and `ehr.staffPatientChatHistory`,
- * `ehr.importedHistory` and `identity.importedHistorySharing`.
+ * `ehr.importedHistory` and `identity.importedHistorySharing`. hid-system #109 serves the emergency-contact
+ * availability read and the two emergency-contact admin commands on staging-novu-ci-20261005 only; main answers 404,
+ * and the patient card and the admin console treat that as not offered.
  */
 const NOT_ON_MAIN = [
   'support.chat',
   'ehr.patientChatSource',
   'ehr.staffPatientChatSource',
   'ehr.myImportedAttachment', 'ehr.importedRecords', 'ehr.importedAttachment',
+  'identity.emergencyContactsAvailability', 'admin.facilityAlertPhone', 'admin.emergencyContactOptOut',
 ] as const
 
 describe('routes hid-system main does not serve', () => {

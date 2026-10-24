@@ -212,12 +212,13 @@ export const EMERGENCY_CONTACT_RELATIONSHIPS = [
   'spouse', 'partner', 'parent', 'child', 'sibling', 'relative', 'guardian', 'caregiver', 'friend', 'other',
 ] as const
 export type EmergencyContactRelationship = typeof EMERGENCY_CONTACT_RELATIONSHIPS[number]
+export type EmergencyContactChannel = 'email' | 'sms'
 
 export interface EmergencyContact {
   contactId: string
   name: string
   relationship: EmergencyContactRelationship
-  channel: 'email' | 'sms'
+  channel: EmergencyContactChannel
   /** Masked by the backend; the full destination is never returned. */
   destinationHint: string
   status: 'unverified' | 'verified'
@@ -225,8 +226,20 @@ export interface EmergencyContact {
   notifyOnEmergencyAccess: boolean
   eligibleForEmergencyNotification: boolean
   version: number
-  pendingVerification: { expiresAt: string; deliveryOutcome: string } | null
-  lastNotification: { status: string; createdAt: string } | null
+  /** The open code, without its challenge (identity.list_my_emergency_contacts); a failed delivery closes it. */
+  pendingVerification: { expiresAt: string; deliveryOutcome: 'pending' | 'accepted' | 'unknown' | string } | null
+  /** The last alert; a pending one past its 24-hour window lists as expired. */
+  lastNotification: { status: 'pending' | 'delivered' | 'failed' | 'expired' | 'suppressed' | string; createdAt: string } | null
+}
+
+/**
+ * GET .../emergency-contacts/availability (hid-system #109; main does not serve it, 404): whether this patient can
+ * add and verify contacts now, and on which channels. `delivery` is false while delivery is off or the account is
+ * outside the pilot.
+ */
+export interface EmergencyContactsAvailability {
+  delivery: boolean
+  channels: EmergencyContactChannel[]
 }
 
 export interface AccessRequest {
@@ -393,9 +406,15 @@ export function createPatientApi(client: ApiClient) {
       call<AccountDeletionConfirmed>('POST', 'identity/me/account-deletion/confirm', { requestId, confirmationToken, confirmation }),
     cancelAccountDeletion: (requestId: string) =>
       call<{ requestId: string; state: 'cancelled'; replayed: boolean }>('POST', 'identity/me/account-deletion/cancel', { requestId }),
+    // Emergency contacts: hid-system main's patient-safety controller (services/identity-api/src/patient-safety,
+    // emergency-contact.controller.ts and .service.ts), served on Novu (staging-novu-ci-20261005) by hid-system #109
+    // under the same paths and answers. #109 adds the availability read, and refuses adding a contact and sending a
+    // code with 409 EMERGENCY_CONTACT_DELIVERY_UNAVAILABLE while delivery is off for the patient.
+    emergencyContactsAvailability: (signal?: AbortSignal) =>
+      call<EmergencyContactsAvailability>('GET', 'identity/me/emergency-contacts/availability', undefined, { signal }),
     emergencyContacts: (signal?: AbortSignal) =>
       call<EmergencyContact[]>('GET', 'identity/me/emergency-contacts', undefined, { signal }),
-    addEmergencyContact: (input: { name: string; relationship: EmergencyContactRelationship; channel: 'email' | 'sms';
+    addEmergencyContact: (input: { name: string; relationship: EmergencyContactRelationship; channel: EmergencyContactChannel;
       destination: string; notifyOnEmergencyAccess: boolean }) =>
       call<EmergencyContact>('POST', 'identity/me/emergency-contacts', input),
     updateEmergencyContact: (contactId: string, input: { expectedVersion: number; name?: string;
@@ -405,7 +424,7 @@ export function createPatientApi(client: ApiClient) {
       call<{ contactId: string; status: 'deactivated'; replayed: boolean }>(
         'POST', `identity/me/emergency-contacts/${encodeURIComponent(contactId)}/deactivate`),
     sendEmergencyContactVerification: (contactId: string) =>
-      call<{ challengeId: string; expiresAt: string; deliveryOutcome: string }>(
+      call<{ challengeId: string; expiresAt: string; deliveryOutcome: 'accepted' | 'unknown' | string }>(
         'POST', `identity/me/emergency-contacts/${encodeURIComponent(contactId)}/verification`),
     confirmEmergencyContactVerification: (contactId: string, challengeId: string, code: string) =>
       call<{ contactId: string; status: 'verified' }>(

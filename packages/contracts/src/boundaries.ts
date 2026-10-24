@@ -127,6 +127,8 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       'identity.accountDeletion', 'identity.accountDeletionConfirm', 'identity.accountDeletionCancel',
       'identity.emergencyContacts', 'identity.emergencyContact', 'identity.emergencyContactDeactivate',
       'identity.emergencyContactVerification', 'identity.emergencyContactVerificationConfirm',
+      // Whether delivery is on, and on which channels (hid-system #109, Novu only; main answers 404).
+      'identity.emergencyContactsAvailability',
       // The patient's choice to share imported history with staff (hid-system #94, ADR-067).
       'identity.importedHistorySharing'],
     access: ['access.patientRequests', 'access.approve', 'access.deny', 'access.revokeMyGrant'],
