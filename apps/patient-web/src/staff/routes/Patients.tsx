@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { findEndpoint, type EndpointMethod } from '@hid/contracts'
 import { isHidApiError } from '@hid/http'
 import { Badge, Button, Card, Field, Input, Select, Textarea } from '@hid/ui'
+import { usesNovuBackend } from '../../backendContract'
 import { isAllowedPatientLookup, staffApi } from '../api'
 import { useStaff } from '../App'
 import { BUSY, UNAVAILABLE, useFocusById } from '../focus'
@@ -33,6 +34,13 @@ const METHOD_ROUTES: Record<AccessMethod, Action> = {
     { route: 'identity.patientLookup', method: 'POST', purpose: 'to open the record' },
     { route: 'ehr.emergencyRecords', method: 'GET', purpose: 'to read the emergency summary' }], action: 'activate emergency access' },
 }
+// Owner decision O12: what the patient's emergency contacts are told (hid-system #109, notification-api
+// emergencyContactAlertContent): the record was opened for emergency care, by the staff member on the grant
+// (identity.staff full_name), at the grant's facility, and when. The alert never carries the typed reason or
+// any medical detail. Only verified contacts with 'Notify this contact' ticked get it (migration 0084), and
+// only while EMERGENCY_CONTACT_DELIVERY_ENABLED is on; staging leaves it off. Main's alert names no staff
+// member, so the main-v1 build keeps its wording.
+const EMERGENCY_CONTACTS_TOLD = 'While emergency-contact alerts are on, each verified emergency contact the patient has chosen to notify is told that the patient’s record was opened for emergency care, with your name, this facility and the time, but never the reason you type or any medical details.'
 // Closing the grant that opened the record (identity consent.controller.ts closeOwnGrant).
 const CLOSE_GRANT: Action = { routes: [{ route: 'access.closeOwnGrant', method: 'POST' }], action: 'close this grant' }
 
@@ -190,7 +198,7 @@ export function Patients() {
         <form className="staff-form" noValidate onSubmit={event => void submitAccess(event)}>
           {mode === 'request' && <><p className="staff-muted">Ask the patient to approve access. A pending request does not expose their record.</p><Field label="Access scope" htmlFor="request-scope"><Select id="request-scope" value={scope} onChange={event => setScope(event.target.value as 'read_records' | 'write_records')}><option value="read_records">Read records</option><option value="write_records">Read and write records</option></Select></Field><Field label="Clinical reason" htmlFor="request-reason" error={problems.error('request-reason')} required><Textarea id="request-reason" value={reason} onChange={event => setReason(event.target.value)} minLength={8} maxLength={500} required {...problems.control('request-reason')} /></Field></>}
           {mode === 'pin' && <><p className="staff-muted">Only the patient should share their access PIN. Verification and grant creation happen on the server.</p><Field label="Patient access PIN" htmlFor="patient-pin" hint="4 to 8 digits." error={problems.error('patient-pin')} required><Input id="patient-pin" type="password" inputMode="numeric" autoComplete="off" pattern="\s*(\d\s*){4,8}" maxLength={16} value={pin} onChange={event => setPin(event.target.value)} required aria-describedby="patient-pin-hint" {...problems.control('patient-pin')} /></Field></>}
-          {mode === 'emergency' && <><div className="staff-notice staff-danger">Use emergency access only when the patient cannot consent and care cannot wait. The action is time limited and audited. It opens a read-only summary from this facility: completed encounters and signed notes, and the diagnoses, prescriptions, lab requests and documents your role may read. It shows no vital signs and opens no files.</div><Field label="Emergency reason" htmlFor="emergency-reason" error={problems.error('emergency-reason')} required><Textarea id="emergency-reason" value={emergencyReason} onChange={event => setEmergencyReason(event.target.value)} minLength={8} maxLength={500} required {...problems.control('emergency-reason')} /></Field></>}
+          {mode === 'emergency' && <><div className="staff-notice staff-danger">Use emergency access only when the patient cannot consent and care cannot wait. The action is time limited and audited.{usesNovuBackend() && ` ${EMERGENCY_CONTACTS_TOLD}`} It opens a read-only summary from this facility: completed encounters and signed notes, and the diagnoses, prescriptions, lab requests and documents your role may read. It shows no vital signs and opens no files.</div><Field label="Emergency reason" htmlFor="emergency-reason" error={problems.error('emergency-reason')} required><Textarea id="emergency-reason" value={emergencyReason} onChange={event => setEmergencyReason(event.target.value)} minLength={8} maxLength={500} required {...problems.control('emergency-reason')} /></Field></>}
           {unavailable && <p id="access-method-unavailable" className="staff-muted">{unavailable}</p>}
           <Button type="submit" disabled={!facility || unavailable !== null} aria-disabled={busy || undefined} className={BUSY} aria-describedby={unavailable ? 'access-method-unavailable' : undefined}>{busy ? 'Working…' : mode === 'request' ? 'Send access request' : mode === 'pin' ? 'Verify PIN and open' : 'Activate emergency access'}</Button>
         </form>
