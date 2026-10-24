@@ -72,6 +72,9 @@ describe('new facility sign-ups', () => {
     expect(check.getByText('The CAC check proves that the company exists and is active. It does not prove that the person who '
       + 'signed up works there.')).toBeTruthy()
     expect(check.getByText(/If anything looks wrong, suspend the facility and disable the administrator’s account/)).toBeTruthy()
+    // One mistyped digit registers another company under its legal name (P4 review).
+    expect(check.getByText('A mistyped CAC number can sign up another, real company under its legal name. If the legal name '
+      + 'is not the administrator’s own organization, treat the sign-up as wrong.')).toBeTruthy()
   })
 
   it.each([

@@ -197,6 +197,11 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + `app.* and staging.* only). Answers { accepted, challengeId, expiresInSeconds, resendAfterSeconds }. ${SELF_SIGN_UP_CLOSED}`),
   r('enrollment.providerVerify','enrollment','/api/v1/identity/provider-enrollments/verify',P,true,undefined,
     `Accountless; verifies the emailed code and sets the enrollment cookie. ${SELF_SIGN_UP_CLOSED}`),
+  // Asked for by P4's review: the applicant sees the organization a CAC number names before its account is made.
+  proposed(r('enrollment.providerProfile','enrollment','/api/v1/identity/provider-enrollments/profile',G,true,undefined,
+    'Proposed for Novu\'s facility self sign-up (P4); not served by hid-system main (404), nor yet by Novu. Accountless; '
+    + 'reads the enrollment cookie that verify sets: 200 { organizationName, registrationNumber, productCode }, 401 '
+    + `ORGANIZATION_COMPLETION_SESSION_INVALID without a live session. Any failure shows the CAC number alone. ${SELF_SIGN_UP_CLOSED}`)),
   r('enrollment.providerActivate','enrollment','/api/v1/identity/provider-enrollments/activate',P,true,undefined,
     'Accountless; uses the enrollment cookie. On Novu it signs the administrator in: the session cookies and '
     + `{ activated, organizationId, facilityId, accountId, actor, expiresAt }. ${SELF_SIGN_UP_CLOSED} `

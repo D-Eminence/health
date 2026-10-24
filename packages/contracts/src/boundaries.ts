@@ -144,8 +144,9 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       'auth.staffMfaEnrollActivate', 'auth.session', 'auth.refresh', 'auth.logout', 'auth.facility',
       'auth.otpStart', 'auth.otpVerify', 'auth.otpComplete'],
     enrollment: ['enrollment.providerStart', 'enrollment.providerVerify', 'enrollment.providerActivate',
-      // Whether facility self sign-up is open (P4; Novu only, main answers 404).
-      'enrollment.providerAvailability',
+      // Whether facility self sign-up is open, and the organization a confirmed sign-up registers (P4; Novu only,
+      // main answers 404).
+      'enrollment.providerAvailability', 'enrollment.providerProfile',
       // Clinician self sign-up and its status page (hid-system ADR-066), public pages outside the workspace.
       'enrollment.clinicianAvailability', 'enrollment.clinicianEmailCode', 'enrollment.clinicianEmailVerify',
       'enrollment.clinicianFacilitySearch', 'enrollment.clinicianSubmit', 'enrollment.clinicianAuthenticatorEmailCode',

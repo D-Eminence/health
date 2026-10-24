@@ -1010,6 +1010,28 @@ export interface ProviderEnrollmentActivation {
 }
 
 /**
+ * Verify's answer. `organizationName` is the legal name of the organization the
+ * sign-up registers, if Identity says it here rather than at …/profile.
+ */
+export interface ProviderEnrollmentVerified {
+  verified: true
+  organizationName?: string | null
+}
+
+/**
+ * GET …/provider-enrollments/profile (proposed, P4 review): the organization a
+ * confirmed sign-up registers, under its legal name on the CAC record.
+ * `fields.companyName.value` is the governed completion profile's shape for the
+ * same name, read too in case Identity answers with that.
+ */
+export interface ProviderEnrollmentProfile {
+  organizationName?: string | null
+  registrationNumber?: string
+  productCode?: string
+  fields?: { companyName?: { value?: string | null } }
+}
+
+/**
  * How long the browser waits for a start. The start checks the security token
  * with Cloudflare (up to two tries), then looks the CAC up with QoreID (a token
  * and a lookup, each up to 5 s), then sends the email code: more than the
@@ -1041,8 +1063,18 @@ export const providerEnrollmentApi = {
   // own host (the Worker proxies /api/v1/*), and no enrollment-specific header
   // is needed: verify sets the enrollment cookie, which activation reads.
   verify: (challengeId: string, code: string) =>
-    client.post<{ verified: true }>('/api/v1/identity/provider-enrollments/verify',
+    client.post<ProviderEnrollmentVerified>('/api/v1/identity/provider-enrollments/verify',
       { challengeId, code }, { auth: 'none' }),
+
+  /**
+   * The organization the sign-up registers (Novu, P4), read with the
+   * enrollment cookie once the email is confirmed, so the administrator sees
+   * whose CAC number it is before any account is made. hid-system main, and an
+   * Identity without the route, answer 404: the page then shows the CAC number
+   * alone. Asked once, with no retries.
+   */
+  profile: () => client.get<ProviderEnrollmentProfile>('/api/v1/identity/provider-enrollments/profile',
+    { auth: 'none', retry: NO_RETRY, timeoutMs: 10_000 }),
 
   // Activation can sign the new administrator in (Novu), so it takes the session turn as sign-ins do.
   activate: (password: string) => inRefreshTurn(() =>

@@ -131,6 +131,8 @@ export function SelfServiceFacilitiesPage({ actor }: { actor: AdminActor }) {
           works there.</p>
         <p>Check that the administrator’s name and email fit the company, for example an email address at the company’s
           own domain, or a call to the company’s published phone number.</p>
+        <p>A mistyped CAC number can sign up another, real company under its legal name. If the legal name is not the
+          administrator’s own organization, treat the sign-up as wrong.</p>
         <p>If anything looks wrong, suspend the facility and disable the administrator’s account, then mark the sign-up
           reviewed with what you found.</p></div></div>
     </section>

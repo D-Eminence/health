@@ -83,3 +83,22 @@
 
 /* Health ID support's address, inside a sentence: marked as a link, not only by colour. */
 .provider-setup-link { color: var(--color-brand); font-weight: 600; text-decoration: underline; overflow-wrap: anywhere; }
+
+/*
+ * Set apart, to be read before going on: the organization a confirmed sign-up registers, and the details an open
+ * sign-up keeps when the form now differs from them.
+ */
+.provider-setup-registering,
+.provider-setup-kept {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 14px 16px;
+  border: 1px solid var(--color-line-strong);
+  border-radius: 10px;
+  background: var(--color-surface-sunk);
+}
+.provider-setup-registering p,
+.provider-setup-kept p { margin: 0; overflow-wrap: anywhere; }
+.provider-setup-registering strong { color: var(--color-ink); }

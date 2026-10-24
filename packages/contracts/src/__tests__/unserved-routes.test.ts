@@ -14,7 +14,8 @@ import { HID_ENDPOINTS } from '../index'
  * availability read and the two emergency-contact admin commands on staging-novu-ci-20261005 only; main answers 404,
  * and the patient card and the admin console treat that as not offered. Facility self sign-up's availability read and
  * support's review of new facility sign-ups (P4) are Novu's too; main answers 404, which the sign-up page takes as
- * "show the form", and the admin console serves the review page only on a Novu build.
+ * "show the form", and the admin console serves the review page only on a Novu build. The sign-up's organization read
+ * (`enrollment.providerProfile`, P4 review) is proposed: any answer but a name shows the CAC number alone.
  */
 const NOT_ON_MAIN = [
   'support.chat',
@@ -23,6 +24,8 @@ const NOT_ON_MAIN = [
   'ehr.myImportedAttachment', 'ehr.importedRecords', 'ehr.importedAttachment',
   'identity.emergencyContactsAvailability', 'admin.facilityAlertPhone', 'admin.emergencyContactOptOut',
   'enrollment.providerAvailability', 'admin.selfServiceFacilities', 'admin.selfServiceFacilityReview',
+  // Proposed by P4's review, and not served by Novu yet either.
+  'enrollment.providerProfile',
 ] as const
 
 describe('routes hid-system main does not serve', () => {

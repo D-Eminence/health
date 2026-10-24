@@ -72,6 +72,24 @@ describe('provider enrollment API on Novu (P4)', () => {
     expect(headers.has('x-csrf-token')).toBe(false)
   })
 
+  it('reads the organization a confirmed sign-up registers with one GET carrying the cookies, never repeated (P4 review)', async () => {
+    const requests: Array<{ url: string; init: RequestInit }> = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string | URL | Request, init: RequestInit) => {
+      requests.push({ url: String(url), init })
+      return new Response(JSON.stringify({ status: 404, code: 'NOT_FOUND', detail: 'Cannot GET' }),
+        { status: 404, headers: { 'Content-Type': 'application/problem+json' } })
+    }))
+    const { providerEnrollmentApi } = await import('./api')
+    await expect(providerEnrollmentApi.profile()).rejects.toMatchObject({ status: 404 })
+    expect(requests.map(request => [request.init.method, new URL(request.url).pathname]))
+      .toEqual([['GET', '/api/v1/identity/provider-enrollments/profile']])
+    // The enrollment cookie (path /api/v1/identity/provider-enrollments) is the only credential.
+    expect(requests[0]?.init.credentials).toBe('include')
+    const headers = new Headers(requests[0]?.init.headers)
+    expect(headers.has('authorization')).toBe(false)
+    expect(headers.has('x-csrf-token')).toBe(false)
+  })
+
   it('answers { open } as Identity says it', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ open: false }),
       { status: 200, headers: { 'Content-Type': 'application/json' } })))

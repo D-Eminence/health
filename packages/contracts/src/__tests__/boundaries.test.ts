@@ -281,6 +281,17 @@ describe('application boundaries', () => {
     for (const app of ['patient-web', 'admin-web', 'public-web'] as const) {
       expect(() => assertEndpointAllowed(app, 'enrollment.providerAvailability'), app).toThrow(BoundaryViolationError)
     }
+    // The organization a confirmed sign-up registers (P4 review): proposed, read with the enrollment cookie.
+    expect(assertRegisteredBrowserRequest('GET', `${base}/profile`).name).toBe('enrollment.providerProfile')
+    expect(() => assertRegisteredBrowserRequest('POST', `${base}/profile`)).toThrow(BrowserRouteError)
+    expect(findEndpoint('enrollment.providerProfile')).toMatchObject({ service: 'enrollment', methods: ['GET'],
+      auth: { kind: 'public' }, status: 'proposed' })
+    expect(findEndpoint('enrollment.providerProfile')?.note).toContain('{ organizationName, registrationNumber, productCode }')
+    expect(findEndpoint('enrollment.providerProfile')?.note).toContain('423 PROVIDER_ENROLLMENT_UNAVAILABLE')
+    expect(() => assertEndpointAllowed('staff-web', 'enrollment.providerProfile')).not.toThrow()
+    for (const app of ['patient-web', 'admin-web', 'public-web'] as const) {
+      expect(() => assertEndpointAllowed(app, 'enrollment.providerProfile'), app).toThrow(BoundaryViolationError)
+    }
     // The closed gate is a 423 on Novu, and activation answers a session there.
     for (const name of ['enrollment.providerStart', 'enrollment.providerVerify', 'enrollment.providerActivate']) {
       expect(findEndpoint(name)?.note, name).toContain('423 PROVIDER_ENROLLMENT_UNAVAILABLE')
