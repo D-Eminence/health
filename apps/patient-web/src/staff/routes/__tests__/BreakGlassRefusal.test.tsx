@@ -54,6 +54,15 @@ describe('emergency access refused by a deployment without the emergency purpose
     expect(api.lookupPatient).not.toHaveBeenCalled()
   })
 
+  it('says emergency access is switched off when Identity answers 423 BREAK_GLASS_DISABLED (hid-system #111)', async () => {
+    api.breakGlass.mockRejectedValue(new HidApiError(423, 'Emergency access is currently disabled by the platform administrator',
+      { code: 'BREAK_GLASS_DISABLED' }))
+    await activateEmergencyAccess()
+    expect((await screen.findByRole('alert')).textContent)
+      .toBe('Emergency access is switched off for Health ID right now, so the record was not opened. Ask your Health ID administrator.')
+    expect(api.lookupPatient).not.toHaveBeenCalled()
+  })
+
   it('shows any other refusal as it is', async () => {
     api.breakGlass.mockRejectedValue(new HidApiError(403, 'Break-glass access is not authorized', { code: 'CONSENT_COMMAND_DENIED' }))
     await activateEmergencyAccess()

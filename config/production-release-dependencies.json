@@ -3,16 +3,16 @@
   "declared": true,
   "backend_contract": "novu-v1",
   "reviewed_by": "D-Eminence",
-  "review_reference": "Backend release backend-40075271012-1-dffad84fe4a163fa (D-Eminence/hid-system#109 at 0d32961, deployed 2026-10-24 08:31 UTC with status success for all 12 services, migration 0084_patient_emergency_contacts applied first), which every pinned service runs. notification-api is pinned too, because the emergency-contact verification code and alert texts are its. Browser-facing changes since identity-api 6f8800f: GET /api/v1/identity/me/emergency-contacts/availability ({delivery, channels}); the six patient emergency-contact routes (list, add, update, deactivate, verification, confirm), which answer 409 EMERGENCY_CONTACT_DELIVERY_UNAVAILABLE for add and send while delivery is off; POST /api/v1/admin/facilities/:facilityId/alert-phone (platform.facility.manage) and alertPhoneE164 on the admin facility read; POST /api/v1/admin/emergency-contacts/opt-out (platform.emergency-contact.manage); and the inbox code EMERGENCY_CONTACT_OPTED_OUT. This frontend reads availability first and shows the Settings card only when delivery is on or contacts exist, and on novu-v1 adds the facility alert phone and the support opt-out page to the admin console. Reviewed and approved by the repository owner, D-Eminence.",
+  "review_reference": "Backend release backend-40089515889-1-6e0593071817bac9 (D-Eminence/hid-system#111 at ba0d8d6, deployed 2026-10-24 12:09 UTC with status success for all 12 services, migration 0085_emergency_purpose_of_use applied first), which every pinned service runs. notification-api stays pinned for the emergency-contact code and alert texts (#109). Browser-facing change since 0d32961: staff break-glass (POST /api/v1/identity/break-glass) is usable in production (0085 seeds the active emergency purpose of use), and Identity now checks the break_glass_enabled platform control in the activation, answering 423 BREAK_GLASS_DISABLED when it is off or the emergency purpose is missing, and 503 PLATFORM_CONTROL_UNAVAILABLE when the control cannot be read. This frontend maps 423 on the staff emergency-access form and, on novu-v1, tells staff that verified emergency contacts are told. Reviewed and approved by the repository owner, D-Eminence.",
   "backend_commits": {
-    "gateway": "0d32961ac0951357b24d4df40699850970a08e6b",
-    "identity-api": "0d32961ac0951357b24d4df40699850970a08e6b",
-    "ehr-api": "0d32961ac0951357b24d4df40699850970a08e6b",
-    "lab-api": "0d32961ac0951357b24d4df40699850970a08e6b",
-    "pharmacy-api": "0d32961ac0951357b24d4df40699850970a08e6b",
-    "ocr-api": "0d32961ac0951357b24d4df40699850970a08e6b",
-    "outreach-api": "0d32961ac0951357b24d4df40699850970a08e6b",
-    "support-api": "0d32961ac0951357b24d4df40699850970a08e6b",
-    "notification-api": "0d32961ac0951357b24d4df40699850970a08e6b"
+    "gateway": "ba0d8d68864eac0055a9721c89159f9881c0fd79",
+    "identity-api": "ba0d8d68864eac0055a9721c89159f9881c0fd79",
+    "ehr-api": "ba0d8d68864eac0055a9721c89159f9881c0fd79",
+    "lab-api": "ba0d8d68864eac0055a9721c89159f9881c0fd79",
+    "pharmacy-api": "ba0d8d68864eac0055a9721c89159f9881c0fd79",
+    "ocr-api": "ba0d8d68864eac0055a9721c89159f9881c0fd79",
+    "outreach-api": "ba0d8d68864eac0055a9721c89159f9881c0fd79",
+    "support-api": "ba0d8d68864eac0055a9721c89159f9881c0fd79",
+    "notification-api": "ba0d8d68864eac0055a9721c89159f9881c0fd79"
   }
 }
