@@ -1,11 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
 import { SignIn } from './SignIn'
 
 const calls = vi.hoisted(() => ({ login: vi.fn(), completeSignIn: vi.fn(), loginAction: vi.fn((_hostname: string) => 'staff-login'),
-  state: { status: 'signed-out' } as { status: string; reason?: string } }))
+  state: { status: 'signed-out' } as { status: string; reason?: string; session?: unknown } }))
 
 vi.mock('../App', () => ({ useStaff: () => ({ state: calls.state, login: calls.login, completeSignIn: calls.completeSignIn }) }))
 vi.mock('../env', () => ({ getEnvironment: () => ({ turnstileSiteKey: 'test-site-key' }) }))
@@ -249,5 +249,77 @@ describe('clinician self sign-up from the provider sign-in page (hid-system ADR-
       expect(screen.queryByText(/Applied as a doctor or nurse/)).toBeNull()
       expect(screen.queryByRole('link', { name: /clinician application|Check your application/ })).toBeNull()
     } finally { vi.unstubAllEnvs() }
+  })
+})
+
+/**
+ * A sign-in on a product host lands on that product's page, unless the working facility cannot use it: a facility
+ * administrator who signed the facility up (org_admin on Novu) holds no ehr.encounter.read, so the EHR site's
+ * Clinical record would only say "Choose a patient first" (P4 review). They land on the Overview instead.
+ */
+describe('where a sign-in on the EHR site lands', () => {
+  const ORG_ADMIN = ['organization.manage', 'workforce.manage', 'audit.read', 'identity.registration.write',
+    'identity.registration.approve', 'outreach.registration.read', 'outreach.registration.write']
+  const sessionWith = (permissions: string[]) => {
+    const facility = { id: 'facility-1', membershipId: 'membership-1', organizationId: 'org-1', name: 'Ikeja Care',
+      roles: ['org_admin'], permissions, isPrimary: true }
+    return { actor: { id: 'staff-1', roles: ['org_admin'], permissions: [], facilities: [facility], facility },
+      facilitySelection: 'default' as const }
+  }
+
+  function openAt(entry: string) {
+    serveFrom('ehr.healthidentitydirectory.com')
+    render(<MemoryRouter initialEntries={[entry]}><Routes>
+      <Route path="/provider/sign-in" element={<SignIn />} />
+      <Route path="/provider" element={<h1>Overview page</h1>} />
+      <Route path="/provider/clinical" element={<h1>Clinical record page</h1>} />
+      <Route path="/provider/audit" element={<h1>Facility audit page</h1>} />
+    </Routes></MemoryRouter>)
+  }
+
+  async function signIn(permissions: string[], entry = '/provider/sign-in') {
+    const callbacks: Array<(token: string) => void> = []
+    vi.stubGlobal('turnstile', { render: vi.fn((_host: HTMLElement, options: Record<string, unknown>) => {
+      callbacks.push(options.callback as (token: string) => void)
+      return `widget-${callbacks.length}`
+    }), remove: vi.fn(), reset: vi.fn() })
+    calls.login.mockResolvedValueOnce({ kind: 'session', session: sessionWith(permissions) })
+    openAt(entry)
+    await waitFor(() => expect(callbacks).toHaveLength(1))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Work email' }), { target: { value: 'ada@ikejacare.example' } })
+    fireEvent.change(screen.getByLabelText(/^Password/), { target: { value: 'a-long-enough-password' } })
+    act(() => callbacks[0]?.('token-1'))
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+  }
+
+  it('opens the Overview for a facility administrator, who cannot use the Clinical record', async () => {
+    await signIn(ORG_ADMIN)
+    expect(await screen.findByRole('heading', { name: 'Overview page' })).toBeTruthy()
+    expect(calls.completeSignIn).toHaveBeenCalledTimes(1)
+  })
+
+  it('opens the Overview after the workspace sent a signed-out visit to sign in (returnTo the Clinical record)', async () => {
+    await signIn(ORG_ADMIN, `/provider/sign-in?returnTo=${encodeURIComponent('/provider/clinical')}`)
+    expect(await screen.findByRole('heading', { name: 'Overview page' })).toBeTruthy()
+  })
+
+  it('keeps any other page to return to: the page the person was on', async () => {
+    await signIn([], `/provider/sign-in?returnTo=${encodeURIComponent('/provider/audit')}`)
+    expect(await screen.findByRole('heading', { name: 'Facility audit page' })).toBeTruthy()
+  })
+
+  it('opens the Clinical record for staff who can use it', async () => {
+    await signIn([...ORG_ADMIN, 'ehr.encounter.read'])
+    expect(await screen.findByRole('heading', { name: 'Clinical record page' })).toBeTruthy()
+  })
+
+  it.each([
+    ['a facility administrator', ORG_ADMIN, 'Overview page'],
+    ['a clinician', ['ehr.encounter.read', 'identity.patient.read'], 'Clinical record page'],
+  ])('sends %s who is already signed in to the page they can use', async (_, permissions, page) => {
+    calls.state = { status: 'ready', session: sessionWith(permissions) }
+    vi.stubGlobal('turnstile', { render: vi.fn(() => 'widget-1'), remove: vi.fn(), reset: vi.fn() })
+    openAt('/provider/sign-in')
+    expect(await screen.findByRole('heading', { name: page })).toBeTruthy()
   })
 })

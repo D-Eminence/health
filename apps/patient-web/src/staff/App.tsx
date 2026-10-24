@@ -17,7 +17,8 @@ import { SignIn, STAFF_MFA_NOTICE } from './routes/SignIn'
 import { Dashboard } from './routes/Dashboard'
 import { Patients } from './routes/Patients'
 import { Registration } from './routes/Registration'
-import { ASSISTED_REGISTRATION_PERMISSION, InPersonCheck } from './routes/InPersonCheck'
+import { InPersonCheck } from './routes/InPersonCheck'
+import { PROVIDER_NAVIGATION as navigation } from './navigation'
 import { AccessRequests } from './routes/AccessRequests'
 import { FacilityAudit } from './routes/Audit'
 import { Clinical } from './routes/Clinical'
@@ -567,22 +568,6 @@ function FacilityChoice({ reason, onChosen }: { reason: FacilityQuestion; onChos
     </form></Card>
   </section>
 }
-
-const navigation = [
-  { to: '/provider', label: 'Overview', permission: '' },
-  { to: '/provider/patients', label: 'Patient access', permission: 'identity.patient.read' },
-  { to: '/provider/registration', label: 'Patient registration', permission: 'identity.registration.write' },
-  // Facility-assisted registration (hid-system #85, ADR-063): doctors, clinicians and nurses.
-  { to: '/provider/in-person-check', label: 'In-person check', permission: ASSISTED_REGISTRATION_PERMISSION },
-  { to: '/provider/requests', label: 'Access requests', permission: 'identity.consent.write' },
-  { to: '/provider/audit', label: 'Facility audit', permission: 'audit.read' },
-  { to: '/provider/clinical', label: 'Clinical record', permission: 'ehr.encounter.read' },
-  { to: '/provider/laboratory', label: 'Laboratory', permission: 'lab.work-item.read' },
-  { to: '/provider/pharmacy', label: 'Pharmacy', permission: 'pharmacy.work-item.read' },
-  { to: '/provider/ocr', label: 'Document OCR', permission: 'ocr.job.read' },
-  { to: '/provider/outreach', label: 'Outreach', permission: 'outreach.registration.read' },
-  { to: '/provider/billing', label: 'Plan & billing', permission: 'billing.subscription.read' },
-] as const
 
 // The pages the browser tab can name, by path. A title never carries a patient's
 // name or Health ID: it ends up in browser history, tab previews and shared screens.

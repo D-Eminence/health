@@ -11,6 +11,7 @@ import {
   CLINICIAN_STATUS_PATH, PROVIDER_ENROLLMENT_PATH, providerEnrollmentHref, resolveStaffProductHostname, STAFF_RECOVERY_PATH,
   staffLoginAction, staffRecoveryHref, staffSignInHref,
 } from '../../productHostname'
+import { staffLandingPath } from '../navigation'
 import { staffReturnPath } from '../session'
 import { STAFF_MFA_FACTOR_UNPROVEN, STAFF_MFA_UNAVAILABLE, StaffMfaSteps, type StaffMfaLook } from './StaffMfaSteps'
 import { ClinicianSignUpEntry, PageLink } from '../clinician/ClinicianSignUpEntry'
@@ -45,9 +46,19 @@ function passwordRefusal(caught: unknown): string {
   return caught instanceof Error ? caught.message : 'Sign in failed.'
 }
 
-function getStaffLandingPath(search: string): string {
-  return staffReturnPath(new URLSearchParams(search).get('returnTo'))
-    ?? resolveStaffProductHostname(window.location.hostname)?.route ?? '/provider'
+/**
+ * Where a sign-in lands: the page to return to, else the product host's own
+ * page, else the Overview. A page to return to is the one the person was on,
+ * and is kept. The product host's own page is only the host's default (the
+ * workspace sends a signed-out visit there too), so it gives way to the
+ * Overview when the working facility cannot use it: the EHR site's Clinical
+ * record for a facility administrator, say (staffLandingPath, P4).
+ */
+function getStaffLandingPath(search: string, session: StaffSession): string {
+  const product = resolveStaffProductHostname(window.location.hostname)?.route
+  const returnTo = staffReturnPath(new URLSearchParams(search).get('returnTo'))
+  if (returnTo && returnTo !== product) return returnTo
+  return product ? staffLandingPath(product, session) : '/provider'
 }
 
 const CHALLENGE_UNAVAILABLE = 'Human verification could not load. Refresh the page and try again.'
@@ -103,10 +114,9 @@ export function SignIn() {
   const [returned, setReturned] = useState(0)
   useEffect(() => { if (returned) heading.current?.focus() }, [returned])
   const siteKey = getEnvironment().turnstileSiteKey
-  const landingPath = getStaffLandingPath(location.search)
   const mfaRequired = (state.status === 'signed-out' || state.status === 'ended') && state.reason === 'mfa-required'
 
-  if (state.status === 'ready') return <Navigate to={landingPath} replace />
+  if (state.status === 'ready') return <Navigate to={getStaffLandingPath(location.search, state.session)} replace />
   // The production portal sends staff to the EHR site's sign-in, which
   // hid-system accepts; a form here would always be refused.
   const elsewhere = staffSignInHref(window.location.hostname)
@@ -144,7 +154,7 @@ export function SignIn() {
   function finish(session: StaffSession) {
     try { completeSignIn(session) }
     catch (caught) { restart(caught instanceof Error ? caught.message : 'Sign in failed.'); return }
-    navigate(getStaffLandingPath(location.search))
+    navigate(getStaffLandingPath(location.search, session))
   }
 
   function restart(message: string | null) {
