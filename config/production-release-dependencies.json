@@ -3,15 +3,16 @@
   "declared": true,
   "backend_contract": "novu-v1",
   "reviewed_by": "D-Eminence",
-  "review_reference": "Backend releases backend-39893314723-1-d9bc36aeb69af7f4 (W03, D-Eminence/hid-system#103 at d92b696, deployed 2026-10-23 03:56 UTC with status success for all 12 services), which the seven services other than identity-api still run, and backend-40057408082-1-5eb3c1ebf77743d5 (D-Eminence/hid-system#108 at 6f8800f, deployed 2026-10-24 03:24 UTC with status success, identity-api only), which follows W05b (#107 at ec2b351). Browser-facing change since identity-api ec2b351: POST /api/v1/admin/principals/search, the admin user search with its terms in the body, which answers the same page as GET /admin/principals (platform.principal.read). This frontend's Users & roles search calls it (apps/patient-web/src/admin/api.ts principals), and on novu-v1 hides the admin console areas and the clinician application links that Novu does not serve. Reviewed and approved by the repository owner, D-Eminence.",
+  "review_reference": "Backend release backend-40075271012-1-dffad84fe4a163fa (D-Eminence/hid-system#109 at 0d32961, deployed 2026-10-24 08:31 UTC with status success for all 12 services, migration 0084_patient_emergency_contacts applied first), which every pinned service runs. notification-api is pinned too, because the emergency-contact verification code and alert texts are its. Browser-facing changes since identity-api 6f8800f: GET /api/v1/identity/me/emergency-contacts/availability ({delivery, channels}); the six patient emergency-contact routes (list, add, update, deactivate, verification, confirm), which answer 409 EMERGENCY_CONTACT_DELIVERY_UNAVAILABLE for add and send while delivery is off; POST /api/v1/admin/facilities/:facilityId/alert-phone (platform.facility.manage) and alertPhoneE164 on the admin facility read; POST /api/v1/admin/emergency-contacts/opt-out (platform.emergency-contact.manage); and the inbox code EMERGENCY_CONTACT_OPTED_OUT. This frontend reads availability first and shows the Settings card only when delivery is on or contacts exist, and on novu-v1 adds the facility alert phone and the support opt-out page to the admin console. Reviewed and approved by the repository owner, D-Eminence.",
   "backend_commits": {
-    "gateway": "d92b69681f21056e712c9ad8d1ce76e079555478",
-    "identity-api": "6f8800f700f15b50d974220dbb1d706a1239531d",
-    "ehr-api": "d92b69681f21056e712c9ad8d1ce76e079555478",
-    "lab-api": "d92b69681f21056e712c9ad8d1ce76e079555478",
-    "pharmacy-api": "d92b69681f21056e712c9ad8d1ce76e079555478",
-    "ocr-api": "d92b69681f21056e712c9ad8d1ce76e079555478",
-    "outreach-api": "d92b69681f21056e712c9ad8d1ce76e079555478",
-    "support-api": "d92b69681f21056e712c9ad8d1ce76e079555478"
+    "gateway": "0d32961ac0951357b24d4df40699850970a08e6b",
+    "identity-api": "0d32961ac0951357b24d4df40699850970a08e6b",
+    "ehr-api": "0d32961ac0951357b24d4df40699850970a08e6b",
+    "lab-api": "0d32961ac0951357b24d4df40699850970a08e6b",
+    "pharmacy-api": "0d32961ac0951357b24d4df40699850970a08e6b",
+    "ocr-api": "0d32961ac0951357b24d4df40699850970a08e6b",
+    "outreach-api": "0d32961ac0951357b24d4df40699850970a08e6b",
+    "support-api": "0d32961ac0951357b24d4df40699850970a08e6b",
+    "notification-api": "0d32961ac0951357b24d4df40699850970a08e6b"
   }
 }
