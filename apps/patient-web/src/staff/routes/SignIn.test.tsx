@@ -108,6 +108,36 @@ it.each(['staging.healthidentitydirectory.com', 'ehr.healthidentitydirectory.com
     expect(screen.queryByRole('link', { name: 'Continue to provider sign in' })).toBeNull()
   })
 
+/**
+ * Facility self sign-up's security check (`provider-enrollment`) is accepted only on the main site: a product
+ * host accepts only its own sign-in action, so a sign-up started there would always be refused (P4, W1).
+ */
+it.each([
+  ['ehr.healthidentitydirectory.com', 'https://app.healthidentitydirectory.com/provider/enroll'],
+  ['lab.healthidentitydirectory.com', 'https://app.healthidentitydirectory.com/provider/enroll'],
+  ['pharmacy.healthidentitydirectory.com', 'https://app.healthidentitydirectory.com/provider/enroll'],
+  ['migrate.healthidentitydirectory.com', 'https://app.healthidentitydirectory.com/provider/enroll'],
+  ['outreach.healthidentitydirectory.com', 'https://app.healthidentitydirectory.com/provider/enroll'],
+  ['ehr.staging.healthidentitydirectory.com', 'https://staging.healthidentitydirectory.com/provider/enroll'],
+  ['lab.staging.healthidentitydirectory.com', 'https://staging.healthidentitydirectory.com/provider/enroll'],
+])('on %s, opens facility sign-up on the main site', (hostname, href) => {
+  serveFrom(hostname)
+  vi.stubGlobal('turnstile', { render: vi.fn(() => 'widget-1'), remove: vi.fn(), reset: vi.fn() })
+
+  render(<MemoryRouter><SignIn /></MemoryRouter>)
+
+  expect(screen.getByRole('link', { name: 'Set up your facility' }).getAttribute('href')).toBe(href)
+})
+
+it.each(['staging.healthidentitydirectory.com', 'localhost'])('on %s keeps facility sign-up on this site', hostname => {
+  if (hostname !== 'localhost') serveFrom(hostname)
+  vi.stubGlobal('turnstile', { render: vi.fn(() => 'widget-1'), remove: vi.fn(), reset: vi.fn() })
+
+  render(<MemoryRouter><SignIn /></MemoryRouter>)
+
+  expect(screen.getByRole('link', { name: 'Set up your facility' }).getAttribute('href')).toBe('/provider/enroll')
+})
+
 it('keeps password recovery on this site where the portal is not a product site', async () => {
   vi.stubGlobal('turnstile', { render: vi.fn(() => 'widget-1'), remove: vi.fn(), reset: vi.fn() })
 

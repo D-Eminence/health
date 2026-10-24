@@ -12,6 +12,8 @@ import {
   CLINICIAN_STATUS_PATH,
   clinicianMainSiteHref,
   clinicianPageHref,
+  PROVIDER_ENROLLMENT_PATH,
+  providerEnrollmentHref,
 } from './productHostname'
 
 describe('resolveStaffProductHostname', () => {
@@ -216,4 +218,54 @@ describe('staffSignInHref', () => {
     'keeps staff sign-in on %s itself', hostname => {
       expect(staffSignInHref(hostname)).toBeNull()
     })
+})
+
+/**
+ * Facility self sign-up's security check (`provider-enrollment`) is accepted
+ * only on the main site, so "Set up your facility" on a staff product host or
+ * the admin site opens the main site's page (P4, W1).
+ */
+describe('providerEnrollmentHref', () => {
+  const APP = 'https://app.healthidentitydirectory.com/provider/enroll'
+  const STAGING = 'https://staging.healthidentitydirectory.com/provider/enroll'
+
+  it.each([
+    ['ehr.healthidentitydirectory.com', APP],
+    ['lab.healthidentitydirectory.com', APP],
+    ['pharmacy.healthidentitydirectory.com', APP],
+    ['migrate.healthidentitydirectory.com', APP],
+    ['outreach.healthidentitydirectory.com', APP],
+    ['admin.healthidentitydirectory.com', APP],
+    ['EHR.HEALTHIDENTITYDIRECTORY.COM.', APP],
+    ['ehr.staging.healthidentitydirectory.com', STAGING],
+    ['lab.staging.healthidentitydirectory.com', STAGING],
+    ['pharmacy.staging.healthidentitydirectory.com', STAGING],
+    ['migrate.staging.healthidentitydirectory.com', STAGING],
+    ['outreach.staging.healthidentitydirectory.com', STAGING],
+    ['admin.staging.healthidentitydirectory.com', STAGING],
+  ])('sends %s to the main site sign-up page', (hostname, href) => {
+    expect(providerEnrollmentHref(hostname)).toBe(href)
+  })
+
+  it.each([
+    'app.healthidentitydirectory.com',
+    'staging.healthidentitydirectory.com',
+    'www.healthidentitydirectory.com',
+    'localhost',
+    '127.0.0.1',
+  ])('keeps the sign-up page on %s, the main site or a local build', hostname => {
+    expect(providerEnrollmentHref(hostname)).toBe(PROVIDER_ENROLLMENT_PATH)
+    expect(PROVIDER_ENROLLMENT_PATH).toBe('/provider/enroll')
+  })
+
+  it.each([
+    'ehr.healthidentitydirectory.com.evil.example',
+    'evil-ehr.healthidentitydirectory.com',
+    'ehr.evil.healthidentitydirectory.com',
+    'ehr.staging.staging.healthidentitydirectory.com',
+    'https://ehr.healthidentitydirectory.com',
+    '',
+  ])('never builds an address from an unrecognised host (%s)', hostname => {
+    expect(providerEnrollmentHref(hostname)).toBe(PROVIDER_ENROLLMENT_PATH)
+  })
 })

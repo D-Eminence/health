@@ -117,6 +117,25 @@ export function staffRecoveryHref(hostname: string): string {
   return `${productHost[1] ? MAIN_SITE_ORIGINS.staging : MAIN_SITE_ORIGINS.production}${STAFF_RECOVERY_PATH}`
 }
 
+/** The portal's facility self sign-up page ("Set up your facility"). */
+export const PROVIDER_ENROLLMENT_PATH = '/provider/enroll'
+
+/**
+ * Where a facility signs itself up from here. hid-system accepts the sign-up's
+ * security check, `provider-enrollment`, only on the main site (app in
+ * production, staging on staging); a staff product host (ehr, lab, pharmacy,
+ * migrate, outreach) accepts only its own sign-in action and the admin site
+ * only its own, so a sign-up started there is always refused
+ * (TURNSTILE_CONTEXT_MISMATCH). On those hosts this is the main site's page;
+ * anywhere else, this site's own. As staffRecoveryHref: one of three fixed
+ * values, nothing copied from the hostname, no return address.
+ */
+export function providerEnrollmentHref(hostname: string): string {
+  const productHost = /^(?:ehr|lab|pharmacy|migrate|outreach|admin)\.(staging\.)?healthidentitydirectory\.com$/.exec(normalizeHostname(hostname))
+  if (!productHost) return PROVIDER_ENROLLMENT_PATH
+  return `${productHost[1] ? MAIN_SITE_ORIGINS.staging : MAIN_SITE_ORIGINS.production}${PROVIDER_ENROLLMENT_PATH}`
+}
+
 export function isStaffProductRoute(pathname: string): boolean {
   return Object.values(STAFF_PRODUCT_ROUTES).includes(pathname as (typeof STAFF_PRODUCT_ROUTES)[StaffProductKey])
 }

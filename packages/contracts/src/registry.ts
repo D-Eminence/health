@@ -13,8 +13,10 @@ export type EndpointAuth = { readonly kind: 'public' | 'authenticated' }
  * docs/BILLING_SPEC.md; callers treat a 404 as "not available yet"), support
  * chat, and the staging-branch routes for hospital chat and `/imported-records`,
  * which hid-system's `staging` and `staging-novu-ci-20261005` branches serve (their
- * screens are off unless the build turns them on), and hid-system #109's
+ * screens are off unless the build turns them on), hid-system #109's
  * emergency-contact availability read and admin commands, which only
+ * `staging-novu-ci-20261005` serves, and facility self sign-up's availability
+ * read and support's review of new facility sign-ups (P4), which only
  * `staging-novu-ci-20261005` serves.
  */
 export type ContractStatus = 'surface-verified' | 'proposed'
@@ -67,6 +69,14 @@ const EMERGENCY_CONTACTS_NOTE = 'Served by hid-system main and, from hid-system 
   + 'contact and sending a code need delivery on for the patient (409 EMERGENCY_CONTACT_DELIVERY_UNAVAILABLE otherwise); '
   + 'listing, changing and removing do not.'
 const EMERGENCY_CONTACTS_NOVU = 'Served by staging-novu-ci-20261005 from hid-system #109; not served by hid-system main (404).'
+/**
+ * Facility self sign-up on Novu (P4, owner decision D14): main's provider-enrollment routes, ending with a password
+ * that signs the administrator in (main before #71, no authenticator), closed by the platform control
+ * provider_self_service_enabled; plus an availability read and support's review of each new facility, which main
+ * does not have.
+ */
+const SELF_SIGN_UP_NOVU = 'Served by staging-novu-ci-20261005 from facility self sign-up (P4); not served by hid-system main (404).'
+const SELF_SIGN_UP_CLOSED = 'On Novu every route answers 423 PROVIDER_ENROLLMENT_UNAVAILABLE while self sign-up is closed.'
 
 export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   proposed(r('support.chat','support','/api/v1/support/chat',P,true,undefined,CHAT_NOTE)),
@@ -180,12 +190,17 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('identity.assistedVerifications','identity','/api/v1/identity/assisted-verifications',P,false,
     one('POST','identity.patient.assisted_registration'),
     'Body { deskCode, method, documentType, document, attestations }; 200 { outcome: verified }. The same key replays the stored outcome.'),
+  proposed(r('enrollment.providerAvailability','enrollment','/api/v1/identity/provider-enrollments/availability',G,true,undefined,
+    `${SELF_SIGN_UP_NOVU} Public, no session: 200 { open }, and { open: false } on any fault, never an error.`)),
   r('enrollment.providerStart','enrollment','/api/v1/identity/provider-enrollments',P,true,undefined,
-    'Accountless; refused when signed in. Requires Origin and Turnstile action provider-enrollment.'),
+    'Accountless; refused when signed in. Requires Origin and Turnstile action provider-enrollment (on Novu, '
+    + `app.* and staging.* only). Answers { accepted, challengeId, expiresInSeconds, resendAfterSeconds }. ${SELF_SIGN_UP_CLOSED}`),
   r('enrollment.providerVerify','enrollment','/api/v1/identity/provider-enrollments/verify',P,true,undefined,
-    'Accountless; verifies the emailed code and sets the enrollment cookie.'),
+    `Accountless; verifies the emailed code and sets the enrollment cookie. ${SELF_SIGN_UP_CLOSED}`),
   r('enrollment.providerActivate','enrollment','/api/v1/identity/provider-enrollments/activate',P,true,undefined,
-    'Accountless; uses the enrollment cookie. Since hid-system #71 returns an MFA status, not a session.'),
+    'Accountless; uses the enrollment cookie. On Novu it signs the administrator in: the session cookies and '
+    + `{ activated, organizationId, facilityId, accountId, actor, expiresAt }. ${SELF_SIGN_UP_CLOSED} `
+    + 'On hid-system main since #71 it returns an MFA status, not a session.'),
   // Clinician self sign-up and its status page (hid-system ADR-066, branch
   // claude/clinician-self-signup at fa58e2b, re-checked at 9e981e4, and P3's
   // search limit at 1d6ff6f; not merged). Every route needs
@@ -377,6 +392,16 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('admin.demoRequests','admin','/api/v1/admin/demo-requests',G,false,one('GET','platform.demo.read')),
   r('admin.demoStatus','admin','/api/v1/admin/demo-requests/:requestId/status',P,false,one('POST','platform.demo.manage')),
   r('admin.organizationApplications','admin','/api/v1/admin/organization-applications',G,false,one('GET','platform.identity-review.read')),
+  // Support's review of facilities that signed themselves up (P4, owner decision "alert + daily review").
+  proposed(r('admin.selfServiceFacilities','admin','/api/v1/admin/self-service-facilities',G,false,
+    one('GET','platform.identity-review.read'),
+    `${SELF_SIGN_UP_NOVU} Query state: unreviewed (default), reviewed or all. Answers { items }, newest activation first, `
+    + 'at most 200, each with its version.')),
+  proposed(r('admin.selfServiceFacilityReview','admin','/api/v1/admin/self-service-facilities/:applicationId/review',P,false,
+    one('POST','platform.facility.manage'),
+    `${SELF_SIGN_UP_NOVU} Body { note (8 to 500) } and If-Match with the version; no Idempotency-Key or step-up. Answers `
+    + '{ applicationId, reviewedAt, version }. 404 SELF_SERVICE_FACILITY_NOT_FOUND, 409 VERSION_CONFLICT, '
+    + '409 SELF_SERVICE_FACILITY_ALREADY_REVIEWED.')),
   r('admin.verifyCac','admin','/api/v1/admin/organization-applications/:applicationId/verify-cac',P,false,one('POST','platform.facility.manage')),
   r('admin.approveApplication','admin','/api/v1/admin/organization-applications/:applicationId/approve',P,false,one('POST','platform.facility.manage','platform.principal.manage','platform.role.manage')),
   r('admin.rejectApplication','admin','/api/v1/admin/organization-applications/:applicationId/reject',P,false,one('POST','platform.facility.manage')),

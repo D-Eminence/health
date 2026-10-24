@@ -12,7 +12,9 @@ import { HID_ENDPOINTS } from '../index'
  * under `ehr.staffPatientChat`, `ehr.staffPatientChatAvailability` and `ehr.staffPatientChatHistory`,
  * `ehr.importedHistory` and `identity.importedHistorySharing`. hid-system #109 serves the emergency-contact
  * availability read and the two emergency-contact admin commands on staging-novu-ci-20261005 only; main answers 404,
- * and the patient card and the admin console treat that as not offered.
+ * and the patient card and the admin console treat that as not offered. Facility self sign-up's availability read and
+ * support's review of new facility sign-ups (P4) are Novu's too; main answers 404, which the sign-up page takes as
+ * "show the form", and the admin console serves the review page only on a Novu build.
  */
 const NOT_ON_MAIN = [
   'support.chat',
@@ -20,6 +22,7 @@ const NOT_ON_MAIN = [
   'ehr.staffPatientChatSource',
   'ehr.myImportedAttachment', 'ehr.importedRecords', 'ehr.importedAttachment',
   'identity.emergencyContactsAvailability', 'admin.facilityAlertPhone', 'admin.emergencyContactOptOut',
+  'enrollment.providerAvailability', 'admin.selfServiceFacilities', 'admin.selfServiceFacilityReview',
 ] as const
 
 describe('routes hid-system main does not serve', () => {

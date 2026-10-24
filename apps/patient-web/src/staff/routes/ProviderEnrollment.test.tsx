@@ -1,15 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
-import { ProviderEnrollment } from './ProviderEnrollment'
+import { PRODUCT_NOTES, ProviderEnrollment } from './ProviderEnrollment'
 
 /**
  * The portal's self-service provider enrollment (/provider/enroll), which the
  * public site's /provider/apply links to. hid-system's provider-enrollment
  * routes take the CAC, verify the administrator email and activate the account.
  */
-const api = vi.hoisted(() => ({ start: vi.fn(), verify: vi.fn(), activate: vi.fn() }))
+const api = vi.hoisted(() => ({ availability: vi.fn(), start: vi.fn(), verify: vi.fn(), activate: vi.fn() }))
 const staff = vi.hoisted(() => ({ verifyMfa: vi.fn(), sendEnrollmentCode: vi.fn(), startEnrollment: vi.fn(), activateEnrollment: vi.fn() }))
 vi.mock('../api', () => ({ providerEnrollmentApi: api, staffApi: staff }))
 // Clinician self sign-up's way in (hid-system ADR-066) asks Identity whether intake is open.
@@ -17,6 +17,10 @@ const clinician = vi.hoisted(() => ({ availability: vi.fn() }))
 vi.mock('../clinicianApplicationApi', () => ({ clinicianApplicationApi: clinician }))
 vi.mock('../../env', () => ({ getEnvironment: () => ({ name: 'local', turnstileSiteKey: null,
   apiBaseUrl: 'https://gateway.example.test', appOrigin: 'http://localhost:3200' }) }))
+// The build's support contact (config/production.json chat.supportContact).
+const staffEnvironment = vi.hoisted(() => ({ supportContact: 'mailto:support@healthidentitydirectory.com' as string | null }))
+vi.mock('../env', () => ({ getEnvironment: () => ({ name: 'local', turnstileSiteKey: null,
+  apiBaseUrl: 'https://gateway.example.test', supportContact: staffEnvironment.supportContact }) }))
 
 /**
  * The portal's other tabs, as BroadcastChannel would connect them; `posted` is what this tab told them,
@@ -38,11 +42,13 @@ beforeEach(() => {
   TabChannel.posted = []
   TabChannel.open.clear()
   vi.stubGlobal('BroadcastChannel', TabChannel)
+  api.availability.mockResolvedValue({ open: true })
   api.start.mockResolvedValue({ accepted: true, challengeId: 'challenge-1' })
   api.verify.mockResolvedValue({ verified: true })
   clinician.availability.mockResolvedValue({ open: false })
+  staffEnvironment.supportContact = 'mailto:support@healthidentitydirectory.com'
 })
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); vi.useRealTimers() })
 
 function open(entry = '/provider/enroll') {
   render(<MemoryRouter initialEntries={[entry]}><Routes>
@@ -102,9 +108,28 @@ describe('provider enrollment', () => {
     enterDetails()
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
-    expect((await screen.findByRole('alert')).textContent).toBe('This provider application requires manual resolution')
+    // The next step is said, with support's address, rather than Identity's "requires manual resolution".
+    expect((await screen.findByRole('alert')).textContent).toBe('This organization needs a check by Health ID before it can be '
+      + 'set up, for example because its CAC number is already linked to Health ID or another sign-up for it is in progress. '
+      + 'Contact Health ID support at support@healthidentitydirectory.com, and give your CAC registration number.')
+    expect(screen.getByRole('link', { name: 'support@healthidentitydirectory.com' }).getAttribute('href'))
+      .toBe('mailto:support@healthidentitydirectory.com')
     expect(screen.queryByRole('heading', { name: 'Confirm your administrator email' })).toBeNull()
     expect(screen.getByRole('button', { name: 'Continue' })).toBeTruthy()
+  })
+
+  it('keeps main\'s four steps and its authenticator wording, and asks no availability (main has none)', async () => {
+    open()
+    expect([...screen.getByRole('list', { name: 'Provider enrollment steps' }).querySelectorAll('li')].map(item => item.textContent))
+      .toEqual(['Organization', 'Email confirmation', 'Password', 'Authenticator'])
+    expect(screen.queryByText(/sign-ups get the Provider Portal for now/)).toBeNull()
+    enterDetails()
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Email verification code' }), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Verify email' }))
+    await screen.findByLabelText('Password')
+    expect(screen.getByText(/After activation, you will set up an authenticator app/)).toBeTruthy()
+    expect(api.availability).not.toHaveBeenCalled()
   })
 
   it('verifies the six-digit code, then activates with a password of at least 12 characters', async () => {
@@ -254,5 +279,503 @@ describe('clinician self sign-up from provider enrollment (hid-system ADR-066)',
     open()
     expect(await screen.findByText(/Clinician sign-up isn't open yet\./)).toBeTruthy()
     expect(screen.queryByRole('link', { name: 'Sign up as a clinician' })).toBeNull()
+  })
+})
+
+/**
+ * Facility self sign-up on Novu (novu-v1, the production backend; P4). Identity
+ * answers every route 423 PROVIDER_ENROLLMENT_UNAVAILABLE while sign-up is
+ * closed, says whether it is open at GET …/availability, and ends with the
+ * password, which signs the administrator in (owner decision: no
+ * authenticator). The production gateway replaces any 502, 503 or 504 body with
+ * its own UPSTREAM_UNAVAILABLE, so the page reads every status of 500 or more as
+ * "temporarily unavailable" and asks availability again.
+ */
+describe('facility self sign-up on Novu (P4)', () => {
+  const problem = (status: number, code: string, detail = 'Identity’s own detail') => new HidApiError(status, detail, { code })
+  const SUPPORT = 'support@healthidentitydirectory.com'
+  const START_UNAVAILABLE = 'We couldn’t finish checking your details just now. Please try again in a minute. '
+    + 'If an email with a code arrives meanwhile, ignore it: you’ll get a new code when you try again.'
+  const STEP_UNAVAILABLE = 'Facility sign-up is temporarily unavailable. Please try again in a few minutes.'
+  const session = { activated: true, organizationId: 'org-1', facilityId: 'facility-1', accountId: 'account-1',
+    actor: { id: 'staff-1', roles: ['org_admin'], permissions: [], facilities: [] }, expiresAt: '2026-10-24T20:00:00.000Z' }
+
+  beforeEach(() => { vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1') })
+
+  const continueButton = () => screen.getByRole('button', { name: 'Continue' }) as HTMLButtonElement
+  const steps = () => [...screen.getByRole('list', { name: 'Provider enrollment steps' }).querySelectorAll('li')].map(item => item.textContent)
+
+  async function toDetails(entry?: string) {
+    open(entry)
+    await screen.findByRole('button', { name: 'Continue' })
+  }
+
+  async function submitDetails() {
+    enterDetails()
+    fireEvent.click(continueButton())
+  }
+
+  async function toCode() {
+    await toDetails()
+    await submitDetails()
+    await screen.findByRole('heading', { name: 'Confirm your administrator email' })
+  }
+
+  async function toPassword() {
+    await toCode()
+    fireEvent.change(screen.getByRole('textbox', { name: 'Email verification code' }), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Verify email' }))
+    await screen.findByLabelText('Password')
+  }
+
+  function createAccount() {
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'a-long-enough-password' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create provider account' }))
+  }
+
+  async function closedNoticeShown() {
+    const heading = await screen.findByRole('heading', { name: 'Facility sign-up isn’t open right now' })
+    await waitFor(() => expect(document.activeElement).toBe(heading))
+    expect(screen.getByText(/can’t sign themselves up on Health ID at the moment/).textContent).toBe('Hospitals, laboratories and '
+      + `pharmacies can’t sign themselves up on Health ID at the moment. To register your facility, contact Health ID support at ${SUPPORT}.`)
+    expect(screen.getByRole('link', { name: SUPPORT }).getAttribute('href')).toBe(`mailto:${SUPPORT}`)
+    expect(screen.queryByRole('button', { name: 'Continue' })).toBeNull()
+    expect(screen.queryByRole('textbox', { name: 'CAC registration number' })).toBeNull()
+    expect(screen.queryByRole('list', { name: 'Provider enrollment steps' })).toBeNull()
+    expect(screen.queryByRole('alert')).toBeNull()
+  }
+
+  describe('whether sign-up is open', () => {
+    it('asks once on opening and shows the form while it is open', async () => {
+      let answer!: (value: { open: boolean }) => void
+      api.availability.mockReturnValueOnce(new Promise(resolve => { answer = resolve }))
+      open()
+      expect(screen.getByRole('status').textContent).toBe('Checking that facility sign-up is open…')
+      expect(screen.queryByRole('button', { name: 'Continue' })).toBeNull()
+      await act(async () => { answer({ open: true }) })
+      expect(await screen.findByRole('button', { name: 'Continue' })).toBeTruthy()
+      expect(api.availability).toHaveBeenCalledTimes(1)
+    })
+
+    it('shows the closed notice with support’s address, and no form, while it is closed', async () => {
+      api.availability.mockResolvedValueOnce({ open: false })
+      open()
+      await closedNoticeShown()
+      expect(api.start).not.toHaveBeenCalled()
+    })
+
+    it('says so without an address in a build with no support contact', async () => {
+      staffEnvironment.supportContact = null
+      api.availability.mockResolvedValueOnce({ open: false })
+      open()
+      expect((await screen.findByText(/can’t sign themselves up/)).textContent).toMatch(/To register your facility, contact Health ID support\.$/)
+      expect(screen.queryByRole('link', { name: SUPPORT })).toBeNull()
+    })
+
+    it.each([
+      ['404 from an Identity without self sign-up', problem(404, 'NOT_FOUND', 'Cannot GET /api/v1/identity/provider-enrollments/availability')],
+      ['a lost connection', new HidApiError(0, 'We could not reach the service.', { code: 'NETWORK_ERROR' })],
+      ['a timeout', new HidApiError(408, 'The request took too long.', { code: 'REQUEST_TIMEOUT' })],
+      ['the gateway’s 503', problem(503, 'UPSTREAM_UNAVAILABLE')],
+    ])('shows the form after %s: the start answers for itself', async (_, failure) => {
+      api.availability.mockRejectedValueOnce(failure)
+      await toDetails()
+      expect(screen.queryByRole('heading', { name: 'Facility sign-up isn’t open right now' })).toBeNull()
+      await submitDetails()
+      expect(await screen.findByRole('heading', { name: 'Confirm your administrator email' })).toBeTruthy()
+    })
+  })
+
+  it('shows three steps ending with the password, and says the account is ready straight away', async () => {
+    await toDetails()
+    expect(steps()).toEqual(['Organization', 'Email confirmation', 'Password'])
+    expect(screen.getByText('Verify your CAC registration, confirm your email and choose a password. Your administrator '
+      + 'account is ready straight away.')).toBeTruthy()
+    expect(screen.getByText(/Health ID support also checks every new facility within one working day\./)).toBeTruthy()
+    await submitDetails()
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Email verification code' }), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Verify email' }))
+    expect((await screen.findByLabelText('Password')).getAttribute('aria-describedby')).toBe('provider-password-hint')
+    expect(document.getElementById('provider-password-hint')?.textContent).toBe('Choose a password of at least 12 characters. '
+      + 'You’ll sign in with it and ada@example.test. Once your account is created, you go straight into the Provider Portal '
+      + 'as your facility’s administrator.')
+    expect(screen.queryByText(/authenticator/i)).toBeNull()
+    expect(steps()).toEqual(['Organization', 'Email confirmation', 'Password'])
+    // A password manager saves the new password with the administrator's email.
+    const username = document.querySelector('input[autocomplete="username"]') as HTMLInputElement
+    expect(username.value).toBe('ada@example.test')
+    expect(username.hidden).toBe(true)
+  })
+
+  it.each([
+    ['Hospital', 'ehr', 'EHR sign-ups get the Provider Portal for now. The clinical record, and adding staff accounts for your '
+      + 'doctors and nurses, aren’t available yet.'],
+    ['Laboratory', 'laboratory', 'Laboratory sign-ups get the Provider Portal for now. The Laboratory workspace, and adding staff '
+      + 'accounts for your team, aren’t available yet.'],
+    ['Pharmacy', 'pharmacy', 'Pharmacy sign-ups get the Provider Portal for now. The Pharmacy workspace, and adding staff '
+      + 'accounts for your team, aren’t available yet.'],
+  ])('says honestly what a %s sign-up (%s) gets', async (type, product, note) => {
+    await toDetails()
+    fireEvent.click(screen.getByRole('radio', { name: type }))
+    expect(select('Product').value).toBe(product)
+    expect(document.getElementById('provider-product-note')?.textContent).toBe(note)
+    expect(select('Product').getAttribute('aria-describedby')).toBe('provider-product-note')
+  })
+
+  it('says honestly what a migrate sign-up gets', async () => {
+    await toDetails('/provider/enroll?product=migrate')
+    expect(select('Product').value).toBe('migrate')
+    expect(document.getElementById('provider-product-note')?.textContent).toBe('Migrate sign-ups get the Provider Portal for now. '
+      + 'The document migration workspace, and adding staff accounts for your team, aren’t available yet.')
+    expect(PRODUCT_NOTES.migrate).toBe(document.getElementById('provider-product-note')?.textContent)
+  })
+
+  it('signs the administrator in, says where staff sign in next time, then opens the workspace', async () => {
+    const reload = vi.fn()
+    api.activate.mockResolvedValueOnce(session)
+    await toPassword()
+    // Production: the portal is app.healthidentitydirectory.com, and staff sign in on the EHR site.
+    vi.stubGlobal('location', { ...window.location, hostname: 'app.healthidentitydirectory.com', reload })
+    createAccount()
+
+    const heading = await screen.findByRole('heading', { name: 'Your facility is set up' })
+    await waitFor(() => expect(document.activeElement).toBe(heading))
+    expect(api.activate).toHaveBeenCalledWith('a-long-enough-password')
+    expect(screen.getByText('You’re signed in as your facility’s administrator.')).toBeTruthy()
+    expect(screen.getByText('Next time, sign in at ehr.healthidentitydirectory.com with ada@example.test and the password you just chose.')).toBeTruthy()
+    expect(screen.getByText(PRODUCT_NOTES.ehr)).toBeTruthy()
+    // The browser holds the session already: the other tabs are told at once; the page waits for the administrator.
+    expect(TabChannel.posted).toEqual([TOLD])
+    expect(reload).not.toHaveBeenCalled()
+    expect(screen.queryByLabelText('Password')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Continue to the Provider Portal' }))
+
+    expect(await screen.findByRole('heading', { name: 'Provider workspace' })).toBeTruthy()
+    expect(reload).toHaveBeenCalledTimes(1)
+    expect(TabChannel.posted).toEqual([TOLD])
+  })
+
+  it('outside production, says to sign in to the Provider Portal next time, and gives a laboratory its own note', async () => {
+    vi.stubGlobal('location', { ...window.location, hostname: 'localhost', reload: vi.fn() })
+    api.activate.mockResolvedValueOnce(session)
+    await toDetails('/provider/enroll?type=laboratory')
+    await submitDetails()
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Email verification code' }), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Verify email' }))
+    await screen.findByLabelText('Password')
+    createAccount()
+
+    await screen.findByRole('heading', { name: 'Your facility is set up' })
+    expect(screen.getByText('Next time, sign in to the Provider Portal with ada@example.test and the password you just chose.')).toBeTruthy()
+    expect(screen.getByText(PRODUCT_NOTES.laboratory)).toBeTruthy()
+    expect(api.start).toHaveBeenCalledWith(expect.objectContaining({ productCode: 'laboratory', organizationType: 'laboratory' }))
+  })
+
+  describe('a refused start says what to do, and stays at the details', () => {
+    it.each([
+      [409, 'PROVIDER_ENROLLMENT_REQUIRES_SIGN_OUT', 'This browser is signed in to Health ID, for example to a patient account. '
+        + 'Sign out of Health ID first, or open this page in a private (incognito) window, then try again.'],
+      [409, 'PROVIDER_ENROLLMENT_REQUIRES_REVIEW', 'This organization needs a check by Health ID before it can be set up, for '
+        + 'example because its CAC number is already linked to Health ID or another sign-up for it is in progress. Contact Health '
+        + `ID support at ${SUPPORT}, and give your CAC registration number.`],
+      [409, 'ORGANIZATION_REVIEW_REQUIRED', 'This organization needs a check by Health ID before it can be set up, for example '
+        + 'because its CAC number is already linked to Health ID or another sign-up for it is in progress. Contact Health ID '
+        + `support at ${SUPPORT}, and give your CAC registration number.`],
+      [409, 'PROVIDER_ALREADY_REGISTERED', 'This organization is already registered with Health ID. If you are its administrator, '
+        + `sign in instead. Contact Health ID support at ${SUPPORT}.`],
+      [409, 'PROVIDER_CAC_PROFILE_INCOMPLETE', 'We couldn’t set up your organization automatically from its CAC record: the '
+        + 'record is missing details we need, or it doesn’t show the company as active. Contact Health ID support at '
+        + `${SUPPORT}, and give your CAC registration number.`],
+      [409, 'VERSION_CONFLICT', 'Your sign-up changed while we were working on it. Please try again.'],
+      [422, 'CAC_NOT_VERIFIED', 'We couldn’t verify this CAC registration number. Check the number on your CAC certificate '
+        + '(it starts with RC, BN or IT) and try again.'],
+      [429, 'APPLICATION_RATE_LIMITED', 'There have been too many sign-up attempts from your network. Please try again later.'],
+      [429, 'VERIFICATION_QUOTA_EXCEEDED', 'The limit on CAC checks has been reached for now. Please try again later.'],
+      [403, 'ORIGIN_DENIED', 'This site isn’t allowed to send facility sign-ups. Open Set up your facility from '
+        + 'healthidentitydirectory.com and try again.'],
+      [400, 'TURNSTILE_REQUIRED', 'The security check didn’t go through. Complete it again, then try again.'],
+      [403, 'TURNSTILE_REJECTED', 'The security check didn’t go through. Complete it again, then try again.'],
+      [403, 'TURNSTILE_EXPIRED_OR_REPLAYED', 'The security check didn’t go through. Complete it again, then try again.'],
+      [403, 'TURNSTILE_CONTEXT_MISMATCH', 'The security check was made for another Health ID site. Open Set up your facility '
+        + 'from healthidentitydirectory.com and try again.'],
+      [403, 'TURNSTILE_HOSTNAME_MISMATCH', 'The security check was made for another Health ID site. Open Set up your facility '
+        + 'from healthidentitydirectory.com and try again.'],
+      [400, 'VALIDATION_FAILED', 'Some of the details weren’t accepted. Check them and try again.'],
+    ])('%i %s', async (status, code, text) => {
+      api.start.mockRejectedValueOnce(problem(status, code))
+      await toDetails()
+      await submitDetails()
+      expect((await screen.findByRole('alert')).textContent).toBe(text)
+      expect(screen.queryByRole('heading', { name: 'Confirm your administrator email' })).toBeNull()
+      expect((screen.getByRole('textbox', { name: 'CAC registration number' }) as HTMLInputElement).value).toBe('RC123456')
+      // Only an outage is followed by another availability read.
+      expect(api.availability).toHaveBeenCalledTimes(1)
+      // A refusal that was answered sent no code, so Continue can be pressed again at once (with a new check).
+      await waitFor(() => expect(continueButton().disabled).toBe(false))
+      expect(screen.queryByText(/You can try again in/)).toBeNull()
+    })
+  })
+
+  it.each([['start'], ['verify'], ['activate']] as const)('shows the closed notice when Identity answers 423 at %s', async step => {
+    const closed = problem(423, 'PROVIDER_ENROLLMENT_UNAVAILABLE', 'Facility self sign-up is not open')
+    if (step === 'start') {
+      api.start.mockRejectedValueOnce(closed)
+      await toDetails()
+      await submitDetails()
+    } else if (step === 'verify') {
+      api.verify.mockRejectedValueOnce(closed)
+      await toCode()
+      fireEvent.change(screen.getByRole('textbox', { name: 'Email verification code' }), { target: { value: '123456' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Verify email' }))
+    } else {
+      api.activate.mockRejectedValueOnce(closed)
+      await toPassword()
+      createAccount()
+    }
+    await closedNoticeShown()
+    // A 423 is the answer itself: availability is not asked again.
+    expect(api.availability).toHaveBeenCalledTimes(1)
+  })
+
+  describe('an outage (any status of 500 or more, or the gateway’s UPSTREAM_UNAVAILABLE)', () => {
+    it.each([
+      [503, 'UPSTREAM_UNAVAILABLE'],
+      [500, 'INTERNAL_ERROR'],
+      [502, 'QOREID_PROVIDER_RESPONSE_INVALID'],
+      [503, 'QOREID_DISABLED'],
+      [503, 'PROVIDER_ENROLLMENT_UNAVAILABLE'],
+      [503, 'TURNSTILE_UNAVAILABLE'],
+      [504, 'QOREID_TIMEOUT'],
+    ])('at the start (%i %s) asks availability again, and waits a minute while it is open', async (status, code) => {
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+      api.start.mockRejectedValueOnce(problem(status, code, 'The service could not complete the request.'))
+      await toDetails()
+      await submitDetails()
+      expect((await screen.findByRole('alert')).textContent).toBe(START_UNAVAILABLE)
+      expect(api.availability).toHaveBeenCalledTimes(2)
+      // Identity may have sent a code before the answer was lost; a start within a minute would send none.
+      await waitFor(() => expect(screen.getByText(/^You can try again in \d+ seconds?\.$/)).toBeTruthy())
+      expect(continueButton().disabled).toBe(true)
+      await act(async () => { vi.advanceTimersByTime(61_000) })
+      await waitFor(() => expect(continueButton().disabled).toBe(false))
+      expect(screen.queryByText(/You can try again in/)).toBeNull()
+      fireEvent.click(continueButton())
+      expect(await screen.findByRole('heading', { name: 'Confirm your administrator email' })).toBeTruthy()
+      expect(api.start).toHaveBeenCalledTimes(2)
+    })
+
+    it('at the start shows the closed notice when availability now says closed', async () => {
+      api.start.mockRejectedValueOnce(problem(503, 'UPSTREAM_UNAVAILABLE'))
+      await toDetails()
+      api.availability.mockResolvedValueOnce({ open: false })
+      await submitDetails()
+      await closedNoticeShown()
+      expect(api.availability).toHaveBeenCalledTimes(2)
+    })
+
+    it('at the start after a timeout or a lost connection says so, and waits a minute', async () => {
+      api.start.mockRejectedValueOnce(new HidApiError(408, 'The request took too long.', { code: 'REQUEST_TIMEOUT' }))
+      await toDetails()
+      await submitDetails()
+      expect((await screen.findByRole('alert')).textContent).toBe(START_UNAVAILABLE)
+      expect(continueButton().disabled).toBe(true)
+    })
+
+    it('at verify says sign-up is temporarily unavailable and keeps the code step', async () => {
+      api.verify.mockRejectedValueOnce(problem(503, 'UPSTREAM_UNAVAILABLE'))
+      await toCode()
+      fireEvent.change(screen.getByRole('textbox', { name: 'Email verification code' }), { target: { value: '123456' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Verify email' }))
+      expect((await screen.findByRole('alert')).textContent).toBe(STEP_UNAVAILABLE)
+      expect(api.availability).toHaveBeenCalledTimes(2)
+      expect(screen.getByRole('heading', { name: 'Confirm your administrator email' })).toBeTruthy()
+    })
+
+    it('at verify after a lost connection asks to check the connection', async () => {
+      api.verify.mockRejectedValueOnce(new HidApiError(0, 'We could not reach the service.', { code: 'NETWORK_ERROR' }))
+      await toCode()
+      fireEvent.change(screen.getByRole('textbox', { name: 'Email verification code' }), { target: { value: '123456' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Verify email' }))
+      expect((await screen.findByRole('alert')).textContent).toBe('We couldn’t reach Health ID. Check your internet connection and try again.')
+    })
+
+    it('at activation keeps the password step, so the administrator can try again', async () => {
+      api.activate.mockRejectedValueOnce(problem(503, 'UPSTREAM_UNAVAILABLE'))
+      await toPassword()
+      createAccount()
+      expect((await screen.findByRole('alert')).textContent).toBe(STEP_UNAVAILABLE)
+      expect(screen.getByLabelText('Password')).toBeTruthy()
+    })
+  })
+
+  it('says a wrong or expired code plainly, and keeps the code step', async () => {
+    api.verify.mockRejectedValueOnce(problem(401, 'ORGANIZATION_COMPLETION_CODE_INVALID', 'The confirmation code is invalid or expired'))
+    await toCode()
+    fireEvent.change(screen.getByRole('textbox', { name: 'Email verification code' }), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Verify email' }))
+    expect((await screen.findByRole('alert')).textContent).toBe('That code isn’t right, or it has expired. Check the latest '
+      + 'email from Health ID and try again, or send a new code.')
+    expect(screen.getByRole('heading', { name: 'Confirm your administrator email' })).toBeTruthy()
+  })
+
+  describe('recovery at activation', () => {
+    it('goes back to the details, kept, when the sign-up session has expired (401 ORGANIZATION_COMPLETION_SESSION_INVALID)', async () => {
+      api.activate.mockRejectedValueOnce(problem(401, 'ORGANIZATION_COMPLETION_SESSION_INVALID'))
+      await toPassword()
+      createAccount()
+      expect((await screen.findByRole('alert')).textContent).toBe('Your sign-up session has expired. Check your details and '
+        + 'select Continue to get a new code.')
+      expect((screen.getByRole('textbox', { name: 'CAC registration number' }) as HTMLInputElement).value).toBe('RC123456')
+      expect((screen.getByRole('textbox', { name: 'Administrator email' }) as HTMLInputElement).value).toBe('Ada@Example.TEST')
+      // The last code was sent less than a minute ago: a start now would send none.
+      expect(screen.getByText(/^You can try again in \d+ seconds?\.$/)).toBeTruthy()
+    })
+
+    it('explains an administrator email that already has an account, and points to support (409)', async () => {
+      api.activate.mockRejectedValueOnce(problem(409, 'PROVIDER_EMAIL_ALREADY_REGISTERED'))
+      await toPassword()
+      createAccount()
+      const heading = await screen.findByRole('heading', { name: 'This email already has a Health ID account' })
+      await waitFor(() => expect(document.activeElement).toBe(heading))
+      expect(heading.nextElementSibling?.textContent).toBe('The administrator email already belongs to a Health ID account, '
+        + 'for example a patient account, so it can’t also be this facility’s administrator. Signing up again with another '
+        + `email for the same CAC number won’t work either. Contact Health ID support at ${SUPPORT} to finish setting up your facility.`)
+      expect(screen.queryByLabelText('Password')).toBeNull()
+      expect(screen.queryByRole('list', { name: 'Provider enrollment steps' })).toBeNull()
+    })
+
+    it('says an organization that needs Health ID’s check needs it, and points to support (409 ORGANIZATION_REVIEW_REQUIRED)', async () => {
+      api.activate.mockRejectedValueOnce(problem(409, 'ORGANIZATION_REVIEW_REQUIRED'))
+      await toPassword()
+      createAccount()
+      const heading = await screen.findByRole('heading', { name: 'Health ID needs to check this organization' })
+      expect(heading.nextElementSibling?.textContent).toBe('This organization can’t be set up automatically. It may already be '
+        + `registered with Health ID, for example for another product. Contact Health ID support at ${SUPPORT} to finish setting up your facility.`)
+    })
+
+    it.each([
+      [401, 'AUTHENTICATION_REQUIRED'],
+      [405, 'METHOD_NOT_ALLOWED'],
+    ])('says the account may already be ready, and links to the EHR site in production (%i %s)', async (status, code) => {
+      api.activate.mockRejectedValueOnce(problem(status, code, 'Invalid credentials'))
+      await toPassword()
+      vi.stubGlobal('location', { ...window.location, hostname: 'app.healthidentitydirectory.com', reload: vi.fn() })
+      createAccount()
+      const heading = await screen.findByRole('heading', { name: 'Your account may already be ready' })
+      await waitFor(() => expect(document.activeElement).toBe(heading))
+      expect(heading.nextElementSibling?.textContent).toBe('We couldn’t confirm that your facility was set up, but it may have '
+        + 'been. Sign in with ada@example.test and the password you chose. If you can’t sign in, contact '
+        + `Health ID support at ${SUPPORT}.`)
+      expect(screen.getByRole('link', { name: 'Sign in to the Provider Portal' }).getAttribute('href'))
+        .toBe('https://ehr.healthidentitydirectory.com/provider/sign-in')
+      expect(TabChannel.posted).toEqual([])
+    })
+
+    it('outside production links to this portal’s staff sign-in', async () => {
+      api.activate.mockRejectedValueOnce(problem(401, 'AUTHENTICATION_REQUIRED'))
+      await toPassword()
+      createAccount()
+      await screen.findByRole('heading', { name: 'Your account may already be ready' })
+      expect(screen.getByRole('link', { name: 'Sign in to the Provider Portal' }).getAttribute('href')).toBe('/provider/sign-in')
+    })
+
+    it('says the account may already be ready when a retry after a lost answer finds the session used up', async () => {
+      api.activate.mockRejectedValueOnce(problem(503, 'UPSTREAM_UNAVAILABLE'))
+        .mockRejectedValueOnce(problem(401, 'ORGANIZATION_COMPLETION_SESSION_INVALID'))
+      await toPassword()
+      createAccount()
+      expect((await screen.findByRole('alert')).textContent).toBe(STEP_UNAVAILABLE)
+      createAccount()
+      expect(await screen.findByRole('heading', { name: 'Your account may already be ready' })).toBeTruthy()
+      expect(screen.queryByRole('textbox', { name: 'CAC registration number' })).toBeNull()
+    })
+  })
+
+  describe('a new code', () => {
+    it('is offered once Identity’s wait has passed, with a new check, and the new code is the one verified', async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true })
+      api.start.mockResolvedValueOnce({ accepted: true, challengeId: 'challenge-1', expiresInSeconds: 600, resendAfterSeconds: 60 })
+        .mockResolvedValueOnce({ accepted: true, challengeId: 'challenge-2', expiresInSeconds: 600, resendAfterSeconds: 60 })
+      await toCode()
+      const resend = () => screen.getByRole('button', { name: 'Send a new code' }) as HTMLButtonElement
+      expect(resend().disabled).toBe(true)
+      expect(screen.getByText(/^You can ask for a new code in (60|59) seconds\.$/)).toBeTruthy()
+      await act(async () => { vi.advanceTimersByTime(30_000) })
+      expect(resend().disabled).toBe(true)
+      await act(async () => { vi.advanceTimersByTime(31_000) })
+      await waitFor(() => expect(resend().disabled).toBe(false))
+      expect(screen.queryByText(/You can ask for a new code/)).toBeNull()
+      fireEvent.click(resend())
+
+      await waitFor(() => expect(api.start).toHaveBeenCalledTimes(2))
+      expect(api.start.mock.calls[1]?.[0]).toEqual(api.start.mock.calls[0]?.[0])
+      expect((await screen.findByText('We’ve sent a new code to ada@example.test.')).parentElement?.getAttribute('role')).toBe('status')
+      // The wait starts again for the new code.
+      await waitFor(() => expect(resend().disabled).toBe(true))
+      fireEvent.change(screen.getByRole('textbox', { name: 'Email verification code' }), { target: { value: '222222' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Verify email' }))
+      await waitFor(() => expect(api.verify).toHaveBeenCalledWith('challenge-2', '222222'))
+    })
+
+    it('waits as long as Identity says', async () => {
+      api.start.mockResolvedValueOnce({ accepted: true, challengeId: 'challenge-1', resendAfterSeconds: 30 })
+      await toCode()
+      expect(screen.getByText(/^You can ask for a new code in (30|29) seconds\.$/)).toBeTruthy()
+    })
+
+    it('waits a minute when Identity does not say', async () => {
+      await toCode()
+      expect(screen.getByText(/^You can ask for a new code in (60|59) seconds\.$/)).toBeTruthy()
+    })
+
+    it('keeps the wait when the administrator starts again, so the next start is not one that sends no code', async () => {
+      await toCode()
+      fireEvent.click(screen.getByRole('button', { name: 'Start again' }))
+      await screen.findByRole('button', { name: 'Continue' })
+      expect(continueButton().disabled).toBe(true)
+      expect(screen.getByText(/^You can try again in (60|59) seconds\.$/)).toBeTruthy()
+    })
+  })
+})
+
+describe('provider enrollment on main keeps Identity’s words for a refused activation', () => {
+  it('shows a 401 at activation as it is, at the password step (no Novu sign-in after activation there)', async () => {
+    api.activate.mockRejectedValueOnce(new HidApiError(401, 'Organization profile completion session is invalid or expired',
+      { code: 'AUTHENTICATION_REQUIRED' }))
+    open()
+    enterDetails()
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Email verification code' }), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Verify email' }))
+    fireEvent.change(await screen.findByLabelText('Password'), { target: { value: 'a-long-enough-password' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create provider account' }))
+    expect((await screen.findByRole('alert')).textContent).toBe('Organization profile completion session is invalid or expired')
+    expect(screen.getByLabelText('Password')).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: 'Your account may already be ready' })).toBeNull()
+  })
+})
+
+/**
+ * hid-system accepts facility self sign-up's security check only on the main site (P4, W1), so the page on a staff
+ * product host (a bookmark, an old link) sends the administrator there instead of showing a form that would be refused.
+ */
+describe('provider enrollment opened on a staff product host', () => {
+  const jsdom = (globalThis as unknown as { jsdom: { reconfigure(options: { url: string }): void } }).jsdom
+  const servedFrom = window.location.href
+  afterEach(() => { jsdom.reconfigure({ url: servedFrom }) })
+
+  it.each([
+    ['ehr.healthidentitydirectory.com', '/provider/enroll', 'https://app.healthidentitydirectory.com/provider/enroll'],
+    ['lab.healthidentitydirectory.com', '/provider/enroll?product=laboratory', 'https://app.healthidentitydirectory.com/provider/enroll?product=laboratory'],
+    ['pharmacy.staging.healthidentitydirectory.com', '/provider/enroll?product=pharmacy', 'https://staging.healthidentitydirectory.com/provider/enroll?product=pharmacy'],
+    ['ehr.healthidentitydirectory.com', '/provider/enroll?product=https://evil.example', 'https://app.healthidentitydirectory.com/provider/enroll'],
+  ])('on %s (%s) links to the main site, with no form', async (hostname, entry, href) => {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
+    jsdom.reconfigure({ url: `https://${hostname}${entry}` })
+    open(entry)
+    expect(screen.getByRole('link', { name: 'Continue to facility sign-up' }).getAttribute('href')).toBe(href)
+    expect(screen.getByText('Facility sign-up is done on the main Health ID site.')).toBeTruthy()
+    expect(screen.queryByRole('textbox', { name: 'CAC registration number' })).toBeNull()
+    expect(api.availability).not.toHaveBeenCalled()
   })
 })

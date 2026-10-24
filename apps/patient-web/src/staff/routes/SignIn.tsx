@@ -7,7 +7,10 @@ import { useStaff } from '../App'
 import type { StaffLoginChallenge, StaffSession } from '../api'
 import { AuthLayout } from '../../AuthLayout'
 import { loadTurnstileScript, turnstileSize } from '../../Turnstile'
-import { CLINICIAN_STATUS_PATH, resolveStaffProductHostname, STAFF_RECOVERY_PATH, staffLoginAction, staffRecoveryHref, staffSignInHref } from '../../productHostname'
+import {
+  CLINICIAN_STATUS_PATH, PROVIDER_ENROLLMENT_PATH, providerEnrollmentHref, resolveStaffProductHostname, STAFF_RECOVERY_PATH,
+  staffLoginAction, staffRecoveryHref, staffSignInHref,
+} from '../../productHostname'
 import { staffReturnPath } from '../session'
 import { STAFF_MFA_FACTOR_UNPROVEN, STAFF_MFA_UNAVAILABLE, StaffMfaSteps, type StaffMfaLook } from './StaffMfaSteps'
 import { ClinicianSignUpEntry, PageLink } from '../clinician/ClinicianSignUpEntry'
@@ -150,8 +153,12 @@ export function SignIn() {
     setReturned(value => value + 1)
   }
 
+  // hid-system accepts facility self sign-up's security check only on the main site, so a staff
+  // product host (ehr, lab, pharmacy, migrate, outreach) links to the main site's page.
+  const enrollHref = providerEnrollmentHref(window.location.hostname)
   return <AuthLayout brandTo="/provider/sign-in" brandLabel="Health ID provider sign in"
-    headerLink={{ to: '/provider/enroll', label: 'Set up your facility' }}
+    headerLink={enrollHref === PROVIDER_ENROLLMENT_PATH
+      ? { to: enrollHref, label: 'Set up your facility' } : { href: enrollHref, label: 'Set up your facility' }}
     title="Welcome back." titleId="staff-sign-in-title" titleAs={challenge ? 'p' : 'h1'}
     titleRef={heading} titleFocusable={!challenge}
     lede="Sign in with the staff account assigned to your facility. Health ID verifies your permissions and facility.">

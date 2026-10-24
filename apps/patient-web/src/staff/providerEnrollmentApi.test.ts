@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('./env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.example.test' }) }))
 afterEach(() => vi.unstubAllGlobals())
@@ -43,5 +43,59 @@ describe('provider enrollment API', () => {
       expect(headers.has('authorization')).toBe(false)
       expect(headers.has('x-csrf-token')).toBe(false)
     }
+  })
+})
+
+/**
+ * Facility self sign-up on Novu (P4): the availability read, and a start that
+ * may take longer than the client's usual 15 s (Siteverify, then QoreID's token
+ * and lookup, then the email code).
+ */
+describe('provider enrollment API on Novu (P4)', () => {
+  // The staff client binds fetch when its module loads: each test loads it afresh, after stubbing.
+  beforeEach(() => { vi.resetModules() })
+  afterEach(() => { vi.useRealTimers() })
+
+  it('asks whether sign-up is open with one public GET, never repeated, not even after a 404', async () => {
+    const requests: Array<{ url: string; init: RequestInit }> = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string | URL | Request, init: RequestInit) => {
+      requests.push({ url: String(url), init })
+      return new Response(JSON.stringify({ status: 404, code: 'NOT_FOUND', detail: 'Cannot GET' }),
+        { status: 404, headers: { 'Content-Type': 'application/problem+json' } })
+    }))
+    const { providerEnrollmentApi } = await import('./api')
+    await expect(providerEnrollmentApi.availability()).rejects.toMatchObject({ status: 404 })
+    expect(requests.map(request => [request.init.method, new URL(request.url).pathname]))
+      .toEqual([['GET', '/api/v1/identity/provider-enrollments/availability']])
+    const headers = new Headers(requests[0]?.init.headers)
+    expect(headers.has('authorization')).toBe(false)
+    expect(headers.has('x-csrf-token')).toBe(false)
+  })
+
+  it('answers { open } as Identity says it', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ open: false }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } })))
+    const { providerEnrollmentApi } = await import('./api')
+    await expect(providerEnrollmentApi.availability()).resolves.toEqual({ open: false })
+  })
+
+  it('waits about 35 s for a start, not the usual 15 s, and never sends it twice', async () => {
+    vi.useFakeTimers()
+    const fetch = vi.fn((_url: string | URL | Request, init: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      init.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')))
+    }))
+    vi.stubGlobal('fetch', fetch)
+    const { providerEnrollmentApi, PROVIDER_ENROLLMENT_START_TIMEOUT_MS } = await import('./api')
+    expect(PROVIDER_ENROLLMENT_START_TIMEOUT_MS).toBe(35_000)
+    let settled: unknown = null
+    const start = providerEnrollmentApi.start({ productCode: 'ehr', organizationType: 'hospital',
+      cacRegistrationNumber: 'RC1234567', administratorName: 'Ada Admin', administratorEmail: 'admin@example.test',
+      turnstileToken: 'siteverify-token' }).catch(error => { settled = error })
+    await vi.advanceTimersByTimeAsync(16_000)
+    expect(settled).toBeNull()
+    await vi.advanceTimersByTimeAsync(19_500)
+    await start
+    expect(settled).toMatchObject({ status: 408, code: 'REQUEST_TIMEOUT' })
+    expect(fetch).toHaveBeenCalledTimes(1)
   })
 })

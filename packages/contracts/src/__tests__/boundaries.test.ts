@@ -268,6 +268,44 @@ describe('application boundaries', () => {
     }
   })
 
+  it('registers facility self sign-up\'s availability read for the provider portal and its review for the console (P4)', () => {
+    const base = '/api/v1/identity/provider-enrollments'
+    // The static availability path is a GET of its own; the start is a POST on the base path.
+    expect(assertRegisteredBrowserRequest('GET', `${base}/availability`).name).toBe('enrollment.providerAvailability')
+    expect(() => assertRegisteredBrowserRequest('POST', `${base}/availability`)).toThrow(BrowserRouteError)
+    expect(assertRegisteredBrowserRequest('POST', base).name).toBe('enrollment.providerStart')
+    expect(findEndpoint('enrollment.providerAvailability')).toMatchObject({ service: 'enrollment', methods: ['GET'],
+      auth: { kind: 'public' }, status: 'proposed' })
+    expect(findEndpoint('enrollment.providerAvailability')?.note).toContain('{ open: false } on any fault')
+    expect(() => assertEndpointAllowed('staff-web', 'enrollment.providerAvailability')).not.toThrow()
+    for (const app of ['patient-web', 'admin-web', 'public-web'] as const) {
+      expect(() => assertEndpointAllowed(app, 'enrollment.providerAvailability'), app).toThrow(BoundaryViolationError)
+    }
+    // The closed gate is a 423 on Novu, and activation answers a session there.
+    for (const name of ['enrollment.providerStart', 'enrollment.providerVerify', 'enrollment.providerActivate']) {
+      expect(findEndpoint(name)?.note, name).toContain('423 PROVIDER_ENROLLMENT_UNAVAILABLE')
+      expect(findEndpoint(name)?.status, name).toBe('surface-verified')
+    }
+    expect(findEndpoint('enrollment.providerActivate')?.note).toContain('actor')
+
+    const applicationId = '0f2b6d0e-6a55-4b4c-9a7e-2f4b8c1d3e5a'
+    const routes = [
+      ['admin.selfServiceFacilities', '/api/v1/admin/self-service-facilities', 'GET', 'platform.identity-review.read'],
+      ['admin.selfServiceFacilityReview', `/api/v1/admin/self-service-facilities/${applicationId}/review`, 'POST',
+        'platform.facility.manage'],
+    ] as const
+    for (const [name, example, method, permission] of routes) {
+      expect(findEndpoint(name), name).toMatchObject({ service: 'admin', methods: [method], status: 'proposed',
+        auth: { kind: 'authenticated' }, permissions: { [method]: [permission] } })
+      expect(assertRegisteredBrowserRequest(method, example).name).toBe(name)
+      expect(() => assertRegisteredBrowserRequest(method === 'GET' ? 'POST' : 'GET', example), name).toThrow(BrowserRouteError)
+      expect(() => assertEndpointAllowed('admin-web', name)).not.toThrow()
+      for (const app of ['staff-web', 'patient-web', 'public-web'] as const) {
+        expect(() => assertEndpointAllowed(app, name), `${app}: ${name}`).toThrow(BoundaryViolationError)
+      }
+    }
+  })
+
   it('keeps the public site\'s enrollment routes as they were', () => {
     for (const name of ['enrollment.start', 'enrollment.availability', 'enrollment.current', 'enrollment.google',
       'enrollment.holder', 'enrollment.holderVerify', 'enrollment.facilityCode', 'enrollment.participatingFacilities',

@@ -1,7 +1,7 @@
 import { stagingChatQuestion, parseStagingPatientChat, parseStagingChatHistory, chatQuestion, parsePatientChat,
   parsePatientChatAvailability, parsePatientChatHistory, parsePatientChatCleared } from '@hid/contracts'
 import { parseImportedHistory, type ImportedRecordsResponse, type ImportedAttachmentDownload, type ImportedHistoryPage } from '../importedRecords'
-import { createApiClient, HidApiError, isHidApiError, uploadPresignedObject, type ApiClient, type RequestSpec } from '@hid/http'
+import { createApiClient, HidApiError, isHidApiError, NO_RETRY, uploadPresignedObject, type ApiClient, type RequestSpec } from '@hid/http'
 import { createRegisteredBrowserClient } from '@hid/api'
 import { getEnvironment } from './env'
 import {
@@ -990,11 +990,14 @@ export interface ProviderEnrollmentStart {
 }
 
 /**
- * Since hid-system #71 activation sets the administrator's password and opens a
- * staff MFA enrolment whose proof is the activation itself (`status`
- * 'mfa_enrollment_required', or 'mfa_required' for an account that already has
- * an authenticator), with the challenge cookie and no session. An Identity
- * before #71 answers with the session's `actor` instead.
+ * Activation sets the administrator's password. On Novu (novu-v1, the
+ * production backend; facility self sign-up, P4) it then signs the
+ * administrator in, as a staff sign-in does: the session cookies, and the
+ * session's `actor` in the answer (owner decision: a password, no
+ * authenticator). On hid-system main since #71 it opens a staff MFA enrolment
+ * instead, whose proof is the activation itself (`status`
+ * 'mfa_enrollment_required', or 'mfa_required' for an account that already
+ * has an authenticator), with the challenge cookie and no session.
  */
 export interface ProviderEnrollmentActivation {
   activated: true
@@ -1006,7 +1009,24 @@ export interface ProviderEnrollmentActivation {
   expiresAt: string
 }
 
+/**
+ * How long the browser waits for a start. The start checks the security token
+ * with Cloudflare (up to two tries), then looks the CAC up with QoreID (a token
+ * and a lookup, each up to 5 s), then sends the email code: more than the
+ * client's usual 15 s at worst. The production gateway gives up at 30 s and
+ * answers 503 UPSTREAM_UNAVAILABLE, so this only bounds a hung connection.
+ */
+export const PROVIDER_ENROLLMENT_START_TIMEOUT_MS = 35_000
+
 export const providerEnrollmentApi = {
+  /**
+   * Whether facility self sign-up is open (Novu, P4): `{ open }`, never an
+   * error from Identity. hid-system main has no such route (404). Asked once,
+   * with no retries: the page shows the form unless the answer is a clear no.
+   */
+  availability: (signal?: AbortSignal) => client.get<{ open: boolean }>('/api/v1/identity/provider-enrollments/availability',
+    { auth: 'none', retry: NO_RETRY, timeoutMs: 10_000, ...(signal ? { signal } : {}) }),
+
   start: (input: {
     productCode: 'ehr' | 'migrate' | 'laboratory' | 'pharmacy'
     organizationType: 'clinic' | 'hospital' | 'laboratory' | 'pharmacy' | 'other'
@@ -1015,15 +1035,16 @@ export const providerEnrollmentApi = {
     administratorEmail: string
     turnstileToken: string
   }) => client.post<ProviderEnrollmentStart>('/api/v1/identity/provider-enrollments',
-    { ...input, turnstileAction: 'provider-enrollment' }, { auth: 'none' }),
+    { ...input, turnstileAction: 'provider-enrollment' }, { auth: 'none', timeoutMs: PROVIDER_ENROLLMENT_START_TIMEOUT_MS }),
 
-  // The challenge travels only in the body: the gateway API is cross-origin and
-  // its CORS policy admits no enrollment-specific request header.
+  // The challenge travels only in the body. The portal reaches the API on its
+  // own host (the Worker proxies /api/v1/*), and no enrollment-specific header
+  // is needed: verify sets the enrollment cookie, which activation reads.
   verify: (challengeId: string, code: string) =>
     client.post<{ verified: true }>('/api/v1/identity/provider-enrollments/verify',
       { challengeId, code }, { auth: 'none' }),
 
-  // Activation signs the new administrator in, so it takes the session turn as sign-ins do.
+  // Activation can sign the new administrator in (Novu), so it takes the session turn as sign-ins do.
   activate: (password: string) => inRefreshTurn(() =>
     client.post<ProviderEnrollmentActivation>('/api/v1/identity/provider-enrollments/activate',
       { password }, { auth: 'none' })),
