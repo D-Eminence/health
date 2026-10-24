@@ -2,8 +2,8 @@
   "schema": "hid.frontend-dependencies/v1",
   "declared": true,
   "backend_contract": "novu-v1",
-  "reviewed_by": "",
-  "review_reference": "Backend releases backend-39893314723-1-d9bc36aeb69af7f4 (W03, D-Eminence/hid-system#103 at d92b696, deployed 2026-10-23 03:56 UTC with status success for all 12 services), which the seven services other than identity-api still run, and backend-40057408082-1-5eb3c1ebf77743d5 (D-Eminence/hid-system#108 at 6f8800f, deployed 2026-10-24 03:24 UTC with status success, identity-api only), which follows W05b (#107 at ec2b351). Browser-facing change since identity-api ec2b351: POST /api/v1/admin/principals/search, the admin user search with its terms in the body, which answers the same page as GET /admin/principals (platform.principal.read). This frontend's Users & roles search calls it (apps/patient-web/src/admin/api.ts principals), and on novu-v1 hides the admin console areas and the clinician application links that Novu does not serve. To be reviewed and signed by the repository owner, D-Eminence.",
+  "reviewed_by": "D-Eminence",
+  "review_reference": "Backend releases backend-39893314723-1-d9bc36aeb69af7f4 (W03, D-Eminence/hid-system#103 at d92b696, deployed 2026-10-23 03:56 UTC with status success for all 12 services), which the seven services other than identity-api still run, and backend-40057408082-1-5eb3c1ebf77743d5 (D-Eminence/hid-system#108 at 6f8800f, deployed 2026-10-24 03:24 UTC with status success, identity-api only), which follows W05b (#107 at ec2b351). Browser-facing change since identity-api ec2b351: POST /api/v1/admin/principals/search, the admin user search with its terms in the body, which answers the same page as GET /admin/principals (platform.principal.read). This frontend's Users & roles search calls it (apps/patient-web/src/admin/api.ts principals), and on novu-v1 hides the admin console areas and the clinician application links that Novu does not serve. Reviewed and approved by the repository owner, D-Eminence.",
   "backend_commits": {
     "gateway": "d92b69681f21056e712c9ad8d1ce76e079555478",
     "identity-api": "6f8800f700f15b50d974220dbb1d706a1239531d",
