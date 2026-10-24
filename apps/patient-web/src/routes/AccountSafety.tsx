@@ -1,10 +1,13 @@
-import { useRef, useState, type FormEvent } from 'react'
+import { useMemo, useRef, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import {
   EMERGENCY_CONTACT_RELATIONSHIPS, type AccountDeletionBlockedReason, type AccountDeletionRequested,
-  type EmergencyContact, type EmergencyContactRelationship,
+  type EmergencyContact, type EmergencyContactChannel, type EmergencyContactRelationship, type EmergencyContactsAvailability,
+  type PatientApi,
 } from '../api'
+import { usesNovuBackend } from '../backendContract'
+import { describedBy } from '../authSteps'
 import { useSession } from '../session'
 import { ItemName } from '../ItemName'
 import { usePatientResource } from './usePatientResource'
@@ -14,6 +17,8 @@ import { useActionFocus, useRetryFocus } from './actionFocus'
  * Patient-facing account deletion and emergency-contact management. The
  * backend enforces ownership, fresh sign-in, verification, retention, and
  * eligibility; these screens only explain the consequences and collect intent.
+ * Emergency contacts read availability first (hid-system #109): the card says
+ * what is on, and offers only what Identity will accept now.
  */
 
 const CONFIRMATION_PHRASE = 'DELETE MY ACCOUNT'
@@ -48,122 +53,328 @@ const RELATIONSHIP_LABELS: Record<EmergencyContactRelationship, string> = {
   spouse: 'Spouse', partner: 'Partner', parent: 'Parent', child: 'Child', sibling: 'Sibling', relative: 'Relative',
   guardian: 'Guardian', caregiver: 'Caregiver', friend: 'Friend', other: 'Other',
 }
+const CHANNEL_LABELS: Record<EmergencyContactChannel, string> = { sms: 'SMS', email: 'Email' }
+const CHANNEL_WORDS: Record<EmergencyContactChannel, string> = { sms: 'SMS', email: 'email' }
+const DESTINATION_LABELS: Record<EmergencyContactChannel, string> = { sms: 'phone number', email: 'email address' }
+
+/** What each backend's alert to a verified contact says: Novu's is hid-system #109's emergencyContactAlertContent. */
+const NOVU_ALERT = 'If a health worker uses emergency access to open your record, each verified contact gets a message with '
+  + 'your full name, the last four characters of your Health ID, the health worker\'s name, the facility and the time. It says '
+  + 'only that your record was opened for emergency care. It never includes medical details or the reason the health worker '
+  + 'gave. It also gives the facility\'s phone number, or Health ID support\'s if the facility has none, and how to stop these '
+  + 'alerts. A contact is only notified after they confirm a verification code and while alerts are on.'
+const MAIN_ALERT = 'If a provider uses emergency access to your record, verified contacts are told your first name, the '
+  + 'facility, and the time. They never receive medical details. A contact is only notified after they confirm a '
+  + 'verification code and while notifications are on.'
+
+/** hid-system main does not serve availability (404): its card stays as it was, with both channels. */
+const MAIN_OFFER: EmergencyContactsAvailability = { delivery: true, channels: ['sms', 'email'] }
+
+/** #109's answer, or null for any other 200: it does not say whether delivery is on. */
+function offerOf(value: unknown): EmergencyContactsAvailability | null {
+  if (typeof value !== 'object' || value === null) return null
+  const { delivery, channels } = value as { delivery?: unknown; channels?: unknown }
+  if (typeof delivery !== 'boolean' || !Array.isArray(channels)) return null
+  return { delivery, channels: [...new Set(channels.filter((channel): channel is EmergencyContactChannel =>
+    channel === 'email' || channel === 'sms'))] }
+}
+
+/**
+ * What this patient is offered. A backend without the route (a 404, or a 200 that is not #109's answer) is main's:
+ * its card stays as it was; on Novu nothing is offered and no list is read.
+ */
+async function readOffer(api: PatientApi, signal?: AbortSignal): Promise<EmergencyContactsAvailability | null> {
+  const unserved = usesNovuBackend() ? null : MAIN_OFFER
+  try {
+    return offerOf(await api.emergencyContactsAvailability(signal)) ?? unserved
+  } catch (reason) {
+    if (isHidApiError(reason) && reason.status === 404) return unserved
+    throw reason
+  }
+}
+
+interface ContactsView { offer: EmergencyContactsAvailability | null; contacts: EmergencyContact[] }
+
+/**
+ * Availability, then the list. Availability is read once, and again only after its read failed or when an action
+ * finds delivery off, so 'Try again' repeats what failed and a reload after an action reads the list only.
+ */
+function contactsSource(api: PatientApi) {
+  let offer: EmergencyContactsAvailability | null | undefined
+  return {
+    forget: () => { offer = undefined },
+    load: async (signal?: AbortSignal): Promise<ContactsView> => {
+      if (offer === undefined) offer = await readOffer(api, signal)
+      const current = offer
+      return { offer: current, contacts: current ? await api.emergencyContacts(signal) : [] }
+    },
+  }
+}
+
+/**
+ * `reachable`: Identity sends on the contact's channel now. #109's dispatcher does not send on a channel switched off
+ * since the contact was verified, though the list still says the contact is eligible.
+ */
+function contactStatus(contact: EmergencyContact, paused: boolean, reachable: boolean) {
+  if (contact.eligibleForEmergencyNotification) {
+    if (paused) return 'Verified · alerts are paused'
+    return reachable ? 'Verified · will be notified in an emergency' : `Verified · alerts by ${CHANNEL_WORDS[contact.channel]} are paused`
+  }
+  return contact.status === 'verified' ? 'Verified · notifications off' : 'Not verified · will not be notified'
+}
+
+/** A code still open after a reload: its challenge is not held here, so entering a code needs a new one. */
+function pendingCode(pending: NonNullable<EmergencyContact['pendingVerification']>) {
+  return `A verification code is pending until ${dateTime(pending.expiresAt)}.${pending.deliveryOutcome === 'accepted' ? ''
+    : ' We could not confirm the code was delivered.'} To enter a code here, send a new one.`
+}
+
+/**
+ * The last emergency alert to a contact, by identity.list_my_emergency_contacts's statuses. Its time is when the
+ * alert was raised. The list does not say whether an attempt was made: an attempt with an unknown outcome is retried
+ * and may have reached the contact, so only `delivered` (the provider accepted it) is certain. Failed: definitively
+ * refused, or 8 attempts without a confirmed outcome. Expired: not confirmed within its 24-hour window. Suppressed:
+ * the contact's notifications were turned off before it was confirmed.
+ */
+const LAST_ALERT: Readonly<Record<string, string>> = {
+  delivered: 'delivered', pending: 'not yet confirmed as delivered', failed: 'not confirmed as delivered',
+  expired: 'not confirmed as delivered within 24 hours',
+  suppressed: 'stopped, because notifications were turned off for this contact',
+}
+
+function LastAlert({ notice }: { notice: EmergencyContact['lastNotification'] }) {
+  if (!notice || !LAST_ALERT[notice.status]) return null
+  return <span>Last emergency alert ({dateTime(notice.createdAt)}): {LAST_ALERT[notice.status]}</span>
+}
+
+/** What a refused or failed send means for the contact. Main's gateway passes its 5xx codes through; Novu's does not. */
+function sendFailure(cause: unknown, contact: EmergencyContact) {
+  const unverified = 'This contact stays unverified and will not be notified.'
+  switch (problemCode(cause)) {
+    case 'EMERGENCY_CONTACT_DELIVERY_UNAVAILABLE': return `Contact verification is not available yet. ${unverified}`
+    case 'EMERGENCY_CONTACT_CHANNEL_UNAVAILABLE':
+      return `Verification codes cannot be sent by ${CHANNEL_WORDS[contact.channel]} yet. ${unverified}`
+    case 'EMERGENCY_CONTACT_VERIFICATION_UNDELIVERABLE': return `The code could not be delivered to ${contact.destinationHint}. `
+      + `${unverified} If the ${DESTINATION_LABELS[contact.channel]} is wrong, remove this contact and add it again.`
+    default:
+  }
+  // Behind Novu's gateway every 502, 503 and 504 is 503 UPSTREAM_UNAVAILABLE, whatever the cause.
+  if (isHidApiError(cause) && cause.status >= 500) {
+    return 'The code could not be sent right now. This contact stays unverified and will not be notified until it is verified. Try again later.'
+  }
+  return problem(cause, 'The verification code could not be sent.')
+}
+
+/**
+ * What a refused send changed, so the card reads it again: delivery or the channel may have just been switched off
+ * (the card then offers no code for it), or the contact was removed or verified elsewhere, or #109 invalidated the
+ * pending code (a definitive refusal closes the new one, and a resend has already closed the old). A 429 changes
+ * nothing, and after a 5xx the read would most likely fail too.
+ */
+const SEND_READS: Readonly<Record<string, 'list' | 'availability'>> = {
+  EMERGENCY_CONTACT_DELIVERY_UNAVAILABLE: 'availability', EMERGENCY_CONTACT_CHANNEL_UNAVAILABLE: 'availability',
+  EMERGENCY_CONTACT_VERIFICATION_UNDELIVERABLE: 'list', EMERGENCY_CONTACT_NOT_FOUND: 'list',
+  EMERGENCY_CONTACT_ALREADY_VERIFIED: 'list',
+}
+
+/** An added or verified contact whose 'Notify this contact' is unticked: #109 alerts only those with it ticked. */
+const NOTIFICATIONS_OFF = 'Notifications are off for this contact, so they will not be notified in an emergency.'
+
+type Find = () => HTMLElement | null
+/** What a refused action says, where focus goes, whether the destination field is at fault, and what is read again first. */
+interface Refusal { message: string; focus: Find; field?: boolean; read?: 'list' | 'availability' }
 
 export function EmergencyContactsCard() {
   const { api } = useSession()
-  const contacts = usePatientResource(api.emergencyContacts)
+  const source = useMemo(() => contactsSource(api), [api])
+  const card = usePatientResource(source.load)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [destinationInvalid, setDestinationInvalid] = useState(false)
   const [adding, setAdding] = useState(false)
+  // No channel chosen yet: the first one offered.
   const [draft, setDraft] = useState({ name: '', relationship: 'relative' as EmergencyContactRelationship,
-    channel: 'sms' as 'sms' | 'email', destination: '', notifyOnEmergencyAccess: true })
+    channel: null as EmergencyContactChannel | null, destination: '', notifyOnEmergencyAccess: true })
   const [verifying, setVerifying] = useState<{ contactId: string; challengeId: string; expiresAt: string } | null>(null)
   const [code, setCode] = useState('')
   const [editing, setEditing] = useState<{ contactId: string; version: number; name: string;
     relationship: EmergencyContactRelationship; notifyOnEmergencyAccess: boolean } | null>(null)
   const [removing, setRemoving] = useState<string | null>(null)
+  // 'Try again' was pressed: the card it was on stays while the read runs, on Novu too.
+  const [retried, setRetried] = useState(false)
   const heading = useRef<HTMLHeadingElement>(null)
   const addButton = useRef<HTMLButtonElement>(null)
   const addName = useRef<HTMLInputElement>(null)
   const focusAfter = useActionFocus()
   const retryFocus = useRetryFocus(heading)
-  const byId = (id: string) => () => document.getElementById(id)
+  const byId = (id: string): Find => () => document.getElementById(id)
+  const orHeading = (id: string): Find => () => document.getElementById(id) ?? heading.current
   const toHeading = (): HTMLElement | null => heading.current
 
-  // Each action ends once the list shows its outcome; focus then goes to the
-  // heading, or back to the field or button that ran it when it was refused.
-  const run = async (action: () => Promise<void>, fallback: string, refused: () => HTMLElement | null) => {
+  const offer = card.data?.offer ?? null
+  const listed = card.data?.contacts ?? null
+  // Delivery off (#109): contacts can only be removed, and nobody is said to be notified.
+  const paused = offer?.delivery === false
+  const channels = offer?.delivery ? offer.channels : []
+  const channel = draft.channel && channels.includes(draft.channel) ? draft.channel : channels[0] ?? 'email'
+  // A channel switched off since a contact was added (#109): no code is offered on it, and nobody on it is alerted.
+  const reachable = (contact: EmergencyContact) => channels.includes(contact.channel)
+
+  // Each action ends once the card shows its outcome; focus then goes to the heading, or where a refusal says. A
+  // refusal may read the list again first, or availability and the list when delivery may have been switched off.
+  const run = async (action: () => Promise<Find | void>, refused: (cause: unknown) => Refusal) => {
     if (busy) return
-    setBusy(true); setError(null); setNotice(null)
-    let target = toHeading
-    try { await action() } catch (cause) { setError(problem(cause, fallback)); target = refused }
-    finally { setBusy(false); focusAfter(target) }
+    setBusy(true); setError(null); setNotice(null); setDestinationInvalid(false)
+    let target: Find = toHeading
+    try { target = (await action()) ?? toHeading } catch (cause) {
+      const refusal = refused(cause)
+      setError(refusal.message); setDestinationInvalid(refusal.field ?? false); target = refusal.focus
+      if (refusal.read === 'availability') source.forget()
+      if (refusal.read) await card.reload()
+    } finally { setBusy(false); focusAfter(target) }
   }
 
   const add = (event: FormEvent) => {
     event.preventDefault()
+    const name = draft.name.trim(), destination = draft.destination.trim()
+    if (name.length < 2 || destination.length < 5) return
+    const notify = draft.notifyOnEmergencyAccess
     void run(async () => {
-      await api.addEmergencyContact({ ...draft, name: draft.name.trim(), destination: draft.destination.trim() })
+      await api.addEmergencyContact({ name, relationship: draft.relationship, channel, destination,
+        notifyOnEmergencyAccess: notify })
       setDraft(value => ({ ...value, name: '', destination: '' })); setAdding(false)
-      setNotice('Contact added. Send a verification code so they can be notified in an emergency.')
-      await contacts.reload()
-    }, 'The contact could not be added.', () => addName.current)
+      setNotice(notify ? 'Contact added. Send a verification code so they can be notified in an emergency.'
+        : `Contact added. ${NOTIFICATIONS_OFF} To have them notified, send a verification code and turn notifications on in Edit.`)
+      await card.reload()
+    }, (cause): Refusal => {
+      switch (problemCode(cause)) {
+        case 'EMERGENCY_CONTACT_DELIVERY_UNAVAILABLE':
+          setAdding(false)
+          return { message: 'Emergency contacts are not available right now, so this contact was not added.', focus: toHeading,
+            read: 'availability' }
+        case 'EMERGENCY_CONTACT_CHANNEL_UNAVAILABLE':
+          setDraft(value => ({ ...value, channel: null, destination: '' }))
+          return { message: `Emergency contacts cannot be reached by ${CHANNEL_WORDS[channel]} yet, so this contact was not added.`,
+            focus: orHeading('contact-destination'), read: 'availability' }
+        case 'EMERGENCY_CONTACT_DESTINATION_INVALID': case 'VALIDATION_FAILED':
+          return { message: `Enter a valid ${DESTINATION_LABELS[channel]}.`, focus: byId('contact-destination'), field: true }
+        default: return { message: problem(cause, 'The contact could not be added.'), focus: () => addName.current }
+      }
+    })
   }
 
-  const sendCode = async (contact: EmergencyContact) => {
-    if (busy) return
-    setBusy(true); setError(null); setNotice(null)
-    try {
-      const sent = await api.sendEmergencyContactVerification(contact.contactId)
-      setVerifying({ contactId: contact.contactId, challengeId: sent.challengeId, expiresAt: sent.expiresAt }); setCode('')
-      setNotice(`A code was sent to ${contact.destinationHint}. Ask ${contact.name} to read it to you.`)
-      focusAfter(byId(`contact-code-${contact.contactId}`))
-    } catch (cause) {
-      setError(problemCode(cause) === 'EMERGENCY_CONTACT_DELIVERY_UNAVAILABLE'
-        ? 'Contact verification is not available yet. This contact stays unverified and will not be notified.'
-        : problem(cause, 'The verification code could not be sent.'))
-      focusAfter(byId(`contact-send-${contact.contactId}`))
-    } finally { setBusy(false) }
-  }
+  const sendCode = (contact: EmergencyContact) => void run(async () => {
+    const sent = await api.sendEmergencyContactVerification(contact.contactId)
+    setVerifying({ contactId: contact.contactId, challengeId: sent.challengeId, expiresAt: sent.expiresAt }); setCode('')
+    const expires = `It expires ${dateTime(sent.expiresAt)}.`
+    setNotice(sent.deliveryOutcome === 'unknown'
+      ? `We could not confirm the code was delivered to ${contact.destinationHint}. If ${contact.name} received it, ask them to read it to you. ${expires}`
+      : `A code was sent to ${contact.destinationHint}. Ask ${contact.name} to read it to you. ${expires}`)
+    return byId(`contact-code-${contact.contactId}`)
+  }, (cause): Refusal => {
+    // Delivery may have just been switched off for this patient (the card then lists contacts with Remove only), or
+    // this contact's channel; or the list is out of date. A code form open for this contact then has no code left.
+    const read = SEND_READS[problemCode(cause) ?? '']
+    if (read === 'list') setVerifying(value => value?.contactId === contact.contactId ? null : value)
+    return { message: sendFailure(cause, contact), focus: orHeading(`contact-send-${contact.contactId}`), ...(read ? { read } : {}) }
+  })
 
   const confirmCode = (event: FormEvent) => {
     event.preventDefault()
     if (!verifying || !/^\d{6}$/.test(code)) return
+    const { contactId, challengeId } = verifying
+    const notify = listed?.find(item => item.contactId === contactId)?.notifyOnEmergencyAccess ?? true
     void run(async () => {
-      await api.confirmEmergencyContactVerification(verifying.contactId, verifying.challengeId, code)
+      await api.confirmEmergencyContactVerification(contactId, challengeId, code)
+      // Verifying changes the contact's version: an edit open on it would be refused as a change made elsewhere.
+      setVerifying(null); setCode(''); setEditing(value => value?.contactId === contactId ? null : value)
+      setNotice(notify ? 'Contact verified. They will be notified if emergency access to your record is used.'
+        : `Contact verified. ${NOTIFICATIONS_OFF} To have them notified, turn notifications on in Edit.`)
+      await card.reload()
+    }, (cause): Refusal => {
+      if (problemCode(cause) !== 'EMERGENCY_CONTACT_NOT_FOUND') {
+        return { message: problem(cause, 'The code could not be verified.'), focus: byId(`contact-code-${contactId}`) }
+      }
+      // Removed elsewhere since the list was read.
       setVerifying(null); setCode('')
-      setNotice('Contact verified. They will be notified if emergency access to your record is used.')
-      await contacts.reload()
-    }, 'The code could not be verified.', byId(`contact-code-${verifying.contactId}`))
+      return { message: problem(cause, 'The code could not be verified.'), focus: toHeading, read: 'list' }
+    })
   }
 
   const saveEdit = (event: FormEvent) => {
     event.preventDefault()
     if (!editing) return
+    const { contactId } = editing
     void run(async () => {
-      await api.updateEmergencyContact(editing.contactId, { expectedVersion: editing.version, name: editing.name.trim(),
+      await api.updateEmergencyContact(contactId, { expectedVersion: editing.version, name: editing.name.trim(),
         relationship: editing.relationship, notifyOnEmergencyAccess: editing.notifyOnEmergencyAccess })
-      setEditing(null); setNotice('Contact updated.'); await contacts.reload()
-    }, 'The contact could not be updated.', byId(`contact-name-${editing.contactId}`))
+      setEditing(null); setNotice('Contact updated.'); await card.reload()
+    }, (cause): Refusal => {
+      if (problemCode(cause) === 'EMERGENCY_CONTACT_NOT_FOUND') {
+        // Removed elsewhere since the list was read (by the patient, or by support at the contact's request).
+        setEditing(null)
+        return { message: problem(cause, 'The contact could not be updated.'), focus: orHeading(`contact-edit-${contactId}`), read: 'list' }
+      }
+      if (problemCode(cause) !== 'EMERGENCY_CONTACT_VERSION_CONFLICT') {
+        return { message: problem(cause, 'The contact could not be updated.'), focus: byId(`contact-name-${contactId}`) }
+      }
+      // Changed elsewhere since it was read: the list is read again, so Edit opens with the current version.
+      setEditing(null)
+      return { message: 'This contact was changed in another window or on another device, so your change was not saved. '
+        + 'Its current details are shown now: edit it again if you still want to change it.',
+      focus: orHeading(`contact-edit-${contactId}`), read: 'list' }
+    })
   }
 
   const remove = (contactId: string) => void run(async () => {
     await api.deactivateEmergencyContact(contactId)
-    setRemoving(null); setNotice('Contact removed. They will no longer be notified.'); await contacts.reload()
-  }, 'The contact could not be removed.', byId(`contact-confirm-remove-${contactId}`))
+    setRemoving(null); setNotice('Contact removed. They will no longer be notified.'); await card.reload()
+  }, cause => ({ message: problem(cause, 'The contact could not be removed.'), focus: byId(`contact-confirm-remove-${contactId}`) }))
+
+  // Nothing is offered where the routes are not served (Novu), or while delivery is off for a patient with no
+  // contacts, and nothing shows on Novu before that is known. An action's own outcome is still said, and so is the
+  // outcome of 'Try again', whose heading then takes focus.
+  const hidden = !card.error && (card.data ? !offer || (paused && listed?.length === 0) : usesNovuBackend() && !retried)
+  if (hidden && !error && !notice && !retried) return null
+  const unoffered = hidden && retried && Boolean(card.data) && !error && !notice
 
   // Only the list is busy while it reloads: a notice outside it is not held back.
   return <div className="patient-card" aria-labelledby="emergency-contacts-heading">
     <h2 ref={heading} tabIndex={-1} id="emergency-contacts-heading">Emergency contacts</h2>
-    <p className="patient-field-hint">If a provider uses emergency access to your record, verified contacts are told
-      your first name, the facility, and the time. They never receive medical details. A contact is only notified
-      after they confirm a verification code and while notifications are on.</p>
-    {error && <p role="alert" className="patient-inline-error">{error}</p>}
-    <div role="status">{notice && <p className="patient-inline-success">{notice}</p>}</div>
-    {contacts.loading && !contacts.data && <p role="status" className="patient-loading">Loading your contacts…</p>}
-    {contacts.error && <div role="alert"><p>{contacts.error}</p><button ref={retryFocus.button} type="button" onClick={() => retryFocus.retry(contacts.reload)}>Try again</button></div>}
-    {contacts.data && !contacts.error && <div aria-busy={contacts.loading || undefined}>{contacts.data.length === 0
+    {!hidden && <p className="patient-field-hint">{usesNovuBackend() ? NOVU_ALERT : MAIN_ALERT}</p>}
+    {!hidden && paused && <p className="patient-field-hint">Alerts to emergency contacts are paused. Contacts cannot be added or
+      verified right now; you can still remove one.</p>}
+    {error && <p id="emergency-contacts-error" role="alert" className="patient-inline-error">{error}</p>}
+    <div role="status">{notice && <p className="patient-inline-success">{notice}</p>}
+      {unoffered && <p className="patient-field-hint">Emergency contacts are not available for your account right now.</p>}</div>
+    {!hidden && card.loading && !card.data && <p role="status" className="patient-loading">Loading your contacts…</p>}
+    {!hidden && card.error && <div role="alert"><p>{card.error}</p><button ref={retryFocus.button} type="button" onClick={() => { setRetried(true); retryFocus.retry(card.reload) }}>Try again</button></div>}
+    {!hidden && listed && !card.error && <div aria-busy={card.loading || undefined}>{listed.length === 0
       ? <p className="patient-empty">You have no emergency contacts.</p>
-      : <ul className="patient-list">{contacts.data.map(contact => <li key={contact.contactId} className="patient-access-item">
+      : <ul className="patient-list">{listed.map(contact => <li key={contact.contactId} className="patient-access-item">
         <div><strong>{contact.name}</strong>
-          <span>{RELATIONSHIP_LABELS[contact.relationship]} · {contact.channel === 'sms' ? 'SMS' : 'Email'} {contact.destinationHint}</span>
-          <span className={contact.eligibleForEmergencyNotification ? 'patient-status-tag patient-status-tag-ok' : 'patient-status-tag'}>
-            {contact.eligibleForEmergencyNotification ? 'Verified · will be notified in an emergency'
-              : contact.status === 'verified' ? 'Verified · notifications off' : 'Not verified · will not be notified'}</span>
+          <span>{RELATIONSHIP_LABELS[contact.relationship]} · {CHANNEL_LABELS[contact.channel]} {contact.destinationHint}</span>
+          <span className={contact.eligibleForEmergencyNotification && reachable(contact) ? 'patient-status-tag patient-status-tag-ok' : 'patient-status-tag'}>
+            {contactStatus(contact, paused, reachable(contact))}</span>
+          {reachable(contact) && contact.status === 'unverified' && contact.pendingVerification && verifying?.contactId !== contact.contactId
+            && <span>{pendingCode(contact.pendingVerification)}</span>}
+          {!paused && !reachable(contact) && contact.status === 'unverified'
+            && <span>Verification codes cannot be sent by {CHANNEL_WORDS[contact.channel]} right now.</span>}
+          <LastAlert notice={contact.lastNotification} />
         </div>
         <div className="patient-decision-actions">
-          {contact.status === 'unverified' && <button id={`contact-send-${contact.contactId}`} type="button" className="patient-secondary-button" disabled={busy}
-            onClick={() => void sendCode(contact)}>Send verification code <ItemName>to {contact.name}, {contact.destinationHint}</ItemName></button>}
-          <button id={`contact-edit-${contact.contactId}`} type="button" disabled={busy} onClick={() => setEditing({ contactId: contact.contactId, version: contact.version,
-            name: contact.name, relationship: contact.relationship, notifyOnEmergencyAccess: contact.notifyOnEmergencyAccess })}>Edit <ItemName>{contact.name}, {contact.destinationHint}</ItemName></button>
+          {reachable(contact) && contact.status === 'unverified' && <button id={`contact-send-${contact.contactId}`} type="button" className="patient-secondary-button" disabled={busy}
+            onClick={() => sendCode(contact)}>Send verification code <ItemName>to {contact.name}, {contact.destinationHint}</ItemName></button>}
+          {!paused && <button id={`contact-edit-${contact.contactId}`} type="button" disabled={busy} onClick={() => setEditing({ contactId: contact.contactId, version: contact.version,
+            name: contact.name, relationship: contact.relationship, notifyOnEmergencyAccess: contact.notifyOnEmergencyAccess })}>Edit <ItemName>{contact.name}, {contact.destinationHint}</ItemName></button>}
           <button id={`contact-remove-${contact.contactId}`} type="button" disabled={busy} onClick={() => setRemoving(contact.contactId)}>Remove <ItemName>{contact.name}, {contact.destinationHint}</ItemName></button>
         </div>
-        {verifying?.contactId === contact.contactId && <form className="patient-deny-form" onSubmit={confirmCode}>
+        {!paused && verifying?.contactId === contact.contactId && <form className="patient-deny-form" onSubmit={confirmCode}>
           <label>Code from {contact.name}<input id={`contact-code-${contact.contactId}`} autoFocus inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6}
             required value={code} onChange={event => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))} /></label>
           <button type="submit" disabled={busy || !/^\d{6}$/.test(code)}>Verify contact</button></form>}
-        {editing?.contactId === contact.contactId && <form className="patient-form patient-contact-form" onSubmit={saveEdit}>
+        {!paused && editing?.contactId === contact.contactId && <form className="patient-form patient-contact-form" onSubmit={saveEdit}>
           <label>Name<input id={`contact-name-${contact.contactId}`} autoFocus required minLength={2} maxLength={120} value={editing.name}
             onChange={event => setEditing({ ...editing, name: event.target.value })} aria-describedby={`contact-name-hint-${contact.contactId}`} /></label>
           <p id={`contact-name-hint-${contact.contactId}`} className="patient-field-hint">At least 2 characters.</p>
@@ -183,31 +394,37 @@ export function EmergencyContactsCard() {
           <button id={`contact-confirm-remove-${contact.contactId}`} type="button" className="patient-secondary-button" disabled={busy} onClick={() => remove(contact.contactId)}>Confirm removal</button>
           <button type="button" disabled={busy} onClick={() => { setRemoving(null); focusAfter(byId(`contact-remove-${contact.contactId}`)) }}>Keep contact</button></div>}
       </li>)}</ul>}</div>}
-    <p id="emergency-contacts-limit" className="patient-field-hint">You can add up to 5 emergency contacts.</p>
-    {!adding ? <button ref={addButton} type="button" className="patient-secondary-button" disabled={busy || (contacts.data?.length ?? 0) >= 5}
-      aria-describedby="emergency-contacts-limit"
-      onClick={() => setAdding(true)}>Add emergency contact</button>
-      : <form className="patient-form patient-contact-form" onSubmit={add}>
-        <label>Contact name<input ref={addName} autoFocus required minLength={2} maxLength={120} autoComplete="off" value={draft.name}
-          onChange={event => setDraft({ ...draft, name: event.target.value })} aria-describedby="contact-name-hint" /></label>
-        <p id="contact-name-hint" className="patient-field-hint">At least 2 characters.</p>
-        <label>Relationship<select value={draft.relationship}
-          onChange={event => setDraft({ ...draft, relationship: event.target.value as EmergencyContactRelationship })}>
-          {EMERGENCY_CONTACT_RELATIONSHIPS.map(value => <option key={value} value={value}>{RELATIONSHIP_LABELS[value]}</option>)}</select></label>
-        <label>How should we reach them?<select value={draft.channel}
-          onChange={event => setDraft({ ...draft, channel: event.target.value as 'sms' | 'email', destination: '' })}>
-          <option value="sms">SMS</option><option value="email">Email</option></select></label>
-        <label>{draft.channel === 'sms' ? 'Phone number' : 'Email address'}<input required autoComplete="off"
-          type={draft.channel === 'sms' ? 'tel' : 'email'} inputMode={draft.channel === 'sms' ? 'tel' : 'email'}
-          maxLength={254} value={draft.destination} onChange={event => setDraft({ ...draft, destination: event.target.value })} /></label>
-        <label className="patient-checkbox"><input type="checkbox" checked={draft.notifyOnEmergencyAccess}
-          onChange={event => setDraft({ ...draft, notifyOnEmergencyAccess: event.target.checked })} />
-          Notify this contact if emergency access is used</label>
-        <div className="patient-decision-actions"><button type="submit" className="patient-primary-button"
-          disabled={busy || draft.name.trim().length < 2 || !draft.destination.trim()}>Save contact</button>
-          <button type="button" className="patient-secondary-button" disabled={busy}
-            onClick={() => { setAdding(false); focusAfter(() => addButton.current) }}>Cancel</button></div>
-      </form>}
+    {!hidden && channels.length > 0 && <>
+      <p id="emergency-contacts-limit" className="patient-field-hint">You can add up to 5 emergency contacts.</p>
+      {!adding ? <button ref={addButton} type="button" className="patient-secondary-button" disabled={busy || (listed?.length ?? 0) >= 5}
+        aria-describedby="emergency-contacts-limit"
+        onClick={() => setAdding(true)}>Add emergency contact</button>
+        : <form className="patient-form patient-contact-form" onSubmit={add}>
+          <label>Contact name<input ref={addName} autoFocus required minLength={2} maxLength={120} autoComplete="off" value={draft.name}
+            onChange={event => setDraft({ ...draft, name: event.target.value })} aria-describedby="contact-name-hint" /></label>
+          <p id="contact-name-hint" className="patient-field-hint">At least 2 characters.</p>
+          <label>Relationship<select value={draft.relationship}
+            onChange={event => setDraft({ ...draft, relationship: event.target.value as EmergencyContactRelationship })}>
+            {EMERGENCY_CONTACT_RELATIONSHIPS.map(value => <option key={value} value={value}>{RELATIONSHIP_LABELS[value]}</option>)}</select></label>
+          {/* Only the channels Identity can deliver on now (#109); with one, it is not asked. */}
+          {channels.length > 1 && <label>How should we reach them?<select value={channel}
+            onChange={event => { setDraft({ ...draft, channel: event.target.value as EmergencyContactChannel, destination: '' }); setDestinationInvalid(false) }}>
+            {channels.map(value => <option key={value} value={value}>{CHANNEL_LABELS[value]}</option>)}</select></label>}
+          <label>{channel === 'sms' ? 'Phone number' : 'Email address'}<input id="contact-destination" required minLength={5} maxLength={254} autoComplete="off"
+            type={channel === 'sms' ? 'tel' : 'email'} inputMode={channel === 'sms' ? 'tel' : 'email'} value={draft.destination}
+            onChange={event => { setDraft({ ...draft, destination: event.target.value }); setDestinationInvalid(false) }}
+            aria-invalid={destinationInvalid || undefined}
+            aria-describedby={describedBy(channel === 'sms' && 'contact-destination-hint', destinationInvalid && 'emergency-contacts-error')} /></label>
+          {channel === 'sms' && <p id="contact-destination-hint" className="patient-field-hint">For example 0803 123 4567 or +234 803 123 4567.</p>}
+          <label className="patient-checkbox"><input type="checkbox" checked={draft.notifyOnEmergencyAccess}
+            onChange={event => setDraft({ ...draft, notifyOnEmergencyAccess: event.target.checked })} />
+            Notify this contact if emergency access is used</label>
+          <div className="patient-decision-actions"><button type="submit" className="patient-primary-button"
+            disabled={busy || draft.name.trim().length < 2 || draft.destination.trim().length < 5}>Save contact</button>
+            <button type="button" className="patient-secondary-button" disabled={busy}
+              onClick={() => { setAdding(false); focusAfter(() => addButton.current) }}>Cancel</button></div>
+        </form>}
+    </>}
   </div>
 }
 

@@ -3,7 +3,7 @@ import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import type { AccessRequest, EmergencyContact } from '../api'
 import { AccessPage, SettingsPage } from '../routes/Portal'
 import { AccountDeletionCard, EmergencyContactsCard } from '../routes/AccountSafety'
-import { json, press, profile, renderPortal } from './portalHarness'
+import { json, press, problem, profile, renderPortal } from './portalHarness'
 
 /**
  * A region marked aria-busy may have its changes held back by assistive
@@ -45,7 +45,9 @@ describe('busy regions while content loads (PR-03)', () => {
     const contacts = held()
     const deletion = held()
     renderPortal(<SettingsPage />, path => path === '/identity/me' ? json(profile)
-      : path === '/identity/me/emergency-contacts' ? contacts.promise : deletion.promise)
+      // hid-system main serves no availability read: the read held is the list's, and the deletion read has its own answer.
+      : path.endsWith('/availability') ? problem(404, 'NOT_FOUND', `Cannot GET /api/v1${path}`)
+        : path === '/identity/me/emergency-contacts' ? contacts.promise : deletion.promise)
 
     for (const text of ['Loading your contacts…', 'Checking your account…']) {
       const status = await screen.findByText(text)
@@ -56,6 +58,9 @@ describe('busy regions while content loads (PR-03)', () => {
       contacts.release(json([]))
       deletion.release(json({ waitingPeriodSeconds: 1_209_600, confirmationTtlSeconds: 600, request: null }))
     })
+    expect(await screen.findByText('You have no emergency contacts.')).toBeTruthy()
+    expect(await screen.findByRole('button', { name: 'Continue to delete account' })).toBeTruthy()
+    expect(screen.queryByRole('alert')).toBeNull()
   })
 
   it('marks content already on screen busy while it reloads', async () => {
@@ -106,6 +111,8 @@ describe('an action\'s notice is not inside the region that reloads', () => {
   const contacts = (first: () => Response) => {
     const reads = heldReload(first)
     renderPortal(<EmergencyContactsCard />, (path, method) => {
+      // hid-system main serves no availability read (the card then keeps main's behaviour): the reads held are the list's.
+      if (path.endsWith('/availability')) return problem(404, 'NOT_FOUND', `Cannot GET /api/v1${path}`)
       if (method === 'GET') return reads.read()
       if (path.endsWith('/verification')) return json({ challengeId: 'b0000000-0000-4000-8000-000000000001', expiresAt: '2026-10-08T10:05:00Z', deliveryOutcome: 'accepted' }, 202)
       if (path.endsWith('/verification/confirm')) return json({ contactId: contact.contactId, status: 'verified' })

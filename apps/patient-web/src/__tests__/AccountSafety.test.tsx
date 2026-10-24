@@ -7,6 +7,7 @@ import { createPatientApi, type AccountDeletionStatus, type EmergencyContact } f
 import { createTestSessionValue, SessionContext } from '../session'
 import { AccountDeletionCard, EmergencyContactsCard } from '../routes/AccountSafety'
 import { AccessPage } from '../routes/Portal'
+import { described } from './portalHarness'
 
 function json(value: unknown, status = 200) {
   return new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } })
@@ -130,7 +131,26 @@ describe('patient emergency contacts', () => {
     expect(within(items[0]!).getByText('Not verified · will not be notified')).toBeTruthy()
     expect(within(items[1]!).getByText('Verified · will be notified in an emergency')).toBeTruthy()
     expect(within(items[2]!).getByText('Verified · notifications off')).toBeTruthy()
-    expect(screen.getByText(/never receive medical details/)).toBeTruthy()
+    // What hid-system main's alert carries: the first name, the facility and the time.
+    expect(screen.getByText('If a provider uses emergency access to your record, verified contacts are told your first name, '
+      + 'the facility, and the time. They never receive medical details. A contact is only notified after they confirm a '
+      + 'verification code and while notifications are on.')).toBeTruthy()
+    expect(screen.queryByText(/last four characters of your Health ID/)).toBeNull()
+  })
+
+  it('keeps main\'s card where availability is not served (main-v1, 404): the list, every action and both channels', async () => {
+    const requests = renderWith(<EmergencyContactsCard />, path => path.endsWith('/availability')
+      ? json({ code: 'NOT_FOUND', detail: 'Cannot GET /api/v1/identity/me/emergency-contacts/availability' }, 404) : json([contact()]))
+    expect(await screen.findByText('Not verified · will not be notified')).toBeTruthy()
+    expect(requests.map(request => `${request.method} ${request.path}`)).toEqual([
+      'GET /api/v1/identity/me/emergency-contacts/availability', 'GET /api/v1/identity/me/emergency-contacts'])
+    expect(screen.queryByRole('alert')).toBeNull()
+    for (const name of [/^Send verification code/, /^Edit/, /^Remove/]) expect(screen.getByRole('button', { name })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Add emergency contact' }))
+    const reach = screen.getByRole('combobox', { name: 'How should we reach them?' }) as HTMLSelectElement
+    expect([...reach.options].map(option => option.textContent)).toEqual(['SMS', 'Email'])
+    expect(reach.value).toBe('sms')
+    expect(described(screen.getByRole('textbox', { name: 'Phone number' }))).toBe('For example 0803 123 4567 or +234 803 123 4567.')
   })
 
   it('adds a contact, sends a code, and verifies it with the challenge', async () => {
@@ -161,10 +181,22 @@ describe('patient emergency contacts', () => {
   })
 
   it('keeps the contact unverified when delivery is not yet available', async () => {
-    renderWith(<EmergencyContactsCard />, (path, method) => method === 'GET' ? json([contact()])
+    const requests = renderWith(<EmergencyContactsCard />, (path, method) => method === 'GET' ? json([contact()])
       : json({ code: 'EMERGENCY_CONTACT_DELIVERY_UNAVAILABLE', detail: 'Emergency contact verification is not yet available' }, 503))
     fireEvent.click(await screen.findByRole('button', { name: 'Send verification code to Chidi Okafor, +234•••••567' }))
-    expect((await screen.findByRole('alert')).textContent).toContain('stays unverified and will not be notified')
+    // Main's 503 carries its code: it is said as switched off, not as a send to try again later.
+    expect((await screen.findByRole('alert')).textContent)
+      .toBe('Contact verification is not available yet. This contact stays unverified and will not be notified.')
+    expect(screen.queryByRole('textbox', { name: /Code from/ })).toBeNull()
+    await waitFor(() => expect(requests.filter(request => request.path.endsWith('/availability'))).toHaveLength(2))
+  })
+
+  it('says a code could not be sent right now when the gateway answers 503 UPSTREAM_UNAVAILABLE', async () => {
+    renderWith(<EmergencyContactsCard />, (path, method) => method === 'GET' ? json([contact()])
+      : json({ code: 'UPSTREAM_UNAVAILABLE', detail: 'A required platform service is temporarily unavailable.', retryable: false }, 503))
+    fireEvent.click(await screen.findByRole('button', { name: 'Send verification code to Chidi Okafor, +234•••••567' }))
+    expect((await screen.findByRole('alert')).textContent).toBe('The code could not be sent right now. This contact stays '
+      + 'unverified and will not be notified until it is verified. Try again later.')
     expect(screen.queryByRole('textbox', { name: /Code from/ })).toBeNull()
   })
 

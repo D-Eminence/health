@@ -153,6 +153,8 @@ describe('registered browser client', () => {
     await patient.client.get('/api/v1/identity/me/account-deletion')
     await patient.client.post('/api/v1/identity/me/account-deletion/confirm', {})
     await patient.client.post(`/api/v1/identity/me/emergency-contacts/${contact}/verification/confirm`, {})
+    // hid-system #109's availability read, which the card makes first (Novu; main answers 404).
+    await patient.client.get('/api/v1/identity/me/emergency-contacts/availability')
     await patient.client.post(`/api/v1/identity/me/consent-grants/${grant}/revoke`, { reason: 'No longer needed' })
     // The staff grant-close command is never reachable from the patient portal.
     await expect(patient.client.post(`/api/v1/identity/consent-grants/${grant}/close`, { reason: 'x' }))
@@ -160,10 +162,12 @@ describe('registered browser client', () => {
     // Emergency-contact alert delivery is a workload route, not a browser route.
     await expect(patient.client.post('/api/v1/notifications/emergency-contact-alert', {}))
       .rejects.toMatchObject({ code: 'INTERNAL_ROUTE' })
-    expect(patient.fetchImpl).toHaveBeenCalledTimes(4)
+    expect(patient.fetchImpl).toHaveBeenCalledTimes(5)
 
     const staff = harness('staff-web')
     await expect(staff.client.get('/api/v1/identity/me/emergency-contacts'))
+      .rejects.toBeInstanceOf(BoundaryViolationError)
+    await expect(staff.client.get('/api/v1/identity/me/emergency-contacts/availability'))
       .rejects.toBeInstanceOf(BoundaryViolationError)
     await expect(staff.client.post('/api/v1/identity/me/account-deletion', {}))
       .rejects.toBeInstanceOf(BoundaryViolationError)

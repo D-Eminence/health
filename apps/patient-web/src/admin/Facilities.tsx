@@ -1,10 +1,12 @@
-import { useCallback, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { usesNovuBackend } from '../backendContract'
 import { adminApi, PAGE_SIZE, type AdminActor, type AuditFilters, type Facility } from './api'
 import { AssistedRegistrationPanel } from './AssistedRegistration'
+import { isProblem } from './problems'
 import {
-  ActionForm, Page, Pager, Refresh, ResourceView, Status, Table, date, has, label, pageNumber, useResource, useUrlFilters,
+  ActionForm, Page, Pager, Refresh, ResourceView, Status, Table, date, has, label, pageNumber, useGovernedSubmit, useResource,
+  useUrlFilters,
 } from './ui'
 
 /** `ListFacilitiesDto` statuses. */
@@ -24,6 +26,90 @@ function FacilityStatusAction({ facility, reload }: { facility: Facility; reload
         { status, reason }, { version: facility.version, idempotencyKey })
       reload()
     }} />
+}
+
+/** Health ID support's number, which an alert gives for a facility without its own (hid-system #109). */
+const SUPPORT_PHONE = '+234 702 671 7252'
+/** This section's explanations of the alert phone command's refusals (hid-system #109 admin.service.ts). */
+const ALERT_PHONE_PROBLEMS: Readonly<Record<string, string>> = {
+  ADMIN_INVALID_FACILITY_PHONE: 'Enter the facility phone in international format (+234...) or as an 11-digit number starting with 0.',
+  VERSION_CONFLICT: 'This facility changed since it was read. It has been read again: check it, then make your change again.',
+  PERMISSION_DENIED: 'Changing the alert phone number needs the platform.facility.manage permission. Ask a Super Admin.',
+  // ADMIN_NO_STATE_CHANGE: the number given is the one already set (after normalising, so 0803... matches +234803...).
+  ADMIN_STATE_CONFLICT: 'The facility already has this alert phone number, or none if you are clearing it. Nothing was changed.',
+}
+const ALERT_PHONE = 'admin-facility-alert-phone'
+
+/**
+ * The phone an emergency-contact alert gives for this facility (hid-system #109, which only Novu serves: main has
+ * neither the field nor the route). Changing it needs platform.facility.manage, a reason, the submission's
+ * Idempotency-Key and If-Match with the facility's version, which it bumps as a status change does. Cleared, alerts
+ * give Health ID support's number.
+ */
+function FacilityAlertPhone({ facility, actor, reload }: { facility: Facility; actor: AdminActor; reload: () => void }) {
+  const [phone, setPhone] = useState('')
+  const [clearing, setClearing] = useState(false)
+  const [reason, setReason] = useState('')
+  const [phoneRefused, setPhoneRefused] = useState(false)
+  const [notice, setNotice] = useState<string | null>(null)
+  const phoneInput = useRef<HTMLInputElement>(null)
+  const governed = useGovernedSubmit()
+  const current = facility.alertPhoneE164 ?? null
+  // Clearing applies only while a number is set: a reload may find it already cleared, and the checkbox gone.
+  const clearingNow = clearing && current !== null
+  const ready = reason.trim().length >= 8 && (clearingNow || phone.trim().length > 0)
+  // Said at the field, and focus moves there once the field shows it, so its description is read.
+  useEffect(() => { if (phoneRefused) phoneInput.current?.focus() }, [phoneRefused])
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (governed.busy || !ready) return
+    setNotice(null); setPhoneRefused(false)
+    let refused: unknown = null
+    const saved = await governed.submit(async idempotencyKey => {
+      try { return await adminApi.setFacilityAlertPhone(facility, clearingNow ? null : phone.trim(), reason.trim(), idempotencyKey) }
+      catch (caught) { refused = caught; throw caught }
+    }, 'The alert phone number could not be saved. Try again.', ALERT_PHONE_PROBLEMS)
+    if (saved) {
+      setPhone(''); setReason(''); setClearing(false)
+      setNotice(saved.alertPhoneE164 ? `Saved. Alerts about emergency access here now give ${saved.alertPhoneE164}.`
+        : `Cleared. Alerts about emergency access here now give Health ID support's number (${SUPPORT_PHONE}).`)
+      reload()
+    } else if (isProblem(refused, 'ADMIN_INVALID_FACILITY_PHONE')) {
+      setPhoneRefused(true)
+    } else if (isProblem(refused, 'VERSION_CONFLICT')) reload()
+  }
+
+  return <section className="admin-panel" aria-labelledby={`${ALERT_PHONE}-title`}>
+    <div className="admin-panel-head"><div><h2 id={`${ALERT_PHONE}-title`}>Alert phone number</h2>
+      <p>The number a patient's emergency contacts are told to call when a health worker here uses emergency access to the
+        patient's record.</p></div></div>
+    <dl className="admin-detail-grid">
+      <div><dt>Current number</dt><dd>{current ?? `Not set: alerts give Health ID support's number (${SUPPORT_PHONE})`}
+        {current && <small>Changed {date(facility.alertPhoneUpdatedAt)}</small>}</dd></div>
+    </dl>
+    {has(actor, 'platform.facility.manage') ? <details className="admin-action">
+      <summary>Change the alert phone number</summary>
+      <form onSubmit={event => void submit(event)} className="admin-action-form">
+        {current && <label className="admin-checkbox"><input type="checkbox" checked={clearing}
+          onChange={event => { setClearing(event.target.checked); setPhoneRefused(false) }} />
+          Clear it: alerts then give Health ID support's number</label>}
+        <label>Facility phone number<input ref={phoneInput} type="tel" autoComplete="off" maxLength={32} value={phone}
+          disabled={clearingNow} onChange={event => { setPhone(event.target.value); setPhoneRefused(false) }}
+          aria-invalid={phoneRefused || undefined}
+          aria-describedby={phoneRefused ? `${ALERT_PHONE}-hint ${ALERT_PHONE}-error` : `${ALERT_PHONE}-hint`} /></label>
+        <small id={`${ALERT_PHONE}-hint`} className="admin-note">In international format (+234...) or as an 11-digit number
+          starting with 0.</small>
+        <label>Reason for changing the alert phone number<textarea required minLength={8} maxLength={500} rows={3}
+          value={reason} onChange={event => setReason(event.target.value)} /></label>
+        <button type="submit" className="admin-primary" disabled={governed.busy || !ready}>
+          {governed.busy ? 'Saving…' : clearingNow ? 'Clear alert phone number' : 'Save alert phone number'}
+        </button>
+        {governed.error && <p id={`${ALERT_PHONE}-error`} className="admin-error" role="alert">{governed.error}</p>}
+        <div role="status">{notice && <p className="admin-success">{notice}</p>}</div>
+      </form>
+    </details> : <p className="admin-note">Changing it needs the platform.facility.manage permission.</p>}
+  </section>
 }
 
 export function FacilitiesPage({ actor }: { actor: AdminActor }) {
@@ -141,6 +227,9 @@ function FacilityDetail({ facilityId, actor }: { facilityId: string; actor: Admi
         </dl>
         {has(actor, 'platform.facility.manage') && <FacilityStatusAction facility={facility} reload={reload} />}
       </section>
+      {/* hid-system #109, which only Novu serves: main has neither the field nor the route. A change is audited
+          against the facility, so the page's reload reads the audit excerpts again too. */}
+      {usesNovuBackend() && <FacilityAlertPhone facility={facility} actor={actor} reload={reload} />}
       {/* A designation change is audited against the facility: the audit excerpts are read again with it. */}
       <AssistedRegistrationPanel facilityId={facility.id} facilityStatus={facility.status} refresh={refreshes} actor={actor}
         onChanged={() => setRevision(value => value + 1)} />

@@ -24,7 +24,13 @@ export interface Versioned { version: number }
 export interface Facility extends Versioned {
   id: string; organizationId: string; organizationName: string; name: string; code: string; status: string
   statusReason: string | null; statusChangedAt: string | null; createdAt: string; membershipCount: number
+  /** The phone an emergency-contact alert gives for it, null when not set: Novu's read since hid-system #109 only. */
+  alertPhoneE164?: string | null; alertPhoneUpdatedAt?: string | null
 }
+/** `POST /admin/facilities/:id/alert-phone` (hid-system #109): the phone as stored, and the facility's new version. */
+export interface FacilityAlertPhoneSaved extends Versioned { facilityId: string; alertPhoneE164: string | null; replayed: boolean }
+/** `POST /admin/emergency-contacts/opt-out` (hid-system #109): how many contacts and patients, never who. */
+export interface EmergencyContactOptOut { contacts: number; patients: number; replayed: boolean }
 /**
  * A facility's designation for facility-assisted registration (hid-system main
  * f9dbaf0: #85, ADR-063). Version 0, with `designated` false and every other
@@ -512,6 +518,22 @@ export const adminApi = {
   setAssistedRegistration(facilityId: string, input: AssistedRegistrationDesignationInput, version: number, idempotencyKey: string) {
     return adminApi.command<AssistedRegistrationSaved>(at('/api/v1/admin/facilities', facilityId, 'assisted-registration'), input,
       { version, idempotencyKey, creates: true })
+  },
+  /**
+   * The phone an emergency-contact alert gives for a facility (hid-system #109, Novu only), or null to clear it so
+   * alerts give Health ID support's. As the status command: If-Match with the facility version, which it bumps,
+   * the submission's key and a reason.
+   */
+  setFacilityAlertPhone(facility: Pick<Facility, 'id' | 'version'>, phone: string | null, reason: string, idempotencyKey: string) {
+    return adminApi.command<FacilityAlertPhoneSaved>(at('/api/v1/admin/facilities', facility.id, 'alert-phone'), { phone, reason },
+      { version: facility.version, idempotencyKey })
+  },
+  /**
+   * Support stops emergency-access alerts to someone who asked (hid-system #109, Novu only): every patient's
+   * contact at that destination is removed. The destination goes in the POST body, never in a URL.
+   */
+  optOutEmergencyContact(input: { channel: 'email' | 'sms'; destination: string; reason: string }, idempotencyKey: string) {
+    return adminApi.command<EmergencyContactOptOut>('/api/v1/admin/emergency-contacts/opt-out', input, { idempotencyKey })
   },
   /**
    * A search term is a name or an email address, so it goes in a POST body, never in a URL that browser

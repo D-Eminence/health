@@ -7,6 +7,7 @@ import {
 import { ApprovalsPage } from './Approvals'
 import { ClinicianApplicationPage, ClinicianApplicationsPage } from './ClinicianApplications'
 import { AuditPage } from './Audit'
+import { EmergencyContactAlertsPage } from './EmergencyContacts'
 import { BrandLogo } from '../BrandLogo'
 import { OverviewPage } from './Dashboard'
 import { FacilitiesPage, FacilityDetailPage } from './Facilities'
@@ -295,6 +296,7 @@ export function App() {
               <Route path="facilities" element={<Area path="/admin/facilities" actor={actor}><FacilitiesPage actor={actor} /></Area>} />
               <Route path="facilities/:facilityId" element={<Area path="/admin/facilities" actor={actor}><FacilityDetailPage actor={actor} /></Area>} />
               <Route path="principals" element={<Area path="/admin/principals" actor={actor}><PrincipalsPage actor={actor} /></Area>} />
+              <Route path="emergency-contacts" element={<Area path="/admin/emergency-contacts" actor={actor}><EmergencyContactAlertsPage /></Area>} />
               <Route path="approvals" element={<Area path="/admin/approvals" actor={actor}><ApprovalsPage actor={actor} /></Area>} />
               <Route path="reviews" element={<Area path="/admin/reviews" actor={actor}><ReviewsPage /></Area>} />
               <Route path="clinicians" element={<Area path="/admin/clinicians" actor={actor}><ClinicianApplicationsPage actor={actor} /></Area>} />

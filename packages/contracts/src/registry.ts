@@ -13,7 +13,9 @@ export type EndpointAuth = { readonly kind: 'public' | 'authenticated' }
  * docs/BILLING_SPEC.md; callers treat a 404 as "not available yet"), support
  * chat, and the staging-branch routes for hospital chat and `/imported-records`,
  * which hid-system's `staging` and `staging-novu-ci-20261005` branches serve (their
- * screens are off unless the build turns them on).
+ * screens are off unless the build turns them on), and hid-system #109's
+ * emergency-contact availability read and admin commands, which only
+ * `staging-novu-ci-20261005` serves.
  */
 export type ContractStatus = 'surface-verified' | 'proposed'
 export interface EndpointDescriptor {
@@ -56,6 +58,15 @@ const STAFF_CHAT_NOTE = 'Staff sessions holding ehr.record-chat.use, for direct 
   + 'Off by default in hid-system (ADR-069, 0101): 503 RECORD_CHAT_DISABLED until RECORD_CHAT_STAFF_ENABLED and the platform control are on.'
 const RECORD_CHAT_NOTE = 'Patient sessions only (403 PATIENT_SESSION_REQUIRED otherwise). Off by default in hid-system '
   + '(ADR-068, 0100): 503 RECORD_CHAT_DISABLED until the flag and the platform control are on.'
+/**
+ * Emergency contacts: hid-system main's patient-safety controller (services/identity-api/src/patient-safety), which
+ * hid-system #109 serves on staging-novu-ci-20261005 under the same paths and answers, with an availability read and
+ * two admin commands main does not have.
+ */
+const EMERGENCY_CONTACTS_NOTE = 'Served by hid-system main and, from hid-system #109, by staging-novu-ci-20261005. There, adding a '
+  + 'contact and sending a code need delivery on for the patient (409 EMERGENCY_CONTACT_DELIVERY_UNAVAILABLE otherwise); '
+  + 'listing, changing and removing do not.'
+const EMERGENCY_CONTACTS_NOVU = 'Served by staging-novu-ci-20261005 from hid-system #109; not served by hid-system main (404).'
 
 export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   proposed(r('support.chat','support','/api/v1/support/chat',P,true,undefined,CHAT_NOTE)),
@@ -144,10 +155,14 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('identity.accountDeletion','identity','/api/v1/identity/me/account-deletion',GP),
   r('identity.accountDeletionConfirm','identity','/api/v1/identity/me/account-deletion/confirm',P),
   r('identity.accountDeletionCancel','identity','/api/v1/identity/me/account-deletion/cancel',P),
-  r('identity.emergencyContacts','identity','/api/v1/identity/me/emergency-contacts',GP),
+  r('identity.emergencyContacts','identity','/api/v1/identity/me/emergency-contacts',GP,false,undefined,EMERGENCY_CONTACTS_NOTE),
+  proposed(r('identity.emergencyContactsAvailability','identity','/api/v1/identity/me/emergency-contacts/availability',G,false,undefined,
+    `${EMERGENCY_CONTACTS_NOVU} Patient sessions only, no database work: 200 { delivery, channels }; delivery is false while `
+    + 'delivery is off or the account is outside the pilot.')),
   r('identity.emergencyContact','identity','/api/v1/identity/me/emergency-contacts/:contactId',P),
   r('identity.emergencyContactDeactivate','identity','/api/v1/identity/me/emergency-contacts/:contactId/deactivate',P),
-  r('identity.emergencyContactVerification','identity','/api/v1/identity/me/emergency-contacts/:contactId/verification',P),
+  r('identity.emergencyContactVerification','identity','/api/v1/identity/me/emergency-contacts/:contactId/verification',P,false,undefined,
+    EMERGENCY_CONTACTS_NOTE),
   r('identity.emergencyContactVerificationConfirm','identity','/api/v1/identity/me/emergency-contacts/:contactId/verification/confirm',P),
   r('identity.facilityAudit','identity','/api/v1/audit/events',G,false,one('GET','audit.read'),
     'Gateway routes this path to Identity. Requires healthcare-operations purpose and active facility.'),
@@ -325,8 +340,18 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('admin.overview','admin','/api/v1/admin/overview',G,false,one('GET','platform.admin.access')),
   r('admin.controls','admin','/api/v1/admin/controls',GP,false,{GET:['platform.control.read'],POST:['platform.control.manage']}),
   r('admin.facilities','admin','/api/v1/admin/facilities',G,false,one('GET','platform.facility.read')),
-  r('admin.facility','admin','/api/v1/admin/facilities/:facilityId',G,false,one('GET','platform.facility.read')),
+  r('admin.facility','admin','/api/v1/admin/facilities/:facilityId',G,false,one('GET','platform.facility.read'),
+    'On staging-novu-ci-20261005 since hid-system #109 the read also answers alertPhoneE164 and alertPhoneUpdatedAt.'),
   r('admin.facilityStatus','admin','/api/v1/admin/facilities/:facilityId/status',P,false,one('POST','platform.facility.manage')),
+  // hid-system #109: the phone an emergency-contact alert gives for a facility, and support's opt-out of a recipient.
+  proposed(r('admin.facilityAlertPhone','admin','/api/v1/admin/facilities/:facilityId/alert-phone',P,false,
+    one('POST','platform.facility.manage'),
+    `${EMERGENCY_CONTACTS_NOVU} Body { phone (null clears), reason (8 to 500) }, If-Match with the facility version and `
+    + 'Idempotency-Key; answers { facilityId, alertPhoneE164, version, replayed }. 400 ADMIN_INVALID_FACILITY_PHONE.')),
+  proposed(r('admin.emergencyContactOptOut','admin','/api/v1/admin/emergency-contacts/opt-out',P,false,
+    one('POST','platform.emergency-contact.manage'),
+    `${EMERGENCY_CONTACTS_NOVU} Body { channel, destination (5 to 254), reason (8 to 500) } and Idempotency-Key; answers `
+    + '{ contacts, patients, replayed }, counts only.')),
   // hid-system main f9dbaf0 (#85, ADR-063): a facility's designation for assisted registration.
   r('admin.facilityAssistedRegistration','admin','/api/v1/admin/facilities/:facilityId/assisted-registration',GP,false,
     {GET:['platform.facility.read'],POST:['platform.facility.manage']},
