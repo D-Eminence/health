@@ -92,6 +92,18 @@ describe('new facility sign-ups', () => {
       .toBe(state === 'all' ? 'New facility sign-ups (0 to review)' : 'New facility sign-ups')
   })
 
+  it('shows a row whose optional details are missing without failing', async () => {
+    mocks.api.selfServiceFacilities.mockResolvedValue({ items: [signUp({ organizationType: null as unknown as string,
+      cacHint: '', administratorAccountId: null, administratorAccountStatus: null, activatedAt: null })] })
+    open(<SelfServiceFacilitiesPage actor={actor(REVIEWER)} />)
+    const item = await card('IKEJA CARE LIMITED')
+    const shown = (term: string) => within(item).getByText(term).nextElementSibling?.textContent
+    expect(shown('Organization type')).toBe('Not provided')
+    expect(shown('CAC number')).toBe('Not shown')
+    expect(shown('Account status')).toBe('No account')
+    expect(shown('Signed up')).toBe('Not available')
+  })
+
   it('says when nothing is waiting', async () => {
     mocks.api.selfServiceFacilities.mockResolvedValue({ items: [] })
     open(<SelfServiceFacilitiesPage actor={actor(REVIEWER)} />)

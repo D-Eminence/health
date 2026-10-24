@@ -85,7 +85,7 @@ function SignUpCard({ facility, actor, onDone }: { facility: SelfServiceFacility
       <div><dt>Legal name (CAC)</dt><dd>{facility.organizationName}</dd></div>
       <div><dt>CAC number</dt><dd>{facility.cacHint || 'Not shown'}</dd></div>
       <div><dt>Product</dt><dd>{label(facility.productCode)}</dd></div>
-      <div><dt>Organization type</dt><dd>{label(facility.organizationType)}</dd></div>
+      <div><dt>Organization type</dt><dd>{facility.organizationType ? label(facility.organizationType) : 'Not provided'}</dd></div>
       <div><dt>Administrator</dt><dd>{facility.administratorName}<small>{facility.administratorEmail}</small></dd></div>
       <div><dt>Account status</dt><dd>{facility.administratorAccountStatus ? label(facility.administratorAccountStatus) : 'No account'}</dd></div>
       <div><dt>Signed up</dt><dd>{date(facility.activatedAt)}</dd></div>
