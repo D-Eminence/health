@@ -314,6 +314,31 @@ describe('"Use a different NIN" at the contact, code and password steps', () => 
     expect(phone.getAttribute('aria-describedby')?.split(' ')).toContain('enroll-record-name')
   })
 
+  it.each([
+    ['keeps', 30, true],
+    ['keeps', 4_000, true],
+    ['drops', 6_000, false],
+  ])('%s the start answer\'s name when a later read of the registration differs in expiry by %i ms', async (_, gap, kept) => {
+    // The start answer computes the expiry just after the insert; later reads return the row's, a little earlier.
+    const row = Date.parse(EXPIRES)
+    const tied = { stage: 'verify_contact', expiresAt: EXPIRES, googleOnboardingRequired: true, googleOnboardingExpiresAt: SOON }
+    let started = false
+    renderPortal(<Enrollment />, (path, method, body) => {
+      if (path === `${BASE}/current`) return started ? json(tied) : problem(404, 'ENROLLMENT_NOT_FOUND', 'No pending enrollment was found')
+      if (path === BASE && method === 'POST') {
+        started = true
+        return json({ stage: 'verify_contact', recordName: NAME, expiresAt: new Date(row + gap).toISOString() })
+      }
+      return gateway({ stage: 'verify_contact' })(path, method, body)
+    }, anonymous)
+    await submitNin()
+    await screen.findByLabelText('Phone number')
+    expect(verified()?.textContent).toContain(NAME)
+    await press(button()!)
+    expect(await screen.findByText(kept ? TIED(at(SOON)) : TIED_UNNAMED(`after ${at(SOON)}`))).toBeTruthy()
+    expect(Boolean(verified()?.textContent?.includes(NAME))).toBe(kept)
+  })
+
   it('drops the name it shows when Identity answers for another registration, started since in another tab', async () => {
     const other = { stage: 'set_password', expiresAt: new Date(Date.parse(EXPIRES) + 10 * 60 * 1000).toISOString(),
       googleOnboardingRequired: true, googleOnboardingExpiresAt: SOON }
