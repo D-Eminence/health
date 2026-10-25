@@ -428,7 +428,10 @@ Pharmacy pages list incoming orders
 (`GET /{lab|pharmacy}/order-routes?view=incoming`, refreshed every two
 minutes and on focus), accept one only after the patient's Health ID or date
 of birth is confirmed (a mismatch says the tries left from the problem's
-`attemptsLeft`), decline with a reason, and name the patient only on work
+`attemptsLeft`; with a date of birth, the order's reference read from the
+patient's app, never filled from the card, names the order, and without it a
+mismatch asks for the reference instead of counting down), decline with a
+reason, and name the patient only on work
 from another facility. Only a laboratory receives lab requests and only a
 pharmacy prescriptions, though the receive permission comes with the role at
 every facility, and no answer says whether a facility receives: the pages
@@ -436,11 +439,15 @@ go by the session's facility type (`receivingHere` in `staff/orderRoutes.ts`).
 A hospital or clinic that signed itself up reads and says nothing about
 other facilities; a governed facility, whose type the session does not
 carry, reads Incoming once and says nothing until an order or routed work
-shows up. A Health ID typed to find a patient's orders, which the route
-takes in its query string, is sent only when asked, never by the timer. The patient portal lists the patient's sent orders on
+shows up. A Health ID typed to find a patient's orders goes in the body of
+`POST /{lab|pharmacy}/order-routes/search`, never in an address, and is sent
+only when asked, never by the timer. The patient portal lists the patient's sent orders on
 Access and consent with the clinician's attestation as confirmed, and offers
-Stop while one waits; the console finds an order by its reference or Health
-ID (a Health ID once per Find; a row is found again by its reference),
+Stop while one waits; an order marked entered in error stays listed by
+reference, state and facilities only (`enteredInError`). The console finds an
+order by its reference or Health ID (a Health ID in the body of
+`POST /admin/order-routes/search`, once per Find; a row is found again by its
+reference),
 closes it (`If-Match`) while its access may still be open, and shows and
 changes a facility's listing on demand, in words that depend on what the
 console knows of the facility's type and review. A 404 from any of these routes means the backend does not serve
