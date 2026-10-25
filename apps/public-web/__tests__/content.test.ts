@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { PRODUCTS, findProduct } from '../content/products'
 import { AUDIENCES, ROUTES, SOLUTION_AUDIENCES, TRUST } from '../content/site'
 import { PATIENT_FAQ, PATIENT_JOURNEY } from '../content/patient'
-import { SOLUTIONS_PAGE } from '../content/pages'
+import { PRIVACY_PAGE, SOLUTIONS_PAGE } from '../content/pages'
 import { formatPublicPrice, parsePublicPrices } from '../lib/commercial-api'
 import {
   toDemoSubmission,
@@ -80,6 +80,18 @@ describe('solutions content', () => {
         expect(findProduct(slug)).toBeDefined()
       }
     }
+  })
+})
+
+describe('privacy notice', () => {
+  // "Setup Your Facility" is facility self sign-up on production (Novu, P4): finishing it makes the administrator's staff
+  // account at once, and support reviews the facility afterwards (P4b leftover 4).
+  it('says what facility sign-up creates, never that it creates no staff account', () => {
+    const point = PRIVACY_PAGE.points.find(item => item.title === 'Organization applications')
+    expect(point?.body).not.toMatch(/does not create a staff account/)
+    expect(point?.body).toContain('When the administrator confirms their email with the code and chooses a password, facility '
+      + 'sign-up creates the facility and the administrator’s staff account straight away; Health ID support then reviews '
+      + 'every new facility.')
   })
 })
 

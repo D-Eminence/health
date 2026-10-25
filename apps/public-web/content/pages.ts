@@ -143,7 +143,7 @@ export const PRIVACY_PAGE = {
     },
     {
       title: 'Organization applications',
-      body: 'The facility setup form sends the product, facility type, CAC registration identifier and proposed administrator contact to Health ID for verification and review. Completing missing organization details requires an email code. An application does not create a staff account.',
+      body: 'The facility setup form sends the product, facility type, CAC registration identifier and proposed administrator contact to Health ID for verification and review. Completing missing organization details requires an email code. When the administrator confirms their email with the code and chooses a password, facility sign-up creates the facility and the administrator’s staff account straight away; Health ID support then reviews every new facility.',
     },
     {
       title: 'Please do not send patient information',
