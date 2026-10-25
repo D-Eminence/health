@@ -4,6 +4,9 @@ import { Badge, Card } from '@hid/ui'
 import { staffApi, type AccessRequest } from '../api'
 import { useStaff } from '../App'
 import { accessRequestsError } from './AccessRequests'
+import { FacilityCheckCard } from './ReviewBanner'
+import { usesNovuBackend } from '../../backendContract'
+import { roleLabels } from '../staffAccess'
 
 const modules = [
   { title: 'Patient access', to: '/provider/patients', permission: 'identity.patient.read', detail: 'Look up a Health ID after consent, patient PIN, or emergency authorization.' },
@@ -35,7 +38,8 @@ export function Dashboard() {
     <div className="staff-page-head"><p className="staff-eyebrow">Provider workspace</p><h1>Good to see you, {session.actor.displayName?.split(' ')[0] ?? 'colleague'}.</h1><p>Working at {facility?.name ?? 'no selected facility'}. All clinical activity uses your current membership and is checked by the backend.</p></div>
     {!facility && <Card className="staff-card"><h2>Select a facility</h2><p>Choose your active facility above to open permitted workflows.</p></Card>}
     {facility && <div className="staff-grid">
-      <Card className="staff-card"><h2>Active facility</h2><p>{facility.name}</p><Badge tone="information">{facility.roles.join(', ') || 'Staff'}</Badge></Card>
+      <Card className="staff-card"><h2>Active facility</h2><p>{facility.name}</p><Badge tone="information">{(usesNovuBackend() ? roleLabels(facility.roles) : facility.roles.join(', ')) || 'Staff'}</Badge></Card>
+      <FacilityCheckCard facility={facility} />
       {permissions.includes('identity.consent.write') && <Card className="staff-card"><h2>Access requests</h2><p>{requests ? `${requests.filter(request => request.status === 'pending').length} pending request${requests.filter(request => request.status === 'pending').length === 1 ? '' : 's'}` : loadError || 'Loading requests…'}</p><Link to="/provider/requests" className="staff-text-link">Review requests →</Link></Card>}
       {activePatient && <Card className="staff-card"><h2>Current patient</h2><p>{activePatient.lookup.patient.fullName ?? activePatient.hid}</p><Link to="/provider/clinical" className="staff-text-link">Open clinical record →</Link></Card>}
     </div>}

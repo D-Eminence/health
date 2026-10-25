@@ -8,14 +8,15 @@ import type { StaffLoginChallenge, StaffSession } from '../api'
 import { AuthLayout } from '../../AuthLayout'
 import { loadTurnstileScript, turnstileSize } from '../../Turnstile'
 import {
-  CLINICIAN_STATUS_PATH, PROVIDER_ENROLLMENT_PATH, providerEnrollmentHref, resolveStaffProductHostname, STAFF_RECOVERY_PATH,
-  staffLoginAction, staffRecoveryHref, staffSignInHref,
+  CLINICIAN_STATUS_PATH, PROVIDER_ENROLLMENT_PATH, providerEnrollmentHref, resolveStaffProductHostname, STAFF_JOIN_PATH,
+  STAFF_RECOVERY_PATH, staffLoginAction, staffRecoveryHref, staffSignInHref,
 } from '../../productHostname'
 import { staffLandingPath } from '../navigation'
 import { staffReturnPath } from '../session'
 import { STAFF_MFA_FACTOR_UNPROVEN, STAFF_MFA_UNAVAILABLE, StaffMfaSteps, type StaffMfaLook } from './StaffMfaSteps'
 import { ClinicianSignUpEntry, PageLink } from '../clinician/ClinicianSignUpEntry'
-import { servesClinicianApplications } from '../../backendContract'
+import { servesClinicianApplications, usesNovuBackend } from '../../backendContract'
+import { capturedStaffInvitation } from '../invitationCapture'
 
 /**
  * Said when Identity ended the sign-in for want of an authenticator
@@ -55,6 +56,8 @@ function passwordRefusal(caught: unknown): string {
  * record for a facility administrator, say (staffLandingPath, P4).
  */
 function getStaffLandingPath(search: string, session: StaffSession): string {
+  // An invitation link carried through this sign-in (Novu, P4b) is accepted first, whatever the return address.
+  if (usesNovuBackend() && capturedStaffInvitation()) return STAFF_JOIN_PATH
   const product = resolveStaffProductHostname(window.location.hostname)?.route
   const returnTo = staffReturnPath(new URLSearchParams(search).get('returnTo'))
   if (returnTo && returnTo !== product) return returnTo

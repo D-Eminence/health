@@ -172,3 +172,66 @@ export function clinicianMainSiteHref(hostname: string, path: ClinicianPagePath)
 export function clinicianPageHref(hostname: string, path: ClinicianPagePath): string {
   return clinicianMainSiteHref(hostname, path) ?? path
 }
+
+/**
+ * A facility's staff invitation (P4b, Novu only): the public page the invitation email links to, on the main site
+ * (app in production, staging on staging), where hid-system accepts its security check (`staff-invitation`). The link
+ * carries the invitation in its fragment (`#<invitationId>.<token>`), which never reaches a server.
+ */
+export const STAFF_INVITATION_PATH = '/provider/invitation'
+
+/** Where existing staff accept an invitation, signed in on their own staff site (P4b). */
+export const STAFF_JOIN_PATH = '/provider/staff/join'
+
+/**
+ * Where an invitation is opened from here: on a staff product host or the admin site, in production or staging, the
+ * main site's page; anywhere else this site's own. As providerEnrollmentHref: one of three fixed values, nothing copied
+ * from the hostname, no return address.
+ */
+export function staffInvitationHref(hostname: string): string {
+  const productHost = /^(?:ehr|lab|pharmacy|migrate|outreach|admin)\.(staging\.)?healthidentitydirectory\.com$/.exec(normalizeHostname(hostname))
+  if (!productHost) return STAFF_INVITATION_PATH
+  return `${productHost[1] ? MAIN_SITE_ORIGINS.staging : MAIN_SITE_ORIGINS.production}${STAFF_INVITATION_PATH}`
+}
+
+/** The deployment a Health ID hostname belongs to; null for any other host (local, preview). */
+function deploymentOf(hostname: string): 'production' | 'staging' | null {
+  const normalized = normalizeHostname(hostname)
+  if (normalized === 'staging.healthidentitydirectory.com' || normalized.endsWith('.staging.healthidentitydirectory.com')) return 'staging'
+  if (normalized === 'healthidentitydirectory.com' || normalized.endsWith('.healthidentitydirectory.com')) return 'production'
+  return null
+}
+
+/** The staff site whose sign-in each kind of work opens on (hid-system's Turnstile actions per host). */
+export type StaffSiteKey = 'ehr' | 'lab' | 'pharmacy'
+
+const STAFF_SITE_HOSTNAMES: Record<'production' | 'staging', Record<StaffSiteKey, string>> = {
+  production: { ehr: 'ehr.healthidentitydirectory.com', lab: 'lab.healthidentitydirectory.com',
+    pharmacy: 'pharmacy.healthidentitydirectory.com' },
+  staging: { ehr: 'ehr.staging.healthidentitydirectory.com', lab: 'lab.staging.healthidentitydirectory.com',
+    pharmacy: 'pharmacy.staging.healthidentitydirectory.com' },
+}
+
+/** The staff site a facility role works on: Laboratory scientists on lab, pharmacists on pharmacy, everyone else on ehr. */
+export function staffSiteForRole(role: string): StaffSiteKey {
+  return role === 'lab' ? 'lab' : role === 'pharmacist' ? 'pharmacy' : 'ehr'
+}
+
+/** The staff site a self-signed-up facility's administrator works on, by the facility's type (P4b). */
+export function staffSiteForOrganizationType(organizationType: string): StaffSiteKey {
+  return organizationType === 'laboratory' ? 'lab' : organizationType === 'pharmacy' ? 'pharmacy' : 'ehr'
+}
+
+/**
+ * The hostname of the staff site `site` in this deployment (production or staging), or null anywhere else, where this
+ * portal's own staff sign-in is used. One of six fixed values: nothing copied from the hostname.
+ */
+export function staffSiteHostname(site: StaffSiteKey, hostname: string): string | null {
+  const deployment = deploymentOf(hostname)
+  return deployment ? STAFF_SITE_HOSTNAMES[deployment][site] : null
+}
+
+/** The host a facility role signs in on (P4b): ehr, lab or pharmacy, production or staging; null elsewhere. */
+export function staffHostForRole(role: string, hostname: string): string | null {
+  return staffSiteHostname(staffSiteForRole(role), hostname)
+}

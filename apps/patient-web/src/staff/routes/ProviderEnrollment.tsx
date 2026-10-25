@@ -7,13 +7,17 @@ import { AuthLayout } from '../../AuthLayout'
 import { useDocumentTitle } from '../../authSteps'
 import { Turnstile } from '../../Turnstile'
 import { usesNovuBackend } from '../../backendContract'
-import { PROVIDER_ENROLLMENT_PATH, providerEnrollmentHref, STAFF_SIGN_IN_PATH, staffSignInHref } from '../../productHostname'
+import {
+  PROVIDER_ENROLLMENT_PATH, providerEnrollmentHref, STAFF_SIGN_IN_PATH, staffSignInHref, staffSiteForOrganizationType,
+  staffSiteHostname,
+} from '../../productHostname'
 import { getEnvironment } from '../env'
 import { providerEnrollmentApi, staffApi, type ProviderEnrollmentAvailability, type ProviderEnrollmentProfile,
   type ProviderEnrollmentStart, type StaffLoginChallenge } from '../api'
 import { announceStaffSessionChange } from '../session'
 import { StaffMfaSteps, type StaffMfaCalls, type StaffMfaLook } from './StaffMfaSteps'
 import { ClinicianSignUpEntry } from '../clinician/ClinicianSignUpEntry'
+import { BETWEEN_FACILITIES } from '../betweenFacilities'
 
 type Product = 'ehr' | 'migrate' | 'laboratory' | 'pharmacy'
 type OrganizationType = 'clinic' | 'hospital' | 'laboratory' | 'pharmacy' | 'other'
@@ -42,27 +46,31 @@ const productOptions: Record<OrganizationType, Product[]> = {
 }
 
 /**
- * What a self-signed-up administrator really gets on Novu (P4, owner decision
- * "all types now"). Activation makes one account with the org_admin role, and
- * Novu grants org_admin organization.manage, workforce.manage, audit.read,
- * identity.registration.write/approve and outreach registration and campaign
- * read/write only (migrations 0006, 0011, 0024, 0038). The portal's
- * navigation therefore shows Overview, Patient registration, Facility audit
- * and Outreach, whatever product was chosen: not the Clinical record
- * (ehr.encounter.read), Laboratory (lab.work-item.read), Pharmacy
- * (pharmacy.work-item.read) or Document OCR (ocr.job.read). Nothing on Novu,
- * and no page here, adds staff to a facility, so the administrator is its
- * only user. The product is stored and changes nothing yet.
+ * What a self-signed-up facility gets on Novu, by its type (P4b, owner decision "full access after support's review").
+ * Activation gives the administrator the Provider Portal at once, with a restricted role that reaches no patient
+ * record. When Health ID support has checked the facility, its administrator manages staff and vouches for their
+ * licences, and gets the type's own role (doctor or nurse, laboratory scientist, pharmacist) only with a licence support
+ * has checked; the facility's type, not its product, decides what opens. Never a workspace the type will not get, and
+ * never more than "within one working day". A laboratory's and a pharmacy's sentence on orders from other facilities
+ * is betweenFacilities.ts's.
  */
-export const PRODUCT_NOTES: Readonly<Record<Product, string>> = {
-  ehr: 'EHR sign-ups get the Provider Portal for now. The clinical record, and adding staff accounts for your doctors '
-    + 'and nurses, aren’t available yet.',
-  laboratory: 'Laboratory sign-ups get the Provider Portal for now. The Laboratory workspace, and adding staff '
-    + 'accounts for your team, aren’t available yet.',
-  pharmacy: 'Pharmacy sign-ups get the Provider Portal for now. The Pharmacy workspace, and adding staff accounts '
-    + 'for your team, aren’t available yet.',
-  migrate: 'Migrate sign-ups get the Provider Portal for now. The document migration workspace, and adding staff '
-    + 'accounts for your team, aren’t available yet.',
+export const ORGANIZATION_TYPE_NOTES: Readonly<Record<OrganizationType, string>> = {
+  hospital: 'Your Provider Portal opens at once. When Health ID support has checked your facility, usually within one '
+    + 'working day, the clinical record, emergency access and the Laboratory and Pharmacy work lists open, and you can add '
+    + 'your doctors, nurses and other staff. If you are a licensed doctor or nurse, you can also get clinical access yourself.',
+  clinic: 'Your Provider Portal opens at once. When Health ID support has checked your facility, usually within one '
+    + 'working day, the clinical record, emergency access and the Laboratory and Pharmacy work lists open, and you can add '
+    + 'your doctors, nurses and other staff. If you are a licensed doctor or nurse, you can also get clinical access yourself.',
+  laboratory: 'Your Provider Portal opens at once. When Health ID support has checked your facility, usually within one '
+    + 'working day, the Laboratory workspace opens, and you can add your laboratory scientists and receptionists. '
+    + `${BETWEEN_FACILITIES.laboratory.signUp} If you are a licensed laboratory scientist, you can also work in the `
+    + 'Laboratory workspace yourself.',
+  pharmacy: 'Your Provider Portal opens at once. When Health ID support has checked your facility, usually within one '
+    + 'working day, the Pharmacy workspace opens, and you can add your pharmacists and receptionists. '
+    + `${BETWEEN_FACILITIES.pharmacy.signUp} If you are a licensed pharmacist, you can also work in the Pharmacy `
+    + 'workspace yourself.',
+  other: 'Your Provider Portal opens at once. When Health ID support has checked your facility, usually within one '
+    + 'working day, you can add your staff. Health ID support agrees with you which access you need.',
 }
 
 function EnrollmentButton({ primary, ...rest }: { primary?: boolean } & ButtonHTMLAttributes<HTMLButtonElement>) {
@@ -848,16 +856,51 @@ function EnrollmentSteps() {
   }
 
   /**
-   * "This isn't my organization": back to the details, kept, to correct them. The confirmed sign-up stays open, and
-   * holds the CAC number it was started with for 24 hours (0086, A8): Identity has no way for an applicant to close
-   * it, so the page says so, and asks for the number to be passed to support, who can reject it (Open applications).
+   * "This isn't my organization": the confirmed sign-up is closed (Novu, P4b: …/withdraw, from the enrollment cookie),
+   * so a mistyped CAC number no longer holds another company's, and the page goes back to the details, kept, to correct
+   * them. Withdrawing refuses no one later. When it can't be closed (an Identity without the route, a session that has
+   * ended, a fault), the sign-up may still hold the number for up to 24 hours (0086, A8): the page says so, and asks
+   * for the number to be passed to support, who can reject it (Open applications).
    */
-  function notMine() {
+  async function notMine() {
+    if (busy) return
+    setBusy(true)
+    setError(null)
+    let outcome: 'withdrawn' | 'kept' | 'fault' = 'kept'
+    try {
+      await providerEnrollmentApi.withdraw()
+      outcome = 'withdrawn'
+    } catch (reason) {
+      const refusal = refusalOf(reason, 'activate', false, novu)
+      if (refusal.kind === 'closed') { setBusy(false); setPassword(''); setAvailability('closed'); return }
+      // A browser signed in to Health ID can neither close nor finish the sign-up: it stays at the password step.
+      if (refusal.kind === 'message' && isHidApiError(reason) && reason.code === 'PROVIDER_ENROLLMENT_REQUIRES_SIGN_OUT') {
+        setBusy(false)
+        setError({ text: refusal.text })
+        return
+      }
+      if (refusal.kind === 'unavailable') outcome = 'fault'
+    }
+    setBusy(false)
     setPassword('')
+    if (outcome === 'withdrawn') {
+      // The closed sign-up no longer holds its CAC number for its email: another email may sign up for it at once.
+      const closedSignUp = cacProductKey(startDetails())
+      setFirstStarts(map => {
+        if (!map.has(closedSignUp)) return map
+        const next = new Map(map)
+        next.delete(closedSignUp)
+        return next
+      })
+      setUnapplied(null)
+    }
     startAgain()
-    setError({ text: 'Check your details, and the CAC registration number on your CAC certificate. Correct them, then '
-      + 'select Continue. No account has been created. For up to 24 hours, nobody else can sign up with the CAC number '
-      + 'you entered.', support: 'held' })
+    const check = 'Check your details, and the CAC registration number on your CAC certificate. Correct them, then select '
+      + 'Continue. No account has been created.'
+    setError(outcome === 'withdrawn'
+      ? { text: `${check} We’ve closed that sign-up, so the CAC number you entered is free again.` }
+      : { text: `${outcome === 'fault' ? 'We couldn’t close that sign-up just now. ' : ''}${check} For up to 24 hours, `
+        + 'nobody else can sign up with the CAC number you entered.', support: 'held' })
   }
 
   /** Back to the code in force, with the facility type and administrator name it carries (Unapplied). */
@@ -910,7 +953,7 @@ function EnrollmentSteps() {
   const codeLimitIn = secondsUntil(codeLimitAt, now) || (codeLimited ? resendIn : 0)
   // Back at the details of a sign-up Identity accepted, with its email changed (otherEmailThanFirst).
   const kept = stage === 'details' ? otherEmailThanFirst(details) : null
-  const productNote = novu ? PRODUCT_NOTES[productCode] : null
+  const productNote = novu ? ORGANIZATION_TYPE_NOTES[organizationType] : null
   // The address as Identity has it: the code was sent to it, and the administrator signs in with it.
   const administratorEmail = email.trim().toLowerCase()
   const accountEmail = registering?.administratorEmail ?? administratorEmail
@@ -1075,7 +1118,7 @@ function EnrollmentSteps() {
               {registeringFailed && <p className="patient-field-hint">We couldn’t load your organization’s registered name just
                 now. <button type="button" className="patient-text-button" disabled={busy}
                   onClick={() => void readRegisteringAgain()}>Try again</button></p>}
-              <button type="button" className="patient-text-button" onClick={notMine}>This isn’t my organization</button>
+              <button type="button" className="patient-text-button" disabled={busy} onClick={() => void notMine()}>This isn’t my organization</button>
             </div>}
             <p id="provider-password-hint" className="patient-field-hint">{novu
               ? `Choose a password of at least 12 characters. You’ll use it with ${accountEmail} to sign in. Once your account `
@@ -1102,7 +1145,8 @@ function EnrollmentSteps() {
 
         {!closed && stage === 'sign-in' && (novu ? <MaybeActive email={accountEmail} /> : <SignInToFinish reason={signInReason} />)}
 
-        {!closed && stage === 'done' && <FacilityReady email={accountEmail} product={productCode} onContinue={openWorkspace} />}
+        {!closed && stage === 'done' && <FacilityReady email={accountEmail}
+          organizationType={registering?.organizationType ?? organizationType} onContinue={openWorkspace} />}
 
         {!closed && stage === 'help' && help && <section className="patient-form" aria-labelledby="provider-enroll-help-title">
           <FocusedHeading id="provider-enroll-help-title">{help.title}</FocusedHeading>
@@ -1112,9 +1156,13 @@ function EnrollmentSteps() {
           </> : <p className="patient-field-hint">{help.text} <SupportContact purpose="finish" /></p>}
         </section>}
 
-        {/* Clinician self sign-up (hid-system ADR-066): a doctor or nurse applies with their own account, not this one. */}
-        <p className="patient-auth-footer">Provider enrollment sets up a facility and its administrator's account, which can't also hold a
-          clinical role there: doctors and nurses apply with their own email address.</p>
+        {/* Clinician self sign-up (hid-system ADR-066): a doctor or nurse applies with their own account, not this one.
+            On Novu (P4b) the administrator adds the facility's staff, and may get clinical access with their own licence. */}
+        {novu
+          ? <p className="patient-auth-footer">Provider enrollment sets up a facility and its administrator’s account. Once Health
+            ID support has checked the facility, its administrator adds the doctors, nurses and other staff on the Staff page.</p>
+          : <p className="patient-auth-footer">Provider enrollment sets up a facility and its administrator's account, which can't also hold a
+            clinical role there: doctors and nurses apply with their own email address.</p>}
         <ClinicianSignUpEntry className="patient-auth-footer" />
     </AuthLayout>
   )
@@ -1122,18 +1170,22 @@ function EnrollmentSteps() {
 
 /**
  * Novu: the administrator is signed in on this site (the session cookies are
- * this host's only), and staff sign in on the EHR site from then on. What the
- * account opens is said as it is (PRODUCT_NOTES).
+ * this host's only), and in production signs in on the staff site of the
+ * facility's type from then on (P4b: ehr for a hospital, clinic or other
+ * provider, lab for a laboratory, pharmacy for a pharmacy), where support's
+ * check sends them once it is done. What the account opens is said as it is
+ * (ORGANIZATION_TYPE_NOTES).
  */
-function FacilityReady({ email, product, onContinue }: { email: string; product: Product; onContinue: () => void }) {
-  const ehrSite = staffSignInHref(window.location.hostname) !== null
+function FacilityReady({ email, organizationType, onContinue }: { email: string; organizationType: OrganizationType; onContinue: () => void }) {
+  const hostname = window.location.hostname
+  const site = staffSignInHref(hostname) !== null ? staffSiteHostname(staffSiteForOrganizationType(organizationType), hostname) : null
   return <section className="patient-form" aria-labelledby="provider-enroll-done-title">
     <FocusedHeading id="provider-enroll-done-title">Your facility is set up</FocusedHeading>
     <p className="patient-field-hint">You’re signed in as your facility’s administrator.</p>
-    <p className="patient-field-hint">{ehrSite
-      ? `Next time, sign in at ehr.healthidentitydirectory.com with ${email} and the password you just chose.`
+    <p className="patient-field-hint">{site
+      ? `Next time, sign in at ${site} with ${email} and the password you just chose.`
       : `Next time, sign in to the Provider Portal with ${email} and the password you just chose.`}</p>
-    <p className="patient-field-hint">{PRODUCT_NOTES[product]}</p>
+    <p className="patient-field-hint">{ORGANIZATION_TYPE_NOTES[organizationType]}</p>
     <button type="button" className="patient-primary-button" onClick={onContinue}>Continue to the Provider Portal</button>
   </section>
 }

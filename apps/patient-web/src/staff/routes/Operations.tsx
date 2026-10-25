@@ -2,13 +2,16 @@ import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNod
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { Badge, Button, Card, EmptyState, Field, Input, Select, Textarea } from '@hid/ui'
-import { staffApi, type LabAbnormalFlag, type LabAccession, type LabExecution, type LabResult, type LabResultValue, type LabImport, type LabSpecimen, type LabWorkItem, type OcrExtraction, type OcrJob, type OcrPublication, type OcrTargetDomain, type OcrValidation, type OcrValidationInput, type OutreachCampaign, type OutreachCase, type PharmacyImport, type PharmacyWorkItem } from '../api'
+import { staffApi, type Facility, type LabAbnormalFlag, type LabAccession, type LabExecution, type LabResult, type LabResultValue, type LabImport, type LabSpecimen, type LabWorkItem, type OcrExtraction, type OcrJob, type OcrPublication, type OcrTargetDomain, type OcrValidation, type OcrValidationInput, type OutreachCampaign, type OutreachCase, type PharmacyImport, type PharmacyWorkItem } from '../api'
 import { useStaff } from '../App'
 import { describedBy } from '../../authSteps'
 import { FieldInputError, problemProps, problemText, refusal, refusalText, type FieldProblem } from '../fieldProblem'
 import { BUSY, focusIsLost, UNAVAILABLE, useFocusById } from '../focus'
 import { useFieldProblems } from '../useFieldProblems'
 import { RevisionList } from '../labRevisions'
+import { usesNovuBackend } from '../../backendContract'
+import { BETWEEN_FACILITIES } from '../betweenFacilities'
+import { selfServiceReview, selfServiceType } from '../staffAccess'
 
 /**
  * OCR's answer when EHR, Lab or Pharmacy refused OCR's own workload identity
@@ -49,7 +52,16 @@ function PageHead({ eyebrow, title, children }: { eyebrow: string; title: string
 function useFacilityAccess() {
   const { state } = useStaff()
   const facility = state.status === 'ready' ? state.session.actor.facility : undefined
-  return { facilityId: facility?.id, membershipId: facility?.membershipId, permissions: facility?.permissions ?? [] }
+  return { facilityId: facility?.id, membershipId: facility?.membershipId, permissions: facility?.permissions ?? [], facility }
+}
+
+/**
+ * At a laboratory or pharmacy that signed itself up (Novu, P4b), where its work comes from today: one message per case,
+ * kept in betweenFacilities.ts so that it changes in one place when orders reach other facilities.
+ */
+function StandaloneWorkNote({ facility, kind }: { facility: Facility | undefined; kind: 'laboratory' | 'pharmacy' }) {
+  if (!usesNovuBackend() || !facility || selfServiceReview(facility) !== 'reviewed' || selfServiceType(facility) !== kind) return null
+  return <p className="staff-notice">{BETWEEN_FACILITIES[kind].workspace(facility.name)}</p>
 }
 
 function useFacilityList<T>(facilityId: string | undefined, enabled: boolean, loader: (id: string) => Promise<T[]>) {
@@ -543,7 +555,7 @@ function AccessionView({ facilityId, id, permissions, created, onChanged }: { fa
 }
 
 export function Laboratory() {
-  const { facilityId, permissions } = useFacilityAccess()
+  const { facilityId, permissions, facility } = useFacilityAccess()
   const canRead = permissions.includes('lab.work-item.read')
   const list = useFacilityList(facilityId, canRead, useCallback(async id => (await staffApi.labWorkItems(id)).items, []))
   const [selection, setSelection] = useState<{ facilityId: string; item: LabWorkItem; created?: string } | null>(null)
@@ -553,6 +565,7 @@ export function Laboratory() {
   if (!facilityId || !canRead) return <EmptyState titleAs="h1" title="Laboratory unavailable" description="This facility membership needs lab work-item read permission." />
   return <>
     <PageHead eyebrow="Provider workspace" title="Laboratory">Accepted EHR test orders at this facility. A separate accession records the specimen chain of custody.</PageHead>
+    <StandaloneWorkNote facility={facility} kind="laboratory" />
     <div className="staff-row staff-toolbar"><RefreshButton loading={list.loading} onRefresh={list.refresh}>Refresh work</RefreshButton></div>
     <ListState loading={list.loading} error={list.error} empty="No accepted lab work" retry={() => void list.refresh()} hasItems={Boolean(list.items?.length)} />
     <WorkListCap count={list.items?.length ?? 0} />
@@ -624,12 +637,13 @@ function PharmacyAction({ facilityId, item, permissions, onChanged }: { facility
 }
 
 export function Pharmacy() {
-  const { facilityId, permissions } = useFacilityAccess()
+  const { facilityId, permissions, facility } = useFacilityAccess()
   const canRead = permissions.includes('pharmacy.work-item.read')
   const list = useFacilityList(facilityId, canRead, useCallback(async id => (await staffApi.pharmacyWorkItems(id)).items, []))
   if (!facilityId || !canRead) return <EmptyState titleAs="h1" title="Pharmacy unavailable" description="This facility membership needs pharmacy work-item read permission." />
   return <>
     <PageHead eyebrow="Provider workspace" title="Pharmacy">Accepted prescriptions and full dispensing records for the active facility. The server checks patient authorization before dispensing or reversal.</PageHead>
+    <StandaloneWorkNote facility={facility} kind="pharmacy" />
     <div className="staff-row staff-toolbar"><RefreshButton loading={list.loading} onRefresh={list.refresh}>Refresh work</RefreshButton></div>
     <ListState loading={list.loading} error={list.error} empty="No accepted prescriptions" retry={() => void list.refresh()} hasItems={Boolean(list.items?.length)} />
     {/* hid-system #48: work whose prescription changed stays listed as accepted (INTERFACE_CONTRACT.md, Pharmacy). */}

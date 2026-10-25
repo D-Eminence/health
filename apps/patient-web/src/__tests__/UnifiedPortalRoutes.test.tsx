@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
@@ -450,5 +450,32 @@ describe('unified authenticated portal routes', () => {
     expect(calls.staffEmergencyRecords).toHaveBeenCalledWith('facility-1', 'patient-1')
     expect(calls.staffEncounters).not.toHaveBeenCalled()
     expect(screen.queryByRole('button', { name: 'Start encounter' })).toBeNull()
+  })
+})
+
+/** A facility's staff invitation (Novu, P4b): a public page beside provider enrollment, outside the workspace. */
+describe('the staff invitation page', () => {
+  afterEach(() => { vi.unstubAllEnvs() })
+
+  it('opens at /provider/invitation on a novu-v1 build without any session', async () => {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
+    open('/provider/invitation')
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Join your facility.' }, { timeout: 5000 })).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Enter your invitation code' })).toBeTruthy()
+    expect(screen.getByTestId('portal-path').textContent).toBe('/provider/invitation')
+    expect(calls.staffSession).not.toHaveBeenCalled()
+    expect(calls.staffRefresh).not.toHaveBeenCalled()
+    expect(calls.patientSession).not.toHaveBeenCalled()
+    expect(calls.adminSession).not.toHaveBeenCalled()
+  })
+
+  it('is no page on a main-v1 build: the address is the provider workspace’s, which asks for a sign-in', async () => {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'main-v1')
+    open('/provider/invitation')
+
+    await waitFor(() => expect(screen.getByTestId('portal-path').textContent).toBe('/provider/sign-in'), { timeout: 5000 })
+    expect(screen.queryByRole('heading', { name: 'Join your facility.' })).toBeNull()
+    expect(calls.staffSession).toHaveBeenCalled()
   })
 })

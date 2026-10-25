@@ -100,3 +100,27 @@ describe('a refusal that ends the staff session', () => {
     expect(session.staffSessionEndReason(sentIn)).toBeUndefined()
   })
 })
+
+/** The pages a staff sign-in may return to: Novu adds the Staff page and the signed-in join page (P4b). */
+describe('the return address of a staff sign-in', () => {
+  afterEach(() => { vi.unstubAllEnvs() })
+
+  it.each([
+    ['novu-v1', '/provider/staff', '/provider/sign-in?returnTo=%2Fprovider%2Fstaff'],
+    ['novu-v1', '/provider/staff/join', '/provider/sign-in?returnTo=%2Fprovider%2Fstaff%2Fjoin'],
+    ['main-v1', '/provider/staff', '/provider/sign-in'],
+    ['main-v1', '/provider/staff/join', '/provider/sign-in'],
+  ])('on a %s build, %s signs in at %s', async (contract, page, signIn) => {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', contract)
+    const { staffReturnPath, staffSignInPath } = await import('./session')
+    expect(staffSignInPath(page)).toBe(signIn)
+    expect(staffReturnPath(page)).toBe(contract === 'novu-v1' ? page : null)
+  })
+
+  it.each(['/provider/staff/', '/provider/staff/join/', '/provider/staff/join#id.token', '/provider/staff?view=all',
+    '/provider/staffx', '/provider/invitation'])('keeps nothing of %s on Novu', async page => {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
+    const { staffReturnPath } = await import('./session')
+    expect(staffReturnPath(page)).toBeNull()
+  })
+})

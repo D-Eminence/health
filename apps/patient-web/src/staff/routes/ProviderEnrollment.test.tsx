@@ -2,14 +2,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
-import { PRODUCT_NOTES, ProviderEnrollment } from './ProviderEnrollment'
+import { ORGANIZATION_TYPE_NOTES, ProviderEnrollment } from './ProviderEnrollment'
 
 /**
  * The portal's self-service provider enrollment (/provider/enroll), which the
  * public site's /provider/apply links to. hid-system's provider-enrollment
  * routes take the CAC, verify the administrator email and activate the account.
  */
-const api = vi.hoisted(() => ({ availability: vi.fn(), start: vi.fn(), verify: vi.fn(), profile: vi.fn(), activate: vi.fn() }))
+const api = vi.hoisted(() => ({ availability: vi.fn(), start: vi.fn(), verify: vi.fn(), profile: vi.fn(), activate: vi.fn(),
+  withdraw: vi.fn() }))
 const staff = vi.hoisted(() => ({ verifyMfa: vi.fn(), sendEnrollmentCode: vi.fn(), startEnrollment: vi.fn(), activateEnrollment: vi.fn() }))
 vi.mock('../api', () => ({ providerEnrollmentApi: api, staffApi: staff }))
 // Clinician self sign-up's way in (hid-system ADR-066) asks Identity whether intake is open.
@@ -45,6 +46,8 @@ beforeEach(() => {
   api.availability.mockResolvedValue({ open: true })
   api.start.mockResolvedValue({ accepted: true, challengeId: 'challenge-1' })
   api.verify.mockResolvedValue({ verified: true })
+  // "This isn't my organization" closes the confirmed sign-up (Novu, P4b).
+  api.withdraw.mockResolvedValue({ withdrawn: true })
   // Identity does not serve …/profile yet (P4 review): the page then shows the CAC number alone.
   api.profile.mockRejectedValue(new HidApiError(404, 'Cannot GET /api/v1/identity/provider-enrollments/profile', { code: 'NOT_FOUND' }))
   clinician.availability.mockResolvedValue({ open: false })
@@ -422,13 +425,24 @@ describe('facility self sign-up on Novu (P4)', () => {
     expect(username.hidden).toBe(true)
   })
 
+  // P4b: what opens depends on the facility's type, once Health ID support has checked it; a laboratory's and a
+  // pharmacy's workspace receive no orders from other facilities yet (betweenFacilities.ts).
   it.each([
-    ['Hospital', 'ehr', 'EHR sign-ups get the Provider Portal for now. The clinical record, and adding staff accounts for your '
-      + 'doctors and nurses, aren’t available yet.'],
-    ['Laboratory', 'laboratory', 'Laboratory sign-ups get the Provider Portal for now. The Laboratory workspace, and adding staff '
-      + 'accounts for your team, aren’t available yet.'],
-    ['Pharmacy', 'pharmacy', 'Pharmacy sign-ups get the Provider Portal for now. The Pharmacy workspace, and adding staff '
-      + 'accounts for your team, aren’t available yet.'],
+    ['Hospital', 'ehr', 'Your Provider Portal opens at once. When Health ID support has checked your facility, usually within '
+      + 'one working day, the clinical record, emergency access and the Laboratory and Pharmacy work lists open, and you can '
+      + 'add your doctors, nurses and other staff. If you are a licensed doctor or nurse, you can also get clinical access '
+      + 'yourself.'],
+    ['Laboratory', 'laboratory', 'Your Provider Portal opens at once. When Health ID support has checked your facility, usually '
+      + 'within one working day, the Laboratory workspace opens, and you can add your laboratory scientists and receptionists. '
+      + 'Health ID does not yet send test orders between facilities, so orders from hospitals and clinics can’t reach your '
+      + 'Laboratory workspace yet: it shows the tests ordered at your own laboratory. If you are a licensed laboratory '
+      + 'scientist, you can also work in the Laboratory workspace yourself.'],
+    ['Pharmacy', 'pharmacy', 'Your Provider Portal opens at once. When Health ID support has checked your facility, usually '
+      + 'within one working day, the Pharmacy workspace opens, and you can add your pharmacists and receptionists. Health ID '
+      + 'does not yet send prescriptions between facilities, so prescriptions from hospitals and clinics can’t reach your '
+      + 'Pharmacy workspace yet. If you are a licensed pharmacist, you can also work in the Pharmacy workspace yourself.'],
+    ['Other healthcare provider', 'ehr', 'Your Provider Portal opens at once. When Health ID support has checked your facility, '
+      + 'usually within one working day, you can add your staff. Health ID support agrees with you which access you need.'],
   ])('says honestly what a %s sign-up (%s) gets', async (type, product, note) => {
     await toDetails()
     fireEvent.click(screen.getByRole('radio', { name: type }))
@@ -437,12 +451,24 @@ describe('facility self sign-up on Novu (P4)', () => {
     expect(select('Product').getAttribute('aria-describedby')).toBe('provider-product-note')
   })
 
-  it('says honestly what a migrate sign-up gets', async () => {
+  it('keys the note to the facility type, not the product: a hospital signing up for Migrate gets the hospital’s', async () => {
     await toDetails('/provider/enroll?product=migrate')
     expect(select('Product').value).toBe('migrate')
-    expect(document.getElementById('provider-product-note')?.textContent).toBe('Migrate sign-ups get the Provider Portal for now. '
-      + 'The document migration workspace, and adding staff accounts for your team, aren’t available yet.')
-    expect(PRODUCT_NOTES.migrate).toBe(document.getElementById('provider-product-note')?.textContent)
+    expect(document.getElementById('provider-product-note')?.textContent).toBe(ORGANIZATION_TYPE_NOTES.hospital)
+    fireEvent.click(screen.getByRole('radio', { name: 'Clinic' }))
+    expect(document.getElementById('provider-product-note')?.textContent).toBe(ORGANIZATION_TYPE_NOTES.clinic)
+    // Never a promise beyond one working day, and never "rejected".
+    for (const note of Object.values(ORGANIZATION_TYPE_NOTES)) {
+      expect(note).toContain('usually within one working day')
+      expect(note).not.toMatch(/reject/i)
+    }
+  })
+
+  it('says an administrator adds the staff once support has checked the facility, not that they can’t hold a clinical role', async () => {
+    await toDetails()
+    expect(screen.getByText('Provider enrollment sets up a facility and its administrator’s account. Once Health ID support has '
+      + 'checked the facility, its administrator adds the doctors, nurses and other staff on the Staff page.')).toBeTruthy()
+    expect(screen.queryByText(/can't also hold a\s+clinical role there/)).toBeNull()
   })
 
   it('signs the administrator in, says where staff sign in next time, then opens the workspace', async () => {
@@ -458,7 +484,7 @@ describe('facility self sign-up on Novu (P4)', () => {
     expect(api.activate).toHaveBeenCalledWith('a-long-enough-password')
     expect(screen.getByText('You’re signed in as your facility’s administrator.')).toBeTruthy()
     expect(screen.getByText('Next time, sign in at ehr.healthidentitydirectory.com with ada@example.test and the password you just chose.')).toBeTruthy()
-    expect(screen.getByText(PRODUCT_NOTES.ehr)).toBeTruthy()
+    expect(screen.getByText(ORGANIZATION_TYPE_NOTES.hospital)).toBeTruthy()
     // The browser holds the session already: the other tabs are told at once; the page waits for the administrator.
     expect(TabChannel.posted).toEqual([TOLD])
     expect(reload).not.toHaveBeenCalled()
@@ -482,7 +508,7 @@ describe('facility self sign-up on Novu (P4)', () => {
 
     await screen.findByRole('heading', { name: 'Your facility is set up' })
     expect(screen.getByText('Next time, sign in to the Provider Portal with ada@example.test and the password you just chose.')).toBeTruthy()
-    expect(screen.getByText(PRODUCT_NOTES.laboratory)).toBeTruthy()
+    expect(screen.getByText(ORGANIZATION_TYPE_NOTES.laboratory)).toBeTruthy()
     expect(api.start).toHaveBeenCalledWith(expect.objectContaining({ productCode: 'laboratory', organizationType: 'laboratory' }))
   })
 
@@ -1049,12 +1075,12 @@ describe('facility self sign-up on Novu (P4)', () => {
       fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'a-long-enough-password' } })
       fireEvent.click(screen.getByRole('button', { name: 'This isn’t my organization' }))
 
-      // The confirmed sign-up stays open, holding the number (Identity has no way for the applicant to close it).
+      // The confirmed sign-up is closed (P4b, …/withdraw), so the mistyped number holds nothing.
       expect((await screen.findByRole('alert')).textContent).toBe('Check your details, and the CAC registration number on your '
-        + 'CAC certificate. Correct them, then select Continue. No account has been created. For up to 24 hours, nobody else '
-        + 'can sign up with the CAC number you entered. If it belongs to another company, tell Health ID support at '
-        + `${SUPPORT}, and give that number, so they can free it.`)
-      expect(screen.getByRole('link', { name: SUPPORT }).getAttribute('href')).toBe(`mailto:${SUPPORT}`)
+        + 'CAC certificate. Correct them, then select Continue. No account has been created. We’ve closed that sign-up, so the '
+        + 'CAC number you entered is free again.')
+      expect(api.withdraw).toHaveBeenCalledTimes(1)
+      expect(screen.queryByRole('link', { name: SUPPORT })).toBeNull()
       const cacField = screen.getByRole('textbox', { name: 'CAC registration number' }) as HTMLInputElement
       expect(cacField.value).toBe('RC123456')
       expect(api.activate).not.toHaveBeenCalled()
@@ -1076,6 +1102,56 @@ describe('facility self sign-up on Novu (P4)', () => {
       expect((screen.getByLabelText('Password') as HTMLInputElement).value).toBe('')
       expect(api.profile).toHaveBeenCalledTimes(2)
       expect(registering()).toMatch(/^You’re registering IKEJA CARE LIMITED, CAC number RC123465,/)
+    })
+
+    const HELD = 'Check your details, and the CAC registration number on your CAC certificate. Correct them, then select '
+      + 'Continue. No account has been created. For up to 24 hours, nobody else can sign up with the CAC number you entered. '
+      + `If it belongs to another company, tell Health ID support at ${SUPPORT}, and give that number, so they can free it.`
+
+    // When the sign-up can't be closed, it may still hold the number for up to 24 hours: the page says so, and asks for it
+    // to be passed to support (P4 round 2's words).
+    it.each([
+      ['its session has ended', new HidApiError(401, 'Invalid', { code: 'ORGANIZATION_COMPLETION_SESSION_INVALID' }), HELD],
+      ['an Identity without the route', new HidApiError(404, 'Cannot POST', { code: 'NOT_FOUND' }), HELD],
+      ['a fault', new HidApiError(503, 'Unavailable', { code: 'UPSTREAM_UNAVAILABLE' }), `We couldn’t close that sign-up just now. ${HELD}`],
+      ['a lost connection', new HidApiError(0, 'Offline', { code: 'NETWORK_ERROR' }), `We couldn’t close that sign-up just now. ${HELD}`],
+    ])('“This isn’t my organization” still goes back to the details when %s, and says the number may be held', async (_, refusal, text) => {
+      api.withdraw.mockRejectedValueOnce(refusal)
+      api.profile.mockResolvedValueOnce({ ...PROFILE, organizationName: 'OTHER COMPANY LTD' })
+      await toPassword()
+      fireEvent.click(screen.getByRole('button', { name: 'This isn’t my organization' }))
+      expect((await screen.findByRole('alert')).textContent).toBe(text)
+      expect(screen.getByRole('link', { name: SUPPORT }).getAttribute('href')).toBe(`mailto:${SUPPORT}`)
+      expect((screen.getByRole('textbox', { name: 'CAC registration number' }) as HTMLInputElement).value).toBe('RC123456')
+      expect(api.activate).not.toHaveBeenCalled()
+    })
+
+    it('says sign-up is closed when Identity has closed it, and stays signed out of the details', async () => {
+      api.withdraw.mockRejectedValueOnce(new HidApiError(423, 'Closed', { code: 'PROVIDER_ENROLLMENT_UNAVAILABLE' }))
+      api.profile.mockResolvedValueOnce({ ...PROFILE, organizationName: 'OTHER COMPANY LTD' })
+      await toPassword()
+      fireEvent.click(screen.getByRole('button', { name: 'This isn’t my organization' }))
+      expect(await screen.findByRole('heading', { name: 'Facility sign-up isn’t open right now' })).toBeTruthy()
+    })
+
+    it('keeps the password step when the browser is signed in, and says to sign out first', async () => {
+      api.withdraw.mockRejectedValueOnce(new HidApiError(409, 'Signed in', { code: 'PROVIDER_ENROLLMENT_REQUIRES_SIGN_OUT' }))
+      api.profile.mockResolvedValueOnce({ ...PROFILE, organizationName: 'OTHER COMPANY LTD' })
+      await toPassword()
+      fireEvent.click(screen.getByRole('button', { name: 'This isn’t my organization' }))
+      expect((await screen.findByRole('alert')).textContent).toBe('This browser is signed in to Health ID, for example to a '
+        + 'patient account. Sign out of Health ID first, or open this page in a private (incognito) window, then try again.')
+      expect(screen.getByLabelText('Password')).toBeTruthy()
+      expect(screen.getByRole('button', { name: 'This isn’t my organization' })).toBeTruthy()
+    })
+
+    it('forgets that the closed sign-up held its CAC number for its email: another email may start at once', async () => {
+      api.profile.mockResolvedValueOnce({ ...PROFILE, organizationName: 'OTHER COMPANY LTD' })
+      await toPassword()
+      fireEvent.click(screen.getByRole('button', { name: 'This isn’t my organization' }))
+      await screen.findByRole('alert')
+      fireEvent.change(screen.getByRole('textbox', { name: 'Administrator email' }), { target: { value: 'other@example.test' } })
+      expect(screen.queryByText(/and only that email can finish it/)).toBeNull()
     })
   })
 

@@ -274,6 +274,7 @@ describe('where a sign-in on the EHR site lands', () => {
       <Route path="/provider" element={<h1>Overview page</h1>} />
       <Route path="/provider/clinical" element={<h1>Clinical record page</h1>} />
       <Route path="/provider/audit" element={<h1>Facility audit page</h1>} />
+      <Route path="/provider/staff/join" element={<h1>Join page</h1>} />
     </Routes></MemoryRouter>)
   }
 
@@ -306,6 +307,21 @@ describe('where a sign-in on the EHR site lands', () => {
   it('keeps any other page to return to: the page the person was on', async () => {
     await signIn([], `/provider/sign-in?returnTo=${encodeURIComponent('/provider/audit')}`)
     expect(await screen.findByRole('heading', { name: 'Facility audit page' })).toBeTruthy()
+  })
+
+  // Novu (P4b): an invitation link the workspace took out of the address is accepted first, whatever the return address.
+  it.each([
+    ['novu-v1', 'Join page'],
+    ['main-v1', 'Clinical record page'],
+  ] as const)('on %s, opens the join page while an invitation link is held', async (contract, page) => {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', contract)
+    const { captureStaffInvitationFragment, forgetStaffInvitation } = await import('../invitationCapture')
+    try {
+      jsdom.reconfigure({ url: `https://ehr.healthidentitydirectory.com/provider/staff/join#0f2b6d0e-6a55-4b4c-9a7e-2f4b8c1d3e5a.${'A'.repeat(43)}` })
+      expect(captureStaffInvitationFragment()).toBe(true)
+      await signIn([...ORG_ADMIN, 'ehr.encounter.read'], `/provider/sign-in?returnTo=${encodeURIComponent('/provider/clinical')}`)
+      expect(await screen.findByRole('heading', { name: page })).toBeTruthy()
+    } finally { forgetStaffInvitation(); vi.unstubAllEnvs() }
   })
 
   it('opens the Clinical record for staff who can use it', async () => {

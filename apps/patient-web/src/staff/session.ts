@@ -1,6 +1,7 @@
 import { HidApiError, isHidApiError } from '@hid/http'
 import { announceSessionChange, onOtherTabSessionChange } from '../sessionChange'
 import type { StaffSession } from './api'
+import { usesNovuBackend } from '../backendContract'
 
 /**
  * The end of the provider's staff session, as the staff API finds it. hid-system
@@ -236,8 +237,12 @@ export const STAFF_RETURN_PATHS: readonly string[] = [
   '/provider/in-person-check',
 ]
 
+/** Novu's own workspace pages a sign-in may return to (P4b): the Staff page and the signed-in join page. */
+export const NOVU_STAFF_RETURN_PATHS: readonly string[] = ['/provider/staff', '/provider/staff/join']
+
 export function staffReturnPath(path: string | null): string | null {
-  return path !== null && STAFF_RETURN_PATHS.includes(path) ? path : null
+  if (path === null) return null
+  return STAFF_RETURN_PATHS.includes(path) || (usesNovuBackend() && NOVU_STAFF_RETURN_PATHS.includes(path)) ? path : null
 }
 
 /** The staff sign-in page, returning afterwards to `path` when it is a workspace page. */

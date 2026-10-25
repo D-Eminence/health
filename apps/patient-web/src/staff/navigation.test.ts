@@ -1,6 +1,7 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Facility, StaffSession } from './api'
-import { PROVIDER_NAVIGATION, staffLandingPath } from './navigation'
+import { PROVIDER_NAVIGATION, staffLandingPath, visibleNavigation } from './navigation'
+import { roleInSentence, roleLabel, roleLabels } from './staffAccess'
 import { ASSISTED_REGISTRATION_PERMISSION } from './routes/InPersonCheck'
 import { STAFF_PRODUCT_ROUTES } from '../productHostname'
 
@@ -64,5 +65,64 @@ describe('the page a staff sign-in opens', () => {
     for (const route of Object.values(STAFF_PRODUCT_ROUTES)) {
       expect(PROVIDER_NAVIGATION.some(item => item.to === route), route).toBe(true)
     }
+  })
+})
+
+/**
+ * Until Health ID support has checked a self-signed-up facility, its administrator holds org_admin_awaiting_review:
+ * six of org_admin's permissions (P4b SPEC 3.3). The Staff page is listed only at such a facility, and only on Novu.
+ */
+const AWAITING_REVIEW = ['workforce.manage', 'audit.read', 'outreach.registration.read', 'outreach.registration.write',
+  'outreach.campaign.read', 'outreach.campaign.write']
+
+describe('the sidebar at a self-signed-up facility (P4b)', () => {
+  const at = (permissions: string[], selfService?: { review: string; organizationType: string }) => ({ permissions,
+    ...(selfService ? { selfService } : {}) })
+  afterEach(() => { vi.unstubAllEnvs() })
+
+  it('lists the Overview, Facility audit, Staff and Outreach for the administrator awaiting review', () => {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
+    expect(visibleNavigation(at(AWAITING_REVIEW, { review: 'pending', organizationType: 'hospital' })).map(item => item.label))
+      .toEqual(['Overview', 'Facility audit', 'Staff', 'Outreach'])
+  })
+
+  it('opens the Overview, not a product page, for the administrator awaiting review', () => {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
+    for (const route of [STAFF_PRODUCT_ROUTES.ehr, STAFF_PRODUCT_ROUTES.lab, STAFF_PRODUCT_ROUTES.pharmacy]) {
+      expect(staffLandingPath(route, session(AWAITING_REVIEW))).toBe('/provider')
+    }
+    expect(staffLandingPath('/provider/staff', session(AWAITING_REVIEW))).toBe('/provider/staff')
+  })
+
+  it.each([
+    ['at a governed facility, whose staff Health ID support manages', 'novu-v1', undefined],
+    ['on a main-v1 build', 'main-v1', { review: 'reviewed', organizationType: 'clinic' }],
+  ])('leaves Staff out %s', (_, contract, selfService) => {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', contract)
+    expect(visibleNavigation(at(ORG_ADMIN, selfService)).map(item => item.to)).not.toContain('/provider/staff')
+  })
+
+  it('lists Staff only with workforce.manage, after review too', () => {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
+    const reviewed = { review: 'reviewed', organizationType: 'laboratory' }
+    expect(visibleNavigation(at([...ORG_ADMIN, 'lab.work-item.read'], reviewed)).map(item => item.label))
+      .toEqual(['Overview', 'Patient registration', 'Facility audit', 'Staff', 'Laboratory', 'Outreach'])
+    expect(visibleNavigation(at(['lab.work-item.read'], reviewed)).map(item => item.label)).toEqual(['Overview', 'Laboratory'])
+  })
+})
+
+describe('role names shown to staff', () => {
+  it.each([
+    ['org_admin', 'Facility administrator'], ['org_admin_awaiting_review', 'Facility administrator'], ['doctor', 'Doctor'],
+    ['clinician', 'Clinician'], ['nurse', 'Nurse'], ['lab', 'Laboratory scientist'], ['pharmacist', 'Pharmacist'],
+    ['receptionist', 'Receptionist'], ['records_officer', 'records_officer'],
+  ])('%s reads “%s”', (code, label) => {
+    expect(roleLabel(code)).toBe(label)
+  })
+
+  it('names the administrator once whichever of the two roles it holds, and reads well in a sentence', () => {
+    expect(roleLabels(['org_admin', 'org_admin_awaiting_review', 'nurse'])).toBe('Facility administrator, Nurse')
+    expect(roleInSentence('lab')).toBe('a laboratory scientist')
+    expect(roleInSentence('org_admin')).toBe('a facility administrator')
   })
 })

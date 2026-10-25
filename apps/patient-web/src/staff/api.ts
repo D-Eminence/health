@@ -22,6 +22,12 @@ export interface Facility {
   roles: string[]
   permissions: string[]
   isPrimary: boolean
+  /**
+   * Novu since P4b, only at a facility that signed itself up: 'pending' until Health ID support has checked it, then
+   * 'reviewed', with the facility's type. Governed and legacy facilities, and an Identity before P4b, send none.
+   * Copy only: Identity decides every request (see staffAccess.selfServiceReview).
+   */
+  selfService?: { review: string; organizationType: string }
 }
 
 export interface Actor {
@@ -1099,6 +1105,179 @@ export const providerEnrollmentApi = {
   activate: (password: string) => inRefreshTurn(() =>
     client.post<ProviderEnrollmentActivation>('/api/v1/identity/provider-enrollments/activate',
       { password }, { auth: 'none' })),
+
+  /**
+   * "This isn't my organization" (Novu, P4b): closes the applicant's own confirmed sign-up, read from the enrollment
+   * cookie, ends its codes and frees its CAC number, with no 7-day refusal. No body. 200 { withdrawn: true }, or 401
+   * ORGANIZATION_COMPLETION_SESSION_INVALID once the session has gone; hid-system main and an Identity before P4b answer
+   * 404. Sent once: a lost answer is not repeated.
+   */
+  withdraw: () => client.post<{ withdrawn: true }>('/api/v1/identity/provider-enrollments/withdraw', undefined,
+    { auth: 'none', retry: NO_RETRY }),
+}
+
+/** What an invitation email's delivery came to: sent, refused by the address, or not confirmed (P4b). */
+export type StaffDeliveryOutcome = 'accepted' | 'definitive_failure' | 'unknown' | 'pending'
+
+/** A member of a self-signed-up facility (GET …/facility-staff, P4b): licence numbers come as their last 4 characters. */
+export interface FacilityStaffMember {
+  membershipId: string
+  version: number
+  accountId: string
+  name: string
+  email: string
+  roles: string[]
+  isAdministrator: boolean
+  isSelf: boolean
+  joinedAt: string | null
+  licence: { body: string; numberHint: string | null; vouchedBy: string | null; vouchedAt: string | null; method: string | null } | null
+}
+
+/** An invitation of a self-signed-up facility: the waiting ones, and the last 30 days' others (P4b). */
+export interface FacilityStaffInvitation {
+  invitationId: string
+  version: number
+  reference: string
+  name: string
+  email: string
+  roleCode: string
+  licence: { body: string; numberHint: string | null } | null
+  status: 'pending' | 'accepted' | 'revoked' | 'expired' | string
+  invitedBy: string | null
+  createdAt: string | null
+  lastSentAt: string | null
+  expiresAt: string | null
+  sendCount: number
+  deliveryOutcome: StaffDeliveryOutcome | string
+  resendAvailableAt: string | null
+}
+
+/** The Staff page's one read (P4b SPEC 6.3). */
+export interface FacilityStaff {
+  facility: {
+    id: string
+    name: string
+    organizationType: string
+    reviewState: 'pending' | 'reviewed' | string
+    firstThirtyDaysEndAt: string | null
+    invitationsOpen: boolean
+    deliveryPaused: boolean
+  }
+  canInvite: boolean
+  limits: { pendingInvitations: number; pendingLimit: number; invitationsToday: number; invitationsPerDay: number
+    emailsToday: number; emailsPerDay: number }
+  inviteOptions: { roles: Array<{ code: string; licenceBody: string | null }>; attestation: { version: string; text: string | null } | null }
+  administratorLicence: { body: string; numberHint: string | null; recordedAt: string | null } | null
+  administratorLicenceBodies: string[]
+  members: FacilityStaffMember[]
+  invitations: FacilityStaffInvitation[]
+}
+
+/** A role, with its licence (none for a receptionist), as an invitation or a role change sends it. */
+export interface StaffRoleChoice {
+  role: string
+  licenceBody?: string
+  licenceNumber?: string
+}
+
+export interface StaffInvitationCreated { invitationId: string; version: number; expiresAt: string | null
+  deliveryOutcome: StaffDeliveryOutcome | string; replayed: boolean }
+
+/**
+ * A self-signed-up facility's own staff (P4b, Novu only): the administrator's Staff page. Every call names the working
+ * facility (X-Facility-ID, healthcare operations) and needs workforce.manage there. Invite, remove and change role
+ * carry the administrator's password, which Identity checks as a sign-in does; it is never kept here.
+ */
+export const facilityStaffApi = {
+  read: (facilityId: string) => client.get<FacilityStaff>('/api/v1/identity/facility-staff',
+    { headers: facilityHeaders(facilityId, 'healthcare-operations'), dedupe: false }),
+  /** The pending administrator's own licence, which support checks at review. */
+  recordAdministratorLicence: (facilityId: string, licenceBody: string, licenceNumber: string) =>
+    client.post<{ licenceBody: string; numberHint: string | null; recordedAt: string | null }>(
+      '/api/v1/identity/facility-staff/administrator-licence', { licenceBody, licenceNumber },
+      { headers: facilityHeaders(facilityId, 'healthcare-operations') }),
+  /** One Idempotency-Key per invitation form, kept for its retries: the same key and request replay, sending nothing. */
+  invite: (facilityId: string, input: StaffRoleChoice & { name: string; email: string; currentPassword: string },
+    idempotencyKey: string) => client.post<StaffInvitationCreated>('/api/v1/identity/staff-invitations',
+    { name: input.name, email: input.email, role: input.role, ...licenceFields(input), attested: true,
+      currentPassword: input.currentPassword },
+    { headers: { ...facilityHeaders(facilityId, 'healthcare-operations'), ...keyHeaders(idempotencyKey) } }),
+  resend: (facilityId: string, invitation: Pick<FacilityStaffInvitation, 'invitationId' | 'version'>) =>
+    client.post<{ version: number; expiresAt: string | null; deliveryOutcome: StaffDeliveryOutcome | string }>(
+      `/api/v1/identity/staff-invitations/${encodeURIComponent(invitation.invitationId)}/resend`,
+      { expectedVersion: invitation.version }, { headers: facilityHeaders(facilityId, 'healthcare-operations') }),
+  revoke: (facilityId: string, invitation: Pick<FacilityStaffInvitation, 'invitationId' | 'version'>) =>
+    client.post<{ version: number; revokedAt: string | null }>(
+      `/api/v1/identity/staff-invitations/${encodeURIComponent(invitation.invitationId)}/revoke`,
+      { expectedVersion: invitation.version }, { headers: facilityHeaders(facilityId, 'healthcare-operations') }),
+  end: (facilityId: string, member: Pick<FacilityStaffMember, 'membershipId' | 'version'>, reason: string, currentPassword: string) =>
+    client.post<{ version: number; endedAt: string | null; grantsRevoked: number }>(
+      `/api/v1/identity/facility-staff/${encodeURIComponent(member.membershipId)}/end`,
+      { expectedVersion: member.version, reason, currentPassword },
+      { headers: facilityHeaders(facilityId, 'healthcare-operations') }),
+  changeRole: (facilityId: string, member: Pick<FacilityStaffMember, 'membershipId' | 'version'>,
+    input: StaffRoleChoice & { reason: string; currentPassword: string }) =>
+    client.post<{ version: number; roleCode: string }>(
+      `/api/v1/identity/facility-staff/${encodeURIComponent(member.membershipId)}/role`,
+      { expectedVersion: member.version, role: input.role, ...licenceFields(input), attested: true, reason: input.reason,
+        currentPassword: input.currentPassword },
+      { headers: facilityHeaders(facilityId, 'healthcare-operations') }),
+}
+
+/** The licence fields of a role: both, or none for a receptionist (Identity refuses a licence there). */
+function licenceFields(choice: StaffRoleChoice): { licenceBody?: string; licenceNumber?: string } {
+  return choice.licenceBody && choice.licenceNumber ? { licenceBody: choice.licenceBody, licenceNumber: choice.licenceNumber } : {}
+}
+
+/** How an invitation is proved: the email link's id and token, or the email address and the 6-digit code it gave. */
+export type StaffInvitationProof = { invitationId: string; token: string } | { email: string; code: string }
+
+/**
+ * Who the invited email belongs to, as Identity found it once the invitation was proved (P4b SPEC 4.7): 'new' and
+ * 'dormant_staff' set a password here; 'existing_staff' accepts signed in on their own site; the others cannot accept.
+ */
+export type StaffInvitationAccountCase = 'new' | 'dormant_staff' | 'existing_staff' | 'already_member' | 'patient_account'
+  | 'unavailable'
+
+export interface StaffInvitationOpened {
+  invitationId: string
+  facilityName: string
+  roleCode: string
+  inviterName: string | null
+  inviteeName: string
+  email: string
+  expiresAt: string | null
+  accountCase: StaffInvitationAccountCase | string
+  linkRequired: boolean
+}
+
+export interface StaffInvitationPreview {
+  invitationId: string
+  facilityId: string
+  facilityName: string
+  roleCode: string
+  inviterName: string | null
+  expiresAt: string | null
+}
+
+/**
+ * Joining a facility by invitation (P4b, Novu only). Open and accept are public, on the main site, with no session:
+ * open proves the invitation (Turnstile action staff-invitation) and, for a new or dormant account, sets the
+ * invitation cookie that accept reads; accept sets the password and issues no session. Existing staff preview and
+ * accept signed in on their own site, with no facility named.
+ */
+export const staffInvitationApi = {
+  open: (proof: StaffInvitationProof, turnstileToken: string) =>
+    client.post<StaffInvitationOpened>('/api/v1/identity/staff-invitations/open',
+      { ...proof, turnstileToken, turnstileAction: 'staff-invitation' }, { auth: 'none', retry: NO_RETRY }),
+  accept: (password: string) => client.post<{ accepted: true; facilityName: string; roleCode: string }>(
+    '/api/v1/identity/staff-invitations/accept', { password }, { auth: 'none', retry: NO_RETRY }),
+  /** The email is the session's own, so a typed proof is the code alone. */
+  previewSignedIn: (proof: { invitationId: string; token: string } | { code: string }) =>
+    client.post<StaffInvitationPreview>('/api/v1/identity/staff-invitations/signed-in/preview', proof),
+  acceptSignedIn: (proof: { invitationId: string; token: string } | { code: string }) =>
+    client.post<{ accepted: true; facilityId: string; membershipId: string; facilityName: string; roleCode: string }>(
+      '/api/v1/identity/staff-invitations/signed-in/accept', proof),
 }
 
 /**
