@@ -34,6 +34,28 @@ describe('blog', () => {
     expect(ROUTES.blogPost(first.slug)).toBe(`/blog/${first.slug}`)
   })
 
+  /**
+   * The facility guide is the public pre-read for the portal's facility sign-up, which production runs on the Novu
+   * backend: three steps (the portal's NOVU_STEPS in apps/patient-web/src/staff/routes/ProviderEnrollment.tsx; apps
+   * cannot import each other, so the names are repeated here), no authenticator, and no review queue before activation.
+   */
+  it('describes facility sign-up as the portal runs it in production', () => {
+    const guide = findBlogPost('setting-up-your-facility-what-you-need')!
+    const text = [guide.title, guide.summary, ...guide.body.map(block => block.type === 'list' ? block.items.join(' ') : block.text)]
+      .join(' ')
+    expect(text).not.toMatch(/authenticator/i)
+    expect(text).not.toMatch(/four steps|for review instead/i)
+    expect(guide.summary).toMatch(/in three steps\./)
+    const stepsHeading = guide.body.findIndex(block => block.type === 'h2' && block.text === 'The three steps')
+    const steps = guide.body[stepsHeading + 1]
+    expect(steps?.type).toBe('list')
+    expect(steps?.type === 'list' ? steps.items.map(item => item.split('.')[0]) : null)
+      .toEqual(['Organization', 'Email confirmation', 'Password'])
+    // What the portal's fine print promises, and where a sign-up that can't finish automatically goes.
+    expect(text).toContain('Health ID support also checks every new facility within one working day of its sign-up.')
+    expect(text).toContain('Setup then stops and asks you to contact Health ID support.')
+  })
+
   it('lists every post on the index, each linking to its page', () => {
     render(<BlogPage />)
     expect(screen.getByRole('heading', { level: 1, name: 'Notes from Health ID.' })).toBeTruthy()
