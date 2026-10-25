@@ -147,6 +147,9 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       // Whether facility self sign-up is open, and the organization a confirmed sign-up registers (P4; Novu only,
       // main answers 404).
       'enrollment.providerAvailability', 'enrollment.providerProfile',
+      // "This isn't my organization" withdraws the sign-up (P4b), and an invitee opens and accepts a staff invitation
+      // on the main site (P4b); Novu only, main answers 404.
+      'enrollment.providerWithdraw', 'enrollment.staffInvitationOpen', 'enrollment.staffInvitationAccept',
       // Clinician self sign-up and its status page (hid-system ADR-066), public pages outside the workspace.
       'enrollment.clinicianAvailability', 'enrollment.clinicianEmailCode', 'enrollment.clinicianEmailVerify',
       'enrollment.clinicianFacilitySearch', 'enrollment.clinicianSubmit', 'enrollment.clinicianAuthenticatorEmailCode',
@@ -160,7 +163,11 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       'identity.registrationApprove', 'identity.registrationEnroll', 'identity.registrationLink',
       'identity.organizationVerifyCac',
       // The in-person check of facility-assisted registration (hid-system #85, ADR-063).
-      'identity.assistedVerifications'],
+      'identity.assistedVerifications',
+      // A self-signed-up facility's Staff page, and existing staff joining a facility signed in (P4b; Novu only).
+      'identity.facilityStaff', 'identity.facilityAdministratorLicence', 'identity.staffInvitationCreate',
+      'identity.staffInvitationResend', 'identity.staffInvitationRevoke', 'identity.facilityStaffEnd',
+      'identity.facilityStaffRole', 'identity.staffInvitationSignedInPreview', 'identity.staffInvitationSignedInAccept'],
     access: ['access.staffRequests', 'access.breakGlass', 'access.verifyPin', 'access.closeOwnGrant'],
     ehr: ['ehr.importedHistory', 'ehr.staffPatientChatAvailability', 'ehr.staffPatientChat', 'ehr.staffPatientChatHistory', 'ehr.staffPatientChatSource',
       'ehr.importedRecords', 'ehr.importedAttachment', 'ehr.emergencyRecords', 'ehr.encounters', 'ehr.encounter', 'ehr.vitals', 'ehr.vital',

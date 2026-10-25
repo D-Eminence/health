@@ -17,7 +17,9 @@ export type EndpointAuth = { readonly kind: 'public' | 'authenticated' }
  * emergency-contact availability read and admin commands, which only
  * `staging-novu-ci-20261005` serves, and facility self sign-up's availability
  * and confirmation reads and support's review, release and open applications,
- * with their search and the waiver of a refusal (P4), which only
+ * with their search and the waiver of a refusal (P4), and the applicant's
+ * withdrawal, the facility's staff and its invitations, and support's
+ * administrator access, first-30-days limits and staff reads (P4b), which only
  * `staging-novu-ci-20261005` serves.
  */
 export type ContractStatus = 'surface-verified' | 'proposed'
@@ -79,6 +81,20 @@ const EMERGENCY_CONTACTS_NOVU = 'Served by staging-novu-ci-20261005 from hid-sys
  */
 const SELF_SIGN_UP_NOVU = 'Served by staging-novu-ci-20261005 from facility self sign-up (P4); not served by hid-system main (404).'
 const SELF_SIGN_UP_CLOSED = 'On Novu every route answers 423 PROVIDER_ENROLLMENT_UNAVAILABLE while self sign-up is closed.'
+/**
+ * Full access after support's review and facility staff invitations (P4b, owner's fourth and fifth decisions): a
+ * self-signed-up facility's administrator manages its staff and vouches for their licences; invitees join with an
+ * emailed link or code; support reviews the facility, confirming the administrator's own clinical access. Novu only.
+ */
+const STAFF_P4B_NOVU = 'Served by staging-novu-ci-20261005 from full access after review and staff invitations (P4b); '
+  + 'not served by hid-system main (404).'
+/** The session field P4b adds to each facility of a staff session (Identity's current-staff-context). */
+const SELF_SERVICE_SESSION = 'On Novu since P4b each facility that signed itself up carries selfService { review: '
+  + "'pending' | 'reviewed', organizationType }; governed and legacy facilities carry none."
+/** The staff routes' shared rules (P4b SPEC 6.3-6.5). */
+const STAFF_ROUTE = `${STAFF_P4B_NOVU} Staff session with X-Facility-ID (healthcare-operations) and workforce.manage, `
+  + 'CSRF on POST; only at a self-signed-up facility (403 STAFF_MANAGEMENT_NOT_AVAILABLE otherwise).'
+const STAFF_INVITATIONS_CLOSED = '423 STAFF_INVITATIONS_UNAVAILABLE while invitations are switched off.'
 
 export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   proposed(r('support.chat','support','/api/v1/support/chat',P,true,undefined,CHAT_NOTE)),
@@ -106,10 +122,10 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('auth.googleOnboarding','auth','/api/v1/auth/google/onboarding',G,true),
   r('auth.googleExchange','auth','/api/v1/auth/oidc/exchange',P,true),
   r('auth.googleLink','auth','/api/v1/auth/google/link',P),
-  r('auth.session','auth','/api/v1/auth/session',G),
-  r('auth.refresh','auth','/api/v1/auth/refresh',P,true,undefined,'Requires refresh cookie and CSRF header.'),
+  r('auth.session','auth','/api/v1/auth/session',G,false,undefined,SELF_SERVICE_SESSION),
+  r('auth.refresh','auth','/api/v1/auth/refresh',P,true,undefined,`Requires refresh cookie and CSRF header. ${SELF_SERVICE_SESSION}`),
   r('auth.logout','auth','/api/v1/auth/logout',P),
-  r('auth.facility','auth','/api/v1/auth/facility',P),
+  r('auth.facility','auth','/api/v1/auth/facility',P,false,undefined,SELF_SERVICE_SESSION),
   r('auth.otpStart','auth','/api/v1/auth/otp/start',P,true),
   r('auth.otpVerify','auth','/api/v1/auth/otp/verify',P,true),
   r('auth.otpComplete','auth','/api/v1/auth/otp/complete',P,true),
@@ -192,6 +208,53 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('identity.assistedVerifications','identity','/api/v1/identity/assisted-verifications',P,false,
     one('POST','identity.patient.assisted_registration'),
     'Body { deskCode, method, documentType, document, attestations }; 200 { outcome: verified }. The same key replays the stored outcome.'),
+  // P4b: a self-signed-up facility's own staff, managed by its administrator (the Staff page).
+  proposed(r('identity.facilityStaff','identity','/api/v1/identity/facility-staff',G,false,one('GET','workforce.manage'),
+    `${STAFF_ROUTE} Allowed before support's review. 200 { facility { id, name, organizationType, reviewState, `
+    + 'firstThirtyDaysEndAt, invitationsOpen, deliveryPaused }, canInvite, limits, inviteOptions { roles [{ code, '
+    + 'licenceBody }], attestation { version, text } }, administratorLicence { body, numberHint, recordedAt } | null, '
+    + 'administratorLicenceBodies, members [...], invitations [...] }; licence numbers only as their last 4 characters.')),
+  proposed(r('identity.facilityAdministratorLicence','identity','/api/v1/identity/facility-staff/administrator-licence',P,false,
+    one('POST','workforce.manage'),
+    `${STAFF_ROUTE} The administrator's own licence, only before support's review (409 FACILITY_ALREADY_REVIEWED after). `
+    + 'Body { licenceBody (MDCN, NMCN, MLSCN or PCN), licenceNumber (3 to 100) }; 200 { licenceBody, numberHint, '
+    + 'recordedAt }. 400 ADMINISTRATOR_LICENCE_INVALID, 403 STAFF_MANAGEMENT_NOT_ADMINISTRATOR.')),
+  proposed(r('identity.staffInvitationCreate','identity','/api/v1/identity/staff-invitations',P,false,one('POST','workforce.manage'),
+    `${STAFF_ROUTE} After support's review (409 FACILITY_REVIEW_PENDING before). Idempotency-Key (16 to 128, starting `
+    + 'with a letter or digit) and body { name, email, role, licenceBody?, licenceNumber?, attested: true, '
+    + 'currentPassword }: no licence for a receptionist. 201 { invitationId, version, expiresAt, deliveryOutcome, replayed: '
+    + 'false }; a replay 200 with replayed: true. 403 STAFF_REAUTHENTICATION_FAILED or STAFF_RECENT_RECOVERY_HOLD; 409 '
+    + 'and 429 limits. Never says whether the email has a Health ID account. ' + STAFF_INVITATIONS_CLOSED)),
+  proposed(r('identity.staffInvitationResend','identity','/api/v1/identity/staff-invitations/:invitationId/resend',P,false,
+    one('POST','workforce.manage'),
+    `${STAFF_ROUTE} Body { expectedVersion }; 200 { version, expiresAt, deliveryOutcome }: a new link and code (the old `
+    + `ones answer 410 STAFF_INVITATION_SUPERSEDED), 7 more days. 409 STAFF_INVITATION_RESEND_TOO_SOON (a minute), `
+    + `_SEND_LIMIT (5 sends). ${STAFF_INVITATIONS_CLOSED}`)),
+  proposed(r('identity.staffInvitationRevoke','identity','/api/v1/identity/staff-invitations/:invitationId/revoke',P,false,
+    one('POST','workforce.manage'),
+    `${STAFF_ROUTE} Body { expectedVersion }; 200 { version, revokedAt }. 409 STAFF_INVITATION_NOT_PENDING. Not closed `
+    + 'by the invitations switch.')),
+  proposed(r('identity.facilityStaffEnd','identity','/api/v1/identity/facility-staff/:membershipId/end',P,false,
+    one('POST','workforce.manage'),
+    `${STAFF_ROUTE} Body { expectedVersion, reason (8 to 500), currentPassword }; 200 { version, endedAt, grantsRevoked }: `
+    + 'the member\'s facility roles and patients\' consents to them here end. Never the caller\'s own or an administrator\'s '
+    + 'membership (409 FACILITY_STAFF_SELF, _ADMINISTRATOR). Not closed by the invitations switch.')),
+  proposed(r('identity.facilityStaffRole','identity','/api/v1/identity/facility-staff/:membershipId/role',P,false,
+    one('POST','workforce.manage'),
+    `${STAFF_ROUTE} Body { expectedVersion, role, licenceBody?, licenceNumber?, attested: true, reason (8 to 500), `
+    + 'currentPassword }; 200 { version, roleCode }. 409 FACILITY_STAFF_ROLE_UNCHANGED, _PLATFORM_ACCOUNT. '
+    + STAFF_INVITATIONS_CLOSED)),
+  // P4b: existing staff accept an invitation signed in on their own host (no X-Facility-ID, no permission, no audit row).
+  proposed(r('identity.staffInvitationSignedInPreview','identity','/api/v1/identity/staff-invitations/signed-in/preview',P,false,
+    undefined,
+    `${STAFF_P4B_NOVU} A staff session, CSRF, and no X-Facility-ID. Body { invitationId, token } (the link) or { code } `
+    + '(typed; the email is the session\'s). 200 { invitationId, facilityId, facilityName, roleCode, inviterName, expiresAt }. '
+    + '409 STAFF_INVITATION_EMAIL_MISMATCH, _ALREADY_MEMBER, _ACCOUNT_UNAVAILABLE, and open\'s refusals. '
+    + STAFF_INVITATIONS_CLOSED)),
+  proposed(r('identity.staffInvitationSignedInAccept','identity','/api/v1/identity/staff-invitations/signed-in/accept',P,false,
+    undefined,
+    `${STAFF_P4B_NOVU} As the preview; 200 { accepted: true, facilityId, membershipId, facilityName, roleCode }. The `
+    + `session lists the new facility from its next request. ${STAFF_INVITATIONS_CLOSED}`)),
   proposed(r('enrollment.providerAvailability','enrollment','/api/v1/identity/provider-enrollments/availability',G,true,undefined,
     `${SELF_SIGN_UP_NOVU} Public, no session, never an error: 200 { open: true }, { open: false, reason: 'closed' } (switched `
     + 'off or not configured) or { open: false, reason: \'unavailable\' } (a fault: try again shortly, never shown as closed).')),
@@ -211,7 +274,29 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('enrollment.providerActivate','enrollment','/api/v1/identity/provider-enrollments/activate',P,true,undefined,
     'Accountless; uses the enrollment cookie. On Novu it signs the administrator in: the session cookies and '
     + `{ activated, organizationId, facilityId, accountId, actor, expiresAt }. ${SELF_SIGN_UP_CLOSED} `
-    + 'On hid-system main since #71 it returns an MFA status, not a session.'),
+    + 'On hid-system main since #71 it returns an MFA status, not a session. On Novu since P4b the administrator '
+    + 'holds org_admin_awaiting_review until support\'s review, and the actor\'s facility carries selfService '
+    + "{ review: 'pending', organizationType }."),
+  // P4 leftover 1 (P4b): "This isn't my organization" closes the applicant's own open sign-up.
+  proposed(r('enrollment.providerWithdraw','enrollment','/api/v1/identity/provider-enrollments/withdraw',P,true,undefined,
+    `${SELF_SIGN_UP_NOVU} Accountless and refused when signed in (409 PROVIDER_ENROLLMENT_REQUIRES_SIGN_OUT); Origin `
+    + '(403 ORIGIN_DENIED) and the enrollment cookie that verify sets, no body. Closes that sign-up, ends its session '
+    + 'and codes and frees its CAC number, with no 7-day refusal: 200 { withdrawn: true }, the cookie cleared; 401 '
+    + `ORGANIZATION_COMPLETION_SESSION_INVALID without a live session. ${SELF_SIGN_UP_CLOSED}`)),
+  // P4b: an invitee opens their invitation and, for a new or dormant account, sets a password (no session issued).
+  proposed(r('enrollment.staffInvitationOpen','enrollment','/api/v1/identity/staff-invitations/open',P,true,undefined,
+    `${STAFF_P4B_NOVU} Accountless and refused when signed in (409 STAFF_INVITATION_REQUIRES_SIGN_OUT); Origin and `
+    + 'Turnstile action staff-invitation (app.* and staging.* only). Body { invitationId, token } (the link) or { email, '
+    + 'code } (typed), with turnstileAction and turnstileToken. 200 { invitationId, facilityName, roleCode, inviterName, '
+    + 'inviteeName, email, expiresAt, accountCase, linkRequired }, plus the hid_staff_invitation cookie for a new or '
+    + 'dormant account opened by its link. 401 STAFF_INVITATION_CODE_INVALID, 429 STAFF_INVITATION_LOCKED or '
+    + 'STAFF_INVITATION_RATE_LIMITED, 410 STAFF_INVITATION_SUPERSEDED, _EXPIRED or _WITHDRAWN, 409 '
+    + `STAFF_INVITATION_ALREADY_ACCEPTED. ${STAFF_INVITATIONS_CLOSED}`)),
+  proposed(r('enrollment.staffInvitationAccept','enrollment','/api/v1/identity/staff-invitations/accept',P,true,undefined,
+    `${STAFF_P4B_NOVU} Accountless; Origin and the hid_staff_invitation cookie that open sets. Body { password } (12 to `
+    + '256). 200 { accepted: true, facilityName, roleCode }: the cookie cleared and no session cookie; the person signs '
+    + 'in on their role\'s host. 401 STAFF_INVITATION_SESSION_INVALID, 410 _EXPIRED or _WITHDRAWN, 409 _ACCOUNT_EXISTS, '
+    + `_ACCOUNT_CHANGED, _PATIENT_ACCOUNT or _ACCOUNT_UNAVAILABLE. ${STAFF_INVITATIONS_CLOSED}`)),
   // Clinician self sign-up and its status page (hid-system ADR-066, branch
   // claude/clinician-self-signup at fa58e2b, re-checked at 9e981e4, and P3's
   // search limit at 1d6ff6f; not merged). Every route needs
@@ -262,7 +347,9 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('access.staffRequests','access','/api/v1/identity/access-requests',GP,false,{GET:['identity.consent.write'],POST:['identity.consent.write']}),
   r('access.approve','access','/api/v1/identity/access-requests/:requestId/approve',P),
   r('access.deny','access','/api/v1/identity/access-requests/:requestId/deny',P),
-  r('access.breakGlass','access','/api/v1/identity/break-glass',P,false,one('POST','identity.consent.write','identity.break-glass.write')),
+  r('access.breakGlass','access','/api/v1/identity/break-glass',P,false,one('POST','identity.consent.write','identity.break-glass.write'),
+    'On Novu since P4b, a facility that signed itself up may activate emergency access 5 times a day in its first 30 days '
+    + 'after support\'s review: 429 EMERGENCY_PROBATION_LIMITED beyond that, until support ends the limits.'),
   r('access.verifyPin','access','/api/v1/identity/standard-access/pin',P,false,one('POST','identity.patient-access-pin.verify')),
   r('access.closeOwnGrant','access','/api/v1/identity/consent-grants/:grantId/close',P,false,one('POST','identity.consent.write')),
   r('access.revokeMyGrant','access','/api/v1/identity/me/consent-grants/:grantId/revoke',P),
@@ -408,12 +495,39 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     one('GET','platform.identity-review.read'),
     `${SELF_SIGN_UP_NOVU} Query state: unreviewed (default; oldest activation first), reviewed (reviewed or released) or all `
     + '(newest first). Answers { items }, at most 200, each with its version and releasedAt, releasedByAccountId and '
-    + 'releaseReason.')),
+    + 'releaseReason; since P4b also reviewGrantsRole, reviewableRoles, grantedRole, verificationMethod, '
+    + 'administratorLicenceBody, administratorLicenceNumber, administratorLicenceRecordedAt, memberCount, '
+    + 'pendingInvitationCount, probationEndsAt, breakGlassLast7d and deliveryFailuresLastDay.')),
   proposed(r('admin.selfServiceFacilityReview','admin','/api/v1/admin/self-service-facilities/:applicationId/review',P,false,
-    one('POST','platform.facility.manage'),
-    `${SELF_SIGN_UP_NOVU} Body { note (8 to 500) } and If-Match with the version; no Idempotency-Key or step-up. Answers `
-    + '{ applicationId, reviewedAt, version }. 404 SELF_SERVICE_FACILITY_NOT_FOUND, 409 VERSION_CONFLICT, '
-    + '409 SELF_SERVICE_FACILITY_ALREADY_REVIEWED.')),
+    one('POST','platform.facility.manage','platform.facility.unlock'),
+    `${SELF_SIGN_UP_NOVU} Since P4b it gives the facility full access and signs its administrator out once. Body { note `
+    + "(8 to 500), grantedRole ('none', doctor, nurse, lab or pharmacist), verificationMethod (cac_registered_contact, "
+    + 'officer_match, regulator_register, in_person or other), administratorLicence? { body, number } (required for a '
+    + 'clinical role) } and If-Match with the version; no Idempotency-Key or step-up. Answers { applicationId, reviewedAt, '
+    + 'version, grantedRole, sessionsRevoked }. 400 SELF_SERVICE_REVIEW_ROLE_INVALID, _LICENCE_REQUIRED, _LICENCE_INVALID; '
+    + '404 SELF_SERVICE_FACILITY_NOT_FOUND; 409 VERSION_CONFLICT, SELF_SERVICE_FACILITY_ALREADY_REVIEWED, '
+    + 'SELF_SERVICE_FACILITY_REVIEW_REQUIRES_ACTIVE (facility not active, or the administrator\'s account not active).')),
+  // P4b: support changes a reviewed administrator's own clinical access, and ends a facility's first 30 days early.
+  proposed(r('admin.selfServiceFacilityAdministratorRole','admin',
+    '/api/v1/admin/self-service-facilities/:applicationId/administrator-role',P,false,
+    one('POST','platform.facility.manage','platform.facility.unlock'),
+    `${STAFF_P4B_NOVU} Body { grantedRole, verificationMethod, administratorLicence?, reason (8 to 500) } and If-Match; `
+    + 'answers { applicationId, version, grantedRole, sessionsRevoked }. 409 SELF_SERVICE_ADMINISTRATOR_ROLE_UNCHANGED, '
+    + 'SELF_SERVICE_FACILITY_REVIEW_REQUIRES_ACTIVE, VERSION_CONFLICT; the review\'s 400s.')),
+  proposed(r('admin.selfServiceFacilityEndProbation','admin',
+    '/api/v1/admin/self-service-facilities/:applicationId/end-probation',P,false,
+    one('POST','platform.facility.manage','platform.facility.unlock'),
+    `${STAFF_P4B_NOVU} Body { reason (8 to 500) } and If-Match; answers { applicationId, version, probationEndedAt }. 409 `
+    + 'SELF_SERVICE_PROBATION_ALREADY_ENDED, VERSION_CONFLICT.')),
+  // P4b: support's reads of a facility's staff and licences, and of an invitation by the reference its email quotes.
+  proposed(r('admin.facilityStaff','admin','/api/v1/admin/facilities/:facilityId/staff',G,false,one('GET','platform.principal.read'),
+    `${STAFF_P4B_NOVU} Audited, with or without success. 200 { facility { id, name, selfService { review, `
+    + 'organizationType, productCode } | null }, members [...], invitations [...] }, each with full licence numbers, '
+    + 'licenceKey, sameLicenceElsewhere, nameMismatch, attestedByName and attestedAt. 404 ADMIN_FACILITY_NOT_FOUND.')),
+  { ...proposed(r('admin.staffInvitationFind','admin','/api/v1/admin/staff-invitations',G,false,one('GET','platform.principal.read'),
+    `${STAFF_P4B_NOVU} Query reference (8 hexadecimal characters, any case). 200 { items [{ invitationId, reference, `
+    + 'facilityId, facilityName, organizationId, status, roleCode, createdAt, expiresAt }] }, at most 5.')),
+  requiredQuery: { GET: ['reference'] } },
   // P4 round 2 (R2): support frees a fraudulent or mistaken sign-up's CAC number and legal name for the real company.
   proposed(r('admin.selfServiceFacilityRelease','admin','/api/v1/admin/self-service-facilities/:applicationId/release',P,false,
     one('POST','platform.facility.manage'),
@@ -422,7 +536,8 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'account disabled (409 SELF_SERVICE_FACILITY_RELEASE_REQUIRES_SUSPENSION otherwise). Answers { applicationId, '
     + 'releasedAt, version }. 404 SELF_SERVICE_FACILITY_NOT_FOUND, 409 SELF_SERVICE_FACILITY_ALREADY_RELEASED, 409 '
     + 'VERSION_CONFLICT. Unless allowRetry, its email and network can\'t start a sign-up for the CAC number and product for '
-    + '7 days.')),
+    + '7 days. Since P4b it also withdraws the facility\'s pending invitations, ends the memberships of the staff it '
+    + 'added, their patients\' consents and their sessions.')),
   // P4 round 2 (R3, ranked and counted by R16): self-service applications not activated yet.
   proposed(r('admin.selfServiceApplications','admin','/api/v1/admin/self-service-applications',G,false,
     one('GET','platform.identity-review.read'),
@@ -503,7 +618,7 @@ export const NON_FRONTEND_ENDPOINTS: readonly string[] = [
   '/api/v1/ehr/internal/ocr/*', '/api/v1/lab/work-items/accept-ehr-order',
   '/api/v1/lab/imports/from-ocr', '/api/v1/pharmacy/work-items/accept-ehr-prescription',
   '/api/v1/pharmacy/imports/from-ocr', '/api/v1/notifications/otp',
-  '/api/v1/notifications/emergency-contact-alert',
+  '/api/v1/notifications/emergency-contact-alert', '/api/v1/notifications/staff-invitation',
   // This admin route exists but always returns INTEGRATION_CREDENTIAL_ROTATION_EXTERNAL.
   '/api/v1/admin/integrations/:provider/credential-reference',
 ]
