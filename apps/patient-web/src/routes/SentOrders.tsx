@@ -9,8 +9,10 @@ import { useActionFocus } from './actionFocus'
 /**
  * Orders a clinician sent to a laboratory or pharmacy at another facility (Novu, P4c, SPEC-FINAL §5, §13.4): the
  * patient sees each one, the clinician's confirmation that they agreed, exactly what the other facility received or
- * will receive, and can stop it until that facility accepts it. hid-system main, and a Novu before P4c, have no such
- * list (404): then the card is not shown.
+ * will receive, and can stop it until that facility accepts it. An order its clinician marked entered in error (it may
+ * have been written in another patient's chart) stays listed by reference, state and facilities only, with no content,
+ * confirmation or Stop (`enteredInError`, P4c review). hid-system main, and a Novu before P4c, have no such list (404):
+ * then the card is not shown.
  */
 
 const DAY = new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeZone: 'Africa/Lagos' })
@@ -41,6 +43,7 @@ function text(value: string | number | null | undefined): string | null {
 
 /** "Full blood count" or "Amoxicillin 500 mg capsules": what was sent, in the card's title. */
 function whatWasSent(route: PatientOrderRoute): string {
+  if (route.enteredInError) return route.kind === 'lab_request' ? 'A test request' : 'A prescription'
   return route.kind === 'lab_request'
     ? text(route.content.testDisplay) ?? 'A test request'
     : text(route.content.medicationDisplay) ?? 'A prescription'
@@ -167,8 +170,9 @@ export function SentOrdersCard() {
       : <ul className="patient-list">{items.map(route => {
         const receiving = named(route.receivingFacilityName ?? route.receivingFacility.name, 'the other facility')
         const ordering = named(route.orderingFacilityName, 'your clinician’s facility')
-        const confirmed = attestation(route, patient)
-        const canStop = route.actions.includes('withdraw') && route.effectiveState === 'sent'
+        const inError = route.enteredInError === true
+        const confirmed = inError ? null : attestation(route, patient)
+        const canStop = !inError && route.actions.includes('withdraw') && route.effectiveState === 'sent'
         const acceptedThere = route.effectiveState === 'accepted' || route.effectiveState === 'completed'
         return <li key={route.id} className="patient-access-item patient-order-route"><div>
           <strong>{whatWasSent(route)} from {ordering} to {receiving}: {patientRouteState(route)}</strong>
@@ -178,10 +182,17 @@ export function SentOrdersCard() {
             <p>{named(route.attestedByName, 'Your clinician')} at {ordering} confirmed that you agreed:</p>
             <blockquote className="patient-quote">{confirmed}</blockquote>
           </>}
-          <p><strong>{acceptedThere ? `What ${receiving} received` : `What ${receiving} will receive`}</strong></p>
-          <dl className="patient-details">{sentFields(route).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
-          {canStop && <p>If you did not agree to this, stop it now: {receiving} has not accepted it yet.</p>}
-          {acceptedThere && <p>{receiving} has accepted it. To stop it, contact {ordering}, who can cancel the order.</p>}
+          {inError ? <>
+            <p>{ordering} marked this order as entered in error, so what it contained is no longer shown here.</p>
+            {route.acceptedAt && <p>{receiving} had accepted it, so it received your name, sex, date of birth and the last
+              4 characters of your Health ID.</p>}
+            <p>If you have questions about it, contact {ordering}.</p>
+          </> : <>
+            <p><strong>{acceptedThere ? `What ${receiving} received` : `What ${receiving} will receive`}</strong></p>
+            <dl className="patient-details">{sentFields(route).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
+            {canStop && <p>If you did not agree to this, stop it now: {receiving} has not accepted it yet.</p>}
+            {acceptedThere && <p>{receiving} has accepted it. To stop it, contact {ordering}, who can cancel the order.</p>}
+          </>}
         </div>
           {canStop && <div className="patient-decision-actions"><button id={`stop-${route.id}`} type="button" className="patient-secondary-button"
             disabled={!!working || routes.loading} onClick={() => void stop(route)}>{working === route.id ? 'Stopping…' : 'Stop it'}<ItemName>: {whatWasSent(route)} to {receiving}</ItemName></button></div>}

@@ -297,6 +297,12 @@ export interface PatientOrderRoute {
   attestationText: string | null
   attestedByName: string | null
   actions: Array<'withdraw' | string>
+  /**
+   * The order was marked entered in error (it may have been written in another patient's chart; P4c review): the
+   * route stays listed as the record of what went where, but `content` holds only its reference, the attestation text
+   * and attesting clinician are null and `actions` is empty. Absent from a backend before that review.
+   */
+  enteredInError?: boolean
 }
 
 export interface RecoveryChallenge {

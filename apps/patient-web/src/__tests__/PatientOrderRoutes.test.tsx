@@ -107,6 +107,35 @@ describe('orders sent to other facilities, on Access and consent', () => {
     expect(screen.queryByRole('button', { name: /^Stop it/ })).toBeNull()
   })
 
+  it('lists an order marked entered in error by reference, state and facilities only, with no content, confirmation or Stop', async () => {
+    // As C5 answers it (P4c review): content holds only the reference, no attestation or attesting clinician, no actions.
+    const blank = { testCodeSystem: null, testCode: null, testDisplay: null, priority: null, specimenTypeCode: null,
+      clinicalInformation: null, requestedAt: null, ordererName: null, ordererLicenceBody: null, ordererLicenceNumber: null }
+    routes = { items: [
+      sent({ effectiveState: 'withdrawn', endedKind: 'entered_in_error', endedAt: '2026-10-21T08:00:00.000Z', content: blank,
+        attestationText: null, attestedByName: null, actions: [], enteredInError: true }),
+      sent({ id: 'f0000000-0000-4000-8000-000000000003', reference: '0A1B2C3D', effectiveState: 'completed',
+        acceptedAt: '2026-10-21T10:00:00.000Z', completedAt: '2026-10-22T10:00:00.000Z', content: blank,
+        attestationText: null, attestedByName: null, actions: ['withdraw'], enteredInError: true }),
+      sent({ id: 'f0000000-0000-4000-8000-000000000004', reference: '4E5F6A7B' })] }
+    renderPortal(<AccessPage />, handler)
+    const withdrawn = (await screen.findByText('A test request from General Hospital to Yaba Diagnostics: withdrawn because your clinician changed the order')).closest('li')!
+    expect(within(withdrawn).getByText(/^Sent on 20 Oct 2026 · Reference 9C1B2D3E$/)).toBeTruthy()
+    expect(within(withdrawn).getByText('General Hospital marked this order as entered in error, so what it contained is no longer shown here.')).toBeTruthy()
+    expect(within(withdrawn).getByText('If you have questions about it, contact General Hospital.')).toBeTruthy()
+    expect(within(withdrawn).queryByText(/received your name/)).toBeNull()
+    expect(withdrawn.querySelectorAll('dt')).toHaveLength(0)
+    expect(withdrawn.textContent).not.toMatch(/confirmed that you agreed|will receive|stop it now/)
+    // Accepted before it was marked so: the patient is told what that facility received about them.
+    const completed = screen.getByText(/^Sent on 20 Oct 2026 · Reference 0A1B2C3D$/).closest('li')!
+    expect(within(completed).getByText(/^A test request from General Hospital to Yaba Diagnostics: Yaba Diagnostics sent the result back/)).toBeTruthy()
+    expect(within(completed).getByText(/^Yaba Diagnostics had accepted it, so it received your name, sex, date of birth and the last\s+4 characters of your Health ID\.$/)).toBeTruthy()
+    expect(completed.textContent).not.toMatch(/has accepted it\. To stop it/)
+    // Never a Stop for an order in error, whatever actions say; the other order keeps its content and Stop.
+    expect(screen.getAllByRole('button', { name: /^Stop it/ })).toHaveLength(1)
+    expect(screen.getByText('Haemoglobin from General Hospital to Yaba Diagnostics: waiting for Yaba Diagnostics to accept it')).toBeTruthy()
+  })
+
   it('is not shown where the backend has no such list (404)', async () => {
     routes = problem(404, 'NOT_FOUND', 'Cannot GET /api/v1/ehr/me/order-routes')
     renderPortal(<AccessPage />, handler)
