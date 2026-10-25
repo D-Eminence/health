@@ -385,6 +385,13 @@ shown as a sent code: the page uses the code in force, or waits as Identity
 says. When that start changed the facility type or administrator name, which
 only a sent code carries, the page stays at the details: the changes wait for
 the next code, or the code in force is entered with the details it carries.
+When the administrator email already has an account, Identity closes the
+sign-up (hid-system R15), and the page offers a new one with another email at
+once. The console's "Open applications" view lists the sign-ups holding a CAC
+number first, with the total, finds one CAC number's
+(`POST /admin/self-service-applications/search`), lets support spare an
+applicant the 7-day refusal when rejecting or releasing (`allowRetry`), and
+lifts such a refusal (`POST /admin/self-service-applications/waive-refusal`).
 A staff sign-in on a product host lands on the Overview, not the host's own
 page, when the working facility cannot use that page (`staff/navigation.ts`).
 The platform console refuses the platform enrolment of an
