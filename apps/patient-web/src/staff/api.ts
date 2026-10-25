@@ -732,6 +732,11 @@ export interface IncomingOrderRoute {
   sentAt: string | null
   respondBy: string | null
   acceptLocked: boolean
+  /**
+   * Wrong tries left before the order locks here: the lower of 5 less the wrong tries that named this order (a Health
+   * ID, or a date of birth given with its reference) and 20 less every wrong try. A date of birth alone does not lower
+   * the 5 (P4c review).
+   */
   attemptsLeft: number | null
 }
 
@@ -1880,19 +1885,27 @@ export const orderRoutesApi = {
       `${orderRoutesPath(patientId, encounterId, kind, orderId)}/${encodeURIComponent(route.id)}/withdraw`,
       { expectedVersion: route.version, reason }, { headers: facilityHeaders(facilityId, 'direct-care') }),
   /**
-   * Orders other facilities sent here, waiting to be accepted; a Health ID finds one patient's. The route takes the
-   * Health ID in its query string, which gateway access logs keep with the request line, so callers send one only when
-   * the person asks (IncomingOrders: Find or Refresh, never the timer or focus). A body-carried search needs a backend
-   * route that does not exist yet (P4c review; owner item D19).
+   * Orders other facilities sent here, waiting to be accepted; a Health ID finds one patient's. The Health ID goes in
+   * the body of `POST …/order-routes/search` (P4c review), never in an address, which gateway access logs keep with the
+   * request line; the list's GET is read without it. Every read is audited, so callers still send a Health ID only when
+   * the person asks (IncomingOrders: Find or Refresh, never the timer or focus).
    */
-  incoming: (facilityId: string, service: ReceivingService, healthId?: string) =>
-    client.get<IncomingOrderRoutes>(`/api/v1/${service}/order-routes`, {
-      query: { view: 'incoming', ...(healthId ? { healthId } : {}) }, headers: facilityHeaders(facilityId, 'direct-care'),
-      dedupe: false }),
+  incoming: (facilityId: string, service: ReceivingService, healthId?: string) => healthId
+    ? client.post<IncomingOrderRoutes>(`/api/v1/${service}/order-routes/search`, { view: 'incoming', healthId },
+      { headers: facilityHeaders(facilityId, 'direct-care') })
+    : client.get<IncomingOrderRoutes>(`/api/v1/${service}/order-routes`, {
+      query: { view: 'incoming' }, headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false }),
+  /**
+   * Accepts an order with the patient's identifier. `reference`, sent only when given, is the order's 8-character
+   * reference the patient reads in their app: with a date of birth it names the order, so a wrong date counts towards
+   * this order's five tries; another order's reference is refused (409 ORDER_ROUTE_REFERENCE_MISMATCH) and counts nothing.
+   */
   accept: (facilityId: string, service: ReceivingService, route: { id: string; version: number },
-    patientIdentifier: { kind: 'health_id' | 'date_of_birth'; value: string }, reason: string | undefined, idempotencyKey: string) =>
+    patientIdentifier: { kind: 'health_id' | 'date_of_birth'; value: string }, reason: string | undefined, idempotencyKey: string,
+    reference?: string) =>
     client.post<OrderRouteAccepted>(`/api/v1/${service}/order-routes/${encodeURIComponent(route.id)}/accept`,
-      { expectedVersion: route.version, patientIdentifier, ...(service === 'pharmacy' ? { reason } : {}) },
+      { expectedVersion: route.version, patientIdentifier, ...(service === 'pharmacy' ? { reason } : {}),
+        ...(reference ? { reference } : {}) },
       { headers: { ...facilityHeaders(facilityId, 'direct-care'), ...keyHeaders(idempotencyKey) } }),
   decline: (facilityId: string, service: ReceivingService, route: { id: string; version: number }, reason: OrderRouteDeclineReason) =>
     client.post<{ route: { id: string; version: number; effectiveState: string } }>(

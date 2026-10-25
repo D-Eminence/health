@@ -84,13 +84,27 @@ describe('orders between facilities, on the wire', () => {
     requests.forEach(careHeaders)
   })
 
-  it('lists incoming orders, all or one patient’s by Health ID', async () => {
+  it('lists incoming orders, and finds one patient’s with the Health ID in a POST body, never in the address', async () => {
     const { requests, orderRoutesApi } = await signedIn({ items: [], crossFacilityOrders: true, crossFacilityWork: true })
     await orderRoutesApi.incoming('facility-1', 'lab')
     await orderRoutesApi.incoming('facility-1', 'pharmacy', 'HID-7KQ2M9')
-    expect(requests.map(request => `${request.url.pathname}${request.url.search}`)).toEqual([
-      '/api/v1/lab/order-routes?view=incoming', '/api/v1/pharmacy/order-routes?view=incoming&healthId=HID-7KQ2M9'])
+    await orderRoutesApi.incoming('facility-1', 'lab', 'HID-7KQ2M9')
+    expect(requests.map(request => [request.method, `${request.url.pathname}${request.url.search}`])).toEqual([
+      ['GET', '/api/v1/lab/order-routes?view=incoming'],
+      ['POST', '/api/v1/pharmacy/order-routes/search'],
+      ['POST', '/api/v1/lab/order-routes/search']])
+    expect(requests[1]!.body).toEqual({ view: 'incoming', healthId: 'HID-7KQ2M9' })
+    expect(requests.every(request => !request.url.href.includes('HID-'))).toBe(true)
+    // A search is a POST: it carries the session's CSRF header, and no key (it changes nothing).
+    expect(requests[1]!.headers.get('x-csrf-token')).toBe('csrf-1')
+    expect(requests[1]!.headers.get('idempotency-key')).toBeNull()
     requests.forEach(careHeaders)
+  })
+
+  it('does not repeat a failed search by Health ID', async () => {
+    const { requests, orderRoutesApi } = await signedIn({ status: 503, code: 'UPSTREAM_UNAVAILABLE', detail: 'Down' }, 503)
+    await expect(orderRoutesApi.incoming('facility-1', 'lab', 'HID-7KQ2M9')).rejects.toMatchObject({ status: 503 })
+    expect(requests).toHaveLength(1)
   })
 
   it('accepts with the version, the patient’s identifier and the key; a pharmacy also gives its reason', async () => {
@@ -105,6 +119,22 @@ describe('orders between facilities, on the wire', () => {
     expect(requests[0]!.body).toEqual({ expectedVersion: 1, patientIdentifier: { kind: 'health_id', value: 'HID-7KQ2M9' } })
     expect(requests[1]!.body).toEqual({ expectedVersion: 1, patientIdentifier: { kind: 'date_of_birth', value: '1985-03-12' },
       reason: 'Patient at the counter' })
+    requests.forEach(careHeaders)
+  })
+
+  it('sends the order’s reference with a date of birth only when it is given', async () => {
+    const { requests, orderRoutesApi } = await signedIn({ route: {}, workItem: {} })
+    await orderRoutesApi.accept('facility-1', 'lab', { id: ROUTE, version: 3 }, { kind: 'date_of_birth', value: '1985-03-12' },
+      undefined, 'accept-key-3', '9C1B2D3E')
+    await orderRoutesApi.accept('facility-1', 'pharmacy', { id: ROUTE, version: 3 }, { kind: 'date_of_birth', value: '1985-03-12' },
+      'Patient at the counter', 'accept-key-4', '9C1B2D3E')
+    await orderRoutesApi.accept('facility-1', 'lab', { id: ROUTE, version: 3 }, { kind: 'date_of_birth', value: '1985-03-12' },
+      undefined, 'accept-key-5', undefined)
+    expect(requests[0]!.body).toEqual({ expectedVersion: 3, patientIdentifier: { kind: 'date_of_birth', value: '1985-03-12' },
+      reference: '9C1B2D3E' })
+    expect(requests[1]!.body).toEqual({ expectedVersion: 3, patientIdentifier: { kind: 'date_of_birth', value: '1985-03-12' },
+      reason: 'Patient at the counter', reference: '9C1B2D3E' })
+    expect(requests[2]!.body).toEqual({ expectedVersion: 3, patientIdentifier: { kind: 'date_of_birth', value: '1985-03-12' } })
     requests.forEach(careHeaders)
   })
 

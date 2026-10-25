@@ -8,7 +8,8 @@ import { INCOMING_REFRESH_MS } from '../IncomingOrders'
 /**
  * Orders other facilities sent here, waiting to be accepted (Novu, P4c, SPEC-FINAL §4.1, §13.3): a preview without the
  * patient, the clinical information, the instructions or the licence number; found by the patient's Health ID; accepted
- * with the patient's Health ID or date of birth (five wrong tries lock it here), a pharmacy giving its reason; declined
+ * with the patient's Health ID or date of birth (five wrong tries that name the order lock it here; a date of birth
+ * names it only with the order's reference from the patient's app), a pharmacy giving its reason; declined
  * with a reason; read again on focus and every 2 minutes; paused with no Accept while orders between facilities are off;
  * and not shown at all where the backend has no such route.
  */
@@ -120,24 +121,69 @@ describe('Incoming at a laboratory', () => {
     expect(within(incoming).getByText('Clinical information: Tired for two weeks')).toBeTruthy()
     expect(within(incoming).getByText('Licence on record: MDCN MDCN/12345.')).toBeTruthy()
     expect(routes.accept).toHaveBeenCalledWith('facility-1', 'lab', { id: ROUTE, version: 1 }, { kind: 'health_id', value: 'HID-7KQ2M9' },
-      undefined, expect.any(String))
+      undefined, expect.any(String), undefined)
     await waitFor(() => expect(api.labWorkItems).toHaveBeenCalledTimes(2))
   })
 
-  it('counts down the tries left after a date of birth that does not match, keeping the same key for the same details', async () => {
+  it('counts down the tries left after a date of birth given with the order’s reference, a new key for each try', async () => {
     routes.accept.mockRejectedValue(new HidApiError(409, 'No match', { code: 'ORDER_ROUTE_PATIENT_MISMATCH', attemptsLeft: 4 }))
+    const incoming = await openLaboratory()
+    fireEvent.click(within(incoming).getByRole('button', { name: 'Accept' }))
+    expect(within(incoming).queryByLabelText(/^Order reference/)).toBeNull()
+    fireEvent.click(within(incoming).getByRole('radio', { name: 'Date of birth' }))
+    fireEvent.change(within(incoming).getByLabelText(/^Patient’s date of birth/), { target: { value: '1985-03-21' } })
+    // Typed from what the patient's app shows: never filled from this card.
+    const reference = within(incoming).getByLabelText(/^Order reference from the patient’s app/) as HTMLInputElement
+    expect(reference.value).toBe('')
+    expect(within(incoming).getByText(/^Five dates of birth that don’t match, given with the reference, or 20 wrong details/)).toBeTruthy()
+    fireEvent.change(reference, { target: { value: ' 9c1b2d3e ' } })
+    fireEvent.click(within(incoming).getByRole('button', { name: 'Accept order' }))
+    expect(await within(incoming).findByText('That doesn’t match this order’s patient. 4 tries left.')).toBeTruthy()
+    expect(routes.accept).toHaveBeenCalledWith('facility-1', 'lab', { id: ROUTE, version: 1 }, { kind: 'date_of_birth', value: '1985-03-21' },
+      undefined, expect.any(String), '9C1B2D3E')
+    // A settled refusal frees its key: the next try is a new acceptance.
+    fireEvent.click(within(incoming).getByRole('button', { name: 'Accept order' }))
+    await waitFor(() => expect(routes.accept).toHaveBeenCalledTimes(2))
+    expect(routes.accept.mock.calls[1]![5]).not.toBe(routes.accept.mock.calls[0]![5])
+  })
+
+  it('after a date of birth alone that does not match, asks for the reference instead of counting down', async () => {
+    routes.accept.mockRejectedValue(new HidApiError(409, 'No match', { code: 'ORDER_ROUTE_PATIENT_MISMATCH', attemptsLeft: 5 }))
     const incoming = await openLaboratory()
     fireEvent.click(within(incoming).getByRole('button', { name: 'Accept' }))
     fireEvent.click(within(incoming).getByRole('radio', { name: 'Date of birth' }))
     fireEvent.change(within(incoming).getByLabelText(/^Patient’s date of birth/), { target: { value: '1985-03-21' } })
     fireEvent.click(within(incoming).getByRole('button', { name: 'Accept order' }))
-    expect(await within(incoming).findByText('That doesn’t match this order’s patient. 4 tries left.')).toBeTruthy()
+    expect(await within(incoming).findByText('That doesn’t match this order’s patient. Check that this is their order: ask for the '
+      + 'reference shown with it in their Health ID app, and enter it with the date of birth.')).toBeTruthy()
+    expect(within(incoming).queryByText(/tries left/)).toBeNull()
     expect(routes.accept).toHaveBeenCalledWith('facility-1', 'lab', { id: ROUTE, version: 1 }, { kind: 'date_of_birth', value: '1985-03-21' },
-      undefined, expect.any(String))
-    // A settled refusal frees its key: the next try is a new acceptance.
+      undefined, expect.any(String), undefined)
+  })
+
+  it('refuses a reference that is not 8 characters before sending, and says another order’s reference is not this one’s', async () => {
+    routes.accept.mockRejectedValue(new HidApiError(409, 'Not this order', { code: 'ORDER_ROUTE_REFERENCE_MISMATCH' }))
+    const incoming = await openLaboratory()
+    fireEvent.click(within(incoming).getByRole('button', { name: 'Accept' }))
+    fireEvent.click(within(incoming).getByRole('radio', { name: 'Date of birth' }))
+    fireEvent.change(within(incoming).getByLabelText(/^Patient’s date of birth/), { target: { value: '1985-03-12' } })
+    const reference = within(incoming).getByLabelText(/^Order reference from the patient’s app/)
+    fireEvent.change(reference, { target: { value: 'HID-7KQ2' } })
     fireEvent.click(within(incoming).getByRole('button', { name: 'Accept order' }))
-    await waitFor(() => expect(routes.accept).toHaveBeenCalledTimes(2))
-    expect(routes.accept.mock.calls[1]![5]).not.toBe(routes.accept.mock.calls[0]![5])
+    expect(await within(incoming).findByText(/^The reference is the 8 characters shown with the order/)).toBeTruthy()
+    expect(routes.accept).not.toHaveBeenCalled()
+    fireEvent.change(reference, { target: { value: '0A1B2C3D' } })
+    const reads = routes.incoming.mock.calls.length
+    fireEvent.click(within(incoming).getByRole('button', { name: 'Accept order' }))
+    expect(await within(incoming).findByText('That reference is not this order’s. Check that you picked the patient’s own order: '
+      + 'their Health ID app shows its reference.')).toBeTruthy()
+    expect(routes.accept).toHaveBeenCalledWith('facility-1', 'lab', { id: ROUTE, version: 1 }, { kind: 'date_of_birth', value: '1985-03-12' },
+      undefined, expect.any(String), '0A1B2C3D')
+    // Nothing was counted and the order did not change: the list is not read again.
+    expect(routes.incoming.mock.calls.length).toBe(reads)
+    // Switching to the Health ID drops the reference.
+    fireEvent.click(within(incoming).getByRole('radio', { name: 'Health ID' }))
+    expect(within(incoming).queryByLabelText(/^Order reference/)).toBeNull()
   })
 
   it('says a locked order can’t be accepted here, and offers only Decline', async () => {
@@ -236,7 +282,7 @@ describe('Incoming at a pharmacy', () => {
     fireEvent.click(within(incoming).getByRole('button', { name: 'Accept order' }))
     expect(await within(incoming).findByText('Instructions: Take with food')).toBeTruthy()
     expect(routes.accept).toHaveBeenCalledWith('facility-1', 'pharmacy', { id: ROUTE, version: 1 }, { kind: 'health_id', value: 'HID-7KQ2M9' },
-      'Patient at the counter with their card', expect.any(String))
+      'Patient at the counter with their card', expect.any(String), undefined)
   })
 
   it('offers a pharmacy the medicine’s decline reasons', async () => {

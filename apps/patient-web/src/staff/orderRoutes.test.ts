@@ -107,4 +107,20 @@ describe('the refusals’ words', () => {
     expect(acceptRefusal(problem(409, 'ORDER_ROUTE_PATIENT_MISMATCH'), 'General Hospital', 'Yaba Diagnostics').text)
       .toBe('That doesn’t match this order’s patient. Check it with the patient and try again.')
   })
+
+  it('asks for the reference after a date of birth alone, which does not count down this order’s tries (P4c review)', () => {
+    const mismatch = new HidApiError(409, 'No match', { code: 'ORDER_ROUTE_PATIENT_MISMATCH', attemptsLeft: 5 })
+    const refusal = acceptRefusal(mismatch, 'General Hospital', 'Yaba Diagnostics', false)
+    expect(refusal).toMatchObject({ field: 'identifier', reload: true })
+    expect(refusal.text).toMatch(/ask for the reference shown with it in their Health ID app/)
+    expect(refusal.text).not.toMatch(/tries? left/)
+  })
+
+  it('says another order’s reference is not this one’s, on the reference, without reloading', () => {
+    const refusal = acceptRefusal(problem(409, 'ORDER_ROUTE_REFERENCE_MISMATCH'), 'General Hospital', 'Yaba Diagnostics', true)
+    expect(refusal).toEqual({ field: 'reference',
+      text: 'That reference is not this order’s. Check that you picked the patient’s own order: their Health ID app shows its reference.' })
+    expect(acceptRefusal(problem(400, 'ORDER_ROUTE_INVALID'), 'General Hospital', 'Yaba Diagnostics').text)
+      .toMatch(/a reference has 8 characters\.$/)
+  })
 })

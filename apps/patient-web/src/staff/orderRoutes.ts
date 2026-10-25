@@ -286,17 +286,26 @@ export function receivedWord(service: 'lab' | 'pharmacy'): string {
 
 /**
  * What a refused acceptance means (SPEC-FINAL §10.2, §13.3). `attemptsLeft` comes with a mismatch; `reload` says the
- * Incoming list is out of date; `locked` that the order can't be accepted here any more.
+ * Incoming list is out of date; `locked` that the order can't be accepted here any more. `named` is false when the
+ * identifier did not name the order (a date of birth without its reference): a mismatch then says to ask for the
+ * reference, and no countdown.
  */
-export function acceptRefusal(error: unknown, orderingFacility: string, facility: string):
-  { text: string; reload?: boolean; field?: 'identifier' | 'reason' } {
+export function acceptRefusal(error: unknown, orderingFacility: string, facility: string, named = true):
+  { text: string; reload?: boolean; field?: 'identifier' | 'reason' | 'reference' } {
   if (!isHidApiError(error) && error instanceof Error && error.message) return { text: error.message }
   if (isCode(error, 'ORDER_ROUTE_PATIENT_MISMATCH')) {
+    // A date of birth given without the order's reference does not name the order (P4c review): the counter may have
+    // picked another patient's order, and that wrong date does not count against this order's five tries.
+    if (!named) return { reload: true, field: 'identifier', text: 'That doesn’t match this order’s patient. Check that '
+      + 'this is their order: ask for the reference shown with it in their Health ID app, and enter it with the date of birth.' }
     const left = isHidApiError(error) ? error.attemptsLeft : null
     return { reload: true, field: 'identifier', text: left === null
       ? 'That doesn’t match this order’s patient. Check it with the patient and try again.'
       : `That doesn’t match this order’s patient. ${left} ${left === 1 ? 'try' : 'tries'} left.` }
   }
+  // Another order's reference: nothing is counted, and the order is unchanged.
+  if (isCode(error, 'ORDER_ROUTE_REFERENCE_MISMATCH')) return { field: 'reference',
+    text: 'That reference is not this order’s. Check that you picked the patient’s own order: their Health ID app shows its reference.' }
   if (isCode(error, 'ORDER_ROUTE_ACCEPT_LOCKED')) return { reload: true,
     text: `Too many wrong tries: this order can’t be accepted here. ${orderingFacility} can send it again.` }
   if (isCode(error, 'ORDER_ROUTE_HEALTH_ID_REQUIRED')) return { field: 'identifier',
@@ -317,7 +326,8 @@ export function acceptRefusal(error: unknown, orderingFacility: string, facility
     text: `The patient has asked Health ID not to share their records with ${facility}, so this order can’t be accepted here.` }
   if (isCode(error, 'IDEMPOTENCY_KEY_REUSED')) return { text: 'This acceptance was already sent with other details. Try again.' }
   if (isCode(error, 'ORDER_ROUTE_INVALID') || isCode(error, 'VALIDATION_FAILED')) return { field: 'identifier',
-    text: 'Check what you entered: a Health ID starts with HID-, and a date of birth needs the day, month and year.' }
+    text: 'Check what you entered: a Health ID starts with HID-, a date of birth needs the day, month and year, and a '
+      + 'reference has 8 characters.' }
   if (isHidApiError(error) && error.status === 412) return { reload: true, text: 'This order changed since it was loaded. The list has been reloaded: try again.' }
   if (isHidApiError(error) && error.status === 404) return routeMissing(error) && !isCode(error, 'ORDER_ROUTE_NOT_FOUND')
     ? { text: 'Receiving orders from other facilities is not available yet.' }

@@ -14,6 +14,9 @@ import { BUSY, UNAVAILABLE } from '../focus'
 /** A Health ID as Identity stores it (identity 0002). */
 const HID_PATTERN = /^HID-[A-HJ-NP-Z2-9]{6,32}$/
 const HID_PROBLEM = 'Check the Health ID: it starts with HID-, then 6 to 32 letters and digits, and never uses 0, 1, I or O.'
+/** An order's reference as the patient's app shows it: 8 characters of its id, upper-cased (C9). */
+const REFERENCE_PATTERN = /^[0-9A-F]{8}$/
+const REFERENCE_PROBLEM = 'The reference is the 8 characters shown with the order in the patient’s Health ID app, for example 3F2A9C1B.'
 /** How often Incoming is read again while the page is in view (SPEC-FINAL §13.3). */
 export const INCOMING_REFRESH_MS = 120_000
 
@@ -56,8 +59,9 @@ export function patientCard(patient: { fullName: string; sex: string | null; dat
  * Each read is audited (lab.order-route.list / pharmacy.order-route.list). With `probe` (a governed facility, whose
  * type the session does not say: it may be a hospital, which never receives), the list is read once, when the page
  * opens, and nothing is shown or read again unless an order is waiting: then `onFound` says so, and the page treats the
- * facility as receiving. A Health ID typed to find a patient's orders is sent only when Find or Refresh is pressed, or
- * an order is acted on: never by the timer or on focus, since the route takes it in the address (`?healthId=`).
+ * facility as receiving. A Health ID typed to find a patient's orders goes in the body of the search's POST, never in an
+ * address, and is sent only when Find or Refresh is pressed, or an order is acted on: never by the timer or on focus,
+ * since each read is audited.
  */
 export function IncomingOrders({ service, facilityId, facilityName, onAccepted, probe = false, onFound }: {
   service: ReceivingService; facilityId: string; facilityName: string; onAccepted: () => void
@@ -180,11 +184,12 @@ function IncomingOrderCard({ service, facilityId, facilityName, route, ordersOn,
   const [mode, setMode] = useState<'none' | 'accept' | 'decline'>('none')
   const [kind, setKind] = useState<Identifier>('health_id')
   const [value, setValue] = useState('')
+  const [reference, setReference] = useState('')
   const [reason, setReason] = useState('')
   const [declineReason, setDeclineReason] = useState<OrderRouteDeclineReason | ''>('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [fieldError, setFieldError] = useState<{ identifier?: string; reason?: string }>({})
+  const [fieldError, setFieldError] = useState<{ identifier?: string; reason?: string; reference?: string }>({})
   const attempt = useRef<{ signature: string; key: string } | null>(null)
   const id = `incoming-${route.id}`
   const ordering = route.orderingFacilityName ?? 'The ordering facility'
@@ -201,23 +206,29 @@ function IncomingOrderCard({ service, facilityId, facilityName, route, ordersOn,
     if (kind === 'date_of_birth' && !/^\d{4}-\d{2}-\d{2}$/.test(identifier)) {
       setFieldError({ identifier: 'Enter the patient’s date of birth: day, month and year.' }); document.getElementById(`${id}-identifier`)?.focus(); return
     }
+    // The order's reference, from the patient's app, names the order with a date of birth (P4c review). It is never
+    // filled from this card: the patient's app is what confirms it is their order.
+    const ref = kind === 'date_of_birth' ? reference.trim().toUpperCase() : ''
+    if (ref && !REFERENCE_PATTERN.test(ref)) {
+      setFieldError({ reference: REFERENCE_PROBLEM }); document.getElementById(`${id}-reference`)?.focus(); return
+    }
     const why = reason.trim()
     if (service === 'pharmacy' && (why.length < 8 || why.length > 500)) {
       setFieldError({ reason: 'Give a reason of 8 to 500 characters.' }); document.getElementById(`${id}-reason`)?.focus(); return
     }
     if (version < 1) { setError('Refresh the list before accepting this order.'); return }
     // The same details sent again after no answer are the same acceptance; changed details are a new one.
-    const signature = JSON.stringify([kind, identifier, service === 'pharmacy' ? why : null])
+    const signature = JSON.stringify([kind, identifier, ref || null, service === 'pharmacy' ? why : null])
     if (attempt.current?.signature !== signature) attempt.current = { signature, key: crypto.randomUUID() }
     setBusy(true)
     try {
       const result = await orderRoutesApi.accept(facilityId, service, { id: route.id, version },
-        { kind, value: identifier }, service === 'pharmacy' ? why : undefined, attempt.current.key)
+        { kind, value: identifier }, service === 'pharmacy' ? why : undefined, attempt.current.key, ref || undefined)
       attempt.current = null
       onAccepted(result)
     } catch (caught) {
       if (isHidApiError(caught) && caught.status > 0 && caught.status < 500 && caught.status !== 408) attempt.current = null
-      const refusal = acceptRefusal(caught, ordering, facilityName)
+      const refusal = acceptRefusal(caught, ordering, facilityName, kind === 'health_id' || ref !== '')
       if (refusal.field) setFieldError({ [refusal.field]: refusal.text })
       else setError(refusal.text)
       if (refusal.reload) onStale()
@@ -266,9 +277,9 @@ function IncomingOrderCard({ service, facilityId, facilityName, route, ordersOn,
       <fieldset className="staff-order-choices">
         <legend>Confirm who the patient is, with their</legend>
         <label className="staff-choice"><input type="radio" name={`${id}-kind`} checked={kind === 'health_id'}
-          onChange={() => { setKind('health_id'); setValue(''); setFieldError({}) }} /> Health ID</label>
+          onChange={() => { setKind('health_id'); setValue(''); setReference(''); setFieldError({}) }} /> Health ID</label>
         <label className="staff-choice"><input type="radio" name={`${id}-kind`} checked={kind === 'date_of_birth'}
-          onChange={() => { setKind('date_of_birth'); setValue(''); setFieldError({}) }} /> Date of birth</label>
+          onChange={() => { setKind('date_of_birth'); setValue(''); setReference(''); setFieldError({}) }} /> Date of birth</label>
       </fieldset>
       <Field label={kind === 'health_id' ? 'Patient’s Health ID' : 'Patient’s date of birth'} htmlFor={`${id}-identifier`} error={fieldError.identifier}
         hint={kind === 'health_id' ? 'As on the patient’s Health ID card or app, for example HID-7KQ2M9.' : 'Ask the patient; check it against a document if you can.'}>
@@ -276,15 +287,21 @@ function IncomingOrderCard({ service, facilityId, facilityName, route, ordersOn,
           ? <Input id={`${id}-identifier`} value={value} autoComplete="off" spellCheck={false} maxLength={40} onChange={event => setValue(event.target.value)} />
           : <Input id={`${id}-identifier`} type="date" value={value} max={today()} onChange={event => setValue(event.target.value)} />}
       </Field>
+      {kind === 'date_of_birth' && <Field label="Order reference from the patient’s app (optional)" htmlFor={`${id}-reference`}
+        error={fieldError.reference} hint="Ask the patient for the reference shown with this order in their Health ID app (8 characters). It confirms this is their order. Leave it empty if they can’t show it.">
+        <Input id={`${id}-reference`} value={reference} autoComplete="off" spellCheck={false} maxLength={16}
+          onChange={event => setReference(event.target.value)} />
+      </Field>}
       {service === 'pharmacy' && <Field label="Reason for accepting" htmlFor={`${id}-reason`} error={fieldError.reason}
         hint="8 to 500 characters, kept with the record. For example: Patient at the counter with their Health ID card.">
         <Textarea id={`${id}-reason`} value={reason} maxLength={500} onChange={event => setReason(event.target.value)} />
       </Field>}
-      <p className="staff-muted">Five details that don’t match lock this order here.</p>
+      <p className="staff-muted">{kind === 'health_id' ? 'Five details that don’t match lock this order here.'
+        : 'Five dates of birth that don’t match, given with the reference, or 20 wrong details in all, lock this order here.'}</p>
       {error && <p className="staff-error" role="alert">{error}</p>}
       <div className="staff-row"><Button id={`${id}-accept`} type="submit" size="sm" aria-disabled={busy || undefined} className={BUSY}>
         {busy ? 'Accepting…' : 'Accept order'}</Button>
-        <Button tone="quiet" size="sm" onClick={() => { setMode('none'); setError(''); setFieldError({}); setValue('') }}>Cancel</Button></div>
+        <Button tone="quiet" size="sm" onClick={() => { setMode('none'); setError(''); setFieldError({}); setValue(''); setReference('') }}>Cancel</Button></div>
     </form>}
     {mode === 'decline' && <form className="staff-form" onSubmit={event => void decline(event)} aria-label={`Decline ${title}`}>
       <Field label="Why can’t you take it?" htmlFor={`${id}-decline-reason`}>
