@@ -42,7 +42,7 @@ function fillReview(item: HTMLElement, note = 'Called the lab; confirmed.', meth
   fireEvent.click(within(item).getByText('Mark reviewed', { selector: 'summary' }))
   fireEvent.change(within(item).getByLabelText('How did you check?'), { target: { value: method } })
   fireEvent.change(within(item).getByLabelText('What you checked'), { target: { value: note } })
-  fireEvent.click(within(item).getByLabelText('I checked this facility and its administrator. They may now see patient records.'))
+  fireEvent.click(within(item).getByLabelText(/^I checked this facility and its administrator\. They may now see patient records/))
 }
 const REVIEW_BUTTON = 'Mark reviewed and give full access'
 const actor = (permissions: string[]): AdminActor => ({ accountId: 'admin-1', subject: 'staff:1', displayName: 'Ada',
@@ -155,7 +155,7 @@ describe('new facility sign-ups', () => {
     const note = within(item).getByLabelText('What you checked')
     const save = within(item).getByRole('button', { name: REVIEW_BUTTON }) as HTMLButtonElement
     fireEvent.change(within(item).getByLabelText('How did you check?'), { target: { value: 'officer_match' } })
-    fireEvent.click(within(item).getByLabelText('I checked this facility and its administrator. They may now see patient records.'))
+    fireEvent.click(within(item).getByLabelText(/^I checked this facility and its administrator\. They may now see patient records/))
     fireEvent.change(note, { target: { value: ' short ' } })
     expect(save.disabled).toBe(true)
     fireEvent.change(note, { target: { value: '  Called the lab; the director confirmed Bola.  ' } })
@@ -866,7 +866,7 @@ describe('full access after review (P4b)', () => {
     fireEvent.change(within(item).getByLabelText('How did you check?'), { target: { value: 'regulator_register' } })
     // Not without the confirmation.
     expect(save.disabled).toBe(true)
-    fireEvent.click(within(item).getByLabelText('I checked this facility and its administrator. They may now see patient records.'))
+    fireEvent.click(within(item).getByLabelText(/^I checked this facility and its administrator\. They may now see patient records/))
     expect(save.disabled).toBe(false)
     fireEvent.click(save)
     await screen.findByText(/^Marked IKEJA CARE LIMITED reviewed\./)
@@ -915,10 +915,13 @@ describe('full access after review (P4b)', () => {
   })
 
   it.each([
+    // P4c (PRIV P6): a reviewed laboratory or pharmacy also receives orders from other facilities.
     ['laboratory', ['lab'], 'lab', 'Laboratory scientist', 'MLSCN', 'and become a laboratory scientist who can open patient '
-      + 'records with each patient’s consent. Do it'],
+      + 'records with each patient’s consent, and receive lab requests that Health ID clinicians at other facilities send, with '
+      + 'each patient’s name, sex and date of birth once they accept them. Do it'],
     ['pharmacy', ['pharmacist'], 'pharmacist', 'Pharmacist', 'PCN', 'and become a pharmacist who can open patient records '
-      + 'with each patient’s consent. Do it'],
+      + 'with each patient’s consent, and receive prescriptions that Health ID clinicians at other facilities send, with each '
+      + 'patient’s name, sex and date of birth once they accept them. Do it'],
   ])('offers a %s’s own role, with its licence and without emergency access', async (type, roles, role, title, body, warning) => {
     mocks.api.selfServiceFacilities.mockResolvedValue({ items: [signUp({ organizationType: type, productCode: type,
       reviewGrantsRole: role, reviewableRoles: roles })] })

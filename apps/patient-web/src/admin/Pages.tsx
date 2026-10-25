@@ -225,6 +225,13 @@ const CONTROL_NOTES: Readonly<Record<string, string>> = {
   clinician_signup_enabled: 'Lets doctors and nurses apply by themselves at /provider/join. Their applications wait in '
     + 'Clinician applications until one Super Admin verifies and a second approves, so open it only when the queue is '
     + 'staffed. Applying also needs the provider portal on and maintenance off.',
+  // P4c (Novu), seeded off: switched on with facility sign-up and staff invitations after the closed-state checks.
+  cross_facility_orders_enabled: 'Lets clinicians send lab requests and prescriptions to a reviewed laboratory or pharmacy '
+    + 'at another facility, and lets those facilities accept them. Switching it off stops new sends and acceptances; work '
+    + 'already accepted carries on.',
+  // P4c (Novu), seeded on: off only to stop all work on accepted orders at once if something goes wrong.
+  cross_facility_route_access_enabled: 'Lets laboratories and pharmacies work on orders from other facilities they have '
+    + 'accepted. Switch it off only to stop all of that work at once, everywhere, if something goes wrong.',
 }
 
 function ControlAction({ control, reload }: { control: PlatformControl; reload: () => void }) {

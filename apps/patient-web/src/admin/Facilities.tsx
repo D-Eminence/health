@@ -4,6 +4,7 @@ import { usesNovuBackend } from '../backendContract'
 import { adminApi, PAGE_SIZE, type AdminActor, type AuditFilters, type Facility } from './api'
 import { AssistedRegistrationPanel } from './AssistedRegistration'
 import { FacilityStaffPanel } from './FacilityStaffPanel'
+import { FacilityOrderRoutesPanel } from './OrderRoutes'
 import { isProblem } from './problems'
 import {
   ActionForm, Page, Pager, Refresh, ResourceView, Status, Table, date, has, label, pageNumber, useGovernedSubmit, useResource,
@@ -233,6 +234,9 @@ function FacilityDetail({ facilityId, actor }: { facilityId: string; actor: Admi
       {usesNovuBackend() && <FacilityAlertPhone facility={facility} actor={actor} reload={reload} />}
       {/* A self-signed-up facility's staff and the licences it vouched for (Novu, P4b); read only when asked: every read is audited. */}
       {usesNovuBackend() && has(actor, 'platform.principal.read') && <FacilityStaffPanel facilityId={facility.id} />}
+      {/* Orders sent to, or received from, other facilities, and the listing for them (Novu, P4c); read only when asked. */}
+      {usesNovuBackend() && has(actor, 'platform.facility.read') && <FacilityOrderRoutesPanel facilityId={facility.id}
+        facilityName={facility.name} actor={actor} />}
       {/* A designation change is audited against the facility: the audit excerpts are read again with it. */}
       <AssistedRegistrationPanel facilityId={facility.id} facilityStatus={facility.status} refresh={refreshes} actor={actor}
         onChanged={() => setRevision(value => value + 1)} />

@@ -162,6 +162,30 @@ export interface FoundStaffInvitation {
   invitationId: string; reference: string; facilityId: string; facilityName: string; organizationId: string; status: string
   roleCode: string; createdAt: string | null; expiresAt: string | null
 }
+/**
+ * Orders between facilities (Novu, P4c, SPEC-FINAL §10.4): a facility's summary for support, with no patient and no
+ * order content. `listed` says whether it can receive orders from other facilities now, by default (its review
+ * method) or as support last set it; the counts per counterpart facility are the last 30 days', by state.
+ */
+export interface FacilityOrderRouteSummary {
+  facilityId: string
+  listed: { value: boolean; byDefault: boolean; reason: string | null; setAt: string | null }
+  receivedAcceptedLifetime: number
+  receivedPatientsLifetime: number
+  counterparts: Array<{ direction: 'sent' | 'received' | string; facilityId: string; facilityName: string | null
+    last30Days: Record<string, number> }>
+}
+/** `POST /admin/facilities/:facilityId/order-destination`. */
+export interface OrderDestinationSet { facilityId: string; listed: boolean; setAt: string | null }
+/** One order between facilities, as support finds it by its reference or the patient's Health ID (C21). */
+export interface FoundOrderRoute extends Versioned {
+  routeId: string; reference: string; kind: 'lab_request' | 'prescription' | string; effectiveState: string
+  orderingFacilityId: string; orderingFacilityName: string; receivingFacilityId: string; receivingFacilityName: string
+  createdAt: string | null; acceptedAt: string | null; endedAt: string | null; endedKind: string | null
+}
+/** `POST /admin/order-routes/:routeId/close`. */
+export interface OrderRouteClosed extends Versioned { routeId: string; effectiveState: string }
+
 /** `POST /admin/self-service-facilities/:applicationId/release`. */
 export interface SelfServiceFacilityReleased extends Versioned { applicationId: string; releasedAt: string }
 /**
@@ -490,6 +514,21 @@ async function selfServiceList<T>(read: Promise<T>, unavailable: { code: string;
   }
 }
 
+/**
+ * An Identity without orders between facilities (hid-system main, or Novu before P4c) has no such route: its 404 names
+ * no code of its own. It is said as that, never as a missing facility or order.
+ */
+async function orderRoutesRead<T>(read: Promise<T>, message: string): Promise<T> {
+  try {
+    return await read
+  } catch (error) {
+    if (isHidApiError(error) && error.status === 404 && (error.code === 'NOT_FOUND' || error.code === 'API_ROUTE_NOT_FOUND')) {
+      throw new HidApiError(404, message, { code: 'ORDER_ROUTES_UNAVAILABLE', requestId: error.requestId, retryable: false })
+    }
+    throw error
+  }
+}
+
 export const adminApi = {
   async novuLogin(email: string, password: string, token: string): Promise<void> {
     if (!usesNovuBackend()) throw new Error('Novu authentication requires the configured novu-v1 backend.')
@@ -724,6 +763,29 @@ export const adminApi = {
   facilityStaff(facilityId: string, signal?: AbortSignal) {
     return selfServiceList(request<AdminFacilityStaff>(at('/api/v1/admin/facilities', facilityId, 'staff'), { signal }),
       { code: 'FACILITY_STAFF_UNAVAILABLE', message: 'Facility staff and licences are not available from this Identity.' })
+  },
+  /** A facility's orders with other facilities (P4c, Novu only): listing and counts, no patient or order content. */
+  facilityOrderRouteSummary(facilityId: string, signal?: AbortSignal) {
+    return orderRoutesRead(request<FacilityOrderRouteSummary>(at('/api/v1/admin/facilities', facilityId, 'order-route-summary'), { signal }),
+      'Orders between facilities are not available from this Identity.')
+  },
+  /** Lists a laboratory or pharmacy for orders from other facilities, or stops listing it (P4c): a reason of 8 to 500. */
+  setOrderDestination(facilityId: string, listed: boolean, reason: string) {
+    return orderRoutesRead(adminApi.command<OrderDestinationSet>(at('/api/v1/admin/facilities', facilityId, 'order-destination'),
+      { listed, reason }), 'Orders between facilities are not available from this Identity.')
+  },
+  /**
+   * Finds orders between facilities by their 8-character reference (at most 5) or the patient's Health ID (at most
+   * 20), exactly one of them (P4c). Identity audits the lookup. The Health ID is in the URL, as the route takes it.
+   */
+  findOrderRoutes(lookup: { reference: string } | { healthId: string }, signal?: AbortSignal) {
+    return orderRoutesRead(request<{ items: FoundOrderRoute[] }>('/api/v1/admin/order-routes', { signal, query: lookup }),
+      'Orders between facilities can’t be found from this Identity.')
+  },
+  /** Closes an order between facilities at once (P4c): If-Match with its version and a reason of 8 to 500. */
+  closeOrderRoute(route: Pick<FoundOrderRoute, 'routeId' | 'version'>, reason: string) {
+    return orderRoutesRead(adminApi.command<OrderRouteClosed>(at('/api/v1/admin/order-routes', route.routeId, 'close'), { reason },
+      { version: route.version }), 'Orders between facilities can’t be closed from this Identity.')
   },
   /** Finds an invitation by the 8-character reference its email quotes (P4b): the reference only, never an email. */
   findStaffInvitations(reference: string, signal?: AbortSignal) {

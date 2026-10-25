@@ -5,6 +5,7 @@ import {
   type SelfServiceFacilityState, type SelfServiceProduct, type SelfServiceVerificationMethod,
 } from './api'
 import { FacilityStaffPanel, StaffInvitationLookup } from './FacilityStaffPanel'
+import { ReleaseOrderRoutesNote } from './OrderRoutes'
 import { failure, isProblem } from './problems'
 import { Page, Refresh, ResourceView, Status, date, has, label, useGovernedSubmit, useResource, useUrlFilters } from './ui'
 import {
@@ -287,6 +288,10 @@ function AccessForm({ id, facility, mode, onDone }: {
 
   const clinical = role !== '' && role !== 'none'
   const roleWords = clinical ? roleLabel(role).toLowerCase() : ''
+  // A laboratory or pharmacy receives orders from other facilities once reviewed (P4c, PRIV P6), unless support records
+  // its check as Other, which leaves it unlisted until support lists it.
+  const receiver = facility.organizationType === 'laboratory' ? 'lab requests'
+    : facility.organizationType === 'pharmacy' ? 'prescriptions' : null
   return <details className="admin-action">
     <summary>{mode === 'review' ? 'Mark reviewed' : 'Change administrator access'}</summary>
     <form className="admin-action-form" onSubmit={event => void submit(event)}>
@@ -322,13 +327,15 @@ function AccessForm({ id, facility, mode, onDone }: {
       {mode === 'review' && <p className="admin-note">Marking this reviewed gives {facility.facilityName} full access at once and
         signs its administrator out once. They can add staff whose licences the facility vouches for{clinical
           ? `, and become a ${roleWords} who can open patient records with each patient’s consent` : ''}{EMERGENCY_ROLES.has(role)
-          ? ', and use emergency access' : ''}. Do it only when you are satisfied that {facility.administratorName} works
+          ? ', and use emergency access' : ''}{receiver ? `, and receive ${receiver} that Health ID clinicians at other facilities send, with each patient’s name, sex and date of birth once they accept them` : ''}. Do it only when you are satisfied that {facility.administratorName} works
         at {facility.organizationName}{clinical ? ' and holds the licence above' : ''}.</p>}
+      {mode === 'review' && receiver && method === 'other' && <p className="admin-note">Because you chose Other, {facility.facilityName} is not
+        listed for orders from other facilities until you list it on its Facilities page.</p>}
       {mode === 'change' && <p className="admin-note">A new clinical role signs {facility.administratorName} out once, so they
         sign in again to use it. Choosing no clinical access ends their current clinical role at once.</p>}
       {mode === 'review' && <label className="admin-checkbox"><input type="checkbox" checked={confirmed}
         onChange={event => setConfirmed(event.target.checked)} /> I checked this facility and its administrator. They may now
-        see patient records.</label>}
+        see patient records{receiver ? ' and receive orders from other facilities' : ''}.</label>}
       <button type="submit" className="admin-primary" disabled={governed.busy || !ready}>
         {governed.busy ? 'Saving…' : mode === 'review' ? 'Mark reviewed and give full access' : 'Change administrator access'}</button>
       {governed.error && <p role="alert" className="admin-error">{governed.error}</p>}
@@ -421,12 +428,15 @@ function SignUpCard({ facility, actor, onDone }: { facility: SelfServiceFacility
     {!released && canRelease && facilitySuspended && accountDisabled && <ReasonForm id={`self-service-release-${id}`}
       summary="Release this sign-up" fieldLabel="Reason for releasing" action="Release sign-up"
       confirmation="I understand that releasing can’t be undone."
-      explanation={<p className="admin-note">Releasing frees this CAC number and legal name, so the real company can sign up.
+      explanation={<><p className="admin-note">Releasing frees this CAC number and legal name, so the real company can sign up.
         It closes this sign-up, unlinks the CAC number, suspends the product, deactivates and renames the organization, and
         removes the administrator’s access. It also ends the access of every staff member the facility added, withdraws
         pending invitations and ends patients’ consents to it. It can’t be undone. The administrator’s email stays with the
         disabled account and can’t be used to sign up again. Unless you let the applicant start again, this sign-up’s email
-        and network can’t sign up this CAC number and product again for 7 days.</p>}
+        and network can’t sign up this CAC number and product again for 7 days.</p>
+        {/* P4c (V3, PRIV P8): releasing closes its orders with other facilities both ways and tells their patients. */}
+        <ReleaseOrderRoutesNote facilityId={facility.facilityId} facilityName={facility.facilityName}
+          canRead={has(actor, 'platform.facility.read')} /></>}
       hint={<>8 to 500 characters, kept with the release and in the audit log. For example: “The company confirmed by phone
         that it did not sign up.”</>}
       option="Let the applicant start again at once: the sign-up was the company’s own, with the wrong email address."
@@ -648,6 +658,10 @@ export function SelfServiceFacilitiesPage({ actor }: { actor: AdminActor }) {
           <p>Marking a sign-up reviewed gives the facility full access at once: its administrator can add staff, whose
             licences the facility vouches for, and patient records open to them with each patient’s consent. Give the
             administrator a clinical role only once you have checked their licence on the regulator’s register.</p>
+          {/* P4c (PRIV P6): a reviewed laboratory or pharmacy is listed for orders from other facilities. */}
+          <p>A reviewed laboratory or pharmacy can also receive lab requests or prescriptions that Health ID clinicians at other
+            facilities send, with each patient’s name, sex and date of birth once it accepts them. If you record your check as
+            Other, it is not listed for those orders until you list it on its Facilities page.</p>
           <p>If anything looks wrong, do not mark it reviewed: suspend the facility, disable the administrator’s account and
             release the sign-up.</p>
           <p>If it used another company’s CAC number, by mistake or not, also release it once the facility is suspended and

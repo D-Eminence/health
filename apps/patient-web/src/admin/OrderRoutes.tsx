@@ -1,0 +1,261 @@
+import { useCallback, useState, type FormEvent } from 'react'
+import { Link } from 'react-router-dom'
+import { adminApi, type AdminActor, type FacilityOrderRouteSummary, type FoundOrderRoute } from './api'
+import { failure, isProblem } from './problems'
+import { Page, ResourceView, Table, date, has, useGovernedSubmit, useResource } from './ui'
+
+/**
+ * Support's tools for orders between facilities (Novu, P4c, SPEC-FINAL §8.7 C20-C23, §13.6): a facility's summary and
+ * whether it is listed for orders from other facilities, finding an order by its reference or the patient's Health ID,
+ * and closing one. Identity audits every read and change; none shows a patient's name or what was ordered.
+ */
+
+/** What an order's effective state means, in support's words. */
+const STATE_WORDS: Readonly<Record<string, string>> = {
+  sent: 'Waiting to be accepted', accepted: 'Accepted', completed: 'Result or dispensing returned', declined: 'Declined',
+  withdrawn: 'Withdrawn', expired: 'Expired', cancelled: 'Cancelled',
+}
+
+export function stateWord(state: string): string {
+  return STATE_WORDS[state] ?? state.replaceAll('_', ' ')
+}
+
+/** The states with access in force: support can close only these (C22). */
+const LIVE: ReadonlySet<string> = new Set(['sent', 'accepted', 'completed'])
+
+const LISTING_PROBLEMS: Readonly<Record<string, string>> = {
+  ORDER_ROUTE_DESTINATION_UNCHANGED: 'It is already listed that way. The summary has been refreshed.',
+  ADMIN_FACILITY_NOT_FOUND: 'Only a facility that signed up, or was approved, as a laboratory or pharmacy can be listed for '
+    + 'orders from other facilities.',
+  PERMISSION_DENIED: 'Listing a facility for orders needs the platform.facility.manage and platform.facility.unlock '
+    + 'permissions. Ask a Super Admin.',
+  VALIDATION_FAILED: 'Enter a reason of 8 to 500 characters.',
+  ORDER_ROUTE_DESTINATION_INVALID: 'Enter a reason of 8 to 500 characters.',
+}
+
+/** "2 waiting to be accepted, 1 accepted": a counterpart's last 30 days. */
+function stateCounts(counts: Record<string, number>): string {
+  const entries = Object.entries(counts ?? {}).filter(([, count]) => typeof count === 'number' && count > 0)
+  return entries.length ? entries.map(([state, count]) => `${count} ${stateWord(state).toLowerCase()}`).join(', ') : 'None'
+}
+
+function listingLine(summary: FacilityOrderRouteSummary): string {
+  const { value, byDefault, reason, setAt } = summary.listed
+  if (byDefault) return value ? 'Listed for orders from other facilities, by default.'
+    : 'Not listed for orders from other facilities, by default: Health ID support recorded its check as “Other”.'
+  return value ? `Listed for orders from other facilities by Health ID support on ${date(setAt)}${reason ? `: ${reason}` : '.'}`
+    : `Not listed: Health ID support stopped listing it on ${date(setAt)}${reason ? `: ${reason}` : '.'}`
+}
+
+/**
+ * A facility's orders with other facilities (C20), read only when asked: Identity audits each read. With
+ * platform.facility.manage and platform.facility.unlock support lists it for orders, or stops listing it (C23);
+ * accepted work is unaffected.
+ */
+export function FacilityOrderRoutesPanel({ facilityId, facilityName, actor }: { facilityId: string; facilityName: string; actor: AdminActor }) {
+  const [shown, setShown] = useState(false)
+  return <section className="admin-panel" aria-labelledby={`facility-order-routes-${facilityId}`}>
+    <div className="admin-panel-head"><div><h2 id={`facility-order-routes-${facilityId}`}>Orders with other facilities</h2>
+      <p>Lab requests and prescriptions this facility sent to, or received from, other facilities, and whether clinicians at
+        other facilities can find it to send orders to. No patient or order details are shown. Each time you open it, Health ID
+        records it in the audit log.</p></div></div>
+    {shown ? <FacilityOrderRoutesSummary facilityId={facilityId} facilityName={facilityName} actor={actor} />
+      : <button type="button" className="admin-secondary" onClick={() => setShown(true)}>Show orders with other facilities</button>}
+  </section>
+}
+
+function FacilityOrderRoutesSummary({ facilityId, facilityName, actor }: { facilityId: string; facilityName: string; actor: AdminActor }) {
+  const load = useCallback((signal?: AbortSignal) => adminApi.facilityOrderRouteSummary(facilityId, signal), [facilityId])
+  const resource = useResource(load, 'This facility’s orders with other facilities could not be loaded.')
+  const canList = has(actor, 'platform.facility.manage') && has(actor, 'platform.facility.unlock')
+  return <ResourceView resource={resource}>{summary => <div className="admin-stack">
+    <p>{listingLine(summary)}</p>
+    <p className="admin-note">A facility can receive orders only while it is an active, reviewed (or support-approved)
+      laboratory or pharmacy that is listed and has a laboratory scientist or pharmacist on Health ID.</p>
+    <p>{facilityName} accepted {summary.receivedAcceptedLifetime} {summary.receivedAcceptedLifetime === 1 ? 'order' : 'orders'} from
+      other facilities, for {summary.receivedPatientsLifetime} {summary.receivedPatientsLifetime === 1 ? 'patient' : 'patients'}.</p>
+    <h3>Last 30 days, by facility</h3>
+    {summary.counterparts.length === 0 ? <p className="admin-state">No orders with other facilities in the last 30 days.</p>
+      : <Table headings={['Direction', 'Facility', 'Orders']}>
+        {summary.counterparts.map(counterpart => <tr key={`${counterpart.direction}-${counterpart.facilityId}`}>
+          <td>{counterpart.direction === 'sent' ? 'Sent to' : 'Received from'}</td>
+          <td><Link to={`/admin/facilities/${encodeURIComponent(counterpart.facilityId)}`}>{counterpart.facilityName ?? 'Facility'}</Link></td>
+          <td>{stateCounts(counterpart.last30Days)}</td>
+        </tr>)}
+      </Table>}
+    {canList ? <ListingForm facilityId={facilityId} facilityName={facilityName} listed={summary.listed.value} onDone={resource.reload} />
+      : <p className="admin-note">Listing it for orders needs the platform.facility.manage and platform.facility.unlock permissions.</p>}
+  </div>}</ResourceView>
+}
+
+function ListingForm({ facilityId, facilityName, listed, onDone }: { facilityId: string; facilityName: string; listed: boolean; onDone: () => void }) {
+  const [reason, setReason] = useState('')
+  const [notice, setNotice] = useState<string | null>(null)
+  const governed = useGovernedSubmit()
+  const length = reason.trim().length
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (governed.busy || length < 8 || length > 500) return
+    setNotice(null)
+    let refused: unknown = null
+    const saved = await governed.submit(async () => {
+      try { return await adminApi.setOrderDestination(facilityId, !listed, reason.trim()) }
+      catch (caught) { refused = caught; throw caught }
+    }, 'The listing could not be changed. Try again.', LISTING_PROBLEMS)
+    if (saved) {
+      setReason('')
+      setNotice(saved.listed ? `${facilityName} is listed for orders from other facilities.`
+        : `${facilityName} is no longer listed. Orders it has already accepted are not affected.`)
+      onDone()
+    } else if (isProblem(refused, 'ORDER_ROUTE_DESTINATION_UNCHANGED')) onDone()
+  }
+  const id = `order-destination-${facilityId}`
+  return <details className="admin-action">
+    <summary>{listed ? 'Stop listing it for orders' : 'List it for orders'}</summary>
+    <form className="admin-action-form" onSubmit={event => void submit(event)}>
+      <p className="admin-note">{listed
+        ? `Clinicians at other facilities will no longer find ${facilityName} to send orders to. Orders it has already accepted continue.`
+        : `Clinicians at other facilities will find ${facilityName} and can send it lab requests or prescriptions, with each patient’s name, sex and date of birth once it accepts them. List it only once you are satisfied it is a real laboratory or pharmacy.`}</p>
+      <label htmlFor={id}>Reason</label>
+      <textarea id={id} required minLength={8} maxLength={500} rows={3} value={reason} aria-describedby={`${id}-hint`}
+        onChange={event => setReason(event.target.value)} />
+      <small id={`${id}-hint`} className="admin-note">8 to 500 characters, kept in the audit log.</small>
+      <button type="submit" className="admin-primary" disabled={governed.busy || length < 8 || length > 500}>
+        {governed.busy ? 'Saving…' : listed ? 'Stop listing' : 'List for orders'}</button>
+      {governed.error && <p role="alert" className="admin-error">{governed.error}</p>}
+      <div role="status">{notice && <p className="admin-success">{notice}</p>}</div>
+    </form>
+  </details>
+}
+
+/**
+ * The release card's line about a sign-up's orders with other facilities (P4c SPEC 13.6): the lifetime counts when the
+ * summary can be read, and what releasing does to its open orders either way.
+ */
+export function ReleaseOrderRoutesNote({ facilityId, facilityName, canRead }: { facilityId: string; facilityName: string; canRead: boolean }) {
+  const load = useCallback(async (signal?: AbortSignal) => canRead ? adminApi.facilityOrderRouteSummary(facilityId, signal) : null,
+    [facilityId, canRead])
+  const resource = useResource(load, '')
+  const summary = resource.data
+  return <p className="admin-note">{summary
+    ? `${facilityName} accepted ${summary.receivedAcceptedLifetime} ${summary.receivedAcceptedLifetime === 1 ? 'order' : 'orders'} from other facilities for ${summary.receivedPatientsLifetime} ${summary.receivedPatientsLifetime === 1 ? 'patient' : 'patients'}. `
+    : ''}Releasing it withdraws or cancels its open orders with other facilities, both ways, and tells those patients.</p>
+}
+
+const REFERENCE = /^[0-9A-F]{8}$/
+const HEALTH_ID = /^HID-[A-HJ-NP-Z2-9]{6,32}$/
+const LOOKUP_INVALID = 'Enter the 8-character order reference, for example 3F2A9C1B, or the patient’s Health ID, for example HID-7KQ2M9.'
+
+const CLOSE_PROBLEMS: Readonly<Record<string, string>> = {
+  VERSION_CONFLICT: 'This order changed after it was found. It has been found again: check it before closing it.',
+  ORDER_ROUTE_ALREADY_CLOSED: 'This order is already closed. It has been found again.',
+  ORDER_ROUTE_NOT_FOUND: 'This order was not found. Find it again.',
+  PERMISSION_DENIED: 'Closing an order needs the platform.facility.manage permission. Ask a Super Admin.',
+  VALIDATION_FAILED: 'Enter a reason of 8 to 500 characters.',
+  ORDER_ROUTE_CLOSE_INVALID: 'Enter a reason of 8 to 500 characters.',
+}
+const CLOSE_REFRESHING = ['VERSION_CONFLICT', 'ORDER_ROUTE_ALREADY_CLOSED', 'ORDER_ROUTE_NOT_FOUND'] as const
+
+/**
+ * Orders between facilities: support finds an order by the reference shown on it, or every order of a patient by their
+ * Health ID, and closes one that should not stand (C21, C22). Closing ends access at both facilities at once and tells
+ * both, and the patient.
+ */
+export function OrderRoutesPage({ actor }: { actor: AdminActor }) {
+  const [input, setInput] = useState('')
+  const [invalid, setInvalid] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [lookup, setLookup] = useState<{ reference: string } | { healthId: string } | null>(null)
+  const [found, setFound] = useState<FoundOrderRoute[] | null>(null)
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState<string | null>(null)
+
+  async function find(next: { reference: string } | { healthId: string }) {
+    setBusy(true); setError('')
+    try { setFound((await adminApi.findOrderRoutes(next)).items); setLookup(next) }
+    catch (caught) {
+      setFound(null)
+      setError(isProblem(caught, 'ORDER_ROUTE_LOOKUP_INVALID') ? LOOKUP_INVALID : failure(caught, 'Orders could not be found. Try again.'))
+    } finally { setBusy(false) }
+  }
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const value = input.trim().toUpperCase()
+    const next = REFERENCE.test(value) ? { reference: value } : HEALTH_ID.test(value) ? { healthId: value } : null
+    if (!next) { setInvalid(true); return }
+    setInvalid(false); setNotice(null)
+    void find(next)
+  }
+
+  const what = lookup && 'reference' in lookup ? `the reference ${lookup.reference}` : lookup ? `the Health ID ${lookup.healthId}` : ''
+  return <Page eyebrow="Organizations" title="Orders between facilities"
+    description="Lab requests and prescriptions clinicians sent to a laboratory or pharmacy at another facility.">
+    <section className="admin-panel" aria-labelledby="order-routes-find-title">
+      <div className="admin-panel-head"><div><h2 id="order-routes-find-title">Find an order</h2>
+        <p>Each order shows an 8-character reference to the clinician, the laboratory or pharmacy, and the patient. Someone who
+          reports an order they didn’t expect can give it to you, or the patient’s Health ID finds all of theirs. Health ID
+          records every lookup in the audit log.</p></div></div>
+      <form className="admin-search" onSubmit={submit} role="search" aria-label="Orders by reference or Health ID">
+        <label htmlFor="order-routes-lookup">Order reference (8 characters) or patient Health ID</label>
+        <div><input id="order-routes-lookup" value={input} autoComplete="off" spellCheck={false} maxLength={40}
+          aria-invalid={invalid} aria-describedby={invalid ? 'order-routes-lookup-error' : undefined}
+          onChange={event => { setInput(event.target.value); setInvalid(false) }} placeholder="For example 3F2A9C1B" />
+          <button className="admin-primary" type="submit" disabled={busy || !input.trim()}>{busy ? 'Finding…' : 'Find'}</button></div>
+        {invalid && <p id="order-routes-lookup-error" role="alert" className="admin-error">{LOOKUP_INVALID}</p>}
+      </form>
+      {error && <p role="alert" className="admin-error">{error}</p>}
+      <div role="status">{notice && <p className="admin-success">{notice}</p>}
+        {found && found.length === 0 && <p className="admin-state">No order has {what}.</p>}</div>
+      {found && found.length > 0 && <Table headings={['Order', 'From', 'To', 'State', 'Sent', 'Action']}>
+        {found.map(route => <tr key={`${route.routeId}-${route.version}`}>
+          <td><strong>{route.reference}</strong><small>{route.kind === 'lab_request' ? 'Lab request' : route.kind === 'prescription' ? 'Prescription' : route.kind}</small></td>
+          <td><Link to={`/admin/facilities/${encodeURIComponent(route.orderingFacilityId)}`}>{route.orderingFacilityName}</Link></td>
+          <td><Link to={`/admin/facilities/${encodeURIComponent(route.receivingFacilityId)}`}>{route.receivingFacilityName}</Link></td>
+          <td><span className="admin-status" data-state={route.effectiveState}>{stateWord(route.effectiveState)}</span>{route.acceptedAt ? <small>Accepted {date(route.acceptedAt)}</small> : null}
+            {route.endedAt ? <small>Ended {date(route.endedAt)}{route.endedKind ? ` (${route.endedKind.replaceAll('_', ' ')})` : ''}</small> : null}</td>
+          <td>{date(route.createdAt)}</td>
+          <td>{LIVE.has(route.effectiveState) && has(actor, 'platform.facility.manage')
+            ? <CloseForm route={route} onDone={(text, again) => { setNotice(text); if (lookup && again) void find(lookup) }} />
+            : LIVE.has(route.effectiveState) ? 'Closing needs platform.facility.manage' : 'Closed'}</td>
+        </tr>)}
+      </Table>}
+    </section>
+  </Page>
+}
+
+function CloseForm({ route, onDone }: { route: FoundOrderRoute; onDone: (text: string | null, findAgain: boolean) => void }) {
+  const [reason, setReason] = useState('')
+  const [confirmed, setConfirmed] = useState(false)
+  const governed = useGovernedSubmit()
+  const length = reason.trim().length
+  const ready = length >= 8 && length <= 500 && confirmed
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (governed.busy || !ready) return
+    let refused: unknown = null
+    const closed = await governed.submit(async () => {
+      try { return await adminApi.closeOrderRoute(route, reason.trim()) }
+      catch (caught) { refused = caught; throw caught }
+    }, 'The order could not be closed. Try again.', CLOSE_PROBLEMS)
+    if (closed) onDone(`Closed order ${route.reference}. Access has ended at both facilities, and both, and the patient, are told.`, true)
+    else if (CLOSE_REFRESHING.some(code => isProblem(refused, code))) onDone(null, true)
+  }
+  const id = `order-route-close-${route.routeId}`
+  return <details className="admin-action">
+    <summary>Close</summary>
+    <form className="admin-action-form" onSubmit={event => void submit(event)}>
+      <p className="admin-note">Closing ends {route.receivingFacilityName}’s access to this order at once, and
+        {' '}{route.orderingFacilityName}’s view of it from there. Both facilities and the patient are told. It can’t be undone.</p>
+      <label htmlFor={id}>Reason for closing</label>
+      <textarea id={id} required minLength={8} maxLength={500} rows={3} value={reason} onChange={event => setReason(event.target.value)}
+        aria-describedby={`${id}-hint`} />
+      <small id={`${id}-hint`} className="admin-note">8 to 500 characters, kept in the audit log. For example: “The patient says they
+        never agreed to send it there.”</small>
+      <label className="admin-checkbox"><input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} /> I
+        understand that closing can’t be undone.</label>
+      <button type="submit" className="admin-primary" disabled={governed.busy || !ready}>{governed.busy ? 'Closing…' : 'Close order'}</button>
+      {governed.error && <p role="alert" className="admin-error">{governed.error}</p>}
+    </form>
+  </details>
+}

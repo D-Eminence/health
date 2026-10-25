@@ -28,8 +28,8 @@ const can = (permission: string) => (actor: AdminActor) => actor.platformPermiss
 /** Novu has no two-person approvals, no administrator authenticator or session list, and no clinician applications. */
 const onMainBackend = () => !usesNovuBackend()
 /**
- * Areas only Novu serves: emergency-contact administration (hid-system #109) and support's review of facilities
- * that signed themselves up (P4).
+ * Areas only Novu serves: emergency-contact administration (hid-system #109), support's review of facilities
+ * that signed themselves up (P4) and orders between facilities (P4c).
  */
 const onNovuBackend = () => usesNovuBackend()
 
@@ -50,6 +50,10 @@ export const NAVIGATION: readonly NavigationSection[] = [
       description: 'Facilities that signed themselves up, for support to check within one working day.' },
     { path: '/admin/facilities', title: 'Facilities', visible: can('platform.facility.read'),
       description: 'Facility status, organization and membership counts.' },
+    // P4c: finding an order between facilities needs the lookup's permission; closing one platform.facility.manage.
+    { path: '/admin/order-routes', title: 'Orders between facilities', served: onNovuBackend,
+      visible: can('platform.principal.read'),
+      description: 'Find a lab request or prescription sent to another facility by its reference or Health ID, and close it.' },
   ] },
   { title: 'People and access', items: [
     { path: '/admin/principals', title: 'Users & roles', visible: can('platform.principal.read'),
