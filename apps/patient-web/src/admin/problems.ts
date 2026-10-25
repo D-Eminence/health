@@ -126,6 +126,11 @@ const ADMIN_PROBLEMS: Readonly<Record<string, string>> = {
   SELF_SERVICE_APPLICATION_NOT_FOUND: 'This sign-up is no longer open: it was finished, rejected or has lapsed. The list has '
     + 'been refreshed.',
   SELF_SERVICE_APPLICATIONS_UNAVAILABLE: 'This Identity does not list open sign-ups yet, so there is nothing to show here.',
+  // hid-system R15 and R16: the search by CAC number, and the waiver of a 7-day refusal.
+  SELF_SERVICE_APPLICATION_SEARCH_UNAVAILABLE: 'This Identity can’t find open sign-ups by CAC number yet. Select “Show all” '
+    + 'to see the list.',
+  SELF_SERVICE_REFUSAL_NOT_FOUND: 'No 7-day refusal is in force for this CAC number and product. Check the number and the '
+    + 'product.',
 
   // Facility-assisted registration designations (hid-system #85, ADR-063).
   FACILITY_NOT_ACTIVE: 'Only a verified, active facility of an active organization can register patients in person. Verify the facility first.',

@@ -490,11 +490,11 @@ describe('facility self sign-up on Novu (P4)', () => {
     it.each([
       [409, 'PROVIDER_ENROLLMENT_REQUIRES_SIGN_OUT', 'This browser is signed in to Health ID, for example to a patient account. '
         + 'Sign out of Health ID first, or open this page in a private (incognito) window, then try again.'],
-      // Registered, held by another sign-up, closed on the way, or closed in the last 7 days for this email or network
-      // (0086, A8 and R3): only support can say which, so no wait is promised.
+      // Registered, held by another sign-up, closed on the way, or closed by support in the last 7 days for this email or
+      // network (0086, A8 and R15; a lapse refuses no one): only support can say which, so no wait is promised.
       [409, 'PROVIDER_ENROLLMENT_REQUIRES_REVIEW', 'This organization can’t be set up automatically right now: its CAC number '
-        + 'may already be linked to Health ID, or another sign-up for it may be in progress or recently closed. Contact '
-        + `Health ID support at ${SUPPORT}, and give your CAC registration number.`],
+        + 'may already be linked to Health ID, another sign-up for it may be in progress, or Health ID support may have '
+        + `recently closed a sign-up for it. Contact Health ID support at ${SUPPORT}, and give your CAC registration number.`],
       [409, 'ORGANIZATION_REVIEW_REQUIRED', 'This organization needs a check by Health ID before it can be set up, for example '
         + 'because its CAC number is already linked to Health ID or another sign-up for it is in progress. Contact Health ID '
         + `support at ${SUPPORT}, and give your CAC registration number.`],
@@ -648,19 +648,43 @@ describe('facility self sign-up on Novu (P4)', () => {
       expect(screen.getByText(/^You can try again in \d+ seconds?\.$/)).toBeTruthy()
     })
 
-    it('explains an administrator email that already has an account, and points to support (409)', async () => {
+    it('explains an administrator email that already has an account, and starts again with another email (409)', async () => {
       api.activate.mockRejectedValueOnce(problem(409, 'PROVIDER_EMAIL_ALREADY_REGISTERED'))
       await toPassword()
       createAccount()
       const heading = await screen.findByRole('heading', { name: 'This email already has a Health ID account' })
       await waitFor(() => expect(document.activeElement).toBe(heading))
-      // The refused sign-up keeps the CAC number for this email, and another email is refused (0086, A8 and R3).
+      // Identity closed the refused sign-up, so another email can start one at once (hid-system R15).
       expect(heading.nextElementSibling?.textContent).toBe('The administrator email already belongs to a Health ID account, '
-        + 'for example a patient account or a staff account, so it can’t also be this facility’s administrator, and this '
-        + `sign-up can’t be moved to another email. Contact Health ID support at ${SUPPORT} to finish setting up your facility.`)
+        + 'for example a patient account or a staff account, so it can’t also be this facility’s administrator. This sign-up '
+        + 'has been closed, so you can start again at once with another email address for the administrator. If you need '
+        + `help, contact Health ID support at ${SUPPORT}.`)
       expect(screen.queryByText(/24 hours/)).toBeNull()
       expect(screen.queryByLabelText('Password')).toBeNull()
       expect(screen.queryByRole('list', { name: 'Provider enrollment steps' })).toBeNull()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Start again with another email' }))
+      await screen.findByRole('button', { name: 'Continue' })
+      const field = (name: string) => screen.getByRole('textbox', { name }) as HTMLInputElement
+      expect(field('CAC registration number').value).toBe('RC123456')
+      expect(field('Administrator full name').value.trim()).toBe('Ada Admin')
+      expect(field('Administrator email').value).toBe('')
+      expect(screen.queryByRole('alert')).toBeNull()
+      fireEvent.change(field('Administrator email'), { target: { value: 'ada@clinic.example' } })
+      // The closed sign-up holds nothing for its email any more: no note that only it can finish one, and no wait.
+      expect(screen.queryByText(/^A sign-up for RC123456 was started with/)).toBeNull()
+      await waitFor(() => expect(continueButton().disabled).toBe(false))
+      api.start.mockResolvedValueOnce({ accepted: true, codeSent: true, challengeId: 'challenge-2', expiresInSeconds: 600,
+        resendAfterSeconds: 60 })
+      fireEvent.click(continueButton())
+      await screen.findByRole('heading', { name: 'Confirm your administrator email' })
+      expect(api.start).toHaveBeenLastCalledWith(expect.objectContaining({ cacRegistrationNumber: 'RC123456',
+        administratorEmail: 'ada@clinic.example' }))
+      fireEvent.change(screen.getByRole('textbox', { name: 'Email verification code' }), { target: { value: '654321' } })
+      fireEvent.click(screen.getByRole('button', { name: 'Verify email' }))
+      await screen.findByLabelText('Password')
+      expect(api.verify).toHaveBeenLastCalledWith('challenge-2', '654321')
+      expect((screen.getByLabelText('Password') as HTMLInputElement).value).toBe('')
     })
 
     it('says an organization that needs Health ID’s check needs it, and points to support (409 ORGANIZATION_REVIEW_REQUIRED)', async () => {
@@ -1301,13 +1325,13 @@ describe('facility self sign-up on Novu (P4)', () => {
 
   /**
    * An open sign-up keeps its CAC number and product for the email it was started with: Identity refuses another
-   * email for it (409 PROVIDER_ENROLLMENT_REQUIRES_REVIEW) and, after it lapses 24 hours after it started, still
-   * refuses one from the same network for 7 days (0086, A8 and R3). A changed administrator name or facility type is
+   * email for it (409 PROVIDER_ENROLLMENT_REQUIRES_REVIEW) until it lapses, 24 hours after it started, and then lets
+   * another email replace it, from any network (0086, A8 and R15). A changed administrator name or facility type is
    * kept with the next code and the account takes it (R6).
    */
   describe('starting again with other details', () => {
-    const KEPT = 'A sign-up for RC123456 was started with ada@example.test, and only that email can finish it. You can '
-      + 'still correct the CAC number.'
+    const KEPT = 'A sign-up for RC123456 was started with ada@example.test, and only that email can finish it until 24 hours '
+      + 'after it started. You can still correct the CAC number.'
     const keptNote = () => screen.queryByText(/^A sign-up for RC123456 was started with/)
     const field = (name: string) => screen.getByRole('textbox', { name }) as HTMLInputElement
 
@@ -1325,9 +1349,9 @@ describe('facility self sign-up on Novu (P4)', () => {
       fireEvent.click(continueButton())
 
       expect((await screen.findByRole('alert')).textContent).toBe('This CAC number’s sign-up was started with ada@example.test, '
-        + 'so it can’t use another email. Finish it with the code sent to ada@example.test. Otherwise, contact Health ID '
-        + `support at ${SUPPORT}, and give your CAC registration number.`)
-      expect(screen.queryByText(/24 hours/)).toBeNull()
+        + 'so it can’t use another email yet. Finish it with the code sent to ada@example.test, or sign up with the new email '
+        + `24 hours after the first sign-up started. Otherwise, contact Health ID support at ${SUPPORT}, and give your CAC `
+        + 'registration number.')
       expect(api.start).toHaveBeenLastCalledWith(expect.objectContaining({ administratorEmail: 'ada@example.org' }))
 
       fireEvent.click(screen.getByRole('button', { name: 'Use the email I first gave' }))

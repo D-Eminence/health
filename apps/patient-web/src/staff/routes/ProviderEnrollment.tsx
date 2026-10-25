@@ -123,8 +123,8 @@ const CODE_LIMITS = [{ count: 5, windowMs: HOUR_MS }, { count: 15, windowMs: DAY
 
 /**
  * An open sign-up holds its CAC number and product for the email it was started with until 24 hours after it
- * started (hid-system 0086, A8); after that another email's start can close it, except from the same network
- * (R3). The page says before a start that another email can't finish an open sign-up it knows of.
+ * started (hid-system 0086, A8); after that another email's start closes it, from any network, since a lapse refuses
+ * no one (R15). The page says before a start that another email can't finish an open sign-up it knows of yet.
  */
 const OPEN_SIGN_UP_MS = DAY_MS
 
@@ -137,7 +137,7 @@ const OFFLINE = 'We couldn’t reach Health ID. Check your internet connection a
 type Step = 'start' | 'resend' | 'verify' | 'activate'
 
 /** How a message ends: with support's address (SupportContact). */
-type Support = 'plain' | 'cac' | 'cac-otherwise' | 'held'
+type Support = 'plain' | 'cac' | 'cac-otherwise' | 'held' | 'help'
 
 /** What the page says or does about a refusal. */
 type Refusal =
@@ -149,7 +149,8 @@ type Refusal =
   | { kind: 'session-expired' }
   /** Activation may have created the account already: sign in. */
   | { kind: 'maybe-active' }
-  | { kind: 'help'; title: string; text: string }
+  /** A panel in place of the step; `restart` offers a new sign-up with another email (Novu closed this one). */
+  | { kind: 'help'; title: string; text: string; restart?: boolean }
 
 /**
  * A refusal's own words for the administrator. Identity masks every 5xx detail
@@ -177,13 +178,15 @@ function refusalOf(reason: unknown, step: Step, activationUncertain: boolean, no
     }
     // Novu: the account was created, then the sign-in that follows it failed (401, or 405 under OIDC).
     if (novu && (status === 401 || status === 405)) return { kind: 'maybe-active' }
-    // On Novu the refused sign-up keeps the CAC number and product for this email, and Identity refuses another
-    // email for them, from this network for 7 days after it closes (0086, A8 and R3).
-    if (code === 'PROVIDER_EMAIL_ALREADY_REGISTERED') return { kind: 'help', title: 'This email already has a Health ID account',
-      text: novu
-        ? 'The administrator email already belongs to a Health ID account, for example a patient account or a staff '
-          + 'account, so it can’t also be this facility’s administrator, and this sign-up can’t be moved to another email.'
-        : 'The administrator email already belongs to a Health ID account, for example a patient account, so it can’t '
+    // On Novu this refusal closes the sign-up, so a start with another email opens a new one at once (hid-system
+    // R15). Main keeps it open for this email.
+    if (code === 'PROVIDER_EMAIL_ALREADY_REGISTERED') return novu
+      ? { kind: 'help', title: 'This email already has a Health ID account', restart: true,
+        text: 'The administrator email already belongs to a Health ID account, for example a patient account or a staff '
+          + 'account, so it can’t also be this facility’s administrator. This sign-up has been closed, so you can start '
+          + 'again at once with another email address for the administrator.' }
+      : { kind: 'help', title: 'This email already has a Health ID account',
+        text: 'The administrator email already belongs to a Health ID account, for example a patient account, so it can’t '
           + 'also be this facility’s administrator. Signing up again with another email for the same CAC number won’t work '
           + 'either.' }
     if (code === 'ORGANIZATION_REVIEW_REQUIRED') return { kind: 'help', title: 'Health ID needs to check this organization',
@@ -194,11 +197,11 @@ function refusalOf(reason: unknown, step: Step, activationUncertain: boolean, no
     text: 'This browser is signed in to Health ID, for example to a patient account. Sign out of Health ID first, or '
       + 'open this page in a private (incognito) window, then try again.' }
   // Novu answers this for a CAC number and product already registered, held by a governed application or by an open
-  // sign-up with another email, closed on the way, or closed in the last 7 days for this email or network (0086, A8
-  // and R3). Only support can say which, so the page promises no wait.
+  // sign-up with another email, closed on the way, or whose sign-up from this email or network support closed in the
+  // last 7 days (0086, A8 and R15; a lapse refuses no one). Only support can say which, so the page promises no wait.
   if (code === 'PROVIDER_ENROLLMENT_REQUIRES_REVIEW' && novu) return { kind: 'message', support: 'cac',
     text: 'This organization can’t be set up automatically right now: its CAC number may already be linked to Health '
-      + 'ID, or another sign-up for it may be in progress or recently closed.' }
+      + 'ID, another sign-up for it may be in progress, or Health ID support may have recently closed a sign-up for it.' }
   if (code === 'PROVIDER_ENROLLMENT_REQUIRES_REVIEW' || code === 'ORGANIZATION_REVIEW_REQUIRED') return { kind: 'message',
     support: 'cac', text: 'This organization needs a check by Health ID before it can be set up, for example because '
       + 'its CAC number is already linked to Health ID or another sign-up for it is in progress.' }
@@ -243,7 +246,8 @@ function SupportContact({ purpose }: { purpose: Support | 'register' | 'finish' 
     : purpose === 'inline' ? 'contact Health ID support'
       : purpose === 'persist' ? 'If this keeps happening, contact Health ID support'
         : purpose === 'held' ? 'If it belongs to another company, tell Health ID support'
-          : purpose === 'cac-otherwise' ? 'Otherwise, contact Health ID support' : 'Contact Health ID support'
+          : purpose === 'help' ? 'If you need help, contact Health ID support'
+            : purpose === 'cac-otherwise' ? 'Otherwise, contact Health ID support' : 'Contact Health ID support'
   const tail = purpose === 'cac' || purpose === 'cac-otherwise' ? ', and give your CAC registration number.' : purpose === 'finish'
     ? ' to finish setting up your facility.' : purpose === 'held' ? ', and give that number, so they can free it.' : '.'
   return <>{lead}{address ? <> at <a className="provider-setup-link" href={`mailto:${address}`}>{address}</a></> : null}{tail}</>
@@ -434,7 +438,7 @@ function EnrollmentSteps() {
   const [availabilityAsked, setAvailabilityAsked] = useState(0)
   const [challenge, setChallenge] = useState<StaffLoginChallenge | null>(null)
   const [signInReason, setSignInReason] = useState<string | null>(null)
-  const [help, setHelp] = useState<{ title: string; text: string } | null>(null)
+  const [help, setHelp] = useState<{ title: string; text: string; restart?: boolean } | null>(null)
   // The public site's product links arrive here with ?product= (and may name ?type=), preselecting the choice.
   const [params] = useSearchParams()
   const [organizationType, setOrganizationType] = useState<OrganizationType>(() => {
@@ -575,7 +579,7 @@ function EnrollmentSteps() {
     if (refusal.kind === 'maybe-active') { maybeActive(); return }
     if (refusal.kind === 'help') {
       setError(null); setPassword('')
-      setHelp({ title: refusal.title, text: refusal.text })
+      setHelp({ title: refusal.title, text: refusal.text, ...(refusal.restart ? { restart: true } : {}) })
       setStage('help')
       return
     }
@@ -595,9 +599,10 @@ function EnrollmentSteps() {
 
   /**
    * Novu: the sign-up these details' CAC number and product were first accepted with in the last 24 hours, if its
-   * email now differs. Identity refuses another email for an open sign-up (0086), and still refuses one from the
-   * same network for 7 days after it closes (R3). A changed administrator name or facility type is sent: a code that
-   * start sends carries it, and the account keeps it (R6). A start that sends no code does not (changesHeld).
+   * email now differs. Identity refuses another email for an open sign-up (0086) until 24 hours after it started, and
+   * then lets it replace the sign-up, from any network (R15). A changed administrator name or facility type is sent:
+   * a code that start sends carries it, and the account keeps it (R6). A start that sends no code does not
+   * (changesHeld).
    */
   function otherEmailThanFirst(details: StartDetails): (StartDetails & { at: number }) | null {
     const first = novu ? firstStarts.get(cacProductKey(details)) : undefined
@@ -711,7 +716,8 @@ function EnrollmentSteps() {
       if (first && isHidApiError(reason) && reason.code === 'PROVIDER_ENROLLMENT_REQUIRES_REVIEW') {
         // Another email for a sign-up that is open: only its own email can finish it.
         setError({ text: `This CAC number’s sign-up was started with ${first.administratorEmail}, so it can’t use another `
-          + `email. Finish it with the code sent to ${first.administratorEmail}.`, support: 'cac-otherwise' })
+          + `email yet. Finish it with the code sent to ${first.administratorEmail}, or sign up with the new email 24 hours `
+          + 'after the first sign-up started.', support: 'cac-otherwise' })
       } else await refuse(reason, 'start', key)
     } finally {
       setTurnstileToken(null)
@@ -865,6 +871,26 @@ function EnrollmentSteps() {
     setStage('otp')
   }
 
+  /**
+   * Novu: the administrator email already has an account, and Identity closed this sign-up (R15). Its CAC number and
+   * product no longer hold this email, so the details are kept, with the email emptied, for a new sign-up at once.
+   */
+  function anotherEmail() {
+    const closedSignUp = cacProductKey(startDetails())
+    setFirstStarts(map => {
+      if (!map.has(closedSignUp)) return map
+      const next = new Map(map)
+      next.delete(closedSignUp)
+      return next
+    })
+    lastCode.current = null
+    setUnapplied(null)
+    setHelp(null)
+    setPassword('')
+    setEmail('')
+    startAgain()
+  }
+
   /** The email a CAC number and product were first accepted with, back in the form. */
   function firstEmail(first: StartDetails) {
     setEmail(first.administratorEmail)
@@ -965,7 +991,7 @@ function EnrollmentSteps() {
 
             {kept && <div className="provider-setup-kept">
               <p className="patient-field-hint">A sign-up for {kept.cacRegistrationNumber} was started with {kept.administratorEmail},
-                {' '}and only that email can finish it. You can still correct the CAC number.</p>
+                {' '}and only that email can finish it until 24 hours after it started. You can still correct the CAC number.</p>
               <button type="button" className="patient-text-button" onClick={() => firstEmail(kept)}>Use the email I first gave</button>
             </div>}
 
@@ -1080,7 +1106,10 @@ function EnrollmentSteps() {
 
         {!closed && stage === 'help' && help && <section className="patient-form" aria-labelledby="provider-enroll-help-title">
           <FocusedHeading id="provider-enroll-help-title">{help.title}</FocusedHeading>
-          <p className="patient-field-hint">{help.text} <SupportContact purpose="finish" /></p>
+          {help.restart ? <>
+            <p className="patient-field-hint">{help.text} <SupportContact purpose="help" /></p>
+            <button type="button" className="patient-primary-button" onClick={anotherEmail}>Start again with another email</button>
+          </> : <p className="patient-field-hint">{help.text} <SupportContact purpose="finish" /></p>}
         </section>}
 
         {/* Clinician self sign-up (hid-system ADR-066): a doctor or nurse applies with their own account, not this one. */}

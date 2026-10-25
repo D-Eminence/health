@@ -2,6 +2,7 @@ import { useCallback, useState, type FormEvent, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import {
   adminApi, type AdminActor, type SelfServiceApplication, type SelfServiceFacility, type SelfServiceFacilityState,
+  type SelfServiceProduct,
 } from './api'
 import { failure, isProblem } from './problems'
 import { Page, Refresh, ResourceView, Status, date, has, label, useGovernedSubmit, useResource, useUrlFilters } from './ui'
@@ -17,8 +18,12 @@ import { Page, Refresh, ResourceView, Status, date, has, label, useGovernedSubmi
  * page and its administrator disabled in Users & roles, with the commands
  * those pages already have; once both are done, releasing the sign-up frees
  * its CAC number and legal name for the real company (P4 round 2). The open
- * applications view lists sign-ups not activated yet, each holding its CAC
- * number for 24 hours, so support can reject one that isn't the company's.
+ * applications view lists sign-ups not activated yet, those holding their CAC
+ * number now first (each holds it for 24 hours, or not at all when opened
+ * without a hold), finds one CAC number's, and lets support reject one that
+ * isn't the company's. A rejection or release refuses the sign-up's email and
+ * network for 7 days unless support lets the applicant start again, and
+ * support can lift such a refusal (hid-system R15 and R16).
  */
 type View = SelfServiceFacilityState | 'open'
 const VIEWS: ReadonlyArray<{ value: View; title: string }> = [
@@ -64,21 +69,42 @@ const REJECT_PROBLEMS: Readonly<Record<string, string>> = {
   VALIDATION_FAILED: REASON_INVALID,
 }
 
+/** What a lifted refusal needs: a CAC number as Identity takes it (spaces removed, upper case). */
+const CAC_NUMBER = /^(RC|BN|IT)[0-9]{4,20}$/
+const CAC_NUMBER_INVALID = 'Enter a CAC registration number: RC, BN or IT followed by 4 to 20 digits.'
+const normalizedCac = (value: string) => value.replace(/\s+/g, '').toUpperCase()
+
+const PRODUCTS: ReadonlyArray<{ value: SelfServiceProduct; title: string }> = [
+  { value: 'ehr', title: 'EHR' },
+  { value: 'migrate', title: 'Migrate' },
+  { value: 'laboratory', title: 'Laboratory' },
+  { value: 'pharmacy', title: 'Pharmacy' },
+]
+
+const WAIVE_FAILED = 'The refusal could not be lifted. Try again.'
+// SELF_SERVICE_REFUSAL_NOT_FOUND has the console's own words (problems.ts).
+const WAIVE_PROBLEMS: Readonly<Record<string, string>> = {
+  PERMISSION_DENIED: 'Lifting a refusal needs the platform.facility.manage permission. Ask a Super Admin.',
+  SELF_SERVICE_FACILITY_REQUEST_INVALID: `${CAC_NUMBER_INVALID} Choose the product, and give a reason of 8 to 500 characters.`,
+  VALIDATION_FAILED: `${CAC_NUMBER_INVALID} Choose the product, and give a reason of 8 to 500 characters.`,
+}
+
 type Done = (notice: { text: string; tone: 'success' | 'error' }) => void
 
 /**
  * A version-checked command on one sign-up that takes a note or reason of 8 to 500 characters. A refusal in
  * `refreshing` means the list is out of date: the list is read again and the page says why, once. Any other
- * refusal stays on the form.
+ * refusal stays on the form. `option` is a choice the command takes besides the text (unticked by default).
  */
-function ReasonForm({ id, summary, fieldLabel, hint, explanation, confirmation, action, run, refreshing, problems, fallback,
-  done, onDone }: {
+function ReasonForm({ id, summary, fieldLabel, hint, explanation, confirmation, option, action, run, refreshing, problems,
+  fallback, done, onDone }: {
   id: string; summary: string; fieldLabel: string; hint: ReactNode; explanation?: ReactNode; confirmation?: string
-  action: string; run: (text: string) => Promise<unknown>; refreshing: readonly string[]
-  problems: Readonly<Record<string, string>>; fallback: string; done: string; onDone: Done
+  option?: string; action: string; run: (text: string, option: boolean) => Promise<unknown>; refreshing: readonly string[]
+  problems: Readonly<Record<string, string>>; fallback: string; done: string | ((option: boolean) => string); onDone: Done
 }) {
   const [text, setText] = useState('')
   const [confirmed, setConfirmed] = useState(false)
+  const [chosen, setChosen] = useState(false)
   const governed = useGovernedSubmit()
   const length = text.trim().length
   const ready = length >= 8 && length <= 500 && (!confirmation || confirmed)
@@ -87,11 +113,15 @@ function ReasonForm({ id, summary, fieldLabel, hint, explanation, confirmation, 
     event.preventDefault()
     if (governed.busy || !ready) return
     let refused: unknown = null
+    const choice = Boolean(option) && chosen
     const completed = await governed.submit(async () => {
-      try { await run(text.trim()); return true }
+      try { await run(text.trim(), choice); return true }
       catch (caught) { refused = caught; throw caught }
     }, fallback, problems)
-    if (completed) { setText(''); setConfirmed(false); onDone({ text: done, tone: 'success' }) }
+    if (completed) {
+      setText(''); setConfirmed(false); setChosen(false)
+      onDone({ text: typeof done === 'function' ? done(choice) : done, tone: 'success' })
+    }
     // The list is read again, which may remove or replace this card: the page says why.
     else if (refreshing.some(code => isProblem(refused, code))) {
       governed.setError(null)
@@ -107,6 +137,8 @@ function ReasonForm({ id, summary, fieldLabel, hint, explanation, confirmation, 
       <textarea id={id} required minLength={8} maxLength={500} rows={3} value={text}
         aria-describedby={`${id}-hint`} onChange={event => setText(event.target.value)} />
       <small id={`${id}-hint`} className="admin-note">{hint}</small>
+      {option && <label className="admin-checkbox"><input type="checkbox" checked={chosen}
+        onChange={event => setChosen(event.target.checked)} /> {option}</label>}
       {confirmation && <label className="admin-checkbox"><input type="checkbox" checked={confirmed}
         onChange={event => setConfirmed(event.target.checked)} /> {confirmation}</label>}
       <button type="submit" className="admin-primary" disabled={governed.busy || !ready}>
@@ -172,10 +204,13 @@ function SignUpCard({ facility, actor, onDone }: { facility: SelfServiceFacility
       explanation={<p className="admin-note">Releasing frees this CAC number and legal name, so the real company can sign up.
         It closes this sign-up, unlinks the CAC number, suspends the product, deactivates and renames the organization, and
         removes the administrator’s access. It can’t be undone. The administrator’s email stays with the disabled account
-        and can’t be used to sign up again.</p>}
+        and can’t be used to sign up again. Unless you let the applicant start again, this sign-up’s email and network
+        can’t sign up this CAC number and product again for 7 days.</p>}
       hint={<>8 to 500 characters, kept with the release and in the audit log. For example: “The company confirmed by phone
         that it did not sign up.”</>}
-      run={reason => adminApi.releaseSelfServiceFacility(facility, reason)} refreshing={RELEASE_REFRESHING}
+      option="Let the applicant start again at once: the sign-up was the company’s own, with the wrong email address."
+      run={(reason, allowRetry) => adminApi.releaseSelfServiceFacility(facility, reason, allowRetry)}
+      refreshing={RELEASE_REFRESHING}
       problems={RELEASE_PROBLEMS} fallback={RELEASE_FAILED}
       done={`Released ${facility.facilityName}. Its CAC number and legal name are free for the real company to sign up.`}
       onDone={onDone} />}
@@ -210,30 +245,132 @@ function OpenApplicationCard({ application, actor, onDone }: { application: Self
       <div><dt>CAC check</dt><dd>{cacCheck(application)}</dd></div>
       <div><dt>Email confirmed</dt><dd>{application.emailVerified ? 'Yes' : 'Not yet'}</dd></div>
       <div><dt>Submitted</dt><dd>{date(application.submittedAt)}</dd></div>
-      <div><dt>Holds the CAC number until</dt><dd>{date(application.lapsesAt)}</dd></div>
+      {/* Identity says whether it holds its CAC number now (R16); an older Identity gives only lapsesAt. */}
+      {application.holdsCac === false
+        ? <div><dt>Holds the CAC number</dt><dd>No: its administrator can still finish it, but any other sign-up for this
+          CAC number and product replaces it</dd></div>
+        : <div><dt>Holds the CAC number until</dt><dd>{date(application.lapsesAt)}</dd></div>}
     </dl>
     {has(actor, 'platform.facility.manage')
       ? <ReasonForm id={`self-service-reject-${id}`} summary="Reject" fieldLabel="Reason for rejecting" action="Reject sign-up"
         explanation={<p className="admin-note">Rejecting closes this sign-up at once: its codes stop working, and the CAC number
-          is free for the real company. This sign-up’s email and network can’t sign up this CAC number and product again for
-          7 days.</p>}
+          is free for the real company. Unless you let the applicant start again, this sign-up’s email and network can’t sign
+          up this CAC number and product again for 7 days.</p>}
         hint={<>8 to 500 characters, kept with the application and in the audit log. For example: “Not the company’s own:
           the company confirmed by phone that it did not sign up.”</>}
-        run={reason => adminApi.rejectSelfServiceApplication(application, reason)} refreshing={REJECT_REFRESHING}
-        problems={REJECT_PROBLEMS} fallback={REJECT_FAILED} done={`Rejected the sign-up for ${title}.`} onDone={onDone} />
+        option="Let the applicant start again at once: the mistake was theirs, for example a mistyped email address."
+        run={(reason, allowRetry) => adminApi.rejectSelfServiceApplication(application, reason, allowRetry)}
+        refreshing={REJECT_REFRESHING} problems={REJECT_PROBLEMS} fallback={REJECT_FAILED}
+        done={allowRetry => allowRetry ? `Rejected the sign-up for ${title}. Its applicant can start again at once.`
+          : `Rejected the sign-up for ${title}.`} onDone={onDone} />
       : <p className="admin-note">View only: rejecting a sign-up needs the platform.facility.manage permission.</p>}
   </article>
 }
 
-/** One view's list: activated sign-ups by review state, or the open applications. */
-type Listed = { view: 'open'; items: SelfServiceApplication[] } | { view: SelfServiceFacilityState; items: SelfServiceFacility[] }
+/**
+ * Lifts the 7-day refusals a rejection or release set for a CAC number and product (R15), for a company whose own
+ * email or network it refused. No version: Identity lifts whatever refusal is in force, and answers 404 when none is.
+ */
+function WaiveRefusalForm() {
+  const [cac, setCac] = useState('')
+  const [product, setProduct] = useState<SelfServiceProduct | ''>('')
+  const [reason, setReason] = useState('')
+  const [done, setDone] = useState<string | null>(null)
+  const governed = useGovernedSubmit()
+  const number = normalizedCac(cac)
+  const numberValid = CAC_NUMBER.test(number)
+  const length = reason.trim().length
+  const ready = numberValid && product !== '' && length >= 8 && length <= 500
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (governed.busy || !ready) return
+    setDone(null)
+    const result = await governed.submit(() => adminApi.waiveSelfServiceRefusals({ cacRegistrationNumber: number,
+      productCode: product, reason: reason.trim() }), WAIVE_FAILED, WAIVE_PROBLEMS)
+    if (result) {
+      const count = result.waived.length
+      const productTitle = PRODUCTS.find(item => item.value === product)?.title ?? label(product)
+      setDone(`Lifted ${count} ${count === 1 ? 'refusal' : 'refusals'} for ${number} (${productTitle}). The company can `
+        + 'sign up again now.')
+      setCac(''); setProduct(''); setReason('')
+    }
+  }
+
+  return <details className="admin-action">
+    <summary>Lift a 7-day refusal</summary>
+    <form className="admin-action-form" onSubmit={event => void submit(event)}>
+      <p className="admin-note">Rejecting or releasing a sign-up stops its email and network from signing up that CAC number
+        and product again for 7 days, unless you let the applicant start again. If that stops the company itself, for example
+        a colleague on the same office network, lift the refusal here. Every refusal in force for the CAC number and product
+        is lifted. A sign-up started from that email or network within those 7 days holds nothing: any other sign-up for the
+        same CAC number replaces it.</p>
+      <label htmlFor="self-service-waive-cac">CAC registration number</label>
+      <input id="self-service-waive-cac" value={cac} autoComplete="off" spellCheck={false}
+        aria-describedby="self-service-waive-cac-hint" onChange={event => setCac(event.target.value)} />
+      <small id="self-service-waive-cac-hint" className="admin-note">{cac.trim() && !numberValid ? CAC_NUMBER_INVALID
+        : 'The full number the company gives, for example RC1234567.'}</small>
+      <label htmlFor="self-service-waive-product">Product</label>
+      <select id="self-service-waive-product" value={product}
+        onChange={event => setProduct(event.target.value as SelfServiceProduct | '')}>
+        <option value="">Choose the product</option>
+        {PRODUCTS.map(item => <option key={item.value} value={item.value}>{item.title}</option>)}
+      </select>
+      <label htmlFor="self-service-waive-reason">Reason for lifting the refusal</label>
+      <textarea id="self-service-waive-reason" required minLength={8} maxLength={500} rows={3} value={reason}
+        aria-describedby="self-service-waive-reason-hint" onChange={event => setReason(event.target.value)} />
+      <small id="self-service-waive-reason-hint" className="admin-note">8 to 500 characters, kept in the audit log. For
+        example: “The company’s own administrator, on the same office network as the rejected sign-up.”</small>
+      <button type="submit" className="admin-primary" disabled={governed.busy || !ready}>
+        {governed.busy ? 'Saving…' : 'Lift refusal'}</button>
+      <div role="status">{done && <p className="admin-success">{done}</p>}</div>
+      {governed.error && <p role="alert" className="admin-error">{governed.error}</p>}
+    </form>
+  </details>
+}
+
+/**
+ * Finds the open applications for one CAC number (R16). The number stays in the page, out of the address, as Identity
+ * keeps it out of access logs.
+ */
+function SearchOpenApplications({ search, onSearch }: { search: string | null; onSearch: (number: string | null) => void }) {
+  const [input, setInput] = useState(search ?? '')
+  const [invalid, setInvalid] = useState(false)
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const number = normalizedCac(input)
+    if (!CAC_NUMBER.test(number)) { setInvalid(true); return }
+    setInvalid(false); setInput(number); onSearch(number)
+  }
+
+  return <form className="admin-search" onSubmit={submit} role="search" aria-label="Open sign-ups by CAC number">
+    <label htmlFor="self-service-open-search">Find a CAC number’s open sign-ups</label>
+    <div><input id="self-service-open-search" value={input} autoComplete="off" spellCheck={false}
+      aria-invalid={invalid} aria-describedby={invalid ? 'self-service-open-search-error' : undefined}
+      onChange={event => { setInput(event.target.value); setInvalid(false) }} placeholder="For example RC1234567" />
+      <button className="admin-primary" type="submit" disabled={!input.trim()}>Search</button>
+      {search && <button className="admin-secondary" type="button"
+        onClick={() => { setInput(''); setInvalid(false); onSearch(null) }}>Show all</button>}</div>
+    {invalid && <p id="self-service-open-search-error" role="alert" className="admin-error">{CAC_NUMBER_INVALID}</p>}
+  </form>
+}
+
+/** One view's list: activated sign-ups by review state, or the open applications (all, or one CAC number's). */
+type Listed = { view: 'open'; items: SelfServiceApplication[]; total: number | null; search: string | null }
+  | { view: SelfServiceFacilityState; items: SelfServiceFacility[] }
 
 export function SelfServiceFacilitiesPage({ actor }: { actor: AdminActor }) {
   const [filters, setFilters] = useUrlFilters(['state'] as const)
   const view = VIEWS.find(item => item.value === filters.state)?.value ?? 'unreviewed'
-  const load = useCallback(async (signal?: AbortSignal): Promise<Listed> => view === 'open'
-    ? { view, items: (await adminApi.selfServiceApplications(signal)).items }
-    : { view, items: (await adminApi.selfServiceFacilities(view, signal)).items }, [view])
+  // The CAC number the open applications are searched for, if any.
+  const [search, setSearch] = useState<string | null>(null)
+  const load = useCallback(async (signal?: AbortSignal): Promise<Listed> => {
+    if (view !== 'open') return { view, items: (await adminApi.selfServiceFacilities(view, signal)).items }
+    const read = search === null ? await adminApi.selfServiceApplications(signal)
+      : await adminApi.searchSelfServiceApplications(search, signal)
+    return { view, items: read.items, total: typeof read.total === 'number' ? read.total : null, search }
+  }, [view, search])
   const resource = useResource(load, view === 'open' ? 'Open applications could not be loaded.'
     : 'New facility sign-ups could not be loaded.')
   const [notice, setNotice] = useState<{ text: string; tone: 'success' | 'error' } | null>(null)
@@ -258,15 +395,19 @@ export function SelfServiceFacilitiesPage({ actor }: { actor: AdminActor }) {
         <div className="admin-panel-head"><div><h2 id="self-service-open-title">Open applications</h2>
           <p>Sign-ups that haven’t been finished yet: the administrator hasn’t confirmed their email or chosen a password.
             Each one holds its CAC number and product for 24 hours after it was submitted, so nobody else can sign up that
-            company meanwhile.</p>
+            company meanwhile. The ones holding a CAC number now are listed first.</p>
+          <p>A sign-up started within 7 days of an earlier sign-up for the same CAC number and product closing, from the same
+            email or network, holds nothing: any other sign-up for that CAC number replaces it.</p>
           <p>If one isn’t the company’s own, for example because of a mistyped CAC number, reject it so the real company can
-            sign up.</p>
+            sign up. Unless you let its applicant start again, its email and network can’t sign up that CAC number and
+            product again for 7 days.</p>
           {/* An applicant cannot close their own sign-up on Novu: "This isn't my organization" leaves it open (P4 round 2 review). */}
           <p>A company told that another sign-up for its CAC number may be in progress may be held by one of these. For
             example, an applicant who mistyped the number, saw another company’s legal name and selected “This isn’t my
             organization” leaves that sign-up here, with its email confirmed, until it lapses; they are asked to tell
-            support the number. Match the CAC number’s last digits and the legal name, and reject the one that isn’t the
-            company’s own.</p></div></div>
+            support the number. Find the company’s CAC number below, check the legal name, and reject the one that isn’t
+            the company’s own.</p></div></div>
+        {has(actor, 'platform.facility.manage') && <WaiveRefusalForm />}
       </section>
       : <section className="admin-panel" aria-labelledby="self-service-check-title">
         <div className="admin-panel-head"><div><h2 id="self-service-check-title">What to check</h2>
@@ -284,21 +425,32 @@ export function SelfServiceFacilitiesPage({ actor }: { actor: AdminActor }) {
     <div className="admin-filter" role="group" aria-label="Which sign-ups">
       {VIEWS.map(item => <button key={item.value} type="button" aria-pressed={view === item.value}
         className={view === item.value ? 'admin-primary' : 'admin-secondary'}
-        onClick={() => { setNotice(null); setFilters({ state: item.value === 'unreviewed' ? '' : item.value }) }}>{item.title}</button>)}
+        onClick={() => { setNotice(null); setSearch(null); setFilters({ state: item.value === 'unreviewed' ? '' : item.value }) }}>
+        {item.title}</button>)}
     </div>
+    {view === 'open' && <SearchOpenApplications key={search ?? ''} search={search}
+      onSearch={number => { setNotice(null); setSearch(number) }} />}
     <div role="status">{notice?.tone === 'success' && <p className="admin-success">{notice.text}</p>}</div>
     {notice?.tone === 'error' && <p role="alert" className="admin-error">{notice.text}</p>}
-    <ResourceView resource={resource}>{result => result.items.length === 0
-      ? <div className="admin-state">{result.view === 'open' ? 'No sign-ups are waiting to be finished.'
-        : result.view === 'unreviewed' ? 'No new facility sign-ups are waiting for review.'
+    <ResourceView resource={resource}>{result => result.view === 'open'
+      ? <>
+        {result.total !== null && result.total > result.items.length && <p className="admin-note">Showing {result.items.length}
+          {' '}of {result.total} open sign-ups, those holding a CAC number now first. Find a CAC number to see its own.</p>}
+        {result.items.length === 0
+          ? <div className="admin-state">{result.search ? `No sign-up for ${result.search} is waiting to be finished.`
+            : 'No sign-ups are waiting to be finished.'}</div>
+          : <div className="admin-stack">
+            {result.items.map(application => <OpenApplicationCard key={`${application.applicationId}:${application.version}`}
+              application={application} actor={actor} onDone={done} />)}
+          </div>}
+      </>
+      : result.items.length === 0
+        ? <div className="admin-state">{result.view === 'unreviewed' ? 'No new facility sign-ups are waiting for review.'
           : result.view === 'reviewed' ? 'No facility sign-up has been reviewed or released yet.'
             : 'No facility has signed itself up yet.'}</div>
-      : <div className="admin-stack">
-        {result.view === 'open'
-          ? result.items.map(application => <OpenApplicationCard key={`${application.applicationId}:${application.version}`}
-            application={application} actor={actor} onDone={done} />)
-          : result.items.map(facility => <SignUpCard key={`${facility.applicationId}:${facility.version}`} facility={facility}
+        : <div className="admin-stack">
+          {result.items.map(facility => <SignUpCard key={`${facility.applicationId}:${facility.version}`} facility={facility}
             actor={actor} onDone={done} />)}
-      </div>}</ResourceView>
+        </div>}</ResourceView>
   </Page>
 }

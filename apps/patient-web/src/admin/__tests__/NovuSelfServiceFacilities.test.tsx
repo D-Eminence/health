@@ -26,7 +26,11 @@ function serve(permissions: string[], items: unknown[] = []) {
       body: init.body ? JSON.parse(String(init.body)) : null })
     if (target.pathname === '/api/v1/admin/session') return json({ actor: actor(permissions), expiresAt: '2026-10-24T20:00:00Z' })
     if (target.pathname === '/api/v1/admin/self-service-facilities') return json({ items })
-    if (target.pathname === '/api/v1/admin/self-service-applications') return json({ items })
+    if (target.pathname === '/api/v1/admin/self-service-applications') return json({ total: items.length, items })
+    if (target.pathname === '/api/v1/admin/self-service-applications/search') return json({ total: items.length, items })
+    if (target.pathname === '/api/v1/admin/self-service-applications/waive-refusal') {
+      return json({ waived: [{ applicationId: APPLICATION_ID, waivedAt: '2026-10-25T09:00:00.000Z', version: 6 }] })
+    }
     if (target.pathname.endsWith('/review')) return json({ applicationId: APPLICATION_ID, reviewedAt: '2026-10-24T12:00:00.000Z', version: 4 })
     if (target.pathname.endsWith('/release')) return json({ applicationId: APPLICATION_ID, releasedAt: '2026-10-24T13:00:00.000Z', version: 5 })
     if (target.pathname.endsWith('/reject')) return json({ applicationId: APPLICATION_ID, rejectedAt: '2026-10-24T14:00:00.000Z', version: 3 })
@@ -101,8 +105,8 @@ describe('New facility sign-ups in the Novu console', () => {
     await expect(adminApi.releaseSelfServiceFacility({ applicationId: APPLICATION_ID, version: 4 }, 'The company did not sign up.'))
       .resolves.toEqual({ applicationId: APPLICATION_ID, releasedAt: '2026-10-24T13:00:00.000Z', version: 5 })
     const release = calls.find(call => call.path.endsWith('/release'))!
-    expect(release).toMatchObject({ method: 'POST', path: `/api/v1/admin/self-service-facilities/${APPLICATION_ID}/release`,
-      body: { reason: 'The company did not sign up.' } })
+    expect(release).toMatchObject({ method: 'POST', path: `/api/v1/admin/self-service-facilities/${APPLICATION_ID}/release` })
+    expect(release.body).toEqual({ reason: 'The company did not sign up.' })
     expect(release.headers.get('if-match')).toBe('"4"')
     expect(release.headers.get('x-csrf-token')).toBe('novu-proof')
     expect(release.headers.has('idempotency-key')).toBe(false)
@@ -115,29 +119,88 @@ describe('New facility sign-ups in the Novu console', () => {
     const calls = serve(READER, [{ applicationId: APPLICATION_ID, version: 2 }])
     document.cookie = 'hid_access_csrf=novu-proof; path=/'
     const { adminApi } = await import('../api')
-    await expect(adminApi.selfServiceApplications()).resolves.toEqual({ items: [{ applicationId: APPLICATION_ID, version: 2 }] })
+    await expect(adminApi.selfServiceApplications()).resolves.toEqual({ total: 1,
+      items: [{ applicationId: APPLICATION_ID, version: 2 }] })
     expect(calls.filter(call => call.path === '/api/v1/admin/self-service-applications').map(call => [call.method, call.search]))
       .toEqual([['GET', '']])
     await expect(adminApi.rejectSelfServiceApplication({ applicationId: APPLICATION_ID, version: 2 }, 'Not the company’s own.'))
       .resolves.toEqual({ applicationId: APPLICATION_ID, rejectedAt: '2026-10-24T14:00:00.000Z', version: 3 })
     const reject = calls.find(call => call.path.endsWith('/reject'))!
-    expect(reject).toMatchObject({ method: 'POST', path: `/api/v1/admin/self-service-applications/${APPLICATION_ID}/reject`,
-      body: { reason: 'Not the company’s own.' } })
+    expect(reject).toMatchObject({ method: 'POST', path: `/api/v1/admin/self-service-applications/${APPLICATION_ID}/reject` })
+    // Without allowRetry the body is the one an Identity before hid-system R15 takes too.
+    expect(reject.body).toEqual({ reason: 'Not the company’s own.' })
     expect(reject.headers.get('if-match')).toBe('"2"')
     expect(reject.headers.get('x-csrf-token')).toBe('novu-proof')
     expect(reject.headers.has('idempotency-key')).toBe(false)
+  })
+
+  it('sends allowRetry: true with a rejection or release only when support lets the applicant start again (R15)', async () => {
+    const calls = serve(READER)
+    document.cookie = 'hid_access_csrf=novu-proof; path=/'
+    const { adminApi } = await import('../api')
+    await adminApi.rejectSelfServiceApplication({ applicationId: APPLICATION_ID, version: 2 }, 'The applicant mistyped the email.', true)
+    await adminApi.releaseSelfServiceFacility({ applicationId: APPLICATION_ID, version: 4 }, 'The company’s own, wrong email.', true)
+    await adminApi.rejectSelfServiceApplication({ applicationId: APPLICATION_ID, version: 3 }, 'Not the company’s own.', false)
+    expect(calls.filter(call => call.method === 'POST').map(call => [call.path.split('/').slice(-1)[0], call.body,
+      call.headers.get('if-match')])).toEqual([
+      ['reject', { reason: 'The applicant mistyped the email.', allowRetry: true }, '"2"'],
+      ['release', { reason: 'The company’s own, wrong email.', allowRetry: true }, '"4"'],
+      ['reject', { reason: 'Not the company’s own.' }, '"3"'],
+    ])
+  })
+
+  it('finds one CAC number’s open applications with a POST, the number in the body, never in the address (R16)', async () => {
+    const calls = serve(READER, [{ applicationId: APPLICATION_ID, version: 2, holdsCac: true }])
+    document.cookie = 'hid_access_csrf=novu-proof; path=/'
+    const { adminApi } = await import('../api')
+    await expect(adminApi.searchSelfServiceApplications('RC1234521')).resolves.toEqual({ total: 1,
+      items: [{ applicationId: APPLICATION_ID, version: 2, holdsCac: true }] })
+    const search = calls.find(call => call.path.endsWith('/search'))!
+    expect(search).toMatchObject({ method: 'POST', path: '/api/v1/admin/self-service-applications/search', search: '',
+      body: { cacRegistrationNumber: 'RC1234521' } })
+    expect(search.headers.get('x-csrf-token')).toBe('novu-proof')
+    expect(search.headers.has('if-match')).toBe(false)
+    expect(search.headers.has('x-facility-id')).toBe(false)
+  })
+
+  it('says an Identity without the search can’t search, not the router’s words', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => json({ status: 404, code: 'NOT_FOUND',
+      detail: 'Cannot POST /api/v1/admin/self-service-applications/search' }, 404)))
+    const { adminApi } = await import('../api')
+    await expect(adminApi.searchSelfServiceApplications('RC1234521')).rejects.toMatchObject({ status: 404,
+      code: 'SELF_SERVICE_APPLICATION_SEARCH_UNAVAILABLE' })
+  })
+
+  it('lifts a refusal with one POST: the CAC number, product and reason, the CSRF token, no If-Match or Idempotency-Key (R15)', async () => {
+    const calls = serve(READER)
+    document.cookie = 'hid_access_csrf=novu-proof; path=/'
+    const { adminApi } = await import('../api')
+    await expect(adminApi.waiveSelfServiceRefusals({ cacRegistrationNumber: 'RC1234521', productCode: 'pharmacy',
+      reason: 'The company’s own administrator.' })).resolves.toEqual({ waived: [{ applicationId: APPLICATION_ID,
+      waivedAt: '2026-10-25T09:00:00.000Z', version: 6 }] })
+    const waive = calls.find(call => call.path.endsWith('/waive-refusal'))!
+    expect(waive).toMatchObject({ method: 'POST', path: '/api/v1/admin/self-service-applications/waive-refusal' })
+    expect(waive.body).toEqual({ cacRegistrationNumber: 'RC1234521', productCode: 'pharmacy',
+      reason: 'The company’s own administrator.' })
+    expect(waive.headers.get('x-csrf-token')).toBe('novu-proof')
+    expect(waive.headers.has('if-match')).toBe(false)
+    expect(waive.headers.has('idempotency-key')).toBe(false)
   })
 
   it('opens the open applications view from its address, through the registered route', async () => {
     const calls = serve(READER, [{ applicationId: APPLICATION_ID, version: 2, productCode: 'ehr', organizationType: 'hospital',
       cacHint: 'RC****21', organizationName: 'SURULERE CLINIC LTD', administratorName: 'Tunde Bello',
       administratorEmail: 'tunde@example.test', status: 'ready_for_review', verificationResult: 'verified', emailVerified: true,
-      submittedAt: '2026-10-24T08:00:00.000Z', lapsesAt: '2026-10-25T08:00:00.000Z' }])
+      submittedAt: '2026-10-24T08:00:00.000Z', lapsesAt: '2026-10-24T08:00:00.000Z', holdsCac: false }])
     await openAt('/admin/self-service-facilities?state=open')
     expect(await screen.findByRole('heading', { name: 'SURULERE CLINIC LTD', level: 2 })).toBeTruthy()
     expect(calls.some(call => call.path === '/api/v1/admin/self-service-facilities')).toBe(false)
-    // The read permission alone shows the list, not the command.
+    // The read permission alone shows the list, not the commands.
     expect(screen.queryByText('Reject', { selector: 'summary' })).toBeNull()
+    expect(screen.queryByText('Lift a 7-day refusal', { selector: 'summary' })).toBeNull()
+    expect(screen.getByText('Holds the CAC number', { selector: 'dt' }).nextElementSibling?.textContent).toMatch(/^No: /)
+    expect(calls.filter(call => call.path.startsWith('/api/v1/admin/self-service-applications')).map(call => call.method))
+      .toEqual(['GET'])
   })
 
   it('says an Identity without open applications has none, not the router’s words', async () => {

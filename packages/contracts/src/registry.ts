@@ -16,8 +16,9 @@ export type EndpointAuth = { readonly kind: 'public' | 'authenticated' }
  * screens are off unless the build turns them on), hid-system #109's
  * emergency-contact availability read and admin commands, which only
  * `staging-novu-ci-20261005` serves, and facility self sign-up's availability
- * and confirmation reads and support's review, release and open applications
- * (P4), which only `staging-novu-ci-20261005` serves.
+ * and confirmation reads and support's review, release and open applications,
+ * with their search and the waiver of a refusal (P4), which only
+ * `staging-novu-ci-20261005` serves.
  */
 export type ContractStatus = 'surface-verified' | 'proposed'
 export interface EndpointDescriptor {
@@ -416,21 +417,37 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   // P4 round 2 (R2): support frees a fraudulent or mistaken sign-up's CAC number and legal name for the real company.
   proposed(r('admin.selfServiceFacilityRelease','admin','/api/v1/admin/self-service-facilities/:applicationId/release',P,false,
     one('POST','platform.facility.manage'),
-    `${SELF_SIGN_UP_NOVU} Body { reason (8 to 500) } and If-Match with the version; no Idempotency-Key or step-up. Only `
-    + 'once every facility of the organization is suspended and the administrator\'s account disabled (409 '
-    + 'SELF_SERVICE_FACILITY_RELEASE_REQUIRES_SUSPENSION otherwise). Answers { applicationId, releasedAt, version }. 404 '
-    + 'SELF_SERVICE_FACILITY_NOT_FOUND, 409 SELF_SERVICE_FACILITY_ALREADY_RELEASED, 409 VERSION_CONFLICT.')),
-  // P4 round 2 (R3): self-service applications not activated yet, each holding its CAC number for 24 hours.
+    `${SELF_SIGN_UP_NOVU} Body { reason (8 to 500), allowRetry? (boolean, default false) } and If-Match with the version; `
+    + 'no Idempotency-Key or step-up. Only once every facility of the organization is suspended and the administrator\'s '
+    + 'account disabled (409 SELF_SERVICE_FACILITY_RELEASE_REQUIRES_SUSPENSION otherwise). Answers { applicationId, '
+    + 'releasedAt, version }. 404 SELF_SERVICE_FACILITY_NOT_FOUND, 409 SELF_SERVICE_FACILITY_ALREADY_RELEASED, 409 '
+    + 'VERSION_CONFLICT. Unless allowRetry, its email and network can\'t start a sign-up for the CAC number and product for '
+    + '7 days.')),
+  // P4 round 2 (R3, ranked and counted by R16): self-service applications not activated yet.
   proposed(r('admin.selfServiceApplications','admin','/api/v1/admin/self-service-applications',G,false,
     one('GET','platform.identity-review.read'),
-    `${SELF_SIGN_UP_NOVU} No query. Answers { items }, oldest first, at most 200: applicationId, version, productCode, `
+    `${SELF_SIGN_UP_NOVU} No query. Answers { total, items }: at most 200 items, those holding their CAC number now first, `
+    + 'then verified ones, then the newest; total counts every open one. Each: applicationId, version, productCode, '
     + 'organizationType, cacHint, organizationName (null until verified), administratorName, administratorEmail, status, '
-    + 'verificationResult, emailVerified, submittedAt and lapsesAt.')),
+    + 'verificationResult, emailVerified, submittedAt, lapsesAt (submittedAt + 24 h, or submittedAt when opened without a '
+    + 'hold) and holdsCac.')),
+  // R16: the same list for one CAC number, which goes in the body, out of access logs, as principals/search.
+  proposed(r('admin.selfServiceApplicationSearch','admin','/api/v1/admin/self-service-applications/search',P,false,
+    one('POST','platform.identity-review.read'),
+    `${SELF_SIGN_UP_NOVU} Body { cacRegistrationNumber } (spaces removed, upper case, RC, BN or IT and 4 to 20 digits; 400 `
+    + 'VALIDATION_FAILED otherwise). Answers { total, items } as the list, for that CAC number only.')),
+  // R15: support lifts the 7-day refusals a rejection or release set for a CAC number and product.
+  proposed(r('admin.selfServiceApplicationWaiveRefusal','admin','/api/v1/admin/self-service-applications/waive-refusal',P,
+    false,one('POST','platform.facility.manage'),
+    `${SELF_SIGN_UP_NOVU} Body { cacRegistrationNumber, productCode, reason (8 to 500) }; no If-Match, Idempotency-Key or `
+    + 'step-up. Answers { waived: [{ applicationId, waivedAt, version }] }, one per refusal lifted. 404 '
+    + 'SELF_SERVICE_REFUSAL_NOT_FOUND when none is in force.')),
   proposed(r('admin.selfServiceApplicationReject','admin','/api/v1/admin/self-service-applications/:applicationId/reject',P,false,
     one('POST','platform.facility.manage'),
-    `${SELF_SIGN_UP_NOVU} Body { reason (8 to 500) } and If-Match with the version; no Idempotency-Key or step-up. Answers `
-    + '{ applicationId, rejectedAt, version }. 404 SELF_SERVICE_APPLICATION_NOT_FOUND, 409 VERSION_CONFLICT. Its email and '
-    + 'network then can\'t reopen the CAC number and product for 7 days.')),
+    `${SELF_SIGN_UP_NOVU} Body { reason (8 to 500), allowRetry? (boolean, default false) } and If-Match with the version; `
+    + 'no Idempotency-Key or step-up. Answers { applicationId, rejectedAt, version }. 404 SELF_SERVICE_APPLICATION_NOT_FOUND, '
+    + '409 VERSION_CONFLICT. Unless allowRetry, its email and network then can\'t start a sign-up for the CAC number and '
+    + 'product for 7 days.')),
   r('admin.verifyCac','admin','/api/v1/admin/organization-applications/:applicationId/verify-cac',P,false,one('POST','platform.facility.manage')),
   r('admin.approveApplication','admin','/api/v1/admin/organization-applications/:applicationId/approve',P,false,one('POST','platform.facility.manage','platform.principal.manage','platform.role.manage')),
   r('admin.rejectApplication','admin','/api/v1/admin/organization-applications/:applicationId/reject',P,false,one('POST','platform.facility.manage')),

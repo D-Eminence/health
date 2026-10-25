@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
 import type { AdminActor, SelfServiceApplication, SelfServiceFacility } from '../api'
@@ -16,7 +16,8 @@ import { StepUpProvider } from '../StepUp'
  */
 const mocks = vi.hoisted(() => ({
   api: { selfServiceFacilities: vi.fn(), reviewSelfServiceFacility: vi.fn(), releaseSelfServiceFacility: vi.fn(),
-    selfServiceApplications: vi.fn(), rejectSelfServiceApplication: vi.fn(), principals: vi.fn(), stepUp: vi.fn() },
+    selfServiceApplications: vi.fn(), searchSelfServiceApplications: vi.fn(), rejectSelfServiceApplication: vi.fn(),
+    waiveSelfServiceRefusals: vi.fn(), principals: vi.fn(), stepUp: vi.fn() },
 }))
 vi.mock('../api', () => ({ adminApi: mocks.api, PAGE_SIZE: 25, newIdempotencyKey: () => 'key-1' }))
 
@@ -267,7 +268,8 @@ describe('releasing a sign-up', () => {
     expect(within(item).getByText(/^Releasing frees this CAC number and legal name/).textContent).toBe('Releasing frees this CAC '
       + 'number and legal name, so the real company can sign up. It closes this sign-up, unlinks the CAC number, suspends the '
       + 'product, deactivates and renames the organization, and removes the administrator’s access. It can’t be undone. The '
-      + 'administrator’s email stays with the disabled account and can’t be used to sign up again.')
+      + 'administrator’s email stays with the disabled account and can’t be used to sign up again. Unless you let the '
+      + 'applicant start again, this sign-up’s email and network can’t sign up this CAC number and product again for 7 days.')
     expect(within(item).queryByText(/^To release this sign-up/)).toBeNull()
   })
 
@@ -293,7 +295,8 @@ describe('releasing a sign-up', () => {
     expect(await screen.findByText('Released IKEJA CARE LIMITED. Its CAC number and legal name are free for the real company '
       + 'to sign up.')).toBeTruthy()
     expect(mocks.api.releaseSelfServiceFacility).toHaveBeenCalledWith(
-      expect.objectContaining({ applicationId: signUp().applicationId, version: 3 }), 'The company confirmed by phone it did not sign up.')
+      expect.objectContaining({ applicationId: signUp().applicationId, version: 3 }), 'The company confirmed by phone it did not sign up.',
+      false)
     await waitFor(() => expect(mocks.api.selfServiceFacilities).toHaveBeenCalledTimes(2))
   })
 
@@ -322,7 +325,7 @@ describe('releasing a sign-up', () => {
     await fillRelease(again, 'Checked again; the company did not sign up.')
     fireEvent.click(within(again).getByRole('button', { name: 'Release sign-up' }))
     await waitFor(() => expect(mocks.api.releaseSelfServiceFacility).toHaveBeenLastCalledWith(
-      expect.objectContaining({ version: 4 }), 'Checked again; the company did not sign up.'))
+      expect.objectContaining({ version: 4 }), 'Checked again; the company did not sign up.', false))
   })
 
   it.each([['SELF_SERVICE_FACILITY_REQUEST_INVALID'], ['VALIDATION_FAILED']])('keeps a refused reason (%s) on the card, in its own words', async code => {
@@ -359,6 +362,24 @@ describe('releasing a sign-up', () => {
     expect(within(item).queryByText(/^View only/)).toBeNull()
     // A released sign-up is not waiting for review.
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('New facility sign-ups (0 to review)')
+  })
+
+  it('lets the applicant start again at once when asked (allowRetry), and says nothing of it otherwise', async () => {
+    mocks.api.selfServiceFacilities.mockResolvedValueOnce({ items: [stopped()] }).mockResolvedValue({ items: [] })
+    mocks.api.releaseSelfServiceFacility.mockResolvedValueOnce({ applicationId: signUp().applicationId,
+      releasedAt: '2026-10-24T13:00:00.000Z', version: 4 })
+    open(<SelfServiceFacilitiesPage actor={actor(REVIEWER)} />)
+    const item = await card('IKEJA CARE LIMITED')
+    await fillRelease(item, 'The company’s own sign-up, with a personal email address.')
+    const retry = within(item).getByLabelText('Let the applicant start again at once: the sign-up was the company’s own, with '
+      + 'the wrong email address.') as HTMLInputElement
+    expect(retry.checked).toBe(false)
+    fireEvent.click(retry)
+    fireEvent.click(within(item).getByRole('button', { name: 'Release sign-up' }))
+    expect(await screen.findByText('Released IKEJA CARE LIMITED. Its CAC number and legal name are free for the real company '
+      + 'to sign up.')).toBeTruthy()
+    expect(mocks.api.releaseSelfServiceFacility).toHaveBeenCalledWith(expect.objectContaining({ version: 3 }),
+      'The company’s own sign-up, with a personal email address.', true)
   })
 
   it('can release a sign-up that was already reviewed', async () => {
@@ -401,13 +422,22 @@ describe('open applications', () => {
     expect(within(screen.getByRole('region', { name: 'Open applications' })).getByText(/^Sign-ups that haven’t been finished yet/)
       .textContent).toBe('Sign-ups that haven’t been finished yet: the administrator hasn’t confirmed their email or chosen a '
         + 'password. Each one holds its CAC number and product for 24 hours after it was submitted, so nobody else can sign up '
-        + 'that company meanwhile.')
+        + 'that company meanwhile. The ones holding a CAC number now are listed first.')
+    // hid-system R15: a sign-up opened within 7 days of an earlier one closing, from its email or network, holds nothing.
+    expect(within(screen.getByRole('region', { name: 'Open applications' })).getByText(/^A sign-up started within 7 days/)
+      .textContent).toBe('A sign-up started within 7 days of an earlier sign-up for the same CAC number and product closing, '
+        + 'from the same email or network, holds nothing: any other sign-up for that CAC number replaces it.')
+    expect(within(screen.getByRole('region', { name: 'Open applications' })).getByText(/^If one isn’t the company’s own/)
+      .textContent).toBe('If one isn’t the company’s own, for example because of a mistyped CAC number, reject it so the real '
+        + 'company can sign up. Unless you let its applicant start again, its email and network can’t sign up that CAC '
+        + 'number and product again for 7 days.')
     // An applicant can't close a sign-up they disowned at the password step: support finds and rejects it.
     expect(within(screen.getByRole('region', { name: 'Open applications' })).getByText(/^A company told that another sign-up/)
       .textContent).toBe('A company told that another sign-up for its CAC number may be in progress may be held by one of these. '
         + 'For example, an applicant who mistyped the number, saw another company’s legal name and selected “This isn’t my '
         + 'organization” leaves that sign-up here, with its email confirmed, until it lapses; they are asked to tell support '
-        + 'the number. Match the CAC number’s last digits and the legal name, and reject the one that isn’t the company’s own.')
+        + 'the number. Find the company’s CAC number below, check the legal name, and reject the one that isn’t the company’s '
+        + 'own.')
     const shown = (term: string) => within(item).getByText(term).nextElementSibling?.textContent
     expect(shown('CAC number')).toBe('RC****21')
     expect(shown('Product')).toBe('Pharmacy')
@@ -430,8 +460,9 @@ describe('open applications', () => {
     const item = await card('SURULERE PHARMACY LTD')
     fireEvent.click(within(item).getByText('Reject', { selector: 'summary' }))
     expect(within(item).getByText(/^Rejecting closes this sign-up at once/).textContent).toBe('Rejecting closes this sign-up at '
-      + 'once: its codes stop working, and the CAC number is free for the real company. This sign-up’s email and network can’t '
-      + 'sign up this CAC number and product again for 7 days.')
+      + 'once: its codes stop working, and the CAC number is free for the real company. Unless you let the applicant start '
+      + 'again, this sign-up’s email and network can’t sign up this CAC number and product again for 7 days.')
+    expect((within(item).getByLabelText(/^Let the applicant start again at once/) as HTMLInputElement).checked).toBe(false)
     const reason = within(item).getByLabelText('Reason for rejecting')
     const reject = within(item).getByRole('button', { name: 'Reject sign-up' }) as HTMLButtonElement
     fireEvent.change(reason, { target: { value: 'short' } })
@@ -440,7 +471,8 @@ describe('open applications', () => {
     fireEvent.click(reject)
     expect(await screen.findByText('Rejected the sign-up for SURULERE PHARMACY LTD.')).toBeTruthy()
     expect(mocks.api.rejectSelfServiceApplication).toHaveBeenCalledWith(
-      expect.objectContaining({ applicationId: application().applicationId, version: 2 }), 'Not the company’s own: it did not sign up.')
+      expect.objectContaining({ applicationId: application().applicationId, version: 2 }), 'Not the company’s own: it did not sign up.',
+      false)
     await waitFor(() => expect(mocks.api.selfServiceApplications).toHaveBeenCalledTimes(2))
     expect(await screen.findByText('No sign-ups are waiting to be finished.')).toBeTruthy()
   })
@@ -469,7 +501,7 @@ describe('open applications', () => {
     fireEvent.change(within(again).getByLabelText('Reason for rejecting'), { target: { value: 'Still not the company’s own.' } })
     fireEvent.click(within(again).getByRole('button', { name: 'Reject sign-up' }))
     await waitFor(() => expect(mocks.api.rejectSelfServiceApplication).toHaveBeenLastCalledWith(
-      expect.objectContaining({ version: 3 }), 'Still not the company’s own.'))
+      expect.objectContaining({ version: 3 }), 'Still not the company’s own.', false))
   })
 
   it.each([['SELF_SERVICE_FACILITY_REQUEST_INVALID'], ['VALIDATION_FAILED']])('keeps a refused reason (%s) on the card, in its own words', async code => {
@@ -482,6 +514,143 @@ describe('open applications', () => {
     fireEvent.click(within(item).getByRole('button', { name: 'Reject sign-up' }))
     expect((await within(item).findByRole('alert')).textContent).toBe('Enter a reason of 8 to 500 characters.')
     expect(mocks.api.selfServiceApplications).toHaveBeenCalledTimes(1)
+  })
+
+  it('lets the applicant start again at once when asked (allowRetry), and says so', async () => {
+    mocks.api.selfServiceApplications.mockResolvedValueOnce({ total: 1, items: [application()] }).mockResolvedValue({ total: 0, items: [] })
+    mocks.api.rejectSelfServiceApplication.mockResolvedValueOnce({ applicationId: application().applicationId,
+      rejectedAt: '2026-10-24T12:00:00.000Z', version: 3 })
+    await openView()
+    const item = await card('SURULERE PHARMACY LTD')
+    fireEvent.click(within(item).getByText('Reject', { selector: 'summary' }))
+    fireEvent.change(within(item).getByLabelText('Reason for rejecting'), { target: { value: 'The applicant mistyped their email.' } })
+    fireEvent.click(within(item).getByLabelText('Let the applicant start again at once: the mistake was theirs, for example a '
+      + 'mistyped email address.'))
+    fireEvent.click(within(item).getByRole('button', { name: 'Reject sign-up' }))
+    expect(await screen.findByText('Rejected the sign-up for SURULERE PHARMACY LTD. Its applicant can start again at once.')).toBeTruthy()
+    expect(mocks.api.rejectSelfServiceApplication).toHaveBeenCalledWith(expect.objectContaining({ version: 2 }),
+      'The applicant mistyped their email.', true)
+  })
+
+  it.each([
+    ['holds its CAC number now', { holdsCac: true }, 'Holds the CAC number until', null],
+    ['comes from an Identity before holdsCac', {}, 'Holds the CAC number until', null],
+    ['holds nothing', { holdsCac: false, lapsesAt: '2026-10-24T08:00:00.000Z' }, 'Holds the CAC number',
+      'No: its administrator can still finish it, but any other sign-up for this CAC number and product replaces it'],
+  ] as const)('says how long a sign-up that %s holds the CAC number', async (_, overrides, term, text) => {
+    mocks.api.selfServiceApplications.mockResolvedValue({ total: 1, items: [application(overrides)] })
+    await openView()
+    const item = await card('SURULERE PHARMACY LTD')
+    const shown = within(item).getByText(term, { selector: 'dt' }).nextElementSibling?.textContent
+    if (text) expect(shown).toBe(text)
+    else expect(shown).not.toMatch(/^(No|Not available)/)
+    expect(within(item).queryByText(term === 'Holds the CAC number' ? 'Holds the CAC number until' : 'Holds the CAC number',
+      { selector: 'dt' })).toBeNull()
+  })
+
+  it('says how many there are when Identity lists 200 of more than 200', async () => {
+    mocks.api.selfServiceApplications.mockResolvedValue({ total: 216, items: Array.from({ length: 200 },
+      (_, index) => application({ applicationId: `app-${index}`, organizationName: `COMPANY ${index} LTD` })) })
+    await openView()
+    await card('COMPANY 0 LTD')
+    expect(screen.getByText(/^Showing 200 of 216 open sign-ups/).textContent).toBe('Showing 200 of 216 open sign-ups, those '
+      + 'holding a CAC number now first. Find a CAC number to see its own.')
+  })
+
+  it.each([
+    ['all of them', { total: 2 }],
+    ['an Identity before the total', {}],
+  ] as const)('says nothing of a count when Identity lists %s', async (_, extra) => {
+    mocks.api.selfServiceApplications.mockResolvedValue({ ...extra, items: [application(), application({ applicationId: 'app-2',
+      organizationName: 'YABA CLINIC LTD' })] })
+    await openView()
+    await card('YABA CLINIC LTD')
+    expect(screen.queryByText(/^Showing/)).toBeNull()
+  })
+
+  it('finds a CAC number’s open sign-ups, kept out of the address, and shows all again', async () => {
+    mocks.api.selfServiceApplications.mockResolvedValue({ total: 2, items: [application(), application({ applicationId: 'app-2',
+      organizationName: 'YABA CLINIC LTD' })] })
+    mocks.api.searchSelfServiceApplications.mockResolvedValueOnce({ total: 1, items: [application({ applicationId: 'app-2',
+      organizationName: 'YABA CLINIC LTD' })] }).mockResolvedValueOnce({ total: 0, items: [] })
+    await openView()
+    await card('SURULERE PHARMACY LTD')
+    const search = screen.getByRole('search', { name: 'Open sign-ups by CAC number' })
+    const input = within(search).getByLabelText('Find a CAC number’s open sign-ups')
+    // A number Identity would refuse is not sent.
+    fireEvent.change(input, { target: { value: 'RC12' } })
+    fireEvent.click(within(search).getByRole('button', { name: 'Search' }))
+    expect(within(search).getByRole('alert').textContent).toBe('Enter a CAC registration number: RC, BN or IT followed by 4 to '
+      + '20 digits.')
+    expect(mocks.api.searchSelfServiceApplications).not.toHaveBeenCalled()
+    // Spaces removed and upper case, as Identity takes it.
+    fireEvent.change(input, { target: { value: ' rc 1234 567 ' } })
+    expect(within(search).queryByRole('alert')).toBeNull()
+    fireEvent.click(within(search).getByRole('button', { name: 'Search' }))
+    await waitFor(() => expect(mocks.api.searchSelfServiceApplications).toHaveBeenCalledWith('RC1234567', expect.anything()))
+    await waitFor(() => expect(screen.queryByRole('heading', { name: 'SURULERE PHARMACY LTD', level: 2 })).toBeNull())
+    await card('YABA CLINIC LTD')
+    expect(screen.getByTestId('location').textContent).toBe('/admin/self-service-facilities?state=open')
+    expect((screen.getByLabelText('Find a CAC number’s open sign-ups') as HTMLInputElement).value).toBe('RC1234567')
+    // None for another number.
+    fireEvent.change(screen.getByLabelText('Find a CAC number’s open sign-ups'), { target: { value: 'BN7654321' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }))
+    expect(await screen.findByText('No sign-up for BN7654321 is waiting to be finished.')).toBeTruthy()
+    // Back to the whole list.
+    fireEvent.click(screen.getByRole('button', { name: 'Show all' }))
+    await card('SURULERE PHARMACY LTD')
+    expect(mocks.api.selfServiceApplications).toHaveBeenCalledTimes(2)
+    expect((screen.getByLabelText('Find a CAC number’s open sign-ups') as HTMLInputElement).value).toBe('')
+    expect(screen.queryByRole('button', { name: 'Show all' })).toBeNull()
+  })
+
+  it('reads the search again after a rejection from it', async () => {
+    mocks.api.selfServiceApplications.mockResolvedValue({ total: 1, items: [application()] })
+    mocks.api.searchSelfServiceApplications.mockResolvedValueOnce({ total: 1, items: [application()] })
+      .mockResolvedValue({ total: 0, items: [] })
+    mocks.api.rejectSelfServiceApplication.mockResolvedValueOnce({ applicationId: application().applicationId,
+      rejectedAt: '2026-10-24T12:00:00.000Z', version: 3 })
+    await openView()
+    await card('SURULERE PHARMACY LTD')
+    fireEvent.change(screen.getByLabelText('Find a CAC number’s open sign-ups'), { target: { value: 'RC1234521' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }))
+    await waitFor(() => expect(mocks.api.searchSelfServiceApplications).toHaveBeenCalledTimes(1))
+    const item = await card('SURULERE PHARMACY LTD')
+    fireEvent.click(within(item).getByText('Reject', { selector: 'summary' }))
+    fireEvent.change(within(item).getByLabelText('Reason for rejecting'), { target: { value: 'Not the company’s own.' } })
+    fireEvent.click(within(item).getByRole('button', { name: 'Reject sign-up' }))
+    expect(await screen.findByText('No sign-up for RC1234521 is waiting to be finished.')).toBeTruthy()
+    expect(mocks.api.searchSelfServiceApplications).toHaveBeenLastCalledWith('RC1234521', expect.anything())
+    expect(mocks.api.selfServiceApplications).toHaveBeenCalledTimes(1)
+  })
+
+  it('says so when this Identity can’t search by CAC number', async () => {
+    mocks.api.selfServiceApplications.mockResolvedValue({ items: [application()] })
+    mocks.api.searchSelfServiceApplications.mockRejectedValue(new HidApiError(404, 'Open sign-ups can’t be found by CAC number '
+      + 'from this Identity.', { code: 'SELF_SERVICE_APPLICATION_SEARCH_UNAVAILABLE' }))
+    await openView()
+    await card('SURULERE PHARMACY LTD')
+    fireEvent.change(screen.getByLabelText('Find a CAC number’s open sign-ups'), { target: { value: 'RC1234521' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }))
+    expect((await screen.findByRole('alert')).textContent).toContain('This Identity can’t find open sign-ups by CAC number yet. '
+      + 'Select “Show all” to see the list.')
+  })
+
+  it('leaves the search when another view is chosen', async () => {
+    mocks.api.selfServiceFacilities.mockResolvedValue({ items: [] })
+    mocks.api.selfServiceApplications.mockResolvedValue({ total: 1, items: [application()] })
+    mocks.api.searchSelfServiceApplications.mockResolvedValue({ total: 0, items: [] })
+    await openView()
+    await card('SURULERE PHARMACY LTD')
+    fireEvent.change(screen.getByLabelText('Find a CAC number’s open sign-ups'), { target: { value: 'RC1234521' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }))
+    expect(await screen.findByText('No sign-up for RC1234521 is waiting to be finished.')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'To review' }))
+    expect(await screen.findByText('No new facility sign-ups are waiting for review.')).toBeTruthy()
+    expect(screen.queryByRole('search', { name: 'Open sign-ups by CAC number' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Open applications' }))
+    await card('SURULERE PHARMACY LTD')
+    expect(mocks.api.searchSelfServiceApplications).toHaveBeenCalledTimes(1)
   })
 
   it('hides Reject without platform.facility.manage', async () => {
@@ -499,6 +668,103 @@ describe('open applications', () => {
     expect((await screen.findByRole('alert')).textContent).toContain('This Identity does not list open sign-ups yet, so there '
       + 'is nothing to show here.')
   })
+})
+
+/**
+ * Lifting a 7-day refusal (hid-system R15): a rejection or release refuses the sign-up's email and network for that CAC
+ * number and product for 7 days unless support let the applicant start again; support lifts it for the company itself.
+ */
+describe('lifting a refusal', () => {
+  const application = (): SelfServiceApplication => ({
+    applicationId: '1a2b3c4d-5e6f-4a1b-8c2d-3e4f5a6b7c8d', version: 2, productCode: 'pharmacy', organizationType: 'pharmacy',
+    cacHint: 'RC****21', organizationName: 'SURULERE PHARMACY LTD', administratorName: 'Tunde Bello',
+    administratorEmail: 'tunde@example.test', status: 'ready_for_review', verificationResult: 'verified', emailVerified: false,
+    submittedAt: '2026-10-24T08:00:00.000Z', lapsesAt: '2026-10-25T08:00:00.000Z', holdsCac: true })
+  const waiver = () => screen.getByText('Lift a 7-day refusal', { selector: 'summary' }).closest('details')!
+
+  async function openWaiver(permissions = REVIEWER) {
+    mocks.api.selfServiceApplications.mockResolvedValue({ total: 1, items: [application()] })
+    open(<SelfServiceFacilitiesPage actor={actor(permissions)} />, '/admin/self-service-facilities?state=open')
+    await card('SURULERE PHARMACY LTD')
+  }
+
+  function fill(cac: string, product: string, reason: string) {
+    fireEvent.click(screen.getByText('Lift a 7-day refusal', { selector: 'summary' }))
+    fireEvent.change(within(waiver()).getByLabelText('CAC registration number'), { target: { value: cac } })
+    fireEvent.change(within(waiver()).getByLabelText('Product'), { target: { value: product } })
+    fireEvent.change(within(waiver()).getByLabelText('Reason for lifting the refusal'), { target: { value: reason } })
+  }
+
+  it('says what it does, needs a CAC number, a product and a reason, and sends them as Identity takes them', async () => {
+    mocks.api.waiveSelfServiceRefusals.mockResolvedValueOnce({ waived: [{ applicationId: 'app-1',
+      waivedAt: '2026-10-25T09:00:00.000Z', version: 4 }] })
+    await openWaiver()
+    fireEvent.click(screen.getByText('Lift a 7-day refusal', { selector: 'summary' }))
+    expect(within(waiver()).getByText(/^Rejecting or releasing a sign-up stops/).textContent).toBe('Rejecting or releasing a '
+      + 'sign-up stops its email and network from signing up that CAC number and product again for 7 days, unless you let the '
+      + 'applicant start again. If that stops the company itself, for example a colleague on the same office network, lift '
+      + 'the refusal here. Every refusal in force for the CAC number and product is lifted. A sign-up started from that email '
+      + 'or network within those 7 days holds nothing: any other sign-up for the same CAC number replaces it.')
+    const lift = within(waiver()).getByRole('button', { name: 'Lift refusal' }) as HTMLButtonElement
+    expect(lift.disabled).toBe(true)
+    fill('RC12', 'pharmacy', 'The company’s own administrator, same office.')
+    expect(within(waiver()).getByText('Enter a CAC registration number: RC, BN or IT followed by 4 to 20 digits.')).toBeTruthy()
+    expect(lift.disabled).toBe(true)
+    fireEvent.change(within(waiver()).getByLabelText('CAC registration number'), { target: { value: ' rc 1234 521 ' } })
+    expect(lift.disabled).toBe(false)
+    fireEvent.change(within(waiver()).getByLabelText('Product'), { target: { value: '' } })
+    expect(lift.disabled).toBe(true)
+    fireEvent.change(within(waiver()).getByLabelText('Product'), { target: { value: 'pharmacy' } })
+    fireEvent.change(within(waiver()).getByLabelText('Reason for lifting the refusal'), { target: { value: 'short' } })
+    expect(lift.disabled).toBe(true)
+    fireEvent.change(within(waiver()).getByLabelText('Reason for lifting the refusal'),
+      { target: { value: '  The company’s own administrator, same office.  ' } })
+    fireEvent.click(lift)
+    expect(await within(waiver()).findByText('Lifted 1 refusal for RC1234521 (Pharmacy). The company can sign up again now.')).toBeTruthy()
+    expect(mocks.api.waiveSelfServiceRefusals).toHaveBeenCalledWith({ cacRegistrationNumber: 'RC1234521', productCode: 'pharmacy',
+      reason: 'The company’s own administrator, same office.' })
+    expect((within(waiver()).getByLabelText('CAC registration number') as HTMLInputElement).value).toBe('')
+  })
+
+  it('counts the refusals lifted', async () => {
+    mocks.api.waiveSelfServiceRefusals.mockResolvedValueOnce({ waived: [
+      { applicationId: 'app-1', waivedAt: '2026-10-25T09:00:00.000Z', version: 4 },
+      { applicationId: 'app-2', waivedAt: '2026-10-25T09:00:00.000Z', version: 6 }] })
+    await openWaiver()
+    fill('BN7654321', 'ehr', 'Two colleagues were refused after a rejection.')
+    fireEvent.click(within(waiver()).getByRole('button', { name: 'Lift refusal' }))
+    expect(await within(waiver()).findByText('Lifted 2 refusals for BN7654321 (EHR). The company can sign up again now.')).toBeTruthy()
+  })
+
+  it.each([
+    ['SELF_SERVICE_REFUSAL_NOT_FOUND', 404, 'No 7-day refusal is in force for this CAC number and product. Check the number and '
+      + 'the product.'],
+    ['VALIDATION_FAILED', 400, 'Enter a CAC registration number: RC, BN or IT followed by 4 to 20 digits. Choose the product, '
+      + 'and give a reason of 8 to 500 characters.'],
+    ['PERMISSION_DENIED', 403, 'Lifting a refusal needs the platform.facility.manage permission. Ask a Super Admin.'],
+  ])('keeps %s on the form, in its own words', async (code, status, text) => {
+    mocks.api.waiveSelfServiceRefusals.mockRejectedValueOnce(new HidApiError(status, 'Identity’s own detail', { code }))
+    await openWaiver()
+    fill('RC1234521', 'laboratory', 'The company’s own administrator, same office.')
+    fireEvent.click(within(waiver()).getByRole('button', { name: 'Lift refusal' }))
+    expect((await within(waiver()).findByRole('alert')).textContent).toBe(text)
+    expect((within(waiver()).getByLabelText('CAC registration number') as HTMLInputElement).value).toBe('RC1234521')
+    expect(mocks.api.selfServiceApplications).toHaveBeenCalledTimes(1)
+  })
+
+  it('is not offered without platform.facility.manage, nor outside the open applications', async () => {
+    await openWaiver(['platform.admin.access', 'platform.identity-review.read'])
+    expect(screen.queryByText('Lift a 7-day refusal')).toBeNull()
+    cleanupAndOpenUnreviewed()
+    expect(await screen.findByText('No new facility sign-ups are waiting for review.')).toBeTruthy()
+    expect(screen.queryByText('Lift a 7-day refusal')).toBeNull()
+  })
+
+  function cleanupAndOpenUnreviewed() {
+    cleanup()
+    mocks.api.selfServiceFacilities.mockResolvedValue({ items: [] })
+    open(<SelfServiceFacilitiesPage actor={actor(REVIEWER)} />)
+  }
 })
 
 describe('Users & roles opened without a handed-over search', () => {

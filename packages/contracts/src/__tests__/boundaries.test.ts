@@ -315,6 +315,11 @@ describe('application boundaries', () => {
       ['admin.selfServiceApplications', '/api/v1/admin/self-service-applications', 'GET', 'platform.identity-review.read'],
       ['admin.selfServiceApplicationReject', `/api/v1/admin/self-service-applications/${applicationId}/reject`, 'POST',
         'platform.facility.manage'],
+      // hid-system R16 and R15: the open applications' search by CAC number, and the waiver of a 7-day refusal.
+      ['admin.selfServiceApplicationSearch', '/api/v1/admin/self-service-applications/search', 'POST',
+        'platform.identity-review.read'],
+      ['admin.selfServiceApplicationWaiveRefusal', '/api/v1/admin/self-service-applications/waive-refusal', 'POST',
+        'platform.facility.manage'],
     ] as const
     for (const [name, example, method, permission] of routes) {
       expect(findEndpoint(name), name).toMatchObject({ service: 'admin', methods: [method], status: 'proposed',
@@ -326,6 +331,13 @@ describe('application boundaries', () => {
         expect(() => assertEndpointAllowed(app, name), `${app}: ${name}`).toThrow(BoundaryViolationError)
       }
     }
+    // What the second backend review changed (R15, R16): the list's total and holdsCac, and allowRetry.
+    expect(findEndpoint('admin.selfServiceApplications')?.note).toContain('{ total, items }')
+    expect(findEndpoint('admin.selfServiceApplications')?.note).toContain('holdsCac')
+    for (const name of ['admin.selfServiceApplicationReject', 'admin.selfServiceFacilityRelease']) {
+      expect(findEndpoint(name)?.note, name).toContain('allowRetry')
+    }
+    expect(findEndpoint('admin.selfServiceApplicationWaiveRefusal')?.note).toContain('404 SELF_SERVICE_REFUSAL_NOT_FOUND')
   })
 
   it('keeps the public site\'s enrollment routes as they were', () => {

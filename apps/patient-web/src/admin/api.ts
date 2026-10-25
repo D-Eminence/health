@@ -122,17 +122,29 @@ export interface SelfServiceFacilityReviewed extends Versioned { applicationId: 
 /** `POST /admin/self-service-facilities/:applicationId/release`. */
 export interface SelfServiceFacilityReleased extends Versioned { applicationId: string; releasedAt: string }
 /**
- * A self-service application not activated yet (P4 round 2, Novu only): `GET /admin/self-service-applications`,
- * oldest first, at most 200. It holds its CAC number and product for 24 hours from `submittedAt` (`lapsesAt`).
+ * A self-service application not activated yet (P4 round 2, Novu only): `GET /admin/self-service-applications`, at
+ * most 200: since hid-system's R16, those holding their CAC number now first, then verified ones, then the newest.
+ * It holds its CAC number and product until `lapsesAt`, 24 hours from `submittedAt`; one opened without a hold (its
+ * email or network had a sign-up for that CAC number and product closed in the last 7 days, R15) holds nothing, and
+ * its `lapsesAt` is `submittedAt`. `holdsCac` says whether it holds them now (R16; absent from an Identity before it).
  * `organizationName` is the verified legal name, null until the CAC is verified.
  */
 export interface SelfServiceApplication extends Versioned {
   applicationId: string; productCode: string; organizationType: string; cacHint: string; organizationName: string | null
   administratorName: string; administratorEmail: string; status: 'pending_verification' | 'ready_for_review' | string
-  verificationResult: string | null; emailVerified: boolean; submittedAt: string; lapsesAt: string
+  verificationResult: string | null; emailVerified: boolean; submittedAt: string; lapsesAt: string; holdsCac?: boolean
 }
+/**
+ * One read of the open applications: `total` counts every open one that matches, beyond the 200 listed (R16; absent
+ * from an Identity before it).
+ */
+export interface SelfServiceApplicationList { total?: number; items: SelfServiceApplication[] }
 /** `POST /admin/self-service-applications/:applicationId/reject`. */
 export interface SelfServiceApplicationRejected extends Versioned { applicationId: string; rejectedAt: string }
+/** The products a facility can sign itself up for, which a refusal is for. */
+export type SelfServiceProduct = 'ehr' | 'migrate' | 'laboratory' | 'pharmacy'
+/** `POST /admin/self-service-applications/waive-refusal` (R15): one entry per 7-day refusal lifted. */
+export interface SelfServiceRefusalsWaived { waived: Array<Versioned & { applicationId: string; waivedAt: string }> }
 export interface IntegrationProvider extends Versioned {
   provider: string; name: string; enabled: boolean; health: string; managementMode: string; availableActions: string[]
   capabilities?: string[]; activeCapabilities?: string[]
@@ -649,25 +661,49 @@ export const adminApi = {
    * Releases a fraudulent or mistaken self sign-up (P4 round 2), once its facility is suspended and its
    * administrator disabled: Identity closes the application, unlinks the CAC number, suspends the product and
    * deactivates and renames the organization, so the real company can sign up. A reason of 8 to 500 characters and
-   * If-Match with the version listed, as the review; no step-up or Idempotency-Key.
+   * If-Match with the version listed, as the review; no step-up or Idempotency-Key. Its email and network then can't
+   * start a sign-up for the CAC number and product for 7 days, unless `allowRetry` (R15), which is sent only when
+   * true, so the body stays `{ reason }` for an Identity before R15.
    */
-  releaseSelfServiceFacility(facility: Pick<SelfServiceFacility, 'applicationId' | 'version'>, reason: string) {
+  releaseSelfServiceFacility(facility: Pick<SelfServiceFacility, 'applicationId' | 'version'>, reason: string,
+    allowRetry = false) {
     return adminApi.command<SelfServiceFacilityReleased>(
-      at('/api/v1/admin/self-service-facilities', facility.applicationId, 'release'), { reason }, { version: facility.version })
+      at('/api/v1/admin/self-service-facilities', facility.applicationId, 'release'),
+      { reason, ...(allowRetry ? { allowRetry: true } : {}) }, { version: facility.version })
   },
-  /** Self-service applications not activated yet (P4 round 2, Novu only), each holding its CAC number for 24 hours. */
+  /** Self-service applications not activated yet (P4 round 2, Novu only), those holding their CAC number now first. */
   selfServiceApplications(signal?: AbortSignal) {
-    return selfServiceList(request<{ items: SelfServiceApplication[] }>('/api/v1/admin/self-service-applications', { signal }),
+    return selfServiceList(request<SelfServiceApplicationList>('/api/v1/admin/self-service-applications', { signal }),
       { code: 'SELF_SERVICE_APPLICATIONS_UNAVAILABLE', message: 'Open sign-up applications are not available from this Identity.' })
   },
   /**
-   * Closes an open self-service application (P4 round 2): a reason of 8 to 500 characters and If-Match with the
-   * version listed; no step-up or Idempotency-Key. Its email and network can't reopen the CAC number for 7 days.
+   * The open applications for one CAC number (R16). The number goes in a POST body, out of URLs and access logs, as
+   * the principal search does; Identity removes spaces and upper-cases it, and refuses one that is not RC, BN or IT
+   * and 4 to 20 digits (400 VALIDATION_FAILED). Being a POST, a failed search is not repeated.
    */
-  rejectSelfServiceApplication(application: Pick<SelfServiceApplication, 'applicationId' | 'version'>, reason: string) {
+  searchSelfServiceApplications(cacRegistrationNumber: string, signal?: AbortSignal) {
+    return selfServiceList(request<SelfServiceApplicationList>('/api/v1/admin/self-service-applications/search',
+      { method: 'POST', signal, body: { cacRegistrationNumber } }),
+    { code: 'SELF_SERVICE_APPLICATION_SEARCH_UNAVAILABLE', message: 'Open sign-ups can’t be found by CAC number from this Identity.' })
+  },
+  /**
+   * Closes an open self-service application (P4 round 2): a reason of 8 to 500 characters and If-Match with the
+   * version listed; no step-up or Idempotency-Key. Its email and network then can't start a sign-up for the CAC number
+   * and product for 7 days, unless `allowRetry` (R15: the applicant's own mistake), sent only when true.
+   */
+  rejectSelfServiceApplication(application: Pick<SelfServiceApplication, 'applicationId' | 'version'>, reason: string,
+    allowRetry = false) {
     return adminApi.command<SelfServiceApplicationRejected>(
-      at('/api/v1/admin/self-service-applications', application.applicationId, 'reject'), { reason },
-      { version: application.version })
+      at('/api/v1/admin/self-service-applications', application.applicationId, 'reject'),
+      { reason, ...(allowRetry ? { allowRetry: true } : {}) }, { version: application.version })
+  },
+  /**
+   * Lifts every 7-day refusal a rejection or release set for a CAC number and product (R15), for a company whose own
+   * email or network it refused: the CAC number (spaces removed, upper case), the product and a reason of 8 to 500
+   * characters. No version, step-up or Idempotency-Key; 404 SELF_SERVICE_REFUSAL_NOT_FOUND when none is in force.
+   */
+  waiveSelfServiceRefusals(input: { cacRegistrationNumber: string; productCode: SelfServiceProduct; reason: string }) {
+    return adminApi.command<SelfServiceRefusalsWaived>('/api/v1/admin/self-service-applications/waive-refusal', input)
   },
   integrations(signal?: AbortSignal) { return request<IntegrationCatalog>('/api/v1/admin/integrations', { signal }) },
   integrationHistory(provider: string, signal?: AbortSignal) {
