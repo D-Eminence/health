@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
-import { ORGANIZATION_TYPE_NOTES, ProviderEnrollment } from './ProviderEnrollment'
+import { ORGANIZATION_TYPE_NOTES, organizationTypeNote, ProviderEnrollment } from './ProviderEnrollment'
 
 /**
  * The portal's self-service provider enrollment (/provider/enroll), which the
@@ -426,7 +426,8 @@ describe('facility self sign-up on Novu (P4)', () => {
   })
 
   // P4b: what opens depends on the facility's type, once Health ID support has checked it; a laboratory's and a
-  // pharmacy's workspace receive no orders from other facilities yet (betweenFacilities.ts).
+  // pharmacy's workspace receive no orders from other facilities while Health ID does not send them (P4c's switch is
+  // off, or the availability answer does not say: betweenFacilities.ts).
   it.each([
     ['Hospital', 'ehr', 'Your Provider Portal opens at once. When Health ID support has checked your facility, usually within '
       + 'one working day, the clinical record, emergency access and the Laboratory and Pharmacy work lists open, and you can '
@@ -434,13 +435,14 @@ describe('facility self sign-up on Novu (P4)', () => {
       + 'yourself.'],
     ['Laboratory', 'laboratory', 'Your Provider Portal opens at once. When Health ID support has checked your facility, usually '
       + 'within one working day, the Laboratory workspace opens, and you can add your laboratory scientists and receptionists. '
-      + 'Health ID does not yet send test orders between facilities, so orders from hospitals and clinics can’t reach your '
-      + 'Laboratory workspace yet: it shows the tests ordered at your own laboratory. If you are a licensed laboratory '
-      + 'scientist, you can also work in the Laboratory workspace yourself.'],
+      + 'Health ID is not sending test orders between facilities at the moment, so orders from hospitals and clinics can’t '
+      + 'reach your Laboratory workspace yet: it shows the tests ordered at your own laboratory. If you are a licensed '
+      + 'laboratory scientist, you can also work in the Laboratory workspace yourself.'],
     ['Pharmacy', 'pharmacy', 'Your Provider Portal opens at once. When Health ID support has checked your facility, usually '
       + 'within one working day, the Pharmacy workspace opens, and you can add your pharmacists and receptionists. Health ID '
-      + 'does not yet send prescriptions between facilities, so prescriptions from hospitals and clinics can’t reach your '
-      + 'Pharmacy workspace yet. If you are a licensed pharmacist, you can also work in the Pharmacy workspace yourself.'],
+      + 'is not sending prescriptions between facilities at the moment, so prescriptions from hospitals and clinics can’t '
+      + 'reach your Pharmacy workspace yet. If you are a licensed pharmacist, you can also work in the Pharmacy workspace '
+      + 'yourself.'],
     ['Other healthcare provider', 'ehr', 'Your Provider Portal opens at once. When Health ID support has checked your facility, '
       + 'usually within one working day, you can add your staff. Health ID support agrees with you which access you need.'],
   ])('says honestly what a %s sign-up (%s) gets', async (type, product, note) => {
@@ -449,6 +451,27 @@ describe('facility self sign-up on Novu (P4)', () => {
     expect(select('Product').value).toBe(product)
     expect(document.getElementById('provider-product-note')?.textContent).toBe(note)
     expect(select('Product').getAttribute('aria-describedby')).toBe('provider-product-note')
+  })
+
+  // P4c: with orders between facilities on (availability's crossFacilityOrders), a laboratory or pharmacy is told that
+  // clinicians at other facilities can send it orders once support has checked it; a hospital's note is unchanged.
+  it.each([
+    ['Laboratory', 'Your Provider Portal opens at once. When Health ID support has checked your facility, usually within one '
+      + 'working day, the Laboratory workspace opens, and you can add your laboratory scientists and receptionists. Once Health '
+      + 'ID support has checked your facility, Health ID clinicians at other facilities can send you lab requests. If you are '
+      + 'a licensed laboratory scientist, you can also work in the Laboratory workspace yourself.'],
+    ['Pharmacy', 'Your Provider Portal opens at once. When Health ID support has checked your facility, usually within one '
+      + 'working day, the Pharmacy workspace opens, and you can add your pharmacists and receptionists. Once Health ID support '
+      + 'has checked your facility, Health ID clinicians at other facilities can send you prescriptions. If you are a licensed '
+      + 'pharmacist, you can also work in the Pharmacy workspace yourself.'],
+    ['Hospital', ORGANIZATION_TYPE_NOTES.hospital],
+  ])('says a %s sign-up can receive orders from other facilities when Health ID sends them (P4c)', async (type, note) => {
+    api.availability.mockResolvedValue({ open: true, crossFacilityOrders: true })
+    await toDetails()
+    fireEvent.click(screen.getByRole('radio', { name: type }))
+    expect(document.getElementById('provider-product-note')?.textContent).toBe(note)
+    expect(organizationTypeNote(type === 'Laboratory' ? 'laboratory' : type === 'Pharmacy' ? 'pharmacy' : 'hospital', true)).toBe(note)
+    expect(note).not.toMatch(/not sending|does not yet/)
   })
 
   it('keys the note to the facility type, not the product: a hospital signing up for Migrate gets the hospital’s', async () => {

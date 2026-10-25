@@ -46,7 +46,9 @@ const productOptions: Record<OrganizationType, Product[]> = {
 }
 
 /**
- * What a self-signed-up facility gets on Novu, by its type (P4b, owner decision "full access after support's review").
+ * What a self-signed-up facility gets on Novu, by its type (P4b, owner decision "full access after support's review"),
+ * and, for a laboratory or pharmacy, whether orders from other facilities can reach it (P4c: `ordersOn`, from the
+ * availability answer's crossFacilityOrders).
  * Activation gives the administrator the Provider Portal at once, with a restricted role that reaches no patient
  * record. When Health ID support has checked the facility, its administrator manages staff and vouches for their
  * licences, and gets the type's own role (doctor or nurse, laboratory scientist, pharmacist) only with a licence support
@@ -54,6 +56,25 @@ const productOptions: Record<OrganizationType, Product[]> = {
  * never more than "within one working day". A laboratory's and a pharmacy's sentence on orders from other facilities
  * is betweenFacilities.ts's.
  */
+export function organizationTypeNote(type: OrganizationType, ordersOn: boolean): string {
+  return type === 'laboratory' ? laboratoryNote(ordersOn) : type === 'pharmacy' ? pharmacyNote(ordersOn) : ORGANIZATION_TYPE_NOTES[type]
+}
+
+function laboratoryNote(ordersOn: boolean): string {
+  return 'Your Provider Portal opens at once. When Health ID support has checked your facility, usually within one '
+    + 'working day, the Laboratory workspace opens, and you can add your laboratory scientists and receptionists. '
+    + `${BETWEEN_FACILITIES.laboratory.signUp(ordersOn)} If you are a licensed laboratory scientist, you can also work in the `
+    + 'Laboratory workspace yourself.'
+}
+
+function pharmacyNote(ordersOn: boolean): string {
+  return 'Your Provider Portal opens at once. When Health ID support has checked your facility, usually within one '
+    + 'working day, the Pharmacy workspace opens, and you can add your pharmacists and receptionists. '
+    + `${BETWEEN_FACILITIES.pharmacy.signUp(ordersOn)} If you are a licensed pharmacist, you can also work in the Pharmacy `
+    + 'workspace yourself.'
+}
+
+/** The notes while orders between facilities are off, or before the backend says (organizationTypeNote). */
 export const ORGANIZATION_TYPE_NOTES: Readonly<Record<OrganizationType, string>> = {
   hospital: 'Your Provider Portal opens at once. When Health ID support has checked your facility, usually within one '
     + 'working day, the clinical record, emergency access and the Laboratory and Pharmacy work lists open, and you can add '
@@ -61,14 +82,8 @@ export const ORGANIZATION_TYPE_NOTES: Readonly<Record<OrganizationType, string>>
   clinic: 'Your Provider Portal opens at once. When Health ID support has checked your facility, usually within one '
     + 'working day, the clinical record, emergency access and the Laboratory and Pharmacy work lists open, and you can add '
     + 'your doctors, nurses and other staff. If you are a licensed doctor or nurse, you can also get clinical access yourself.',
-  laboratory: 'Your Provider Portal opens at once. When Health ID support has checked your facility, usually within one '
-    + 'working day, the Laboratory workspace opens, and you can add your laboratory scientists and receptionists. '
-    + `${BETWEEN_FACILITIES.laboratory.signUp} If you are a licensed laboratory scientist, you can also work in the `
-    + 'Laboratory workspace yourself.',
-  pharmacy: 'Your Provider Portal opens at once. When Health ID support has checked your facility, usually within one '
-    + 'working day, the Pharmacy workspace opens, and you can add your pharmacists and receptionists. '
-    + `${BETWEEN_FACILITIES.pharmacy.signUp} If you are a licensed pharmacist, you can also work in the Pharmacy `
-    + 'workspace yourself.',
+  laboratory: laboratoryNote(false),
+  pharmacy: pharmacyNote(false),
   other: 'Your Provider Portal opens at once. When Health ID support has checked your facility, usually within one '
     + 'working day, you can add your staff. Health ID support agrees with you which access you need.',
 }
@@ -444,6 +459,8 @@ function EnrollmentSteps() {
   // could not tell ('unavailable'); main has no such read.
   const [availability, setAvailability] = useState<'checking' | 'open' | 'closed' | 'unavailable'>(novu ? 'checking' : 'open')
   const [availabilityAsked, setAvailabilityAsked] = useState(0)
+  // Novu since P4c: whether orders between facilities are on, which a laboratory's or pharmacy's note says.
+  const [ordersOn, setOrdersOn] = useState(false)
   const [challenge, setChallenge] = useState<StaffLoginChallenge | null>(null)
   const [signInReason, setSignInReason] = useState<string | null>(null)
   const [help, setHelp] = useState<{ title: string; text: string; restart?: boolean } | null>(null)
@@ -511,7 +528,7 @@ function EnrollmentSteps() {
     // A clear no closes the form, and a fault says so (availabilityOf). A 404 (an Identity without self sign-up),
     // an outage or a malformed answer shows it: the start then answers for itself.
     providerEnrollmentApi.availability().then(
-      answer => { if (active) setAvailability(availabilityOf(answer)) },
+      answer => { if (active) { setAvailability(availabilityOf(answer)); setOrdersOn(answer?.crossFacilityOrders === true) } },
       () => { if (active) setAvailability('open') })
     return () => { active = false }
   }, [novu, availabilityAsked])
@@ -953,7 +970,7 @@ function EnrollmentSteps() {
   const codeLimitIn = secondsUntil(codeLimitAt, now) || (codeLimited ? resendIn : 0)
   // Back at the details of a sign-up Identity accepted, with its email changed (otherEmailThanFirst).
   const kept = stage === 'details' ? otherEmailThanFirst(details) : null
-  const productNote = novu ? ORGANIZATION_TYPE_NOTES[organizationType] : null
+  const productNote = novu ? organizationTypeNote(organizationType, ordersOn) : null
   // The address as Identity has it: the code was sent to it, and the administrator signs in with it.
   const administratorEmail = email.trim().toLowerCase()
   const accountEmail = registering?.administratorEmail ?? administratorEmail
@@ -1145,7 +1162,7 @@ function EnrollmentSteps() {
 
         {!closed && stage === 'sign-in' && (novu ? <MaybeActive email={accountEmail} /> : <SignInToFinish reason={signInReason} />)}
 
-        {!closed && stage === 'done' && <FacilityReady email={accountEmail}
+        {!closed && stage === 'done' && <FacilityReady email={accountEmail} ordersOn={ordersOn}
           organizationType={registering?.organizationType ?? organizationType} onContinue={openWorkspace} />}
 
         {!closed && stage === 'help' && help && <section className="patient-form" aria-labelledby="provider-enroll-help-title">
@@ -1176,7 +1193,7 @@ function EnrollmentSteps() {
  * check sends them once it is done. What the account opens is said as it is
  * (ORGANIZATION_TYPE_NOTES).
  */
-function FacilityReady({ email, organizationType, onContinue }: { email: string; organizationType: OrganizationType; onContinue: () => void }) {
+function FacilityReady({ email, organizationType, ordersOn, onContinue }: { email: string; organizationType: OrganizationType; ordersOn: boolean; onContinue: () => void }) {
   const hostname = window.location.hostname
   const site = staffSignInHref(hostname) !== null ? staffSiteHostname(staffSiteForOrganizationType(organizationType), hostname) : null
   return <section className="patient-form" aria-labelledby="provider-enroll-done-title">
@@ -1185,7 +1202,7 @@ function FacilityReady({ email, organizationType, onContinue }: { email: string;
     <p className="patient-field-hint">{site
       ? `Next time, sign in at ${site} with ${email} and the password you just chose.`
       : `Next time, sign in to the Provider Portal with ${email} and the password you just chose.`}</p>
-    <p className="patient-field-hint">{ORGANIZATION_TYPE_NOTES[organizationType]}</p>
+    <p className="patient-field-hint">{organizationTypeNote(organizationType, ordersOn)}</p>
     <button type="button" className="patient-primary-button" onClick={onContinue}>Continue to the Provider Portal</button>
   </section>
 }

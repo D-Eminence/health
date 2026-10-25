@@ -270,7 +270,7 @@ export const PRODUCT_DETAILS: readonly ProductDetail[] = [
       "Health ID Pharmacy connects dispensing activity to the patient’s persistent identity, so care teams can use relevant medication history only when the applicable consent or access mechanism, organisation, professional role, permissions and care purpose allow it.",
     ],
     workflows: [
-      { title: "Prescription management", body: "Receive prescriptions from Health ID EHR or create new prescriptions for walk-in patients." },
+      { title: "Prescription management", body: "Receive prescriptions that Health ID clinicians send you, and record what you dispense." },
       { title: "Patient verification", body: "Verify the patient's Health ID identity before dispensing medication." },
       { title: "Dispensing", body: "Record medications dispensed, quantities, dosage instructions, and dispensing details." },
       { title: "Medication history", body: "Keep prescription and dispensing records connected to the patient's longitudinal medication history under applicable access controls." },

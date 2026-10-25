@@ -481,7 +481,19 @@ export interface LabWorkItem {
   accessionNumber?: string | null
   specimenStatuses?: string[]
   acceptedAt?: string
+  /** The request's priority, which Lab sends (routine, urgent, asap, stat). */
+  priority?: string | null
+  /** Novu since P4c, only on work from an order another facility sent here: the order and its route. */
+  orderRoute?: WorkItemOrderRoute
+  /** Novu since P4c, only on such work while its route allows reading it: who the patient is. */
+  patient?: OrderRoutePatient
 }
+
+/**
+ * A work list's answer. Novu since P4c also says whether orders between facilities are on (`crossFacilityOrders`) and
+ * whether work on accepted ones is (`crossFacilityWork`); an earlier backend sends neither.
+ */
+export interface WorkList<T> { items: T[]; crossFacilityOrders?: boolean; crossFacilityWork?: boolean }
 
 export interface LabSpecimen {
   id: string
@@ -590,7 +602,166 @@ export interface PharmacyWorkItem {
   frequency?: string
   instructions?: string | null
   dispensing?: { id: string; reversed: boolean } | null
+  /** Novu since P4c, only on work from a prescription another facility sent here. */
+  orderRoute?: WorkItemOrderRoute
+  patient?: OrderRoutePatient
 }
+
+/**
+ * Cross-facility orders (Novu, P4c, SPEC-FINAL §10): a clinician sends a lab request or prescription to a laboratory or
+ * pharmacy at another facility, confirming in an attestation that names it that the patient agreed. The receiver
+ * accepts it with the patient's Health ID or date of birth, works it in its own Lab or Pharmacy, and what it releases
+ * or dispenses comes back to the order. Field names and values are the services' (P4c services report §8).
+ */
+export type OrderRouteKind = 'lab_request' | 'prescription'
+
+/**
+ * An order's latest route to another facility, on each row of the EHR's order lists. `effectiveState` is one of
+ * sent, accepted, completed, declined, withdrawn, expired or cancelled (a later value is shown as it is); `endedKind`
+ * says who or what ended it; `version` is the route's, for its withdrawal.
+ */
+export interface OrderRouteSummary {
+  id: string
+  reference: string | null
+  kind: OrderRouteKind
+  version: number
+  effectiveState: string
+  receivingFacility: { id: string | null; name: string | null; available: boolean | null }
+  createdAt: string | null
+  respondBy: string | null
+  acceptedAt: string | null
+  completedAt: string | null
+  endedAt: string | null
+  endedKind: string | null
+  declineReason: string | null
+  acceptLocked: boolean
+  resendAllowed: boolean
+}
+
+/** Who confirmed that the patient agreed, when, and the receiving facility the attestation named. */
+export interface OrderRouteAttestationRecord {
+  textVersion: string | null
+  attestedByName: string | null
+  attestedAt: string | null
+  receivingFacilityName: string | null
+}
+
+/** A result the receiving laboratory released, or marked entered in error, copied back to the order. */
+export interface OrderRouteResult {
+  resultId: string | null
+  resultVersion: number | null
+  kind: 'released' | 'entered_in_error' | string | null
+  test: { codeSystem: string | null; code: string | null; name: string | null }
+  resultType: string | null
+  numericValue: string | number | null
+  textValue: string | null
+  unit: string | null
+  referenceRange: string | null
+  abnormalFlag: string | null
+  revisionKind: string | null
+  correctionReason: string | null
+  occurredAt: string | null
+}
+
+/** A dispensing the receiving pharmacy recorded, or reversed, copied back to the prescription. */
+export interface OrderRouteDispensing {
+  dispensingId: string | null
+  kind: 'dispensed' | 'reversed' | string | null
+  medication: { codeSystem: string | null; code: string | null; display: string | null }
+  quantityDispensed: string | number | null
+  quantityUnit: string | null
+  occurredAt: string | null
+}
+
+/** One route of an order as the ordering facility reads it: the summary, the attestation and what came back. */
+export interface OrderRouteView extends OrderRouteSummary {
+  attestation: OrderRouteAttestationRecord
+  events: Array<{ type: string | null; side: string | null; occurredAt: string | null; reasonCode: string | null; stateAfter: string | null }>
+  results?: OrderRouteResult[]
+  dispensings?: OrderRouteDispensing[]
+}
+
+/** The current attestation text of a kind, with {patient}, {orderingFacility} and {receivingFacility} to fill. */
+export interface OrderRouteAttestation { kind: OrderRouteKind; version: string; text: string }
+
+/** A laboratory or pharmacy at another facility that can receive orders now (the directory, at most 10). */
+export interface OrderDestination {
+  facilityId: string
+  facilityName: string
+  organizationName: string | null
+  /** The organization's CAC registered office (owner decision Q8). */
+  registeredAddress: string | null
+  /** Signed itself up and is in its first 30 days after Health ID support's review. */
+  newOnHealthId: boolean
+}
+
+export interface OrderRouteSent {
+  route: OrderRouteSummary
+  order: { id: string; status: string; rowVersion: number }
+  replayed: boolean
+}
+
+/** Who the patient is, once this facility has accepted the order and while it may read it. */
+export interface OrderRoutePatient { fullName: string; sex: string | null; dateOfBirth: string | null; healthIdLast4: string | null }
+
+/**
+ * An order another facility sent here, waiting to be accepted (Incoming): never the patient, the clinical information,
+ * the instructions or the licence number. With orders between facilities off, only the reference, kind, ordering
+ * facility and dates come.
+ */
+export interface IncomingOrderRoute {
+  id: string
+  reference: string | null
+  version: number | null
+  effectiveState: string | null
+  orderingFacilityName: string | null
+  orderer: { name: string | null; licenceBody: string | null; licenceNumber?: string }
+  // A lab request.
+  test?: { codeSystem: string | null; code: string | null; name: string | null }
+  priority?: string | null
+  specimenTypeCode?: string | null
+  // A prescription.
+  medication?: { codeSystem: string | null; code: string | null; display: string | null }
+  doseQuantity?: string | number | null
+  doseUnit?: string | null
+  routeCode?: string | null
+  frequency?: string | null
+  startsOn?: string | null
+  endsOn?: string | null
+  prescribedAt?: string | null
+  sentAt: string | null
+  respondBy: string | null
+  acceptLocked: boolean
+  attemptsLeft: number | null
+}
+
+export interface IncomingOrderRoutes { items: IncomingOrderRoute[]; crossFacilityOrders: boolean; crossFacilityWork: boolean }
+
+/** What is shown once an order is accepted: who the patient is, and what the sender wrote. */
+export interface OrderRouteAccepted {
+  route: { id: string; version: number; effectiveState: string }
+  workItemId: string
+  patient?: OrderRoutePatient
+  clinicalInformation?: string | null
+  instructions?: string | null
+  orderer: { licenceBody: string | null; licenceNumber: string | null }
+  replayed: boolean
+}
+
+/** The route of a work item that came from another facility, as the Lab and Pharmacy work lists carry it. */
+export interface WorkItemOrderRoute {
+  id: string
+  reference: string | null
+  effectiveState: string
+  /** 'work' (may record), 'read' (may only read) or 'none'. */
+  access: 'work' | 'read' | 'none' | string
+  orderingFacilityName: string | null
+  ordererName: string | null
+  ordererLicence?: { body: string | null; number: string | null }
+}
+
+export type OrderRouteDeclineReason = 'test_not_offered' | 'medicine_unavailable' | 'cannot_meet_priority' | 'patient_not_seen' | 'other'
+export type OrderRouteWithdrawReason = 'sent_in_error' | 'patient_request' | 'other'
 
 export interface OcrJob {
   id: string
@@ -1011,6 +1182,8 @@ export interface ProviderEnrollmentStart {
 export interface ProviderEnrollmentAvailability {
   open: boolean
   reason?: string
+  /** Novu since P4c, on the open answer: whether orders between facilities are on. */
+  crossFacilityOrders?: boolean
 }
 
 /**
@@ -1457,8 +1630,9 @@ export const staffApi = {
     input: { expectedRowVersion: number; changeReason: string; status: string; endedAt?: string }) =>
     client.request<Encounter>({ method: 'PATCH', path: encounterPath(patientId, encounterId), body: input,
       headers: facilityHeaders(facilityId) }),
+  // Novu since P4c a lab request or prescription page also says whether orders between facilities are on.
   records: (facilityId: string, patientId: string, encounterId: string, kind: RecordKind, page: PageRequest = {}) =>
-    client.get<Page<ClinicalRecord>>(`${encounterPath(patientId, encounterId)}/${kind}`, { ...pageQuery(page), headers: facilityHeaders(facilityId) }),
+    client.get<Page<ClinicalRecord> & { crossFacilityOrders?: boolean }>(`${encounterPath(patientId, encounterId)}/${kind}`, { ...pageQuery(page), headers: facilityHeaders(facilityId) }),
   createRecord: (facilityId: string, patientId: string, encounterId: string, kind: RecordKind, input: object, idempotencyKey?: string) =>
     client.post<SavedRecord>(`${encounterPath(patientId, encounterId)}/${kind}`, input,
       { headers: { ...facilityHeaders(facilityId), ...keyHeaders(idempotencyKey) } }),
@@ -1534,7 +1708,7 @@ export const staffApi = {
   },
 
   labWorkItems: (facilityId: string) =>
-    client.get<{ items: LabWorkItem[] }>('/api/v1/lab/work-items', { headers: facilityHeaders(facilityId) }),
+    client.get<WorkList<LabWorkItem>>('/api/v1/lab/work-items', { headers: facilityHeaders(facilityId) }),
   createLabAccession: (facilityId: string, workItemId: string, specimenType: string, reason: string) =>
     client.post<LabAccession>(`/api/v1/lab/work-items/${encodeURIComponent(workItemId)}/accession`,
       { requirements: [{ specimenType }], reason },
@@ -1592,7 +1766,7 @@ export const staffApi = {
     client.get<LabOrderReleasedResults>(`/api/v1/lab/ehr-orders/${encodeURIComponent(labRequestId)}/released-results`,
       { headers: facilityHeaders(facilityId, purpose), dedupe: false }),
   pharmacyWorkItems: (facilityId: string) =>
-    client.get<{ items: PharmacyWorkItem[] }>('/api/v1/pharmacy/work-items', { headers: facilityHeaders(facilityId) }),
+    client.get<WorkList<PharmacyWorkItem>>('/api/v1/pharmacy/work-items', { headers: facilityHeaders(facilityId) }),
   dispense: (facilityId: string, item: PharmacyWorkItem, quantityDispensed: number, quantityUnit: string, reason: string) =>
     client.post<unknown>(`/api/v1/pharmacy/work-items/${encodeURIComponent(item.id)}/dispensings`,
       { expectedWorkItemVersion: item.version, quantityDispensed, quantityUnit, reason },
@@ -1665,4 +1839,58 @@ export const staffApi = {
     command: { localCommandId: string; temporaryPatientId: string }) =>
     client.post<OutreachCase>('/api/v1/outreach/registration-cases', { ...input, ...command },
       { headers: { ...facilityHeaders(facilityId), 'Idempotency-Key': command.localCommandId } }),
+}
+
+/** The EHR path of an order's routes. */
+function orderRoutesPath(patientId: string, encounterId: string, kind: OrderRouteKind, orderId: string) {
+  return `${encounterPath(patientId, encounterId)}/${kind === 'lab_request' ? 'lab-requests' : 'prescriptions'}/${encodeURIComponent(orderId)}/order-routes`
+}
+
+/** The service that receives a kind of order: Lab for lab requests, Pharmacy for prescriptions. */
+export type ReceivingService = 'lab' | 'pharmacy'
+
+/**
+ * Orders between facilities (Novu, P4c). Every call is direct care at the working facility (X-Purpose-Of-Use:
+ * direct-care); EHR refuses any other purpose. hid-system main, and a Novu before P4c, answer each route 404, which
+ * the pages read as "not available yet". Writes are sent once; each caller keeps its own Idempotency-Key for a retry.
+ */
+export const orderRoutesApi = {
+  /** The directory (60 searches an hour per member): never retried, so a failure costs one search at most. */
+  destinations: (facilityId: string, kind: 'laboratory' | 'pharmacy', query: string, signal?: AbortSignal) =>
+    client.get<{ items: OrderDestination[] }>('/api/v1/identity/order-destinations', {
+      query: { kind, query }, headers: facilityHeaders(facilityId, 'direct-care'), retry: NO_RETRY, dedupe: false,
+      ...(signal ? { signal } : {}) }),
+  /** The current attestation text of a kind, read afresh each time the send form opens (each read is audited). */
+  attestation: (facilityId: string, kind: OrderRouteKind) =>
+    client.get<OrderRouteAttestation>('/api/v1/ehr/order-route-attestation',
+      { query: { kind }, headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false }),
+  send: (facilityId: string, patientId: string, encounterId: string, kind: OrderRouteKind, orderId: string,
+    input: { expectedRowVersion: number; receivingFacilityId: string; attestationTextVersion: string }, idempotencyKey: string) =>
+    client.post<OrderRouteSent>(orderRoutesPath(patientId, encounterId, kind, orderId),
+      { expectedRowVersion: input.expectedRowVersion, receivingFacilityId: input.receivingFacilityId, patientAgreed: true,
+        attestationTextVersion: input.attestationTextVersion },
+      { headers: { ...facilityHeaders(facilityId, 'direct-care'), ...keyHeaders(idempotencyKey) } }),
+  /** An order's routes, newest first, with the attestation and what came back. Audited: read only when asked. */
+  routes: (facilityId: string, patientId: string, encounterId: string, kind: OrderRouteKind, orderId: string) =>
+    client.get<{ items: OrderRouteView[] }>(orderRoutesPath(patientId, encounterId, kind, orderId),
+      { headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false }),
+  withdraw: (facilityId: string, patientId: string, encounterId: string, kind: OrderRouteKind, orderId: string,
+    route: Pick<OrderRouteSummary, 'id' | 'version'>, reason: OrderRouteWithdrawReason) =>
+    client.post<{ route: OrderRouteSummary }>(
+      `${orderRoutesPath(patientId, encounterId, kind, orderId)}/${encodeURIComponent(route.id)}/withdraw`,
+      { expectedVersion: route.version, reason }, { headers: facilityHeaders(facilityId, 'direct-care') }),
+  /** Orders other facilities sent here, waiting to be accepted; a Health ID finds one patient's. */
+  incoming: (facilityId: string, service: ReceivingService, healthId?: string) =>
+    client.get<IncomingOrderRoutes>(`/api/v1/${service}/order-routes`, {
+      query: { view: 'incoming', ...(healthId ? { healthId } : {}) }, headers: facilityHeaders(facilityId, 'direct-care'),
+      dedupe: false }),
+  accept: (facilityId: string, service: ReceivingService, route: { id: string; version: number },
+    patientIdentifier: { kind: 'health_id' | 'date_of_birth'; value: string }, reason: string | undefined, idempotencyKey: string) =>
+    client.post<OrderRouteAccepted>(`/api/v1/${service}/order-routes/${encodeURIComponent(route.id)}/accept`,
+      { expectedVersion: route.version, patientIdentifier, ...(service === 'pharmacy' ? { reason } : {}) },
+      { headers: { ...facilityHeaders(facilityId, 'direct-care'), ...keyHeaders(idempotencyKey) } }),
+  decline: (facilityId: string, service: ReceivingService, route: { id: string; version: number }, reason: OrderRouteDeclineReason) =>
+    client.post<{ route: { id: string; version: number; effectiveState: string } }>(
+      `/api/v1/${service}/order-routes/${encodeURIComponent(route.id)}/decline`,
+      { expectedVersion: route.version, reason }, { headers: facilityHeaders(facilityId, 'direct-care') }),
 }

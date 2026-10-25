@@ -7,7 +7,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNod
 import { Link } from 'react-router-dom'
 import { assertSignedStorageUrl, isHidApiError } from '@hid/http'
 import { Badge, Button, Card, EmptyState, Field, Input, Select, TabList, TabPanel, Textarea } from '@hid/ui'
-import { isAllowedPatientLookup, staffApi, type ClinicalRecord, type DiagnosisUpdate, type DocumentRecord, type EmergencyRecords, type EmergencySection, type Encounter, type LabHandoff, type LabOrderReleasedResults, type NoteRevision, type Page, type RecordKind, type SavedRecord, type StatusRecordKind, type VitalCorrection, type VitalMeasurement, type VitalMeasurements } from '../api'
+import { isAllowedPatientLookup, orderRoutesApi, staffApi, type ClinicalRecord, type DiagnosisUpdate, type DocumentRecord, type EmergencyRecords, type EmergencySection, type Encounter, type LabHandoff, type LabOrderReleasedResults, type NoteRevision, type OrderDestination, type OrderRouteKind, type OrderRouteSummary, type OrderRouteWithdrawReason, type Page, type RecordKind, type SavedRecord, type StatusRecordKind, type VitalCorrection, type VitalMeasurement, type VitalMeasurements } from '../api'
 import { useStaff } from '../App'
 import { getEnvironment } from '../env'
 import { refusalText, refusedFields } from '../fieldProblem'
@@ -15,6 +15,9 @@ import { BUSY, QUIET_UNAVAILABLE, UNAVAILABLE, useFocusById } from '../focus'
 import { GroupError, useFieldProblems } from '../useFieldProblems'
 import { staffSessionGeneration, untilStaffSessionReady } from '../session'
 import { RevisionList, skipsVersions } from '../labRevisions'
+import { routedElsewhere, sendRefusal, withdrawRefusal } from '../orderRoutes'
+import { choiceProblem, NO_DESTINATION, OrderDestinationFields, OrderRoutePanel, savedNotSent, SendToFacility, type DestinationChoice,
+  type RouteContext } from './OrderRoutes'
 
 const tabs: Array<{ id: RecordKind | 'documents'; label: string; permission: string }> = [
   { id: 'clinical-notes', label: 'Notes', permission: 'ehr.note.read' },
@@ -71,7 +74,13 @@ const encounterTransitions: Readonly<Record<string, readonly StatusOption[]>> = 
 // orders, and its initiated or uploaded documents entered in error. Neither Pharmacy
 // nor Lab is told. Every encounter status form offers Cancel and Mark entered in
 // error, and any encounter may hold these records.
-const ENCOUNTER_CLOSES_RECORDS = 'Cancelling this encounter also cancels its draft, active and on-hold prescriptions and lab requests; its notes, diagnoses, vitals, documents and completed orders are not changed. Marking it entered in error also marks entered in error its notes, diagnoses and vitals, its documents (other than rejected uploads), and its prescriptions and lab requests that are not cancelled, completed ones included. Pharmacy and the Laboratory are not told: contact the pharmacy or laboratory about any order sent to them.'
+const MAIN_ENCOUNTER_CLOSES_RECORDS = 'Cancelling this encounter also cancels its draft, active and on-hold prescriptions and lab requests; its notes, diagnoses, vitals, documents and completed orders are not changed. Marking it entered in error also marks entered in error its notes, diagnoses and vitals, its documents (other than rejected uploads), and its prescriptions and lab requests that are not cancelled, completed ones included. Pharmacy and the Laboratory are not told: contact the pharmacy or laboratory about any order sent to them.'
+/**
+ * Novu (the production backend) has no such cascade (P4c map MO §0 item 11): closing or cancelling an encounter leaves
+ * its orders as they are, each changed on its own, and an order sent to another facility follows its change there.
+ */
+const NOVU_ENCOUNTER_CLOSES_RECORDS = 'Closing or cancelling the encounter does not change its lab requests or prescriptions. Change or cancel each one: one sent to another facility is then withdrawn there, or cancelled if that facility had accepted it.'
+function encounterClosesRecords() { return usesNovuBackend() ? NOVU_ENCOUNTER_CLOSES_RECORDS : MAIN_ENCOUNTER_CLOSES_RECORDS }
 /**
  * Since hid-system #74 (ENC-RETRACT-1) a close that would change a kind of record the actor
  * may not write is refused, with nothing written, as 403 ENCOUNTER_RETRACTION_NOT_PERMITTED.
@@ -100,6 +109,21 @@ const prescriptionTransitions: Readonly<Record<string, readonly StatusOption[]>>
 // prescription can be sent, so one active or on hold may have been: the clinician is
 // told so where its change is confirmed. A draft never reached Pharmacy.
 const PHARMACY_NOT_TOLD = 'Pharmacy is not told of this change, so if this prescription was sent to Pharmacy you must contact the pharmacy. A dispensing already recorded is not undone. Pharmacy may refuse to dispense the version it was sent once the prescription has been put on hold, completed, cancelled or marked entered in error, even after it is resumed: if treatment is to continue and the pharmacy cannot dispense it, create a new prescription and send it.'
+/**
+ * An order sent to another facility (Novu, P4c): its change is passed on there (the EHR's mirror trigger), withdrawing
+ * it before that facility accepts it, or cancelling it there after, so the warning says so instead.
+ */
+function routedChangeWarning(facility: string | null | undefined) {
+  const name = facility?.trim() || 'the other facility'
+  return `Changing it withdraws it from ${name}, or cancels it there if ${name} has accepted it; a cancelled order can’t be resumed there.`
+}
+/** The changes offered for a lab request sent to another facility: every change is passed on there. */
+const ROUTED_LAB_CHOICES: Readonly<Record<string, readonly StatusOption[]>> = {
+  active: [{ value: 'on_hold', label: 'Put on hold' }, { value: 'completed', label: 'Complete' },
+    { value: 'cancelled', label: 'Cancel' }, { value: 'entered_in_error', label: 'Mark entered in error' }],
+  // Resuming would leave it active with no laboratory to do it: this facility's Lab may not take it.
+  on_hold: [{ value: 'cancelled', label: 'Cancel' }, { value: 'entered_in_error', label: 'Mark entered in error' }],
+}
 const noteTransitions: Readonly<Record<string, readonly StatusOption[]>> = {
   draft: [{ value: 'signed', label: 'Sign note' }, { value: 'entered_in_error', label: 'Mark entered in error' }],
   signed: [{ value: 'entered_in_error', label: 'Mark entered in error' }],
@@ -209,6 +233,8 @@ function labHandoffOutcome(handoff: LabHandoff | null, done: string, canSend: bo
         : `Lab request ${done} in the EHR: its status is saved, but Lab did not confirm it${named}, so the Laboratory may not have it: to send it again, ${sendItFrom(canSend)}.` }
     }
     case 'not_sent':
+      // Novu since P4c: a request sent to another facility is never handed to this facility's Lab.
+      if (handoff.code === 'ORDER_ROUTED') return { accepted: true, text: `Lab request ${done}. It was sent to another facility, so it was not sent to this facility’s Lab.` }
       return { accepted: false, sendable: false, text: `Lab request ${done} in the EHR, not sent to Lab: your role cannot send requests to Lab. Someone who may send requests to Lab must use Send to Lab on it.` }
     default:
       return { accepted: false, sendable: false, text: done === 'resumed'
@@ -250,6 +276,9 @@ function labSendRefusal(caught: unknown): LabSendRefusal {
   if (caught.code === 'LAB_ORDER_ALREADY_ACCEPTED') return {
     text: 'Lab already holds an earlier version of this request, so this version was not sent and its changes are not in Lab. Contact the laboratory.' }
   if (caught.code === 'LAB_ACCESS_DENIED') return { text: 'Lab does not allow you to accept this order for this patient.' }
+  // Novu since P4c: the request is sent to (or was accepted by) a laboratory at another facility.
+  if (caught.code === 'LAB_REQUEST_ROUTED') return { reload: true, sendable: false,
+    text: 'This lab request was sent to a laboratory at another facility, so this facility’s Lab can’t take it.' }
   if (caught.status === 502 || caught.code === 'LAB_HANDOFF_UNCONFIRMED') return { retry: true,
     text: 'Lab did not confirm that it accepted this request, so the Laboratory may not have it: send again.' }
   if (caught.status === 0 || caught.status === 408 || caught.status >= 500) return { retry: true,
@@ -312,7 +341,7 @@ const FIRST_PAGE: Cursors = [undefined]
 const RESTARTED = 'This list changed since it was opened, so it shows the newest entries again.'
 
 /** Reads a page; a cursor EHR no longer accepts (400 INVALID_CURSOR) starts the list again. */
-async function readPage<T>(read: (cursor: string | undefined, fresh: boolean) => Promise<Page<T>>, cursors: Cursors, fresh: boolean) {
+async function readPage<P extends Page<unknown>>(read: (cursor: string | undefined, fresh: boolean) => Promise<P>, cursors: Cursors, fresh: boolean) {
   try { return { page: await read(cursors.at(-1), fresh), cursors, restarted: false } }
   catch (caught) {
     if (cursors.length < 2 || !isHidApiError(caught) || caught.code !== 'INVALID_CURSOR') throw caught
@@ -347,6 +376,19 @@ function Pager({ label, position, busy, onShow }: {
     <Button tone="secondary" size="sm" aria-disabled={nextOff} className={UNAVAILABLE}
       onClick={() => { if (!nextOff && next) onShow([...cursors, next]) }}>Next page</Button>
   </nav>
+}
+
+/**
+ * An order's `orderRoute` as the EHR lists it (Novu, P4c): a route summary, null for none, or undefined when the EHR
+ * sent no field (main, a Novu before P4c, or routes not read). A value of another shape is read as not sent.
+ */
+function readOrderRoute(value: unknown): OrderRouteSummary | null | undefined {
+  if (value === null) return null
+  if (typeof value !== 'object' || value === undefined) return undefined
+  const route = value as Partial<OrderRouteSummary>
+  if (typeof route.id !== 'string' || typeof route.effectiveState !== 'string' || typeof route.receivingFacility !== 'object'
+    || route.receivingFacility === null) return undefined
+  return route as OrderRouteSummary
 }
 
 function rowVersion(value: unknown): number | null {
@@ -423,16 +465,33 @@ class FieldRefusal extends Error {
   constructor(readonly field: string, message: string, readonly focusId: string = field) { super(message) }
 }
 
-function RecordForm({ tab, onCreated, disabled, canSendToLab }: { tab: RecordKind; onCreated: (kind: RecordKind, body: object, key: string) => Promise<void>; disabled: boolean; canSendToLab: boolean }) {
+/** A lab request created and sent at once to a laboratory at another facility (Novu, P4c): what the send needs. */
+export interface CreateAndSend { destination: OrderDestination; attestationTextVersion: string }
+
+function RecordForm({ tab, onCreated, disabled, canSendToLab, routing, onCreateAndSend, prescriptionRouting = false }: {
+  tab: RecordKind; onCreated: (kind: RecordKind, body: object, key: string) => Promise<void>; disabled: boolean; canSendToLab: boolean
+  /** Novu since P4c, for a lab request when this member may send it to another facility now. */
+  routing?: RouteContext | null
+  onCreateAndSend?: (body: object, key: string, send: CreateAndSend) => Promise<void>
+  /** Novu since P4c: this member may send a saved prescription to a pharmacy at another facility now. */
+  prescriptionRouting?: boolean
+}) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const problems = useFieldProblems()
   const submitting = useRef(false)
   const attempt = useRef<{ signature: string; body: object; key: string } | null>(null)
+  // How the lab request is handled: kept here so another laboratory's fields show only when chosen.
+  const [handling, setHandling] = useState('draft')
+  const [priority, setPriority] = useState('routine')
+  const [choice, setChoice] = useState<DestinationChoice>(NO_DESTINATION)
+  const [routeErrors, setRouteErrors] = useState<{ destination?: string; attested?: string }>({})
+  const routable = tab === 'lab-requests' && Boolean(routing && onCreateAndSend)
+  const sendingElsewhere = routable && handling === 'route'
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (submitting.current || disabled) return
-    submitting.current = true; setError(''); problems.clear(); setBusy(true)
+    submitting.current = true; setError(''); problems.clear(); setRouteErrors({}); setBusy(true)
     const formElement = event.currentTarget
     const form = new FormData(formElement)
     try {
@@ -460,16 +519,31 @@ function RecordForm({ tab, onCreated, disabled, canSendToLab }: { tab: RecordKin
       }
       else {
         const status = text(form, 'status')
-        if (status !== 'draft' && !(status === 'active' && canSendToLab)) throw new FieldRefusal('lab-request-status', canSendToLab ? 'Choose draft or active request.' : 'Choose a draft request.')
+        const toAnother = status === 'route' && routable
+        if (status !== 'draft' && !(status === 'active' && canSendToLab) && !toAnother) throw new FieldRefusal('lab-request-status', canSendToLab ? 'Choose draft or active request.' : 'Choose a draft request.')
+        // Sent to another laboratory, it is saved as a draft first; sending activates it (P4c SPEC 13.1).
         body = { testCodeSystem: text(form, 'testCodeSystem'), testCode: text(form, 'testCode'),
-          testDisplay: text(form, 'testDisplay'), priority: text(form, 'priority'), status,
+          testDisplay: text(form, 'testDisplay'), priority: text(form, 'priority'), status: toAnother ? 'draft' : status,
           specimenTypeCode: text(form, 'specimenTypeCode') || undefined,
           clinicalInformation: text(form, 'clinicalInformation') || undefined }
+        if (toAnother) {
+          const problem = choiceProblem(choice, 'lab_request')
+          if (problem) {
+            setRouteErrors({ [problem.field]: problem.text })
+            document.getElementById(problem.field === 'destination' ? 'lab-route-destination-query' : 'lab-route-attested')?.focus()
+            return
+          }
+        }
       }
       const signature = JSON.stringify([tab, ...Array.from(form.entries())])
       if (attempt.current?.signature !== signature) attempt.current = { signature, body, key: crypto.randomUUID() }
-      await onCreated(tab, attempt.current.body, attempt.current.key)
+      if (sendingElsewhere && onCreateAndSend && choice.destination && choice.attestation) {
+        await onCreateAndSend(attempt.current.body, attempt.current.key,
+          { destination: choice.destination, attestationTextVersion: choice.attestation.version })
+        setHandling('draft'); setPriority('routine'); setChoice(NO_DESTINATION)
+      } else await onCreated(tab, attempt.current.body, attempt.current.key)
       formElement.reset()
+      if (tab === 'lab-requests') { setHandling('draft'); setPriority('routine') }
       attempt.current = null
     } catch (caught) {
       if (caught instanceof FieldRefusal) problems.refuse(caught.field, caught.message, caught.focusId)
@@ -495,16 +569,23 @@ function RecordForm({ tab, onCreated, disabled, canSendToLab }: { tab: RecordKin
       <Field key={name} label={label} htmlFor={`vital-${name}`} error={problems.error(`vital-${name}`)}><Input id={`vital-${name}`} name={name} type="number" step={step} min={min} max={max} {...problems.control(`vital-${name}`)} /></Field>)}</div>
       <GroupError field="vital-values">{problems.error('vital-values')}</GroupError></div>}
     {tab === 'diagnoses' && <><div className="staff-form-row"><Field label="Code system" htmlFor="diagnosis-system" error={f.system.error} required><Input id="diagnosis-system" name="codeSystem" placeholder="ICD-10" maxLength={255} required {...f.system.control} /></Field><Field label="Code" htmlFor="diagnosis-code" error={f.code.error} required><Input id="diagnosis-code" name="code" maxLength={100} required {...f.code.control} /></Field></div><Field label="Display" htmlFor="diagnosis-display" error={f.display.error} required><Input id="diagnosis-display" name="display" maxLength={500} required {...f.display.control} /></Field><div className="staff-form-row"><Field label="Clinical status" htmlFor="diagnosis-status"><Select id="diagnosis-status" name="clinicalStatus">{diagnosisClinicalStatuses.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</Select></Field><Field label="Verification" htmlFor="diagnosis-verification"><Select id="diagnosis-verification" name="verificationStatus">{diagnosisVerificationStatuses.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</Select></Field></div><Field label="Notes" htmlFor="diagnosis-notes" error={f.notes.error}><Textarea id="diagnosis-notes" name="notes" maxLength={4000} {...f.notes.control} /></Field></>}
-    {tab === 'prescriptions' && <><Field label="Medication" htmlFor="medication" error={f.medication.error} required><Input id="medication" name="medicationDisplay" maxLength={500} required {...f.medication.control} /></Field><div className="staff-form-row"><Field label="Dose quantity" htmlFor="dose-quantity" error={f.dose.error}><Input id="dose-quantity" name="doseQuantity" type="number" min="0.0001" step="0.0001" {...f.dose.control} /></Field><Field label="Dose unit" htmlFor="dose-unit" error={f.unit.error}><Input id="dose-unit" name="doseUnit" placeholder="mg" maxLength={80} {...f.unit.control} /></Field></div><div className="staff-form-row"><Field label="Route code" htmlFor="route-code" error={f.route.error}><Input id="route-code" name="routeCode" placeholder="oral" maxLength={100} {...f.route.control} /></Field><Field label="Frequency" htmlFor="frequency" error={f.frequency.error} required><Input id="frequency" name="frequency" placeholder="Twice daily" maxLength={240} required {...f.frequency.control} /></Field></div><Field label="Instructions" htmlFor="instructions" error={f.instructions.error} required><Textarea id="instructions" name="instructions" maxLength={4000} required {...f.instructions.control} /></Field><p className="staff-muted">This creates an EHR draft. Pharmacy acceptance and dispensing are separate backend actions.</p></>}
-    {tab === 'lab-requests' && <><div className="staff-form-row"><Field label="Test code system" htmlFor="test-system" error={f.testSystem.error} required><Input id="test-system" name="testCodeSystem" placeholder="LOINC" maxLength={255} required {...f.testSystem.control} /></Field><Field label="Test code" htmlFor="test-code" error={f.testCode.error} required><Input id="test-code" name="testCode" maxLength={100} required {...f.testCode.control} /></Field></div><Field label="Test display" htmlFor="test-display" error={f.testDisplay.error} required><Input id="test-display" name="testDisplay" maxLength={500} required {...f.testDisplay.control} /></Field><div className="staff-form-row"><Field label="Priority" htmlFor="test-priority"><Select id="test-priority" name="priority"><option value="routine">Routine</option><option value="urgent">Urgent</option><option value="asap">As soon as possible</option><option value="stat">Stat</option></Select></Field><Field label="Specimen type code" htmlFor="specimen-code" error={f.specimen.error}><Input id="specimen-code" name="specimenTypeCode" maxLength={100} {...f.specimen.control} /></Field></div><Field label="Clinical information" htmlFor="test-information" error={f.information.error}><Textarea id="test-information" name="clinicalInformation" maxLength={4000} {...f.information.control} /></Field><Field label="Request handling" htmlFor="lab-request-status" error={f.handling.error} required><Select id="lab-request-status" name="status" defaultValue="draft" required {...f.handling.control}
-      aria-describedby={f.handling.error ? 'lab-request-status-error lab-request-draft-warning' : 'lab-request-draft-warning'}><option value="draft">Save EHR draft</option>{canSendToLab && <option value="active">Create active request and send to Lab</option>}</Select></Field>
+    {tab === 'prescriptions' && <><Field label="Medication" htmlFor="medication" error={f.medication.error} required><Input id="medication" name="medicationDisplay" maxLength={500} required {...f.medication.control} /></Field><div className="staff-form-row"><Field label="Dose quantity" htmlFor="dose-quantity" error={f.dose.error}><Input id="dose-quantity" name="doseQuantity" type="number" min="0.0001" step="0.0001" {...f.dose.control} /></Field><Field label="Dose unit" htmlFor="dose-unit" error={f.unit.error}><Input id="dose-unit" name="doseUnit" placeholder="mg" maxLength={80} {...f.unit.control} /></Field></div><div className="staff-form-row"><Field label="Route code" htmlFor="route-code" error={f.route.error}><Input id="route-code" name="routeCode" placeholder="oral" maxLength={100} {...f.route.control} /></Field><Field label="Frequency" htmlFor="frequency" error={f.frequency.error} required><Input id="frequency" name="frequency" placeholder="Twice daily" maxLength={240} required {...f.frequency.control} /></Field></div><Field label="Instructions" htmlFor="instructions" error={f.instructions.error} required><Textarea id="instructions" name="instructions" maxLength={4000} required {...f.instructions.control} /></Field><p className="staff-muted">{prescriptionRouting
+      ? 'This saves a draft. To send it to a pharmacy at another facility, use Send to a pharmacy on it in the list.'
+      : 'This creates an EHR draft. Pharmacy acceptance and dispensing are separate backend actions.'}</p></>}
+    {tab === 'lab-requests' && <><div className="staff-form-row"><Field label="Test code system" htmlFor="test-system" error={f.testSystem.error} required><Input id="test-system" name="testCodeSystem" placeholder="LOINC" maxLength={255} required {...f.testSystem.control} /></Field><Field label="Test code" htmlFor="test-code" error={f.testCode.error} required><Input id="test-code" name="testCode" maxLength={100} required {...f.testCode.control} /></Field></div><Field label="Test display" htmlFor="test-display" error={f.testDisplay.error} required><Input id="test-display" name="testDisplay" maxLength={500} required {...f.testDisplay.control} /></Field><div className="staff-form-row"><Field label="Priority" htmlFor="test-priority"><Select id="test-priority" name="priority" value={priority} onChange={event => setPriority(event.target.value)}><option value="routine">Routine</option><option value="urgent">Urgent</option><option value="asap">As soon as possible</option><option value="stat">Stat</option></Select></Field><Field label="Specimen type code" htmlFor="specimen-code" error={f.specimen.error}><Input id="specimen-code" name="specimenTypeCode" maxLength={100} {...f.specimen.control} /></Field></div><Field label="Clinical information" htmlFor="test-information" error={f.information.error}><Textarea id="test-information" name="clinicalInformation" maxLength={4000} {...f.information.control} /></Field><Field label="Request handling" htmlFor="lab-request-status" error={f.handling.error} required><Select id="lab-request-status" name="status" value={handling} onChange={event => { setHandling(event.target.value); setRouteErrors({}) }} required {...f.handling.control}
+      aria-describedby={f.handling.error ? 'lab-request-status-error lab-request-draft-warning' : 'lab-request-draft-warning'}><option value="draft">Save EHR draft</option>{canSendToLab && <option value="active">{routable ? 'Create active request and send to this facility’s Lab' : 'Create active request and send to Lab'}</option>}
+      {routable && <option value="route">Create and send to another laboratory</option>}</Select></Field>
+      {sendingElsewhere && routing && <OrderDestinationFields id="lab-route" context={routing} kind="lab_request" priority={priority}
+        value={choice} onChange={setChoice} errors={routeErrors} />}
       {/* Since hid-system #56 EHR sends a request to Lab when it is created active, and when a draft is activated later.
           Lab accepts it only from an actor holding lab.work-item.accept, and refuses anyone else's (LAB_WORK_ITEM_ACCESS_DENIED). */}
-      <div id="lab-request-draft-warning" className="staff-notice staff-danger">A draft is not sent to the Laboratory until it is activated.{canSendToLab ? '' : ' Only someone who may send requests to Lab can activate it or create an active request.'}</div>
+      <div id="lab-request-draft-warning" className="staff-notice staff-danger">{sendingElsewhere
+        ? 'The request is saved as a draft, then sent to the laboratory you choose: sending it activates it. If it can’t be sent, it stays a draft.'
+        : <>A draft is not sent to the Laboratory until it is activated.{canSendToLab ? '' : routable ? ' Only someone who may send requests to this facility’s Lab can activate it here; you can send it to another laboratory.' : ' Only someone who may send requests to Lab can activate it or create an active request.'}</>}</div>
       {/* An EHR before #56 has no Send to Lab, and passes Lab's own refusal back after saving the request. */}
-      {canSendToLab && <p className="staff-muted">Active creation saves the request, then asks Lab to accept it. If Lab does not, the request stays saved and active, even when an error is shown: check the list before creating it again, then use Send to Lab on it there, or contact the laboratory if the EHR cannot send it.</p>}</>}
+      {canSendToLab && !sendingElsewhere && <p className="staff-muted">Active creation saves the request, then asks Lab to accept it. If Lab does not, the request stays saved and active, even when an error is shown: check the list before creating it again, then use Send to Lab on it there, or contact the laboratory if the EHR cannot send it.</p>}</>}
     {error && <p className="staff-error" role="alert">{error}</p>}<Button type="submit" aria-disabled={busy || disabled || undefined} className={BUSY}
-      aria-describedby={tab === 'lab-requests' ? 'lab-request-draft-warning' : undefined}>{busy ? 'Saving…' : tab === 'lab-requests' ? 'Create lab request' : tab === 'vitals' || tab === 'diagnoses' ? 'Save record' : 'Save draft'}</Button>
+      aria-describedby={tab === 'lab-requests' ? 'lab-request-draft-warning' : undefined}>{busy ? (sendingElsewhere ? 'Sending…' : 'Saving…') : sendingElsewhere && choice.destination ? `Create and send to ${choice.destination.facilityName}` : tab === 'lab-requests' ? 'Create lab request' : tab === 'vitals' || tab === 'diagnoses' ? 'Save record' : 'Save draft'}</Button>
   </form></Card>
 }
 
@@ -1114,6 +1195,8 @@ export function Clinical() {
   const [recordsFor, setRecordsFor] = useState('')
   const [recordPages, setRecordPages] = useState<PagePosition | null>(null)
   const [recordNotice, setRecordNotice] = useState<ListNotice | null>(null)
+  // Novu since P4c: whether orders between facilities are on, as the lab request or prescription list last said.
+  const [ordersOpen, setOrdersOpen] = useState<{ scope: string; open: boolean } | null>(null)
   const [loading, setLoading] = useState(false)
   const [recordsLoading, setRecordsLoading] = useState(false)
   const [error, setError] = useState('')
@@ -1223,6 +1306,7 @@ export function Clinical() {
     void staffApi.records(facility.id, patientId, encounterId, activeTab).then(result => {
       if (sequence !== recordLoad.current) return
       setRecords(result.items); setRecordsFor(scope); setRecordPages({ scope, cursors: FIRST_PAGE, next: result.nextCursor ?? null })
+      setOrdersOpen({ scope, open: result.crossFacilityOrders === true })
     })
       .catch(caught => { if (sequence === recordLoad.current) setError(caught instanceof Error ? caught.message : 'Records could not be loaded.') })
       .finally(() => { if (sequence === recordLoad.current) setRecordsLoading(false) })
@@ -1252,6 +1336,16 @@ export function Clinical() {
   const canMutate = activePatient.purpose === 'direct-care' && currentWriteAccess?.allowed === true
   // EHR sends a lab request to Lab only for an actor who also holds Lab's acceptance permission.
   const canSendToLab = permissions.includes('lab.work-item.accept')
+  // Orders between facilities (Novu, P4c): sent under direct care by a member holding ehr.order-route.send and the
+  // order's write permission, with write access to the patient, while the list says they are on. Withdrawal needs the
+  // send permission only (no consent: it discloses nothing). A main-v1 build has neither.
+  const novu = usesNovuBackend()
+  const ordersOpenHere = ordersOpen?.scope === recordScope && ordersOpen.open
+  const canRouteOrders = novu && ordersOpenHere && canMutate && permissions.includes('ehr.order-route.send')
+  const canRoute = (kind: RecordKind) => canRouteOrders && permissions.includes(writePermissions[kind])
+  const canWithdrawRoutes = novu && activePatient.purpose === 'direct-care' && permissions.includes('ehr.order-route.send')
+  const routeContext: RouteContext = { facilityId: facility.id, orderingFacility: facility.name,
+    patient: activePatient.lookup.patient.fullName ?? activePatient.hid }
 
   // A new encounter starts now, so it usually heads the first page; it is the
   // one documented next even when it does not (a backdated start).
@@ -1288,6 +1382,7 @@ export function Clinical() {
       if (sequence !== recordLoad.current) return null
       recordRequested.current = { scope, cursors: shown }
       setRecords(page.items); setRecordsFor(scope); setRecordPages({ scope, cursors: shown, next: page.nextCursor ?? null })
+      setOrdersOpen({ scope, open: page.crossFacilityOrders === true })
       setRecordNotice(restarted ? { scope, text: RESTARTED, alert: false } : null)
       return page.items
     } catch (caught) {
@@ -1445,6 +1540,101 @@ export function Clinical() {
     setSuccess('Lab accepted this lab request at its current version.')
   }
 
+  /** The order's latest route to another facility; undefined when the EHR sent none (its routes could not be read). */
+  function orderRouteOf(record: ClinicalRecord): OrderRouteSummary | null | undefined { return readOrderRoute(record.orderRoute) }
+  /** An order that may be sent: a draft or active one, with no route in force (or one that may be sent again). */
+  function mayBeSent(record: ClinicalRecord): boolean {
+    const route = orderRouteOf(record)
+    return (record.status === 'draft' || record.status === 'active') && route !== undefined && (route === null || route.resendAllowed)
+  }
+  /** A lab request's status choices: every change of one sent to another facility is passed on there. */
+  function labChoices(record: ClinicalRecord): readonly StatusOption[] {
+    return routedElsewhere(orderRouteOf(record)) ? ROUTED_LAB_CHOICES[String(record.status)] ?? [] : labRequestChoices(String(record.status), canSendToLab)
+  }
+
+  /** The kind of an order list, as order routes name it. */
+  function routeKindOf(kind: RecordKind): OrderRouteKind { return kind === 'lab-requests' ? 'lab_request' : 'prescription' }
+
+  /**
+   * Sends a saved order to another facility at the version shown (Novu, P4c). A refusal that means the list is out of
+   * date reads it again and says why above it; any other is said in the send form, which keeps its key to send again.
+   */
+  async function sendOrder(kind: 'lab-requests' | 'prescriptions', record: ClinicalRecord, destination: OrderDestination,
+    attestationTextVersion: string, key: string) {
+    if (!facility || !patientId || !encounterId) return
+    const expectedRowVersion = rowVersion(record.rowVersion)
+    if (!expectedRowVersion) throw new Error('Reload the list before sending it.')
+    setSuccess(''); setError('')
+    await verify()
+    try {
+      await orderRoutesApi.send(facility.id, patientId, encounterId, routeKindOf(kind), record.id,
+        { expectedRowVersion, receivingFacilityId: destination.facilityId, attestationTextVersion }, key)
+    } catch (caught) {
+      const refusal = sendRefusal(caught, routeKindOf(kind), destination.facilityName, routeContext.patient)
+      if (!refusal.reload) throw caught
+      const items = await loadRecords(kind, 'shown', true)
+      setError(`${refusal.text}${reloadSentence(items, kind === 'lab-requests' ? 'lab request' : 'prescription', true)}`)
+      focus([`record-${record.id}-title`, 'clinical-records-title'], true)
+      return
+    }
+    setSuccess(`${kind === 'lab-requests' ? 'Lab request' : 'Prescription'} sent to ${destination.facilityName}. It waits there until ${destination.facilityName} accepts it, and ${routeContext.patient} is told in the Health ID app.`)
+    await loadRecords(kind, 'shown', true)
+    focus([`order-route-${record.id}-title`, `record-${record.id}-title`, 'clinical-records-title'], true)
+  }
+
+  /**
+   * Creates a lab request as a draft and sends it to the laboratory chosen (Novu, P4c SPEC 13.1): two requests, each
+   * with its own key. A create that fails is the form's to say; once saved, a refused send leaves the draft, said so.
+   */
+  async function createAndSend(body: object, key: string, send: CreateAndSend) {
+    if (!facility || !patientId || !encounterId) return
+    if (!canMutate) throw new Error('This access does not permit changes to the patient record.')
+    setSuccess(''); setError('')
+    await verify()
+    const saved = await staffApi.createRecord(facility.id, patientId, encounterId, 'lab-requests', body, key)
+    const savedId = typeof saved?.id === 'string' ? saved.id : undefined
+    const savedVersion = rowVersion(saved?.rowVersion)
+    let notSent: string | null = null
+    if (!savedId || !savedVersion) notSent = 'the saved request could not be read back. Find it in the list and use Send to another laboratory on it.'
+    else {
+      try {
+        await orderRoutesApi.send(facility.id, patientId, encounterId, 'lab_request', savedId,
+          { expectedRowVersion: savedVersion, receivingFacilityId: send.destination.facilityId,
+            attestationTextVersion: send.attestationTextVersion }, crypto.randomUUID())
+      } catch (caught) {
+        notSent = sendRefusal(caught, 'lab_request', send.destination.facilityName, routeContext.patient).text
+      }
+    }
+    const items = await loadRecords('lab-requests', FIRST_PAGE, true)
+    if (notSent) {
+      setError(`${savedNotSent(notSent)}${reloadSentence(items, 'lab requests', false)}`)
+      focus(savedId ? [`record-${savedId}-route-open`, `record-${savedId}-title`, 'clinical-records-title'] : ['clinical-records-title'], true)
+      return
+    }
+    setSuccess(`Lab request created and sent to ${send.destination.facilityName}. It waits there until ${send.destination.facilityName} accepts it, and ${routeContext.patient} is told in the Health ID app.`)
+    if (savedId) focus([`order-route-${savedId}-title`, `record-${savedId}-title`, 'clinical-records-title'], true)
+  }
+
+  /** Withdraws a route still waiting for the receiving facility; the list is read again either way it ends. */
+  async function withdrawRoute(kind: 'lab-requests' | 'prescriptions', record: ClinicalRecord, route: OrderRouteSummary,
+    reason: OrderRouteWithdrawReason) {
+    if (!facility || !patientId || !encounterId) return
+    setSuccess(''); setError('')
+    try {
+      await orderRoutesApi.withdraw(facility.id, patientId, encounterId, routeKindOf(kind), record.id, route, reason)
+    } catch (caught) {
+      const refusal = withdrawRefusal(caught)
+      if (!refusal.reload) throw caught
+      await loadRecords(kind, 'shown', true)
+      setError(refusal.text)
+      focus([`order-route-${record.id}-title`, `record-${record.id}-title`, 'clinical-records-title'], true)
+      return
+    }
+    setSuccess(`Withdrawn from ${route.receivingFacility.name ?? 'the other facility'}. ${routeContext.patient} is told in the Health ID app.`)
+    await loadRecords(kind, 'shown', true)
+    focus([`record-${record.id}-route-open`, `record-${record.id}-title`, 'clinical-records-title'], true)
+  }
+
   async function updateDiagnosis(record: ClinicalRecord, changes: DiagnosisChanges, reason: string) {
     if (!facility || !patientId || !encounterId || !canMutate) return
     const expectedRowVersion = rowVersion(record.rowVersion)
@@ -1504,7 +1694,9 @@ export function Clinical() {
       const changed = caught.code === 'PHARMACY_PRESCRIPTION_NOT_ELIGIBLE'
         ? 'This prescription no longer matches what was sent (it was changed, put on hold or cancelled meanwhile), so Pharmacy did not accept it.'
         : caught.status === 412 ? 'This prescription changed since it was loaded, so it was not sent to Pharmacy: check it, and send it again if it is still needed.'
-          : caught.code === 'PRESCRIPTION_NOT_ELIGIBLE' ? 'This prescription is no longer active, so it was not sent to Pharmacy.' : null
+          : caught.code === 'PRESCRIPTION_NOT_ELIGIBLE' ? 'This prescription is no longer active, so it was not sent to Pharmacy.'
+            // Novu since P4c: it is sent to (or was accepted by) a pharmacy at another facility.
+            : caught.code === 'PRESCRIPTION_ROUTED' ? 'This prescription was sent to a pharmacy at another facility, so this facility’s Pharmacy can’t take it.' : null
       if (!changed) throw caught
       const items = await loadRecords('prescriptions', 'shown', true)
       setError(`${changed}${reloadSentence(items, 'prescription', true)}`)
@@ -1544,7 +1736,7 @@ export function Clinical() {
     {selected && <section className="staff-section" aria-labelledby="clinical-documentation-title"><div className="staff-page-head"><p className="staff-eyebrow">Selected encounter</p><h2 id="clinical-documentation-title" tabIndex={-1}>Care documentation</h2><p>{new Date(selected.startedAt).toLocaleString()} · {selected.status.replace('_', ' ')}</p></div>
       {canMutate && permissions.includes('ehr.encounter.write') && (encounterTransitions[selected.status]?.length ?? 0) > 0 &&
         <Card className="staff-card"><StatusActionForm key={`${selected.id}-${selected.rowVersion}`} id={`encounter-${selected.id}`} title="Encounter status"
-          choices={encounterTransitions[selected.status]!} warning={ENCOUNTER_CLOSES_RECORDS} disabled={loading} onChange={changeEncounterStatus} /></Card>}
+          choices={encounterTransitions[selected.status]!} warning={encounterClosesRecords()} disabled={loading} onChange={changeEncounterStatus} /></Card>}
       {!activeTab ? <p className="staff-muted">Your current facility role does not grant access to encounter records.</p>
         : <><TabList items={visibleTabs} selectedId={activeTab} onSelect={id => setTab(id as RecordKind | 'documents')} label="Clinical record section"
           idPrefix="clinical-record" className="staff-tabs" />
@@ -1563,28 +1755,42 @@ export function Clinical() {
           onChanged={async () => { await loadRecords('clinical-notes', 'shown', true) }} />}
         {activeTab === 'prescriptions' && canMutate && permissions.includes('ehr.prescription.write') && (prescriptionTransitions[String(record.status)]?.length ?? 0) > 0 &&
           <StatusActionForm key={`${record.id}-${record.rowVersion}`} id={`prescription-${record.id}`} title="Prescription status" choices={prescriptionTransitions[String(record.status)]!}
-            warning={record.status === 'active' || record.status === 'on_hold' ? PHARMACY_NOT_TOLD : undefined}
+            warning={routedElsewhere(orderRouteOf(record)) ? routedChangeWarning(orderRouteOf(record)?.receivingFacility.name)
+              : record.status === 'active' || record.status === 'on_hold' ? PHARMACY_NOT_TOLD : undefined}
             disabled={recordsLoading} onChange={(status, reason) => changeRecordStatus(record, 'prescriptions', status, reason)} />}
-        {activeTab === 'prescriptions' && record.status === 'active' && canMutate && permissions.includes('pharmacy.work-item.accept') &&
+        {activeTab === 'prescriptions' && record.status === 'active' && canMutate && permissions.includes('pharmacy.work-item.accept') && !routedElsewhere(orderRouteOf(record)) &&
           <ReasonActionForm key={`handoff-${record.id}-${record.rowVersion}`} id={`handoff-${record.id}`} title="Send active prescription to Pharmacy" actionLabel="Send to Pharmacy"
             minLength={8} disabled={recordsLoading} onAction={(reason, key) => handoffPrescription(record, reason, key)} />}
         {activeTab === 'diagnoses' && canMutate && permissions.includes('ehr.diagnosis.write') && record.verificationStatus !== 'entered_in_error' &&
           <DiagnosisUpdateForm key={`${record.id}-${String(record.rowVersion)}`} id={`diagnosis-${record.id}`} diagnosis={record}
             disabled={recordsLoading} onUpdate={(changes, reason) => updateDiagnosis(record, changes, reason)} />}
-        {activeTab === 'lab-requests' && canMutate && permissions.includes('ehr.lab-request.write') && labRequestChoices(String(record.status), canSendToLab).length > 0 &&
-          <StatusActionForm key={`${record.id}-${String(record.rowVersion)}`} id={`lab-request-${record.id}`} title="Lab request status" choices={labRequestChoices(String(record.status), canSendToLab)}
+        {activeTab === 'lab-requests' && canMutate && permissions.includes('ehr.lab-request.write') && labChoices(record).length > 0 &&
+          <StatusActionForm key={`${record.id}-${String(record.rowVersion)}`} id={`lab-request-${record.id}`} title="Lab request status" choices={labChoices(record)}
+            warning={routedElsewhere(orderRouteOf(record)) ? routedChangeWarning(orderRouteOf(record)?.receivingFacility.name) : undefined}
             disabled={recordsLoading} onChange={(status, reason) => changeRecordStatus(record, 'lab-requests', status, reason)} />}
-        {activeTab === 'lab-requests' && canMutate && permissions.includes('ehr.lab-request.write') && LAB_NOT_TOLD[String(record.status)] &&
+        {activeTab === 'lab-requests' && canMutate && permissions.includes('ehr.lab-request.write') && LAB_NOT_TOLD[String(record.status)] && !routedElsewhere(orderRouteOf(record)) &&
           <p className="staff-muted">{LAB_NOT_TOLD[String(record.status)]}</p>}
-        {activeTab === 'lab-requests' && canMutate && permissions.includes('ehr.lab-request.write') && !canSendToLab && LAB_SENT_BY_OTHERS[String(record.status)] &&
+        {activeTab === 'lab-requests' && canMutate && permissions.includes('ehr.lab-request.write') && !canSendToLab && LAB_SENT_BY_OTHERS[String(record.status)] && !routedElsewhere(orderRouteOf(record)) &&
           <p className="staff-muted">{LAB_SENT_BY_OTHERS[String(record.status)]}</p>}
-        {activeTab === 'lab-requests' && record.status === 'active' && canMutate && permissions.includes('ehr.lab-request.write') && canSendToLab &&
+        {activeTab === 'lab-requests' && record.status === 'active' && canMutate && permissions.includes('ehr.lab-request.write') && canSendToLab && !routedElsewhere(orderRouteOf(record)) &&
           <SendToLab key={`send-${record.id}-${String(record.rowVersion)}`} requestId={record.id} disabled={recordsLoading}
             onSend={key => sendLabRequest(record, key)} />}
-        {/* A draft never reached Lab; any other request may have, before or after a change. */}
-        {activeTab === 'lab-requests' && record.status !== 'draft' && permissions.includes('lab.result.released.read') &&
+        {/* A draft never reached Lab; any other request may have, before or after a change. One sent to another
+            facility comes back through its route instead (Novu, P4c). */}
+        {activeTab === 'lab-requests' && record.status !== 'draft' && permissions.includes('lab.result.released.read') && !routedElsewhere(orderRouteOf(record)) &&
           <ReleasedResults key={`results-${record.id}`} facilityId={facility.id} requestId={record.id} />}
-      </div>)}</div></Card>{canMutate && permissions.includes(writePermissions[activeTab]) && <RecordForm key={`${selected.id}-${activeTab}`} tab={activeTab} onCreated={createRecord} disabled={!selected} canSendToLab={canSendToLab} />}</div>}</TabPanel></>}
+        {(activeTab === 'lab-requests' || activeTab === 'prescriptions') && novu && orderRouteOf(record) &&
+          <OrderRoutePanel key={`route-${record.id}-${orderRouteOf(record)!.id}-${orderRouteOf(record)!.version}`} id={`order-route-${record.id}`}
+            kind={routeKindOf(activeTab)} route={orderRouteOf(record)!} context={routeContext} canWithdraw={canWithdrawRoutes}
+            onWithdraw={(route, reason) => withdrawRoute(activeTab, record, route, reason)}
+            loadViews={() => orderRoutesApi.routes(facility.id, patientId!, selected.id, routeKindOf(activeTab), record.id).then(answer => answer.items)} />}
+        {(activeTab === 'lab-requests' || activeTab === 'prescriptions') && canRoute(activeTab) && mayBeSent(record) &&
+          <SendToFacility key={`send-route-${record.id}`} id={`record-${record.id}-route`} kind={routeKindOf(activeTab)} context={routeContext}
+            priority={typeof record.priority === 'string' ? record.priority : undefined}
+            onSend={(destination, version, key) => sendOrder(activeTab, record, destination, version, key)} />}
+      </div>)}</div></Card>{canMutate && permissions.includes(writePermissions[activeTab]) && <RecordForm key={`${selected.id}-${activeTab}`} tab={activeTab} onCreated={createRecord} disabled={!selected} canSendToLab={canSendToLab}
+        routing={activeTab === 'lab-requests' && canRoute('lab-requests') ? routeContext : null} onCreateAndSend={createAndSend}
+        prescriptionRouting={activeTab === 'prescriptions' && canRoute('prescriptions')} />}</div>}</TabPanel></>}
     </section>}
   </>
 }

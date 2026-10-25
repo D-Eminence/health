@@ -1,4 +1,5 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
+import { HidApiError } from '@hid/http'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Dashboard } from '../Dashboard'
@@ -10,10 +11,11 @@ import { Dashboard } from '../Dashboard'
  * shown, like the Document OCR workspace, only to a role holding ocr.job.read.
  */
 const api = vi.hoisted(() => ({ listAccessRequests: vi.fn() }))
+const routes = vi.hoisted(() => ({ incoming: vi.fn() }))
 const staff = vi.hoisted(() => ({ permissions: [] as string[], roles: ['doctor'], selfService: undefined as
   { review: string; organizationType: string } | undefined }))
 
-vi.mock('../../api', () => ({ staffApi: api }))
+vi.mock('../../api', () => ({ staffApi: api, orderRoutesApi: routes }))
 vi.mock('../../App', () => ({
   useStaff: () => ({
     state: { status: 'ready', session: { actor: { displayName: 'Ada Clinician', facility: {
@@ -74,5 +76,41 @@ describe('the Active facility card', () => {
     open()
     expect(await screen.findByRole('heading', { name: 'Facility check' })).toBeTruthy()
     expect(screen.getByText('Pending')).toBeTruthy()
+  })
+})
+
+/** Novu (P4c): orders other facilities sent here, counted for a laboratory scientist or pharmacist (SPEC-FINAL §13.5). */
+describe('the Incoming orders card', () => {
+  beforeEach(() => { vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1') })
+  afterEach(() => { vi.unstubAllEnvs() })
+
+  it('counts the lab requests waiting here, and leads to the Laboratory', async () => {
+    staff.permissions = ['lab.work-item.read', 'lab.order-route.receive']
+    routes.incoming.mockResolvedValue({ items: [{ id: 'r1' }, { id: 'r2' }], crossFacilityOrders: true, crossFacilityWork: true })
+    open()
+    expect(await screen.findByText('2 lab requests from other facilities waiting at General Hospital')).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Open Laboratory →' }).getAttribute('href')).toBe('/provider/laboratory')
+    expect(routes.incoming).toHaveBeenCalledWith('facility-1', 'lab')
+  })
+
+  it('counts a pharmacist’s prescriptions in the singular', async () => {
+    staff.permissions = ['pharmacy.work-item.read', 'pharmacy.order-route.receive']
+    routes.incoming.mockResolvedValue({ items: [{ id: 'r1' }], crossFacilityOrders: true, crossFacilityWork: true })
+    open()
+    expect(await screen.findByText('1 prescription from other facilities waiting at General Hospital')).toBeTruthy()
+  })
+
+  it('is not shown where the backend has no such route, nor to a member who receives none', async () => {
+    staff.permissions = ['lab.work-item.read', 'lab.order-route.receive']
+    routes.incoming.mockRejectedValue(new HidApiError(404, 'Cannot GET', { code: 'NOT_FOUND' }))
+    const { unmount } = render(<MemoryRouter><Dashboard /></MemoryRouter>)
+    await waitFor(() => expect(routes.incoming).toHaveBeenCalled())
+    await waitFor(() => expect(screen.queryByRole('heading', { name: 'Incoming orders' })).toBeNull())
+    unmount()
+    routes.incoming.mockClear()
+    staff.permissions = ['ehr.encounter.read']
+    open()
+    expect(await screen.findByRole('link', { name: /Clinical record/ })).toBeTruthy()
+    expect(routes.incoming).not.toHaveBeenCalled()
   })
 })
