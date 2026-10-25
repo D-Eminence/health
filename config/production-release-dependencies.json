@@ -3,16 +3,16 @@
   "declared": true,
   "backend_contract": "novu-v1",
   "reviewed_by": "D-Eminence",
-  "review_reference": "Backend releases backend-40095869594-1-ef6167e208c13eaf (D-Eminence/hid-system#112 at 4775137, notification-api only, deployed 2026-10-24 13:04 UTC with status success) and backend-40097864701-1-06a119910d775cd8 (D-Eminence/hid-system#113 at 57a94db, identity-api only, deployed 2026-10-24 13:33 UTC with status success). gateway, ehr-api, lab-api, pharmacy-api, ocr-api, outreach-api and support-api still run ba0d8d6 (#111, release backend-40089515889-1-6e0593071817bac9). Neither release has a migration. Browser-facing change since ba0d8d6: emergency-contact delivery is on by default in both services (owner approval of 2026-10-24), so GET /api/v1/identity/me/emergency-contacts/availability answers {\"delivery\":true,\"channels\":[\"email\"]} for every patient, and adding a contact and sending a verification code no longer answer 409 EMERGENCY_CONTACT_DELIVERY_UNAVAILABLE. No route, payload or error code changed; this frontend already shows the Settings card whenever delivery is on. Reviewed and approved by the repository owner, D-Eminence.",
+  "review_reference": "Backend release backend-40236737710-1-edd658b1ed90ce69 (D-Eminence/hid-system#115 at 0100435, all 13 components, migration 0086_provider_self_service_onboarding.sql applied first, deployed 2026-10-25 22:31 UTC with status success). Browser-facing changes since the previous pin: (1) new routes for facility self sign-up, staff invitations and cross-facility lab requests and prescriptions, and their admin support tools. All three features ship switched off: GET /api/v1/identity/provider-enrollments/availability answers {\"open\":false,\"reason\":\"closed\"}, and the gated routes answer 423 PROVIDER_ENROLLMENT_UNAVAILABLE, STAFF_INVITATIONS_UNAVAILABLE or CROSS_FACILITY_ORDERS_UNAVAILABLE until the owner switches them on in Admin, Platform controls. This frontend reads availability before offering any of them. (2) The patient inbox loads (Identity now holds EXECUTE on its two inbox functions). (3) A patient's approve or deny of a clinician's access request uses the patient session, needs a sign-in within the last 10 minutes (PATIENT_RECENT_AUTH_REQUIRED) and is held for 24 h after an OTP recovery (PATIENT_RECENT_RECOVERY_HOLD); this frontend handles both. No other route, payload or error code changed. Reviewed and approved by the repository owner, D-Eminence.",
   "backend_commits": {
-    "gateway": "ba0d8d68864eac0055a9721c89159f9881c0fd79",
-    "identity-api": "57a94dbd410e32bac71d7a2edf88334ba141c930",
-    "ehr-api": "ba0d8d68864eac0055a9721c89159f9881c0fd79",
-    "lab-api": "ba0d8d68864eac0055a9721c89159f9881c0fd79",
-    "pharmacy-api": "ba0d8d68864eac0055a9721c89159f9881c0fd79",
-    "ocr-api": "ba0d8d68864eac0055a9721c89159f9881c0fd79",
-    "outreach-api": "ba0d8d68864eac0055a9721c89159f9881c0fd79",
-    "support-api": "ba0d8d68864eac0055a9721c89159f9881c0fd79",
-    "notification-api": "47751377be849bd6ba5a09c3b887bd45ce4accea"
+    "gateway": "010043573b9aae581ffae958ecf5515ddb0e9c18",
+    "identity-api": "010043573b9aae581ffae958ecf5515ddb0e9c18",
+    "ehr-api": "010043573b9aae581ffae958ecf5515ddb0e9c18",
+    "lab-api": "010043573b9aae581ffae958ecf5515ddb0e9c18",
+    "pharmacy-api": "010043573b9aae581ffae958ecf5515ddb0e9c18",
+    "ocr-api": "010043573b9aae581ffae958ecf5515ddb0e9c18",
+    "outreach-api": "010043573b9aae581ffae958ecf5515ddb0e9c18",
+    "support-api": "010043573b9aae581ffae958ecf5515ddb0e9c18",
+    "notification-api": "010043573b9aae581ffae958ecf5515ddb0e9c18"
   }
 }
