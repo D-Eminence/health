@@ -410,7 +410,28 @@ sign-in returns to the join page. The console's review form chooses the
 administrator's role and how support checked them, and its facility pages
 show staff and licences on demand and find an invitation by its reference.
 Laboratory and pharmacy pages of a stand-alone facility say where its work
-comes from today, in one message per case (`staff/betweenFacilities.ts`).
+comes from today, in one message per case (`staff/betweenFacilities.ts`),
+which since P4c also says whether other facilities can send it orders.
+On Novu since P4c, a clinician can send a lab request or prescription to a
+laboratory or pharmacy at another facility (`staff/routes/OrderRoutes.tsx`):
+a directory picker (`GET /identity/order-destinations`, 3 to 80 characters,
+on demand) shows each facility's CAC registered office, the clinician ticks
+the attestation Identity's EHR serves (`GET /ehr/order-route-attestation`,
+filled with the names, its version sent back), and the send carries an
+`Idempotency-Key`. The order's row then shows the route's state from the
+order list's `orderRoute`, loads its details and what came back only when
+asked, offers Withdraw while it waits, and hides this facility's own Lab and
+Pharmacy hand-offs. The Lab and Pharmacy pages list incoming orders
+(`GET /{lab|pharmacy}/order-routes?view=incoming`, refreshed every two
+minutes and on focus), accept one only after the patient's Health ID or date
+of birth is confirmed (a mismatch says the tries left from the problem's
+`attemptsLeft`), decline with a reason, and name the patient only on work
+from another facility. The patient portal lists the patient's sent orders on
+Access and consent with the clinician's attestation as confirmed, and offers
+Stop while one waits; the console finds an order by its reference or Health
+ID, closes it (`If-Match`), and shows and changes a facility's listing on
+demand. A 404 from any of these routes means the backend does not serve
+them yet: the page shows nothing new, and a main-v1 build never asks.
 A staff sign-in on a product host lands on the Overview, not the host's own
 page, when the working facility cannot use that page (`staff/navigation.ts`).
 The platform console refuses the platform enrolment of an
