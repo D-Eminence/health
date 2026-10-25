@@ -19,8 +19,10 @@ export type EndpointAuth = { readonly kind: 'public' | 'authenticated' }
  * and confirmation reads and support's review, release and open applications,
  * with their search and the waiver of a refusal (P4), and the applicant's
  * withdrawal, the facility's staff and its invitations, and support's
- * administrator access, first-30-days limits and staff reads (P4b), which only
- * `staging-novu-ci-20261005` serves.
+ * administrator access, first-30-days limits and staff reads (P4b), and lab
+ * requests and prescriptions sent to a laboratory or pharmacy at another
+ * facility, with the patient's list of them and support's tools (P4c), which
+ * only `staging-novu-ci-20261005` serves.
  */
 export type ContractStatus = 'surface-verified' | 'proposed'
 export interface EndpointDescriptor {
@@ -95,6 +97,48 @@ const SELF_SERVICE_SESSION = 'On Novu since P4b each facility that signed itself
 const STAFF_ROUTE = `${STAFF_P4B_NOVU} Staff session with X-Facility-ID (healthcare-operations) and workforce.manage, `
   + 'CSRF on POST; only at a self-signed-up facility (403 STAFF_MANAGEMENT_NOT_AVAILABLE otherwise).'
 const STAFF_INVITATIONS_CLOSED = '423 STAFF_INVITATIONS_UNAVAILABLE while invitations are switched off.'
+/**
+ * Cross-facility orders (P4c, owner's fifth and sixth decisions): a clinician sends a lab request or prescription to a
+ * reviewed laboratory or pharmacy at another facility, attesting that the patient agreed (no in-app approval); the
+ * receiver accepts it with the patient's Health ID or date of birth and works it in its own Lab or Pharmacy; results
+ * and dispensing come back to the order. The patient sees every order sent and may stop it until acceptance. Novu only.
+ */
+const ORDER_ROUTES_P4C_NOVU = 'Served by staging-novu-ci-20261005 from cross-facility orders (P4c); not served by '
+  + 'hid-system main (404).'
+/** The two P4c switches, answered by every order-route route (SPEC-FINAL §11). */
+const ORDER_ROUTES_PAUSED = '423 CROSS_FACILITY_ORDERS_UNAVAILABLE while cross_facility_orders_enabled (or, for work on '
+  + 'accepted orders, cross_facility_route_access_enabled) is off.'
+/** The staff order-route routes' shared rules (SPEC-FINAL §10.1, §10.2). */
+const ORDER_ROUTE_STAFF = `${ORDER_ROUTES_P4C_NOVU} Staff session with X-Facility-ID and X-Purpose-Of-Use: direct-care `
+  + '(any other purpose 403 PERMISSION_DENIED); CSRF on POST; a stale version 412 VERSION_CONFLICT.'
+const ORDER_ROUTE_SEND = 'POST sends the order (a draft is activated) with Idempotency-Key and { expectedRowVersion, '
+  + 'receivingFacilityId, patientAgreed: true, attestationTextVersion } (the clinician\'s attestation, the text of '
+  + 'ehr.orderRouteAttestation): 201 { route: OrderRouteSummary, order { id, status, rowVersion }, replayed }; 409 '
+  + 'ORDER_ROUTE_DESTINATION_INELIGIBLE, _ORDER_NOT_ELIGIBLE, _ORDER_IN_WORK, _ALREADY_SENT, _RESEND_LIMIT, '
+  + '_DESTINATION_BUSY, _PATIENT_DENIED, _PATIENT_APP_REQUIRED, _ATTESTATION_OUTDATED, IDEMPOTENCY_KEY_REUSED; 429 '
+  + 'ORDER_ROUTE_SEND_LIMIT, _PAIR_LIMIT. GET lists the order\'s routes, newest first: { items: OrderRouteView[] } (the '
+  + `summary, attestation, events, and results or dispensings come back). ${ORDER_ROUTES_PAUSED}`
+const ORDER_ROUTE_WITHDRAW = 'Withdraws a route still waiting for acceptance, without a consent check. Body { '
+  + "expectedVersion, reason: 'sent_in_error' | 'patient_request' | 'other' }; 200 { route }. 404 ORDER_ROUTE_NOT_FOUND, "
+  + '409 ORDER_ROUTE_NOT_PENDING.'
+/** What P4c adds to the EHR's order lists and reads (SPEC-FINAL §10.1). */
+const ORDER_LISTS_P4C = 'On Novu since P4c the page also answers crossFacilityOrders (whether orders between facilities '
+  + 'are on), and each item orderRoute: its latest route to another facility (OrderRouteSummary) or null; absent when '
+  + 'routes could not be read (emergency access).'
+/** The Lab and Pharmacy order-route routes' shared rules (SPEC-FINAL §10.2). */
+const RECEIVE_ROUTE = `${ORDER_ROUTE_STAFF} Accept needs Idempotency-Key and { expectedVersion, patientIdentifier { kind: `
+  + "'health_id' | 'date_of_birth', value } } (Pharmacy also reason, 8 to 500): 201 { route, workItemId, patient { "
+  + 'fullName, sex, dateOfBirth, healthIdLast4 }, clinicalInformation | instructions, orderer, replayed }; 409 '
+  + 'ORDER_ROUTE_PATIENT_MISMATCH (with attemptsLeft), _ACCEPT_LOCKED, _ORDER_IN_WORK, _NOT_PENDING, _EXPIRED, '
+  + '_DESTINATION_INELIGIBLE, _ORDERING_FACILITY_UNAVAILABLE, _PATIENT_DENIED, _HEALTH_ID_REQUIRED; 429 '
+  + "ORDER_ROUTE_ACCEPT_LIMITED. Decline takes { expectedVersion, reason }. The list takes view (incoming, the "
+  + 'default, or recent) and healthId (incoming only) and answers { items, crossFacilityOrders, crossFacilityWork }; '
+  + `before acceptance no row names the patient. ${ORDER_ROUTES_PAUSED}`
+/** What P4c adds to the Lab and Pharmacy work lists and per-item routes. */
+const WORK_LISTS_P4C = 'On Novu since P4c items of orders from other facilities carry orderRoute { id, reference, '
+  + 'effectiveState, access, orderingFacilityName, ordererName, ordererLicence? } and patient?, and the answer '
+  + 'crossFacilityOrders and crossFacilityWork; every per-item route may answer 409 ORDER_ROUTE_CLOSED or 423 '
+  + 'CROSS_FACILITY_ORDERS_UNAVAILABLE.'
 
 export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   proposed(r('support.chat','support','/api/v1/support/chat',P,true,undefined,CHAT_NOTE)),
@@ -255,9 +299,19 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     undefined,
     `${STAFF_P4B_NOVU} As the preview; 200 { accepted: true, facilityId, membershipId, facilityName, roleCode }. The `
     + `session lists the new facility from its next request. ${STAFF_INVITATIONS_CLOSED}`)),
+  // P4c: the directory a clinician picks a laboratory or pharmacy at another facility from.
+  { ...proposed(r('identity.orderDestinations','identity','/api/v1/identity/order-destinations',G,false,
+    one('GET','ehr.order-route.send'),
+    `${ORDER_ROUTES_P4C_NOVU} Staff session with X-Facility-ID (Identity reads it as direct-care). Query kind (laboratory `
+    + 'or pharmacy) and query (3 to 80 characters of the facility or organization name). 200 { items [{ facilityId, '
+    + 'facilityName, organizationName, registeredAddress (the CAC registered office) | null, newOnHealthId }] }: at most '
+    + '10 reviewed or governed facilities listed for orders, never this one. 400 ORDER_DESTINATION_QUERY_INVALID, 429 '
+    + `ORDER_DESTINATION_SEARCH_LIMITED (60 searches an hour per member). ${ORDER_ROUTES_PAUSED}`)),
+  requiredQuery: { GET: ['kind', 'query'] } },
   proposed(r('enrollment.providerAvailability','enrollment','/api/v1/identity/provider-enrollments/availability',G,true,undefined,
     `${SELF_SIGN_UP_NOVU} Public, no session, never an error: 200 { open: true }, { open: false, reason: 'closed' } (switched `
-    + 'off or not configured) or { open: false, reason: \'unavailable\' } (a fault: try again shortly, never shown as closed).')),
+    + 'off or not configured) or { open: false, reason: \'unavailable\' } (a fault: try again shortly, never shown as closed). '
+    + 'Since P4c the open answer is { open: true, crossFacilityOrders } (whether orders between facilities are on).')),
   r('enrollment.providerStart','enrollment','/api/v1/identity/provider-enrollments',P,true,undefined,
     'Accountless; refused when signed in. Requires Origin and Turnstile action provider-enrollment (on Novu, '
     + 'app.* and staging.* only). Answers { accepted, challengeId, expiresInSeconds, resendAfterSeconds }; on Novu also '
@@ -384,19 +438,47 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('ehr.noteRevisions','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/clinical-notes/:noteId/revisions',GP,false,{GET:['ehr.note.read'],POST:['ehr.note.write']}),
   r('ehr.diagnoses','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/diagnoses',GP,false,{GET:['ehr.diagnosis.read'],POST:['ehr.diagnosis.write']}),
   r('ehr.diagnosis','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/diagnoses/:diagnosisId',GPA,false,{GET:['ehr.diagnosis.read'],PATCH:['ehr.diagnosis.write']}),
-  r('ehr.prescriptions','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/prescriptions',GP,false,{GET:['ehr.prescription.read'],POST:['ehr.prescription.write']}),
+  r('ehr.prescriptions','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/prescriptions',GP,false,{GET:['ehr.prescription.read'],POST:['ehr.prescription.write']},
+    ORDER_LISTS_P4C),
   r('ehr.prescription','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/prescriptions/:prescriptionId',GPA,false,{GET:['ehr.prescription.read'],PATCH:['ehr.prescription.write']}),
-  r('ehr.prescriptionPharmacy','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/prescriptions/:prescriptionId/pharmacy-work-item',P,false,one('POST','pharmacy.work-item.accept')),
-  r('ehr.labRequests','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/lab-requests',GP,false,{GET:['ehr.lab-request.read'],POST:['ehr.lab-request.write']}),
-  r('ehr.labRequest','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/lab-requests/:requestId',GPA,false,{GET:['ehr.lab-request.read'],PATCH:['ehr.lab-request.write']}),
+  r('ehr.prescriptionPharmacy','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/prescriptions/:prescriptionId/pharmacy-work-item',P,false,one('POST','pharmacy.work-item.accept'),
+    'On Novu since P4c, 409 PRESCRIPTION_ROUTED while the prescription is sent to (or was accepted by) a pharmacy at another facility.'),
+  r('ehr.labRequests','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/lab-requests',GP,false,{GET:['ehr.lab-request.read'],POST:['ehr.lab-request.write']},
+    ORDER_LISTS_P4C),
+  r('ehr.labRequest','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/lab-requests/:requestId',GPA,false,{GET:['ehr.lab-request.read'],PATCH:['ehr.lab-request.write']},
+    'On Novu since P4c a PATCH answers orderRoute (as the change left it), and a request sent to another facility is never '
+    + "handed to this facility's Lab: labHandoff { state: 'not_sent', code: 'ORDER_ROUTED' }."),
   // hid-system #56: sends (or sends again) a saved active lab request to Lab.
-  r('ehr.labRequestLabWorkItem','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/lab-requests/:requestId/lab-work-item',P,false,one('POST','ehr.lab-request.write','lab.work-item.accept')),
+  r('ehr.labRequestLabWorkItem','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/lab-requests/:requestId/lab-work-item',P,false,one('POST','ehr.lab-request.write','lab.work-item.accept'),
+    'On Novu since P4c, 409 LAB_REQUEST_ROUTED while the request is sent to (or was accepted by) a laboratory at another facility.'),
+  // P4c: send an order to another facility's laboratory or pharmacy, list its routes, and withdraw one before acceptance.
+  proposed(r('ehr.labRequestOrderRoutes','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/lab-requests/:requestId/order-routes',GP,false,
+    {GET:['ehr.lab-request.read'],POST:['ehr.lab-request.write','ehr.order-route.send']}, `${ORDER_ROUTE_STAFF} ${ORDER_ROUTE_SEND}`)),
+  proposed(r('ehr.labRequestOrderRouteWithdraw','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/lab-requests/:requestId/order-routes/:routeId/withdraw',P,false,
+    one('POST','ehr.order-route.send'), `${ORDER_ROUTE_STAFF} ${ORDER_ROUTE_WITHDRAW}`)),
+  proposed(r('ehr.prescriptionOrderRoutes','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/prescriptions/:prescriptionId/order-routes',GP,false,
+    {GET:['ehr.prescription.read'],POST:['ehr.prescription.write','ehr.order-route.send']}, `${ORDER_ROUTE_STAFF} ${ORDER_ROUTE_SEND}`)),
+  proposed(r('ehr.prescriptionOrderRouteWithdraw','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/prescriptions/:prescriptionId/order-routes/:routeId/withdraw',P,false,
+    one('POST','ehr.order-route.send'), `${ORDER_ROUTE_STAFF} ${ORDER_ROUTE_WITHDRAW}`)),
+  { ...proposed(r('ehr.orderRouteAttestation','ehr','/api/v1/ehr/order-route-attestation',G,false,one('GET','ehr.order-route.send'),
+    `${ORDER_ROUTE_STAFF} Query kind (lab_request or prescription); also needs the kind's write permission. 200 { kind, `
+    + 'version, text }: the newest attestation text, with {patient}, {orderingFacility} and {receivingFacility} for the page '
+    + `to fill. 400 ORDER_ROUTE_INVALID. ${ORDER_ROUTES_PAUSED}`)),
+  requiredQuery: { GET: ['kind'] } },
+  // P4c: the patient's orders sent to other facilities, and Stop before acceptance (the patient's only action).
+  proposed(r('ehr.myOrderRoutes','ehr','/api/v1/ehr/me/order-routes',G,false,undefined,
+    `${ORDER_ROUTES_P4C_NOVU} Patient sessions only. 200 { items: PatientOrderRoute[] }, newest first, at most 100: each with `
+    + 'orderingFacilityName, receivingFacilityName, receivingRegisteredAddress, content (every field sent), '
+    + 'attestationTextVersion, attestationText, attestedByName and actions (withdraw while it waits for acceptance).')),
+  proposed(r('ehr.myOrderRouteWithdraw','ehr','/api/v1/ehr/me/order-routes/:routeId/withdraw',P,false,undefined,
+    `${ORDER_ROUTES_P4C_NOVU} Patient sessions only; Stop. Body { expectedVersion }; 200 { route: PatientOrderRoute }. 404 `
+    + 'ORDER_ROUTE_NOT_FOUND, 409 ORDER_ROUTE_NOT_PENDING (accepted or ended), 412 VERSION_CONFLICT.')),
   r('files.list','files','/api/v1/ehr/documents',G,false,one('GET','ehr.document.read')),
   r('files.uploadIntent','files','/api/v1/ehr/documents/upload-intents',P,false,one('POST','ehr.document.write')),
   r('files.complete','files','/api/v1/ehr/documents/:documentId/complete',P,false,one('POST','ehr.document.write')),
   r('files.download','files','/api/v1/ehr/documents/:documentId/download',G,false,one('GET','ehr.document.read')),
 
-  r('lab.workItems','lab','/api/v1/lab/work-items',G,false,one('GET','lab.work-item.read')),
+  r('lab.workItems','lab','/api/v1/lab/work-items',G,false,one('GET','lab.work-item.read'),WORK_LISTS_P4C),
   r('lab.workItem','lab','/api/v1/lab/work-items/:workItemId',G,false,one('GET','lab.work-item.read')),
   r('lab.imports','lab','/api/v1/lab/imports',P,false,one('POST','lab.import.write')),
   r('lab.import','lab','/api/v1/lab/imports/:importId',G,false,one('GET','lab.import.read')),
@@ -416,12 +498,26 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('lab.resultHistory','lab','/api/v1/lab/results/:resultId/history',G,false,one('GET','lab.result.released.read')),
   // hid-system #51: the released results of the Lab work item accepted from one EHR lab request.
   r('lab.releasedResultsForOrder','lab','/api/v1/lab/ehr-orders/:sourceEhrOrderId/released-results',G,false,one('GET','lab.result.released.read')),
-  r('pharmacy.workItems','pharmacy','/api/v1/pharmacy/work-items',G,false,one('GET','pharmacy.work-item.read')),
+  // P4c: lab requests other facilities send to this laboratory (Incoming and Recent), one of them, accept and decline.
+  proposed(r('lab.orderRoutes','lab','/api/v1/lab/order-routes',G,false,one('GET','lab.order-route.receive'),RECEIVE_ROUTE)),
+  proposed(r('lab.orderRoute','lab','/api/v1/lab/order-routes/:routeId',G,false,one('GET','lab.order-route.receive'),
+    `${RECEIVE_ROUTE} One route: the Incoming shape, and after acceptance, while it may be read, clinicalInformation, `
+    + 'orderer.licenceNumber, patient and workItemId.')),
+  proposed(r('lab.orderRouteAccept','lab','/api/v1/lab/order-routes/:routeId/accept',P,false,one('POST','lab.order-route.receive'),RECEIVE_ROUTE)),
+  proposed(r('lab.orderRouteDecline','lab','/api/v1/lab/order-routes/:routeId/decline',P,false,one('POST','lab.order-route.receive'),RECEIVE_ROUTE)),
+  r('pharmacy.workItems','pharmacy','/api/v1/pharmacy/work-items',G,false,one('GET','pharmacy.work-item.read'),WORK_LISTS_P4C),
   r('pharmacy.workItem','pharmacy','/api/v1/pharmacy/work-items/:workItemId',G,false,one('GET','pharmacy.work-item.read')),
   r('pharmacy.dispense','pharmacy','/api/v1/pharmacy/work-items/:workItemId/dispensings',P,false,one('POST','pharmacy.dispensing.create')),
   r('pharmacy.dispensing','pharmacy','/api/v1/pharmacy/dispensings/:dispensingId',G,false,one('GET','pharmacy.dispensing.read')),
   r('pharmacy.reverse','pharmacy','/api/v1/pharmacy/dispensings/:dispensingId/reversals',P,false,one('POST','pharmacy.dispensing.reverse')),
   r('pharmacy.import','pharmacy','/api/v1/pharmacy/imports/:importId',G,false,one('GET','pharmacy.import.read')),
+  // P4c: prescriptions other facilities send to this pharmacy, as Lab's.
+  proposed(r('pharmacy.orderRoutes','pharmacy','/api/v1/pharmacy/order-routes',G,false,one('GET','pharmacy.order-route.receive'),RECEIVE_ROUTE)),
+  proposed(r('pharmacy.orderRoute','pharmacy','/api/v1/pharmacy/order-routes/:routeId',G,false,one('GET','pharmacy.order-route.receive'),
+    `${RECEIVE_ROUTE} One route: the Incoming shape, and after acceptance, while it may be read, instructions, `
+    + 'orderer.licenceNumber, patient and workItemId.')),
+  proposed(r('pharmacy.orderRouteAccept','pharmacy','/api/v1/pharmacy/order-routes/:routeId/accept',P,false,one('POST','pharmacy.order-route.receive'),RECEIVE_ROUTE)),
+  proposed(r('pharmacy.orderRouteDecline','pharmacy','/api/v1/pharmacy/order-routes/:routeId/decline',P,false,one('POST','pharmacy.order-route.receive'),RECEIVE_ROUTE)),
 
   { ...r('ocr.jobs','ocr','/api/v1/ocr/jobs',GP,false,{GET:['ocr.job.read'],POST:['ocr.job.write']}),
     requiredQuery: { GET: ['documentId'] } },
@@ -451,7 +547,8 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
 
   r('admin.session','admin','/api/v1/admin/session',G,false,one('GET','platform.admin.access')),
   r('admin.overview','admin','/api/v1/admin/overview',G,false,one('GET','platform.admin.access')),
-  r('admin.controls','admin','/api/v1/admin/controls',GP,false,{GET:['platform.control.read'],POST:['platform.control.manage']}),
+  r('admin.controls','admin','/api/v1/admin/controls',GP,false,{GET:['platform.control.read'],POST:['platform.control.manage']},
+    'On Novu since P4c controlKey also takes cross_facility_orders_enabled and cross_facility_route_access_enabled.'),
   r('admin.facilities','admin','/api/v1/admin/facilities',G,false,one('GET','platform.facility.read')),
   r('admin.facility','admin','/api/v1/admin/facilities/:facilityId',G,false,one('GET','platform.facility.read'),
     'On staging-novu-ci-20261005 since hid-system #109 the read also answers alertPhoneE164 and alertPhoneUpdatedAt.'),
@@ -524,6 +621,26 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     `${STAFF_P4B_NOVU} Audited, with or without success. 200 { facility { id, name, selfService { review, `
     + 'organizationType, productCode } | null }, members [...], invitations [...] }, each with full licence numbers, '
     + 'licenceKey, sameLicenceElsewhere, nameMismatch, attestedByName and attestedAt. 404 ADMIN_FACILITY_NOT_FOUND.')),
+  // P4c: support's tools for orders between facilities: a facility's summary and listing, and finding and closing an order.
+  proposed(r('admin.facilityOrderRouteSummary','admin','/api/v1/admin/facilities/:facilityId/order-route-summary',G,false,
+    one('GET','platform.facility.read'),
+    `${ORDER_ROUTES_P4C_NOVU} Also platform.admin.access; audited. 200 { facilityId, listed { value, byDefault, reason, setAt }, `
+    + 'receivedAcceptedLifetime, receivedPatientsLifetime, counterparts [{ direction: sent | received, facilityId, '
+    + 'facilityName, last30Days { <state>: count } }] }: no patient, no order content. 404 ADMIN_FACILITY_NOT_FOUND.')),
+  proposed(r('admin.facilityOrderDestination','admin','/api/v1/admin/facilities/:facilityId/order-destination',P,false,
+    one('POST','platform.facility.manage','platform.facility.unlock'),
+    `${ORDER_ROUTES_P4C_NOVU} Lists the facility for orders from other facilities, or stops listing it; accepted work is `
+    + 'unaffected. Body { listed, reason (8 to 500) }; 200 { facilityId, listed, setAt }. 404 ADMIN_FACILITY_NOT_FOUND '
+    + '(also a facility without a laboratory or pharmacy product), 409 ORDER_ROUTE_DESTINATION_UNCHANGED.')),
+  proposed(r('admin.orderRoutesFind','admin','/api/v1/admin/order-routes',G,false,one('GET','platform.principal.read'),
+    `${ORDER_ROUTES_P4C_NOVU} Audited. Query reference (8 hexadecimal characters) or healthId, exactly one. 200 { items [{ `
+    + 'routeId, reference, kind, version, effectiveState, orderingFacilityId, orderingFacilityName, receivingFacilityId, '
+    + 'receivingFacilityName, createdAt, acceptedAt, endedAt, endedKind }] }, at most 5 by reference, 20 by Health ID. '
+    + '400 ORDER_ROUTE_LOOKUP_INVALID.')),
+  proposed(r('admin.orderRouteClose','admin','/api/v1/admin/order-routes/:routeId/close',P,false,one('POST','platform.facility.manage'),
+    `${ORDER_ROUTES_P4C_NOVU} Closes an order between facilities at once: access ends at both, and both and the patient are `
+    + 'told. Body { reason (8 to 500) } and If-Match with the version; 200 { routeId, version, effectiveState }. 404 '
+    + 'ORDER_ROUTE_NOT_FOUND, 409 VERSION_CONFLICT, ORDER_ROUTE_ALREADY_CLOSED, 428 IF_MATCH_REQUIRED.')),
   { ...proposed(r('admin.staffInvitationFind','admin','/api/v1/admin/staff-invitations',G,false,one('GET','platform.principal.read'),
     `${STAFF_P4B_NOVU} Query reference (8 hexadecimal characters, any case). 200 { items [{ invitationId, reference, `
     + 'facilityId, facilityName, organizationId, status, roleCode, createdAt, expiresAt }] }, at most 5.')),

@@ -33,6 +33,8 @@ export interface HidApiErrorOptions {
   readonly details?: unknown
   /** Field names to result codes from the problem's `fields` member. */
   readonly fields?: Readonly<Record<string, string>> | null
+  /** The problem's `attemptsLeft` member: tries left before a lock (P4c order acceptance). */
+  readonly attemptsLeft?: number | null
   readonly cause?: unknown
 }
 
@@ -50,6 +52,13 @@ export class HidApiError extends Error {
    * has none.
    */
   readonly fields: Readonly<Record<string, string>> | null
+  /**
+   * The problem's `attemptsLeft` member: how many more tries a refused
+   * identifier check allows before it locks (hid-system P4c, 409
+   * ORDER_ROUTE_PATIENT_MISMATCH and ORDER_ROUTE_ACCEPT_LOCKED). A count, never
+   * a submitted value; null when the problem has none.
+   */
+  readonly attemptsLeft: number | null
 
   constructor(status: number, message: string, options: HidApiErrorOptions = {}) {
     super(message, options.cause === undefined ? undefined : { cause: options.cause })
@@ -60,6 +69,7 @@ export class HidApiError extends Error {
     this.retryable = options.retryable ?? isRetryableStatus(status)
     this.details = options.details ?? null
     this.fields = options.fields ?? null
+    this.attemptsLeft = options.attemptsLeft ?? null
   }
 
   /** True when the caller should send the user back through authentication. */

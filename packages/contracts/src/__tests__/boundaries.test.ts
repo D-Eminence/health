@@ -420,6 +420,76 @@ describe('application boundaries', () => {
     expect(findEndpoint('access.breakGlass')?.note).toContain('EMERGENCY_PROBATION_LIMITED')
   })
 
+  it('registers P4c\'s orders between facilities: sending and the directory for the provider portal, receiving for Lab and '
+    + 'Pharmacy, the patient\'s list and Stop for the patient portal, and support\'s tools for the console', () => {
+    const patientId = 'a0000000-0000-4000-8000-0000004f9c2e'
+    const encounterId = 'b0000000-0000-4000-8000-000000000001'
+    const orderId = 'c0000000-0000-4000-8000-000000000002'
+    const routeId = '9c1b2d3e-4f5a-4b6c-8d7e-0f1a2b3c4d5e'
+    const facilityId = '0f8c6d2e-4b1a-4c3d-9e5f-1a2b3c4d5e6f'
+    const lab = `/api/v1/ehr/patients/${patientId}/encounters/${encounterId}/lab-requests/${orderId}`
+    const prescription = `/api/v1/ehr/patients/${patientId}/encounters/${encounterId}/prescriptions/${orderId}`
+    type Case = readonly [string, string, string, Record<string, string> | undefined, readonly string[] | undefined]
+    const staff: readonly Case[] = [
+      ['identity.orderDestinations', 'GET', '/api/v1/identity/order-destinations', { kind: 'laboratory', query: 'Yaba' }, ['ehr.order-route.send']],
+      ['ehr.labRequestOrderRoutes', 'GET', `${lab}/order-routes`, undefined, ['ehr.lab-request.read']],
+      ['ehr.labRequestOrderRoutes', 'POST', `${lab}/order-routes`, undefined, ['ehr.lab-request.write', 'ehr.order-route.send']],
+      ['ehr.labRequestOrderRouteWithdraw', 'POST', `${lab}/order-routes/${routeId}/withdraw`, undefined, ['ehr.order-route.send']],
+      ['ehr.prescriptionOrderRoutes', 'GET', `${prescription}/order-routes`, undefined, ['ehr.prescription.read']],
+      ['ehr.prescriptionOrderRoutes', 'POST', `${prescription}/order-routes`, undefined, ['ehr.prescription.write', 'ehr.order-route.send']],
+      ['ehr.prescriptionOrderRouteWithdraw', 'POST', `${prescription}/order-routes/${routeId}/withdraw`, undefined, ['ehr.order-route.send']],
+      ['ehr.orderRouteAttestation', 'GET', '/api/v1/ehr/order-route-attestation', { kind: 'lab_request' }, ['ehr.order-route.send']],
+      ['lab.orderRoutes', 'GET', '/api/v1/lab/order-routes', { view: 'incoming' }, ['lab.order-route.receive']],
+      ['lab.orderRoute', 'GET', `/api/v1/lab/order-routes/${routeId}`, undefined, ['lab.order-route.receive']],
+      ['lab.orderRouteAccept', 'POST', `/api/v1/lab/order-routes/${routeId}/accept`, undefined, ['lab.order-route.receive']],
+      ['lab.orderRouteDecline', 'POST', `/api/v1/lab/order-routes/${routeId}/decline`, undefined, ['lab.order-route.receive']],
+      ['pharmacy.orderRoutes', 'GET', '/api/v1/pharmacy/order-routes', { view: 'incoming' }, ['pharmacy.order-route.receive']],
+      ['pharmacy.orderRoute', 'GET', `/api/v1/pharmacy/order-routes/${routeId}`, undefined, ['pharmacy.order-route.receive']],
+      ['pharmacy.orderRouteAccept', 'POST', `/api/v1/pharmacy/order-routes/${routeId}/accept`, undefined, ['pharmacy.order-route.receive']],
+      ['pharmacy.orderRouteDecline', 'POST', `/api/v1/pharmacy/order-routes/${routeId}/decline`, undefined, ['pharmacy.order-route.receive']],
+    ]
+    const patient: readonly Case[] = [
+      ['ehr.myOrderRoutes', 'GET', '/api/v1/ehr/me/order-routes', undefined, undefined],
+      ['ehr.myOrderRouteWithdraw', 'POST', `/api/v1/ehr/me/order-routes/${routeId}/withdraw`, undefined, undefined],
+    ]
+    const admin: readonly Case[] = [
+      ['admin.facilityOrderRouteSummary', 'GET', `/api/v1/admin/facilities/${facilityId}/order-route-summary`, undefined, ['platform.facility.read']],
+      ['admin.facilityOrderDestination', 'POST', `/api/v1/admin/facilities/${facilityId}/order-destination`, undefined,
+        ['platform.facility.manage', 'platform.facility.unlock']],
+      ['admin.orderRoutesFind', 'GET', '/api/v1/admin/order-routes', { reference: '9C1B2D3E' }, ['platform.principal.read']],
+      ['admin.orderRouteClose', 'POST', `/api/v1/admin/order-routes/${routeId}/close`, undefined, ['platform.facility.manage']],
+    ]
+    const apps = ['staff-web', 'patient-web', 'admin-web', 'public-web'] as const
+    for (const [cases, app] of [[staff, 'staff-web'], [patient, 'patient-web'], [admin, 'admin-web']] as const) {
+      for (const [name, method, example, query, permissions] of cases) {
+        const endpoint = findEndpoint(name)
+        expect(endpoint, name).toMatchObject({ status: 'proposed', auth: { kind: 'authenticated' } })
+        expect(endpoint?.permissions?.[method as 'GET' | 'POST'], `${method} ${name}`).toEqual(permissions)
+        expect(endpoint?.note, name).toContain('not served by hid-system main')
+        expect(assertRegisteredBrowserRequest(method, example, query).name, `${method} ${name}`).toBe(name)
+        expect(() => assertEndpointAllowed(app, name), `${app}: ${name}`).not.toThrow()
+        for (const other of apps.filter(candidate => candidate !== app)) {
+          expect(() => assertEndpointAllowed(other, name), `${other}: ${name}`).toThrow(BoundaryViolationError)
+        }
+      }
+    }
+    // The directory needs its kind and words, the attestation its kind; finding an order takes either query.
+    expect(() => assertRegisteredBrowserRequest('GET', '/api/v1/identity/order-destinations', { kind: 'laboratory' })).toThrow(BrowserRouteError)
+    expect(() => assertRegisteredBrowserRequest('GET', '/api/v1/ehr/order-route-attestation')).toThrow(BrowserRouteError)
+    expect(assertRegisteredBrowserRequest('GET', '/api/v1/admin/order-routes', { healthId: 'HID-7KQ2M9' }).name).toBe('admin.orderRoutesFind')
+    // The static attestation path is not a lab request, and a route's own read is not its accept.
+    expect(() => assertRegisteredBrowserRequest('POST', `/api/v1/lab/order-routes/${routeId}`)).toThrow(BrowserRouteError)
+    // What P4c adds to routes the website already calls.
+    for (const name of ['ehr.labRequests', 'ehr.prescriptions']) expect(findEndpoint(name)?.note, name).toContain('crossFacilityOrders')
+    for (const name of ['lab.workItems', 'pharmacy.workItems']) expect(findEndpoint(name)?.note, name).toContain('crossFacilityWork')
+    expect(findEndpoint('ehr.labRequest')?.note).toContain('ORDER_ROUTED')
+    expect(findEndpoint('ehr.labRequestLabWorkItem')?.note).toContain('LAB_REQUEST_ROUTED')
+    expect(findEndpoint('ehr.prescriptionPharmacy')?.note).toContain('PRESCRIPTION_ROUTED')
+    expect(findEndpoint('admin.controls')?.note).toContain('cross_facility_orders_enabled')
+    expect(findEndpoint('admin.controls')?.note).toContain('cross_facility_route_access_enabled')
+    expect(findEndpoint('enrollment.providerAvailability')?.note).toContain('crossFacilityOrders')
+  })
+
   it('keeps the public site\'s enrollment routes as they were', () => {
     for (const name of ['enrollment.start', 'enrollment.availability', 'enrollment.current', 'enrollment.google',
       'enrollment.holder', 'enrollment.holderVerify', 'enrollment.facilityCode', 'enrollment.participatingFacilities',
