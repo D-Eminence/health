@@ -378,10 +378,13 @@ says where staff sign in next time before opening the workspace. It asks
 notice while sign-up is off, or a "temporarily unavailable" notice when
 Identity answers that it could not tell (`reason: 'unavailable'`). Once the
 email is confirmed it reads what the sign-up registers
-(`GET /identity/provider-enrollments/profile`: the legal name, the CAC number
-and the administrator) and shows it, or the CAC number alone, before the
-account is made. A start that answers `codeSent: false` is never shown as a
-sent code: the page uses the code in force, or waits as Identity says.
+(`GET /identity/provider-enrollments/profile`: the legal name, the CAC number,
+the facility type and the administrator) and shows it, or the CAC number alone,
+before the account is made. A start that answers `codeSent: false` is never
+shown as a sent code: the page uses the code in force, or waits as Identity
+says. When that start changed the facility type or administrator name, which
+only a sent code carries, the page stays at the details: the changes wait for
+the next code, or the code in force is entered with the details it carries.
 A staff sign-in on a product host lands on the Overview, not the host's own
 page, when the working facility cannot use that page (`staff/navigation.ts`).
 The platform console refuses the platform enrolment of an
