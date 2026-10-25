@@ -375,9 +375,13 @@ On a Novu build (novu-v1, facility self sign-up, P4) there is no authenticator
 step: activation sets the password and signs the administrator in, and the page
 says where staff sign in next time before opening the workspace. It asks
 `GET /identity/provider-enrollments/availability` first and shows a closed
-notice while sign-up is off. Once the email is confirmed it reads the
-organization's legal name (`GET /identity/provider-enrollments/profile`,
-proposed) and shows it, or the CAC number alone, before the account is made.
+notice while sign-up is off, or a "temporarily unavailable" notice when
+Identity answers that it could not tell (`reason: 'unavailable'`). Once the
+email is confirmed it reads what the sign-up registers
+(`GET /identity/provider-enrollments/profile`: the legal name, the CAC number
+and the administrator) and shows it, or the CAC number alone, before the
+account is made. A start that answers `codeSent: false` is never shown as a
+sent code: the page uses the code in force, or waits as Identity says.
 A staff sign-in on a product host lands on the Overview, not the host's own
 page, when the working facility cannot use that page (`staff/navigation.ts`).
 The platform console refuses the platform enrolment of an
