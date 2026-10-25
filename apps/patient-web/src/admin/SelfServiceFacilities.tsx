@@ -39,6 +39,8 @@ const REVIEW_PROBLEMS: Readonly<Record<string, string>> = {
   VERSION_CONFLICT: 'This sign-up changed after the list was loaded. The list has been refreshed: check it again before '
     + 'marking it reviewed.',
   PERMISSION_DENIED: 'Marking a sign-up reviewed needs the platform.facility.manage permission. Ask a Super Admin.',
+  // Identity's DTO refuses a note outside 8 to 500 characters before its command does.
+  VALIDATION_FAILED: 'Enter a note of 8 to 500 characters about what you checked.',
 }
 
 const RELEASE_FAILED = 'The sign-up could not be released. Try again.'
@@ -49,6 +51,7 @@ const RELEASE_PROBLEMS: Readonly<Record<string, string>> = {
     + 'releasing it.',
   PERMISSION_DENIED: 'Releasing a sign-up needs the platform.facility.manage permission. Ask a Super Admin.',
   SELF_SERVICE_FACILITY_REQUEST_INVALID: REASON_INVALID,
+  VALIDATION_FAILED: REASON_INVALID,
 }
 
 const REJECT_FAILED = 'The sign-up could not be rejected. Try again.'
@@ -58,6 +61,7 @@ const REJECT_PROBLEMS: Readonly<Record<string, string>> = {
     + 'The list has been refreshed: check it again before rejecting it.',
   PERMISSION_DENIED: 'Rejecting a sign-up needs the platform.facility.manage permission. Ask a Super Admin.',
   SELF_SERVICE_FACILITY_REQUEST_INVALID: REASON_INVALID,
+  VALIDATION_FAILED: REASON_INVALID,
 }
 
 type Done = (notice: { text: string; tone: 'success' | 'error' }) => void

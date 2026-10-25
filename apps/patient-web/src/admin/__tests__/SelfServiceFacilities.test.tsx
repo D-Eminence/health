@@ -175,9 +175,9 @@ describe('new facility sign-ups', () => {
       expect.objectContaining({ version: 4 }), 'Checked again; confirmed.'))
   })
 
-  it('keeps any other refusal on the card, without reading the list again', async () => {
+  it.each([['SELF_SERVICE_FACILITY_REQUEST_INVALID'], ['VALIDATION_FAILED']])('keeps any other refusal (%s) on the card, without reading the list again', async code => {
     mocks.api.selfServiceFacilities.mockResolvedValue({ items: [signUp()] })
-    mocks.api.reviewSelfServiceFacility.mockRejectedValueOnce(new HidApiError(400, 'Bad request', { code: 'SELF_SERVICE_FACILITY_REQUEST_INVALID' }))
+    mocks.api.reviewSelfServiceFacility.mockRejectedValueOnce(new HidApiError(400, 'Bad request', { code }))
     open(<SelfServiceFacilitiesPage actor={actor(REVIEWER)} />)
     const item = await card('IKEJA CARE LIMITED')
     fireEvent.click(within(item).getByText('Mark reviewed', { selector: 'summary' }))
@@ -325,10 +325,9 @@ describe('releasing a sign-up', () => {
       expect.objectContaining({ version: 4 }), 'Checked again; the company did not sign up.'))
   })
 
-  it('keeps a refused reason on the card, in its own words', async () => {
+  it.each([['SELF_SERVICE_FACILITY_REQUEST_INVALID'], ['VALIDATION_FAILED']])('keeps a refused reason (%s) on the card, in its own words', async code => {
     mocks.api.selfServiceFacilities.mockResolvedValue({ items: [stopped()] })
-    mocks.api.releaseSelfServiceFacility.mockRejectedValueOnce(new HidApiError(400, 'Bad request',
-      { code: 'SELF_SERVICE_FACILITY_REQUEST_INVALID' }))
+    mocks.api.releaseSelfServiceFacility.mockRejectedValueOnce(new HidApiError(400, 'Bad request', { code }))
     open(<SelfServiceFacilitiesPage actor={actor(REVIEWER)} />)
     const item = await card('IKEJA CARE LIMITED')
     await fillRelease(item)
@@ -467,10 +466,9 @@ describe('open applications', () => {
       expect.objectContaining({ version: 3 }), 'Still not the company’s own.'))
   })
 
-  it('keeps a refused reason on the card, in its own words', async () => {
+  it.each([['SELF_SERVICE_FACILITY_REQUEST_INVALID'], ['VALIDATION_FAILED']])('keeps a refused reason (%s) on the card, in its own words', async code => {
     mocks.api.selfServiceApplications.mockResolvedValue({ items: [application()] })
-    mocks.api.rejectSelfServiceApplication.mockRejectedValueOnce(new HidApiError(400, 'Bad request',
-      { code: 'SELF_SERVICE_FACILITY_REQUEST_INVALID' }))
+    mocks.api.rejectSelfServiceApplication.mockRejectedValueOnce(new HidApiError(400, 'Bad request', { code }))
     await openView()
     const item = await card('SURULERE PHARMACY LTD')
     fireEvent.click(within(item).getByText('Reject', { selector: 'summary' }))
