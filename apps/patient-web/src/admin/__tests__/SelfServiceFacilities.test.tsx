@@ -402,6 +402,12 @@ describe('open applications', () => {
       .textContent).toBe('Sign-ups that haven’t been finished yet: the administrator hasn’t confirmed their email or chosen a '
         + 'password. Each one holds its CAC number and product for 24 hours after it was submitted, so nobody else can sign up '
         + 'that company meanwhile.')
+    // An applicant can't close a sign-up they disowned at the password step: support finds and rejects it.
+    expect(within(screen.getByRole('region', { name: 'Open applications' })).getByText(/^A company told that another sign-up/)
+      .textContent).toBe('A company told that another sign-up for its CAC number may be in progress may be held by one of these. '
+        + 'For example, an applicant who mistyped the number, saw another company’s legal name and selected “This isn’t my '
+        + 'organization” leaves that sign-up here, with its email confirmed, until it lapses; they are asked to tell support '
+        + 'the number. Match the CAC number’s last digits and the legal name, and reject the one that isn’t the company’s own.')
     const shown = (term: string) => within(item).getByText(term).nextElementSibling?.textContent
     expect(shown('CAC number')).toBe('RC****21')
     expect(shown('Product')).toBe('Pharmacy')

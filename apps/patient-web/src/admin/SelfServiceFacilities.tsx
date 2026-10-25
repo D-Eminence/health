@@ -260,7 +260,13 @@ export function SelfServiceFacilitiesPage({ actor }: { actor: AdminActor }) {
             Each one holds its CAC number and product for 24 hours after it was submitted, so nobody else can sign up that
             company meanwhile.</p>
           <p>If one isn’t the company’s own, for example because of a mistyped CAC number, reject it so the real company can
-            sign up.</p></div></div>
+            sign up.</p>
+          {/* An applicant cannot close their own sign-up on Novu: "This isn't my organization" leaves it open (P4 round 2 review). */}
+          <p>A company told that another sign-up for its CAC number may be in progress may be held by one of these. For
+            example, an applicant who mistyped the number, saw another company’s legal name and selected “This isn’t my
+            organization” leaves that sign-up here, with its email confirmed, until it lapses; they are asked to tell
+            support the number. Match the CAC number’s last digits and the legal name, and reject the one that isn’t the
+            company’s own.</p></div></div>
       </section>
       : <section className="admin-panel" aria-labelledby="self-service-check-title">
         <div className="admin-panel-head"><div><h2 id="self-service-check-title">What to check</h2>
