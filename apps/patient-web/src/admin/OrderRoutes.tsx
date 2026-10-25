@@ -1,4 +1,4 @@
-import { useCallback, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { adminApi, type AdminActor, type FacilityOrderRouteSummary, type FoundOrderRoute } from './api'
 import { failure, isProblem } from './problems'
@@ -130,14 +130,25 @@ function ListingForm({ facilityId, facilityName, listed, onDone }: { facilityId:
 
 /**
  * The release card's line about a sign-up's orders with other facilities (P4c SPEC 13.6): the lifetime counts when the
- * summary can be read, and what releasing does to its open orders either way.
+ * summary can be read, and what releasing does to its open orders either way. Identity audits each summary read, so it
+ * is read only once the release form around it is opened, never while the list is shown.
  */
 export function ReleaseOrderRoutesNote({ facilityId, facilityName, canRead }: { facilityId: string; facilityName: string; canRead: boolean }) {
-  const load = useCallback(async (signal?: AbortSignal) => canRead ? adminApi.facilityOrderRouteSummary(facilityId, signal) : null,
-    [facilityId, canRead])
+  const note = useRef<HTMLParagraphElement>(null)
+  const [opened, setOpened] = useState(false)
+  useEffect(() => {
+    const around = note.current?.closest('details')
+    if (!around) { setOpened(true); return }
+    const sync = () => { if (around.open) setOpened(true) }
+    sync()
+    around.addEventListener('toggle', sync)
+    return () => around.removeEventListener('toggle', sync)
+  }, [])
+  const load = useCallback(async (signal?: AbortSignal) => canRead && opened ? adminApi.facilityOrderRouteSummary(facilityId, signal) : null,
+    [facilityId, canRead, opened])
   const resource = useResource(load, '')
   const summary = resource.data
-  return <p className="admin-note">{summary
+  return <p ref={note} className="admin-note">{summary
     ? `${facilityName} accepted ${summary.receivedAcceptedLifetime} ${summary.receivedAcceptedLifetime === 1 ? 'order' : 'orders'} from other facilities for ${summary.receivedPatientsLifetime} ${summary.receivedPatientsLifetime === 1 ? 'patient' : 'patients'}. `
     : ''}Releasing it withdraws or cancels its open orders with other facilities, both ways, and tells those patients.</p>
 }

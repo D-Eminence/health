@@ -312,9 +312,12 @@ describe('releasing a sign-up', () => {
       reason: null, setAt: null }, receivedAcceptedLifetime: 4, receivedPatientsLifetime: 3, counterparts: [] })
     open(<SelfServiceFacilitiesPage actor={actor(REVIEWER)} />)
     const item = await card('IKEJA CARE LIMITED')
+    // Identity audits each read: none while the list is shown, one once the release form is opened.
+    expect(mocks.api.facilityOrderRouteSummary).not.toHaveBeenCalled()
     fireEvent.click(releaseSummary(item)!)
     expect(await within(item).findByText('IKEJA CARE LIMITED accepted 4 orders from other facilities for 3 patients. Releasing '
       + 'it withdraws or cancels its open orders with other facilities, both ways, and tells those patients.')).toBeTruthy()
+    expect(mocks.api.facilityOrderRouteSummary).toHaveBeenCalledTimes(1)
     expect(mocks.api.facilityOrderRouteSummary).toHaveBeenCalledWith(FACILITY_ID, expect.anything())
   })
 
