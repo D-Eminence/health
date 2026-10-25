@@ -401,7 +401,10 @@ function SignUpCard({ facility, actor, onDone }: { facility: SelfServiceFacility
     {facility.reviewNote && <p className="admin-note">Review note: {facility.reviewNote}</p>}
     {facility.releaseReason && <p className="admin-note">Release reason: {facility.releaseReason}</p>}
     {!released && (canOpenFacility || canFindAdministrator) && <p className="admin-note admin-inline-links">If it looks wrong,{' '}
-      {canOpenFacility && <>suspend the facility on its <Link to={`/admin/facilities/${encodeURIComponent(facility.facilityId)}`}>
+      {/* Its type and review go in the link's state, for the facility page's orders panel (P4c): never in the URL. */}
+      {canOpenFacility && <>suspend the facility on its <Link to={`/admin/facilities/${encodeURIComponent(facility.facilityId)}`}
+        state={{ selfServiceFacility: { facilityId: facility.facilityId, organizationType: facility.organizationType,
+          reviewedAt: facility.reviewedAt, verificationMethod: facility.verificationMethod ?? null, releasedAt: facility.releasedAt ?? null } }}>
         facility page</Link></>}
       {canOpenFacility && canFindAdministrator && ' and '}
       {/* The email goes in the page's state, never in the URL, as Users & roles keeps its search. */}

@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useLocation, useParams } from 'react-router-dom'
 import { usesNovuBackend } from '../backendContract'
 import { adminApi, PAGE_SIZE, type AdminActor, type AuditFilters, type Facility } from './api'
 import { AssistedRegistrationPanel } from './AssistedRegistration'
 import { FacilityStaffPanel } from './FacilityStaffPanel'
-import { FacilityOrderRoutesPanel } from './OrderRoutes'
+import { FacilityOrderRoutesPanel, knownSignUp } from './OrderRoutes'
 import { isProblem } from './problems'
 import {
   ActionForm, Page, Pager, Refresh, ResourceView, Status, Table, date, has, label, pageNumber, useGovernedSubmit, useResource,
@@ -206,6 +206,9 @@ export function FacilityDetailPage({ actor }: { actor: AdminActor }) {
 }
 
 function FacilityDetail({ facilityId, actor }: { facilityId: string; actor: AdminActor }) {
+  // Opened from "New facility sign-ups": what that list says of the sign-up (its type and review), for the panel of
+  // orders with other facilities; the facility record itself does not carry them.
+  const signUp = knownSignUp(useLocation().state, facilityId)
   const load = useCallback((signal?: AbortSignal) => adminApi.facility(facilityId, signal), [facilityId])
   const resource = useResource(load, 'This facility could not be loaded.')
   // A refresh or status change reloads the audit excerpts too: the change is audited with it.
@@ -236,7 +239,7 @@ function FacilityDetail({ facilityId, actor }: { facilityId: string; actor: Admi
       {usesNovuBackend() && has(actor, 'platform.principal.read') && <FacilityStaffPanel facilityId={facility.id} />}
       {/* Orders sent to, or received from, other facilities, and the listing for them (Novu, P4c); read only when asked. */}
       {usesNovuBackend() && has(actor, 'platform.facility.read') && <FacilityOrderRoutesPanel facilityId={facility.id}
-        facilityName={facility.name} actor={actor} />}
+        facilityName={facility.name} actor={actor} known={signUp} />}
       {/* A designation change is audited against the facility: the audit excerpts are read again with it. */}
       <AssistedRegistrationPanel facilityId={facility.id} facilityStatus={facility.status} refresh={refreshes} actor={actor}
         onChanged={() => setRevision(value => value + 1)} />
