@@ -268,7 +268,7 @@ describe('application boundaries', () => {
     }
   })
 
-  it('registers facility self sign-up\'s availability read for the provider portal and its review for the console (P4)', () => {
+  it('registers facility self sign-up\'s reads for the provider portal and its review, release and open applications for the console (P4)', () => {
     const base = '/api/v1/identity/provider-enrollments'
     // The static availability path is a GET of its own; the start is a POST on the base path.
     expect(assertRegisteredBrowserRequest('GET', `${base}/availability`).name).toBe('enrollment.providerAvailability')
@@ -276,17 +276,21 @@ describe('application boundaries', () => {
     expect(assertRegisteredBrowserRequest('POST', base).name).toBe('enrollment.providerStart')
     expect(findEndpoint('enrollment.providerAvailability')).toMatchObject({ service: 'enrollment', methods: ['GET'],
       auth: { kind: 'public' }, status: 'proposed' })
-    expect(findEndpoint('enrollment.providerAvailability')?.note).toContain('{ open: false } on any fault')
+    // The reason says closed or unavailable (P4 round 2): a fault is never shown as closed.
+    expect(findEndpoint('enrollment.providerAvailability')?.note).toContain("{ open: false, reason: 'closed' }")
+    expect(findEndpoint('enrollment.providerAvailability')?.note).toContain("{ open: false, reason: 'unavailable' }")
     expect(() => assertEndpointAllowed('staff-web', 'enrollment.providerAvailability')).not.toThrow()
     for (const app of ['patient-web', 'admin-web', 'public-web'] as const) {
       expect(() => assertEndpointAllowed(app, 'enrollment.providerAvailability'), app).toThrow(BoundaryViolationError)
     }
-    // The organization a confirmed sign-up registers (P4 review): proposed, read with the enrollment cookie.
+    // What a confirmed sign-up registers (P4 round 2): Novu's, read with the enrollment cookie.
     expect(assertRegisteredBrowserRequest('GET', `${base}/profile`).name).toBe('enrollment.providerProfile')
     expect(() => assertRegisteredBrowserRequest('POST', `${base}/profile`)).toThrow(BrowserRouteError)
     expect(findEndpoint('enrollment.providerProfile')).toMatchObject({ service: 'enrollment', methods: ['GET'],
       auth: { kind: 'public' }, status: 'proposed' })
-    expect(findEndpoint('enrollment.providerProfile')?.note).toContain('{ organizationName, registrationNumber, productCode }')
+    for (const field of ['organizationName', 'registrationNumber', 'productCode', 'organizationType', 'administratorName',
+      'administratorEmail']) expect(findEndpoint('enrollment.providerProfile')?.note).toContain(field)
+    expect(findEndpoint('enrollment.providerProfile')?.note).toContain('not served by hid-system main')
     expect(findEndpoint('enrollment.providerProfile')?.note).toContain('423 PROVIDER_ENROLLMENT_UNAVAILABLE')
     expect(() => assertEndpointAllowed('staff-web', 'enrollment.providerProfile')).not.toThrow()
     for (const app of ['patient-web', 'admin-web', 'public-web'] as const) {
@@ -298,11 +302,18 @@ describe('application boundaries', () => {
       expect(findEndpoint(name)?.status, name).toBe('surface-verified')
     }
     expect(findEndpoint('enrollment.providerActivate')?.note).toContain('actor')
+    // A start that sent no code says so on Novu (P4 round 2).
+    expect(findEndpoint('enrollment.providerStart')?.note).toContain('codeSent: false')
 
     const applicationId = '0f2b6d0e-6a55-4b4c-9a7e-2f4b8c1d3e5a'
     const routes = [
       ['admin.selfServiceFacilities', '/api/v1/admin/self-service-facilities', 'GET', 'platform.identity-review.read'],
       ['admin.selfServiceFacilityReview', `/api/v1/admin/self-service-facilities/${applicationId}/review`, 'POST',
+        'platform.facility.manage'],
+      ['admin.selfServiceFacilityRelease', `/api/v1/admin/self-service-facilities/${applicationId}/release`, 'POST',
+        'platform.facility.manage'],
+      ['admin.selfServiceApplications', '/api/v1/admin/self-service-applications', 'GET', 'platform.identity-review.read'],
+      ['admin.selfServiceApplicationReject', `/api/v1/admin/self-service-applications/${applicationId}/reject`, 'POST',
         'platform.facility.manage'],
     ] as const
     for (const [name, example, method, permission] of routes) {

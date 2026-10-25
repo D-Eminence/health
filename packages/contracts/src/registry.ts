@@ -16,8 +16,8 @@ export type EndpointAuth = { readonly kind: 'public' | 'authenticated' }
  * screens are off unless the build turns them on), hid-system #109's
  * emergency-contact availability read and admin commands, which only
  * `staging-novu-ci-20261005` serves, and facility self sign-up's availability
- * read and support's review of new facility sign-ups (P4), which only
- * `staging-novu-ci-20261005` serves.
+ * and confirmation reads and support's review, release and open applications
+ * (P4), which only `staging-novu-ci-20261005` serves.
  */
 export type ContractStatus = 'surface-verified' | 'proposed'
 export interface EndpointDescriptor {
@@ -72,8 +72,9 @@ const EMERGENCY_CONTACTS_NOVU = 'Served by staging-novu-ci-20261005 from hid-sys
 /**
  * Facility self sign-up on Novu (P4, owner decision D14): main's provider-enrollment routes, ending with a password
  * that signs the administrator in (main before #71, no authenticator), closed by the platform control
- * provider_self_service_enabled; plus an availability read and support's review of each new facility, which main
- * does not have.
+ * provider_self_service_enabled; plus an availability read, a read of what a confirmed sign-up registers, and
+ * support's review and release of each new facility and its view of open applications, which main does not have.
+ * Checked against the backend's "Website contract v2" (P4 round 2).
  */
 const SELF_SIGN_UP_NOVU = 'Served by staging-novu-ci-20261005 from facility self sign-up (P4); not served by hid-system main (404).'
 const SELF_SIGN_UP_CLOSED = 'On Novu every route answers 423 PROVIDER_ENROLLMENT_UNAVAILABLE while self sign-up is closed.'
@@ -191,17 +192,21 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     one('POST','identity.patient.assisted_registration'),
     'Body { deskCode, method, documentType, document, attestations }; 200 { outcome: verified }. The same key replays the stored outcome.'),
   proposed(r('enrollment.providerAvailability','enrollment','/api/v1/identity/provider-enrollments/availability',G,true,undefined,
-    `${SELF_SIGN_UP_NOVU} Public, no session: 200 { open }, and { open: false } on any fault, never an error.`)),
+    `${SELF_SIGN_UP_NOVU} Public, no session, never an error: 200 { open: true }, { open: false, reason: 'closed' } (switched `
+    + 'off or not configured) or { open: false, reason: \'unavailable\' } (a fault: try again shortly, never shown as closed).')),
   r('enrollment.providerStart','enrollment','/api/v1/identity/provider-enrollments',P,true,undefined,
     'Accountless; refused when signed in. Requires Origin and Turnstile action provider-enrollment (on Novu, '
-    + `app.* and staging.* only). Answers { accepted, challengeId, expiresInSeconds, resendAfterSeconds }. ${SELF_SIGN_UP_CLOSED}`),
+    + 'app.* and staging.* only). Answers { accepted, challengeId, expiresInSeconds, resendAfterSeconds }; on Novu also '
+    + 'codeSent: false when no code was sent, with challengeId and expiresInSeconds naming the code still in force (absent '
+    + `when none can be entered) and resendAfterSeconds the real wait, up to about a day. ${SELF_SIGN_UP_CLOSED}`),
   r('enrollment.providerVerify','enrollment','/api/v1/identity/provider-enrollments/verify',P,true,undefined,
     `Accountless; verifies the emailed code and sets the enrollment cookie. ${SELF_SIGN_UP_CLOSED}`),
-  // Asked for by P4's review: the applicant sees the organization a CAC number names before its account is made.
+  // P4 round 2 (R13): the applicant sees the organization a CAC number names before its account is made.
   proposed(r('enrollment.providerProfile','enrollment','/api/v1/identity/provider-enrollments/profile',G,true,undefined,
-    'Proposed for Novu\'s facility self sign-up (P4); not served by hid-system main (404), nor yet by Novu. Accountless; '
-    + 'reads the enrollment cookie that verify sets: 200 { organizationName, registrationNumber, productCode }, 401 '
-    + `ORGANIZATION_COMPLETION_SESSION_INVALID without a live session. Any failure shows the CAC number alone. ${SELF_SIGN_UP_CLOSED}`)),
+    `${SELF_SIGN_UP_NOVU} Accountless and refused when signed in; reads the enrollment cookie that verify sets, with no `
+    + 'Origin (a same-origin GET), and changes nothing: 200 { organizationName (the verified legal name), registrationNumber '
+    + '(the CAC number as entered), productCode, organizationType, administratorName, administratorEmail }, 401 '
+    + `ORGANIZATION_COMPLETION_SESSION_INVALID without a live, ready session. ${SELF_SIGN_UP_CLOSED}`)),
   r('enrollment.providerActivate','enrollment','/api/v1/identity/provider-enrollments/activate',P,true,undefined,
     'Accountless; uses the enrollment cookie. On Novu it signs the administrator in: the session cookies and '
     + `{ activated, organizationId, facilityId, accountId, actor, expiresAt }. ${SELF_SIGN_UP_CLOSED} `
@@ -400,13 +405,32 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   // Support's review of facilities that signed themselves up (P4, owner decision "alert + daily review").
   proposed(r('admin.selfServiceFacilities','admin','/api/v1/admin/self-service-facilities',G,false,
     one('GET','platform.identity-review.read'),
-    `${SELF_SIGN_UP_NOVU} Query state: unreviewed (default), reviewed or all. Answers { items }, newest activation first, `
-    + 'at most 200, each with its version.')),
+    `${SELF_SIGN_UP_NOVU} Query state: unreviewed (default; oldest activation first), reviewed (reviewed or released) or all `
+    + '(newest first). Answers { items }, at most 200, each with its version and releasedAt, releasedByAccountId and '
+    + 'releaseReason.')),
   proposed(r('admin.selfServiceFacilityReview','admin','/api/v1/admin/self-service-facilities/:applicationId/review',P,false,
     one('POST','platform.facility.manage'),
     `${SELF_SIGN_UP_NOVU} Body { note (8 to 500) } and If-Match with the version; no Idempotency-Key or step-up. Answers `
     + '{ applicationId, reviewedAt, version }. 404 SELF_SERVICE_FACILITY_NOT_FOUND, 409 VERSION_CONFLICT, '
     + '409 SELF_SERVICE_FACILITY_ALREADY_REVIEWED.')),
+  // P4 round 2 (R2): support frees a fraudulent or mistaken sign-up's CAC number and legal name for the real company.
+  proposed(r('admin.selfServiceFacilityRelease','admin','/api/v1/admin/self-service-facilities/:applicationId/release',P,false,
+    one('POST','platform.facility.manage'),
+    `${SELF_SIGN_UP_NOVU} Body { reason (8 to 500) } and If-Match with the version; no Idempotency-Key or step-up. Only `
+    + 'once every facility of the organization is suspended and the administrator\'s account disabled (409 '
+    + 'SELF_SERVICE_FACILITY_RELEASE_REQUIRES_SUSPENSION otherwise). Answers { applicationId, releasedAt, version }. 404 '
+    + 'SELF_SERVICE_FACILITY_NOT_FOUND, 409 SELF_SERVICE_FACILITY_ALREADY_RELEASED, 409 VERSION_CONFLICT.')),
+  // P4 round 2 (R3): self-service applications not activated yet, each holding its CAC number for 24 hours.
+  proposed(r('admin.selfServiceApplications','admin','/api/v1/admin/self-service-applications',G,false,
+    one('GET','platform.identity-review.read'),
+    `${SELF_SIGN_UP_NOVU} No query. Answers { items }, oldest first, at most 200: applicationId, version, productCode, `
+    + 'organizationType, cacHint, organizationName (null until verified), administratorName, administratorEmail, status, '
+    + 'verificationResult, emailVerified, submittedAt and lapsesAt.')),
+  proposed(r('admin.selfServiceApplicationReject','admin','/api/v1/admin/self-service-applications/:applicationId/reject',P,false,
+    one('POST','platform.facility.manage'),
+    `${SELF_SIGN_UP_NOVU} Body { reason (8 to 500) } and If-Match with the version; no Idempotency-Key or step-up. Answers `
+    + '{ applicationId, rejectedAt, version }. 404 SELF_SERVICE_APPLICATION_NOT_FOUND, 409 VERSION_CONFLICT. Its email and '
+    + 'network then can\'t reopen the CAC number and product for 7 days.')),
   r('admin.verifyCac','admin','/api/v1/admin/organization-applications/:applicationId/verify-cac',P,false,one('POST','platform.facility.manage')),
   r('admin.approveApplication','admin','/api/v1/admin/organization-applications/:applicationId/approve',P,false,one('POST','platform.facility.manage','platform.principal.manage','platform.role.manage')),
   r('admin.rejectApplication','admin','/api/v1/admin/organization-applications/:applicationId/reject',P,false,one('POST','platform.facility.manage')),
