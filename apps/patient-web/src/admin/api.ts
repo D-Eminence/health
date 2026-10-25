@@ -776,11 +776,16 @@ export const adminApi = {
   },
   /**
    * Finds orders between facilities by their 8-character reference (at most 5) or the patient's Health ID (at most
-   * 20), exactly one of them (P4c). Identity audits the lookup. The Health ID is in the URL, as the route takes it.
+   * 20), exactly one of them (P4c). Identity audits the lookup. A Health ID goes in the body of `POST
+   * …/order-routes/search` (P4c review), never in a URL that an access log keeps; a reference is read with the GET.
+   * Being a POST, a failed search by Health ID is not repeated.
    */
   findOrderRoutes(lookup: { reference: string } | { healthId: string }, signal?: AbortSignal) {
-    return orderRoutesRead(request<{ items: FoundOrderRoute[] }>('/api/v1/admin/order-routes', { signal, query: lookup }),
-      'Orders between facilities can’t be found from this Identity.')
+    const read = 'healthId' in lookup
+      ? request<{ items: FoundOrderRoute[] }>('/api/v1/admin/order-routes/search', { method: 'POST', signal,
+        body: { healthId: lookup.healthId } })
+      : request<{ items: FoundOrderRoute[] }>('/api/v1/admin/order-routes', { signal, query: { reference: lookup.reference } })
+    return orderRoutesRead(read, 'Orders between facilities can’t be found from this Identity.')
   },
   /** Closes an order between facilities at once (P4c): If-Match with its version and a reason of 8 to 500. */
   closeOrderRoute(route: Pick<FoundOrderRoute, 'routeId' | 'version'>, reason: string) {

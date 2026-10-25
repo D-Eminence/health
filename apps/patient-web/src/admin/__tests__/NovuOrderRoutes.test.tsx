@@ -39,6 +39,7 @@ function serve(permissions: string[], overrides: Partial<Record<string, () => Re
     if (override) return override()
     if (target.pathname === '/api/v1/admin/session') return json({ actor: actor(permissions), expiresAt: '2026-10-24T20:00:00Z' })
     if (target.pathname === '/api/v1/admin/order-routes') return json({ items: [FOUND] })
+    if (String(init.method) === 'POST' && target.pathname === '/api/v1/admin/order-routes/search') return json({ items: [FOUND] })
     if (target.pathname === `/api/v1/admin/order-routes/${ROUTE_ID}/close`) return json({ routeId: ROUTE_ID, version: 3, effectiveState: 'cancelled' })
     if (target.pathname === `/api/v1/admin/facilities/${FACILITY_ID}`) return json({ id: FACILITY_ID, organizationId: 'org-1',
       organizationName: 'Yaba Diagnostics Limited', name: 'Yaba Diagnostics', code: 'YD', status: 'verified', statusReason: null,
@@ -126,10 +127,24 @@ describe('orders between facilities in the Novu console', () => {
     fireEvent.change(within(row).getByLabelText('Reason for closing'), { target: { value: 'Sent to the wrong laboratory' } })
     fireEvent.click(within(row).getByLabelText(/I understand/))
     fireEvent.click(within(row).getByRole('button', { name: 'Close order' }))
-    // The Health ID goes in the address (the route takes it there): once per Find, never again to refresh a row.
-    await waitFor(() => expect(calls.filter(call => call.path === '/api/v1/admin/order-routes').map(call => call.search))
-      .toEqual(['?healthId=HID-7KQ2M9', '?reference=9C1B2D3E']))
+    // The Health ID goes in the body of the search's POST, never in an address: once per Find, never again to refresh
+    // a row, which is found again by its reference.
+    await waitFor(() => expect(calls.filter(call => call.path.startsWith('/api/v1/admin/order-routes') && !call.path.endsWith('/close'))
+      .map(call => [call.method, call.path, call.search])).toEqual([
+      ['POST', '/api/v1/admin/order-routes/search', ''], ['GET', '/api/v1/admin/order-routes', '?reference=9C1B2D3E']]))
+    const search = calls.find(call => call.path === '/api/v1/admin/order-routes/search')!
+    expect(search.body).toEqual({ healthId: 'HID-7KQ2M9' })
+    expect(search.headers.get('x-csrf-token')).toBe('csrf-token')
+    expect(calls.some(call => `${call.path}${call.search}`.includes('HID-'))).toBe(false)
     expect(await screen.findByText('9C1B2D3E')).toBeTruthy()
+  })
+
+  it('says a reference finds just that order, without claiming a Health ID goes in an address', async () => {
+    serve(SUPPORT)
+    await openAt('/admin/order-routes')
+    expect(await screen.findByText(/Use the reference when you have it: it finds just that order, where a\s+Health ID finds all of the patient’s\./))
+      .toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/address|server logs/)
   })
 
   it.each([

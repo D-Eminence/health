@@ -248,9 +248,9 @@ type CloseOutcome = 'closed' | 'ended' | 'stale'
  * Health ID, and closes one that should not stand (C21, C22). Closing ends access at both facilities at once and tells
  * both, and the patient.
  *
- * The lookup route takes the Health ID in its address (`?healthId=`), which access logs may keep: it is sent once per
- * Find. After a close, or a close refused because the order changed, the page finds that one order again by its
- * reference, never by the Health ID again.
+ * A Health ID goes in the body of the lookup's POST, never in an address, once per Find (each lookup is audited).
+ * After a close, or a close refused because the order changed, the page finds that one order again by its reference,
+ * never by the Health ID again.
  */
 export function OrderRoutesPage({ actor }: { actor: AdminActor }) {
   const [input, setInput] = useState('')
@@ -315,8 +315,8 @@ export function OrderRoutesPage({ actor }: { actor: AdminActor }) {
       <div className="admin-panel-head"><div><h2 id="order-routes-find-title">Find an order</h2>
         <p>Each order shows an 8-character reference to the clinician, the laboratory or pharmacy, and the patient. Someone who
           reports an order they didn’t expect can give it to you, or the patient’s Health ID finds all of theirs. Health ID
-          records every lookup in the audit log. Use the reference when you have it: a lookup by Health ID sends the Health ID
-          in the request’s address, which server logs may keep.</p></div></div>
+          records every lookup in the audit log. Use the reference when you have it: it finds just that order, where a
+          Health ID finds all of the patient’s.</p></div></div>
       <form className="admin-search" onSubmit={submit} role="search" aria-label="Orders by reference or Health ID">
         <label htmlFor="order-routes-lookup">Order reference (8 characters) or patient Health ID</label>
         <div><input id="order-routes-lookup" value={input} autoComplete="off" spellCheck={false} maxLength={40}
