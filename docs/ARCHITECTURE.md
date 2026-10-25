@@ -392,6 +392,25 @@ number first, with the total, finds one CAC number's
 (`POST /admin/self-service-applications/search`), lets support spare an
 applicant the 7-day refusal when rejecting or releasing (`allowRetry`), and
 lifts such a refusal (`POST /admin/self-service-applications/waive-refusal`).
+On Novu since P4b, a self-signed-up facility's session carries
+`facility.selfService` (`review`, `organizationType`). Until support's review
+the administrator holds `org_admin_awaiting_review`; a banner says what stays
+locked for the facility's type and that the review signs everyone out once.
+The Staff page (`/provider/staff`, `workforce.manage`, listed only at such a
+facility) records the administrator's own licence, invites staff (a role,
+the regulator's licence for a clinical role, an attestation and the
+administrator's password, with an `Idempotency-Key`), and resends, revokes,
+removes and changes roles with the version read. An invitation opens on the
+main site at `/provider/invitation` (Turnstile `staff-invitation`, the link's
+`#<id>.<token>` taken out of the address at once), or, for existing staff,
+signed in at `/provider/staff/join` on their own staff site: the workspace
+takes the link out of the address before its sign-in gate, holds it in
+memory for 30 minutes (the portal keeps nothing in browser storage), and a
+sign-in returns to the join page. The console's review form chooses the
+administrator's role and how support checked them, and its facility pages
+show staff and licences on demand and find an invitation by its reference.
+Laboratory and pharmacy pages of a stand-alone facility say where its work
+comes from today, in one message per case (`staff/betweenFacilities.ts`).
 A staff sign-in on a product host lands on the Overview, not the host's own
 page, when the working facility cannot use that page (`staff/navigation.ts`).
 The platform console refuses the platform enrolment of an
