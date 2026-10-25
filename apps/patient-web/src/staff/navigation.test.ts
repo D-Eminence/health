@@ -126,3 +126,28 @@ describe('role names shown to staff', () => {
     expect(roleInSentence('org_admin')).toBe('a facility administrator')
   })
 })
+
+/**
+ * P4c's three permissions (0086 §6.1): doctor and clinician gain ehr.order-route.send, lab gains lab.order-route.receive,
+ * pharmacist gains pharmacy.order-route.receive. None opens a page of its own: sending lives on the Clinical record, and
+ * Incoming on the Laboratory and Pharmacy pages those roles already open.
+ */
+describe('the sidebar with orders between facilities (P4c)', () => {
+  const at = (permissions: string[]) => visibleNavigation({ permissions }).map(item => item.label)
+  afterEach(() => { vi.unstubAllEnvs() })
+
+  it('opens no page for any of the three permissions alone', () => {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
+    for (const permission of ['ehr.order-route.send', 'lab.order-route.receive', 'pharmacy.order-route.receive']) {
+      expect(at([permission]), permission).toEqual(['Overview'])
+      expect(PROVIDER_NAVIGATION.some(item => item.permission === permission), permission).toBe(false)
+    }
+  })
+
+  it('keeps each role’s pages as they were with its new permission', () => {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
+    expect(at(['ehr.encounter.read', 'ehr.lab-request.write', 'ehr.order-route.send'])).toEqual(['Overview', 'Clinical record'])
+    expect(at(['lab.work-item.read', 'lab.order-route.receive'])).toEqual(['Overview', 'Laboratory'])
+    expect(at(['pharmacy.work-item.read', 'pharmacy.order-route.receive'])).toEqual(['Overview', 'Pharmacy'])
+  })
+})

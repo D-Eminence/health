@@ -216,6 +216,37 @@ describe('a lab request sent to another laboratory, on its row', () => {
     expect(screen.queryByText(/Lab may already be working on this request/)).toBeNull()
   })
 
+  it('says the EHR’s LAB_REQUEST_ROUTED in words when the request was sent elsewhere meanwhile, and reads the list again', async () => {
+    staff.permissions = [...DOCTOR, 'lab.work-item.accept']
+    records = [labRequest('active')]
+    api.sendLabRequestToLab.mockImplementation(async () => {
+      records = [labRequest('active', summary())]
+      throw new HidApiError(409, 'Routed', { code: 'LAB_REQUEST_ROUTED' })
+    })
+    await openLabRequests()
+    fireEvent.click(await screen.findByRole('button', { name: 'Send to Lab' }))
+    expect(await screen.findByText('This lab request was sent to a laboratory at another facility, so this facility’s Lab can’t take it. '
+      + 'The list was reloaded.')).toBeTruthy()
+    expect(await screen.findByText(/^Sent to Yaba Diagnostics: waiting for it to accept, until /)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Send to Lab' })).toBeNull()
+  })
+
+  it('says an activation was not handed to this facility’s Lab when the EHR answers ORDER_ROUTED', async () => {
+    staff.permissions = [...DOCTOR, 'lab.work-item.accept']
+    records = [labRequest('draft')]
+    api.updateRecord.mockImplementation(async () => {
+      records = [labRequest('active', summary(), '3')]
+      return { ...labRequest('active', summary(), '3'), labWorkItem: null, labHandoff: { state: 'not_sent', code: 'ORDER_ROUTED' } }
+    })
+    await openLabRequests()
+    const form = (await screen.findByLabelText(labelled('New status'))).closest('form')!
+    type(form, 'New status', 'active')
+    type(form, 'Reason for change', 'Ready to order')
+    fireEvent.click(within(form).getByRole('button', { name: 'Update status' }))
+    expect(await screen.findByText('Lab request activated. It was sent to another facility, so it was not sent to this facility’s Lab.')).toBeTruthy()
+    expect(api.sendLabRequestToLab).not.toHaveBeenCalled()
+  })
+
   it('sends a declined request elsewhere, reloading the wording when the EHR says it changed', async () => {
     records = [labRequest('active', summary({ effectiveState: 'declined', declineReason: 'test_not_offered', resendAllowed: true,
       endedAt: '2026-10-21T10:00:00.000Z' }))]

@@ -18,7 +18,8 @@ const mocks = vi.hoisted(() => ({
   api: { selfServiceFacilities: vi.fn(), reviewSelfServiceFacility: vi.fn(), releaseSelfServiceFacility: vi.fn(),
     selfServiceApplications: vi.fn(), searchSelfServiceApplications: vi.fn(), rejectSelfServiceApplication: vi.fn(),
     waiveSelfServiceRefusals: vi.fn(), principals: vi.fn(), stepUp: vi.fn(), setSelfServiceAdministratorRole: vi.fn(),
-    endSelfServiceProbation: vi.fn(), facilityStaff: vi.fn(), findStaffInvitations: vi.fn() },
+    endSelfServiceProbation: vi.fn(), facilityStaff: vi.fn(), findStaffInvitations: vi.fn(),
+    facilityOrderRouteSummary: vi.fn() },
 }))
 vi.mock('../api', () => ({ adminApi: mocks.api, PAGE_SIZE: 25, newIdempotencyKey: () => 'key-1' }))
 
@@ -303,6 +304,28 @@ describe('releasing a sign-up', () => {
       + 'let the applicant start again, this sign-up’s email and network can’t sign up this CAC number and product again for '
       + '7 days.')
     expect(within(item).queryByText(/^To release this sign-up/)).toBeNull()
+  })
+
+  it('counts the orders it accepted from other facilities, and says releasing ends its open ones both ways (P4c)', async () => {
+    mocks.api.selfServiceFacilities.mockResolvedValue({ items: [stopped({ organizationType: 'laboratory' })] })
+    mocks.api.facilityOrderRouteSummary.mockResolvedValue({ facilityId: FACILITY_ID, listed: { value: true, byDefault: true,
+      reason: null, setAt: null }, receivedAcceptedLifetime: 4, receivedPatientsLifetime: 3, counterparts: [] })
+    open(<SelfServiceFacilitiesPage actor={actor(REVIEWER)} />)
+    const item = await card('IKEJA CARE LIMITED')
+    fireEvent.click(releaseSummary(item)!)
+    expect(await within(item).findByText('IKEJA CARE LIMITED accepted 4 orders from other facilities for 3 patients. Releasing '
+      + 'it withdraws or cancels its open orders with other facilities, both ways, and tells those patients.')).toBeTruthy()
+    expect(mocks.api.facilityOrderRouteSummary).toHaveBeenCalledWith(FACILITY_ID, expect.anything())
+  })
+
+  it('still says what releasing does to its orders when the summary can’t be read', async () => {
+    mocks.api.selfServiceFacilities.mockResolvedValue({ items: [stopped()] })
+    mocks.api.facilityOrderRouteSummary.mockRejectedValue(new HidApiError(404, 'Cannot GET', { code: 'NOT_FOUND' }))
+    open(<SelfServiceFacilitiesPage actor={actor(REVIEWER)} />)
+    const item = await card('IKEJA CARE LIMITED')
+    fireEvent.click(releaseSummary(item)!)
+    expect(within(item).getByText('Releasing it withdraws or cancels its open orders with other facilities, both ways, and '
+      + 'tells those patients.')).toBeTruthy()
   })
 
   it('needs a reason of 8 to 500 characters and the confirmation, sends the version listed, then reads the list again', async () => {
@@ -935,6 +958,24 @@ describe('full access after review (P4b)', () => {
     expect(within(item).getByLabelText(`${body} licence number`)).toBeTruthy()
     expect(within(item).getByText(/^Marking this reviewed gives/).textContent).toContain(warning)
     expect(within(item).getByText(/^Marking this reviewed gives/).textContent).not.toContain('emergency access')
+  })
+
+  it('says a laboratory checked by Other is not listed for orders from other facilities until support lists it (P4c)', async () => {
+    mocks.api.selfServiceFacilities.mockResolvedValue({ items: [signUp({ organizationType: 'laboratory', productCode: 'laboratory',
+      reviewGrantsRole: 'lab', reviewableRoles: ['lab'] }), hospital({ applicationId: 'app-2', facilityName: 'Ikeja Clinic' })] })
+    open(<SelfServiceFacilitiesPage actor={actor(REVIEWER)} />)
+    const lab = await card('IKEJA CARE LIMITED')
+    fillReview(lab, 'Called the laboratory; confirmed.', 'other')
+    expect(within(lab).getByText(/^Because you chose Other/).textContent).toBe('Because you chose Other, IKEJA CARE LIMITED is '
+      + 'not listed for orders from other facilities until you list it on its Facilities page.')
+    expect(within(lab).getByLabelText('I checked this facility and its administrator. They may now see patient records and '
+      + 'receive orders from other facilities.')).toBeTruthy()
+    fireEvent.change(within(lab).getByLabelText('How did you check?'), { target: { value: 'officer_match' } })
+    expect(within(lab).queryByText(/^Because you chose Other/)).toBeNull()
+    const clinic = await card('Ikeja Clinic')
+    fillReview(clinic, 'Called the clinic; confirmed.', 'other')
+    expect(within(clinic).queryByText(/^Because you chose Other/)).toBeNull()
+    expect(within(clinic).getByLabelText('I checked this facility and its administrator. They may now see patient records.')).toBeTruthy()
   })
 
   it('preselects nothing clinical for another kind of provider (Q3)', async () => {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { PRODUCTS, findProduct } from '../content/products'
+import { PRODUCT_DETAILS } from '../content/product-details'
 import { AUDIENCES, ROUTES, SOLUTION_AUDIENCES, TRUST } from '../content/site'
 import { PATIENT_FAQ, PATIENT_JOURNEY } from '../content/patient'
 import { PRIVACY_PAGE, SOLUTIONS_PAGE } from '../content/pages'
@@ -47,6 +48,16 @@ describe('product catalogue', () => {
   it('finds a product by slug and reports an unknown one', () => {
     expect(findProduct('ehr')?.name).toBe('Health ID EHR')
     expect(findProduct('cardiology')).toBeUndefined()
+  })
+})
+
+describe('pharmacy product', () => {
+  // A pharmacist cannot write prescriptions (P4c SPEC-FINAL §13.7): the pharmacy receives them from clinicians.
+  it('says a pharmacy receives the prescriptions Health ID clinicians send, and never that it creates them', () => {
+    const pharmacy = PRODUCT_DETAILS.find(product => product.slug === 'pharmacy')
+    expect(pharmacy?.workflows.find(workflow => workflow.title === 'Prescription management')?.body)
+      .toBe('Receive prescriptions that Health ID clinicians send you, and record what you dispense.')
+    expect(JSON.stringify(pharmacy)).not.toMatch(/create new prescriptions|walk-in patients/i)
   })
 })
 
