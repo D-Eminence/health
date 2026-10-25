@@ -12,11 +12,13 @@ import { Laboratory, Pharmacy } from '../Operations'
  * above the list.
  */
 const api = vi.hoisted(() => ({ labWorkItems: vi.fn(), pharmacyWorkItems: vi.fn(), createLabAccession: vi.fn(), dispense: vi.fn() }))
-const working = vi.hoisted(() => ({ permissions: [] as string[] }))
+const working = vi.hoisted(() => ({ permissions: [] as string[], selfService: undefined as
+  { review: string; organizationType: string } | undefined }))
 vi.mock('../../api', () => ({ staffApi: api, orderRoutesApi: { incoming: vi.fn(async () => ({ items: [], crossFacilityOrders: true, crossFacilityWork: true })) } }))
 vi.mock('../../App', () => ({
   useStaff: () => ({ state: { status: 'ready', session: { actor: { facility: { id: 'facility-1', membershipId: 'member-1',
-    name: 'Yaba Diagnostics', roles: ['lab'], permissions: working.permissions } } } } }),
+    name: 'Yaba Diagnostics', roles: ['lab'], permissions: working.permissions,
+    ...(working.selfService ? { selfService: working.selfService } : {}) } } } } }),
 }))
 
 const routed = (overrides: Record<string, unknown> = {}) => ({ id: 'w-routed', patientId: 'a0000000-0000-4000-8000-0000004f9c2e',
@@ -32,6 +34,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
   working.permissions = ['lab.work-item.read', 'lab.accession.create']
+  working.selfService = undefined
   api.labWorkItems.mockResolvedValue({ items: [routed(), local], crossFacilityOrders: true, crossFacilityWork: true })
 })
 afterEach(() => { vi.unstubAllEnvs() })
@@ -81,6 +84,33 @@ describe('work from another facility on the Laboratory page', () => {
     fireEvent.change(screen.getByLabelText(/^Reason/), { target: { value: 'Collect at the counter' } })
     fireEvent.click(screen.getByRole('button', { name: 'Create accession' }))
     expect(await screen.findByText('Health ID has paused work on orders from other facilities. Try again later.')).toBeTruthy()
+  })
+
+  it('says work from other facilities is paused, and hidden, when the list is paused and shows none (the backend’s answer)', async () => {
+    // With route access off, Lab hides every route-backed item: the list holds this facility's own work only.
+    working.permissions = ['lab.work-item.read', 'lab.accession.create', 'lab.order-route.receive']
+    working.selfService = { review: 'reviewed', organizationType: 'laboratory' }
+    api.labWorkItems.mockResolvedValue({ items: [local], crossFacilityOrders: true, crossFacilityWork: false })
+    render(<MemoryRouter><Laboratory /></MemoryRouter>)
+    expect(await screen.findByText('Work on orders from other facilities is paused by Health ID: any you accepted are hidden from '
+      + 'this list until it resumes. They are not cancelled.')).toBeTruthy()
+  })
+
+  it('says it at a pharmacy too, even with nothing listed', async () => {
+    working.permissions = ['pharmacy.work-item.read', 'pharmacy.order-route.receive']
+    working.selfService = { review: 'reviewed', organizationType: 'pharmacy' }
+    api.pharmacyWorkItems.mockResolvedValue({ items: [], crossFacilityOrders: true, crossFacilityWork: false })
+    render(<MemoryRouter><Pharmacy /></MemoryRouter>)
+    expect(await screen.findByText(/^Work on orders from other facilities is paused by Health ID: any you accepted are hidden/)).toBeTruthy()
+  })
+
+  it('says nothing of a pause at a hospital’s laboratory, which is never sent orders', async () => {
+    working.permissions = ['lab.work-item.read', 'lab.order-route.receive']
+    working.selfService = { review: 'reviewed', organizationType: 'hospital' }
+    api.labWorkItems.mockResolvedValue({ items: [local], crossFacilityOrders: true, crossFacilityWork: false })
+    render(<MemoryRouter><Laboratory /></MemoryRouter>)
+    await screen.findByText('Malaria parasite')
+    expect(screen.queryByText(/paused by Health ID/)).toBeNull()
   })
 
   it('says nothing of other facilities on a list without such work', async () => {

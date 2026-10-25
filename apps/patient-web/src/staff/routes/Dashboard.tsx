@@ -8,6 +8,7 @@ import { FacilityCheckCard } from './ReviewBanner'
 import { usesNovuBackend } from '../../backendContract'
 import { isHidApiError } from '@hid/http'
 import { roleLabels } from '../staffAccess'
+import { receivingHere } from '../orderRoutes'
 
 const modules = [
   { title: 'Patient access', to: '/provider/patients', permission: 'identity.patient.read', detail: 'Look up a Health ID after consent, patient PIN, or emergency authorization.' },
@@ -20,9 +21,13 @@ const modules = [
 
 /**
  * Orders other facilities sent here, waiting to be accepted (Novu, P4c, SPEC-FINAL §13.5), for a member who receives
- * them: a laboratory scientist or a pharmacist. A backend without the route (404) shows no card.
+ * them: a laboratory scientist or a pharmacist, at a laboratory or pharmacy (receivingHere). At a governed facility,
+ * whose type the session does not say (`unsure`), a count is shown only when orders are waiting: a hospital's own
+ * laboratory or pharmacy is never sent any, so "0 waiting" would promise orders that cannot come. A backend without the
+ * route (404) shows no card. Each read is audited, so it is read once, when the Overview opens.
  */
-function IncomingOrdersCard({ facilityId, facilityName, services }: { facilityId: string; facilityName: string; services: readonly ReceivingService[] }) {
+function IncomingOrdersCard({ facilityId, facilityName, services, unsure }: { facilityId: string; facilityName: string
+  services: readonly ReceivingService[]; unsure: readonly ReceivingService[] }) {
   const [counts, setCounts] = useState<Partial<Record<ReceivingService, number | 'failed' | 'missing'>>>({})
   const wanted = services.join(',')
   useEffect(() => {
@@ -35,7 +40,12 @@ function IncomingOrdersCard({ facilityId, facilityName, services }: { facilityId
     }
     return () => { active = false }
   }, [facilityId, wanted])
-  const shown = services.filter(service => counts[service] !== 'missing')
+  const shown = services.filter(service => {
+    const count = counts[service]
+    if (count === 'missing') return false
+    // Where the facility may not receive at all, only orders actually waiting are said.
+    return !unsure.includes(service) || (typeof count === 'number' && count > 0)
+  })
   if (shown.length === 0) return null
   return <Card className="staff-card"><h2>Incoming orders</h2>
     {shown.map(service => {
@@ -66,9 +76,10 @@ export function Dashboard() {
   }, [facility?.id])
 
   if (!session) return null
-  // Who receives orders from other facilities here (Novu, P4c): laboratory scientists and pharmacists.
-  const receiving: ReceivingService[] = [...(permissions.includes('lab.order-route.receive') ? ['lab' as const] : []),
-    ...(permissions.includes('pharmacy.order-route.receive') ? ['pharmacy' as const] : [])]
+  // Who receives orders from other facilities here (Novu, P4c): laboratory scientists and pharmacists, at a laboratory
+  // or pharmacy. A hospital or clinic that signed itself up is never sent any, so it reads nothing.
+  const receiving = (['lab', 'pharmacy'] as const).filter(service => receivingHere(facility, service) !== 'no')
+  const unsure = receiving.filter(service => receivingHere(facility, service) === 'unknown')
   return <>
     <div className="staff-page-head"><p className="staff-eyebrow">Provider workspace</p><h1>Good to see you, {session.actor.displayName?.split(' ')[0] ?? 'colleague'}.</h1><p>Working at {facility?.name ?? 'no selected facility'}. All clinical activity uses your current membership and is checked by the backend.</p></div>
     {!facility && <Card className="staff-card"><h2>Select a facility</h2><p>Choose your active facility above to open permitted workflows.</p></Card>}
@@ -76,7 +87,7 @@ export function Dashboard() {
       <Card className="staff-card"><h2>Active facility</h2><p>{facility.name}</p><Badge tone="information">{(usesNovuBackend() ? roleLabels(facility.roles) : facility.roles.join(', ')) || 'Staff'}</Badge></Card>
       <FacilityCheckCard facility={facility} />
       {permissions.includes('identity.consent.write') && <Card className="staff-card"><h2>Access requests</h2><p>{requests ? `${requests.filter(request => request.status === 'pending').length} pending request${requests.filter(request => request.status === 'pending').length === 1 ? '' : 's'}` : loadError || 'Loading requests…'}</p><Link to="/provider/requests" className="staff-text-link">Review requests →</Link></Card>}
-      {usesNovuBackend() && receiving.length > 0 && <IncomingOrdersCard facilityId={facility.id} facilityName={facility.name} services={receiving} />}
+      {usesNovuBackend() && receiving.length > 0 && <IncomingOrdersCard facilityId={facility.id} facilityName={facility.name} services={receiving} unsure={unsure} />}
       {activePatient && <Card className="staff-card"><h2>Current patient</h2><p>{activePatient.lookup.patient.fullName ?? activePatient.hid}</p><Link to="/provider/clinical" className="staff-text-link">Open clinical record →</Link></Card>}
     </div>}
     <section className="staff-section"><h2>Workspaces</h2><div className="staff-grid">{modules.filter(module => permissions.includes(module.permission)).map(module => <Link className="staff-module" key={module.to} to={module.to}><strong>{module.title}</strong><span>{module.detail}</span><small>Open workspace →</small></Link>)}</div>{facility && modules.every(module => !permissions.includes(module.permission)) && <p className="staff-muted">Your active facility has no clinical module permissions. Ask an administrator to review your assignment.</p>}</section>

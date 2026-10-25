@@ -14,11 +14,13 @@ import { INCOMING_REFRESH_MS } from '../IncomingOrders'
  */
 const api = vi.hoisted(() => ({ labWorkItems: vi.fn(), pharmacyWorkItems: vi.fn() }))
 const routes = vi.hoisted(() => ({ incoming: vi.fn(), accept: vi.fn(), decline: vi.fn() }))
-const working = vi.hoisted(() => ({ permissions: [] as string[] }))
+const working = vi.hoisted(() => ({ permissions: [] as string[], selfService: undefined as
+  { review: string; organizationType: string } | undefined }))
 vi.mock('../../api', () => ({ staffApi: api, orderRoutesApi: routes }))
 vi.mock('../../App', () => ({
   useStaff: () => ({ state: { status: 'ready', session: { actor: { facility: { id: 'facility-1', membershipId: 'member-1',
-    name: 'Yaba Diagnostics', roles: ['lab'], permissions: working.permissions } } } } }),
+    name: 'Yaba Diagnostics', roles: ['lab'], permissions: working.permissions,
+    ...(working.selfService ? { selfService: working.selfService } : {}) } } } } }),
 }))
 
 const LAB = ['lab.work-item.read', 'lab.order-route.receive']
@@ -41,6 +43,8 @@ beforeEach(() => {
   vi.clearAllMocks()
   vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
   working.permissions = LAB
+  // A laboratory that signed itself up and that Health ID support checked: one that receives lab requests.
+  working.selfService = { review: 'reviewed', organizationType: 'laboratory' }
   api.labWorkItems.mockResolvedValue({ items: [], crossFacilityOrders: true, crossFacilityWork: true })
   api.pharmacyWorkItems.mockResolvedValue({ items: [], crossFacilityOrders: true, crossFacilityWork: true })
   routes.incoming.mockResolvedValue({ items: [incomingLab()], crossFacilityOrders: true, crossFacilityWork: true })
@@ -72,6 +76,36 @@ describe('Incoming at a laboratory', () => {
     fireEvent.change(within(incoming).getByLabelText('Find by Health ID'), { target: { value: '1985-03-12' } })
     fireEvent.click(within(incoming).getByRole('button', { name: 'Find' }))
     expect(await within(incoming).findByText(/^Check the Health ID: it starts with HID-/)).toBeTruthy()
+  })
+
+  it('sends a Health ID only when asked: never again by the timer or on focus, and not after the order is accepted', async () => {
+    const every = vi.spyOn(window, 'setInterval')
+    routes.accept.mockResolvedValue(ACCEPTED)
+    const incoming = await openLaboratory()
+    fireEvent.change(within(incoming).getByLabelText('Find by Health ID'), { target: { value: 'HID-7KQ2M9' } })
+    fireEvent.click(within(incoming).getByRole('button', { name: 'Find' }))
+    await waitFor(() => expect(routes.incoming).toHaveBeenLastCalledWith('facility-1', 'lab', 'HID-7KQ2M9'))
+    expect(within(incoming).getByText(/^Showing the orders for HID-7KQ2M9 only\./)).toBeTruthy()
+    const withHealthId = () => routes.incoming.mock.calls.filter(call => call[2] !== undefined).length
+    expect(withHealthId()).toBe(1)
+    // While one patient's orders are shown, the window's focus and the 2-minute timer read nothing.
+    every.mockClear()
+    act(() => { window.dispatchEvent(new Event('focus')) })
+    expect(every).not.toHaveBeenCalledWith(expect.any(Function), INCOMING_REFRESH_MS)
+    expect(withHealthId()).toBe(1)
+    // Refresh is asked for: it reads that patient's orders again.
+    fireEvent.click(within(incoming).getByRole('button', { name: 'Refresh incoming' }))
+    await waitFor(() => expect(withHealthId()).toBe(2))
+    // Accepting the order goes back to every order, without the Health ID.
+    fireEvent.click(await within(incoming).findByRole('button', { name: 'Accept' }))
+    fireEvent.change(within(incoming).getByLabelText(/^Patient’s Health ID/), { target: { value: 'HID-7KQ2M9' } })
+    routes.incoming.mockResolvedValue({ items: [], crossFacilityOrders: true, crossFacilityWork: true })
+    fireEvent.click(within(incoming).getByRole('button', { name: 'Accept order' }))
+    expect(await within(incoming).findByText('Accepted: Haemoglobin.')).toBeTruthy()
+    await waitFor(() => expect(routes.incoming).toHaveBeenLastCalledWith('facility-1', 'lab', undefined))
+    expect(withHealthId()).toBe(2)
+    expect((within(incoming).getByLabelText('Find by Health ID') as HTMLInputElement).value).toBe('')
+    every.mockRestore()
   })
 
   it('accepts with the patient’s Health ID, then names the patient and refreshes the work list', async () => {
@@ -178,6 +212,7 @@ describe('Incoming at a laboratory', () => {
 describe('Incoming at a pharmacy', () => {
   beforeEach(() => {
     working.permissions = PHARMACIST
+    working.selfService = { review: 'reviewed', organizationType: 'pharmacy' }
     routes.incoming.mockResolvedValue({ items: [incomingRx()], crossFacilityOrders: true, crossFacilityWork: true })
   })
 
@@ -211,5 +246,67 @@ describe('Incoming at a pharmacy', () => {
     const reason = within(incoming).getByLabelText('Why can’t you take it?') as HTMLSelectElement
     expect([...reason.options].map(option => option.text)).toEqual(['Choose a reason', 'The medicine isn’t available',
       'It can’t be done at this priority', 'The patient didn’t come', 'Another reason'])
+  })
+})
+
+/**
+ * Only a laboratory receives lab requests, and only a pharmacy prescriptions (owner decision Q4): the receive permission
+ * comes with the lab and pharmacist roles at every facility, but a hospital's or clinic's own laboratory or pharmacy is
+ * never found or sent orders. No answer says whether this facility receives (P4c review), so the page goes by the
+ * session's facility type, and for a governed facility, whose type the session does not carry, by whether there is work
+ * from another facility to show.
+ */
+describe('a laboratory scientist or pharmacist where orders from other facilities never come', () => {
+  it.each([['hospital'], ['clinic'], ['other']])('at a %s that signed itself up: no Incoming, no claim, no read', async type => {
+    working.selfService = { review: 'reviewed', organizationType: type }
+    render(<MemoryRouter><Laboratory /></MemoryRouter>)
+    expect(await screen.findByText('Accepted EHR test orders at this facility. A separate accession records the specimen chain of custody.')).toBeTruthy()
+    await waitFor(() => expect(api.labWorkItems).toHaveBeenCalled())
+    expect(routes.incoming).not.toHaveBeenCalled()
+    expect(screen.queryByRole('heading', { name: /^Incoming/ })).toBeNull()
+    expect(document.body.textContent).not.toMatch(/other facilities|paused orders/)
+  })
+
+  it('at a pharmacy’s Laboratory page: a pharmacy receives no lab requests', async () => {
+    working.selfService = { review: 'reviewed', organizationType: 'pharmacy' }
+    render(<MemoryRouter><Laboratory /></MemoryRouter>)
+    await waitFor(() => expect(api.labWorkItems).toHaveBeenCalled())
+    expect(routes.incoming).not.toHaveBeenCalled()
+  })
+
+  it('at a governed facility with nothing waiting: one read when the page opens, then nothing said or read again', async () => {
+    working.selfService = undefined
+    const every = vi.spyOn(window, 'setInterval')
+    routes.incoming.mockResolvedValue({ items: [], crossFacilityOrders: false, crossFacilityWork: true })
+    render(<MemoryRouter><Laboratory /></MemoryRouter>)
+    await waitFor(() => expect(routes.incoming).toHaveBeenCalledTimes(1))
+    expect(screen.getByText('Accepted EHR test orders at this facility. A separate accession records the specimen chain of custody.')).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: /^Incoming/ })).toBeNull()
+    expect(document.body.textContent).not.toMatch(/other facilities|paused orders/)
+    expect(every).not.toHaveBeenCalledWith(expect.any(Function), INCOMING_REFRESH_MS)
+    act(() => { window.dispatchEvent(new Event('focus')) })
+    expect(routes.incoming).toHaveBeenCalledTimes(1)
+    every.mockRestore()
+  })
+
+  it('at a governed facility with an order waiting: shows Incoming, says it receives them, and reads it every 2 minutes', async () => {
+    working.selfService = undefined
+    const every = vi.spyOn(window, 'setInterval')
+    await openLaboratory()
+    expect(await screen.findByText('Tests ordered at this facility, and lab requests from other facilities once you accept them. A separate accession records the specimen chain of custody.')).toBeTruthy()
+    await waitFor(() => expect(every).toHaveBeenCalledWith(expect.any(Function), INCOMING_REFRESH_MS))
+    every.mockRestore()
+  })
+
+  it('at a governed facility with accepted work from another facility: says it receives them, and keeps Incoming in view', async () => {
+    working.selfService = undefined
+    routes.incoming.mockResolvedValue({ items: [], crossFacilityOrders: true, crossFacilityWork: true })
+    api.labWorkItems.mockResolvedValue({ items: [{ id: 'w1', patientId: 'a0000000-0000-4000-8000-0000004f9c2e', version: 1,
+      status: 'accepted', testName: 'Haemoglobin', accessionId: null, accessionNumber: null, acceptedAt: '2026-10-21T10:00:00.000Z',
+      orderRoute: { id: 'r1', reference: '9C1B2D3E', effectiveState: 'accepted', access: 'work', orderingFacilityName: 'General Hospital',
+        ordererName: 'Dr Ade Okon' } }], crossFacilityOrders: true, crossFacilityWork: true })
+    render(<MemoryRouter><Laboratory /></MemoryRouter>)
+    expect(await screen.findByRole('heading', { name: 'Incoming (0)' })).toBeTruthy()
+    expect(screen.getByText(/^Tests ordered at this facility, and lab requests from other facilities/)).toBeTruthy()
   })
 })

@@ -1879,7 +1879,12 @@ export const orderRoutesApi = {
     client.post<{ route: OrderRouteSummary }>(
       `${orderRoutesPath(patientId, encounterId, kind, orderId)}/${encodeURIComponent(route.id)}/withdraw`,
       { expectedVersion: route.version, reason }, { headers: facilityHeaders(facilityId, 'direct-care') }),
-  /** Orders other facilities sent here, waiting to be accepted; a Health ID finds one patient's. */
+  /**
+   * Orders other facilities sent here, waiting to be accepted; a Health ID finds one patient's. The route takes the
+   * Health ID in its query string, which gateway access logs keep with the request line, so callers send one only when
+   * the person asks (IncomingOrders: Find or Refresh, never the timer or focus). A body-carried search needs a backend
+   * route that does not exist yet (P4c review; owner item D19).
+   */
   incoming: (facilityId: string, service: ReceivingService, healthId?: string) =>
     client.get<IncomingOrderRoutes>(`/api/v1/${service}/order-routes`, {
       query: { view: 'incoming', ...(healthId ? { healthId } : {}) }, headers: facilityHeaders(facilityId, 'direct-care'),

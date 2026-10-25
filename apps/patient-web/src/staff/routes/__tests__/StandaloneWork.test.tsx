@@ -35,10 +35,14 @@ const LAB_NOTE = 'Lab work arrives here from tests ordered at Yaba Diagnostics: 
 const PHARMACY_NOTE = 'Prescriptions written at Yaba Diagnostics appear here. Health ID is not sending prescriptions from '
   + 'hospitals and clinics to pharmacies at the moment, so this list stays empty for now.'
 // P4c: with orders between facilities on.
-const LAB_NOTE_ON = 'Lab work arrives from tests ordered at Yaba Diagnostics and from Health ID clinicians at other facilities who '
-  + 'send them to you: accept those under Incoming, with the patient in front of you.'
-const PHARMACY_NOTE_ON = 'Prescriptions that Health ID clinicians at other facilities send Yaba Diagnostics appear under Incoming. '
-  + 'Accept one when the patient is at your counter: it then moves to the list below for dispensing.'
+// Listing is not in any answer the workspace reads (support may record its check as Other, or stop listing it): the
+// copy says orders come while it is listed, and whom to ask when none come (P4c review).
+const LAB_NOTE_ON = 'Lab work arrives from tests ordered at Yaba Diagnostics, and from Health ID clinicians at other facilities '
+  + 'while Health ID lists Yaba Diagnostics for their orders: accept those under Incoming, with the patient in front of you. If '
+  + 'none ever arrive, ask Health ID support whether Yaba Diagnostics is listed.'
+const PHARMACY_NOTE_ON = 'Prescriptions that Health ID clinicians at other facilities send Yaba Diagnostics appear under Incoming, '
+  + 'while Health ID lists Yaba Diagnostics for their orders. Accept one when the patient is at your counter: it then moves to the '
+  + 'list below for dispensing. If none ever arrive, ask Health ID support whether Yaba Diagnostics is listed.'
 
 describe('where a stand-alone laboratory’s or pharmacy’s work comes from', () => {
   it('is said on a reviewed laboratory’s Laboratory page', async () => {

@@ -100,6 +100,35 @@ describe('the Incoming orders card', () => {
     expect(await screen.findByText('1 prescription from other facilities waiting at General Hospital')).toBeTruthy()
   })
 
+  it('says none are waiting at a laboratory that signed itself up and was checked', async () => {
+    staff.permissions = ['lab.work-item.read', 'lab.order-route.receive']
+    staff.selfService = { review: 'reviewed', organizationType: 'laboratory' }
+    routes.incoming.mockResolvedValue({ items: [], crossFacilityOrders: true, crossFacilityWork: true })
+    open()
+    expect(await screen.findByText('0 lab requests from other facilities waiting at General Hospital')).toBeTruthy()
+  })
+
+  it('is not shown, and nothing is read, at a hospital or clinic that signed itself up: they are never sent orders', async () => {
+    staff.permissions = ['lab.work-item.read', 'lab.order-route.receive', 'pharmacy.work-item.read', 'pharmacy.order-route.receive']
+    for (const type of ['hospital', 'clinic']) {
+      staff.selfService = { review: 'reviewed', organizationType: type }
+      const { unmount } = render(<MemoryRouter><Dashboard /></MemoryRouter>)
+      expect(await screen.findByRole('link', { name: /Laboratory/ })).toBeTruthy()
+      expect(screen.queryByRole('heading', { name: 'Incoming orders' })).toBeNull()
+      unmount()
+    }
+    expect(routes.incoming).not.toHaveBeenCalled()
+  })
+
+  it('at a governed facility, whose type the session does not say, is shown only while orders are waiting', async () => {
+    staff.permissions = ['lab.work-item.read', 'lab.order-route.receive']
+    routes.incoming.mockResolvedValue({ items: [], crossFacilityOrders: true, crossFacilityWork: true })
+    open()
+    await waitFor(() => expect(routes.incoming).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(screen.queryByText(/waiting at General Hospital/)).toBeNull())
+    expect(screen.queryByRole('heading', { name: 'Incoming orders' })).toBeNull()
+  })
+
   it('is not shown where the backend has no such route, nor to a member who receives none', async () => {
     staff.permissions = ['lab.work-item.read', 'lab.order-route.receive']
     routes.incoming.mockRejectedValue(new HidApiError(404, 'Cannot GET', { code: 'NOT_FOUND' }))

@@ -1,5 +1,7 @@
 import { isHidApiError } from '@hid/http'
-import type { OrderRouteDeclineReason, OrderRouteKind, OrderRouteSummary, OrderRouteWithdrawReason } from './api'
+import type { Facility, OrderRouteDeclineReason, OrderRouteKind, OrderRouteSummary, OrderRouteWithdrawReason, ReceivingService } from './api'
+import { usesNovuBackend } from '../backendContract'
+import { selfServiceReview, selfServiceType } from './staffAccess'
 
 /**
  * The words of orders between facilities (Novu, P4c, SPEC-FINAL §13): what a clinician, a laboratory scientist or a
@@ -215,6 +217,27 @@ export function sendRefusal(error: unknown, kind: OrderRouteKind, facility: stri
   if (isHidApiError(error) && error.status === 400) return { reload: true, text: 'The order could not be sent as it is. Reload the page and try again.' }
   if (unanswered(error)) return { reload: true, unanswered: true, text: 'Health ID did not answer, so the order may or may not have been sent. Check the list before sending it again.' }
   return { text: 'The order could not be sent. Try again.' }
+}
+
+/**
+ * Whether the working facility receives this kind of order from other facilities, as far as the session can tell
+ * (Novu, P4c). The receive permission comes with the lab and pharmacist roles at every facility, but only a laboratory
+ * (lab requests) or a pharmacy (prescriptions) can be found and sent orders (owner decision Q4;
+ * identity.order_route_destination_eligible): a hospital's or clinic's own laboratory or pharmacy is not a receiver. No
+ * answer says whether this facility receives, so the session's facility type decides what the portal says:
+ * - 'no': no receive permission, a main-v1 build, or a facility that signed itself up as anything but this kind;
+ * - 'yes': a laboratory (pharmacy) that signed itself up and that Health ID support has checked;
+ * - 'unknown': a governed or legacy facility, whose type the session does not carry. The pages then claim nothing
+ *   about other facilities until there is work from one to show (see IncomingOrders' `probe`).
+ * Copy only: Lab and Pharmacy decide every request.
+ */
+export function receivingHere(facility: Pick<Facility, 'permissions' | 'selfService'> | undefined | null,
+  service: ReceivingService): 'yes' | 'no' | 'unknown' {
+  if (!facility || !usesNovuBackend()) return 'no'
+  if (!facility.permissions.includes(service === 'lab' ? 'lab.order-route.receive' : 'pharmacy.order-route.receive')) return 'no'
+  const type = selfServiceType(facility)
+  if (type === null) return 'unknown'
+  return type === (service === 'lab' ? 'laboratory' : 'pharmacy') && selfServiceReview(facility) === 'reviewed' ? 'yes' : 'no'
 }
 
 /** What a refused withdrawal means. */

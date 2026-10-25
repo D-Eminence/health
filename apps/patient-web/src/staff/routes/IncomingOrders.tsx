@@ -52,9 +52,16 @@ export function patientCard(patient: { fullName: string; sex: string | null; dat
  * is accepted, with their Health ID or date of birth; five wrong tries lock that order here. Read when the page opens,
  * when the window comes back into focus, and every 2 minutes while the page is in view. A backend without the route
  * (404) shows nothing.
+ *
+ * Each read is audited (lab.order-route.list / pharmacy.order-route.list). With `probe` (a governed facility, whose
+ * type the session does not say: it may be a hospital, which never receives), the list is read once, when the page
+ * opens, and nothing is shown or read again unless an order is waiting: then `onFound` says so, and the page treats the
+ * facility as receiving. A Health ID typed to find a patient's orders is sent only when Find or Refresh is pressed, or
+ * an order is acted on: never by the timer or on focus, since the route takes it in the address (`?healthId=`).
  */
-export function IncomingOrders({ service, facilityId, facilityName, onAccepted }: {
+export function IncomingOrders({ service, facilityId, facilityName, onAccepted, probe = false, onFound }: {
   service: ReceivingService; facilityId: string; facilityName: string; onAccepted: () => void
+  probe?: boolean; onFound?: () => void
 }) {
   const [answer, setAnswer] = useState<IncomingOrderRoutes | null>(null)
   const [missing, setMissing] = useState(false)
@@ -84,13 +91,21 @@ export function IncomingOrders({ service, facilityId, facilityName, onAccepted }
     } finally { if (request === sequence.current) setLoading(false) }
   }, [facilityId, service])
 
+  // Read when the page opens, and once for each Health ID asked for.
   useEffect(() => {
     void load(filter)
-    const again = () => { if (document.visibilityState === 'visible') void load(filter) }
+    return () => { sequence.current += 1 }
+  }, [load, filter])
+  // Read again every 2 minutes and on focus: only at a facility that receives, and never with a Health ID.
+  useEffect(() => {
+    if (probe || filter) return
+    const again = () => { if (document.visibilityState === 'visible') void load('') }
     const timer = window.setInterval(again, INCOMING_REFRESH_MS)
     window.addEventListener('focus', again)
-    return () => { window.clearInterval(timer); window.removeEventListener('focus', again); sequence.current += 1 }
-  }, [load, filter])
+    return () => { window.clearInterval(timer); window.removeEventListener('focus', again) }
+  }, [load, filter, probe])
+  const waiting = Boolean(answer && answer.items.length > 0)
+  useEffect(() => { if (probe && waiting) onFound?.() }, [probe, waiting, onFound])
 
   function find(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -100,7 +115,7 @@ export function IncomingOrders({ service, facilityId, facilityName, onAccepted }
     setFilterError(''); setNotice(''); setFilter(value)
   }
 
-  if (missing) return null
+  if (missing || (probe && !waiting)) return null
   const items = answer?.items ?? []
   const ordersOn = answer?.crossFacilityOrders !== false
   const word = service === 'lab' ? 'lab requests' : 'prescriptions'
@@ -120,6 +135,8 @@ export function IncomingOrders({ service, facilityId, facilityName, onAccepted }
       </Field>
       <div className="staff-row"><Button type="submit" tone="secondary" size="sm">Find</Button>
         {filter && <Button tone="quiet" size="sm" onClick={() => { setHealthId(''); setFilter(''); setFilterError('') }}>Show all</Button>}</div>
+      {filter && <p className="staff-muted">Showing the orders for {filter} only. This list is not refreshed on its own while it
+        shows one patient’s orders: press Refresh incoming, or Show all.</p>}
     </form>
     <div role="status">{notice && <p className="staff-success">{notice}</p>}{loading && !answer && <p className="staff-muted">Loading incoming orders…</p>}</div>
     {accepted && <AcceptedPanel service={service} title={accepted.title} result={accepted.result} onClose={() => setAccepted(null)} />}
@@ -130,7 +147,9 @@ export function IncomingOrders({ service, facilityId, facilityName, onAccepted }
       service={service} facilityId={facilityId} facilityName={facilityName} route={route} ordersOn={ordersOn}
       onAccepted={result => {
         setAccepted({ title: orderTitle(route, service), result }); setNotice('')
-        onAccepted(); void load(filter)
+        onAccepted()
+        // The patient's order is accepted: the list goes back to every order, without their Health ID.
+        if (filter) { setHealthId(''); setFilter('') } else void load('')
       }}
       onDeclined={() => { setNotice(`Declined. ${route.orderingFacilityName ?? 'The ordering facility'} is told.`); void load(filter) }}
       onStale={() => void load(filter)} />)}</div>}

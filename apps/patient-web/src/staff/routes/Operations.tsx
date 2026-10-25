@@ -12,7 +12,7 @@ import { RevisionList } from '../labRevisions'
 import { usesNovuBackend } from '../../backendContract'
 import { BETWEEN_FACILITIES } from '../betweenFacilities'
 import { selfServiceReview, selfServiceType } from '../staffAccess'
-import { licenceLine } from '../orderRoutes'
+import { licenceLine, receivingHere } from '../orderRoutes'
 import { IncomingOrders, patientCard } from './IncomingOrders'
 
 /**
@@ -587,10 +587,34 @@ function AccessionView({ facilityId, id, permissions, created, onChanged }: { fa
   </Card>
 }
 
-/** Whether work on orders from other facilities is paused, said above a list that holds some (Novu, P4c). */
-function RoutedWorkPaused({ items, crossFacilityWork }: { items: ReadonlyArray<{ orderRoute?: unknown }> | null; crossFacilityWork?: boolean }) {
-  if (crossFacilityWork !== false || !items?.some(item => item.orderRoute)) return null
-  return <p className="staff-notice staff-danger">Work on orders from other facilities is paused by Health ID.</p>
+/**
+ * Whether work on orders from other facilities is paused (Novu, P4c, SPEC-FINAL §13.3: the list answers
+ * `crossFacilityWork: false`), said at a facility that receives such orders. While route access is off, Lab and
+ * Pharmacy hide every work item an order from another facility backs, so the list usually holds none of them: the
+ * notice says they are hidden, not gone. A row still listed (its member also holds the patient's consent) is said too.
+ */
+function RoutedWorkPaused({ items, crossFacilityWork, receives }: {
+  items: ReadonlyArray<{ orderRoute?: unknown }> | null; crossFacilityWork?: boolean; receives: boolean
+}) {
+  const listed = Boolean(items?.some(item => item.orderRoute))
+  if (crossFacilityWork !== false || !(receives || listed)) return null
+  return <p className="staff-notice staff-danger">{listed ? 'Work on orders from other facilities is paused by Health ID.'
+    : 'Work on orders from other facilities is paused by Health ID: any you accepted are hidden from this list until it resumes. '
+      + 'They are not cancelled.'}</p>
+}
+
+/**
+ * Whether the page treats the working facility as receiving orders of this kind from other facilities (Novu, P4c):
+ * 'yes' or 'no' from the session (receivingHere); for a governed facility ('unknown'), once there is work from another
+ * facility to show: a route-backed row in the work list, or an order waiting in Incoming. Only then does the page say
+ * it receives orders, keep Incoming in view and read it every 2 minutes.
+ */
+function useReceiving(facility: Facility | undefined, service: 'lab' | 'pharmacy', items: ReadonlyArray<{ orderRoute?: unknown }> | null) {
+  const receiving = receivingHere(facility, service)
+  const [found, setFound] = useState<string | null>(null)
+  const onFound = useCallback(() => setFound(facility?.id ?? null), [facility?.id])
+  const evidence = Boolean(items?.some(item => item.orderRoute)) || (found !== null && found === facility?.id)
+  return { mounted: receiving !== 'no', receives: receiving === 'yes' || (receiving === 'unknown' && evidence), onFound }
 }
 
 export function Laboratory() {
@@ -602,18 +626,20 @@ export function Laboratory() {
   const selected = selection && selection.facilityId === facilityId ? selection.item : null
   // A created accession replaces the form that made it: focus goes to the accession.
   const focus = useFocusById()
+  // Orders other facilities send here (Novu, P4c): received by laboratory scientists (lab.order-route.receive), and only
+  // at a laboratory: a hospital's or clinic's own laboratory is never sent any (useReceiving).
+  const { mounted, receives, onFound } = useReceiving(facility, 'lab', list.items)
   if (!facilityId || !canRead) return <EmptyState titleAs="h1" title="Laboratory unavailable" description="This facility membership needs lab work-item read permission." />
-  // Orders other facilities send here (Novu, P4c): received by laboratory scientists (lab.order-route.receive).
-  const receives = usesNovuBackend() && permissions.includes('lab.order-route.receive')
   return <>
     <PageHead eyebrow="Provider workspace" title="Laboratory">{receives
       ? 'Tests ordered at this facility, and lab requests from other facilities once you accept them. A separate accession records the specimen chain of custody.'
       : 'Accepted EHR test orders at this facility. A separate accession records the specimen chain of custody.'}</PageHead>
     <StandaloneWorkNote facility={facility} kind="laboratory" ordersOn={read.value?.crossFacilityOrders === true} />
-    {receives && facility && <IncomingOrders service="lab" facilityId={facilityId} facilityName={facility.name} onAccepted={() => void list.refresh()} />}
+    {mounted && facility && <IncomingOrders service="lab" facilityId={facilityId} facilityName={facility.name} probe={!receives}
+      onFound={onFound} onAccepted={() => void list.refresh()} />}
     <div className="staff-row staff-toolbar"><RefreshButton loading={list.loading} onRefresh={list.refresh}>Refresh work</RefreshButton></div>
     <ListState loading={list.loading} error={list.error} empty="No accepted lab work" retry={() => void list.refresh()} hasItems={Boolean(list.items?.length)} />
-    <RoutedWorkPaused items={list.items} crossFacilityWork={read.value?.crossFacilityWork} />
+    <RoutedWorkPaused items={list.items} crossFacilityWork={read.value?.crossFacilityWork} receives={receives} />
     <WorkListCap count={list.items?.length ?? 0} />
     {list.items && list.items.length > 0 && <div className="staff-two-col"><div className="staff-list">{list.items.map(item => <div className="staff-list-item" key={item.id}><div className="staff-row"><strong>{item.testName ?? 'Lab test'}</strong><Badge tone={item.accessionId ? 'information' : 'warning'}>{item.accessionId ? 'Accessioned' : item.status}</Badge></div><p>{patientLabel(item)} · Accepted {dateText(item.acceptedAt)}</p><RoutedWorkLines route={item.orderRoute} />{item.accessionNumber && <p>Accession {item.accessionNumber}</p>}{(item.accessionId ? permissions.includes('lab.accession.read') : permissions.includes('lab.accession.create')) && <Button tone="secondary" size="sm" onClick={() => setSelection({ facilityId, item })}>{item.accessionId ? 'Open accession' : 'Prepare accession'}</Button>}</div>)}</div>
       {selected?.accessionId && permissions.includes('lab.accession.read') ? <AccessionView key={`${facilityId}-${selected.accessionId}`} facilityId={facilityId} id={selected.accessionId} permissions={permissions} created={selection?.created} onChanged={() => void list.refresh()} /> : selected && permissions.includes('lab.accession.create') ? <AccessionForm facilityId={facilityId} item={selected} onCreated={accession => { setSelection({ facilityId, item: { ...selected, accessionId: accession.id, accessionNumber: accession.accessionNumber }, created: `Accession ${accession.accessionNumber} created.` }); focus('lab-accession-title', true); void list.refresh() }} /> : <Card className="staff-card"><h2>Choose work</h2><p>Open an accession or prepare a specimen for an accepted order.</p></Card>}
@@ -690,18 +716,20 @@ export function Pharmacy() {
   const canRead = permissions.includes('pharmacy.work-item.read')
   const read = useFacilityRead(facilityId, canRead, useCallback(id => staffApi.pharmacyWorkItems(id), []))
   const list = { ...read, items: read.value ? read.value.items : null }
+  // Prescriptions other facilities send here (Novu, P4c): received by pharmacists (pharmacy.order-route.receive), and
+  // only at a pharmacy: a hospital's or clinic's own pharmacy is never sent any (useReceiving).
+  const { mounted, receives, onFound } = useReceiving(facility, 'pharmacy', list.items)
   if (!facilityId || !canRead) return <EmptyState titleAs="h1" title="Pharmacy unavailable" description="This facility membership needs pharmacy work-item read permission." />
-  // Prescriptions other facilities send here (Novu, P4c): received by pharmacists (pharmacy.order-route.receive).
-  const receives = usesNovuBackend() && permissions.includes('pharmacy.order-route.receive')
   return <>
     <PageHead eyebrow="Provider workspace" title="Pharmacy">{receives
       ? 'Prescriptions accepted here, from this facility and from other facilities, and full dispensing records. The server checks patient authorization before dispensing or reversal.'
       : 'Accepted prescriptions and full dispensing records for the active facility. The server checks patient authorization before dispensing or reversal.'}</PageHead>
     <StandaloneWorkNote facility={facility} kind="pharmacy" ordersOn={read.value?.crossFacilityOrders === true} />
-    {receives && facility && <IncomingOrders service="pharmacy" facilityId={facilityId} facilityName={facility.name} onAccepted={() => void list.refresh()} />}
+    {mounted && facility && <IncomingOrders service="pharmacy" facilityId={facilityId} facilityName={facility.name} probe={!receives}
+      onFound={onFound} onAccepted={() => void list.refresh()} />}
     <div className="staff-row staff-toolbar"><RefreshButton loading={list.loading} onRefresh={list.refresh}>Refresh work</RefreshButton></div>
     <ListState loading={list.loading} error={list.error} empty="No accepted prescriptions" retry={() => void list.refresh()} hasItems={Boolean(list.items?.length)} />
-    <RoutedWorkPaused items={list.items} crossFacilityWork={read.value?.crossFacilityWork} />
+    <RoutedWorkPaused items={list.items} crossFacilityWork={read.value?.crossFacilityWork} receives={receives} />
     {/* hid-system #48: work whose prescription changed stays listed as accepted (INTERFACE_CONTRACT.md, Pharmacy). */}
     <WorkListCap count={list.items?.length ?? 0}><p className="staff-notice">Work whose prescription changed after Pharmacy accepted it cannot be dispensed, but it stays listed and counts toward these {WORK_LIST_CAP}.</p></WorkListCap>
     {list.items && list.items.length > 0 && <div className="staff-list">{list.items.map(item => <PharmacyAction key={item.id} facilityId={facilityId} item={item} permissions={permissions} onChanged={list.refresh} />)}</div>}
