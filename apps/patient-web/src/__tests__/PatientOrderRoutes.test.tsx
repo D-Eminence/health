@@ -117,6 +117,8 @@ describe('orders sent to other facilities, on Access and consent', () => {
       sent({ id: 'f0000000-0000-4000-8000-000000000003', reference: '0A1B2C3D', effectiveState: 'completed',
         acceptedAt: '2026-10-21T10:00:00.000Z', completedAt: '2026-10-22T10:00:00.000Z', content: blank,
         attestationText: null, attestedByName: null, actions: ['withdraw'], enteredInError: true }),
+      sent({ id: 'f0000000-0000-4000-8000-000000000005', reference: '5A6B7C8D', content: blank, attestationText: null,
+        attestedByName: null, enteredInError: true }),
       sent({ id: 'f0000000-0000-4000-8000-000000000004', reference: '4E5F6A7B' })] }
     renderPortal(<AccessPage />, handler)
     const withdrawn = (await screen.findByText('A test request from General Hospital to Yaba Diagnostics: withdrawn because your clinician changed the order')).closest('li')!
