@@ -111,6 +111,19 @@ body { margin: 0; }
 .staff-in-person .staff-choice { padding: 10px 12px; line-height: 1.4; color: var(--color-ink); font-size: 13px; }
 .staff-in-person ul { margin: 0 0 10px; padding-left: 18px; color: var(--color-ink); font-size: 13px; line-height: 1.6; }
 
+/* Orders between facilities (P4c): the picker's choices, the attestation and notes wrap at 320px instead of widening
+   the page; a route's lines under an order keep the list item's spacing. */
+.staff-order-picker { display: grid; gap: 8px; min-width: 0; }
+.staff-order-picker-title { margin: 0; color: var(--color-ink); font-size: 13px; font-weight: 650; }
+.staff-order-choices { display: grid; gap: 8px; margin: 0; padding: 0; border: 0; min-width: 0; }
+.staff-order-choices legend { margin-bottom: 6px; padding: 0; color: var(--color-ink); font-size: 13px; font-weight: 650; }
+.staff-order-choices .staff-choice, .staff-attestation { padding: 10px 12px; line-height: 1.45; color: var(--color-ink); font-size: 13px; align-items: start; }
+.staff-attestation input { margin-top: 2px; }
+.staff-order-notes { margin: 0; padding-left: 18px; color: var(--color-ink); font-size: 13px; line-height: 1.55; }
+.staff-order-route, .staff-order-send, .staff-order-route-form { min-width: 0; overflow-wrap: anywhere; }
+.staff-incoming { margin-top: 0; margin-bottom: 22px; }
+.staff-incoming-find { max-width: 420px; }
+
 /* Plan & billing (docs/BILLING_SPEC.md). */
 .billing-section { display: grid; gap: 12px; max-width: 760px; margin-top: 28px; }
 .billing-heading { margin: 0; color: var(--color-ink); font-size: 15px; font-weight: 600; }

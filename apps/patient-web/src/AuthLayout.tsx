@@ -12,8 +12,12 @@ interface AuthLayoutProps {
   /** Where the logo leads. */
   readonly brandTo: string
   readonly brandLabel?: string
-  /** The one link in the top bar: the other way in (sign in, or sign up). */
-  readonly headerLink?: { readonly to: string; readonly label: string }
+  /**
+   * The one link in the top bar: the other way in (sign in, or sign up). `to`
+   * stays in this site; `href` leaves it (another host of the portal) and is a
+   * plain link.
+   */
+  readonly headerLink?: { readonly to: string; readonly label: string } | { readonly href: string; readonly label: string }
   readonly title: ReactNode
   readonly titleId: string
   /**
@@ -46,7 +50,9 @@ export function AuthLayout({
     <main className="auth-page">
       <header className="auth-bar">
         <Link to={brandTo} className="auth-brand" aria-label={brandLabel}><BrandLogo /></Link>
-        {headerLink && <Link to={headerLink.to} className="auth-bar-link">{headerLink.label}</Link>}
+        {headerLink && ('href' in headerLink
+          ? <a href={headerLink.href} className="auth-bar-link">{headerLink.label}</a>
+          : <Link to={headerLink.to} className="auth-bar-link">{headerLink.label}</Link>)}
       </header>
 
       <div className="auth-body">

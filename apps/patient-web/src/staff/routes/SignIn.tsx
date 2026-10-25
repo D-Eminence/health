@@ -7,11 +7,16 @@ import { useStaff } from '../App'
 import type { StaffLoginChallenge, StaffSession } from '../api'
 import { AuthLayout } from '../../AuthLayout'
 import { loadTurnstileScript, turnstileSize } from '../../Turnstile'
-import { CLINICIAN_STATUS_PATH, resolveStaffProductHostname, STAFF_RECOVERY_PATH, staffLoginAction, staffRecoveryHref, staffSignInHref } from '../../productHostname'
+import {
+  CLINICIAN_STATUS_PATH, PROVIDER_ENROLLMENT_PATH, providerEnrollmentHref, resolveStaffProductHostname, STAFF_JOIN_PATH,
+  STAFF_RECOVERY_PATH, staffLoginAction, staffRecoveryHref, staffSignInHref,
+} from '../../productHostname'
+import { staffLandingPath } from '../navigation'
 import { staffReturnPath } from '../session'
 import { STAFF_MFA_FACTOR_UNPROVEN, STAFF_MFA_UNAVAILABLE, StaffMfaSteps, type StaffMfaLook } from './StaffMfaSteps'
 import { ClinicianSignUpEntry, PageLink } from '../clinician/ClinicianSignUpEntry'
-import { servesClinicianApplications } from '../../backendContract'
+import { servesClinicianApplications, usesNovuBackend } from '../../backendContract'
+import { capturedStaffInvitation } from '../invitationCapture'
 
 /**
  * Said when Identity ended the sign-in for want of an authenticator
@@ -42,9 +47,21 @@ function passwordRefusal(caught: unknown): string {
   return caught instanceof Error ? caught.message : 'Sign in failed.'
 }
 
-function getStaffLandingPath(search: string): string {
-  return staffReturnPath(new URLSearchParams(search).get('returnTo'))
-    ?? resolveStaffProductHostname(window.location.hostname)?.route ?? '/provider'
+/**
+ * Where a sign-in lands: the page to return to, else the product host's own
+ * page, else the Overview. A page to return to is the one the person was on,
+ * and is kept. The product host's own page is only the host's default (the
+ * workspace sends a signed-out visit there too), so it gives way to the
+ * Overview when the working facility cannot use it: the EHR site's Clinical
+ * record for a facility administrator, say (staffLandingPath, P4).
+ */
+function getStaffLandingPath(search: string, session: StaffSession): string {
+  // An invitation link carried through this sign-in (Novu, P4b) is accepted first, whatever the return address.
+  if (usesNovuBackend() && capturedStaffInvitation()) return STAFF_JOIN_PATH
+  const product = resolveStaffProductHostname(window.location.hostname)?.route
+  const returnTo = staffReturnPath(new URLSearchParams(search).get('returnTo'))
+  if (returnTo && returnTo !== product) return returnTo
+  return product ? staffLandingPath(product, session) : '/provider'
 }
 
 const CHALLENGE_UNAVAILABLE = 'Human verification could not load. Refresh the page and try again.'
@@ -100,10 +117,9 @@ export function SignIn() {
   const [returned, setReturned] = useState(0)
   useEffect(() => { if (returned) heading.current?.focus() }, [returned])
   const siteKey = getEnvironment().turnstileSiteKey
-  const landingPath = getStaffLandingPath(location.search)
   const mfaRequired = (state.status === 'signed-out' || state.status === 'ended') && state.reason === 'mfa-required'
 
-  if (state.status === 'ready') return <Navigate to={landingPath} replace />
+  if (state.status === 'ready') return <Navigate to={getStaffLandingPath(location.search, state.session)} replace />
   // The production portal sends staff to the EHR site's sign-in, which
   // hid-system accepts; a form here would always be refused.
   const elsewhere = staffSignInHref(window.location.hostname)
@@ -141,7 +157,7 @@ export function SignIn() {
   function finish(session: StaffSession) {
     try { completeSignIn(session) }
     catch (caught) { restart(caught instanceof Error ? caught.message : 'Sign in failed.'); return }
-    navigate(getStaffLandingPath(location.search))
+    navigate(getStaffLandingPath(location.search, session))
   }
 
   function restart(message: string | null) {
@@ -150,8 +166,12 @@ export function SignIn() {
     setReturned(value => value + 1)
   }
 
+  // hid-system accepts facility self sign-up's security check only on the main site, so a staff
+  // product host (ehr, lab, pharmacy, migrate, outreach) links to the main site's page.
+  const enrollHref = providerEnrollmentHref(window.location.hostname)
   return <AuthLayout brandTo="/provider/sign-in" brandLabel="Health ID provider sign in"
-    headerLink={{ to: '/provider/enroll', label: 'Set up your facility' }}
+    headerLink={enrollHref === PROVIDER_ENROLLMENT_PATH
+      ? { to: enrollHref, label: 'Set up your facility' } : { href: enrollHref, label: 'Set up your facility' }}
     title="Welcome back." titleId="staff-sign-in-title" titleAs={challenge ? 'p' : 'h1'}
     titleRef={heading} titleFocusable={!challenge}
     lede="Sign in with the staff account assigned to your facility. Health ID verifies your permissions and facility.">

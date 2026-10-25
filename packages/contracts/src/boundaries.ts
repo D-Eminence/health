@@ -135,7 +135,9 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
     // Imported history (#94) and patient record chat (#95, ADR-068) are patient-only routes.
     ehr: ['ehr.myRecords', 'ehr.myImportedHistory', 'ehr.patientChatAvailability', 'ehr.patientChat', 'ehr.patientChatHistory',
       // Served by hid-system's staging branches, not main; off unless the build turns the screens on.
-      'ehr.myImportedAttachment', 'ehr.patientChatSource'],
+      'ehr.myImportedAttachment', 'ehr.patientChatSource',
+      // The patient's orders sent to other facilities, and Stop before acceptance (P4c; Novu only, main answers 404).
+      'ehr.myOrderRoutes', 'ehr.myOrderRouteWithdraw'],
   },
   'staff-web': {
     // Staff sign-in is two steps since hid-system #71: the password, then an
@@ -144,6 +146,12 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       'auth.staffMfaEnrollActivate', 'auth.session', 'auth.refresh', 'auth.logout', 'auth.facility',
       'auth.otpStart', 'auth.otpVerify', 'auth.otpComplete'],
     enrollment: ['enrollment.providerStart', 'enrollment.providerVerify', 'enrollment.providerActivate',
+      // Whether facility self sign-up is open, and the organization a confirmed sign-up registers (P4; Novu only,
+      // main answers 404).
+      'enrollment.providerAvailability', 'enrollment.providerProfile',
+      // "This isn't my organization" withdraws the sign-up (P4b), and an invitee opens and accepts a staff invitation
+      // on the main site (P4b); Novu only, main answers 404.
+      'enrollment.providerWithdraw', 'enrollment.staffInvitationOpen', 'enrollment.staffInvitationAccept',
       // Clinician self sign-up and its status page (hid-system ADR-066), public pages outside the workspace.
       'enrollment.clinicianAvailability', 'enrollment.clinicianEmailCode', 'enrollment.clinicianEmailVerify',
       'enrollment.clinicianFacilitySearch', 'enrollment.clinicianSubmit', 'enrollment.clinicianAuthenticatorEmailCode',
@@ -157,13 +165,22 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       'identity.registrationApprove', 'identity.registrationEnroll', 'identity.registrationLink',
       'identity.organizationVerifyCac',
       // The in-person check of facility-assisted registration (hid-system #85, ADR-063).
-      'identity.assistedVerifications'],
+      'identity.assistedVerifications',
+      // A self-signed-up facility's Staff page, and existing staff joining a facility signed in (P4b; Novu only).
+      'identity.facilityStaff', 'identity.facilityAdministratorLicence', 'identity.staffInvitationCreate',
+      'identity.staffInvitationResend', 'identity.staffInvitationRevoke', 'identity.facilityStaffEnd',
+      'identity.facilityStaffRole', 'identity.staffInvitationSignedInPreview', 'identity.staffInvitationSignedInAccept',
+      // The directory of laboratories and pharmacies at other facilities an order can be sent to (P4c; Novu only).
+      'identity.orderDestinations'],
     access: ['access.staffRequests', 'access.breakGlass', 'access.verifyPin', 'access.closeOwnGrant'],
     ehr: ['ehr.importedHistory', 'ehr.staffPatientChatAvailability', 'ehr.staffPatientChat', 'ehr.staffPatientChatHistory', 'ehr.staffPatientChatSource',
       'ehr.importedRecords', 'ehr.importedAttachment', 'ehr.emergencyRecords', 'ehr.encounters', 'ehr.encounter', 'ehr.vitals', 'ehr.vital',
       'ehr.vitalCorrections', 'ehr.notes', 'ehr.note', 'ehr.noteRevisions', 'ehr.diagnoses',
       'ehr.diagnosis', 'ehr.prescriptions', 'ehr.prescription', 'ehr.prescriptionPharmacy',
-      'ehr.labRequests', 'ehr.labRequest', 'ehr.labRequestLabWorkItem'],
+      'ehr.labRequests', 'ehr.labRequest', 'ehr.labRequestLabWorkItem',
+      // Sending an order to another facility, its routes and their withdrawal, and the clinician's attestation (P4c; Novu only).
+      'ehr.labRequestOrderRoutes', 'ehr.labRequestOrderRouteWithdraw', 'ehr.prescriptionOrderRoutes',
+      'ehr.prescriptionOrderRouteWithdraw', 'ehr.orderRouteAttestation'],
     // Facility billing (docs/BILLING_SPEC.md; proposed routes) and the price catalogue it shows. Not demo requests.
     commercial: ['commercial.pricing', 'commercial.subscription', 'commercial.subscriptionTrial',
       'commercial.subscriptionCheckout', 'commercial.invoices'],

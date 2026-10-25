@@ -74,3 +74,29 @@ describe('problem fields', () => {
     expect(error.toLogContext()).not.toHaveProperty('fields')
   })
 })
+
+/**
+ * Novu P4c: a receiving laboratory or pharmacy that enters the wrong Health ID or date of birth gets
+ * `409 ORDER_ROUTE_PATIENT_MISMATCH` with `attemptsLeft`, the tries left before the order locks (5 in all).
+ */
+describe('problem attemptsLeft', () => {
+  const MISMATCH = { type: 'about:blank', title: 'Conflict', status: 409, detail: 'The patient does not match.',
+    code: 'ORDER_ROUTE_PATIENT_MISMATCH', correlationId: 'corr-409', attemptsLeft: 2 }
+
+  it('keeps the tries left on the error the client throws', async () => {
+    const problem = new Response(JSON.stringify(MISMATCH), { status: 409, headers: { 'Content-Type': 'application/problem+json' } })
+    const error = await client(problem).post('/api/v1/lab/order-routes/9c1b2d3e-4f5a-4b6c-8d7e-0f1a2b3c4d5e/accept', {})
+      .catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(HidApiError)
+    expect(error).toMatchObject({ status: 409, code: 'ORDER_ROUTE_PATIENT_MISMATCH', attemptsLeft: 2 })
+  })
+
+  it('is null when absent or not a small whole number', () => {
+    expect(parseErrorEnvelope({ code: 'X' }, { status: 409 }).attemptsLeft).toBeNull()
+    expect(parseErrorEnvelope({ attemptsLeft: 0 }, { status: 409 }).attemptsLeft).toBe(0)
+    for (const value of [-1, 1.5, '2', 101, null, Number.NaN]) {
+      expect(parseErrorEnvelope({ attemptsLeft: value }, { status: 409 }).attemptsLeft, String(value)).toBeNull()
+    }
+    expect(new HidApiError(409, 'Conflict').attemptsLeft).toBeNull()
+  })
+})

@@ -323,6 +323,11 @@
   .patient-note { flex-direction: column; }
   .patient-note p { white-space: pre-wrap; overflow-wrap: anywhere; }
   .patient-access-item { flex-wrap: wrap; }
+  /* An order sent to another facility (P4c): the clinician's confirmation, quoted as they confirmed it. */
+  .patient-order-route { flex-direction: column; }
+  .patient-quote { margin: 4px 0 0; padding: 8px 12px; border-left: 2px solid var(--color-line-strong); color: var(--color-ink);
+    font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+  .patient-order-route .patient-details { margin-top: 6px; }
   .patient-decision-actions { display: flex; align-items: start; gap: 8px; }
   .patient-deny-form { display: flex; flex-wrap: wrap; width: 100%; align-items: end; gap: 10px; }
   .patient-deny-form label { flex: 1; }

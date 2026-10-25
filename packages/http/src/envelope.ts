@@ -53,6 +53,8 @@ export interface ParsedErrorEnvelope {
   readonly details: unknown
   /** Field names to result codes (`match`, `no_match`, `not_in_record`); null when the problem has none. */
   readonly fields: Readonly<Record<string, string>> | null
+  /** Tries left before a lock (P4c order acceptance); null when the problem has none. */
+  readonly attemptsLeft: number | null
 }
 
 /**
@@ -77,6 +79,15 @@ function readFields(value: unknown): Readonly<Record<string, string>> | null {
     if (typeof code === 'string' && RESULT_CODES.has(code)) fields[name] = code
   }
   return Object.keys(fields).length > 0 ? Object.freeze(fields) : null
+}
+
+/**
+ * The problem's `attemptsLeft` member (hid-system P4c: an order's acceptance
+ * refused for a patient identifier that does not match): a whole number from 0
+ * to 100. Anything else is not one, so no other value can reach a page.
+ */
+function readAttemptsLeft(value: unknown): number | null {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 && value <= 100 ? value : null
 }
 
 /**
@@ -116,6 +127,7 @@ export function parseErrorEnvelope(
     details: record && Object.prototype.hasOwnProperty.call(record, 'errors') ? record.errors
       : record && Object.prototype.hasOwnProperty.call(record, 'details') ? record.details : null,
     fields: readFields(record?.fields),
+    attemptsLeft: readAttemptsLeft(record?.attemptsLeft),
   }
 }
 

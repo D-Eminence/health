@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { usesNovuBackend } from '../backendContract'
 import { adminApi, type AdminActor, type Page as ResultPage, type Principal } from './api'
 import { failure } from './problems'
@@ -19,12 +19,21 @@ const ACCOUNT_STATUSES = ['active', 'pending_reset', 'locked', 'disabled', 'dele
 /**
  * The search lives in page state, not the URL: a search term can be a name or
  * an email address, which would otherwise stay in browser history and reach
- * the frontend host's request logs on a reload.
+ * the frontend host's request logs on a reload. Another page can hand one over
+ * in the navigation's state (New facility sign-ups gives an administrator's
+ * email): it is searched once, and the state is cleared at once.
  */
 export function PrincipalsPage({ actor }: { actor: AdminActor }) {
-  const [filters, setFilterState] = useState({ query: '', status: '', page: '' })
+  const location = useLocation()
+  const navigate = useNavigate()
+  const [handedOver] = useState(() => handedOverQuery(location.state))
+  const [filters, setFilterState] = useState({ query: handedOver, status: '', page: '' })
   const setFilters = (next: Partial<typeof filters>) => setFilterState(current => ({ ...current, ...next }))
-  const [input, setInput] = useState('')
+  const [input, setInput] = useState(handedOver)
+  useEffect(() => {
+    if (handedOver) navigate(`${location.pathname}${location.search}`, { replace: true, state: null })
+    // Once, as the page opens: handedOver never changes.
+  }, [handedOver])
   const [revision, setRevision] = useState(0)
   const [loaded, setLoaded] = useState<{ search: string; page: ResultPage<Principal> } | null>(null)
   const [loading, setLoading] = useState(false)
@@ -98,6 +107,12 @@ export function PrincipalsPage({ actor }: { actor: AdminActor }) {
         onPage={next => setFilters({ page: String(next) })} />
     </>)}
   </Page>
+}
+
+/** A search another page handed over: a string of 2 to 254 characters, else none. */
+function handedOverQuery(state: unknown): string {
+  const query = typeof state === 'object' && state !== null ? (state as { principalQuery?: unknown }).principalQuery : undefined
+  return typeof query === 'string' && query.trim().length >= 2 && query.trim().length <= 254 ? query.trim() : ''
 }
 
 const PLATFORM_ROLES = [

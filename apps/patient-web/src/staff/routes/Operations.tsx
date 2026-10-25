@@ -2,13 +2,18 @@ import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNod
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { Badge, Button, Card, EmptyState, Field, Input, Select, Textarea } from '@hid/ui'
-import { staffApi, type LabAbnormalFlag, type LabAccession, type LabExecution, type LabResult, type LabResultValue, type LabImport, type LabSpecimen, type LabWorkItem, type OcrExtraction, type OcrJob, type OcrPublication, type OcrTargetDomain, type OcrValidation, type OcrValidationInput, type OutreachCampaign, type OutreachCase, type PharmacyImport, type PharmacyWorkItem } from '../api'
+import { staffApi, type Facility, type LabAbnormalFlag, type LabAccession, type LabExecution, type LabResult, type LabResultValue, type LabImport, type LabSpecimen, type LabWorkItem, type OcrExtraction, type OcrJob, type OcrPublication, type OcrTargetDomain, type OcrValidation, type OcrValidationInput, type OutreachCampaign, type OutreachCase, type PharmacyImport, type PharmacyWorkItem } from '../api'
 import { useStaff } from '../App'
 import { describedBy } from '../../authSteps'
 import { FieldInputError, problemProps, problemText, refusal, refusalText, type FieldProblem } from '../fieldProblem'
 import { BUSY, focusIsLost, UNAVAILABLE, useFocusById } from '../focus'
 import { useFieldProblems } from '../useFieldProblems'
 import { RevisionList } from '../labRevisions'
+import { usesNovuBackend } from '../../backendContract'
+import { BETWEEN_FACILITIES } from '../betweenFacilities'
+import { selfServiceReview, selfServiceType } from '../staffAccess'
+import { licenceLine, receivingHere } from '../orderRoutes'
+import { IncomingOrders, patientCard } from './IncomingOrders'
 
 /**
  * OCR's answer when EHR, Lab or Pharmacy refused OCR's own workload identity
@@ -30,6 +35,9 @@ const MODULE_NOT_IN_SERVICE = 'This workspace is not in service on this Health I
 function errorText(error: unknown, fallback: string) {
   if (isHidApiError(error) && SERVICE_AUTH_UNAVAILABLE.has(error.code)) return 'A connection between Health ID services failed; retry in about 15 seconds.'
   if (isHidApiError(error) && error.status === 404 && error.code === 'API_ROUTE_NOT_FOUND') return MODULE_NOT_IN_SERVICE
+  // Novu since P4c, on any action on work from an order another facility sent (SPEC-FINAL §10.2).
+  if (isHidApiError(error) && error.code === 'ORDER_ROUTE_CLOSED') return 'This order from another facility is closed: it was cancelled, or its time for work has ended, so nothing more can be recorded on it. Refresh the list.'
+  if (isHidApiError(error) && error.status === 423 && error.code === 'CROSS_FACILITY_ORDERS_UNAVAILABLE') return 'Health ID has paused work on orders from other facilities. Try again later.'
   return refusalText(error, fallback)
 }
 
@@ -49,11 +57,26 @@ function PageHead({ eyebrow, title, children }: { eyebrow: string; title: string
 function useFacilityAccess() {
   const { state } = useStaff()
   const facility = state.status === 'ready' ? state.session.actor.facility : undefined
-  return { facilityId: facility?.id, membershipId: facility?.membershipId, permissions: facility?.permissions ?? [] }
+  return { facilityId: facility?.id, membershipId: facility?.membershipId, permissions: facility?.permissions ?? [], facility }
 }
 
+/**
+ * At a laboratory or pharmacy that signed itself up (Novu, P4b), where its work comes from: one message per case, kept
+ * in betweenFacilities.ts, and since P4c by whether orders between facilities are on, as the work list last said.
+ */
+function StandaloneWorkNote({ facility, kind, ordersOn }: { facility: Facility | undefined; kind: 'laboratory' | 'pharmacy'; ordersOn: boolean }) {
+  if (!usesNovuBackend() || !facility || selfServiceReview(facility) !== 'reviewed' || selfServiceType(facility) !== kind) return null
+  return <p className="staff-notice">{BETWEEN_FACILITIES[kind].workspace(facility.name, ordersOn)}</p>
+}
+
+/** A work list's items, or for Lab and Pharmacy the whole answer, with its switches (Novu, P4c). */
 function useFacilityList<T>(facilityId: string | undefined, enabled: boolean, loader: (id: string) => Promise<T[]>) {
-  const [result, setResult] = useState<{ facilityId: string; items: T[] | null; loading: boolean; error: string }>({ facilityId: '', items: null, loading: false, error: '' })
+  const read = useFacilityRead(facilityId, enabled, loader)
+  return { items: read.value, loading: read.loading, error: read.error, refresh: read.refresh }
+}
+
+function useFacilityRead<T>(facilityId: string | undefined, enabled: boolean, loader: (id: string) => Promise<T>) {
+  const [result, setResult] = useState<{ facilityId: string; items: T | null; loading: boolean; error: string }>({ facilityId: '', items: null, loading: false, error: '' })
   const epoch = useRef(0)
   const refresh = useCallback(async () => {
     const request = ++epoch.current
@@ -70,7 +93,29 @@ function useFacilityList<T>(facilityId: string | undefined, enabled: boolean, lo
     if (enabled && facilityId) void refresh()
     return () => { epoch.current += 1 }
   }, [facilityId, enabled, refresh])
-  return { items: result.facilityId === facilityId ? result.items : null, loading: result.facilityId !== facilityId || result.loading, error: result.facilityId === facilityId ? result.error : '', refresh }
+  return { value: result.facilityId === facilityId ? result.items : null, loading: result.facilityId !== facilityId || result.loading, error: result.facilityId === facilityId ? result.error : '', refresh }
+}
+
+/** Who the patient is on a work row: named once an order from another facility is accepted, else masked. */
+function patientLabel(item: { patientId: string; patient?: LabWorkItem['patient'] }): string {
+  return item.patient ? patientCard(item.patient) : `Patient ${shortId(item.patientId)}`
+}
+
+/**
+ * Where work from another facility came from, and whether it may still be worked (Novu, P4c, SPEC-FINAL §13.3): the
+ * ordering facility and the order's reference, who ordered it with their licence, and a cancelled or closed order.
+ */
+function RoutedWorkLines({ route }: { route: LabWorkItem['orderRoute'] }) {
+  if (!route) return null
+  const facility = route.orderingFacilityName ?? 'the ordering facility'
+  return <>
+    <p>From {facility}{route.reference ? ` · Ref ${route.reference}` : ''}{route.ordererName ? ` · Ordered by ${route.ordererName}` : ''}
+      {route.ordererLicence ? ` · ${licenceLine(route.ordererLicence.body, route.ordererLicence.number)}` : ''}</p>
+    {route.effectiveState === 'cancelled' && <p className="staff-notice staff-danger">Cancelled by {facility}: stop work.</p>}
+    {route.effectiveState === 'expired' && <p className="staff-notice staff-danger">Nothing was released within 30 days of accepting it, so this order has lapsed: no more work can be recorded on it.</p>}
+    {route.effectiveState !== 'cancelled' && route.effectiveState !== 'expired' && route.access === 'read' && <p className="staff-muted">The time for work on this order has ended: you can read it, but not record more.</p>}
+    {route.access === 'none' && route.effectiveState !== 'cancelled' && route.effectiveState !== 'expired' && <p className="staff-muted">This order from {facility} is closed.</p>}
+  </>
 }
 
 // Lab and Pharmacy list at most this many work items, oldest accepted first, and
@@ -116,7 +161,7 @@ function AccessionForm({ facilityId, item, onCreated }: { facilityId: string; it
     catch (caught) { setError(errorText(caught, 'Accession could not be created.')) }
     finally { setBusy(false) }
   }
-  return <Card className="staff-card"><h2>Create specimen accession</h2><p>{item.testName ?? 'Accepted lab order'} · Patient {shortId(item.patientId)}</p><form className="staff-form" onSubmit={event => void submit(event)}>
+  return <Card className="staff-card"><h2>Create specimen accession</h2><p>{item.testName ?? 'Accepted lab order'} · {patientLabel(item)}</p><form className="staff-form" onSubmit={event => void submit(event)}>
     <Field label="Specimen type" htmlFor="lab-specimen-type" error={problems.error('lab-specimen-type')} required><Input id="lab-specimen-type" name="specimenType" maxLength={240} placeholder="Blood, urine, swab…" required {...problems.control('lab-specimen-type')} /></Field>
     <Field label="Reason" htmlFor="lab-accession-reason" error={problems.error('lab-accession-reason')} required><Textarea id="lab-accession-reason" name="reason" maxLength={500} required {...problems.control('lab-accession-reason')} /></Field>
     {error && <p className="staff-error" role="alert">{error}</p>}
@@ -542,21 +587,61 @@ function AccessionView({ facilityId, id, permissions, created, onChanged }: { fa
   </Card>
 }
 
+/**
+ * Whether work on orders from other facilities is paused (Novu, P4c, SPEC-FINAL §13.3: the list answers
+ * `crossFacilityWork: false`), said at a facility that receives such orders. While route access is off, Lab and
+ * Pharmacy hide every work item an order from another facility backs, so the list usually holds none of them: the
+ * notice says they are hidden, not gone. A row still listed (its member also holds the patient's consent) is said too.
+ */
+function RoutedWorkPaused({ items, crossFacilityWork, receives }: {
+  items: ReadonlyArray<{ orderRoute?: unknown }> | null; crossFacilityWork?: boolean; receives: boolean
+}) {
+  const listed = Boolean(items?.some(item => item.orderRoute))
+  if (crossFacilityWork !== false || !(receives || listed)) return null
+  return <p className="staff-notice staff-danger">{listed ? 'Work on orders from other facilities is paused by Health ID.'
+    : 'Work on orders from other facilities is paused by Health ID: any you accepted are hidden from this list until it resumes. '
+      + 'They are not cancelled.'}</p>
+}
+
+/**
+ * Whether the page treats the working facility as receiving orders of this kind from other facilities (Novu, P4c):
+ * 'yes' or 'no' from the session (receivingHere); for a governed facility ('unknown'), once there is work from another
+ * facility to show: a route-backed row in the work list, or an order waiting in Incoming. Only then does the page say
+ * it receives orders, keep Incoming in view and read it every 2 minutes.
+ */
+function useReceiving(facility: Facility | undefined, service: 'lab' | 'pharmacy', items: ReadonlyArray<{ orderRoute?: unknown }> | null) {
+  const receiving = receivingHere(facility, service)
+  const [found, setFound] = useState<string | null>(null)
+  const onFound = useCallback(() => setFound(facility?.id ?? null), [facility?.id])
+  const evidence = Boolean(items?.some(item => item.orderRoute)) || (found !== null && found === facility?.id)
+  return { mounted: receiving !== 'no', receives: receiving === 'yes' || (receiving === 'unknown' && evidence), onFound }
+}
+
 export function Laboratory() {
-  const { facilityId, permissions } = useFacilityAccess()
+  const { facilityId, permissions, facility } = useFacilityAccess()
   const canRead = permissions.includes('lab.work-item.read')
-  const list = useFacilityList(facilityId, canRead, useCallback(async id => (await staffApi.labWorkItems(id)).items, []))
+  const read = useFacilityRead(facilityId, canRead, useCallback(id => staffApi.labWorkItems(id), []))
+  const list = { ...read, items: read.value ? read.value.items : null }
   const [selection, setSelection] = useState<{ facilityId: string; item: LabWorkItem; created?: string } | null>(null)
   const selected = selection && selection.facilityId === facilityId ? selection.item : null
   // A created accession replaces the form that made it: focus goes to the accession.
   const focus = useFocusById()
+  // Orders other facilities send here (Novu, P4c): received by laboratory scientists (lab.order-route.receive), and only
+  // at a laboratory: a hospital's or clinic's own laboratory is never sent any (useReceiving).
+  const { mounted, receives, onFound } = useReceiving(facility, 'lab', list.items)
   if (!facilityId || !canRead) return <EmptyState titleAs="h1" title="Laboratory unavailable" description="This facility membership needs lab work-item read permission." />
   return <>
-    <PageHead eyebrow="Provider workspace" title="Laboratory">Accepted EHR test orders at this facility. A separate accession records the specimen chain of custody.</PageHead>
+    <PageHead eyebrow="Provider workspace" title="Laboratory">{receives
+      ? 'Tests ordered at this facility, and lab requests from other facilities once you accept them. A separate accession records the specimen chain of custody.'
+      : 'Accepted EHR test orders at this facility. A separate accession records the specimen chain of custody.'}</PageHead>
+    <StandaloneWorkNote facility={facility} kind="laboratory" ordersOn={read.value?.crossFacilityOrders === true} />
+    {mounted && facility && <IncomingOrders service="lab" facilityId={facilityId} facilityName={facility.name} probe={!receives}
+      onFound={onFound} onAccepted={() => void list.refresh()} />}
     <div className="staff-row staff-toolbar"><RefreshButton loading={list.loading} onRefresh={list.refresh}>Refresh work</RefreshButton></div>
     <ListState loading={list.loading} error={list.error} empty="No accepted lab work" retry={() => void list.refresh()} hasItems={Boolean(list.items?.length)} />
+    <RoutedWorkPaused items={list.items} crossFacilityWork={read.value?.crossFacilityWork} receives={receives} />
     <WorkListCap count={list.items?.length ?? 0} />
-    {list.items && list.items.length > 0 && <div className="staff-two-col"><div className="staff-list">{list.items.map(item => <div className="staff-list-item" key={item.id}><div className="staff-row"><strong>{item.testName ?? 'Lab test'}</strong><Badge tone={item.accessionId ? 'information' : 'warning'}>{item.accessionId ? 'Accessioned' : item.status}</Badge></div><p>Patient {shortId(item.patientId)} · Accepted {dateText(item.acceptedAt)}</p>{item.accessionNumber && <p>Accession {item.accessionNumber}</p>}{(item.accessionId ? permissions.includes('lab.accession.read') : permissions.includes('lab.accession.create')) && <Button tone="secondary" size="sm" onClick={() => setSelection({ facilityId, item })}>{item.accessionId ? 'Open accession' : 'Prepare accession'}</Button>}</div>)}</div>
+    {list.items && list.items.length > 0 && <div className="staff-two-col"><div className="staff-list">{list.items.map(item => <div className="staff-list-item" key={item.id}><div className="staff-row"><strong>{item.testName ?? 'Lab test'}</strong><Badge tone={item.accessionId ? 'information' : 'warning'}>{item.accessionId ? 'Accessioned' : item.status}</Badge></div><p>{patientLabel(item)} · Accepted {dateText(item.acceptedAt)}</p><RoutedWorkLines route={item.orderRoute} />{item.accessionNumber && <p>Accession {item.accessionNumber}</p>}{(item.accessionId ? permissions.includes('lab.accession.read') : permissions.includes('lab.accession.create')) && <Button tone="secondary" size="sm" onClick={() => setSelection({ facilityId, item })}>{item.accessionId ? 'Open accession' : 'Prepare accession'}</Button>}</div>)}</div>
       {selected?.accessionId && permissions.includes('lab.accession.read') ? <AccessionView key={`${facilityId}-${selected.accessionId}`} facilityId={facilityId} id={selected.accessionId} permissions={permissions} created={selection?.created} onChanged={() => void list.refresh()} /> : selected && permissions.includes('lab.accession.create') ? <AccessionForm facilityId={facilityId} item={selected} onCreated={accession => { setSelection({ facilityId, item: { ...selected, accessionId: accession.id, accessionNumber: accession.accessionNumber }, created: `Accession ${accession.accessionNumber} created.` }); focus('lab-accession-title', true); void list.refresh() }} /> : <Card className="staff-card"><h2>Choose work</h2><p>Open an accession or prepare a specimen for an accepted order.</p></Card>}
     </div>}
   </>
@@ -611,12 +696,15 @@ function PharmacyAction({ facilityId, item, permissions, onChanged }: { facility
   }
   const canDispense = !item.dispensing && !undispensable && permissions.includes('pharmacy.dispensing.create')
   const canReverse = Boolean(item.dispensing && !item.dispensing.reversed && permissions.includes('pharmacy.dispensing.reverse') && permissions.includes('pharmacy.dispensing.read'))
-  return <div className="staff-list-item"><div className="staff-row"><strong id={`pharmacy-${item.id}-title`} tabIndex={-1}>{item.medication.display}</strong><Badge tone={item.dispensing?.reversed ? 'warning' : item.dispensing ? 'success' : undispensable ? 'danger' : 'information'}>{item.dispensing?.reversed ? 'Reversed' : item.dispensing ? 'Dispensed' : undispensable ? 'Not dispensable' : 'Accepted'}</Badge></div><p>Patient {shortId(item.patientId)} · {item.doseQuantity == null ? 'Dose not recorded' : `${item.doseQuantity} ${item.doseUnit ?? ''}`} · {item.frequency ?? 'Frequency not recorded'}</p>
+  return <div className="staff-list-item"><div className="staff-row"><strong id={`pharmacy-${item.id}-title`} tabIndex={-1}>{item.medication.display}</strong><Badge tone={item.dispensing?.reversed ? 'warning' : item.dispensing ? 'success' : undispensable ? 'danger' : 'information'}>{item.dispensing?.reversed ? 'Reversed' : item.dispensing ? 'Dispensed' : undispensable ? 'Not dispensable' : 'Accepted'}</Badge></div><p>{patientLabel(item)} · {item.doseQuantity == null ? 'Dose not recorded' : `${item.doseQuantity} ${item.doseUnit ?? ''}`} · {item.frequency ?? 'Frequency not recorded'}</p>
     <p>{item.routeCode ? `Route: ${item.routeCode}` : 'Route not recorded'}</p>
+    <RoutedWorkLines route={item.orderRoute} />
     {item.instructions && <p className="staff-note-content">{item.instructions}</p>}
     {canDispense && <form className="staff-form" onSubmit={event => void submit(event)}><div className="staff-form-row"><Field label="Quantity dispensed" htmlFor={`pharmacy-quantity-${item.id}`} error={problems.error(`pharmacy-quantity-${item.id}`)} required><Input id={`pharmacy-quantity-${item.id}`} name="quantity" type="number" min="0.0001" step="0.0001" required {...problems.control(`pharmacy-quantity-${item.id}`)} /></Field><Field label="Unit" htmlFor={`pharmacy-unit-${item.id}`} error={problems.error(`pharmacy-unit-${item.id}`)} required><Input id={`pharmacy-unit-${item.id}`} name="unit" maxLength={80} defaultValue={item.doseUnit ?? ''} required {...problems.control(`pharmacy-unit-${item.id}`)} /></Field></div><Field label="Reason" htmlFor={`pharmacy-reason-${item.id}`} error={problems.error(`pharmacy-reason-${item.id}`)} required><Textarea id={`pharmacy-reason-${item.id}`} name="reason" minLength={8} maxLength={500} required {...problems.control(`pharmacy-reason-${item.id}`)} /></Field><Button type="submit" size="sm" aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Recording…' : 'Record full dispensing'}</Button></form>}
     {canReverse && <form className="staff-form" onSubmit={event => void submit(event, true)}><Field label="Reversal reason" htmlFor={`pharmacy-reversal-${item.id}`} error={problems.error(`pharmacy-reversal-${item.id}`)} required><Textarea id={`pharmacy-reversal-${item.id}`} name="reason" minLength={8} maxLength={500} required {...problems.control(`pharmacy-reversal-${item.id}`)} /></Field><Button type="submit" tone="secondary" size="sm" aria-disabled={busy || undefined} className={UNAVAILABLE}>{busy ? 'Recording…' : 'Reverse dispensing'}</Button></form>}
-    {undispensable && !item.dispensing && <p className="staff-error" role="alert">Not dispensable: the prescription is no longer active at the version Pharmacy accepted, or could not be checked; a new prescription and handoff are needed.</p>}
+    {undispensable && !item.dispensing && <p className="staff-error" role="alert">{item.orderRoute
+      ? `Not dispensable: ${item.orderRoute.orderingFacilityName ?? 'the prescribing facility'} changed or cancelled this prescription, or its time for dispensing has ended. A new prescription is needed.`
+      : 'Not dispensable: the prescription is no longer active at the version Pharmacy accepted, or could not be checked; a new prescription and handoff are needed.'}</p>}
     {error && <p className="staff-error" role="alert">{error}</p>}
     {/* Mounted throughout, so what was recorded is announced. */}
     <div id={`pharmacy-status-${item.id}`} role="status">{success && <p className="staff-success">{success}</p>}</div>
@@ -624,14 +712,24 @@ function PharmacyAction({ facilityId, item, permissions, onChanged }: { facility
 }
 
 export function Pharmacy() {
-  const { facilityId, permissions } = useFacilityAccess()
+  const { facilityId, permissions, facility } = useFacilityAccess()
   const canRead = permissions.includes('pharmacy.work-item.read')
-  const list = useFacilityList(facilityId, canRead, useCallback(async id => (await staffApi.pharmacyWorkItems(id)).items, []))
+  const read = useFacilityRead(facilityId, canRead, useCallback(id => staffApi.pharmacyWorkItems(id), []))
+  const list = { ...read, items: read.value ? read.value.items : null }
+  // Prescriptions other facilities send here (Novu, P4c): received by pharmacists (pharmacy.order-route.receive), and
+  // only at a pharmacy: a hospital's or clinic's own pharmacy is never sent any (useReceiving).
+  const { mounted, receives, onFound } = useReceiving(facility, 'pharmacy', list.items)
   if (!facilityId || !canRead) return <EmptyState titleAs="h1" title="Pharmacy unavailable" description="This facility membership needs pharmacy work-item read permission." />
   return <>
-    <PageHead eyebrow="Provider workspace" title="Pharmacy">Accepted prescriptions and full dispensing records for the active facility. The server checks patient authorization before dispensing or reversal.</PageHead>
+    <PageHead eyebrow="Provider workspace" title="Pharmacy">{receives
+      ? 'Prescriptions accepted here, from this facility and from other facilities, and full dispensing records. The server checks patient authorization before dispensing or reversal.'
+      : 'Accepted prescriptions and full dispensing records for the active facility. The server checks patient authorization before dispensing or reversal.'}</PageHead>
+    <StandaloneWorkNote facility={facility} kind="pharmacy" ordersOn={read.value?.crossFacilityOrders === true} />
+    {mounted && facility && <IncomingOrders service="pharmacy" facilityId={facilityId} facilityName={facility.name} probe={!receives}
+      onFound={onFound} onAccepted={() => void list.refresh()} />}
     <div className="staff-row staff-toolbar"><RefreshButton loading={list.loading} onRefresh={list.refresh}>Refresh work</RefreshButton></div>
     <ListState loading={list.loading} error={list.error} empty="No accepted prescriptions" retry={() => void list.refresh()} hasItems={Boolean(list.items?.length)} />
+    <RoutedWorkPaused items={list.items} crossFacilityWork={read.value?.crossFacilityWork} receives={receives} />
     {/* hid-system #48: work whose prescription changed stays listed as accepted (INTERFACE_CONTRACT.md, Pharmacy). */}
     <WorkListCap count={list.items?.length ?? 0}><p className="staff-notice">Work whose prescription changed after Pharmacy accepted it cannot be dispensed, but it stays listed and counts toward these {WORK_LIST_CAP}.</p></WorkListCap>
     {list.items && list.items.length > 0 && <div className="staff-list">{list.items.map(item => <PharmacyAction key={item.id} facilityId={facilityId} item={item} permissions={permissions} onChanged={list.refresh} />)}</div>}

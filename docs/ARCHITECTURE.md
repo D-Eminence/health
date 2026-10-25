@@ -370,7 +370,91 @@ starts with no emailed code; an account that already has an authenticator is
 asked for its code; the page reloads into the workspace only after the
 recovery codes, and a challenge that lapses sends the administrator to
 `/provider/sign-in`. The page does not listen for the other tabs, so verify
-and activation announce the new session on a channel opened for the message. The platform console refuses the platform enrolment of an
+and activation announce the new session on a channel opened for the message.
+On a Novu build (novu-v1, facility self sign-up, P4) there is no authenticator
+step: activation sets the password and signs the administrator in, and the page
+says where staff sign in next time before opening the workspace. It asks
+`GET /identity/provider-enrollments/availability` first and shows a closed
+notice while sign-up is off, or a "temporarily unavailable" notice when
+Identity answers that it could not tell (`reason: 'unavailable'`). Once the
+email is confirmed it reads what the sign-up registers
+(`GET /identity/provider-enrollments/profile`: the legal name, the CAC number,
+the facility type and the administrator) and shows it, or the CAC number alone,
+before the account is made. A start that answers `codeSent: false` is never
+shown as a sent code: the page uses the code in force, or waits as Identity
+says. When that start changed the facility type or administrator name, which
+only a sent code carries, the page stays at the details: the changes wait for
+the next code, or the code in force is entered with the details it carries.
+When the administrator email already has an account, Identity closes the
+sign-up (hid-system R15), and the page offers a new one with another email at
+once. The console's "Open applications" view lists the sign-ups holding a CAC
+number first, with the total, finds one CAC number's
+(`POST /admin/self-service-applications/search`), lets support spare an
+applicant the 7-day refusal when rejecting or releasing (`allowRetry`), and
+lifts such a refusal (`POST /admin/self-service-applications/waive-refusal`).
+On Novu since P4b, a self-signed-up facility's session carries
+`facility.selfService` (`review`, `organizationType`). Until support's review
+the administrator holds `org_admin_awaiting_review`; a banner says what stays
+locked for the facility's type and that the review signs everyone out once.
+The Staff page (`/provider/staff`, `workforce.manage`, listed only at such a
+facility) records the administrator's own licence, invites staff (a role,
+the regulator's licence for a clinical role, an attestation and the
+administrator's password, with an `Idempotency-Key`), and resends, revokes,
+removes and changes roles with the version read. An invitation opens on the
+main site at `/provider/invitation` (Turnstile `staff-invitation`, the link's
+`#<id>.<token>` taken out of the address at once), or, for existing staff,
+signed in at `/provider/staff/join` on their own staff site: the workspace
+takes the link out of the address before its sign-in gate, holds it in
+memory for 30 minutes (the portal keeps nothing in browser storage), and a
+sign-in returns to the join page. The console's review form chooses the
+administrator's role and how support checked them, and its facility pages
+show staff and licences on demand and find an invitation by its reference.
+Laboratory and pharmacy pages of a stand-alone facility say where its work
+comes from today, in one message per case (`staff/betweenFacilities.ts`),
+which since P4c also says whether other facilities can send it orders.
+On Novu since P4c, a clinician can send a lab request or prescription to a
+laboratory or pharmacy at another facility (`staff/routes/OrderRoutes.tsx`):
+a directory picker (`GET /identity/order-destinations`, 3 to 80 characters,
+on demand) shows each facility's CAC registered office, the clinician ticks
+the attestation Identity's EHR serves (`GET /ehr/order-route-attestation`,
+filled with the names, its version sent back), and the send carries an
+`Idempotency-Key`. The order's row then shows the route's state from the
+order list's `orderRoute`, loads its details and what came back only when
+asked, offers Withdraw while it waits, and hides this facility's own Lab and
+Pharmacy hand-offs. Returned results are grouped by result: the value to
+use first, each version a correction replaced marked as replaced, and a
+version marked entered in error naming the value it voids. The Lab and
+Pharmacy pages list incoming orders
+(`GET /{lab|pharmacy}/order-routes?view=incoming`, refreshed every two
+minutes and on focus), accept one only after the patient's Health ID or date
+of birth is confirmed (a mismatch says the tries left from the problem's
+`attemptsLeft`; with a date of birth, the order's reference read from the
+patient's app, never filled from the card, names the order, and without it a
+mismatch asks for the reference instead of counting down), decline with a
+reason, and name the patient only on work
+from another facility. Only a laboratory receives lab requests and only a
+pharmacy prescriptions, though the receive permission comes with the role at
+every facility, and no answer says whether a facility receives: the pages
+go by the session's facility type (`receivingHere` in `staff/orderRoutes.ts`).
+A hospital or clinic that signed itself up reads and says nothing about
+other facilities; a governed facility, whose type the session does not
+carry, reads Incoming once and says nothing until an order or routed work
+shows up. A Health ID typed to find a patient's orders goes in the body of
+`POST /{lab|pharmacy}/order-routes/search`, never in an address, and is sent
+only when asked, never by the timer. The patient portal lists the patient's sent orders on
+Access and consent with the clinician's attestation as confirmed, and offers
+Stop while one waits; an order marked entered in error stays listed by
+reference, state and facilities only (`enteredInError`). The console finds an
+order by its reference or Health ID (a Health ID in the body of
+`POST /admin/order-routes/search`, once per Find; a row is found again by its
+reference),
+closes it (`If-Match`) while its access may still be open, and shows and
+changes a facility's listing on demand, in words that depend on what the
+console knows of the facility's type and review. A 404 from any of these routes means the backend does not serve
+them yet: the page shows nothing new, and a main-v1 build never asks.
+A staff sign-in on a product host lands on the Overview, not the host's own
+page, when the working facility cannot use that page (`staff/navigation.ts`).
+The platform console refuses the platform enrolment of an
 account with a staff membership as Identity does
 (`409 MFA_ENROLLMENT_STAFF_SIGN_IN_REQUIRED`) and says to set the
 authenticator up at staff sign-in first. Identity refuses a staff sign-in made without an authenticator (every

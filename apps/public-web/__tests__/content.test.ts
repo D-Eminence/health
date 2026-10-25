@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { PRODUCTS, findProduct } from '../content/products'
+import { PRODUCT_DETAILS } from '../content/product-details'
 import { AUDIENCES, ROUTES, SOLUTION_AUDIENCES, TRUST } from '../content/site'
 import { PATIENT_FAQ, PATIENT_JOURNEY } from '../content/patient'
-import { SOLUTIONS_PAGE } from '../content/pages'
+import { PRIVACY_PAGE, SOLUTIONS_PAGE } from '../content/pages'
 import { formatPublicPrice, parsePublicPrices } from '../lib/commercial-api'
 import {
   toDemoSubmission,
@@ -50,6 +51,16 @@ describe('product catalogue', () => {
   })
 })
 
+describe('pharmacy product', () => {
+  // A pharmacist cannot write prescriptions (P4c SPEC-FINAL §13.7): the pharmacy receives them from clinicians.
+  it('says a pharmacy receives the prescriptions Health ID clinicians send, and never that it creates them', () => {
+    const pharmacy = PRODUCT_DETAILS.find(product => product.slug === 'pharmacy')
+    expect(pharmacy?.workflows.find(workflow => workflow.title === 'Prescription management')?.body)
+      .toBe('Receive prescriptions that Health ID clinicians send you, and record what you dispense.')
+    expect(JSON.stringify(pharmacy)).not.toMatch(/create new prescriptions|walk-in patients/i)
+  })
+})
+
 describe('homepage content', () => {
   it('carries the approved partner label and real-logo roster', () => {
     expect(TRUST.label).toBe('In partnership with')
@@ -80,6 +91,18 @@ describe('solutions content', () => {
         expect(findProduct(slug)).toBeDefined()
       }
     }
+  })
+})
+
+describe('privacy notice', () => {
+  // "Setup Your Facility" is facility self sign-up on production (Novu, P4): finishing it makes the administrator's staff
+  // account at once, and support reviews the facility afterwards (P4b leftover 4).
+  it('says what facility sign-up creates, never that it creates no staff account', () => {
+    const point = PRIVACY_PAGE.points.find(item => item.title === 'Organization applications')
+    expect(point?.body).not.toMatch(/does not create a staff account/)
+    expect(point?.body).toContain('When the administrator confirms their email with the code and chooses a password, facility '
+      + 'sign-up creates the facility and the administrator’s staff account straight away; Health ID support then reviews '
+      + 'every new facility.')
   })
 })
 

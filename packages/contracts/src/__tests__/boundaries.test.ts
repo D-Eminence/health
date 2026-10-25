@@ -268,6 +268,241 @@ describe('application boundaries', () => {
     }
   })
 
+  it('registers facility self sign-up\'s reads for the provider portal and its review, release and open applications for the console (P4)', () => {
+    const base = '/api/v1/identity/provider-enrollments'
+    // The static availability path is a GET of its own; the start is a POST on the base path.
+    expect(assertRegisteredBrowserRequest('GET', `${base}/availability`).name).toBe('enrollment.providerAvailability')
+    expect(() => assertRegisteredBrowserRequest('POST', `${base}/availability`)).toThrow(BrowserRouteError)
+    expect(assertRegisteredBrowserRequest('POST', base).name).toBe('enrollment.providerStart')
+    expect(findEndpoint('enrollment.providerAvailability')).toMatchObject({ service: 'enrollment', methods: ['GET'],
+      auth: { kind: 'public' }, status: 'proposed' })
+    // The reason says closed or unavailable (P4 round 2): a fault is never shown as closed.
+    expect(findEndpoint('enrollment.providerAvailability')?.note).toContain("{ open: false, reason: 'closed' }")
+    expect(findEndpoint('enrollment.providerAvailability')?.note).toContain("{ open: false, reason: 'unavailable' }")
+    expect(() => assertEndpointAllowed('staff-web', 'enrollment.providerAvailability')).not.toThrow()
+    for (const app of ['patient-web', 'admin-web', 'public-web'] as const) {
+      expect(() => assertEndpointAllowed(app, 'enrollment.providerAvailability'), app).toThrow(BoundaryViolationError)
+    }
+    // What a confirmed sign-up registers (P4 round 2): Novu's, read with the enrollment cookie.
+    expect(assertRegisteredBrowserRequest('GET', `${base}/profile`).name).toBe('enrollment.providerProfile')
+    expect(() => assertRegisteredBrowserRequest('POST', `${base}/profile`)).toThrow(BrowserRouteError)
+    expect(findEndpoint('enrollment.providerProfile')).toMatchObject({ service: 'enrollment', methods: ['GET'],
+      auth: { kind: 'public' }, status: 'proposed' })
+    for (const field of ['organizationName', 'registrationNumber', 'productCode', 'organizationType', 'administratorName',
+      'administratorEmail']) expect(findEndpoint('enrollment.providerProfile')?.note).toContain(field)
+    expect(findEndpoint('enrollment.providerProfile')?.note).toContain('not served by hid-system main')
+    expect(findEndpoint('enrollment.providerProfile')?.note).toContain('423 PROVIDER_ENROLLMENT_UNAVAILABLE')
+    expect(() => assertEndpointAllowed('staff-web', 'enrollment.providerProfile')).not.toThrow()
+    for (const app of ['patient-web', 'admin-web', 'public-web'] as const) {
+      expect(() => assertEndpointAllowed(app, 'enrollment.providerProfile'), app).toThrow(BoundaryViolationError)
+    }
+    // The closed gate is a 423 on Novu, and activation answers a session there.
+    for (const name of ['enrollment.providerStart', 'enrollment.providerVerify', 'enrollment.providerActivate']) {
+      expect(findEndpoint(name)?.note, name).toContain('423 PROVIDER_ENROLLMENT_UNAVAILABLE')
+      expect(findEndpoint(name)?.status, name).toBe('surface-verified')
+    }
+    expect(findEndpoint('enrollment.providerActivate')?.note).toContain('actor')
+    // A start that sent no code says so on Novu (P4 round 2).
+    expect(findEndpoint('enrollment.providerStart')?.note).toContain('codeSent: false')
+
+    const applicationId = '0f2b6d0e-6a55-4b4c-9a7e-2f4b8c1d3e5a'
+    const routes = [
+      ['admin.selfServiceFacilities', '/api/v1/admin/self-service-facilities', 'GET', ['platform.identity-review.read']],
+      // P4b: a review gives clinical access, so it also needs platform.facility.unlock (hid-system S13).
+      ['admin.selfServiceFacilityReview', `/api/v1/admin/self-service-facilities/${applicationId}/review`, 'POST',
+        ['platform.facility.manage', 'platform.facility.unlock']],
+      ['admin.selfServiceFacilityRelease', `/api/v1/admin/self-service-facilities/${applicationId}/release`, 'POST',
+        ['platform.facility.manage']],
+      ['admin.selfServiceApplications', '/api/v1/admin/self-service-applications', 'GET', ['platform.identity-review.read']],
+      ['admin.selfServiceApplicationReject', `/api/v1/admin/self-service-applications/${applicationId}/reject`, 'POST',
+        ['platform.facility.manage']],
+      // hid-system R16 and R15: the open applications' search by CAC number, and the waiver of a 7-day refusal.
+      ['admin.selfServiceApplicationSearch', '/api/v1/admin/self-service-applications/search', 'POST',
+        ['platform.identity-review.read']],
+      ['admin.selfServiceApplicationWaiveRefusal', '/api/v1/admin/self-service-applications/waive-refusal', 'POST',
+        ['platform.facility.manage']],
+    ] as const
+    for (const [name, example, method, permission] of routes) {
+      expect(findEndpoint(name), name).toMatchObject({ service: 'admin', methods: [method], status: 'proposed',
+        auth: { kind: 'authenticated' }, permissions: { [method]: permission } })
+      expect(assertRegisteredBrowserRequest(method, example).name).toBe(name)
+      expect(() => assertRegisteredBrowserRequest(method === 'GET' ? 'POST' : 'GET', example), name).toThrow(BrowserRouteError)
+      expect(() => assertEndpointAllowed('admin-web', name)).not.toThrow()
+      for (const app of ['staff-web', 'patient-web', 'public-web'] as const) {
+        expect(() => assertEndpointAllowed(app, name), `${app}: ${name}`).toThrow(BoundaryViolationError)
+      }
+    }
+    // What the second backend review changed (R15, R16): the list's total and holdsCac, and allowRetry.
+    expect(findEndpoint('admin.selfServiceApplications')?.note).toContain('{ total, items }')
+    expect(findEndpoint('admin.selfServiceApplications')?.note).toContain('holdsCac')
+    for (const name of ['admin.selfServiceApplicationReject', 'admin.selfServiceFacilityRelease']) {
+      expect(findEndpoint(name)?.note, name).toContain('allowRetry')
+    }
+    expect(findEndpoint('admin.selfServiceApplicationWaiveRefusal')?.note).toContain('404 SELF_SERVICE_REFUSAL_NOT_FOUND')
+  })
+
+  it('registers P4b\'s staff routes for the provider portal, its public join routes and the withdrawal for the provider '
+    + 'portal only, and support\'s new commands and reads for the console', () => {
+    const invitationId = '0f2b6d0e-6a55-4b4c-9a7e-2f4b8c1d3e5a'
+    const membershipId = '1a2b3c4d-5e6f-4a1b-8c2d-3e4f5a6b7c8d'
+    const staff = [
+      ['identity.facilityStaff', 'GET', '/api/v1/identity/facility-staff', ['workforce.manage']],
+      ['identity.facilityAdministratorLicence', 'POST', '/api/v1/identity/facility-staff/administrator-licence', ['workforce.manage']],
+      ['identity.staffInvitationCreate', 'POST', '/api/v1/identity/staff-invitations', ['workforce.manage']],
+      ['identity.staffInvitationResend', 'POST', `/api/v1/identity/staff-invitations/${invitationId}/resend`, ['workforce.manage']],
+      ['identity.staffInvitationRevoke', 'POST', `/api/v1/identity/staff-invitations/${invitationId}/revoke`, ['workforce.manage']],
+      ['identity.facilityStaffEnd', 'POST', `/api/v1/identity/facility-staff/${membershipId}/end`, ['workforce.manage']],
+      ['identity.facilityStaffRole', 'POST', `/api/v1/identity/facility-staff/${membershipId}/role`, ['workforce.manage']],
+      // Signed in, with no facility and no permission (Identity's @FacilityOptional, @NoAudit).
+      ['identity.staffInvitationSignedInPreview', 'POST', '/api/v1/identity/staff-invitations/signed-in/preview', undefined],
+      ['identity.staffInvitationSignedInAccept', 'POST', '/api/v1/identity/staff-invitations/signed-in/accept', undefined],
+    ] as const
+    for (const [name, method, example, permissions] of staff) {
+      const endpoint = findEndpoint(name)
+      expect(endpoint, name).toMatchObject({ service: 'identity', methods: [method], status: 'proposed', auth: { kind: 'authenticated' } })
+      expect(endpoint?.permissions, name).toEqual(permissions ? { [method]: permissions } : undefined)
+      expect(endpoint?.note, name).toContain('not served by hid-system main')
+      // The static segments (signed-in, administrator-licence) win over the id routes.
+      expect(assertRegisteredBrowserRequest(method, example).name, name).toBe(name)
+      expect(() => assertEndpointAllowed('staff-web', name), name).not.toThrow()
+      for (const app of ['patient-web', 'admin-web', 'public-web'] as const) {
+        expect(() => assertEndpointAllowed(app, name), `${app}: ${name}`).toThrow(BoundaryViolationError)
+      }
+    }
+    const publicRoutes = [
+      ['enrollment.staffInvitationOpen', '/api/v1/identity/staff-invitations/open'],
+      ['enrollment.staffInvitationAccept', '/api/v1/identity/staff-invitations/accept'],
+      ['enrollment.providerWithdraw', '/api/v1/identity/provider-enrollments/withdraw'],
+    ] as const
+    for (const [name, example] of publicRoutes) {
+      expect(findEndpoint(name), name).toMatchObject({ service: 'enrollment', methods: ['POST'], status: 'proposed',
+        auth: { kind: 'public' } })
+      expect(assertRegisteredBrowserRequest('POST', example).name, name).toBe(name)
+      expect(() => assertRegisteredBrowserRequest('GET', example), name).toThrow(BrowserRouteError)
+      expect(() => assertEndpointAllowed('staff-web', name), name).not.toThrow()
+      for (const app of ['patient-web', 'admin-web', 'public-web'] as const) {
+        expect(() => assertEndpointAllowed(app, name), `${app}: ${name}`).toThrow(BoundaryViolationError)
+      }
+    }
+    expect(findEndpoint('enrollment.staffInvitationOpen')?.note).toContain('Turnstile action staff-invitation')
+    expect(findEndpoint('enrollment.providerWithdraw')?.note).toContain('no 7-day refusal')
+    // The invitation route the email is sent through is the workload's only.
+    expect(() => assertRegisteredBrowserRequest('POST', '/api/v1/notifications/staff-invitation')).toThrow(BrowserRouteError)
+
+    const applicationId = '0f2b6d0e-6a55-4b4c-9a7e-2f4b8c1d3e5a'
+    const facilityId = '0f8c6d2e-4b1a-4c3d-9e5f-1a2b3c4d5e6f'
+    const admin = [
+      ['admin.selfServiceFacilityAdministratorRole', 'POST',
+        `/api/v1/admin/self-service-facilities/${applicationId}/administrator-role`, ['platform.facility.manage', 'platform.facility.unlock']],
+      ['admin.selfServiceFacilityEndProbation', 'POST', `/api/v1/admin/self-service-facilities/${applicationId}/end-probation`,
+        ['platform.facility.manage', 'platform.facility.unlock']],
+      ['admin.facilityStaff', 'GET', `/api/v1/admin/facilities/${facilityId}/staff`, ['platform.principal.read']],
+      ['admin.staffInvitationFind', 'GET', '/api/v1/admin/staff-invitations', ['platform.principal.read']],
+    ] as const
+    for (const [name, method, example, permissions] of admin) {
+      expect(findEndpoint(name), name).toMatchObject({ service: 'admin', methods: [method], status: 'proposed',
+        auth: { kind: 'authenticated' }, permissions: { [method]: permissions } })
+      expect(assertRegisteredBrowserRequest(method, example, name === 'admin.staffInvitationFind' ? { reference: '3F2A9C1B' } : undefined)
+        .name, name).toBe(name)
+      expect(() => assertEndpointAllowed('admin-web', name), name).not.toThrow()
+      for (const app of ['staff-web', 'patient-web', 'public-web'] as const) {
+        expect(() => assertEndpointAllowed(app, name), `${app}: ${name}`).toThrow(BoundaryViolationError)
+      }
+    }
+    // The facility's status command keeps its own route beside the staff read.
+    expect(assertRegisteredBrowserRequest('POST', `/api/v1/admin/facilities/${facilityId}/status`).name).toBe('admin.facilityStatus')
+    // The lookup needs its reference.
+    expect(() => assertRegisteredBrowserRequest('GET', '/api/v1/admin/staff-invitations')).toThrow(BrowserRouteError)
+    // The session answers and break-glass say what P4b adds.
+    for (const name of ['auth.session', 'auth.refresh', 'auth.facility', 'enrollment.providerActivate']) {
+      expect(findEndpoint(name)?.note, name).toContain('selfService')
+    }
+    expect(findEndpoint('access.breakGlass')?.note).toContain('EMERGENCY_PROBATION_LIMITED')
+  })
+
+  it('registers P4c\'s orders between facilities: sending and the directory for the provider portal, receiving for Lab and '
+    + 'Pharmacy, the patient\'s list and Stop for the patient portal, and support\'s tools for the console', () => {
+    const patientId = 'a0000000-0000-4000-8000-0000004f9c2e'
+    const encounterId = 'b0000000-0000-4000-8000-000000000001'
+    const orderId = 'c0000000-0000-4000-8000-000000000002'
+    const routeId = '9c1b2d3e-4f5a-4b6c-8d7e-0f1a2b3c4d5e'
+    const facilityId = '0f8c6d2e-4b1a-4c3d-9e5f-1a2b3c4d5e6f'
+    const lab = `/api/v1/ehr/patients/${patientId}/encounters/${encounterId}/lab-requests/${orderId}`
+    const prescription = `/api/v1/ehr/patients/${patientId}/encounters/${encounterId}/prescriptions/${orderId}`
+    type Case = readonly [string, string, string, Record<string, string> | undefined, readonly string[] | undefined]
+    const staff: readonly Case[] = [
+      ['identity.orderDestinations', 'GET', '/api/v1/identity/order-destinations', { kind: 'laboratory', query: 'Yaba' }, ['ehr.order-route.send']],
+      ['ehr.labRequestOrderRoutes', 'GET', `${lab}/order-routes`, undefined, ['ehr.lab-request.read']],
+      ['ehr.labRequestOrderRoutes', 'POST', `${lab}/order-routes`, undefined, ['ehr.lab-request.write', 'ehr.order-route.send']],
+      ['ehr.labRequestOrderRouteWithdraw', 'POST', `${lab}/order-routes/${routeId}/withdraw`, undefined, ['ehr.order-route.send']],
+      ['ehr.prescriptionOrderRoutes', 'GET', `${prescription}/order-routes`, undefined, ['ehr.prescription.read']],
+      ['ehr.prescriptionOrderRoutes', 'POST', `${prescription}/order-routes`, undefined, ['ehr.prescription.write', 'ehr.order-route.send']],
+      ['ehr.prescriptionOrderRouteWithdraw', 'POST', `${prescription}/order-routes/${routeId}/withdraw`, undefined, ['ehr.order-route.send']],
+      ['ehr.orderRouteAttestation', 'GET', '/api/v1/ehr/order-route-attestation', { kind: 'lab_request' }, ['ehr.order-route.send']],
+      ['lab.orderRoutes', 'GET', '/api/v1/lab/order-routes', { view: 'incoming' }, ['lab.order-route.receive']],
+      ['lab.orderRouteSearch', 'POST', '/api/v1/lab/order-routes/search', undefined, ['lab.order-route.receive']],
+      ['lab.orderRoute', 'GET', `/api/v1/lab/order-routes/${routeId}`, undefined, ['lab.order-route.receive']],
+      ['lab.orderRouteAccept', 'POST', `/api/v1/lab/order-routes/${routeId}/accept`, undefined, ['lab.order-route.receive']],
+      ['lab.orderRouteDecline', 'POST', `/api/v1/lab/order-routes/${routeId}/decline`, undefined, ['lab.order-route.receive']],
+      ['pharmacy.orderRoutes', 'GET', '/api/v1/pharmacy/order-routes', { view: 'incoming' }, ['pharmacy.order-route.receive']],
+      ['pharmacy.orderRouteSearch', 'POST', '/api/v1/pharmacy/order-routes/search', undefined, ['pharmacy.order-route.receive']],
+      ['pharmacy.orderRoute', 'GET', `/api/v1/pharmacy/order-routes/${routeId}`, undefined, ['pharmacy.order-route.receive']],
+      ['pharmacy.orderRouteAccept', 'POST', `/api/v1/pharmacy/order-routes/${routeId}/accept`, undefined, ['pharmacy.order-route.receive']],
+      ['pharmacy.orderRouteDecline', 'POST', `/api/v1/pharmacy/order-routes/${routeId}/decline`, undefined, ['pharmacy.order-route.receive']],
+    ]
+    const patient: readonly Case[] = [
+      ['ehr.myOrderRoutes', 'GET', '/api/v1/ehr/me/order-routes', undefined, undefined],
+      ['ehr.myOrderRouteWithdraw', 'POST', `/api/v1/ehr/me/order-routes/${routeId}/withdraw`, undefined, undefined],
+    ]
+    const admin: readonly Case[] = [
+      ['admin.facilityOrderRouteSummary', 'GET', `/api/v1/admin/facilities/${facilityId}/order-route-summary`, undefined, ['platform.facility.read']],
+      ['admin.facilityOrderDestination', 'POST', `/api/v1/admin/facilities/${facilityId}/order-destination`, undefined,
+        ['platform.facility.manage', 'platform.facility.unlock']],
+      ['admin.orderRoutesFind', 'GET', '/api/v1/admin/order-routes', { reference: '9C1B2D3E' }, ['platform.principal.read']],
+      ['admin.orderRoutesSearch', 'POST', '/api/v1/admin/order-routes/search', undefined, ['platform.principal.read']],
+      ['admin.orderRouteClose', 'POST', `/api/v1/admin/order-routes/${routeId}/close`, undefined, ['platform.facility.manage']],
+    ]
+    const apps = ['staff-web', 'patient-web', 'admin-web', 'public-web'] as const
+    for (const [cases, app] of [[staff, 'staff-web'], [patient, 'patient-web'], [admin, 'admin-web']] as const) {
+      for (const [name, method, example, query, permissions] of cases) {
+        const endpoint = findEndpoint(name)
+        expect(endpoint, name).toMatchObject({ status: 'proposed', auth: { kind: 'authenticated' } })
+        expect(endpoint?.permissions?.[method as 'GET' | 'POST'], `${method} ${name}`).toEqual(permissions)
+        expect(endpoint?.note, name).toContain('not served by hid-system main')
+        expect(assertRegisteredBrowserRequest(method, example, query).name, `${method} ${name}`).toBe(name)
+        expect(() => assertEndpointAllowed(app, name), `${app}: ${name}`).not.toThrow()
+        for (const other of apps.filter(candidate => candidate !== app)) {
+          expect(() => assertEndpointAllowed(other, name), `${other}: ${name}`).toThrow(BoundaryViolationError)
+        }
+      }
+    }
+    // The directory needs its kind and words, the attestation its kind; finding an order takes either query.
+    expect(() => assertRegisteredBrowserRequest('GET', '/api/v1/identity/order-destinations', { kind: 'laboratory' })).toThrow(BrowserRouteError)
+    expect(() => assertRegisteredBrowserRequest('GET', '/api/v1/ehr/order-route-attestation')).toThrow(BrowserRouteError)
+    expect(assertRegisteredBrowserRequest('GET', '/api/v1/admin/order-routes', { healthId: 'HID-7KQ2M9' }).name).toBe('admin.orderRoutesFind')
+    // The static attestation path is not a lab request, and a route's own read is not its accept.
+    expect(() => assertRegisteredBrowserRequest('POST', `/api/v1/lab/order-routes/${routeId}`)).toThrow(BrowserRouteError)
+    // The searches (P4c review) are POSTs: support's is never read with a GET.
+    expect(() => assertRegisteredBrowserRequest('GET', '/api/v1/admin/order-routes/search')).toThrow(BrowserRouteError)
+    // The healthId queries are deprecated in favour of the searches.
+    for (const name of ['lab.orderRoutes', 'pharmacy.orderRoutes', 'admin.orderRoutesFind']) {
+      expect(findEndpoint(name)?.note, name).toContain('deprecated')
+    }
+    for (const name of ['lab.orderRouteAccept', 'pharmacy.orderRouteAccept']) {
+      expect(findEndpoint(name)?.note, name).toContain('_REFERENCE_MISMATCH')
+    }
+    expect(findEndpoint('ehr.myOrderRoutes')?.note).toContain('enteredInError')
+    // What P4c adds to routes the website already calls.
+    for (const name of ['ehr.labRequests', 'ehr.prescriptions']) expect(findEndpoint(name)?.note, name).toContain('crossFacilityOrders')
+    for (const name of ['lab.workItems', 'pharmacy.workItems']) expect(findEndpoint(name)?.note, name).toContain('crossFacilityWork')
+    expect(findEndpoint('ehr.labRequest')?.note).toContain('ORDER_ROUTED')
+    expect(findEndpoint('ehr.labRequestLabWorkItem')?.note).toContain('LAB_REQUEST_ROUTED')
+    expect(findEndpoint('ehr.prescriptionPharmacy')?.note).toContain('PRESCRIPTION_ROUTED')
+    expect(findEndpoint('admin.controls')?.note).toContain('cross_facility_orders_enabled')
+    expect(findEndpoint('admin.controls')?.note).toContain('cross_facility_route_access_enabled')
+    expect(findEndpoint('enrollment.providerAvailability')?.note).toContain('crossFacilityOrders')
+  })
+
   it('keeps the public site\'s enrollment routes as they were', () => {
     for (const name of ['enrollment.start', 'enrollment.availability', 'enrollment.current', 'enrollment.google',
       'enrollment.holder', 'enrollment.holderVerify', 'enrollment.facilityCode', 'enrollment.participatingFacilities',

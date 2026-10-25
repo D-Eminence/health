@@ -15,6 +15,8 @@ import { IntegrationsPage } from './Integrations'
 import { ApplicationsPage } from './Organizations'
 import { ControlsPage, DemosPage, OperationsPage, PricingPage, ReviewsPage } from './Pages'
 import { PrincipalsPage } from './Principals'
+import { SelfServiceFacilitiesPage } from './SelfServiceFacilities'
+import { OrderRoutesPage } from './OrderRoutes'
 import { failure } from './problems'
 import { SecurityPage } from './SecurityPage'
 import {
@@ -293,8 +295,10 @@ export function App() {
               <Route path="sign-in" element={<Navigate to="/admin/overview" replace />} />
               <Route path="overview" element={<Area path="/admin/overview" actor={actor}><OverviewPage actor={actor} /></Area>} />
               <Route path="applications" element={<Area path="/admin/applications" actor={actor}><ApplicationsPage actor={actor} /></Area>} />
+              <Route path="self-service-facilities" element={<Area path="/admin/self-service-facilities" actor={actor}><SelfServiceFacilitiesPage actor={actor} /></Area>} />
               <Route path="facilities" element={<Area path="/admin/facilities" actor={actor}><FacilitiesPage actor={actor} /></Area>} />
               <Route path="facilities/:facilityId" element={<Area path="/admin/facilities" actor={actor}><FacilityDetailPage actor={actor} /></Area>} />
+              <Route path="order-routes" element={<Area path="/admin/order-routes" actor={actor}><OrderRoutesPage actor={actor} /></Area>} />
               <Route path="principals" element={<Area path="/admin/principals" actor={actor}><PrincipalsPage actor={actor} /></Area>} />
               <Route path="emergency-contacts" element={<Area path="/admin/emergency-contacts" actor={actor}><EmergencyContactAlertsPage /></Area>} />
               <Route path="approvals" element={<Area path="/admin/approvals" actor={actor}><ApprovalsPage actor={actor} /></Area>} />

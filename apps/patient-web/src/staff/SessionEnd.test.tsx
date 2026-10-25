@@ -565,6 +565,24 @@ describe('the return path after signing in', () => {
     await waitFor(() => expect(where()).toBe(page))
     expect(await screen.findByRole('button', { name: 'Sign out' })).toBeTruthy()
   })
+
+  // A self-signed-up facility's Staff page and the signed-in join page exist only on Novu (P4b).
+  it.each([
+    ['novu-v1', '/provider/staff', '/provider/staff'],
+    ['novu-v1', '/provider/staff/join', '/provider/staff/join'],
+    ['main-v1', '/provider/staff', '/provider'],
+    ['main-v1', '/provider/staff/join', '/provider'],
+  ])('on a %s build, returns from %s to %s', async (contract, page, landing) => {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', contract)
+    try {
+      serve({ [SESSION]: [ended()], [REFRESH]: [refreshRefused()], [LOGIN]: [json(staffSession())], [REQUESTS]: [json([])] })
+      await open(`/provider/sign-in?returnTo=${encodeURIComponent(page)}`)
+      await signIn()
+
+      await waitFor(() => expect(where()).toBe(landing))
+      expect(await screen.findByRole('button', { name: 'Sign out' })).toBeTruthy()
+    } finally { vi.unstubAllEnvs() }
+  })
 })
 
 describe('late answers after the session ended', () => {

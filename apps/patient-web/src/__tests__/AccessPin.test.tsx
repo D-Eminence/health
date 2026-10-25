@@ -75,6 +75,17 @@ describe('patient Access PIN', () => {
     await waitFor(() => expect((screen.getByLabelText('Set PIN') as HTMLInputElement).value).toBe('1234'))
   })
 
+  // P4c review (Identity, as main): setting a PIN is held for 24 hours after an OTP account recovery; revoking is not.
+  it('says Identity’s words when a PIN is held after an account recovery, and keeps the status', async () => {
+    const detail = 'This account was recovered with a verification code less than 24 hours ago; Access PIN changes are '
+      + 'available again once that period ends'
+    renderSettings(() => problem(403, 'PATIENT_RECENT_RECOVERY_HOLD', detail))
+    fireEvent.change(await screen.findByLabelText('Set PIN'), { target: { value: '1234' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save PIN' }))
+    expect((await screen.findByRole('alert')).textContent).toBe(detail)
+    expect(screen.getByText('Not configured')).toBeTruthy()
+  })
+
   it('says how to sign in again when revoking the PIN needs a recent sign-in', async () => {
     renderSettings((_path, method) => method === 'POST' ? json({ configured: true })
       : problem(403, 'PATIENT_RECENT_AUTH_REQUIRED', 'Sign in again before changing your Access PIN'))

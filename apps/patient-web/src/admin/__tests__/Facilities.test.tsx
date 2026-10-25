@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
@@ -10,7 +10,9 @@ import { StepUpProvider } from '../StepUp'
 const mocks = vi.hoisted(() => ({
   api: { facilities: vi.fn(), facility: vi.fn(), audit: vi.fn(), command: vi.fn(), stepUp: vi.fn(),
     // The facility page reads its designation for registration in person (hid-system #85; AssistedRegistration.test.tsx).
-    assistedRegistration: vi.fn() },
+    assistedRegistration: vi.fn(),
+    // Novu (P4b): the staff and licences of a self-signed-up facility, read only when asked.
+    facilityStaff: vi.fn() },
   keys: 0,
 }))
 vi.mock('../api', () => ({ adminApi: mocks.api, PAGE_SIZE: 25, newIdempotencyKey: () => `key-${++mocks.keys}` }))
@@ -160,5 +162,34 @@ describe('facility detail', () => {
     expect(screen.queryByRole('region', { name: 'Activity inside this facility' })).toBeNull()
     expect(screen.queryByRole('region', { name: 'Platform changes to this facility' })).toBeNull()
     expect(mocks.api.audit).not.toHaveBeenCalled()
+  })
+})
+
+/** Novu (P4b): support checks the licences a self-signed-up facility vouched for, from the facility's page. */
+describe('facility staff and licences', () => {
+  afterEach(() => { vi.unstubAllEnvs() })
+
+  it('reads them only when asked, and only with platform.principal.read, on a Novu build', async () => {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
+    mocks.api.facility.mockResolvedValue(facility({ status: 'verified' }))
+    mocks.api.facilityStaff.mockResolvedValue({ facility: { id: FACILITY_ID, name: 'Ikeja Clinic', selfService: null },
+      members: [], invitations: [] })
+    open(`/admin/facilities/${FACILITY_ID}`, <FacilityDetailPage actor={actor(['platform.principal.read'])} />, '/admin/facilities/:facilityId')
+    const panel = await screen.findByRole('region', { name: 'Staff and licences' })
+    expect(mocks.api.facilityStaff).not.toHaveBeenCalled()
+    fireEvent.click(within(panel).getByRole('button', { name: 'Show staff and licences' }))
+    expect(await within(panel).findByText('Health ID support manages this facility’s staff.')).toBeTruthy()
+    expect(mocks.api.facilityStaff).toHaveBeenCalledWith(FACILITY_ID, expect.anything())
+  })
+
+  it.each([
+    ['without platform.principal.read', 'novu-v1', []],
+    ['on a main-v1 build', 'main-v1', ['platform.principal.read']],
+  ] as const)('is not offered %s', async (_, contract, permissions) => {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', contract)
+    mocks.api.facility.mockResolvedValue(facility())
+    open(`/admin/facilities/${FACILITY_ID}`, <FacilityDetailPage actor={actor([...permissions])} />, '/admin/facilities/:facilityId')
+    await screen.findByRole('heading', { name: 'Ikeja Clinic', level: 1 })
+    expect(screen.queryByRole('region', { name: 'Staff and licences' })).toBeNull()
   })
 })

@@ -17,13 +17,20 @@ import { SignIn, STAFF_MFA_NOTICE } from './routes/SignIn'
 import { Dashboard } from './routes/Dashboard'
 import { Patients } from './routes/Patients'
 import { Registration } from './routes/Registration'
-import { ASSISTED_REGISTRATION_PERMISSION, InPersonCheck } from './routes/InPersonCheck'
+import { InPersonCheck } from './routes/InPersonCheck'
+import { PROVIDER_NAVIGATION as navigation, visibleNavigation } from './navigation'
 import { AccessRequests } from './routes/AccessRequests'
 import { FacilityAudit } from './routes/Audit'
 import { Clinical } from './routes/Clinical'
 import { Laboratory, Pharmacy, Ocr, Outreach, MigrateGap } from './routes/Operations'
 import { Billing, BillingBanner } from './routes/Billing'
-import { resolveStaffProductHostname } from '../productHostname'
+import { ReviewBanner } from './routes/ReviewBanner'
+import { StaffPage } from './routes/Staff'
+import { StaffJoin } from './routes/StaffJoin'
+import { captureStaffInvitationFragment } from './invitationCapture'
+import { roleLabels } from './staffAccess'
+import { usesNovuBackend } from '../backendContract'
+import { resolveStaffProductHostname, STAFF_JOIN_PATH } from '../productHostname'
 import { revealFocusedLink } from '../navStrip'
 import { useDocumentTitle } from '../authSteps'
 import { focusPageHeading, useFocusOnPageChange } from '../pageFocus'
@@ -449,12 +456,16 @@ function SessionCheck({ unconfirmed }: { unconfirmed: boolean }) {
 
 function Gate({ children }: { children: ReactNode }) {
   const { state, lock, refresh } = useStaff()
+  const { pathname } = useLocation()
   if (state.status === 'ended') return <SessionEnded reason={state.reason} />
   // Each state screen is the page: a main landmark, and an h1 where it has a title.
   if (state.status === 'loading') return <main className="staff-centered"><BrandLogo className="staff-state-logo" /><div role="status"><h1>Checking your secure session…</h1></div></main>
   if (state.status === 'error') return <main className="staff-centered"><BrandLogo className="staff-state-logo" /><EmptyState titleAs="h1" title="Session unavailable" description={state.error} action={<Button onClick={() => void refresh()}>Try again</Button>} /></main>
   if (state.status === 'signed-out') {
-    const productRoute = resolveStaffProductHostname(window.location.hostname)?.route
+    // Signed out on the join page (an invitation's link, Novu, P4b), the sign-in comes back to it; the link itself
+    // waits in this page's memory (invitationCapture.ts), never in the return address.
+    const joining = usesNovuBackend() && pathname.replace(/\/+$/, '').toLowerCase() === STAFF_JOIN_PATH
+    const productRoute = joining ? STAFF_JOIN_PATH : resolveStaffProductHostname(window.location.hostname)?.route
     const signInPath = productRoute ? `/provider/sign-in?returnTo=${encodeURIComponent(productRoute)}` : '/provider/sign-in'
     return <Navigate to={signInPath} replace />
   }
@@ -568,28 +579,15 @@ function FacilityChoice({ reason, onChosen }: { reason: FacilityQuestion; onChos
   </section>
 }
 
-const navigation = [
-  { to: '/provider', label: 'Overview', permission: '' },
-  { to: '/provider/patients', label: 'Patient access', permission: 'identity.patient.read' },
-  { to: '/provider/registration', label: 'Patient registration', permission: 'identity.registration.write' },
-  // Facility-assisted registration (hid-system #85, ADR-063): doctors, clinicians and nurses.
-  { to: '/provider/in-person-check', label: 'In-person check', permission: ASSISTED_REGISTRATION_PERMISSION },
-  { to: '/provider/requests', label: 'Access requests', permission: 'identity.consent.write' },
-  { to: '/provider/audit', label: 'Facility audit', permission: 'audit.read' },
-  { to: '/provider/clinical', label: 'Clinical record', permission: 'ehr.encounter.read' },
-  { to: '/provider/laboratory', label: 'Laboratory', permission: 'lab.work-item.read' },
-  { to: '/provider/pharmacy', label: 'Pharmacy', permission: 'pharmacy.work-item.read' },
-  { to: '/provider/ocr', label: 'Document OCR', permission: 'ocr.job.read' },
-  { to: '/provider/outreach', label: 'Outreach', permission: 'outreach.registration.read' },
-  { to: '/provider/billing', label: 'Plan & billing', permission: 'billing.subscription.read' },
-] as const
-
 // The pages the browser tab can name, by path. A title never carries a patient's
 // name or Health ID: it ends up in browser history, tab previews and shared screens.
 const PAGE_TITLES: Readonly<Record<string, string>> = Object.fromEntries([
   ...navigation.map(item => [item.to, item.label]),
   ['/provider/migrate', 'Migration workspace'],
+  [STAFF_JOIN_PATH, 'Join a facility'],
 ])
+/** Pages only Novu serves (P4b): on main their paths are not routed, so the tab says so. */
+const NOVU_ONLY_PAGES: ReadonlySet<string> = new Set(['/provider/staff', STAFF_JOIN_PATH])
 
 /**
  * Names the browser tab after the provider page shown (PEHR-05): index.html
@@ -608,7 +606,7 @@ function ProviderTitle() {
             : state.status === 'ready' && state.session.actor.facilities.length === 0 ? 'No facility assignment'
               // The question holds the page back (Shell shows it in the page's place), so it names the tab.
               : state.status === 'ready' && (state.facilityLost || facilityChoiceNeeded(state.session)) ? 'Where are you working?'
-                : PAGE_TITLES[path] ?? 'Page not found'
+                : (!usesNovuBackend() && NOVU_ONLY_PAGES.has(path) ? undefined : PAGE_TITLES[path]) ?? 'Page not found'
   useDocumentTitle(`${page} · Health ID Provider`)
   return null
 }
@@ -660,8 +658,7 @@ function Shell() {
   if (state.status !== 'ready') return null
   const { actor } = state.session
   const currentFacility = actor.facility
-  const permissions = currentFacility?.permissions ?? []
-  const visible = navigation.filter(item => !item.permission || permissions.includes(item.permission))
+  const visible = visibleNavigation(currentFacility)
   const choosingFrom = `${actor.id}|${currentFacility?.id ?? ''}`
   const chosenId = choice?.from === choosingFrom ? choice.to : currentFacility?.id ?? ''
   const chosen = chosenId !== (currentFacility?.id ?? '') ? actor.facilities.find(facility => facility.id === chosenId) : undefined
@@ -727,17 +724,20 @@ function Shell() {
           {facilityError && <p role="alert" className="staff-error">{facilityError}</p>}
         </div>
         <nav className="staff-nav" onFocus={revealFocusedLink}>{visible.map(item => <NavLink key={item.to} to={item.to} end={item.to === '/provider'} className={({ isActive }) => `staff-nav-link${isActive ? ' active' : ''}`}>{item.label}{item.to === '/provider/clinical' && !activePatient && <span className="staff-nav-meta">Select patient</span>}</NavLink>)}</nav>
-        <div className="staff-sidebar-footer"><Badge tone="information">{actor.roles.join(', ') || 'Staff'}</Badge><p>Access is limited to your active facility and server permissions.</p></div>
+        <div className="staff-sidebar-footer"><Badge tone="information">{(usesNovuBackend() ? roleLabels(actor.roles) : actor.roles.join(', ')) || 'Staff'}</Badge><p>Access is limited to your active facility and server permissions.</p></div>
       </aside>}
       {/* Hidden itself while the workspace is locked: only the session check's main is exposed then. */}
       <main ref={main} className="staff-main" hidden={lock !== null}>{signOutError && <p role="alert" className="staff-error">{signOutError}</p>}
         {/* Asked again for another reason (an answer to the choice that reports another facility), it starts afresh. */}
-        {choiceNeeded ? <FacilityChoice key={choiceNeeded} reason={choiceNeeded} onChosen={() => setFocusHeading(true)} /> : <><BillingBanner /><Outlet /></>}</main>
+        {choiceNeeded ? <FacilityChoice key={choiceNeeded} reason={choiceNeeded} onChosen={() => setFocusHeading(true)} /> : <><ReviewBanner /><BillingBanner /><Outlet /></>}</main>
     </div>
   </div>
 }
 
 export function App() {
+  // An invitation link (Novu, P4b) leaves the address on the first render, before the sign-in gate decides anything.
+  useState(() => usesNovuBackend() && captureStaffInvitationFragment())
+  const novu = usesNovuBackend()
   return <StaffProvider><ProviderTitle /><Routes>
     <Route path="sign-in" element={<SignIn />} />
     <Route element={<Gate><Shell /></Gate>}>
@@ -754,6 +754,9 @@ export function App() {
       <Route path="outreach" element={<Outreach />} />
       <Route path="migrate" element={<MigrateGap />} />
       <Route path="billing" element={<Billing />} />
+      {/* A self-signed-up facility's staff, and joining a facility signed in (Novu, P4b). */}
+      {novu && <Route path="staff" element={<StaffPage />} />}
+      {novu && <Route path="staff/join" element={<StaffJoin />} />}
       <Route path="*" element={<EmptyState titleAs="h1" title="Page not found" description="This provider page is unavailable." action={<NavLink className="staff-text-link" to="/provider">Go to provider overview →</NavLink>} />} />
     </Route>
   </Routes></StaffProvider>

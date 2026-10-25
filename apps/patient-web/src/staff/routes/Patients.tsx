@@ -9,6 +9,7 @@ import { useStaff } from '../App'
 import { BUSY, UNAVAILABLE, useFocusById } from '../focus'
 import { useFieldProblems } from '../useFieldProblems'
 import { staffSessionGeneration, untilStaffSessionReady } from '../session'
+import { selfServiceReview } from '../staffAccess'
 
 const HID_PATTERN = /^HID-[A-HJ-NP-Z2-9]{6,32}$/
 const HID_FORMAT = 'Starts with HID-, then 6 to 32 letters and digits. Health IDs never use 0, 1, I or O.'
@@ -44,8 +45,21 @@ const EMERGENCY_CONTACTS_TOLD = 'While emergency-contact alerts are on, each ver
 // Closing the grant that opened the record (identity consent.controller.ts closeOwnGrant).
 const CLOSE_GRANT: Action = { routes: [{ route: 'access.closeOwnGrant', method: 'POST' }], action: 'close this grant' }
 
+/**
+ * Who to ask for a missing permission. The administrator of a facility that signed itself up (Novu, P4b) is the one an
+ * "organization administrator" would be: support gives their own role clinical access, and they invite colleagues.
+ */
+function whoToAsk(administrator: 'pending' | 'reviewed' | null): string {
+  if (administrator === 'pending') return 'You are this facility’s administrator. Health ID support gives your own role '
+    + 'clinical access when it checks your facility: add your licence on the Staff page.'
+  if (administrator === 'reviewed') return 'You are this facility’s administrator. Health ID support gives your own role '
+    + 'clinical access; ask them, or invite a colleague who holds this role.'
+  return 'Ask your organization administrator.'
+}
+
 /** Why the role cannot take `action`, or null when it holds every permission its routes require. */
-function actionUnavailable({ routes, action }: Action, permissions: readonly string[]): string | null {
+function actionUnavailable({ routes, action }: Action, permissions: readonly string[],
+  administrator: 'pending' | 'reviewed' | null = null): string | null {
   const needs = routes.map(item => ({ ...item, required: findEndpoint(item.route)?.permissions?.[item.method] ?? [] }))
   // A route the registry does not describe is never offered.
   if (needs.some(item => item.required.length === 0)) return `This portal cannot ${action} here.`
@@ -56,7 +70,7 @@ function actionUnavailable({ routes, action }: Action, permissions: readonly str
   })
   const missingCount = [...required].filter(permission => !permissions.includes(permission)).length
   return missing.length === 0 ? null
-    : `Your role at this facility cannot ${action}: it ${missingCount < required.size ? 'also ' : ''}needs ${missing.join(', and ')}. Ask your organization administrator.`
+    : `Your role at this facility cannot ${action}: it ${missingCount < required.size ? 'also ' : ''}needs ${missing.join(', and ')}. ${whoToAsk(administrator)}`
 }
 
 /** Why `normalized` is not a Health ID, or null when it is one. */
@@ -98,8 +112,10 @@ export function Patients() {
   // reported it, so it can be closed after a reload or from a later visit.
   const grantId = activePatient?.lookup.authorization.consentGrantId ?? null
   // A method the backend would refuse is not offered, and the reason is shown with it.
-  const unavailable = actionUnavailable(METHOD_ROUTES[mode], permissions)
-  const closeUnavailable = actionUnavailable(CLOSE_GRANT, permissions)
+  // The administrator of a self-signed-up facility (Novu, P4b), who holds workforce.manage there.
+  const administrator = usesNovuBackend() && permissions.includes('workforce.manage') ? selfServiceReview(facility) : null
+  const unavailable = actionUnavailable(METHOD_ROUTES[mode], permissions, administrator)
+  const closeUnavailable = actionUnavailable(CLOSE_GRANT, permissions, administrator)
 
   function clearFeedback() { setMessage(''); setError(''); problems.clear() }
 
@@ -169,6 +185,12 @@ export function Patients() {
           // administrator switched emergency access off, or the emergency purpose was deactivated.
           if (isHidApiError(caught) && caught.status === 423 && caught.code === 'BREAK_GLASS_DISABLED') {
             throw new Error('Emergency access is switched off for Health ID right now, so the record was not opened. Ask your Health ID administrator.')
+          }
+          // Novu since P4b: a facility that signed itself up may activate emergency access 5 times a day in its first 30
+          // days after Health ID support's check, until support ends the limits.
+          if (isHidApiError(caught) && caught.status === 429 && caught.code === 'EMERGENCY_PROBATION_LIMITED') {
+            throw new Error(`${facility.name} is new to Health ID: emergency access is limited to 5 times a day in its first `
+              + '30 days. Contact Health ID support to lift the limit.')
           }
           if (isHidApiError(caught) && caught.status === 400 && caught.code === 'INVALID_CONSENT_COMMAND') {
             throw new Error('Emergency access may not be enabled for this deployment: Identity refused it (INVALID_CONSENT_COMMAND). Ask your Health ID administrator to enable it.')

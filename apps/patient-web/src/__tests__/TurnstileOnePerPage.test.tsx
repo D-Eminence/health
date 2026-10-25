@@ -8,6 +8,7 @@ import { SignIn } from '../routes/SignIn'
 import { Recovery } from '../routes/Recovery'
 import { PrincipalRecovery } from '../routes/PrincipalRecovery'
 import { Turnstile } from '../Turnstile'
+import { StaffInvitation } from '../staff/routes/StaffInvitation'
 
 /**
  * Each protected submission on a page is guarded by exactly one Cloudflare
@@ -24,6 +25,8 @@ const api = vi.hoisted(() => ({
   enrollmentBindGoogle: vi.fn(), googleNonce: vi.fn(),
 }))
 vi.mock('../env', () => ({ getEnvironment: () => ({ name: 'production', turnstileSiteKey: 'site-key', apiBaseUrl: 'https://gateway.test' }) }))
+// The staff invitation page's API client reads the staff portal's environment when it loads.
+vi.mock('../staff/env', () => ({ getEnvironment: () => ({ name: 'production', turnstileSiteKey: 'site-key', apiBaseUrl: 'https://gateway.test' }) }))
 vi.mock('../session', () => ({
   useSession: () => ({ api, state: { status: 'anonymous', principal: null }, acceptGoogleSession: vi.fn(),
     otherPortalSession: false, retrySessionCheck: vi.fn(), signedOutElsewhere: false, sessionError: null, signIn: vi.fn() }),
@@ -177,6 +180,28 @@ describe('one security check on each other page', () => {
     view(page)
     await waitFor(() => expect(turnstile.render).toHaveBeenCalled())
     expect(shown()).toEqual([action])
+  })
+})
+
+/** A facility's staff invitation (Novu, P4b): hid-system accepts only 'staff-invitation' on its open step. */
+describe('the staff invitation page', () => {
+  afterEach(() => { window.history.replaceState(null, '', '/') })
+
+  it('shows one check, the invitation’s, for the email’s link and still one after switching to the code', async () => {
+    window.history.replaceState(null, '', `/provider/invitation#0f2b6d0e-6a55-4b4c-9a7e-2f4b8c1d3e5a.${'A'.repeat(43)}`)
+    view(<StaffInvitation />)
+    expect(await screen.findByRole('heading', { name: 'Open your invitation' })).toBeTruthy()
+    await waitFor(() => expect(shown()).toEqual(['staff-invitation']))
+    fireEvent.click(screen.getByRole('button', { name: 'I have a code' }))
+    expect(screen.getByRole('heading', { name: 'Enter your invitation code' })).toBeTruthy()
+    await waitFor(() => expect(shown()).toEqual(['staff-invitation']))
+  })
+
+  it('shows one check when the code is typed without a link', async () => {
+    window.history.replaceState(null, '', '/provider/invitation')
+    view(<StaffInvitation />)
+    expect(await screen.findByRole('heading', { name: 'Enter your invitation code' })).toBeTruthy()
+    await waitFor(() => expect(shown()).toEqual(['staff-invitation']))
   })
 })
 

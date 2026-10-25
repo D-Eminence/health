@@ -48,7 +48,7 @@ export function loadTurnstileScript(): Promise<void> {
 
 export function Turnstile({ action, onTokenChange, resetKey }: {
   action: 'patient-enrollment' | 'patient-login' | 'patient-reset-start' | 'staff-reset' | 'admin-reset' | 'provider-enrollment'
-    | 'clinician-application' | 'clinician-application-status'
+    | 'clinician-application' | 'clinician-application-status' | 'staff-invitation'
   onTokenChange: (token: string | null) => void
   resetKey: number
 }) {

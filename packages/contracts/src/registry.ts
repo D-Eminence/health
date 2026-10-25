@@ -13,9 +13,16 @@ export type EndpointAuth = { readonly kind: 'public' | 'authenticated' }
  * docs/BILLING_SPEC.md; callers treat a 404 as "not available yet"), support
  * chat, and the staging-branch routes for hospital chat and `/imported-records`,
  * which hid-system's `staging` and `staging-novu-ci-20261005` branches serve (their
- * screens are off unless the build turns them on), and hid-system #109's
+ * screens are off unless the build turns them on), hid-system #109's
  * emergency-contact availability read and admin commands, which only
- * `staging-novu-ci-20261005` serves.
+ * `staging-novu-ci-20261005` serves, and facility self sign-up's availability
+ * and confirmation reads and support's review, release and open applications,
+ * with their search and the waiver of a refusal (P4), and the applicant's
+ * withdrawal, the facility's staff and its invitations, and support's
+ * administrator access, first-30-days limits and staff reads (P4b), and lab
+ * requests and prescriptions sent to a laboratory or pharmacy at another
+ * facility, with the patient's list of them and support's tools (P4c), which
+ * only `staging-novu-ci-20261005` serves.
  */
 export type ContractStatus = 'surface-verified' | 'proposed'
 export interface EndpointDescriptor {
@@ -67,6 +74,79 @@ const EMERGENCY_CONTACTS_NOTE = 'Served by hid-system main and, from hid-system 
   + 'contact and sending a code need delivery on for the patient (409 EMERGENCY_CONTACT_DELIVERY_UNAVAILABLE otherwise); '
   + 'listing, changing and removing do not.'
 const EMERGENCY_CONTACTS_NOVU = 'Served by staging-novu-ci-20261005 from hid-system #109; not served by hid-system main (404).'
+/**
+ * Facility self sign-up on Novu (P4, owner decision D14): main's provider-enrollment routes, ending with a password
+ * that signs the administrator in (main before #71, no authenticator), closed by the platform control
+ * provider_self_service_enabled; plus an availability read, a read of what a confirmed sign-up registers, and
+ * support's review and release of each new facility and its view of open applications, which main does not have.
+ * Checked against the backend's "Website contract v2" (P4 round 2).
+ */
+const SELF_SIGN_UP_NOVU = 'Served by staging-novu-ci-20261005 from facility self sign-up (P4); not served by hid-system main (404).'
+const SELF_SIGN_UP_CLOSED = 'On Novu every route answers 423 PROVIDER_ENROLLMENT_UNAVAILABLE while self sign-up is closed.'
+/**
+ * Full access after support's review and facility staff invitations (P4b, owner's fourth and fifth decisions): a
+ * self-signed-up facility's administrator manages its staff and vouches for their licences; invitees join with an
+ * emailed link or code; support reviews the facility, confirming the administrator's own clinical access. Novu only.
+ */
+const STAFF_P4B_NOVU = 'Served by staging-novu-ci-20261005 from full access after review and staff invitations (P4b); '
+  + 'not served by hid-system main (404).'
+/** The session field P4b adds to each facility of a staff session (Identity's current-staff-context). */
+const SELF_SERVICE_SESSION = 'On Novu since P4b each facility that signed itself up carries selfService { review: '
+  + "'pending' | 'reviewed', organizationType }; governed and legacy facilities carry none."
+/** The staff routes' shared rules (P4b SPEC 6.3-6.5). */
+const STAFF_ROUTE = `${STAFF_P4B_NOVU} Staff session with X-Facility-ID (healthcare-operations) and workforce.manage, `
+  + 'CSRF on POST; only at a self-signed-up facility (403 STAFF_MANAGEMENT_NOT_AVAILABLE otherwise).'
+const STAFF_INVITATIONS_CLOSED = '423 STAFF_INVITATIONS_UNAVAILABLE while invitations are switched off.'
+/**
+ * Cross-facility orders (P4c, owner's fifth and sixth decisions): a clinician sends a lab request or prescription to a
+ * reviewed laboratory or pharmacy at another facility, attesting that the patient agreed (no in-app approval); the
+ * receiver accepts it with the patient's Health ID or date of birth and works it in its own Lab or Pharmacy; results
+ * and dispensing come back to the order. The patient sees every order sent and may stop it until acceptance. Novu only.
+ */
+const ORDER_ROUTES_P4C_NOVU = 'Served by staging-novu-ci-20261005 from cross-facility orders (P4c); not served by '
+  + 'hid-system main (404).'
+/** The two P4c switches, answered by every order-route route (SPEC-FINAL §11). */
+const ORDER_ROUTES_PAUSED = '423 CROSS_FACILITY_ORDERS_UNAVAILABLE while cross_facility_orders_enabled (or, for work on '
+  + 'accepted orders, cross_facility_route_access_enabled) is off.'
+/** The staff order-route routes' shared rules (SPEC-FINAL §10.1, §10.2). */
+const ORDER_ROUTE_STAFF = `${ORDER_ROUTES_P4C_NOVU} Staff session with X-Facility-ID and X-Purpose-Of-Use: direct-care `
+  + '(any other purpose 403 PERMISSION_DENIED); CSRF on POST; a stale version 412 VERSION_CONFLICT.'
+const ORDER_ROUTE_SEND = 'POST sends the order (a draft is activated) with Idempotency-Key and { expectedRowVersion, '
+  + 'receivingFacilityId, patientAgreed: true, attestationTextVersion } (the clinician\'s attestation, the text of '
+  + 'ehr.orderRouteAttestation): 201 { route: OrderRouteSummary, order { id, status, rowVersion }, replayed }; 409 '
+  + 'ORDER_ROUTE_DESTINATION_INELIGIBLE, _ORDER_NOT_ELIGIBLE, _ORDER_IN_WORK, _ALREADY_SENT, _RESEND_LIMIT, '
+  + '_DESTINATION_BUSY, _PATIENT_DENIED, _PATIENT_APP_REQUIRED, _ATTESTATION_OUTDATED, IDEMPOTENCY_KEY_REUSED; 429 '
+  + 'ORDER_ROUTE_SEND_LIMIT, _PAIR_LIMIT. GET lists the order\'s routes, newest first: { items: OrderRouteView[] } (the '
+  + `summary, attestation, events, and results or dispensings come back). ${ORDER_ROUTES_PAUSED}`
+const ORDER_ROUTE_WITHDRAW = 'Withdraws a route still waiting for acceptance, without a consent check. Body { '
+  + "expectedVersion, reason: 'sent_in_error' | 'patient_request' | 'other' }; 200 { route }. 404 ORDER_ROUTE_NOT_FOUND, "
+  + '409 ORDER_ROUTE_NOT_PENDING.'
+/** What P4c adds to the EHR's order lists and reads (SPEC-FINAL §10.1). */
+const ORDER_LISTS_P4C = 'On Novu since P4c the page also answers crossFacilityOrders (whether orders between facilities '
+  + 'are on), and each item orderRoute: its latest route to another facility (OrderRouteSummary) or null; absent when '
+  + 'routes could not be read (emergency access).'
+/** The Lab and Pharmacy order-route routes' shared rules (SPEC-FINAL §10.2). */
+const RECEIVE_ROUTE = `${ORDER_ROUTE_STAFF} Accept needs Idempotency-Key and { expectedVersion, patientIdentifier { kind: `
+  + "'health_id' | 'date_of_birth', value }, reference? } (Pharmacy also reason, 8 to 500; reference, optional, is the "
+  + "order's 8-character reference from the patient's app, which names the order with a date of birth): 201 { route, "
+  + 'workItemId, patient { fullName, sex, dateOfBirth, healthIdLast4 }, clinicalInformation | instructions, orderer, '
+  + 'replayed }; 400 ORDER_ROUTE_INVALID (also a malformed reference); 409 ORDER_ROUTE_PATIENT_MISMATCH (with '
+  + 'attemptsLeft: min(5 - wrong tries that named the order, a Health ID or a date of birth with the reference, 20 - all '
+  + 'wrong tries); a date of birth alone does not lower the 5), _REFERENCE_MISMATCH (another order\'s reference; nothing '
+  + 'counted), _ACCEPT_LOCKED, _ORDER_IN_WORK, _NOT_PENDING, _EXPIRED, _DESTINATION_INELIGIBLE, '
+  + '_ORDERING_FACILITY_UNAVAILABLE, _PATIENT_DENIED, _HEALTH_ID_REQUIRED; 429 ORDER_ROUTE_ACCEPT_LIMITED. Decline takes '
+  + '{ expectedVersion, reason }. The list takes view (incoming, the default, or recent) and answers { items, '
+  + 'crossFacilityOrders, crossFacilityWork }; its healthId query is deprecated (a Health ID in an address): one '
+  + `patient's orders are found with the search's POST. Before acceptance no row names the patient. ${ORDER_ROUTES_PAUSED}`
+/** P4c review: one patient's incoming (or recent) orders, found by the Health ID in the body, never in an address. */
+const RECEIVE_SEARCH = `${ORDER_ROUTE_STAFF} Body { view?: 'incoming' | 'recent', healthId } (1 to 64; the Health ID is `
+  + 'checked, 400 ORDER_ROUTE_INVALID); the same permission, audit row and answer as the list\'s GET: { items, '
+  + `crossFacilityOrders, crossFacilityWork }. ${ORDER_ROUTES_PAUSED}`
+/** What P4c adds to the Lab and Pharmacy work lists and per-item routes. */
+const WORK_LISTS_P4C = 'On Novu since P4c items of orders from other facilities carry orderRoute { id, reference, '
+  + 'effectiveState, access, orderingFacilityName, ordererName, ordererLicence? } and patient?, and the answer '
+  + 'crossFacilityOrders and crossFacilityWork; every per-item route may answer 409 ORDER_ROUTE_CLOSED or 423 '
+  + 'CROSS_FACILITY_ORDERS_UNAVAILABLE.'
 
 export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   proposed(r('support.chat','support','/api/v1/support/chat',P,true,undefined,CHAT_NOTE)),
@@ -94,10 +174,10 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('auth.googleOnboarding','auth','/api/v1/auth/google/onboarding',G,true),
   r('auth.googleExchange','auth','/api/v1/auth/oidc/exchange',P,true),
   r('auth.googleLink','auth','/api/v1/auth/google/link',P),
-  r('auth.session','auth','/api/v1/auth/session',G),
-  r('auth.refresh','auth','/api/v1/auth/refresh',P,true,undefined,'Requires refresh cookie and CSRF header.'),
+  r('auth.session','auth','/api/v1/auth/session',G,false,undefined,SELF_SERVICE_SESSION),
+  r('auth.refresh','auth','/api/v1/auth/refresh',P,true,undefined,`Requires refresh cookie and CSRF header. ${SELF_SERVICE_SESSION}`),
   r('auth.logout','auth','/api/v1/auth/logout',P),
-  r('auth.facility','auth','/api/v1/auth/facility',P),
+  r('auth.facility','auth','/api/v1/auth/facility',P,false,undefined,SELF_SERVICE_SESSION),
   r('auth.otpStart','auth','/api/v1/auth/otp/start',P,true),
   r('auth.otpVerify','auth','/api/v1/auth/otp/verify',P,true),
   r('auth.otpComplete','auth','/api/v1/auth/otp/complete',P,true),
@@ -180,12 +260,105 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('identity.assistedVerifications','identity','/api/v1/identity/assisted-verifications',P,false,
     one('POST','identity.patient.assisted_registration'),
     'Body { deskCode, method, documentType, document, attestations }; 200 { outcome: verified }. The same key replays the stored outcome.'),
+  // P4b: a self-signed-up facility's own staff, managed by its administrator (the Staff page).
+  proposed(r('identity.facilityStaff','identity','/api/v1/identity/facility-staff',G,false,one('GET','workforce.manage'),
+    `${STAFF_ROUTE} Allowed before support's review. 200 { facility { id, name, organizationType, reviewState, `
+    + 'firstThirtyDaysEndAt, invitationsOpen, deliveryPaused }, canInvite, limits, inviteOptions { roles [{ code, '
+    + 'licenceBody }], attestation { version, text } }, administratorLicence { body, numberHint, recordedAt } | null, '
+    + 'administratorLicenceBodies, members [...], invitations [...] }; licence numbers only as their last 4 characters.')),
+  proposed(r('identity.facilityAdministratorLicence','identity','/api/v1/identity/facility-staff/administrator-licence',P,false,
+    one('POST','workforce.manage'),
+    `${STAFF_ROUTE} The administrator's own licence, only before support's review (409 FACILITY_ALREADY_REVIEWED after). `
+    + 'Body { licenceBody (MDCN, NMCN, MLSCN or PCN), licenceNumber (3 to 100) }; 200 { licenceBody, numberHint, '
+    + 'recordedAt }. 400 ADMINISTRATOR_LICENCE_INVALID, 403 STAFF_MANAGEMENT_NOT_ADMINISTRATOR.')),
+  proposed(r('identity.staffInvitationCreate','identity','/api/v1/identity/staff-invitations',P,false,one('POST','workforce.manage'),
+    `${STAFF_ROUTE} After support's review (409 FACILITY_REVIEW_PENDING before). Idempotency-Key (16 to 128, starting `
+    + 'with a letter or digit) and body { name, email, role, licenceBody?, licenceNumber?, attested: true, '
+    + 'currentPassword }: no licence for a receptionist. 201 { invitationId, version, expiresAt, deliveryOutcome, replayed: '
+    + 'false }; a replay 200 with replayed: true. 403 STAFF_REAUTHENTICATION_FAILED or STAFF_RECENT_RECOVERY_HOLD; 409 '
+    + 'and 429 limits. Never says whether the email has a Health ID account. ' + STAFF_INVITATIONS_CLOSED)),
+  proposed(r('identity.staffInvitationResend','identity','/api/v1/identity/staff-invitations/:invitationId/resend',P,false,
+    one('POST','workforce.manage'),
+    `${STAFF_ROUTE} Body { expectedVersion }; 200 { version, expiresAt, deliveryOutcome }: a new link and code (the old `
+    + `ones answer 410 STAFF_INVITATION_SUPERSEDED), 7 more days. 409 STAFF_INVITATION_RESEND_TOO_SOON (a minute), `
+    + `_SEND_LIMIT (5 sends). ${STAFF_INVITATIONS_CLOSED}`)),
+  proposed(r('identity.staffInvitationRevoke','identity','/api/v1/identity/staff-invitations/:invitationId/revoke',P,false,
+    one('POST','workforce.manage'),
+    `${STAFF_ROUTE} Body { expectedVersion }; 200 { version, revokedAt }. 409 STAFF_INVITATION_NOT_PENDING. Not closed `
+    + 'by the invitations switch.')),
+  proposed(r('identity.facilityStaffEnd','identity','/api/v1/identity/facility-staff/:membershipId/end',P,false,
+    one('POST','workforce.manage'),
+    `${STAFF_ROUTE} Body { expectedVersion, reason (8 to 500), currentPassword }; 200 { version, endedAt, grantsRevoked }: `
+    + 'the member\'s facility roles and patients\' consents to them here end. Never the caller\'s own or an administrator\'s '
+    + 'membership (409 FACILITY_STAFF_SELF, _ADMINISTRATOR). Not closed by the invitations switch.')),
+  proposed(r('identity.facilityStaffRole','identity','/api/v1/identity/facility-staff/:membershipId/role',P,false,
+    one('POST','workforce.manage'),
+    `${STAFF_ROUTE} Body { expectedVersion, role, licenceBody?, licenceNumber?, attested: true, reason (8 to 500), `
+    + 'currentPassword }; 200 { version, roleCode }. 409 FACILITY_STAFF_ROLE_UNCHANGED, _PLATFORM_ACCOUNT. '
+    + STAFF_INVITATIONS_CLOSED)),
+  // P4b: existing staff accept an invitation signed in on their own host (no X-Facility-ID, no permission, no audit row).
+  proposed(r('identity.staffInvitationSignedInPreview','identity','/api/v1/identity/staff-invitations/signed-in/preview',P,false,
+    undefined,
+    `${STAFF_P4B_NOVU} A staff session, CSRF, and no X-Facility-ID. Body { invitationId, token } (the link) or { code } `
+    + '(typed; the email is the session\'s). 200 { invitationId, facilityId, facilityName, roleCode, inviterName, expiresAt }. '
+    + '409 STAFF_INVITATION_EMAIL_MISMATCH, _ALREADY_MEMBER, _ACCOUNT_UNAVAILABLE, and open\'s refusals. '
+    + STAFF_INVITATIONS_CLOSED)),
+  proposed(r('identity.staffInvitationSignedInAccept','identity','/api/v1/identity/staff-invitations/signed-in/accept',P,false,
+    undefined,
+    `${STAFF_P4B_NOVU} As the preview; 200 { accepted: true, facilityId, membershipId, facilityName, roleCode }. The `
+    + `session lists the new facility from its next request. ${STAFF_INVITATIONS_CLOSED}`)),
+  // P4c: the directory a clinician picks a laboratory or pharmacy at another facility from.
+  { ...proposed(r('identity.orderDestinations','identity','/api/v1/identity/order-destinations',G,false,
+    one('GET','ehr.order-route.send'),
+    `${ORDER_ROUTES_P4C_NOVU} Staff session with X-Facility-ID (Identity reads it as direct-care). Query kind (laboratory `
+    + 'or pharmacy) and query (3 to 80 characters of the facility or organization name). 200 { items [{ facilityId, '
+    + 'facilityName, organizationName, registeredAddress (the CAC registered office) | null, newOnHealthId }] }: at most '
+    + '10 reviewed or governed facilities listed for orders, never this one. 400 ORDER_DESTINATION_QUERY_INVALID, 429 '
+    + `ORDER_DESTINATION_SEARCH_LIMITED (60 searches an hour per member). ${ORDER_ROUTES_PAUSED}`)),
+  requiredQuery: { GET: ['kind', 'query'] } },
+  proposed(r('enrollment.providerAvailability','enrollment','/api/v1/identity/provider-enrollments/availability',G,true,undefined,
+    `${SELF_SIGN_UP_NOVU} Public, no session, never an error: 200 { open: true }, { open: false, reason: 'closed' } (switched `
+    + 'off or not configured) or { open: false, reason: \'unavailable\' } (a fault: try again shortly, never shown as closed). '
+    + 'Since P4c the open answer is { open: true, crossFacilityOrders } (whether orders between facilities are on).')),
   r('enrollment.providerStart','enrollment','/api/v1/identity/provider-enrollments',P,true,undefined,
-    'Accountless; refused when signed in. Requires Origin and Turnstile action provider-enrollment.'),
+    'Accountless; refused when signed in. Requires Origin and Turnstile action provider-enrollment (on Novu, '
+    + 'app.* and staging.* only). Answers { accepted, challengeId, expiresInSeconds, resendAfterSeconds }; on Novu also '
+    + 'codeSent: false when no code was sent, with challengeId and expiresInSeconds naming the code still in force (absent '
+    + `when none can be entered) and resendAfterSeconds the real wait, up to about a day. ${SELF_SIGN_UP_CLOSED}`),
   r('enrollment.providerVerify','enrollment','/api/v1/identity/provider-enrollments/verify',P,true,undefined,
-    'Accountless; verifies the emailed code and sets the enrollment cookie.'),
+    `Accountless; verifies the emailed code and sets the enrollment cookie. ${SELF_SIGN_UP_CLOSED}`),
+  // P4 round 2 (R13): the applicant sees the organization a CAC number names before its account is made.
+  proposed(r('enrollment.providerProfile','enrollment','/api/v1/identity/provider-enrollments/profile',G,true,undefined,
+    `${SELF_SIGN_UP_NOVU} Accountless and refused when signed in; reads the enrollment cookie that verify sets, with no `
+    + 'Origin (a same-origin GET), and changes nothing: 200 { organizationName (the verified legal name), registrationNumber '
+    + '(the CAC number as entered), productCode, organizationType, administratorName, administratorEmail }, 401 '
+    + `ORGANIZATION_COMPLETION_SESSION_INVALID without a live, ready session. ${SELF_SIGN_UP_CLOSED}`)),
   r('enrollment.providerActivate','enrollment','/api/v1/identity/provider-enrollments/activate',P,true,undefined,
-    'Accountless; uses the enrollment cookie. Since hid-system #71 returns an MFA status, not a session.'),
+    'Accountless; uses the enrollment cookie. On Novu it signs the administrator in: the session cookies and '
+    + `{ activated, organizationId, facilityId, accountId, actor, expiresAt }. ${SELF_SIGN_UP_CLOSED} `
+    + 'On hid-system main since #71 it returns an MFA status, not a session. On Novu since P4b the administrator '
+    + 'holds org_admin_awaiting_review until support\'s review, and the actor\'s facility carries selfService '
+    + "{ review: 'pending', organizationType }."),
+  // P4 leftover 1 (P4b): "This isn't my organization" closes the applicant's own open sign-up.
+  proposed(r('enrollment.providerWithdraw','enrollment','/api/v1/identity/provider-enrollments/withdraw',P,true,undefined,
+    `${SELF_SIGN_UP_NOVU} Accountless and refused when signed in (409 PROVIDER_ENROLLMENT_REQUIRES_SIGN_OUT); Origin `
+    + '(403 ORIGIN_DENIED) and the enrollment cookie that verify sets, no body. Closes that sign-up, ends its session '
+    + 'and codes and frees its CAC number, with no 7-day refusal: 200 { withdrawn: true }, the cookie cleared; 401 '
+    + `ORGANIZATION_COMPLETION_SESSION_INVALID without a live session. ${SELF_SIGN_UP_CLOSED}`)),
+  // P4b: an invitee opens their invitation and, for a new or dormant account, sets a password (no session issued).
+  proposed(r('enrollment.staffInvitationOpen','enrollment','/api/v1/identity/staff-invitations/open',P,true,undefined,
+    `${STAFF_P4B_NOVU} Accountless and refused when signed in (409 STAFF_INVITATION_REQUIRES_SIGN_OUT); Origin and `
+    + 'Turnstile action staff-invitation (app.* and staging.* only). Body { invitationId, token } (the link) or { email, '
+    + 'code } (typed), with turnstileAction and turnstileToken. 200 { invitationId, facilityName, roleCode, inviterName, '
+    + 'inviteeName, email, expiresAt, accountCase, linkRequired }, plus the hid_staff_invitation cookie for a new or '
+    + 'dormant account opened by its link. 401 STAFF_INVITATION_CODE_INVALID, 429 STAFF_INVITATION_LOCKED or '
+    + 'STAFF_INVITATION_RATE_LIMITED, 410 STAFF_INVITATION_SUPERSEDED, _EXPIRED or _WITHDRAWN, 409 '
+    + `STAFF_INVITATION_ALREADY_ACCEPTED. ${STAFF_INVITATIONS_CLOSED}`)),
+  proposed(r('enrollment.staffInvitationAccept','enrollment','/api/v1/identity/staff-invitations/accept',P,true,undefined,
+    `${STAFF_P4B_NOVU} Accountless; Origin and the hid_staff_invitation cookie that open sets. Body { password } (12 to `
+    + '256). 200 { accepted: true, facilityName, roleCode }: the cookie cleared and no session cookie; the person signs '
+    + 'in on their role\'s host. 401 STAFF_INVITATION_SESSION_INVALID, 410 _EXPIRED or _WITHDRAWN, 409 _ACCOUNT_EXISTS, '
+    + `_ACCOUNT_CHANGED, _PATIENT_ACCOUNT or _ACCOUNT_UNAVAILABLE. ${STAFF_INVITATIONS_CLOSED}`)),
   // Clinician self sign-up and its status page (hid-system ADR-066, branch
   // claude/clinician-self-signup at fa58e2b, re-checked at 9e981e4, and P3's
   // search limit at 1d6ff6f; not merged). Every route needs
@@ -236,7 +409,9 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('access.staffRequests','access','/api/v1/identity/access-requests',GP,false,{GET:['identity.consent.write'],POST:['identity.consent.write']}),
   r('access.approve','access','/api/v1/identity/access-requests/:requestId/approve',P),
   r('access.deny','access','/api/v1/identity/access-requests/:requestId/deny',P),
-  r('access.breakGlass','access','/api/v1/identity/break-glass',P,false,one('POST','identity.consent.write','identity.break-glass.write')),
+  r('access.breakGlass','access','/api/v1/identity/break-glass',P,false,one('POST','identity.consent.write','identity.break-glass.write'),
+    'On Novu since P4b, a facility that signed itself up may activate emergency access 5 times a day in its first 30 days '
+    + 'after support\'s review: 429 EMERGENCY_PROBATION_LIMITED beyond that, until support ends the limits.'),
   r('access.verifyPin','access','/api/v1/identity/standard-access/pin',P,false,one('POST','identity.patient-access-pin.verify')),
   r('access.closeOwnGrant','access','/api/v1/identity/consent-grants/:grantId/close',P,false,one('POST','identity.consent.write')),
   r('access.revokeMyGrant','access','/api/v1/identity/me/consent-grants/:grantId/revoke',P),
@@ -271,19 +446,49 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('ehr.noteRevisions','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/clinical-notes/:noteId/revisions',GP,false,{GET:['ehr.note.read'],POST:['ehr.note.write']}),
   r('ehr.diagnoses','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/diagnoses',GP,false,{GET:['ehr.diagnosis.read'],POST:['ehr.diagnosis.write']}),
   r('ehr.diagnosis','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/diagnoses/:diagnosisId',GPA,false,{GET:['ehr.diagnosis.read'],PATCH:['ehr.diagnosis.write']}),
-  r('ehr.prescriptions','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/prescriptions',GP,false,{GET:['ehr.prescription.read'],POST:['ehr.prescription.write']}),
+  r('ehr.prescriptions','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/prescriptions',GP,false,{GET:['ehr.prescription.read'],POST:['ehr.prescription.write']},
+    ORDER_LISTS_P4C),
   r('ehr.prescription','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/prescriptions/:prescriptionId',GPA,false,{GET:['ehr.prescription.read'],PATCH:['ehr.prescription.write']}),
-  r('ehr.prescriptionPharmacy','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/prescriptions/:prescriptionId/pharmacy-work-item',P,false,one('POST','pharmacy.work-item.accept')),
-  r('ehr.labRequests','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/lab-requests',GP,false,{GET:['ehr.lab-request.read'],POST:['ehr.lab-request.write']}),
-  r('ehr.labRequest','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/lab-requests/:requestId',GPA,false,{GET:['ehr.lab-request.read'],PATCH:['ehr.lab-request.write']}),
+  r('ehr.prescriptionPharmacy','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/prescriptions/:prescriptionId/pharmacy-work-item',P,false,one('POST','pharmacy.work-item.accept'),
+    'On Novu since P4c, 409 PRESCRIPTION_ROUTED while the prescription is sent to (or was accepted by) a pharmacy at another facility.'),
+  r('ehr.labRequests','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/lab-requests',GP,false,{GET:['ehr.lab-request.read'],POST:['ehr.lab-request.write']},
+    ORDER_LISTS_P4C),
+  r('ehr.labRequest','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/lab-requests/:requestId',GPA,false,{GET:['ehr.lab-request.read'],PATCH:['ehr.lab-request.write']},
+    'On Novu since P4c a PATCH answers orderRoute (as the change left it), and a request sent to another facility is never '
+    + "handed to this facility's Lab: labHandoff { state: 'not_sent', code: 'ORDER_ROUTED' }."),
   // hid-system #56: sends (or sends again) a saved active lab request to Lab.
-  r('ehr.labRequestLabWorkItem','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/lab-requests/:requestId/lab-work-item',P,false,one('POST','ehr.lab-request.write','lab.work-item.accept')),
+  r('ehr.labRequestLabWorkItem','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/lab-requests/:requestId/lab-work-item',P,false,one('POST','ehr.lab-request.write','lab.work-item.accept'),
+    'On Novu since P4c, 409 LAB_REQUEST_ROUTED while the request is sent to (or was accepted by) a laboratory at another facility.'),
+  // P4c: send an order to another facility's laboratory or pharmacy, list its routes, and withdraw one before acceptance.
+  proposed(r('ehr.labRequestOrderRoutes','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/lab-requests/:requestId/order-routes',GP,false,
+    {GET:['ehr.lab-request.read'],POST:['ehr.lab-request.write','ehr.order-route.send']}, `${ORDER_ROUTE_STAFF} ${ORDER_ROUTE_SEND}`)),
+  proposed(r('ehr.labRequestOrderRouteWithdraw','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/lab-requests/:requestId/order-routes/:routeId/withdraw',P,false,
+    one('POST','ehr.order-route.send'), `${ORDER_ROUTE_STAFF} ${ORDER_ROUTE_WITHDRAW}`)),
+  proposed(r('ehr.prescriptionOrderRoutes','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/prescriptions/:prescriptionId/order-routes',GP,false,
+    {GET:['ehr.prescription.read'],POST:['ehr.prescription.write','ehr.order-route.send']}, `${ORDER_ROUTE_STAFF} ${ORDER_ROUTE_SEND}`)),
+  proposed(r('ehr.prescriptionOrderRouteWithdraw','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/prescriptions/:prescriptionId/order-routes/:routeId/withdraw',P,false,
+    one('POST','ehr.order-route.send'), `${ORDER_ROUTE_STAFF} ${ORDER_ROUTE_WITHDRAW}`)),
+  { ...proposed(r('ehr.orderRouteAttestation','ehr','/api/v1/ehr/order-route-attestation',G,false,one('GET','ehr.order-route.send'),
+    `${ORDER_ROUTE_STAFF} Query kind (lab_request or prescription); also needs the kind's write permission. 200 { kind, `
+    + 'version, text }: the newest attestation text, with {patient}, {orderingFacility} and {receivingFacility} for the page '
+    + `to fill. 400 ORDER_ROUTE_INVALID. ${ORDER_ROUTES_PAUSED}`)),
+  requiredQuery: { GET: ['kind'] } },
+  // P4c: the patient's orders sent to other facilities, and Stop before acceptance (the patient's only action).
+  proposed(r('ehr.myOrderRoutes','ehr','/api/v1/ehr/me/order-routes',G,false,undefined,
+    `${ORDER_ROUTES_P4C_NOVU} Patient sessions only. 200 { items: PatientOrderRoute[] }, newest first, at most 100: each with `
+    + 'orderingFacilityName, receivingFacilityName, receivingRegisteredAddress, content (every field sent), '
+    + 'attestationTextVersion, attestationText, attestedByName, actions (withdraw while it waits for acceptance) and '
+    + 'enteredInError: when the order was marked entered in error, content holds only its reference, the attestation '
+    + 'text and attesting clinician are null and actions is empty.')),
+  proposed(r('ehr.myOrderRouteWithdraw','ehr','/api/v1/ehr/me/order-routes/:routeId/withdraw',P,false,undefined,
+    `${ORDER_ROUTES_P4C_NOVU} Patient sessions only; Stop. Body { expectedVersion }; 200 { route: PatientOrderRoute }. 404 `
+    + 'ORDER_ROUTE_NOT_FOUND, 409 ORDER_ROUTE_NOT_PENDING (accepted or ended), 412 VERSION_CONFLICT.')),
   r('files.list','files','/api/v1/ehr/documents',G,false,one('GET','ehr.document.read')),
   r('files.uploadIntent','files','/api/v1/ehr/documents/upload-intents',P,false,one('POST','ehr.document.write')),
   r('files.complete','files','/api/v1/ehr/documents/:documentId/complete',P,false,one('POST','ehr.document.write')),
   r('files.download','files','/api/v1/ehr/documents/:documentId/download',G,false,one('GET','ehr.document.read')),
 
-  r('lab.workItems','lab','/api/v1/lab/work-items',G,false,one('GET','lab.work-item.read')),
+  r('lab.workItems','lab','/api/v1/lab/work-items',G,false,one('GET','lab.work-item.read'),WORK_LISTS_P4C),
   r('lab.workItem','lab','/api/v1/lab/work-items/:workItemId',G,false,one('GET','lab.work-item.read')),
   r('lab.imports','lab','/api/v1/lab/imports',P,false,one('POST','lab.import.write')),
   r('lab.import','lab','/api/v1/lab/imports/:importId',G,false,one('GET','lab.import.read')),
@@ -303,12 +508,28 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('lab.resultHistory','lab','/api/v1/lab/results/:resultId/history',G,false,one('GET','lab.result.released.read')),
   // hid-system #51: the released results of the Lab work item accepted from one EHR lab request.
   r('lab.releasedResultsForOrder','lab','/api/v1/lab/ehr-orders/:sourceEhrOrderId/released-results',G,false,one('GET','lab.result.released.read')),
-  r('pharmacy.workItems','pharmacy','/api/v1/pharmacy/work-items',G,false,one('GET','pharmacy.work-item.read')),
+  // P4c: lab requests other facilities send to this laboratory (Incoming and Recent), one of them, accept and decline.
+  proposed(r('lab.orderRoutes','lab','/api/v1/lab/order-routes',G,false,one('GET','lab.order-route.receive'),RECEIVE_ROUTE)),
+  proposed(r('lab.orderRouteSearch','lab','/api/v1/lab/order-routes/search',P,false,one('POST','lab.order-route.receive'),RECEIVE_SEARCH)),
+  proposed(r('lab.orderRoute','lab','/api/v1/lab/order-routes/:routeId',G,false,one('GET','lab.order-route.receive'),
+    `${RECEIVE_ROUTE} One route: the Incoming shape, and after acceptance, while it may be read, clinicalInformation, `
+    + 'orderer.licenceNumber, patient and workItemId.')),
+  proposed(r('lab.orderRouteAccept','lab','/api/v1/lab/order-routes/:routeId/accept',P,false,one('POST','lab.order-route.receive'),RECEIVE_ROUTE)),
+  proposed(r('lab.orderRouteDecline','lab','/api/v1/lab/order-routes/:routeId/decline',P,false,one('POST','lab.order-route.receive'),RECEIVE_ROUTE)),
+  r('pharmacy.workItems','pharmacy','/api/v1/pharmacy/work-items',G,false,one('GET','pharmacy.work-item.read'),WORK_LISTS_P4C),
   r('pharmacy.workItem','pharmacy','/api/v1/pharmacy/work-items/:workItemId',G,false,one('GET','pharmacy.work-item.read')),
   r('pharmacy.dispense','pharmacy','/api/v1/pharmacy/work-items/:workItemId/dispensings',P,false,one('POST','pharmacy.dispensing.create')),
   r('pharmacy.dispensing','pharmacy','/api/v1/pharmacy/dispensings/:dispensingId',G,false,one('GET','pharmacy.dispensing.read')),
   r('pharmacy.reverse','pharmacy','/api/v1/pharmacy/dispensings/:dispensingId/reversals',P,false,one('POST','pharmacy.dispensing.reverse')),
   r('pharmacy.import','pharmacy','/api/v1/pharmacy/imports/:importId',G,false,one('GET','pharmacy.import.read')),
+  // P4c: prescriptions other facilities send to this pharmacy, as Lab's.
+  proposed(r('pharmacy.orderRoutes','pharmacy','/api/v1/pharmacy/order-routes',G,false,one('GET','pharmacy.order-route.receive'),RECEIVE_ROUTE)),
+  proposed(r('pharmacy.orderRouteSearch','pharmacy','/api/v1/pharmacy/order-routes/search',P,false,one('POST','pharmacy.order-route.receive'),RECEIVE_SEARCH)),
+  proposed(r('pharmacy.orderRoute','pharmacy','/api/v1/pharmacy/order-routes/:routeId',G,false,one('GET','pharmacy.order-route.receive'),
+    `${RECEIVE_ROUTE} One route: the Incoming shape, and after acceptance, while it may be read, instructions, `
+    + 'orderer.licenceNumber, patient and workItemId.')),
+  proposed(r('pharmacy.orderRouteAccept','pharmacy','/api/v1/pharmacy/order-routes/:routeId/accept',P,false,one('POST','pharmacy.order-route.receive'),RECEIVE_ROUTE)),
+  proposed(r('pharmacy.orderRouteDecline','pharmacy','/api/v1/pharmacy/order-routes/:routeId/decline',P,false,one('POST','pharmacy.order-route.receive'),RECEIVE_ROUTE)),
 
   { ...r('ocr.jobs','ocr','/api/v1/ocr/jobs',GP,false,{GET:['ocr.job.read'],POST:['ocr.job.write']}),
     requiredQuery: { GET: ['documentId'] } },
@@ -338,7 +559,8 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
 
   r('admin.session','admin','/api/v1/admin/session',G,false,one('GET','platform.admin.access')),
   r('admin.overview','admin','/api/v1/admin/overview',G,false,one('GET','platform.admin.access')),
-  r('admin.controls','admin','/api/v1/admin/controls',GP,false,{GET:['platform.control.read'],POST:['platform.control.manage']}),
+  r('admin.controls','admin','/api/v1/admin/controls',GP,false,{GET:['platform.control.read'],POST:['platform.control.manage']},
+    'On Novu since P4c controlKey also takes cross_facility_orders_enabled and cross_facility_route_access_enabled.'),
   r('admin.facilities','admin','/api/v1/admin/facilities',G,false,one('GET','platform.facility.read')),
   r('admin.facility','admin','/api/v1/admin/facilities/:facilityId',G,false,one('GET','platform.facility.read'),
     'On staging-novu-ci-20261005 since hid-system #109 the read also answers alertPhoneE164 and alertPhoneUpdatedAt.'),
@@ -377,6 +599,104 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('admin.demoRequests','admin','/api/v1/admin/demo-requests',G,false,one('GET','platform.demo.read')),
   r('admin.demoStatus','admin','/api/v1/admin/demo-requests/:requestId/status',P,false,one('POST','platform.demo.manage')),
   r('admin.organizationApplications','admin','/api/v1/admin/organization-applications',G,false,one('GET','platform.identity-review.read')),
+  // Support's review of facilities that signed themselves up (P4, owner decision "alert + daily review").
+  proposed(r('admin.selfServiceFacilities','admin','/api/v1/admin/self-service-facilities',G,false,
+    one('GET','platform.identity-review.read'),
+    `${SELF_SIGN_UP_NOVU} Query state: unreviewed (default; oldest activation first), reviewed (reviewed or released) or all `
+    + '(newest first). Answers { items }, at most 200, each with its version and releasedAt, releasedByAccountId and '
+    + 'releaseReason; since P4b also reviewGrantsRole, reviewableRoles, grantedRole, verificationMethod, '
+    + 'administratorLicenceBody, administratorLicenceNumber, administratorLicenceRecordedAt, memberCount, '
+    + 'pendingInvitationCount, probationEndsAt, breakGlassLast7d and deliveryFailuresLastDay.')),
+  proposed(r('admin.selfServiceFacilityReview','admin','/api/v1/admin/self-service-facilities/:applicationId/review',P,false,
+    one('POST','platform.facility.manage','platform.facility.unlock'),
+    `${SELF_SIGN_UP_NOVU} Since P4b it gives the facility full access and signs its administrator out once. Body { note `
+    + "(8 to 500), grantedRole ('none', doctor, nurse, lab or pharmacist), verificationMethod (cac_registered_contact, "
+    + 'officer_match, regulator_register, in_person or other), administratorLicence? { body, number } (required for a '
+    + 'clinical role) } and If-Match with the version; no Idempotency-Key or step-up. Answers { applicationId, reviewedAt, '
+    + 'version, grantedRole, sessionsRevoked }. 400 SELF_SERVICE_REVIEW_ROLE_INVALID, _LICENCE_REQUIRED, _LICENCE_INVALID; '
+    + '404 SELF_SERVICE_FACILITY_NOT_FOUND; 409 VERSION_CONFLICT, SELF_SERVICE_FACILITY_ALREADY_REVIEWED, '
+    + 'SELF_SERVICE_FACILITY_REVIEW_REQUIRES_ACTIVE (facility not active, or the administrator\'s account not active).')),
+  // P4b: support changes a reviewed administrator's own clinical access, and ends a facility's first 30 days early.
+  proposed(r('admin.selfServiceFacilityAdministratorRole','admin',
+    '/api/v1/admin/self-service-facilities/:applicationId/administrator-role',P,false,
+    one('POST','platform.facility.manage','platform.facility.unlock'),
+    `${STAFF_P4B_NOVU} Body { grantedRole, verificationMethod, administratorLicence?, reason (8 to 500) } and If-Match; `
+    + 'answers { applicationId, version, grantedRole, sessionsRevoked }. 409 SELF_SERVICE_ADMINISTRATOR_ROLE_UNCHANGED, '
+    + 'SELF_SERVICE_FACILITY_REVIEW_REQUIRES_ACTIVE, VERSION_CONFLICT; the review\'s 400s.')),
+  proposed(r('admin.selfServiceFacilityEndProbation','admin',
+    '/api/v1/admin/self-service-facilities/:applicationId/end-probation',P,false,
+    one('POST','platform.facility.manage','platform.facility.unlock'),
+    `${STAFF_P4B_NOVU} Body { reason (8 to 500) } and If-Match; answers { applicationId, version, probationEndedAt }. 409 `
+    + 'SELF_SERVICE_PROBATION_ALREADY_ENDED, VERSION_CONFLICT.')),
+  // P4b: support's reads of a facility's staff and licences, and of an invitation by the reference its email quotes.
+  proposed(r('admin.facilityStaff','admin','/api/v1/admin/facilities/:facilityId/staff',G,false,one('GET','platform.principal.read'),
+    `${STAFF_P4B_NOVU} Audited, with or without success. 200 { facility { id, name, selfService { review, `
+    + 'organizationType, productCode } | null }, members [...], invitations [...] }, each with full licence numbers, '
+    + 'licenceKey, sameLicenceElsewhere, nameMismatch, attestedByName and attestedAt. 404 ADMIN_FACILITY_NOT_FOUND.')),
+  // P4c: support's tools for orders between facilities: a facility's summary and listing, and finding and closing an order.
+  proposed(r('admin.facilityOrderRouteSummary','admin','/api/v1/admin/facilities/:facilityId/order-route-summary',G,false,
+    one('GET','platform.facility.read'),
+    `${ORDER_ROUTES_P4C_NOVU} Also platform.admin.access; audited. 200 { facilityId, listed { value, byDefault, reason, setAt }, `
+    + 'receivedAcceptedLifetime, receivedPatientsLifetime, counterparts [{ direction: sent | received, facilityId, '
+    + 'facilityName, last30Days { <state>: count } }] }: no patient, no order content. 404 ADMIN_FACILITY_NOT_FOUND.')),
+  proposed(r('admin.facilityOrderDestination','admin','/api/v1/admin/facilities/:facilityId/order-destination',P,false,
+    one('POST','platform.facility.manage','platform.facility.unlock'),
+    `${ORDER_ROUTES_P4C_NOVU} Lists the facility for orders from other facilities, or stops listing it; accepted work is `
+    + 'unaffected. Body { listed, reason (8 to 500) }; 200 { facilityId, listed, setAt }. 404 ADMIN_FACILITY_NOT_FOUND '
+    + '(also a facility without a laboratory or pharmacy product), 409 ORDER_ROUTE_DESTINATION_UNCHANGED.')),
+  proposed(r('admin.orderRoutesFind','admin','/api/v1/admin/order-routes',G,false,one('GET','platform.principal.read'),
+    `${ORDER_ROUTES_P4C_NOVU} Audited. Query reference (8 hexadecimal characters) or healthId, exactly one. 200 { items [{ `
+    + 'routeId, reference, kind, version, effectiveState, orderingFacilityId, orderingFacilityName, receivingFacilityId, '
+    + 'receivingFacilityName, createdAt, acceptedAt, endedAt, endedKind }] }, at most 5 by reference, 20 by Health ID. '
+    + '400 ORDER_ROUTE_LOOKUP_INVALID. The healthId query is deprecated (a Health ID in an address): by Health ID, use '
+    + 'admin.orderRoutesSearch.')),
+  proposed(r('admin.orderRoutesSearch','admin','/api/v1/admin/order-routes/search',P,false,one('POST','platform.principal.read'),
+    `${ORDER_ROUTES_P4C_NOVU} P4c review: finds orders as admin.orderRoutesFind, with the same permissions, audit row `
+    + '(admin.order-routes.find) and answer, from the body { reference } or { healthId } (exactly one), so a Health ID is '
+    + 'in no address. 400 ORDER_ROUTE_LOOKUP_INVALID; an unknown field 400 VALIDATION_FAILED.')),
+  proposed(r('admin.orderRouteClose','admin','/api/v1/admin/order-routes/:routeId/close',P,false,one('POST','platform.facility.manage'),
+    `${ORDER_ROUTES_P4C_NOVU} Closes an order between facilities at once: access ends at both, and both and the patient are `
+    + 'told. Body { reason (8 to 500) } and If-Match with the version; 200 { routeId, version, effectiveState }. 404 '
+    + 'ORDER_ROUTE_NOT_FOUND, 409 VERSION_CONFLICT, ORDER_ROUTE_ALREADY_CLOSED, 428 IF_MATCH_REQUIRED.')),
+  { ...proposed(r('admin.staffInvitationFind','admin','/api/v1/admin/staff-invitations',G,false,one('GET','platform.principal.read'),
+    `${STAFF_P4B_NOVU} Query reference (8 hexadecimal characters, any case). 200 { items [{ invitationId, reference, `
+    + 'facilityId, facilityName, organizationId, status, roleCode, createdAt, expiresAt }] }, at most 5.')),
+  requiredQuery: { GET: ['reference'] } },
+  // P4 round 2 (R2): support frees a fraudulent or mistaken sign-up's CAC number and legal name for the real company.
+  proposed(r('admin.selfServiceFacilityRelease','admin','/api/v1/admin/self-service-facilities/:applicationId/release',P,false,
+    one('POST','platform.facility.manage'),
+    `${SELF_SIGN_UP_NOVU} Body { reason (8 to 500), allowRetry? (boolean, default false) } and If-Match with the version; `
+    + 'no Idempotency-Key or step-up. Only once every facility of the organization is suspended and the administrator\'s '
+    + 'account disabled (409 SELF_SERVICE_FACILITY_RELEASE_REQUIRES_SUSPENSION otherwise). Answers { applicationId, '
+    + 'releasedAt, version }. 404 SELF_SERVICE_FACILITY_NOT_FOUND, 409 SELF_SERVICE_FACILITY_ALREADY_RELEASED, 409 '
+    + 'VERSION_CONFLICT. Unless allowRetry, its email and network can\'t start a sign-up for the CAC number and product for '
+    + '7 days. Since P4b it also withdraws the facility\'s pending invitations, ends the memberships of the staff it '
+    + 'added, their patients\' consents and their sessions.')),
+  // P4 round 2 (R3, ranked and counted by R16): self-service applications not activated yet.
+  proposed(r('admin.selfServiceApplications','admin','/api/v1/admin/self-service-applications',G,false,
+    one('GET','platform.identity-review.read'),
+    `${SELF_SIGN_UP_NOVU} No query. Answers { total, items }: at most 200 items, those holding their CAC number now first, `
+    + 'then verified ones, then the newest; total counts every open one. Each: applicationId, version, productCode, '
+    + 'organizationType, cacHint, organizationName (null until verified), administratorName, administratorEmail, status, '
+    + 'verificationResult, emailVerified, submittedAt, lapsesAt (submittedAt + 24 h, or submittedAt when opened without a '
+    + 'hold) and holdsCac.')),
+  // R16: the same list for one CAC number, which goes in the body, out of access logs, as principals/search.
+  proposed(r('admin.selfServiceApplicationSearch','admin','/api/v1/admin/self-service-applications/search',P,false,
+    one('POST','platform.identity-review.read'),
+    `${SELF_SIGN_UP_NOVU} Body { cacRegistrationNumber } (spaces removed, upper case, RC, BN or IT and 4 to 20 digits; 400 `
+    + 'VALIDATION_FAILED otherwise). Answers { total, items } as the list, for that CAC number only.')),
+  // R15: support lifts the 7-day refusals a rejection or release set for a CAC number and product.
+  proposed(r('admin.selfServiceApplicationWaiveRefusal','admin','/api/v1/admin/self-service-applications/waive-refusal',P,
+    false,one('POST','platform.facility.manage'),
+    `${SELF_SIGN_UP_NOVU} Body { cacRegistrationNumber, productCode, reason (8 to 500) }; no If-Match, Idempotency-Key or `
+    + 'step-up. Answers { waived: [{ applicationId, waivedAt, version }] }, one per refusal lifted. 404 '
+    + 'SELF_SERVICE_REFUSAL_NOT_FOUND when none is in force.')),
+  proposed(r('admin.selfServiceApplicationReject','admin','/api/v1/admin/self-service-applications/:applicationId/reject',P,false,
+    one('POST','platform.facility.manage'),
+    `${SELF_SIGN_UP_NOVU} Body { reason (8 to 500), allowRetry? (boolean, default false) } and If-Match with the version; `
+    + 'no Idempotency-Key or step-up. Answers { applicationId, rejectedAt, version }. 404 SELF_SERVICE_APPLICATION_NOT_FOUND, '
+    + '409 VERSION_CONFLICT. Unless allowRetry, its email and network then can\'t start a sign-up for the CAC number and '
+    + 'product for 7 days.')),
   r('admin.verifyCac','admin','/api/v1/admin/organization-applications/:applicationId/verify-cac',P,false,one('POST','platform.facility.manage')),
   r('admin.approveApplication','admin','/api/v1/admin/organization-applications/:applicationId/approve',P,false,one('POST','platform.facility.manage','platform.principal.manage','platform.role.manage')),
   r('admin.rejectApplication','admin','/api/v1/admin/organization-applications/:applicationId/reject',P,false,one('POST','platform.facility.manage')),
@@ -432,7 +752,7 @@ export const NON_FRONTEND_ENDPOINTS: readonly string[] = [
   '/api/v1/ehr/internal/ocr/*', '/api/v1/lab/work-items/accept-ehr-order',
   '/api/v1/lab/imports/from-ocr', '/api/v1/pharmacy/work-items/accept-ehr-prescription',
   '/api/v1/pharmacy/imports/from-ocr', '/api/v1/notifications/otp',
-  '/api/v1/notifications/emergency-contact-alert',
+  '/api/v1/notifications/emergency-contact-alert', '/api/v1/notifications/staff-invitation',
   // This admin route exists but always returns INTEGRATION_CREDENTIAL_ROTATION_EXTERNAL.
   '/api/v1/admin/integrations/:provider/credential-reference',
 ]

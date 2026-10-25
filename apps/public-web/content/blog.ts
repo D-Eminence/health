@@ -66,27 +66,30 @@ const POSTS: readonly BlogPost[] = [
   {
     slug: 'setting-up-your-facility-what-you-need',
     title: 'Setting up your facility: what you need',
-    summary: 'A hospital, clinic, laboratory or pharmacy can set itself up on Health ID in four steps. This is what to have ready before you start.',
+    // The steps are the portal's facility sign-up on the production backend (Novu): Organization, Email
+    // confirmation, Password, then straight into the Provider Portal. There is no authenticator step there, and a
+    // sign-up that can't finish automatically is refused with a pointer to support, not queued for review.
+    summary: 'A hospital, clinic, laboratory or pharmacy can set itself up on Health ID in three steps. This is what to have ready before you start.',
     topic: 'Providers',
     published: '2026-10-16',
     author: 'Health ID team',
     body: [
-      { type: 'p', text: 'Facilities join Health ID by verifying their CAC registration. Verified organisations can activate straight away, without waiting for a routine review by the Health ID team.' },
+      { type: 'p', text: 'Facilities join Health ID by verifying their CAC registration. Verified organisations can activate straight away: the administrator’s account is ready as soon as setup is finished.' },
       { type: 'h2', text: 'Have these ready' },
       { type: 'list', items: [
         'Your CAC registration number, starting RC, BN or IT, exactly as it appears on your certificate.',
         'The name and email address of the person who will administer your facility on Health ID. They will need to open that email during setup.',
-        'A phone with an authenticator app installed, for the administrator’s sign-in.',
       ] },
-      { type: 'h2', text: 'The four steps' },
+      { type: 'h2', text: 'The three steps' },
       { type: 'list', items: [
         'Organization. Choose your facility type and the first product you need, then enter your CAC number and administrator details. We check the number against the official registry.',
         'Email confirmation. The administrator enters the six-digit code we send to their email.',
-        'Password. The administrator chooses a password of at least 12 characters.',
-        'Authenticator. The administrator links an authenticator app, then enters the Provider Portal.',
+        'Password. The administrator chooses a password of at least 12 characters, then goes straight into the Provider Portal.',
       ] },
+      { type: 'p', text: 'Before the password, we show the organisation’s registered name from the CAC record, with the facility type and administrator. If the name isn’t your organisation’s, go back and check the CAC number: one wrong digit can name another company.' },
       { type: 'h2', text: 'When a person needs to look' },
-      { type: 'p', text: 'If your CAC number is already linked to an organisation on Health ID, or the registry check needs a person to resolve it, your application goes to the Health ID team for review instead of activating automatically.' },
+      { type: 'p', text: 'Some sign-ups can’t finish automatically: for example when your CAC number is already linked to Health ID, including for another product, when the registry record is missing details or doesn’t show the company as active, or when another sign-up for that number is in progress or recently closed. Setup then stops and asks you to contact Health ID support.' },
+      { type: 'p', text: 'Health ID support also checks every new facility within one working day of its sign-up.' },
       { type: 'p', text: 'Laboratories start with Health ID Laboratory and pharmacies with Health ID Pharmacy. Hospitals, clinics and other providers can start with EHR, Laboratory, Pharmacy or Migrate.' },
     ],
   },

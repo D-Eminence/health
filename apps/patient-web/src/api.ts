@@ -266,6 +266,45 @@ export interface PatientNotification {
   createdAt: string
 }
 
+/**
+ * A lab request or prescription a clinician sent to a laboratory or pharmacy at another facility (Novu, P4c,
+ * SPEC-FINAL §5, §10.1): GET /ehr/me/order-routes, newest first. `content` is every field sent (what the receiving
+ * facility received, or will receive once it accepts); `attestationText` is the clinician's confirmation that the
+ * patient agreed, as they confirmed it, with {patient}, {orderingFacility} and {receivingFacility} for the page to
+ * fill. `actions` holds 'withdraw' (Stop) only while the receiving facility has not accepted it.
+ */
+export interface PatientOrderRoute {
+  id: string
+  reference: string | null
+  kind: 'lab_request' | 'prescription'
+  version: number
+  effectiveState: string
+  receivingFacility: { id: string | null; name: string | null; available: boolean | null }
+  createdAt: string | null
+  respondBy: string | null
+  acceptedAt: string | null
+  completedAt: string | null
+  endedAt: string | null
+  endedKind: string | null
+  declineReason: string | null
+  acceptLocked: boolean
+  resendAllowed: boolean
+  orderingFacilityName: string | null
+  receivingFacilityName: string | null
+  receivingRegisteredAddress: string | null
+  content: Record<string, string | number | null>
+  attestationTextVersion: string | null
+  attestationText: string | null
+  attestedByName: string | null
+  actions: Array<'withdraw' | string>
+  /**
+   * The order was marked entered in error (it may have been written in another patient's chart; P4c review): the
+   * route stays listed as the record of what went where, but `content` holds only its reference, the attestation text
+   * and attesting clinician are null and `actions` is empty. Absent from a backend before that review.
+   */
+  enteredInError?: boolean
+}
+
 export interface RecoveryChallenge {
   accepted: true
   challengeId: string
@@ -396,6 +435,11 @@ export function createPatientApi(client: ApiClient) {
     approveAccess: (id: string) => call<unknown>('POST', `identity/access-requests/${encodeURIComponent(id)}/approve`),
     denyAccess: (id: string, reason: string) => call<unknown>('POST', `identity/access-requests/${encodeURIComponent(id)}/deny`, { reason }),
     notifications: (signal?: AbortSignal) => call<PatientNotification[]>('GET', 'identity/me/notifications', undefined, { signal }),
+    // Orders a clinician sent to another facility (Novu, P4c): hid-system main, and a Novu before it, answer 404.
+    orderRoutes: (signal?: AbortSignal) => call<{ items: PatientOrderRoute[] }>('GET', 'ehr/me/order-routes', undefined, { signal }),
+    // Stop, before the receiving facility accepts it: the patient's only action on an order sent elsewhere.
+    stopOrderRoute: (route: Pick<PatientOrderRoute, 'id' | 'version'>) => call<{ route: PatientOrderRoute }>('POST',
+      `ehr/me/order-routes/${encodeURIComponent(route.id)}/withdraw`, { expectedVersion: route.version }),
     markNotificationRead: (id: string) => call<{ id: string; readAt: string }>('POST', `identity/me/notifications/${encodeURIComponent(id)}/read`),
     setAccessPin: (pin: string) => call<{ configured: true }>('POST', 'identity/me/access-pin', { pin }),
     revokeAccessPin: () => call<{ revoked: true }>('DELETE', 'identity/me/access-pin'),

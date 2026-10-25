@@ -20,6 +20,7 @@ import { AccountDeletionCard, EmergencyContactsCard } from './AccountSafety'
 import { revealFocusedLink } from '../navStrip'
 import { describedBy, isFieldProblem, useDocumentTitle, useStepFocus } from '../authSteps'
 import { useFocusOnPageChange } from '../pageFocus'
+import { SentOrdersCard } from './SentOrders'
 
 const links = [
   { to: '/', label: 'Overview', end: true },
@@ -75,9 +76,36 @@ const NOTIFICATION_TITLES: Readonly<Record<string, string>> = {
 }
 const NOTIFICATION_SUBJECTS: Readonly<Record<string, string>> = {
   'access-request': 'Access request', 'consent-grant': 'Access grant', 'emergency-contact': 'Emergency contact',
+  // P4c (Novu): an order a clinician sent to a laboratory or pharmacy at another facility.
+  'order-route': 'Order to another facility',
+}
+
+/**
+ * The inbox codes of orders sent to another facility (Novu, P4c, SPEC-FINAL §5, §13.4). Their metadata holds only
+ * the kind and the two facilities' names; the receiving facility is named in the title.
+ */
+const ORDER_ROUTE_TITLES: Readonly<Record<string, (thing: string, facility: string) => string>> = {
+  ORDER_ROUTE_SENT: (thing, facility) => `Your ${thing} was sent to ${facility}: see it in Access and consent`,
+  ORDER_ROUTE_WITHDRAWN: (thing, facility) => `Your ${thing} to ${facility} was withdrawn`,
+  ORDER_ROUTE_ACCEPTED: (thing, facility) => `${facility} accepted your ${thing}`,
+  ORDER_ROUTE_DECLINED: (thing, facility) => `${facility} could not take your ${thing}`,
+  ORDER_ROUTE_ACCEPT_LOCKED: (thing, facility) => `${facility} could not confirm it was you, so it can’t take your ${thing}. Ask your clinician to send it again`,
+  ORDER_ROUTE_CANCELLED: (thing, facility) => `Your ${thing} at ${facility} was cancelled`,
+}
+
+/** A name from a notice's metadata, or the words that stand for it: never anything but a short plain string. */
+function metadataName(metadata: Record<string, unknown> | null | undefined, key: string): string | null {
+  const value = metadata?.[key]
+  return typeof value === 'string' && value.trim() && value.length <= 200 ? value.trim() : null
 }
 
 function notificationTitle(item: PatientNotification) {
+  const orderRoute = ORDER_ROUTE_TITLES[item.notificationCode]
+  if (orderRoute) {
+    const kind = metadataName(item.metadata, 'kind')
+    const thing = kind === 'lab_request' ? 'test request' : kind === 'prescription' ? 'prescription' : 'test request or prescription'
+    return orderRoute(thing, metadataName(item.metadata, 'receivingFacilityName') ?? 'another facility')
+  }
   return NOTIFICATION_TITLES[item.notificationCode] ?? 'An update about your Health ID account'
 }
 
@@ -313,6 +341,8 @@ export function AccessPage() {
             <button type="button" className="patient-secondary-button" disabled={!!working} onClick={() => cancelDenial(item.accessRequestId)}>Cancel</button></form>}
         </li>)}
       </ul>)}</div>
+    {/* Novu (P4c): orders a clinician sent to another facility, with Stop until it is accepted. Main has no such list. */}
+    {usesNovuBackend() && <SentOrdersCard />}
     <div className="patient-card" aria-busy={(history.loading && history.data !== null) || undefined}><h2 ref={historyHeading} tabIndex={-1}>Access history</h2>
       <LoadState loading={history.loading} error={history.error} retry={history.reload} hasData={history.data !== null} focusTarget={historyHeading} />
       {history.data && !history.error && (history.data.items.length === 0 ? <p className="patient-empty">No access grants are recorded.</p> : <ul className="patient-list">

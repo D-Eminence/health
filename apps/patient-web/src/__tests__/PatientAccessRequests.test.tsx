@@ -85,6 +85,31 @@ describe('patient access-request commands', () => {
     await waitFor(() => expect(screen.queryByRole('button', { name: /^Approve/ })).toBeNull())
   })
 
+  // P4c review (Identity, as main): approving needs a sign-in within 10 minutes and no OTP account recovery in the last
+  // 24 hours. The page says Identity's own words, and the request stays pending with Approve and Deny still offered.
+  it.each([
+    ['PATIENT_RECENT_AUTH_REQUIRED', 'For your security, sign out, sign in again, and approve within 10 minutes.'],
+    ['PATIENT_RECENT_RECOVERY_HOLD', 'This account was recovered with a verification code less than 24 hours ago; new access '
+      + 'approvals are available again once that period ends'],
+  ])('says why Identity refused an approval (%s), and keeps the request pending', async (code, detail) => {
+    const { api, sent } = client((path, method) => {
+      if (path.endsWith('/me/access-requests')) return json([pending])
+      if (path.endsWith('/me/access-history')) return json({ items: [] })
+      if (method === 'POST') return json({ status: 403, code, detail }, 403)
+      return json({}, 404)
+    })
+    render(<MemoryRouter><SessionContext.Provider value={createTestSessionValue({
+      kind: 'patient', subjectId: 'patient:subject', appRole: 'patient', assuranceLevel: 'aal1',
+    }, api)}><AccessPage /></SessionContext.Provider></MemoryRouter>)
+    const item = (await screen.findByText('Lagos General')).closest('li')!
+    fireEvent.click(within(item).getByRole('button', { name: /^Approve/ }))
+    expect(await screen.findByText(detail)).toBeTruthy()
+    expect(screen.queryByText('Request approved.')).toBeNull()
+    expect(sent.filter(request => request.method === 'POST')).toHaveLength(1)
+    expect(within(item).getByRole('button', { name: /^Approve/ })).toBeTruthy()
+    expect(within(item).getByRole('button', { name: /^Deny/ })).toBeTruthy()
+  })
+
   it('denies only with a reason of at least 3 characters, and sends that reason', async () => {
     const sent = renderAccess(() => ({ ...pending, status: 'denied', deniedAt: '2026-10-08T10:05:00Z', deniedReason: 'Not my clinic' }))
     const item = (await screen.findByText('Lagos General')).closest('li')!

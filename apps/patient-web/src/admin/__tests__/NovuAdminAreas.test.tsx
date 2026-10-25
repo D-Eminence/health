@@ -31,7 +31,8 @@ describe('the Novu admin navigation', () => {
   it('links neither approvals nor my security, whatever the administrator holds', async () => {
     const { NAVIGATION_ITEMS, canOpen, isServed, visibleNavigation } = await import('../navigation')
     const titles = (permissions: string[]) => visibleNavigation(actor(permissions)).flatMap(section => section.items.map(item => item.title))
-    expect(titles(SUPPORT_ADMIN)).toEqual(['Overview', 'Users & roles'])
+    // P4c: support finds and closes orders between facilities with the lookup's permission.
+    expect(titles(SUPPORT_ADMIN)).toEqual(['Overview', 'Orders between facilities', 'Users & roles'])
     expect(titles(SECURITY_AUDITOR)).toEqual(['Overview', 'Audit', 'Service health', 'Integrations'])
     expect(titles(SUPER_ADMIN)).not.toContain('Approvals')
     const unserved = NAVIGATION_ITEMS.filter(item => !isServed(item)).map(item => item.path)

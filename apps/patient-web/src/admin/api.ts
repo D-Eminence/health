@@ -98,6 +98,120 @@ export interface OrganizationApplication extends Versioned {
   profileAddress: string | null; profileRegistryStatus: string | null; profileState: string | null
   fieldSources: Record<string, string | null> | null; createdAt: string; verifiedAt: string | null; reviewedAt: string | null
 }
+/**
+ * Which facility sign-ups to list: the ones support has not checked yet (the default), the ones it has reviewed or
+ * released, or both.
+ */
+export type SelfServiceFacilityState = 'unreviewed' | 'reviewed' | 'all'
+/**
+ * A facility that signed itself up (P4, Novu only): `GET /admin/self-service-facilities`, one row per activated
+ * self-service application, at most 200: the unreviewed ones oldest activation first, the others newest first.
+ * `version` is the application's, for the review and the release. `organizationName` is the verified legal name,
+ * kept after a release renames the organization. The release fields come with P4 round 2 (absent before it).
+ */
+export interface SelfServiceFacility extends Versioned {
+  applicationId: string; organizationId: string; organizationName: string; facilityId: string; facilityName: string
+  facilityLifecycleStatus: string; productCode: string; organizationType: string; cacHint: string
+  administratorName: string; administratorEmail: string; administratorAccountId: string | null
+  administratorAccountStatus: string | null; activatedAt: string | null; reviewedAt: string | null
+  reviewedByAccountId: string | null; reviewNote: string | null
+  releasedAt?: string | null; releasedByAccountId?: string | null; releaseReason?: string | null
+  /**
+   * P4b (absent before it): the administrator's role support's review would give by default (null for 'other'), the
+   * roles it may give, and what it gave; how support checked; the licence the administrator entered (full number, for
+   * the register check); the facility's staff and invitations; the first 30 days' end; its emergency activations in the
+   * last 7 days and invitation emails not delivered in the last day.
+   */
+  reviewGrantsRole?: string | null; reviewableRoles?: string[]; grantedRole?: string | null; verificationMethod?: string | null
+  administratorLicenceBody?: string | null; administratorLicenceNumber?: string | null
+  administratorLicenceRecordedAt?: string | null; memberCount?: number | null; pendingInvitationCount?: number | null
+  probationEndsAt?: string | null; breakGlassLast7d?: number | null; deliveryFailuresLastDay?: number | null
+}
+/** How support checked a self-signed-up facility's administrator (P4b SPEC 3.5). */
+export type SelfServiceVerificationMethod = 'cac_registered_contact' | 'officer_match' | 'regulator_register' | 'in_person' | 'other'
+/** The administrator's own access support gives at review or changes after it: a clinical role, or none (P4b). */
+export interface SelfServiceAdministratorAccess {
+  grantedRole: 'none' | 'doctor' | 'nurse' | 'lab' | 'pharmacist'
+  verificationMethod: SelfServiceVerificationMethod
+  /** Required for a clinical role, absent for 'none'. */
+  administratorLicence?: { body: string; number: string }
+}
+/** `POST /admin/self-service-facilities/:applicationId/review`; P4b adds what it granted and the sessions it ended. */
+export interface SelfServiceFacilityReviewed extends Versioned { applicationId: string; reviewedAt: string; grantedRole?: string
+  sessionsRevoked?: number }
+/** `POST …/:applicationId/administrator-role` (P4b). */
+export interface SelfServiceAdministratorRoleChanged extends Versioned { applicationId: string; grantedRole: string
+  sessionsRevoked: number }
+/** `POST …/:applicationId/end-probation` (P4b). */
+export interface SelfServiceProbationEnded extends Versioned { applicationId: string; probationEndedAt: string | null }
+/** One member or invitation in support's view of a facility's staff (P4b): full licence numbers and who vouched. */
+export interface AdminFacilityStaffEntry {
+  membershipId?: string; invitationId?: string; reference?: string; accountId: string | null; name: string | null
+  email: string | null; roles: string[]; status: string | null; licenceBody: string | null; licenceNumber: string | null
+  licenceKey: string | null; sameLicenceElsewhere: number; nameMismatch: boolean; attestedByAccountId: string | null
+  attestedByName: string | null; verificationMethod: string | null; attestedAt: string | null; createdAt: string | null
+}
+/** `GET /admin/facilities/:facilityId/staff` (P4b). */
+export interface AdminFacilityStaff {
+  facility: { id: string; name: string; selfService: { review: string; organizationType: string | null; productCode: string | null } | null }
+  members: AdminFacilityStaffEntry[]
+  invitations: AdminFacilityStaffEntry[]
+}
+/** `GET /admin/staff-invitations?reference=` (P4b): at most 5. */
+export interface FoundStaffInvitation {
+  invitationId: string; reference: string; facilityId: string; facilityName: string; organizationId: string; status: string
+  roleCode: string; createdAt: string | null; expiresAt: string | null
+}
+/**
+ * Orders between facilities (Novu, P4c, SPEC-FINAL §10.4): a facility's summary for support, with no patient and no
+ * order content. `listed` says whether it can receive orders from other facilities now, by default (its review
+ * method) or as support last set it; the counts per counterpart facility are the last 30 days', by state.
+ */
+export interface FacilityOrderRouteSummary {
+  facilityId: string
+  listed: { value: boolean; byDefault: boolean; reason: string | null; setAt: string | null }
+  receivedAcceptedLifetime: number
+  receivedPatientsLifetime: number
+  counterparts: Array<{ direction: 'sent' | 'received' | string; facilityId: string; facilityName: string | null
+    last30Days: Record<string, number> }>
+}
+/** `POST /admin/facilities/:facilityId/order-destination`. */
+export interface OrderDestinationSet { facilityId: string; listed: boolean; setAt: string | null }
+/** One order between facilities, as support finds it by its reference or the patient's Health ID (C21). */
+export interface FoundOrderRoute extends Versioned {
+  routeId: string; reference: string; kind: 'lab_request' | 'prescription' | string; effectiveState: string
+  orderingFacilityId: string; orderingFacilityName: string; receivingFacilityId: string; receivingFacilityName: string
+  createdAt: string | null; acceptedAt: string | null; endedAt: string | null; endedKind: string | null
+}
+/** `POST /admin/order-routes/:routeId/close`. */
+export interface OrderRouteClosed extends Versioned { routeId: string; effectiveState: string }
+
+/** `POST /admin/self-service-facilities/:applicationId/release`. */
+export interface SelfServiceFacilityReleased extends Versioned { applicationId: string; releasedAt: string }
+/**
+ * A self-service application not activated yet (P4 round 2, Novu only): `GET /admin/self-service-applications`, at
+ * most 200: since hid-system's R16, those holding their CAC number now first, then verified ones, then the newest.
+ * It holds its CAC number and product until `lapsesAt`, 24 hours from `submittedAt`; one opened without a hold (its
+ * email or network had a sign-up for that CAC number and product closed in the last 7 days, R15) holds nothing, and
+ * its `lapsesAt` is `submittedAt`. `holdsCac` says whether it holds them now (R16; absent from an Identity before it).
+ * `organizationName` is the verified legal name, null until the CAC is verified.
+ */
+export interface SelfServiceApplication extends Versioned {
+  applicationId: string; productCode: string; organizationType: string; cacHint: string; organizationName: string | null
+  administratorName: string; administratorEmail: string; status: 'pending_verification' | 'ready_for_review' | string
+  verificationResult: string | null; emailVerified: boolean; submittedAt: string; lapsesAt: string; holdsCac?: boolean
+}
+/**
+ * One read of the open applications: `total` counts every open one that matches, beyond the 200 listed (R16; absent
+ * from an Identity before it).
+ */
+export interface SelfServiceApplicationList { total?: number; items: SelfServiceApplication[] }
+/** `POST /admin/self-service-applications/:applicationId/reject`. */
+export interface SelfServiceApplicationRejected extends Versioned { applicationId: string; rejectedAt: string }
+/** The products a facility can sign itself up for, which a refusal is for. */
+export type SelfServiceProduct = 'ehr' | 'migrate' | 'laboratory' | 'pharmacy'
+/** `POST /admin/self-service-applications/waive-refusal` (R15): one entry per 7-day refusal lifted. */
+export interface SelfServiceRefusalsWaived { waived: Array<Versioned & { applicationId: string; waivedAt: string }> }
 export interface IntegrationProvider extends Versioned {
   provider: string; name: string; enabled: boolean; health: string; managementMode: string; availableActions: string[]
   capabilities?: string[]; activeCapabilities?: string[]
@@ -383,6 +497,38 @@ async function clinicianQueue<T>(read: Promise<T>): Promise<T> {
   }
 }
 
+/**
+ * An Identity without facility self sign-up (hid-system main, or Novu before P4), or without its open applications
+ * (Novu before P4 round 2), has no such list: its 404 names no code of its own (`NOT_FOUND`, with a detail naming
+ * the route). It is said as that, never in the router's words.
+ */
+async function selfServiceList<T>(read: Promise<T>, unavailable: { code: string; message: string } = {
+  code: 'SELF_SERVICE_REVIEW_UNAVAILABLE', message: 'New facility sign-ups are not available from this Identity.' }): Promise<T> {
+  try {
+    return await read
+  } catch (error) {
+    if (isHidApiError(error) && error.status === 404 && error.code === 'NOT_FOUND') {
+      throw new HidApiError(404, unavailable.message, { code: unavailable.code, requestId: error.requestId, retryable: false })
+    }
+    throw error
+  }
+}
+
+/**
+ * An Identity without orders between facilities (hid-system main, or Novu before P4c) has no such route: its 404 names
+ * no code of its own. It is said as that, never as a missing facility or order.
+ */
+async function orderRoutesRead<T>(read: Promise<T>, message: string): Promise<T> {
+  try {
+    return await read
+  } catch (error) {
+    if (isHidApiError(error) && error.status === 404 && (error.code === 'NOT_FOUND' || error.code === 'API_ROUTE_NOT_FOUND')) {
+      throw new HidApiError(404, message, { code: 'ORDER_ROUTES_UNAVAILABLE', requestId: error.requestId, retryable: false })
+    }
+    throw error
+  }
+}
+
 export const adminApi = {
   async novuLogin(email: string, password: string, token: string): Promise<void> {
     if (!usesNovuBackend()) throw new Error('Novu authentication requires the configured novu-v1 backend.')
@@ -579,6 +725,126 @@ export const adminApi = {
   rejectApplication(application: Pick<OrganizationApplication, 'applicationId' | 'version'>, reason: string) {
     return adminApi.command<{ status: string; version: number }>(
       at('/api/v1/admin/organization-applications', application.applicationId, 'reject'), { reason }, { version: application.version })
+  },
+  /** Facilities that signed themselves up (P4, Novu only), for support's review within a working day. */
+  selfServiceFacilities(state: SelfServiceFacilityState, signal?: AbortSignal) {
+    return selfServiceList(request<{ items: SelfServiceFacility[] }>('/api/v1/admin/self-service-facilities',
+      { signal, query: { state } }))
+  },
+  /**
+   * Records that support checked a self-signed-up facility, which since P4b gives it full access and signs its
+   * administrator out once: a note of 8 to 500 characters, the administrator's own access (a clinical role with the
+   * licence support checked, or none) and how support checked, with If-Match with the version listed. Needs
+   * platform.facility.manage and platform.facility.unlock. Novu has no step-up or Idempotency-Key here.
+   */
+  reviewSelfServiceFacility(facility: Pick<SelfServiceFacility, 'applicationId' | 'version'>, note: string,
+    access: SelfServiceAdministratorAccess) {
+    return adminApi.command<SelfServiceFacilityReviewed>(
+      at('/api/v1/admin/self-service-facilities', facility.applicationId, 'review'), { note, ...access },
+      { version: facility.version })
+  },
+  /** Changes a reviewed administrator's own access (P4b): as the review's, with a reason; a new role signs them out. */
+  setSelfServiceAdministratorRole(facility: Pick<SelfServiceFacility, 'applicationId' | 'version'>, reason: string,
+    access: SelfServiceAdministratorAccess) {
+    return adminApi.command<SelfServiceAdministratorRoleChanged>(
+      at('/api/v1/admin/self-service-facilities', facility.applicationId, 'administrator-role'), { ...access, reason },
+      { version: facility.version })
+  },
+  /** Ends a reviewed facility's first-30-days limits early (P4b): a reason of 8 to 500 characters. */
+  endSelfServiceProbation(facility: Pick<SelfServiceFacility, 'applicationId' | 'version'>, reason: string) {
+    return adminApi.command<SelfServiceProbationEnded>(
+      at('/api/v1/admin/self-service-facilities', facility.applicationId, 'end-probation'), { reason },
+      { version: facility.version })
+  },
+  /**
+   * A facility's staff and invitations with their full licence numbers, who vouched and when (P4b, Novu only).
+   * Identity audits every read. An Identity without the route answers 404, said as not available.
+   */
+  facilityStaff(facilityId: string, signal?: AbortSignal) {
+    return selfServiceList(request<AdminFacilityStaff>(at('/api/v1/admin/facilities', facilityId, 'staff'), { signal }),
+      { code: 'FACILITY_STAFF_UNAVAILABLE', message: 'Facility staff and licences are not available from this Identity.' })
+  },
+  /** A facility's orders with other facilities (P4c, Novu only): listing and counts, no patient or order content. */
+  facilityOrderRouteSummary(facilityId: string, signal?: AbortSignal) {
+    return orderRoutesRead(request<FacilityOrderRouteSummary>(at('/api/v1/admin/facilities', facilityId, 'order-route-summary'), { signal }),
+      'Orders between facilities are not available from this Identity.')
+  },
+  /** Lists a laboratory or pharmacy for orders from other facilities, or stops listing it (P4c): a reason of 8 to 500. */
+  setOrderDestination(facilityId: string, listed: boolean, reason: string) {
+    return orderRoutesRead(adminApi.command<OrderDestinationSet>(at('/api/v1/admin/facilities', facilityId, 'order-destination'),
+      { listed, reason }), 'Orders between facilities are not available from this Identity.')
+  },
+  /**
+   * Finds orders between facilities by their 8-character reference (at most 5) or the patient's Health ID (at most
+   * 20), exactly one of them (P4c). Identity audits the lookup. A Health ID goes in the body of `POST
+   * …/order-routes/search` (P4c review), never in a URL that an access log keeps; a reference is read with the GET.
+   * Being a POST, a failed search by Health ID is not repeated.
+   */
+  findOrderRoutes(lookup: { reference: string } | { healthId: string }, signal?: AbortSignal) {
+    const read = 'healthId' in lookup
+      ? request<{ items: FoundOrderRoute[] }>('/api/v1/admin/order-routes/search', { method: 'POST', signal,
+        body: { healthId: lookup.healthId } })
+      : request<{ items: FoundOrderRoute[] }>('/api/v1/admin/order-routes', { signal, query: { reference: lookup.reference } })
+    return orderRoutesRead(read, 'Orders between facilities can’t be found from this Identity.')
+  },
+  /** Closes an order between facilities at once (P4c): If-Match with its version and a reason of 8 to 500. */
+  closeOrderRoute(route: Pick<FoundOrderRoute, 'routeId' | 'version'>, reason: string) {
+    return orderRoutesRead(adminApi.command<OrderRouteClosed>(at('/api/v1/admin/order-routes', route.routeId, 'close'), { reason },
+      { version: route.version }), 'Orders between facilities can’t be closed from this Identity.')
+  },
+  /** Finds an invitation by the 8-character reference its email quotes (P4b): the reference only, never an email. */
+  findStaffInvitations(reference: string, signal?: AbortSignal) {
+    return selfServiceList(request<{ items: FoundStaffInvitation[] }>('/api/v1/admin/staff-invitations',
+      { signal, query: { reference } }),
+    { code: 'STAFF_INVITATION_LOOKUP_UNAVAILABLE', message: 'Invitations can’t be found by reference from this Identity.' })
+  },
+  /**
+   * Releases a fraudulent or mistaken self sign-up (P4 round 2), once its facility is suspended and its
+   * administrator disabled: Identity closes the application, unlinks the CAC number, suspends the product and
+   * deactivates and renames the organization, so the real company can sign up. A reason of 8 to 500 characters and
+   * If-Match with the version listed, as the review; no step-up or Idempotency-Key. Its email and network then can't
+   * start a sign-up for the CAC number and product for 7 days, unless `allowRetry` (R15), which is sent only when
+   * true, so the body stays `{ reason }` for an Identity before R15.
+   */
+  releaseSelfServiceFacility(facility: Pick<SelfServiceFacility, 'applicationId' | 'version'>, reason: string,
+    allowRetry = false) {
+    return adminApi.command<SelfServiceFacilityReleased>(
+      at('/api/v1/admin/self-service-facilities', facility.applicationId, 'release'),
+      { reason, ...(allowRetry ? { allowRetry: true } : {}) }, { version: facility.version })
+  },
+  /** Self-service applications not activated yet (P4 round 2, Novu only), those holding their CAC number now first. */
+  selfServiceApplications(signal?: AbortSignal) {
+    return selfServiceList(request<SelfServiceApplicationList>('/api/v1/admin/self-service-applications', { signal }),
+      { code: 'SELF_SERVICE_APPLICATIONS_UNAVAILABLE', message: 'Open sign-up applications are not available from this Identity.' })
+  },
+  /**
+   * The open applications for one CAC number (R16). The number goes in a POST body, out of URLs and access logs, as
+   * the principal search does; Identity removes spaces and upper-cases it, and refuses one that is not RC, BN or IT
+   * and 4 to 20 digits (400 VALIDATION_FAILED). Being a POST, a failed search is not repeated.
+   */
+  searchSelfServiceApplications(cacRegistrationNumber: string, signal?: AbortSignal) {
+    return selfServiceList(request<SelfServiceApplicationList>('/api/v1/admin/self-service-applications/search',
+      { method: 'POST', signal, body: { cacRegistrationNumber } }),
+    { code: 'SELF_SERVICE_APPLICATION_SEARCH_UNAVAILABLE', message: 'Open sign-ups can’t be found by CAC number from this Identity.' })
+  },
+  /**
+   * Closes an open self-service application (P4 round 2): a reason of 8 to 500 characters and If-Match with the
+   * version listed; no step-up or Idempotency-Key. Its email and network then can't start a sign-up for the CAC number
+   * and product for 7 days, unless `allowRetry` (R15: the applicant's own mistake), sent only when true.
+   */
+  rejectSelfServiceApplication(application: Pick<SelfServiceApplication, 'applicationId' | 'version'>, reason: string,
+    allowRetry = false) {
+    return adminApi.command<SelfServiceApplicationRejected>(
+      at('/api/v1/admin/self-service-applications', application.applicationId, 'reject'),
+      { reason, ...(allowRetry ? { allowRetry: true } : {}) }, { version: application.version })
+  },
+  /**
+   * Lifts every 7-day refusal a rejection or release set for a CAC number and product (R15), for a company whose own
+   * email or network it refused: the CAC number (spaces removed, upper case), the product and a reason of 8 to 500
+   * characters. No version, step-up or Idempotency-Key; 404 SELF_SERVICE_REFUSAL_NOT_FOUND when none is in force.
+   */
+  waiveSelfServiceRefusals(input: { cacRegistrationNumber: string; productCode: SelfServiceProduct; reason: string }) {
+    return adminApi.command<SelfServiceRefusalsWaived>('/api/v1/admin/self-service-applications/waive-refusal', input)
   },
   integrations(signal?: AbortSignal) { return request<IntegrationCatalog>('/api/v1/admin/integrations', { signal }) },
   integrationHistory(provider: string, signal?: AbortSignal) {

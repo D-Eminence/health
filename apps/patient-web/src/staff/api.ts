@@ -1,7 +1,7 @@
 import { stagingChatQuestion, parseStagingPatientChat, parseStagingChatHistory, chatQuestion, parsePatientChat,
   parsePatientChatAvailability, parsePatientChatHistory, parsePatientChatCleared } from '@hid/contracts'
 import { parseImportedHistory, type ImportedRecordsResponse, type ImportedAttachmentDownload, type ImportedHistoryPage } from '../importedRecords'
-import { createApiClient, HidApiError, isHidApiError, uploadPresignedObject, type ApiClient, type RequestSpec } from '@hid/http'
+import { createApiClient, HidApiError, isHidApiError, NO_RETRY, uploadPresignedObject, type ApiClient, type RequestSpec } from '@hid/http'
 import { createRegisteredBrowserClient } from '@hid/api'
 import { getEnvironment } from './env'
 import {
@@ -22,6 +22,12 @@ export interface Facility {
   roles: string[]
   permissions: string[]
   isPrimary: boolean
+  /**
+   * Novu since P4b, only at a facility that signed itself up: 'pending' until Health ID support has checked it, then
+   * 'reviewed', with the facility's type. Governed and legacy facilities, and an Identity before P4b, send none.
+   * Copy only: Identity decides every request (see staffAccess.selfServiceReview).
+   */
+  selfService?: { review: string; organizationType: string }
 }
 
 export interface Actor {
@@ -475,7 +481,19 @@ export interface LabWorkItem {
   accessionNumber?: string | null
   specimenStatuses?: string[]
   acceptedAt?: string
+  /** The request's priority, which Lab sends (routine, urgent, asap, stat). */
+  priority?: string | null
+  /** Novu since P4c, only on work from an order another facility sent here: the order and its route. */
+  orderRoute?: WorkItemOrderRoute
+  /** Novu since P4c, only on such work while its route allows reading it: who the patient is. */
+  patient?: OrderRoutePatient
 }
+
+/**
+ * A work list's answer. Novu since P4c also says whether orders between facilities are on (`crossFacilityOrders`) and
+ * whether work on accepted ones is (`crossFacilityWork`); an earlier backend sends neither.
+ */
+export interface WorkList<T> { items: T[]; crossFacilityOrders?: boolean; crossFacilityWork?: boolean }
 
 export interface LabSpecimen {
   id: string
@@ -584,7 +602,171 @@ export interface PharmacyWorkItem {
   frequency?: string
   instructions?: string | null
   dispensing?: { id: string; reversed: boolean } | null
+  /** Novu since P4c, only on work from a prescription another facility sent here. */
+  orderRoute?: WorkItemOrderRoute
+  patient?: OrderRoutePatient
 }
+
+/**
+ * Cross-facility orders (Novu, P4c, SPEC-FINAL §10): a clinician sends a lab request or prescription to a laboratory or
+ * pharmacy at another facility, confirming in an attestation that names it that the patient agreed. The receiver
+ * accepts it with the patient's Health ID or date of birth, works it in its own Lab or Pharmacy, and what it releases
+ * or dispenses comes back to the order. Field names and values are the services' (P4c services report §8).
+ */
+export type OrderRouteKind = 'lab_request' | 'prescription'
+
+/**
+ * An order's latest route to another facility, on each row of the EHR's order lists. `effectiveState` is one of
+ * sent, accepted, completed, declined, withdrawn, expired or cancelled (a later value is shown as it is); `endedKind`
+ * says who or what ended it; `version` is the route's, for its withdrawal.
+ */
+export interface OrderRouteSummary {
+  id: string
+  reference: string | null
+  kind: OrderRouteKind
+  version: number
+  effectiveState: string
+  receivingFacility: { id: string | null; name: string | null; available: boolean | null }
+  createdAt: string | null
+  respondBy: string | null
+  acceptedAt: string | null
+  completedAt: string | null
+  endedAt: string | null
+  endedKind: string | null
+  declineReason: string | null
+  acceptLocked: boolean
+  resendAllowed: boolean
+}
+
+/** Who confirmed that the patient agreed, when, and the receiving facility the attestation named. */
+export interface OrderRouteAttestationRecord {
+  textVersion: string | null
+  attestedByName: string | null
+  attestedAt: string | null
+  receivingFacilityName: string | null
+}
+
+/** A result the receiving laboratory released, or marked entered in error, copied back to the order. */
+export interface OrderRouteResult {
+  resultId: string | null
+  resultVersion: number | null
+  kind: 'released' | 'entered_in_error' | string | null
+  test: { codeSystem: string | null; code: string | null; name: string | null }
+  resultType: string | null
+  numericValue: string | number | null
+  textValue: string | null
+  unit: string | null
+  referenceRange: string | null
+  abnormalFlag: string | null
+  revisionKind: string | null
+  correctionReason: string | null
+  occurredAt: string | null
+}
+
+/** A dispensing the receiving pharmacy recorded, or reversed, copied back to the prescription. */
+export interface OrderRouteDispensing {
+  dispensingId: string | null
+  kind: 'dispensed' | 'reversed' | string | null
+  medication: { codeSystem: string | null; code: string | null; display: string | null }
+  quantityDispensed: string | number | null
+  quantityUnit: string | null
+  occurredAt: string | null
+}
+
+/** One route of an order as the ordering facility reads it: the summary, the attestation and what came back. */
+export interface OrderRouteView extends OrderRouteSummary {
+  attestation: OrderRouteAttestationRecord
+  events: Array<{ type: string | null; side: string | null; occurredAt: string | null; reasonCode: string | null; stateAfter: string | null }>
+  results?: OrderRouteResult[]
+  dispensings?: OrderRouteDispensing[]
+}
+
+/** The current attestation text of a kind, with {patient}, {orderingFacility} and {receivingFacility} to fill. */
+export interface OrderRouteAttestation { kind: OrderRouteKind; version: string; text: string }
+
+/** A laboratory or pharmacy at another facility that can receive orders now (the directory, at most 10). */
+export interface OrderDestination {
+  facilityId: string
+  facilityName: string
+  organizationName: string | null
+  /** The organization's CAC registered office (owner decision Q8). */
+  registeredAddress: string | null
+  /** Signed itself up and is in its first 30 days after Health ID support's review. */
+  newOnHealthId: boolean
+}
+
+export interface OrderRouteSent {
+  route: OrderRouteSummary
+  order: { id: string; status: string; rowVersion: number }
+  replayed: boolean
+}
+
+/** Who the patient is, once this facility has accepted the order and while it may read it. */
+export interface OrderRoutePatient { fullName: string; sex: string | null; dateOfBirth: string | null; healthIdLast4: string | null }
+
+/**
+ * An order another facility sent here, waiting to be accepted (Incoming): never the patient, the clinical information,
+ * the instructions or the licence number. With orders between facilities off, only the reference, kind, ordering
+ * facility and dates come.
+ */
+export interface IncomingOrderRoute {
+  id: string
+  reference: string | null
+  version: number | null
+  effectiveState: string | null
+  orderingFacilityName: string | null
+  orderer: { name: string | null; licenceBody: string | null; licenceNumber?: string }
+  // A lab request.
+  test?: { codeSystem: string | null; code: string | null; name: string | null }
+  priority?: string | null
+  specimenTypeCode?: string | null
+  // A prescription.
+  medication?: { codeSystem: string | null; code: string | null; display: string | null }
+  doseQuantity?: string | number | null
+  doseUnit?: string | null
+  routeCode?: string | null
+  frequency?: string | null
+  startsOn?: string | null
+  endsOn?: string | null
+  prescribedAt?: string | null
+  sentAt: string | null
+  respondBy: string | null
+  acceptLocked: boolean
+  /**
+   * Wrong tries left before the order locks here: the lower of 5 less the wrong tries that named this order (a Health
+   * ID, or a date of birth given with its reference) and 20 less every wrong try. A date of birth alone does not lower
+   * the 5 (P4c review).
+   */
+  attemptsLeft: number | null
+}
+
+export interface IncomingOrderRoutes { items: IncomingOrderRoute[]; crossFacilityOrders: boolean; crossFacilityWork: boolean }
+
+/** What is shown once an order is accepted: who the patient is, and what the sender wrote. */
+export interface OrderRouteAccepted {
+  route: { id: string; version: number; effectiveState: string }
+  workItemId: string
+  patient?: OrderRoutePatient
+  clinicalInformation?: string | null
+  instructions?: string | null
+  orderer: { licenceBody: string | null; licenceNumber: string | null }
+  replayed: boolean
+}
+
+/** The route of a work item that came from another facility, as the Lab and Pharmacy work lists carry it. */
+export interface WorkItemOrderRoute {
+  id: string
+  reference: string | null
+  effectiveState: string
+  /** 'work' (may record), 'read' (may only read) or 'none'. */
+  access: 'work' | 'read' | 'none' | string
+  orderingFacilityName: string | null
+  ordererName: string | null
+  ordererLicence?: { body: string | null; number: string | null }
+}
+
+export type OrderRouteDeclineReason = 'test_not_offered' | 'medicine_unavailable' | 'cannot_meet_priority' | 'patient_not_seen' | 'other'
+export type OrderRouteWithdrawReason = 'sent_in_error' | 'patient_request' | 'other'
 
 export interface OcrJob {
   id: string
@@ -982,19 +1164,42 @@ function encounterPath(patientId: string, encounterId: string) {
   return `${patientPath(patientId)}/${encodeURIComponent(encounterId)}`
 }
 
+/**
+ * The start's answer. hid-system main always sends a code and answers `{ accepted, challengeId, expiresInSeconds,
+ * resendAfterSeconds }`. Novu (P4 round 2, R14) also says whether this start sent a new code: with `codeSent` false
+ * no email went out (a code was sent less than a minute ago, or the sign-up or its email has had as many codes as
+ * Identity sends for now); `challengeId` and `expiresInSeconds` then name the code still in force, and are absent
+ * when no code can still be entered; `resendAfterSeconds` is the real wait before a new code, up to about a day.
+ */
 export interface ProviderEnrollmentStart {
   accepted: true
-  challengeId: string
+  codeSent?: boolean
+  challengeId?: string
   expiresInSeconds?: number
   resendAfterSeconds?: number
 }
 
 /**
- * Since hid-system #71 activation sets the administrator's password and opens a
- * staff MFA enrolment whose proof is the activation itself (`status`
- * 'mfa_enrollment_required', or 'mfa_required' for an account that already has
- * an authenticator), with the challenge cookie and no session. An Identity
- * before #71 answers with the session's `actor` instead.
+ * Whether facility self sign-up is open (Novu, P4). `reason` says why not: 'closed' (switched off or not
+ * configured) or 'unavailable' (Identity could not tell, because of a fault: try again shortly). Identity before
+ * round 2 answered `{ open: false }` alone, which meant closed.
+ */
+export interface ProviderEnrollmentAvailability {
+  open: boolean
+  reason?: string
+  /** Novu since P4c, on the open answer: whether orders between facilities are on. */
+  crossFacilityOrders?: boolean
+}
+
+/**
+ * Activation sets the administrator's password. On Novu (novu-v1, the
+ * production backend; facility self sign-up, P4) it then signs the
+ * administrator in, as a staff sign-in does: the session cookies, and the
+ * session's `actor` in the answer (owner decision: a password, no
+ * authenticator). On hid-system main since #71 it opens a staff MFA enrolment
+ * instead, whose proof is the activation itself (`status`
+ * 'mfa_enrollment_required', or 'mfa_required' for an account that already
+ * has an authenticator), with the challenge cookie and no session.
  */
 export interface ProviderEnrollmentActivation {
   activated: true
@@ -1006,7 +1211,46 @@ export interface ProviderEnrollmentActivation {
   expiresAt: string
 }
 
+/** Verify's answer; it also sets the enrollment cookie that …/profile and activation read. */
+export interface ProviderEnrollmentVerified {
+  verified: true
+}
+
+/**
+ * GET …/provider-enrollments/profile (Novu, P4 round 2, R13): what a confirmed sign-up will register, read before
+ * the account exists. `organizationName` is the verified legal name on the CAC record, which the organization and
+ * the facility take; `registrationNumber` is the CAC number as the applicant entered it (spaces removed, capitals);
+ * the administrator's name and email and the organization type are the ones the account will keep (those sent
+ * with the code that was confirmed). Read with the enrollment cookie; it changes nothing.
+ */
+export interface ProviderEnrollmentProfile {
+  organizationName: string
+  registrationNumber: string
+  productCode: string
+  organizationType: string
+  administratorName: string
+  administratorEmail: string
+}
+
+/**
+ * How long the browser waits for a start. The start checks the security token
+ * with Cloudflare (up to two tries), then looks the CAC up with QoreID (a token
+ * and a lookup, each up to 5 s), then sends the email code: more than the
+ * client's usual 15 s at worst. The production gateway gives up at 30 s and
+ * answers 503 UPSTREAM_UNAVAILABLE, so this only bounds a hung connection.
+ */
+export const PROVIDER_ENROLLMENT_START_TIMEOUT_MS = 35_000
+
 export const providerEnrollmentApi = {
+  /**
+   * Whether facility self sign-up is open (Novu, P4): `{ open }`, with a `reason` when it is not, never an error
+   * from Identity. hid-system main has no such route (404). Asked with no retries: the page shows the form unless
+   * the answer is a clear no.
+   */
+  availability: (signal?: AbortSignal) => client.get<ProviderEnrollmentAvailability>(
+    '/api/v1/identity/provider-enrollments/availability',
+    { auth: 'none', retry: NO_RETRY, timeoutMs: 10_000, ...(signal ? { signal } : {}) }),
+
   start: (input: {
     productCode: 'ehr' | 'migrate' | 'laboratory' | 'pharmacy'
     organizationType: 'clinic' | 'hospital' | 'laboratory' | 'pharmacy' | 'other'
@@ -1015,18 +1259,203 @@ export const providerEnrollmentApi = {
     administratorEmail: string
     turnstileToken: string
   }) => client.post<ProviderEnrollmentStart>('/api/v1/identity/provider-enrollments',
-    { ...input, turnstileAction: 'provider-enrollment' }, { auth: 'none' }),
+    { ...input, turnstileAction: 'provider-enrollment' }, { auth: 'none', timeoutMs: PROVIDER_ENROLLMENT_START_TIMEOUT_MS }),
 
-  // The challenge travels only in the body: the gateway API is cross-origin and
-  // its CORS policy admits no enrollment-specific request header.
+  // The challenge travels only in the body. The portal reaches the API on its
+  // own host (the Worker proxies /api/v1/*), and no enrollment-specific header
+  // is needed: verify sets the enrollment cookie, which activation reads.
   verify: (challengeId: string, code: string) =>
-    client.post<{ verified: true }>('/api/v1/identity/provider-enrollments/verify',
+    client.post<ProviderEnrollmentVerified>('/api/v1/identity/provider-enrollments/verify',
       { challengeId, code }, { auth: 'none' }),
 
-  // Activation signs the new administrator in, so it takes the session turn as sign-ins do.
+  /**
+   * What the sign-up registers (Novu, P4 round 2), read with the enrollment
+   * cookie once the email is confirmed, so the administrator sees whose CAC
+   * number it is before any account is made. A same-origin GET: the browser
+   * sends the cookie and no Origin, which Identity does not ask for here.
+   * hid-system main, and an Identity without the route, answer 404: the page
+   * then shows the CAC number alone. Asked with no retries.
+   */
+  profile: () => client.get<ProviderEnrollmentProfile>('/api/v1/identity/provider-enrollments/profile',
+    { auth: 'none', retry: NO_RETRY, timeoutMs: 10_000 }),
+
+  // Activation can sign the new administrator in (Novu), so it takes the session turn as sign-ins do.
   activate: (password: string) => inRefreshTurn(() =>
     client.post<ProviderEnrollmentActivation>('/api/v1/identity/provider-enrollments/activate',
       { password }, { auth: 'none' })),
+
+  /**
+   * "This isn't my organization" (Novu, P4b): closes the applicant's own confirmed sign-up, read from the enrollment
+   * cookie, ends its codes and frees its CAC number, with no 7-day refusal. No body. 200 { withdrawn: true }, or 401
+   * ORGANIZATION_COMPLETION_SESSION_INVALID once the session has gone; hid-system main and an Identity before P4b answer
+   * 404. Sent once: a lost answer is not repeated.
+   */
+  withdraw: () => client.post<{ withdrawn: true }>('/api/v1/identity/provider-enrollments/withdraw', undefined,
+    { auth: 'none', retry: NO_RETRY }),
+}
+
+/** What an invitation email's delivery came to: sent, refused by the address, or not confirmed (P4b). */
+export type StaffDeliveryOutcome = 'accepted' | 'definitive_failure' | 'unknown' | 'pending'
+
+/** A member of a self-signed-up facility (GET …/facility-staff, P4b): licence numbers come as their last 4 characters. */
+export interface FacilityStaffMember {
+  membershipId: string
+  version: number
+  accountId: string
+  name: string
+  email: string
+  roles: string[]
+  isAdministrator: boolean
+  isSelf: boolean
+  joinedAt: string | null
+  licence: { body: string; numberHint: string | null; vouchedBy: string | null; vouchedAt: string | null; method: string | null } | null
+}
+
+/** An invitation of a self-signed-up facility: the waiting ones, and the last 30 days' others (P4b). */
+export interface FacilityStaffInvitation {
+  invitationId: string
+  version: number
+  reference: string
+  name: string
+  email: string
+  roleCode: string
+  licence: { body: string; numberHint: string | null } | null
+  status: 'pending' | 'accepted' | 'revoked' | 'expired' | string
+  invitedBy: string | null
+  createdAt: string | null
+  lastSentAt: string | null
+  expiresAt: string | null
+  sendCount: number
+  deliveryOutcome: StaffDeliveryOutcome | string
+  resendAvailableAt: string | null
+}
+
+/** The Staff page's one read (P4b SPEC 6.3). */
+export interface FacilityStaff {
+  facility: {
+    id: string
+    name: string
+    organizationType: string
+    reviewState: 'pending' | 'reviewed' | string
+    firstThirtyDaysEndAt: string | null
+    invitationsOpen: boolean
+    deliveryPaused: boolean
+  }
+  canInvite: boolean
+  limits: { pendingInvitations: number; pendingLimit: number; invitationsToday: number; invitationsPerDay: number
+    emailsToday: number; emailsPerDay: number }
+  inviteOptions: { roles: Array<{ code: string; licenceBody: string | null }>; attestation: { version: string; text: string | null } | null }
+  administratorLicence: { body: string; numberHint: string | null; recordedAt: string | null } | null
+  administratorLicenceBodies: string[]
+  members: FacilityStaffMember[]
+  invitations: FacilityStaffInvitation[]
+}
+
+/** A role, with its licence (none for a receptionist), as an invitation or a role change sends it. */
+export interface StaffRoleChoice {
+  role: string
+  licenceBody?: string
+  licenceNumber?: string
+}
+
+export interface StaffInvitationCreated { invitationId: string; version: number; expiresAt: string | null
+  deliveryOutcome: StaffDeliveryOutcome | string; replayed: boolean }
+
+/**
+ * A self-signed-up facility's own staff (P4b, Novu only): the administrator's Staff page. Every call names the working
+ * facility (X-Facility-ID, healthcare operations) and needs workforce.manage there. Invite, remove and change role
+ * carry the administrator's password, which Identity checks as a sign-in does; it is never kept here.
+ */
+export const facilityStaffApi = {
+  read: (facilityId: string) => client.get<FacilityStaff>('/api/v1/identity/facility-staff',
+    { headers: facilityHeaders(facilityId, 'healthcare-operations'), dedupe: false }),
+  /** The pending administrator's own licence, which support checks at review. */
+  recordAdministratorLicence: (facilityId: string, licenceBody: string, licenceNumber: string) =>
+    client.post<{ licenceBody: string; numberHint: string | null; recordedAt: string | null }>(
+      '/api/v1/identity/facility-staff/administrator-licence', { licenceBody, licenceNumber },
+      { headers: facilityHeaders(facilityId, 'healthcare-operations') }),
+  /** One Idempotency-Key per invitation form, kept for its retries: the same key and request replay, sending nothing. */
+  invite: (facilityId: string, input: StaffRoleChoice & { name: string; email: string; currentPassword: string },
+    idempotencyKey: string) => client.post<StaffInvitationCreated>('/api/v1/identity/staff-invitations',
+    { name: input.name, email: input.email, role: input.role, ...licenceFields(input), attested: true,
+      currentPassword: input.currentPassword },
+    { headers: { ...facilityHeaders(facilityId, 'healthcare-operations'), ...keyHeaders(idempotencyKey) } }),
+  resend: (facilityId: string, invitation: Pick<FacilityStaffInvitation, 'invitationId' | 'version'>) =>
+    client.post<{ version: number; expiresAt: string | null; deliveryOutcome: StaffDeliveryOutcome | string }>(
+      `/api/v1/identity/staff-invitations/${encodeURIComponent(invitation.invitationId)}/resend`,
+      { expectedVersion: invitation.version }, { headers: facilityHeaders(facilityId, 'healthcare-operations') }),
+  revoke: (facilityId: string, invitation: Pick<FacilityStaffInvitation, 'invitationId' | 'version'>) =>
+    client.post<{ version: number; revokedAt: string | null }>(
+      `/api/v1/identity/staff-invitations/${encodeURIComponent(invitation.invitationId)}/revoke`,
+      { expectedVersion: invitation.version }, { headers: facilityHeaders(facilityId, 'healthcare-operations') }),
+  end: (facilityId: string, member: Pick<FacilityStaffMember, 'membershipId' | 'version'>, reason: string, currentPassword: string) =>
+    client.post<{ version: number; endedAt: string | null; grantsRevoked: number }>(
+      `/api/v1/identity/facility-staff/${encodeURIComponent(member.membershipId)}/end`,
+      { expectedVersion: member.version, reason, currentPassword },
+      { headers: facilityHeaders(facilityId, 'healthcare-operations') }),
+  changeRole: (facilityId: string, member: Pick<FacilityStaffMember, 'membershipId' | 'version'>,
+    input: StaffRoleChoice & { reason: string; currentPassword: string }) =>
+    client.post<{ version: number; roleCode: string }>(
+      `/api/v1/identity/facility-staff/${encodeURIComponent(member.membershipId)}/role`,
+      { expectedVersion: member.version, role: input.role, ...licenceFields(input), attested: true, reason: input.reason,
+        currentPassword: input.currentPassword },
+      { headers: facilityHeaders(facilityId, 'healthcare-operations') }),
+}
+
+/** The licence fields of a role: both, or none for a receptionist (Identity refuses a licence there). */
+function licenceFields(choice: StaffRoleChoice): { licenceBody?: string; licenceNumber?: string } {
+  return choice.licenceBody && choice.licenceNumber ? { licenceBody: choice.licenceBody, licenceNumber: choice.licenceNumber } : {}
+}
+
+/** How an invitation is proved: the email link's id and token, or the email address and the 6-digit code it gave. */
+export type StaffInvitationProof = { invitationId: string; token: string } | { email: string; code: string }
+
+/**
+ * Who the invited email belongs to, as Identity found it once the invitation was proved (P4b SPEC 4.7): 'new' and
+ * 'dormant_staff' set a password here; 'existing_staff' accepts signed in on their own site; the others cannot accept.
+ */
+export type StaffInvitationAccountCase = 'new' | 'dormant_staff' | 'existing_staff' | 'already_member' | 'patient_account'
+  | 'unavailable'
+
+export interface StaffInvitationOpened {
+  invitationId: string
+  facilityName: string
+  roleCode: string
+  inviterName: string | null
+  inviteeName: string
+  email: string
+  expiresAt: string | null
+  accountCase: StaffInvitationAccountCase | string
+  linkRequired: boolean
+}
+
+export interface StaffInvitationPreview {
+  invitationId: string
+  facilityId: string
+  facilityName: string
+  roleCode: string
+  inviterName: string | null
+  expiresAt: string | null
+}
+
+/**
+ * Joining a facility by invitation (P4b, Novu only). Open and accept are public, on the main site, with no session:
+ * open proves the invitation (Turnstile action staff-invitation) and, for a new or dormant account, sets the
+ * invitation cookie that accept reads; accept sets the password and issues no session. Existing staff preview and
+ * accept signed in on their own site, with no facility named.
+ */
+export const staffInvitationApi = {
+  open: (proof: StaffInvitationProof, turnstileToken: string) =>
+    client.post<StaffInvitationOpened>('/api/v1/identity/staff-invitations/open',
+      { ...proof, turnstileToken, turnstileAction: 'staff-invitation' }, { auth: 'none', retry: NO_RETRY }),
+  accept: (password: string) => client.post<{ accepted: true; facilityName: string; roleCode: string }>(
+    '/api/v1/identity/staff-invitations/accept', { password }, { auth: 'none', retry: NO_RETRY }),
+  /** The email is the session's own, so a typed proof is the code alone. */
+  previewSignedIn: (proof: { invitationId: string; token: string } | { code: string }) =>
+    client.post<StaffInvitationPreview>('/api/v1/identity/staff-invitations/signed-in/preview', proof),
+  acceptSignedIn: (proof: { invitationId: string; token: string } | { code: string }) =>
+    client.post<{ accepted: true; facilityId: string; membershipId: string; facilityName: string; roleCode: string }>(
+      '/api/v1/identity/staff-invitations/signed-in/accept', proof),
 }
 
 /**
@@ -1206,8 +1635,9 @@ export const staffApi = {
     input: { expectedRowVersion: number; changeReason: string; status: string; endedAt?: string }) =>
     client.request<Encounter>({ method: 'PATCH', path: encounterPath(patientId, encounterId), body: input,
       headers: facilityHeaders(facilityId) }),
+  // Novu since P4c a lab request or prescription page also says whether orders between facilities are on.
   records: (facilityId: string, patientId: string, encounterId: string, kind: RecordKind, page: PageRequest = {}) =>
-    client.get<Page<ClinicalRecord>>(`${encounterPath(patientId, encounterId)}/${kind}`, { ...pageQuery(page), headers: facilityHeaders(facilityId) }),
+    client.get<Page<ClinicalRecord> & { crossFacilityOrders?: boolean }>(`${encounterPath(patientId, encounterId)}/${kind}`, { ...pageQuery(page), headers: facilityHeaders(facilityId) }),
   createRecord: (facilityId: string, patientId: string, encounterId: string, kind: RecordKind, input: object, idempotencyKey?: string) =>
     client.post<SavedRecord>(`${encounterPath(patientId, encounterId)}/${kind}`, input,
       { headers: { ...facilityHeaders(facilityId), ...keyHeaders(idempotencyKey) } }),
@@ -1283,7 +1713,7 @@ export const staffApi = {
   },
 
   labWorkItems: (facilityId: string) =>
-    client.get<{ items: LabWorkItem[] }>('/api/v1/lab/work-items', { headers: facilityHeaders(facilityId) }),
+    client.get<WorkList<LabWorkItem>>('/api/v1/lab/work-items', { headers: facilityHeaders(facilityId) }),
   createLabAccession: (facilityId: string, workItemId: string, specimenType: string, reason: string) =>
     client.post<LabAccession>(`/api/v1/lab/work-items/${encodeURIComponent(workItemId)}/accession`,
       { requirements: [{ specimenType }], reason },
@@ -1341,7 +1771,7 @@ export const staffApi = {
     client.get<LabOrderReleasedResults>(`/api/v1/lab/ehr-orders/${encodeURIComponent(labRequestId)}/released-results`,
       { headers: facilityHeaders(facilityId, purpose), dedupe: false }),
   pharmacyWorkItems: (facilityId: string) =>
-    client.get<{ items: PharmacyWorkItem[] }>('/api/v1/pharmacy/work-items', { headers: facilityHeaders(facilityId) }),
+    client.get<WorkList<PharmacyWorkItem>>('/api/v1/pharmacy/work-items', { headers: facilityHeaders(facilityId) }),
   dispense: (facilityId: string, item: PharmacyWorkItem, quantityDispensed: number, quantityUnit: string, reason: string) =>
     client.post<unknown>(`/api/v1/pharmacy/work-items/${encodeURIComponent(item.id)}/dispensings`,
       { expectedWorkItemVersion: item.version, quantityDispensed, quantityUnit, reason },
@@ -1414,4 +1844,71 @@ export const staffApi = {
     command: { localCommandId: string; temporaryPatientId: string }) =>
     client.post<OutreachCase>('/api/v1/outreach/registration-cases', { ...input, ...command },
       { headers: { ...facilityHeaders(facilityId), 'Idempotency-Key': command.localCommandId } }),
+}
+
+/** The EHR path of an order's routes. */
+function orderRoutesPath(patientId: string, encounterId: string, kind: OrderRouteKind, orderId: string) {
+  return `${encounterPath(patientId, encounterId)}/${kind === 'lab_request' ? 'lab-requests' : 'prescriptions'}/${encodeURIComponent(orderId)}/order-routes`
+}
+
+/** The service that receives a kind of order: Lab for lab requests, Pharmacy for prescriptions. */
+export type ReceivingService = 'lab' | 'pharmacy'
+
+/**
+ * Orders between facilities (Novu, P4c). Every call is direct care at the working facility (X-Purpose-Of-Use:
+ * direct-care); EHR refuses any other purpose. hid-system main, and a Novu before P4c, answer each route 404, which
+ * the pages read as "not available yet". Writes are sent once; each caller keeps its own Idempotency-Key for a retry.
+ */
+export const orderRoutesApi = {
+  /** The directory (60 searches an hour per member): never retried, so a failure costs one search at most. */
+  destinations: (facilityId: string, kind: 'laboratory' | 'pharmacy', query: string, signal?: AbortSignal) =>
+    client.get<{ items: OrderDestination[] }>('/api/v1/identity/order-destinations', {
+      query: { kind, query }, headers: facilityHeaders(facilityId, 'direct-care'), retry: NO_RETRY, dedupe: false,
+      ...(signal ? { signal } : {}) }),
+  /** The current attestation text of a kind, read afresh each time the send form opens (each read is audited). */
+  attestation: (facilityId: string, kind: OrderRouteKind) =>
+    client.get<OrderRouteAttestation>('/api/v1/ehr/order-route-attestation',
+      { query: { kind }, headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false }),
+  send: (facilityId: string, patientId: string, encounterId: string, kind: OrderRouteKind, orderId: string,
+    input: { expectedRowVersion: number; receivingFacilityId: string; attestationTextVersion: string }, idempotencyKey: string) =>
+    client.post<OrderRouteSent>(orderRoutesPath(patientId, encounterId, kind, orderId),
+      { expectedRowVersion: input.expectedRowVersion, receivingFacilityId: input.receivingFacilityId, patientAgreed: true,
+        attestationTextVersion: input.attestationTextVersion },
+      { headers: { ...facilityHeaders(facilityId, 'direct-care'), ...keyHeaders(idempotencyKey) } }),
+  /** An order's routes, newest first, with the attestation and what came back. Audited: read only when asked. */
+  routes: (facilityId: string, patientId: string, encounterId: string, kind: OrderRouteKind, orderId: string) =>
+    client.get<{ items: OrderRouteView[] }>(orderRoutesPath(patientId, encounterId, kind, orderId),
+      { headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false }),
+  withdraw: (facilityId: string, patientId: string, encounterId: string, kind: OrderRouteKind, orderId: string,
+    route: Pick<OrderRouteSummary, 'id' | 'version'>, reason: OrderRouteWithdrawReason) =>
+    client.post<{ route: OrderRouteSummary }>(
+      `${orderRoutesPath(patientId, encounterId, kind, orderId)}/${encodeURIComponent(route.id)}/withdraw`,
+      { expectedVersion: route.version, reason }, { headers: facilityHeaders(facilityId, 'direct-care') }),
+  /**
+   * Orders other facilities sent here, waiting to be accepted; a Health ID finds one patient's. The Health ID goes in
+   * the body of `POST …/order-routes/search` (P4c review), never in an address, which gateway access logs keep with the
+   * request line; the list's GET is read without it. Every read is audited, so callers still send a Health ID only when
+   * the person asks (IncomingOrders: Find or Refresh, never the timer or focus).
+   */
+  incoming: (facilityId: string, service: ReceivingService, healthId?: string) => healthId
+    ? client.post<IncomingOrderRoutes>(`/api/v1/${service}/order-routes/search`, { view: 'incoming', healthId },
+      { headers: facilityHeaders(facilityId, 'direct-care') })
+    : client.get<IncomingOrderRoutes>(`/api/v1/${service}/order-routes`, {
+      query: { view: 'incoming' }, headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false }),
+  /**
+   * Accepts an order with the patient's identifier. `reference`, sent only when given, is the order's 8-character
+   * reference the patient reads in their app: with a date of birth it names the order, so a wrong date counts towards
+   * this order's five tries; another order's reference is refused (409 ORDER_ROUTE_REFERENCE_MISMATCH) and counts nothing.
+   */
+  accept: (facilityId: string, service: ReceivingService, route: { id: string; version: number },
+    patientIdentifier: { kind: 'health_id' | 'date_of_birth'; value: string }, reason: string | undefined, idempotencyKey: string,
+    reference?: string) =>
+    client.post<OrderRouteAccepted>(`/api/v1/${service}/order-routes/${encodeURIComponent(route.id)}/accept`,
+      { expectedVersion: route.version, patientIdentifier, ...(service === 'pharmacy' ? { reason } : {}),
+        ...(reference ? { reference } : {}) },
+      { headers: { ...facilityHeaders(facilityId, 'direct-care'), ...keyHeaders(idempotencyKey) } }),
+  decline: (facilityId: string, service: ReceivingService, route: { id: string; version: number }, reason: OrderRouteDeclineReason) =>
+    client.post<{ route: { id: string; version: number; effectiveState: string } }>(
+      `/api/v1/${service}/order-routes/${encodeURIComponent(route.id)}/decline`,
+      { expectedVersion: route.version, reason }, { headers: facilityHeaders(facilityId, 'direct-care') }),
 }
