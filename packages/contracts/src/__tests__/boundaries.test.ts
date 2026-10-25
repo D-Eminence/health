@@ -440,10 +440,12 @@ describe('application boundaries', () => {
       ['ehr.prescriptionOrderRouteWithdraw', 'POST', `${prescription}/order-routes/${routeId}/withdraw`, undefined, ['ehr.order-route.send']],
       ['ehr.orderRouteAttestation', 'GET', '/api/v1/ehr/order-route-attestation', { kind: 'lab_request' }, ['ehr.order-route.send']],
       ['lab.orderRoutes', 'GET', '/api/v1/lab/order-routes', { view: 'incoming' }, ['lab.order-route.receive']],
+      ['lab.orderRouteSearch', 'POST', '/api/v1/lab/order-routes/search', undefined, ['lab.order-route.receive']],
       ['lab.orderRoute', 'GET', `/api/v1/lab/order-routes/${routeId}`, undefined, ['lab.order-route.receive']],
       ['lab.orderRouteAccept', 'POST', `/api/v1/lab/order-routes/${routeId}/accept`, undefined, ['lab.order-route.receive']],
       ['lab.orderRouteDecline', 'POST', `/api/v1/lab/order-routes/${routeId}/decline`, undefined, ['lab.order-route.receive']],
       ['pharmacy.orderRoutes', 'GET', '/api/v1/pharmacy/order-routes', { view: 'incoming' }, ['pharmacy.order-route.receive']],
+      ['pharmacy.orderRouteSearch', 'POST', '/api/v1/pharmacy/order-routes/search', undefined, ['pharmacy.order-route.receive']],
       ['pharmacy.orderRoute', 'GET', `/api/v1/pharmacy/order-routes/${routeId}`, undefined, ['pharmacy.order-route.receive']],
       ['pharmacy.orderRouteAccept', 'POST', `/api/v1/pharmacy/order-routes/${routeId}/accept`, undefined, ['pharmacy.order-route.receive']],
       ['pharmacy.orderRouteDecline', 'POST', `/api/v1/pharmacy/order-routes/${routeId}/decline`, undefined, ['pharmacy.order-route.receive']],
@@ -457,6 +459,7 @@ describe('application boundaries', () => {
       ['admin.facilityOrderDestination', 'POST', `/api/v1/admin/facilities/${facilityId}/order-destination`, undefined,
         ['platform.facility.manage', 'platform.facility.unlock']],
       ['admin.orderRoutesFind', 'GET', '/api/v1/admin/order-routes', { reference: '9C1B2D3E' }, ['platform.principal.read']],
+      ['admin.orderRoutesSearch', 'POST', '/api/v1/admin/order-routes/search', undefined, ['platform.principal.read']],
       ['admin.orderRouteClose', 'POST', `/api/v1/admin/order-routes/${routeId}/close`, undefined, ['platform.facility.manage']],
     ]
     const apps = ['staff-web', 'patient-web', 'admin-web', 'public-web'] as const
@@ -479,6 +482,16 @@ describe('application boundaries', () => {
     expect(assertRegisteredBrowserRequest('GET', '/api/v1/admin/order-routes', { healthId: 'HID-7KQ2M9' }).name).toBe('admin.orderRoutesFind')
     // The static attestation path is not a lab request, and a route's own read is not its accept.
     expect(() => assertRegisteredBrowserRequest('POST', `/api/v1/lab/order-routes/${routeId}`)).toThrow(BrowserRouteError)
+    // The searches (P4c review) are POSTs: support's is never read with a GET.
+    expect(() => assertRegisteredBrowserRequest('GET', '/api/v1/admin/order-routes/search')).toThrow(BrowserRouteError)
+    // The healthId queries are deprecated in favour of the searches.
+    for (const name of ['lab.orderRoutes', 'pharmacy.orderRoutes', 'admin.orderRoutesFind']) {
+      expect(findEndpoint(name)?.note, name).toContain('deprecated')
+    }
+    for (const name of ['lab.orderRouteAccept', 'pharmacy.orderRouteAccept']) {
+      expect(findEndpoint(name)?.note, name).toContain('_REFERENCE_MISMATCH')
+    }
+    expect(findEndpoint('ehr.myOrderRoutes')?.note).toContain('enteredInError')
     // What P4c adds to routes the website already calls.
     for (const name of ['ehr.labRequests', 'ehr.prescriptions']) expect(findEndpoint(name)?.note, name).toContain('crossFacilityOrders')
     for (const name of ['lab.workItems', 'pharmacy.workItems']) expect(findEndpoint(name)?.note, name).toContain('crossFacilityWork')

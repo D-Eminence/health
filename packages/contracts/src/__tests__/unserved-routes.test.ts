@@ -41,6 +41,8 @@ const NOT_ON_MAIN = [
   'lab.orderRoutes', 'lab.orderRoute', 'lab.orderRouteAccept', 'lab.orderRouteDecline', 'pharmacy.orderRoutes',
   'pharmacy.orderRoute', 'pharmacy.orderRouteAccept', 'pharmacy.orderRouteDecline', 'admin.facilityOrderRouteSummary',
   'admin.facilityOrderDestination', 'admin.orderRoutesFind', 'admin.orderRouteClose',
+  // P4c review: one patient's incoming orders and support's lookup, found by a Health ID in the body.
+  'lab.orderRouteSearch', 'pharmacy.orderRouteSearch', 'admin.orderRoutesSearch',
 ] as const
 
 describe('routes hid-system main does not serve', () => {

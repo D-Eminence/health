@@ -127,13 +127,21 @@ const ORDER_LISTS_P4C = 'On Novu since P4c the page also answers crossFacilityOr
   + 'routes could not be read (emergency access).'
 /** The Lab and Pharmacy order-route routes' shared rules (SPEC-FINAL §10.2). */
 const RECEIVE_ROUTE = `${ORDER_ROUTE_STAFF} Accept needs Idempotency-Key and { expectedVersion, patientIdentifier { kind: `
-  + "'health_id' | 'date_of_birth', value } } (Pharmacy also reason, 8 to 500): 201 { route, workItemId, patient { "
-  + 'fullName, sex, dateOfBirth, healthIdLast4 }, clinicalInformation | instructions, orderer, replayed }; 409 '
-  + 'ORDER_ROUTE_PATIENT_MISMATCH (with attemptsLeft), _ACCEPT_LOCKED, _ORDER_IN_WORK, _NOT_PENDING, _EXPIRED, '
-  + '_DESTINATION_INELIGIBLE, _ORDERING_FACILITY_UNAVAILABLE, _PATIENT_DENIED, _HEALTH_ID_REQUIRED; 429 '
-  + "ORDER_ROUTE_ACCEPT_LIMITED. Decline takes { expectedVersion, reason }. The list takes view (incoming, the "
-  + 'default, or recent) and healthId (incoming only) and answers { items, crossFacilityOrders, crossFacilityWork }; '
-  + `before acceptance no row names the patient. ${ORDER_ROUTES_PAUSED}`
+  + "'health_id' | 'date_of_birth', value }, reference? } (Pharmacy also reason, 8 to 500; reference, optional, is the "
+  + "order's 8-character reference from the patient's app, which names the order with a date of birth): 201 { route, "
+  + 'workItemId, patient { fullName, sex, dateOfBirth, healthIdLast4 }, clinicalInformation | instructions, orderer, '
+  + 'replayed }; 400 ORDER_ROUTE_INVALID (also a malformed reference); 409 ORDER_ROUTE_PATIENT_MISMATCH (with '
+  + 'attemptsLeft: min(5 - wrong tries that named the order, a Health ID or a date of birth with the reference, 20 - all '
+  + 'wrong tries); a date of birth alone does not lower the 5), _REFERENCE_MISMATCH (another order\'s reference; nothing '
+  + 'counted), _ACCEPT_LOCKED, _ORDER_IN_WORK, _NOT_PENDING, _EXPIRED, _DESTINATION_INELIGIBLE, '
+  + '_ORDERING_FACILITY_UNAVAILABLE, _PATIENT_DENIED, _HEALTH_ID_REQUIRED; 429 ORDER_ROUTE_ACCEPT_LIMITED. Decline takes '
+  + '{ expectedVersion, reason }. The list takes view (incoming, the default, or recent) and answers { items, '
+  + 'crossFacilityOrders, crossFacilityWork }; its healthId query is deprecated (a Health ID in an address): one '
+  + `patient's orders are found with the search's POST. Before acceptance no row names the patient. ${ORDER_ROUTES_PAUSED}`
+/** P4c review: one patient's incoming (or recent) orders, found by the Health ID in the body, never in an address. */
+const RECEIVE_SEARCH = `${ORDER_ROUTE_STAFF} Body { view?: 'incoming' | 'recent', healthId } (1 to 64; the Health ID is `
+  + 'checked, 400 ORDER_ROUTE_INVALID); the same permission, audit row and answer as the list\'s GET: { items, '
+  + `crossFacilityOrders, crossFacilityWork }. ${ORDER_ROUTES_PAUSED}`
 /** What P4c adds to the Lab and Pharmacy work lists and per-item routes. */
 const WORK_LISTS_P4C = 'On Novu since P4c items of orders from other facilities carry orderRoute { id, reference, '
   + 'effectiveState, access, orderingFacilityName, ordererName, ordererLicence? } and patient?, and the answer '
@@ -469,7 +477,9 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   proposed(r('ehr.myOrderRoutes','ehr','/api/v1/ehr/me/order-routes',G,false,undefined,
     `${ORDER_ROUTES_P4C_NOVU} Patient sessions only. 200 { items: PatientOrderRoute[] }, newest first, at most 100: each with `
     + 'orderingFacilityName, receivingFacilityName, receivingRegisteredAddress, content (every field sent), '
-    + 'attestationTextVersion, attestationText, attestedByName and actions (withdraw while it waits for acceptance).')),
+    + 'attestationTextVersion, attestationText, attestedByName, actions (withdraw while it waits for acceptance) and '
+    + 'enteredInError: when the order was marked entered in error, content holds only its reference, the attestation '
+    + 'text and attesting clinician are null and actions is empty.')),
   proposed(r('ehr.myOrderRouteWithdraw','ehr','/api/v1/ehr/me/order-routes/:routeId/withdraw',P,false,undefined,
     `${ORDER_ROUTES_P4C_NOVU} Patient sessions only; Stop. Body { expectedVersion }; 200 { route: PatientOrderRoute }. 404 `
     + 'ORDER_ROUTE_NOT_FOUND, 409 ORDER_ROUTE_NOT_PENDING (accepted or ended), 412 VERSION_CONFLICT.')),
@@ -500,6 +510,7 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('lab.releasedResultsForOrder','lab','/api/v1/lab/ehr-orders/:sourceEhrOrderId/released-results',G,false,one('GET','lab.result.released.read')),
   // P4c: lab requests other facilities send to this laboratory (Incoming and Recent), one of them, accept and decline.
   proposed(r('lab.orderRoutes','lab','/api/v1/lab/order-routes',G,false,one('GET','lab.order-route.receive'),RECEIVE_ROUTE)),
+  proposed(r('lab.orderRouteSearch','lab','/api/v1/lab/order-routes/search',P,false,one('POST','lab.order-route.receive'),RECEIVE_SEARCH)),
   proposed(r('lab.orderRoute','lab','/api/v1/lab/order-routes/:routeId',G,false,one('GET','lab.order-route.receive'),
     `${RECEIVE_ROUTE} One route: the Incoming shape, and after acceptance, while it may be read, clinicalInformation, `
     + 'orderer.licenceNumber, patient and workItemId.')),
@@ -513,6 +524,7 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('pharmacy.import','pharmacy','/api/v1/pharmacy/imports/:importId',G,false,one('GET','pharmacy.import.read')),
   // P4c: prescriptions other facilities send to this pharmacy, as Lab's.
   proposed(r('pharmacy.orderRoutes','pharmacy','/api/v1/pharmacy/order-routes',G,false,one('GET','pharmacy.order-route.receive'),RECEIVE_ROUTE)),
+  proposed(r('pharmacy.orderRouteSearch','pharmacy','/api/v1/pharmacy/order-routes/search',P,false,one('POST','pharmacy.order-route.receive'),RECEIVE_SEARCH)),
   proposed(r('pharmacy.orderRoute','pharmacy','/api/v1/pharmacy/order-routes/:routeId',G,false,one('GET','pharmacy.order-route.receive'),
     `${RECEIVE_ROUTE} One route: the Incoming shape, and after acceptance, while it may be read, instructions, `
     + 'orderer.licenceNumber, patient and workItemId.')),
@@ -636,7 +648,12 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     `${ORDER_ROUTES_P4C_NOVU} Audited. Query reference (8 hexadecimal characters) or healthId, exactly one. 200 { items [{ `
     + 'routeId, reference, kind, version, effectiveState, orderingFacilityId, orderingFacilityName, receivingFacilityId, '
     + 'receivingFacilityName, createdAt, acceptedAt, endedAt, endedKind }] }, at most 5 by reference, 20 by Health ID. '
-    + '400 ORDER_ROUTE_LOOKUP_INVALID.')),
+    + '400 ORDER_ROUTE_LOOKUP_INVALID. The healthId query is deprecated (a Health ID in an address): by Health ID, use '
+    + 'admin.orderRoutesSearch.')),
+  proposed(r('admin.orderRoutesSearch','admin','/api/v1/admin/order-routes/search',P,false,one('POST','platform.principal.read'),
+    `${ORDER_ROUTES_P4C_NOVU} P4c review: finds orders as admin.orderRoutesFind, with the same permissions, audit row `
+    + '(admin.order-routes.find) and answer, from the body { reference } or { healthId } (exactly one), so a Health ID is '
+    + 'in no address. 400 ORDER_ROUTE_LOOKUP_INVALID; an unknown field 400 VALIDATION_FAILED.')),
   proposed(r('admin.orderRouteClose','admin','/api/v1/admin/order-routes/:routeId/close',P,false,one('POST','platform.facility.manage'),
     `${ORDER_ROUTES_P4C_NOVU} Closes an order between facilities at once: access ends at both, and both and the patient are `
     + 'told. Body { reason (8 to 500) } and If-Match with the version; 200 { routeId, version, effectiveState }. 404 '
