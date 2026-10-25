@@ -7,7 +7,7 @@ import { useStaff } from '../App'
 import { BUSY } from '../focus'
 import { capturedStaffInvitation, forgetStaffInvitation, type InvitationLink } from '../invitationCapture'
 import { roleInSentence } from '../staffAccess'
-import { isRouteMissing, joinProblemText } from '../staffProblems'
+import { isRouteMissing, isUnavailable, joinProblemText } from '../staffProblems'
 
 /**
  * Existing staff accept an invitation signed in on their own staff site (Novu, P4b SPEC 8.3). The email's link opens
@@ -28,6 +28,17 @@ const FINAL = new Set(['STAFF_INVITATION_CODE_INVALID', 'STAFF_INVITATION_LOCKED
   'STAFF_INVITATION_EXPIRED', 'STAFF_INVITATION_WITHDRAWN', 'STAFF_INVITATION_ALREADY_ACCEPTED', 'STAFF_INVITATION_ALREADY_MEMBER',
   'STAFF_INVITATION_ACCOUNT_UNAVAILABLE'])
 
+/**
+ * Refusals of the held link that the same link may get past later: no answer (a fault, a timeout, the gateway's 503),
+ * joining paused, too many tries from this network, or the account changed while joining. The page offers to try the
+ * link again rather than leaving the person with only the message, since a reload forgets the link (held in memory only).
+ */
+function retryable(caught: unknown): boolean {
+  if (!isHidApiError(caught)) return true
+  return isUnavailable(caught) || caught.status === 429 || caught.code === 'STAFF_INVITATIONS_UNAVAILABLE'
+    || caught.code === 'STAFF_INVITATION_ACCOUNT_CHANGED'
+}
+
 export function StaffJoin() {
   const { state, selectFacility, refresh } = useStaff()
   const navigate = useNavigate()
@@ -40,6 +51,8 @@ export function StaffJoin() {
   const [error, setError] = useState('')
   const [unavailable, setUnavailable] = useState(false)
   const [busy, setBusy] = useState(false)
+  // Whether the held link's last preview was refused in a way trying it again may get past (see retryable).
+  const [canRetry, setCanRetry] = useState(false)
   const asked = useRef(false)
 
   function refused(caught: unknown) {
@@ -49,12 +62,18 @@ export function StaffJoin() {
   }
 
   async function ask(next: { invitationId: string; token: string } | { code: string }) {
-    setBusy(true); setError('')
+    setBusy(true); setError(''); setCanRetry(false)
     try {
       setPreview(await staffInvitationApi.previewSignedIn(next))
       setProof(next)
-    } catch (caught) { setPreview(null); refused(caught) }
+    } catch (caught) { setPreview(null); setCanRetry(retryable(caught)); refused(caught) }
     finally { setBusy(false) }
+  }
+
+  /** Stops using the held link, so the page asks for the email's code instead. */
+  function switchToCode() {
+    forgetStaffInvitation()
+    setLink(null); setProof(null); setError(''); setCanRetry(false)
   }
 
   // The link carried through the sign-in is previewed at once, once.
@@ -118,6 +137,17 @@ export function StaffJoin() {
       <div className="staff-row">
         <Button onClick={() => void accept()} aria-disabled={busy || undefined} className={BUSY}>{busy ? 'Joining…' : `Join ${preview.facilityName}`}</Button>
         <Button tone="quiet" onClick={notNow} disabled={busy}>Not now</Button>
+      </div>
+    </Card>}
+    {/* The held link was refused but not for good: without these the page would offer nothing (P4c review). */}
+    {!preview && link && !busy && error && <Card className="staff-card">
+      <h2>Your invitation link</h2>
+      <p>{canRetry ? 'Try the link again, or enter the 6-digit code from the invitation email instead.'
+        : 'You can enter the 6-digit code from the invitation email instead.'}</p>
+      <div className="staff-row">
+        {canRetry && <Button onClick={() => void ask(link)}>Try again</Button>}
+        <Button tone="secondary" onClick={switchToCode}>Use the code instead</Button>
+        <Button tone="quiet" onClick={notNow}>Not now</Button>
       </div>
     </Card>}
     {!preview && !link && <Card className="staff-card"><form className="staff-form" noValidate onSubmit={submitCode}>

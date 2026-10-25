@@ -23,7 +23,8 @@ const session = (facilities: unknown[], current: unknown) => ({ actor: { kind: '
 interface Call { route: string; body: unknown; headers: Headers }
 
 function serve({ signedIn = true, preview = json({ invitationId: INVITATION, facilityId: 'facility-2', facilityName: 'Ikeja Care',
-  roleCode: 'nurse', inviterName: 'Bola Adewale', expiresAt: '2026-11-01T09:30:00.000Z' }) }: { signedIn?: boolean; preview?: Response } = {}) {
+  roleCode: 'nurse', inviterName: 'Bola Adewale', expiresAt: '2026-11-01T09:30:00.000Z' }) }: { signedIn?: boolean;
+  preview?: Response | (() => Response) } = {}) {
   const calls: Call[] = []
   vi.stubGlobal('fetch', vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
     const route = `${String(init?.method ?? 'GET')} ${new URL(String(url)).pathname}`
@@ -33,7 +34,7 @@ function serve({ signedIn = true, preview = json({ invitationId: INVITATION, fac
     }
     if (route === 'POST /api/v1/auth/login') { signedIn = true; return json(session([HOME], HOME)) }
     if (route === 'POST /api/v1/auth/refresh') return json({ status: 401, code: 'AUTHENTICATION_REQUIRED' }, 401)
-    if (route === 'POST /api/v1/identity/staff-invitations/signed-in/preview') return preview.clone()
+    if (route === 'POST /api/v1/identity/staff-invitations/signed-in/preview') return typeof preview === 'function' ? preview() : preview.clone()
     if (route === 'POST /api/v1/identity/staff-invitations/signed-in/accept') {
       return json({ accepted: true, facilityId: 'facility-2', membershipId: 'member-facility-2', facilityName: 'Ikeja Care', roleCode: 'nurse' })
     }
@@ -170,6 +171,45 @@ describe('joining signed in', () => {
     expect((await screen.findByRole('alert')).textContent).toBe(text)
     const { capturedStaffInvitation } = await import('../../invitationCapture')
     expect(capturedStaffInvitation() === null).toBe(code !== 'STAFF_INVITATIONS_UNAVAILABLE')
+  })
+
+  it.each([
+    ['no answer (the gateway’s 503)', 503, 'UPSTREAM_UNAVAILABLE', 'Joining a facility is temporarily unavailable. Please try again in a few minutes.'],
+    ['joining paused', 423, 'STAFF_INVITATIONS_UNAVAILABLE', 'Joining is paused by Health ID. Try again later.'],
+    ['too many tries from the network', 429, 'STAFF_INVITATION_RATE_LIMITED', 'Too many invitations have been opened from your network. Please try again in an hour.'],
+    ['the account changed', 409, 'STAFF_INVITATION_ACCOUNT_CHANGED', 'Your Health ID account changed while you were joining. Open the invitation again from the email.'],
+  ])('after %s, offers to try the held link again, which then previews it', async (_case, status, code, text) => {
+    let answers = 0
+    const calls = serve({ preview: () => (answers++ === 0 ? json({ status, code }, status) : json({ invitationId: INVITATION,
+      facilityId: 'facility-2', facilityName: 'Ikeja Care', roleCode: 'nurse', inviterName: 'Bola Adewale',
+      expiresAt: '2026-11-01T09:30:00.000Z' })) })
+    await open(`/provider/staff/join#${INVITATION}.${TOKEN}`)
+    expect((await screen.findByRole('alert')).textContent).toBe(text)
+    expect(screen.getByRole('button', { name: 'Use the code instead' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(await screen.findByRole('heading', { name: 'Join Ikeja Care as a nurse' })).toBeTruthy()
+    expect(calls.filter(call => call.route.endsWith('/signed-in/preview')).map(call => call.body)).toEqual([
+      { invitationId: INVITATION, token: TOKEN }, { invitationId: INVITATION, token: TOKEN }])
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('lets the person use the email’s code instead of a held link that did not work, forgetting the link', async () => {
+    serve({ preview: json({ status: 503, code: 'UPSTREAM_UNAVAILABLE' }, 503) })
+    await open(`/provider/staff/join#${INVITATION}.${TOKEN}`)
+    fireEvent.click(await screen.findByRole('button', { name: 'Use the code instead' }))
+    expect(await screen.findByLabelText('Invitation code')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull()
+    const { capturedStaffInvitation } = await import('../../invitationCapture')
+    expect(capturedStaffInvitation()).toBeNull()
+  })
+
+  it('offers the code, not trying again, when the link is for another email', async () => {
+    serve({ preview: json({ status: 409, code: 'STAFF_INVITATION_EMAIL_MISMATCH' }, 409) })
+    await open(`/provider/staff/join#${INVITATION}.${TOKEN}`)
+    await screen.findByRole('alert')
+    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Use the code instead' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Not now' })).toBeTruthy()
   })
 
   it('names the page in the tab', async () => {
