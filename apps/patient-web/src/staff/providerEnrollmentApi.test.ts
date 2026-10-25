@@ -72,7 +72,7 @@ describe('provider enrollment API on Novu (P4)', () => {
     expect(headers.has('x-csrf-token')).toBe(false)
   })
 
-  it('reads the organization a confirmed sign-up registers with one GET carrying the cookies, never repeated (P4 review)', async () => {
+  it('reads the organization a confirmed sign-up registers with one GET carrying the cookies, never repeated (P4)', async () => {
     const requests: Array<{ url: string; init: RequestInit }> = []
     vi.stubGlobal('fetch', vi.fn(async (url: string | URL | Request, init: RequestInit) => {
       requests.push({ url: String(url), init })
@@ -95,6 +95,41 @@ describe('provider enrollment API on Novu (P4)', () => {
       { status: 200, headers: { 'Content-Type': 'application/json' } })))
     const { providerEnrollmentApi } = await import('./api')
     await expect(providerEnrollmentApi.availability()).resolves.toEqual({ open: false })
+  })
+
+  it.each([
+    [{ open: false, reason: 'closed' }],
+    [{ open: false, reason: 'unavailable' }],
+  ])('passes availability’s reason on as Identity says it (P4 round 2): %j', async answer => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(answer),
+      { status: 200, headers: { 'Content-Type': 'application/json' } })))
+    const { providerEnrollmentApi } = await import('./api')
+    await expect(providerEnrollmentApi.availability()).resolves.toEqual(answer)
+  })
+
+  it('passes a start that sent no code on as Identity says it, without a challenge when none can be entered', async () => {
+    const answer = { accepted: true, codeSent: false, resendAfterSeconds: 78_660 }
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(answer),
+      { status: 200, headers: { 'Content-Type': 'application/json' } })))
+    const { providerEnrollmentApi } = await import('./api')
+    await expect(providerEnrollmentApi.start({ productCode: 'ehr', organizationType: 'hospital',
+      cacRegistrationNumber: 'RC1234567', administratorName: 'Ada Admin', administratorEmail: 'admin@example.test',
+      turnstileToken: 'siteverify-token' })).resolves.toEqual(answer)
+  })
+
+  it('reads what a confirmed sign-up registers: Identity’s six fields (P4 round 2)', async () => {
+    const answer = { organizationName: 'IKEJA CARE LIMITED', registrationNumber: 'RC1234567', productCode: 'ehr',
+      organizationType: 'hospital', administratorName: 'Ada Admin', administratorEmail: 'admin@example.test' }
+    const requests: Array<{ url: string; init: RequestInit }> = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string | URL | Request, init: RequestInit) => {
+      requests.push({ url: String(url), init })
+      return new Response(JSON.stringify(answer), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    }))
+    const { providerEnrollmentApi } = await import('./api')
+    await expect(providerEnrollmentApi.profile()).resolves.toEqual(answer)
+    expect(requests.map(request => [request.init.method, new URL(request.url).pathname]))
+      .toEqual([['GET', '/api/v1/identity/provider-enrollments/profile']])
+    expect(requests[0]?.init.body ?? null).toBeNull()
   })
 
   it('waits about 35 s for a start, not the usual 15 s, and never sends it twice', async () => {

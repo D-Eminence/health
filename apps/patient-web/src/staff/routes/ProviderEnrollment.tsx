@@ -9,7 +9,8 @@ import { Turnstile } from '../../Turnstile'
 import { usesNovuBackend } from '../../backendContract'
 import { PROVIDER_ENROLLMENT_PATH, providerEnrollmentHref, STAFF_SIGN_IN_PATH, staffSignInHref } from '../../productHostname'
 import { getEnvironment } from '../env'
-import { providerEnrollmentApi, staffApi, type StaffLoginChallenge } from '../api'
+import { providerEnrollmentApi, staffApi, type ProviderEnrollmentAvailability, type ProviderEnrollmentProfile,
+  type ProviderEnrollmentStart, type StaffLoginChallenge } from '../api'
 import { announceStaffSessionChange } from '../session'
 import { StaffMfaSteps, type StaffMfaCalls, type StaffMfaLook } from './StaffMfaSteps'
 import { ClinicianSignUpEntry } from '../clinician/ClinicianSignUpEntry'
@@ -106,20 +107,24 @@ const MAIN_STEPS = [...NOVU_STEPS, ['authenticator', 'Authenticator']] as const
 
 /** Identity's wait before another code (resendAfterSeconds), when its answer does not give one. */
 const DEFAULT_RESEND_SECONDS = 60
+/** The longest wait before a new code a Novu answer can give (up to about a day, P4 round 2), with room to spare. */
+const MAX_CODE_WAIT_SECONDS = 2 * 24 * 60 * 60
 
 const HOUR_MS = 60 * 60_000
 const DAY_MS = 24 * HOUR_MS
 
 /**
- * Identity sends at most 5 codes an hour, and 15 a day, for one sign-up (hid-system 0056). Past either it still
+ * Identity sends at most 5 codes an hour, and 15 a day, for one sign-up (hid-system 0056). Past either, main still
  * answers a start with a new challenge, but sends no code and keeps the last one in force, so the page sends no
- * start it knows would be one of those.
+ * start it knows would be one of those. Novu says itself whether a start sent a code (codeSent, P4 round 2), and
+ * the page then follows its answer instead of counting.
  */
 const CODE_LIMITS = [{ count: 5, windowMs: HOUR_MS }, { count: 15, windowMs: DAY_MS }] as const
 
 /**
- * An open sign-up holds its CAC number and product for the email it was started with, and keeps its administrator
- * name and facility type, until 24 hours after it started (hid-system 0086, A8).
+ * An open sign-up holds its CAC number and product for the email it was started with until 24 hours after it
+ * started (hid-system 0086, A8); after that another email's start can close it, except from the same network
+ * (R3). The page says before a start that another email can't finish an open sign-up it knows of.
  */
 const OPEN_SIGN_UP_MS = DAY_MS
 
@@ -172,13 +177,12 @@ function refusalOf(reason: unknown, step: Step, activationUncertain: boolean, no
     }
     // Novu: the account was created, then the sign-in that follows it failed (401, or 405 under OIDC).
     if (novu && (status === 401 || status === 405)) return { kind: 'maybe-active' }
-    // On Novu the refused sign-up holds the CAC number and product for this email until 24 hours after it started
-    // (0086, A8), then lapses; main has no lapse.
+    // On Novu the refused sign-up keeps the CAC number and product for this email, and Identity refuses another
+    // email for them, from this network for 7 days after it closes (0086, A8 and R3).
     if (code === 'PROVIDER_EMAIL_ALREADY_REGISTERED') return { kind: 'help', title: 'This email already has a Health ID account',
       text: novu
         ? 'The administrator email already belongs to a Health ID account, for example a patient account or a staff '
-          + 'account, so it can’t also be this facility’s administrator. To sign up with another email for the same CAC '
-          + 'number, start again 24 hours after this sign-up began: until then the CAC number is held for it.'
+          + 'account, so it can’t also be this facility’s administrator, and this sign-up can’t be moved to another email.'
         : 'The administrator email already belongs to a Health ID account, for example a patient account, so it can’t '
           + 'also be this facility’s administrator. Signing up again with another email for the same CAC number won’t work '
           + 'either.' }
@@ -189,13 +193,12 @@ function refusalOf(reason: unknown, step: Step, activationUncertain: boolean, no
   if (code === 'PROVIDER_ENROLLMENT_REQUIRES_SIGN_OUT') return { kind: 'message',
     text: 'This browser is signed in to Health ID, for example to a patient account. Sign out of Health ID first, or '
       + 'open this page in a private (incognito) window, then try again.' }
-  // Identity answers this for a CAC number and product already registered, and for one an open sign-up holds with
-  // another email. On Novu that one lapses 24 hours after it started (0086, A8), and support has no command to end it
-  // sooner; main has no lapse.
-  if (code === 'PROVIDER_ENROLLMENT_REQUIRES_REVIEW' && novu) return { kind: 'message',
-    text: 'This organization can’t be set up automatically right now. Its CAC number may already be linked to Health '
-      + 'ID, or a sign-up for it with another email may have started less than 24 hours ago: you can sign up again 24 '
-      + 'hours after that one started.', support: 'cac-otherwise' }
+  // Novu answers this for a CAC number and product already registered, held by a governed application or by an open
+  // sign-up with another email, closed on the way, or closed in the last 7 days for this email or network (0086, A8
+  // and R3). Only support can say which, so the page promises no wait.
+  if (code === 'PROVIDER_ENROLLMENT_REQUIRES_REVIEW' && novu) return { kind: 'message', support: 'cac',
+    text: 'This organization can’t be set up automatically right now: its CAC number may already be linked to Health '
+      + 'ID, or another sign-up for it may be in progress or recently closed.' }
   if (code === 'PROVIDER_ENROLLMENT_REQUIRES_REVIEW' || code === 'ORGANIZATION_REVIEW_REQUIRED') return { kind: 'message',
     support: 'cac', text: 'This organization needs a check by Health ID before it can be set up, for example because '
       + 'its CAC number is already linked to Health ID or another sign-up for it is in progress.' }
@@ -234,11 +237,12 @@ function supportAddress(): string | null {
 }
 
 /** "Contact Health ID support …", with the address when the build has it. */
-function SupportContact({ purpose }: { purpose: Support | 'register' | 'finish' | 'inline' }) {
+function SupportContact({ purpose }: { purpose: Support | 'register' | 'finish' | 'inline' | 'persist' }) {
   const address = supportAddress()
   const lead = purpose === 'register' ? 'To register your facility, contact Health ID support'
     : purpose === 'inline' ? 'contact Health ID support'
-      : purpose === 'cac-otherwise' ? 'Otherwise, contact Health ID support' : 'Contact Health ID support'
+      : purpose === 'persist' ? 'If this keeps happening, contact Health ID support'
+        : purpose === 'cac-otherwise' ? 'Otherwise, contact Health ID support' : 'Contact Health ID support'
   const tail = purpose === 'cac' || purpose === 'cac-otherwise' ? ', and give your CAC registration number.' : purpose === 'finish'
     ? ' to finish setting up your facility.' : '.'
   return <>{lead}{address ? <> at <a className="provider-setup-link" href={`mailto:${address}`}>{address}</a></> : null}{tail}</>
@@ -260,10 +264,6 @@ function FocusedHeading({ id, children }: { id: string; children: ReactNode }) {
 
 function isOrganizationType(value: string | null): value is OrganizationType {
   return organizationTypes.some(option => option.value === value)
-}
-
-function typeLabel(value: OrganizationType): string {
-  return organizationTypes.find(option => option.value === value)?.label ?? value
 }
 
 function isProduct(value: string | null): value is Product {
@@ -315,18 +315,36 @@ function nextCodeAt(sentAt: readonly number[], now: number): number {
   return at > now ? at : 0
 }
 
-/**
- * The legal name of the organization an answer says the sign-up registers: `organizationName` (…/profile, or verify),
- * or the governed completion profile's `fields.companyName.value`. Null when there is none.
- */
-function organizationNameOf(answer: unknown): string | null {
-  if (typeof answer !== 'object' || answer === null) return null
-  const { organizationName, fields } = answer as { organizationName?: unknown; fields?: unknown }
-  const companyName = typeof fields === 'object' && fields !== null
-    ? (fields as { companyName?: { value?: unknown } | null }).companyName?.value : undefined
-  const name = typeof organizationName === 'string' ? organizationName : typeof companyName === 'string' ? companyName : ''
-  return name.trim() || null
+/** What the password step shows from …/profile (Novu, P4 round 2); a missing or blank value is null. */
+interface Registering {
+  organizationName: string | null
+  registrationNumber: string | null
+  administratorName: string | null
+  administratorEmail: string | null
 }
+
+function textOf(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null
+}
+
+function registeringOf(answer: unknown): Registering {
+  const value = (typeof answer === 'object' && answer !== null ? answer : {}) as Partial<Record<keyof ProviderEnrollmentProfile, unknown>>
+  return { organizationName: textOf(value.organizationName), registrationNumber: textOf(value.registrationNumber),
+    administratorName: textOf(value.administratorName), administratorEmail: textOf(value.administratorEmail) }
+}
+
+/**
+ * What Novu's availability answer means for the page. `{ open: false }` with reason 'closed', or with no reason
+ * (Identity before P4 round 2, whose { open: false } meant closed), is closed; any other reason ('unavailable', a
+ * fault) is not, so a fault never tells an applicant that sign-up is closed. A malformed answer shows the form.
+ */
+function availabilityOf(answer: ProviderEnrollmentAvailability | null | undefined): 'open' | 'closed' | 'unavailable' {
+  if (answer?.open !== false) return 'open'
+  return (answer.reason ?? 'closed') === 'closed' ? 'closed' : 'unavailable'
+}
+
+/** What an accepted start did: sent a code, or sent none and left one that can still be entered, or none. */
+type StartOutcome = 'sent' | 'in-force' | 'none'
 
 export function ProviderEnrollment() {
   // hid-system accepts the sign-up's security check only on the main site: a staff product host (a bookmark, an old
@@ -355,8 +373,10 @@ function EnrollmentSteps() {
   // On main (hid-system #71) the administrator's account is active after activation, but signed in only once its
   // authenticator is; on Novu activation signs them in ('done').
   const [stage, setStage] = useState<'details' | 'otp' | 'password' | 'authenticator' | 'sign-in' | 'done' | 'help'>('details')
-  // Novu says whether self sign-up is open before the form is filled; main has no such read.
-  const [availability, setAvailability] = useState<'checking' | 'open' | 'closed'>(novu ? 'checking' : 'open')
+  // Novu says whether self sign-up is open before the form is filled, and when not, whether it is closed or Identity
+  // could not tell ('unavailable'); main has no such read.
+  const [availability, setAvailability] = useState<'checking' | 'open' | 'closed' | 'unavailable'>(novu ? 'checking' : 'open')
+  const [availabilityAsked, setAvailabilityAsked] = useState(0)
   const [challenge, setChallenge] = useState<StaffLoginChallenge | null>(null)
   const [signInReason, setSignInReason] = useState<string | null>(null)
   const [help, setHelp] = useState<{ title: string; text: string } | null>(null)
@@ -382,8 +402,18 @@ function EnrollmentSteps() {
   const [resetKey, setResetKey] = useState(0)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<{ text: string; support?: Support } | null>(null)
-  const [resent, setResent] = useState(false)
-  // Identity sends no new code within resendAfterSeconds of the last one, yet still answers the start
+  // What the last "Send a new code" did: sent one, or sent none (Novu), leaving the last code usable or not.
+  const [resent, setResent] = useState<StartOutcome | null>(null)
+  // Novu: the code step was reached without a new code, because one was sent less than a minute ago ('recent') or
+  // the sign-up or its email has had as many codes as Identity sends for now ('limit').
+  const [unsent, setUnsent] = useState<'recent' | 'limit' | null>(null)
+  // Novu says whether each start sent a code (codeSent, P4 round 2): the page then follows its answers instead of
+  // counting codes, and needs no wait after "Start again". Main's answers do not say.
+  const [codesReported, setCodesReported] = useState(false)
+  // Novu: the last answer's wait is longer than the minute between codes (a limit), and whether a code can still be entered.
+  const [codeLimited, setCodeLimited] = useState(false)
+  const [codeInForce, setCodeInForce] = useState(true)
+  // Identity sends no new code within resendAfterSeconds of the last one, yet main still answers the start
   // (hid-system 0056): a new code is offered only after that wait. A start whose answer was lost (a timeout, or
   // the gateway's 503 at 30 s while Identity carried on) may have sent a code, so it waits as long.
   const [resendAt, setResendAt] = useState(0)
@@ -393,26 +423,27 @@ function EnrollmentSteps() {
   const [now, setNow] = useState(() => Date.now())
   // An activation whose answer was lost may have created the account and used up its session.
   const activationUncertain = useRef(false)
-  // The sign-up the last code was sent for, and when each accepted start was answered, by sign-up (CODE_LIMITS).
+  // The sign-up the last code was sent for, and when each accepted start was answered, by sign-up (CODE_LIMITS; main).
   const [codeFor, setCodeFor] = useState('')
   const [sends, setSends] = useState<ReadonlyArray<{ key: string; at: number }>>([])
   // The last code's challenge, kept through "Start again" until it is verified: a start past the limits goes back to it.
   const lastCode = useRef<{ key: string; challengeId: string } | null>(null)
-  // The details each CAC number and product was first accepted with: Identity keeps them for 24 hours (OPEN_SIGN_UP_MS).
+  // The details each CAC number and product was first accepted with: Identity keeps its email (OPEN_SIGN_UP_MS).
   const [firstStarts, setFirstStarts] = useState<ReadonlyMap<string, StartDetails & { at: number }>>(new Map())
-  // The organization the confirmed sign-up registers, by its legal name, when Identity says (Novu).
-  const [organizationName, setOrganizationName] = useState<string | null>(null)
+  // Novu: what the confirmed sign-up registers (…/profile), and whether reading it failed for a fault.
+  const [registering, setRegistering] = useState<Registering | null>(null)
+  const [registeringFailed, setRegisteringFailed] = useState(false)
 
   useEffect(() => {
     if (!novu) return
     let active = true
-    // `{ open: false }` closes the form. A 404 (an Identity without self sign-up), an outage or a malformed answer
-    // shows it: the start then answers for itself.
+    // A clear no closes the form, and a fault says so (availabilityOf). A 404 (an Identity without self sign-up),
+    // an outage or a malformed answer shows it: the start then answers for itself.
     providerEnrollmentApi.availability().then(
-      answer => { if (active) setAvailability(answer?.open === false ? 'closed' : 'open') },
+      answer => { if (active) setAvailability(availabilityOf(answer)) },
       () => { if (active) setAvailability('open') })
     return () => { active = false }
-  }, [novu])
+  }, [novu, availabilityAsked])
 
   const sentFor = (key: string) => sends.filter(send => send.key === key).map(send => send.at)
   // Read each second, as the waits are: Identity's limits on codes for the sign-up the last code went to.
@@ -430,10 +461,18 @@ function EnrollmentSteps() {
     if (!allowed.includes(productCode)) setProductCode(allowed[0]!)
   }
 
-  /** After an outage, Novu's availability says whether sign-up has closed meanwhile or is only failing. */
+  /**
+   * After an outage, Novu's availability says whether sign-up has closed meanwhile. Only a clear 'closed' is: an
+   * answer that it is unavailable, or no answer, leaves the step's own message.
+   */
   async function closedNow(): Promise<boolean> {
     if (!novu) return false
-    try { return (await providerEnrollmentApi.availability()).open === false } catch { return false }
+    try { return availabilityOf(await providerEnrollmentApi.availability()) === 'closed' } catch { return false }
+  }
+
+  function checkAvailabilityAgain() {
+    setAvailability('checking')
+    setAvailabilityAsked(value => value + 1)
   }
 
   /** Continue waits until `at` for these details' sign-up. */
@@ -441,31 +480,40 @@ function EnrollmentSteps() {
     setRetryAt(at); setRetryFor(key); setNow(Date.now())
   }
 
+  function maybeActive() {
+    setError(null); setPassword('')
+    setSignInReason(null)
+    setStage('sign-in')
+  }
+
   async function refuse(reason: unknown, step: Step, key = codeFor) {
     const refusal = refusalOf(reason, step, activationUncertain.current, novu)
-    if (refusal.kind === 'closed') { setError(null); setAvailability('closed'); return }
+    // Novu: an earlier activation whose answer was lost may have made the account, even if sign-up has closed since.
+    const mayBeActive = () => novu && step === 'activate' && activationUncertain.current
+    if (refusal.kind === 'closed') {
+      if (mayBeActive()) { maybeActive(); return }
+      setError(null); setAvailability('closed'); return
+    }
     if (refusal.kind === 'unavailable') {
       if (step === 'activate') activationUncertain.current = true
       if (step === 'start' || step === 'resend') holdFor(key, Date.now() + DEFAULT_RESEND_SECONDS * 1000)
       setNow(Date.now())
-      if (await closedNow()) { setError(null); setAvailability('closed'); return }
+      if (await closedNow()) {
+        if (mayBeActive()) { maybeActive(); return }
+        setError(null); setAvailability('closed'); return
+      }
       setError({ text: refusal.text })
       return
     }
     if (refusal.kind === 'session-expired') {
       setError({ text: 'Your sign-up session has expired. Check your details and select Continue to get a new code.' })
-      setChallengeId(''); setCode(''); setPassword(''); setOrganizationName(null)
-      // A start within resendAfterSeconds of the last code sends none (hid-system 0056).
-      holdFor(codeFor, resendAt)
+      setChallengeId(''); setCode(''); setPassword(''); setRegistering(null); setRegisteringFailed(false)
+      // Main: a start within resendAfterSeconds of the last code sends none (hid-system 0056); Novu says so itself.
+      if (!codesReported) holdFor(codeFor, resendAt)
       setStage('details')
       return
     }
-    if (refusal.kind === 'maybe-active') {
-      setError(null); setPassword('')
-      setSignInReason(null)
-      setStage('sign-in')
-      return
-    }
+    if (refusal.kind === 'maybe-active') { maybeActive(); return }
     if (refusal.kind === 'help') {
       setError(null); setPassword('')
       setHelp({ title: refusal.title, text: refusal.text })
@@ -488,35 +536,51 @@ function EnrollmentSteps() {
 
   /**
    * Novu: the sign-up these details' CAC number and product were first accepted with in the last 24 hours, if its
-   * email, administrator name or facility type now differ. Identity keeps them as first given until then (0086
-   * returns the open sign-up unchanged, and refuses another email for it).
+   * email now differs. Identity refuses another email for an open sign-up (0086), and still refuses one from the
+   * same network for 7 days after it closes (R3). A changed administrator name or facility type is sent: the code
+   * that start sends carries it, and the account keeps it (R6).
    */
-  function changedFrom(details: StartDetails): (StartDetails & { at: number }) | null {
+  function otherEmailThanFirst(details: StartDetails): (StartDetails & { at: number }) | null {
     const first = novu ? firstStarts.get(cacProductKey(details)) : undefined
     if (!first || Date.now() - first.at >= OPEN_SIGN_UP_MS) return null
-    return first.administratorEmail !== details.administratorEmail || first.administratorName !== details.administratorName
-      || first.organizationType !== details.organizationType ? first : null
+    return first.administratorEmail !== details.administratorEmail ? first : null
   }
 
-  function codeSent(result: { challengeId: string; resendAfterSeconds?: number }, details: StartDetails) {
-    const wait = typeof result.resendAfterSeconds === 'number' && Number.isFinite(result.resendAfterSeconds)
-      ? Math.min(Math.max(result.resendAfterSeconds, 0), 600) : DEFAULT_RESEND_SECONDS
-    const sentAt = Date.now()
+  /**
+   * Records a start Identity accepted. Main always sends a code. Novu says whether it did (codeSent); when it did
+   * not, `challengeId` names the code still in force, or is absent when none can still be entered, and
+   * resendAfterSeconds is the real wait before a new one (up to about a day).
+   */
+  function accepted(result: ProviderEnrollmentStart, details: StartDetails): { outcome: StartOutcome; until: number } {
+    const reported = typeof result.codeSent === 'boolean'
+    const given = typeof result.resendAfterSeconds === 'number' && Number.isFinite(result.resendAfterSeconds)
+      ? result.resendAfterSeconds : null
+    const wait = given === null ? DEFAULT_RESEND_SECONDS : Math.min(Math.max(given, 0), reported ? MAX_CODE_WAIT_SECONDS : 600)
+    const outcome: StartOutcome = !reported || result.codeSent ? 'sent' : result.challengeId ? 'in-force' : 'none'
+    const at = Date.now()
     const key = signUpKey(details)
-    setChallengeId(result.challengeId)
-    lastCode.current = { key, challengeId: result.challengeId }
+    setCodesReported(reported)
+    setCodeLimited(reported && wait > DEFAULT_RESEND_SECONDS)
+    setCodeInForce(outcome !== 'none')
     setCodeFor(key)
-    setSends(list => [...list.filter(send => send.at > sentAt - DAY_MS), { key, at: sentAt }])
+    if (outcome !== 'none') {
+      setChallengeId(result.challengeId ?? '')
+      lastCode.current = { key, challengeId: result.challengeId ?? '' }
+    }
+    // Main: the page counts the codes it asked for (CODE_LIMITS). Novu counts them itself.
+    if (!reported) setSends(list => [...list.filter(send => send.at > at - DAY_MS), { key, at }])
     // The first details accepted for a CAC number and product are the ones Identity keeps; a sign-up that has
     // lapsed (24 hours) or ended is replaced by the one just accepted.
     setFirstStarts(map => {
       const first = map.get(cacProductKey(details))
-      if (first && first.administratorEmail === details.administratorEmail && sentAt - first.at < OPEN_SIGN_UP_MS) return map
-      return new Map(map).set(cacProductKey(details), { ...details, at: sentAt })
+      if (first && first.administratorEmail === details.administratorEmail && at - first.at < OPEN_SIGN_UP_MS) return map
+      return new Map(map).set(cacProductKey(details), { ...details, at })
     })
-    setResendAt(sentAt + wait * 1000)
+    const until = at + wait * 1000
+    setResendAt(until)
     setRetryAt(0)
-    setNow(sentAt)
+    setNow(at)
+    return { outcome, until }
   }
 
   async function start(event: FormEvent) {
@@ -524,24 +588,17 @@ function EnrollmentSteps() {
     const details = startDetails()
     const key = signUpKey(details)
     if (busy || !turnstileToken || (retryFor === key && retryAt > Date.now())) return
-    const first = changedFrom(details)
-    if (first && first.administratorEmail === details.administratorEmail) {
-      // Identity would answer with the open sign-up as it is, and the account would take the first name and type.
-      setError({ text: `This sign-up was started with the administrator name ${first.administratorName} and the facility `
-        + `type ${typeLabel(first.organizationType)}. These can’t be changed until 24 hours after it started. Use the `
-        + 'details you first gave to continue.' })
-      return
-    }
+    const first = otherEmailThanFirst(details)
     const limitAt = nextCodeAt(sentFor(key), Date.now())
     if (limitAt && lastCode.current?.key === key) {
-      // Identity would send no code: back to the last one, which is still the one in force.
-      setError(null); setCode(''); setResent(false)
+      // Main: Identity would send no code; back to the last one, which is still the one in force.
+      setError(null); setCode(''); setResent(null); setUnsent(null)
       setChallengeId(lastCode.current.challengeId)
       setStage('otp')
       return
     }
     if (limitAt) {
-      // The last code was used ("This isn't my organization", then the same details): none can be sent until then.
+      // Main: the last code was used ("This isn't my organization", then the same details): none can be sent until then.
       setError({ text: 'We’ve sent as many codes for these details as we can for now.' })
       holdFor(key, limitAt)
       return
@@ -549,15 +606,23 @@ function EnrollmentSteps() {
     setBusy(true)
     setError(null)
     try {
-      codeSent(await providerEnrollmentApi.start({ ...details, turnstileToken }), details)
-      setResent(false)
-      setStage('otp')
+      const { outcome, until } = accepted(await providerEnrollmentApi.start({ ...details, turnstileToken }), details)
+      setResent(null)
+      if (outcome === 'none') {
+        // Novu sent no code, and none can be entered now: Continue waits until Identity would send one.
+        setError({ text: until - Date.now() > DEFAULT_RESEND_SECONDS * 1000
+          ? 'We’ve sent as many codes for these details as we can for now.'
+          : 'We can’t send a new code for these details yet.' })
+        holdFor(key, until)
+      } else {
+        setUnsent(outcome === 'sent' ? null : until - Date.now() > DEFAULT_RESEND_SECONDS * 1000 ? 'limit' : 'recent')
+        setStage('otp')
+      }
     } catch (reason) {
       if (first && isHidApiError(reason) && reason.code === 'PROVIDER_ENROLLMENT_REQUIRES_REVIEW') {
-        // Another email for a sign-up that is open: it keeps the CAC number and product until 24 hours after it started.
+        // Another email for a sign-up that is open: only its own email can finish it.
         setError({ text: `This CAC number’s sign-up was started with ${first.administratorEmail}, so it can’t use another `
-          + `email yet. Finish it with the code sent to ${first.administratorEmail}, or sign up with the new email 24 hours `
-          + 'after the first sign-up started.' })
+          + `email. Finish it with the code sent to ${first.administratorEmail}.`, support: 'cac-otherwise' })
       } else await refuse(reason, 'start', key)
     } finally {
       setTurnstileToken(null)
@@ -573,11 +638,12 @@ function EnrollmentSteps() {
       || nextCodeAt(sentFor(signUpKey(details)), Date.now())) return
     setBusy(true)
     setError(null)
-    setResent(false)
+    setResent(null)
+    setUnsent(null)
     try {
-      codeSent(await providerEnrollmentApi.start({ ...details, turnstileToken }), details)
-      setCode('')
-      setResent(true)
+      const { outcome } = accepted(await providerEnrollmentApi.start({ ...details, turnstileToken }), details)
+      if (outcome === 'sent') setCode('')
+      setResent(outcome)
     } catch (reason) {
       await refuse(reason, 'resend', signUpKey(details))
     } finally {
@@ -592,9 +658,8 @@ function EnrollmentSteps() {
     if (busy || !challengeId || !/^\d{6}$/.test(code)) return
     setBusy(true)
     setError(null)
-    let verified: unknown
     try {
-      verified = await providerEnrollmentApi.verify(challengeId, code)
+      await providerEnrollmentApi.verify(challengeId, code)
     } catch (reason) {
       await refuse(reason, 'verify')
       setBusy(false)
@@ -602,17 +667,46 @@ function EnrollmentSteps() {
     }
     lastCode.current = null
     setCode('')
-    setResent(false)
+    setResent(null)
+    setUnsent(null)
     activationUncertain.current = false
-    // Novu: the organization this CAC number names, so the administrator can check it is theirs before the account
-    // is made (P4 review). A failure, or an Identity that does not say, leaves the CAC number to check.
-    if (novu) setOrganizationName(organizationNameOf(verified) ?? await registeredOrganization())
-    setStage('password')
+    // Novu: what the confirmed sign-up registers, so the administrator can check the organization is theirs before
+    // the account is made (P4 round 2).
+    if (!novu || await readRegistering()) setStage('password')
     setBusy(false)
   }
 
-  async function registeredOrganization(): Promise<string | null> {
-    try { return organizationNameOf(await providerEnrollmentApi.profile()) } catch { return null }
+  /**
+   * Novu: …/profile. A 404 (an Identity without the route) leaves the CAC number to check, and a fault can be tried
+   * again; neither stops the account being made. Returns false when the page has moved on instead: sign-up has
+   * closed (423), or the enrollment session is gone (401), as activation would answer.
+   */
+  async function readRegistering(): Promise<boolean> {
+    setRegistering(null)
+    setRegisteringFailed(false)
+    try {
+      setRegistering(registeringOf(await providerEnrollmentApi.profile()))
+      return true
+    } catch (reason) {
+      const status = isHidApiError(reason) ? reason.status : 0
+      const code = isHidApiError(reason) ? reason.code : ''
+      if ((status === 423 && code === 'PROVIDER_ENROLLMENT_UNAVAILABLE')
+        || (status === 401 && code === 'ORGANIZATION_COMPLETION_SESSION_INVALID')) {
+        await refuse(reason, 'activate')
+        return false
+      }
+      if (code === 'PROVIDER_ENROLLMENT_REQUIRES_SIGN_OUT') await refuse(reason, 'activate')
+      else if (status !== 404) setRegisteringFailed(true)
+      return true
+    }
+  }
+
+  async function readRegisteringAgain() {
+    if (busy) return
+    setBusy(true)
+    setError(null)
+    await readRegistering()
+    setBusy(false)
   }
 
   async function activate(event: FormEvent) {
@@ -649,9 +743,11 @@ function EnrollmentSteps() {
   }
 
   function startAgain() {
-    setStage('details'); setCode(''); setChallengeId(''); setError(null); setResent(false); setOrganizationName(null)
-    // A start within resendAfterSeconds of the last code sends none (hid-system 0056), yet answers as if it had.
-    holdFor(codeFor, resendAt)
+    setStage('details'); setCode(''); setChallengeId(''); setError(null); setResent(null); setUnsent(null)
+    setRegistering(null); setRegisteringFailed(false)
+    // Main: a start within resendAfterSeconds of the last code sends none (hid-system 0056), yet answers as if it
+    // had. Novu says when it sends none, so Continue need not wait.
+    if (!codesReported) holdFor(codeFor, resendAt)
   }
 
   /** "This isn't my organization": back to the details, kept, to correct the CAC number. */
@@ -662,11 +758,9 @@ function EnrollmentSteps() {
       + 'No account has been created.' })
   }
 
-  /** The details a CAC number and product were first accepted with, back in the form. */
-  function firstDetails(first: StartDetails) {
-    setName(first.administratorName)
+  /** The email a CAC number and product were first accepted with, back in the form. */
+  function firstEmail(first: StartDetails) {
     setEmail(first.administratorEmail)
-    setOrganizationType(first.organizationType)
     setError(null)
   }
 
@@ -676,12 +770,16 @@ function EnrollmentSteps() {
   const details = startDetails()
   const retryIn = retryFor === signUpKey(details) ? secondsUntil(retryAt, now) : 0
   const resendIn = secondsUntil(Math.max(resendAt, retryAt), now)
-  const codeLimitIn = secondsUntil(codeLimitAt, now)
-  // Back at the details of a sign-up Identity accepted, with its email, name or type changed (changedFrom).
-  const kept = stage === 'details' ? changedFrom(details) : null
+  // How long until a new code past a limit: main's count of its own codes, or Novu's own long wait.
+  const codeLimitIn = secondsUntil(codeLimitAt, now) || (codeLimited ? resendIn : 0)
+  // Back at the details of a sign-up Identity accepted, with its email changed (otherEmailThanFirst).
+  const kept = stage === 'details' ? otherEmailThanFirst(details) : null
   const productNote = novu ? PRODUCT_NOTES[productCode] : null
   // The address as Identity has it: the code was sent to it, and the administrator signs in with it.
   const administratorEmail = email.trim().toLowerCase()
+  const accountEmail = registering?.administratorEmail ?? administratorEmail
+  // The CAC number as Identity has it (spaces removed, capitals), which the organization will be registered under.
+  const cacNumber = registering?.registrationNumber ?? cac
 
   return (
     <AuthLayout brandTo="/provider/sign-in" brandLabel="Health ID provider sign in"
@@ -690,7 +788,7 @@ function EnrollmentSteps() {
       lede={novu
         ? 'Verify your CAC registration, confirm your email and choose a password. Your administrator account is ready straight away.'
         : 'Verify your CAC registration and your facility can start using Health ID straight away.'}
-      steps={closed || availability === 'checking' || stage === 'help'
+      steps={closed || availability === 'checking' || availability === 'unavailable' || stage === 'help'
         ? undefined : steps.map(([step, label]) => ({ label, current: step === currentStep }))}
       stepsLabel="Provider enrollment steps">
         {error && !closed ? <p role="alert" className="patient-inline-error">{error.text}
@@ -703,6 +801,14 @@ function EnrollmentSteps() {
           <p className="patient-field-hint">Hospitals, laboratories and pharmacies can’t sign themselves up on Health ID at the
             moment. <SupportContact purpose="register" /></p>
           <p className="patient-field-hint">If your facility already uses Health ID, sign in instead.</p>
+        </section>}
+
+        {/* Identity answered that it could not tell whether sign-up is open (a fault): not closed, so it says so. */}
+        {availability === 'unavailable' && <section className="patient-form" aria-labelledby="provider-enroll-unavailable-title">
+          <FocusedHeading id="provider-enroll-unavailable-title">Facility sign-up is temporarily unavailable</FocusedHeading>
+          <p className="patient-field-hint">We can’t take facility sign-ups just now because of a problem on our side. Please
+            try again in a few minutes. <SupportContact purpose="persist" /></p>
+          <button type="button" className="patient-primary-button" onClick={checkAvailabilityAgain}>Try again</button>
         </section>}
 
         {availability === 'open' && stage === 'details' && (
@@ -749,9 +855,8 @@ function EnrollmentSteps() {
 
             {kept && <div className="provider-setup-kept">
               <p className="patient-field-hint">A sign-up for {kept.cacRegistrationNumber} was started with {kept.administratorEmail},
-                {' '}as {kept.administratorName} ({typeLabel(kept.organizationType)}). Its email, administrator name and facility
-                type can’t be changed until 24 hours after it started. You can still correct the CAC number.</p>
-              <button type="button" className="patient-text-button" onClick={() => firstDetails(kept)}>Use the details I first gave</button>
+                {' '}and only that email can finish it. You can still correct the CAC number.</p>
+              <button type="button" className="patient-text-button" onClick={() => firstEmail(kept)}>Use the email I first gave</button>
             </div>}
 
             <div className="provider-setup-actions">
@@ -773,7 +878,13 @@ function EnrollmentSteps() {
         {availability === 'open' && stage === 'otp' && (<>
           <form onSubmit={event => void verify(event)} className="patient-form">
             <h2>Confirm your administrator email</h2>
-            <p className="patient-field-hint">Enter the six digit code sent to {administratorEmail}.</p>
+            <p className="patient-field-hint">{unsent === 'recent'
+              ? `We didn’t send a new code, because one was sent to ${administratorEmail} less than a minute ago. Enter the six `
+                + 'digit code from that email.'
+              : unsent === 'limit'
+                ? 'We didn’t send a new code, because we’ve sent as many as we can for now. Enter the six digit code from the '
+                  + `latest email Health ID sent to ${administratorEmail}.`
+                : `Enter the six digit code sent to ${administratorEmail}.`}</p>
             <label>Email verification code
               <Input required inputMode="numeric" autoComplete="one-time-code" value={code}
                 onChange={event => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
@@ -793,10 +904,15 @@ function EnrollmentSteps() {
             <button type="button" className="patient-secondary-button" onClick={() => void resend()}
               disabled={busy || !turnstileToken || resendIn > 0 || codeLimitIn > 0}>Send a new code</button>
             {codeLimitIn > 0
-              ? <p className="patient-field-hint">We’ve sent as many codes as we can for now. Use the code in the latest email from
-                {' '}Health ID, or ask for a new one in {waitWords(codeLimitIn)}.</p>
-              : resendIn > 0 && <p className="patient-field-hint">You can ask for a new code in {seconds(resendIn)}.</p>}
-            <div role="status">{resent && <p className="patient-field-hint">We’ve sent a new code to {administratorEmail}.</p>}</div>
+              ? <p className="patient-field-hint">We’ve sent as many codes as we can for now. {codeInForce
+                ? <>Use the code in the latest email from{' '}Health ID, or ask for a new one in {waitWords(codeLimitIn)}.</>
+                : <>You can ask for a new one in {waitWords(codeLimitIn)}.</>}</p>
+              : resendIn > 0 && <p className="patient-field-hint">You can ask for a new code in {codesReported
+                ? waitWords(resendIn) : seconds(resendIn)}.</p>}
+            <div role="status">{resent && <p className="patient-field-hint">{resent === 'sent'
+              ? `We’ve sent a new code to ${administratorEmail}.`
+              : resent === 'in-force' ? 'We didn’t send a new code: the code in the latest email from Health ID still works.'
+                : 'We didn’t send a new code, and the last one can no longer be used.'}</p>}</div>
           </section>
         </>)}
 
@@ -804,20 +920,24 @@ function EnrollmentSteps() {
           <form onSubmit={event => void activate(event)} className="patient-form">
             <h2>Create your provider account</h2>
             {novu && <div className="provider-setup-registering">
-              <p id="provider-registering" className="patient-field-hint">{organizationName
-                ? <>You’re registering <strong>{organizationName}</strong>, CAC number {cac}. Check that this is your organization
-                  {' '}before you create the account.</>
-                : <>You’re registering the organization with CAC number {cac}. Check that this is your organization’s number
+              <p id="provider-registering" className="patient-field-hint">{registering?.organizationName
+                ? <>You’re registering <strong>{registering.organizationName}</strong>, CAC number {cacNumber}
+                  {registering.administratorName ? `, with ${registering.administratorName} as its administrator` : ''}. Check
+                  {' '}that this is your organization before you create the account.</>
+                : <>You’re registering the organization with CAC number {cacNumber}. Check that this is your organization’s number
                   {' '}before you create the account.</>}</p>
+              {registeringFailed && <p className="patient-field-hint">We couldn’t load your organization’s registered name just
+                now. <button type="button" className="patient-text-button" disabled={busy}
+                  onClick={() => void readRegisteringAgain()}>Try again</button></p>}
               <button type="button" className="patient-text-button" onClick={notMine}>This isn’t my organization</button>
             </div>}
             <p id="provider-password-hint" className="patient-field-hint">{novu
-              ? `Choose a password of at least 12 characters. You’ll use it with ${administratorEmail} to sign in. Once your account `
+              ? `Choose a password of at least 12 characters. You’ll use it with ${accountEmail} to sign in. Once your account `
                 + 'is created, you go straight into the Provider Portal as your facility’s administrator.'
               : 'Choose a password of at least 12 characters. After activation, you will set up an authenticator app, then enter '
                 + 'the Provider Portal as your facility administrator.'}</p>
             {/* Lets a password manager save the new password with its email. */}
-            <input type="email" hidden readOnly autoComplete="username" value={administratorEmail} />
+            <input type="email" hidden readOnly autoComplete="username" value={accountEmail} />
             <Field label="Password" htmlFor="provider-password">
               <PasswordInput id="provider-password" required autoComplete="new-password" minLength={12} maxLength={256}
                 aria-describedby="provider-password-hint" value={password} onChange={event => setPassword(event.target.value)} />
@@ -834,9 +954,9 @@ function EnrollmentSteps() {
             onSignedIn={openWorkspace} onRestart={reason => { setChallenge(null); setSignInReason(reason); setStage('sign-in') }} />
         )}
 
-        {!closed && stage === 'sign-in' && (novu ? <MaybeActive email={administratorEmail} /> : <SignInToFinish reason={signInReason} />)}
+        {!closed && stage === 'sign-in' && (novu ? <MaybeActive email={accountEmail} /> : <SignInToFinish reason={signInReason} />)}
 
-        {!closed && stage === 'done' && <FacilityReady email={administratorEmail} product={productCode} onContinue={openWorkspace} />}
+        {!closed && stage === 'done' && <FacilityReady email={accountEmail} product={productCode} onContinue={openWorkspace} />}
 
         {!closed && stage === 'help' && help && <section className="patient-form" aria-labelledby="provider-enroll-help-title">
           <FocusedHeading id="provider-enroll-help-title">{help.title}</FocusedHeading>

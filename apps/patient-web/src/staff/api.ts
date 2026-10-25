@@ -982,11 +982,29 @@ function encounterPath(patientId: string, encounterId: string) {
   return `${patientPath(patientId)}/${encodeURIComponent(encounterId)}`
 }
 
+/**
+ * The start's answer. hid-system main always sends a code and answers `{ accepted, challengeId, expiresInSeconds,
+ * resendAfterSeconds }`. Novu (P4 round 2, R14) also says whether this start sent a new code: with `codeSent` false
+ * no email went out (a code was sent less than a minute ago, or the sign-up or its email has had as many codes as
+ * Identity sends for now); `challengeId` and `expiresInSeconds` then name the code still in force, and are absent
+ * when no code can still be entered; `resendAfterSeconds` is the real wait before a new code, up to about a day.
+ */
 export interface ProviderEnrollmentStart {
   accepted: true
-  challengeId: string
+  codeSent?: boolean
+  challengeId?: string
   expiresInSeconds?: number
   resendAfterSeconds?: number
+}
+
+/**
+ * Whether facility self sign-up is open (Novu, P4). `reason` says why not: 'closed' (switched off or not
+ * configured) or 'unavailable' (Identity could not tell, because of a fault: try again shortly). Identity before
+ * round 2 answered `{ open: false }` alone, which meant closed.
+ */
+export interface ProviderEnrollmentAvailability {
+  open: boolean
+  reason?: string
 }
 
 /**
@@ -1009,26 +1027,25 @@ export interface ProviderEnrollmentActivation {
   expiresAt: string
 }
 
-/**
- * Verify's answer. `organizationName` is the legal name of the organization the
- * sign-up registers, if Identity says it here rather than at …/profile.
- */
+/** Verify's answer; it also sets the enrollment cookie that …/profile and activation read. */
 export interface ProviderEnrollmentVerified {
   verified: true
-  organizationName?: string | null
 }
 
 /**
- * GET …/provider-enrollments/profile (proposed, P4 review): the organization a
- * confirmed sign-up registers, under its legal name on the CAC record.
- * `fields.companyName.value` is the governed completion profile's shape for the
- * same name, read too in case Identity answers with that.
+ * GET …/provider-enrollments/profile (Novu, P4 round 2, R13): what a confirmed sign-up will register, read before
+ * the account exists. `organizationName` is the verified legal name on the CAC record, which the organization and
+ * the facility take; `registrationNumber` is the CAC number as the applicant entered it (spaces removed, capitals);
+ * the administrator's name and email and the organization type are the ones the account will keep (those sent
+ * with the code that was confirmed). Read with the enrollment cookie; it changes nothing.
  */
 export interface ProviderEnrollmentProfile {
-  organizationName?: string | null
-  registrationNumber?: string
-  productCode?: string
-  fields?: { companyName?: { value?: string | null } }
+  organizationName: string
+  registrationNumber: string
+  productCode: string
+  organizationType: string
+  administratorName: string
+  administratorEmail: string
 }
 
 /**
@@ -1042,11 +1059,12 @@ export const PROVIDER_ENROLLMENT_START_TIMEOUT_MS = 35_000
 
 export const providerEnrollmentApi = {
   /**
-   * Whether facility self sign-up is open (Novu, P4): `{ open }`, never an
-   * error from Identity. hid-system main has no such route (404). Asked once,
-   * with no retries: the page shows the form unless the answer is a clear no.
+   * Whether facility self sign-up is open (Novu, P4): `{ open }`, with a `reason` when it is not, never an error
+   * from Identity. hid-system main has no such route (404). Asked with no retries: the page shows the form unless
+   * the answer is a clear no.
    */
-  availability: (signal?: AbortSignal) => client.get<{ open: boolean }>('/api/v1/identity/provider-enrollments/availability',
+  availability: (signal?: AbortSignal) => client.get<ProviderEnrollmentAvailability>(
+    '/api/v1/identity/provider-enrollments/availability',
     { auth: 'none', retry: NO_RETRY, timeoutMs: 10_000, ...(signal ? { signal } : {}) }),
 
   start: (input: {
@@ -1067,11 +1085,12 @@ export const providerEnrollmentApi = {
       { challengeId, code }, { auth: 'none' }),
 
   /**
-   * The organization the sign-up registers (Novu, P4), read with the
-   * enrollment cookie once the email is confirmed, so the administrator sees
-   * whose CAC number it is before any account is made. hid-system main, and an
-   * Identity without the route, answer 404: the page then shows the CAC number
-   * alone. Asked once, with no retries.
+   * What the sign-up registers (Novu, P4 round 2), read with the enrollment
+   * cookie once the email is confirmed, so the administrator sees whose CAC
+   * number it is before any account is made. A same-origin GET: the browser
+   * sends the cookie and no Origin, which Identity does not ask for here.
+   * hid-system main, and an Identity without the route, answer 404: the page
+   * then shows the CAC number alone. Asked with no retries.
    */
   profile: () => client.get<ProviderEnrollmentProfile>('/api/v1/identity/provider-enrollments/profile',
     { auth: 'none', retry: NO_RETRY, timeoutMs: 10_000 }),
