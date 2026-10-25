@@ -84,6 +84,17 @@ describe('the refusals’ words', () => {
     expect(sendRefusal(problem(404, 'NOT_FOUND'), 'lab_request', 'Yaba', 'Ada').text).toBe('Sending orders to other facilities is not available yet.')
   })
 
+  it('marks a send that got no answer, which may have gone through, apart from every refusal', () => {
+    for (const error of [problem(503, 'UPSTREAM_UNAVAILABLE'), problem(500, 'INTERNAL'), problem(408, 'REQUEST_TIMEOUT'),
+      problem(0, 'NETWORK_ERROR'), problem(502, 'ORDER_ROUTE_UNAVAILABLE')]) {
+      expect(sendRefusal(error, 'lab_request', 'Yaba', 'Ada').unanswered, error.code).toBe(true)
+    }
+    for (const error of [problem(409, 'ORDER_ROUTE_DESTINATION_INELIGIBLE'), problem(423, 'CROSS_FACILITY_ORDERS_UNAVAILABLE'),
+      problem(412, 'VERSION_CONFLICT'), problem(400, 'ORDER_ROUTE_INVALID'), problem(403, 'PERMISSION_DENIED'), new Error('Read the record again.')]) {
+      expect(sendRefusal(error, 'lab_request', 'Yaba', 'Ada').unanswered).toBeUndefined()
+    }
+  })
+
   it('reloads after a withdrawal refused because it is no longer waiting', () => {
     expect(withdrawRefusal(problem(409, 'ORDER_ROUTE_NOT_PENDING'))).toMatchObject({ reload: true })
     expect(withdrawRefusal(problem(404, 'NOT_FOUND')).text).toBe('Sending orders to other facilities is not available yet.')

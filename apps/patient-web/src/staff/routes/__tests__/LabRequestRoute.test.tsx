@@ -156,6 +156,25 @@ describe('creating a lab request and sending it to another laboratory', () => {
   })
 
   it.each([
+    ['a timeout (408)', new HidApiError(408, 'Timed out', { code: 'REQUEST_TIMEOUT' })],
+    ['the gateway’s 503', new HidApiError(503, 'Unavailable', { code: 'UPSTREAM_UNAVAILABLE' })],
+    ['a lost connection', new HidApiError(0, 'Network', { code: 'NETWORK_ERROR' })],
+  ])('never says “not sent” when the send got no answer (%s): it may have gone, so the row is checked', async (_case, error) => {
+    api.createRecord.mockImplementation(async () => { records = [labRequest('draft', null, '1')]; return labRequest('draft', null, '1') })
+    // The EHR committed the send after the browser stopped waiting: the reloaded row shows it sent.
+    routes.send.mockImplementation(async () => { records = [labRequest('active', summary(), '2')]; throw error })
+    const form = await chooseAnotherLaboratory()
+    fireEvent.click(within(form).getByRole('checkbox', { name: FILLED }))
+    fireEvent.click(within(form).getByRole('button', { name: 'Create and send to Yaba Diagnostics' }))
+    const said = await screen.findByText(/^Saved\. Health ID did not answer the send/)
+    expect(said.textContent).toBe('Saved. Health ID did not answer the send, so it may or may not have gone to Yaba Diagnostics: '
+      + 'check the row below before sending it again. The list was reloaded.')
+    expect(screen.queryByText(/Saved as a draft|Not sent/)).toBeNull()
+    expect(await screen.findByText(/^Sent to Yaba Diagnostics: waiting for it to accept, until /)).toBeTruthy()
+    expect(api.createRecord).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
     ['without ehr.order-route.send', () => { staff.permissions = DOCTOR.filter(code => code !== 'ehr.order-route.send') }],
     ['while orders between facilities are off', () => { ordersOn = false }],
     ['when the list does not say (an EHR before P4c)', () => { ordersOn = undefined }],

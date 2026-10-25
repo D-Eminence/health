@@ -1585,6 +1585,8 @@ export function Clinical() {
   /**
    * Creates a lab request as a draft and sends it to the laboratory chosen (Novu, P4c SPEC 13.1): two requests, each
    * with its own key. A create that fails is the form's to say; once saved, a refused send leaves the draft, said so.
+   * A send that got no answer is not a refusal: the EHR may have activated and sent the draft after the browser stopped
+   * waiting, so the page says it may or may not have gone and points to the row, which the reload shows as it is.
    */
   async function createAndSend(body: object, key: string, send: CreateAndSend) {
     if (!facility || !patientId || !encounterId) return
@@ -1595,6 +1597,7 @@ export function Clinical() {
     const savedId = typeof saved?.id === 'string' ? saved.id : undefined
     const savedVersion = rowVersion(saved?.rowVersion)
     let notSent: string | null = null
+    let unanswered = false
     if (!savedId || !savedVersion) notSent = 'the saved request could not be read back. Find it in the list and use Send to another laboratory on it.'
     else {
       try {
@@ -1602,10 +1605,18 @@ export function Clinical() {
           { expectedRowVersion: savedVersion, receivingFacilityId: send.destination.facilityId,
             attestationTextVersion: send.attestationTextVersion }, crypto.randomUUID())
       } catch (caught) {
-        notSent = sendRefusal(caught, 'lab_request', send.destination.facilityName, routeContext.patient).text
+        const refusal = sendRefusal(caught, 'lab_request', send.destination.facilityName, routeContext.patient)
+        if (refusal.unanswered) unanswered = true
+        else notSent = refusal.text
       }
     }
     const items = await loadRecords('lab-requests', FIRST_PAGE, true)
+    if (unanswered) {
+      setError(`Saved. Health ID did not answer the send, so it may or may not have gone to ${send.destination.facilityName}: `
+        + `check the row below before sending it again.${reloadSentence(items, 'lab requests', true)}`)
+      focus(savedId ? [`order-route-${savedId}-title`, `record-${savedId}-title`, 'clinical-records-title'] : ['clinical-records-title'], true)
+      return
+    }
     if (notSent) {
       setError(`${savedNotSent(notSent)}${reloadSentence(items, 'lab requests', false)}`)
       focus(savedId ? [`record-${savedId}-route-open`, `record-${savedId}-title`, 'clinical-records-title'] : ['clinical-records-title'], true)

@@ -185,10 +185,12 @@ function unanswered(error: unknown): boolean {
 
 /**
  * What a refused send means (SPEC-FINAL §10.1, §11), with the facility chosen and the patient. `outdated` says the
- * attestation text must be read again; `reload` that the order list is out of date.
+ * attestation text must be read again; `reload` that the order list is out of date; `unanswered` that no answer came
+ * (a fault, a timeout, the gateway's 503), so the send may have gone through after all: the EHR's send activates a
+ * draft and creates the route in one transaction, which can commit after the browser stops waiting.
  */
 export function sendRefusal(error: unknown, kind: OrderRouteKind, facility: string, patient: string):
-  { text: string; outdated?: boolean; reload?: boolean } {
+  { text: string; outdated?: boolean; reload?: boolean; unanswered?: boolean } {
   const where = destinationWord(kind)
   // A refusal made here before sending (the record's version unreadable, patient access ended) says itself.
   if (!isHidApiError(error) && error instanceof Error && error.message) return { text: error.message }
@@ -211,7 +213,7 @@ export function sendRefusal(error: unknown, kind: OrderRouteKind, facility: stri
   if (routeMissing(error)) return { text: ORDERS_NOT_AVAILABLE }
   if (paused(error)) return { text: ORDERS_PAUSED }
   if (isHidApiError(error) && error.status === 400) return { reload: true, text: 'The order could not be sent as it is. Reload the page and try again.' }
-  if (unanswered(error)) return { reload: true, text: 'Health ID did not answer, so the order may or may not have been sent. Check the list before sending it again.' }
+  if (unanswered(error)) return { reload: true, unanswered: true, text: 'Health ID did not answer, so the order may or may not have been sent. Check the list before sending it again.' }
   return { text: 'The order could not be sent. Try again.' }
 }
 
