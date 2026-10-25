@@ -137,7 +137,7 @@ const OFFLINE = 'We couldn’t reach Health ID. Check your internet connection a
 type Step = 'start' | 'resend' | 'verify' | 'activate'
 
 /** How a message ends: with support's address (SupportContact). */
-type Support = 'plain' | 'cac' | 'cac-otherwise'
+type Support = 'plain' | 'cac' | 'cac-otherwise' | 'held'
 
 /** What the page says or does about a refusal. */
 type Refusal =
@@ -242,9 +242,10 @@ function SupportContact({ purpose }: { purpose: Support | 'register' | 'finish' 
   const lead = purpose === 'register' ? 'To register your facility, contact Health ID support'
     : purpose === 'inline' ? 'contact Health ID support'
       : purpose === 'persist' ? 'If this keeps happening, contact Health ID support'
-        : purpose === 'cac-otherwise' ? 'Otherwise, contact Health ID support' : 'Contact Health ID support'
+        : purpose === 'held' ? 'If it belongs to another company, tell Health ID support'
+          : purpose === 'cac-otherwise' ? 'Otherwise, contact Health ID support' : 'Contact Health ID support'
   const tail = purpose === 'cac' || purpose === 'cac-otherwise' ? ', and give your CAC registration number.' : purpose === 'finish'
-    ? ' to finish setting up your facility.' : '.'
+    ? ' to finish setting up your facility.' : purpose === 'held' ? ', and give that number, so they can free it.' : '.'
   return <>{lead}{address ? <> at <a className="provider-setup-link" href={`mailto:${address}`}>{address}</a></> : null}{tail}</>
 }
 
@@ -305,6 +306,34 @@ function cacProductKey(details: StartDetails): string {
   return `${details.cacRegistrationNumber}|${details.productCode}`
 }
 
+/**
+ * What a code carries besides its sign-up (Novu, R6): the facility type and administrator name of the start that sent
+ * it. The account and organization take them from the code that confirms the email. A start that sends no code
+ * stores its own type and name nowhere (0086 begin_self_service_provider_enrollment), so the code in force keeps its own.
+ */
+interface CodeCarries {
+  organizationType: OrganizationType
+  administratorName: string
+}
+
+function carriesOtherThan(details: StartDetails, carries: CodeCarries): boolean {
+  return details.organizationType !== carries.organizationType || details.administratorName !== carries.administratorName
+}
+
+/**
+ * Novu sent no code for changed details, and the code in force carries the earlier ones: Continue with the changes
+ * waits until `until`, when Identity would send a code that carries them; the code in force can be entered with the
+ * earlier details until `enterableUntil`.
+ */
+interface Unapplied {
+  key: string
+  challengeId: string
+  carries: CodeCarries
+  unsent: 'recent' | 'limit'
+  until: number
+  enterableUntil: number
+}
+
 /** When Identity would send another code, given when it sent the last ones (CODE_LIMITS); 0 when it would now. */
 function nextCodeAt(sentAt: readonly number[], now: number): number {
   let at = 0
@@ -315,10 +344,14 @@ function nextCodeAt(sentAt: readonly number[], now: number): number {
   return at > now ? at : 0
 }
 
-/** What the password step shows from …/profile (Novu, P4 round 2); a missing or blank value is null. */
+/**
+ * What the password step shows from …/profile (Novu, P4 round 2); a missing or blank value is null, and so is a
+ * facility type the page does not know.
+ */
 interface Registering {
   organizationName: string | null
   registrationNumber: string | null
+  organizationType: OrganizationType | null
   administratorName: string | null
   administratorEmail: string | null
 }
@@ -329,8 +362,30 @@ function textOf(value: unknown): string | null {
 
 function registeringOf(answer: unknown): Registering {
   const value = (typeof answer === 'object' && answer !== null ? answer : {}) as Partial<Record<keyof ProviderEnrollmentProfile, unknown>>
+  const organizationType = textOf(value.organizationType)
   return { organizationName: textOf(value.organizationName), registrationNumber: textOf(value.registrationNumber),
+    organizationType: isOrganizationType(organizationType) ? organizationType : null,
     administratorName: textOf(value.administratorName), administratorEmail: textOf(value.administratorEmail) }
+}
+
+/** The facility type in the password step's sentence: "…, as a hospital, …". */
+const ORGANIZATION_TYPE_PHRASES: Readonly<Record<OrganizationType, string>> = {
+  hospital: 'a hospital',
+  clinic: 'a clinic',
+  laboratory: 'a laboratory',
+  pharmacy: 'a pharmacy',
+  other: 'another kind of healthcare provider',
+}
+
+/** What the account will keep besides the organization (R6), for the password step: ", as a hospital, with … as its administrator". */
+function registeringDetails(registering: Registering | null): string {
+  if (!registering) return ''
+  return (registering.organizationType ? `, as ${ORGANIZATION_TYPE_PHRASES[registering.organizationType]}` : '')
+    + (registering.administratorName ? `, with ${registering.administratorName} as its administrator` : '')
+}
+
+function organizationTypeLabel(value: OrganizationType): string {
+  return organizationTypes.find(option => option.value === value)?.label ?? value
 }
 
 /**
@@ -428,6 +483,10 @@ function EnrollmentSteps() {
   const [sends, setSends] = useState<ReadonlyArray<{ key: string; at: number }>>([])
   // The last code's challenge, kept through "Start again" until it is verified: a start past the limits goes back to it.
   const lastCode = useRef<{ key: string; challengeId: string } | null>(null)
+  // What each code this page saw sent carries besides its sign-up (CodeCarries), by challenge.
+  const codeCarries = useRef(new Map<string, CodeCarries>())
+  // Novu: the last start sent no code for a changed facility type or administrator name (Unapplied).
+  const [unapplied, setUnapplied] = useState<Unapplied | null>(null)
   // The details each CAC number and product was first accepted with: Identity keeps its email (OPEN_SIGN_UP_MS).
   const [firstStarts, setFirstStarts] = useState<ReadonlyMap<string, StartDetails & { at: number }>>(new Map())
   // Novu: what the confirmed sign-up registers (…/profile), and whether reading it failed for a fault.
@@ -448,7 +507,7 @@ function EnrollmentSteps() {
   const sentFor = (key: string) => sends.filter(send => send.key === key).map(send => send.at)
   // Read each second, as the waits are: Identity's limits on codes for the sign-up the last code went to.
   const codeLimitAt = codeFor ? nextCodeAt(sentFor(codeFor), now) : 0
-  const waiting = Math.max(resendAt, retryAt, codeLimitAt) > now
+  const waiting = Math.max(resendAt, retryAt, codeLimitAt, unapplied?.until ?? 0) > now
   useEffect(() => {
     if (!waiting) return
     const timer = setInterval(() => setNow(Date.now()), 1000)
@@ -537,13 +596,23 @@ function EnrollmentSteps() {
   /**
    * Novu: the sign-up these details' CAC number and product were first accepted with in the last 24 hours, if its
    * email now differs. Identity refuses another email for an open sign-up (0086), and still refuses one from the
-   * same network for 7 days after it closes (R3). A changed administrator name or facility type is sent: the code
-   * that start sends carries it, and the account keeps it (R6).
+   * same network for 7 days after it closes (R3). A changed administrator name or facility type is sent: a code that
+   * start sends carries it, and the account keeps it (R6). A start that sends no code does not (changesHeld).
    */
   function otherEmailThanFirst(details: StartDetails): (StartDetails & { at: number }) | null {
     const first = novu ? firstStarts.get(cacProductKey(details)) : undefined
     if (!first || Date.now() - first.at >= OPEN_SIGN_UP_MS) return null
     return first.administratorEmail !== details.administratorEmail ? first : null
+  }
+
+  /**
+   * Novu: the last start sent no code for these details' sign-up with a changed facility type or administrator name,
+   * and Identity would not send one before `until` (Unapplied). Other details (another CAC number, product or email,
+   * or the type and name the code in force carries) are not held by it.
+   */
+  function changesHeld(details: StartDetails, at: number): Unapplied | null {
+    return unapplied && unapplied.key === signUpKey(details) && carriesOtherThan(details, unapplied.carries)
+      && unapplied.until > at ? unapplied : null
   }
 
   /**
@@ -567,6 +636,12 @@ function EnrollmentSteps() {
       setChallengeId(result.challengeId ?? '')
       lastCode.current = { key, challengeId: result.challengeId ?? '' }
     }
+    // A code sent carries this start's facility type and administrator name (R6); one in force keeps its own.
+    if (outcome === 'sent' && result.challengeId) {
+      codeCarries.current.set(result.challengeId, { organizationType: details.organizationType,
+        administratorName: details.administratorName })
+    }
+    setUnapplied(null)
     // Main: the page counts the codes it asked for (CODE_LIMITS). Novu counts them itself.
     if (!reported) setSends(list => [...list.filter(send => send.at > at - DAY_MS), { key, at }])
     // The first details accepted for a CAC number and product are the ones Identity keeps; a sign-up that has
@@ -587,7 +662,7 @@ function EnrollmentSteps() {
     event.preventDefault()
     const details = startDetails()
     const key = signUpKey(details)
-    if (busy || !turnstileToken || (retryFor === key && retryAt > Date.now())) return
+    if (busy || !turnstileToken || (retryFor === key && retryAt > Date.now()) || changesHeld(details, Date.now())) return
     const first = otherEmailThanFirst(details)
     const limitAt = nextCodeAt(sentFor(key), Date.now())
     if (limitAt && lastCode.current?.key === key) {
@@ -606,16 +681,30 @@ function EnrollmentSteps() {
     setBusy(true)
     setError(null)
     try {
-      const { outcome, until } = accepted(await providerEnrollmentApi.start({ ...details, turnstileToken }), details)
+      const result = await providerEnrollmentApi.start({ ...details, turnstileToken })
+      const { outcome, until } = accepted(result, details)
       setResent(null)
+      const unsentBecause = until - Date.now() > DEFAULT_RESEND_SECONDS * 1000 ? 'limit' : 'recent'
+      // The facility type and administrator name the code in force was sent with, when this page sent it.
+      const carries = outcome === 'in-force' && result.challengeId ? codeCarries.current.get(result.challengeId) : undefined
       if (outcome === 'none') {
         // Novu sent no code, and none can be entered now: Continue waits until Identity would send one.
-        setError({ text: until - Date.now() > DEFAULT_RESEND_SECONDS * 1000
+        setError({ text: unsentBecause === 'limit'
           ? 'We’ve sent as many codes for these details as we can for now.'
           : 'We can’t send a new code for these details yet.' })
         holdFor(key, until)
+      } else if (carries && carriesOtherThan(details, carries)) {
+        // Novu sent no code, and the code in force carries the type and name it was sent with, which the account would
+        // keep: the changes wait for a code that carries them, or the code in force is entered with the earlier ones.
+        const expires = typeof result.expiresInSeconds === 'number' && Number.isFinite(result.expiresInSeconds)
+          ? Date.now() + Math.max(result.expiresInSeconds, 0) * 1000 : until
+        setUnapplied({ key, challengeId: result.challengeId!, carries, unsent: unsentBecause, until, enterableUntil: expires })
+        setError({ text: (unsentBecause === 'limit'
+          ? 'We didn’t send a new code, because we’ve sent as many as we can for now, '
+          : `We didn’t send a new code, because one was sent to ${details.administratorEmail} less than a minute ago, `)
+          + 'so your changes haven’t been applied.' })
       } else {
-        setUnsent(outcome === 'sent' ? null : until - Date.now() > DEFAULT_RESEND_SECONDS * 1000 ? 'limit' : 'recent')
+        setUnsent(outcome === 'sent' ? null : unsentBecause)
         setStage('otp')
       }
     } catch (reason) {
@@ -666,6 +755,8 @@ function EnrollmentSteps() {
       return
     }
     lastCode.current = null
+    // The code is used: a start with changed details now waits only for Identity's own answer.
+    setUnapplied(null)
     setCode('')
     setResent(null)
     setUnsent(null)
@@ -750,12 +841,28 @@ function EnrollmentSteps() {
     if (!codesReported) holdFor(codeFor, resendAt)
   }
 
-  /** "This isn't my organization": back to the details, kept, to correct the CAC number. */
+  /**
+   * "This isn't my organization": back to the details, kept, to correct them. The confirmed sign-up stays open, and
+   * holds the CAC number it was started with for 24 hours (0086, A8): Identity has no way for an applicant to close
+   * it, so the page says so, and asks for the number to be passed to support, who can reject it (Open applications).
+   */
   function notMine() {
     setPassword('')
     startAgain()
-    setError({ text: 'Check the CAC registration number on your CAC certificate, correct it, then select Continue. '
-      + 'No account has been created.' })
+    setError({ text: 'Check your details, and the CAC registration number on your CAC certificate. Correct them, then '
+      + 'select Continue. No account has been created. For up to 24 hours, nobody else can sign up with the CAC number '
+      + 'you entered.', support: 'held' })
+  }
+
+  /** Back to the code in force, with the facility type and administrator name it carries (Unapplied). */
+  function enterCodeInForce(previous: Unapplied) {
+    setName(previous.carries.administratorName)
+    setType(previous.carries.organizationType)
+    setChallengeId(previous.challengeId)
+    setCode(''); setError(null); setResent(null)
+    setUnsent(previous.unsent)
+    // Kept: changed again after "Start again", the details still wait for a code that carries them.
+    setStage('otp')
   }
 
   /** The email a CAC number and product were first accepted with, back in the form. */
@@ -768,7 +875,10 @@ function EnrollmentSteps() {
   const currentStep = stage === 'sign-in' ? 'authenticator' : stage
   const closed = availability === 'closed'
   const details = startDetails()
-  const retryIn = retryFor === signUpKey(details) ? secondsUntil(retryAt, now) : 0
+  // Changed details that the last start sent no code for (changesHeld): Continue with them waits for a code.
+  const carried = stage === 'details' ? changesHeld(details, now) : null
+  const retryIn = Math.max(retryFor === signUpKey(details) ? secondsUntil(retryAt, now) : 0,
+    carried ? secondsUntil(carried.until, now) : 0)
   const resendIn = secondsUntil(Math.max(resendAt, retryAt), now)
   // How long until a new code past a limit: main's count of its own codes, or Novu's own long wait.
   const codeLimitIn = secondsUntil(codeLimitAt, now) || (codeLimited ? resendIn : 0)
@@ -859,12 +969,21 @@ function EnrollmentSteps() {
               <button type="button" className="patient-text-button" onClick={() => firstEmail(kept)}>Use the email I first gave</button>
             </div>}
 
+            {carried && <div className="provider-setup-kept">
+              <p className="patient-field-hint">A new facility type or administrator name takes effect only with a new code. The
+                {' '}code already sent is for the facility type {organizationTypeLabel(carried.carries.organizationType)}, with
+                {' '}{carried.carries.administratorName} as administrator.</p>
+              {carried.enterableUntil > now && <button type="button" className="patient-text-button"
+                onClick={() => enterCodeInForce(carried)}>Use the details I gave before</button>}
+            </div>}
+
             <div className="provider-setup-actions">
               <Turnstile action="provider-enrollment" onTokenChange={setTurnstileToken} resetKey={resetKey} />
               <button type="submit" className="patient-primary-button provider-setup-submit" disabled={busy || !turnstileToken || retryIn > 0}>
                 {busy ? 'Verifying CAC…' : 'Continue'}
               </button>
-              {retryIn > 0 && !busy && <p className="patient-field-hint">You can try again in {waitWords(retryIn)}.</p>}
+              {retryIn > 0 && !busy && <p className="patient-field-hint">{carried
+                ? 'You can continue with your changes in ' : 'You can try again in '}{waitWords(retryIn)}.</p>}
               {/* Novu has no review before activation: a CAC number already linked is refused (P4 review). */}
               <p className="provider-setup-fineprint">{novu
                 ? 'We check your CAC against the official registry, and Health ID support checks every new facility within one '
@@ -920,12 +1039,13 @@ function EnrollmentSteps() {
           <form onSubmit={event => void activate(event)} className="patient-form">
             <h2>Create your provider account</h2>
             {novu && <div className="provider-setup-registering">
+              {/* The facility type and administrator are the confirmed code's (R6), which a start that sent no code may
+                  not have changed: shown so they can be checked too. */}
               <p id="provider-registering" className="patient-field-hint">{registering?.organizationName
                 ? <>You’re registering <strong>{registering.organizationName}</strong>, CAC number {cacNumber}
-                  {registering.administratorName ? `, with ${registering.administratorName} as its administrator` : ''}. Check
-                  {' '}that this is your organization before you create the account.</>
-                : <>You’re registering the organization with CAC number {cacNumber}. Check that this is your organization’s number
-                  {' '}before you create the account.</>}</p>
+                  {registeringDetails(registering)}. Check that this is your organization before you create the account.</>
+                : <>You’re registering the organization with CAC number {cacNumber}{registeringDetails(registering)}. Check
+                  {' '}that this is your organization’s number before you create the account.</>}</p>
               {registeringFailed && <p className="patient-field-hint">We couldn’t load your organization’s registered name just
                 now. <button type="button" className="patient-text-button" disabled={busy}
                   onClick={() => void readRegisteringAgain()}>Try again</button></p>}

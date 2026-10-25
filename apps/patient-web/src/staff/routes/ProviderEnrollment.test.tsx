@@ -870,8 +870,8 @@ describe('facility self sign-up on Novu (P4)', () => {
       api.profile.mockResolvedValueOnce(PROFILE)
       api.activate.mockResolvedValueOnce(session)
       await toPassword()
-      expect(registering()).toBe('You’re registering IKEJA CARE LIMITED, CAC number RC123456, with Ada Admin as its '
-        + 'administrator. Check that this is your organization before you create the account.')
+      expect(registering()).toBe('You’re registering IKEJA CARE LIMITED, CAC number RC123456, as a hospital, with Ada Admin as '
+        + 'its administrator. Check that this is your organization before you create the account.')
       expect(screen.getByText('IKEJA CARE LIMITED').tagName).toBe('STRONG')
       expect(api.profile).toHaveBeenCalledTimes(1)
       expect(api.profile).toHaveBeenCalledWith()
@@ -887,8 +887,8 @@ describe('facility self sign-up on Novu (P4)', () => {
       api.profile.mockResolvedValueOnce({ ...PROFILE, organizationName: 'LEKKI LABS LTD', registrationNumber: 'RC7654321',
         administratorName: 'Dr Ada Obi', administratorEmail: 'ada.obi@example.test' })
       await toPassword()
-      expect(registering()).toBe('You’re registering LEKKI LABS LTD, CAC number RC7654321, with Dr Ada Obi as its '
-        + 'administrator. Check that this is your organization before you create the account.')
+      expect(registering()).toBe('You’re registering LEKKI LABS LTD, CAC number RC7654321, as a hospital, with Dr Ada Obi as '
+        + 'its administrator. Check that this is your organization before you create the account.')
       expect(document.getElementById('provider-password-hint')?.textContent).toMatch(/You’ll use it with ada\.obi@example\.test to sign in\./)
       expect((document.querySelector('input[autocomplete="username"]') as HTMLInputElement).value).toBe('ada.obi@example.test')
     })
@@ -898,6 +898,46 @@ describe('facility self sign-up on Novu (P4)', () => {
       await toPassword()
       expect(registering()).toBe('You’re registering IKEJA CARE LIMITED, CAC number RC123456. Check that this is your '
         + 'organization before you create the account.')
+    })
+
+    /**
+     * The facility type and administrator name are the confirmed code's (R6). A start that sent no code changed
+     * neither (0086 stores them only with a code it sends), so the page shows both for the administrator to check.
+     */
+    it.each([
+      ['clinic', 'a clinic'],
+      ['laboratory', 'a laboratory'],
+      ['pharmacy', 'a pharmacy'],
+      ['other', 'another kind of healthcare provider'],
+    ])('names the facility type the account will keep (%s)', async (organizationType, phrase) => {
+      api.profile.mockResolvedValueOnce({ ...PROFILE, organizationType })
+      await toPassword()
+      expect(registering()).toBe(`You’re registering IKEJA CARE LIMITED, CAC number RC123456, as ${phrase}, with Ada Admin as `
+        + 'its administrator. Check that this is your organization before you create the account.')
+    })
+
+    it('leaves out a facility type it does not know', async () => {
+      api.profile.mockResolvedValueOnce({ ...PROFILE, organizationType: 'spaceport' })
+      await toPassword()
+      expect(registering()).toBe('You’re registering IKEJA CARE LIMITED, CAC number RC123456, with Ada Admin as its '
+        + 'administrator. Check that this is your organization before you create the account.')
+    })
+
+    it('names the facility type and administrator with the CAC number when Identity gives no name', async () => {
+      api.profile.mockResolvedValueOnce({ registrationNumber: 'RC123456', organizationType: 'clinic', administratorName: 'Ada Admin' })
+      await toPassword()
+      expect(registering()).toBe('You’re registering the organization with CAC number RC123456, as a clinic, with Ada Admin '
+        + 'as its administrator. Check that this is your organization’s number before you create the account.')
+    })
+
+    it('shows the facility type the code in force carries, when that code was not sent from this page', async () => {
+      // Another tab's start sent the code in force for a clinic; this tab's start, for a hospital, sent none.
+      api.start.mockResolvedValueOnce({ accepted: true, codeSent: false, challengeId: 'challenge-other-tab', expiresInSeconds: 500,
+        resendAfterSeconds: 30 })
+      api.profile.mockResolvedValueOnce({ ...PROFILE, organizationType: 'clinic' })
+      await toPassword()
+      expect(api.verify).toHaveBeenCalledWith('challenge-other-tab', '123456')
+      expect(registering()).toMatch(/^You’re registering IKEJA CARE LIMITED, CAC number RC123456, as a clinic, with Ada Admin/)
     })
 
     it('leaves the CAC number to check after a 404 from an Identity without the route, and the account can still be made', async () => {
@@ -985,8 +1025,12 @@ describe('facility self sign-up on Novu (P4)', () => {
       fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'a-long-enough-password' } })
       fireEvent.click(screen.getByRole('button', { name: 'This isn’t my organization' }))
 
-      expect((await screen.findByRole('alert')).textContent).toBe('Check the CAC registration number on your CAC certificate, '
-        + 'correct it, then select Continue. No account has been created.')
+      // The confirmed sign-up stays open, holding the number (Identity has no way for the applicant to close it).
+      expect((await screen.findByRole('alert')).textContent).toBe('Check your details, and the CAC registration number on your '
+        + 'CAC certificate. Correct them, then select Continue. No account has been created. For up to 24 hours, nobody else '
+        + 'can sign up with the CAC number you entered. If it belongs to another company, tell Health ID support at '
+        + `${SUPPORT}, and give that number, so they can free it.`)
+      expect(screen.getByRole('link', { name: SUPPORT }).getAttribute('href')).toBe(`mailto:${SUPPORT}`)
       const cacField = screen.getByRole('textbox', { name: 'CAC registration number' }) as HTMLInputElement
       expect(cacField.value).toBe('RC123456')
       expect(api.activate).not.toHaveBeenCalled()
@@ -1338,6 +1382,182 @@ describe('facility self sign-up on Novu (P4)', () => {
       await submitDetails()
       expect((await screen.findByRole('alert')).textContent).toMatch(/^This organization can’t be set up automatically right now:/)
       expect(keptNote()).toBeNull()
+    })
+
+    /**
+     * A changed facility type or administrator name goes with the next code sent (R6), and only with it: a start that
+     * sends no code (codeSent false) stores them nowhere, and the code in force keeps the type and name it was sent with,
+     * which the account then takes (0086 begin_self_service_provider_enrollment). P4 round 2 review.
+     */
+    describe('when Identity sends no code for them (codeSent false)', () => {
+      const sent = (challengeId: string, resendAfterSeconds = 60) =>
+        ({ accepted: true, codeSent: true, challengeId, expiresInSeconds: 600, resendAfterSeconds })
+      const inForce = (challengeId: string, resendAfterSeconds: number, expiresInSeconds = 590) =>
+        ({ accepted: true, codeSent: false, challengeId, expiresInSeconds, resendAfterSeconds })
+      const panel = () => screen.queryByText(/^A new facility type or administrator name takes effect only with a new code\./)
+      const useEarlier = () => screen.queryByRole('button', { name: 'Use the details I gave before' })
+      const codeHeading = () => screen.queryByRole('heading', { name: 'Confirm your administrator email' })
+      const codeHint = () => codeHeading()?.nextElementSibling?.textContent
+      const radio = (name: string) => screen.getByRole('radio', { name }) as HTMLInputElement
+
+      async function startAgain() {
+        fireEvent.click(screen.getByRole('button', { name: 'Start again' }))
+        await screen.findByRole('button', { name: 'Continue' })
+        await waitFor(() => expect(continueButton().disabled).toBe(false))
+      }
+
+      async function verifyWith(code: string) {
+        fireEvent.change(screen.getByRole('textbox', { name: 'Email verification code' }), { target: { value: code } })
+        fireEvent.click(screen.getByRole('button', { name: 'Verify email' }))
+      }
+
+      it('stays at the details, says the change was not applied, and continues with it once a code can carry it', async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true })
+        api.start.mockResolvedValueOnce(sent('challenge-1')).mockResolvedValueOnce(inForce('challenge-1', 50))
+          .mockResolvedValueOnce(sent('challenge-2'))
+        await toDetails()
+        fireEvent.click(radio('Clinic'))
+        await submitDetails()
+        await screen.findByRole('heading', { name: 'Confirm your administrator email' })
+        await startAgain()
+        fireEvent.click(radio('Hospital'))
+        fireEvent.click(continueButton())
+
+        expect((await screen.findByRole('alert')).textContent).toBe('We didn’t send a new code, because one was sent to '
+          + 'ada@example.test less than a minute ago, so your changes haven’t been applied.')
+        expect(api.start).toHaveBeenCalledTimes(2)
+        expect(api.start).toHaveBeenLastCalledWith(expect.objectContaining({ organizationType: 'hospital' }))
+        // Not the code step: its code would register a clinic.
+        expect(codeHeading()).toBeNull()
+        expect(radio('Hospital').checked).toBe(true)
+        expect(panel()?.textContent).toBe('A new facility type or administrator name takes effect only with a new code. The '
+          + 'code already sent is for the facility type Clinic, with Ada Admin as administrator.')
+        expect(useEarlier()).toBeTruthy()
+        expect(screen.getByText(/^You can continue with your changes in (50|49) seconds\.$/)).toBeTruthy()
+        expect(continueButton().disabled).toBe(true)
+        // Nor does submitting the form another way, once the security check has a new token.
+        await act(async () => { vi.advanceTimersByTime(1_000) })
+        await act(async () => { fireEvent.submit(continueButton().closest('form')!) })
+        expect(api.start).toHaveBeenCalledTimes(2)
+        expect(codeHeading()).toBeNull()
+
+        await act(async () => { vi.advanceTimersByTime(51_000) })
+        await waitFor(() => expect(continueButton().disabled).toBe(false))
+        expect(panel()).toBeNull()
+        expect(screen.queryByText(/You can continue with your changes/)).toBeNull()
+        fireEvent.click(continueButton())
+        await screen.findByRole('heading', { name: 'Confirm your administrator email' })
+        expect(codeHint()).toBe('Enter the six digit code sent to ada@example.test.')
+        expect(api.start).toHaveBeenCalledTimes(3)
+        expect(api.start).toHaveBeenLastCalledWith(expect.objectContaining({ organizationType: 'hospital',
+          administratorName: 'Ada Admin' }))
+        await verifyWith('222222')
+        await waitFor(() => expect(api.verify).toHaveBeenCalledWith('challenge-2', '222222'))
+      })
+
+      it('offers the code already sent with the details it carries, and holds the changes again after “Start again”', async () => {
+        api.start.mockResolvedValueOnce(sent('challenge-1')).mockResolvedValueOnce(inForce('challenge-1', 45))
+        await toCode()
+        await startAgain()
+        fireEvent.change(field('Administrator full name'), { target: { value: 'Dr Ada Obi' } })
+        fireEvent.click(radio('Clinic'))
+        fireEvent.click(continueButton())
+        await screen.findByRole('alert')
+        expect(panel()?.textContent).toMatch(/The code already sent is for the facility type Hospital, with Ada Admin as administrator\.$/)
+
+        fireEvent.click(useEarlier()!)
+        await screen.findByRole('heading', { name: 'Confirm your administrator email' })
+        expect(codeHint()).toBe('We didn’t send a new code, because one was sent to ada@example.test less than a minute ago. '
+          + 'Enter the six digit code from that email.')
+        expect(screen.queryByRole('alert')).toBeNull()
+
+        // The form holds the details the code carries: not held, and nothing more was sent.
+        await startAgain()
+        expect(field('Administrator full name').value).toBe('Ada Admin')
+        expect(radio('Hospital').checked).toBe(true)
+        expect(panel()).toBeNull()
+        // Changed again, they wait as before, with no other start.
+        fireEvent.click(radio('Clinic'))
+        expect(panel()).toBeTruthy()
+        expect(continueButton().disabled).toBe(true)
+        expect(screen.getByText(/^You can continue with your changes in \d+ seconds?\.$/)).toBeTruthy()
+        fireEvent.click(radio('Hospital'))
+        expect(panel()).toBeNull()
+        expect(continueButton().disabled).toBe(false)
+        api.start.mockResolvedValueOnce(inForce('challenge-1', 30))
+        fireEvent.click(continueButton())
+        await screen.findByRole('heading', { name: 'Confirm your administrator email' })
+        expect(codeHint()).toMatch(/^We didn’t send a new code, because one was sent to ada@example\.test less than a minute ago\./)
+        expect(api.start).toHaveBeenCalledTimes(3)
+        await verifyWith('111111')
+        await waitFor(() => expect(api.verify).toHaveBeenCalledWith('challenge-1', '111111'))
+      })
+
+      it('past a limit, says so, holds only the changed details, and stops offering the code once it has expired', async () => {
+        vi.useFakeTimers({ shouldAdvanceTime: true })
+        api.start.mockResolvedValueOnce(sent('challenge-5', 3_300)).mockResolvedValueOnce(inForce('challenge-5', 3_295, 30))
+          .mockResolvedValueOnce({ accepted: true, codeSent: false, resendAfterSeconds: 3_260 })
+        await toCode()
+        await startAgain()
+        fireEvent.change(field('Administrator full name'), { target: { value: 'Dr Ada Obi' } })
+        fireEvent.click(continueButton())
+
+        expect((await screen.findByRole('alert')).textContent).toBe('We didn’t send a new code, because we’ve sent as many as '
+          + 'we can for now, so your changes haven’t been applied.')
+        expect(panel()?.textContent).toMatch(/is for the facility type Hospital, with Ada Admin as administrator\.$/)
+        expect(screen.getByText(/^You can continue with your changes in (55|54) minutes\.$/)).toBeTruthy()
+        expect(useEarlier()).toBeTruthy()
+        // The code in force expires: it is no longer offered, and the changes still wait.
+        await act(async () => { vi.advanceTimersByTime(31_000) })
+        await waitFor(() => expect(useEarlier()).toBeNull())
+        expect(panel()).toBeTruthy()
+        expect(continueButton().disabled).toBe(true)
+
+        // The details the code carried are not held by the changes: Identity answers for them.
+        fireEvent.change(field('Administrator full name'), { target: { value: 'Ada Admin' } })
+        expect(panel()).toBeNull()
+        await waitFor(() => expect(continueButton().disabled).toBe(false))
+        fireEvent.click(continueButton())
+        await waitFor(() => expect(screen.getByRole('alert').textContent)
+          .toBe('We’ve sent as many codes for these details as we can for now.'))
+        expect(api.start).toHaveBeenCalledTimes(3)
+        expect(screen.getByText(/^You can try again in (55|54) minutes\.$/)).toBeTruthy()
+      })
+
+      it('goes to the code in force as before when it carries the same type and name', async () => {
+        api.start.mockResolvedValueOnce(sent('challenge-1')).mockResolvedValueOnce(inForce('challenge-1', 40))
+        await toCode()
+        await startAgain()
+        // A changed email is another sign-up, and a corrected one back is the same: neither is a type or name change.
+        fireEvent.change(field('Administrator email'), { target: { value: 'ada@example.org' } })
+        fireEvent.change(field('Administrator email'), { target: { value: 'ada@example.test' } })
+        fireEvent.click(continueButton())
+        await screen.findByRole('heading', { name: 'Confirm your administrator email' })
+        expect(codeHint()).toMatch(/^We didn’t send a new code, because one was sent to ada@example\.test less than a minute ago\./)
+        expect(panel()).toBeNull()
+      })
+
+      it('holds nothing once the code in force has been used', async () => {
+        api.start.mockResolvedValueOnce(sent('challenge-1')).mockResolvedValueOnce(inForce('challenge-1', 45))
+          .mockResolvedValueOnce({ accepted: true, codeSent: false, resendAfterSeconds: 20 })
+        await toCode()
+        await startAgain()
+        fireEvent.click(radio('Clinic'))
+        fireEvent.click(continueButton())
+        await screen.findByRole('alert')
+        fireEvent.click(useEarlier()!)
+        await screen.findByRole('heading', { name: 'Confirm your administrator email' })
+        await verifyWith('111111')
+        await screen.findByLabelText('Password')
+        fireEvent.click(screen.getByRole('button', { name: 'This isn’t my organization' }))
+        await screen.findByRole('button', { name: 'Continue' })
+        fireEvent.click(radio('Clinic'))
+        expect(panel()).toBeNull()
+        await waitFor(() => expect(continueButton().disabled).toBe(false))
+        fireEvent.click(continueButton())
+        expect((await screen.findByText('We can’t send a new code for these details yet.')).getAttribute('role')).toBe('alert')
+        expect(api.start).toHaveBeenLastCalledWith(expect.objectContaining({ organizationType: 'clinic' }))
+      })
     })
   })
 })
