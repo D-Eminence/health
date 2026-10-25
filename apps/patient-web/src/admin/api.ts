@@ -98,11 +98,16 @@ export interface OrganizationApplication extends Versioned {
   profileAddress: string | null; profileRegistryStatus: string | null; profileState: string | null
   fieldSources: Record<string, string | null> | null; createdAt: string; verifiedAt: string | null; reviewedAt: string | null
 }
-/** Which facility sign-ups to list: the ones support has not checked yet (the default), the checked ones, or both. */
+/**
+ * Which facility sign-ups to list: the ones support has not checked yet (the default), the ones it has reviewed or
+ * released, or both.
+ */
 export type SelfServiceFacilityState = 'unreviewed' | 'reviewed' | 'all'
 /**
  * A facility that signed itself up (P4, Novu only): `GET /admin/self-service-facilities`, one row per activated
- * self-service application, newest activation first, at most 200. `version` is the application's, for the review.
+ * self-service application, at most 200: the unreviewed ones oldest activation first, the others newest first.
+ * `version` is the application's, for the review and the release. `organizationName` is the verified legal name,
+ * kept after a release renames the organization. The release fields come with P4 round 2 (absent before it).
  */
 export interface SelfServiceFacility extends Versioned {
   applicationId: string; organizationId: string; organizationName: string; facilityId: string; facilityName: string
@@ -110,9 +115,24 @@ export interface SelfServiceFacility extends Versioned {
   administratorName: string; administratorEmail: string; administratorAccountId: string | null
   administratorAccountStatus: string | null; activatedAt: string | null; reviewedAt: string | null
   reviewedByAccountId: string | null; reviewNote: string | null
+  releasedAt?: string | null; releasedByAccountId?: string | null; releaseReason?: string | null
 }
 /** `POST /admin/self-service-facilities/:applicationId/review`. */
 export interface SelfServiceFacilityReviewed extends Versioned { applicationId: string; reviewedAt: string }
+/** `POST /admin/self-service-facilities/:applicationId/release`. */
+export interface SelfServiceFacilityReleased extends Versioned { applicationId: string; releasedAt: string }
+/**
+ * A self-service application not activated yet (P4 round 2, Novu only): `GET /admin/self-service-applications`,
+ * oldest first, at most 200. It holds its CAC number and product for 24 hours from `submittedAt` (`lapsesAt`).
+ * `organizationName` is the verified legal name, null until the CAC is verified.
+ */
+export interface SelfServiceApplication extends Versioned {
+  applicationId: string; productCode: string; organizationType: string; cacHint: string; organizationName: string | null
+  administratorName: string; administratorEmail: string; status: 'pending_verification' | 'ready_for_review' | string
+  verificationResult: string | null; emailVerified: boolean; submittedAt: string; lapsesAt: string
+}
+/** `POST /admin/self-service-applications/:applicationId/reject`. */
+export interface SelfServiceApplicationRejected extends Versioned { applicationId: string; rejectedAt: string }
 export interface IntegrationProvider extends Versioned {
   provider: string; name: string; enabled: boolean; health: string; managementMode: string; availableActions: string[]
   capabilities?: string[]; activeCapabilities?: string[]
@@ -399,16 +419,17 @@ async function clinicianQueue<T>(read: Promise<T>): Promise<T> {
 }
 
 /**
- * An Identity without facility self sign-up (hid-system main, or Novu before P4) has no list: its 404 names no code
- * of its own (`NOT_FOUND`, with a detail naming the route). It is said as that, never in the router's words.
+ * An Identity without facility self sign-up (hid-system main, or Novu before P4), or without its open applications
+ * (Novu before P4 round 2), has no such list: its 404 names no code of its own (`NOT_FOUND`, with a detail naming
+ * the route). It is said as that, never in the router's words.
  */
-async function selfServiceList<T>(read: Promise<T>): Promise<T> {
+async function selfServiceList<T>(read: Promise<T>, unavailable: { code: string; message: string } = {
+  code: 'SELF_SERVICE_REVIEW_UNAVAILABLE', message: 'New facility sign-ups are not available from this Identity.' }): Promise<T> {
   try {
     return await read
   } catch (error) {
     if (isHidApiError(error) && error.status === 404 && error.code === 'NOT_FOUND') {
-      throw new HidApiError(404, 'New facility sign-ups are not available from this Identity.',
-        { code: 'SELF_SERVICE_REVIEW_UNAVAILABLE', requestId: error.requestId, retryable: false })
+      throw new HidApiError(404, unavailable.message, { code: unavailable.code, requestId: error.requestId, retryable: false })
     }
     throw error
   }
@@ -623,6 +644,30 @@ export const adminApi = {
   reviewSelfServiceFacility(facility: Pick<SelfServiceFacility, 'applicationId' | 'version'>, note: string) {
     return adminApi.command<SelfServiceFacilityReviewed>(
       at('/api/v1/admin/self-service-facilities', facility.applicationId, 'review'), { note }, { version: facility.version })
+  },
+  /**
+   * Releases a fraudulent or mistaken self sign-up (P4 round 2), once its facility is suspended and its
+   * administrator disabled: Identity closes the application, unlinks the CAC number, suspends the product and
+   * deactivates and renames the organization, so the real company can sign up. A reason of 8 to 500 characters and
+   * If-Match with the version listed, as the review; no step-up or Idempotency-Key.
+   */
+  releaseSelfServiceFacility(facility: Pick<SelfServiceFacility, 'applicationId' | 'version'>, reason: string) {
+    return adminApi.command<SelfServiceFacilityReleased>(
+      at('/api/v1/admin/self-service-facilities', facility.applicationId, 'release'), { reason }, { version: facility.version })
+  },
+  /** Self-service applications not activated yet (P4 round 2, Novu only), each holding its CAC number for 24 hours. */
+  selfServiceApplications(signal?: AbortSignal) {
+    return selfServiceList(request<{ items: SelfServiceApplication[] }>('/api/v1/admin/self-service-applications', { signal }),
+      { code: 'SELF_SERVICE_APPLICATIONS_UNAVAILABLE', message: 'Open sign-up applications are not available from this Identity.' })
+  },
+  /**
+   * Closes an open self-service application (P4 round 2): a reason of 8 to 500 characters and If-Match with the
+   * version listed; no step-up or Idempotency-Key. Its email and network can't reopen the CAC number for 7 days.
+   */
+  rejectSelfServiceApplication(application: Pick<SelfServiceApplication, 'applicationId' | 'version'>, reason: string) {
+    return adminApi.command<SelfServiceApplicationRejected>(
+      at('/api/v1/admin/self-service-applications', application.applicationId, 'reject'), { reason },
+      { version: application.version })
   },
   integrations(signal?: AbortSignal) { return request<IntegrationCatalog>('/api/v1/admin/integrations', { signal }) },
   integrationHistory(provider: string, signal?: AbortSignal) {

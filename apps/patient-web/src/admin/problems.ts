@@ -112,12 +112,20 @@ const ADMIN_PROBLEMS: Readonly<Record<string, string>> = {
   WORKFORCE_EMAIL_IN_USE: 'An account already uses this email address. This person may have applied by themselves: check '
     + 'Clinician applications.',
 
-  // Support's review of facilities that signed themselves up (P4, Novu only).
+  // Support's review of facilities that signed themselves up (P4, Novu only), their release and the open
+  // applications (P4 round 2). Each screen gives its own words for a refused note or reason.
   SELF_SERVICE_REVIEW_UNAVAILABLE: 'This Identity does not list new facility sign-ups yet (facility self sign-up is not '
     + 'deployed), so there is nothing to review here.',
   SELF_SERVICE_FACILITY_NOT_FOUND: 'This sign-up is no longer in the list. The list has been refreshed.',
   SELF_SERVICE_FACILITY_ALREADY_REVIEWED: 'Another administrator has already reviewed this sign-up. The list has been refreshed.',
+  SELF_SERVICE_FACILITY_ALREADY_RELEASED: 'Another administrator has already released this sign-up. The list has been refreshed.',
+  SELF_SERVICE_FACILITY_RELEASE_REQUIRES_SUSPENSION: 'This sign-up can’t be released while any facility of its organization '
+    + 'is active or its administrator’s account isn’t disabled. The list has been refreshed: suspend the facility and '
+    + 'disable the account first.',
   SELF_SERVICE_FACILITY_REQUEST_INVALID: 'Enter a note of 8 to 500 characters about what you checked.',
+  SELF_SERVICE_APPLICATION_NOT_FOUND: 'This sign-up is no longer open: it was finished, rejected or has lapsed. The list has '
+    + 'been refreshed.',
+  SELF_SERVICE_APPLICATIONS_UNAVAILABLE: 'This Identity does not list open sign-ups yet, so there is nothing to show here.',
 
   // Facility-assisted registration designations (hid-system #85, ADR-063).
   FACILITY_NOT_ACTIVE: 'Only a verified, active facility of an active organization can register patients in person. Verify the facility first.',

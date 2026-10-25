@@ -26,7 +26,10 @@ function serve(permissions: string[], items: unknown[] = []) {
       body: init.body ? JSON.parse(String(init.body)) : null })
     if (target.pathname === '/api/v1/admin/session') return json({ actor: actor(permissions), expiresAt: '2026-10-24T20:00:00Z' })
     if (target.pathname === '/api/v1/admin/self-service-facilities') return json({ items })
+    if (target.pathname === '/api/v1/admin/self-service-applications') return json({ items })
     if (target.pathname.endsWith('/review')) return json({ applicationId: APPLICATION_ID, reviewedAt: '2026-10-24T12:00:00.000Z', version: 4 })
+    if (target.pathname.endsWith('/release')) return json({ applicationId: APPLICATION_ID, releasedAt: '2026-10-24T13:00:00.000Z', version: 5 })
+    if (target.pathname.endsWith('/reject')) return json({ applicationId: APPLICATION_ID, rejectedAt: '2026-10-24T14:00:00.000Z', version: 3 })
     return json({ status: 404, code: 'NOT_FOUND', detail: `Cannot ${String(init.method)} ${target.pathname}` }, 404)
   }))
   return calls
@@ -89,6 +92,59 @@ describe('New facility sign-ups in the Novu console', () => {
     // A version that was never read is not sent.
     expect(() => adminApi.reviewSelfServiceFacility({ applicationId: APPLICATION_ID, version: 0 }, 'Called the hospital; confirmed.'))
       .toThrow('Reload this item before changing it.')
+  })
+
+  it('sends a release with If-Match, the reason and the CSRF token, and no Idempotency-Key (P4 round 2)', async () => {
+    const calls = serve(READER)
+    document.cookie = 'hid_access_csrf=novu-proof; path=/'
+    const { adminApi } = await import('../api')
+    await expect(adminApi.releaseSelfServiceFacility({ applicationId: APPLICATION_ID, version: 4 }, 'The company did not sign up.'))
+      .resolves.toEqual({ applicationId: APPLICATION_ID, releasedAt: '2026-10-24T13:00:00.000Z', version: 5 })
+    const release = calls.find(call => call.path.endsWith('/release'))!
+    expect(release).toMatchObject({ method: 'POST', path: `/api/v1/admin/self-service-facilities/${APPLICATION_ID}/release`,
+      body: { reason: 'The company did not sign up.' } })
+    expect(release.headers.get('if-match')).toBe('"4"')
+    expect(release.headers.get('x-csrf-token')).toBe('novu-proof')
+    expect(release.headers.has('idempotency-key')).toBe(false)
+    expect(release.headers.has('x-facility-id')).toBe(false)
+    expect(() => adminApi.releaseSelfServiceFacility({ applicationId: APPLICATION_ID, version: 0 }, 'The company did not sign up.'))
+      .toThrow('Reload this item before changing it.')
+  })
+
+  it('lists open applications with one GET and no query, and rejects one with If-Match, the reason and the CSRF token (P4 round 2)', async () => {
+    const calls = serve(READER, [{ applicationId: APPLICATION_ID, version: 2 }])
+    document.cookie = 'hid_access_csrf=novu-proof; path=/'
+    const { adminApi } = await import('../api')
+    await expect(adminApi.selfServiceApplications()).resolves.toEqual({ items: [{ applicationId: APPLICATION_ID, version: 2 }] })
+    expect(calls.filter(call => call.path === '/api/v1/admin/self-service-applications').map(call => [call.method, call.search]))
+      .toEqual([['GET', '']])
+    await expect(adminApi.rejectSelfServiceApplication({ applicationId: APPLICATION_ID, version: 2 }, 'Not the company’s own.'))
+      .resolves.toEqual({ applicationId: APPLICATION_ID, rejectedAt: '2026-10-24T14:00:00.000Z', version: 3 })
+    const reject = calls.find(call => call.path.endsWith('/reject'))!
+    expect(reject).toMatchObject({ method: 'POST', path: `/api/v1/admin/self-service-applications/${APPLICATION_ID}/reject`,
+      body: { reason: 'Not the company’s own.' } })
+    expect(reject.headers.get('if-match')).toBe('"2"')
+    expect(reject.headers.get('x-csrf-token')).toBe('novu-proof')
+    expect(reject.headers.has('idempotency-key')).toBe(false)
+  })
+
+  it('opens the open applications view from its address, through the registered route', async () => {
+    const calls = serve(READER, [{ applicationId: APPLICATION_ID, version: 2, productCode: 'ehr', organizationType: 'hospital',
+      cacHint: 'RC****21', organizationName: 'SURULERE CLINIC LTD', administratorName: 'Tunde Bello',
+      administratorEmail: 'tunde@example.test', status: 'ready_for_review', verificationResult: 'verified', emailVerified: true,
+      submittedAt: '2026-10-24T08:00:00.000Z', lapsesAt: '2026-10-25T08:00:00.000Z' }])
+    await openAt('/admin/self-service-facilities?state=open')
+    expect(await screen.findByRole('heading', { name: 'SURULERE CLINIC LTD', level: 2 })).toBeTruthy()
+    expect(calls.some(call => call.path === '/api/v1/admin/self-service-facilities')).toBe(false)
+    // The read permission alone shows the list, not the command.
+    expect(screen.queryByText('Reject', { selector: 'summary' })).toBeNull()
+  })
+
+  it('says an Identity without open applications has none, not the router’s words', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => json({ status: 404, code: 'NOT_FOUND',
+      detail: 'Cannot GET /api/v1/admin/self-service-applications' }, 404)))
+    const { adminApi } = await import('../api')
+    await expect(adminApi.selfServiceApplications()).rejects.toMatchObject({ status: 404, code: 'SELF_SERVICE_APPLICATIONS_UNAVAILABLE' })
   })
 
   it('says an Identity without self sign-up has no list, not the router’s words', async () => {

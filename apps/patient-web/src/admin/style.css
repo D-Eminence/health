@@ -197,6 +197,7 @@
 .admin-note { line-height: 1.5; }
 /* Links inside a sentence (New facility sign-ups' next steps): marked as links, not only by colour. */
 .admin-inline-links a { color: var(--color-brand); font-weight: 600; text-decoration: underline; }
+.admin-inline-statuses { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 
 .admin-table-scroll { width: 100%; overflow-x: auto; border: 1px solid var(--color-line-strong); border-radius: var(--radius-card); background: var(--color-surface); }
 .admin-table { width: 100%; border-collapse: collapse; text-align: left; font-size: 13px; }
@@ -235,6 +236,7 @@
 .admin-status[data-state='contacted'],
 .admin-status[data-state='degraded'] { border-color: #f3dba5; background: #fff9e9; color: #845600; }
 .admin-status[data-state='rejected'],
+.admin-status[data-state='released'],
 .admin-status[data-state='disabled'],
 .admin-status[data-state='suspended'],
 .admin-status[data-state='failure'],
