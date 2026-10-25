@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { adminApi, type AdminActor, type ApplicationStatus, type Facility, type OrganizationApplication } from './api'
 import { environment } from './env'
 import { MAIN_SITE_ORIGINS, STAFF_RECOVERY_PATH } from '../productHostname'
+import { usesNovuBackend } from '../backendContract'
 import { failure } from './problems'
 import {
   Page, Refresh, ResourceView, Status, date, has, label, useGovernedSubmit, useResource, useUrlFilters,
@@ -25,6 +26,19 @@ const REVIEW_PROBLEMS: Readonly<Record<string, string>> = {
   ORGANIZATION_APPLICATION_NOT_FOUND: 'This application no longer exists. Reload the list.',
   INTEGRATION_PAUSED: 'The CAC verification provider is paused. Enable it in Integrations first.',
   VERIFICATION_QUOTA_EXCEEDED: 'The verification quota has been reached. Try again later.',
+}
+
+/**
+ * Novu (P4b): an approval that would reuse a company which signed itself up is refused with ORGANIZATION_REVIEW_REQUIRED
+ * until support has reviewed that sign-up (hid-system 0048 reuses an organization only through an active org_admin).
+ */
+const SELF_SIGN_UP_SECOND_PRODUCT = 'A company that signed itself up must be reviewed on New facility sign-ups before a '
+  + 'second product is approved.'
+
+function reviewProblems(): Readonly<Record<string, string>> {
+  return usesNovuBackend()
+    ? { ...REVIEW_PROBLEMS, ORGANIZATION_REVIEW_REQUIRED: `${REVIEW_PROBLEMS.ORGANIZATION_REVIEW_REQUIRED} ${SELF_SIGN_UP_SECOND_PRODUCT}` }
+    : REVIEW_PROBLEMS
 }
 
 function Evidence({ application }: { application: OrganizationApplication }) {
@@ -108,7 +122,7 @@ function ApplicationReview({ application, actor, onReviewed }: {
         : 'Application approved. A new organization, facility and administrator account were created. '
           + `The administrator has no password yet: ask them to set one at ${staffRecoveryUrl()}. `
           + 'Password setup is done only on the main site; the product sites (ehr., lab., pharmacy., migrate., outreach.) link there.'
-    }, 'The review could not be completed.', REVIEW_PROBLEMS)
+    }, 'The review could not be completed.', reviewProblems())
     setPending(null)
     if (result) { setReason(''); onReviewed(result) }
   }
@@ -183,6 +197,7 @@ export function ApplicationsPage({ actor }: { actor: AdminActor }) {
     {notice && <p role="status" className="admin-success">{notice}</p>}
     <p className="admin-note">Approved organizations appear through their <Link to="/admin/facilities">facilities</Link>.
       There is no separate organization directory yet.</p>
+    {usesNovuBackend() && <p className="admin-note">{SELF_SIGN_UP_SECOND_PRODUCT}</p>}
     <ResourceView resource={resource} empty={result => result.items.length === 0}>{result => <div className="admin-stack">
       {result.items.map(application => <ApplicationCard key={`${application.applicationId}:${application.version}`}
         application={application} actor={actor} onReviewed={message => { setNotice(message); resource.reload() }} />)}

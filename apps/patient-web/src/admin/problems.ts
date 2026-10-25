@@ -131,6 +131,21 @@ const ADMIN_PROBLEMS: Readonly<Record<string, string>> = {
     + 'to see the list.',
   SELF_SERVICE_REFUSAL_NOT_FOUND: 'No 7-day refusal is in force for this CAC number and product. Check the number and the '
     + 'product.',
+  // Full access after review (P4b): the review's and the administrator role's refusals, and support's staff reads.
+  SELF_SERVICE_FACILITY_REVIEW_REQUIRES_ACTIVE: 'This sign-up can’t be given full access while its facility is suspended or '
+    + 'its administrator’s account isn’t active. The list has been refreshed.',
+  SELF_SERVICE_REVIEW_ROLE_INVALID: 'This role can’t be given to this facility’s administrator. Choose one of the roles offered.',
+  SELF_SERVICE_REVIEW_LICENCE_REQUIRED: 'A clinical role needs the administrator’s licence. Enter the licence number, or '
+    + 'choose “No clinical access”.',
+  SELF_SERVICE_REVIEW_LICENCE_INVALID: 'Check the licence number: letters, digits, spaces, slashes, dots and hyphens, as on '
+    + 'the licence. The regulator must be the role’s.',
+  SELF_SERVICE_REVIEW_INVALID: 'Choose how you checked, and enter 8 to 500 characters about what you checked.',
+  SELF_SERVICE_ADMINISTRATOR_ROLE_UNCHANGED: 'The administrator already has this access and licence. Nothing was changed.',
+  SELF_SERVICE_PROBATION_ALREADY_ENDED: 'This facility’s first-30-days limits have already ended. The list has been refreshed.',
+  FACILITY_STAFF_UNAVAILABLE: 'This Identity does not show facility staff and licences yet.',
+  STAFF_INVITATION_LOOKUP_UNAVAILABLE: 'This Identity can’t find invitations by reference yet.',
+  STAFF_INVITATION_REFERENCE_INVALID: 'Enter the 8-character reference from the invitation email, for example 3F2A9C1B.',
+  STAFF_MANAGEMENT_UNAVAILABLE: 'Facility staff are temporarily unavailable. Try again in a few minutes.',
 
   // Facility-assisted registration designations (hid-system #85, ADR-063).
   FACILITY_NOT_ACTIVE: 'Only a verified, active facility of an active organization can register patients in person. Verify the facility first.',

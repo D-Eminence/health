@@ -116,9 +116,52 @@ export interface SelfServiceFacility extends Versioned {
   administratorAccountStatus: string | null; activatedAt: string | null; reviewedAt: string | null
   reviewedByAccountId: string | null; reviewNote: string | null
   releasedAt?: string | null; releasedByAccountId?: string | null; releaseReason?: string | null
+  /**
+   * P4b (absent before it): the administrator's role support's review would give by default (null for 'other'), the
+   * roles it may give, and what it gave; how support checked; the licence the administrator entered (full number, for
+   * the register check); the facility's staff and invitations; the first 30 days' end; its emergency activations in the
+   * last 7 days and invitation emails not delivered in the last day.
+   */
+  reviewGrantsRole?: string | null; reviewableRoles?: string[]; grantedRole?: string | null; verificationMethod?: string | null
+  administratorLicenceBody?: string | null; administratorLicenceNumber?: string | null
+  administratorLicenceRecordedAt?: string | null; memberCount?: number | null; pendingInvitationCount?: number | null
+  probationEndsAt?: string | null; breakGlassLast7d?: number | null; deliveryFailuresLastDay?: number | null
 }
-/** `POST /admin/self-service-facilities/:applicationId/review`. */
-export interface SelfServiceFacilityReviewed extends Versioned { applicationId: string; reviewedAt: string }
+/** How support checked a self-signed-up facility's administrator (P4b SPEC 3.5). */
+export type SelfServiceVerificationMethod = 'cac_registered_contact' | 'officer_match' | 'regulator_register' | 'in_person' | 'other'
+/** The administrator's own access support gives at review or changes after it: a clinical role, or none (P4b). */
+export interface SelfServiceAdministratorAccess {
+  grantedRole: 'none' | 'doctor' | 'nurse' | 'lab' | 'pharmacist'
+  verificationMethod: SelfServiceVerificationMethod
+  /** Required for a clinical role, absent for 'none'. */
+  administratorLicence?: { body: string; number: string }
+}
+/** `POST /admin/self-service-facilities/:applicationId/review`; P4b adds what it granted and the sessions it ended. */
+export interface SelfServiceFacilityReviewed extends Versioned { applicationId: string; reviewedAt: string; grantedRole?: string
+  sessionsRevoked?: number }
+/** `POST …/:applicationId/administrator-role` (P4b). */
+export interface SelfServiceAdministratorRoleChanged extends Versioned { applicationId: string; grantedRole: string
+  sessionsRevoked: number }
+/** `POST …/:applicationId/end-probation` (P4b). */
+export interface SelfServiceProbationEnded extends Versioned { applicationId: string; probationEndedAt: string | null }
+/** One member or invitation in support's view of a facility's staff (P4b): full licence numbers and who vouched. */
+export interface AdminFacilityStaffEntry {
+  membershipId?: string; invitationId?: string; reference?: string; accountId: string | null; name: string | null
+  email: string | null; roles: string[]; status: string | null; licenceBody: string | null; licenceNumber: string | null
+  licenceKey: string | null; sameLicenceElsewhere: number; nameMismatch: boolean; attestedByAccountId: string | null
+  attestedByName: string | null; verificationMethod: string | null; attestedAt: string | null; createdAt: string | null
+}
+/** `GET /admin/facilities/:facilityId/staff` (P4b). */
+export interface AdminFacilityStaff {
+  facility: { id: string; name: string; selfService: { review: string; organizationType: string | null; productCode: string | null } | null }
+  members: AdminFacilityStaffEntry[]
+  invitations: AdminFacilityStaffEntry[]
+}
+/** `GET /admin/staff-invitations?reference=` (P4b): at most 5. */
+export interface FoundStaffInvitation {
+  invitationId: string; reference: string; facilityId: string; facilityName: string; organizationId: string; status: string
+  roleCode: string; createdAt: string | null; expiresAt: string | null
+}
 /** `POST /admin/self-service-facilities/:applicationId/release`. */
 export interface SelfServiceFacilityReleased extends Versioned { applicationId: string; releasedAt: string }
 /**
@@ -650,12 +693,43 @@ export const adminApi = {
       { signal, query: { state } }))
   },
   /**
-   * Records that support checked a self-signed-up facility: a note of 8 to 500 characters and If-Match with the
-   * version listed, as the organization-application commands take it. Novu has no step-up or Idempotency-Key here.
+   * Records that support checked a self-signed-up facility, which since P4b gives it full access and signs its
+   * administrator out once: a note of 8 to 500 characters, the administrator's own access (a clinical role with the
+   * licence support checked, or none) and how support checked, with If-Match with the version listed. Needs
+   * platform.facility.manage and platform.facility.unlock. Novu has no step-up or Idempotency-Key here.
    */
-  reviewSelfServiceFacility(facility: Pick<SelfServiceFacility, 'applicationId' | 'version'>, note: string) {
+  reviewSelfServiceFacility(facility: Pick<SelfServiceFacility, 'applicationId' | 'version'>, note: string,
+    access: SelfServiceAdministratorAccess) {
     return adminApi.command<SelfServiceFacilityReviewed>(
-      at('/api/v1/admin/self-service-facilities', facility.applicationId, 'review'), { note }, { version: facility.version })
+      at('/api/v1/admin/self-service-facilities', facility.applicationId, 'review'), { note, ...access },
+      { version: facility.version })
+  },
+  /** Changes a reviewed administrator's own access (P4b): as the review's, with a reason; a new role signs them out. */
+  setSelfServiceAdministratorRole(facility: Pick<SelfServiceFacility, 'applicationId' | 'version'>, reason: string,
+    access: SelfServiceAdministratorAccess) {
+    return adminApi.command<SelfServiceAdministratorRoleChanged>(
+      at('/api/v1/admin/self-service-facilities', facility.applicationId, 'administrator-role'), { ...access, reason },
+      { version: facility.version })
+  },
+  /** Ends a reviewed facility's first-30-days limits early (P4b): a reason of 8 to 500 characters. */
+  endSelfServiceProbation(facility: Pick<SelfServiceFacility, 'applicationId' | 'version'>, reason: string) {
+    return adminApi.command<SelfServiceProbationEnded>(
+      at('/api/v1/admin/self-service-facilities', facility.applicationId, 'end-probation'), { reason },
+      { version: facility.version })
+  },
+  /**
+   * A facility's staff and invitations with their full licence numbers, who vouched and when (P4b, Novu only).
+   * Identity audits every read. An Identity without the route answers 404, said as not available.
+   */
+  facilityStaff(facilityId: string, signal?: AbortSignal) {
+    return selfServiceList(request<AdminFacilityStaff>(at('/api/v1/admin/facilities', facilityId, 'staff'), { signal }),
+      { code: 'FACILITY_STAFF_UNAVAILABLE', message: 'Facility staff and licences are not available from this Identity.' })
+  },
+  /** Finds an invitation by the 8-character reference its email quotes (P4b): the reference only, never an email. */
+  findStaffInvitations(reference: string, signal?: AbortSignal) {
+    return selfServiceList(request<{ items: FoundStaffInvitation[] }>('/api/v1/admin/staff-invitations',
+      { signal, query: { reference } }),
+    { code: 'STAFF_INVITATION_LOOKUP_UNAVAILABLE', message: 'Invitations can’t be found by reference from this Identity.' })
   },
   /**
    * Releases a fraudulent or mistaken self sign-up (P4 round 2), once its facility is suspended and its

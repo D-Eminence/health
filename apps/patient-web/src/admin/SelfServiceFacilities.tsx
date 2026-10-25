@@ -1,11 +1,16 @@
 import { useCallback, useState, type FormEvent, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  adminApi, type AdminActor, type SelfServiceApplication, type SelfServiceFacility, type SelfServiceFacilityState,
-  type SelfServiceProduct,
+  adminApi, type AdminActor, type SelfServiceAdministratorAccess, type SelfServiceApplication, type SelfServiceFacility,
+  type SelfServiceFacilityState, type SelfServiceProduct, type SelfServiceVerificationMethod,
 } from './api'
+import { FacilityStaffPanel, StaffInvitationLookup } from './FacilityStaffPanel'
 import { failure, isProblem } from './problems'
 import { Page, Refresh, ResourceView, Status, date, has, label, useGovernedSubmit, useResource, useUrlFilters } from './ui'
+import {
+  isLicenceBody, LICENCE_BODIES, LICENCE_NUMBER_HINT, licenceBodyForRole, licenceNumberAcceptable, normalizeLicenceNumber,
+  roleLabel,
+} from '../staff/staffAccess'
 
 /**
  * New facility sign-ups (P4, which only Novu serves). A hospital, laboratory
@@ -24,14 +29,32 @@ import { Page, Refresh, ResourceView, Status, date, has, label, useGovernedSubmi
  * isn't the company's. A rejection or release refuses the sign-up's email and
  * network for 7 days unless support lets the applicant start again, and
  * support can lift such a refusal (hid-system R15 and R16).
+ *
+ * Since P4b "Mark reviewed" gives the facility full access at once and signs
+ * its administrator out once: support confirms the administrator's own access
+ * (the facility type's clinical role with a licence support checked, or none),
+ * says how it checked, and confirms. It needs platform.facility.manage and
+ * platform.facility.unlock. After review support can change the
+ * administrator's access, end the first 30 days' limits early, see the
+ * facility's staff and licences, and find an invitation by its reference.
  */
-type View = SelfServiceFacilityState | 'open'
+type View = 'unreviewed' | 'full-access' | 'released' | 'all' | 'open'
 const VIEWS: ReadonlyArray<{ value: View; title: string }> = [
-  { value: 'unreviewed', title: 'To review' },
-  { value: 'reviewed', title: 'Reviewed or released' },
+  { value: 'unreviewed', title: 'Waiting for review' },
+  { value: 'full-access', title: 'Full access' },
+  { value: 'released', title: 'Released' },
   { value: 'all', title: 'All' },
   { value: 'open', title: 'Open applications' },
 ]
+/** The list Identity reads for a view: full access and released are both its 'reviewed' (P4's "reviewed or released"). */
+const VIEW_STATE: Readonly<Record<Exclude<View, 'open'>, SelfServiceFacilityState>> = {
+  unreviewed: 'unreviewed', 'full-access': 'reviewed', released: 'reviewed', all: 'all',
+}
+/** A view in the address; P4's ?state=reviewed opens Full access. */
+function viewOf(value: string | undefined): View {
+  if (value === 'reviewed') return 'full-access'
+  return VIEWS.find(item => item.value === value)?.value ?? 'unreviewed'
+}
 /** The most rows Identity lists at once. */
 const LIST_LIMIT = 200
 
@@ -39,13 +62,59 @@ const REASON_INVALID = 'Enter a reason of 8 to 500 characters.'
 
 const REVIEW_FAILED = 'The review could not be saved. Try again.'
 /** The refusals of "Mark reviewed" after which the list is read again, so it shows what is true now. */
-const REVIEW_REFRESHING = ['VERSION_CONFLICT', 'SELF_SERVICE_FACILITY_ALREADY_REVIEWED', 'SELF_SERVICE_FACILITY_NOT_FOUND'] as const
+const REVIEW_REFRESHING = ['VERSION_CONFLICT', 'SELF_SERVICE_FACILITY_ALREADY_REVIEWED', 'SELF_SERVICE_FACILITY_NOT_FOUND',
+  'SELF_SERVICE_FACILITY_REVIEW_REQUIRES_ACTIVE'] as const
 const REVIEW_PROBLEMS: Readonly<Record<string, string>> = {
   VERSION_CONFLICT: 'This sign-up changed after the list was loaded. The list has been refreshed: check it again before '
     + 'marking it reviewed.',
-  PERMISSION_DENIED: 'Marking a sign-up reviewed needs the platform.facility.manage permission. Ask a Super Admin.',
-  // Identity's DTO refuses a note outside 8 to 500 characters before its command does.
-  VALIDATION_FAILED: 'Enter a note of 8 to 500 characters about what you checked.',
+  PERMISSION_DENIED: 'Marking a sign-up reviewed needs the platform.facility.manage and platform.facility.unlock '
+    + 'permissions. Ask a Super Admin.',
+  // Identity's DTO refuses a note outside 8 to 500 characters, or a missing choice, before its command does.
+  VALIDATION_FAILED: 'Choose the administrator’s access and how you checked, and enter a note of 8 to 500 characters about '
+    + 'what you checked.',
+}
+
+const ACCESS_FAILED = 'The administrator’s access could not be changed. Try again.'
+const ACCESS_REFRESHING = ['VERSION_CONFLICT', 'SELF_SERVICE_FACILITY_NOT_FOUND', 'SELF_SERVICE_FACILITY_REVIEW_REQUIRES_ACTIVE'] as const
+const ACCESS_PROBLEMS: Readonly<Record<string, string>> = {
+  VERSION_CONFLICT: 'This sign-up changed after the list was loaded. The list has been refreshed: check it again.',
+  PERMISSION_DENIED: 'Changing the administrator’s access needs the platform.facility.manage and platform.facility.unlock '
+    + 'permissions. Ask a Super Admin.',
+  VALIDATION_FAILED: 'Choose the administrator’s access and how you checked, and enter a reason of 8 to 500 characters.',
+  SELF_SERVICE_FACILITY_REQUEST_INVALID: 'Choose the administrator’s access and how you checked, and enter a reason of 8 to '
+    + '500 characters.',
+}
+
+const PROBATION_FAILED = 'The first-30-days limits could not be ended. Try again.'
+const PROBATION_REFRESHING = ['VERSION_CONFLICT', 'SELF_SERVICE_FACILITY_NOT_FOUND', 'SELF_SERVICE_PROBATION_ALREADY_ENDED'] as const
+const PROBATION_PROBLEMS: Readonly<Record<string, string>> = {
+  VERSION_CONFLICT: 'This sign-up changed after the list was loaded. The list has been refreshed: check it again.',
+  PERMISSION_DENIED: 'Ending the limits needs the platform.facility.manage and platform.facility.unlock permissions. Ask a '
+    + 'Super Admin.',
+  SELF_SERVICE_FACILITY_REQUEST_INVALID: 'Enter a reason of 8 to 500 characters.',
+  VALIDATION_FAILED: 'Enter a reason of 8 to 500 characters.',
+}
+
+/** How support checked the administrator (P4b SPEC 8.6), in the words the form offers. */
+const VERIFICATION_METHODS: ReadonlyArray<{ value: SelfServiceVerificationMethod; title: string }> = [
+  { value: 'cac_registered_contact', title: 'I reached the company through contact details on its CAC record' },
+  { value: 'officer_match', title: 'The administrator is a director or officer on the CAC record' },
+  { value: 'regulator_register', title: 'I found the administrator’s licence on the regulator’s register' },
+  { value: 'in_person', title: 'I met or video-called the administrator and saw their ID' },
+  { value: 'other', title: 'Other (explain in the note)' },
+]
+const NO_CLINICAL_ACCESS = 'No clinical access (manages the facility and its staff)'
+/** The clinical roles a review may give; doctors and nurses also hold emergency access (hid-system 0010). */
+const CLINICAL_ROLES = ['doctor', 'nurse', 'lab', 'pharmacist'] as const
+const EMERGENCY_ROLES = new Set(['doctor', 'nurse'])
+
+function accessTitle(role: string | null | undefined): string {
+  if (!role) return 'Not recorded'
+  return role === 'none' ? 'No clinical access' : roleLabel(role)
+}
+
+function methodTitle(method: string | null | undefined): string {
+  return VERIFICATION_METHODS.find(item => item.value === method)?.title ?? (method ? label(method) : 'Not recorded')
 }
 
 const RELEASE_FAILED = 'The sign-up could not be released. Try again.'
@@ -159,17 +228,145 @@ function releaseSteps(facility: SelfServiceFacility) {
   }
 }
 
+/**
+ * The administrator's own access, as support gives it at review or changes it after (P4b SPEC 3.5, 3.7): the facility
+ * type's clinical role with the licence support checked, or none; how support checked; and the note or reason. The
+ * review preselects the role Identity proposes and pre-fills the licence the administrator entered.
+ */
+function AccessForm({ id, facility, mode, onDone }: {
+  id: string; facility: SelfServiceFacility; mode: 'review' | 'change'; onDone: Done
+}) {
+  const reviewable = (facility.reviewableRoles ?? []).filter(role => (CLINICAL_ROLES as readonly string[]).includes(role))
+  const preselected = mode === 'review' && facility.reviewGrantsRole && reviewable.includes(facility.reviewGrantsRole)
+    ? facility.reviewGrantsRole : mode === 'review' ? 'none' : ''
+  const [role, setRole] = useState<string>(preselected)
+  const [method, setMethod] = useState<SelfServiceVerificationMethod | ''>('')
+  const body = licenceBodyForRole(role)
+  const entered = (wanted: string | null) => wanted && facility.administratorLicenceBody === wanted
+    ? facility.administratorLicenceNumber ?? '' : ''
+  const [number, setNumber] = useState(() => entered(licenceBodyForRole(preselected)))
+  const [text, setText] = useState('')
+  const [confirmed, setConfirmed] = useState(false)
+  const governed = useGovernedSubmit()
+  const length = text.trim().length
+  const numberValid = !body || licenceNumberAcceptable(number)
+  const ready = role !== '' && method !== '' && numberValid && length >= 8 && length <= 500 && (mode === 'change' || confirmed)
+
+  function chooseRole(next: string) {
+    setRole(next)
+    setNumber(entered(licenceBodyForRole(next)))
+  }
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (governed.busy || !ready) return
+    const access: SelfServiceAdministratorAccess = {
+      grantedRole: role as SelfServiceAdministratorAccess['grantedRole'], verificationMethod: method,
+      ...(body ? { administratorLicence: { body, number: normalizeLicenceNumber(number) } } : {}),
+    }
+    let refused: unknown = null
+    const result = await governed.submit(async () => {
+      try {
+        return mode === 'review' ? await adminApi.reviewSelfServiceFacility(facility, text.trim(), access)
+          : await adminApi.setSelfServiceAdministratorRole(facility, text.trim(), access)
+      } catch (caught) { refused = caught; throw caught }
+    }, mode === 'review' ? REVIEW_FAILED : ACCESS_FAILED, mode === 'review' ? REVIEW_PROBLEMS : ACCESS_PROBLEMS)
+    if (result) {
+      const signedOut = mode === 'review' || role !== 'none'
+      onDone({ tone: 'success', text: mode === 'review'
+        ? `Marked ${facility.facilityName} reviewed. It has full access now, and ${facility.administratorName} has been signed `
+          + 'out once to pick it up.'
+        : `Changed ${facility.administratorName}’s access at ${facility.facilityName} to ${accessTitle(role).toLowerCase()}.`
+          + (signedOut ? ' They have been signed out once to pick it up.' : '') })
+    } else if ((mode === 'review' ? REVIEW_REFRESHING : ACCESS_REFRESHING).some(code => isProblem(refused, code))) {
+      governed.setError(null)
+      onDone({ tone: 'error', text: failure(refused, mode === 'review' ? REVIEW_FAILED : ACCESS_FAILED,
+        mode === 'review' ? REVIEW_PROBLEMS : ACCESS_PROBLEMS) })
+    }
+  }
+
+  const clinical = role !== '' && role !== 'none'
+  const roleWords = clinical ? roleLabel(role).toLowerCase() : ''
+  return <details className="admin-action">
+    <summary>{mode === 'review' ? 'Mark reviewed' : 'Change administrator access'}</summary>
+    <form className="admin-action-form" onSubmit={event => void submit(event)}>
+      <label htmlFor={`${id}-role`}>Administrator’s own access</label>
+      <select id={`${id}-role`} value={role} onChange={event => chooseRole(event.target.value)} required>
+        {mode === 'change' && <option value="">Choose their access</option>}
+        {reviewable.map(option => <option key={option} value={option}>{roleLabel(option)}</option>)}
+        <option value="none">{NO_CLINICAL_ACCESS}</option>
+      </select>
+      {body && <>
+        <p className="admin-note">Licence: {body} ({LICENCE_BODIES[body].regulator}). A clinical role needs the licence you
+          checked.</p>
+        <label htmlFor={`${id}-licence`}>{body} licence number</label>
+        <input id={`${id}-licence`} value={number} autoComplete="off" spellCheck={false} maxLength={100} required
+          aria-describedby={`${id}-licence-hint`} onChange={event => setNumber(event.target.value)} />
+        <small id={`${id}-licence-hint`} className="admin-note">{number.trim() && !numberValid
+          ? `Check the number. ${LICENCE_NUMBER_HINT}` : LICENCE_NUMBER_HINT}</small>
+      </>}
+      <label htmlFor={`${id}-method`}>How did you check?</label>
+      <select id={`${id}-method`} value={method} required
+        onChange={event => setMethod(event.target.value as SelfServiceVerificationMethod | '')}>
+        <option value="">Choose how you checked</option>
+        {VERIFICATION_METHODS.map(item => <option key={item.value} value={item.value}>{item.title}</option>)}
+      </select>
+      <label htmlFor={`${id}-text`}>{mode === 'review' ? 'What you checked' : 'Reason for the change'}</label>
+      <textarea id={`${id}-text`} required minLength={8} maxLength={500} rows={3} value={text}
+        aria-describedby={`${id}-text-hint`} onChange={event => setText(event.target.value)} />
+      <small id={`${id}-text-hint`} className="admin-note">{mode === 'review'
+        ? <>8 to 500 characters, kept with the review. For example: “Called the hospital’s published number; the medical
+          director confirmed Ada Obi is their administrator.”</>
+        : <>8 to 500 characters, kept with the change and in the audit log. For example: “The administrator sent their
+          MDCN licence; it is on the council’s register.”</>}</small>
+      {mode === 'review' && <p className="admin-note">Marking this reviewed gives {facility.facilityName} full access at once and
+        signs its administrator out once. They can add staff whose licences the facility vouches for{clinical
+          ? `, and become a ${roleWords} who can open patient records with each patient’s consent` : ''}{EMERGENCY_ROLES.has(role)
+          ? ', and use emergency access' : ''}. Do it only when you are satisfied that {facility.administratorName} works
+        at {facility.organizationName}{clinical ? ' and holds the licence above' : ''}.</p>}
+      {mode === 'change' && <p className="admin-note">A new clinical role signs {facility.administratorName} out once, so they
+        sign in again to use it. Choosing no clinical access ends their current clinical role at once.</p>}
+      {mode === 'review' && <label className="admin-checkbox"><input type="checkbox" checked={confirmed}
+        onChange={event => setConfirmed(event.target.checked)} /> I checked this facility and its administrator. They may now
+        see patient records.</label>}
+      <button type="submit" className="admin-primary" disabled={governed.busy || !ready}>
+        {governed.busy ? 'Saving…' : mode === 'review' ? 'Mark reviewed and give full access' : 'Change administrator access'}</button>
+      {governed.error && <p role="alert" className="admin-error">{governed.error}</p>}
+    </form>
+  </details>
+}
+
+/** The administrator's own licence as they entered it, for support to check on the regulator's register. */
+function EnteredLicence({ facility }: { facility: SelfServiceFacility }) {
+  const body = facility.administratorLicenceBody
+  if (!body || !facility.administratorLicenceNumber) return <div><dt>Administrator’s licence</dt><dd>Not entered</dd></div>
+  const regulator = isLicenceBody(body) ? LICENCE_BODIES[body].regulator : body
+  return <div><dt>Administrator’s licence</dt><dd>{body} {facility.administratorLicenceNumber}, entered
+    {' '}{date(facility.administratorLicenceRecordedAt)}: check it on the {regulator} register</dd></div>
+}
+
+function count(value: number | null | undefined): string {
+  return typeof value === 'number' ? String(value) : 'Not available'
+}
+
 function SignUpCard({ facility, actor, onDone }: { facility: SelfServiceFacility; actor: AdminActor; onDone: Done }) {
-  const canManage = has(actor, 'platform.facility.manage')
+  const canRelease = has(actor, 'platform.facility.manage')
+  // Since P4b a review gives clinical access: it needs platform.facility.unlock too (hid-system's S13).
+  const canManage = canRelease && has(actor, 'platform.facility.unlock')
   const canOpenFacility = has(actor, 'platform.facility.read')
   const canFindAdministrator = has(actor, 'platform.principal.read')
   const released = Boolean(facility.releasedAt)
+  const reviewed = Boolean(facility.reviewedAt) && !released
   const { facilitySuspended, accountDisabled } = releaseSteps(facility)
+  // Identity refuses to give full access to a suspended facility or an administrator whose account isn't active (P4b).
+  const reviewable = facility.facilityLifecycleStatus === 'verified' && facility.administratorAccountStatus === 'active'
   const id = facility.applicationId
   return <article className="admin-tile" aria-labelledby={`self-service-${id}`}>
     <div className="admin-panel-head">
       <h2 id={`self-service-${id}`}>{facility.facilityName}</h2>
       <span className="admin-inline-statuses"><Status value={facility.facilityLifecycleStatus} />
+        {reviewed && <span className="admin-status" data-state="active">Full access</span>}
+        {reviewed && facility.probationEndsAt && <span className="admin-status" data-state="pending">First 30 days</span>}
         {released && <Status value="released" />}</span>
     </div>
     <dl className="admin-detail-grid">
@@ -181,6 +378,17 @@ function SignUpCard({ facility, actor, onDone }: { facility: SelfServiceFacility
       <div><dt>Account status</dt><dd>{facility.administratorAccountStatus ? label(facility.administratorAccountStatus) : 'No account'}</dd></div>
       <div><dt>Signed up</dt><dd>{date(facility.activatedAt)}</dd></div>
       <div><dt>Reviewed</dt><dd>{facility.reviewedAt ? date(facility.reviewedAt) : 'Not yet'}</dd></div>
+      {!facility.reviewedAt && !released && <EnteredLicence facility={facility} />}
+      {facility.reviewedAt && <>
+        <div><dt>Administrator’s access</dt><dd>{accessTitle(facility.grantedRole)}</dd></div>
+        <div><dt>How support checked</dt><dd>{methodTitle(facility.verificationMethod)}</dd></div>
+      </>}
+      {reviewed && <>
+        <div><dt>Staff</dt><dd>{count(facility.memberCount)} staff, {count(facility.pendingInvitationCount)} invited</dd></div>
+        <div><dt>Emergency access, last 7 days</dt><dd>{count(facility.breakGlassLast7d)}</dd></div>
+        <div><dt>Invitation emails not delivered, last day</dt><dd>{count(facility.deliveryFailuresLastDay)}</dd></div>
+        {facility.probationEndsAt && <div><dt>First 30 days end</dt><dd>{date(facility.probationEndsAt)}</dd></div>}
+      </>}
       {released && <div><dt>Released</dt><dd>{date(facility.releasedAt)}</dd></div>}
     </dl>
     {facility.reviewNote && <p className="admin-note">Review note: {facility.reviewNote}</p>}
@@ -192,20 +400,33 @@ function SignUpCard({ facility, actor, onDone }: { facility: SelfServiceFacility
       {/* The email goes in the page's state, never in the URL, as Users & roles keeps its search. */}
       {canFindAdministrator && <>disable the administrator’s account in <Link to="/admin/principals"
         state={{ principalQuery: facility.administratorEmail }}>Users &amp; roles</Link></>}.</p>}
-    {!released && !facility.reviewedAt && canManage && <ReasonForm id={`self-service-note-${id}`} summary="Mark reviewed"
-      fieldLabel="What you checked" action="Mark reviewed"
-      hint={<>8 to 500 characters, kept with the review. For example: “Called the hospital’s published number; the medical
-        director confirmed Ada Obi is their administrator.”</>}
-      run={note => adminApi.reviewSelfServiceFacility(facility, note)} refreshing={REVIEW_REFRESHING}
-      problems={REVIEW_PROBLEMS} fallback={REVIEW_FAILED} done={`Marked ${facility.facilityName} reviewed.`} onDone={onDone} />}
-    {!released && canManage && facilitySuspended && accountDisabled && <ReasonForm id={`self-service-release-${id}`}
+    {!released && !facility.reviewedAt && canManage && reviewable && <AccessForm id={`self-service-review-${id}`}
+      facility={facility} mode="review" onDone={onDone} />}
+    {!released && !facility.reviewedAt && canManage && !reviewable && <p className="admin-note">It can’t be marked reviewed
+      while {facilitySuspended ? 'the facility is suspended' : `the administrator’s account is ${facility.administratorAccountStatus
+        ? label(facility.administratorAccountStatus).toLowerCase() : 'missing'}`}: full access needs an active facility and an
+      active administrator.</p>}
+    {reviewed && canManage && <AccessForm id={`self-service-access-${id}`} facility={facility} mode="change" onDone={onDone} />}
+    {reviewed && canManage && facility.probationEndsAt && <ReasonForm id={`self-service-probation-${id}`}
+      summary="End the first-30-days limits" fieldLabel="Reason for ending them" action="End the limits"
+      explanation={<p className="admin-note">In its first 30 days after review, {facility.facilityName} can activate emergency
+        access 5 times a day and send 10 invitations (20 emails) a day. Ending the limits now gives it the usual limits at
+        once. It can’t be undone.</p>}
+      hint={<>8 to 500 characters, kept in the audit log. For example: “A busy emergency unit; the medical director asked
+        by phone.”</>}
+      run={reason => adminApi.endSelfServiceProbation(facility, reason)} refreshing={PROBATION_REFRESHING}
+      problems={PROBATION_PROBLEMS} fallback={PROBATION_FAILED}
+      done={`Ended ${facility.facilityName}’s first-30-days limits.`} onDone={onDone} />}
+    {reviewed && canFindAdministrator && <FacilityStaffPanel facilityId={facility.facilityId} />}
+    {!released && canRelease && facilitySuspended && accountDisabled && <ReasonForm id={`self-service-release-${id}`}
       summary="Release this sign-up" fieldLabel="Reason for releasing" action="Release sign-up"
       confirmation="I understand that releasing can’t be undone."
       explanation={<p className="admin-note">Releasing frees this CAC number and legal name, so the real company can sign up.
         It closes this sign-up, unlinks the CAC number, suspends the product, deactivates and renames the organization, and
-        removes the administrator’s access. It can’t be undone. The administrator’s email stays with the disabled account
-        and can’t be used to sign up again. Unless you let the applicant start again, this sign-up’s email and network
-        can’t sign up this CAC number and product again for 7 days.</p>}
+        removes the administrator’s access. It also ends the access of every staff member the facility added, withdraws
+        pending invitations and ends patients’ consents to it. It can’t be undone. The administrator’s email stays with the
+        disabled account and can’t be used to sign up again. Unless you let the applicant start again, this sign-up’s email
+        and network can’t sign up this CAC number and product again for 7 days.</p>}
       hint={<>8 to 500 characters, kept with the release and in the audit log. For example: “The company confirmed by phone
         that it did not sign up.”</>}
       option="Let the applicant start again at once: the sign-up was the company’s own, with the wrong email address."
@@ -215,10 +436,12 @@ function SignUpCard({ facility, actor, onDone }: { facility: SelfServiceFacility
       done={`Released ${facility.facilityName}. Its CAC number and legal name are free for the real company to sign up.`}
       onDone={onDone} />}
     {/* Once support has started stopping a sign-up, it says what the release still needs. */}
-    {!released && canManage && facilitySuspended !== accountDisabled && <p className="admin-note">To release this sign-up for
+    {!released && canRelease && facilitySuspended !== accountDisabled && <p className="admin-note">To release this sign-up for
       the real company, also {facilitySuspended ? 'disable the administrator’s account' : 'suspend the facility'}.</p>}
-    {!released && !canManage && <p className="admin-note">View only: reviewing or releasing a sign-up needs the
-      platform.facility.manage permission.</p>}
+    {!released && !canRelease && <p className="admin-note">View only: reviewing or releasing a sign-up needs the
+      platform.facility.manage permission, and reviewing it also platform.facility.unlock.</p>}
+    {!released && canRelease && !canManage && <p className="admin-note">Reviewing a sign-up or changing its administrator’s
+      access also needs the platform.facility.unlock permission. Ask a Super Admin.</p>}
   </article>
 }
 
@@ -358,15 +581,20 @@ function SearchOpenApplications({ search, onSearch }: { search: string | null; o
 
 /** One view's list: activated sign-ups by review state, or the open applications (all, or one CAC number's). */
 type Listed = { view: 'open'; items: SelfServiceApplication[]; total: number | null; search: string | null }
-  | { view: SelfServiceFacilityState; items: SelfServiceFacility[] }
+  | { view: Exclude<View, 'open'>; items: SelfServiceFacility[] }
 
 export function SelfServiceFacilitiesPage({ actor }: { actor: AdminActor }) {
   const [filters, setFilters] = useUrlFilters(['state'] as const)
-  const view = VIEWS.find(item => item.value === filters.state)?.value ?? 'unreviewed'
+  const view = viewOf(filters.state)
   // The CAC number the open applications are searched for, if any.
   const [search, setSearch] = useState<string | null>(null)
   const load = useCallback(async (signal?: AbortSignal): Promise<Listed> => {
-    if (view !== 'open') return { view, items: (await adminApi.selfServiceFacilities(view, signal)).items }
+    if (view !== 'open') {
+      const items = (await adminApi.selfServiceFacilities(VIEW_STATE[view], signal)).items
+      // Identity's 'reviewed' holds both outcomes: full access, and released (P4 round 2).
+      return { view, items: view === 'full-access' ? items.filter(item => !item.releasedAt)
+        : view === 'released' ? items.filter(item => Boolean(item.releasedAt)) : items }
+    }
     const read = search === null ? await adminApi.selfServiceApplications(signal)
       : await adminApi.searchSelfServiceApplications(search, signal)
     return { view, items: read.items, total: typeof read.total === 'number' ? read.total : null, search }
@@ -376,7 +604,7 @@ export function SelfServiceFacilitiesPage({ actor }: { actor: AdminActor }) {
   const [notice, setNotice] = useState<{ text: string; tone: 'success' | 'error' } | null>(null)
   const facilities = resource.data && resource.data.view !== 'open' ? resource.data.items : null
   // How many are still to be checked, while the list shown includes them all.
-  const waiting = facilities && view !== 'reviewed' && view !== 'open'
+  const waiting = facilities && (view === 'unreviewed' || view === 'all')
     ? facilities.filter(item => !item.reviewedAt && !item.releasedAt).length : null
   const title = waiting === null ? 'New facility sign-ups'
     : `New facility sign-ups (${waiting}${facilities!.length >= LIST_LIMIT ? ' or more' : ''} to review)`
@@ -417,8 +645,11 @@ export function SelfServiceFacilitiesPage({ actor }: { actor: AdminActor }) {
             own domain, or a call to the company’s published phone number.</p>
           <p>A mistyped CAC number can sign up another, real company under its legal name. If the legal name is not the
             administrator’s own organization, treat the sign-up as wrong.</p>
-          <p>If anything looks wrong, suspend the facility and disable the administrator’s account, then mark the sign-up
-            reviewed with what you found.</p>
+          <p>Marking a sign-up reviewed gives the facility full access at once: its administrator can add staff, whose
+            licences the facility vouches for, and patient records open to them with each patient’s consent. Give the
+            administrator a clinical role only once you have checked their licence on the regulator’s register.</p>
+          <p>If anything looks wrong, do not mark it reviewed: suspend the facility, disable the administrator’s account and
+            release the sign-up.</p>
           <p>If it used another company’s CAC number, by mistake or not, also release it once the facility is suspended and
             the account disabled. That frees the CAC number and the legal name, so the real company can sign up.</p></div></div>
       </section>}
@@ -430,6 +661,8 @@ export function SelfServiceFacilitiesPage({ actor }: { actor: AdminActor }) {
     </div>
     {view === 'open' && <SearchOpenApplications key={search ?? ''} search={search}
       onSearch={number => { setNotice(null); setSearch(number) }} />}
+    {/* An invitation a facility sent (P4b), by the reference its email quotes. */}
+    {view !== 'open' && has(actor, 'platform.principal.read') && <StaffInvitationLookup />}
     <div role="status">{notice?.tone === 'success' && <p className="admin-success">{notice.text}</p>}</div>
     {notice?.tone === 'error' && <p role="alert" className="admin-error">{notice.text}</p>}
     <ResourceView resource={resource}>{result => result.view === 'open'
@@ -446,8 +679,9 @@ export function SelfServiceFacilitiesPage({ actor }: { actor: AdminActor }) {
       </>
       : result.items.length === 0
         ? <div className="admin-state">{result.view === 'unreviewed' ? 'No new facility sign-ups are waiting for review.'
-          : result.view === 'reviewed' ? 'No facility sign-up has been reviewed or released yet.'
-            : 'No facility has signed itself up yet.'}</div>
+          : result.view === 'full-access' ? 'No facility sign-up has full access yet.'
+            : result.view === 'released' ? 'No facility sign-up has been released.'
+              : 'No facility has signed itself up yet.'}</div>
         : <div className="admin-stack">
           {result.items.map(facility => <SignUpCard key={`${facility.applicationId}:${facility.version}`} facility={facility}
             actor={actor} onDone={done} />)}

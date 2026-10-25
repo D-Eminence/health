@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import { usesNovuBackend } from '../backendContract'
 import { adminApi, PAGE_SIZE, type AdminActor, type AuditFilters, type Facility } from './api'
 import { AssistedRegistrationPanel } from './AssistedRegistration'
+import { FacilityStaffPanel } from './FacilityStaffPanel'
 import { isProblem } from './problems'
 import {
   ActionForm, Page, Pager, Refresh, ResourceView, Status, Table, date, has, label, pageNumber, useGovernedSubmit, useResource,
@@ -230,6 +231,8 @@ function FacilityDetail({ facilityId, actor }: { facilityId: string; actor: Admi
       {/* hid-system #109, which only Novu serves: main has neither the field nor the route. A change is audited
           against the facility, so the page's reload reads the audit excerpts again too. */}
       {usesNovuBackend() && <FacilityAlertPhone facility={facility} actor={actor} reload={reload} />}
+      {/* A self-signed-up facility's staff and the licences it vouched for (Novu, P4b); read only when asked: every read is audited. */}
+      {usesNovuBackend() && has(actor, 'platform.principal.read') && <FacilityStaffPanel facilityId={facility.id} />}
       {/* A designation change is audited against the facility: the audit excerpts are read again with it. */}
       <AssistedRegistrationPanel facilityId={facility.id} facilityStatus={facility.status} refresh={refreshes} actor={actor}
         onChanged={() => setRevision(value => value + 1)} />

@@ -17,7 +17,8 @@ import { StepUpProvider } from '../StepUp'
 const mocks = vi.hoisted(() => ({
   api: { selfServiceFacilities: vi.fn(), reviewSelfServiceFacility: vi.fn(), releaseSelfServiceFacility: vi.fn(),
     selfServiceApplications: vi.fn(), searchSelfServiceApplications: vi.fn(), rejectSelfServiceApplication: vi.fn(),
-    waiveSelfServiceRefusals: vi.fn(), principals: vi.fn(), stepUp: vi.fn() },
+    waiveSelfServiceRefusals: vi.fn(), principals: vi.fn(), stepUp: vi.fn(), setSelfServiceAdministratorRole: vi.fn(),
+    endSelfServiceProbation: vi.fn(), facilityStaff: vi.fn(), findStaffInvitations: vi.fn() },
 }))
 vi.mock('../api', () => ({ adminApi: mocks.api, PAGE_SIZE: 25, newIdempotencyKey: () => 'key-1' }))
 
@@ -29,9 +30,21 @@ const signUp = (overrides: Partial<SelfServiceFacility> = {}): SelfServiceFacili
   administratorName: 'Bola Adewale', administratorEmail: 'bola@ikejacare.example', administratorAccountId: 'account-1',
   administratorAccountStatus: 'active', activatedAt: '2026-10-24T09:00:00.000Z', reviewedAt: null,
   reviewedByAccountId: null, reviewNote: null, ...overrides })
-/** Novu 0064: the facility review role reads applications and manages facilities; support reads principals. */
+/**
+ * Novu 0064: the facility review role reads applications and manages facilities; support reads principals. P4b's 0086
+ * also grants it platform.facility.unlock, which a review needs now that it gives clinical access.
+ */
 const REVIEWER = ['platform.admin.access', 'platform.identity-review.read', 'platform.facility.read', 'platform.facility.manage',
-  'platform.principal.read']
+  'platform.principal.read', 'platform.facility.unlock']
+
+/** Opens "Mark reviewed" and fills it: the access preselected, how support checked, the note and the confirmation. */
+function fillReview(item: HTMLElement, note = 'Called the lab; confirmed.', method = 'cac_registered_contact') {
+  fireEvent.click(within(item).getByText('Mark reviewed', { selector: 'summary' }))
+  fireEvent.change(within(item).getByLabelText('How did you check?'), { target: { value: method } })
+  fireEvent.change(within(item).getByLabelText('What you checked'), { target: { value: note } })
+  fireEvent.click(within(item).getByLabelText('I checked this facility and its administrator. They may now see patient records.'))
+}
+const REVIEW_BUTTON = 'Mark reviewed and give full access'
 const actor = (permissions: string[]): AdminActor => ({ accountId: 'admin-1', subject: 'staff:1', displayName: 'Ada',
   email: 'ada@example.test', platformRoles: [], platformPermissions: permissions })
 
@@ -61,7 +74,7 @@ describe('new facility sign-ups', () => {
     const item = await card('IKEJA CARE LIMITED')
     expect(mocks.api.selfServiceFacilities).toHaveBeenCalledWith('unreviewed', expect.anything())
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('New facility sign-ups (2 to review)')
-    expect(screen.getByRole('button', { name: 'To review' }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByRole('button', { name: 'Waiting for review' }).getAttribute('aria-pressed')).toBe('true')
     const shown = (term: string) => within(item).getByText(term).nextElementSibling?.textContent
     expect(shown('Legal name (CAC)')).toBe('IKEJA CARE LIMITED')
     expect(shown('CAC number')).toBe('RC••••56')
@@ -74,7 +87,11 @@ describe('new facility sign-ups', () => {
     const check = within(screen.getByRole('region', { name: 'What to check' }))
     expect(check.getByText('The CAC check proves that the company exists and is active. It does not prove that the person who '
       + 'signed up works there.')).toBeTruthy()
-    expect(check.getByText(/If anything looks wrong, suspend the facility and disable the administrator’s account/)).toBeTruthy()
+    // Marking reviewed gives full access (P4b): something wrong is never marked reviewed.
+    expect(check.getByText('If anything looks wrong, do not mark it reviewed: suspend the facility, disable the administrator’s '
+      + 'account and release the sign-up.')).toBeTruthy()
+    expect(check.getByText(/^Marking a sign-up reviewed gives the facility full access at once/)).toBeTruthy()
+    expect(check.queryByText(/then mark the sign-up reviewed/)).toBeNull()
     // And what the release is for (P4 round 2).
     expect(check.getByText('If it used another company’s CAC number, by mistake or not, also release it once the facility is '
       + 'suspended and the account disabled. That frees the CAC number and the legal name, so the real company can sign up.')).toBeTruthy()
@@ -84,21 +101,21 @@ describe('new facility sign-ups', () => {
   })
 
   it.each([
-    ['Reviewed or released', 'reviewed'],
-    ['All', 'all'],
-  ] as const)('shows %s from the filter, kept in the address', async (title, state) => {
+    ['Full access', 'full-access', 'reviewed'],
+    ['All', 'all', 'all'],
+  ] as const)('shows %s from the filter, kept in the address', async (title, view, state) => {
     mocks.api.selfServiceFacilities.mockResolvedValue({ items: [signUp({ reviewedAt: '2026-10-24T11:00:00.000Z',
       reviewedByAccountId: 'admin-9', reviewNote: 'Called the lab; the director confirmed Bola.' })] })
     open(<SelfServiceFacilitiesPage actor={actor(REVIEWER)} />)
     await card('IKEJA CARE LIMITED')
     fireEvent.click(screen.getByRole('button', { name: title }))
     await waitFor(() => expect(mocks.api.selfServiceFacilities).toHaveBeenLastCalledWith(state, expect.anything()))
-    expect(screen.getByTestId('location').textContent).toBe(`/admin/self-service-facilities?state=${state}`)
+    expect(screen.getByTestId('location').textContent).toBe(`/admin/self-service-facilities?state=${view}`)
     const item = await card('IKEJA CARE LIMITED')
     expect(within(item).getByText('Review note: Called the lab; the director confirmed Bola.')).toBeTruthy()
     expect(within(item).queryByText('Mark reviewed')).toBeNull()
     expect(screen.getByRole('heading', { level: 1 }).textContent)
-      .toBe(state === 'all' ? 'New facility sign-ups (0 to review)' : 'New facility sign-ups')
+      .toBe(view === 'all' ? 'New facility sign-ups (0 to review)' : 'New facility sign-ups')
   })
 
   it('shows a row whose optional details are missing without failing', async () => {
@@ -131,20 +148,25 @@ describe('new facility sign-ups', () => {
   it('marks one reviewed with a note of 8 to 500 characters and the version listed, then reads the list again', async () => {
     mocks.api.selfServiceFacilities.mockResolvedValueOnce({ items: [signUp()] }).mockResolvedValue({ items: [] })
     mocks.api.reviewSelfServiceFacility.mockResolvedValueOnce({ applicationId: signUp().applicationId,
-      reviewedAt: '2026-10-24T12:00:00.000Z', version: 4 })
+      reviewedAt: '2026-10-24T12:00:00.000Z', version: 4, grantedRole: 'none', sessionsRevoked: 1 })
     open(<SelfServiceFacilitiesPage actor={actor(REVIEWER)} />)
     const item = await card('IKEJA CARE LIMITED')
     fireEvent.click(within(item).getByText('Mark reviewed', { selector: 'summary' }))
     const note = within(item).getByLabelText('What you checked')
-    const save = within(item).getByRole('button', { name: 'Mark reviewed' }) as HTMLButtonElement
+    const save = within(item).getByRole('button', { name: REVIEW_BUTTON }) as HTMLButtonElement
+    fireEvent.change(within(item).getByLabelText('How did you check?'), { target: { value: 'officer_match' } })
+    fireEvent.click(within(item).getByLabelText('I checked this facility and its administrator. They may now see patient records.'))
     fireEvent.change(note, { target: { value: ' short ' } })
     expect(save.disabled).toBe(true)
     fireEvent.change(note, { target: { value: '  Called the lab; the director confirmed Bola.  ' } })
     expect(save.disabled).toBe(false)
     fireEvent.click(save)
-    expect(await screen.findByText('Marked IKEJA CARE LIMITED reviewed.')).toBeTruthy()
+    expect(await screen.findByText('Marked IKEJA CARE LIMITED reviewed. It has full access now, and Bola Adewale has been '
+      + 'signed out once to pick it up.')).toBeTruthy()
+    // An Identity that proposes no role (none listed) gives none: no licence is sent.
     expect(mocks.api.reviewSelfServiceFacility).toHaveBeenCalledWith(
-      expect.objectContaining({ applicationId: signUp().applicationId, version: 3 }), 'Called the lab; the director confirmed Bola.')
+      expect.objectContaining({ applicationId: signUp().applicationId, version: 3 }), 'Called the lab; the director confirmed Bola.',
+      { grantedRole: 'none', verificationMethod: 'officer_match' })
     await waitFor(() => expect(mocks.api.selfServiceFacilities).toHaveBeenCalledTimes(2))
     expect(await screen.findByText('No new facility sign-ups are waiting for review.')).toBeTruthy()
   })
@@ -160,31 +182,38 @@ describe('new facility sign-ups', () => {
       'Identity’s own detail', { code }))
     open(<SelfServiceFacilitiesPage actor={actor(REVIEWER)} />)
     const item = await card('IKEJA CARE LIMITED')
-    fireEvent.click(within(item).getByText('Mark reviewed', { selector: 'summary' }))
-    fireEvent.change(within(item).getByLabelText('What you checked'), { target: { value: 'Called the lab; confirmed.' } })
-    fireEvent.click(within(item).getByRole('button', { name: 'Mark reviewed' }))
+    fillReview(item)
+    fireEvent.click(within(item).getByRole('button', { name: REVIEW_BUTTON }))
     await waitFor(() => expect(mocks.api.selfServiceFacilities).toHaveBeenCalledTimes(2))
     // Said once, by the page, whether or not the card is replaced.
     await waitFor(() => expect(screen.getAllByRole('alert').map(alert => alert.textContent)).toEqual([text]))
     // The card is the new version's: a second review sends version 4.
     mocks.api.reviewSelfServiceFacility.mockResolvedValueOnce({ applicationId: signUp().applicationId, reviewedAt: '2026-10-24T12:00:00.000Z', version: 5 })
     const again = await card('IKEJA CARE LIMITED')
-    fireEvent.click(within(again).getByText('Mark reviewed', { selector: 'summary' }))
-    fireEvent.change(within(again).getByLabelText('What you checked'), { target: { value: 'Checked again; confirmed.' } })
-    fireEvent.click(within(again).getByRole('button', { name: 'Mark reviewed' }))
+    fillReview(again, 'Checked again; confirmed.')
+    fireEvent.click(within(again).getByRole('button', { name: REVIEW_BUTTON }))
     await waitFor(() => expect(mocks.api.reviewSelfServiceFacility).toHaveBeenLastCalledWith(
-      expect.objectContaining({ version: 4 }), 'Checked again; confirmed.'))
+      expect.objectContaining({ version: 4 }), 'Checked again; confirmed.', expect.anything()))
   })
 
-  it.each([['SELF_SERVICE_FACILITY_REQUEST_INVALID'], ['VALIDATION_FAILED']])('keeps any other refusal (%s) on the card, without reading the list again', async code => {
+  it.each([
+    ['SELF_SERVICE_FACILITY_REQUEST_INVALID', 'Enter a note of 8 to 500 characters about what you checked.'],
+    ['VALIDATION_FAILED', 'Choose the administrator’s access and how you checked, and enter a note of 8 to 500 characters '
+      + 'about what you checked.'],
+    // P4b: the role, the licence and the evidence the database re-checks.
+    ['SELF_SERVICE_REVIEW_ROLE_INVALID', 'This role can’t be given to this facility’s administrator. Choose one of the roles offered.'],
+    ['SELF_SERVICE_REVIEW_LICENCE_REQUIRED', 'A clinical role needs the administrator’s licence. Enter the licence number, or '
+      + 'choose “No clinical access”.'],
+    ['SELF_SERVICE_REVIEW_LICENCE_INVALID', 'Check the licence number: letters, digits, spaces, slashes, dots and hyphens, as '
+      + 'on the licence. The regulator must be the role’s.'],
+  ])('keeps any other refusal (%s) on the card, without reading the list again', async (code, text) => {
     mocks.api.selfServiceFacilities.mockResolvedValue({ items: [signUp()] })
     mocks.api.reviewSelfServiceFacility.mockRejectedValueOnce(new HidApiError(400, 'Bad request', { code }))
     open(<SelfServiceFacilitiesPage actor={actor(REVIEWER)} />)
     const item = await card('IKEJA CARE LIMITED')
-    fireEvent.click(within(item).getByText('Mark reviewed', { selector: 'summary' }))
-    fireEvent.change(within(item).getByLabelText('What you checked'), { target: { value: 'Called the lab; confirmed.' } })
-    fireEvent.click(within(item).getByRole('button', { name: 'Mark reviewed' }))
-    expect((await within(item).findByRole('alert')).textContent).toBe('Enter a note of 8 to 500 characters about what you checked.')
+    fillReview(item)
+    fireEvent.click(within(item).getByRole('button', { name: REVIEW_BUTTON }))
+    expect((await within(item).findByRole('alert')).textContent).toBe(text)
     expect(mocks.api.selfServiceFacilities).toHaveBeenCalledTimes(1)
   })
 
@@ -207,7 +236,8 @@ describe('new facility sign-ups', () => {
     open(<SelfServiceFacilitiesPage actor={actor(['platform.admin.access', 'platform.identity-review.read'])} />)
     const item = await card('IKEJA CARE LIMITED')
     expect(within(item).queryByText('Mark reviewed')).toBeNull()
-    expect(within(item).getByText('View only: reviewing or releasing a sign-up needs the platform.facility.manage permission.')).toBeTruthy()
+    expect(within(item).getByText('View only: reviewing or releasing a sign-up needs the platform.facility.manage permission, '
+      + 'and reviewing it also platform.facility.unlock.')).toBeTruthy()
     expect(within(item).queryByRole('link')).toBeNull()
     expect(mocks.api.reviewSelfServiceFacility).not.toHaveBeenCalled()
   })
@@ -267,9 +297,11 @@ describe('releasing a sign-up', () => {
     fireEvent.click(releaseSummary(item)!)
     expect(within(item).getByText(/^Releasing frees this CAC number and legal name/).textContent).toBe('Releasing frees this CAC '
       + 'number and legal name, so the real company can sign up. It closes this sign-up, unlinks the CAC number, suspends the '
-      + 'product, deactivates and renames the organization, and removes the administrator’s access. It can’t be undone. The '
-      + 'administrator’s email stays with the disabled account and can’t be used to sign up again. Unless you let the '
-      + 'applicant start again, this sign-up’s email and network can’t sign up this CAC number and product again for 7 days.')
+      + 'product, deactivates and renames the organization, and removes the administrator’s access. It also ends the access '
+      + 'of every staff member the facility added, withdraws pending invitations and ends patients’ consents to it. It can’t '
+      + 'be undone. The administrator’s email stays with the disabled account and can’t be used to sign up again. Unless you '
+      + 'let the applicant start again, this sign-up’s email and network can’t sign up this CAC number and product again for '
+      + '7 days.')
     expect(within(item).queryByText(/^To release this sign-up/)).toBeNull()
   })
 
@@ -345,7 +377,8 @@ describe('releasing a sign-up', () => {
     const item = await card('IKEJA CARE LIMITED')
     expect(releaseSummary(item)).toBeNull()
     expect(within(item).queryByText(/^To release this sign-up/)).toBeNull()
-    expect(within(item).getByText('View only: reviewing or releasing a sign-up needs the platform.facility.manage permission.')).toBeTruthy()
+    expect(within(item).getByText('View only: reviewing or releasing a sign-up needs the platform.facility.manage permission, '
+      + 'and reviewing it also platform.facility.unlock.')).toBeTruthy()
   })
 
   it('shows a released sign-up as released, with its reason, and offers nothing more on it', async () => {
@@ -645,7 +678,7 @@ describe('open applications', () => {
     fireEvent.change(screen.getByLabelText('Find a CAC number’s open sign-ups'), { target: { value: 'RC1234521' } })
     fireEvent.click(screen.getByRole('button', { name: 'Search' }))
     expect(await screen.findByText('No sign-up for RC1234521 is waiting to be finished.')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'To review' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Waiting for review' }))
     expect(await screen.findByText('No new facility sign-ups are waiting for review.')).toBeTruthy()
     expect(screen.queryByRole('search', { name: 'Open sign-ups by CAC number' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Open applications' }))
@@ -774,5 +807,320 @@ describe('Users & roles opened without a handed-over search', () => {
     </Routes></StepUpProvider></MemoryRouter>)
     expect(await screen.findByText('Enter at least two characters to search.')).toBeTruthy()
     expect(mocks.api.principals).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * Full access after support's review (P4b, Novu only): "Mark reviewed" gives the facility full access and signs its
+ * administrator out once. Support confirms the administrator's own access (preselected by the facility's type), says
+ * how it checked, and records the licence it checked for a clinical role. After review it can change that access, end
+ * the first 30 days' limits, see the staff and licences, and find an invitation by its reference.
+ */
+describe('full access after review (P4b)', () => {
+  const hospital = (overrides: Partial<SelfServiceFacility> = {}) => signUp({ productCode: 'ehr', organizationType: 'hospital',
+    reviewGrantsRole: 'doctor', reviewableRoles: ['doctor', 'nurse'], administratorLicenceBody: 'MDCN',
+    administratorLicenceNumber: 'MDCN/12345', administratorLicenceRecordedAt: '2026-10-24T10:00:00.000Z', ...overrides })
+  const reviewedHospital = (overrides: Partial<SelfServiceFacility> = {}) => hospital({ reviewedAt: '2026-10-24T12:00:00.000Z',
+    reviewedByAccountId: 'admin-9', reviewNote: 'Called the hospital.', grantedRole: 'doctor', verificationMethod: 'regulator_register',
+    memberCount: 4, pendingInvitationCount: 2, probationEndsAt: '2026-11-23T12:00:00.000Z', breakGlassLast7d: 1,
+    deliveryFailuresLastDay: 0, ...overrides })
+  const shown = (item: HTMLElement, term: string) => within(item).getByText(term, { selector: 'dt' }).nextElementSibling?.textContent
+
+  it('shows the licence the administrator entered, to check on the regulator’s register', async () => {
+    mocks.api.selfServiceFacilities.mockResolvedValue({ items: [hospital()] })
+    open(<SelfServiceFacilitiesPage actor={actor(REVIEWER)} />)
+    const item = await card('IKEJA CARE LIMITED')
+    expect(shown(item, 'Administrator’s licence')).toMatch(/^MDCN MDCN\/12345, entered .+: check it on the Medical and Dental Council of Nigeria register$/)
+  })
+
+  it('says when the administrator entered no licence', async () => {
+    mocks.api.selfServiceFacilities.mockResolvedValue({ items: [hospital({ administratorLicenceBody: null,
+      administratorLicenceNumber: null, administratorLicenceRecordedAt: null })] })
+    open(<SelfServiceFacilitiesPage actor={actor(REVIEWER)} />)
+    expect(shown(await card('IKEJA CARE LIMITED'), 'Administrator’s licence')).toBe('Not entered')
+  })
+
+  it('preselects the role for the type, pre-fills the licence entered, warns what it gives, and sends it all', async () => {
+    mocks.api.selfServiceFacilities.mockResolvedValueOnce({ items: [hospital()] }).mockResolvedValue({ items: [] })
+    mocks.api.reviewSelfServiceFacility.mockResolvedValueOnce({ applicationId: signUp().applicationId,
+      reviewedAt: '2026-10-24T12:00:00.000Z', version: 4, grantedRole: 'doctor', sessionsRevoked: 1 })
+    open(<SelfServiceFacilitiesPage actor={actor(REVIEWER)} />)
+    const item = await card('IKEJA CARE LIMITED')
+    fireEvent.click(within(item).getByText('Mark reviewed', { selector: 'summary' }))
+    const role = within(item).getByLabelText('Administrator’s own access') as HTMLSelectElement
+    expect(role.value).toBe('doctor')
+    expect([...role.options].map(option => option.textContent)).toEqual(['Doctor', 'Nurse',
+      'No clinical access (manages the facility and its staff)'])
+    expect((within(item).getByLabelText('MDCN licence number') as HTMLInputElement).value).toBe('MDCN/12345')
+    expect([...(within(item).getByLabelText('How did you check?') as HTMLSelectElement).options].map(option => option.textContent))
+      .toEqual(['Choose how you checked', 'I reached the company through contact details on its CAC record',
+        'The administrator is a director or officer on the CAC record',
+        'I found the administrator’s licence on the regulator’s register',
+        'I met or video-called the administrator and saw their ID', 'Other (explain in the note)'])
+    expect(within(item).getByText(/^Marking this reviewed gives/).textContent).toBe('Marking this reviewed gives IKEJA CARE '
+      + 'LIMITED full access at once and signs its administrator out once. They can add staff whose licences the facility '
+      + 'vouches for, and become a doctor who can open patient records with each patient’s consent, and use emergency access. '
+      + 'Do it only when you are satisfied that Bola Adewale works at IKEJA CARE LIMITED and holds the licence above.')
+    const save = within(item).getByRole('button', { name: REVIEW_BUTTON }) as HTMLButtonElement
+    fireEvent.change(within(item).getByLabelText('What you checked'), { target: { value: 'MDCN register shows Bola Adewale.' } })
+    fireEvent.change(within(item).getByLabelText('How did you check?'), { target: { value: 'regulator_register' } })
+    // Not without the confirmation.
+    expect(save.disabled).toBe(true)
+    fireEvent.click(within(item).getByLabelText('I checked this facility and its administrator. They may now see patient records.'))
+    expect(save.disabled).toBe(false)
+    fireEvent.click(save)
+    await screen.findByText(/^Marked IKEJA CARE LIMITED reviewed\./)
+    expect(mocks.api.reviewSelfServiceFacility).toHaveBeenCalledWith(expect.objectContaining({ version: 3 }),
+      'MDCN register shows Bola Adewale.', { grantedRole: 'doctor', verificationMethod: 'regulator_register',
+        administratorLicence: { body: 'MDCN', number: 'MDCN/12345' } })
+  })
+
+  it('needs the role’s own licence: another role empties the number, and the number is sent as Identity stores it', async () => {
+    mocks.api.selfServiceFacilities.mockResolvedValue({ items: [hospital()] })
+    mocks.api.reviewSelfServiceFacility.mockResolvedValueOnce({ applicationId: signUp().applicationId,
+      reviewedAt: '2026-10-24T12:00:00.000Z', version: 4 })
+    open(<SelfServiceFacilitiesPage actor={actor(REVIEWER)} />)
+    const item = await card('IKEJA CARE LIMITED')
+    fillReview(item, 'NMCN register shows Bola Adewale.', 'regulator_register')
+    fireEvent.change(within(item).getByLabelText('Administrator’s own access'), { target: { value: 'nurse' } })
+    const number = within(item).getByLabelText('NMCN licence number') as HTMLInputElement
+    expect(number.value).toBe('')
+    const save = within(item).getByRole('button', { name: REVIEW_BUTTON }) as HTMLButtonElement
+    expect(save.disabled).toBe(true)
+    fireEvent.change(number, { target: { value: '  rn  98765 ' } })
+    expect(save.disabled).toBe(false)
+    expect(within(item).getByText(/^Marking this reviewed gives/).textContent).toContain('and become a nurse who can open '
+      + 'patient records with each patient’s consent, and use emergency access.')
+    fireEvent.click(save)
+    await waitFor(() => expect(mocks.api.reviewSelfServiceFacility).toHaveBeenCalledWith(expect.anything(),
+      'NMCN register shows Bola Adewale.', { grantedRole: 'nurse', verificationMethod: 'regulator_register',
+        administratorLicence: { body: 'NMCN', number: 'RN 98765' } }))
+  })
+
+  it('gives no clinical role when support chooses none: no licence, and the warning promises no records to the administrator', async () => {
+    mocks.api.selfServiceFacilities.mockResolvedValue({ items: [hospital()] })
+    mocks.api.reviewSelfServiceFacility.mockResolvedValueOnce({ applicationId: signUp().applicationId,
+      reviewedAt: '2026-10-24T12:00:00.000Z', version: 4 })
+    open(<SelfServiceFacilitiesPage actor={actor(REVIEWER)} />)
+    const item = await card('IKEJA CARE LIMITED')
+    fillReview(item, 'Director confirmed on the phone.', 'officer_match')
+    fireEvent.change(within(item).getByLabelText('Administrator’s own access'), { target: { value: 'none' } })
+    expect(within(item).queryByLabelText(/licence number/)).toBeNull()
+    expect(within(item).getByText(/^Marking this reviewed gives/).textContent).toBe('Marking this reviewed gives IKEJA CARE '
+      + 'LIMITED full access at once and signs its administrator out once. They can add staff whose licences the facility '
+      + 'vouches for. Do it only when you are satisfied that Bola Adewale works at IKEJA CARE LIMITED.')
+    fireEvent.click(within(item).getByRole('button', { name: REVIEW_BUTTON }))
+    await waitFor(() => expect(mocks.api.reviewSelfServiceFacility).toHaveBeenCalledWith(expect.anything(),
+      'Director confirmed on the phone.', { grantedRole: 'none', verificationMethod: 'officer_match' }))
+  })
+
+  it.each([
+    ['laboratory', ['lab'], 'lab', 'Laboratory scientist', 'MLSCN', 'and become a laboratory scientist who can open patient '
+      + 'records with each patient’s consent. Do it'],
+    ['pharmacy', ['pharmacist'], 'pharmacist', 'Pharmacist', 'PCN', 'and become a pharmacist who can open patient records '
+      + 'with each patient’s consent. Do it'],
+  ])('offers a %s’s own role, with its licence and without emergency access', async (type, roles, role, title, body, warning) => {
+    mocks.api.selfServiceFacilities.mockResolvedValue({ items: [signUp({ organizationType: type, productCode: type,
+      reviewGrantsRole: role, reviewableRoles: roles })] })
+    open(<SelfServiceFacilitiesPage actor={actor(REVIEWER)} />)
+    const item = await card('IKEJA CARE LIMITED')
+    fireEvent.click(within(item).getByText('Mark reviewed', { selector: 'summary' }))
+    const select = within(item).getByLabelText('Administrator’s own access') as HTMLSelectElement
+    expect(select.value).toBe(role)
+    expect([...select.options].map(option => option.textContent)).toEqual([title,
+      'No clinical access (manages the facility and its staff)'])
+    expect(within(item).getByLabelText(`${body} licence number`)).toBeTruthy()
+    expect(within(item).getByText(/^Marking this reviewed gives/).textContent).toContain(warning)
+    expect(within(item).getByText(/^Marking this reviewed gives/).textContent).not.toContain('emergency access')
+  })
+
+  it('preselects nothing clinical for another kind of provider (Q3)', async () => {
+    mocks.api.selfServiceFacilities.mockResolvedValue({ items: [signUp({ organizationType: 'other', productCode: 'ehr',
+      reviewGrantsRole: null, reviewableRoles: ['doctor', 'nurse'] })] })
+    open(<SelfServiceFacilitiesPage actor={actor(REVIEWER)} />)
+    const item = await card('IKEJA CARE LIMITED')
+    fireEvent.click(within(item).getByText('Mark reviewed', { selector: 'summary' }))
+    expect((within(item).getByLabelText('Administrator’s own access') as HTMLSelectElement).value).toBe('none')
+  })
+
+  it.each([
+    [{ facilityLifecycleStatus: 'suspended' }, 'It can’t be marked reviewed while the facility is suspended: full access needs '
+      + 'an active facility and an active administrator.'],
+    [{ administratorAccountStatus: 'locked' }, 'It can’t be marked reviewed while the administrator’s account is locked: full '
+      + 'access needs an active facility and an active administrator.'],
+  ] as const)('is not offered for a facility or account that isn’t active (%o)', async (overrides, note) => {
+    mocks.api.selfServiceFacilities.mockResolvedValue({ items: [hospital(overrides)] })
+    open(<SelfServiceFacilitiesPage actor={actor(REVIEWER)} />)
+    const item = await card('IKEJA CARE LIMITED')
+    expect(within(item).queryByText('Mark reviewed', { selector: 'summary' })).toBeNull()
+    expect(within(item).getByText(note)).toBeTruthy()
+  })
+
+  it('reads the list again when Identity finds the facility or account no longer active', async () => {
+    mocks.api.selfServiceFacilities.mockResolvedValueOnce({ items: [hospital()] })
+      .mockResolvedValue({ items: [hospital({ facilityLifecycleStatus: 'suspended', version: 4 })] })
+    mocks.api.reviewSelfServiceFacility.mockRejectedValueOnce(new HidApiError(409, 'Identity’s own detail',
+      { code: 'SELF_SERVICE_FACILITY_REVIEW_REQUIRES_ACTIVE' }))
+    open(<SelfServiceFacilitiesPage actor={actor(REVIEWER)} />)
+    fillReview(await card('IKEJA CARE LIMITED'))
+    fireEvent.click(screen.getByRole('button', { name: REVIEW_BUTTON }))
+    await waitFor(() => expect(mocks.api.selfServiceFacilities).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(screen.getAllByRole('alert').map(alert => alert.textContent)).toEqual(['This sign-up can’t be '
+      + 'given full access while its facility is suspended or its administrator’s account isn’t active. The list has been '
+      + 'refreshed.']))
+  })
+
+  it('needs platform.facility.unlock to review, but not to release', async () => {
+    const releaser = REVIEWER.filter(permission => permission !== 'platform.facility.unlock')
+    mocks.api.selfServiceFacilities.mockResolvedValue({ items: [hospital(), hospital({ applicationId: 'app-2',
+      facilityName: 'Stopped Clinic', facilityLifecycleStatus: 'suspended', administratorAccountStatus: 'disabled' })] })
+    open(<SelfServiceFacilitiesPage actor={actor(releaser)} />)
+    const item = await card('IKEJA CARE LIMITED')
+    expect(within(item).queryByText('Mark reviewed', { selector: 'summary' })).toBeNull()
+    expect(within(item).getByText('Reviewing a sign-up or changing its administrator’s access also needs the '
+      + 'platform.facility.unlock permission. Ask a Super Admin.')).toBeTruthy()
+    expect(within(await card('Stopped Clinic')).getByText('Release this sign-up', { selector: 'summary' })).toBeTruthy()
+  })
+
+  it('splits reviewed sign-ups into full access and released, from Identity’s one reviewed list', async () => {
+    mocks.api.selfServiceFacilities.mockResolvedValue({ items: [reviewedHospital(), reviewedHospital({ applicationId: 'app-2',
+      facilityName: 'Released Clinic', releasedAt: '2026-10-24T15:00:00.000Z', releaseReason: 'Not the company.' })] })
+    open(<SelfServiceFacilitiesPage actor={actor(REVIEWER)} />, '/admin/self-service-facilities?state=full-access')
+    await card('IKEJA CARE LIMITED')
+    expect(mocks.api.selfServiceFacilities).toHaveBeenLastCalledWith('reviewed', expect.anything())
+    expect(screen.queryByRole('heading', { name: 'Released Clinic', level: 2 })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Released' }))
+    await card('Released Clinic')
+    expect(screen.queryByRole('heading', { name: 'IKEJA CARE LIMITED', level: 2 })).toBeNull()
+    expect(screen.getByTestId('location').textContent).toBe('/admin/self-service-facilities?state=released')
+  })
+
+  it('opens a link to P4’s “reviewed or released” view on Full access', async () => {
+    mocks.api.selfServiceFacilities.mockResolvedValue({ items: [] })
+    open(<SelfServiceFacilitiesPage actor={actor(REVIEWER)} />, '/admin/self-service-facilities?state=reviewed')
+    expect(await screen.findByText('No facility sign-up has full access yet.')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Full access' }).getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('shows what full access gave and how it is used, with the first 30 days', async () => {
+    mocks.api.selfServiceFacilities.mockResolvedValue({ items: [reviewedHospital()] })
+    open(<SelfServiceFacilitiesPage actor={actor(REVIEWER)} />, '/admin/self-service-facilities?state=full-access')
+    const item = await card('IKEJA CARE LIMITED')
+    expect(within(item).getByText('Full access', { selector: '.admin-status' })).toBeTruthy()
+    expect(within(item).getByText('First 30 days', { selector: '.admin-status' })).toBeTruthy()
+    expect(shown(item, 'Administrator’s access')).toBe('Doctor')
+    expect(shown(item, 'How support checked')).toBe('I found the administrator’s licence on the regulator’s register')
+    expect(shown(item, 'Staff')).toBe('4 staff, 2 invited')
+    expect(shown(item, 'Emergency access, last 7 days')).toBe('1')
+    expect(shown(item, 'Invitation emails not delivered, last day')).toBe('0')
+    expect(shown(item, 'First 30 days end')).not.toBe('Not available')
+    expect(within(item).queryByText('Mark reviewed', { selector: 'summary' })).toBeNull()
+  })
+
+  it('changes the administrator’s access with a reason, and keeps “unchanged” on the card', async () => {
+    mocks.api.selfServiceFacilities.mockResolvedValue({ items: [reviewedHospital()] })
+    mocks.api.setSelfServiceAdministratorRole.mockRejectedValueOnce(new HidApiError(409, 'Unchanged',
+      { code: 'SELF_SERVICE_ADMINISTRATOR_ROLE_UNCHANGED' }))
+      .mockResolvedValueOnce({ applicationId: signUp().applicationId, version: 5, grantedRole: 'none', sessionsRevoked: 0 })
+    open(<SelfServiceFacilitiesPage actor={actor(REVIEWER)} />, '/admin/self-service-facilities?state=full-access')
+    const item = await card('IKEJA CARE LIMITED')
+    fireEvent.click(within(item).getByText('Change administrator access', { selector: 'summary' }))
+    const role = within(item).getByLabelText('Administrator’s own access') as HTMLSelectElement
+    expect(role.value).toBe('')
+    fireEvent.change(role, { target: { value: 'none' } })
+    fireEvent.change(within(item).getByLabelText('How did you check?'), { target: { value: 'other' } })
+    fireEvent.change(within(item).getByLabelText('Reason for the change'), { target: { value: 'The administrator stopped practising.' } })
+    fireEvent.click(within(item).getByRole('button', { name: 'Change administrator access' }))
+    expect((await within(item).findByRole('alert')).textContent).toBe('The administrator already has this access and licence. '
+      + 'Nothing was changed.')
+    fireEvent.click(within(item).getByRole('button', { name: 'Change administrator access' }))
+    expect(await screen.findByText('Changed Bola Adewale’s access at IKEJA CARE LIMITED to no clinical access.')).toBeTruthy()
+    expect(mocks.api.setSelfServiceAdministratorRole).toHaveBeenLastCalledWith(expect.objectContaining({ version: 3 }),
+      'The administrator stopped practising.', { grantedRole: 'none', verificationMethod: 'other' })
+  })
+
+  it('ends the first-30-days limits with a reason, and reads the list again if they already ended', async () => {
+    mocks.api.selfServiceFacilities.mockResolvedValueOnce({ items: [reviewedHospital()] })
+      .mockResolvedValue({ items: [reviewedHospital({ probationEndsAt: null, version: 4 })] })
+    mocks.api.endSelfServiceProbation.mockRejectedValueOnce(new HidApiError(409, 'Ended',
+      { code: 'SELF_SERVICE_PROBATION_ALREADY_ENDED' }))
+    open(<SelfServiceFacilitiesPage actor={actor(REVIEWER)} />, '/admin/self-service-facilities?state=full-access')
+    const item = await card('IKEJA CARE LIMITED')
+    fireEvent.click(within(item).getByText('End the first-30-days limits', { selector: 'summary' }))
+    expect(within(item).getByText(/^In its first 30 days after review/).textContent).toBe('In its first 30 days after review, '
+      + 'IKEJA CARE LIMITED can activate emergency access 5 times a day and send 10 invitations (20 emails) a day. Ending the '
+      + 'limits now gives it the usual limits at once. It can’t be undone.')
+    fireEvent.change(within(item).getByLabelText('Reason for ending them'), { target: { value: 'Busy emergency unit; asked by phone.' } })
+    fireEvent.click(within(item).getByRole('button', { name: 'End the limits' }))
+    await waitFor(() => expect(mocks.api.selfServiceFacilities).toHaveBeenCalledTimes(2))
+    expect(mocks.api.endSelfServiceProbation).toHaveBeenCalledWith(expect.objectContaining({ version: 3 }),
+      'Busy emergency unit; asked by phone.')
+    await waitFor(() => expect(screen.getAllByRole('alert').map(alert => alert.textContent)).toEqual(['This facility’s '
+      + 'first-30-days limits have already ended. The list has been refreshed.']))
+    const again = await card('IKEJA CARE LIMITED')
+    expect(within(again).queryByText('End the first-30-days limits', { selector: 'summary' })).toBeNull()
+  })
+
+  it('shows the staff and licences only when asked, with the full numbers, who vouched and what to look at', async () => {
+    mocks.api.selfServiceFacilities.mockResolvedValue({ items: [reviewedHospital()] })
+    mocks.api.facilityStaff.mockResolvedValue({
+      facility: { id: FACILITY_ID, name: 'IKEJA CARE LIMITED', selfService: { review: 'reviewed', organizationType: 'hospital', productCode: 'ehr' } },
+      members: [{ membershipId: 'm-1', accountId: 'a-1', name: 'Ngozi Okafor', email: 'ngozi@ikejacare.example', roles: ['nurse'],
+        status: 'active', licenceBody: 'NMCN', licenceNumber: 'RN 98765', licenceKey: 'NMCN:RN98765', sameLicenceElsewhere: 1,
+        nameMismatch: true, attestedByAccountId: 'account-1', attestedByName: 'Bola Adewale', verificationMethod: 'facility_attestation',
+        attestedAt: '2026-10-25T09:00:00.000Z', createdAt: '2026-10-25T09:00:00.000Z' }],
+      invitations: [{ invitationId: 'i-1', reference: '3F2A9C1B', accountId: null, name: 'Emeka Obi', email: 'emeka@ikejacare.example',
+        roles: ['doctor'], status: 'pending', licenceBody: 'MDCN', licenceNumber: 'MDCN/777', licenceKey: 'MDCN:777',
+        sameLicenceElsewhere: 0, nameMismatch: false, attestedByAccountId: 'account-1', attestedByName: 'Bola Adewale',
+        verificationMethod: 'facility_attestation', attestedAt: '2026-10-25T09:30:00.000Z', createdAt: '2026-10-25T09:30:00.000Z' }],
+    })
+    open(<SelfServiceFacilitiesPage actor={actor(REVIEWER)} />, '/admin/self-service-facilities?state=full-access')
+    const item = await card('IKEJA CARE LIMITED')
+    expect(mocks.api.facilityStaff).not.toHaveBeenCalled()
+    fireEvent.click(within(item).getByRole('button', { name: 'Show staff and licences' }))
+    const nurse = (await within(item).findByText('Ngozi Okafor')).closest('tr')!
+    expect(mocks.api.facilityStaff).toHaveBeenCalledWith(FACILITY_ID, expect.anything())
+    expect(within(nurse).getByText('Nurse')).toBeTruthy()
+    expect(within(nurse).getByText('NMCN RN 98765 (Nursing and Midwifery Council of Nigeria)')).toBeTruthy()
+    expect(within(nurse).getByText(/^Bola Adewale, /)).toBeTruthy()
+    expect(within(nurse).getByText('Same licence on 1 other account. Name differs from the name vouched for')).toBeTruthy()
+    const invited = within(item).getByText('Emeka Obi').closest('tr')!
+    expect(within(invited).getByText('Reference 3F2A9C1B')).toBeTruthy()
+    expect(within(invited).getByText('None')).toBeTruthy()
+  })
+
+  it('finds an invitation by its reference only, and links to its facility', async () => {
+    mocks.api.selfServiceFacilities.mockResolvedValue({ items: [] })
+    mocks.api.findStaffInvitations.mockResolvedValue({ items: [{ invitationId: 'i-1', reference: '3F2A9C1B', facilityId: FACILITY_ID,
+      facilityName: 'IKEJA CARE LIMITED', organizationId: 'org-1', status: 'pending', roleCode: 'lab',
+      createdAt: '2026-10-25T09:30:00.000Z', expiresAt: '2026-11-01T09:30:00.000Z' }] })
+    open(<SelfServiceFacilitiesPage actor={actor(REVIEWER)} />)
+    await screen.findByText('No new facility sign-ups are waiting for review.')
+    const reference = screen.getByLabelText('Invitation reference (8 characters)')
+    fireEvent.change(reference, { target: { value: 'ngozi@x' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Find' }))
+    expect((await screen.findByRole('alert')).textContent).toBe('Enter the 8-character reference from the invitation email, for '
+      + 'example 3F2A9C1B.')
+    expect(mocks.api.findStaffInvitations).not.toHaveBeenCalled()
+    fireEvent.change(reference, { target: { value: ' 3f2a9c1b ' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Find' }))
+    const link = await screen.findByRole('link', { name: 'IKEJA CARE LIMITED' })
+    expect(mocks.api.findStaffInvitations).toHaveBeenCalledWith('3F2A9C1B')
+    expect(link.getAttribute('href')).toBe(`/admin/facilities/${FACILITY_ID}`)
+    expect(link.closest('li')?.textContent).toMatch(/^IKEJA CARE LIMITED: Laboratory scientist, Pending, sent .+, expires .+ \(reference 3F2A9C1B\)$/)
+  })
+
+  it('says when no invitation has the reference, and offers no lookup without platform.principal.read', async () => {
+    mocks.api.selfServiceFacilities.mockResolvedValue({ items: [] })
+    mocks.api.findStaffInvitations.mockResolvedValue({ items: [] })
+    open(<SelfServiceFacilitiesPage actor={actor(REVIEWER)} />)
+    await screen.findByText('No new facility sign-ups are waiting for review.')
+    fireEvent.change(screen.getByLabelText('Invitation reference (8 characters)'), { target: { value: 'ABCDEF12' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Find' }))
+    expect(await screen.findByText('No invitation has the reference ABCDEF12.')).toBeTruthy()
+    cleanup()
+    open(<SelfServiceFacilitiesPage actor={actor(REVIEWER.filter(permission => permission !== 'platform.principal.read'))} />)
+    await screen.findByText('No new facility sign-ups are waiting for review.')
+    expect(screen.queryByLabelText('Invitation reference (8 characters)')).toBeNull()
   })
 })

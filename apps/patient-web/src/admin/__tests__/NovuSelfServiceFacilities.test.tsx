@@ -32,6 +32,13 @@ function serve(permissions: string[], items: unknown[] = []) {
       return json({ waived: [{ applicationId: APPLICATION_ID, waivedAt: '2026-10-25T09:00:00.000Z', version: 6 }] })
     }
     if (target.pathname.endsWith('/review')) return json({ applicationId: APPLICATION_ID, reviewedAt: '2026-10-24T12:00:00.000Z', version: 4 })
+    // P4b: support's command on a reviewed administrator's access, the end of the first 30 days and the staff reads.
+    if (target.pathname.endsWith('/administrator-role')) return json({ applicationId: APPLICATION_ID, version: 5, grantedRole: 'nurse', sessionsRevoked: 2 })
+    if (target.pathname.endsWith('/end-probation')) return json({ applicationId: APPLICATION_ID, version: 6, probationEndedAt: '2026-10-26T09:00:00.000Z' })
+    if (/^\/api\/v1\/admin\/facilities\/[^/]+\/staff$/.test(target.pathname)) {
+      return json({ facility: { id: 'facility-1', name: 'IKEJA CARE LIMITED', selfService: null }, members: [], invitations: [] })
+    }
+    if (target.pathname === '/api/v1/admin/staff-invitations') return json({ items: [] })
     if (target.pathname.endsWith('/release')) return json({ applicationId: APPLICATION_ID, releasedAt: '2026-10-24T13:00:00.000Z', version: 5 })
     if (target.pathname.endsWith('/reject')) return json({ applicationId: APPLICATION_ID, rejectedAt: '2026-10-24T14:00:00.000Z', version: 3 })
     return json({ status: 404, code: 'NOT_FOUND', detail: `Cannot ${String(init.method)} ${target.pathname}` }, 404)
@@ -81,21 +88,71 @@ describe('New facility sign-ups in the Novu console', () => {
     expect(calls.some(call => call.path.includes('self-service'))).toBe(false)
   })
 
-  it('sends a review with If-Match, the note and the CSRF token, and no Idempotency-Key', async () => {
+  it('sends a review with If-Match, the note, the administrator’s access and the CSRF token, and no Idempotency-Key', async () => {
     const calls = serve(READER)
     document.cookie = 'hid_access_csrf=novu-proof; path=/'
     const { adminApi } = await import('../api')
-    await expect(adminApi.reviewSelfServiceFacility({ applicationId: APPLICATION_ID, version: 3 }, 'Called the hospital; confirmed.'))
-      .resolves.toEqual({ applicationId: APPLICATION_ID, reviewedAt: '2026-10-24T12:00:00.000Z', version: 4 })
+    const access = { grantedRole: 'doctor' as const, verificationMethod: 'regulator_register' as const,
+      administratorLicence: { body: 'MDCN', number: 'MDCN/12345' } }
+    await expect(adminApi.reviewSelfServiceFacility({ applicationId: APPLICATION_ID, version: 3 }, 'Called the hospital; confirmed.',
+      access)).resolves.toEqual({ applicationId: APPLICATION_ID, reviewedAt: '2026-10-24T12:00:00.000Z', version: 4 })
     const review = calls.find(call => call.path.endsWith('/review'))!
-    expect(review).toMatchObject({ method: 'POST', path: `/api/v1/admin/self-service-facilities/${APPLICATION_ID}/review`,
-      body: { note: 'Called the hospital; confirmed.' } })
+    // P4b: the body Identity's ReviewSelfServiceFacilityDto takes, and nothing else (unknown fields are refused).
+    expect(review).toMatchObject({ method: 'POST', path: `/api/v1/admin/self-service-facilities/${APPLICATION_ID}/review` })
+    expect(review.body).toEqual({ note: 'Called the hospital; confirmed.', grantedRole: 'doctor',
+      verificationMethod: 'regulator_register', administratorLicence: { body: 'MDCN', number: 'MDCN/12345' } })
     expect(review.headers.get('if-match')).toBe('"3"')
     expect(review.headers.get('x-csrf-token')).toBe('novu-proof')
     expect(review.headers.has('idempotency-key')).toBe(false)
+    // No clinical role: no licence at all.
+    await adminApi.reviewSelfServiceFacility({ applicationId: APPLICATION_ID, version: 3 }, 'Called the hospital; confirmed.',
+      { grantedRole: 'none', verificationMethod: 'officer_match' })
+    expect(calls.filter(call => call.path.endsWith('/review')).at(-1)!.body).toEqual({ note: 'Called the hospital; confirmed.',
+      grantedRole: 'none', verificationMethod: 'officer_match' })
     // A version that was never read is not sent.
-    expect(() => adminApi.reviewSelfServiceFacility({ applicationId: APPLICATION_ID, version: 0 }, 'Called the hospital; confirmed.'))
-      .toThrow('Reload this item before changing it.')
+    expect(() => adminApi.reviewSelfServiceFacility({ applicationId: APPLICATION_ID, version: 0 }, 'Called the hospital; confirmed.',
+      access)).toThrow('Reload this item before changing it.')
+  })
+
+  it('changes the administrator’s access and ends the first 30 days with If-Match, each with its own body (P4b)', async () => {
+    const calls = serve(READER)
+    document.cookie = 'hid_access_csrf=novu-proof; path=/'
+    const { adminApi } = await import('../api')
+    await expect(adminApi.setSelfServiceAdministratorRole({ applicationId: APPLICATION_ID, version: 4 }, 'Now a practising nurse.',
+      { grantedRole: 'nurse', verificationMethod: 'regulator_register', administratorLicence: { body: 'NMCN', number: 'RN 1' } }))
+      .resolves.toEqual({ applicationId: APPLICATION_ID, version: 5, grantedRole: 'nurse', sessionsRevoked: 2 })
+    await expect(adminApi.endSelfServiceProbation({ applicationId: APPLICATION_ID, version: 5 }, 'Busy emergency unit.'))
+      .resolves.toEqual({ applicationId: APPLICATION_ID, version: 6, probationEndedAt: '2026-10-26T09:00:00.000Z' })
+    const posts = calls.filter(call => call.method === 'POST')
+    expect(posts.map(call => [call.path, call.body, call.headers.get('if-match'), call.headers.has('idempotency-key')])).toEqual([
+      [`/api/v1/admin/self-service-facilities/${APPLICATION_ID}/administrator-role`, { grantedRole: 'nurse',
+        verificationMethod: 'regulator_register', administratorLicence: { body: 'NMCN', number: 'RN 1' },
+        reason: 'Now a practising nurse.' }, '"4"', false],
+      [`/api/v1/admin/self-service-facilities/${APPLICATION_ID}/end-probation`, { reason: 'Busy emergency unit.' }, '"5"', false],
+    ])
+    for (const call of posts) expect(call.headers.get('x-csrf-token')).toBe('novu-proof')
+  })
+
+  it('reads a facility’s staff by its id, and finds an invitation by the reference in the query, never a facility header (P4b)', async () => {
+    const calls = serve(READER)
+    const { adminApi } = await import('../api')
+    const FACILITY = '0f8c6d2e-4b1a-4c3d-9e5f-1a2b3c4d5e6f'
+    await expect(adminApi.facilityStaff(FACILITY)).resolves.toMatchObject({ members: [], invitations: [] })
+    await expect(adminApi.findStaffInvitations('3F2A9C1B')).resolves.toEqual({ items: [] })
+    expect(calls.filter(call => call.path.includes('staff')).map(call => [call.method, call.path, call.search,
+      call.headers.has('x-facility-id')])).toEqual([
+      ['GET', `/api/v1/admin/facilities/${FACILITY}/staff`, '', false],
+      ['GET', '/api/v1/admin/staff-invitations', '?reference=3F2A9C1B', false],
+    ])
+  })
+
+  it('says an Identity without the staff reads has none, not the router’s words (P4b)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => json({ status: 404, code: 'NOT_FOUND', detail: 'Cannot GET …' }, 404)))
+    const { adminApi } = await import('../api')
+    await expect(adminApi.facilityStaff('0f8c6d2e-4b1a-4c3d-9e5f-1a2b3c4d5e6f')).rejects.toMatchObject({ status: 404,
+      code: 'FACILITY_STAFF_UNAVAILABLE' })
+    await expect(adminApi.findStaffInvitations('3F2A9C1B')).rejects.toMatchObject({ status: 404,
+      code: 'STAFF_INVITATION_LOOKUP_UNAVAILABLE' })
   })
 
   it('sends a release with If-Match, the reason and the CSRF token, and no Idempotency-Key (P4 round 2)', async () => {

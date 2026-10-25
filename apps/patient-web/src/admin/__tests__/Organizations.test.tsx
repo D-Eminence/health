@@ -103,6 +103,26 @@ describe('organization applications', () => {
     expect(message.textContent).not.toContain('does not work yet')
   })
 
+  // Novu (P4b): an approval that would reuse a company which signed itself up waits for its review on New facility sign-ups.
+  it.each([
+    ['novu-v1', 'This application conflicts with existing records and needs separate administrator resolution. A company '
+      + 'that signed itself up must be reviewed on New facility sign-ups before a second product is approved.', true],
+    ['main-v1', 'This application conflicts with existing records and needs separate administrator resolution.', false],
+  ] as const)('on %s, says why a second product is refused, and when to review the sign-up first', async (contract, text, note) => {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', contract)
+    try {
+      mocks.api.applications.mockResolvedValue({ items: [application()] })
+      mocks.api.approveApplication.mockRejectedValueOnce(new HidApiError(409, 'review', { code: 'ORGANIZATION_REVIEW_REQUIRED' }))
+      open()
+      const item = await card('Ikeja Care Ltd')
+      expect(Boolean(screen.queryByText('A company that signed itself up must be reviewed on New facility sign-ups before a '
+        + 'second product is approved.', { selector: 'p.admin-note' }))).toBe(note)
+      fireEvent.change(within(item).getByLabelText('Reason for your decision'), { target: { value: 'Registry evidence matches the profile' } })
+      fireEvent.click(within(item).getByRole('button', { name: 'Approve application' }))
+      expect(await within(item).findByText(text)).toBeTruthy()
+    } finally { vi.unstubAllEnvs() }
+  })
+
   it('explains a CAC verification refusal from the backend', async () => {
     mocks.api.applications.mockResolvedValue({ items: [application({ status: 'pending_verification', verificationResult: null })] })
     mocks.api.verifyApplicationCac.mockRejectedValueOnce(new HidApiError(503, 'disabled', { code: 'QOREID_DISABLED' }))
