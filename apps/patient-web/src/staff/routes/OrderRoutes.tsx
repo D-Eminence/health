@@ -188,15 +188,74 @@ function resultValue(result: OrderRouteResult): string {
   return `${[value, result.unit ?? ''].filter(Boolean).join(' ')}${flag}${result.referenceRange ? `, reference ${result.referenceRange}` : ''}`
 }
 
-/** What came back from the laboratory, oldest first (SPEC-FINAL §13.1 "Returns"). */
+/** A result's versions in the order the laboratory made them. */
+function byVersion(first: OrderRouteResult, second: OrderRouteResult): number {
+  const versions = (first.resultVersion ?? 0) - (second.resultVersion ?? 0)
+  return versions !== 0 ? versions : (first.occurredAt ?? '').localeCompare(second.occurredAt ?? '')
+}
+
+/** When a result first came back, to put results in the order they arrived. */
+function firstReturned(reports: readonly OrderRouteResult[]): string {
+  return reports.map(report => report.occurredAt ?? '').sort()[0] ?? ''
+}
+
+/**
+ * One result's lines (C3 reports one row per released version, and one per version marked entered in error, each with
+ * its resultId and resultVersion). The value to use is said first: the latest version, or, when that version was marked
+ * entered in error, that no value of the result stands and which value is void. Each earlier version follows, newest
+ * first, marked as replaced by the correction that followed it, so a superseded value never reads as a plain release.
+ */
+function resultGroupLines(reports: readonly OrderRouteResult[], facility: string): string[] {
+  const named = reports.find(report => report.test.name)?.test.name
+  const releases = reports.filter(report => report.kind !== 'entered_in_error').sort(byVersion)
+  const voids = reports.filter(report => report.kind === 'entered_in_error')
+  // An invalidation that names no version is taken to void the whole result: never a reason to trust a value.
+  const voidsAll = voids.find(report => report.resultVersion === null)
+  const voidOf = (release: OrderRouteResult) => voidsAll
+    ?? voids.find(report => report.resultVersion !== null && report.resultVersion === release.resultVersion)
+  // "Haemoglobin (replaced): …", or "Replaced: …" for a result whose test has no name.
+  const label = (state: string) => named ? `${named}${state ? ` (${state})` : ''}: `
+    : state ? `${state.charAt(0).toUpperCase()}${state.slice(1)}: ` : ''
+  const released = (release: OrderRouteResult) => `Released by ${facility} on ${routeDay(release.occurredAt)}: ${resultValue(release)}`
+  if (releases.length === 0) {
+    // A version marked entered in error whose release never came back here: there is no value to name.
+    return voids.map(report => `${label('do not use')}Marked entered in error by ${facility} on ${routeDay(report.occurredAt)}: do not use it.`)
+  }
+  const latest = releases[releases.length - 1]!
+  const latestVoid = voidOf(latest)
+  const corrected = latest.revisionKind !== null && latest.revisionKind !== 'original'
+  const lines: string[] = []
+  if (latestVoid) {
+    lines.push(`${label('do not use')}Marked entered in error by ${facility} on ${routeDay(latestVoid.occurredAt)}: the value released on `
+      + `${routeDay(latest.occurredAt)}, ${resultValue(latest)}. No value of this result stands: contact ${facility}.`)
+  } else if (releases.length === 1) {
+    lines.push(`${label('')}${released(latest)}${corrected && latest.correctionReason
+      ? `. Corrected on ${routeDay(latest.occurredAt)}: ${latest.correctionReason}` : ''}`)
+  } else {
+    lines.push(`${label('current result')}${released(latest)}. Corrected on ${routeDay(latest.occurredAt)}`
+      + `${latest.correctionReason ? `: ${latest.correctionReason}` : '.'}`)
+  }
+  for (let index = releases.length - 2; index >= 0; index -= 1) {
+    const earlier = releases[index]!
+    const voided = voidOf(earlier)
+    lines.push(`${label('replaced')}${released(earlier)}. Replaced by the correction of ${routeDay(releases[index + 1]!.occurredAt)}`
+      + `${voided && voided !== latestVoid ? `, and marked entered in error on ${routeDay(voided.occurredAt)}` : ''}: do not use it.`)
+  }
+  return lines
+}
+
+/**
+ * What came back from the laboratory (SPEC-FINAL §13.1 "Returns"), result by result in the order they first came back.
+ * A correction is a new version of the same result, so the reports are grouped by result: see resultGroupLines.
+ */
 function resultLines(results: readonly OrderRouteResult[], facility: string): string[] {
-  return [...results].sort((first, second) => (first.occurredAt ?? '').localeCompare(second.occurredAt ?? '')).map(result => {
-    const test = result.test.name ? `${result.test.name}: ` : ''
-    if (result.kind === 'entered_in_error') return `${test}Marked entered in error by ${facility} on ${routeDay(result.occurredAt)}: do not use it.`
-    const released = `${test}Released by ${facility} on ${routeDay(result.occurredAt)}: ${resultValue(result)}`
-    return result.revisionKind && result.revisionKind !== 'original' && result.correctionReason
-      ? `${released}. Corrected on ${routeDay(result.occurredAt)}: ${result.correctionReason}` : released
+  const groups = new Map<string, OrderRouteResult[]>()
+  results.forEach((result, index) => {
+    const key = result.resultId ?? `unidentified-${index}`
+    groups.set(key, [...(groups.get(key) ?? []), result])
   })
+  return [...groups.values()].sort((first, second) => firstReturned(first).localeCompare(firstReturned(second)))
+    .flatMap(reports => resultGroupLines(reports, facility))
 }
 
 function dispensingLines(dispensings: readonly OrderRouteDispensing[], facility: string): string[] {
