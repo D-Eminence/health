@@ -1,8 +1,11 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { isHidApiError } from '@hid/http'
 import { ItemName } from '../ItemName'
 import { useSession } from '../session'
 import type { PatientOrderRoute } from '../api'
+import {
+  carriesCorrectableUntil, correctableUntilOf, learnLateCorrectionServed, useLateCorrectionServed, wrongPatientReportOf,
+} from '../lateCorrectionServed'
 import { usePatientResource } from './usePatientResource'
 import { useActionFocus } from './actionFocus'
 
@@ -49,14 +52,23 @@ function whatWasSent(route: PatientOrderRoute): string {
     : text(route.content.medicationDisplay) ?? 'A prescription'
 }
 
-/** Where it stands, as the patient reads it. */
+/**
+ * Where it stands, as the patient reads it. A report the receiving facility made after the order had ended another way
+ * (D17, `wrongPatient`) follows that ending's words (SPEC-FINAL §9.3).
+ */
 export function patientRouteState(route: PatientOrderRoute): string {
   const receiving = named(route.receivingFacilityName ?? route.receivingFacility.name, 'the other facility')
-  const ordering = named(route.orderingFacilityName, 'your clinician’s facility')
   // The receiving facility reports it accepted it for someone who was not the patient (item 3, §9.4): said as its report.
   if (route.endedKind === 'wrong_patient' && (route.effectiveState === 'cancelled' || route.effectiveState === 'completed')) {
     return `ended: ${receiving} reports it accepted it for someone who was not you`
   }
+  const words = stateWords(route, receiving)
+  return route.endedKind !== 'wrong_patient' && wrongPatientReportOf(route)
+    ? `${words}; ${receiving} has since reported it accepted it for someone who was not you` : words
+}
+
+function stateWords(route: PatientOrderRoute, receiving: string): string {
+  const ordering = named(route.orderingFacilityName, 'your clinician’s facility')
   switch (route.effectiveState) {
     case 'sent': return route.acceptLocked
       ? `${receiving} could not confirm it was you, so it can’t take it. Ask your clinician to send it again`
@@ -131,29 +143,64 @@ function attestation(route: PatientOrderRoute, patient: string): string | null {
 
 /**
  * What the patient is told of an order the receiving facility ended as accepted for someone who was not them (item 3,
- * §9.4; C3, C12): what it had received and can no longer see, what was withdrawn (only once something had come back:
- * `completedAt`), and what to do. Its words say what the facility reported. `full` is false for an order also marked
- * entered in error, whose content is not shown: then only what the facility had received is said.
+ * §9.4; C3, C12), or reported so after the order had ended (D17, SPEC-FINAL §9.3): what it had received, what was
+ * withdrawn (only once something had come back: `completedAt`), and what to do. Its words say what the facility reported.
+ * `full` is false for an order also marked entered in error, whose content is not shown: then what the facility had
+ * received is said without "the details above" (CT9), and, from a backend that sends the report (`wrongPatient`), once
+ * something had come back, the sentences that name no content (CL7). `served` (the late correction is served) adds
+ * Health ID support to whom to tell (CL4).
  */
-export function wrongPatientParagraph(route: PatientOrderRoute, full = true): string[] {
+export function wrongPatientParagraph(route: PatientOrderRoute, full = true, served = false): string[] {
   const receiving = named(route.receivingFacilityName ?? route.receivingFacility.name, 'the other facility')
   const ordering = named(route.orderingFacilityName, 'your clinician’s facility')
   const lab = route.kind === 'lab_request'
-  const first = `${receiving} told Health ID that the person it accepted this ${lab ? 'test request' : 'prescription'} for was `
-    + `not you, so it ended it on ${day(route.endedAt)}. It had received your name, sex, date of birth${full ? ',' : ' and'} the last 4 `
-    + `characters of your Health ID${full ? ' and the details above' : ''}. It can no longer see them through this order.`
-  if (!full) return [first]
-  const lines = [first]
-  if (route.completedAt) lines.push(lab
+  const report = wrongPatientReportOf(route)
+  const thing = lab ? 'test request' : 'prescription'
+  const received = `It had received your name, sex, date of birth${full ? ',' : ' and'} the last 4 characters of your Health ID`
+    + `${full ? ' and the details above' : ''}.`
+  const first = report?.late
+    ? `${receiving} told Health ID on ${day(report.reportedAt)} that the person it accepted this ${thing} for was not you. ${received}`
+    : `${receiving} told Health ID that the person it accepted this ${thing} for was not you, so it ended it on `
+      + `${day(route.endedAt)}. ${received} It can no longer see them through this order.`
+  const withdrawn = route.completedAt ? lab
     ? 'A result it recorded on this order belongs to that other person. It is marked as not yours and no longer shows in your '
       + 'health record; the facilities keep it, marked, in their own records.'
-    : 'It recorded the medicine as given on this order to that other person: that record has been cancelled.')
-  lines.push(lab
-    ? `If you did give a sample at ${receiving} for this test, tell ${ordering}.`
-    : `If you did collect this medicine at ${receiving}, or someone collected it for you, tell ${ordering} before you get another prescription.`,
-  `If you still need this ${lab ? 'test' : 'medicine'}, contact ${ordering}: your clinician can send a new order.`,
-  'If you didn’t give anyone your Health ID or date of birth and think someone used them, contact Health ID support.')
-  return lines
+    : 'It recorded the medicine as given on this order to that other person: that record has been cancelled.' : null
+  const tell = served ? `${ordering} and Health ID support` : ordering
+  const dispute = lab
+    ? `If you did give a sample at ${receiving} for this test, tell ${tell}.`
+    : `If you did collect this medicine at ${receiving}, or someone collected it for you, tell ${tell} before you get another prescription.`
+  const again = `If you still need this ${lab ? 'test' : 'medicine'}, contact ${ordering}: your clinician can send a new order.`
+  if (!full) return report && withdrawn ? [first, withdrawn, dispute, again] : [first]
+  return [first, ...(withdrawn ? [withdrawn] : []), dispute, again,
+    'If you didn’t give anyone your Health ID or date of birth and think someone used them, contact Health ID support.']
+}
+
+/**
+ * "If you haven't been to {B}": while the receiving facility may still correct the order (D17: a `correctableUntil` time),
+ * whom to tell, with the reference and the date (CT5); once it can't (null), after something came back and with no
+ * report, the ordering facility. Without the field (an earlier backend) the line is shown, as before, while the facility
+ * may still work on the order (`stoppable`). Null when nothing is to be said.
+ */
+export function haventBeenLine(route: PatientOrderRoute, stoppable: boolean): string | null {
+  const receiving = named(route.receivingFacilityName ?? route.receivingFacility.name, 'the other facility')
+  const ordering = named(route.orderingFacilityName, 'your clinician’s facility')
+  const lab = route.kind === 'lab_request'
+  const until = correctableUntilOf(route)
+  if (until === undefined) {
+    if (!stoppable) return null
+    return lab
+      ? `If you haven’t been to ${receiving} for this test, tell ${receiving} or Health ID support straight away.`
+      : `If you haven’t been to ${receiving} for this medicine, and no one collected it for you, tell ${receiving} or Health ID support straight away.`
+  }
+  if (until === null) return route.completedAt && !wrongPatientReportOf(route) && route.endedKind !== 'wrong_patient'
+    ? `If you haven’t been to ${receiving} for this ${lab ? 'test' : 'medicine'}, tell ${ordering}.` : null
+  const reference = route.reference ? `, with the reference ${route.reference}` : ''
+  return lab
+    ? `If you haven’t been to ${receiving} for this test, tell ${receiving}, ${ordering} or Health ID support straight away`
+      + `${reference}: ${receiving} can correct it until ${day(until)}.`
+    : `If you haven’t been to ${receiving} for this medicine, and no one collected it for you, tell ${receiving}, ${ordering} or `
+      + `Health ID support straight away${reference}: ${receiving} can correct it until ${day(until)}.`
 }
 
 /** What a refused Stop means. */
@@ -180,6 +227,10 @@ export function SentOrdersCard() {
   const [notice, setNotice] = useState<string | null>(null)
   const heading = useRef<HTMLHeadingElement>(null)
   const focusAfter = useActionFocus()
+  // A list whose orders carry their deadline comes from a backend that serves the late correction (D17, SPEC-FINAL §9.0).
+  const served = useLateCorrectionServed() === true
+  const listed = routes.data?.items
+  useEffect(() => { if (carriesCorrectableUntil(listed)) learnLateCorrectionServed(true) }, [listed])
 
   if (routes.data === null && !routes.loading && !routes.error) return null
   const items = routes.data?.items ?? []
@@ -220,7 +271,9 @@ export function SentOrdersCard() {
         // What the facility received, once it accepted (B5), and whether it may still be working on it: two conditions.
         const received = Boolean(route.acceptedAt)
         const stoppable = (route.effectiveState === 'accepted' || route.effectiveState === 'completed') && !route.endedAt
-        const wrongPatient = route.endedKind === 'wrong_patient'
+        // Item 3's ending, or a report made after the order had ended another way (D17).
+        const wrongPatient = route.endedKind === 'wrong_patient' || wrongPatientReportOf(route)?.late === true
+        const haventBeen = haventBeenLine(route, stoppable)
         return <li key={route.id} className="patient-access-item patient-order-route"><div>
           <strong>{whatWasSent(route)} from {ordering} to {receiving}: {patientRouteState(route)}</strong>
           {route.receivingRegisteredAddress && <span>{receiving}’s registered office: {route.receivingRegisteredAddress}</span>}
@@ -231,20 +284,19 @@ export function SentOrdersCard() {
           </>}
           {inError ? <>
             <p>{ordering} marked this order as entered in error, so what it contained is no longer shown here.</p>
-            {wrongPatient ? wrongPatientParagraph(route, false).map((line, index) => <p key={index}>{line}</p>)
+            {wrongPatient ? wrongPatientParagraph(route, false, served).map((line, index) => <p key={index}>{line}</p>)
               : route.acceptedAt && <p>{receiving} had accepted it, so it received your name, sex, date of birth and the last
                 4 characters of your Health ID.</p>}
+            {correctableUntilOf(route) !== undefined && haventBeen && <p>{haventBeen}</p>}
             <p>If you have questions about it, contact {ordering}.</p>
           </> : <>
             <p><strong>{received ? `What ${receiving} received` : `What ${receiving} will receive`}</strong></p>
             <dl className="patient-details">{sentFields(route).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
-            {wrongPatient && wrongPatientParagraph(route).map((line, index) => <p key={index}>{line}</p>)}
+            {wrongPatient && wrongPatientParagraph(route, true, served).map((line, index) => <p key={index}>{line}</p>)}
             {canStop && <p>If you did not agree to this, stop it now: {receiving} has not accepted it yet.</p>}
             {stoppable && route.effectiveState === 'accepted' && <p>{receiving} has accepted it. To stop it, contact {ordering}, who
               can cancel the order.</p>}
-            {stoppable && <p>{route.kind === 'lab_request'
-              ? `If you haven’t been to ${receiving} for this test, tell ${receiving} or Health ID support straight away.`
-              : `If you haven’t been to ${receiving} for this medicine, and no one collected it for you, tell ${receiving} or Health ID support straight away.`}</p>}
+            {haventBeen && <p>{haventBeen}</p>}
           </>}
         </div>
           {canStop && <div className="patient-decision-actions"><button id={`stop-${route.id}`} type="button" className="patient-secondary-button"
