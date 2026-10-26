@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import { Clinical } from '../Clinical'
 import { forgetWrongPatientServed } from '../../../wrongPatientServed'
+import { forgetLateCorrectionServed } from '../../../lateCorrectionServed'
 
 /**
  * Sending a lab request to a laboratory at another facility from the clinical record (Novu, P4c, SPEC-FINAL §3.5,
@@ -72,6 +73,7 @@ beforeEach(() => {
   ordersOn = true
   reportsServed = false
   forgetWrongPatientServed()
+  forgetLateCorrectionServed()
   api.lookupPatient.mockResolvedValue(lookup)
   api.consentStatus.mockResolvedValue({ patientId: PATIENT, facilityId: 'facility-1', purpose: 'direct-care', readAllowed: true, writeAllowed: true })
   api.encounters.mockResolvedValue({ items: [{ id: ENCOUNTER, patientId: PATIENT, facilityId: 'facility-1',
@@ -330,5 +332,43 @@ describe('a lab request sent to another laboratory, on its row', () => {
     expect(await screen.findByText(/^Dr Ade Okon confirmed on .* that Ada Patient agreed to send it to Yaba Diagnostics\.$/)).toBeTruthy()
     expect(screen.getByText(/^Haemoglobin: Released by Yaba Diagnostics on .*: 9\.8 g\/dL, flagged low, reference 12\.0-15\.5$/)).toBeTruthy()
     expect(routes.routes).toHaveBeenCalledWith('facility-1', PATIENT, ENCOUNTER, 'lab_request', REQUEST)
+  })
+})
+
+/**
+ * D17 (hid-system 0090; SPEC-FINAL §9.2, CT10): once the list says the receiving laboratory can withdraw what it recorded
+ * after the order has changed or ended (`lateCorrection: true`), the change warning names the order's own date and its
+ * reference instead of asking for it to be ended first; past that date (null), it says only what a change does.
+ */
+describe('the change warning once the late correction is served (D17)', () => {
+  const change = 'Changing it withdraws it from Yaba Diagnostics, or cancels it there if Yaba Diagnostics has accepted it; a '
+    + 'cancelled order can’t be resumed there.'
+  function serve(route: Record<string, unknown>, late = true) {
+    records = [labRequest('active', summary({ effectiveState: 'accepted', acceptedAt: '2026-10-21T10:00:00.000Z', ...route }))]
+    api.records.mockImplementation(async () => ({ items: records, nextCursor: null, crossFacilityOrders: true,
+      wrongPatientReports: true, ...(late ? { lateCorrection: true } : {}) }))
+  }
+
+  it('names the date and the reference for an accepted order, whether or not it is changed', async () => {
+    serve({ correctableUntil: '2027-04-19T10:00:00.000Z', wrongPatient: null })
+    await openLabRequests()
+    expect(await screen.findByText(`${change} If Yaba Diagnostics accepted it for someone who was not Ada Patient, ask Yaba `
+      + 'Diagnostics to withdraw what it recorded on it, giving it the reference 9C1B2D3E: it can do so until 19 Apr 2027, 11:00, '
+      + 'whether or not you change this order.')).toBeTruthy()
+    expect(screen.queryByText(/end it from its work list/)).toBeNull()
+  })
+
+  it('says only what a change does once the date has passed', async () => {
+    serve({ correctableUntil: null, wrongPatient: null })
+    await openLabRequests()
+    expect(await screen.findByText(change)).toBeTruthy()
+    expect(screen.queryByText(/withdraw what it|end it from its work list/)).toBeNull()
+  })
+
+  it('keeps item 3’s warning against today’s answers, without lateCorrection or a deadline', async () => {
+    serve({}, false)
+    await openLabRequests()
+    expect(await screen.findByText(/to end it from its work list first: once you change this order/)).toBeTruthy()
+    expect(screen.queryByText(/whether or not you change this order/)).toBeNull()
   })
 })

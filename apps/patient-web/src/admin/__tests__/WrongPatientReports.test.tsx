@@ -282,3 +282,92 @@ describe('wrong-patient reports elsewhere in the console', () => {
     expect(panel.textContent).not.toMatch(/Wrong-patient|not available/)
   })
 })
+
+/**
+ * D17 (hid-system 0090; SPEC-FINAL §9.4, owner decision D17-6): late reports in support's list. A page opened at the list
+ * learns from C26's `lateCorrection: true` that the late correction is served, and says so; a late row says how the order
+ * had ended, how and when the facility found out, the reporter's late reports and whether the sender is still active; the
+ * review form requires what Identity says a late report requires, and says Identity's refusal in words.
+ */
+describe('late reports (D17)', () => {
+  const late = (overrides: Record<string, unknown> = {}) => report({ late: true, endedKindBefore: 'support', discoveredBy: 'patient',
+    discoveredOn: '2026-10-20', reporterLateReportsLast30Days: 2, orderingSenderActive: false,
+    requiredActions: ['referred_to_dpo', 'ordering_facility_told'],
+    flags: ['late_correction', 'something_came_back', 'patient_prompted', 'patient_reported_before'], ...overrides })
+  const listing = (items: unknown[], fields: Record<string, unknown> = { lateCorrection: true }) =>
+    ({ 'GET /api/v1/admin/wrong-patient-reports': () => json({ items, ...fields }) })
+
+  it('says it serves late reports, from the list’s answer, with the case note naming the 180 days', async () => {
+    serve(READER, listing([late()]))
+    await openAt('/admin/wrong-patient-reports')
+    await screen.findByText('9C1B2D3E')
+    expect(await screen.findByText('Orders a laboratory or pharmacy accepted for someone who was not the patient, and ended, or '
+      + 'reported after the order had ended.')).toBeTruthy()
+    expect(screen.getByText(/^A laboratory or pharmacy reports an order it accepted for someone who was not the order’s patient\. While it may still work on the order, it ends it; after the order has ended, it can still withdraw what it recorded\./)).toBeTruthy()
+    expect(screen.getByText(/^A report made after the order had ended is flagged “Reported after the order had ended”\./)).toBeTruthy()
+    expect(screen.getByText(/It can use “Correct an order that has ended” on its Laboratory or Pharmacy page until 180 days after it accepted the order; Find shows the date\./)).toBeTruthy()
+    expect(screen.queryByText(/^If a patient or clinician tells you a result or dispensing went to the wrong person and the facility can no longer end the order/)).toBeNull()
+  })
+
+  it('says a late row’s flags, earlier ending, how and when it was found out, the reporter’s count and the sender', async () => {
+    serve(READER, listing([late(), late({ reportId: 'aa000000-0000-4000-8000-000000000003', reference: '5E6F7A8B',
+      endedKindBefore: null, discoveredBy: 'own_check', orderingSenderActive: true, flags: ['late_correction'] })]))
+    await openAt('/admin/wrong-patient-reports')
+    const row = (await screen.findByText('9C1B2D3E')).closest('tr')!
+    for (const words of ['Reported after the order had ended', 'A result or dispensing had come back',
+      'Reported late, prompted by the patient or someone else, and something had come back',
+      'Another report about the same patient in the last 90 days']) expect(within(row).getByText(words)).toBeTruthy()
+    expect(within(row).getByText(/^Ended before the report: closed by support\. Found out on 20 Oct 2026: the patient told them\. 2 result versions marked/)).toBeTruthy()
+    expect(within(row).getByText('The reporter made 2 late reports in 30 days.')).toBeTruthy()
+    expect(within(row).getByText('The clinician who sent the order is no longer active at General Hospital: ask for the clinician now '
+      + 'responsible.')).toBeTruthy()
+    const lapsed = screen.getByText('5E6F7A8B').closest('tr')!
+    expect(within(lapsed).getByText(/^Its time for work had run out\. Found out on 20 Oct 2026: they found it themselves\./)).toBeTruthy()
+    expect(within(lapsed).queryByText(/no longer active/)).toBeNull()
+  })
+
+  it('requires the referral and the call for a late report where something came back, not “No further action” (D17-6)', async () => {
+    const calls = serve(REVIEWER, listing([late()]))
+    await openAt('/admin/wrong-patient-reports')
+    const row = (await screen.findByText('9C1B2D3E')).closest('tr')!
+    fireEvent.click(within(row).getByText('Mark reviewed', { selector: 'summary' }))
+    expect(within(row).getByText('A late report where something had come back, or a “pretending” one, needs: Referred to the data '
+      + 'protection officer and Ordering facility told.')).toBeTruthy()
+    expect((within(row).getByRole('checkbox', { name: 'No further action' }) as HTMLInputElement).disabled).toBe(true)
+    const submit = within(row).getByRole('button', { name: 'Mark reviewed' }) as HTMLButtonElement
+    fireEvent.click(within(row).getByRole('checkbox', { name: 'Referred to the data protection officer (required)' }))
+    fireEvent.change(within(row).getByLabelText('Review note'), { target: { value: 'Referred to the DPO the same day' } })
+    fireEvent.click(within(row).getByRole('checkbox', { name: 'I have reviewed this report.' }))
+    expect(submit.disabled).toBe(true)
+    fireEvent.click(within(row).getByRole('checkbox', { name: 'Ordering facility told (required)' }))
+    expect(submit.disabled).toBe(false)
+    fireEvent.click(submit)
+    expect(await screen.findByText('Report on order 9C1B2D3E marked reviewed.')).toBeTruthy()
+    expect(calls.find(call => call.path.endsWith('/review'))?.body).toMatchObject({ actions: ['referred_to_dpo', 'ordering_facility_told'] })
+  })
+
+  it('says Identity’s referral refusal in words, naming what is missing', async () => {
+    serve(REVIEWER, { ...listing([late({ requiredActions: ['ordering_facility_told'] })]),
+      [`POST /api/v1/admin/wrong-patient-reports/${REPORT_ID}/review`]: () => json({ status: 400,
+        code: 'WRONG_PATIENT_REVIEW_REFERRAL_REQUIRED', detail: 'Referral required', required: 'referred_to_dpo' }, 400) })
+    await openAt('/admin/wrong-patient-reports')
+    const row = (await screen.findByText('9C1B2D3E')).closest('tr')!
+    fireEvent.click(within(row).getByText('Mark reviewed', { selector: 'summary' }))
+    fireEvent.click(within(row).getByRole('checkbox', { name: 'Ordering facility told (required)' }))
+    fireEvent.change(within(row).getByLabelText('Review note'), { target: { value: 'Phoned General Hospital' } })
+    fireEvent.click(within(row).getByRole('checkbox', { name: 'I have reviewed this report.' }))
+    fireEvent.click(within(row).getByRole('button', { name: 'Mark reviewed' }))
+    expect((await within(row).findByRole('alert')).textContent).toBe('Tick Referred to the data protection officer before you mark it reviewed.')
+  })
+
+  it('keeps item 3’s words and form against today’s Identity, without lateCorrection or the new fields', async () => {
+    serve(REVIEWER, listing([report()], {}))
+    await openAt('/admin/wrong-patient-reports')
+    const row = (await screen.findByText('9C1B2D3E')).closest('tr')!
+    expect(screen.getByText('Orders a laboratory or pharmacy accepted for someone who was not the patient, and ended.')).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/Reported after the order had ended|Correct an order that has ended|180 days|late report/)
+    fireEvent.click(within(row).getByText('Mark reviewed', { selector: 'summary' }))
+    expect((within(row).getByRole('checkbox', { name: 'No further action' }) as HTMLInputElement).disabled).toBe(false)
+    expect(within(row).queryByText(/needs:/)).toBeNull()
+  })
+})

@@ -93,6 +93,8 @@ const ORDER_ROUTE_TITLES: Readonly<Record<string, (thing: string, facility: stri
   ORDER_ROUTE_CANCELLED: (thing, facility) => `Your ${thing} at ${facility} was cancelled`,
   // Item 3 (D8): the receiving facility reports it accepted the order for someone who was not the patient, and ended it.
   ORDER_ROUTE_WRONG_PATIENT: (thing, facility) => `${facility} accepted your ${thing} for someone who was not you, and has ended it`,
+  // D17: it reported it after the order had ended another way, which it keeps (SPEC-FINAL §9.3).
+  ORDER_ROUTE_WRONG_PATIENT_CORRECTED: (thing, facility) => `${facility} reports that it accepted your ${thing} for someone who was not you`,
 }
 
 /** A name from a notice's metadata, or the words that stand for it: never anything but a short plain string. */

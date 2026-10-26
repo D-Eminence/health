@@ -206,3 +206,65 @@ describe('the wrong-patient report, on the wire', () => {
     careHeaders(requests[0]!)
   })
 })
+
+/**
+ * D17 (hid-system 0090): "Correct an order that has ended". The lookup sends the reference in a POST body, never in an
+ * address; the withdrawal carries the version, the reason, how and when the facility found out, the note and the caller's
+ * Idempotency-Key, and is sent once. Each names the working facility and direct care.
+ */
+describe('the late correction, on the wire', () => {
+  it('finds an order by its reference in the body of a POST, never in the address, for Lab and Pharmacy', async () => {
+    const answer = { items: [], lateCorrection: true }
+    const { requests, orderRoutesApi } = await signedIn(answer)
+    await expect(orderRoutesApi.findCorrectable('facility-1', 'lab', '3F2A9C1B')).resolves.toEqual(answer)
+    await orderRoutesApi.findCorrectable('facility-1', 'pharmacy', '9C1B2D3E')
+    expect(requests.map(request => [request.method, request.url.pathname, request.url.search])).toEqual([
+      ['POST', '/api/v1/lab/order-routes/correctable', ''], ['POST', '/api/v1/pharmacy/order-routes/correctable', '']])
+    expect(requests.map(request => request.body)).toEqual([{ reference: '3F2A9C1B' }, { reference: '9C1B2D3E' }])
+    requests.forEach(careHeaders)
+  })
+
+  it('withdraws with the version, the reason, how and when it was found, the note and the caller’s key, once', async () => {
+    const answer = { route: { id: ROUTE, version: 11, effectiveState: 'completed', endedKind: 'support' }, late: true,
+      endedKindBefore: 'support', resultsVoided: 1, resultReportsMarked: 1, dispensingReversed: false,
+      correctableUntil: '2026-11-27T10:00:00.000Z', replayed: false }
+    const { requests, orderRoutesApi } = await signedIn(answer)
+    await expect(orderRoutesApi.correctWrongPatient('facility-1', 'lab', { id: ROUTE, version: 9 },
+      { reason: 'someone_elses_details', discoveredBy: 'patient', discoveredOn: '2026-10-20', note: 'The patient says it was not them' },
+      'correction-key-0001')).resolves.toEqual(answer)
+    await orderRoutesApi.correctWrongPatient('facility-1', 'pharmacy', { id: ROUTE, version: 4 },
+      { reason: 'other', discoveredBy: 'own_check', discoveredOn: '2026-10-21', note: 'Found in our own audit' }, 'correction-key-0002')
+    expect(requests.map(request => [request.method, request.url.pathname, request.url.search, request.headers.get('idempotency-key')])).toEqual([
+      ['POST', `/api/v1/lab/order-routes/${ROUTE}/wrong-patient-correction`, '', 'correction-key-0001'],
+      ['POST', `/api/v1/pharmacy/order-routes/${ROUTE}/wrong-patient-correction`, '', 'correction-key-0002']])
+    expect(requests[0]!.body).toEqual({ expectedVersion: 9, reason: 'someone_elses_details', discoveredBy: 'patient',
+      discoveredOn: '2026-10-20', note: 'The patient says it was not them' })
+    expect(requests[1]!.body).toEqual({ expectedVersion: 4, reason: 'other', discoveredBy: 'own_check', discoveredOn: '2026-10-21',
+      note: 'Found in our own audit' })
+    requests.forEach(careHeaders)
+  })
+
+  it('does not repeat a withdrawal that got no answer, and hands the page the limit’s time', async () => {
+    const { requests, orderRoutesApi } = await signedIn({ status: 503, code: 'UPSTREAM_UNAVAILABLE', detail: 'Down' }, 503)
+    await expect(orderRoutesApi.correctWrongPatient('facility-1', 'lab', { id: ROUTE, version: 9 },
+      { reason: 'other', discoveredBy: 'other', discoveredOn: '2026-10-20', note: 'Something else happened' }, 'correction-key-0003'))
+      .rejects.toMatchObject({ status: 503 })
+    expect(requests).toHaveLength(1)
+    vi.unstubAllGlobals(); vi.resetModules()
+    const limited = await signedIn({ status: 429, code: 'ORDER_ROUTE_CORRECTION_LIMIT', detail: 'Limit',
+      retryAfter: '2026-10-27T09:14:03.218Z' }, 429)
+    await expect(limited.orderRoutesApi.correctWrongPatient('facility-1', 'lab', { id: ROUTE, version: 9 },
+      { reason: 'other', discoveredBy: 'other', discoveredOn: '2026-10-20', note: 'Something else happened' }, 'correction-key-0004'))
+      .rejects.toMatchObject({ status: 429, code: 'ORDER_ROUTE_CORRECTION_LIMIT', retryAt: '2026-10-27T09:14:03.218Z' })
+    expect(limited.requests).toHaveLength(1)
+  })
+
+  it('hands the page the work lists’ and Overview’s lateCorrection untouched', async () => {
+    const answer = { items: [], receives: true, crossFacilityOrders: true, crossFacilityWork: true, lateCorrection: true }
+    const { orderRoutesApi } = await signedIn(answer)
+    const { staffApi } = await import('./api')
+    await expect(staffApi.labWorkItems('facility-1')).resolves.toEqual(answer)
+    await expect(staffApi.pharmacyWorkItems('facility-1')).resolves.toEqual(answer)
+    await expect(orderRoutesApi.sentWrongPatient('facility-1')).resolves.toEqual(answer)
+  })
+})

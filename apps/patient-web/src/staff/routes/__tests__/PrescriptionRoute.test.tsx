@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import { Clinical } from '../Clinical'
 import { forgetWrongPatientServed } from '../../../wrongPatientServed'
+import { forgetLateCorrectionServed } from '../../../lateCorrectionServed'
 
 /**
  * Sending a prescription to a pharmacy at another facility (Novu, P4c, SPEC-FINAL §13.1): "Send to a pharmacy" on a
@@ -63,6 +64,7 @@ beforeEach(() => {
   records = [rx('active')]
   reportsServed = false
   forgetWrongPatientServed()
+  forgetLateCorrectionServed()
   api.lookupPatient.mockResolvedValue(lookup)
   api.consentStatus.mockResolvedValue({ patientId: PATIENT, facilityId: 'facility-1', purpose: 'direct-care', readAllowed: true, writeAllowed: true })
   api.encounters.mockResolvedValue({ items: [{ id: ENCOUNTER, patientId: PATIENT, facilityId: 'facility-1', encounterType: 'ambulatory',
@@ -221,5 +223,23 @@ describe('a prescription the pharmacy reports it accepted for the wrong person',
     await screen.findByText('Amoxicillin 500 mg capsules')
     expect(api.encounter).not.toHaveBeenCalled()
     expect(api.records.mock.calls.every(call => call[2] === ENCOUNTER)).toBe(true)
+  })
+})
+
+/** D17 (SPEC-FINAL §9.2): the same for a prescription something came back on: "what it sent back". */
+describe('the change warning once the late correction is served (D17)', () => {
+  it('names the date and the reference for a dispensed prescription', async () => {
+    staff.permissions = [...PRESCRIBER, 'pharmacy.work-item.accept']
+    records = [rx('active', route({ effectiveState: 'completed', acceptedAt: '2026-10-21T10:00:00.000Z',
+      completedAt: '2026-10-22T10:00:00.000Z', correctableUntil: '2027-04-19T10:00:00.000Z', wrongPatient: null }))]
+    api.records.mockImplementation(async () => ({ items: records, nextCursor: null, crossFacilityOrders: true,
+      wrongPatientReports: true, lateCorrection: true }))
+    await openPrescriptions()
+    expect(await screen.findByText('Changing it withdraws it from Medplus Yaba, or cancels it there if Medplus Yaba has accepted it; a '
+      + 'cancelled order can’t be resumed there. If Medplus Yaba accepted it for someone who was not Ada Patient, ask Medplus Yaba '
+      + 'to withdraw what it sent back, giving it the reference 9C1B2D3E: it can do so until 19 Apr 2027, 11:00, whether or not you change '
+      + 'this order.')).toBeTruthy()
+    expect(screen.getByText('If Ada Patient did not receive this medicine from Medplus Yaba, and no one collected it for them, phone '
+      + 'Medplus Yaba and give it the reference 9C1B2D3E: it can reverse the dispensing until 19 Apr 2027, 11:00.')).toBeTruthy()
   })
 })

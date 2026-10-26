@@ -507,7 +507,7 @@ describe('application boundaries', () => {
   })
 
   it('registers item 3\'s wrong-patient report: the receiver\'s command for Lab and Pharmacy, the ordering facility\'s '
-    + 'Overview read for the provider portal, and support\'s list and review for the console, none served yet', () => {
+    + 'Overview read for the provider portal, and support\'s list and review for the console, served since bd8676e', () => {
     const routeId = '9c1b2d3e-4f5a-4b6c-8d7e-0f1a2b3c4d5e'
     const reportId = '3b5e7a90-1c2d-4e3f-8a9b-0c1d2e3f4a5b'
     type Case = readonly [string, 'GET' | 'POST', string, Record<string, string> | undefined, readonly string[], 'staff-web' | 'admin-web']
@@ -524,7 +524,10 @@ describe('application boundaries', () => {
       const endpoint = findEndpoint(name)
       expect(endpoint, name).toMatchObject({ status: 'proposed', auth: { kind: 'authenticated' }, methods: [method] })
       expect(endpoint?.permissions?.[method], name).toEqual(permissions)
-      expect(endpoint?.note, name).toContain('not served by hid-system main, nor by staging-novu-ci-20261005 before that release')
+      // Item 3 is live since hid-system bd8676e (D17's registry correction, SPEC-FINAL §9.5).
+      expect(endpoint?.note, name).toContain('Served by staging-novu-ci-20261005 since hid-system bd8676e')
+      expect(endpoint?.note, name).toContain('not served by hid-system main')
+      expect(endpoint?.note, name).not.toContain('before that release')
       expect(endpoint?.note, name).toContain('0088')
       expect(assertRegisteredBrowserRequest(method, example, query).name, `${method} ${name}`).toBe(name)
       expect(() => assertEndpointAllowed(app, name), `${app}: ${name}`).not.toThrow()
@@ -566,6 +569,86 @@ describe('application boundaries', () => {
     expect(findEndpoint('admin.wrongPatientReports')?.note).toContain('no patient and no order content')
     expect(findEndpoint('ehr.orderRoutesWrongPatient')?.note).toContain('never a patient\'s name')
     expect(findEndpoint('admin.wrongPatientReportReview')?.note).toContain('If-Match')
+  })
+
+  it('registers D17\'s late correction for Lab and Pharmacy (hid-system 0090): the lookup by reference and the withdrawal, '
+    + 'none served yet, with the services\' codes and problem members', () => {
+    const routeId = '9c1b2d3e-4f5a-4b6c-8d7e-0f1a2b3c4d5e'
+    type Case = readonly [string, string, string]
+    const cases: readonly Case[] = [
+      ['lab.orderRouteCorrectable', '/api/v1/lab/order-routes/correctable', 'lab.order-route.receive'],
+      ['lab.orderRouteWrongPatientCorrection', `/api/v1/lab/order-routes/${routeId}/wrong-patient-correction`, 'lab.order-route.receive'],
+      ['pharmacy.orderRouteCorrectable', '/api/v1/pharmacy/order-routes/correctable', 'pharmacy.order-route.receive'],
+      ['pharmacy.orderRouteWrongPatientCorrection', `/api/v1/pharmacy/order-routes/${routeId}/wrong-patient-correction`,
+        'pharmacy.order-route.receive'],
+    ]
+    for (const [name, example, permission] of cases) {
+      const endpoint = findEndpoint(name)
+      expect(endpoint, name).toMatchObject({ status: 'proposed', auth: { kind: 'authenticated' }, methods: ['POST'] })
+      expect(endpoint?.permissions?.POST, name).toEqual([permission])
+      expect(endpoint?.note, name).toContain('not served by hid-system main, nor by staging-novu-ci-20261005 before that release')
+      expect(endpoint?.note, name).toContain('0090')
+      expect(assertRegisteredBrowserRequest('POST', example).name, name).toBe(name)
+      expect(() => assertEndpointAllowed('staff-web', name), name).not.toThrow()
+      for (const other of ['patient-web', 'admin-web', 'public-web'] as const) {
+        expect(() => assertEndpointAllowed(other, name), `${other}: ${name}`).toThrow(BoundaryViolationError)
+      }
+      // Both answer a body refused by validation as VALIDATION_FAILED and a bad reference or note as ORDER_ROUTE_INVALID;
+      // neither sends support's ORDER_ROUTE_LOOKUP_INVALID, and the permission is a top-level problem member (CT1).
+      const note = endpoint?.note ?? ''
+      for (const word of ['VALIDATION_FAILED', 'ORDER_ROUTE_INVALID', 'PERMISSION_DENIED', 'CROSS_FACILITY_ORDERS_UNAVAILABLE',
+        'ORDER_ROUTE_UNAVAILABLE', 'direct-care']) expect(note, `${name}: ${word}`).toContain(word)
+      expect(note, name).not.toContain('extensions.permission')
+    }
+    // The lookup is a POST beside the route's GET: an id-shaped path is still the route's read, and its own path takes no GET.
+    expect(assertRegisteredBrowserRequest('GET', `/api/v1/lab/order-routes/${routeId}`).name).toBe('lab.orderRoute')
+    expect(() => assertRegisteredBrowserRequest('GET', '/api/v1/lab/order-routes/correctable')).toThrow(BrowserRouteError)
+    expect(() => assertRegisteredBrowserRequest('GET', `/api/v1/pharmacy/order-routes/${routeId}/wrong-patient-correction`))
+      .toThrow(BrowserRouteError)
+    for (const name of ['lab.orderRouteCorrectable', 'pharmacy.orderRouteCorrectable']) {
+      const note = findEndpoint(name)?.note ?? ''
+      for (const word of ['{ reference }', 'correction: open | correctable | reported | receiver_released | too_late', 'correctableUntil',
+        'wrongPatient { reportedAt, late } | null', 'details', 'acceptedWith', 'returned [{ at, withdrawn }]',
+        'items: [] when none was accepted here', 'never 404', 'no patient', 'lateCorrection: true']) {
+        expect(note, `${name}: ${word}`).toContain(word)
+      }
+      expect(note, name).toContain('never answer ORDER_ROUTE_LOOKUP_INVALID')
+    }
+    // Support's find names the state of an order whose receiving facility was released (no deadline then).
+    expect(findEndpoint('admin.orderRoutesFind')?.note)
+      .toContain('correction (not_accepted | open | correctable | reported | receiver_released | too_late;')
+    expect(findEndpoint('admin.orderRoutesFind')?.note).toContain('null for not_accepted, reported and receiver_released')
+    for (const name of ['lab.orderRouteWrongPatientCorrection', 'pharmacy.orderRouteWrongPatientCorrection']) {
+      const note = findEndpoint(name)?.note ?? ''
+      for (const word of ['Idempotency-Key', 'expectedVersion', 'discoveredBy', 'own_check', 'discoveredOn', 'YYYY-MM-DD',
+        'endedKindBefore', 'resultsVoided', 'resultReportsMarked', 'dispensingReversed', 'replayed',
+        'ORDER_ROUTE_CORRECTION_PERMISSION_REQUIRED', 'problem member permission', 'ORDER_ROUTE_NOT_ACCEPTED',
+        'ORDER_ROUTE_STILL_OPEN', 'ORDER_ROUTE_ALREADY_REPORTED', 'ORDER_ROUTE_CORRECTION_TOO_LATE', 'IDEMPOTENCY_KEY_REUSED',
+        'ORDER_ROUTE_CHANGED_CONCURRENTLY', 'VERSION_CONFLICT', 'ORDER_ROUTE_CORRECTION_LIMIT', 'problem member retryAfter',
+        'IDEMPOTENCY_KEY_REQUIRED']) expect(note, `${name}: ${word}`).toContain(word)
+      // As the services answer (the D17 integration's runtime answers): a body without discoveredBy is VALIDATION_FAILED,
+      // and a discoveredOn in the right form that is no calendar date (2026-02-30) is ORDER_ROUTE_INVALID.
+      expect(note, name).toContain('VALIDATION_FAILED (the body: a missing or unknown field')
+      expect(note, name).toContain('ORDER_ROUTE_INVALID (a note under 8 once trimmed, discoveredOn not a calendar date, in the '
+        + 'future or before the acceptance')
+    }
+    // What D17 adds to the reads the website already makes, each optional ("an earlier backend sends ...").
+    for (const name of ['lab.workItems', 'pharmacy.workItems', 'ehr.labRequests', 'ehr.prescriptions',
+      'ehr.orderRoutesWrongPatient', 'admin.orderRoutesFind', 'admin.wrongPatientReports']) {
+      expect(findEndpoint(name)?.note, name).toContain('lateCorrection: true')
+    }
+    for (const name of ['ehr.labRequestOrderRoutes', 'ehr.prescriptionOrderRoutes', 'ehr.myOrderRoutes', 'admin.orderRoutesFind']) {
+      expect(findEndpoint(name)?.note, name).toContain('correctableUntil')
+      expect(findEndpoint(name)?.note, name).toContain('wrongPatient { reportedAt, late } | null')
+    }
+    expect(findEndpoint('ehr.myOrderRoutes')?.note).toContain('ORDER_ROUTE_WRONG_PATIENT_CORRECTED')
+    expect(findEndpoint('ehr.orderRoutesWrongPatient')?.note).toContain('reportedAt, late and endedKindBefore')
+    for (const word of ['late_correction', 'patient_prompted', 'patient_reported_before', 'requiredActions',
+      'orderingSenderActive', 'reporterLateReportsLast30Days', 'discoveredOn']) {
+      expect(findEndpoint('admin.wrongPatientReports')?.note, word).toContain(word)
+    }
+    expect(findEndpoint('admin.wrongPatientReportReview')?.note).toContain('400 WRONG_PATIENT_REVIEW_REFERRAL_REQUIRED')
+    expect(findEndpoint('admin.wrongPatientReportReview')?.note).toContain('problem member required')
   })
 
   it('names what item 4 (hid-system 0089) adds to the answers the website already reads, as the services answer them', () => {

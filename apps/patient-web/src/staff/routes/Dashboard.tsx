@@ -15,6 +15,7 @@ import {
   holdsReceivePermission, orderWord, receivingAnswer, receivingHere, rememberedReceiving, rememberReceiving, routeDay,
 } from '../orderRoutes'
 import { learnWrongPatientServed } from '../../wrongPatientServed'
+import { learnLateCorrectionServed, saysLateCorrection, useLateCorrectionServed } from '../../lateCorrectionServed'
 
 const modules = [
   { title: 'Patient access', to: '/provider/patients', permission: 'identity.patient.read', detail: 'Look up a Health ID after consent, patient PIN, or emergency authorization.' },
@@ -119,6 +120,25 @@ function withdrawnText(item: SentWrongPatientOrderRoute, patient: string): strin
 }
 
 /**
+ * What the receiving facility reported of an order, by when (D17, CT6; SPEC-FINAL §9.2): in its window it ended the order
+ * (item 3's words); after the order had ended (`late`), it withdrew what it had sent back, or only reported it, on the day
+ * it reported it. What A recorded from a withdrawn value still shows until A amends it (CL1).
+ */
+function reportedText(item: SentWrongPatientOrderRoute, receiving: string, patient: string): string {
+  if (item.late !== true) return `${receiving} reports that it accepted it for someone who was not ${patient}, and ended it on `
+    + `${routeDay(item.endedAt)}.`
+  const when = routeDay(typeof item.reportedAt === 'string' ? item.reportedAt : item.endedAt)
+  return withdrewSomething(item)
+    ? `${receiving} reports that it accepted it for someone who was not ${patient}, and on ${when} withdrew what it had sent `
+      + `back. Anything you recorded from it still shows to ${patient} until you amend it.`
+    : `${receiving} reports that it accepted it for someone who was not ${patient}, and reported this on ${when}.`
+}
+
+function withdrewSomething(item: SentWrongPatientOrderRoute): boolean {
+  return item.dispensingReversed === true || (Number.isSafeInteger(item.resultsWithdrawn) && item.resultsWithdrawn > 0)
+}
+
+/**
  * "3 orders that colleagues sent from this facility were reported accepted for the wrong person: AB12CD34, 9F00E1A2 and 1
  * more." The backend gives the member every order they sent in full, so these are only ever colleagues' (C28).
  */
@@ -144,14 +164,17 @@ function othersText(others: SentWrongPatientOrderRoutes['others'], own: number):
  */
 function WrongPatientOrdersCard({ facilityId, facilityName }: { facilityId: string; facilityName: string }) {
   const { activePatient } = useStaff()
+  const lateServed = useLateCorrectionServed() === true
   const [answer, setAnswer] = useState<SentWrongPatientOrderRoutes | 'failed' | 'missing' | null>(null)
   useEffect(() => {
     let active = true
     setAnswer(null)
     void orderRoutesApi.sentWrongPatient(facilityId).then(
       read => {
-        // The backend serves the wrong-patient report (item 3): its guidance may show elsewhere too (D15).
+        // The backend serves the wrong-patient report (item 3): its guidance may show elsewhere too (D15); and, when it
+        // says so, the late correction (D17, CT3).
         learnWrongPatientServed(true)
+        if (saysLateCorrection(read)) learnLateCorrectionServed(true)
         if (active) setAnswer(read && typeof read === 'object' ? read : 'failed')
       },
       caught => {
@@ -174,7 +197,8 @@ function WrongPatientOrdersCard({ facilityId, facilityName }: { facilityId: stri
   return <Card className="staff-card staff-wrong-patient-orders" aria-labelledby="wrong-patient-orders-title">
     <h2 id="wrong-patient-orders-title">Orders accepted for the wrong person</h2>
     <p className="staff-muted">In the last {days} days, a laboratory or pharmacy reported that it accepted these orders from
-      {' '}{facilityName} for someone who was not the patient, and ended them. Health ID does not alert you any other way.</p>
+      {' '}{facilityName} for someone who was not the patient, and {lateServed ? 'ended them or reported it later' : 'ended them'}.
+      {' '}Health ID does not alert you any other way.</p>
     {items.length > 0 && <ul className="staff-list">{items.map(item => {
       const patient = item.patient?.name?.trim() || 'the patient'
       const receiving = item.receivingFacility?.name?.trim() || 'The other facility'
@@ -182,8 +206,8 @@ function WrongPatientOrdersCard({ facilityId, facilityName }: { facilityId: stri
       const link = item.link
       return <li key={item.routeId} className="staff-list-item staff-stack">
         <strong>{what.charAt(0).toUpperCase()}{what.slice(1)}{item.reference ? ` · Ref ${item.reference}` : ''} · {patient}</strong>
-        <p>{receiving} reports that it accepted it for someone who was not {patient}, and ended it on {routeDay(item.endedAt)}.</p>
-        <p>{withdrawnText(item, patient)}</p>
+        <p>{reportedText(item, receiving, patient)}</p>
+        {(item.late !== true || withdrewSomething(item)) && <p>{withdrawnText(item, patient)}</p>}
         {link && (openPatient === link.patientId
           ? <Link to="/provider/clinical" state={{ order: link }} className="staff-text-link">Open the {what} →</Link>
           : <p className="staff-muted">To see it, open {patient}’s record from <Link to="/provider/patients"

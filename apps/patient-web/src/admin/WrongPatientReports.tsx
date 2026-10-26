@@ -1,11 +1,14 @@
 import { useCallback, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
+import { isHidApiError } from '@hid/http'
 import {
-  adminApi, type AdminActor, type NamedAccount, type WrongPatientReport, type WrongPatientReviewAction,
+  adminApi, type AdminActor, type NamedAccount, type WrongPatientReport, type WrongPatientReports, type WrongPatientReviewAction,
 } from './api'
+import { endedWord } from './OrderRoutes'
 import { isProblem } from './problems'
 import { Page, Refresh, ResourceView, Table, date, has, useGovernedSubmit, useResource, useUrlFilters } from './ui'
 import { learnWrongPatientServed } from '../wrongPatientServed'
+import { learnLateCorrectionServed, saysLateCorrection, useLateCorrectionServed } from '../lateCorrectionServed'
 
 /**
  * Support's "Wrong-patient reports" (item 3, owner decisions D7, D11, D12, D14; SPEC-FINAL §8.4, §9.5): every report by a
@@ -22,6 +25,16 @@ const FLAG_WORDS: Readonly<Record<string, string>> = {
   reporter_recorded_work: 'The reporter recorded the work',
   suspected_misuse: 'Suspected pretending',
   other_reason_nothing_recorded: 'Another reason, and nothing was recorded',
+  // D17 (hid-system 0090).
+  late_correction: 'Reported after the order had ended',
+  patient_prompted: 'Reported late, prompted by the patient or someone else, and something had come back',
+  patient_reported_before: 'Another report about the same patient in the last 90 days',
+}
+
+/** How the reporting facility found out (D17, CL11), in support's words. */
+const DISCOVERED_WORDS: Readonly<Record<string, string>> = {
+  patient: 'the patient told them', ordering_facility: 'the ordering facility told them', own_check: 'they found it themselves',
+  support: 'support told them', other: 'another way',
 }
 
 const REASON_WORDS: Readonly<Record<string, string>> = {
@@ -55,6 +68,30 @@ export const LATE_CASE_NOTE = 'If a patient or clinician tells you a result or d
   + 'facility can no longer end the order, ask the ordering clinician to record in the patient’s notes that it was not '
   + 'theirs, and refer it to the data protection officer the same day.'
 
+/**
+ * How long after accepting an order a laboratory or pharmacy may still withdraw what it recorded on it (owner decision
+ * D17-2, set in hid-system 0090's `ehr.order_route_correctable_until`). Only support's rule of thumb names it (S1): every
+ * other screen says the date each answer carries.
+ */
+export const CORRECTABLE_DAYS = 180
+
+/**
+ * The same, once the backend serves the late correction (D17; CL2, S1): the facility can still withdraw it after the order
+ * ended, until its date; support gives the reference only to that facility, on a number Health ID holds for it, and says
+ * what was reported, not that it is so. After that, D17-3's stop-gap, reworded.
+ */
+export const LATE_CORRECTION_CASE_NOTE = 'If a patient or clinician tells you a result or dispensing went to the wrong person '
+  + 'after the order ended, give the order’s reference to the laboratory or pharmacy itself, on a phone number Health ID '
+  + 'holds for it, and tell it what was reported, not that it is so. It can use “Correct an order that has ended” on its '
+  + `Laboratory or Pharmacy page until ${CORRECTABLE_DAYS} days after it accepted the order; Find shows the date. After that, `
+  + 'or if the facility is no longer on Health ID, ask the ordering clinician to record in the patient’s notes that it was '
+  + 'not theirs, without repeating its value, and refer it to the data protection officer the same day.'
+
+/** The case note this console says: D17's once the late correction is served, item 3's until then. */
+export function lateCaseNote(served: boolean): string {
+  return served ? LATE_CORRECTION_CASE_NOTE : LATE_CASE_NOTE
+}
+
 function nameOf(person: NamedAccount | null | undefined, fallback = 'A member'): string {
   return person?.name?.trim() || fallback
 }
@@ -63,9 +100,18 @@ function plural(count: number, one: string, many = `${one}s`): string {
   return `${count} ${count === 1 ? one : many}`
 }
 
-/** What the report withdrew, in support's words: never what the result or medicine was. */
+/**
+ * What the report withdrew, in support's words: never what the result or medicine was. A late one (D17) also says how the
+ * order had ended before, and how and when the reporting facility found out.
+ */
 function undoneText(report: WrongPatientReport): string {
   const parts: string[] = []
+  if (report.late === true) {
+    parts.push(typeof report.endedKindBefore === 'string' && report.endedKindBefore
+      ? `Ended before the report: ${endedWord(report.endedKindBefore)}.` : 'Its time for work had run out.')
+    if (typeof report.discoveredOn === 'string' && report.discoveredOn) parts.push(`Found out on ${dayOf(report.discoveredOn)}`
+      + `${typeof report.discoveredBy === 'string' && DISCOVERED_WORDS[report.discoveredBy] ? `: ${DISCOVERED_WORDS[report.discoveredBy]}` : ''}.`)
+  }
   if (report.stateBefore !== 'completed') parts.push('Nothing had come back to the ordering facility.')
   if (report.kind === 'lab_request') {
     if (report.resultsVoided > 0) parts.push(`${plural(report.resultsVoided, 'result version')} marked entered in error at the laboratory.`)
@@ -74,6 +120,25 @@ function undoneText(report: WrongPatientReport): string {
   } else if (report.dispensingReversed) parts.push('The dispensing was reversed.')
   else parts.push('No dispensing was reversed.')
   return parts.join(' ')
+}
+
+/** A calendar day sent as YYYY-MM-DD, shown as that day wherever the browser is. */
+function dayOf(value: string): string {
+  const plain = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+  return plain ? new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeZone: 'UTC' })
+    .format(new Date(Date.UTC(Number(plain[1]), Number(plain[2]) - 1, Number(plain[3])))) : date(value)
+}
+
+/** The actions a review requires (D17-6), in support's words: "Referred to the data protection officer and Ordering facility told". */
+function requiredWords(actions: readonly string[]): string {
+  const words = actions.map(action => ACTION_WORDS[action] ?? action.replaceAll('_', ' '))
+  return words.length > 1 ? `${words.slice(0, -1).join(', ')} and ${words.at(-1)}` : words[0] ?? ''
+}
+
+/** What the review requires of this report (D17-6), only the actions this console knows; none from an earlier Identity. */
+function requiredOf(report: WrongPatientReport): WrongPatientReviewAction[] {
+  return (Array.isArray(report.requiredActions) ? report.requiredActions : [])
+    .filter((action): action is WrongPatientReviewAction => REVIEW_ACTIONS.some(item => item.value === action))
 }
 
 function recordedText(report: WrongPatientReport): string {
@@ -95,16 +160,27 @@ export function WrongPatientReportsPage({ actor }: { actor: AdminActor }) {
   const [notice, setNotice] = useState<string | null>(null)
   const canReview = has(actor, 'platform.facility.manage')
   const facilityName = resource.data?.items.find(item => item.receivingFacility.id === facilityId)?.receivingFacility.name ?? null
+  // D17: from an Identity whose services serve the late correction (its answer says so, CT3).
+  const served = useLateCorrectionServed() === true
 
   return <Page eyebrow="Organizations" title="Wrong-patient reports"
-    description="Orders a laboratory or pharmacy accepted for someone who was not the patient, and ended."
+    description={served ? 'Orders a laboratory or pharmacy accepted for someone who was not the patient, and ended, or '
+      + 'reported after the order had ended.' : 'Orders a laboratory or pharmacy accepted for someone who was not the patient, and ended.'}
     action={<Refresh onClick={resource.reload} disabled={resource.loading} />}>
     <section className="admin-panel" aria-labelledby="wrong-patient-intro-title">
       <div className="admin-panel-head"><div><h2 id="wrong-patient-intro-title">What to do</h2>
-        <p>A laboratory or pharmacy ends an order it accepted for someone who was not the order’s patient. Its access ended at
-          once, and any result or dispensing it had sent back was withdrawn.</p></div></div>
+        <p>{served ? 'A laboratory or pharmacy reports an order it accepted for someone who was not the order’s patient. While '
+          + 'it may still work on the order, it ends it; after the order has ended, it can still withdraw what it recorded. Any '
+          + 'result or dispensing it had sent back is withdrawn.'
+          : 'A laboratory or pharmacy ends an order it accepted for someone who was not the order’s patient. Its access ended at '
+            + 'once, and any result or dispensing it had sent back was withdrawn.'}</p></div></div>
       <ul className="admin-notes">
         <li>Review each report within one business day. Flagged reports come first.</li>
+        {served && <li>A report made after the order had ended is flagged “Reported after the order had ended”. The clinician
+          may have acted on the value for weeks: when something had come back, phone the ordering facility the same day, tell
+          them that anything they recorded from it (a note, a diagnosis, a prescription) still shows in the patient’s record
+          until they correct it, and refer the report to the data protection officer the same day. The console asks for both
+          before you mark it reviewed.</li>}
         <li>When a result or dispensing had come back, phone the ordering facility the same day, tell them, and tick
           “Ordering facility told”. Refer the report to the data protection officer the same day.</li>
         <li>Refer every “pretending” report to the data protection officer the same day as well.</li>
@@ -112,7 +188,7 @@ export function WrongPatientReportsPage({ actor }: { actor: AdminActor }) {
         <li>Contact the facility when one facility or member has three or more reports in 30 days; you can unlist or suspend
           the facility from its page.</li>
         <li>If the note contains names, tests, medicines or health details, remove it when you review.</li>
-        <li>{LATE_CASE_NOTE}</li>
+        <li>{lateCaseNote(served)}</li>
       </ul>
     </section>
     <div className="admin-filter" role="group" aria-label="Reports">
@@ -147,7 +223,9 @@ function ReportRow({ report, canReview, onReviewed, onStale }: { report: WrongPa
     <td>{flags.length === 0 ? 'None' : <ul className="admin-flags">{flags.map(flag => <li key={flag}><strong>{FLAG_WORDS[flag]}</strong></li>)}</ul>}</td>
     <td><strong>{report.reference}</strong><small>{KIND_WORDS[report.kind] ?? report.kind}</small></td>
     <td><Link to={`/admin/facilities/${encodeURIComponent(report.receivingFacility.id)}`}>{report.receivingFacility.name ?? 'Facility'}</Link></td>
-    <td><Link to={`/admin/facilities/${encodeURIComponent(report.orderingFacility.id)}`}>{report.orderingFacility.name ?? 'Facility'}</Link></td>
+    <td><Link to={`/admin/facilities/${encodeURIComponent(report.orderingFacility.id)}`}>{report.orderingFacility.name ?? 'Facility'}</Link>
+      {report.orderingSenderActive === false && <small className="admin-flag-text">The clinician who sent the order is no longer
+        active at {report.orderingFacility.name ?? 'the ordering facility'}: ask for the clinician now responsible.</small>}</td>
     <td>{ACCEPTED_WITH_WORDS[report.acceptedWith] ?? report.acceptedWith}<small>Accepted {date(report.acceptedAt)} by
       {' '}{report.sameMember ? 'the reporter' : nameOf(report.acceptedBy)}</small></td>
     <td>{REASON_WORDS[report.reason] ?? report.reason}</td>
@@ -156,6 +234,8 @@ function ReportRow({ report, canReview, onReviewed, onStale }: { report: WrongPa
     <td>{undoneText(report)}</td>
     <td>{plural(facilityCount, 'report')} by {report.receivingFacility.name ?? 'this facility'}
       <small>{plural(memberCount, 'report')} on orders {nameOf(report.acceptedBy, 'the same member')} accepted</small>
+      {Number.isSafeInteger(report.reporterLateReportsLast30Days) && report.late === true
+        && <small>The reporter made {plural(report.reporterLateReportsLast30Days!, 'late report')} in 30 days.</small>}
       {(facilityCount >= CONTACT_AT || memberCount >= CONTACT_AT) && <strong className="admin-flag-text">Contact the facility</strong>}</td>
     <td>{report.review ? <ReviewDone review={report.review} />
       : canReview ? <ReviewForm report={report} onReviewed={() => onReviewed(report.reference)} onStale={onStale} />
@@ -182,6 +262,10 @@ const REVIEW_REFRESHING = ['WRONG_PATIENT_REPORT_NOT_FOUND', 'WRONG_PATIENT_REPO
 /**
  * "Mark reviewed" (C27): one or more actions, or "No further action" alone; a note of 8 to 500 characters; whether to
  * remove the reporter's note (once, replaced by fixed text, D7); and a confirmation. If-Match with the report's version.
+ * A late report where something had come back, or a "pretending" one, needs "Referred to the data protection officer",
+ * and, while the ordering facility is on Health ID, "Ordering facility told" (D17-6): Identity says which
+ * (`requiredActions`); "No further action" is then not offered, the required boxes are marked, and the form is not sent
+ * without them. Identity refuses it anyway (400 WRONG_PATIENT_REVIEW_REFERRAL_REQUIRED, naming what is missing).
  */
 function ReviewForm({ report, onReviewed, onStale }: { report: WrongPatientReport; onReviewed: () => void; onStale: () => void }) {
   const [actions, setActions] = useState<ReadonlySet<WrongPatientReviewAction>>(() => new Set())
@@ -190,7 +274,8 @@ function ReviewForm({ report, onReviewed, onStale }: { report: WrongPatientRepor
   const [confirmed, setConfirmed] = useState(false)
   const governed = useGovernedSubmit()
   const length = note.trim().length
-  const ready = actions.size > 0 && length >= 8 && length <= 500 && confirmed
+  const required = requiredOf(report)
+  const ready = actions.size > 0 && length >= 8 && length <= 500 && confirmed && required.every(action => actions.has(action))
   const id = `wrong-patient-review-${report.reportId}`
 
   function toggle(action: WrongPatientReviewAction, checked: boolean) {
@@ -215,17 +300,25 @@ function ReviewForm({ report, onReviewed, onStale }: { report: WrongPatientRepor
       } catch (caught) { refused = caught; throw caught }
     }, 'The report could not be marked reviewed. Try again.', REVIEW_PROBLEMS)
     if (reviewed) onReviewed()
+    else if (isProblem(refused, 'WRONG_PATIENT_REVIEW_REFERRAL_REQUIRED')) {
+      // What Identity says is missing, else what the report said it requires.
+      const missing = isHidApiError(refused) && refused.required?.length ? refused.required : required
+      governed.setError(`Tick ${requiredWords(missing.length ? missing : ['referred_to_dpo'])} before you mark it reviewed.`)
+    }
     else if (REVIEW_REFRESHING.some(code => isProblem(refused, code))) onStale()
   }
 
   return <details className="admin-action">
     <summary>Mark reviewed</summary>
     <form className="admin-action-form admin-review-form" onSubmit={event => void submit(event)}>
-      <fieldset><legend>What was done</legend>
+      <fieldset aria-describedby={required.length > 0 ? `${id}-required` : undefined}><legend>What was done</legend>
         {REVIEW_ACTIONS.map(item => <label key={item.value} className="admin-checkbox"><input type="checkbox"
-          checked={actions.has(item.value)} onChange={event => toggle(item.value, event.target.checked)} /> {item.label}</label>)}
+          checked={actions.has(item.value)} onChange={event => toggle(item.value, event.target.checked)} /> {item.label}
+          {required.includes(item.value) ? ' (required)' : ''}</label>)}
         <label className="admin-checkbox"><input type="checkbox" checked={actions.has(NO_FURTHER_ACTION.value)}
-          onChange={event => toggle(NO_FURTHER_ACTION.value, event.target.checked)} /> {NO_FURTHER_ACTION.label}</label>
+          disabled={required.length > 0} onChange={event => toggle(NO_FURTHER_ACTION.value, event.target.checked)} /> {NO_FURTHER_ACTION.label}</label>
+        {required.length > 0 && <small id={`${id}-required`} className="admin-note">A late report where something had come back,
+          or a “pretending” one, needs: {requiredWords(required)}.</small>}
       </fieldset>
       <label htmlFor={`${id}-note`}>Review note</label>
       <textarea id={`${id}-note`} required minLength={8} maxLength={500} rows={3} value={note} aria-describedby={`${id}-note-hint`}
@@ -264,10 +357,12 @@ export function WrongPatientReportsTile() {
  * A read of the reports, noting what it says of the backend (item 3, D15): an answer means Identity serves the report, a
  * 404 (said as WRONG_PATIENT_REPORTS_UNAVAILABLE) that it does not, and the navigation then stops listing the page.
  */
-async function learnFrom(read: Promise<{ items: WrongPatientReport[] }>): Promise<{ items: WrongPatientReport[] }> {
+async function learnFrom(read: Promise<WrongPatientReports>): Promise<WrongPatientReports> {
   try {
     const answer = await read
     learnWrongPatientServed(true)
+    // D17: an Identity whose services serve the late correction says so (CT3).
+    if (saysLateCorrection(answer)) learnLateCorrectionServed(true)
     return answer
   } catch (caught) {
     if (isProblem(caught, 'WRONG_PATIENT_REPORTS_UNAVAILABLE')) learnWrongPatientServed(false)
@@ -276,7 +371,7 @@ async function learnFrom(read: Promise<{ items: WrongPatientReport[] }>): Promis
 }
 
 /** The list, or null from an Identity without the route (404, said as WRONG_PATIENT_REPORTS_UNAVAILABLE): shown as nothing. */
-async function unlessUnavailable(read: Promise<{ items: WrongPatientReport[] }>): Promise<{ items: WrongPatientReport[] } | null> {
+async function unlessUnavailable(read: Promise<WrongPatientReports>): Promise<WrongPatientReports | null> {
   try { return await learnFrom(read) } catch (caught) {
     if (isProblem(caught, 'WRONG_PATIENT_REPORTS_UNAVAILABLE')) return null
     throw caught

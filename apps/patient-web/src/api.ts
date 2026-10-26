@@ -306,6 +306,17 @@ export interface PatientOrderRoute {
    * and attesting clinician are null and `actions` is empty. Absent from a backend before that review.
    */
   enteredInError?: boolean
+  /**
+   * D17 (hid-system 0090; absent from an earlier backend): the receiving facility's report that it accepted the order for
+   * someone who was not the patient, in its window or after the order had ended (`late`), whatever the order's ending;
+   * null when there is none. Read only when its type is right.
+   */
+  wrongPatient?: { reportedAt: string; late: boolean } | null
+  /**
+   * D17 (absent from an earlier backend): until when the receiving facility may still correct it (withdraw what it
+   * recorded on it), while it may; null once it can't.
+   */
+  correctableUntil?: string | null
 }
 
 export interface RecoveryChallenge {

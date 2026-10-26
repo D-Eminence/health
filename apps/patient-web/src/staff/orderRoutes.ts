@@ -1,9 +1,11 @@
 import { isHidApiError } from '@hid/http'
 import type {
-  Facility, OrderRouteDeclineReason, OrderRouteKind, OrderRoutePatient, OrderRouteSummary, OrderRouteWithdrawReason,
-  OrderRouteWrongPatientReason, ReceivingAnswer, ReceivingService, WorkItemOrderRoute,
+  CorrectableOrderRoute, CorrectableOrderRouteDetails, Facility, OrderRouteDeclineReason, OrderRouteDiscoveredBy, OrderRouteKind,
+  OrderRoutePatient, OrderRouteSummary, OrderRouteWithdrawReason, OrderRouteWrongPatientReason, ReceivingAnswer,
+  ReceivingService, WorkItemOrderRoute,
 } from './api'
 import { usesNovuBackend } from '../backendContract'
+import { receivingDeadlineOf, wrongPatientReportOf } from '../lateCorrectionServed'
 import { selfServiceReview, selfServiceType } from './staffAccess'
 
 /**
@@ -108,6 +110,10 @@ export function routeStatusText(route: OrderRouteSummary, patient: string): { te
       if (route.endedKind === 'wrong_patient') return { tone: 'warning', text: route.kind === 'lab_request'
         ? `${facility} reports that the results it released belong to someone else, and has ended it. Do not use them.`
         : `${facility} reports that it dispensed this to someone who was not ${patient}, and has ended it.` }
+      // D17: it reported it after the order had ended another way, which it keeps (D17-4).
+      if (wrongPatientReportOf(route)) return { tone: 'warning', text: route.kind === 'lab_request'
+        ? `${facility} reports that the results it released belong to someone else, and has withdrawn them. Do not use them.`
+        : `${facility} reports that it dispensed this to someone who was not ${patient}, and has reversed it.` }
       return { tone: 'success', text: route.kind === 'lab_request'
         ? `Results released by ${facility}${route.completedAt ? ` on ${routeDay(route.completedAt)}` : ''}.`
         : `Dispensed by ${facility}${route.completedAt ? ` on ${routeDay(route.completedAt)}` : ''}.` }
@@ -120,7 +126,9 @@ export function routeStatusText(route: OrderRouteSummary, patient: string): { te
         ? `Accepted by ${facility} on ${routeDay(route.acceptedAt)}; nothing came back within 30 days.`
         : `Not accepted by ${facility} within 7 days. Send it elsewhere.` }
     case 'cancelled':
-      return { tone: 'warning', text: cancelledText(route, facility, patient) }
+      return { tone: 'warning', text: cancelledText(route, facility, patient)
+        + (route.endedKind !== 'wrong_patient' && wrongPatientReportOf(route)
+          ? ` ${facility} has since reported that it accepted it for someone who was not ${patient}.` : '') }
     default:
       return { tone: 'neutral', text: `Sent to ${facility}: ${route.effectiveState.replaceAll('_', ' ')}.` }
   }
@@ -171,17 +179,75 @@ export function wrongPatientNotice(route: Pick<OrderRouteSummary, 'kind' | 'effe
 }
 
 /**
+ * The sentence added to the red notice of an order the receiving facility reported after something had come back (D17,
+ * CL1, D17-4): when, and that what the clinician recorded from it still shows until they correct it. Null for a report in
+ * the window, or on an order nothing came back from.
+ */
+export function lateReportNotice(route: Pick<OrderRouteSummary, 'effectiveState' | 'completedAt'> & { wrongPatient?: unknown },
+  patient: string): string | null {
+  const report = wrongPatientReportOf(route)
+  if (!report?.late || route.effectiveState !== 'completed') return null
+  const came = route.completedAt ? Date.parse(route.completedAt) : Number.NaN
+  const days = Number.isFinite(came) ? Math.max(0, Math.floor((Date.parse(report.reportedAt) - came) / 86_400_000)) : null
+  const when = days === null ? 'This was reported after it came back.'
+    : days === 0 ? 'This was reported on the day it came back.'
+      : `This was reported ${days} day${days === 1 ? '' : 's'} after it came back.`
+  return `${when} Anything you recorded from it (a note, a diagnosis, a prescription) still shows to ${patient} and to the `
+    + `assistants until you amend it or mark it entered in error. Tell ${patient} directly: Health ID tells them only in the app.`
+}
+
+/**
+ * What the ordering clinician may do about an order something came back on (D17-5, CL10, CT5; SPEC-FINAL §9.2): phone
+ * the receiving facility with the reference, which can withdraw it until the time the answer carries (its day and time
+ * in Lagos: the deadline is a moment, not the whole day, as on the receiving facility's own row); once it can't
+ * (`correctableUntil: null`, or the receiving facility was released from Health ID), record it in the patient's notes
+ * without repeating the value (D17-3). Only for a completed
+ * route the receiving facility has not reported, from a backend that serves the late correction (`lateServed`) and says
+ * the deadline: null otherwise, as before D17.
+ */
+export function routeGuidance(route: Pick<OrderRouteSummary, 'kind' | 'effectiveState' | 'reference' | 'receivingFacility'
+  | 'endedKind'> & { wrongPatient?: unknown; correctableUntil?: unknown }, patient: string, lateServed = false): string | null {
+  const until = receivingDeadlineOf(route)
+  if (!lateServed || until === undefined || route.effectiveState !== 'completed' || route.endedKind === 'wrong_patient'
+    || wrongPatientReportOf(route)) return null
+  const facility = named(route.receivingFacility.name)
+  const reference = route.reference ? ` and give it the reference ${route.reference}` : ' and give it the order’s reference'
+  if (until === null) return route.kind === 'lab_request'
+    ? `If a result from ${facility} on this order is not ${patient}’s, record that in ${patient}’s notes without repeating its `
+      + 'value, and tell Health ID support.'
+    : `If ${patient} did not receive this medicine from ${facility}, record that in ${patient}’s notes, and tell Health ID support.`
+  return route.kind === 'lab_request'
+    ? `If ${patient} says they did not give a sample at ${facility}, or you have evidence the sample was someone else’s, phone `
+      + `${facility}${reference}: it can withdraw the result until ${routeMoment(until)}. A result that is only unexpected is not a `
+      + 'reason: repeat the test.'
+    : `If ${patient} did not receive this medicine from ${facility}, and no one collected it for them, phone ${facility}`
+      + `${reference}: it can reverse the dispensing until ${routeMoment(until)}.`
+}
+
+/**
  * The warning where a clinician changes an order sent to another facility (Novu, P4c): its change is passed on there
  * (the EHR's mirror trigger), withdrawing it before that facility accepts it, or cancelling it there after. While that
  * facility may still work on it (accepted, or completed and not ended), changing it also stops that facility from
  * withdrawing a result or dispensing it sent back for the wrong person (item 3, C1, §9.2), so the clinician is asked to
  * have it ended there first: only from a backend that lets that facility end it (`reportServed`; until hid-system 0088
- * ships it can't, and the warning stays as it was, D15).
+ * ships it can't, and the warning stays as it was, D15). Since D17 (`lateServed`, hid-system 0090) that facility may still
+ * withdraw it after the order has changed or ended, until the time the summary carries (`correctableUntil`, said with its
+ * day and time): the warning then says so, with the reference, whether or not the order has ended; once that date is gone (null), it says only what a
+ * change does.
  */
-export function routedChangeWarning(route: Pick<OrderRouteSummary, 'receivingFacility' | 'effectiveState' | 'endedAt'>
-  | null | undefined, patient: string, reportServed = false): string {
+export function routedChangeWarning(route: (Pick<OrderRouteSummary, 'receivingFacility' | 'effectiveState' | 'endedAt'>
+  & { reference?: string | null; correctableUntil?: unknown; endedKind?: string | null }) | null | undefined, patient: string,
+  reportServed = false, lateServed = false): string {
   const name = route?.receivingFacility.name?.trim() || 'the other facility'
   const change = `Changing it withdraws it from ${name}, or cancels it there if ${name} has accepted it; a cancelled order can’t be resumed there.`
+  const until = lateServed ? receivingDeadlineOf(route) : undefined
+  if (route && until !== undefined) {
+    if (until === null) return change
+    const what = route.effectiveState === 'completed' ? 'what it sent back' : 'what it recorded on it'
+    return `${change} If ${name} accepted it for someone who was not ${patient}, ask ${name} to withdraw ${what}, giving it the `
+      + `reference ${route.reference || 'shown with the order'}: it can do so until ${routeMoment(until)}, whether or not you `
+      + 'change this order.'
+  }
   const working = reportServed
     && Boolean(route && (route.effectiveState === 'accepted' || route.effectiveState === 'completed') && !route.endedAt)
   return working ? `${change} If ${name} accepted it for someone who was not ${patient}, ask ${name} to end it from its work `
@@ -206,6 +272,11 @@ export function fillAttestation(text: string, names: AttestationNames): string {
   return text.replaceAll('{patient}', names.patient).replaceAll('{orderingFacility}', names.orderingFacility)
     .replaceAll('{receivingFacility}', names.receivingFacility)
 }
+
+/** An order's reference as the patient's app shows it: 8 characters of its id, upper-cased (C9). */
+export const REFERENCE_PATTERN = /^[0-9A-F]{8}$/
+export const REFERENCE_PROBLEM = 'The reference is the 8 characters shown with the order in the patient’s Health ID app, for '
+  + 'example 3F2A9C1B.'
 
 /** Said wherever orders between facilities are switched off (either switch). */
 export const ORDERS_PAUSED = 'Health ID has paused orders between facilities. Try again later.'
@@ -560,11 +631,16 @@ export function wrongPatientOffered(route: WorkItemOrderRoute | null | undefined
  * route moved on (412): read it again and show the form refreshed; `unanswered` that no answer came, so the order may or
  * may not have ended.
  */
-export function wrongPatientRefusal(error: unknown, service: ReceivingService, ordering: string):
+export function wrongPatientRefusal(error: unknown, service: ReceivingService, ordering: string,
+  late: { reference: string | null } | null = null):
   { text: string; reload?: boolean; stale?: boolean; unanswered?: boolean } {
   if (!isHidApiError(error) && error instanceof Error && error.message) return { text: error.message }
+  // With the late correction served (D17, `late`), an order that has ended can still be withdrawn from "Correct an order
+  // that has ended" until its date; until then, today's words (D15).
   if (isCode(error, 'ORDER_ROUTE_ALREADY_ENDED')) return { reload: true, text: 'This order has already ended, so it can’t be '
-    + `ended here. If a result or dispensing had gone back, phone ${ordering} and tell Health ID support.` }
+    + (late ? `ended here. If a result or dispensing had gone back, use “Correct an order that has ended” above the work list, `
+      + `with reference ${late.reference || 'shown with the order'}.`
+      : `ended here. If a result or dispensing had gone back, phone ${ordering} and tell Health ID support.`) }
   if (isCode(error, 'ORDER_ROUTE_NOT_ACCEPTED')) return { reload: true,
     text: 'This order hasn’t been accepted, so there is nothing to end: decline it instead.' }
   if (isHidApiError(error) && error.status === 412) return { stale: true,
@@ -579,8 +655,10 @@ export function wrongPatientRefusal(error: unknown, service: ReceivingService, o
     + `and phone ${ordering}.` }
   if (isHidApiError(error) && error.status === 404) return { reload: true, text: 'This order was not found here. Refresh the list.' }
   if (paused(error)) return { text: 'Health ID has paused work on orders from other facilities, so this can’t be done now. Try '
-    + 'again when it resumes, and tell Health ID support now. Don’t ask support to close the order: closing it stops you '
-    + 'withdrawing anything you sent back.' }
+    + 'again when it resumes, and tell Health ID support now. ' + (late
+    ? 'If the order is closed meanwhile, you can still withdraw it under “Correct an order that has ended”, until the date '
+      + 'shown there.'
+    : 'Don’t ask support to close the order: closing it stops you withdrawing anything you sent back.') }
   if (isHidApiError(error) && error.status === 403) return { text: 'Your role can’t end orders from other facilities.' }
   if (isHidApiError(error) && error.status === 400) return { text: 'Check what you entered: choose what happened, and describe '
     + 'it for Health ID support in 8 to 500 characters.' }
@@ -623,3 +701,212 @@ export function licenceLine(body: string | null | undefined, number?: string | n
 
 /** The receiving pharmacy's warning for a controlled medicine (owner decision Q9). */
 export const CONTROLLED_MEDICINE_CHECK = 'If this is a controlled medicine, check the prescription as you would a paper one before you dispense it.'
+
+/** How the receiving facility found out (D17, CL11), as the late form offers it. */
+export const DISCOVERED_BY: ReadonlyArray<{ value: OrderRouteDiscoveredBy; label: string }> = [
+  { value: 'patient', label: 'The patient told us' },
+  { value: 'ordering_facility', label: 'The ordering facility told us' },
+  { value: 'own_check', label: 'We found it ourselves' },
+  { value: 'support', label: 'Health ID support told us' },
+  { value: 'other', label: 'Another way' },
+]
+
+const LAGOS_PARTS = new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Lagos', year: 'numeric', month: '2-digit', day: '2-digit' })
+
+/** The day in Lagos (YYYY-MM-DD) of a time, as the services check the day a facility found out (D17); null when unreadable. */
+export function lagosDay(value: Date | string | null | undefined): string | null {
+  if (!value) return null
+  const parsed = value instanceof Date ? value : new Date(value)
+  if (Number.isNaN(parsed.getTime())) return null
+  const parts = Object.fromEntries(LAGOS_PARTS.formatToParts(parsed).map(part => [part.type, part.value]))
+  return parts.year && parts.month && parts.day ? `${parts.year}-${parts.month}-${parts.day}` : null
+}
+
+/** "21 Oct 2026", "21 Oct 2026 and 3 Nov 2026", "a, b and c": the days of these times, each once, in order. */
+export function returnedDays(times: readonly string[]): string {
+  const days = [...new Set([...times].sort().map(time => routeDay(time)))]
+  if (days.length <= 1) return days[0] ?? 'an unknown date'
+  return `${days.slice(0, -1).join(', ')} and ${days.at(-1)}`
+}
+
+const CORRECTIONS: ReadonlySet<string> = new Set(['open', 'correctable', 'reported', 'too_late'])
+
+function stringOrNull(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value : null
+}
+
+function timeOrNull(value: unknown): string | null {
+  return typeof value === 'string' && Number.isFinite(Date.parse(value)) ? value : null
+}
+
+function correctableDetails(value: unknown): CorrectableOrderRouteDetails | null {
+  if (!value || typeof value !== 'object') return null
+  const details = value as { what?: unknown; acceptedBy?: unknown; acceptedWith?: unknown; returned?: unknown }
+  const returned = Array.isArray(details.returned) ? details.returned.flatMap(item => {
+    const entry = item && typeof item === 'object' ? item as { at?: unknown; withdrawn?: unknown } : null
+    const at = timeOrNull(entry?.at)
+    return at && typeof entry?.withdrawn === 'boolean' ? [{ at, withdrawn: entry.withdrawn }] : []
+  }).slice(0, 20) : []
+  return { what: stringOrNull(details.what), acceptedBy: stringOrNull(details.acceptedBy),
+    acceptedWith: stringOrNull(details.acceptedWith), returned }
+}
+
+/**
+ * The lookup's rows (D17, C30), each only when its id, version and correction read as they should; every other field is
+ * read when its type is right and left empty otherwise, never made up. No patient is ever read from it.
+ */
+export function correctableRoutes(answer: unknown): CorrectableOrderRoute[] {
+  const items = answer && typeof answer === 'object' ? (answer as { items?: unknown }).items : null
+  if (!Array.isArray(items)) return []
+  return items.flatMap((item): CorrectableOrderRoute[] => {
+    if (!item || typeof item !== 'object') return []
+    const row = item as Record<string, unknown>
+    if (typeof row.id !== 'string' || !row.id || typeof row.version !== 'number' || !Number.isSafeInteger(row.version)
+      || row.version < 1 || typeof row.correction !== 'string' || !CORRECTIONS.has(row.correction)) return []
+    const kind = row.kind === 'prescription' ? 'prescription' : 'lab_request'
+    return [{ id: row.id, reference: stringOrNull(row.reference), kind, version: row.version,
+      effectiveState: typeof row.effectiveState === 'string' ? row.effectiveState : '',
+      orderingFacilityName: stringOrNull(row.orderingFacilityName), acceptedAt: timeOrNull(row.acceptedAt),
+      completedAt: timeOrNull(row.completedAt), endedAt: timeOrNull(row.endedAt), endedKind: stringOrNull(row.endedKind),
+      returned: row.returned === true, correction: row.correction, correctableUntil: timeOrNull(row.correctableUntil),
+      wrongPatient: wrongPatientReportOf(row),
+      details: row.correction === 'open' || row.correction === 'correctable' ? correctableDetails(row.details) : null }]
+  })
+}
+
+/**
+ * How an order this facility accepted ended, in the late section's words (D17, SPEC-FINAL §9.1; CT10): by its ending, or
+ * for one whose time simply ran out, by whether anything came back.
+ */
+export function lateEndedText(route: Pick<CorrectableOrderRoute, 'effectiveState' | 'endedKind' | 'orderingFacilityName'>,
+  service: ReceivingService): string {
+  const ordering = named(route.orderingFacilityName, 'the ordering facility')
+  switch (route.endedKind) {
+    case 'wrong_patient': return 'ended as accepted for the wrong person'
+    case 'support': return 'closed by Health ID support'
+    case 'order_changed': return `cancelled by ${ordering}`
+    case 'entered_in_error': return route.effectiveState === 'completed'
+      ? `${ordering} has since marked the order entered in error` : `cancelled by ${ordering}`
+    case 'ordering_released': return `${ordering} is no longer on Health ID`
+    case 'receiving_released': return 'this facility was released from Health ID'
+    case null: case undefined: case '':
+      if (route.effectiveState === 'completed') return 'its time for work ended'
+      if (route.effectiveState === 'expired') return service === 'lab' ? 'nothing was released within 30 days'
+        : 'nothing was dispensed within 30 days'
+      return route.effectiveState === 'cancelled' ? 'cancelled' : 'it is still open'
+    default: return 'it has ended'
+  }
+}
+
+/** What a row of the late section says (D17, SPEC-FINAL §9.1): the order, this facility's own facts, and what may be done. */
+export function lateCorrectionRowLines(route: CorrectableOrderRoute, service: ReceivingService): string[] {
+  const ordering = named(route.orderingFacilityName, 'the ordering facility')
+  const details = route.details
+  const accepted = `Accepted ${routeDay(route.acceptedAt)}${details?.acceptedBy ? ` by ${details.acceptedBy}` : ''}`
+    + (details?.acceptedWith ? `, with ${({ health_id: 'their Health ID',
+      date_of_birth_with_reference: 'date of birth and the order’s reference', date_of_birth: 'date of birth only',
+    } as Record<string, string>)[details.acceptedWith] ?? details.acceptedWith.replaceAll('_', ' ')}` : '')
+  const parts = [`${route.kind === 'lab_request' ? 'Lab request' : 'Prescription'} from ${ordering}`,
+    route.reference ? `Ref ${route.reference}` : null, details?.what ?? null, accepted,
+    route.correction === 'open' ? null : lateEndedText(route, service)].filter(Boolean)
+  const lines = [`${parts.join(' · ')}.`]
+  if (details && (route.correction === 'correctable' || route.correction === 'open')) {
+    const back = details.returned
+    const withdrawn = back.filter(item => item.withdrawn).length
+    if (service === 'lab') lines.push(back.length > 0
+      ? `${back.length} result${back.length === 1 ? '' : 's'} went back to ${ordering}, on ${returnedDays(back.map(item => item.at))}`
+        + `${withdrawn > 0 ? `; ${withdrawn} already withdrawn` : ''}.`
+      : `Nothing you recorded went back to ${ordering}.`)
+    else lines.push(back.length > 0
+      ? `A dispensing went back to ${ordering} on ${returnedDays(back.map(item => item.at))}${withdrawn > 0 ? ', already reversed' : ''}.`
+      : 'Nothing was dispensed on it.')
+  }
+  switch (route.correction) {
+    case 'correctable': lines.push(`You can withdraw it until ${routeMoment(route.correctableUntil)}.`); break
+    case 'open': lines.push('This order is still open. If you accepted it for the wrong person, report it here.'); break
+    case 'reported': lines.push(`You reported on ${routeDay(route.wrongPatient?.reportedAt)} that this order was accepted for the `
+      + 'wrong person.'); break
+    case 'too_late': lines.push(tooLateText(route.correctableUntil, ordering)); break
+  }
+  return lines
+}
+
+function tooLateText(until: string | null | undefined, ordering: string): string {
+  return `It is past ${routeMoment(until)}, so it can’t be corrected here. Phone ${ordering}, and tell Health ID support.`
+}
+
+/** What a refused lookup means (D17, SPEC-FINAL §9.1). `missing` says the backend has no such route (404 without a code). */
+export function correctableFindRefusal(error: unknown): { text: string; missing?: boolean } {
+  if (routeMissing(error)) return { missing: true, text: 'Correcting an ended order isn’t available yet. Phone the ordering '
+    + 'facility, and tell Health ID support.' }
+  if (isHidApiError(error) && error.status === 400) return { text: REFERENCE_PROBLEM }
+  if (isHidApiError(error) && error.status === 403) return { text: 'Your role can’t correct orders from other facilities.' }
+  if (paused(error)) return { text: LATE_PAUSED }
+  if (unanswered(error)) return { text: 'Health ID did not answer. Try again.' }
+  return { text: 'The order could not be found. Try again.' }
+}
+
+const LATE_PAUSED = 'Health ID has paused work on orders from other facilities, so this can’t be done now. Try again when it resumes.'
+
+/**
+ * What a refused late withdrawal means (D17, SPEC-FINAL §9.1; CT1, CL12). `stale` says the order moved on (412): find it
+ * again and keep the form open at its new version; `reload` that the row is out of date; `unanswered` that no answer came:
+ * the form stays open with its key, and is not found again.
+ */
+export function lateWrongPatientRefusal(error: unknown, service: ReceivingService, ordering: string,
+  correctableUntil: string | null | undefined): { text: string; reload?: boolean; stale?: boolean; unanswered?: boolean } {
+  if (!isHidApiError(error) && error instanceof Error && error.message) return { text: error.message }
+  if (isCode(error, 'ORDER_ROUTE_CORRECTION_TOO_LATE')) return { reload: true, text: tooLateText(correctableUntil, ordering) }
+  if (isCode(error, 'ORDER_ROUTE_STILL_OPEN')) return { reload: true,
+    text: 'This order is still open. If you accepted it for the wrong person, report it here.' }
+  if (isCode(error, 'ORDER_ROUTE_ALREADY_REPORTED')) return { text: 'This order has already been reported as accepted for the '
+    + 'wrong person. Find it again to see when.' }
+  if (isCode(error, 'ORDER_ROUTE_NOT_ACCEPTED')) return { text: 'This order was never accepted here, so there is nothing to withdraw.' }
+  if (isCode(error, 'ORDER_ROUTE_CORRECTION_LIMIT') || (isHidApiError(error) && error.status === 429)) {
+    const after = isHidApiError(error) ? error.retryAt : null
+    return { text: `You have reached the limit for withdrawing ended orders. ${after ? `You can withdraw more from `
+      + `${routeMoment(after)}.` : 'You can withdraw more later.'} If many orders are affected, phone Health ID support now so `
+      + 'that they can tell the ordering facilities.' }
+  }
+  if (isCode(error, 'ORDER_ROUTE_CORRECTION_PERMISSION_REQUIRED')) return { text: service === 'lab'
+    ? 'Results were recorded on this order, and your role can’t mark results entered in error. Ask a laboratory scientist to withdraw it.'
+    : 'A dispensing was recorded on this order, and your role can’t reverse dispensings. Ask a pharmacist to withdraw it.' }
+  if (isHidApiError(error) && error.status === 412) return { stale: true,
+    text: 'Something was recorded on this order a moment ago. It has been found again: check what will happen and try again.' }
+  if (isCode(error, 'ORDER_ROUTE_CHANGED_CONCURRENTLY')) return { text: 'Someone changed this order at the same moment. Try again.' }
+  if (isCode(error, 'IDEMPOTENCY_KEY_REUSED')) return { reload: true,
+    text: 'This report was already sent with other details. Find the order again and check whether it has been withdrawn.' }
+  if (routeMissing(error)) return { text: `Withdrawing an ended order isn’t available yet. Phone ${ordering}, and tell Health ID support.` }
+  if (isHidApiError(error) && error.status === 404) return { reload: true, text: 'This order was not found here. Find it again.' }
+  if (paused(error)) return { text: LATE_PAUSED }
+  if (isHidApiError(error) && error.status === 403) return { text: 'Your role can’t withdraw orders from other facilities.' }
+  if (isHidApiError(error) && error.status === 400) return { text: 'Check what you entered: choose how and when you found out and '
+    + 'what happened, and describe it for Health ID support in 8 to 500 characters. The date can’t be in the future or before '
+    + 'the order was accepted.' }
+  // No answer: the form stays, keeping its key, so the same request sent again answers what happened: replayed (with the
+  // first report's counts, and what follows) if it had gone through. Finding the order again would close the form on a
+  // withdrawal that went through, and lose what the facility must do next.
+  if (unanswered(error)) return { unanswered: true, text: 'Health ID did not answer, so it may or may not have been withdrawn. '
+    + 'Press “Withdraw it” again: if it was, Health ID says so, and nothing is withdrawn twice.' }
+  return { text: 'It could not be withdrawn. Try again.' }
+}
+
+/**
+ * What the receiving facility is told once it has withdrawn an ended order (D17, SPEC-FINAL §9.1; CT7, CL1, CL9): kept on
+ * screen until closed. `returned` says whether a result or dispensing had gone back to the ordering facility.
+ */
+export function lateCorrectionLines({ service, title, reference, ordering, returned }: {
+  service: ReceivingService; title: string; reference: string | null | undefined; ordering: string; returned: boolean
+}): string[] {
+  const lab = service === 'lab'
+  return [`Withdrawn: ${title}${reference ? `, reference ${reference}` : ''}. The patient is told in the Health ID app.`,
+    returned
+      ? `Phone ${ordering} now: a ${lab ? 'result' : 'dispensing'} had gone back to them, and Health ID does not alert them. Ask `
+        + 'them to correct anything they recorded from it, and to tell the patient.'
+      : `Nothing had gone back to ${ordering}. Phone ${ordering} if the patient still needs the ${lab ? 'test' : 'medicine'}, so `
+        + 'they can send a new order.',
+    lab
+      ? 'Follow your laboratory’s procedure for a misidentified specimen. If a value was critical and you can tell who the '
+        + 'person was, tell them or their clinician.'
+      : 'Follow your pharmacy’s incident procedure. If you can tell who received the medicine, advise them to get medical advice.']
+}

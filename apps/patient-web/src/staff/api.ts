@@ -493,7 +493,15 @@ export interface LabWorkItem {
  * A work list's answer. Novu since P4c also says whether orders between facilities are on (`crossFacilityOrders`) and
  * whether work on accepted ones is (`crossFacilityWork`); an earlier backend sends neither.
  */
-export interface WorkList<T> extends ReceivingAnswer { items: T[]; crossFacilityOrders?: boolean; crossFacilityWork?: boolean }
+export interface WorkList<T> extends ReceivingAnswer {
+  items: T[]; crossFacilityOrders?: boolean; crossFacilityWork?: boolean
+  /**
+   * D17 (hid-system 0090): `true`, for a member holding the kind's receive permission, from a backend that lets this
+   * facility withdraw what it recorded on an order that has ended ("Correct an order that has ended"). An earlier backend
+   * sends no such field.
+   */
+  lateCorrection?: boolean
+}
 
 /**
  * Whether orders of this kind are waiting here (`waiting`: sent here and not yet past their respond-by time, as Incoming
@@ -660,7 +668,22 @@ export interface OrderRouteSummary {
   declineReason: string | null
   acceptLocked: boolean
   resendAllowed: boolean
+  /**
+   * D17 (hid-system 0090; absent from an earlier backend): the receiving facility's report that it accepted the order for
+   * someone who was not the patient, in its window (`late: false`) or after the order had ended (`late: true`), whatever
+   * the route's ending; null when there is none. Read only when its type is right (wrongPatientReportOf).
+   */
+  wrongPatient?: OrderRouteReport | null
+  /**
+   * D17 (absent from an earlier backend): until when the receiving facility may still withdraw what it recorded on the
+   * order (180 days after it accepted it, owner decision D17-2), while it may; null once it can't (reported, or past that
+   * date). Read only when its type is right (correctableUntil).
+   */
+  correctableUntil?: string | null
 }
+
+/** A receiving facility's report that it accepted an order for the wrong person (item 3, and D17's late one). */
+export interface OrderRouteReport { reportedAt: string; late: boolean }
 
 /** Who confirmed that the patient agreed, when, and the receiving facility the attestation named. */
 export interface OrderRouteAttestationRecord {
@@ -818,6 +841,65 @@ export interface OrderRouteWrongPatientEnded {
   replayed: boolean
 }
 
+/** How the receiving facility found out that it accepted an order for the wrong person (D17, CL11). */
+export type OrderRouteDiscoveredBy = 'patient' | 'ordering_facility' | 'own_check' | 'support' | 'other'
+
+/**
+ * The receiving facility's own facts about an order it accepted, shown while it may still act on it (D17-8): the test or
+ * medicine, who here accepted it and how identity was checked, and what went back to the ordering facility and when (Lab:
+ * each result version released; Pharmacy: the dispensing), with whether it has been withdrawn. Never the patient.
+ */
+export interface CorrectableOrderRouteDetails {
+  what: string | null
+  acceptedBy: string | null
+  acceptedWith: 'health_id' | 'date_of_birth_with_reference' | 'date_of_birth' | string | null
+  returned: Array<{ at: string; withdrawn: boolean }>
+}
+
+/**
+ * An order this facility accepted, found by its exact reference (D17, C30: `POST /{service}/order-routes/correctable`):
+ * what may be done about it now (`correction`: `open`, still in item 3's window; `correctable`, ended or lapsed and before
+ * `correctableUntil`; `reported`; `too_late`), how it ended, and, while it is open or correctable, `details`. No patient,
+ * orderer, work item or value.
+ */
+export interface CorrectableOrderRoute {
+  id: string
+  reference: string | null
+  kind: OrderRouteKind
+  version: number
+  effectiveState: string
+  orderingFacilityName: string | null
+  acceptedAt: string | null
+  completedAt: string | null
+  endedAt: string | null
+  endedKind: string | null
+  /** Something went back to the ordering facility (`completedAt` is set), whatever is left of it. */
+  returned: boolean
+  correction: 'open' | 'correctable' | 'reported' | 'too_late' | string
+  correctableUntil: string | null
+  wrongPatient: OrderRouteReport | null
+  details: CorrectableOrderRouteDetails | null
+}
+
+/** The lookup's answer: at most 5 orders, newest acceptance first; `items: []` when none was accepted here. */
+export interface CorrectableOrderRoutes { items: CorrectableOrderRoute[]; lateCorrection?: boolean }
+
+/**
+ * The answer to a late withdrawal (D17, C29): the route as it is now (`cancelled` or `completed`; an order whose time had
+ * only run out now ends `wrong_patient`, one that had ended another way keeps that ending), the ending before
+ * (`endedKindBefore`), and what was withdrawn. A replay (the same key and request) answers the first report's counts.
+ */
+export interface OrderRouteWrongPatientCorrected {
+  route: { id: string; version: number; effectiveState: string; endedKind: string | null }
+  late: boolean
+  endedKindBefore: string | null
+  resultsVoided: number
+  resultReportsMarked: number
+  dispensingReversed: boolean
+  correctableUntil: string | null
+  replayed: boolean
+}
+
 /**
  * One route as the receiving facility reads it (C8, `GET /{service}/order-routes/:routeId`): the Incoming shape, and after
  * acceptance, while the route allows a read, what the sender wrote, the licence number, the patient and the work item.
@@ -845,6 +927,15 @@ export interface SentWrongPatientOrderRoute {
   resultsWithdrawn: number
   dispensingReversed: boolean
   link: { patientId: string; encounterId: string; kind: OrderRouteKind; orderId: string } | null
+  /**
+   * D17 (hid-system 0090; absent from an earlier backend): when the receiving facility reported it, whether it did so
+   * after the order had ended (`late`), and how the order had ended before (`endedKindBefore`, null when it had not).
+   * The list then covers reports of the last 30 days whatever the order's ending; a late report on an order that had ended
+   * another way keeps that ending in `endedAt`.
+   */
+  reportedAt?: string
+  late?: boolean
+  endedKindBefore?: string | null
 }
 
 /**
@@ -856,6 +947,8 @@ export interface SentWrongPatientOrderRoutes {
   windowDays: number
   items: SentWrongPatientOrderRoute[]
   others: { count: number; references: string[] }
+  /** D17: `true` from a backend that serves the late correction (CT3); an earlier one sends no such field. */
+  lateCorrection?: boolean
 }
 
 export interface OcrJob {
@@ -1726,9 +1819,10 @@ export const staffApi = {
     client.request<Encounter>({ method: 'PATCH', path: encounterPath(patientId, encounterId), body: input,
       headers: facilityHeaders(facilityId) }),
   // Novu since P4c a lab request or prescription page also says whether orders between facilities are on; with the
-  // wrong-patient report (item 3, hid-system 0088) it also answers wrongPatientReports: true (an earlier backend, nothing).
+  // wrong-patient report (item 3, hid-system 0088) it also answers wrongPatientReports: true, and with the late correction
+  // (D17, hid-system 0090) lateCorrection: true (an earlier backend, nothing).
   records: (facilityId: string, patientId: string, encounterId: string, kind: RecordKind, page: PageRequest = {}) =>
-    client.get<Page<ClinicalRecord> & { crossFacilityOrders?: boolean; wrongPatientReports?: boolean }>(`${encounterPath(patientId, encounterId)}/${kind}`, { ...pageQuery(page), headers: facilityHeaders(facilityId) }),
+    client.get<Page<ClinicalRecord> & { crossFacilityOrders?: boolean; wrongPatientReports?: boolean; lateCorrection?: boolean }>(`${encounterPath(patientId, encounterId)}/${kind}`, { ...pageQuery(page), headers: facilityHeaders(facilityId) }),
   createRecord: (facilityId: string, patientId: string, encounterId: string, kind: RecordKind, input: object, idempotencyKey?: string) =>
     client.post<SavedRecord>(`${encounterPath(patientId, encounterId)}/${kind}`, input,
       { headers: { ...facilityHeaders(facilityId), ...keyHeaders(idempotencyKey) } }),
@@ -2019,6 +2113,29 @@ export const orderRoutesApi = {
     input: { reason: OrderRouteWrongPatientReason; note: string }, idempotencyKey: string) =>
     client.post<OrderRouteWrongPatientEnded>(`/api/v1/${service}/order-routes/${encodeURIComponent(route.id)}/wrong-patient`,
       { expectedVersion: route.version, reason: input.reason, note: input.note },
+      { headers: { ...facilityHeaders(facilityId, 'direct-care'), ...keyHeaders(idempotencyKey) } }),
+  /**
+   * Finds an order this facility accepted by its exact 8-character reference (D17, C30), to withdraw what it recorded on
+   * it after it has ended. A POST, so the reference (also an acceptance factor) stays out of request lines that gateways
+   * log. Audited: read only when asked. `{ items: [] }` when none was accepted here; a backend without the route answers
+   * 404 (the caller says it is not available yet).
+   */
+  findCorrectable: (facilityId: string, service: ReceivingService, reference: string) =>
+    client.post<CorrectableOrderRoutes>(`/api/v1/${service}/order-routes/correctable`, { reference },
+      { headers: facilityHeaders(facilityId, 'direct-care') }),
+  /**
+   * The receiving laboratory or pharmacy withdraws what it recorded on an order it accepted for someone who was not its
+   * patient, after the order has ended (D17, C29): every result it recorded is marked entered in error, or the dispensing
+   * reversed, in one step. The caller keeps one Idempotency-Key per request (the same request sent again after no answer
+   * is a replay); the note, trimmed, is for Health ID support only.
+   */
+  correctWrongPatient: (facilityId: string, service: ReceivingService, route: { id: string; version: number },
+    input: { reason: OrderRouteWrongPatientReason; discoveredBy: OrderRouteDiscoveredBy; discoveredOn: string; note: string },
+    idempotencyKey: string) =>
+    client.post<OrderRouteWrongPatientCorrected>(
+      `/api/v1/${service}/order-routes/${encodeURIComponent(route.id)}/wrong-patient-correction`,
+      { expectedVersion: route.version, reason: input.reason, discoveredBy: input.discoveredBy, discoveredOn: input.discoveredOn,
+        note: input.note },
       { headers: { ...facilityHeaders(facilityId, 'direct-care'), ...keyHeaders(idempotencyKey) } }),
   /**
    * Orders sent from this facility that the receiver ended as accepted for the wrong person in the last 30 days (item 3,

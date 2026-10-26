@@ -46,6 +46,9 @@ const NOT_ON_MAIN = [
   // Item 3 (hid-system 0088): the wrong-patient report, the ordering facility's Overview read, and support's list and review.
   'lab.orderRouteWrongPatient', 'pharmacy.orderRouteWrongPatient', 'ehr.orderRoutesWrongPatient', 'admin.wrongPatientReports',
   'admin.wrongPatientReportReview',
+  // D17 (hid-system 0090): "Correct an order that has ended", Lab's and Pharmacy's lookup by reference and withdrawal.
+  'lab.orderRouteCorrectable', 'lab.orderRouteWrongPatientCorrection', 'pharmacy.orderRouteCorrectable',
+  'pharmacy.orderRouteWrongPatientCorrection',
 ] as const
 
 describe('routes hid-system main does not serve', () => {

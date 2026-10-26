@@ -55,6 +55,10 @@ export interface ParsedErrorEnvelope {
   readonly fields: Readonly<Record<string, string>> | null
   /** Tries left before a lock (P4c order acceptance); null when the problem has none. */
   readonly attemptsLeft: number | null
+  /** The problem's `retryAfter` member: when a limited command is possible again, an ISO UTC time (D17); else null. */
+  readonly retryAt: string | null
+  /** The actions a refused review lacks, as their codes (D17); null when the problem has none. */
+  readonly required: readonly string[] | null
 }
 
 /**
@@ -88,6 +92,29 @@ function readFields(value: unknown): Readonly<Record<string, string>> | null {
  */
 function readAttemptsLeft(value: unknown): number | null {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 && value <= 100 ? value : null
+}
+
+/**
+ * The problem's `retryAfter` member (hid-system 0090: 429 ORDER_ROUTE_CORRECTION_LIMIT): an ISO-8601 UTC time with
+ * seconds, and optionally milliseconds, that reads as a time, such as `2026-10-27T09:14:03.218Z`. Anything else is not
+ * one, so no other value can reach a page.
+ */
+function readRetryAfter(value: unknown): string | null {
+  return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?Z$/.test(value)
+    && Number.isFinite(Date.parse(value)) ? value : null
+}
+
+/**
+ * The problem's `required` member (hid-system 0090: 400 WRONG_PATIENT_REVIEW_REFERRAL_REQUIRED): action codes, sent as a
+ * comma-separated string (or a list), each lower-case letters and underscores, at most 8 of them. Anything else is not
+ * one, so no other value can reach a page.
+ */
+function readRequired(value: unknown): readonly string[] | null {
+  const parts = typeof value === 'string' ? value.split(',').map(part => part.trim())
+    : Array.isArray(value) ? value : null
+  if (!parts || parts.length === 0 || parts.length > 8) return null
+  if (!parts.every(part => typeof part === 'string' && /^[a-z][a-z_]{0,63}$/.test(part))) return null
+  return Object.freeze([...parts] as string[])
 }
 
 /**
@@ -128,6 +155,8 @@ export function parseErrorEnvelope(
       : record && Object.prototype.hasOwnProperty.call(record, 'details') ? record.details : null,
     fields: readFields(record?.fields),
     attemptsLeft: readAttemptsLeft(record?.attemptsLeft),
+    retryAt: readRetryAfter(record?.retryAfter),
+    required: readRequired(record?.required),
   }
 }
 

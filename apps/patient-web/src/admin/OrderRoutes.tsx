@@ -3,8 +3,9 @@ import { Link } from 'react-router-dom'
 import { adminApi, type AdminActor, type DestinationReview, type FacilityOrderRouteSummary, type FoundOrderRoute } from './api'
 import { failure, isProblem } from './problems'
 import { Page, ResourceView, Table, date, has, useGovernedSubmit, useResource } from './ui'
-import { FacilityWrongPatientCount, LATE_CASE_NOTE } from './WrongPatientReports'
+import { FacilityWrongPatientCount, lateCaseNote } from './WrongPatientReports'
 import { learnWrongPatientServed, useWrongPatientServed } from '../wrongPatientServed'
+import { correctableUntilOf, learnLateCorrectionFrom, useLateCorrectionServed, wrongPatientReportOf } from '../lateCorrectionServed'
 
 /**
  * Support's tools for orders between facilities (Novu, P4c, SPEC-FINAL §8.7 C20-C23, §13.6): a facility's summary and
@@ -64,6 +65,37 @@ export function accessEnded(route: Pick<FoundOrderRoute, 'effectiveState' | 'end
   const accepted = route.acceptedAt ? Date.parse(route.acceptedAt) : Number.NaN
   return Number.isFinite(accepted) && now >= accepted + ACCESS_CAP_MS
 }
+
+/**
+ * What support may tell the receiving facility of an order whose access has ended (D17, CT10; SPEC-FINAL §9.4): that it
+ * can still withdraw what it recorded until the date Find carries, with the reference, if it accepted the order for the
+ * wrong person; or, past it, D17-3's stop-gap, again only if someone says so, and only where something came back
+ * (completed): on an order nothing came back on there is no value for the clinician to note, and nothing to refer. Once
+ * the receiving facility was released from Health ID it can no longer act: the stop-gap, on the same conditions. Null
+ * from an earlier Identity, and for any other state.
+ */
+function correctionAdvice(route: FoundOrderRoute): string | null {
+  const receiving = route.receivingFacilityName?.trim() || 'The receiving facility'
+  // Released from Health ID (D17-3): its memberships ended, so it can no longer withdraw anything, whatever date an
+  // answer carries. Identity says receiver_released; an order the release ended is so whatever else it says.
+  if (route.correction === 'receiver_released' || (route.endedKind === 'receiving_released'
+    && (route.correction === 'correctable' || route.correction === 'too_late'))) {
+    return route.effectiveState === 'completed' ? `${receiving} is no longer on Health ID, so it can no longer withdraw it. If `
+      + `a patient or clinician says it accepted this for the wrong person, ${STOP_GAP}` : null
+  }
+  const until = correctableUntilOf(route)
+  if (typeof until !== 'string') return null
+  if (route.correction === 'correctable') return `${receiving} can still withdraw what it recorded on it, until ${date(until)}: `
+    + `if it accepted this for the wrong person, give it reference ${route.reference}.`
+  if (route.correction === 'too_late' && route.effectiveState === 'completed') return 'If a patient or clinician says '
+    + `${route.receivingFacilityName?.trim() || 'the receiving facility'} accepted this for the wrong person, it can no longer `
+    + `withdraw it (past ${date(until)}): ${STOP_GAP}`
+  return null
+}
+
+/** D17-3's stop-gap, in support's words. */
+const STOP_GAP = 'ask the ordering clinician to record in the patient’s notes that it was not theirs, without repeating its '
+  + 'value, and refer it to the data protection officer the same day.'
 
 /** When the order's access ended or ends, as C21 says (item 4), or null when it said nothing that reads as a time. */
 function accessEndsAt(route: Pick<FoundOrderRoute, 'accessEndsAt'>): string | null {
@@ -355,8 +387,10 @@ export function OrderRoutesPage({ actor }: { actor: AdminActor }) {
     setBusy(true); setError('')
     try {
       const answer = await adminApi.findOrderRoutes(next)
-      // Item 3: an Identity that lets a laboratory or pharmacy end an order accepted for the wrong person says so (D15).
+      // Item 3: an Identity that lets a laboratory or pharmacy end an order accepted for the wrong person says so (D15);
+      // and D17's, that it serves the late correction, or its rows carry their deadline.
       learnWrongPatientServed(answer.wrongPatientReports === true)
+      learnLateCorrectionFrom(answer, answer.items)
       setFound(answer.items); setLookup(next)
     }
     catch (caught) {
@@ -384,11 +418,14 @@ export function OrderRoutesPage({ actor }: { actor: AdminActor }) {
   }
 
   function action(route: FoundOrderRoute) {
-    if (!LIVE.has(route.effectiveState)) return 'Closed'
+    // D17: what the receiving facility can still do about an order whose access has ended.
+    const advice = correctionAdvice(route)
+    const withAdvice = (said: string) => advice ? <>{said}<small>{advice}</small></> : said
+    if (!LIVE.has(route.effectiveState)) return withAdvice('Closed')
     if (accessEnded(route) || ended.has(`${route.routeId}-${route.version}`)) {
       // When access ended: a release may come after it had run out, so C21's time comes first (CC4).
       const when = accessEndsAt(route) ?? route.endedAt
-      return when ? `Access ended ${date(when)}` : 'Access ended'
+      return withAdvice(when ? `Access ended ${date(when)}` : 'Access ended')
     }
     return has(actor, 'platform.facility.manage') ? <CloseForm route={route} onDone={outcome => closeDone(route, outcome)} />
       : 'Closing needs platform.facility.manage'
@@ -429,7 +466,9 @@ export function OrderRoutesPage({ actor }: { actor: AdminActor }) {
           <td><Link to={`/admin/facilities/${encodeURIComponent(route.orderingFacilityId)}`}>{route.orderingFacilityName}</Link></td>
           <td><Link to={`/admin/facilities/${encodeURIComponent(route.receivingFacilityId)}`}>{route.receivingFacilityName}</Link></td>
           <td><span className="admin-status" data-state={route.effectiveState}>{stateWord(route.effectiveState)}</span>{route.acceptedAt ? <small>Accepted {date(route.acceptedAt)}</small> : null}
-            {route.endedAt ? <small>Ended {date(route.endedAt)}{route.endedKind ? ` (${endedWord(route.endedKind)})` : ''}</small> : null}</td>
+            {route.endedAt ? <small>Ended {date(route.endedAt)}{route.endedKind ? ` (${endedWord(route.endedKind)})` : ''}</small> : null}
+            {route.endedKind !== 'wrong_patient' && wrongPatientReportOf(route) ? <small>Reported {date(wrongPatientReportOf(route)!.reportedAt)}:
+              the receiving facility accepted it for the wrong person</small> : null}</td>
           <td>{date(route.createdAt)}</td>
           <td>{action(route)}</td>
         </tr>)}
@@ -440,8 +479,11 @@ export function OrderRoutesPage({ actor }: { actor: AdminActor }) {
 
 function CloseForm({ route, onDone }: { route: FoundOrderRoute; onDone: (outcome: CloseOutcome) => void }) {
   // Support is sent to the laboratory or pharmacy first only where it can end the order (item 3, hid-system 0088): until
-  // then Close is the remedy, and the form must not discourage it (D15).
+  // then Close is the remedy, and the form must not discourage it (D15). Since D17 (hid-system 0090) closing no longer
+  // stops it withdrawing what it recorded, until the order's date.
   const wrongPatientServed = useWrongPatientServed() === true
+  const lateServed = useLateCorrectionServed() === true
+  const until = correctableUntilOf(route)
   const [reason, setReason] = useState('')
   const [confirmed, setConfirmed] = useState(false)
   const governed = useGovernedSubmit()
@@ -475,10 +517,12 @@ function CloseForm({ route, onDone }: { route: FoundOrderRoute; onDone: (outcome
         aria-describedby={`${id}-hint`} />
       <small id={`${id}-hint`} className="admin-note">8 to 500 characters, kept in the audit log. For example: “The patient says they
         never agreed to send it there.”</small>
-      {wrongPatientServed && <p className="admin-note">If a laboratory or pharmacy accepted it for the wrong person, ask them to end it
+      {lateServed ? <p className="admin-note">If a laboratory or pharmacy accepted it for the wrong person, ask them to end it from
+        their work list instead. Closing it does not stop them withdrawing it later{typeof until === 'string' ? `, until ${date(until)}` : ''}.</p>
+        : wrongPatientServed && <p className="admin-note">If a laboratory or pharmacy accepted it for the wrong person, ask them to end it
         from their work list instead: only they can withdraw a result or dispensing they sent back. If you close it first, they
         can’t.</p>}
-      <p className="admin-note">{LATE_CASE_NOTE}</p>
+      <p className="admin-note">{lateCaseNote(lateServed)}</p>
       <label className="admin-checkbox"><input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} /> I
         understand that closing can’t be undone.</label>
       <button type="submit" className="admin-primary" disabled={governed.busy || !ready}>{governed.busy ? 'Closing…' : 'Close order'}</button>

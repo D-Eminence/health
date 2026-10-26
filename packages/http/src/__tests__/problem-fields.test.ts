@@ -100,3 +100,46 @@ describe('problem attemptsLeft', () => {
     expect(new HidApiError(409, 'Conflict').attemptsLeft).toBeNull()
   })
 })
+
+/**
+ * D17 (hid-system 0090): `429 ORDER_ROUTE_CORRECTION_LIMIT` carries `retryAfter`, the ISO UTC time from which another late
+ * withdrawal is possible (kept as `retryAt`: the `Retry-After` header stays the retry loop's), and support's review
+ * refused with `400 WRONG_PATIENT_REVIEW_REFERRAL_REQUIRED` carries `required`, the missing actions, comma-separated.
+ */
+describe('problem retryAfter and required', () => {
+  const LIMIT = { type: 'about:blank', title: 'Too Many Requests', status: 429, detail: 'Limit reached.',
+    code: 'ORDER_ROUTE_CORRECTION_LIMIT', correlationId: 'corr-429', retryAfter: '2026-10-27T09:14:03.218Z' }
+  const REFERRAL = { status: 400, detail: 'Referral required.', code: 'WRONG_PATIENT_REVIEW_REFERRAL_REQUIRED',
+    required: 'referred_to_dpo,ordering_facility_told' }
+
+  it('keeps the time on the error the client throws, beside the header the retry loop reads', async () => {
+    const problem = new Response(JSON.stringify(LIMIT), { status: 429, headers: { 'Content-Type': 'application/problem+json' } })
+    const error = await client(problem).post('/api/v1/lab/order-routes/9c1b2d3e-4f5a-4b6c-8d7e-0f1a2b3c4d5e/wrong-patient-correction', {})
+      .catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(HidApiError)
+    expect(error).toMatchObject({ status: 429, code: 'ORDER_ROUTE_CORRECTION_LIMIT', retryAt: '2026-10-27T09:14:03.218Z' })
+    expect(Object.keys(error as object)).not.toContain('retryAfter')
+  })
+
+  it('keeps the missing actions on the error, as codes', async () => {
+    const problem = new Response(JSON.stringify(REFERRAL), { status: 400, headers: { 'Content-Type': 'application/problem+json' } })
+    const error = await client(problem).post('/api/v1/admin/wrong-patient-reports/x/review', {}).catch((e: unknown) => e)
+    expect((error as HidApiError).required).toEqual(['referred_to_dpo', 'ordering_facility_told'])
+  })
+
+  it('is null when absent, or not a time or codes', () => {
+    expect(parseErrorEnvelope({ code: 'X' }, { status: 429 }).retryAt).toBeNull()
+    expect(parseErrorEnvelope({ retryAfter: '2026-10-27T09:14:03Z' }, { status: 429 }).retryAt).toBe('2026-10-27T09:14:03Z')
+    for (const value of ['2026-10-27', '2026-10-27T09:14:03+01:00', '2026-13-45T99:99:99Z', 'tomorrow', 42, null, ['x']]) {
+      expect(parseErrorEnvelope({ retryAfter: value }, { status: 429 }).retryAt, String(value)).toBeNull()
+    }
+    expect(parseErrorEnvelope({ required: ['referred_to_dpo'] }, { status: 400 }).required).toEqual(['referred_to_dpo'])
+    for (const value of ['', 'Referred to DPO', 'referred_to_dpo,', 'a,b,c,d,e,f,g,h,i', 7, { referred_to_dpo: true }, ['x', 3]]) {
+      expect(parseErrorEnvelope({ required: value }, { status: 400 }).required, JSON.stringify(value)).toBeNull()
+    }
+    const error = new HidApiError(429, 'Limited')
+    expect(error.retryAt).toBeNull()
+    expect(error.required).toBeNull()
+    expect(error.toLogContext()).not.toHaveProperty('required')
+  })
+})

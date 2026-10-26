@@ -515,3 +515,95 @@ describe('orders between facilities in the Novu console', () => {
   })
 })
 
+
+/**
+ * D17 (hid-system 0090; SPEC-FINAL §9.4, CT10): Find's rows say whether the receiving facility may still withdraw what it
+ * recorded, until when, with the reference to give it, or, past that date, D17-3's stop-gap; a report made after the order
+ * had ended shows in its State; and Close no longer says closing stops the facility withdrawing it. All from Identity's
+ * answer: without its fields and `lateCorrection`, every word stays as it was.
+ */
+describe('the late correction in support’s Find (D17)', () => {
+  const LATE_CASE_SERVED = 'If a patient or clinician tells you a result or dispensing went to the wrong person after the order '
+    + 'ended, give the order’s reference to the laboratory or pharmacy itself, on a phone number Health ID holds for it, and tell '
+    + 'it what was reported, not that it is so. It can use “Correct an order that has ended” on its Laboratory or Pharmacy page '
+    + 'until 180 days after it accepted the order; Find shows the date. After that, or if the facility is no longer on Health '
+    + 'ID, ask the ordering clinician to record in the patient’s notes that it was not theirs, without repeating its value, and '
+    + 'refer it to the data protection officer the same day.'
+  async function said(value: string) { const { date } = await import('../ui'); return date(value) }
+  const closed = (fields: Record<string, unknown>) => ({ ...FOUND, effectiveState: 'completed', endedAt: '2026-10-23T09:00:00.000Z',
+    endedKind: 'support', accessEndsAt: '2026-10-23T09:00:00.000Z', closable: false, ...fields })
+
+  it('says the facility can still withdraw it until its date, with the reference, on an order whose access ended', async () => {
+    serve(SUPPORT, { 'GET /api/v1/admin/order-routes': () => json({ items: [closed({ correction: 'correctable',
+      correctableUntil: '2027-04-19T10:00:00.000Z', wrongPatient: null })], wrongPatientReports: true, lateCorrection: true }) })
+    await openAt('/admin/order-routes')
+    const row = await findByReference()
+    expect(within(row).getByText(`Yaba Diagnostics can still withdraw what it recorded on it, until ${await said('2027-04-19T10:00:00.000Z')}: `
+      + 'if it accepted this for the wrong person, give it reference 9C1B2D3E.')).toBeTruthy()
+    expect(within(row).getByText(/^Access ended /)).toBeTruthy()
+  })
+
+  it('says, past its date, the stop-gap only if someone says it was the wrong person, and only where something came back; '
+    + 'and a late report in the State column', async () => {
+    serve(SUPPORT, { 'GET /api/v1/admin/order-routes': () => json({ items: [
+      closed({ correction: 'too_late', correctableUntil: '2026-04-19T10:00:00.000Z', wrongPatient: null }),
+      closed({ routeId: 'aa000000-0000-4000-8000-000000000002', reference: '5E6F7A8B', version: 5, correction: 'reported', correctableUntil: null,
+        wrongPatient: { reportedAt: '2026-11-02T09:00:00.000Z', late: true } }),
+      closed({ routeId: 'aa000000-0000-4000-8000-000000000003', reference: '6F7A8B9C', version: 4, effectiveState: 'cancelled',
+        endedKind: 'order_changed', correction: 'too_late', correctableUntil: '2026-04-19T10:00:00.000Z', wrongPatient: null }),
+    ], lateCorrection: true }) })
+    await openAt('/admin/order-routes')
+    await findByReference()
+    const [tooLate, reported, cancelled] = [...document.querySelectorAll('tbody tr')] as HTMLElement[]
+    expect(within(tooLate!).getByText('If a patient or clinician says Yaba Diagnostics accepted this for the wrong person, it can no '
+      + `longer withdraw it (past ${await said('2026-04-19T10:00:00.000Z')}): ask the ordering clinician to record in the patient’s `
+      + 'notes that it was not theirs, without repeating its value, and refer it to the data protection officer the same day.')).toBeTruthy()
+    expect(within(reported!).getByText(`Reported ${await said('2026-11-02T09:00:00.000Z')}: the receiving facility accepted it for the `
+      + 'wrong person')).toBeTruthy()
+    expect(reported!.textContent).not.toMatch(/can still withdraw|can no longer withdraw/)
+    // Nothing came back on a cancelled order: there is no value to note, and nothing to refer.
+    expect(within(cancelled!).getByText('Closed')).toBeTruthy()
+    expect(cancelled!.textContent).not.toMatch(/withdraw|data protection officer/)
+  })
+
+  it('says, once the receiving facility was released from Health ID, that it can no longer withdraw it, with the stop-gap '
+    + 'where something came back (D17-3)', async () => {
+    serve(SUPPORT, { 'GET /api/v1/admin/order-routes': () => json({ items: [
+      closed({ correction: 'receiver_released', correctableUntil: null, wrongPatient: null }),
+      closed({ routeId: 'aa000000-0000-4000-8000-000000000002', reference: '5E6F7A8B', version: 5, endedKind: 'receiving_released',
+        correction: 'correctable', correctableUntil: '2027-04-19T10:00:00.000Z', wrongPatient: null }),
+      closed({ routeId: 'aa000000-0000-4000-8000-000000000003', reference: '6F7A8B9C', version: 4, effectiveState: 'cancelled',
+        correction: 'receiver_released', correctableUntil: null, wrongPatient: null }),
+    ], lateCorrection: true }) })
+    await openAt('/admin/order-routes')
+    await findByReference()
+    const [released, releasedBefore, cancelled] = [...document.querySelectorAll('tbody tr')] as HTMLElement[]
+    const words = 'Yaba Diagnostics is no longer on Health ID, so it can no longer withdraw it. If a patient or clinician says it '
+      + 'accepted this for the wrong person, ask the ordering clinician to record in the patient’s notes that it was not theirs, '
+      + 'without repeating its value, and refer it to the data protection officer the same day.'
+    expect(within(released!).getByText(words)).toBeTruthy()
+    // An answer that still says correctable, for an order the release ended, gets the same words, never "can still withdraw".
+    expect(within(releasedBefore!).getByText(words)).toBeTruthy()
+    expect(releasedBefore!.textContent).not.toMatch(/can still withdraw/)
+    expect(cancelled!.textContent).not.toMatch(/withdraw|data protection officer/)
+  })
+
+  it('says in Close that closing does not stop the facility withdrawing it later, until its date, with the new case note', async () => {
+    serve(SUPPORT, { 'GET /api/v1/admin/order-routes': () => json({ items: [{ ...FOUND, correction: 'open',
+      correctableUntil: '2027-04-19T10:00:00.000Z', wrongPatient: null }], wrongPatientReports: true, lateCorrection: true }) })
+    await openAt('/admin/order-routes')
+    const row = await findByReference()
+    fireEvent.click(within(row).getByText('Close', { selector: 'summary' }))
+    expect(within(row).getByText('If a laboratory or pharmacy accepted it for the wrong person, ask them to end it from their work '
+      + `list instead. Closing it does not stop them withdrawing it later, until ${await said('2027-04-19T10:00:00.000Z')}.`)).toBeTruthy()
+    expect(within(row).getByText(LATE_CASE_SERVED)).toBeTruthy()
+    expect(within(row).queryByText(/If you close it first, they can’t/)).toBeNull()
+  })
+
+  it('keeps every word as it was against today’s Identity, with item 3’s and item 4’s fields but none of D17’s', async () => {
+    serve(SUPPORT, { 'GET /api/v1/admin/order-routes': () => json({ items: [closed({})], wrongPatientReports: true }) })
+    await openAt('/admin/order-routes')
+    const row = await findByReference()
+    expect(row.textContent).not.toMatch(/withdraw what it recorded|can no longer withdraw|Reported .*wrong person/)
+  })
+})

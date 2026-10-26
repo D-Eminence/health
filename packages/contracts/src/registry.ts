@@ -22,10 +22,13 @@ export type EndpointAuth = { readonly kind: 'public' | 'authenticated' }
  * administrator access, first-30-days limits and staff reads (P4b), and lab
  * requests and prescriptions sent to a laboratory or pharmacy at another
  * facility, with the patient's list of them and support's tools (P4c), which
- * only `staging-novu-ci-20261005` serves; and the wrong-patient report on those
+ * only `staging-novu-ci-20261005` serves; the wrong-patient report on those
  * orders, support's list and review of the reports and the ordering facility's
- * Overview read (item 3, hid-system 0088), which no hid-system release serves
- * yet: callers treat a 404 as "not available yet" and show nothing.
+ * Overview read (item 3, hid-system 0088), which `staging-novu-ci-20261005`
+ * serves since hid-system bd8676e; and the late correction of an order that has
+ * ended (D17, hid-system 0090: the receiving facility's lookup by reference and
+ * its withdrawal), which no hid-system release serves yet: callers treat a 404
+ * as "not available yet" and show nothing.
  */
 export type ContractStatus = 'surface-verified' | 'proposed'
 export interface EndpointDescriptor {
@@ -148,7 +151,10 @@ const ORDER_LISTS_P4C = 'On Novu since P4c the page also answers crossFacilityOr
   + 'are on), and each item orderRoute: its latest route to another facility (OrderRouteSummary) or null; absent when '
   + 'routes could not be read (emergency access). With the wrong-patient report (item 3, hid-system 0088) the lab-request '
   + 'and prescription pages also answer wrongPatientReports: true (the receiving facility can end an order it accepted '
-  + 'for the wrong person; an earlier backend sends no such field).'
+  + 'for the wrong person; an earlier backend sends no such field). With the late correction (D17, hid-system 0090) they '
+  + 'also answer lateCorrection: true, and each orderRoute carries wrongPatient { reportedAt, late } | null and '
+  + 'correctableUntil (a time while the receiving facility may still withdraw what it recorded, else null); an earlier '
+  + 'backend sends none of these.'
 /** The Lab and Pharmacy order-route routes' shared rules (SPEC-FINAL §10.2). */
 const RECEIVE_ROUTE = `${ORDER_ROUTE_STAFF} Accept needs Idempotency-Key and { expectedVersion, patientIdentifier { kind: `
   + "'health_id' | 'date_of_birth', value }, reference? } (Pharmacy also reason, 8 to 500; reference, optional, is the "
@@ -177,15 +183,17 @@ const WORK_LISTS_P4C = 'On Novu since P4c items of orders from other facilities 
   + 'version (the route\'s, a number: the report\'s expectedVersion) and endedKind (null while the route is live; '
   + 'wrong_patient, support, order_changed, entered_in_error, receiving_released or ordering_released); an item ended '
   + 'wrong_patient is listed only under the patient\'s own consent (access none, no patient), and every write on it '
-  + `answers 409 ORDER_ROUTE_CLOSED. ${RECEIVING_FIELDS}`
+  + `answers 409 ORDER_ROUTE_CLOSED. ${RECEIVING_FIELDS} With the late correction (D17, hid-system 0090) the answer also `
+  + 'carries lateCorrection: true for a member holding the receive permission (an earlier backend sends no such field), '
+  + 'and an item whose route was reported, in its window or after it ended, answers every write 409 ORDER_ROUTE_CLOSED.'
 /**
  * The wrong-patient report (item 3, owner decisions D1-D19 of 2026-10-26; hid-system 0088, C25-C28): a laboratory or
  * pharmacy ends an order it accepted for someone who was not the patient, and in the same transaction every result or
  * dispensing it sent back is withdrawn; support reviews each report; the ordering facility's Overview lists such orders
- * for 30 days. No hid-system release serves these yet.
+ * for 30 days. Served by staging-novu-ci-20261005 since hid-system bd8676e (item 3's release).
  */
-const WRONG_PATIENT_NOVU = 'Proposed for staging-novu-ci-20261005 by the wrong-patient report (item 3, hid-system 0088); '
-  + 'not served by hid-system main, nor by staging-novu-ci-20261005 before that release (404).'
+const WRONG_PATIENT_NOVU = 'Served by staging-novu-ci-20261005 since hid-system bd8676e (the wrong-patient report, item 3, '
+  + 'hid-system 0088); not served by hid-system main (404).'
 /** The Lab and Pharmacy command (C25, SPEC-FINAL §5.1). */
 const WRONG_PATIENT_ROUTE = `${WRONG_PATIENT_NOVU} Staff session with X-Facility-ID and X-Purpose-Of-Use: direct-care (any `
   + 'other purpose 403 PERMISSION_DENIED); CSRF; Idempotency-Key required (400 IDEMPOTENCY_KEY_REQUIRED; 16 to 128 '
@@ -206,7 +214,53 @@ const WRONG_PATIENT_ROUTE = `${WRONG_PATIENT_NOVU} Staff session with X-Facility
 /** What the wrong-patient report changes in the EHR's reads of an order's routes (C3, C4). */
 const ORDER_ROUTES_WRONG_PATIENT = 'With the wrong-patient report (item 3, hid-system 0088) a route\'s endedKind may be '
   + 'wrong_patient (cancelled, or completed with endedAt), with resendAllowed false, and each result version withdrawn '
-  + 'comes back as a report of kind entered_in_error beside its released one.'
+  + 'comes back as a report of kind entered_in_error beside its released one. With the late correction (D17, hid-system '
+  + '0090) each route also carries wrongPatient { reportedAt, late } | null (the receiving facility\'s report, in its '
+  + 'window or after the order had ended, whatever the ending: a late one keeps the earlier ending) and correctableUntil '
+  + '(acceptance + 180 days while the receiving facility may still withdraw what it recorded, else null); an earlier '
+  + 'backend sends neither.'
+/**
+ * The late correction (D17, owner decisions D17-1 to D17-13 of 2026-10-26; hid-system 0090, C29 and C30): a laboratory or
+ * pharmacy finds an order it accepted by its exact reference, and withdraws what it recorded on it after the order has
+ * ended, until 180 days after it accepted it. No hid-system release serves these yet.
+ */
+const LATE_CORRECTION_NOVU = 'Proposed for staging-novu-ci-20261005 by the late correction (D17, hid-system 0090); not '
+  + 'served by hid-system main, nor by staging-novu-ci-20261005 before that release (404).'
+/** The lookup (C30, SPEC-FINAL §5.1). */
+const LATE_CORRECTION_LOOKUP = `${LATE_CORRECTION_NOVU} Staff session with X-Facility-ID and X-Purpose-Of-Use: direct-care `
+  + '(any other purpose 403 PERMISSION_DENIED); CSRF; audited (lab.order-route.correctable or pharmacy.order-route.correctable, '
+  + 'with the route ids, never the patient). A POST so the reference, also an acceptance factor, is in no address. Body { reference } (1 to 16; trimmed '
+  + 'and upper-cased, 8 hexadecimal characters). 200 { items [{ id, reference, kind, version, effectiveState, '
+  + 'orderingFacilityName, acceptedAt, completedAt, endedAt, endedKind, returned, correction: open | correctable | reported '
+  + '| receiver_released | too_late, correctableUntil, wrongPatient { reportedAt, late } | null, details { what, acceptedBy, acceptedWith: '
+  + 'health_id | date_of_birth_with_reference | date_of_birth, returned [{ at, withdrawn }] } | null (only while open or '
+  + 'correctable) }], lateCorrection: true }: only orders this facility accepted, at most 5, newest acceptance first; no '
+  + 'patient, orderer, work item or value. items: [] when none was accepted here: never 404 for that. 400 '
+  + 'VALIDATION_FAILED (the body), ORDER_ROUTE_INVALID (not 8 hexadecimal characters); 403 PERMISSION_DENIED; 423 '
+  + 'CROSS_FACILITY_ORDERS_UNAVAILABLE while cross_facility_route_access_enabled is off; 503 ORDER_ROUTE_UNAVAILABLE. '
+  + 'Lab and Pharmacy never answer ORDER_ROUTE_LOOKUP_INVALID (support\'s Find code).'
+/** The late withdrawal (C29, SPEC-FINAL §5.1). */
+const LATE_CORRECTION_ROUTE = `${LATE_CORRECTION_NOVU} Staff session with X-Facility-ID and X-Purpose-Of-Use: direct-care `
+  + '(any other purpose 403 PERMISSION_DENIED); CSRF; Idempotency-Key required (400 IDEMPOTENCY_KEY_REQUIRED; 16 to 128 '
+  + 'characters, a letter or digit first). Body (all required, no other field) { expectedVersion, reason: '
+  + 'wrong_order_chosen | someone_elses_details | suspected_misuse | other, discoveredBy: patient | ordering_facility | '
+  + 'own_check | support | other, discoveredOn (YYYY-MM-DD, the Lagos day the facility found out: not in the future, not '
+  + 'before the acceptance day), note (8 to 500 after trimming; for Health ID support only) }. Any member holding the '
+  + 'receive permission withdraws, after the order has ended or lapsed and until 180 days after acceptance, every result '
+  + 'version it recorded (marked entered in error) or the dispensing (reversed), in one transaction; an order whose time '
+  + 'had only run out ends wrong_patient, one that had ended another way keeps that ending. 200 { route { id, version, '
+  + 'effectiveState, endedKind }, late: true, endedKindBefore, resultsVoided, resultReportsMarked, dispensingReversed, '
+  + 'correctableUntil, replayed } (the same key and request replays). 400 VALIDATION_FAILED (the body: a missing or unknown '
+  + 'field, an unknown reason or discoveredBy, a date not in that form, a note outside 8 to 500 as sent), ORDER_ROUTE_INVALID '
+  + '(a note under 8 once trimmed, discoveredOn not a calendar date, in the future or before the acceptance, or the '
+  + 'command\'s own check); 403 '
+  + 'PERMISSION_DENIED, ORDER_ROUTE_CORRECTION_PERMISSION_REQUIRED (the problem member permission names '
+  + 'lab.result.entered-in-error or pharmacy.dispensing.reverse); 404 ORDER_ROUTE_NOT_FOUND; 409 ORDER_ROUTE_NOT_ACCEPTED, '
+  + 'ORDER_ROUTE_STILL_OPEN (use the wrong-patient report), ORDER_ROUTE_ALREADY_REPORTED, ORDER_ROUTE_CORRECTION_TOO_LATE, '
+  + 'IDEMPOTENCY_KEY_REUSED, ORDER_ROUTE_CHANGED_CONCURRENTLY; 412 VERSION_CONFLICT; 423 '
+  + 'CROSS_FACILITY_ORDERS_UNAVAILABLE; 429 ORDER_ROUTE_CORRECTION_LIMIT (5 per member and 20 per facility in any 24 '
+  + 'hours; the problem member retryAfter is the ISO time from which another is possible); 503 ORDER_ROUTE_UNAVAILABLE. '
+  + 'It can\'t be undone.'
 
 export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   proposed(r('support.chat','support','/api/v1/support/chat',P,true,undefined,CHAT_NOTE)),
@@ -544,7 +598,10 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'encounterId, kind, orderId } }] (at most 50, newest first: only the orders this member sent, whether or not they may '
     + 'still open the patient\'s record), others { count, references } (every such order a colleague sent: its reference only, at '
     + 'most 100, never a patient\'s name) }; the empty answer for a facility with none. 403 PERMISSION_DENIED; 503 '
-    + 'ORDER_ROUTE_UNAVAILABLE.')),
+    + 'ORDER_ROUTE_UNAVAILABLE. With the late correction (D17, hid-system 0090) the list covers reports of the last 30 days '
+    + 'whatever the order\'s ending, items also carry reportedAt, late and endedKindBefore (a late report on an order that '
+    + 'had ended another way keeps that ending in endedAt), and the answer lateCorrection: true; an earlier backend sends '
+    + 'none of these.')),
   // P4c: the patient's orders sent to other facilities, and Stop before acceptance (the patient's only action).
   proposed(r('ehr.myOrderRoutes','ehr','/api/v1/ehr/me/order-routes',G,false,undefined,
     `${ORDER_ROUTES_P4C_NOVU} Patient sessions only. 200 { items: PatientOrderRoute[] }, newest first, at most 100: each with `
@@ -553,7 +610,11 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'enteredInError: when the order was marked entered in error, content holds only its reference, the attestation '
     + 'text and attesting clinician are null and actions is empty. With the wrong-patient report (item 3, hid-system '
     + '0088) endedKind may be wrong_patient: the content stays in full and actions is empty; the patient\'s inbox gets '
-    + 'ORDER_ROUTE_WRONG_PATIENT (metadata routeId, kind, orderingFacilityName, receivingFacilityName).')),
+    + 'ORDER_ROUTE_WRONG_PATIENT (metadata routeId, kind, orderingFacilityName, receivingFacilityName). With the late '
+    + 'correction (D17, hid-system 0090) each item also carries wrongPatient { reportedAt, late } | null and '
+    + 'correctableUntil (a time while the receiving facility may still correct it, else null), and a late report on an '
+    + 'order that had ended another way sends ORDER_ROUTE_WRONG_PATIENT_CORRECTED (the same metadata); an earlier backend '
+    + 'sends neither field.')),
   proposed(r('ehr.myOrderRouteWithdraw','ehr','/api/v1/ehr/me/order-routes/:routeId/withdraw',P,false,undefined,
     `${ORDER_ROUTES_P4C_NOVU} Patient sessions only; Stop. Body { expectedVersion }; 200 { route: PatientOrderRoute }. 404 `
     + 'ORDER_ROUTE_NOT_FOUND, 409 ORDER_ROUTE_NOT_PENDING (accepted or ended), 412 VERSION_CONFLICT.')),
@@ -594,6 +655,11 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   // Item 3: "This isn't the order's patient", ending an order accepted for the wrong person and withdrawing its results.
   proposed(r('lab.orderRouteWrongPatient','lab','/api/v1/lab/order-routes/:routeId/wrong-patient',P,false,
     one('POST','lab.order-route.receive'),WRONG_PATIENT_ROUTE)),
+  // D17: "Correct an order that has ended": find an accepted order by its reference, and withdraw what was recorded on it.
+  proposed(r('lab.orderRouteCorrectable','lab','/api/v1/lab/order-routes/correctable',P,false,
+    one('POST','lab.order-route.receive'),LATE_CORRECTION_LOOKUP)),
+  proposed(r('lab.orderRouteWrongPatientCorrection','lab','/api/v1/lab/order-routes/:routeId/wrong-patient-correction',P,false,
+    one('POST','lab.order-route.receive'),LATE_CORRECTION_ROUTE)),
   r('pharmacy.workItems','pharmacy','/api/v1/pharmacy/work-items',G,false,one('GET','pharmacy.work-item.read'),WORK_LISTS_P4C),
   r('pharmacy.workItem','pharmacy','/api/v1/pharmacy/work-items/:workItemId',G,false,one('GET','pharmacy.work-item.read')),
   r('pharmacy.dispense','pharmacy','/api/v1/pharmacy/work-items/:workItemId/dispensings',P,false,one('POST','pharmacy.dispensing.create')),
@@ -612,6 +678,11 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   // Item 3: the same for a prescription, reversing its dispensing.
   proposed(r('pharmacy.orderRouteWrongPatient','pharmacy','/api/v1/pharmacy/order-routes/:routeId/wrong-patient',P,false,
     one('POST','pharmacy.order-route.receive'),WRONG_PATIENT_ROUTE)),
+  // D17: the same for a prescription, reversing its dispensing.
+  proposed(r('pharmacy.orderRouteCorrectable','pharmacy','/api/v1/pharmacy/order-routes/correctable',P,false,
+    one('POST','pharmacy.order-route.receive'),LATE_CORRECTION_LOOKUP)),
+  proposed(r('pharmacy.orderRouteWrongPatientCorrection','pharmacy','/api/v1/pharmacy/order-routes/:routeId/wrong-patient-correction',P,false,
+    one('POST','pharmacy.order-route.receive'),LATE_CORRECTION_ROUTE)),
 
   { ...r('ocr.jobs','ocr','/api/v1/ocr/jobs',GP,false,{GET:['ocr.job.read'],POST:['ocr.job.write']}),
     requiredQuery: { GET: ['documentId'] } },
@@ -742,7 +813,13 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'the permission check and with no audit row (a Health ID in an address is kept by access logs and browser history): '
     + 'by Health ID, use admin.orderRoutesSearch. With the wrong-patient report (item 3, hid-system 0088) endedKind may '
     + 'be wrong_patient, and the answer also carries wrongPatientReports: true (as does admin.orderRoutesSearch\'s); an '
-    + 'earlier Identity sends no such field.')),
+    + 'earlier Identity sends no such field. With the late correction (D17, hid-system 0090) each row also carries '
+    + 'correction (not_accepted | open | correctable | reported | receiver_released | too_late; receiver_released once the '
+    + 'receiving facility was released from Health ID, so it can no longer act), correctableUntil (the deadline for open, '
+    + 'correctable and too_late, then already past; null for not_accepted, reported and receiver_released) and '
+    + 'wrongPatient { reportedAt, '
+    + 'late } | null, and the answer lateCorrection: true (as does admin.orderRoutesSearch\'s); an earlier Identity sends '
+    + 'none of these.')),
   requiredQuery: { GET: ['reference'] }, forbiddenQuery: { GET: ['healthId'] } },
   proposed(r('admin.orderRoutesSearch','admin','/api/v1/admin/order-routes/search',P,false,one('POST','platform.principal.read'),
     `${ORDER_ROUTES_P4C_NOVU} P4c review: finds orders as admin.orderRoutesFind, with the same permissions, audit row `
@@ -764,7 +841,11 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'flags (something_came_back, reporter_recorded_work, suspected_misuse, other_reason_nothing_recorded), '
     + 'facilityReportsLast30Days, memberReportsLast30Days, review: null | { reviewedAt, reviewedBy, actions, note } }] }: no '
     + 'patient and no order content. 400 WRONG_PATIENT_REPORTS_QUERY_INVALID; 404 ADMIN_FACILITY_NOT_FOUND; 503 '
-    + 'ORDER_ROUTES_ADMIN_UNAVAILABLE.')),
+    + 'ORDER_ROUTES_ADMIN_UNAVAILABLE. With the late correction (D17, hid-system 0090) items also carry late, '
+    + 'endedKindBefore, discoveredBy, discoveredOn, reporterLateReportsLast30Days, orderingSenderActive and requiredActions '
+    + '(referred_to_dpo, ordering_facility_told, or none: what the review requires), stateBefore may be cancelled, flags '
+    + 'may also hold late_correction, patient_prompted and patient_reported_before, and the answer carries '
+    + 'lateCorrection: true; an earlier Identity sends none of these.')),
   requiredQuery: { GET: ['status'] } },
   proposed(r('admin.wrongPatientReportReview','admin','/api/v1/admin/wrong-patient-reports/:reportId/review',P,false,
     one('POST','platform.facility.manage'),
@@ -773,7 +854,12 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'referred_to_dpo, or exactly [no_further_action]), note (8 to 500), removeNote? (the reporter\'s note becomes '
     + '"Removed by Health ID support at review.") }; no Idempotency-Key. 200 { reportId, version, reviewedAt, actions, '
     + 'noteRemoved }. 400 WRONG_PATIENT_REVIEW_INVALID; 404 WRONG_PATIENT_REPORT_NOT_FOUND; 409 VERSION_CONFLICT, '
-    + 'WRONG_PATIENT_REPORT_ALREADY_REVIEWED; 428 IF_MATCH_REQUIRED; 503 ORDER_ROUTES_ADMIN_UNAVAILABLE.')),
+    + 'WRONG_PATIENT_REPORT_ALREADY_REVIEWED; 428 IF_MATCH_REQUIRED; 503 ORDER_ROUTES_ADMIN_UNAVAILABLE. With the late '
+    + 'correction (D17, hid-system 0090, owner decision D17-6): 400 WRONG_PATIENT_REVIEW_REFERRAL_REQUIRED when a late '
+    + 'report\'s requiredActions are not all among the actions (a late report where something had come back, or a '
+    + '"pretending" one, needs referred_to_dpo; one where something had come back, unless the ordering facility was '
+    + 'released, also ordering_facility_told), with the problem member required naming the missing ones, comma-separated, '
+    + 'referred_to_dpo first.')),
   { ...proposed(r('admin.staffInvitationFind','admin','/api/v1/admin/staff-invitations',G,false,one('GET','platform.principal.read'),
     `${STAFF_P4B_NOVU} Query reference (8 hexadecimal characters, any case). 200 { items [{ invitationId, reference, `
     + 'facilityId, facilityName, organizationId, status, roleCode, createdAt, expiresAt }] }, at most 5.')),

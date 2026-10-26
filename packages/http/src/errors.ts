@@ -35,6 +35,10 @@ export interface HidApiErrorOptions {
   readonly fields?: Readonly<Record<string, string>> | null
   /** The problem's `attemptsLeft` member: tries left before a lock (P4c order acceptance). */
   readonly attemptsLeft?: number | null
+  /** The problem's `retryAfter` member: an ISO UTC time from which a limited command is possible again (D17). */
+  readonly retryAt?: string | null
+  /** The problem's `required` member: the actions a refused review lacks (D17, support's review). */
+  readonly required?: readonly string[] | null
   readonly cause?: unknown
 }
 
@@ -59,6 +63,18 @@ export class HidApiError extends Error {
    * a submitted value; null when the problem has none.
    */
   readonly attemptsLeft: number | null
+  /**
+   * The problem's `retryAfter` member: an ISO UTC time from which a limited command is possible again (hid-system 0090,
+   * 429 ORDER_ROUTE_CORRECTION_LIMIT). A time, never a submitted value; null when the problem has none. Not the
+   * `Retry-After` header, which the retry loop reads (retryAfterSeconds), so it is named for what it is: a time.
+   */
+  readonly retryAt: string | null
+  /**
+   * The problem's `required` member: the actions a refused review lacks, as their codes (hid-system 0090, 400
+   * WRONG_PATIENT_REVIEW_REFERRAL_REQUIRED, for example `referred_to_dpo` and `ordering_facility_told`). Codes only; null
+   * when the problem has none.
+   */
+  readonly required: readonly string[] | null
 
   constructor(status: number, message: string, options: HidApiErrorOptions = {}) {
     super(message, options.cause === undefined ? undefined : { cause: options.cause })
@@ -70,6 +86,8 @@ export class HidApiError extends Error {
     this.details = options.details ?? null
     this.fields = options.fields ?? null
     this.attemptsLeft = options.attemptsLeft ?? null
+    this.retryAt = options.retryAt ?? null
+    this.required = options.required ?? null
   }
 
   /** True when the caller should send the user back through authentication. */
