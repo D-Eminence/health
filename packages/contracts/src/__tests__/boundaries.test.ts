@@ -548,7 +548,11 @@ describe('application boundaries', () => {
       for (const word of ['Idempotency-Key', 'expectedVersion', 'wrong_order_chosen', 'someone_elses_details', 'suspected_misuse',
         'resultsVoided', 'resultReportsMarked', 'dispensingReversed', 'replayed', 'ORDER_ROUTE_CORRECTION_PERMISSION_REQUIRED',
         'ORDER_ROUTE_NOT_ACCEPTED', 'ORDER_ROUTE_ALREADY_ENDED', 'ORDER_ROUTE_CHANGED_CONCURRENTLY', 'VERSION_CONFLICT',
-        'CROSS_FACILITY_ORDERS_UNAVAILABLE']) expect(note, `${name}: ${word}`).toContain(word)
+        'CROSS_FACILITY_ORDERS_UNAVAILABLE', 'VALIDATION_FAILED', 'ORDER_ROUTE_INVALID', 'IDEMPOTENCY_KEY_REQUIRED',
+        'problem member permission']) expect(note, `${name}: ${word}`).toContain(word)
+      // The services answer a body refused by validation as VALIDATION_FAILED (as accept and decline), and put the
+      // missing permission in a top-level problem member, not under `extensions` (item 3 integration).
+      expect(note, name).not.toContain('extensions.permission')
     }
     for (const name of ['lab.workItems', 'pharmacy.workItems']) {
       expect(findEndpoint(name)?.note, name).toContain('version')
