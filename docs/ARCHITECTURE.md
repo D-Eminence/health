@@ -503,6 +503,47 @@ support's Close form keep their earlier words, so nobody is sent to a
 laboratory or pharmacy that cannot end the order, nor away from the
 clinician's change or support's Close; and the console stops listing the
 reports page once a read answers 404.
+D17, the late correction (hid-system 0090, owner decisions D17-1 to D17-13,
+built website first and dormant until that release), lets the laboratory or
+pharmacy withdraw what it recorded on an order it accepted for the wrong
+person after the order has ended, until the date each answer carries
+(`correctableUntil`, 180 days after acceptance; no other screen writes the
+number, only support's rule of thumb). "Correct an order that has ended" sits,
+collapsed, right after the Laboratory and Pharmacy work lists' toolbar, for a
+member holding the receive permission (`staff/routes/LateWrongPatient.tsx`):
+it finds an order by its exact reference only when Find is pressed
+(`POST /{lab|pharmacy}/order-routes/correctable`, the reference in the body;
+`items: []` when none was accepted here), shows that facility's own facts
+about it and never the patient, opens item 3's own form for an order still
+open after reading it (`GET …/order-routes/:routeId`, which names the
+patient), and withdraws an ended one with a form of its own
+(`POST …/:routeId/wrong-patient-correction`: how and when the facility found
+out, item 3's reasons, a note for support and an attestation that it checked
+its own records; one `Idempotency-Key` per identical request; on 412 it finds
+the order again and keeps the form open). The limit refusal says from when
+more are possible, from the problem's `retryAfter` member (`HidApiError.retryAt`).
+The ordering clinician reads item 3's red warning, the values hidden, for a
+report made after the order had ended another way (`wrongPatient.late`),
+with how long after it came back and that what they recorded from it still
+shows until they amend it; an order something came back on says whom to
+phone with the reference and until when, or, past that date, to record it in
+the notes without the value; the change warning names the date instead of
+asking for the order to be ended first; the Overview card says when each late
+report came. The patient reads the late report after the ending's words, the
+sentences that name no content on an order also marked entered in error, the
+"haven't been" line with the reference and the date, and the new inbox title.
+Support's list flags late reports, says how the order had ended and how and
+when the facility found out, and requires what Identity says a late report
+requires (`requiredActions`; `400 WRONG_PATIENT_REVIEW_REFERRAL_REQUIRED`
+names what is missing in the problem's `required` member); Find says until
+when the facility can still withdraw it, or the stop-gap past that date, and
+Close no longer says closing stops it. Every new field is optional and read
+only when its type is right. The website learns that D17 is served from the
+backend's answers (`lateCorrectionServed.ts`): `lateCorrection: true` on the
+work lists, the EHR's order lists, the Overview read, support's Find or its
+reports list, a `correctableUntil` key on any route, or any answer from the
+new lookup; until then every screen keeps its earlier words. It is switched
+off only by rolling the four services back together.
 A staff sign-in on a product host lands on the Overview, not the host's own
 page, when the working facility cannot use that page (`staff/navigation.ts`).
 The platform console refuses the platform enrolment of an
