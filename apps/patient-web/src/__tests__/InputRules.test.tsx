@@ -62,6 +62,20 @@ describe('reasons and contacts', () => {
     expect(described(screen.getByRole('textbox', { name: 'Reason for revocation' }))).toContain('At least 3 characters.')
   })
 
+  // Revoking a grant leaves the Access PIN valid (hid-system, as main), so a facility that knows it can use it again.
+  it('says a revoked facility can use a known Access PIN again, and where to change it; a denial does not', async () => {
+    renderPortal(<AccessPage />, path => path === '/identity/me/access-requests'
+      ? json([{ accessRequestId: '70000000-0000-4000-8000-000000000001', facilityId: 'facility-1', facilityName: 'Lagos General', scope: 'read_records',
+        reason: 'Follow-up', status: 'pending', requestedDurationMinutes: 60, requestedAt: '2026-10-08T10:00:00Z', approvedAt: null, deniedAt: null, deniedReason: null }])
+      : json({ items: [{ consentGrantId: '60000000-0000-4000-8000-000000000001', scope: 'read_records', purpose: 'direct-care', status: 'active',
+        startsAt: '2026-10-08T10:00:00Z', expiresAt: '2026-10-08T11:00:00Z', reason: 'Follow-up', facilityName: 'Ikeja Clinic', breakGlass: false, patientRevocable: true }] }))
+    fireEvent.click(await screen.findByRole('button', { name: /^Revoke access/ }))
+    expect(described(screen.getByRole('textbox', { name: 'Reason for revocation' }))).toBe('At least 3 characters. If this facility has your '
+      + 'Access PIN, it can use it to get access again. To stop that, change or remove your PIN in Settings.')
+    fireEvent.click(screen.getByRole('button', { name: /^Deny/ }))
+    expect(described(screen.getByRole('textbox', { name: 'Reason for denial' }))).toBe('At least 3 characters.')
+  })
+
   it('says a contact name needs at least 2 characters, and that five contacts is the limit', async () => {
     const contact = (index: number): EmergencyContact => ({
       contactId: `a0000000-0000-4000-8000-00000000000${index}`, name: `Contact ${index}`, relationship: 'sibling', channel: 'sms',
