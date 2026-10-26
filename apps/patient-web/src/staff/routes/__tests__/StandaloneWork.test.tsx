@@ -3,6 +3,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Laboratory, Pharmacy } from '../Operations'
 import { BETWEEN_FACILITIES } from '../../betweenFacilities'
+import { forgetReceiving } from '../../orderRoutes'
 
 /**
  * A laboratory or pharmacy that signed itself up (Novu, P4b) says where its work comes from, in one message per case
@@ -10,15 +11,16 @@ import { BETWEEN_FACILITIES } from '../../betweenFacilities'
  * (crossFacilityOrders). Off, or not said, it gets no orders from other facilities; on, they arrive under Incoming.
  */
 const api = vi.hoisted(() => ({ labWorkItems: vi.fn(), pharmacyWorkItems: vi.fn() }))
+const incoming = vi.hoisted(() => ({ incoming: vi.fn() }))
 const working = vi.hoisted(() => ({ facility: null as Record<string, unknown> | null }))
-vi.mock('../../api', () => ({ staffApi: api }))
+vi.mock('../../api', () => ({ staffApi: api, orderRoutesApi: incoming }))
 vi.mock('../../App', () => ({
   useStaff: () => ({ state: { status: 'ready', session: { actor: { facility: working.facility } } } }),
 }))
 
 const PERMISSIONS = ['lab.work-item.read', 'pharmacy.work-item.read']
-function at(type: string | null, review = 'reviewed') {
-  working.facility = { id: 'facility-1', membershipId: 'member-1', name: 'Yaba Diagnostics', roles: [], permissions: PERMISSIONS,
+function at(type: string | null, review = 'reviewed', permissions = PERMISSIONS) {
+  working.facility = { id: 'facility-1', membershipId: 'member-1', name: 'Yaba Diagnostics', roles: [], permissions,
     ...(type ? { selfService: { review, organizationType: type } } : {}) }
 }
 
@@ -27,8 +29,10 @@ beforeEach(() => {
   vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
   api.labWorkItems.mockResolvedValue({ items: [] })
   api.pharmacyWorkItems.mockResolvedValue({ items: [] })
+  incoming.incoming.mockResolvedValue({ items: [], crossFacilityOrders: true, crossFacilityWork: true })
+  forgetReceiving()
 })
-afterEach(() => { vi.unstubAllEnvs() })
+afterEach(() => { vi.unstubAllEnvs(); forgetReceiving() })
 
 const LAB_NOTE = 'Lab work arrives here from tests ordered at Yaba Diagnostics: a receptionist opens the patient’s visit, and a '
   + 'laboratory scientist orders the test. Health ID is not sending test orders from other hospitals or clinics at the moment.'
@@ -101,5 +105,59 @@ describe('where a stand-alone laboratory’s or pharmacy’s work comes from', (
       expect(await screen.findByRole('heading', { name: 'Pharmacy' })).toBeTruthy()
       expect(screen.queryByText(/not sending|does not yet send/)).toBeNull()
     }
+  })
+})
+
+/**
+ * Item 4 (hid-system 0089, owner decision D2): the work list says to a member holding the receive permission whether
+ * clinicians at other facilities can send orders here now (`receives`). With it the note says so plainly, and when they
+ * can't, says so without a reason and whom to ask; without it, the hedge above.
+ */
+describe('where a stand-alone laboratory’s or pharmacy’s work comes from, by whether it receives (item 4)', () => {
+  const LAB_RECEIVES = 'Lab work arrives from tests ordered at Yaba Diagnostics, and from Health ID clinicians at other '
+    + 'facilities: accept those under Incoming, with the patient in front of you.'
+  const LAB_NOT_NOW = 'Health ID clinicians at other facilities can’t send Yaba Diagnostics lab requests at the moment. If you '
+    + 'expect them, ask Health ID support.'
+  const PHARMACY_RECEIVES = 'Prescriptions that Health ID clinicians at other facilities send Yaba Diagnostics appear under '
+    + 'Incoming. Accept one when the patient is at your counter: it then moves to the list below for dispensing.'
+  const PHARMACY_NOT_NOW = 'Health ID clinicians at other facilities can’t send Yaba Diagnostics prescriptions at the moment. '
+    + 'If you expect them, ask Health ID support.'
+  const routes = { items: [], crossFacilityOrders: true, crossFacilityWork: true }
+
+  it('says each case in one message, kept in betweenFacilities.ts', () => {
+    expect(BETWEEN_FACILITIES.laboratory.workspace('Yaba Diagnostics', true, true)).toBe(LAB_RECEIVES)
+    expect(BETWEEN_FACILITIES.laboratory.workspace('Yaba Diagnostics', true, false)).toBe(LAB_NOT_NOW)
+    expect(BETWEEN_FACILITIES.laboratory.workspace('Yaba Diagnostics', true, undefined)).toBe(LAB_NOTE_ON)
+    expect(BETWEEN_FACILITIES.pharmacy.workspace('Yaba Diagnostics', true, true)).toBe(PHARMACY_RECEIVES)
+    expect(BETWEEN_FACILITIES.pharmacy.workspace('Yaba Diagnostics', true, false)).toBe(PHARMACY_NOT_NOW)
+    expect(BETWEEN_FACILITIES.pharmacy.workspace('Yaba Diagnostics', true, undefined)).toBe(PHARMACY_NOTE_ON)
+    // With orders between facilities off, that is what is said, whatever the facility's listing.
+    for (const receives of [true, false, undefined]) {
+      expect(BETWEEN_FACILITIES.laboratory.workspace('Yaba Diagnostics', false, receives)).toBe(LAB_NOTE)
+      expect(BETWEEN_FACILITIES.pharmacy.workspace('Yaba Diagnostics', false, receives)).toBe(PHARMACY_NOTE)
+    }
+    // No reason is given (D2): never the listing, the check or the product.
+    for (const text of [LAB_NOT_NOW, PHARMACY_NOT_NOW]) expect(text).not.toMatch(/listed|Other|suspended|checked|because/)
+  })
+
+  it('says a laboratory can’t be sent lab requests now, where its work list says so to a laboratory scientist', async () => {
+    at('laboratory', 'reviewed', [...PERMISSIONS, 'lab.order-route.receive'])
+    api.labWorkItems.mockResolvedValue({ ...routes, receives: false })
+    render(<MemoryRouter><Laboratory /></MemoryRouter>)
+    expect(await screen.findByText(LAB_NOT_NOW)).toBeTruthy()
+  })
+
+  it('says a pharmacy receives prescriptions, where its work list says so to a pharmacist', async () => {
+    at('pharmacy', 'reviewed', [...PERMISSIONS, 'pharmacy.order-route.receive'])
+    api.pharmacyWorkItems.mockResolvedValue({ ...routes, receives: true })
+    render(<MemoryRouter><Pharmacy /></MemoryRouter>)
+    expect(await screen.findByText(PHARMACY_RECEIVES)).toBeTruthy()
+  })
+
+  it('keeps the hedge for a member without the receive permission, whatever the answer carries (D1)', async () => {
+    at('laboratory')
+    api.labWorkItems.mockResolvedValue({ ...routes, receives: false })
+    render(<MemoryRouter><Laboratory /></MemoryRouter>)
+    expect(await screen.findByText(LAB_NOTE_ON)).toBeTruthy()
   })
 })

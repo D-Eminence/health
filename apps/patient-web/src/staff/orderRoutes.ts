@@ -1,7 +1,7 @@
 import { isHidApiError } from '@hid/http'
 import type {
   Facility, OrderRouteDeclineReason, OrderRouteKind, OrderRoutePatient, OrderRouteSummary, OrderRouteWithdrawReason,
-  OrderRouteWrongPatientReason, ReceivingService, WorkItemOrderRoute,
+  OrderRouteWrongPatientReason, ReceivingAnswer, ReceivingService, WorkItemOrderRoute,
 } from './api'
 import { usesNovuBackend } from '../backendContract'
 import { selfServiceReview, selfServiceType } from './staffAccess'
@@ -265,25 +265,91 @@ export function sendRefusal(error: unknown, kind: OrderRouteKind, facility: stri
   return { text: 'The order could not be sent. Try again.' }
 }
 
+/** Whether this member, at this facility, holds the permission to receive this service's orders (Novu, P4c). */
+export function holdsReceivePermission(facility: Pick<Facility, 'permissions'> | undefined | null, service: ReceivingService): boolean {
+  return Boolean(facility) && usesNovuBackend()
+    && facility!.permissions.includes(service === 'lab' ? 'lab.order-route.receive' : 'pharmacy.order-route.receive')
+}
+
 /**
- * Whether the working facility receives this kind of order from other facilities, as far as the session can tell
- * (Novu, P4c). The receive permission comes with the lab and pharmacist roles at every facility, but only a laboratory
- * (lab requests) or a pharmacy (prescriptions) can be found and sent orders (owner decision Q4;
- * identity.order_route_destination_eligible): a hospital's or clinic's own laboratory or pharmacy is not a receiver. No
- * answer says whether this facility receives, so the session's facility type decides what the portal says:
- * - 'no': no receive permission, a main-v1 build, or a facility that signed itself up as anything but this kind;
- * - 'yes': a laboratory (pharmacy) that signed itself up and that Health ID support has checked;
- * - 'unknown': a governed or legacy facility, whose type the session does not carry. The pages then claim nothing
- *   about other facilities until there is work from one to show (see IncomingOrders' `probe`).
- * Copy only: Lab and Pharmacy decide every request.
+ * Whether the working facility receives this kind of order from other facilities (Novu, P4c). The receive permission
+ * comes with the lab and pharmacist roles at every facility, but only a laboratory (lab requests) or a pharmacy
+ * (prescriptions) can be found and sent orders (owner decision Q4; identity.order_route_destination_eligible): a
+ * hospital's or clinic's own laboratory or pharmacy is not a receiver.
+ * - 'no' first, whatever else is known: no receive permission, or a main-v1 build. `receives` describes the facility
+ *   (any active member holding the permission), never the viewer, so it is read only after this check;
+ * - then the backend's `receives` when it sent one (Novu since item 4, hid-system 0089): 'yes' or 'no';
+ * - otherwise the session's facility type: 'yes' for a laboratory (pharmacy) that signed itself up and that Health ID
+ *   support has checked, 'no' for one that signed itself up as anything else, and 'unknown' for a governed or legacy
+ *   facility, whose type the session does not carry. The pages then claim nothing about other facilities until there is
+ *   work from one to show (see IncomingOrders' `probe`).
+ * Called without `receives`, it is the session's own opinion. Copy only: Lab and Pharmacy decide every request.
  */
 export function receivingHere(facility: Pick<Facility, 'permissions' | 'selfService'> | undefined | null,
-  service: ReceivingService): 'yes' | 'no' | 'unknown' {
-  if (!facility || !usesNovuBackend()) return 'no'
-  if (!facility.permissions.includes(service === 'lab' ? 'lab.order-route.receive' : 'pharmacy.order-route.receive')) return 'no'
-  const type = selfServiceType(facility)
+  service: ReceivingService, receives?: boolean): 'yes' | 'no' | 'unknown' {
+  if (!holdsReceivePermission(facility, service)) return 'no'
+  if (typeof receives === 'boolean') return receives ? 'yes' : 'no'
+  const type = selfServiceType(facility!)
   if (type === null) return 'unknown'
-  return type === (service === 'lab' ? 'laboratory' : 'pharmacy') && selfServiceReview(facility) === 'reviewed' ? 'yes' : 'no'
+  return type === (service === 'lab' ? 'laboratory' : 'pharmacy') && selfServiceReview(facility!) === 'reviewed' ? 'yes' : 'no'
+}
+
+/**
+ * What a Lab or Pharmacy work list, or Incoming, said about the working facility (item 4, hid-system 0089), each field
+ * only when its type is right: `receives` a boolean, `routesHere` an object of two booleans. A field that is missing or of
+ * another type is left out, never made up. `null` when neither was said (an earlier backend, a member without the receive
+ * permission, a failed read).
+ */
+export function receivingAnswer(answer: unknown): ReceivingAnswer | null {
+  if (!answer || typeof answer !== 'object') return null
+  const { receives, routesHere } = answer as { receives?: unknown; routesHere?: unknown }
+  const here = routesHere && typeof routesHere === 'object' && !Array.isArray(routesHere)
+    ? routesHere as { waiting?: unknown; held?: unknown } : null
+  const known: ReceivingAnswer = {
+    ...(typeof receives === 'boolean' ? { receives } : {}),
+    ...(here && typeof here.waiting === 'boolean' && typeof here.held === 'boolean'
+      ? { routesHere: { waiting: here.waiting, held: here.held } } : {}),
+  }
+  return known.receives === undefined && known.routesHere === undefined ? null : known
+}
+
+/** How long the website remembers what an answer said about the working facility (owner decision D3). */
+export const RECEIVING_MEMORY_MS = 10 * 60 * 1000
+
+/**
+ * The last thing a work list, Incoming or the Overview's read said about the working facility, per membership, facility
+ * and service, for 10 minutes (owner decision D3): it lets the Overview skip an audited Incoming read at a facility that
+ * does not receive, and keeps a page's rule when a later read fails or answers without it. Keyed by the membership, so
+ * another sign-in in the tab never reuses it; held in memory only, for the page's life.
+ */
+const receivingMemory = new Map<string, { known: ReceivingAnswer; at: number }>()
+
+function receivingKey(facility: Pick<Facility, 'id' | 'membershipId'>, service: ReceivingService): string {
+  return `${facility.membershipId}:${facility.id}:${service}`
+}
+
+/** Remembers what an answer said, replacing what was remembered; an answer that said neither field changes nothing. */
+export function rememberReceiving(facility: Pick<Facility, 'id' | 'membershipId'> | undefined | null, service: ReceivingService,
+  answer: unknown, now = Date.now()): void {
+  const known = receivingAnswer(answer)
+  if (!facility || !known) return
+  receivingMemory.set(receivingKey(facility, service), { known, at: now })
+}
+
+/** What was remembered for this membership, facility and service in the last 10 minutes, if anything. */
+export function rememberedReceiving(facility: Pick<Facility, 'id' | 'membershipId'> | undefined | null, service: ReceivingService,
+  now = Date.now()): ReceivingAnswer | null {
+  if (!facility) return null
+  const key = receivingKey(facility, service)
+  const entry = receivingMemory.get(key)
+  if (!entry) return null
+  if (now - entry.at >= RECEIVING_MEMORY_MS || now < entry.at) { receivingMemory.delete(key); return null }
+  return entry.known
+}
+
+/** For tests: forget everything remembered, as a new page would. */
+export function forgetReceiving(): void {
+  receivingMemory.clear()
 }
 
 /** What a refused withdrawal means. */

@@ -7,7 +7,7 @@ import {
 } from '../api'
 import {
   acceptedCheckText, acceptRefusal, calendarDate, CONTROLLED_MEDICINE_CHECK, DECLINE_REASONS, declineRefusal, incomingProblem,
-  licenceLine, priorityLabel, routeMoment,
+  licenceLine, priorityLabel, receivingAnswer, rememberReceiving, routeMoment,
 } from '../orderRoutes'
 import { BUSY, UNAVAILABLE } from '../focus'
 import { WrongPatientEnded, WrongPatientForm, type WrongPatientEnding } from './WrongPatient'
@@ -62,15 +62,18 @@ export function patientCard(patient: { fullName: string; sex: string | null; dat
  * (404) shows nothing.
  *
  * Each read is audited (lab.order-route.list / pharmacy.order-route.list). With `probe` (a governed facility, whose
- * type the session does not say: it may be a hospital, which never receives), the list is read once, when the page
- * opens, and nothing is shown or read again unless an order is waiting: then `onFound` says so, and the page treats the
- * facility as receiving. A Health ID typed to find a patient's orders goes in the body of the search's POST, never in an
+ * type the session does not say: it may be a hospital, which never receives; or a facility that can't accept orders now,
+ * shown only while some sent before still wait), the list is read once, when the page opens, and nothing is shown or read
+ * again unless an order is waiting: then `onFound` says so, and the page treats the facility as receiving unless the
+ * backend said it does not. Where Incoming says this facility does not receive now (`receives: false`, Novu since item 4,
+ * hid-system 0089), Accept is hidden and Decline kept; what it says is remembered for the page (rememberReceiving, keyed
+ * by `membershipId`). A Health ID typed to find a patient's orders goes in the body of the search's POST, never in an
  * address, and is sent only when Find or Refresh is pressed, or an order is acted on: never by the timer or on focus,
  * since each read is audited. `onEnded` names an order the Accepted panel ended as accepted for the wrong person, so the
  * page drops anything of it that it still shows (item 3: the receiver stops seeing the patient's details at once).
  */
-export function IncomingOrders({ service, facilityId, facilityName, onAccepted, onEnded, probe = false, onFound }: {
-  service: ReceivingService; facilityId: string; facilityName: string; onAccepted: () => void
+export function IncomingOrders({ service, facilityId, facilityName, membershipId, onAccepted, onEnded, probe = false, onFound }: {
+  service: ReceivingService; facilityId: string; facilityName: string; membershipId?: string; onAccepted: () => void
   onEnded?: (routeId: string) => void; probe?: boolean; onFound?: () => void
 }) {
   const [answer, setAnswer] = useState<IncomingOrderRoutes | null>(null)
@@ -93,8 +96,10 @@ export function IncomingOrders({ service, facilityId, facilityName, onAccepted, 
     try {
       const read = await orderRoutesApi.incoming(facilityId, service, forHealthId || undefined)
       if (request !== sequence.current) return
+      // What it says of this facility (item 4) is the facility's, whoever's orders were asked for.
+      if (membershipId) rememberReceiving({ id: facilityId, membershipId }, service, read)
       setAnswer({ items: Array.isArray(read?.items) ? read.items : [], crossFacilityOrders: read?.crossFacilityOrders === true,
-        crossFacilityWork: read?.crossFacilityWork !== false })
+        crossFacilityWork: read?.crossFacilityWork !== false, ...receivingAnswer(read) })
       setError(''); setMissing(false)
     } catch (caught) {
       if (request !== sequence.current) return
@@ -102,7 +107,7 @@ export function IncomingOrders({ service, facilityId, facilityName, onAccepted, 
       if (problem === null) setMissing(true)
       else setError(problem)
     } finally { if (request === sequence.current) setLoading(false) }
-  }, [facilityId, service])
+  }, [facilityId, service, membershipId])
 
   // Read when the page opens, and once for each Health ID asked for.
   useEffect(() => {
@@ -118,7 +123,9 @@ export function IncomingOrders({ service, facilityId, facilityName, onAccepted, 
     return () => { window.clearInterval(timer); window.removeEventListener('focus', again) }
   }, [load, filter, probe])
   const waiting = Boolean(answer && answer.items.length > 0)
-  useEffect(() => { if (probe && waiting) onFound?.() }, [probe, waiting, onFound])
+  // Once a probe has shown orders, it stays in view, so declining the last one still says so.
+  const [shown, setShown] = useState(false)
+  useEffect(() => { if (probe && waiting) { setShown(true); onFound?.() } }, [probe, waiting, onFound])
 
   function find(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -128,9 +135,11 @@ export function IncomingOrders({ service, facilityId, facilityName, onAccepted, 
     setFilterError(''); setNotice(''); setFilter(value)
   }
 
-  if (missing || (probe && !waiting)) return null
+  if (missing || (probe && !waiting && !shown)) return null
   const items = answer?.items ?? []
   const ordersOn = answer?.crossFacilityOrders !== false
+  // Item 4: Health ID says this facility can't be sent these orders now, so it can't accept them either (C9 would refuse).
+  const unlisted = answer?.receives === false
   const word = service === 'lab' ? 'lab requests' : 'prescriptions'
   return <section className="staff-section staff-incoming" aria-labelledby={`${service}-incoming-title`}><Card className="staff-card staff-stack">
     <div className="staff-row"><h2 id={`${service}-incoming-title`} tabIndex={-1}>Incoming{answer ? ` (${items.length})` : ''}</h2>
@@ -140,6 +149,8 @@ export function IncomingOrders({ service, facilityId, facilityName, onAccepted, 
       sent to {facilityName}. Accept one when the patient is with you: you need their Health ID or date of birth.</p>
     {answer && !ordersOn && <p className="staff-notice">Health ID has paused orders between facilities. You can’t accept orders now;
       you can still decline them.</p>}
+    {answer && ordersOn && unlisted && items.length > 0 && <p className="staff-notice">{facilityName} can’t receive orders from
+      other facilities at the moment, so these can’t be accepted here; you can still decline them.</p>}
     <form className="staff-form staff-incoming-find" onSubmit={find} role="search" aria-label={`Find incoming ${word} by Health ID`}>
       <Field label="Find by Health ID" htmlFor={`${service}-incoming-hid`} error={filterError || undefined}
         hint="Ask for the patient’s Health ID to find their order.">
@@ -161,7 +172,7 @@ export function IncomingOrders({ service, facilityId, facilityName, onAccepted, 
     {answer && items.length === 0 && <p className="staff-muted">{filter ? `No order for ${filter} is waiting here.`
       : `No ${word} from other facilities are waiting.`}</p>}
     {items.length > 0 && <div className="staff-list">{items.map(route => <IncomingOrderCard key={`${route.id}-${route.version ?? 0}`}
-      service={service} facilityId={facilityId} facilityName={facilityName} route={route} ordersOn={ordersOn}
+      service={service} facilityId={facilityId} facilityName={facilityName} route={route} acceptable={ordersOn && !unlisted}
       onAccepted={(result, acceptedWith) => {
         setAccepted({ title: orderTitle(route, service), reference: route.reference,
           ordering: route.orderingFacilityName ?? 'The ordering facility', acceptedWith, result })
@@ -236,8 +247,8 @@ function AcceptedPanel({ service, facilityId, title, reference, ordering, accept
 
 type Identifier = 'health_id' | 'date_of_birth'
 
-function IncomingOrderCard({ service, facilityId, facilityName, route, ordersOn, onAccepted, onDeclined, onStale }: {
-  service: ReceivingService; facilityId: string; facilityName: string; route: IncomingOrderRoute; ordersOn: boolean
+function IncomingOrderCard({ service, facilityId, facilityName, route, acceptable, onAccepted, onDeclined, onStale }: {
+  service: ReceivingService; facilityId: string; facilityName: string; route: IncomingOrderRoute; acceptable: boolean
   onAccepted: (result: OrderRouteAccepted, acceptedWith: AcceptedWith) => void; onDeclined: () => void; onStale: () => void
 }) {
   const [mode, setMode] = useState<'none' | 'accept' | 'decline'>('none')
@@ -329,7 +340,7 @@ function IncomingOrderCard({ service, facilityId, facilityName, route, ordersOn,
     {route.acceptLocked && <p className="staff-notice staff-danger">Too many wrong tries: this order can’t be accepted here. {ordering} can send it again.</p>}
     {!route.acceptLocked && route.attemptsLeft !== null && route.attemptsLeft < 5 && <p className="staff-muted">{route.attemptsLeft} {route.attemptsLeft === 1 ? 'try' : 'tries'} left to confirm the patient.</p>}
     {mode === 'none' && <div className="staff-row">
-      {ordersOn && !route.acceptLocked && <Button id={`${id}-accept-open`} size="sm" onClick={() => { setMode('accept'); setError('') }}>Accept</Button>}
+      {acceptable && !route.acceptLocked && <Button id={`${id}-accept-open`} size="sm" onClick={() => { setMode('accept'); setError('') }}>Accept</Button>}
       <Button id={`${id}-decline-open`} tone="secondary" size="sm" onClick={() => { setMode('decline'); setError('') }}>Decline</Button>
     </div>}
     {mode === 'accept' && <form className="staff-form" onSubmit={event => void accept(event)} aria-label={`Accept ${title}`}>

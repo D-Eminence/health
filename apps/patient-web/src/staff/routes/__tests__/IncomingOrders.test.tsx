@@ -1,10 +1,11 @@
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import { Laboratory, Pharmacy } from '../Operations'
 import { INCOMING_REFRESH_MS } from '../IncomingOrders'
 import { forgetWrongPatientServed, learnWrongPatientServed } from '../../../wrongPatientServed'
+import { forgetReceiving, rememberedReceiving, RECEIVING_MEMORY_MS } from '../../orderRoutes'
 
 /**
  * Orders other facilities sent here, waiting to be accepted (Novu, P4c, SPEC-FINAL §4.1, §13.3): a preview without the
@@ -51,6 +52,7 @@ beforeEach(() => {
   api.pharmacyWorkItems.mockResolvedValue({ items: [], crossFacilityOrders: true, crossFacilityWork: true })
   routes.incoming.mockResolvedValue({ items: [incomingLab()], crossFacilityOrders: true, crossFacilityWork: true })
   forgetWrongPatientServed()
+  forgetReceiving()
 })
 afterEach(() => { vi.unstubAllEnvs(); vi.useRealTimers() })
 
@@ -622,3 +624,211 @@ describe('the Accepted panel: this isn’t the order’s patient', () => {
   })
 })
 
+
+/**
+ * Item 4 (hid-system 0089): the work list says whether this facility receives orders from other facilities now
+ * (`receives`), and whether orders sent before still wait here (`routesHere.waiting`, owner decision D4), to a member
+ * holding the receive permission. The page then reads Incoming only where there is something to accept or decline: never
+ * at a governed hospital, at once and every 2 minutes at a facility that receives, and once, with Decline but no Accept,
+ * where orders sent before still wait at a facility that can't accept them now. Without the fields, today's rule runs.
+ */
+describe('what the work list says of this facility (item 4)', () => {
+  const NOT_HERE = 'Yaba Diagnostics can’t receive orders from other facilities at the moment, so these can’t be accepted '
+    + 'here; you can still decline them.'
+  const HOLDS = /^Tests ordered at this facility, and lab requests from other facilities once you accept them/
+  const OWN = 'Accepted EHR test orders at this facility. A separate accession records the specimen chain of custody.'
+  const list = (fields: Record<string, unknown>, items: unknown[] = []) =>
+    ({ items, crossFacilityOrders: true, crossFacilityWork: true, ...fields })
+  beforeEach(() => { working.selfService = undefined })
+  afterEach(() => { forgetReceiving() })
+
+  async function opened() {
+    render(<MemoryRouter><Laboratory /></MemoryRouter>)
+    await waitFor(() => expect(api.labWorkItems).toHaveBeenCalled())
+    await screen.findByRole('button', { name: 'Refresh work' })
+    // Let the work list's answer, and anything it starts, settle.
+    await act(async () => { await Promise.resolve() })
+  }
+
+  it.each([
+    ['receives: false alone', { receives: false }],
+    ['receives: false with nothing waiting or held', { receives: false, routesHere: { waiting: false, held: false } }],
+  ])('at a governed facility whose work list says %s, reads nothing from Incoming and claims nothing', async (_case, fields) => {
+    api.labWorkItems.mockResolvedValue(list(fields))
+    await opened()
+    expect(routes.incoming).not.toHaveBeenCalled()
+    expect(screen.queryByRole('heading', { name: /^Incoming/ })).toBeNull()
+    expect(screen.getByText(OWN)).toBeTruthy()
+    expect(document.body.textContent).not.toMatch(/other facilities/)
+  })
+
+  it('at a governed facility whose work list says receives: true, reads Incoming at once, every 2 minutes and on focus', async () => {
+    const every = vi.spyOn(window, 'setInterval')
+    api.labWorkItems.mockResolvedValue(list({ receives: true, routesHere: { waiting: false, held: false } }))
+    routes.incoming.mockResolvedValue({ items: [], receives: true, crossFacilityOrders: true, crossFacilityWork: true })
+    render(<MemoryRouter><Laboratory /></MemoryRouter>)
+    // Shown although nothing waits: this facility receives, so it is not a probe.
+    expect(await screen.findByRole('heading', { name: 'Incoming (0)' })).toBeTruthy()
+    expect(screen.getByText(HOLDS)).toBeTruthy()
+    expect(screen.getByText('No lab requests from other facilities are waiting.')).toBeTruthy()
+    expect(every).toHaveBeenCalledWith(expect.any(Function), INCOMING_REFRESH_MS)
+    act(() => { window.dispatchEvent(new Event('focus')) })
+    await waitFor(() => expect(routes.incoming).toHaveBeenCalledTimes(2))
+    every.mockRestore()
+  })
+
+  it('at a governed facility, reads nothing from Incoming before the work list answers, then probes as today without the field', async () => {
+    let answer: (value: unknown) => void = () => {}
+    api.labWorkItems.mockReturnValue(new Promise(resolve => { answer = resolve }))
+    render(<MemoryRouter><Laboratory /></MemoryRouter>)
+    await waitFor(() => expect(api.labWorkItems).toHaveBeenCalled())
+    await act(async () => { await Promise.resolve() })
+    expect(routes.incoming).not.toHaveBeenCalled()
+    // An earlier backend: no field, so today's probe: one read, shown because an order waits.
+    await act(async () => { answer(list({})) })
+    expect(await screen.findByRole('heading', { name: 'Incoming (1)' })).toBeTruthy()
+    expect(routes.incoming).toHaveBeenCalledTimes(1)
+  })
+
+  it('at a laboratory the session calls checked, reads Incoming at once, in parallel with the work list, as today', async () => {
+    working.selfService = { review: 'reviewed', organizationType: 'laboratory' }
+    api.labWorkItems.mockReturnValue(new Promise(() => {}))
+    render(<MemoryRouter><Laboratory /></MemoryRouter>)
+    await waitFor(() => expect(routes.incoming).toHaveBeenCalledTimes(1))
+  })
+
+  it('keeps what Incoming says of this facility: no Accept where it can’t receive now, Decline kept, and remembered', async () => {
+    working.selfService = { review: 'reviewed', organizationType: 'laboratory' }
+    routes.incoming.mockResolvedValue({ items: [incomingLab()], receives: false, routesHere: { waiting: true, held: false },
+      crossFacilityOrders: true, crossFacilityWork: true })
+    const incoming = await openLaboratory()
+    expect(within(incoming).getByText(NOT_HERE)).toBeTruthy()
+    expect(within(incoming).queryByRole('button', { name: 'Accept' })).toBeNull()
+    expect(within(incoming).getByRole('button', { name: 'Decline' })).toBeTruthy()
+    expect(rememberedReceiving({ id: 'facility-1', membershipId: 'member-1' }, 'lab'))
+      .toEqual({ receives: false, routesHere: { waiting: true, held: false } })
+    expect(rememberedReceiving({ id: 'facility-1', membershipId: 'member-2' }, 'lab')).toBeNull()
+  })
+
+  it('offers Accept and says nothing more where Incoming says this facility receives', async () => {
+    routes.incoming.mockResolvedValue({ items: [incomingLab()], receives: true, crossFacilityOrders: true, crossFacilityWork: true })
+    working.selfService = { review: 'reviewed', organizationType: 'laboratory' }
+    const incoming = await openLaboratory()
+    expect(within(incoming).getByRole('button', { name: 'Accept' })).toBeTruthy()
+    expect(within(incoming).queryByText(NOT_HERE)).toBeNull()
+  })
+
+  it('at a checked laboratory that can’t receive now, with an order sent before: one read, Decline but no Accept, no timer (CC2)', async () => {
+    working.selfService = { review: 'reviewed', organizationType: 'laboratory' }
+    const every = vi.spyOn(window, 'setInterval')
+    const stop = vi.spyOn(window, 'clearInterval')
+    api.labWorkItems.mockResolvedValue(list({ receives: false }))
+    routes.incoming.mockResolvedValue({ items: [incomingLab()], receives: false, crossFacilityOrders: true, crossFacilityWork: true })
+    const incoming = await openLaboratory()
+    expect(within(incoming).getByText(NOT_HERE)).toBeTruthy()
+    expect(within(incoming).queryByRole('button', { name: 'Accept' })).toBeNull()
+    fireEvent.click(within(incoming).getByRole('button', { name: 'Decline' }))
+    expect(within(incoming).getByLabelText('Why can’t you take it?')).toBeTruthy()
+    // The session's 'yes' read it at once, as today; once the work list said otherwise, its timer stopped.
+    const timers = every.mock.calls.flatMap((call, index) => call[1] === INCOMING_REFRESH_MS ? [every.mock.results[index]!.value] : [])
+    for (const timer of timers) expect(stop).toHaveBeenCalledWith(timer)
+    act(() => { window.dispatchEvent(new Event('focus')) })
+    expect(routes.incoming).toHaveBeenCalledTimes(1)
+    // The header still says it holds work from other facilities (CC1).
+    expect(screen.getByText(HOLDS)).toBeTruthy()
+    every.mockRestore(); stop.mockRestore()
+  })
+
+  it('at a checked laboratory that can’t receive now, with nothing waiting: nothing shown (CC2)', async () => {
+    working.selfService = { review: 'reviewed', organizationType: 'laboratory' }
+    api.labWorkItems.mockResolvedValue(list({ receives: false }))
+    routes.incoming.mockResolvedValue({ items: [], receives: false, crossFacilityOrders: true, crossFacilityWork: true })
+    await opened()
+    await waitFor(() => expect(routes.incoming).toHaveBeenCalledTimes(1))
+    expect(screen.queryByRole('heading', { name: /^Incoming/ })).toBeNull()
+  })
+
+  it('where nothing waits (routesHere), shows no Incoming at a laboratory the session calls checked, and reads it no more', async () => {
+    working.selfService = { review: 'reviewed', organizationType: 'laboratory' }
+    api.labWorkItems.mockResolvedValue(list({ receives: false, routesHere: { waiting: false, held: true } }))
+    routes.incoming.mockResolvedValue({ items: [], receives: false, routesHere: { waiting: false, held: true },
+      crossFacilityOrders: true, crossFacilityWork: true })
+    await opened()
+    // At most the one read the session's 'yes' starts with the work list, as today.
+    expect(routes.incoming.mock.calls.length).toBeLessThanOrEqual(1)
+    expect(screen.queryByRole('heading', { name: /^Incoming/ })).toBeNull()
+    act(() => { window.dispatchEvent(new Event('focus')) })
+    expect(routes.incoming.mock.calls.length).toBeLessThanOrEqual(1)
+    expect(screen.getByText(HOLDS)).toBeTruthy()
+    cleanup()
+    // Opened again within 10 minutes, the remembered answer reads nothing at all.
+    routes.incoming.mockClear()
+    await opened()
+    expect(routes.incoming).not.toHaveBeenCalled()
+  })
+
+  it('at a governed facility support unlisted, shows the orders sent before and lets them be declined (D4)', async () => {
+    const every = vi.spyOn(window, 'setInterval')
+    api.labWorkItems.mockResolvedValue(list({ receives: false, routesHere: { waiting: true, held: false } }))
+    routes.incoming.mockResolvedValue({ items: [incomingLab()], receives: false, routesHere: { waiting: true, held: false },
+      crossFacilityOrders: true, crossFacilityWork: true })
+    const incoming = await openLaboratory()
+    expect(within(incoming).getByText(NOT_HERE)).toBeTruthy()
+    expect(within(incoming).queryByRole('button', { name: 'Accept' })).toBeNull()
+    routes.decline.mockResolvedValue({ route: { id: ROUTE, version: 2, effectiveState: 'declined' } })
+    routes.incoming.mockResolvedValue({ items: [], receives: false, routesHere: { waiting: false, held: false },
+      crossFacilityOrders: true, crossFacilityWork: true })
+    fireEvent.click(within(incoming).getByRole('button', { name: 'Decline' }))
+    fireEvent.change(within(incoming).getByLabelText('Why can’t you take it?'), { target: { value: 'test_not_offered' } })
+    fireEvent.click(within(incoming).getAllByRole('button', { name: 'Decline' }).at(-1)!)
+    // The last one declined: Incoming stays to say so, and was never read by the timer.
+    expect(await within(incoming).findByText('Declined. General Hospital is told.')).toBeTruthy()
+    expect(routes.decline).toHaveBeenCalledWith('facility-1', 'lab', { id: ROUTE, version: 1 }, 'test_not_offered')
+    expect(screen.getByRole('heading', { name: 'Incoming (0)' })).toBeTruthy()
+    expect(every).not.toHaveBeenCalledWith(expect.any(Function), INCOMING_REFRESH_MS)
+    expect(routes.incoming).toHaveBeenCalledTimes(2)
+    every.mockRestore()
+  })
+
+  it('keeps the last answer when a later read says nothing of it, and when the page opens again within 10 minutes (CC8)', async () => {
+    api.labWorkItems.mockResolvedValue(list({ receives: false }))
+    await opened()
+    expect(routes.incoming).not.toHaveBeenCalled()
+    // A refresh without the field (a pinned-back Lab, or a failed read of it): still nothing read.
+    api.labWorkItems.mockResolvedValue(list({}))
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh work' }))
+    await waitFor(() => expect(api.labWorkItems).toHaveBeenCalledTimes(2))
+    await act(async () => { await Promise.resolve() })
+    expect(routes.incoming).not.toHaveBeenCalled()
+    cleanup()
+    // The page opens again and its work list can't be read: the remembered answer still holds.
+    api.labWorkItems.mockRejectedValue(new HidApiError(503, 'Unavailable', { code: 'UPSTREAM_UNAVAILABLE' }))
+    await opened()
+    expect(routes.incoming).not.toHaveBeenCalled()
+    cleanup()
+    // Ten minutes after it was said, it is forgotten: today's probe runs again once the work list has answered.
+    const later = Date.now() + RECEIVING_MEMORY_MS
+    vi.spyOn(Date, 'now').mockReturnValue(later)
+    await opened()
+    await waitFor(() => expect(routes.incoming).toHaveBeenCalledTimes(1))
+  })
+
+  it('reads receives only for a member who holds the receive permission (D1)', async () => {
+    working.permissions = ['lab.work-item.read']
+    api.labWorkItems.mockResolvedValue(list({ receives: true, routesHere: { waiting: true, held: true } }))
+    await opened()
+    expect(routes.incoming).not.toHaveBeenCalled()
+    expect(screen.getByText(OWN)).toBeTruthy()
+    expect(rememberedReceiving({ id: 'facility-1', membershipId: 'member-1' }, 'lab')).toBeNull()
+  })
+
+  it('at a pharmacy, reads Incoming at once where its work list says it receives', async () => {
+    working.permissions = PHARMACIST
+    api.pharmacyWorkItems.mockResolvedValue(list({ receives: true }))
+    routes.incoming.mockResolvedValue({ items: [], receives: true, crossFacilityOrders: true, crossFacilityWork: true })
+    render(<MemoryRouter><Pharmacy /></MemoryRouter>)
+    expect(await screen.findByRole('heading', { name: 'Incoming (0)' })).toBeTruthy()
+    expect(screen.getByText(/^Prescriptions accepted here, from this facility and from other facilities/)).toBeTruthy()
+    expect(routes.incoming).toHaveBeenCalledWith('facility-1', 'pharmacy', undefined)
+  })
+})
