@@ -520,14 +520,19 @@ patient), and withdraws an ended one with a form of its own
 (`POST …/:routeId/wrong-patient-correction`: how and when the facility found
 out, item 3's reasons, a note for support and an attestation that it checked
 its own records; one `Idempotency-Key` per identical request; on 412 it finds
-the order again and keeps the form open). The limit refusal says from when
+the order again and keeps the form open; with no answer it keeps the form and
+its key, so the same request answers `replayed` if it went through; a refusal
+whose new lookup closes the form is said again in the order's row, with focus
+there). The limit refusal says from when
 more are possible, from the problem's `retryAfter` member (`HidApiError.retryAt`).
 The ordering clinician reads item 3's red warning, the values hidden, for a
 report made after the order had ended another way (`wrongPatient.late`),
 with how long after it came back and that what they recorded from it still
 shows until they amend it; an order something came back on says whom to
-phone with the reference and until when, or, past that date, to record it in
-the notes without the value; the change warning names the date instead of
+phone with the reference and until when (the day and time), or, past that
+time or once the laboratory or pharmacy was released from Health ID
+(`receivingDeadlineOf`), to record it in the notes without the value; the
+change warning names the date instead of
 asking for the order to be ended first; the Overview card says when each late
 report came. The patient reads the late report after the ending's words, the
 sentences that name no content on an order also marked entered in error, the
@@ -536,8 +541,10 @@ Support's list flags late reports, says how the order had ended and how and
 when the facility found out, and requires what Identity says a late report
 requires (`requiredActions`; `400 WRONG_PATIENT_REVIEW_REFERRAL_REQUIRED`
 names what is missing in the problem's `required` member); Find says until
-when the facility can still withdraw it, or the stop-gap past that date, and
-Close no longer says closing stops it. Every new field is optional and read
+when the facility can still withdraw it, or, past that date or once it was
+released (`correction: receiver_released`), the stop-gap if someone reports
+the wrong person, only where something came back, and Close no longer says
+closing stops it. Every new field is optional and read
 only when its type is right. The website learns that D17 is served from the
 backend's answers (`lateCorrectionServed.ts`): `lateCorrection: true` on the
 work lists, the EHR's order lists, the Overview read, support's Find or its
