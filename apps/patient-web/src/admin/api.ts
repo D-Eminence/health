@@ -193,7 +193,11 @@ export interface OrderDestinationSet { facilityId: string; listed: boolean; setA
  * `wrongPatientReports: true`: a laboratory or pharmacy can then end an order it accepted for the wrong person, and the
  * Close form asks support to have it ended there first. An earlier Identity sends no such field (D15).
  */
-export interface FoundOrderRoutes { items: FoundOrderRoute[]; wrongPatientReports?: boolean }
+export interface FoundOrderRoutes {
+  items: FoundOrderRoute[]; wrongPatientReports?: boolean
+  /** D17 (hid-system 0090): `true` from an Identity whose services serve the late correction; an earlier one sends none. */
+  lateCorrection?: boolean
+}
 
 export interface FoundOrderRoute extends Versioned {
   routeId: string; reference: string; kind: 'lab_request' | 'prescription' | string; effectiveState: string
@@ -206,6 +210,14 @@ export interface FoundOrderRoute extends Versioned {
    */
   accessEndsAt?: string | null
   closable?: boolean
+  /**
+   * D17 (hid-system 0090; absent from an earlier Identity): what the receiving facility may still do about it
+   * (`not_accepted`, `open`: in its window; `correctable`: ended or lapsed, before `correctableUntil`; `reported`;
+   * `too_late`), until when (already past for `too_late`; null for `not_accepted` and `reported`), and its report, if any.
+   */
+  correction?: 'not_accepted' | 'open' | 'correctable' | 'reported' | 'too_late' | string
+  correctableUntil?: string | null
+  wrongPatient?: { reportedAt: string; late: boolean } | null
 }
 /** `POST /admin/order-routes/:routeId/close`. */
 export interface OrderRouteClosed extends Versioned { routeId: string; effectiveState: string }
@@ -230,7 +242,21 @@ export interface WrongPatientReport extends Versioned {
   recordedBy: NamedAccount[]; reporterRecordedWork: boolean; flags: string[]
   facilityReportsLast30Days: number; memberReportsLast30Days: number
   review: null | { reviewedAt: string; reviewedBy: NamedAccount; actions: string[]; note: string }
+  /**
+   * D17 (hid-system 0090; absent from an earlier Identity): whether it was reported after the order had ended (`late`),
+   * how the order had ended before (`endedKindBefore`, null when its time had only run out), how and when the reporting
+   * facility found out, the reporter's late reports in 30 days, whether the clinician who sent the order is still active
+   * at the ordering facility, and what the review requires (`requiredActions`: `referred_to_dpo` and
+   * `ordering_facility_told`, in that order, or none). `flags` may then also hold `late_correction`, `patient_prompted`
+   * and `patient_reported_before`; `stateBefore` may be `cancelled`.
+   */
+  late?: boolean; endedKindBefore?: string | null
+  discoveredBy?: 'patient' | 'ordering_facility' | 'own_check' | 'support' | 'other' | string | null
+  discoveredOn?: string | null; reporterLateReportsLast30Days?: number; orderingSenderActive?: boolean
+  requiredActions?: string[]
 }
+/** Support's list of wrong-patient reports (C26); `lateCorrection: true` from an Identity that serves D17 (CT3). */
+export interface WrongPatientReports { items: WrongPatientReport[]; lateCorrection?: boolean }
 /** What support records at review (C27): one or more actions, or exactly `no_further_action`. */
 export type WrongPatientReviewAction = 'ordering_facility_told' | 'facility_contacted' | 'staff_access_changed'
   | 'facility_suspended' | 'referred_to_dpo' | 'no_further_action'
@@ -867,7 +893,7 @@ export const adminApi = {
    * WRONG_PATIENT_REPORTS_UNAVAILABLE.
    */
   wrongPatientReports(status: 'unreviewed' | 'recent', facilityId?: string, signal?: AbortSignal) {
-    return wrongPatientRead(request<{ items: WrongPatientReport[] }>('/api/v1/admin/wrong-patient-reports',
+    return wrongPatientRead(request<WrongPatientReports>('/api/v1/admin/wrong-patient-reports',
       { signal, query: { status, ...(facilityId ? { facilityId } : {}) } }),
     'Wrong-patient reports are not available from this Identity yet.')
   },
