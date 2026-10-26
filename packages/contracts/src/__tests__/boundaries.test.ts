@@ -622,6 +622,11 @@ describe('application boundaries', () => {
         'ORDER_ROUTE_STILL_OPEN', 'ORDER_ROUTE_ALREADY_REPORTED', 'ORDER_ROUTE_CORRECTION_TOO_LATE', 'IDEMPOTENCY_KEY_REUSED',
         'ORDER_ROUTE_CHANGED_CONCURRENTLY', 'VERSION_CONFLICT', 'ORDER_ROUTE_CORRECTION_LIMIT', 'problem member retryAfter',
         'IDEMPOTENCY_KEY_REQUIRED']) expect(note, `${name}: ${word}`).toContain(word)
+      // As the services answer (the D17 integration's runtime answers): a body without discoveredBy is VALIDATION_FAILED,
+      // and a discoveredOn in the right form that is no calendar date (2026-02-30) is ORDER_ROUTE_INVALID.
+      expect(note, name).toContain('VALIDATION_FAILED (the body: a missing or unknown field')
+      expect(note, name).toContain('ORDER_ROUTE_INVALID (a note under 8 once trimmed, discoveredOn not a calendar date, in the '
+        + 'future or before the acceptance')
     }
     // What D17 adds to the reads the website already makes, each optional ("an earlier backend sends ...").
     for (const name of ['lab.workItems', 'pharmacy.workItems', 'ehr.labRequests', 'ehr.prescriptions',
