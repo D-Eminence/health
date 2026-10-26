@@ -543,21 +543,27 @@ describe('the late correction in support’s Find (D17)', () => {
     expect(within(row).getByText(/^Access ended /)).toBeTruthy()
   })
 
-  it('says, past its date, the stop-gap; and a late report in the State column', async () => {
+  it('says, past its date, the stop-gap only if someone says it was the wrong person, and only where something came back; '
+    + 'and a late report in the State column', async () => {
     serve(SUPPORT, { 'GET /api/v1/admin/order-routes': () => json({ items: [
       closed({ correction: 'too_late', correctableUntil: '2026-04-19T10:00:00.000Z', wrongPatient: null }),
       closed({ routeId: 'aa000000-0000-4000-8000-000000000002', reference: '5E6F7A8B', version: 5, correction: 'reported', correctableUntil: null,
         wrongPatient: { reportedAt: '2026-11-02T09:00:00.000Z', late: true } }),
+      closed({ routeId: 'aa000000-0000-4000-8000-000000000003', reference: '6F7A8B9C', version: 4, effectiveState: 'cancelled',
+        endedKind: 'order_changed', correction: 'too_late', correctableUntil: '2026-04-19T10:00:00.000Z', wrongPatient: null }),
     ], lateCorrection: true }) })
     await openAt('/admin/order-routes')
     await findByReference()
-    const [tooLate, reported] = [...document.querySelectorAll('tbody tr')] as HTMLElement[]
-    expect(within(tooLate!).getByText(`Yaba Diagnostics can no longer withdraw it (past ${await said('2026-04-19T10:00:00.000Z')}): ask `
-      + 'the ordering clinician to record in the patient’s notes that it was not theirs, without repeating its value, and refer it '
-      + 'to the data protection officer the same day.')).toBeTruthy()
+    const [tooLate, reported, cancelled] = [...document.querySelectorAll('tbody tr')] as HTMLElement[]
+    expect(within(tooLate!).getByText('If a patient or clinician says Yaba Diagnostics accepted this for the wrong person, it can no '
+      + `longer withdraw it (past ${await said('2026-04-19T10:00:00.000Z')}): ask the ordering clinician to record in the patient’s `
+      + 'notes that it was not theirs, without repeating its value, and refer it to the data protection officer the same day.')).toBeTruthy()
     expect(within(reported!).getByText(`Reported ${await said('2026-11-02T09:00:00.000Z')}: the receiving facility accepted it for the `
       + 'wrong person')).toBeTruthy()
     expect(reported!.textContent).not.toMatch(/can still withdraw|can no longer withdraw/)
+    // Nothing came back on a cancelled order: there is no value to note, and nothing to refer.
+    expect(within(cancelled!).getByText('Closed')).toBeTruthy()
+    expect(cancelled!.textContent).not.toMatch(/withdraw|data protection officer/)
   })
 
   it('says in Close that closing does not stop the facility withdrawing it later, until its date, with the new case note', async () => {

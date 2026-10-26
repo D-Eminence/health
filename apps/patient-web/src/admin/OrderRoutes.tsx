@@ -68,8 +68,10 @@ export function accessEnded(route: Pick<FoundOrderRoute, 'effectiveState' | 'end
 
 /**
  * What support may tell the receiving facility of an order whose access has ended (D17, CT10; SPEC-FINAL §9.4): that it
- * can still withdraw what it recorded until the date Find carries, with the reference; or, past it, D17-3's stop-gap.
- * Null from an earlier Identity, and for any other state.
+ * can still withdraw what it recorded until the date Find carries, with the reference, if it accepted the order for the
+ * wrong person; or, past it, D17-3's stop-gap, again only if someone says so, and only where something came back
+ * (completed): on an order nothing came back on there is no value for the clinician to note, and nothing to refer. Null
+ * from an earlier Identity, and for any other state.
  */
 function correctionAdvice(route: FoundOrderRoute): string | null {
   const until = correctableUntilOf(route)
@@ -77,11 +79,15 @@ function correctionAdvice(route: FoundOrderRoute): string | null {
   const receiving = route.receivingFacilityName?.trim() || 'The receiving facility'
   if (route.correction === 'correctable') return `${receiving} can still withdraw what it recorded on it, until ${date(until)}: `
     + `if it accepted this for the wrong person, give it reference ${route.reference}.`
-  if (route.correction === 'too_late') return `${receiving} can no longer withdraw it (past ${date(until)}): ask the ordering `
-    + 'clinician to record in the patient’s notes that it was not theirs, without repeating its value, and refer it to the '
-    + 'data protection officer the same day.'
+  if (route.correction === 'too_late' && route.effectiveState === 'completed') return 'If a patient or clinician says '
+    + `${route.receivingFacilityName?.trim() || 'the receiving facility'} accepted this for the wrong person, it can no longer `
+    + `withdraw it (past ${date(until)}): ${STOP_GAP}`
   return null
 }
+
+/** D17-3's stop-gap, in support's words. */
+const STOP_GAP = 'ask the ordering clinician to record in the patient’s notes that it was not theirs, without repeating its '
+  + 'value, and refer it to the data protection officer the same day.'
 
 /** When the order's access ended or ends, as C21 says (item 4), or null when it said nothing that reads as a time. */
 function accessEndsAt(route: Pick<FoundOrderRoute, 'accessEndsAt'>): string | null {
