@@ -65,16 +65,22 @@ export function patientCard(patient: { fullName: string; sex: string | null; dat
  * type the session does not say: it may be a hospital, which never receives; or a facility that can't accept orders now,
  * shown only while some sent before still wait), the list is read once, when the page opens, and nothing is shown or read
  * again unless an order is waiting: then `onFound` says so, and the page treats the facility as receiving unless the
- * backend said it does not. Where Incoming says this facility does not receive now (`receives: false`, Novu since item 4,
- * hid-system 0089), Accept is hidden and Decline kept; what it says is remembered for the page (rememberReceiving, keyed
- * by `membershipId`). A Health ID typed to find a patient's orders goes in the body of the search's POST, never in an
- * address, and is sent only when Find or Refresh is pressed, or an order is acted on: never by the timer or on focus,
- * since each read is audited. `onEnded` names an order the Accepted panel ended as accepted for the wrong person, so the
- * page drops anything of it that it still shows (item 3: the receiver stops seeing the patient's details at once).
+ * backend said it does not. With `watch` as well (a facility that can't accept orders now, but that the page expects may
+ * again: one the session calls a checked laboratory or pharmacy, or one this page saw receive), nothing is shown either
+ * unless an order is waiting, but it is read again every 2 minutes and on focus, as where it receives, so an order sent
+ * once support lists it again shows up. Where Incoming says this facility does not receive now (`receives: false`, Novu
+ * since item 4, hid-system 0089), Accept is hidden and Decline kept; what it says is remembered for the page
+ * (rememberReceiving, keyed by `membershipId`) and handed to `onAnswer` with each answer, so the page goes by the newest
+ * of its work list and Incoming. A Health ID typed to find a patient's orders goes in the body of the search's POST,
+ * never in an address, and is sent only when Find or Refresh is pressed, or an order is acted on: never by the timer or
+ * on focus, since each read is audited. `onEnded` names an order the Accepted panel ended as accepted for the wrong
+ * person, so the page drops anything of it that it still shows (item 3: the receiver stops seeing the patient's details
+ * at once).
  */
-export function IncomingOrders({ service, facilityId, facilityName, membershipId, onAccepted, onEnded, probe = false, onFound }: {
+export function IncomingOrders({ service, facilityId, facilityName, membershipId, onAccepted, onEnded, probe = false, watch = false,
+  onFound, onAnswer }: {
   service: ReceivingService; facilityId: string; facilityName: string; membershipId?: string; onAccepted: () => void
-  onEnded?: (routeId: string) => void; probe?: boolean; onFound?: () => void
+  onEnded?: (routeId: string) => void; probe?: boolean; watch?: boolean; onFound?: () => void; onAnswer?: (answer: unknown) => void
 }) {
   const [answer, setAnswer] = useState<IncomingOrderRoutes | null>(null)
   const [missing, setMissing] = useState(false)
@@ -89,6 +95,9 @@ export function IncomingOrders({ service, facilityId, facilityName, membershipId
   const [ended, setEnded] = useState<WrongPatientEnding | null>(null)
   const [notice, setNotice] = useState('')
   const sequence = useRef(0)
+  // The page's latest onAnswer, so a new one never starts a read.
+  const answered = useRef(onAnswer)
+  useEffect(() => { answered.current = onAnswer }, [onAnswer])
 
   const load = useCallback(async (forHealthId: string) => {
     const request = ++sequence.current
@@ -98,6 +107,7 @@ export function IncomingOrders({ service, facilityId, facilityName, membershipId
       if (request !== sequence.current) return
       // What it says of this facility (item 4) is the facility's, whoever's orders were asked for.
       if (membershipId) rememberReceiving({ id: facilityId, membershipId }, service, read)
+      answered.current?.(read)
       setAnswer({ items: Array.isArray(read?.items) ? read.items : [], crossFacilityOrders: read?.crossFacilityOrders === true,
         crossFacilityWork: read?.crossFacilityWork !== false, ...receivingAnswer(read) })
       setError(''); setMissing(false)
@@ -114,14 +124,15 @@ export function IncomingOrders({ service, facilityId, facilityName, membershipId
     void load(filter)
     return () => { sequence.current += 1 }
   }, [load, filter])
-  // Read again every 2 minutes and on focus: only at a facility that receives, and never with a Health ID.
+  // Read again every 2 minutes and on focus: only at a facility that receives, or that the page watches, and never with a
+  // Health ID.
   useEffect(() => {
-    if (probe || filter) return
+    if ((probe && !watch) || filter) return
     const again = () => { if (document.visibilityState === 'visible') void load('') }
     const timer = window.setInterval(again, INCOMING_REFRESH_MS)
     window.addEventListener('focus', again)
     return () => { window.clearInterval(timer); window.removeEventListener('focus', again) }
-  }, [load, filter, probe])
+  }, [load, filter, probe, watch])
   const waiting = Boolean(answer && answer.items.length > 0)
   // Once a probe has shown orders, it stays in view, so declining the last one still says so.
   const [shown, setShown] = useState(false)

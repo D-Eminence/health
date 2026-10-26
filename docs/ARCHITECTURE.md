@@ -445,7 +445,11 @@ facility that receives reads Incoming at once and every two minutes; one that
 can't now shows only orders still waiting, with Decline but no Accept, keeps
 the paused notice for work it holds, and a stand-alone one is told, without a
 reason, that clinicians at other facilities can't send it orders at the
-moment. A hospital or clinic that signed itself up reads and says nothing
+moment. A checked stand-alone laboratory or pharmacy, or one the page saw
+receive, still reads Incoming every two minutes while it can't (showing
+nothing unless an order waits), and the page goes by the newer of the work
+list's and Incoming's answers, so a facility support lists again is noticed
+without a refresh; a governed hospital never reads it. A hospital or clinic that signed itself up reads and says nothing
 about other facilities; without `receives`, a governed facility, whose type
 the session does not carry, reads Incoming once its work list has answered and
 says nothing until an order or routed work shows up. A Health ID typed to find a patient's orders goes in the body of
