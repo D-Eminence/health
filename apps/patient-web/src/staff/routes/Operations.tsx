@@ -657,7 +657,10 @@ export function Laboratory() {
   const read = useFacilityRead(facilityId, canRead, useCallback(id => staffApi.labWorkItems(id), []))
   const list = { ...read, items: read.value ? read.value.items : null }
   const [selection, setSelection] = useState<{ facilityId: string; item: LabWorkItem; created?: string } | null>(null)
-  const selected = selection && selection.facilityId === facilityId ? selection.item : null
+  // The chosen work, only while the list still holds it: work that has left the list (an order ended, here or elsewhere)
+  // never shows its accession or its patient again, even once other work is listed (item 3).
+  const selected = selection && selection.facilityId === facilityId
+    && (list.items === null || list.items.some(item => item.id === selection.item.id)) ? selection.item : null
   // A created accession replaces the form that made it: focus goes to the accession.
   const focus = useFocusById()
   // Orders other facilities send here (Novu, P4c): received by laboratory scientists (lab.order-route.receive), and only
@@ -678,7 +681,8 @@ export function Laboratory() {
       : 'Accepted EHR test orders at this facility. A separate accession records the specimen chain of custody.'}</PageHead>
     <StandaloneWorkNote facility={facility} kind="laboratory" ordersOn={read.value?.crossFacilityOrders === true} />
     {mounted && facility && <IncomingOrders service="lab" facilityId={facilityId} facilityName={facility.name} probe={!receives}
-      onFound={onFound} onAccepted={() => void list.refresh()} />}
+      onFound={onFound} onAccepted={() => void list.refresh()}
+      onEnded={routeId => setSelection(current => current?.item.orderRoute?.id === routeId ? null : current)} />}
     {ended?.facilityId === facilityId && <WrongPatientEnded id="lab-wrong-patient-ended" ending={ended.ending} onClose={() => setEnded(null)} />}
     <div className="staff-row staff-toolbar"><RefreshButton loading={list.loading} onRefresh={list.refresh}>Refresh work</RefreshButton></div>
     <ListState loading={list.loading} error={list.error} empty="No accepted lab work" retry={() => void list.refresh()} hasItems={Boolean(list.items?.length)} />

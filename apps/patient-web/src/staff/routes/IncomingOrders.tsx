@@ -65,11 +65,12 @@ export function patientCard(patient: { fullName: string; sex: string | null; dat
  * opens, and nothing is shown or read again unless an order is waiting: then `onFound` says so, and the page treats the
  * facility as receiving. A Health ID typed to find a patient's orders goes in the body of the search's POST, never in an
  * address, and is sent only when Find or Refresh is pressed, or an order is acted on: never by the timer or on focus,
- * since each read is audited.
+ * since each read is audited. `onEnded` names an order the Accepted panel ended as accepted for the wrong person, so the
+ * page drops anything of it that it still shows (item 3: the receiver stops seeing the patient's details at once).
  */
-export function IncomingOrders({ service, facilityId, facilityName, onAccepted, probe = false, onFound }: {
+export function IncomingOrders({ service, facilityId, facilityName, onAccepted, onEnded, probe = false, onFound }: {
   service: ReceivingService; facilityId: string; facilityName: string; onAccepted: () => void
-  probe?: boolean; onFound?: () => void
+  onEnded?: (routeId: string) => void; probe?: boolean; onFound?: () => void
 }) {
   const [answer, setAnswer] = useState<IncomingOrderRoutes | null>(null)
   const [missing, setMissing] = useState(false)
@@ -154,7 +155,7 @@ export function IncomingOrders({ service, facilityId, facilityName, onAccepted, 
     {accepted && <AcceptedPanel key={accepted.result.route.id} service={service} facilityId={facilityId} title={accepted.title}
       reference={accepted.reference} ordering={accepted.ordering} acceptedWith={accepted.acceptedWith} result={accepted.result}
       onClose={() => setAccepted(null)} onChanged={onAccepted}
-      onEnded={ending => { setAccepted(null); setEnded(ending); onAccepted() }} />}
+      onEnded={ending => { setAccepted(null); setEnded(ending); onEnded?.(accepted.result.route.id); onAccepted() }} />}
     {error && <p className="staff-error" role="alert">{error}</p>}
     {answer && items.length === 0 && <p className="staff-muted">{filter ? `No order for ${filter} is waiting here.`
       : `No ${word} from other facilities are waiting.`}</p>}

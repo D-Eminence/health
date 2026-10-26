@@ -457,6 +457,45 @@ describe('the Accepted panel: this isn’t the order’s patient', () => {
     expect(screen.queryByText(/^Ended: Haemoglobin/)).toBeNull()
   })
 
+  it.each([
+    ['other work remains', true],
+    ['the list is left empty, until other work comes', false],
+  ])('drops the accession form of the order it ends, for good (%s)', async (_case, othersRemain) => {
+    // The receiver stops seeing the patient's details at once (§9.1), wherever the page showed them.
+    working.permissions = [...LAB, 'lab.accession.create']
+    const routedWork = { id: 'w1', patientId: 'a0000000-0000-4000-8000-0000004f9c2e', version: 1, status: 'accepted',
+      testName: 'Haemoglobin', accessionId: null, accessionNumber: null, acceptedAt: '2026-10-21T10:00:00.000Z',
+      orderRoute: { id: ROUTE, version: 2, reference: '9C1B2D3E', effectiveState: 'accepted', access: 'work',
+        orderingFacilityName: 'General Hospital', ordererName: 'Dr Ade Okon', ordererLicence: { body: 'MDCN', number: 'MDCN/12345' },
+        endedKind: null },
+      patient: { fullName: 'Tunde Bello', sex: 'male', dateOfBirth: '1985-03-12', healthIdLast4: '7KQ2' } }
+    const localWork = { id: 'w-local', patientId: 'a0000000-0000-4000-8000-000000aa11bb', version: 1, status: 'accepted',
+      testName: 'Malaria parasite', accessionId: null, accessionNumber: null, acceptedAt: '2026-10-21T09:00:00.000Z' }
+    const listed = (...items: unknown[]) => ({ items, crossFacilityOrders: true, crossFacilityWork: true })
+    api.labWorkItems.mockResolvedValue(listed(localWork))
+    routes.reportWrongPatient.mockResolvedValue(ENDED)
+    const incoming = await acceptAt(() => { openLab(); api.labWorkItems.mockResolvedValue(listed(routedWork, localWork)) })
+    const work = (await screen.findByText('Haemoglobin', { selector: '.staff-two-col strong' })).closest('.staff-list-item') as HTMLElement
+    fireEvent.click(within(work).getByRole('button', { name: 'Prepare accession' }))
+    expect(screen.getByRole('heading', { name: 'Create specimen accession' })).toBeTruthy()
+    expect(screen.getByText(/^Haemoglobin · Tunde Bello, male, born 12 Mar 1985/)).toBeTruthy()
+    // Ended from the Accepted panel, still open above the work list.
+    api.labWorkItems.mockResolvedValue(othersRemain ? listed(localWork) : listed())
+    fireEvent.click(within(incoming).getByRole('button', { name: 'This isn’t the order’s patient' }))
+    fill(incoming)
+    fireEvent.click(within(incoming).getByRole('button', { name: 'End this order' }))
+    await screen.findByText(/^Ended: Haemoglobin, reference 9C1B2D3E/)
+    await waitFor(() => expect(screen.queryByText('Haemoglobin', { selector: '.staff-two-col strong' })).toBeNull())
+    expect(screen.queryByRole('heading', { name: 'Create specimen accession' })).toBeNull()
+    expect(screen.queryByText(/Tunde Bello, male/)).toBeNull()
+    // Nor once other work is listed again.
+    api.labWorkItems.mockResolvedValue(listed(localWork))
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh work' }))
+    await screen.findByText('Malaria parasite', { selector: '.staff-two-col strong' })
+    expect(screen.queryByRole('heading', { name: 'Create specimen accession' })).toBeNull()
+    expect(screen.queryByText(/Tunde Bello, male/)).toBeNull()
+  })
+
   it('says to phone now when a result had already gone back', async () => {
     routes.reportWrongPatient.mockResolvedValue({ ...ENDED, route: { ...ENDED.route, effectiveState: 'completed' }, resultsVoided: 1,
       resultReportsMarked: 1 })
