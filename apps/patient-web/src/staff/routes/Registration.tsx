@@ -66,8 +66,9 @@ export function Registration() {
   const enrollProblems = useFieldProblems()
   const { clear: clearReview } = reviewProblems
   const { clear: clearEnroll } = enrollProblems
-  // The review and enrollment forms act on the case shown: another case starts them afresh.
-  useEffect(() => { clearReview(); clearEnroll() }, [registrationCase?.caseId, clearReview, clearEnroll])
+  // The review and enrollment forms act on the case shown: another case starts them afresh. They are cleared
+  // where the case shown changes, not in an effect after it: a refusal made before such an effect ran was lost.
+  const showNoCase = () => { setRegistrationCase(null); setEnrollment(null); clearReview(); clearEnroll() }
   const resolveKey = useRef(crypto.randomUUID())
   const reviewKey = useCommandKey()
   const enrollmentKey = useCommandKey()
@@ -76,8 +77,7 @@ export function Registration() {
     setCapabilities(null)
     setCapabilityError('')
     setCaseIdInput('')
-    setRegistrationCase(null)
-    setEnrollment(null)
+    showNoCase()
     setMessage('')
     setError('')
     setBusy(false)
@@ -113,7 +113,7 @@ export function Registration() {
     setMessage('')
     setError(''); caseProblems.clear()
     if (!UUID.test(normalized)) { caseProblems.refuse('registration-case-id', 'Enter a valid registration case ID.'); return }
-    if (registrationCase?.caseId !== normalized) { setRegistrationCase(null); setEnrollment(null) }
+    if (registrationCase?.caseId !== normalized) showNoCase()
     setCaseLoading(true)
     try {
       const value = await staffApi.registrationCase(facilityId, normalized)
@@ -149,8 +149,7 @@ export function Registration() {
       form.reset()
       resolveKey.current = crypto.randomUUID()
       setCaseIdInput(result.caseId)
-      setRegistrationCase(null)
-      setEnrollment(null)
+      showNoCase()
       setMessage('NIN verification created a governed registration case. Review its status before continuing.')
       try {
         const detail = await staffApi.registrationCase(facilityId, result.caseId)
