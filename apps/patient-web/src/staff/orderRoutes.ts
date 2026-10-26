@@ -5,7 +5,7 @@ import type {
   ReceivingService, WorkItemOrderRoute,
 } from './api'
 import { usesNovuBackend } from '../backendContract'
-import { wrongPatientReportOf } from '../lateCorrectionServed'
+import { correctableUntilOf, wrongPatientReportOf } from '../lateCorrectionServed'
 import { selfServiceReview, selfServiceType } from './staffAccess'
 
 /**
@@ -110,6 +110,10 @@ export function routeStatusText(route: OrderRouteSummary, patient: string): { te
       if (route.endedKind === 'wrong_patient') return { tone: 'warning', text: route.kind === 'lab_request'
         ? `${facility} reports that the results it released belong to someone else, and has ended it. Do not use them.`
         : `${facility} reports that it dispensed this to someone who was not ${patient}, and has ended it.` }
+      // D17: it reported it after the order had ended another way, which it keeps (D17-4).
+      if (wrongPatientReportOf(route)) return { tone: 'warning', text: route.kind === 'lab_request'
+        ? `${facility} reports that the results it released belong to someone else, and has withdrawn them. Do not use them.`
+        : `${facility} reports that it dispensed this to someone who was not ${patient}, and has reversed it.` }
       return { tone: 'success', text: route.kind === 'lab_request'
         ? `Results released by ${facility}${route.completedAt ? ` on ${routeDay(route.completedAt)}` : ''}.`
         : `Dispensed by ${facility}${route.completedAt ? ` on ${routeDay(route.completedAt)}` : ''}.` }
@@ -122,7 +126,9 @@ export function routeStatusText(route: OrderRouteSummary, patient: string): { te
         ? `Accepted by ${facility} on ${routeDay(route.acceptedAt)}; nothing came back within 30 days.`
         : `Not accepted by ${facility} within 7 days. Send it elsewhere.` }
     case 'cancelled':
-      return { tone: 'warning', text: cancelledText(route, facility, patient) }
+      return { tone: 'warning', text: cancelledText(route, facility, patient)
+        + (route.endedKind !== 'wrong_patient' && wrongPatientReportOf(route)
+          ? ` ${facility} has since reported that it accepted it for someone who was not ${patient}.` : '') }
     default:
       return { tone: 'neutral', text: `Sent to ${facility}: ${route.effectiveState.replaceAll('_', ' ')}.` }
   }
@@ -173,17 +179,73 @@ export function wrongPatientNotice(route: Pick<OrderRouteSummary, 'kind' | 'effe
 }
 
 /**
+ * The sentence added to the red notice of an order the receiving facility reported after something had come back (D17,
+ * CL1, D17-4): when, and that what the clinician recorded from it still shows until they correct it. Null for a report in
+ * the window, or on an order nothing came back from.
+ */
+export function lateReportNotice(route: Pick<OrderRouteSummary, 'effectiveState' | 'completedAt'> & { wrongPatient?: unknown },
+  patient: string): string | null {
+  const report = wrongPatientReportOf(route)
+  if (!report?.late || route.effectiveState !== 'completed') return null
+  const came = route.completedAt ? Date.parse(route.completedAt) : Number.NaN
+  const days = Number.isFinite(came) ? Math.max(0, Math.floor((Date.parse(report.reportedAt) - came) / 86_400_000)) : null
+  const when = days === null ? 'This was reported after it came back.'
+    : days === 0 ? 'This was reported on the day it came back.'
+      : `This was reported ${days} day${days === 1 ? '' : 's'} after it came back.`
+  return `${when} Anything you recorded from it (a note, a diagnosis, a prescription) still shows to ${patient} and to the `
+    + `assistants until you amend it or mark it entered in error. Tell ${patient} directly: Health ID tells them only in the app.`
+}
+
+/**
+ * What the ordering clinician may do about an order something came back on (D17-5, CL10, CT5; SPEC-FINAL §9.2): phone
+ * the receiving facility with the reference, which can withdraw it until the date the answer carries; once it can't
+ * (`correctableUntil: null`), record it in the patient's notes without repeating the value (D17-3). Only for a completed
+ * route the receiving facility has not reported, from a backend that serves the late correction (`lateServed`) and says
+ * the deadline: null otherwise, as before D17.
+ */
+export function routeGuidance(route: Pick<OrderRouteSummary, 'kind' | 'effectiveState' | 'reference' | 'receivingFacility'
+  | 'endedKind'> & { wrongPatient?: unknown; correctableUntil?: unknown }, patient: string, lateServed = false): string | null {
+  const until = correctableUntilOf(route)
+  if (!lateServed || until === undefined || route.effectiveState !== 'completed' || route.endedKind === 'wrong_patient'
+    || wrongPatientReportOf(route)) return null
+  const facility = named(route.receivingFacility.name)
+  const reference = route.reference ? ` and give it the reference ${route.reference}` : ' and give it the order’s reference'
+  if (until === null) return route.kind === 'lab_request'
+    ? `If a result from ${facility} on this order is not ${patient}’s, record that in ${patient}’s notes without repeating its `
+      + 'value, and tell Health ID support.'
+    : `If ${patient} did not receive this medicine from ${facility}, record that in ${patient}’s notes, and tell Health ID support.`
+  return route.kind === 'lab_request'
+    ? `If ${patient} says they did not give a sample at ${facility}, or you have evidence the sample was someone else’s, phone `
+      + `${facility}${reference}: it can withdraw the result until ${routeDay(until)}. A result that is only unexpected is not a `
+      + 'reason: repeat the test.'
+    : `If ${patient} did not receive this medicine from ${facility}, and no one collected it for them, phone ${facility}`
+      + `${reference}: it can reverse the dispensing until ${routeDay(until)}.`
+}
+
+/**
  * The warning where a clinician changes an order sent to another facility (Novu, P4c): its change is passed on there
  * (the EHR's mirror trigger), withdrawing it before that facility accepts it, or cancelling it there after. While that
  * facility may still work on it (accepted, or completed and not ended), changing it also stops that facility from
  * withdrawing a result or dispensing it sent back for the wrong person (item 3, C1, §9.2), so the clinician is asked to
  * have it ended there first: only from a backend that lets that facility end it (`reportServed`; until hid-system 0088
- * ships it can't, and the warning stays as it was, D15).
+ * ships it can't, and the warning stays as it was, D15). Since D17 (`lateServed`, hid-system 0090) that facility may still
+ * withdraw it after the order has changed or ended, until the date the summary carries (`correctableUntil`): the warning
+ * then says so, with the reference, whether or not the order has ended; once that date is gone (null), it says only what a
+ * change does.
  */
-export function routedChangeWarning(route: Pick<OrderRouteSummary, 'receivingFacility' | 'effectiveState' | 'endedAt'>
-  | null | undefined, patient: string, reportServed = false): string {
+export function routedChangeWarning(route: (Pick<OrderRouteSummary, 'receivingFacility' | 'effectiveState' | 'endedAt'>
+  & { reference?: string | null; correctableUntil?: unknown }) | null | undefined, patient: string, reportServed = false,
+  lateServed = false): string {
   const name = route?.receivingFacility.name?.trim() || 'the other facility'
   const change = `Changing it withdraws it from ${name}, or cancels it there if ${name} has accepted it; a cancelled order can’t be resumed there.`
+  const until = lateServed ? correctableUntilOf(route) : undefined
+  if (route && until !== undefined) {
+    if (until === null) return change
+    const what = route.effectiveState === 'completed' ? 'what it sent back' : 'what it recorded on it'
+    return `${change} If ${name} accepted it for someone who was not ${patient}, ask ${name} to withdraw ${what}, giving it the `
+      + `reference ${route.reference || 'shown with the order'}: it can do so until ${routeDay(until)}, whether or not you `
+      + 'change this order.'
+  }
   const working = reportServed
     && Boolean(route && (route.effectiveState === 'accepted' || route.effectiveState === 'completed') && !route.endedAt)
   return working ? `${change} If ${name} accepted it for someone who was not ${patient}, ask ${name} to end it from its work `

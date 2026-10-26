@@ -3,9 +3,9 @@ import { HidApiError } from '@hid/http'
 import type { OrderRouteSummary, WorkItemOrderRoute } from './api'
 import {
   acceptedCheckText, acceptRefusal, correctableFindRefusal, correctableRoutes, fillAttestation, forgetReceiving, handOverCheckText,
-  holdsReceivePermission, lagosDay, lateCorrectionLines, lateEndedText, lateWrongPatientRefusal, RECEIVING_MEMORY_MS,
+  holdsReceivePermission, lagosDay, lateCorrectionLines, lateEndedText, lateReportNotice, lateWrongPatientRefusal, RECEIVING_MEMORY_MS,
   receivingAnswer, receivingHere, rememberedReceiving, rememberReceiving, returnedDays, routeClosedForWork, routedChangeWarning,
-  routedElsewhere, routedWorkEndedText, routeStatusText, sampleCheckText, sendRefusal, unavailableText,
+  routedElsewhere, routedWorkEndedText, routeGuidance, routeStatusText, sampleCheckText, sendRefusal, unavailableText,
   withdrawRefusal, WRONG_PATIENT_REASONS, wrongPatientEndedLines, wrongPatientNotice, wrongPatientOffered, wrongPatientRefusal,
 } from './orderRoutes'
 
@@ -484,5 +484,78 @@ describe('the receiving facility’s late correction words (D17)', () => {
     expect(lagosDay('nonsense')).toBeNull()
     expect(returnedDays(['2026-06-09T12:00:00.000Z', '2026-06-03T12:00:00.000Z', '2026-06-03T15:00:00.000Z'])).toBe('3 Jun 2026 and 9 Jun 2026')
     expect(returnedDays(['2026-06-03T12:00:00.000Z', '2026-06-05T12:00:00.000Z', '2026-06-09T12:00:00.000Z'])).toBe('3 Jun 2026, 5 Jun 2026 and 9 Jun 2026')
+  })
+})
+
+/**
+ * D17 (hid-system 0090; SPEC-FINAL §9.2): what the ordering clinician reads of a report made after the order had ended,
+ * what they may do about a result that came back (with the order's own date), and the change warning once the receiving
+ * facility may withdraw after a change. Every new word needs a field only a D17 backend sends, or `lateServed`.
+ */
+describe('what the ordering clinician reads of a late report (D17)', () => {
+  const report = (late = true, reportedAt = '2026-07-02T10:00:00.000Z') => ({ wrongPatient: { reportedAt, late } })
+  const done = route({ effectiveState: 'completed', acceptedAt: '2026-06-01T09:00:00.000Z', completedAt: '2026-06-03T12:00:00.000Z' })
+
+  it('says a late report on an order that had ended another way, as a warning, keeping a cancellation’s words (D17-4)', () => {
+    const closed = { ...done, endedAt: '2026-06-20T08:00:00.000Z', endedKind: 'support', ...report() }
+    expect(routeStatusText(closed, 'Ada Patient')).toEqual({ tone: 'warning', text: 'Yaba Diagnostics reports that the results it '
+      + 'released belong to someone else, and has withdrawn them. Do not use them.' })
+    expect(routeStatusText({ ...closed, kind: 'prescription' }, 'Ada Patient')).toEqual({ tone: 'warning', text: 'Yaba Diagnostics '
+      + 'reports that it dispensed this to someone who was not Ada Patient, and has reversed it.' })
+    expect(routeStatusText(route({ effectiveState: 'cancelled', endedKind: 'order_changed', ...report() }), 'Ada Patient').text)
+      .toBe('Cancelled at Yaba Diagnostics because the order changed. Yaba Diagnostics has since reported that it accepted it for '
+        + 'someone who was not Ada Patient.')
+    // Item 3's ending keeps item 3's words, report or not.
+    expect(routeStatusText({ ...closed, endedKind: 'wrong_patient' }, 'Ada Patient').text).toMatch(/and has ended it\. Do not use them\.$/)
+    // A malformed report is no report.
+    expect(routeStatusText({ ...closed, wrongPatient: { reportedAt: 'soon', late: true } } as never, 'Ada Patient').text)
+      .toBe('Results released by Yaba Diagnostics on 3 Jun 2026.')
+  })
+
+  it('adds, for a late report on an order something came back on, when and what the clinician recorded from it (CL1)', () => {
+    expect(lateReportNotice({ ...done, ...report() }, 'Ada Patient')).toBe('This was reported 28 days after it came back. Anything '
+      + 'you recorded from it (a note, a diagnosis, a prescription) still shows to Ada Patient and to the assistants until you '
+      + 'amend it or mark it entered in error. Tell Ada Patient directly: Health ID tells them only in the app.')
+    expect(lateReportNotice({ ...done, ...report(true, '2026-06-04T13:00:00.000Z') }, 'Ada Patient')).toMatch(/^This was reported 1 day after/)
+    expect(lateReportNotice({ ...done, ...report(true, '2026-06-03T18:00:00.000Z') }, 'Ada Patient')).toMatch(/^This was reported on the day it came back\./)
+    expect(lateReportNotice({ ...done, completedAt: null, ...report() }, 'Ada Patient')).toMatch(/^This was reported after it came back\./)
+    // In the window, on an order nothing came back from, or without a report: nothing.
+    expect(lateReportNotice({ ...done, ...report(false) }, 'Ada Patient')).toBeNull()
+    expect(lateReportNotice(route({ effectiveState: 'cancelled', ...report() }), 'Ada Patient')).toBeNull()
+    expect(lateReportNotice(done, 'Ada Patient')).toBeNull()
+  })
+
+  it('guides the clinician to the receiving facility with the reference and the order’s own date, only when served (D17-5)', () => {
+    const until = { correctableUntil: '2026-11-28T09:00:00.000Z' }
+    expect(routeGuidance({ ...done, ...until }, 'Ada Patient', true)).toBe('If Ada Patient says they did not give a sample at Yaba '
+      + 'Diagnostics, or you have evidence the sample was someone else’s, phone Yaba Diagnostics and give it the reference '
+      + '9C1B2D3E: it can withdraw the result until 28 Nov 2026. A result that is only unexpected is not a reason: repeat the test.')
+    expect(routeGuidance({ ...done, kind: 'prescription', ...until }, 'Ada Patient', true)).toBe('If Ada Patient did not receive this '
+      + 'medicine from Yaba Diagnostics, and no one collected it for them, phone Yaba Diagnostics and give it the reference '
+      + '9C1B2D3E: it can reverse the dispensing until 28 Nov 2026.')
+    expect(routeGuidance({ ...done, correctableUntil: null }, 'Ada Patient', true)).toBe('If a result from Yaba Diagnostics on this '
+      + 'order is not Ada Patient’s, record that in Ada Patient’s notes without repeating its value, and tell Health ID support.')
+    // Not served, no field (an earlier backend), nothing came back, or already reported: nothing.
+    expect(routeGuidance({ ...done, ...until }, 'Ada Patient', false)).toBeNull()
+    expect(routeGuidance(done, 'Ada Patient', true)).toBeNull()
+    expect(routeGuidance({ ...done, effectiveState: 'accepted', ...until }, 'Ada Patient', true)).toBeNull()
+    expect(routeGuidance({ ...done, ...until, ...report() }, 'Ada Patient', true)).toBeNull()
+  })
+
+  it('names the order’s date and reference in the change warning once served, whether or not it has ended (CT10)', () => {
+    const change = 'Changing it withdraws it from Yaba Diagnostics, or cancels it there if Yaba Diagnostics has accepted it; a '
+      + 'cancelled order can’t be resumed there.'
+    const until = { correctableUntil: '2026-11-28T09:00:00.000Z' }
+    expect(routedChangeWarning(route({ effectiveState: 'accepted', ...until }), 'Ada Patient', true, true)).toBe(`${change} If Yaba `
+      + 'Diagnostics accepted it for someone who was not Ada Patient, ask Yaba Diagnostics to withdraw what it recorded on it, '
+      + 'giving it the reference 9C1B2D3E: it can do so until 28 Nov 2026, whether or not you change this order.')
+    expect(routedChangeWarning(route({ ...done, endedAt: '2026-06-20T08:00:00.000Z', endedKind: 'support', ...until }), 'Ada Patient', true, true))
+      .toMatch(/ask Yaba Diagnostics to withdraw what it sent back, giving it the reference 9C1B2D3E: it can do so until 28 Nov 2026,/)
+    // Past its date, or reported: only what a change does.
+    expect(routedChangeWarning({ ...done, correctableUntil: null }, 'Ada Patient', true, true)).toBe(change)
+    // Not served, or no field: as before D17.
+    expect(routedChangeWarning({ ...done, ...until }, 'Ada Patient', true, false)).toMatch(/to end it from its work list first/)
+    expect(routedChangeWarning(done, 'Ada Patient', true, true)).toMatch(/to end it from its work list first/)
+    expect(routedChangeWarning(done, 'Ada Patient')).toBe(change)
   })
 })

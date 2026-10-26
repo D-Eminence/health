@@ -3,6 +3,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import { Clinical } from '../Clinical'
+import { forgetLateCorrectionServed } from '../../../lateCorrectionServed'
 
 /**
  * What came back to the ordering facility from a laboratory at another facility (Novu, P4c, SPEC-FINAL §13.1 "Returns",
@@ -259,5 +260,78 @@ describe('an order the laboratory reports it accepted for the wrong person', () 
     expect(lines()).toEqual(['Haemoglobin: Released by Yaba Diagnostics on 22 Oct 2026: 9.8 g/dL, flagged low, reference 12.0-15.5'])
     expect(screen.queryByRole('button', { name: 'Show the withdrawn value' })).toBeNull()
     expect(document.querySelector('.staff-order-route .staff-danger')).toBeNull()
+  })
+})
+
+/**
+ * D17 (hid-system 0090; SPEC-FINAL §9.2): the laboratory reported, after the order had ended another way (support's close,
+ * the clinician's entered in error), that it accepted it for the wrong person, and withdrew the results. The clinician reads
+ * item 3's red warning, the values hidden, and that what they recorded from them still shows (D17-4); an order something
+ * came back on, not reported, says whom to phone with the reference and until when (D17-5). None of it without the
+ * backend's D17 fields.
+ */
+describe('a late report, and the guidance with the order’s own date (D17)', () => {
+  const late = { wrongPatient: { reportedAt: '2026-11-21T09:00:00.000Z', late: true }, correctableUntil: null }
+  function serve(route: Record<string, unknown>, fields: Record<string, unknown> = { lateCorrection: true }) {
+    api.records.mockResolvedValue({ items: [{ patientId: PATIENT, encounterId: ENCOUNTER, facilityId: 'facility-1',
+      createdAt: '2026-10-10T08:05:00.000Z', id: REQUEST, testCodeSystem: 'LOINC', testCode: '718-7', testDisplay: 'Haemoglobin',
+      priority: 'routine', status: 'active', clinicalInformation: null, rowVersion: '2', orderRoute: route }],
+    nextCursor: null, crossFacilityOrders: true, wrongPatientReports: true, ...fields })
+  }
+  beforeEach(() => { forgetLateCorrectionServed() })
+  afterEach(() => { forgetLateCorrectionServed() })
+
+  it.each([['support', 'closed by support'], ['entered_in_error', 'marked entered in error by the clinician']])(
+    'warns in red and hides the values of an order ended %s and reported late (%s)', async endedKind => {
+      const route = summary({ endedKind, endedAt: '2026-11-01T09:00:00.000Z', ...late })
+      serve(route)
+      routes.routes.mockResolvedValue({ items: [{ ...route, attestation: attestation('Dr Ade Okon', 'Yaba Diagnostics'), events: [],
+        results: [result({}), result({ kind: 'entered_in_error', resultType: null, numericValue: null, unit: null, referenceRange: null,
+          abnormalFlag: null, revisionKind: null, occurredAt: '2026-11-21T09:00:00.000Z' })] }] })
+      render(<MemoryRouter><Clinical /></MemoryRouter>)
+      fireEvent.click(await screen.findByRole('tab', { name: 'Lab requests' }))
+      expect(await screen.findByText('Yaba Diagnostics reports that the results it released belong to someone else, and has withdrawn '
+        + 'them. Do not use them.')).toBeTruthy()
+      const panel = document.querySelector('.staff-order-route') as HTMLElement
+      const notice = panel.querySelector('.staff-danger') as HTMLElement
+      expect([...notice.querySelectorAll('p')].map(line => line.textContent)).toEqual([
+        'This order can’t be sent again. Write a new lab request if Ada Patient still needs it.',
+        expect.stringMatching(/^Do not use any result from Yaba Diagnostics on this order/),
+        'This was reported 29 days after it came back. Anything you recorded from it (a note, a diagnosis, a prescription) still '
+          + 'shows to Ada Patient and to the assistants until you amend it or mark it entered in error. Tell Ada Patient directly: '
+          + 'Health ID tells them only in the app.'])
+      fireEvent.click(screen.getByRole('button', { name: 'Show details and results' }))
+      await waitFor(() => expect(lines()).toHaveLength(1))
+      expect(lines()).toEqual(['Haemoglobin (do not use): another person’s result, withdrawn by Yaba Diagnostics on 21 Nov 2026. '
+        + 'Show the withdrawn value'])
+      expect(panel.textContent).not.toMatch(/9\.8|g\/dL/)
+    })
+
+  it('says whom to phone with the reference and until when, once served, for an order something came back on (D17-5)', async () => {
+    serve(summary({ wrongPatient: null, correctableUntil: '2027-04-19T10:00:00.000Z' }))
+    render(<MemoryRouter><Clinical /></MemoryRouter>)
+    fireEvent.click(await screen.findByRole('tab', { name: 'Lab requests' }))
+    expect(await screen.findByText('If Ada Patient says they did not give a sample at Yaba Diagnostics, or you have evidence the '
+      + 'sample was someone else’s, phone Yaba Diagnostics and give it the reference 9C1B2D3E: it can withdraw the result until 19 '
+      + 'Apr 2027. A result that is only unexpected is not a reason: repeat the test.')).toBeTruthy()
+    expect(document.querySelector('.staff-order-route .staff-danger')).toBeNull()
+  })
+
+  it('says, past its date, to record it in the notes without the value (D17-3)', async () => {
+    serve(summary({ wrongPatient: null, correctableUntil: null }))
+    render(<MemoryRouter><Clinical /></MemoryRouter>)
+    fireEvent.click(await screen.findByRole('tab', { name: 'Lab requests' }))
+    expect(await screen.findByText('If a result from Yaba Diagnostics on this order is not Ada Patient’s, record that in Ada '
+      + 'Patient’s notes without repeating its value, and tell Health ID support.')).toBeTruthy()
+  })
+
+  it('says none of it against today’s answers: item 3’s and item 4’s signals, no lateCorrection, no deadline', async () => {
+    serve(summary({ endedKind: 'support', endedAt: '2026-11-01T09:00:00.000Z' }), {})
+    render(<MemoryRouter><Clinical /></MemoryRouter>)
+    fireEvent.click(await screen.findByRole('tab', { name: 'Lab requests' }))
+    expect(await screen.findByText(/^Results released by Yaba Diagnostics on /)).toBeTruthy()
+    const panel = document.querySelector('.staff-order-route') as HTMLElement
+    expect(panel.textContent).not.toMatch(/phone Yaba Diagnostics|record that in|reported .* after it came back|withdrawn them/)
+    expect(panel.querySelector('.staff-danger')).toBeNull()
   })
 })

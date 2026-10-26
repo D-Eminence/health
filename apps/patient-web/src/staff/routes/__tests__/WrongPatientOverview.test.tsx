@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import { Dashboard } from '../Dashboard'
 import { forgetWrongPatientServed, wrongPatientServed } from '../../../wrongPatientServed'
+import { forgetLateCorrectionServed, lateCorrectionServed } from '../../../lateCorrectionServed'
 
 /**
  * The ordering facility's Overview card (item 3, owner decision D10's alternative (a), C28): orders sent from this
@@ -45,8 +46,9 @@ beforeEach(() => {
   api.listAccessRequests.mockResolvedValue([])
   routes.sentWrongPatient.mockResolvedValue(EMPTY)
   forgetWrongPatientServed()
+  forgetLateCorrectionServed()
 })
-afterEach(() => { vi.unstubAllEnvs() })
+afterEach(() => { vi.unstubAllEnvs(); forgetLateCorrectionServed() })
 
 function Where() {
   const location = useLocation()
@@ -156,5 +158,46 @@ describe('the Overview card of orders accepted for the wrong person', () => {
     open()
     expect((await screen.findAllByRole('link', { name: /Clinical record/ })).length).toBeGreaterThan(0)
     expect(routes.sentWrongPatient).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * D17 (hid-system 0090; SPEC-FINAL §9.2, CT3, CT6): C28 lists reports of the last 30 days whatever the order's ending,
+ * and says `lateCorrection: true`. A late item says when the receiving facility reported it, and, when something was
+ * withdrawn, that what the clinician recorded from it still shows (CL1); one with nothing withdrawn does not say "No result
+ * had come back from it." beside it. The lead says "or reported it later" only once the card has learned it is served.
+ */
+describe('late reports on the Overview card (D17)', () => {
+  const late = { ...lab, endedAt: '2026-10-01T09:00:00.000000+00:00', reportedAt: '2026-10-24T09:00:00.000000+00:00', late: true,
+    endedKindBefore: 'support', resultsWithdrawn: 1 }
+  const lateNothing = { ...prescription, endedAt: '2026-10-02T09:00:00.000000+00:00', reportedAt: '2026-10-25T09:00:00.000000+00:00',
+    late: true, endedKindBefore: 'order_changed', dispensingReversed: false }
+
+  it('says when each late report came, and what the clinician recorded still shows, learning “served” from C28', async () => {
+    routes.sentWrongPatient.mockResolvedValue({ windowDays: 30, items: [late, lateNothing], others: { count: 0, references: [] },
+      lateCorrection: true })
+    open()
+    const shown = await card()
+    await waitFor(() => expect(lateCorrectionServed()).toBe(true))
+    expect(within(shown).getByText(/^In the last 30 days, a laboratory or pharmacy reported that it accepted these orders from General Hospital for someone who was not the patient, and ended them or reported it later\. Health ID does not alert you any other way\.$/)).toBeTruthy()
+    const [first, second] = [...shown.querySelectorAll('li')] as HTMLElement[]
+    expect(within(first!).getByText('Yaba Diagnostics reports that it accepted it for someone who was not Ada Patient, and on 24 Oct '
+      + '2026 withdrew what it had sent back. Anything you recorded from it still shows to Ada Patient until you amend it.')).toBeTruthy()
+    expect(within(first!).getByText(/^1 result it had sent back was withdrawn/)).toBeTruthy()
+    expect(within(second!).getByText('Medplus Yaba reports that it accepted it for someone who was not Bola Patient, and reported this '
+      + 'on 25 Oct 2026.')).toBeTruthy()
+    expect(second!.textContent).not.toMatch(/had no dispensing on record|No result had come back|ended it on/)
+  })
+
+  it('keeps item 3’s words for an in-window report and today’s answer, without lateCorrection', async () => {
+    routes.sentWrongPatient.mockResolvedValue({ windowDays: 30, items: [{ ...lab, reportedAt: lab.endedAt, late: false,
+      endedKindBefore: null }], others: { count: 0, references: [] } })
+    open()
+    const shown = await card()
+    expect(lateCorrectionServed()).toBeNull()
+    expect(within(shown).getByText(/and ended them\. Health ID does not alert you any other way\.$/)).toBeTruthy()
+    expect(within(shown).getByText('Yaba Diagnostics reports that it accepted it for someone who was not Ada Patient, and ended it on '
+      + '24 Oct 2026.')).toBeTruthy()
+    expect(shown.textContent).not.toMatch(/reported it later|reported this on|still shows/)
   })
 })

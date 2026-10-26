@@ -7,11 +7,12 @@ import {
 } from '../api'
 import { OrderDestinationPicker } from '../components/OrderDestinationPicker'
 import {
-  attestedText, controlledMedicineNote, destinationWord, fillAttestation, ORDERS_NOT_AVAILABLE, ORDERS_PAUSED, orderWord,
-  paused, routeDay, routeMissing, routeStatusText, routeWaiting, sendRefusal, sensitiveTestNote, unavailableText, urgentNote,
-  WITHDRAW_REASONS, withdrawRefusal, wrongPatientNotice,
+  attestedText, controlledMedicineNote, destinationWord, fillAttestation, lateReportNotice, ORDERS_NOT_AVAILABLE, ORDERS_PAUSED,
+  orderWord, paused, routeDay, routeGuidance, routeMissing, routeStatusText, routeWaiting, sendRefusal, sensitiveTestNote,
+  unavailableText, urgentNote, WITHDRAW_REASONS, withdrawRefusal, wrongPatientNotice,
 } from '../orderRoutes'
 import { UNAVAILABLE } from '../focus'
+import { learnLateCorrectionFrom, useLateCorrectionServed, wrongPatientReportOf } from '../../lateCorrectionServed'
 
 /**
  * Sending a lab request or prescription to a laboratory or pharmacy at another facility, from the clinical record
@@ -266,10 +267,10 @@ function resultLines(results: readonly OrderRouteResult[], facility: string): st
 interface WithdrawnLine { readonly key: string; readonly text: string; readonly value: string | null }
 
 /**
- * The results of a route the laboratory ended as accepted for someone who was not the patient (item 3, D19, §9.2): each
- * version it released reads "{test} (do not use): another person's result, withdrawn by {B} on {date}", newest first. The
- * value is another person's, so it is not shown unless asked for (WithdrawnResults); a version withdrawn before it came
- * back has no value to show.
+ * The results of a route the laboratory ended as accepted for someone who was not the patient (item 3, D19, §9.2), or
+ * reported so after the order had ended another way (D17-4): each version it released reads "{test} (do not use): another
+ * person's result, withdrawn by {B} on {date}", newest first. The value is another person's, so it is not shown unless
+ * asked for (WithdrawnResults); a version withdrawn before it came back has no value to show.
  */
 function withdrawnResultLines(results: readonly OrderRouteResult[], facility: string, endedAt: string | null): WithdrawnLine[] {
   return resultGroups(results).flatMap((reports, group): WithdrawnLine[] => {
@@ -335,6 +336,12 @@ export function OrderRoutePanel({ id, kind, route, context, canWithdraw, onWithd
 }) {
   const status = routeStatusText(route, context.patient)
   const unavailable = unavailableText(route)
+  // D17: the receiving facility's report, in its window or after the order had ended (`wrongPatient`), and what the
+  // clinician may do about a result that came back, with the order's own date (only from a backend that serves it).
+  const report = wrongPatientReportOf(route)
+  const lateServed = useLateCorrectionServed() === true
+  const lateNotice = lateReportNotice(route, context.patient)
+  const guidance = routeGuidance(route, context.patient, lateServed)
   const [open, setOpen] = useState(false)
   const [views, setViews] = useState<OrderRouteView[] | null>(null)
   const [loading, setLoading] = useState(false)
@@ -352,7 +359,11 @@ export function OrderRoutePanel({ id, kind, route, context, canWithdraw, onWithd
     if (!open) return
     let active = true
     setViews(null); setLoading(true); setLoadError('')
-    void reader.current().then(items => { if (active) setViews(Array.isArray(items) ? items : []) })
+    void reader.current().then(items => {
+      // Routes that carry their deadline come from a backend that serves the late correction (D17, §9.0).
+      learnLateCorrectionFrom(null, Array.isArray(items) ? items : null)
+      if (active) setViews(Array.isArray(items) ? items : [])
+    })
       .catch(caught => { if (active) setLoadError(viewProblem(caught)) })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
@@ -372,8 +383,10 @@ export function OrderRoutePanel({ id, kind, route, context, canWithdraw, onWithd
     <div className="staff-row"><strong id={`${id}-title`}>{lab ? 'Sent to another laboratory' : 'Sent to a pharmacy'}</strong>
       {route.reference && <span className="staff-muted">Ref {route.reference}</span>}</div>
     <p><Badge tone={status.tone}>{status.text}</Badge></p>
-    {route.endedKind === 'wrong_patient' && <div className="staff-notice staff-danger staff-stack">
-      {wrongPatientNotice(route, context.patient).map((line, index) => <p key={index}>{line}</p>)}</div>}
+    {guidance && <p className="staff-muted">{guidance}</p>}
+    {(route.endedKind === 'wrong_patient' || report) && <div className="staff-notice staff-danger staff-stack">
+      {wrongPatientNotice(route, context.patient).map((line, index) => <p key={index}>{line}</p>)}
+      {lateNotice && <p>{lateNotice}</p>}</div>}
     {unavailable && <p className="staff-notice">{unavailable}</p>}
     <Button tone="secondary" size="sm" aria-expanded={open} onClick={() => setOpen(value => !value)}>
       {open ? 'Hide details' : lab ? 'Show details and results' : 'Show details and dispensing'}</Button>
@@ -383,8 +396,11 @@ export function OrderRoutePanel({ id, kind, route, context, canWithdraw, onWithd
       {views && views.length === 0 && <p className="staff-muted">No route of this order was found.</p>}
       {views?.map((view, index) => {
         const viewFacility = view.receivingFacility.name ?? view.attestation.receivingFacilityName ?? 'the other facility'
-        // Results the laboratory reports are another person's (item 3): their values stay hidden until asked for.
-        const withdrawn = lab && view.endedKind === 'wrong_patient' ? withdrawnResultLines(view.results ?? [], viewFacility, view.endedAt) : null
+        // Results the laboratory reports are another person's (item 3, and D17 after the order ended another way): their
+        // values stay hidden until asked for.
+        const reported = wrongPatientReportOf(view)
+        const withdrawn = lab && (view.endedKind === 'wrong_patient' || reported)
+          ? withdrawnResultLines(view.results ?? [], viewFacility, reported?.reportedAt ?? view.endedAt) : null
         const returns = withdrawn ? [] : lab ? resultLines(view.results ?? [], viewFacility) : dispensingLines(view.dispensings ?? [], viewFacility)
         return <div key={view.id} className="staff-list-item staff-stack">
           {index > 0 && <strong>Earlier: {routeStatusText(view, context.patient).text}</strong>}
