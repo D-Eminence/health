@@ -313,7 +313,7 @@ describe('a late report, and the guidance with the order’s own date (D17)', ()
     fireEvent.click(await screen.findByRole('tab', { name: 'Lab requests' }))
     expect(await screen.findByText('If Ada Patient says they did not give a sample at Yaba Diagnostics, or you have evidence the '
       + 'sample was someone else’s, phone Yaba Diagnostics and give it the reference 9C1B2D3E: it can withdraw the result until 19 '
-      + 'Apr 2027. A result that is only unexpected is not a reason: repeat the test.')).toBeTruthy()
+      + 'Apr 2027, 11:00. A result that is only unexpected is not a reason: repeat the test.')).toBeTruthy()
     expect(document.querySelector('.staff-order-route .staff-danger')).toBeNull()
   })
 

@@ -353,7 +353,7 @@ describe('the change warning once the late correction is served (D17)', () => {
     serve({ correctableUntil: '2027-04-19T10:00:00.000Z', wrongPatient: null })
     await openLabRequests()
     expect(await screen.findByText(`${change} If Yaba Diagnostics accepted it for someone who was not Ada Patient, ask Yaba `
-      + 'Diagnostics to withdraw what it recorded on it, giving it the reference 9C1B2D3E: it can do so until 19 Apr 2027, '
+      + 'Diagnostics to withdraw what it recorded on it, giving it the reference 9C1B2D3E: it can do so until 19 Apr 2027, 11:00, '
       + 'whether or not you change this order.')).toBeTruthy()
     expect(screen.queryByText(/end it from its work list/)).toBeNull()
   })

@@ -529,10 +529,10 @@ describe('what the ordering clinician reads of a late report (D17)', () => {
     const until = { correctableUntil: '2026-11-28T09:00:00.000Z' }
     expect(routeGuidance({ ...done, ...until }, 'Ada Patient', true)).toBe('If Ada Patient says they did not give a sample at Yaba '
       + 'Diagnostics, or you have evidence the sample was someone else’s, phone Yaba Diagnostics and give it the reference '
-      + '9C1B2D3E: it can withdraw the result until 28 Nov 2026. A result that is only unexpected is not a reason: repeat the test.')
+      + '9C1B2D3E: it can withdraw the result until 28 Nov 2026, 10:00. A result that is only unexpected is not a reason: repeat the test.')
     expect(routeGuidance({ ...done, kind: 'prescription', ...until }, 'Ada Patient', true)).toBe('If Ada Patient did not receive this '
       + 'medicine from Yaba Diagnostics, and no one collected it for them, phone Yaba Diagnostics and give it the reference '
-      + '9C1B2D3E: it can reverse the dispensing until 28 Nov 2026.')
+      + '9C1B2D3E: it can reverse the dispensing until 28 Nov 2026, 10:00.')
     expect(routeGuidance({ ...done, correctableUntil: null }, 'Ada Patient', true)).toBe('If a result from Yaba Diagnostics on this '
       + 'order is not Ada Patient’s, record that in Ada Patient’s notes without repeating its value, and tell Health ID support.')
     // Not served, no field (an earlier backend), nothing came back, or already reported: nothing.
@@ -548,9 +548,9 @@ describe('what the ordering clinician reads of a late report (D17)', () => {
     const until = { correctableUntil: '2026-11-28T09:00:00.000Z' }
     expect(routedChangeWarning(route({ effectiveState: 'accepted', ...until }), 'Ada Patient', true, true)).toBe(`${change} If Yaba `
       + 'Diagnostics accepted it for someone who was not Ada Patient, ask Yaba Diagnostics to withdraw what it recorded on it, '
-      + 'giving it the reference 9C1B2D3E: it can do so until 28 Nov 2026, whether or not you change this order.')
+      + 'giving it the reference 9C1B2D3E: it can do so until 28 Nov 2026, 10:00, whether or not you change this order.')
     expect(routedChangeWarning(route({ ...done, endedAt: '2026-06-20T08:00:00.000Z', endedKind: 'support', ...until }), 'Ada Patient', true, true))
-      .toMatch(/ask Yaba Diagnostics to withdraw what it sent back, giving it the reference 9C1B2D3E: it can do so until 28 Nov 2026,/)
+      .toMatch(/ask Yaba Diagnostics to withdraw what it sent back, giving it the reference 9C1B2D3E: it can do so until 28 Nov 2026, 10:00,/)
     // Past its date, or reported: only what a change does.
     expect(routedChangeWarning({ ...done, correctableUntil: null }, 'Ada Patient', true, true)).toBe(change)
     // Not served, or no field: as before D17.

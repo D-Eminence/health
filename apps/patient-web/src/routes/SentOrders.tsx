@@ -19,11 +19,19 @@ import { useActionFocus } from './actionFocus'
  */
 
 const DAY = new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeZone: 'Africa/Lagos' })
+const MOMENT = new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Africa/Lagos' })
 
 function day(value: string | null | undefined): string {
   if (!value) return 'an unknown date'
   const parsed = new Date(value)
   return Number.isNaN(parsed.getTime()) ? 'an unknown date' : DAY.format(parsed)
+}
+
+/** A deadline, which is a moment and not the whole day: its day and time in Lagos. */
+function moment(value: string | null | undefined): string {
+  if (!value) return 'an unknown time'
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? 'an unknown time' : MOMENT.format(parsed)
 }
 
 /** A calendar day sent as YYYY-MM-DD, shown as that day wherever the browser is. */
@@ -178,7 +186,7 @@ export function wrongPatientParagraph(route: PatientOrderRoute, full = true, ser
 
 /**
  * "If you haven't been to {B}": while the receiving facility may still correct the order (D17: a `correctableUntil` time),
- * whom to tell, with the reference and the date (CT5); once it can't (null), after something came back and with no
+ * whom to tell, with the reference and the deadline's day and time (CT5); once it can't (null), after something came back and with no
  * report, the ordering facility. Without the field (an earlier backend) the line is shown, as before, while the facility
  * may still work on the order (`stoppable`). Null when nothing is to be said.
  */
@@ -198,9 +206,9 @@ export function haventBeenLine(route: PatientOrderRoute, stoppable: boolean): st
   const reference = route.reference ? `, with the reference ${route.reference}` : ''
   return lab
     ? `If you haven’t been to ${receiving} for this test, tell ${receiving}, ${ordering} or Health ID support straight away`
-      + `${reference}: ${receiving} can correct it until ${day(until)}.`
+      + `${reference}: ${receiving} can correct it until ${moment(until)}.`
     : `If you haven’t been to ${receiving} for this medicine, and no one collected it for you, tell ${receiving}, ${ordering} or `
-      + `Health ID support straight away${reference}: ${receiving} can correct it until ${day(until)}.`
+      + `Health ID support straight away${reference}: ${receiving} can correct it until ${moment(until)}.`
 }
 
 /** What a refused Stop means. */

@@ -237,9 +237,9 @@ describe('the change warning once the late correction is served (D17)', () => {
     await openPrescriptions()
     expect(await screen.findByText('Changing it withdraws it from Medplus Yaba, or cancels it there if Medplus Yaba has accepted it; a '
       + 'cancelled order can’t be resumed there. If Medplus Yaba accepted it for someone who was not Ada Patient, ask Medplus Yaba '
-      + 'to withdraw what it sent back, giving it the reference 9C1B2D3E: it can do so until 19 Apr 2027, whether or not you change '
+      + 'to withdraw what it sent back, giving it the reference 9C1B2D3E: it can do so until 19 Apr 2027, 11:00, whether or not you change '
       + 'this order.')).toBeTruthy()
     expect(screen.getByText('If Ada Patient did not receive this medicine from Medplus Yaba, and no one collected it for them, phone '
-      + 'Medplus Yaba and give it the reference 9C1B2D3E: it can reverse the dispensing until 19 Apr 2027.')).toBeTruthy()
+      + 'Medplus Yaba and give it the reference 9C1B2D3E: it can reverse the dispensing until 19 Apr 2027, 11:00.')).toBeTruthy()
   })
 })

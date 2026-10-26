@@ -335,11 +335,11 @@ describe('a late report, and until when the receiving facility can correct it (D
     renderPortal(<AccessPage />, handler)
     const test = await item('Haemoglobin from General Hospital to Yaba Diagnostics: accepted by Yaba Diagnostics')
     expect(within(test).getByText('If you haven’t been to Yaba Diagnostics for this test, tell Yaba Diagnostics, General Hospital or '
-      + 'Health ID support straight away, with the reference 9C1B2D3E: Yaba Diagnostics can correct it until 19 Apr 2027.')).toBeTruthy()
+      + 'Health ID support straight away, with the reference 9C1B2D3E: Yaba Diagnostics can correct it until 19 Apr 2027, 11:00.')).toBeTruthy()
     const medicine = await item(/^Amoxicillin 500 mg capsules from General Hospital/)
     expect(within(medicine).getByText('If you haven’t been to Yaba Diagnostics for this medicine, and no one collected it for you, '
       + 'tell Yaba Diagnostics, General Hospital or Health ID support straight away, with the reference 9C1B2D3E: Yaba Diagnostics '
-      + 'can correct it until 19 Apr 2027.')).toBeTruthy()
+      + 'can correct it until 19 Apr 2027, 11:00.')).toBeTruthy()
     // Past its date, with no report: tell the ordering facility.
     const past = await item(/^Lipid profile from General Hospital/)
     expect(within(past).getByText('If you haven’t been to Yaba Diagnostics for this test, tell General Hospital.')).toBeTruthy()

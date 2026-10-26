@@ -198,7 +198,8 @@ export function lateReportNotice(route: Pick<OrderRouteSummary, 'effectiveState'
 
 /**
  * What the ordering clinician may do about an order something came back on (D17-5, CL10, CT5; SPEC-FINAL §9.2): phone
- * the receiving facility with the reference, which can withdraw it until the date the answer carries; once it can't
+ * the receiving facility with the reference, which can withdraw it until the time the answer carries (its day and time
+ * in Lagos: the deadline is a moment, not the whole day, as on the receiving facility's own row); once it can't
  * (`correctableUntil: null`), record it in the patient's notes without repeating the value (D17-3). Only for a completed
  * route the receiving facility has not reported, from a backend that serves the late correction (`lateServed`) and says
  * the deadline: null otherwise, as before D17.
@@ -216,10 +217,10 @@ export function routeGuidance(route: Pick<OrderRouteSummary, 'kind' | 'effective
     : `If ${patient} did not receive this medicine from ${facility}, record that in ${patient}’s notes, and tell Health ID support.`
   return route.kind === 'lab_request'
     ? `If ${patient} says they did not give a sample at ${facility}, or you have evidence the sample was someone else’s, phone `
-      + `${facility}${reference}: it can withdraw the result until ${routeDay(until)}. A result that is only unexpected is not a `
+      + `${facility}${reference}: it can withdraw the result until ${routeMoment(until)}. A result that is only unexpected is not a `
       + 'reason: repeat the test.'
     : `If ${patient} did not receive this medicine from ${facility}, and no one collected it for them, phone ${facility}`
-      + `${reference}: it can reverse the dispensing until ${routeDay(until)}.`
+      + `${reference}: it can reverse the dispensing until ${routeMoment(until)}.`
 }
 
 /**
@@ -229,8 +230,8 @@ export function routeGuidance(route: Pick<OrderRouteSummary, 'kind' | 'effective
  * withdrawing a result or dispensing it sent back for the wrong person (item 3, C1, §9.2), so the clinician is asked to
  * have it ended there first: only from a backend that lets that facility end it (`reportServed`; until hid-system 0088
  * ships it can't, and the warning stays as it was, D15). Since D17 (`lateServed`, hid-system 0090) that facility may still
- * withdraw it after the order has changed or ended, until the date the summary carries (`correctableUntil`): the warning
- * then says so, with the reference, whether or not the order has ended; once that date is gone (null), it says only what a
+ * withdraw it after the order has changed or ended, until the time the summary carries (`correctableUntil`, said with its
+ * day and time): the warning then says so, with the reference, whether or not the order has ended; once that date is gone (null), it says only what a
  * change does.
  */
 export function routedChangeWarning(route: (Pick<OrderRouteSummary, 'receivingFacility' | 'effectiveState' | 'endedAt'>
@@ -243,7 +244,7 @@ export function routedChangeWarning(route: (Pick<OrderRouteSummary, 'receivingFa
     if (until === null) return change
     const what = route.effectiveState === 'completed' ? 'what it sent back' : 'what it recorded on it'
     return `${change} If ${name} accepted it for someone who was not ${patient}, ask ${name} to withdraw ${what}, giving it the `
-      + `reference ${route.reference || 'shown with the order'}: it can do so until ${routeDay(until)}, whether or not you `
+      + `reference ${route.reference || 'shown with the order'}: it can do so until ${routeMoment(until)}, whether or not you `
       + 'change this order.'
   }
   const working = reportServed
