@@ -170,11 +170,20 @@ export interface FoundStaffInvitation {
 export interface FacilityOrderRouteSummary {
   facilityId: string
   listed: { value: boolean; byDefault: boolean; reason: string | null; setAt: string | null }
+  /**
+   * Novu since item 4 (hid-system 0089): what the facility is as a destination. `receivingTypes` are the types of its
+   * active laboratory or pharmacy products whose application was approved; `review` is its sign-up's review ('pending',
+   * 'reviewed' or 'released'), else 'governed' (approved by Health ID support), else 'legacy'. An earlier Identity sends
+   * none; read it only through `summaryDestination`.
+   */
+  destination?: { receivingTypes: string[]; review: DestinationReview }
   receivedAcceptedLifetime: number
   receivedPatientsLifetime: number
   counterparts: Array<{ direction: 'sent' | 'received' | string; facilityId: string; facilityName: string | null
     last30Days: Record<string, number> }>
 }
+/** A facility's sign-up review as a destination (C20's `destination.review`, item 4). */
+export type DestinationReview = 'pending' | 'reviewed' | 'released' | 'governed' | 'legacy'
 /** `POST /admin/facilities/:facilityId/order-destination`. */
 export interface OrderDestinationSet { facilityId: string; listed: boolean; setAt: string | null }
 /** One order between facilities, as support finds it by its reference or the patient's Health ID (C21). */
@@ -189,6 +198,12 @@ export interface FoundOrderRoute extends Versioned {
   routeId: string; reference: string; kind: 'lab_request' | 'prescription' | string; effectiveState: string
   orderingFacilityId: string; orderingFacilityName: string; receivingFacilityId: string; receivingFacilityName: string
   createdAt: string | null; acceptedAt: string | null; endedAt: string | null; endedKind: string | null
+  /**
+   * Novu since item 4 (hid-system 0089): when the receiving facility's access ends (null before it was accepted), and
+   * whether support's Close would act at the time of the Find. An earlier Identity sends neither.
+   */
+  accessEndsAt?: string | null
+  closable?: boolean
 }
 /** `POST /admin/order-routes/:routeId/close`. */
 export interface OrderRouteClosed extends Versioned { routeId: string; effectiveState: string }
