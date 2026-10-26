@@ -3,16 +3,16 @@
   "declared": true,
   "backend_contract": "novu-v1",
   "reviewed_by": "D-Eminence",
-  "review_reference": "Backend release backend-40247469255-1-8d760a036c085d43 (D-Eminence/hid-system#116 at 595c044, no migration) deployed identity-api, ehr-api, lab-api and pharmacy-api, finishing 2026-10-26 00:26 UTC with status success. gateway, ocr-api, outreach-api, support-api and notification-api were not redeployed and stay at 0100435, the 0086 release backend-40236737710-1-edd658b1ed90ce69. Browser-facing change since the previous pin: GET /api/v1/lab/order-routes, GET /api/v1/pharmacy/order-routes and support's GET /api/v1/admin/order-routes refuse a healthId query parameter with 400 HEALTH_ID_NOT_ACCEPTED_IN_URL, and support's GET finds by reference only (400 ORDER_ROUTE_LOOKUP_INVALID without one). This frontend sends a Health ID only in the body of the POST .../search routes and refuses one in those GETs' address before sending. No other route, payload or error code changed. Reviewed and approved by the repository owner, D-Eminence, in chat on 2026-10-26.",
+  "review_reference": "Backend release backend-40267598852-1-f9ecce00b93e8a9e (D-Eminence/hid-system#117 at aba7c16, all 13 components, migration 0087_patient_grant_revocation.sql applied first, deployed 2026-10-26 04:59 UTC with status success). Browser-facing change since the previous pin: POST /api/v1/identity/me/consent-grants/:grantId/revoke is served (a patient revokes a grant they gave; break-glass and workforce grants answer 409 CONSENT_COMMAND_CONFLICT), and the patient access history carries breakGlass and patientRevocable, which this frontend already renders (Revoke button, emergency-access label with the corrected sentence). This frontend release also carries the wrong-patient report screens, which stay dormant until the backend answers with a work card version or wrongPatientReports: true. Reviewed and approved by the repository owner, D-Eminence, in chat on 2026-10-26.",
   "backend_commits": {
-    "gateway": "010043573b9aae581ffae958ecf5515ddb0e9c18",
-    "identity-api": "595c044032f056eea2b5ce4cde8cff3630045572",
-    "ehr-api": "595c044032f056eea2b5ce4cde8cff3630045572",
-    "lab-api": "595c044032f056eea2b5ce4cde8cff3630045572",
-    "pharmacy-api": "595c044032f056eea2b5ce4cde8cff3630045572",
-    "ocr-api": "010043573b9aae581ffae958ecf5515ddb0e9c18",
-    "outreach-api": "010043573b9aae581ffae958ecf5515ddb0e9c18",
-    "support-api": "010043573b9aae581ffae958ecf5515ddb0e9c18",
-    "notification-api": "010043573b9aae581ffae958ecf5515ddb0e9c18"
+    "gateway": "aba7c164a61d923995ff9a54a74f35c5980d4510",
+    "identity-api": "aba7c164a61d923995ff9a54a74f35c5980d4510",
+    "ehr-api": "aba7c164a61d923995ff9a54a74f35c5980d4510",
+    "lab-api": "aba7c164a61d923995ff9a54a74f35c5980d4510",
+    "pharmacy-api": "aba7c164a61d923995ff9a54a74f35c5980d4510",
+    "ocr-api": "aba7c164a61d923995ff9a54a74f35c5980d4510",
+    "outreach-api": "aba7c164a61d923995ff9a54a74f35c5980d4510",
+    "support-api": "aba7c164a61d923995ff9a54a74f35c5980d4510",
+    "notification-api": "aba7c164a61d923995ff9a54a74f35c5980d4510"
   }
 }
