@@ -135,9 +135,11 @@ const RECEIVE_ROUTE = `${ORDER_ROUTE_STAFF} Accept needs Idempotency-Key and { e
   + 'wrong tries); a date of birth alone does not lower the 5), _REFERENCE_MISMATCH (another order\'s reference; nothing '
   + 'counted), _ACCEPT_LOCKED, _ORDER_IN_WORK, _NOT_PENDING, _EXPIRED, _DESTINATION_INELIGIBLE, '
   + '_ORDERING_FACILITY_UNAVAILABLE, _PATIENT_DENIED, _HEALTH_ID_REQUIRED; 429 ORDER_ROUTE_ACCEPT_LIMITED. Decline takes '
-  + '{ expectedVersion, reason }. The list takes view (incoming, the default, or recent) and answers { items, '
-  + 'crossFacilityOrders, crossFacilityWork }; its healthId query is deprecated (a Health ID in an address): one '
-  + `patient's orders are found with the search's POST. Before acceptance no row names the patient. ${ORDER_ROUTES_PAUSED}`
+  + '{ expectedVersion, reason }. The list takes view (incoming, the default, or recent) only and answers { items, '
+  + 'crossFacilityOrders, crossFacilityWork }; since hid-system #116 a healthId query is refused 400 '
+  + 'HEALTH_ID_NOT_ACCEPTED_IN_URL before any other check (a Health ID in an address is kept by access logs and browser '
+  + "history): one patient's orders are found with the search's POST. Before acceptance no row names the patient. "
+  + ORDER_ROUTES_PAUSED
 /** P4c review: one patient's incoming (or recent) orders, found by the Health ID in the body, never in an address. */
 const RECEIVE_SEARCH = `${ORDER_ROUTE_STAFF} Body { view?: 'incoming' | 'recent', healthId } (1 to 64; the Health ID is `
   + 'checked, 400 ORDER_ROUTE_INVALID); the same permission, audit row and answer as the list\'s GET: { items, '
@@ -645,15 +647,17 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'unaffected. Body { listed, reason (8 to 500) }; 200 { facilityId, listed, setAt }. 404 ADMIN_FACILITY_NOT_FOUND '
     + '(also a facility without a laboratory or pharmacy product), 409 ORDER_ROUTE_DESTINATION_UNCHANGED.')),
   proposed(r('admin.orderRoutesFind','admin','/api/v1/admin/order-routes',G,false,one('GET','platform.principal.read'),
-    `${ORDER_ROUTES_P4C_NOVU} Audited. Query reference (8 hexadecimal characters) or healthId, exactly one. 200 { items [{ `
+    `${ORDER_ROUTES_P4C_NOVU} Audited. Finds by reference only: query reference (8 hexadecimal characters). 200 { items [{ `
     + 'routeId, reference, kind, version, effectiveState, orderingFacilityId, orderingFacilityName, receivingFacilityId, '
-    + 'receivingFacilityName, createdAt, acceptedAt, endedAt, endedKind }] }, at most 5 by reference, 20 by Health ID. '
-    + '400 ORDER_ROUTE_LOOKUP_INVALID. The healthId query is deprecated (a Health ID in an address): by Health ID, use '
-    + 'admin.orderRoutesSearch.')),
+    + 'receivingFacilityName, createdAt, acceptedAt, endedAt, endedKind }] }, at most 5. 400 ORDER_ROUTE_LOOKUP_INVALID '
+    + '(also without a reference); 400 HEALTH_ID_NOT_ACCEPTED_IN_URL for a healthId query, since hid-system #116, before '
+    + 'the permission check and with no audit row (a Health ID in an address is kept by access logs and browser history): '
+    + 'by Health ID, use admin.orderRoutesSearch.')),
   proposed(r('admin.orderRoutesSearch','admin','/api/v1/admin/order-routes/search',P,false,one('POST','platform.principal.read'),
     `${ORDER_ROUTES_P4C_NOVU} P4c review: finds orders as admin.orderRoutesFind, with the same permissions, audit row `
-    + '(admin.order-routes.find) and answer, from the body { reference } or { healthId } (exactly one), so a Health ID is '
-    + 'in no address. 400 ORDER_ROUTE_LOOKUP_INVALID; an unknown field 400 VALIDATION_FAILED.')),
+    + '(admin.order-routes.find) and answer (at most 5 by reference, 20 by Health ID), from the body { reference } or { '
+    + 'healthId } (exactly one), so a Health ID is in no address. 400 ORDER_ROUTE_LOOKUP_INVALID; an unknown field 400 '
+    + 'VALIDATION_FAILED.')),
   proposed(r('admin.orderRouteClose','admin','/api/v1/admin/order-routes/:routeId/close',P,false,one('POST','platform.facility.manage'),
     `${ORDER_ROUTES_P4C_NOVU} Closes an order between facilities at once: access ends at both, and both and the patient are `
     + 'told. Body { reason (8 to 500) } and If-Match with the version; 200 { routeId, version, effectiveState }. 404 '

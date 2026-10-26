@@ -476,18 +476,21 @@ describe('application boundaries', () => {
         }
       }
     }
-    // The directory needs its kind and words, the attestation its kind; finding an order takes either query.
+    // The directory needs its kind and words, the attestation its kind; support's GET finds an order by its reference.
     expect(() => assertRegisteredBrowserRequest('GET', '/api/v1/identity/order-destinations', { kind: 'laboratory' })).toThrow(BrowserRouteError)
     expect(() => assertRegisteredBrowserRequest('GET', '/api/v1/ehr/order-route-attestation')).toThrow(BrowserRouteError)
-    expect(assertRegisteredBrowserRequest('GET', '/api/v1/admin/order-routes', { healthId: 'HID-7KQ2M9' }).name).toBe('admin.orderRoutesFind')
+    expect(assertRegisteredBrowserRequest('GET', '/api/v1/admin/order-routes', { reference: '9C1B2D3E' }).name).toBe('admin.orderRoutesFind')
     // The static attestation path is not a lab request, and a route's own read is not its accept.
     expect(() => assertRegisteredBrowserRequest('POST', `/api/v1/lab/order-routes/${routeId}`)).toThrow(BrowserRouteError)
     // The searches (P4c review) are POSTs: support's is never read with a GET.
     expect(() => assertRegisteredBrowserRequest('GET', '/api/v1/admin/order-routes/search')).toThrow(BrowserRouteError)
-    // The healthId queries are deprecated in favour of the searches.
+    // Since hid-system #116 the GETs refuse a healthId query: a Health ID goes in the searches' bodies.
     for (const name of ['lab.orderRoutes', 'pharmacy.orderRoutes', 'admin.orderRoutesFind']) {
-      expect(findEndpoint(name)?.note, name).toContain('deprecated')
+      expect(findEndpoint(name)?.note, name).toContain('HEALTH_ID_NOT_ACCEPTED_IN_URL')
+      expect(findEndpoint(name)?.note, name).not.toContain('deprecated')
     }
+    expect(findEndpoint('admin.orderRoutesFind')?.note).not.toContain('20 by Health ID')
+    expect(findEndpoint('admin.orderRoutesSearch')?.note).toContain('20 by Health ID')
     for (const name of ['lab.orderRouteAccept', 'pharmacy.orderRouteAccept']) {
       expect(findEndpoint(name)?.note, name).toContain('_REFERENCE_MISMATCH')
     }
