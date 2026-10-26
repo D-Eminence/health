@@ -175,13 +175,15 @@ export function wrongPatientNotice(route: Pick<OrderRouteSummary, 'kind' | 'effe
  * (the EHR's mirror trigger), withdrawing it before that facility accepts it, or cancelling it there after. While that
  * facility may still work on it (accepted, or completed and not ended), changing it also stops that facility from
  * withdrawing a result or dispensing it sent back for the wrong person (item 3, C1, §9.2), so the clinician is asked to
- * have it ended there first.
+ * have it ended there first: only from a backend that lets that facility end it (`reportServed`; until hid-system 0088
+ * ships it can't, and the warning stays as it was, D15).
  */
 export function routedChangeWarning(route: Pick<OrderRouteSummary, 'receivingFacility' | 'effectiveState' | 'endedAt'>
-  | null | undefined, patient: string): string {
+  | null | undefined, patient: string, reportServed = false): string {
   const name = route?.receivingFacility.name?.trim() || 'the other facility'
   const change = `Changing it withdraws it from ${name}, or cancels it there if ${name} has accepted it; a cancelled order can’t be resumed there.`
-  const working = Boolean(route && (route.effectiveState === 'accepted' || route.effectiveState === 'completed') && !route.endedAt)
+  const working = reportServed
+    && Boolean(route && (route.effectiveState === 'accepted' || route.effectiveState === 'completed') && !route.endedAt)
   return working ? `${change} If ${name} accepted it for someone who was not ${patient}, ask ${name} to end it from its work `
     + `list first: once you change this order, ${name} can no longer withdraw a result or dispensing it sent back.` : change
 }
@@ -392,14 +394,16 @@ export const WRONG_PATIENT_REASONS: ReadonlyArray<{ value: OrderRouteWrongPatien
 
 /**
  * The Accepted panel's first line (item 3, C8, §9.1): the patient the order names, to check against the person at the
- * counter before any work, now that the receiver first sees who it is.
+ * counter before any work, now that the receiver first sees who it is. "If they are not, end this order now" only from a
+ * backend that lets the receiver end it (`reportServed`; until hid-system 0088 ships nobody can, D15).
  */
-export function acceptedCheckText(patient: Pick<OrderRoutePatient, 'fullName' | 'dateOfBirth'> | null | undefined): string {
+export function acceptedCheckText(patient: Pick<OrderRoutePatient, 'fullName' | 'dateOfBirth'> | null | undefined,
+  reportServed = false): string {
   const who = patient?.fullName?.trim()
     ? `${patient.fullName.trim()}${patient.dateOfBirth ? `, born ${calendarDate(patient.dateOfBirth)}` : ''}`
     : 'the order’s patient, named in the work list below'
-  return `Check that the person in front of you is ${who}, before you take a sample or hand over any medicine. If they are `
-    + 'not, end this order now.'
+  return `Check that the person in front of you is ${who}, before you take a sample or hand over any medicine.`
+    + (reportServed ? ' If they are not, end this order now.' : '')
 }
 
 /** Beside Prepare accession on work from another facility (item 3, C8). */

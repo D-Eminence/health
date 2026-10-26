@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import { Laboratory, Pharmacy } from '../Operations'
 import { INCOMING_REFRESH_MS } from '../IncomingOrders'
+import { forgetWrongPatientServed, learnWrongPatientServed } from '../../../wrongPatientServed'
 
 /**
  * Orders other facilities sent here, waiting to be accepted (Novu, P4c, SPEC-FINAL §4.1, §13.3): a preview without the
@@ -49,6 +50,7 @@ beforeEach(() => {
   api.labWorkItems.mockResolvedValue({ items: [], crossFacilityOrders: true, crossFacilityWork: true })
   api.pharmacyWorkItems.mockResolvedValue({ items: [], crossFacilityOrders: true, crossFacilityWork: true })
   routes.incoming.mockResolvedValue({ items: [incomingLab()], crossFacilityOrders: true, crossFacilityWork: true })
+  forgetWrongPatientServed()
 })
 afterEach(() => { vi.unstubAllEnvs(); vi.useRealTimers() })
 
@@ -390,6 +392,35 @@ describe('the Accepted panel: this isn’t the order’s patient', () => {
   beforeEach(() => {
     routes.accept.mockResolvedValue(ACCEPTED)
     routes.reportWrongPatient.mockResolvedValue(ENDED)
+    // A backend that serves the report (hid-system 0088): its work lists' cards carry the route's version (D15).
+    learnWrongPatientServed(true)
+  })
+
+  it('asks only for the check on today’s backend: no button, and no “end this order now” (D15)', async () => {
+    forgetWrongPatientServed()
+    // Today's work lists: no card carries the route's version, so nothing has said the receiver can end an order.
+    const incoming = await acceptAt(openLab)
+    expect(within(incoming).getByText('Check that the person in front of you is Tunde Bello, born 12 Mar 1985, before you take '
+      + 'a sample or hand over any medicine.')).toBeTruthy()
+    expect(within(incoming).queryByText(/end this order now/)).toBeNull()
+    expect(within(incoming).queryByRole('button', { name: 'This isn’t the order’s patient' })).toBeNull()
+    expect(within(incoming).getByText('Accepted: Haemoglobin.')).toBeTruthy()
+  })
+
+  it('offers it once the work list carries the route’s version, as only a backend with the report sends', async () => {
+    forgetWrongPatientServed()
+    const routedWork = { id: 'w1', patientId: 'a0000000-0000-4000-8000-0000004f9c2e', version: 1, status: 'accepted',
+      testName: 'Haemoglobin', accessionId: null, accessionNumber: null, acceptedAt: '2026-10-21T10:00:00.000Z',
+      orderRoute: { id: ROUTE, version: 2, reference: '9C1B2D3E', effectiveState: 'accepted', access: 'work',
+        orderingFacilityName: 'General Hospital', ordererName: 'Dr Ade Okon', endedKind: null },
+      patient: { fullName: 'Tunde Bello', sex: 'male', dateOfBirth: '1985-03-12', healthIdLast4: '7KQ2' } }
+    const incoming = await acceptAt(() => {
+      openLab()
+      api.labWorkItems.mockResolvedValue({ items: [routedWork], crossFacilityOrders: true, crossFacilityWork: true })
+    })
+    expect(await within(incoming).findByRole('button', { name: 'This isn’t the order’s patient' })).toBeTruthy()
+    expect(within(incoming).getByText('Check that the person in front of you is Tunde Bello, born 12 Mar 1985, before you take '
+      + 'a sample or hand over any medicine. If they are not, end this order now.')).toBeTruthy()
   })
 
   it('leads with the check that the person is the patient, then the button, then the form', async () => {

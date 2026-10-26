@@ -10,6 +10,7 @@ import { BUSY, focusIsLost, UNAVAILABLE, useFocusById } from '../focus'
 import { useFieldProblems } from '../useFieldProblems'
 import { RevisionList } from '../labRevisions'
 import { usesNovuBackend } from '../../backendContract'
+import { learnWrongPatientServed } from '../../wrongPatientServed'
 import { BETWEEN_FACILITIES } from '../betweenFacilities'
 import { selfServiceReview, selfServiceType } from '../staffAccess'
 import {
@@ -651,6 +652,16 @@ function useReceiving(facility: Facility | undefined, service: 'lab' | 'pharmacy
   return { mounted: receiving !== 'no', receives: receiving === 'yes' || (receiving === 'unknown' && evidence), onFound }
 }
 
+/**
+ * A work list whose cards carry the route's version comes from a backend that lets this facility end an order it accepted
+ * for the wrong person (item 3, hid-system 0088; an earlier one sends none): the Accepted panel may then offer it (D15).
+ */
+function useLearnWrongPatientServed(items: ReadonlyArray<{ orderRoute?: { version?: unknown } }> | null) {
+  useEffect(() => {
+    if (items?.some(item => typeof item.orderRoute?.version === 'number')) learnWrongPatientServed(true)
+  }, [items])
+}
+
 export function Laboratory() {
   const { facilityId, permissions, facility } = useFacilityAccess()
   const canRead = permissions.includes('lab.work-item.read')
@@ -666,6 +677,7 @@ export function Laboratory() {
   // Orders other facilities send here (Novu, P4c): received by laboratory scientists (lab.order-route.receive), and only
   // at a laboratory: a hospital's or clinic's own laboratory is never sent any (useReceiving).
   const { mounted, receives, onFound } = useReceiving(facility, 'lab', list.items)
+  useLearnWrongPatientServed(list.items)
   // An order ended as accepted for the wrong person (item 3): said until closed; the list is read again, and it goes.
   const [ended, setEnded] = useState<{ facilityId: string; ending: WrongPatientEnding } | null>(null)
   if (!facilityId || !canRead) return <EmptyState titleAs="h1" title="Laboratory unavailable" description="This facility membership needs lab work-item read permission." />
@@ -778,6 +790,7 @@ export function Pharmacy() {
   // Prescriptions other facilities send here (Novu, P4c): received by pharmacists (pharmacy.order-route.receive), and
   // only at a pharmacy: a hospital's or clinic's own pharmacy is never sent any (useReceiving).
   const { mounted, receives, onFound } = useReceiving(facility, 'pharmacy', list.items)
+  useLearnWrongPatientServed(list.items)
   // A prescription ended as accepted for the wrong person (item 3): said until closed; the list is read again, and it goes.
   const [ended, setEnded] = useState<{ facilityId: string; ending: WrongPatientEnding } | null>(null)
   if (!facilityId || !canRead) return <EmptyState titleAs="h1" title="Pharmacy unavailable" description="This facility membership needs pharmacy work-item read permission." />

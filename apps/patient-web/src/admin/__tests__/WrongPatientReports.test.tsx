@@ -242,6 +242,20 @@ describe('wrong-patient reports elsewhere in the console', () => {
     await waitFor(() => expect(screen.queryByText(/to review|Loading…/)).toBeNull())
     expect(screen.queryByRole('region', { name: 'Waiting for attention' })?.textContent ?? '').not.toMatch(/Wrong-patient/)
     expect(document.body.textContent).not.toMatch(/not available from this Identity/)
+    // Nor is the page listed in the navigation any more (D15: dormant until the backend serves it).
+    await waitFor(() => expect(screen.queryAllByRole('link', { name: 'Wrong-patient reports' })).toHaveLength(0))
+    expect(screen.getAllByRole('navigation', { name: 'Platform areas' })).toHaveLength(2)
+  })
+
+  it('keeps the page listed in the navigation where the backend serves the list', async () => {
+    serve(READER)
+    await openAt('/admin/overview')
+    const attention = await screen.findByRole('region', { name: 'Waiting for attention' })
+    await within(attention).findByText(/to review/)
+    // The sidebar and the narrow-screen navigation both list it.
+    const navigations = screen.getAllByRole('navigation', { name: 'Platform areas' })
+    expect(navigations).toHaveLength(2)
+    for (const navigation of navigations) expect(within(navigation).getByRole('link', { name: 'Wrong-patient reports' })).toBeTruthy()
   })
 
   it('counts a facility’s reports of the last 30 days on its page, only when its orders are shown', async () => {

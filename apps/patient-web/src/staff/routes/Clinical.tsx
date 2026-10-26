@@ -16,6 +16,7 @@ import { GroupError, useFieldProblems } from '../useFieldProblems'
 import { staffSessionGeneration, untilStaffSessionReady } from '../session'
 import { RevisionList, skipsVersions } from '../labRevisions'
 import { routedChangeWarning, routedElsewhere, sendRefusal, withdrawRefusal } from '../orderRoutes'
+import { learnWrongPatientServed, useWrongPatientServed } from '../../wrongPatientServed'
 import { choiceProblem, NO_DESTINATION, OrderDestinationFields, OrderRoutePanel, savedNotSent, SendToFacility, type DestinationChoice,
   type RouteContext } from './OrderRoutes'
 
@@ -1187,6 +1188,9 @@ function linkedOrder(state: unknown): LinkedOrder | null {
 export function Clinical() {
   const { state, activePatient, setActivePatient } = useStaff()
   const location = useLocation()
+  // Whether the receiving laboratory or pharmacy can end an order it accepted for the wrong person (item 3, hid-system
+  // 0088): only then does a routed order's change warning ask for that first (D15).
+  const wrongPatientServed = useWrongPatientServed() === true
   const facility = state.status === 'ready' ? state.session.actor.facility : undefined
   const permissions = facility?.permissions ?? []
   const [encounters, setEncounters] = useState<Encounter[]>([])
@@ -1315,6 +1319,8 @@ export function Clinical() {
       if (sequence !== recordLoad.current) return
       setRecords(result.items); setRecordsFor(scope); setRecordPages({ scope, cursors: FIRST_PAGE, next: result.nextCursor ?? null })
       setOrdersOpen({ scope, open: result.crossFacilityOrders === true })
+      // Item 3: a backend that lets the receiver end an order accepted for the wrong person says so (D15).
+      if (result.wrongPatientReports === true) learnWrongPatientServed(true)
     })
       .catch(caught => { if (sequence === recordLoad.current) setError(caught instanceof Error ? caught.message : 'Records could not be loaded.') })
       .finally(() => { if (sequence === recordLoad.current) setRecordsLoading(false) })
@@ -1413,6 +1419,7 @@ export function Clinical() {
       recordRequested.current = { scope, cursors: shown }
       setRecords(page.items); setRecordsFor(scope); setRecordPages({ scope, cursors: shown, next: page.nextCursor ?? null })
       setOrdersOpen({ scope, open: page.crossFacilityOrders === true })
+      if (page.wrongPatientReports === true) learnWrongPatientServed(true)
       setRecordNotice(restarted ? { scope, text: RESTARTED, alert: false } : null)
       return page.items
     } catch (caught) {
@@ -1796,7 +1803,7 @@ export function Clinical() {
           onChanged={async () => { await loadRecords('clinical-notes', 'shown', true) }} />}
         {activeTab === 'prescriptions' && canMutate && permissions.includes('ehr.prescription.write') && (prescriptionTransitions[String(record.status)]?.length ?? 0) > 0 &&
           <StatusActionForm key={`${record.id}-${record.rowVersion}`} id={`prescription-${record.id}`} title="Prescription status" choices={prescriptionTransitions[String(record.status)]!}
-            warning={routedElsewhere(orderRouteOf(record)) ? routedChangeWarning(orderRouteOf(record), routeContext.patient)
+            warning={routedElsewhere(orderRouteOf(record)) ? routedChangeWarning(orderRouteOf(record), routeContext.patient, wrongPatientServed)
               : record.status === 'active' || record.status === 'on_hold' ? PHARMACY_NOT_TOLD : undefined}
             disabled={recordsLoading} onChange={(status, reason) => changeRecordStatus(record, 'prescriptions', status, reason)} />}
         {activeTab === 'prescriptions' && record.status === 'active' && canMutate && permissions.includes('pharmacy.work-item.accept') && !routedElsewhere(orderRouteOf(record)) &&
@@ -1807,7 +1814,7 @@ export function Clinical() {
             disabled={recordsLoading} onUpdate={(changes, reason) => updateDiagnosis(record, changes, reason)} />}
         {activeTab === 'lab-requests' && canMutate && permissions.includes('ehr.lab-request.write') && labChoices(record).length > 0 &&
           <StatusActionForm key={`${record.id}-${String(record.rowVersion)}`} id={`lab-request-${record.id}`} title="Lab request status" choices={labChoices(record)}
-            warning={routedElsewhere(orderRouteOf(record)) ? routedChangeWarning(orderRouteOf(record), routeContext.patient) : undefined}
+            warning={routedElsewhere(orderRouteOf(record)) ? routedChangeWarning(orderRouteOf(record), routeContext.patient, wrongPatientServed) : undefined}
             disabled={recordsLoading} onChange={(status, reason) => changeRecordStatus(record, 'lab-requests', status, reason)} />}
         {activeTab === 'lab-requests' && canMutate && permissions.includes('ehr.lab-request.write') && LAB_NOT_TOLD[String(record.status)] && !routedElsewhere(orderRouteOf(record)) &&
           <p className="staff-muted">{LAB_NOT_TOLD[String(record.status)]}</p>}

@@ -4,6 +4,7 @@ import { adminApi, type AdminActor, type FacilityOrderRouteSummary, type FoundOr
 import { failure, isProblem } from './problems'
 import { Page, ResourceView, Table, date, has, useGovernedSubmit, useResource } from './ui'
 import { FacilityWrongPatientCount, LATE_CASE_NOTE } from './WrongPatientReports'
+import { learnWrongPatientServed, useWrongPatientServed } from '../wrongPatientServed'
 
 /**
  * Support's tools for orders between facilities (Novu, P4c, SPEC-FINAL §8.7 C20-C23, §13.6): a facility's summary and
@@ -286,7 +287,12 @@ export function OrderRoutesPage({ actor }: { actor: AdminActor }) {
 
   async function find(next: { reference: string } | { healthId: string }) {
     setBusy(true); setError('')
-    try { setFound((await adminApi.findOrderRoutes(next)).items); setLookup(next) }
+    try {
+      const answer = await adminApi.findOrderRoutes(next)
+      // Item 3: an Identity that lets a laboratory or pharmacy end an order accepted for the wrong person says so (D15).
+      learnWrongPatientServed(answer.wrongPatientReports === true)
+      setFound(answer.items); setLookup(next)
+    }
     catch (caught) {
       setFound(null)
       setError(isProblem(caught, 'ORDER_ROUTE_LOOKUP_INVALID') ? LOOKUP_INVALID : failure(caught, 'Orders could not be found. Try again.'))
@@ -365,6 +371,9 @@ export function OrderRoutesPage({ actor }: { actor: AdminActor }) {
 }
 
 function CloseForm({ route, onDone }: { route: FoundOrderRoute; onDone: (outcome: CloseOutcome) => void }) {
+  // Support is sent to the laboratory or pharmacy first only where it can end the order (item 3, hid-system 0088): until
+  // then Close is the remedy, and the form must not discourage it (D15).
+  const wrongPatientServed = useWrongPatientServed() === true
   const [reason, setReason] = useState('')
   const [confirmed, setConfirmed] = useState(false)
   const governed = useGovernedSubmit()
@@ -395,8 +404,9 @@ function CloseForm({ route, onDone }: { route: FoundOrderRoute; onDone: (outcome
         aria-describedby={`${id}-hint`} />
       <small id={`${id}-hint`} className="admin-note">8 to 500 characters, kept in the audit log. For example: “The patient says they
         never agreed to send it there.”</small>
-      <p className="admin-note">If a laboratory or pharmacy accepted it for the wrong person, ask them to end it from their work list
-        instead: only they can withdraw a result or dispensing they sent back. If you close it first, they can’t.</p>
+      {wrongPatientServed && <p className="admin-note">If a laboratory or pharmacy accepted it for the wrong person, ask them to end it
+        from their work list instead: only they can withdraw a result or dispensing they sent back. If you close it first, they
+        can’t.</p>}
       <p className="admin-note">{LATE_CASE_NOTE}</p>
       <label className="admin-checkbox"><input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} /> I
         understand that closing can’t be undone.</label>

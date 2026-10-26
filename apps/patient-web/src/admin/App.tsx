@@ -24,6 +24,7 @@ import {
   clearSessionWindow, currentSessionWindow, onSessionEnded, onSessionWindow, reportSessionEnded, type SessionEndReason,
 } from './session-window'
 import { isServed, navigationItemFor, visibleNavigation } from './navigation'
+import { useWrongPatientServed } from '../wrongPatientServed'
 import { AdminSignIn } from './SignIn'
 import { NovuAdminSignIn } from './NovuSignIn'
 import { usesNovuBackend } from '../backendContract'
@@ -81,6 +82,8 @@ function useAreaTitle() {
 }
 
 export function App() {
+  // The sidebar lists support's wrong-patient reports only while no answer has said the backend lacks them (item 3).
+  useWrongPatientServed()
   const [session, setSession] = useState<AdminSession | null>(null)
   const [checking, setChecking] = useState(true)
   const [checkError, setCheckError] = useState<string | null>(null)

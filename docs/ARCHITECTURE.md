@@ -476,7 +476,16 @@ lists the reports (`GET /admin/wrong-patient-reports`, flagged first), marks
 one reviewed (`If-Match`, one or more actions, optionally removing the
 reporter's note), and counts them on the Overview and a facility's page. Each
 new read answers 404 on today's backend and then shows nothing; the console's
-page says it is not available yet.
+page says it is not available yet. The website stays dormant until the
+backend says it serves the report (`wrongPatientServed.ts`): a work list's card
+carrying the route's numeric `version`, `wrongPatientReports: true` on the
+EHR's lab-request and prescription pages and on support's order lookup, or an
+answer from one of the new reads. Until then the Accepted panel asks only for
+the check, with no button and no "end this order now"; the change warning and
+support's Close form keep their earlier words, so nobody is sent to a
+laboratory or pharmacy that cannot end the order, nor away from the
+clinician's change or support's Close; and the console stops listing the
+reports page once a read answers 404.
 A staff sign-in on a product host lands on the Overview, not the host's own
 page, when the working facility cannot use that page (`staff/navigation.ts`).
 The platform console refuses the platform enrolment of an

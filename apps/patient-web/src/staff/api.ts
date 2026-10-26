@@ -1701,9 +1701,10 @@ export const staffApi = {
     input: { expectedRowVersion: number; changeReason: string; status: string; endedAt?: string }) =>
     client.request<Encounter>({ method: 'PATCH', path: encounterPath(patientId, encounterId), body: input,
       headers: facilityHeaders(facilityId) }),
-  // Novu since P4c a lab request or prescription page also says whether orders between facilities are on.
+  // Novu since P4c a lab request or prescription page also says whether orders between facilities are on; with the
+  // wrong-patient report (item 3, hid-system 0088) it also answers wrongPatientReports: true (an earlier backend, nothing).
   records: (facilityId: string, patientId: string, encounterId: string, kind: RecordKind, page: PageRequest = {}) =>
-    client.get<Page<ClinicalRecord> & { crossFacilityOrders?: boolean }>(`${encounterPath(patientId, encounterId)}/${kind}`, { ...pageQuery(page), headers: facilityHeaders(facilityId) }),
+    client.get<Page<ClinicalRecord> & { crossFacilityOrders?: boolean; wrongPatientReports?: boolean }>(`${encounterPath(patientId, encounterId)}/${kind}`, { ...pageQuery(page), headers: facilityHeaders(facilityId) }),
   createRecord: (facilityId: string, patientId: string, encounterId: string, kind: RecordKind, input: object, idempotencyKey?: string) =>
     client.post<SavedRecord>(`${encounterPath(patientId, encounterId)}/${kind}`, input,
       { headers: { ...facilityHeaders(facilityId), ...keyHeaders(idempotencyKey) } }),

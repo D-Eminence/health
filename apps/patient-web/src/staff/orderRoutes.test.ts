@@ -172,14 +172,23 @@ describe('an order ended as accepted for the wrong person', () => {
       + 'cancelled order can’t be resumed there.'
     const first = ' If Yaba Diagnostics accepted it for someone who was not Ada Patient, ask Yaba Diagnostics to end it from its '
       + 'work list first: once you change this order, Yaba Diagnostics can no longer withdraw a result or dispensing it sent back.'
-    expect(routedChangeWarning(route({ effectiveState: 'accepted' }), 'Ada Patient')).toBe(change + first)
-    expect(routedChangeWarning(route({ effectiveState: 'completed' }), 'Ada Patient')).toBe(change + first)
+    expect(routedChangeWarning(route({ effectiveState: 'accepted' }), 'Ada Patient', true)).toBe(change + first)
+    expect(routedChangeWarning(route({ effectiveState: 'completed' }), 'Ada Patient', true)).toBe(change + first)
     // Not while it waits, nor once it ended (support, the window, or this report): the receiver can no longer withdraw.
-    expect(routedChangeWarning(route(), 'Ada Patient')).toBe(change)
-    expect(routedChangeWarning(route({ effectiveState: 'completed', endedAt: '2026-10-23T10:00:00.000Z', endedKind: 'support' }), 'Ada Patient')).toBe(change)
-    expect(routedChangeWarning(route({ effectiveState: 'cancelled', endedKind: 'wrong_patient' }), 'Ada Patient')).toBe(change)
-    expect(routedChangeWarning(null, 'Ada Patient')).toBe('Changing it withdraws it from the other facility, or cancels it there if '
+    expect(routedChangeWarning(route(), 'Ada Patient', true)).toBe(change)
+    expect(routedChangeWarning(route({ effectiveState: 'completed', endedAt: '2026-10-23T10:00:00.000Z', endedKind: 'support' }), 'Ada Patient', true)).toBe(change)
+    expect(routedChangeWarning(route({ effectiveState: 'cancelled', endedKind: 'wrong_patient' }), 'Ada Patient', true)).toBe(change)
+    expect(routedChangeWarning(null, 'Ada Patient', true)).toBe('Changing it withdraws it from the other facility, or cancels it there if '
       + 'the other facility has accepted it; a cancelled order can’t be resumed there.')
+  })
+
+  it('keeps the earlier change warning until the backend lets the receiver end an order (D15)', () => {
+    // Today's backend: the receiver can't end it, so the clinician is not sent to it, and changing the order stays the way
+    // to stop it there.
+    const change = 'Changing it withdraws it from Yaba Diagnostics, or cancels it there if Yaba Diagnostics has accepted it; a '
+      + 'cancelled order can’t be resumed there.'
+    expect(routedChangeWarning(route({ effectiveState: 'accepted' }), 'Ada Patient')).toBe(change)
+    expect(routedChangeWarning(route({ effectiveState: 'completed' }), 'Ada Patient', false)).toBe(change)
   })
 
   it('says each refusal of the report in the receiver’s words, and when to read the order again', () => {
@@ -254,8 +263,11 @@ describe('an order ended as accepted for the wrong person', () => {
   })
 
   it('asks the receiver to check the person against the patient before any work (C8)', () => {
-    expect(acceptedCheckText({ fullName: 'Tunde Bello', dateOfBirth: '1985-03-12' })).toBe('Check that the person in front of you '
+    expect(acceptedCheckText({ fullName: 'Tunde Bello', dateOfBirth: '1985-03-12' }, true)).toBe('Check that the person in front of you '
       + 'is Tunde Bello, born 12 Mar 1985, before you take a sample or hand over any medicine. If they are not, end this order now.')
+    // Until the backend lets the receiver end it (D15), the check stays, without sending them to an action nobody has.
+    expect(acceptedCheckText({ fullName: 'Tunde Bello', dateOfBirth: '1985-03-12' })).toBe('Check that the person in front of you '
+      + 'is Tunde Bello, born 12 Mar 1985, before you take a sample or hand over any medicine.')
     expect(acceptedCheckText(undefined)).toMatch(/^Check that the person in front of you is the order’s patient, named in the work list below,/)
     expect(sampleCheckText('Tunde Bello')).toBe('Check that the person is Tunde Bello before you take a sample.')
     expect(handOverCheckText('Tunde Bello')).toBe('Check that the person is Tunde Bello, or is collecting for them, before you hand anything over.')

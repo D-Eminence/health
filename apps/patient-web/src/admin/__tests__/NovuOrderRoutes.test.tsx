@@ -200,16 +200,36 @@ describe('orders between facilities in the Novu console', () => {
     expect(row.textContent).not.toMatch(/_/)
   })
 
+  const LATE_CASE = 'If a patient or clinician tells you a result or dispensing went to the wrong person and the facility can no '
+    + 'longer end the order, ask the ordering clinician to record in the patient’s notes that it was not theirs, and refer it to '
+    + 'the data protection officer the same day.'
+  const ASK_THEM_FIRST = 'If a laboratory or pharmacy accepted it for the wrong person, ask them to end it from their work list '
+    + 'instead: only they can withdraw a result or dispensing they sent back. If you close it first, they can’t.'
+
   it('tells support, where it closes an order, to have a facility that served the wrong person end it first (item 3, C1, C7)', async () => {
-    serve(SUPPORT)
+    // An Identity with the wrong-patient report (hid-system 0088) says so in the lookup's answer.
+    serve(SUPPORT, { 'GET /api/v1/admin/order-routes': () => json({ items: [FOUND], wrongPatientReports: true }) })
     await openAt('/admin/order-routes')
     const row = await findByReference()
     fireEvent.click(within(row).getByText('Close', { selector: 'summary' }))
-    expect(within(row).getByText('If a laboratory or pharmacy accepted it for the wrong person, ask them to end it from their work '
-      + 'list instead: only they can withdraw a result or dispensing they sent back. If you close it first, they can’t.')).toBeTruthy()
-    expect(within(row).getByText('If a patient or clinician tells you a result or dispensing went to the wrong person and the facility '
-      + 'can no longer end the order, ask the ordering clinician to record in the patient’s notes that it was not theirs, and refer it '
-      + 'to the data protection officer the same day.')).toBeTruthy()
+    expect(within(row).getByText(ASK_THEM_FIRST)).toBeTruthy()
+    expect(within(row).getByText(LATE_CASE)).toBeTruthy()
+    // The sidebar and the narrow-screen navigation both list it.
+    expect(screen.getAllByRole('link', { name: 'Wrong-patient reports' })).toHaveLength(2)
+  })
+
+  it('keeps Close the remedy on an Identity without the wrong-patient report, and stops listing its page (D15)', async () => {
+    // Today's Identity: no laboratory or pharmacy can end an accepted order, so support is not sent to one, and closing
+    // stays the way to end its access.
+    serve(SUPPORT)
+    await openAt('/admin/order-routes')
+    expect(await screen.findAllByRole('link', { name: 'Wrong-patient reports' })).toHaveLength(2)
+    const row = await findByReference()
+    fireEvent.click(within(row).getByText('Close', { selector: 'summary' }))
+    expect(within(row).queryByText(ASK_THEM_FIRST)).toBeNull()
+    expect(within(row).queryByText(/end it from their work list/)).toBeNull()
+    expect(within(row).getByText(LATE_CASE)).toBeTruthy()
+    await waitFor(() => expect(screen.queryAllByRole('link', { name: 'Wrong-patient reports' })).toHaveLength(0))
   })
 
   it('offers no Close without platform.facility.manage', async () => {

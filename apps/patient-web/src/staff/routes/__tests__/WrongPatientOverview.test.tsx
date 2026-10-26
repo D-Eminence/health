@@ -3,6 +3,7 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import { Dashboard } from '../Dashboard'
+import { forgetWrongPatientServed, wrongPatientServed } from '../../../wrongPatientServed'
 
 /**
  * The ordering facility's Overview card (item 3, owner decision D10's alternative (a), C28): orders sent from this
@@ -43,6 +44,7 @@ beforeEach(() => {
   staff.activePatient = null
   api.listAccessRequests.mockResolvedValue([])
   routes.sentWrongPatient.mockResolvedValue(EMPTY)
+  forgetWrongPatientServed()
 })
 afterEach(() => { vi.unstubAllEnvs() })
 
@@ -126,6 +128,15 @@ describe('the Overview card of orders accepted for the wrong person', () => {
     await waitFor(() => expect(routes.sentWrongPatient).toHaveBeenCalled())
     await screen.findByRole('link', { name: /Clinical record/ })
     expect(screen.queryByRole('heading', { name: 'Orders accepted for the wrong person' })).toBeNull()
+  })
+
+  it('tells the rest of the page whether the backend serves the wrong-patient report (D15)', async () => {
+    open()
+    await waitFor(() => expect(wrongPatientServed()).toBe(true))
+    forgetWrongPatientServed()
+    routes.sentWrongPatient.mockRejectedValue(new HidApiError(404, 'Cannot GET', { code: 'NOT_FOUND' }))
+    open()
+    await waitFor(() => expect(wrongPatientServed()).toBe(false))
   })
 
   it('says it could not be loaded when the read fails', async () => {

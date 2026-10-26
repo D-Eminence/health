@@ -12,6 +12,7 @@ import { usesNovuBackend } from '../../backendContract'
 import { isHidApiError } from '@hid/http'
 import { roleLabels } from '../staffAccess'
 import { orderWord, receivingHere, routeDay } from '../orderRoutes'
+import { learnWrongPatientServed } from '../../wrongPatientServed'
 
 const modules = [
   { title: 'Patient access', to: '/provider/patients', permission: 'identity.patient.read', detail: 'Look up a Health ID after consent, patient PIN, or emergency authorization.' },
@@ -104,8 +105,16 @@ function WrongPatientOrdersCard({ facilityId, facilityName }: { facilityId: stri
     let active = true
     setAnswer(null)
     void orderRoutesApi.sentWrongPatient(facilityId).then(
-      read => { if (active) setAnswer(read && typeof read === 'object' ? read : 'failed') },
-      caught => { if (active) setAnswer(isHidApiError(caught) && caught.status === 404 ? 'missing' : 'failed') })
+      read => {
+        // The backend serves the wrong-patient report (item 3): its guidance may show elsewhere too (D15).
+        learnWrongPatientServed(true)
+        if (active) setAnswer(read && typeof read === 'object' ? read : 'failed')
+      },
+      caught => {
+        const missing = isHidApiError(caught) && caught.status === 404
+        if (missing) learnWrongPatientServed(false)
+        if (active) setAnswer(missing ? 'missing' : 'failed')
+      })
     return () => { active = false }
   }, [facilityId])
   if (answer === null || answer === 'missing') return null

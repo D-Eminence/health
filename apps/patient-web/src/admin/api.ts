@@ -178,6 +178,13 @@ export interface FacilityOrderRouteSummary {
 /** `POST /admin/facilities/:facilityId/order-destination`. */
 export interface OrderDestinationSet { facilityId: string; listed: boolean; setAt: string | null }
 /** One order between facilities, as support finds it by its reference or the patient's Health ID (C21). */
+/**
+ * Support's lookup (C21). With the wrong-patient report (item 3, hid-system 0088) Identity also answers
+ * `wrongPatientReports: true`: a laboratory or pharmacy can then end an order it accepted for the wrong person, and the
+ * Close form asks support to have it ended there first. An earlier Identity sends no such field (D15).
+ */
+export interface FoundOrderRoutes { items: FoundOrderRoute[]; wrongPatientReports?: boolean }
+
 export interface FoundOrderRoute extends Versioned {
   routeId: string; reference: string; kind: 'lab_request' | 'prescription' | string; effectiveState: string
   orderingFacilityId: string; orderingFacilityName: string; receivingFacilityId: string; receivingFacilityName: string
@@ -826,9 +833,9 @@ export const adminApi = {
    */
   findOrderRoutes(lookup: { reference: string } | { healthId: string }, signal?: AbortSignal) {
     const read = 'healthId' in lookup
-      ? request<{ items: FoundOrderRoute[] }>('/api/v1/admin/order-routes/search', { method: 'POST', signal,
+      ? request<FoundOrderRoutes>('/api/v1/admin/order-routes/search', { method: 'POST', signal,
         body: { healthId: lookup.healthId } })
-      : request<{ items: FoundOrderRoute[] }>('/api/v1/admin/order-routes', { signal, query: { reference: lookup.reference } })
+      : request<FoundOrderRoutes>('/api/v1/admin/order-routes', { signal, query: { reference: lookup.reference } })
     return orderRoutesRead(read, 'Orders between facilities can’t be found from this Identity.')
   },
   /** Closes an order between facilities at once (P4c): If-Match with its version and a reason of 8 to 500. */

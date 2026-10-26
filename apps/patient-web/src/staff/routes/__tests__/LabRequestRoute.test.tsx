@@ -3,6 +3,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import { Clinical } from '../Clinical'
+import { forgetWrongPatientServed } from '../../../wrongPatientServed'
 
 /**
  * Sending a lab request to a laboratory at another facility from the clinical record (Novu, P4c, SPEC-FINAL §3.5,
@@ -59,6 +60,8 @@ const labRequest = (status: string, orderRoute: unknown = null, rowVersion = '2'
 
 let records: unknown[]
 let ordersOn: boolean | undefined
+/** Whether the page says the receiver can end an order accepted for the wrong person (hid-system 0088; item 3, D15). */
+let reportsServed: boolean
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -67,12 +70,14 @@ beforeEach(() => {
   staff.permissions = DOCTOR
   records = []
   ordersOn = true
+  reportsServed = false
+  forgetWrongPatientServed()
   api.lookupPatient.mockResolvedValue(lookup)
   api.consentStatus.mockResolvedValue({ patientId: PATIENT, facilityId: 'facility-1', purpose: 'direct-care', readAllowed: true, writeAllowed: true })
   api.encounters.mockResolvedValue({ items: [{ id: ENCOUNTER, patientId: PATIENT, facilityId: 'facility-1',
     encounterType: 'ambulatory', status: 'in_progress', startedAt: '2026-10-10T08:00:00.000Z', chiefComplaint: null, rowVersion: 1 }], nextCursor: null })
   api.records.mockImplementation(async () => ({ items: records, nextCursor: null,
-    ...(ordersOn === undefined ? {} : { crossFacilityOrders: ordersOn }) }))
+    ...(ordersOn === undefined ? {} : { crossFacilityOrders: ordersOn }), ...(reportsServed ? { wrongPatientReports: true } : {}) }))
   routes.attestation.mockResolvedValue(ATTESTATION)
   routes.destinations.mockResolvedValue({ items: [YABA] })
 })
@@ -225,6 +230,7 @@ describe('a lab request sent to another laboratory, on its row', () => {
   it('offers no Send to Lab or same-facility results for a routed request, and says a change is passed on', async () => {
     staff.permissions = [...DOCTOR, 'lab.work-item.accept', 'lab.result.released.read']
     records = [labRequest('active', summary({ effectiveState: 'accepted', acceptedAt: '2026-10-21T10:00:00.000Z' }))]
+    reportsServed = true
     await openLabRequests()
     expect(await screen.findByText(/^Accepted by Yaba Diagnostics on /)).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Send to Lab' })).toBeNull()
@@ -237,6 +243,16 @@ describe('a lab request sent to another laboratory, on its row', () => {
       + 'Yaba Diagnostics to end it from its work list first: once you change this order, Yaba Diagnostics can no longer '
       + 'withdraw a result or dispensing it sent back.')).toBeTruthy()
     expect(screen.queryByText(/Lab may already be working on this request/)).toBeNull()
+  })
+
+  it('keeps the earlier change warning while the backend has no wrong-patient report (D15)', async () => {
+    // Today's backend: the laboratory can't end the order, so the clinician is not sent to it; changing the order stays
+    // the way to stop it there.
+    records = [labRequest('active', summary({ effectiveState: 'accepted', acceptedAt: '2026-10-21T10:00:00.000Z' }))]
+    await openLabRequests()
+    expect(await screen.findByText('Changing it withdraws it from Yaba Diagnostics, or cancels it there if Yaba Diagnostics has '
+      + 'accepted it; a cancelled order can’t be resumed there.')).toBeTruthy()
+    expect(screen.queryByText(/end it from its work list/)).toBeNull()
   })
 
   it('says the EHR’s LAB_REQUEST_ROUTED in words when the request was sent elsewhere meanwhile, and reads the list again', async () => {

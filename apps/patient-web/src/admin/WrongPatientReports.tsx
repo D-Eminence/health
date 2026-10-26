@@ -5,6 +5,7 @@ import {
 } from './api'
 import { isProblem } from './problems'
 import { Page, Refresh, ResourceView, Table, date, has, useGovernedSubmit, useResource, useUrlFilters } from './ui'
+import { learnWrongPatientServed } from '../wrongPatientServed'
 
 /**
  * Support's "Wrong-patient reports" (item 3, owner decisions D7, D11, D12, D14; SPEC-FINAL §8.4, §9.5): every report by a
@@ -88,7 +89,8 @@ export function WrongPatientReportsPage({ actor }: { actor: AdminActor }) {
   const [filters, setFilters] = useUrlFilters(['view', 'facility'] as const)
   const view = filters.view === 'recent' ? 'recent' : 'unreviewed'
   const facilityId = FACILITY_ID.test(filters.facility) ? filters.facility : undefined
-  const load = useCallback((signal?: AbortSignal) => adminApi.wrongPatientReports(view, facilityId, signal), [view, facilityId])
+  const load = useCallback((signal?: AbortSignal) => learnFrom(adminApi.wrongPatientReports(view, facilityId, signal)),
+    [view, facilityId])
   const resource = useResource(load, 'Wrong-patient reports could not be loaded.')
   const [notice, setNotice] = useState<string | null>(null)
   const canReview = has(actor, 'platform.facility.manage')
@@ -258,9 +260,24 @@ export function WrongPatientReportsTile() {
   </article>
 }
 
+/**
+ * A read of the reports, noting what it says of the backend (item 3, D15): an answer means Identity serves the report, a
+ * 404 (said as WRONG_PATIENT_REPORTS_UNAVAILABLE) that it does not, and the navigation then stops listing the page.
+ */
+async function learnFrom(read: Promise<{ items: WrongPatientReport[] }>): Promise<{ items: WrongPatientReport[] }> {
+  try {
+    const answer = await read
+    learnWrongPatientServed(true)
+    return answer
+  } catch (caught) {
+    if (isProblem(caught, 'WRONG_PATIENT_REPORTS_UNAVAILABLE')) learnWrongPatientServed(false)
+    throw caught
+  }
+}
+
 /** The list, or null from an Identity without the route (404, said as WRONG_PATIENT_REPORTS_UNAVAILABLE): shown as nothing. */
 async function unlessUnavailable(read: Promise<{ items: WrongPatientReport[] }>): Promise<{ items: WrongPatientReport[] } | null> {
-  try { return await read } catch (caught) {
+  try { return await learnFrom(read) } catch (caught) {
     if (isProblem(caught, 'WRONG_PATIENT_REPORTS_UNAVAILABLE')) return null
     throw caught
   }

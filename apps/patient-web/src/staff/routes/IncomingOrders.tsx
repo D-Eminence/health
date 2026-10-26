@@ -11,6 +11,7 @@ import {
 } from '../orderRoutes'
 import { BUSY, UNAVAILABLE } from '../focus'
 import { WrongPatientEnded, WrongPatientForm, type WrongPatientEnding } from './WrongPatient'
+import { useWrongPatientServed } from '../../wrongPatientServed'
 
 /** A Health ID as Identity stores it (identity 0002). */
 const HID_PATTERN = /^HID-[A-HJ-NP-Z2-9]{6,32}$/
@@ -178,7 +179,9 @@ export function IncomingOrders({ service, facilityId, facilityName, onAccepted, 
  * Who the patient is and what the sender wrote, once the order is accepted: the first time the receiver sees who the
  * order is for. It leads with the check that the person at the counter is that patient (item 3, C8), then "This isn't
  * the order's patient", which ends the order here before any work is done (WrongPatientForm). On 412 (something was
- * recorded on the order meanwhile) the route is read again, and the form stays open at its new version.
+ * recorded on the order meanwhile) the route is read again, and the form stays open at its new version. Until the
+ * backend lets the receiver end an order (hid-system 0088: the work list's cards carry the route's version), the panel
+ * only asks for the check, and neither offers the button nor says to end the order (D15).
  */
 function AcceptedPanel({ service, facilityId, title, reference, ordering, acceptedWith, result, onClose, onChanged, onEnded }: {
   service: ReceivingService; facilityId: string; title: string; reference: string | null; ordering: string
@@ -193,6 +196,7 @@ function AcceptedPanel({ service, facilityId, title, reference, ordering, accept
   const written = service === 'lab' ? result.clinicalInformation : result.instructions
   const id = `${service}-accepted-${result.route.id}`
   const patient = result.patient?.fullName ?? null
+  const served = useWrongPatientServed() === true
 
   // The route moved on: read it again (C8; audited, so only now) for the version the next report is checked against.
   async function reread() {
@@ -208,7 +212,7 @@ function AcceptedPanel({ service, facilityId, title, reference, ordering, accept
   }
 
   return <div className="staff-notice staff-stack" aria-labelledby={`${id}-title`}>
-    <p role="status"><strong>{acceptedCheckText(result.patient)}</strong></p>
+    <p role="status"><strong>{acceptedCheckText(result.patient, served)}</strong></p>
     {reporting
       ? <WrongPatientForm id={`${id}-wrong-patient`} service={service} facilityId={facilityId}
         route={{ id: result.route.id, version, reference }} patient={patient} ordering={ordering}
@@ -217,7 +221,7 @@ function AcceptedPanel({ service, facilityId, title, reference, ordering, accept
         onCancel={() => { setReporting(false); window.setTimeout(() => document.getElementById(`${id}-wrong-patient-open`)?.focus(), 0) }}
         onEnded={ended => onEnded({ service, title, reference, patient, ordering, result: ended,
           dateOfBirthOnly: acceptedWith === 'date_of_birth' })} />
-      : <div className="staff-row"><Button id={`${id}-wrong-patient-open`} tone="secondary" size="sm" aria-expanded={false}
+      : served && <div className="staff-row"><Button id={`${id}-wrong-patient-open`} tone="secondary" size="sm" aria-expanded={false}
         onClick={() => setReporting(true)}>This isn’t the order’s patient</Button></div>}
     <div role="status" className="staff-stack">
       <strong id={`${id}-title`}>Accepted: {title}.</strong>

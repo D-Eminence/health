@@ -3,6 +3,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import { Clinical } from '../Clinical'
+import { forgetWrongPatientServed } from '../../../wrongPatientServed'
 
 /**
  * Sending a prescription to a pharmacy at another facility (Novu, P4c, SPEC-FINAL §13.1): "Send to a pharmacy" on a
@@ -52,17 +53,22 @@ const ATTESTATION = { kind: 'prescription', version: 'order-route-prescription-a
   text: 'I confirm that {patient} agreed that {orderingFacility} sends this prescription to {receivingFacility}.' }
 
 let records: unknown[]
+/** Whether the page says the receiver can end an order accepted for the wrong person (hid-system 0088; item 3, D15). */
+let reportsServed: boolean
 
 beforeEach(() => {
   vi.clearAllMocks()
   vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
   staff.permissions = PRESCRIBER
   records = [rx('active')]
+  reportsServed = false
+  forgetWrongPatientServed()
   api.lookupPatient.mockResolvedValue(lookup)
   api.consentStatus.mockResolvedValue({ patientId: PATIENT, facilityId: 'facility-1', purpose: 'direct-care', readAllowed: true, writeAllowed: true })
   api.encounters.mockResolvedValue({ items: [{ id: ENCOUNTER, patientId: PATIENT, facilityId: 'facility-1', encounterType: 'ambulatory',
     status: 'in_progress', startedAt: '2026-10-10T08:00:00.000Z', chiefComplaint: null, rowVersion: 1 }], nextCursor: null })
-  api.records.mockImplementation(async () => ({ items: records, nextCursor: null, crossFacilityOrders: true }))
+  api.records.mockImplementation(async () => ({ items: records, nextCursor: null, crossFacilityOrders: true,
+    ...(reportsServed ? { wrongPatientReports: true } : {}) }))
   routes.attestation.mockResolvedValue(ATTESTATION)
   routes.destinations.mockResolvedValue({ items: [MEDPLUS] })
 })
@@ -117,6 +123,7 @@ describe('sending a prescription to a pharmacy at another facility', () => {
   it('offers this facility’s pharmacist no Send to Pharmacy for a routed prescription, and warns that a change is passed on', async () => {
     staff.permissions = [...PRESCRIBER, 'pharmacy.work-item.accept']
     records = [rx('active', route({ effectiveState: 'accepted', acceptedAt: '2026-10-21T10:00:00.000Z' }))]
+    reportsServed = true
     await openPrescriptions()
     expect(await screen.findByText(/^Accepted by Medplus Yaba on /)).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Send to Pharmacy' })).toBeNull()
@@ -126,6 +133,14 @@ describe('sending a prescription to a pharmacy at another facility', () => {
       + 'cancelled order can’t be resumed there. If Medplus Yaba accepted it for someone who was not Ada Patient, ask Medplus '
       + 'Yaba to end it from its work list first: once you change this order, Medplus Yaba can no longer withdraw a result or '
       + 'dispensing it sent back.')).toBeTruthy()
+  })
+
+  it('keeps the earlier change warning while the backend has no wrong-patient report (D15)', async () => {
+    records = [rx('active', route({ effectiveState: 'accepted', acceptedAt: '2026-10-21T10:00:00.000Z' }))]
+    await openPrescriptions()
+    expect(await screen.findByText('Changing it withdraws it from Medplus Yaba, or cancels it there if Medplus Yaba has accepted it; '
+      + 'a cancelled order can’t be resumed there.')).toBeTruthy()
+    expect(screen.queryByText(/end it from its work list/)).toBeNull()
   })
 
   it('says the EHR’s PRESCRIPTION_ROUTED in words when this facility’s pharmacist sends one routed meanwhile', async () => {

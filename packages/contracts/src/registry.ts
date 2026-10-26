@@ -132,7 +132,9 @@ const ORDER_ROUTE_WITHDRAW = 'Withdraws a route still waiting for acceptance, wi
 /** What P4c adds to the EHR's order lists and reads (SPEC-FINAL §10.1). */
 const ORDER_LISTS_P4C = 'On Novu since P4c the page also answers crossFacilityOrders (whether orders between facilities '
   + 'are on), and each item orderRoute: its latest route to another facility (OrderRouteSummary) or null; absent when '
-  + 'routes could not be read (emergency access).'
+  + 'routes could not be read (emergency access). With the wrong-patient report (item 3, hid-system 0088) the lab-request '
+  + 'and prescription pages also answer wrongPatientReports: true (the receiving facility can end an order it accepted '
+  + 'for the wrong person; an earlier backend sends no such field).'
 /** The Lab and Pharmacy order-route routes' shared rules (SPEC-FINAL §10.2). */
 const RECEIVE_ROUTE = `${ORDER_ROUTE_STAFF} Accept needs Idempotency-Key and { expectedVersion, patientIdentifier { kind: `
   + "'health_id' | 'date_of_birth', value }, reference? } (Pharmacy also reason, 8 to 500; reference, optional, is the "
@@ -716,7 +718,8 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + '(also without a reference); 400 HEALTH_ID_NOT_ACCEPTED_IN_URL for a healthId query, since hid-system #116, before '
     + 'the permission check and with no audit row (a Health ID in an address is kept by access logs and browser history): '
     + 'by Health ID, use admin.orderRoutesSearch. With the wrong-patient report (item 3, hid-system 0088) endedKind may '
-    + 'be wrong_patient.')),
+    + 'be wrong_patient, and the answer also carries wrongPatientReports: true (as does admin.orderRoutesSearch\'s); an '
+    + 'earlier Identity sends no such field.')),
   requiredQuery: { GET: ['reference'] }, forbiddenQuery: { GET: ['healthId'] } },
   proposed(r('admin.orderRoutesSearch','admin','/api/v1/admin/order-routes/search',P,false,one('POST','platform.principal.read'),
     `${ORDER_ROUTES_P4C_NOVU} P4c review: finds orders as admin.orderRoutesFind, with the same permissions, audit row `
