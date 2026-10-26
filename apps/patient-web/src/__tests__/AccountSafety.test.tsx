@@ -238,4 +238,21 @@ describe('patient access revocation', () => {
       method: 'POST', body: { reason: 'No longer needed' } })
     expect(requests.some(request => request.path.includes('/consent-grants/') && request.path.endsWith('/close'))).toBe(false)
   })
+
+  // hid-system has no review of emergency access (it only marks one as needing review), so the portal claims none.
+  it('says emergency access is time-limited and audited, and claims no review', async () => {
+    renderWith(<AccessPage />, path => {
+      if (path.endsWith('/me/access-requests')) return json([])
+      if (path.endsWith('/me/access-history')) return json({ items: [
+        { consentGrantId: '60000000-0000-4000-8000-000000000002', scope: 'break_glass', purpose: 'emergency', status: 'active',
+          startsAt: '2026-10-08T10:00:00Z', expiresAt: '2026-10-08T10:30:00Z', reason: 'Unconscious patient', facilityName: 'Ikeja ER',
+          breakGlass: true, patientRevocable: false },
+      ] })
+      return json({}, 404)
+    })
+    const explanation = await screen.findByText(/^A provider used emergency access\./)
+    expect(explanation.textContent).toBe('A provider used emergency access. It is time-limited and audited; it cannot be revoked here.')
+    expect(screen.queryByText(/reviewed/)).toBeNull()
+    expect(screen.queryByRole('button', { name: /^Revoke access/ })).toBeNull()
+  })
 })
