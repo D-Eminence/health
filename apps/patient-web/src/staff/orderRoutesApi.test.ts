@@ -183,6 +183,21 @@ describe('the wrong-patient report, on the wire', () => {
     careHeaders(requests[0]!)
   })
 
+  it('hands the page each list’s item 4 fields as Lab and Pharmacy answer them, untouched (hid-system 0089)', async () => {
+    // As the services answered in the item 4 integration's runtime run: the key order, the two booleans of routesHere.
+    const answer = { items: [], receives: false, routesHere: { waiting: true, held: true }, crossFacilityOrders: true,
+      crossFacilityWork: false }
+    const { requests, orderRoutesApi } = await signedIn(answer)
+    await expect(orderRoutesApi.incoming('facility-1', 'lab')).resolves.toEqual(answer)
+    await expect(orderRoutesApi.incoming('facility-1', 'pharmacy', 'HID-7KQ2M9')).resolves.toEqual(answer)
+    const { staffApi } = await import('./api')
+    await expect(staffApi.labWorkItems('facility-1')).resolves.toEqual(answer)
+    await expect(staffApi.pharmacyWorkItems('facility-1')).resolves.toEqual(answer)
+    expect(requests.map(request => [request.method, request.url.pathname])).toEqual([['GET', '/api/v1/lab/order-routes'],
+      ['POST', '/api/v1/pharmacy/order-routes/search'], ['GET', '/api/v1/lab/work-items'], ['GET', '/api/v1/pharmacy/work-items']])
+    requests.forEach(careHeaders)
+  })
+
   it('reads the Overview’s orders accepted for the wrong person, with no patient in the address', async () => {
     const { requests, orderRoutesApi } = await signedIn({ windowDays: 30, items: [], others: { count: 0, references: [] } })
     await orderRoutesApi.sentWrongPatient('facility-1')
