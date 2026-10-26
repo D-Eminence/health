@@ -434,12 +434,25 @@ mismatch asks for the reference instead of counting down), decline with a
 reason, and name the patient only on work
 from another facility. Only a laboratory receives lab requests and only a
 pharmacy prescriptions, though the receive permission comes with the role at
-every facility, and no answer says whether a facility receives: the pages
-go by the session's facility type (`receivingHere` in `staff/orderRoutes.ts`).
-A hospital or clinic that signed itself up reads and says nothing about
-other facilities; a governed facility, whose type the session does not
-carry, reads Incoming once and says nothing until an order or routed work
-shows up. A Health ID typed to find a patient's orders goes in the body of
+every facility: the pages go by the work list's `receives` when sent (item 4,
+hid-system 0089, only to a member holding the receive permission), else the
+session's facility type (`receivingHere` in `staff/orderRoutes.ts`), and by
+the work list's `routesHere { waiting, held }` for orders already sent here
+or held here, listed or not. Each answer that says so is remembered in memory
+for 10 minutes per membership, facility and service, which spares the
+Overview an audited Incoming read at a facility that does not receive. A
+facility that receives reads Incoming at once and every two minutes; one that
+can't now shows only orders still waiting, with Decline but no Accept, keeps
+the paused notice for work it holds, and a stand-alone one is told, without a
+reason, that clinicians at other facilities can't send it orders at the
+moment. A checked stand-alone laboratory or pharmacy, or one the page saw
+receive, still reads Incoming every two minutes while it can't (showing
+nothing unless an order waits), and the page goes by the newer of the work
+list's and Incoming's answers, so a facility support lists again is noticed
+without a refresh; a governed hospital never reads it. A hospital or clinic that signed itself up reads and says nothing
+about other facilities; without `receives`, a governed facility, whose type
+the session does not carry, reads Incoming once its work list has answered and
+says nothing until an order or routed work shows up. A Health ID typed to find a patient's orders goes in the body of
 `POST /{lab|pharmacy}/order-routes/search`, never in an address, and is sent
 only when asked, never by the timer. The patient portal lists the patient's sent orders on
 Access and consent with the clinician's attestation as confirmed, and offers
@@ -448,9 +461,13 @@ reference, state and facilities only (`enteredInError`). The console finds an
 order by its reference or Health ID (a Health ID in the body of
 `POST /admin/order-routes/search`, once per Find; a row is found again by its
 reference),
-closes it (`If-Match`) while its access may still be open, and shows and
+closes it (`If-Match`) while Health ID says Close would still act (the row's
+`closable`, item 4; from an earlier Identity, while its access may still be
+open), naming the day access ended (`accessEndsAt`), and shows and
 changes a facility's listing on demand, in words that depend on what the
-console knows of the facility's type and review. A 404 from any of these routes means the backend does not serve
+console knows of the facility's type and review (the summary's `destination`
+when sent), offering the listing form only where listing can change whether
+it is found. A 404 from any of these routes means the backend does not serve
 them yet: the page shows nothing new, and a main-v1 build never asks.
 Item 3 (hid-system 0088, built website first and dormant until that release)
 lets a laboratory or pharmacy end an order it accepted for someone who was not

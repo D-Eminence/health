@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Badge, Card } from '@hid/ui'
 import {
-  orderRoutesApi, staffApi, type AccessRequest, type ReceivingService, type SentWrongPatientOrderRoute,
-  type SentWrongPatientOrderRoutes,
+  orderRoutesApi, staffApi, type AccessRequest, type Facility, type ReceivingAnswer, type ReceivingService,
+  type SentWrongPatientOrderRoute, type SentWrongPatientOrderRoutes,
 } from '../api'
 import { useStaff } from '../App'
 import { accessRequestsError } from './AccessRequests'
@@ -11,7 +11,9 @@ import { FacilityCheckCard } from './ReviewBanner'
 import { usesNovuBackend } from '../../backendContract'
 import { isHidApiError } from '@hid/http'
 import { roleLabels } from '../staffAccess'
-import { orderWord, receivingHere, routeDay } from '../orderRoutes'
+import {
+  holdsReceivePermission, orderWord, receivingAnswer, receivingHere, rememberedReceiving, rememberReceiving, routeDay,
+} from '../orderRoutes'
 import { learnWrongPatientServed } from '../../wrongPatientServed'
 
 const modules = [
@@ -25,28 +27,45 @@ const modules = [
 
 /**
  * Orders other facilities sent here, waiting to be accepted (Novu, P4c, SPEC-FINAL §13.5), for a member who receives
- * them: a laboratory scientist or a pharmacist, at a laboratory or pharmacy (receivingHere). At a governed facility,
- * whose type the session does not say (`unsure`), a count is shown only when orders are waiting: a hospital's own
- * laboratory or pharmacy is never sent any, so "0 waiting" would promise orders that cannot come. A backend without the
- * route (404) shows no card. Each read is audited, so it is read once, when the Overview opens.
+ * them: a laboratory scientist or a pharmacist, at a laboratory or pharmacy (receivingHere). Each answer says, since item
+ * 4 (hid-system 0089), whether this facility receives them now (`receives`) and whether orders sent before still wait
+ * (`routesHere.waiting`), and is remembered (D3):
+ * - `receives: true`: the count is shown, "0 waiting" included;
+ * - `receives: false`: only orders actually waiting are said, and only where the Laboratory or Pharmacy page shows them
+ *   (with `routesHere`, or at a laboratory or pharmacy the session calls checked; S5);
+ * - not said (an earlier backend): at a governed facility, whose type the session does not say (`unsure`), a count is
+ *   shown only when orders are waiting: a hospital's own laboratory or pharmacy is never sent any, so "0 waiting" would
+ *   promise orders that cannot come.
+ * A backend without the route (404) shows no card. Each read is audited, so it is read once, when the Overview opens.
  */
-function IncomingOrdersCard({ facilityId, facilityName, services, unsure }: { facilityId: string; facilityName: string
-  services: readonly ReceivingService[]; unsure: readonly ReceivingService[] }) {
+function IncomingOrdersCard({ facility, services, unsure, sure }: { facility: Facility; services: readonly ReceivingService[]
+  unsure: readonly ReceivingService[]; sure: readonly ReceivingService[] }) {
   const [counts, setCounts] = useState<Partial<Record<ReceivingService, number | 'failed' | 'missing'>>>({})
+  const [known, setKnown] = useState<Partial<Record<ReceivingService, ReceivingAnswer | null>>>({})
+  const { id: facilityId, membershipId, name: facilityName } = facility
   const wanted = services.join(',')
   useEffect(() => {
     let active = true
-    setCounts({})
+    setCounts({}); setKnown({})
     for (const service of wanted.split(',') as ReceivingService[]) {
       void orderRoutesApi.incoming(facilityId, service).then(
-        answer => { if (active) setCounts(current => ({ ...current, [service]: Array.isArray(answer?.items) ? answer.items.length : 0 })) },
+        answer => {
+          rememberReceiving({ id: facilityId, membershipId }, service, answer)
+          if (!active) return
+          setCounts(current => ({ ...current, [service]: Array.isArray(answer?.items) ? answer.items.length : 0 }))
+          setKnown(current => ({ ...current, [service]: receivingAnswer(answer) }))
+        },
         caught => { if (active) setCounts(current => ({ ...current, [service]: isHidApiError(caught) && caught.status === 404 ? 'missing' : 'failed' })) })
     }
     return () => { active = false }
-  }, [facilityId, wanted])
+  }, [facilityId, membershipId, wanted])
   const shown = services.filter(service => {
     const count = counts[service]
     if (count === 'missing') return false
+    const receives = known[service]?.receives
+    if (receives === true) return true
+    // Where the facility does not receive now, only orders sent before and still waiting are said, where the page shows them.
+    if (receives === false) return typeof count === 'number' && count > 0 && (known[service]?.routesHere !== undefined || sure.includes(service))
     // Where the facility may not receive at all, only orders actually waiting are said.
     return !unsure.includes(service) || (typeof count === 'number' && count > 0)
   })
@@ -61,6 +80,31 @@ function IncomingOrdersCard({ facilityId, facilityName, services, unsure }: { fa
     {shown.map(service => <Link key={service} to={service === 'lab' ? '/provider/laboratory' : '/provider/pharmacy'} className="staff-text-link">
       {service === 'lab' ? 'Open Laboratory →' : 'Open Pharmacy →'}</Link>)}
   </Card>
+}
+
+/**
+ * Whether the Overview reads Incoming for this service (Novu, P4c), by the member's permission, the session and what was
+ * remembered of this facility in the last 10 minutes (owner decision D3):
+ * - remembered `receives: true`: read;
+ * - remembered `receives: false`: read only while orders sent before wait (`routesHere.waiting`), or, without
+ *   `routesHere`, at a laboratory or pharmacy the session calls checked, where the page still offers Decline (S5);
+ * - nothing remembered: as the session says (not at a facility that signed itself up as anything else), and wherever
+ *   orders were remembered waiting.
+ */
+function readsIncoming(facility: Facility | undefined, service: ReceivingService): boolean {
+  if (!facility || !holdsReceivePermission(facility, service)) return false
+  const session = receivingHere(facility, service)
+  const remembered = rememberedReceiving(facility, service)
+  if (remembered?.receives === true) return true
+  if (remembered?.receives === false) return remembered.routesHere ? remembered.routesHere.waiting : session === 'yes'
+  return session !== 'no' || remembered?.routesHere?.waiting === true
+}
+
+/** The services the Overview reads Incoming for, and how sure the session is that each receives (receivingHere). */
+function incomingServices(facility: Facility | undefined) {
+  const services = (['lab', 'pharmacy'] as const).filter(service => readsIncoming(facility, service))
+  return { services, unsure: services.filter(service => receivingHere(facility, service) !== 'yes'),
+    sure: services.filter(service => receivingHere(facility, service) === 'yes') }
 }
 
 /** "1 result it had sent back was withdrawn", or what else became of what came back (item 3, D10). */
@@ -166,11 +210,13 @@ export function Dashboard() {
     return () => { active = false }
   }, [facility?.id])
 
-  if (!session) return null
   // Who receives orders from other facilities here (Novu, P4c): laboratory scientists and pharmacists, at a laboratory
-  // or pharmacy. A hospital or clinic that signed itself up is never sent any, so it reads nothing.
-  const receiving = (['lab', 'pharmacy'] as const).filter(service => receivingHere(facility, service) !== 'no')
-  const unsure = receiving.filter(service => receivingHere(facility, service) === 'unknown')
+  // or pharmacy. A hospital or clinic that signed itself up is never sent any, so it reads nothing; nor, for 10 minutes,
+  // does a facility an answer said does not receive (D3). Decided once for the facility and membership: what this
+  // Overview's own reads say is remembered for the next time it opens, and never reads anything again now.
+  const { services: receiving, unsure, sure } = useMemo(() => incomingServices(facility),
+    [facility?.id, facility?.membershipId, permissions.join(' '), facility?.selfService?.review, facility?.selfService?.organizationType])
+  if (!session) return null
   return <>
     <div className="staff-page-head"><p className="staff-eyebrow">Provider workspace</p><h1>Good to see you, {session.actor.displayName?.split(' ')[0] ?? 'colleague'}.</h1><p>Working at {facility?.name ?? 'no selected facility'}. All clinical activity uses your current membership and is checked by the backend.</p></div>
     {!facility && <Card className="staff-card"><h2>Select a facility</h2><p>Choose your active facility above to open permitted workflows.</p></Card>}
@@ -178,7 +224,8 @@ export function Dashboard() {
       <Card className="staff-card"><h2>Active facility</h2><p>{facility.name}</p><Badge tone="information">{(usesNovuBackend() ? roleLabels(facility.roles) : facility.roles.join(', ')) || 'Staff'}</Badge></Card>
       <FacilityCheckCard facility={facility} />
       {permissions.includes('identity.consent.write') && <Card className="staff-card"><h2>Access requests</h2><p>{requests ? `${requests.filter(request => request.status === 'pending').length} pending request${requests.filter(request => request.status === 'pending').length === 1 ? '' : 's'}` : loadError || 'Loading requests…'}</p><Link to="/provider/requests" className="staff-text-link">Review requests →</Link></Card>}
-      {usesNovuBackend() && receiving.length > 0 && <IncomingOrdersCard facilityId={facility.id} facilityName={facility.name} services={receiving} unsure={unsure} />}
+      {usesNovuBackend() && receiving.length > 0 && <IncomingOrdersCard facility={facility} services={receiving} unsure={unsure}
+        sure={sure} />}
       {usesNovuBackend() && permissions.includes('ehr.order-route.send') && <WrongPatientOrdersCard key={facility.id}
         facilityId={facility.id} facilityName={facility.name} />}
       {activePatient && <Card className="staff-card"><h2>Current patient</h2><p>{activePatient.lookup.patient.fullName ?? activePatient.hid}</p><Link to="/provider/clinical" className="staff-text-link">Open clinical record →</Link></Card>}

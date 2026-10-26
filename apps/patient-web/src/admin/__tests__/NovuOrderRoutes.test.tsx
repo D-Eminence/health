@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import type { AdminActor } from '../api'
 
@@ -328,4 +328,190 @@ describe('orders between facilities in the Novu console', () => {
       + 'the check is recorded as “Other”.')).toBeTruthy()
     expect(panel.textContent).not.toMatch(/recorded its check as “Other”/)
   })
+
+  /**
+   * Item 4 (hid-system 0089): C21 says when the receiving facility's access ends (`accessEndsAt`) and whether Close would
+   * act at the time of the Find (`closable`). The console offers Close exactly then, whatever the browser's clock says
+   * (CC3), names the day access ended (CC4), and keeps the ALREADY_CLOSED path for a page left open.
+   */
+  describe('Close, by what Identity says (item 4)', () => {
+    const completed = (fields: Record<string, unknown>) => ({ ...FOUND, effectiveState: 'completed', ...fields })
+    async function said(value: string) { const { date } = await import('../ui'); return date(value) }
+
+    it('offers no Close on an order Identity says can’t be closed, and says when its access ended', async () => {
+      const ended = ago(3)
+      serve(SUPPORT, { 'GET /api/v1/admin/order-routes': () => json({ items: [completed({ acceptedAt: ago(20), accessEndsAt: ended,
+        closable: false })] }) })
+      await openAt('/admin/order-routes')
+      const row = await findByReference()
+      expect(within(row).queryByText('Close', { selector: 'summary' })).toBeNull()
+      expect(within(row).getByText(`Access ended ${await said(ended)}`)).toBeTruthy()
+    })
+
+    it('names the day access ended, not the day a release came after it (CC4)', async () => {
+      const accepted = ago(50)
+      const accessEnded = new Date(Date.parse(accepted) + 14 * DAY).toISOString()
+      const released = new Date(Date.parse(accepted) + 40 * DAY).toISOString()
+      serve(SUPPORT, { 'GET /api/v1/admin/order-routes': () => json({ items: [completed({ acceptedAt: accepted, endedAt: released,
+        endedKind: 'receiving_released', accessEndsAt: accessEnded, closable: false })] }) })
+      await openAt('/admin/order-routes')
+      const row = await findByReference()
+      expect(within(row).getByText(`Access ended ${await said(accessEnded)}`)).toBeTruthy()
+      expect(within(row).queryByText(`Access ended ${await said(released)}`)).toBeNull()
+    })
+
+    it('offers Close on a completed order Identity says can be closed, with the day its access ends', async () => {
+      const ends = new Date(Date.now() + 5 * DAY).toISOString()
+      serve(SUPPORT, { 'GET /api/v1/admin/order-routes': () => json({ items: [completed({ acceptedAt: ago(12), accessEndsAt: ends,
+        closable: true })] }) })
+      await openAt('/admin/order-routes')
+      const row = await findByReference()
+      fireEvent.click(within(row).getByText('Close', { selector: 'summary' }))
+      expect(within(row).getByText(new RegExp(`Its access ends on ${(await said(ends)).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}: `
+        + 'closing ends it now\\.'))).toBeTruthy()
+      expect(within(row).queryByText(/if it has already ended, Health ID says so/)).toBeNull()
+    })
+
+    it('trusts Identity over the browser’s clock: Close is offered a day after the access end it named, and past 45 days (CC3)', async () => {
+      serve(SUPPORT, { 'GET /api/v1/admin/order-routes': () => json({ items: [completed({ acceptedAt: ago(46), accessEndsAt: ago(1),
+        closable: true })] }) })
+      await openAt('/admin/order-routes')
+      const row = await findByReference()
+      expect(within(row).getByText('Close', { selector: 'summary' })).toBeTruthy()
+    })
+
+    it.each([
+      ['waiting to be accepted', 'sent', true, true],
+      ['accepted', 'accepted', true, true],
+      ['accepted, past its time for work', 'accepted', false, false],
+    ])('on an order %s, offers Close only as Identity says', async (_case, effectiveState, closable, offered) => {
+      serve(SUPPORT, { 'GET /api/v1/admin/order-routes': () => json({ items: [{ ...FOUND, effectiveState, accessEndsAt: null,
+        closable }] }) })
+      await openAt('/admin/order-routes')
+      const row = await findByReference()
+      expect(within(row).queryByText('Close', { selector: 'summary' }) !== null).toBe(offered)
+      if (!offered) expect(within(row).getByText('Access ended')).toBeTruthy()
+    })
+
+    it('ends with one close when access ended between the Find and the Close, and the order found again says so', async () => {
+      const ended = ago(0.01)
+      let finds = 0
+      const calls = serve(SUPPORT, {
+        'GET /api/v1/admin/order-routes': () => json({ items: [finds++ === 0
+          ? completed({ acceptedAt: ago(14), accessEndsAt: new Date(Date.now() + 60_000).toISOString(), closable: true })
+          : completed({ acceptedAt: ago(14), accessEndsAt: ended, closable: false })] }),
+        [`POST /api/v1/admin/order-routes/${ROUTE_ID}/close`]: () => json({ status: 409, code: 'ORDER_ROUTE_ALREADY_CLOSED', detail: 'Closed' }, 409),
+      })
+      await openAt('/admin/order-routes')
+      let row = await findByReference()
+      fireEvent.click(within(row).getByText('Close', { selector: 'summary' }))
+      fireEvent.change(within(row).getByLabelText('Reason for closing'), { target: { value: 'The patient asked us to end access' } })
+      fireEvent.click(within(row).getByLabelText(/I understand/))
+      fireEvent.click(within(row).getByRole('button', { name: 'Close order' }))
+      expect(await screen.findByText('Order 9C1B2D3E: its access has already ended, so there is nothing to close.')).toBeTruthy()
+      await waitFor(() => expect(calls.filter(call => call.path === '/api/v1/admin/order-routes')).toHaveLength(2))
+      row = screen.getByText('9C1B2D3E').closest('tr')!
+      await waitFor(() => expect(within(row).queryByText('Close', { selector: 'summary' })).toBeNull())
+      expect(within(row).getByText(`Access ended ${await said(ended)}`)).toBeTruthy()
+      expect(calls.filter(call => call.path.endsWith('/close'))).toHaveLength(1)
+    })
+
+    it('reads an access end that is not a time as unknown', async () => {
+      serve(SUPPORT, { 'GET /api/v1/admin/order-routes': () => json({ items: [completed({ acceptedAt: ago(20), endedAt: null,
+        accessEndsAt: 'soon', closable: false })] }) })
+      await openAt('/admin/order-routes')
+      const row = await findByReference()
+      expect(within(row).getByText('Access ended')).toBeTruthy()
+    })
+  })
+
+  /**
+   * Item 4 (hid-system 0089): the summary says what the facility is as a destination (`destination { receivingTypes,
+   * review }`). The panel then says the listing exactly, however it was opened, and offers the form only where listing can
+   * change whether the facility is found: a laboratory or pharmacy product, and a pending, reviewed or support-approved
+   * sign-up (CC7). Without it, the link's sign-up and the hedge, as before.
+   */
+  describe('a facility’s listing, by what the summary says it is (item 4)', () => {
+    async function panelWith(summary: Record<string, unknown>, state?: unknown) {
+      serve(SUPPORT, { [`GET /api/v1/admin/facilities/${FACILITY_ID}/order-route-summary`]: () => json({ ...SUMMARY, ...summary }) })
+      await openAt(`/admin/facilities/${FACILITY_ID}`, state)
+      const panel = (await screen.findByRole('heading', { name: 'Orders with other facilities' })).closest('section')!
+      fireEvent.click(within(panel).getByRole('button', { name: 'Show orders with other facilities' }))
+      await within(panel).findByText(/accepted 3 orders from other facilities/)
+      return panel
+    }
+    const form = (panel: HTMLElement) => within(panel).queryByText(/^(Stop listing it|List it) for orders$/, { selector: 'summary' })
+    const byDefault = (value: boolean) => ({ listed: { value, byDefault: true, reason: null, setAt: null } })
+
+    it.each([
+      ['a governed hospital', { receivingTypes: [], review: 'governed' }, true, 'Only laboratories and pharmacies receive orders from '
+        + 'other facilities. Yaba Diagnostics has no laboratory or pharmacy service on Health ID, so clinicians at other facilities '
+        + 'don’t find it.', false],
+      ['a governed laboratory', { receivingTypes: ['laboratory'], review: 'governed' }, true,
+        'Listed for orders from other facilities, by default (approved by Health ID support).', true],
+      ['a released sign-up', { receivingTypes: [], review: 'released' }, true,
+        'Yaba Diagnostics’s sign-up was released, so clinicians at other facilities no longer find it.', false],
+      ['a laboratory not checked yet', { receivingTypes: ['laboratory'], review: 'pending' }, false,
+        'Not listed until Health ID support has checked it: marking it reviewed lists it, unless the check is recorded as “Other”.', true],
+      ['a laboratory checked as Other', { receivingTypes: ['laboratory'], review: 'reviewed' }, false,
+        'Not listed for orders from other facilities, by default: Health ID support recorded its check as “Other”.', true],
+      ['a checked pharmacy', { receivingTypes: ['pharmacy'], review: 'reviewed' }, true,
+        'Listed for orders from other facilities, by default.', true],
+      ['a legacy facility with a laboratory product (CC7a)', { receivingTypes: ['laboratory'], review: 'legacy' }, true,
+        'Yaba Diagnostics has no reviewed or support-approved sign-up on Health ID, so clinicians at other facilities don’t find it, '
+        + 'listed or not.', false],
+    ])('opened directly, says the listing of %s exactly', async (_case, destination, value, says, listable) => {
+      const panel = await panelWith({ ...byDefault(value), destination })
+      expect(within(panel).getByText(says)).toBeTruthy()
+      expect(form(panel) !== null).toBe(listable)
+      expect(panel.textContent).not.toMatch(/if it is a laboratory or pharmacy/)
+    })
+
+    it('adds what support set itself where listing changes nothing (CC7b)', async () => {
+      const setAt = '2026-10-20T09:00:00.000Z'
+      const panel = await panelWith({ listed: { value: false, byDefault: false, reason: 'Asked to stop', setAt },
+        destination: { receivingTypes: [], review: 'governed' } })
+      const { date } = await import('../ui')
+      expect(within(panel).getByText('Only laboratories and pharmacies receive orders from other facilities. Yaba Diagnostics has no '
+        + `laboratory or pharmacy service on Health ID, so clinicians at other facilities don’t find it. Health ID support stopped `
+        + `listing it on ${date(setAt)}: Asked to stop`)).toBeTruthy()
+      expect(form(panel)).toBeNull()
+    })
+
+    it('says support’s own setting with the form where listing can change it', async () => {
+      const setAt = '2026-10-20T09:00:00.000Z'
+      const panel = await panelWith({ listed: { value: true, byDefault: false, reason: null, setAt },
+        destination: { receivingTypes: ['laboratory', 'pharmacy'], review: 'reviewed' } })
+      const { date } = await import('../ui')
+      expect(within(panel).getByText(`Listed for orders from other facilities by Health ID support on ${date(setAt)}.`)).toBeTruthy()
+      expect(form(panel)).toBeTruthy()
+    })
+
+    it('goes by the summary over the link’s sign-up, and keeps the link’s type in its words', async () => {
+      const link = { selfServiceFacility: { facilityId: FACILITY_ID, organizationType: 'hospital', reviewedAt: null,
+        verificationMethod: null, releasedAt: null } }
+      let panel = await panelWith({ ...byDefault(true), destination: { receivingTypes: ['laboratory'], review: 'reviewed' } }, link)
+      expect(within(panel).getByText('Listed for orders from other facilities, by default.')).toBeTruthy()
+      expect(form(panel)).toBeTruthy()
+      cleanup(); vi.unstubAllGlobals(); vi.resetModules()
+      panel = await panelWith({ ...byDefault(true), destination: { receivingTypes: [], review: 'reviewed' } }, link)
+      expect(within(panel).getByText('Only laboratories and pharmacies receive orders from other facilities. Yaba Diagnostics signed '
+        + 'up as a hospital and has no laboratory or pharmacy service on Health ID, so clinicians at other facilities don’t find it.'))
+        .toBeTruthy()
+      expect(form(panel)).toBeNull()
+    })
+
+    it.each([
+      ['an unknown review', { receivingTypes: ['laboratory'], review: 'approved' }],
+      ['types that are not a list', { receivingTypes: 'laboratory', review: 'reviewed' }],
+      ['types that are not words', { receivingTypes: [1], review: 'reviewed' }],
+      ['no destination at all', null],
+    ])('falls back to the hedge for %s', async (_case, destination) => {
+      const panel = await panelWith({ ...byDefault(true), ...(destination ? { destination } : {}) })
+      expect(within(panel).getByText('Listed by default: clinicians at other facilities find it if it is a laboratory or pharmacy. '
+        + 'A hospital or clinic is never found, listed or not.')).toBeTruthy()
+      expect(form(panel)).toBeTruthy()
+    })
+  })
 })
+

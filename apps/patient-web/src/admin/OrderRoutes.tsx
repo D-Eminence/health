@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
-import { adminApi, type AdminActor, type FacilityOrderRouteSummary, type FoundOrderRoute } from './api'
+import { adminApi, type AdminActor, type DestinationReview, type FacilityOrderRouteSummary, type FoundOrderRoute } from './api'
 import { failure, isProblem } from './problems'
 import { Page, ResourceView, Table, date, has, useGovernedSubmit, useResource } from './ui'
 import { FacilityWrongPatientCount, LATE_CASE_NOTE } from './WrongPatientReports'
@@ -47,16 +47,27 @@ const LIVE: ReadonlySet<string> = new Set(['sent', 'accepted', 'completed'])
 const ACCESS_CAP_MS = 45 * 24 * 60 * 60 * 1000
 
 /**
- * Whether a completed order's access has certainly ended, so there is nothing to close (C22 refuses it with
- * ORDER_ROUTE_ALREADY_CLOSED, and C21 still answers `completed`): support or a release ended it (`endedAt`), or 45 days
- * have passed since it was accepted. C21 does not say when access ends, so between 14 and 45 days after acceptance the
- * console can't tell, and offers Close; a refusal then marks it ended (OrderRoutesPage).
+ * Whether an order's access has ended, so there is nothing to close (C22 refuses it with ORDER_ROUTE_ALREADY_CLOSED, and
+ * C21 may still answer `completed`).
+ * - Since item 4 (hid-system 0089) C21 says whether Close would act (`closable`), exactly, at the database's clock, when
+ *   the order was found: a live order that is not closable has ended. No browser clock is used then (CC3); an order found
+ *   closable whose access ends before Close is pressed is refused, and marked ended (OrderRoutesPage).
+ * - From an earlier Identity, a completed order has certainly ended when support or a release ended it (`endedAt`), or
+ *   45 days have passed since it was accepted. Between 14 and 45 days after acceptance the console can't tell, and offers
+ *   Close; a refusal then marks it ended.
  */
-export function accessEnded(route: Pick<FoundOrderRoute, 'effectiveState' | 'endedAt' | 'acceptedAt'>, now = Date.now()): boolean {
+export function accessEnded(route: Pick<FoundOrderRoute, 'effectiveState' | 'endedAt' | 'acceptedAt' | 'closable'>,
+  now = Date.now()): boolean {
+  if (typeof route.closable === 'boolean') return !route.closable && LIVE.has(route.effectiveState)
   if (route.effectiveState !== 'completed') return false
   if (route.endedAt) return true
   const accepted = route.acceptedAt ? Date.parse(route.acceptedAt) : Number.NaN
   return Number.isFinite(accepted) && now >= accepted + ACCESS_CAP_MS
+}
+
+/** When the order's access ended or ends, as C21 says (item 4), or null when it said nothing that reads as a time. */
+function accessEndsAt(route: Pick<FoundOrderRoute, 'accessEndsAt'>): string | null {
+  return typeof route.accessEndsAt === 'string' && Number.isFinite(Date.parse(route.accessEndsAt)) ? route.accessEndsAt : null
 }
 
 const LISTING_PROBLEMS: Readonly<Record<string, string>> = {
@@ -102,22 +113,77 @@ export function knownSignUp(state: unknown, facilityId: string): KnownSignUp | n
 
 const RECEIVING_TYPES: ReadonlySet<string> = new Set(['laboratory', 'pharmacy'])
 const TYPE_WORDS: Readonly<Record<string, string>> = { hospital: 'a hospital', clinic: 'a clinic', other: 'another kind of facility' }
+const REVIEWS: ReadonlySet<string> = new Set<DestinationReview>(['pending', 'reviewed', 'released', 'governed', 'legacy'])
+/** The reviews under which listing can change whether the facility is found (H4 step 2); C23 accepts each. */
+const LISTABLE_REVIEWS: ReadonlySet<string> = new Set<DestinationReview>(['pending', 'reviewed', 'governed'])
+
+/**
+ * What the summary says the facility is as a destination (Novu since item 4, hid-system 0089: C20's `destination`), when
+ * it says it in the right shape: `receivingTypes` an array of strings and `review` one of the five words. Null before
+ * 0089 (Identity passes the summary through, so an earlier Identity on 0089 sends it too), or for any other shape: the
+ * panel then goes by the link's sign-up and the hedge.
+ */
+export function summaryDestination(summary: Pick<FacilityOrderRouteSummary, 'destination'>):
+  { receivingTypes: string[]; review: DestinationReview } | null {
+  const destination: unknown = summary.destination
+  if (!destination || typeof destination !== 'object') return null
+  const { receivingTypes, review } = destination as { receivingTypes?: unknown; review?: unknown }
+  if (!Array.isArray(receivingTypes) || !receivingTypes.every(type => typeof type === 'string')) return null
+  if (typeof review !== 'string' || !REVIEWS.has(review)) return null
+  return { receivingTypes: receivingTypes as string[], review: review as DestinationReview }
+}
+
+/** "Health ID support listed it on 3 Oct 2026, 10:00: reason." for a listing support set itself. */
+function supportSetText(listed: FacilityOrderRouteSummary['listed']): string {
+  return `Health ID support ${listed.value ? 'listed it' : 'stopped listing it'} on ${date(listed.setAt)}${listed.reason ? `: ${listed.reason}` : '.'}`
+}
+
+/** The line for a listing support set itself, where listing can change whether the facility is found. */
+function supportListedLine({ value, reason, setAt }: FacilityOrderRouteSummary['listed']): string {
+  return value ? `Listed for orders from other facilities by Health ID support on ${date(setAt)}${reason ? `: ${reason}` : '.'}`
+    : `Not listed: Health ID support stopped listing it on ${date(setAt)}${reason ? `: ${reason}` : '.'}`
+}
 
 /**
  * The listing in words, and whether listing can change anything: only a facility whose organization signed up, or was
- * approved, as a laboratory or pharmacy is ever found (H4), and C23 refuses any other.
+ * approved, as a laboratory or pharmacy is ever found (H4), and C23 refuses any other. With the summary's `destination`
+ * (item 4) the words are exact however the page was opened, and the form is offered only where listing can change
+ * whether the facility is found (CC7: a laboratory or pharmacy product, and a pending, reviewed or support-approved
+ * sign-up), which C23 always accepts. Without it, what the link from "New facility sign-ups" carried, else a hedge.
  */
 function listingText(summary: FacilityOrderRouteSummary, facilityName: string, known: KnownSignUp | null):
   { line: string; listable: boolean } {
-  const { value, byDefault, reason, setAt } = summary.listed
+  const { value, byDefault } = summary.listed
+  const destination = summaryDestination(summary)
+  if (destination) {
+    const { receivingTypes, review } = destination
+    // Support's own setting, said beside a line that says listing changes nothing here (CC7b).
+    const own = byDefault ? '' : ` ${supportSetText(summary.listed)}`
+    if (review === 'released') return { listable: false,
+      line: `${facilityName}’s sign-up was released, so clinicians at other facilities no longer find it.${own}` }
+    if (receivingTypes.length === 0) {
+      const signedUpAs = known && !RECEIVING_TYPES.has(known.organizationType ?? '') && TYPE_WORDS[known.organizationType ?? '']
+      return { listable: false, line: 'Only laboratories and pharmacies receive orders from other facilities. '
+        + (signedUpAs ? `${facilityName} signed up as ${signedUpAs} and has` : `${facilityName} has`)
+        + ` no laboratory or pharmacy service on Health ID, so clinicians at other facilities don’t find it.${own}` }
+    }
+    if (review === 'legacy') return { listable: false, line: `${facilityName} has no reviewed or support-approved sign-up on Health ID, `
+      + `so clinicians at other facilities don’t find it, listed or not.${own}` }
+    const listable = LISTABLE_REVIEWS.has(review)
+    if (!byDefault) return { listable, line: supportListedLine(summary.listed) }
+    if (review === 'pending') return { listable, line: 'Not listed until Health ID support has checked it: marking it reviewed '
+      + 'lists it, unless the check is recorded as “Other”.' }
+    if (review === 'reviewed') return { listable, line: value ? 'Listed for orders from other facilities, by default.'
+      : 'Not listed for orders from other facilities, by default: Health ID support recorded its check as “Other”.' }
+    return { listable, line: value ? 'Listed for orders from other facilities, by default (approved by Health ID support).'
+      : 'Not listed for orders from other facilities, by default.' }
+  }
   if (known && !RECEIVING_TYPES.has(known.organizationType ?? '')) return { listable: false,
     line: `Only laboratories and pharmacies receive orders from other facilities. ${facilityName} signed up as `
       + `${TYPE_WORDS[known.organizationType ?? ''] ?? 'another kind of facility'}, so clinicians at other facilities never find it.` }
   if (known?.releasedAt) return { listable: false,
     line: `${facilityName}’s sign-up was released, so clinicians at other facilities no longer find it.` }
-  if (!byDefault) return { listable: true, line: value
-    ? `Listed for orders from other facilities by Health ID support on ${date(setAt)}${reason ? `: ${reason}` : '.'}`
-    : `Not listed: Health ID support stopped listing it on ${date(setAt)}${reason ? `: ${reason}` : '.'}` }
+  if (!byDefault) return { listable: true, line: supportListedLine(summary.listed) }
   if (known) {
     if (value) return { listable: true, line: 'Listed for orders from other facilities, by default.' }
     return { listable: true, line: !known.reviewedAt
@@ -320,7 +386,9 @@ export function OrderRoutesPage({ actor }: { actor: AdminActor }) {
   function action(route: FoundOrderRoute) {
     if (!LIVE.has(route.effectiveState)) return 'Closed'
     if (accessEnded(route) || ended.has(`${route.routeId}-${route.version}`)) {
-      return route.endedAt ? `Access ended ${date(route.endedAt)}` : 'Access ended'
+      // When access ended: a release may come after it had run out, so C21's time comes first (CC4).
+      const when = accessEndsAt(route) ?? route.endedAt
+      return when ? `Access ended ${date(when)}` : 'Access ended'
     }
     return has(actor, 'platform.facility.manage') ? <CloseForm route={route} onDone={outcome => closeDone(route, outcome)} />
       : 'Closing needs platform.facility.manage'
@@ -379,6 +447,7 @@ function CloseForm({ route, onDone }: { route: FoundOrderRoute; onDone: (outcome
   const governed = useGovernedSubmit()
   const length = reason.trim().length
   const ready = length >= 8 && length <= 500 && confirmed
+  const ends = accessEndsAt(route)
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (governed.busy || !ready) return
@@ -397,8 +466,10 @@ function CloseForm({ route, onDone }: { route: FoundOrderRoute; onDone: (outcome
     <form className="admin-action-form" onSubmit={event => void submit(event)}>
       <p className="admin-note">Closing ends {route.receivingFacilityName}’s access to this order at once, and
         {' '}{route.orderingFacilityName}’s view of it from there. Both facilities and the patient are told. It can’t be undone.
-        {route.effectiveState === 'completed' && ' A completed order’s access ends 14 days after its first result or dispensing, '
-          + 'and at the latest 45 days after it was accepted: if it has already ended, Health ID says so and nothing changes.'}</p>
+        {route.effectiveState === 'completed' && (route.closable === true && ends
+          ? ` Its access ends on ${date(ends)}: closing ends it now.`
+          : ' A completed order’s access ends 14 days after its first result or dispensing, and at the latest 45 days after it '
+            + 'was accepted: if it has already ended, Health ID says so and nothing changes.')}</p>
       <label htmlFor={id}>Reason for closing</label>
       <textarea id={id} required minLength={8} maxLength={500} rows={3} value={reason} onChange={event => setReason(event.target.value)}
         aria-describedby={`${id}-hint`} />

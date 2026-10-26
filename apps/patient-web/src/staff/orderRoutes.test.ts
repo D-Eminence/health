@@ -1,8 +1,9 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import type { OrderRouteSummary, WorkItemOrderRoute } from './api'
 import {
-  acceptedCheckText, acceptRefusal, fillAttestation, handOverCheckText, routeClosedForWork, routedChangeWarning, routedElsewhere,
+  acceptedCheckText, acceptRefusal, fillAttestation, forgetReceiving, handOverCheckText, holdsReceivePermission, RECEIVING_MEMORY_MS,
+  receivingAnswer, receivingHere, rememberedReceiving, rememberReceiving, routeClosedForWork, routedChangeWarning, routedElsewhere,
   routedWorkEndedText, routeStatusText, sampleCheckText, sendRefusal, unavailableText, withdrawRefusal, WRONG_PATIENT_REASONS,
   wrongPatientEndedLines, wrongPatientNotice, wrongPatientOffered, wrongPatientRefusal,
 } from './orderRoutes'
@@ -302,5 +303,92 @@ describe('an order ended as accepted for the wrong person', () => {
       ['someone_elses_details', 'The person gave someone else’s Health ID or date of birth'],
       ['suspected_misuse', 'I think the person was pretending to be the patient'],
       ['other', 'The person was not the patient for another reason']])
+  })
+})
+
+/**
+ * Whether the working facility receives this service's orders from other facilities (item 4, hid-system 0089): the
+ * backend's `receives` decides once the member's own receive permission is checked, and without it the session's facility
+ * type, as before. What an answer said is remembered for 10 minutes per membership, facility and service (D3).
+ */
+describe('whether this facility receives orders from other facilities (item 4)', () => {
+  const RECEIVER = ['lab.work-item.read', 'lab.order-route.receive', 'pharmacy.order-route.receive']
+  const at = (selfService?: { review: string; organizationType: string }, permissions = RECEIVER) =>
+    ({ permissions, ...(selfService ? { selfService } : {}) })
+  const facility = { id: 'facility-1', membershipId: 'member-1' }
+  beforeEach(() => { vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1'); forgetReceiving() })
+  afterEach(() => { vi.unstubAllEnvs(); forgetReceiving() })
+
+  it('takes the backend’s receives once the member holds the receive permission, over the session’s type', () => {
+    for (const selfService of [undefined, { review: 'reviewed', organizationType: 'laboratory' },
+      { review: 'reviewed', organizationType: 'hospital' }, { review: 'pending', organizationType: 'laboratory' }]) {
+      expect(receivingHere(at(selfService), 'lab', true)).toBe('yes')
+      expect(receivingHere(at(selfService), 'lab', false)).toBe('no')
+    }
+  })
+
+  it('answers no to a member without the receive permission, and on a main-v1 build, whatever receives says', () => {
+    expect(receivingHere(at(undefined, ['lab.work-item.read']), 'lab', true)).toBe('no')
+    expect(receivingHere(at(undefined, ['lab.order-route.receive']), 'pharmacy', true)).toBe('no')
+    expect(holdsReceivePermission(at(undefined, ['lab.work-item.read']), 'lab')).toBe(false)
+    expect(receivingHere(null, 'lab', true)).toBe('no')
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'main-v1')
+    expect(receivingHere(at(), 'lab', true)).toBe('no')
+    expect(holdsReceivePermission(at(), 'lab')).toBe(false)
+  })
+
+  it('without receives, goes by the session as before', () => {
+    expect(receivingHere(at({ review: 'reviewed', organizationType: 'laboratory' }), 'lab')).toBe('yes')
+    expect(receivingHere(at({ review: 'reviewed', organizationType: 'laboratory' }), 'pharmacy')).toBe('no')
+    expect(receivingHere(at({ review: 'pending', organizationType: 'laboratory' }), 'lab')).toBe('no')
+    expect(receivingHere(at({ review: 'reviewed', organizationType: 'hospital' }), 'lab')).toBe('no')
+    expect(receivingHere(at(), 'lab')).toBe('unknown')
+    expect(receivingHere(at(), 'lab', undefined)).toBe('unknown')
+  })
+
+  it('reads receives and routesHere only in the right shape, and never makes one up', () => {
+    expect(receivingAnswer({ items: [], receives: true, routesHere: { waiting: false, held: true } }))
+      .toEqual({ receives: true, routesHere: { waiting: false, held: true } })
+    expect(receivingAnswer({ items: [], receives: false })).toEqual({ receives: false })
+    expect(receivingAnswer({ items: [], routesHere: { waiting: true, held: false, extra: 1 } })).toEqual({ routesHere: { waiting: true, held: false } })
+    expect(receivingAnswer({ items: [], receives: 'true', routesHere: { waiting: 'yes', held: true } })).toBeNull()
+    expect(receivingAnswer({ items: [], receives: null, routesHere: [true, true] })).toBeNull()
+    expect(receivingAnswer({ items: [], crossFacilityOrders: true, crossFacilityWork: true })).toBeNull()
+    expect(receivingAnswer(null)).toBeNull()
+    expect(receivingAnswer('receives')).toBeNull()
+  })
+
+  it('remembers what an answer said for 10 minutes, per membership, facility and service', () => {
+    const now = Date.parse('2026-10-26T09:00:00.000Z')
+    rememberReceiving(facility, 'lab', { items: [], receives: false, routesHere: { waiting: true, held: false } }, now)
+    expect(rememberedReceiving(facility, 'lab', now)).toEqual({ receives: false, routesHere: { waiting: true, held: false } })
+    expect(rememberedReceiving(facility, 'lab', now + RECEIVING_MEMORY_MS - 1)).toEqual({ receives: false,
+      routesHere: { waiting: true, held: false } })
+    // Another sign-in in the tab, another facility, the other service: nothing.
+    expect(rememberedReceiving({ ...facility, membershipId: 'member-2' }, 'lab', now)).toBeNull()
+    expect(rememberedReceiving({ ...facility, id: 'facility-2' }, 'lab', now)).toBeNull()
+    expect(rememberedReceiving(facility, 'pharmacy', now)).toBeNull()
+    expect(rememberedReceiving(null, 'lab', now)).toBeNull()
+    // An answer that says neither changes nothing; one that says something replaces what was remembered.
+    rememberReceiving(facility, 'lab', { items: [], crossFacilityOrders: true }, now + 1000)
+    expect(rememberedReceiving(facility, 'lab', now + 2000)?.receives).toBe(false)
+    rememberReceiving(facility, 'lab', { items: [], receives: true }, now + 3000)
+    expect(rememberedReceiving(facility, 'lab', now + 4000)).toEqual({ receives: true })
+    // Ten minutes after it was said, it is forgotten.
+    expect(rememberedReceiving(facility, 'lab', now + 3000 + RECEIVING_MEMORY_MS)).toBeNull()
+    expect(rememberedReceiving(facility, 'lab', now + 4000)).toBeNull()
+    expect(RECEIVING_MEMORY_MS).toBe(600_000)
+  })
+
+  it('forgets after 10 minutes by the clock, as the pages read it', () => {
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(new Date('2026-10-26T09:00:00.000Z'))
+      rememberReceiving(facility, 'pharmacy', { items: [], receives: false })
+      vi.setSystemTime(new Date('2026-10-26T09:09:59.000Z'))
+      expect(rememberedReceiving(facility, 'pharmacy')).toEqual({ receives: false })
+      vi.setSystemTime(new Date('2026-10-26T09:10:00.000Z'))
+      expect(rememberedReceiving(facility, 'pharmacy')).toBeNull()
+    } finally { vi.useRealTimers() }
   })
 })

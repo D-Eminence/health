@@ -144,4 +144,29 @@ describe('registration', () => {
     expect(next.getAttribute('aria-invalid')).toBeNull()
     expect(document.getElementById('registration-approve-reason-error')).toBeNull()
   })
+
+  // A case's review and enrollment forms start afresh when another case is shown. That reset used to run as an effect
+  // after the render that showed the case, so a refusal made before the effect ran was then cleared by it: on a slow CI
+  // runner the test above lost its refusal that way (the wait cannot help, the refusal is gone). This submits the review
+  // form in the same task as that render, before its effects run, and the refusal must stay.
+  it('a refusal made as soon as a case’s review form appears is kept', async () => {
+    const caseId = 'c0000000-0000-4000-8000-000000000003'
+    api.registrationCase.mockResolvedValueOnce({ caseId, status: 'pending_new_identity_approval', version: 1, candidateCount: 0 })
+    render(<Registration />)
+    const caseField = await screen.findByRole('textbox', { name: 'Registration case ID' })
+    const submitted = new Promise<HTMLElement>(resolve => {
+      const observer = new MutationObserver(() => {
+        const reason = document.getElementById('registration-approve-reason')
+        if (!reason) return
+        observer.disconnect()
+        fireEvent.submit(reason.closest('form')!)
+        resolve(reason)
+      })
+      observer.observe(document.body, { childList: true, subtree: true })
+    })
+    fireEvent.change(caseField, { target: { value: caseId } })
+    fireEvent.submit(caseField.closest('form')!)
+    const reason = await submitted
+    await waitFor(() => expectRefused(reason, 'Enter a review reason between 8 and 500 characters.'))
+  })
 })

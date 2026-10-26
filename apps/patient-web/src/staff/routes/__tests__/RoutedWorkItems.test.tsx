@@ -3,6 +3,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import { Laboratory, Pharmacy } from '../Operations'
+import { forgetReceiving } from '../../orderRoutes'
 
 /**
  * Work from an order another facility sent here, on the Lab and Pharmacy work lists (Novu, P4c, SPEC-FINAL §13.3): it
@@ -38,8 +39,9 @@ beforeEach(() => {
   working.permissions = ['lab.work-item.read', 'lab.accession.create']
   working.selfService = undefined
   api.labWorkItems.mockResolvedValue({ items: [routed(), local], crossFacilityOrders: true, crossFacilityWork: true })
+  forgetReceiving()
 })
-afterEach(() => { vi.unstubAllEnvs() })
+afterEach(() => { vi.unstubAllEnvs(); forgetReceiving() })
 
 function row(text: string) { return screen.getByText(text).closest('.staff-list-item') as HTMLElement }
 
@@ -120,6 +122,73 @@ describe('work from another facility on the Laboratory page', () => {
     render(<MemoryRouter><Laboratory /></MemoryRouter>)
     await screen.findByText('Malaria parasite')
     expect(screen.queryByText(/paused by Health ID/)).toBeNull()
+  })
+})
+
+/**
+ * Item 4 (hid-system 0089): the work list says whether this facility receives orders from other facilities now
+ * (`receives`) and whether it holds accepted ones (`routesHere.held`, owner decision D4). The paused notice and the header
+ * follow whether the page may hold such work: a facility that holds some is told its work is hidden while paused, whether
+ * or not it is still listed, and a governed hospital is told nothing.
+ */
+describe('the paused notice, by what the work list says of this facility (item 4)', () => {
+  const HIDDEN = 'Work on orders from other facilities is paused by Health ID: any you accepted are hidden from this list until '
+    + 'it resumes. They are not cancelled.'
+  const HOLDS = /^Tests ordered at this facility, and lab requests from other facilities once you accept them/
+  const paused = (fields: Record<string, unknown>) => ({ items: [local], crossFacilityOrders: true, crossFacilityWork: false, ...fields })
+  beforeEach(() => { working.permissions = ['lab.work-item.read', 'lab.accession.create', 'lab.order-route.receive'] })
+
+  it('at a governed laboratory that receives, with nothing listed: says its work is hidden, not cancelled', async () => {
+    api.labWorkItems.mockResolvedValue(paused({ receives: true }))
+    render(<MemoryRouter><Laboratory /></MemoryRouter>)
+    expect(await screen.findByText(HIDDEN)).toBeTruthy()
+    expect(screen.getByText(HOLDS)).toBeTruthy()
+  })
+
+  it.each([
+    ['receives: false', { receives: false }],
+    ['receives: false and nothing held', { receives: false, routesHere: { waiting: false, held: false } }],
+  ])('at a governed hospital (%s): says nothing of a pause or of other facilities', async (_case, fields) => {
+    api.labWorkItems.mockResolvedValue(paused(fields))
+    render(<MemoryRouter><Laboratory /></MemoryRouter>)
+    await screen.findByText('Malaria parasite')
+    expect(screen.queryByText(/paused by Health ID/)).toBeNull()
+    expect(document.body.textContent).not.toMatch(/other facilities/)
+    expect(routes.incoming).not.toHaveBeenCalled()
+  })
+
+  it('at a checked laboratory that can’t receive now, with nothing listed: still says its work is hidden (CC1)', async () => {
+    working.selfService = { review: 'reviewed', organizationType: 'laboratory' }
+    api.labWorkItems.mockResolvedValue(paused({ receives: false }))
+    render(<MemoryRouter><Laboratory /></MemoryRouter>)
+    expect(await screen.findByText(HIDDEN)).toBeTruthy()
+    expect(screen.getByText(HOLDS)).toBeTruthy()
+  })
+
+  it('at a governed laboratory support unlisted, that holds accepted orders: says its work is hidden (D4)', async () => {
+    api.labWorkItems.mockResolvedValue(paused({ receives: false, routesHere: { waiting: false, held: true } }))
+    render(<MemoryRouter><Laboratory /></MemoryRouter>)
+    expect(await screen.findByText(HIDDEN)).toBeTruthy()
+    expect(screen.getByText(HOLDS)).toBeTruthy()
+    expect(routes.incoming).not.toHaveBeenCalled()
+  })
+
+  it('at a pharmacy whose product was suspended, that holds accepted prescriptions: says its work is hidden (D4)', async () => {
+    working.permissions = ['pharmacy.work-item.read', 'pharmacy.order-route.receive']
+    api.pharmacyWorkItems.mockResolvedValue({ items: [], crossFacilityOrders: true, crossFacilityWork: false, receives: false,
+      routesHere: { waiting: false, held: true } })
+    render(<MemoryRouter><Pharmacy /></MemoryRouter>)
+    expect(await screen.findByText(/^Work on orders from other facilities is paused by Health ID: any you accepted are hidden/)).toBeTruthy()
+    expect(screen.getByText(/^Prescriptions accepted here, from this facility and from other facilities/)).toBeTruthy()
+  })
+
+  it('where it holds none (routesHere), says nothing of a pause, even at a laboratory the session calls checked', async () => {
+    working.selfService = { review: 'reviewed', organizationType: 'laboratory' }
+    api.labWorkItems.mockResolvedValue(paused({ receives: false, routesHere: { waiting: false, held: false } }))
+    render(<MemoryRouter><Laboratory /></MemoryRouter>)
+    await screen.findByText('Malaria parasite')
+    await waitFor(() => expect(screen.queryByText(/paused by Health ID/)).toBeNull())
+    expect(screen.getByText('Accepted EHR test orders at this facility. A separate accession records the specimen chain of custody.')).toBeTruthy()
   })
 })
 

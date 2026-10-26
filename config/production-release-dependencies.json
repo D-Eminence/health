@@ -3,16 +3,16 @@
   "declared": true,
   "backend_contract": "novu-v1",
   "reviewed_by": "D-Eminence",
-  "review_reference": "Backend release backend-40267598852-1-f9ecce00b93e8a9e (D-Eminence/hid-system#117 at aba7c16, all 13 components, migration 0087_patient_grant_revocation.sql applied first, deployed 2026-10-26 04:59 UTC with status success). Browser-facing change since the previous pin: POST /api/v1/identity/me/consent-grants/:grantId/revoke is served (a patient revokes a grant they gave; break-glass and workforce grants answer 409 CONSENT_COMMAND_CONFLICT), and the patient access history carries breakGlass and patientRevocable, which this frontend already renders (Revoke button, emergency-access label with the corrected sentence). This frontend release also carries the wrong-patient report screens, which stay dormant until the backend answers with a work card version or wrongPatientReports: true. Reviewed and approved by the repository owner, D-Eminence, in chat on 2026-10-26.",
+  "review_reference": "Backend release backend-40316134731-1-4590d23781b026fd (D-Eminence/hid-system#119 at 3610a4a, all 13 components, migration 0089_order_route_contract_fields.sql applied first, deployed 2026-10-26 12:25 UTC with status success). It includes item 3's release (D-Eminence/hid-system#118 at bd8676e, migration 0088). Browser-facing changes since the previous pin (aba7c16): (1) the wrong-patient report is served: a laboratory or pharmacy ends an order it accepted for someone who was not the patient (POST .../order-routes/:id/wrong-patient), the ordering facility's Overview read (GET /api/v1/ehr/order-routes/wrong-patient) and support's list and review (/api/v1/admin/wrong-patient-reports); the work cards carry a version, which switches on the screens this frontend already ships. (2) Optional contract fields: receives and routesHere {waiting, held} on the Lab and Pharmacy work lists and Incoming, accessEndsAt and closable on support's order lookup, destination {receivingTypes, review} on support's facility summary; this frontend uses each where it is answered and keeps today's pages where it is not. No other route, payload or error code changed. Reviewed and approved by the repository owner, D-Eminence, in chat on 2026-10-26, when signing migration 0089.",
   "backend_commits": {
-    "gateway": "aba7c164a61d923995ff9a54a74f35c5980d4510",
-    "identity-api": "aba7c164a61d923995ff9a54a74f35c5980d4510",
-    "ehr-api": "aba7c164a61d923995ff9a54a74f35c5980d4510",
-    "lab-api": "aba7c164a61d923995ff9a54a74f35c5980d4510",
-    "pharmacy-api": "aba7c164a61d923995ff9a54a74f35c5980d4510",
-    "ocr-api": "aba7c164a61d923995ff9a54a74f35c5980d4510",
-    "outreach-api": "aba7c164a61d923995ff9a54a74f35c5980d4510",
-    "support-api": "aba7c164a61d923995ff9a54a74f35c5980d4510",
-    "notification-api": "aba7c164a61d923995ff9a54a74f35c5980d4510"
+    "gateway": "3610a4ad165ec575d786a71f5041f9e31af04525",
+    "identity-api": "3610a4ad165ec575d786a71f5041f9e31af04525",
+    "ehr-api": "3610a4ad165ec575d786a71f5041f9e31af04525",
+    "lab-api": "3610a4ad165ec575d786a71f5041f9e31af04525",
+    "pharmacy-api": "3610a4ad165ec575d786a71f5041f9e31af04525",
+    "ocr-api": "3610a4ad165ec575d786a71f5041f9e31af04525",
+    "outreach-api": "3610a4ad165ec575d786a71f5041f9e31af04525",
+    "support-api": "3610a4ad165ec575d786a71f5041f9e31af04525",
+    "notification-api": "3610a4ad165ec575d786a71f5041f9e31af04525"
   }
 }

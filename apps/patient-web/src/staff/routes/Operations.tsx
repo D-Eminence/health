@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNod
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { Badge, Button, Card, EmptyState, Field, Input, Select, Textarea } from '@hid/ui'
-import { staffApi, type Facility, type LabAbnormalFlag, type LabAccession, type LabExecution, type LabResult, type LabResultValue, type LabImport, type LabSpecimen, type LabWorkItem, type OcrExtraction, type OcrJob, type OcrPublication, type OcrTargetDomain, type OcrValidation, type OcrValidationInput, type OutreachCampaign, type OutreachCase, type PharmacyImport, type PharmacyWorkItem } from '../api'
+import { staffApi, type Facility, type LabAbnormalFlag, type LabAccession, type LabExecution, type LabResult, type LabResultValue, type LabImport, type LabSpecimen, type LabWorkItem, type OcrExtraction, type OcrJob, type OcrPublication, type OcrTargetDomain, type OcrValidation, type OcrValidationInput, type OutreachCampaign, type OutreachCase, type PharmacyImport, type PharmacyWorkItem, type ReceivingAnswer } from '../api'
 import { useStaff } from '../App'
 import { describedBy } from '../../authSteps'
 import { FieldInputError, problemProps, problemText, refusal, refusalText, type FieldProblem } from '../fieldProblem'
@@ -14,7 +14,8 @@ import { learnWrongPatientServed } from '../../wrongPatientServed'
 import { BETWEEN_FACILITIES } from '../betweenFacilities'
 import { selfServiceReview, selfServiceType } from '../staffAccess'
 import {
-  handOverCheckText, licenceLine, receivingHere, routeClosedForWork, routedWorkEndedText, sampleCheckText, wrongPatientOffered,
+  handOverCheckText, holdsReceivePermission, licenceLine, receivingAnswer, receivingHere, rememberedReceiving, rememberReceiving,
+  routeClosedForWork, routedWorkEndedText, sampleCheckText, wrongPatientOffered,
 } from '../orderRoutes'
 import { IncomingOrders, patientCard } from './IncomingOrders'
 import { WrongPatientAction, WrongPatientEnded, type WrongPatientEnding } from './WrongPatient'
@@ -66,11 +67,13 @@ function useFacilityAccess() {
 
 /**
  * At a laboratory or pharmacy that signed itself up (Novu, P4b), where its work comes from: one message per case, kept
- * in betweenFacilities.ts, and since P4c by whether orders between facilities are on, as the work list last said.
+ * in betweenFacilities.ts, since P4c by whether orders between facilities are on, as the work list last said, and since
+ * item 4 by whether the facility receives them (`receives`, as useReceiving knows it; undefined where nothing said).
  */
-function StandaloneWorkNote({ facility, kind, ordersOn }: { facility: Facility | undefined; kind: 'laboratory' | 'pharmacy'; ordersOn: boolean }) {
+function StandaloneWorkNote({ facility, kind, ordersOn, receives }: { facility: Facility | undefined; kind: 'laboratory' | 'pharmacy'
+  ordersOn: boolean; receives: boolean | undefined }) {
   if (!usesNovuBackend() || !facility || selfServiceReview(facility) !== 'reviewed' || selfServiceType(facility) !== kind) return null
-  return <p className="staff-notice">{BETWEEN_FACILITIES[kind].workspace(facility.name, ordersOn)}</p>
+  return <p className="staff-notice">{BETWEEN_FACILITIES[kind].workspace(facility.name, ordersOn, receives)}</p>
 }
 
 /** A work list's items, or for Lab and Pharmacy the whole answer, with its switches (Novu, P4c). */
@@ -639,17 +642,70 @@ function RoutedWorkPaused({ items, crossFacilityWork, receives }: {
 }
 
 /**
- * Whether the page treats the working facility as receiving orders of this kind from other facilities (Novu, P4c):
- * 'yes' or 'no' from the session (receivingHere); for a governed facility ('unknown'), once there is work from another
- * facility to show: a route-backed row in the work list, or an order waiting in Incoming. Only then does the page say
- * it receives orders, keep Incoming in view and read it every 2 minutes.
+ * Whether the page treats the working facility as receiving orders of this kind from other facilities (Novu, P4c), from
+ * the whole work-list read (`read`: its answer, whether it is loading) and what Incoming answers (`onAnswer`). It answers:
+ * - `accepting`: new orders can reach this facility and be accepted here. The backend's `receives` when known (Novu since
+ *   item 4, hid-system 0089: the newest of the work list's and Incoming's answers, else the one remembered for 10 minutes,
+ *   so a failed read or one without it keeps the last answer), read only after the member's own receive permission;
+ *   otherwise the session's 'yes', or, at a governed facility ('unknown'), once there is work from another facility to
+ *   show (a route-backed row, or an order Incoming found waiting).
+ * - `holds`: the page may hold work from other facilities, which decides the header and the paused notice. With
+ *   `routesHere` (owner decision D4) whether accepted orders are held here (`held`), for every facility, listed or not;
+ *   else `accepting`, or a facility that does not receive now but the session calls a checked laboratory or pharmacy, or
+ *   that lists a route-backed row (CC1).
+ * - `mounted` and `probe`: whether Incoming is shown, and whether only to show orders already waiting (Accept hidden where
+ *   the facility can't accept them; Decline kept). Where it receives, Incoming is read at once and every 2 minutes. Where
+ *   it does not, while orders sent before still wait (`routesHere.waiting`; without it, at a checked laboratory or
+ *   pharmacy, or with a route-backed row), and once Incoming has shown one, so declining the last still says so. With
+ *   nothing known, today's rule, but at a governed facility not before the work list answers: a parallel read would cost
+ *   a governed hospital the read `receives` saves.
+ * - `watch`: where it does not receive now, but the session calls it a checked laboratory or pharmacy, or this page saw it
+ *   receive, Incoming stays mounted and is still read every 2 minutes and on focus, showing nothing unless an order waits:
+ *   so once support lists it again, its answer says so, and the page and the stand-alone note follow without a refresh,
+ *   as a checked laboratory or pharmacy read Incoming before item 4. A governed hospital is never watched.
+ * - `receives`: the backend's answer as known (undefined when it said nothing), for the stand-alone note.
  */
-function useReceiving(facility: Facility | undefined, service: 'lab' | 'pharmacy', items: ReadonlyArray<{ orderRoute?: unknown }> | null) {
-  const receiving = receivingHere(facility, service)
+function useReceiving(facility: Facility | undefined, service: 'lab' | 'pharmacy',
+  read: { value: (ReceivingAnswer & { items: ReadonlyArray<{ orderRoute?: unknown }> }) | null; loading: boolean }) {
+  const session = receivingHere(facility, service)
+  const permitted = holdsReceivePermission(facility, service)
+  // Each answer that says it is remembered (D3); one that says nothing changes nothing.
+  const facilityId = facility?.id
+  const membershipId = facility?.membershipId
+  const page = `${membershipId ?? ''}:${facilityId ?? ''}`
+  useEffect(() => {
+    if (permitted && facilityId && membershipId) rememberReceiving({ id: facilityId, membershipId }, service, read.value)
+  }, [permitted, facilityId, membershipId, service, read.value])
+  // Incoming's last answer, with the work-list answer it came after: it is the newer while the work list has not answered
+  // since (a refresh, an acceptance), and then the work list's is.
+  const [incoming, setIncoming] = useState<{ page: string; after: unknown; known: ReceivingAnswer } | null>(null)
+  const listAnswer = read.value
+  const onAnswer = useCallback((answer: unknown) => {
+    const said = receivingAnswer(answer)
+    if (said) setIncoming({ page, after: listAnswer, known: said })
+  }, [page, listAnswer])
+  const fromList = permitted ? receivingAnswer(read.value) : null
+  const fromIncoming = permitted && incoming?.page === page && incoming.after === read.value ? incoming.known : null
+  const answered = fromIncoming ? { ...(fromList ?? {}), ...fromIncoming } : fromList
+  const known = answered ?? (permitted ? rememberedReceiving(facility, service) : null)
+  const flag = known?.receives
+  const here = known?.routesHere
   const [found, setFound] = useState<string | null>(null)
   const onFound = useCallback(() => setFound(facility?.id ?? null), [facility?.id])
-  const evidence = Boolean(items?.some(item => item.orderRoute)) || (found !== null && found === facility?.id)
-  return { mounted: receiving !== 'no', receives: receiving === 'yes' || (receiving === 'unknown' && evidence), onFound }
+  // Whether this page has seen the facility receive: it then keeps watching for orders after it stops.
+  const [received, setReceived] = useState<string | null>(null)
+  useEffect(() => { if (flag === true) setReceived(page) }, [flag, page])
+  const listed = Boolean(read.value?.items.some(item => item.orderRoute))
+  const foundHere = found !== null && found === facility?.id
+  const evidence = listed || foundHere
+  const watching = session === 'yes' || received === page
+  const accepting = flag !== undefined ? receivingHere(facility, service, flag) === 'yes'
+    : session === 'yes' || (session === 'unknown' && evidence)
+  const holds = here ? accepting || here.held || listed : accepting || (flag === false && (session === 'yes' || listed))
+  const mounted = permitted && (flag === true || (flag === false
+    ? (here ? here.waiting || foundHere : evidence) || watching
+    : Boolean(here?.waiting) || (session !== 'no' && !(session === 'unknown' && read.value === null && read.loading))))
+  return { mounted, probe: !accepting, watch: !accepting && watching, accepting, holds, receives: flag, onFound, onAnswer }
 }
 
 /**
@@ -676,7 +732,7 @@ export function Laboratory() {
   const focus = useFocusById()
   // Orders other facilities send here (Novu, P4c): received by laboratory scientists (lab.order-route.receive), and only
   // at a laboratory: a hospital's or clinic's own laboratory is never sent any (useReceiving).
-  const { mounted, receives, onFound } = useReceiving(facility, 'lab', list.items)
+  const { mounted, probe, watch, holds, receives, onFound, onAnswer } = useReceiving(facility, 'lab', read)
   useLearnWrongPatientServed(list.items)
   // An order ended as accepted for the wrong person (item 3): said until closed; the list is read again, and it goes.
   const [ended, setEnded] = useState<{ facilityId: string; ending: WrongPatientEnding } | null>(null)
@@ -688,17 +744,17 @@ export function Laboratory() {
     void list.refresh()
   }
   return <>
-    <PageHead eyebrow="Provider workspace" title="Laboratory">{receives
+    <PageHead eyebrow="Provider workspace" title="Laboratory">{holds
       ? 'Tests ordered at this facility, and lab requests from other facilities once you accept them. A separate accession records the specimen chain of custody.'
       : 'Accepted EHR test orders at this facility. A separate accession records the specimen chain of custody.'}</PageHead>
-    <StandaloneWorkNote facility={facility} kind="laboratory" ordersOn={read.value?.crossFacilityOrders === true} />
-    {mounted && facility && <IncomingOrders service="lab" facilityId={facilityId} facilityName={facility.name} probe={!receives}
-      onFound={onFound} onAccepted={() => void list.refresh()}
+    <StandaloneWorkNote facility={facility} kind="laboratory" ordersOn={read.value?.crossFacilityOrders === true} receives={receives} />
+    {mounted && facility && <IncomingOrders service="lab" facilityId={facilityId} facilityName={facility.name} probe={probe}
+      watch={watch} membershipId={facility.membershipId} onFound={onFound} onAnswer={onAnswer} onAccepted={() => void list.refresh()}
       onEnded={routeId => setSelection(current => current?.item.orderRoute?.id === routeId ? null : current)} />}
     {ended?.facilityId === facilityId && <WrongPatientEnded id="lab-wrong-patient-ended" ending={ended.ending} onClose={() => setEnded(null)} />}
     <div className="staff-row staff-toolbar"><RefreshButton loading={list.loading} onRefresh={list.refresh}>Refresh work</RefreshButton></div>
     <ListState loading={list.loading} error={list.error} empty="No accepted lab work" retry={() => void list.refresh()} hasItems={Boolean(list.items?.length)} />
-    <RoutedWorkPaused items={list.items} crossFacilityWork={read.value?.crossFacilityWork} receives={receives} />
+    <RoutedWorkPaused items={list.items} crossFacilityWork={read.value?.crossFacilityWork} receives={holds} />
     <WorkListCap count={list.items?.length ?? 0} />
     {list.items && list.items.length > 0 && <div className="staff-two-col"><div className="staff-list">{list.items.map(item => <LabWorkRow key={item.id}
       facilityId={facilityId} item={item} permissions={permissions} onOpen={() => setSelection({ facilityId, item })}
@@ -789,22 +845,22 @@ export function Pharmacy() {
   const list = { ...read, items: read.value ? read.value.items : null }
   // Prescriptions other facilities send here (Novu, P4c): received by pharmacists (pharmacy.order-route.receive), and
   // only at a pharmacy: a hospital's or clinic's own pharmacy is never sent any (useReceiving).
-  const { mounted, receives, onFound } = useReceiving(facility, 'pharmacy', list.items)
+  const { mounted, probe, watch, holds, receives, onFound, onAnswer } = useReceiving(facility, 'pharmacy', read)
   useLearnWrongPatientServed(list.items)
   // A prescription ended as accepted for the wrong person (item 3): said until closed; the list is read again, and it goes.
   const [ended, setEnded] = useState<{ facilityId: string; ending: WrongPatientEnding } | null>(null)
   if (!facilityId || !canRead) return <EmptyState titleAs="h1" title="Pharmacy unavailable" description="This facility membership needs pharmacy work-item read permission." />
   return <>
-    <PageHead eyebrow="Provider workspace" title="Pharmacy">{receives
+    <PageHead eyebrow="Provider workspace" title="Pharmacy">{holds
       ? 'Prescriptions accepted here, from this facility and from other facilities, and full dispensing records. The server checks patient authorization before dispensing or reversal.'
       : 'Accepted prescriptions and full dispensing records for the active facility. The server checks patient authorization before dispensing or reversal.'}</PageHead>
-    <StandaloneWorkNote facility={facility} kind="pharmacy" ordersOn={read.value?.crossFacilityOrders === true} />
-    {mounted && facility && <IncomingOrders service="pharmacy" facilityId={facilityId} facilityName={facility.name} probe={!receives}
-      onFound={onFound} onAccepted={() => void list.refresh()} />}
+    <StandaloneWorkNote facility={facility} kind="pharmacy" ordersOn={read.value?.crossFacilityOrders === true} receives={receives} />
+    {mounted && facility && <IncomingOrders service="pharmacy" facilityId={facilityId} facilityName={facility.name} probe={probe}
+      watch={watch} membershipId={facility.membershipId} onFound={onFound} onAnswer={onAnswer} onAccepted={() => void list.refresh()} />}
     {ended?.facilityId === facilityId && <WrongPatientEnded id="pharmacy-wrong-patient-ended" ending={ended.ending} onClose={() => setEnded(null)} />}
     <div className="staff-row staff-toolbar"><RefreshButton loading={list.loading} onRefresh={list.refresh}>Refresh work</RefreshButton></div>
     <ListState loading={list.loading} error={list.error} empty="No accepted prescriptions" retry={() => void list.refresh()} hasItems={Boolean(list.items?.length)} />
-    <RoutedWorkPaused items={list.items} crossFacilityWork={read.value?.crossFacilityWork} receives={receives} />
+    <RoutedWorkPaused items={list.items} crossFacilityWork={read.value?.crossFacilityWork} receives={holds} />
     {/* hid-system #48: work whose prescription changed stays listed as accepted (INTERFACE_CONTRACT.md, Pharmacy). */}
     <WorkListCap count={list.items?.length ?? 0}><p className="staff-notice">Work whose prescription changed after Pharmacy accepted it cannot be dispensed, but it stays listed and counts toward these {WORK_LIST_CAP}.</p></WorkListCap>
     {list.items && list.items.length > 0 && <div className="staff-list">{list.items.map(item => <PharmacyAction key={item.id} facilityId={facilityId} item={item} permissions={permissions} onChanged={list.refresh}

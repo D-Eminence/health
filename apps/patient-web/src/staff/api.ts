@@ -493,7 +493,29 @@ export interface LabWorkItem {
  * A work list's answer. Novu since P4c also says whether orders between facilities are on (`crossFacilityOrders`) and
  * whether work on accepted ones is (`crossFacilityWork`); an earlier backend sends neither.
  */
-export interface WorkList<T> { items: T[]; crossFacilityOrders?: boolean; crossFacilityWork?: boolean }
+export interface WorkList<T> extends ReceivingAnswer { items: T[]; crossFacilityOrders?: boolean; crossFacilityWork?: boolean }
+
+/**
+ * Whether orders of this kind are waiting here (`waiting`: sent here and not yet past their respond-by time, as Incoming
+ * lists them) and whether this facility holds any it accepted (`held`: accepted, completed or cancelled, with access not
+ * yet ended). Booleans only: no patient, no count, no reference.
+ */
+export interface RoutesHere { waiting: boolean; held: boolean }
+
+/**
+ * What the Lab and Pharmacy work lists and Incoming also say about the working facility, for this service's orders from
+ * other facilities. Novu since item 4 (hid-system 0089), only to a member holding the kind's receive permission; an
+ * earlier backend sends neither, and either is left out when it could not be read.
+ */
+export interface ReceivingAnswer {
+  /**
+   * Whether this facility receives this service's orders from other facilities now (H4, whatever the switches say), so
+   * new orders can reach it and be accepted here.
+   */
+  receives?: boolean
+  /** Whether orders already sent here wait, and whether accepted ones are held here, listed or not (owner decision D4). */
+  routesHere?: RoutesHere
+}
 
 export interface LabSpecimen {
   id: string
@@ -742,7 +764,9 @@ export interface IncomingOrderRoute {
   attemptsLeft: number | null
 }
 
-export interface IncomingOrderRoutes { items: IncomingOrderRoute[]; crossFacilityOrders: boolean; crossFacilityWork: boolean }
+export interface IncomingOrderRoutes extends ReceivingAnswer {
+  items: IncomingOrderRoute[]; crossFacilityOrders: boolean; crossFacilityWork: boolean
+}
 
 /** What is shown once an order is accepted: who the patient is, and what the sender wrote. */
 export interface OrderRouteAccepted {
