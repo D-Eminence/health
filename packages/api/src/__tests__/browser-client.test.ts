@@ -89,6 +89,26 @@ describe('registered browser client', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1)
   })
 
+  it('never sends a Health ID in the address of an order-route lookup; the search takes it in its body', async () => {
+    const staff = harness('staff-web')
+    await expect(staff.client.get('/api/v1/lab/order-routes', { query: { view: 'incoming', healthId: 'HID-7KQ2M9' } }))
+      .rejects.toMatchObject({ code: 'FORBIDDEN_QUERY' })
+    await expect(staff.client.get('/api/v1/pharmacy/order-routes', { query: { healthId: 'HID-7KQ2M9' } }))
+      .rejects.toMatchObject({ code: 'FORBIDDEN_QUERY' })
+    expect(staff.fetchImpl).not.toHaveBeenCalled()
+    await staff.client.get('/api/v1/lab/order-routes', { query: { view: 'incoming' } })
+    await staff.client.post('/api/v1/lab/order-routes/search', { view: 'incoming', healthId: 'HID-7KQ2M9' })
+    expect(staff.fetchImpl.mock.calls.map(call => new URL(String(call[0])).search)).toEqual(['?view=incoming', ''])
+
+    const admin = harness('admin-web')
+    await expect(admin.client.get('/api/v1/admin/order-routes', { query: { healthId: 'HID-7KQ2M9' } }))
+      .rejects.toMatchObject({ code: 'FORBIDDEN_QUERY' })
+    await expect(admin.client.get('/api/v1/admin/order-routes')).rejects.toMatchObject({ code: 'REQUIRED_QUERY' })
+    expect(admin.fetchImpl).not.toHaveBeenCalled()
+    await admin.client.get('/api/v1/admin/order-routes', { query: { reference: '9C1B2D3E' } })
+    expect(admin.fetchImpl.mock.calls.map(call => new URL(String(call[0])).search)).toEqual(['?reference=9C1B2D3E'])
+  })
+
   it('rejects unsafe paths and non-JSON downloads in the JSON client', async () => {
     const { client, fetchImpl } = harness('admin-web')
     await expect(client.get('/api/v1/ehr/patients/%2E%2E/encounters'))

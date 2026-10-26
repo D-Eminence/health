@@ -6,6 +6,7 @@ export type BrowserRouteErrorCode =
   | 'UNKNOWN_ROUTE'
   | 'WRONG_METHOD'
   | 'REQUIRED_QUERY'
+  | 'FORBIDDEN_QUERY'
   | 'UNSUPPORTED_RESPONSE'
 
 /** Route errors omit the requested path because a path segment may be a patient ID. */
@@ -17,6 +18,11 @@ export class BrowserRouteError extends Error {
 }
 
 type Query = Readonly<Record<string, string | number | boolean | null | undefined>>
+
+/** Whether the HTTP client puts this value in the URL: it leaves out undefined, null and '' (@hid/http buildUrl). */
+function sent(value: Query[string]): boolean {
+  return value !== undefined && value !== null && value !== ''
+}
 
 function pathSegments(path: string): string[] {
   if (!path.startsWith('/api/v1/') && !path.startsWith('/gateway-health/')) {
@@ -90,6 +96,14 @@ export function assertRegisteredBrowserRequest(
   }
   if (endpoint.responseKind !== 'download' && responseType === 'download') {
     throw new BrowserRouteError('UNSUPPORTED_RESPONSE', 'This route returns JSON, not a download.')
+  }
+  // A refused key is checked first and in its bracketed forms too (healthId[]), as hid-system #116 refuses them.
+  const forbidden = endpoint.forbiddenQuery?.[method as keyof typeof endpoint.forbiddenQuery] ?? []
+  for (const [key, value] of Object.entries(query ?? {})) {
+    if (sent(value) && forbidden.some(refused => key === refused || key.startsWith(`${refused}[`))) {
+      // The message never repeats the value: it may be a Health ID.
+      throw new BrowserRouteError('FORBIDDEN_QUERY', 'This query parameter is not accepted in an address; send it in a request body.')
+    }
   }
   const required = endpoint.requiredQuery?.[method as keyof typeof endpoint.requiredQuery] ?? []
   for (const key of required) {

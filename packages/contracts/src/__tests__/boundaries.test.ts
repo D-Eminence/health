@@ -476,18 +476,21 @@ describe('application boundaries', () => {
         }
       }
     }
-    // The directory needs its kind and words, the attestation its kind; finding an order takes either query.
+    // The directory needs its kind and words, the attestation its kind; support's GET finds an order by its reference.
     expect(() => assertRegisteredBrowserRequest('GET', '/api/v1/identity/order-destinations', { kind: 'laboratory' })).toThrow(BrowserRouteError)
     expect(() => assertRegisteredBrowserRequest('GET', '/api/v1/ehr/order-route-attestation')).toThrow(BrowserRouteError)
-    expect(assertRegisteredBrowserRequest('GET', '/api/v1/admin/order-routes', { healthId: 'HID-7KQ2M9' }).name).toBe('admin.orderRoutesFind')
+    expect(assertRegisteredBrowserRequest('GET', '/api/v1/admin/order-routes', { reference: '9C1B2D3E' }).name).toBe('admin.orderRoutesFind')
     // The static attestation path is not a lab request, and a route's own read is not its accept.
     expect(() => assertRegisteredBrowserRequest('POST', `/api/v1/lab/order-routes/${routeId}`)).toThrow(BrowserRouteError)
     // The searches (P4c review) are POSTs: support's is never read with a GET.
     expect(() => assertRegisteredBrowserRequest('GET', '/api/v1/admin/order-routes/search')).toThrow(BrowserRouteError)
-    // The healthId queries are deprecated in favour of the searches.
+    // Since hid-system #116 the GETs refuse a healthId query: a Health ID goes in the searches' bodies.
     for (const name of ['lab.orderRoutes', 'pharmacy.orderRoutes', 'admin.orderRoutesFind']) {
-      expect(findEndpoint(name)?.note, name).toContain('deprecated')
+      expect(findEndpoint(name)?.note, name).toContain('HEALTH_ID_NOT_ACCEPTED_IN_URL')
+      expect(findEndpoint(name)?.note, name).not.toContain('deprecated')
     }
+    expect(findEndpoint('admin.orderRoutesFind')?.note).not.toContain('20 by Health ID')
+    expect(findEndpoint('admin.orderRoutesSearch')?.note).toContain('20 by Health ID')
     for (const name of ['lab.orderRouteAccept', 'pharmacy.orderRouteAccept']) {
       expect(findEndpoint(name)?.note, name).toContain('_REFERENCE_MISMATCH')
     }
@@ -501,6 +504,45 @@ describe('application boundaries', () => {
     expect(findEndpoint('admin.controls')?.note).toContain('cross_facility_orders_enabled')
     expect(findEndpoint('admin.controls')?.note).toContain('cross_facility_route_access_enabled')
     expect(findEndpoint('enrollment.providerAvailability')?.note).toContain('crossFacilityOrders')
+  })
+
+  it('never sends a Health ID in the address of an order-route lookup (hid-system #116)', () => {
+    const refusal = (run: () => unknown): unknown => {
+      try { run() } catch (error) { return error }
+      return undefined
+    }
+    const lookups = { '/api/v1/lab/order-routes': 'lab.orderRoutes', '/api/v1/pharmacy/order-routes': 'pharmacy.orderRoutes',
+      '/api/v1/admin/order-routes': 'admin.orderRoutesFind' } as const
+    expect(HID_ENDPOINTS.filter(endpoint => endpoint.forbiddenQuery).map(endpoint => endpoint.name).sort())
+      .toEqual(Object.values(lookups).sort())
+    for (const [path, name] of Object.entries(lookups)) {
+      expect(findEndpoint(name)?.forbiddenQuery, name).toEqual({ GET: ['healthId'] })
+      // Refused before transport in every form the backend refuses, alone or beside an allowed key, with a message
+      // that never repeats the value.
+      for (const query of [{ healthId: 'HID-7KQ2M9' }, { view: 'incoming', healthId: 'HID-7KQ2M9' },
+        { reference: '9C1B2D3E', healthId: 'HID-7KQ2M9' }, { 'healthId[]': 'HID-7KQ2M9' }, { healthId: ' ' }]) {
+        const error = refusal(() => assertRegisteredBrowserRequest('GET', path, query))
+        expect(error, `${name} ${Object.keys(query).join(',')}`).toBeInstanceOf(BrowserRouteError)
+        expect(error, `${name} ${Object.keys(query).join(',')}`).toMatchObject({ code: 'FORBIDDEN_QUERY' })
+        expect((error as Error).message).not.toContain('HID-7KQ2M9')
+      }
+    }
+    // A value the HTTP client leaves out of the URL is not sent, so it is not refused.
+    for (const healthId of [undefined, null, '']) {
+      expect(assertRegisteredBrowserRequest('GET', '/api/v1/lab/order-routes', { view: 'recent', healthId }).name).toBe('lab.orderRoutes')
+      expect(assertRegisteredBrowserRequest('GET', '/api/v1/admin/order-routes', { reference: '9C1B2D3E', healthId }).name)
+        .toBe('admin.orderRoutesFind')
+    }
+    expect(assertRegisteredBrowserRequest('GET', '/api/v1/pharmacy/order-routes').name).toBe('pharmacy.orderRoutes')
+    // Support's GET finds by reference only; the searches take the Health ID in their bodies, and a route's own read
+    // is not a lookup.
+    expect(refusal(() => assertRegisteredBrowserRequest('GET', '/api/v1/admin/order-routes'))).toMatchObject({ code: 'REQUIRED_QUERY' })
+    expect(refusal(() => assertRegisteredBrowserRequest('GET', '/api/v1/admin/order-routes', { reference: ' ' })))
+      .toMatchObject({ code: 'REQUIRED_QUERY' })
+    for (const path of ['/api/v1/lab/order-routes/search', '/api/v1/pharmacy/order-routes/search', '/api/v1/admin/order-routes/search']) {
+      expect(() => assertRegisteredBrowserRequest('POST', path), path).not.toThrow()
+    }
+    expect(findEndpoint('lab.orderRoute')?.forbiddenQuery).toBeUndefined()
   })
 
   it('keeps the public site\'s enrollment routes as they were', () => {
