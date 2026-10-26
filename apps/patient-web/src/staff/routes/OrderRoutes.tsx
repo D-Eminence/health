@@ -9,7 +9,7 @@ import { OrderDestinationPicker } from '../components/OrderDestinationPicker'
 import {
   attestedText, controlledMedicineNote, destinationWord, fillAttestation, ORDERS_NOT_AVAILABLE, ORDERS_PAUSED, orderWord,
   paused, routeDay, routeMissing, routeStatusText, routeWaiting, sendRefusal, sensitiveTestNote, unavailableText, urgentNote,
-  WITHDRAW_REASONS, withdrawRefusal,
+  WITHDRAW_REASONS, withdrawRefusal, wrongPatientNotice,
 } from '../orderRoutes'
 import { UNAVAILABLE } from '../focus'
 
@@ -244,18 +244,69 @@ function resultGroupLines(reports: readonly OrderRouteResult[], facility: string
   return lines
 }
 
-/**
- * What came back from the laboratory (SPEC-FINAL §13.1 "Returns"), result by result in the order they first came back.
- * A correction is a new version of the same result, so the reports are grouped by result: see resultGroupLines.
- */
-function resultLines(results: readonly OrderRouteResult[], facility: string): string[] {
+/** The reports of each result, result by result in the order they first came back. */
+function resultGroups(results: readonly OrderRouteResult[]): OrderRouteResult[][] {
   const groups = new Map<string, OrderRouteResult[]>()
   results.forEach((result, index) => {
     const key = result.resultId ?? `unidentified-${index}`
     groups.set(key, [...(groups.get(key) ?? []), result])
   })
   return [...groups.values()].sort((first, second) => firstReturned(first).localeCompare(firstReturned(second)))
-    .flatMap(reports => resultGroupLines(reports, facility))
+}
+
+/**
+ * What came back from the laboratory (SPEC-FINAL §13.1 "Returns"), result by result in the order they first came back.
+ * A correction is a new version of the same result, so the reports are grouped by result: see resultGroupLines.
+ */
+function resultLines(results: readonly OrderRouteResult[], facility: string): string[] {
+  return resultGroups(results).flatMap(reports => resultGroupLines(reports, facility))
+}
+
+/** A result line of an order the laboratory ended as accepted for the wrong person, and the value it withdrew. */
+interface WithdrawnLine { readonly key: string; readonly text: string; readonly value: string | null }
+
+/**
+ * The results of a route the laboratory ended as accepted for someone who was not the patient (item 3, D19, §9.2): each
+ * version it released reads "{test} (do not use): another person's result, withdrawn by {B} on {date}", newest first. The
+ * value is another person's, so it is not shown unless asked for (WithdrawnResults); a version withdrawn before it came
+ * back has no value to show.
+ */
+function withdrawnResultLines(results: readonly OrderRouteResult[], facility: string, endedAt: string | null): WithdrawnLine[] {
+  return resultGroups(results).flatMap((reports, group): WithdrawnLine[] => {
+    const named = reports.find(report => report.test.name)?.test.name
+    const label = named ? `${named} (do not use)` : 'Do not use'
+    const releases = reports.filter(report => report.kind !== 'entered_in_error').sort(byVersion).reverse()
+    const voids = reports.filter(report => report.kind === 'entered_in_error')
+    const voidOf = (release: OrderRouteResult) => voids.find(report => report.resultVersion === null)
+      ?? voids.find(report => report.resultVersion !== null && report.resultVersion === release.resultVersion)
+    const withdrawn = (on: string | null | undefined) => `${label}: another person’s result, withdrawn by ${facility} on `
+      + `${routeDay(on ?? endedAt)}.`
+    if (releases.length === 0) {
+      return voids.map((report, index) => ({ key: `${group}-void-${index}`, text: withdrawn(report.occurredAt), value: null }))
+    }
+    return releases.map((release, index) => ({ key: `${group}-${release.resultVersion ?? index}`,
+      text: withdrawn(voidOf(release)?.occurredAt),
+      value: `Released by ${facility} on ${routeDay(release.occurredAt)}: ${resultValue(release)}` }))
+  })
+}
+
+/** The lines of withdrawn results, each value hidden until "Show the withdrawn value" is pressed (D19). */
+function WithdrawnResults({ id, lines }: { id: string; lines: readonly WithdrawnLine[] }) {
+  const [shown, setShown] = useState<ReadonlySet<string>>(() => new Set())
+  return <ul className="staff-order-notes staff-withdrawn-results">{lines.map(line => {
+    const open = shown.has(line.key)
+    const valueId = `${id}-value-${line.key}`
+    return <li key={line.key}><span>{line.text}</span>
+      {line.value && <>{' '}<Button tone="quiet" size="sm" aria-expanded={open} aria-controls={open ? valueId : undefined}
+        onClick={() => setShown(current => {
+          const next = new Set(current)
+          if (open) next.delete(line.key)
+          else next.add(line.key)
+          return next
+        })}>{open ? 'Hide the withdrawn value' : 'Show the withdrawn value'}</Button>
+        {open && <span id={valueId} className="staff-withdrawn-value"> {line.value}</span>}</>}
+    </li>
+  })}</ul>
 }
 
 function dispensingLines(dispensings: readonly OrderRouteDispensing[], facility: string): string[] {
@@ -321,6 +372,8 @@ export function OrderRoutePanel({ id, kind, route, context, canWithdraw, onWithd
     <div className="staff-row"><strong id={`${id}-title`}>{lab ? 'Sent to another laboratory' : 'Sent to a pharmacy'}</strong>
       {route.reference && <span className="staff-muted">Ref {route.reference}</span>}</div>
     <p><Badge tone={status.tone}>{status.text}</Badge></p>
+    {route.endedKind === 'wrong_patient' && <div className="staff-notice staff-danger staff-stack">
+      {wrongPatientNotice(route, context.patient).map((line, index) => <p key={index}>{line}</p>)}</div>}
     {unavailable && <p className="staff-notice">{unavailable}</p>}
     <Button tone="secondary" size="sm" aria-expanded={open} onClick={() => setOpen(value => !value)}>
       {open ? 'Hide details' : lab ? 'Show details and results' : 'Show details and dispensing'}</Button>
@@ -330,13 +383,16 @@ export function OrderRoutePanel({ id, kind, route, context, canWithdraw, onWithd
       {views && views.length === 0 && <p className="staff-muted">No route of this order was found.</p>}
       {views?.map((view, index) => {
         const viewFacility = view.receivingFacility.name ?? view.attestation.receivingFacilityName ?? 'the other facility'
-        const returns = lab ? resultLines(view.results ?? [], viewFacility) : dispensingLines(view.dispensings ?? [], viewFacility)
+        // Results the laboratory reports are another person's (item 3): their values stay hidden until asked for.
+        const withdrawn = lab && view.endedKind === 'wrong_patient' ? withdrawnResultLines(view.results ?? [], viewFacility, view.endedAt) : null
+        const returns = withdrawn ? [] : lab ? resultLines(view.results ?? [], viewFacility) : dispensingLines(view.dispensings ?? [], viewFacility)
         return <div key={view.id} className="staff-list-item staff-stack">
           {index > 0 && <strong>Earlier: {routeStatusText(view, context.patient).text}</strong>}
           <p>{attestedText(view.attestation.attestedByName, view.attestation.attestedAt, context.patient,
             view.attestation.receivingFacilityName ?? viewFacility)}</p>
-          {returns.length > 0 ? <ul className="staff-order-notes">{returns.map((line, at) => <li key={at}>{line}</li>)}</ul>
-            : view.effectiveState === 'accepted' ? <p className="staff-muted">Nothing has come back from {viewFacility} yet.</p> : null}
+          {withdrawn && withdrawn.length > 0 ? <WithdrawnResults id={`${id}-${view.id}`} lines={withdrawn} />
+            : returns.length > 0 ? <ul className="staff-order-notes">{returns.map((line, at) => <li key={at}>{line}</li>)}</ul>
+              : view.effectiveState === 'accepted' ? <p className="staff-muted">Nothing has come back from {viewFacility} yet.</p> : null}
         </div>
       })}
     </div>}

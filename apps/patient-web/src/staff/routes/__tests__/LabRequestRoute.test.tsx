@@ -231,7 +231,11 @@ describe('a lab request sent to another laboratory, on its row', () => {
     expect(screen.queryByRole('button', { name: 'View released results' })).toBeNull()
     const status = screen.getByLabelText(labelled('New status')) as HTMLSelectElement
     expect([...status.options].map(option => option.text)).toEqual(['Put on hold', 'Complete', 'Cancel', 'Mark entered in error'])
-    expect(screen.getByText('Changing it withdraws it from Yaba Diagnostics, or cancels it there if Yaba Diagnostics has accepted it; a cancelled order can’t be resumed there.')).toBeTruthy()
+    // While Yaba Diagnostics may still work on it, the clinician is asked to have it ended there first (item 3, C1).
+    expect(screen.getByText('Changing it withdraws it from Yaba Diagnostics, or cancels it there if Yaba Diagnostics has accepted '
+      + 'it; a cancelled order can’t be resumed there. If Yaba Diagnostics accepted it for someone who was not Ada Patient, ask '
+      + 'Yaba Diagnostics to end it from its work list first: once you change this order, Yaba Diagnostics can no longer '
+      + 'withdraw a result or dispensing it sent back.')).toBeTruthy()
     expect(screen.queryByText(/Lab may already be working on this request/)).toBeNull()
   })
 

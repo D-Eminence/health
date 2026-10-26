@@ -121,7 +121,11 @@ describe('sending a prescription to a pharmacy at another facility', () => {
     expect(await screen.findByText(/^Accepted by Medplus Yaba on /)).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Send to Pharmacy' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Send to a pharmacy' })).toBeNull()
-    expect(screen.getByText('Changing it withdraws it from Medplus Yaba, or cancels it there if Medplus Yaba has accepted it; a cancelled order can’t be resumed there.')).toBeTruthy()
+    // While Medplus Yaba may still work on it, the clinician is asked to have it ended there first (item 3, C1).
+    expect(screen.getByText('Changing it withdraws it from Medplus Yaba, or cancels it there if Medplus Yaba has accepted it; a '
+      + 'cancelled order can’t be resumed there. If Medplus Yaba accepted it for someone who was not Ada Patient, ask Medplus '
+      + 'Yaba to end it from its work list first: once you change this order, Medplus Yaba can no longer withdraw a result or '
+      + 'dispensing it sent back.')).toBeTruthy()
   })
 
   it('says the EHR’s PRESCRIPTION_ROUTED in words when this facility’s pharmacist sends one routed meanwhile', async () => {
@@ -147,5 +151,60 @@ describe('sending a prescription to a pharmacy at another facility', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Show details and dispensing' }))
     expect(await screen.findByText(/^Dispensed by Medplus Yaba: 21 capsules on .* \(Amoxicillin 500 mg capsules\)\.$/)).toBeTruthy()
     expect(screen.getByText(/^Dispensing reversed on .*: contact Medplus Yaba\.$/)).toBeTruthy()
+  })
+})
+
+/**
+ * Item 3 (SPEC-FINAL §8.2, §9.2; D5, D10): a prescription the pharmacy reports it dispensed to someone who was not the
+ * patient, and the Overview's link to such an order, which opens it in the record already open for that patient only.
+ */
+describe('a prescription the pharmacy reports it accepted for the wrong person', () => {
+  const wrong = (overrides: Record<string, unknown> = {}) => route({ effectiveState: 'completed', endedKind: 'wrong_patient',
+    acceptedAt: '2026-10-21T10:00:00.000Z', completedAt: '2026-10-22T10:00:00.000Z', endedAt: '2026-10-23T10:00:00.000Z', version: 5, ...overrides })
+
+  it('says what the pharmacy reports, to check with the patient before prescribing again, and offers no Send', async () => {
+    records = [rx('active', wrong())]
+    routes.routes.mockResolvedValue({ items: [{ ...wrong(), attestation: { textVersion: 'v1', attestedByName: 'Dr Ade Okon',
+      attestedAt: '2026-10-20T09:00:00.000Z', receivingFacilityName: 'Medplus Yaba' }, events: [], dispensings: [
+      { dispensingId: 'd1', kind: 'dispensed', medication: { codeSystem: null, code: null, display: 'Amoxicillin 500 mg capsules' },
+        quantityDispensed: '21', quantityUnit: 'capsules', occurredAt: '2026-10-22T10:00:00.000Z' },
+      { dispensingId: 'd1', kind: 'reversed', medication: { codeSystem: null, code: null, display: 'Amoxicillin 500 mg capsules' },
+        quantityDispensed: null, quantityUnit: null, occurredAt: '2026-10-23T10:00:00.000Z' }] }] })
+    await openPrescriptions()
+    expect(screen.getByText('Medplus Yaba reports that it dispensed this to someone who was not Ada Patient, and has ended it.')).toBeTruthy()
+    const notice = document.querySelector('.staff-order-route .staff-danger') as HTMLElement
+    expect([...notice.querySelectorAll('p')].map(line => line.textContent)).toEqual([
+      'This order can’t be sent again. Write a new prescription if Ada Patient still needs it.',
+      'Medplus Yaba reports that Ada Patient did not receive this medicine from it. Check with Ada Patient before you prescribe it '
+        + 'again, especially a controlled medicine.'])
+    expect(screen.queryByRole('button', { name: 'Send to a pharmacy' })).toBeNull()
+    // Once ended there, nothing can be withdrawn there any more: the change warning says only what a change does.
+    expect(screen.getByText('Changing it withdraws it from Medplus Yaba, or cancels it there if Medplus Yaba has accepted it; a '
+      + 'cancelled order can’t be resumed there.')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Show details and dispensing' }))
+    expect(await screen.findByText('Dispensing reversed on 23 Oct 2026: contact Medplus Yaba.')).toBeTruthy()
+  })
+
+  it('opens the order the Overview links to, in the record open for its patient: its encounter, tab and row', async () => {
+    const LINKED = 'e0000000-0000-4000-8000-000000000002'
+    const linked = { id: LINKED, patientId: PATIENT, facilityId: 'facility-1', encounterType: 'ambulatory', status: 'finished',
+      startedAt: '2026-10-01T08:00:00.000Z', chiefComplaint: null, rowVersion: 2 }
+    api.encounter.mockResolvedValue(linked)
+    records = [rx('active', wrong())]
+    render(<MemoryRouter initialEntries={[{ pathname: '/provider/clinical', state: { order: { patientId: PATIENT, encounterId: LINKED,
+      kind: 'prescription', orderId: 'rx-1' } } }]}><Clinical /></MemoryRouter>)
+    await waitFor(() => expect(api.encounter).toHaveBeenCalledWith('facility-1', PATIENT, LINKED))
+    await waitFor(() => expect(api.records).toHaveBeenCalledWith('facility-1', PATIENT, LINKED, 'prescriptions'))
+    expect(screen.getByRole('tab', { name: 'Prescriptions' }).getAttribute('aria-selected')).toBe('true')
+    await waitFor(() => expect(document.activeElement?.id).toBe('record-rx-1-title'))
+  })
+
+  it('opens nothing from a link to another patient’s order', async () => {
+    render(<MemoryRouter initialEntries={[{ pathname: '/provider/clinical', state: { order: { patientId: 'a0000000-0000-4000-8000-0000000000ff',
+      encounterId: ENCOUNTER, kind: 'prescription', orderId: 'rx-9' } } }]}><Clinical /></MemoryRouter>)
+    await waitFor(() => expect(api.records).toHaveBeenCalledWith('facility-1', PATIENT, ENCOUNTER, 'prescriptions'))
+    await screen.findByText('Amoxicillin 500 mg capsules')
+    expect(api.encounter).not.toHaveBeenCalled()
+    expect(api.records.mock.calls.every(call => call[2] === ENCOUNTER)).toBe(true)
   })
 })

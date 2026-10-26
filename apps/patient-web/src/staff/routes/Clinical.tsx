@@ -4,7 +4,7 @@ import { ImportedPatientHistory } from './ImportedPatientHistory'
 import { StaffImportedHistory } from './StaffImportedHistory'
 import { importedRecordsEnabled, staffPatientChatEnabled } from '../stagingOnlyFeatures'
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { assertSignedStorageUrl, isHidApiError } from '@hid/http'
 import { Badge, Button, Card, EmptyState, Field, Input, Select, TabList, TabPanel, Textarea } from '@hid/ui'
 import { isAllowedPatientLookup, orderRoutesApi, staffApi, type ClinicalRecord, type DiagnosisUpdate, type DocumentRecord, type EmergencyRecords, type EmergencySection, type Encounter, type LabHandoff, type LabOrderReleasedResults, type NoteRevision, type OrderDestination, type OrderRouteKind, type OrderRouteSummary, type OrderRouteWithdrawReason, type Page, type RecordKind, type SavedRecord, type StatusRecordKind, type VitalCorrection, type VitalMeasurement, type VitalMeasurements } from '../api'
@@ -15,7 +15,7 @@ import { BUSY, QUIET_UNAVAILABLE, UNAVAILABLE, useFocusById } from '../focus'
 import { GroupError, useFieldProblems } from '../useFieldProblems'
 import { staffSessionGeneration, untilStaffSessionReady } from '../session'
 import { RevisionList, skipsVersions } from '../labRevisions'
-import { routedElsewhere, sendRefusal, withdrawRefusal } from '../orderRoutes'
+import { routedChangeWarning, routedElsewhere, sendRefusal, withdrawRefusal } from '../orderRoutes'
 import { choiceProblem, NO_DESTINATION, OrderDestinationFields, OrderRoutePanel, savedNotSent, SendToFacility, type DestinationChoice,
   type RouteContext } from './OrderRoutes'
 
@@ -109,14 +109,6 @@ const prescriptionTransitions: Readonly<Record<string, readonly StatusOption[]>>
 // prescription can be sent, so one active or on hold may have been: the clinician is
 // told so where its change is confirmed. A draft never reached Pharmacy.
 const PHARMACY_NOT_TOLD = 'Pharmacy is not told of this change, so if this prescription was sent to Pharmacy you must contact the pharmacy. A dispensing already recorded is not undone. Pharmacy may refuse to dispense the version it was sent once the prescription has been put on hold, completed, cancelled or marked entered in error, even after it is resumed: if treatment is to continue and the pharmacy cannot dispense it, create a new prescription and send it.'
-/**
- * An order sent to another facility (Novu, P4c): its change is passed on there (the EHR's mirror trigger), withdrawing
- * it before that facility accepts it, or cancelling it there after, so the warning says so instead.
- */
-function routedChangeWarning(facility: string | null | undefined) {
-  const name = facility?.trim() || 'the other facility'
-  return `Changing it withdraws it from ${name}, or cancels it there if ${name} has accepted it; a cancelled order can’t be resumed there.`
-}
 /** The changes offered for a lab request sent to another facility: every change is passed on there. */
 const ROUTED_LAB_CHOICES: Readonly<Record<string, readonly StatusOption[]>> = {
   active: [{ value: 'on_hold', label: 'Put on hold' }, { value: 'completed', label: 'Complete' },
@@ -1177,8 +1169,24 @@ function EmergencySummary({ facilityId, patientId, patientName, permissions, ver
   </>
 }
 
+/**
+ * An order the Overview links to (item 3, D10: an order a laboratory or pharmacy ended as accepted for the wrong person):
+ * its patient, encounter and kind, from the link's state. Opened only for the patient whose record is open now; the
+ * record itself is never opened from a link.
+ */
+export interface LinkedOrder { patientId: string; encounterId: string; kind: OrderRouteKind; orderId: string }
+
+function linkedOrder(state: unknown): LinkedOrder | null {
+  const value = state && typeof state === 'object' ? (state as { order?: unknown }).order : null
+  if (!value || typeof value !== 'object') return null
+  const { patientId, encounterId, kind, orderId } = value as Partial<LinkedOrder>
+  return typeof patientId === 'string' && typeof encounterId === 'string' && typeof orderId === 'string'
+    && (kind === 'lab_request' || kind === 'prescription') ? { patientId, encounterId, kind, orderId } : null
+}
+
 export function Clinical() {
   const { state, activePatient, setActivePatient } = useStaff()
+  const location = useLocation()
   const facility = state.status === 'ready' ? state.session.actor.facility : undefined
   const permissions = facility?.permissions ?? []
   const [encounters, setEncounters] = useState<Encounter[]>([])
@@ -1312,6 +1320,28 @@ export function Clinical() {
       .finally(() => { if (sequence === recordLoad.current) setRecordsLoading(false) })
     return () => { recordLoad.current += 1 }
   }, [facility?.id, patientId, encounterId, selectedEncounter?.id, activeTab, activePatient?.purpose, recordScope])
+
+  // An order the Overview linked to (item 3): its encounter and tab, then the order itself once its list shows it.
+  const linked = linkedOrder(location.state)
+  const linkedKey = linked && linked.patientId === patientId && activePatient?.purpose === 'direct-care' ? JSON.stringify(linked) : ''
+  const linkedFocus = useRef<string | null>(null)
+  useEffect(() => {
+    if (!linkedKey || !facility || !patientId) return
+    const order = JSON.parse(linkedKey) as LinkedOrder
+    let active = true
+    linkedFocus.current = order.orderId
+    setTab(order.kind === 'lab_request' ? 'lab-requests' : 'prescriptions')
+    void staffApi.encounter(facility.id, patientId, order.encounterId)
+      .then(encounter => { if (active && encounter?.id === order.encounterId) setSelection(encounter) })
+      .catch(() => undefined)
+    return () => { active = false }
+  }, [linkedKey, facility?.id, patientId])
+  useEffect(() => {
+    const orderId = linkedFocus.current
+    if (!orderId || !visibleRecords.some(record => record.id === orderId)) return
+    linkedFocus.current = null
+    document.getElementById(`record-${orderId}-title`)?.focus()
+  }, [visibleRecords])
 
   // What the current grant permits, from the server (POST /identity/consent-status).
   // A patient PIN or a read-only request authorizes reading only; changes stay
@@ -1766,7 +1796,7 @@ export function Clinical() {
           onChanged={async () => { await loadRecords('clinical-notes', 'shown', true) }} />}
         {activeTab === 'prescriptions' && canMutate && permissions.includes('ehr.prescription.write') && (prescriptionTransitions[String(record.status)]?.length ?? 0) > 0 &&
           <StatusActionForm key={`${record.id}-${record.rowVersion}`} id={`prescription-${record.id}`} title="Prescription status" choices={prescriptionTransitions[String(record.status)]!}
-            warning={routedElsewhere(orderRouteOf(record)) ? routedChangeWarning(orderRouteOf(record)?.receivingFacility.name)
+            warning={routedElsewhere(orderRouteOf(record)) ? routedChangeWarning(orderRouteOf(record), routeContext.patient)
               : record.status === 'active' || record.status === 'on_hold' ? PHARMACY_NOT_TOLD : undefined}
             disabled={recordsLoading} onChange={(status, reason) => changeRecordStatus(record, 'prescriptions', status, reason)} />}
         {activeTab === 'prescriptions' && record.status === 'active' && canMutate && permissions.includes('pharmacy.work-item.accept') && !routedElsewhere(orderRouteOf(record)) &&
@@ -1777,7 +1807,7 @@ export function Clinical() {
             disabled={recordsLoading} onUpdate={(changes, reason) => updateDiagnosis(record, changes, reason)} />}
         {activeTab === 'lab-requests' && canMutate && permissions.includes('ehr.lab-request.write') && labChoices(record).length > 0 &&
           <StatusActionForm key={`${record.id}-${String(record.rowVersion)}`} id={`lab-request-${record.id}`} title="Lab request status" choices={labChoices(record)}
-            warning={routedElsewhere(orderRouteOf(record)) ? routedChangeWarning(orderRouteOf(record)?.receivingFacility.name) : undefined}
+            warning={routedElsewhere(orderRouteOf(record)) ? routedChangeWarning(orderRouteOf(record), routeContext.patient) : undefined}
             disabled={recordsLoading} onChange={(status, reason) => changeRecordStatus(record, 'lab-requests', status, reason)} />}
         {activeTab === 'lab-requests' && canMutate && permissions.includes('ehr.lab-request.write') && LAB_NOT_TOLD[String(record.status)] && !routedElsewhere(orderRouteOf(record)) &&
           <p className="staff-muted">{LAB_NOT_TOLD[String(record.status)]}</p>}
