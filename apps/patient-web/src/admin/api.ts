@@ -186,6 +186,35 @@ export interface FoundOrderRoute extends Versioned {
 /** `POST /admin/order-routes/:routeId/close`. */
 export interface OrderRouteClosed extends Versioned { routeId: string; effectiveState: string }
 
+/** Who did something, as support's list names them: an account and its display or staff name. */
+export interface NamedAccount { accountId: string | null; name: string | null }
+/**
+ * A laboratory's or pharmacy's report that it accepted an order for someone who was not its patient (item 3, C26): no
+ * patient and no order content. `note` is the reporter's, for support only (D7), or the fixed text once support removed
+ * it at review (`noteRemoved`). `flags` are, in this order, `something_came_back`, `reporter_recorded_work`,
+ * `suspected_misuse` and `other_reason_nothing_recorded`; the 30-day counts are the receiving facility's and the
+ * accepting member's (D12).
+ */
+export interface WrongPatientReport extends Versioned {
+  reportId: string; routeId: string; reference: string; kind: 'lab_request' | 'prescription' | string
+  receivingFacility: { id: string; name: string | null }; orderingFacility: { id: string; name: string | null }
+  reportedAt: string; reportedBy: NamedAccount; acceptedBy: NamedAccount; sameMember: boolean
+  acceptedWith: 'health_id' | 'date_of_birth_with_reference' | 'date_of_birth' | string; acceptedAt: string | null
+  reason: 'wrong_order_chosen' | 'someone_elses_details' | 'suspected_misuse' | 'other' | string
+  note: string; noteRemoved: boolean; stateBefore: 'accepted' | 'completed' | string
+  resultsVoided: number; resultReportsMarked: number; dispensingReversed: boolean; specimensCollected: number
+  recordedBy: NamedAccount[]; reporterRecordedWork: boolean; flags: string[]
+  facilityReportsLast30Days: number; memberReportsLast30Days: number
+  review: null | { reviewedAt: string; reviewedBy: NamedAccount; actions: string[]; note: string }
+}
+/** What support records at review (C27): one or more actions, or exactly `no_further_action`. */
+export type WrongPatientReviewAction = 'ordering_facility_told' | 'facility_contacted' | 'staff_access_changed'
+  | 'facility_suspended' | 'referred_to_dpo' | 'no_further_action'
+/** `POST /admin/wrong-patient-reports/:reportId/review`. */
+export interface WrongPatientReportReviewed extends Versioned {
+  reportId: string; reviewedAt: string; actions: string[]; noteRemoved: boolean
+}
+
 /** `POST /admin/self-service-facilities/:applicationId/release`. */
 export interface SelfServiceFacilityReleased extends Versioned { applicationId: string; releasedAt: string }
 /**
@@ -515,6 +544,21 @@ async function selfServiceList<T>(read: Promise<T>, unavailable: { code: string;
 }
 
 /**
+ * An Identity without the wrong-patient report (item 3; hid-system main, or Novu before 0088) has no such route: its 404
+ * names no code of its own. It is said as that, never as a missing facility or report, so a page can show nothing.
+ */
+async function wrongPatientRead<T>(read: Promise<T>, message: string): Promise<T> {
+  try {
+    return await read
+  } catch (error) {
+    if (isHidApiError(error) && error.status === 404 && (error.code === 'NOT_FOUND' || error.code === 'API_ROUTE_NOT_FOUND')) {
+      throw new HidApiError(404, message, { code: 'WRONG_PATIENT_REPORTS_UNAVAILABLE', requestId: error.requestId, retryable: false })
+    }
+    throw error
+  }
+}
+
+/**
  * An Identity without orders between facilities (hid-system main, or Novu before P4c) has no such route: its 404 names
  * no code of its own. It is said as that, never as a missing facility or order.
  */
@@ -791,6 +835,27 @@ export const adminApi = {
   closeOrderRoute(route: Pick<FoundOrderRoute, 'routeId' | 'version'>, reason: string) {
     return orderRoutesRead(adminApi.command<OrderRouteClosed>(at('/api/v1/admin/order-routes', route.routeId, 'close'), { reason },
       { version: route.version }), 'Orders between facilities can’t be closed from this Identity.')
+  },
+  /**
+   * Reports that a laboratory or pharmacy accepted an order for the wrong person (item 3, C26): `unreviewed` (every one
+   * not reviewed, flagged first, then oldest) or `recent` (the last 90 days, newest first), at most 200, optionally
+   * only those a facility made. Identity audits each read. An Identity without the route answers 404, said as
+   * WRONG_PATIENT_REPORTS_UNAVAILABLE.
+   */
+  wrongPatientReports(status: 'unreviewed' | 'recent', facilityId?: string, signal?: AbortSignal) {
+    return wrongPatientRead(request<{ items: WrongPatientReport[] }>('/api/v1/admin/wrong-patient-reports',
+      { signal, query: { status, ...(facilityId ? { facilityId } : {}) } }),
+    'Wrong-patient reports are not available from this Identity yet.')
+  },
+  /**
+   * Marks a wrong-patient report reviewed, once (item 3, C27): If-Match with its version, one or more actions (or
+   * exactly no_further_action), a note of 8 to 500, and whether to remove the reporter's note. No Idempotency-Key.
+   */
+  reviewWrongPatientReport(report: Pick<WrongPatientReport, 'reportId' | 'version'>,
+    body: { actions: WrongPatientReviewAction[]; note: string; removeNote?: boolean }) {
+    return wrongPatientRead(adminApi.command<WrongPatientReportReviewed>(at('/api/v1/admin/wrong-patient-reports', report.reportId, 'review'),
+      { actions: body.actions, note: body.note, ...(body.removeNote ? { removeNote: true } : {}) }, { version: report.version }),
+    'Wrong-patient reports can’t be reviewed from this Identity yet.')
   },
   /** Finds an invitation by the 8-character reference its email quotes (P4b): the reference only, never an email. */
   findStaffInvitations(reference: string, signal?: AbortSignal) {

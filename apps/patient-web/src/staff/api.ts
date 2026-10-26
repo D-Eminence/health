@@ -618,7 +618,9 @@ export type OrderRouteKind = 'lab_request' | 'prescription'
 /**
  * An order's latest route to another facility, on each row of the EHR's order lists. `effectiveState` is one of
  * sent, accepted, completed, declined, withdrawn, expired or cancelled (a later value is shown as it is); `endedKind`
- * says who or what ended it; `version` is the route's, for its withdrawal.
+ * says who or what ended it: since the wrong-patient report (hid-system 0088, item 3) also `wrong_patient`, on a
+ * cancelled route (it had been accepted) or a completed one with `endedAt` (something had come back, now withdrawn);
+ * `version` is the route's, for its withdrawal.
  */
 export interface OrderRouteSummary {
   id: string
@@ -763,10 +765,74 @@ export interface WorkItemOrderRoute {
   orderingFacilityName: string | null
   ordererName: string | null
   ordererLicence?: { body: string | null; number: string | null }
+  /**
+   * The route's version (the wrong-patient report's expectedVersion) and how it ended: null while it is live, else
+   * wrong_patient, support, order_changed, entered_in_error, receiving_released or ordering_released. Sent only by a
+   * backend with the wrong-patient report (hid-system 0088, item 3); without a numeric version a row offers no
+   * wrong-patient action.
+   */
+  version?: number
+  endedKind?: string | null
 }
 
 export type OrderRouteDeclineReason = 'test_not_offered' | 'medicine_unavailable' | 'cannot_meet_priority' | 'patient_not_seen' | 'other'
 export type OrderRouteWithdrawReason = 'sent_in_error' | 'patient_request' | 'other'
+/** What happened, as the receiving laboratory or pharmacy reports an order it accepted for the wrong person (item 3, D6). */
+export type OrderRouteWrongPatientReason = 'wrong_order_chosen' | 'someone_elses_details' | 'suspected_misuse' | 'other'
+
+/**
+ * The answer to a wrong-patient report (item 3, C25): the route as it ended (`cancelled` when it had been accepted,
+ * `completed` when something had gone back), and what was withdrawn: Lab's result versions invalidated and those that had
+ * come back to the ordering facility, now reported entered in error; whether a dispensing was reversed. A replay (the same
+ * key and report) answers the route as it is now and the counts of the first report.
+ */
+export interface OrderRouteWrongPatientEnded {
+  route: { id: string; version: number; effectiveState: string; endedKind: string | null }
+  resultsVoided: number
+  resultReportsMarked: number
+  dispensingReversed: boolean
+  replayed: boolean
+}
+
+/**
+ * One route as the receiving facility reads it (C8, `GET /{service}/order-routes/:routeId`): the Incoming shape, and after
+ * acceptance, while the route allows a read, what the sender wrote, the licence number, the patient and the work item.
+ */
+export interface ReceivedOrderRoute extends IncomingOrderRoute {
+  clinicalInformation?: string | null
+  instructions?: string | null
+  patient?: OrderRoutePatient
+  workItemId?: string
+}
+
+/**
+ * An order sent from the working facility that the receiving laboratory or pharmacy ended as accepted for someone who was
+ * not its patient, in the last 30 days (item 3, D10, C28). Only the member who sent it, while they may still read the
+ * patient's record, gets it in full; `link` is the order's place in the clinical record.
+ */
+export interface SentWrongPatientOrderRoute {
+  routeId: string
+  reference: string | null
+  kind: OrderRouteKind
+  receivingFacility: { id: string | null; name: string | null }
+  patient: { name: string | null }
+  endedAt: string | null
+  /** Result versions that had come back here and are now reported entered in error (0 for a prescription). */
+  resultsWithdrawn: number
+  dispensingReversed: boolean
+  link: { patientId: string; encounterId: string; kind: OrderRouteKind; orderId: string } | null
+}
+
+/**
+ * The ordering facility's Overview read (C28): the member's own such orders in full, and every other one of the facility
+ * as a count and its references, never a patient's name. A member without ehr.order-route.send, or a facility with no
+ * such order, gets `{ windowDays: 30, items: [], others: { count: 0, references: [] } }`.
+ */
+export interface SentWrongPatientOrderRoutes {
+  windowDays: number
+  items: SentWrongPatientOrderRoute[]
+  others: { count: number; references: string[] }
+}
 
 export interface OcrJob {
   id: string
@@ -1911,4 +1977,30 @@ export const orderRoutesApi = {
     client.post<{ route: { id: string; version: number; effectiveState: string } }>(
       `/api/v1/${service}/order-routes/${encodeURIComponent(route.id)}/decline`,
       { expectedVersion: route.version, reason }, { headers: facilityHeaders(facilityId, 'direct-care') }),
+  /**
+   * One route as this facility reads it (C8), read again when the wrong-patient report answered 412 (something was
+   * returned or changed since its version was read). Audited, so read only then.
+   */
+  get: (facilityId: string, service: ReceivingService, routeId: string) =>
+    client.get<ReceivedOrderRoute>(`/api/v1/${service}/order-routes/${encodeURIComponent(routeId)}`,
+      { headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false }),
+  /**
+   * The receiving laboratory or pharmacy reports that it accepted the order for someone who was not its patient (item 3,
+   * C25): the order ends at once, and every result or dispensing it sent back is withdrawn, in one step. The caller keeps
+   * one Idempotency-Key per report (the same report sent again after no answer is a replay); the note, trimmed, is for
+   * Health ID support only. A backend without the route answers 404 (the caller says it is not available yet).
+   */
+  reportWrongPatient: (facilityId: string, service: ReceivingService, route: { id: string; version: number },
+    input: { reason: OrderRouteWrongPatientReason; note: string }, idempotencyKey: string) =>
+    client.post<OrderRouteWrongPatientEnded>(`/api/v1/${service}/order-routes/${encodeURIComponent(route.id)}/wrong-patient`,
+      { expectedVersion: route.version, reason: input.reason, note: input.note },
+      { headers: { ...facilityHeaders(facilityId, 'direct-care'), ...keyHeaders(idempotencyKey) } }),
+  /**
+   * Orders sent from this facility that the receiver ended as accepted for the wrong person in the last 30 days (item 3,
+   * D10, C28), for the Overview: read once when it opens, by a member holding ehr.order-route.send. Audited. A backend
+   * without the route answers 404, and the Overview then shows nothing.
+   */
+  sentWrongPatient: (facilityId: string) =>
+    client.get<SentWrongPatientOrderRoutes>('/api/v1/ehr/order-routes/wrong-patient',
+      { headers: facilityHeaders(facilityId, 'direct-care'), dedupe: false }),
 }

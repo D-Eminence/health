@@ -506,6 +506,64 @@ describe('application boundaries', () => {
     expect(findEndpoint('enrollment.providerAvailability')?.note).toContain('crossFacilityOrders')
   })
 
+  it('registers item 3\'s wrong-patient report: the receiver\'s command for Lab and Pharmacy, the ordering facility\'s '
+    + 'Overview read for the provider portal, and support\'s list and review for the console, none served yet', () => {
+    const routeId = '9c1b2d3e-4f5a-4b6c-8d7e-0f1a2b3c4d5e'
+    const reportId = '3b5e7a90-1c2d-4e3f-8a9b-0c1d2e3f4a5b'
+    type Case = readonly [string, 'GET' | 'POST', string, Record<string, string> | undefined, readonly string[], 'staff-web' | 'admin-web']
+    const cases: readonly Case[] = [
+      ['lab.orderRouteWrongPatient', 'POST', `/api/v1/lab/order-routes/${routeId}/wrong-patient`, undefined, ['lab.order-route.receive'], 'staff-web'],
+      ['pharmacy.orderRouteWrongPatient', 'POST', `/api/v1/pharmacy/order-routes/${routeId}/wrong-patient`, undefined,
+        ['pharmacy.order-route.receive'], 'staff-web'],
+      ['ehr.orderRoutesWrongPatient', 'GET', '/api/v1/ehr/order-routes/wrong-patient', undefined, ['ehr.order-route.send'], 'staff-web'],
+      ['admin.wrongPatientReports', 'GET', '/api/v1/admin/wrong-patient-reports', { status: 'unreviewed' }, ['platform.facility.read'], 'admin-web'],
+      ['admin.wrongPatientReportReview', 'POST', `/api/v1/admin/wrong-patient-reports/${reportId}/review`, undefined,
+        ['platform.facility.manage'], 'admin-web'],
+    ]
+    for (const [name, method, example, query, permissions, app] of cases) {
+      const endpoint = findEndpoint(name)
+      expect(endpoint, name).toMatchObject({ status: 'proposed', auth: { kind: 'authenticated' }, methods: [method] })
+      expect(endpoint?.permissions?.[method], name).toEqual(permissions)
+      expect(endpoint?.note, name).toContain('not served by hid-system main, nor by staging-novu-ci-20261005 before that release')
+      expect(endpoint?.note, name).toContain('0088')
+      expect(assertRegisteredBrowserRequest(method, example, query).name, `${method} ${name}`).toBe(name)
+      expect(() => assertEndpointAllowed(app, name), `${app}: ${name}`).not.toThrow()
+      for (const other of (['staff-web', 'patient-web', 'admin-web', 'public-web'] as const).filter(candidate => candidate !== app)) {
+        expect(() => assertEndpointAllowed(other, name), `${other}: ${name}`).toThrow(BoundaryViolationError)
+      }
+    }
+    // The report's own path is not the route's read, nor its accept; the Overview read is not a patient's list.
+    expect(() => assertRegisteredBrowserRequest('GET', `/api/v1/lab/order-routes/${routeId}/wrong-patient`)).toThrow(BrowserRouteError)
+    expect(assertRegisteredBrowserRequest('GET', `/api/v1/lab/order-routes/${routeId}`).name).toBe('lab.orderRoute')
+    expect(() => assertRegisteredBrowserRequest('POST', '/api/v1/ehr/order-routes/wrong-patient')).toThrow(BrowserRouteError)
+    expect(assertRegisteredBrowserRequest('GET', '/api/v1/ehr/me/order-routes').name).toBe('ehr.myOrderRoutes')
+    // Support's list needs its status; the review is a POST.
+    expect(() => assertRegisteredBrowserRequest('GET', '/api/v1/admin/wrong-patient-reports')).toThrow(BrowserRouteError)
+    expect(assertRegisteredBrowserRequest('GET', '/api/v1/admin/wrong-patient-reports',
+      { status: 'recent', facilityId: '0f8c6d2e-4b1a-4c3d-9e5f-1a2b3c4d5e6f' }).name).toBe('admin.wrongPatientReports')
+    expect(() => assertRegisteredBrowserRequest('GET', `/api/v1/admin/wrong-patient-reports/${reportId}/review`)).toThrow(BrowserRouteError)
+    // What the command answers and refuses, and what it adds to the reads the website already makes.
+    for (const name of ['lab.orderRouteWrongPatient', 'pharmacy.orderRouteWrongPatient']) {
+      const note = findEndpoint(name)?.note ?? ''
+      for (const word of ['Idempotency-Key', 'expectedVersion', 'wrong_order_chosen', 'someone_elses_details', 'suspected_misuse',
+        'resultsVoided', 'resultReportsMarked', 'dispensingReversed', 'replayed', 'ORDER_ROUTE_CORRECTION_PERMISSION_REQUIRED',
+        'ORDER_ROUTE_NOT_ACCEPTED', 'ORDER_ROUTE_ALREADY_ENDED', 'ORDER_ROUTE_CHANGED_CONCURRENTLY', 'VERSION_CONFLICT',
+        'CROSS_FACILITY_ORDERS_UNAVAILABLE']) expect(note, `${name}: ${word}`).toContain(word)
+    }
+    for (const name of ['lab.workItems', 'pharmacy.workItems']) {
+      expect(findEndpoint(name)?.note, name).toContain('version')
+      expect(findEndpoint(name)?.note, name).toContain('endedKind')
+    }
+    for (const name of ['ehr.labRequestOrderRoutes', 'ehr.prescriptionOrderRoutes', 'ehr.myOrderRoutes', 'admin.orderRoutesFind']) {
+      expect(findEndpoint(name)?.note, name).toContain('wrong_patient')
+    }
+    expect(findEndpoint('ehr.myOrderRoutes')?.note).toContain('ORDER_ROUTE_WRONG_PATIENT')
+    expect(findEndpoint('admin.wrongPatientReports')?.note).toContain('404 ADMIN_FACILITY_NOT_FOUND')
+    expect(findEndpoint('admin.wrongPatientReports')?.note).toContain('no patient and no order content')
+    expect(findEndpoint('ehr.orderRoutesWrongPatient')?.note).toContain('never a patient\'s name')
+    expect(findEndpoint('admin.wrongPatientReportReview')?.note).toContain('If-Match')
+  })
+
   it('never sends a Health ID in the address of an order-route lookup (hid-system #116)', () => {
     const refusal = (run: () => unknown): unknown => {
       try { run() } catch (error) { return error }
