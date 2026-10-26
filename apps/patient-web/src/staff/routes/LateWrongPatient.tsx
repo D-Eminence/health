@@ -64,10 +64,13 @@ interface Problems { discoveredBy?: string; discoveredOn?: string; reason?: stri
 export function LateWrongPatientForm({ id, service, facilityId, route, onCorrected, onStale, onReload, onCancel }: {
   id: string; service: ReceivingService; facilityId: string; route: CorrectableOrderRoute
   onCorrected: (result: OrderRouteWrongPatientCorrected) => void
-  /** The order moved on (412): find it again; the form takes the new version from its props. */
-  onStale: () => Promise<void> | void
-  /** The order is not as the row said (still open, past its date, not found, no answer): find it again. */
-  onReload: () => Promise<void> | void
+  /** The order moved on (412): find it again; the form takes the new version from its props. Given what was said. */
+  onStale: (said: string) => Promise<void> | void
+  /**
+   * The order is not as the row said (still open, past its date, not found, a key used with other details): find it
+   * again. Given what was said, which the section keeps in the row if the form closes.
+   */
+  onReload: (said: string) => Promise<void> | void
   onCancel: () => void
 }) {
   const [discoveredBy, setDiscoveredBy] = useState<OrderRouteDiscoveredBy | ''>('')
@@ -127,8 +130,8 @@ export function LateWrongPatientForm({ id, service, facilityId, route, onCorrect
       if (isHidApiError(caught) && caught.status > 0 && caught.status < 500 && caught.status !== 408) attempt.current = null
       const refusal = lateWrongPatientRefusal(caught, service, ordering, route.correctableUntil)
       setError(refusal.text)
-      if (refusal.stale) await onStale()
-      else if (refusal.reload) await onReload()
+      if (refusal.stale) await onStale(refusal.text)
+      else if (refusal.reload) await onReload(refusal.text)
     } finally { setBusy(false) }
   }
 
@@ -211,6 +214,13 @@ export function LateWrongPatientForm({ id, service, facilityId, route, onCorrect
 type Opened = { routeId: string; mode: 'late' } | { routeId: string; mode: 'report'; patient: string | null }
 
 /**
+ * What a form said before the section found its order again (a refusal that says the row is out of date), and the
+ * correction state that keeps the form open. If the new answer closes it, what was said moves into the row (role
+ * "alert") with focus on the row's first line, or to the section when the order is gone (UX-2).
+ */
+interface Said { routeId: string; keeps: 'correctable' | 'open'; text: string }
+
+/**
  * "Correct an order that has ended", for one service. `onEnded` takes item 3's ending of an order found still open;
  * `onCorrected` a late withdrawal. Both are said by the page.
  */
@@ -229,8 +239,14 @@ export function LateWrongPatient({ service, facilityId, onEnded, onCorrected }: 
   const [reading, setReading] = useState<string | null>(null)
   const [rowError, setRowError] = useState<{ routeId: string; text: string } | null>(null)
 
-  /** Reads the lookup for a reference (audited): on Find, and again after a refusal that says the order moved on. */
-  async function find(reference: string): Promise<void> {
+  /** Focus, once rendered, on an element of this section (a row's first line, or what the section says). */
+  const focusSoon = (target: string) => { window.setTimeout(() => document.getElementById(target)?.focus(), 0) }
+
+  /**
+   * Reads the lookup for a reference (audited): on Find, and again after a refusal that says the order moved on. `said` is
+   * that refusal: when the new answer closes its form, it stays in the row, or at the section if the order is gone.
+   */
+  async function find(reference: string, said?: Said): Promise<void> {
     setBusy(true); setError(''); setRowError(null)
     try {
       const answer = await orderRoutesApi.findCorrectable(facilityId, service, reference)
@@ -245,11 +261,22 @@ export function LateWrongPatient({ service, facilityId, onEnded, onCorrected }: 
         const wanted = current.mode === 'late' ? 'correctable' : 'open'
         return row && row.correction === wanted ? current : null
       })
+      const row = said ? items.find(item => item.id === said.routeId) : undefined
+      if (said && row?.correction !== said.keeps) {
+        if (row) {
+          setRowError({ routeId: row.id, text: said.text })
+          focusSoon(`${id}-${row.id}-title`)
+        } else {
+          setError(said.text)
+          focusSoon(`${id}-error`)
+        }
+      }
     } catch (caught) {
       const refusal = correctableFindRefusal(caught)
       if (refusal.missing) learnLateCorrectionServed(false)
       setFound(null); setOpened(null)
-      setError(refusal.text)
+      setError(said ? `${said.text} ${refusal.text}` : refusal.text)
+      if (said) focusSoon(`${id}-error`)
     } finally { setBusy(false) }
   }
 
@@ -279,7 +306,7 @@ export function LateWrongPatient({ service, facilityId, onEnded, onCorrected }: 
     } finally { setReading(null) }
   }
 
-  const again = async () => { if (found) await find(found.reference) }
+  const again = async (said?: Said) => { if (found) await find(found.reference, said) }
   const close = (routeId: string) => {
     setOpened(null)
     window.setTimeout(() => document.getElementById(`${id}-${routeId}-open`)?.focus(), 0)
@@ -299,7 +326,7 @@ export function LateWrongPatient({ service, facilityId, onEnded, onCorrected }: 
         <div className="staff-row"><Button id={`${id}-find`} type="submit" tone="secondary" size="sm" aria-disabled={busy || undefined}
           className={UNAVAILABLE}>{busy ? 'Finding…' : 'Find'}</Button></div>
       </form>
-      {error && <p className="staff-error" role="alert">{error}</p>}
+      {error && <p id={`${id}-error`} className="staff-error" role="alert" tabIndex={-1}>{error}</p>}
       <div role="status">{found && found.items.length === 0 && <p>No order with that reference was accepted here. Check it with
         whoever gave it to you.</p>}</div>
       {found && found.items.length > 0 && <ul className="staff-list">{found.items.map(route => {
@@ -308,11 +335,12 @@ export function LateWrongPatient({ service, facilityId, onEnded, onCorrected }: 
         const ordering = orderingOf(route)
         return <li key={route.id} className="staff-list-item staff-stack">
           {lateCorrectionRowLines(route, service).map((line, index) => index === 0
-            ? <strong key={index}>{line}</strong> : <p key={index}>{line}</p>)}
+            ? <strong key={index} id={`${rowId}-title`} tabIndex={-1}>{line}</strong> : <p key={index}>{line}</p>)}
           {rowError?.routeId === route.id && <p className="staff-error" role="alert">{rowError.text}</p>}
           {route.correction === 'correctable' && (open?.mode === 'late'
             ? <LateWrongPatientForm id={`${rowId}-form`} service={service} facilityId={facilityId} route={route}
-              onStale={again} onReload={again} onCancel={() => close(route.id)}
+              onStale={said => again({ routeId: route.id, keeps: 'correctable', text: said })}
+              onReload={said => again({ routeId: route.id, keeps: 'correctable', text: said })} onCancel={() => close(route.id)}
               onCorrected={result => {
                 setOpened(null); setFound(null)
                 onCorrected({ service, title: titleOf(route), reference: route.reference, ordering, result,
@@ -325,7 +353,9 @@ export function LateWrongPatient({ service, facilityId, onEnded, onCorrected }: 
               route={{ id: route.id, version: route.version, reference: route.reference }} patient={open.patient} ordering={ordering}
               dispensed={service === 'pharmacy' && route.details
                 ? route.details.returned.some(item => !item.withdrawn) : undefined}
-              onStale={again} onReload={() => void again()} onCancel={() => close(route.id)}
+              onStale={said => again(said ? { routeId: route.id, keeps: 'open', text: said } : undefined)}
+              onReload={said => void again(said ? { routeId: route.id, keeps: 'open', text: said } : undefined)}
+              onCancel={() => close(route.id)}
               onEnded={result => {
                 setOpened(null); setFound(null)
                 onEnded({ service, title: titleOf(route), reference: route.reference, patient: open.patient, ordering, result,

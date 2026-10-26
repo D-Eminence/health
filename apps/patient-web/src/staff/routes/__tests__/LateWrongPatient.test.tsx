@@ -451,6 +451,78 @@ describe('the late form (C29)', () => {
   })
 })
 
+/**
+ * A refusal that makes the page find the order again, after which the row no longer allows the open form (UX-2): the
+ * refusal stays said in the row (role="alert"), and focus moves to the row, as Cancel moves it to the row's button.
+ */
+describe('a refusal after which the order reads differently', () => {
+  async function refuse(error: HidApiError, next: Record<string, unknown>[]) {
+    routes.findCorrectable.mockResolvedValueOnce({ items: [correctable()], lateCorrection: true })
+      .mockResolvedValueOnce({ items: next, lateCorrection: true })
+    routes.correctWrongPatient.mockRejectedValueOnce(error)
+    const form = await lateForm()
+    fill(form)
+    const withdraw = within(form).getByRole('button', { name: 'Withdraw it' })
+    withdraw.focus()
+    fireEvent.click(withdraw)
+    await waitFor(() => expect(routes.findCorrectable).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(screen.queryByRole('form', { name: /^Withdraw what you recorded/ })).toBeNull())
+  }
+  const rowOf = (element: Element | null) => element?.closest('li') as HTMLElement
+
+  it.each([
+    ['past its date', new HidApiError(409, 'Late', { code: 'ORDER_ROUTE_CORRECTION_TOO_LATE' }),
+      correctable({ correction: 'too_late', details: null, correctableUntil: '2026-10-20T09:00:00.000Z' }),
+      'It is past 28 Nov 2026, 10:00, so it can’t be corrected here. Phone General Hospital, and tell Health ID support.'],
+    ['still open', new HidApiError(409, 'Open', { code: 'ORDER_ROUTE_STILL_OPEN' }),
+      correctable({ correction: 'open', effectiveState: 'accepted', endedKind: null, endedAt: null, completedAt: null }),
+      'This order is still open. If you accepted it for the wrong person, report it here.'],
+    ['a key used with other details', new HidApiError(409, 'Reused', { code: 'IDEMPOTENCY_KEY_REUSED' }),
+      correctable({ correction: 'reported', details: null, wrongPatient: { reportedAt: '2026-10-26T09:00:00.000Z', late: true } }),
+      'This report was already sent with other details. Find the order again and check whether it has been withdrawn.'],
+  ])('keeps the refusal in the row and moves focus there: %s', async (_case, error, next, words) => {
+    await refuse(error, [next])
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toBe(words)
+    const row = rowOf(alert)
+    expect(row).toBeTruthy()
+    await waitFor(() => expect(row.contains(document.activeElement)).toBe(true))
+    expect(document.activeElement?.tagName).toBe('STRONG')
+  })
+
+  it('says it at the section, and moves focus there, when the order is no longer found', async () => {
+    await refuse(new HidApiError(404, 'Missing', { code: 'ORDER_ROUTE_NOT_FOUND' }), [])
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toBe('This order was not found here. Find it again.')
+    await waitFor(() => expect(document.activeElement).toBe(alert))
+    expect(screen.getByText(/^No order with that reference was accepted here/)).toBeTruthy()
+  })
+
+  it('does so for item 3’s refusal in the open row’s form too', async () => {
+    const open = correctable({ correction: 'open', effectiveState: 'accepted', endedKind: null, endedAt: null, completedAt: null,
+      returned: false, details: { what: 'Full blood count', acceptedBy: 'Ngozi Eze', acceptedWith: 'health_id', returned: [] } })
+    routes.findCorrectable.mockResolvedValueOnce({ items: [open], lateCorrection: true })
+      .mockResolvedValueOnce({ items: [correctable({ endedKind: 'support' })], lateCorrection: true })
+    routes.get.mockResolvedValue({ id: ROUTE_ID, version: 9, patient: { fullName: 'Tunde Bello', sex: null, dateOfBirth: null, healthIdLast4: null } })
+    routes.reportWrongPatient.mockRejectedValueOnce(new HidApiError(409, 'Ended', { code: 'ORDER_ROUTE_ALREADY_ENDED' }))
+    const area = await openLab()
+    await find()
+    fireEvent.click(await within(area).findByRole('button', { name: 'This isn’t the order’s patient' }))
+    const form = await within(area).findByRole('form', { name: 'End this order: accepted for the wrong person' })
+    fireEvent.click(within(form).getByRole('radio', { name: 'I picked another patient’s order from the list' }))
+    fireEvent.change(within(form).getByLabelText('What happened, for Health ID support'), { target: { value: 'Picked the wrong order' } })
+    fireEvent.click(within(form).getByRole('checkbox'))
+    fireEvent.click(within(form).getByRole('button', { name: 'End this order' }))
+    await waitFor(() => expect(routes.findCorrectable).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(screen.queryByRole('form', { name: 'End this order: accepted for the wrong person' })).toBeNull())
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toMatch(/^This order has already ended, so it can’t be ended here\./)
+    const row = rowOf(alert)
+    await waitFor(() => expect(row.contains(document.activeElement)).toBe(true))
+    expect(within(row).getByRole('button', { name: 'This wasn’t the order’s patient' })).toBeTruthy()
+  })
+})
+
 describe('at a pharmacy', () => {
   const prescription = (overrides: Record<string, unknown> = {}) => correctable({ kind: 'prescription',
     details: { what: 'Amoxicillin 500 mg capsules', acceptedBy: 'Bola Ade', acceptedWith: 'health_id',

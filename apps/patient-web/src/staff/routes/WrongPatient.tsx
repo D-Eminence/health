@@ -47,10 +47,13 @@ export function WrongPatientForm({ id, service, facilityId, route, patient, orde
   /** Said above the actions, for example why the form was refreshed. */
   notice?: string
   onEnded: (result: OrderRouteWrongPatientEnded) => void
-  /** The route moved on (412): read it again; the form takes the new version from its props. */
-  onStale: () => Promise<void> | void
-  /** The list is out of date (the order ended, was not found, or no answer came): read it again. */
-  onReload?: () => void
+  /** The route moved on (412): read it again; the form takes the new version from its props. Given what was said. */
+  onStale: (said?: string) => Promise<void> | void
+  /**
+   * The list is out of date (the order ended, was not found, or no answer came): read it again. Given what was said, for
+   * a caller whose new read may close the form (D17's section keeps it in the row).
+   */
+  onReload?: (said?: string) => void
   onCancel: () => void
 }) {
   const [reason, setReason] = useState<OrderRouteWrongPatientReason | ''>('')
@@ -104,8 +107,8 @@ export function WrongPatientForm({ id, service, facilityId, route, patient, orde
       if (isHidApiError(caught) && caught.status > 0 && caught.status < 500 && caught.status !== 408) attempt.current = null
       const refusal = wrongPatientRefusal(caught, service, ordering, late ? { reference: route.reference } : null)
       setError(refusal.text)
-      if (refusal.stale) await onStale()
-      else if (refusal.reload) onReload?.()
+      if (refusal.stale) await onStale(refusal.text)
+      else if (refusal.reload) onReload?.(refusal.text)
     } finally { setBusy(false) }
   }
 
