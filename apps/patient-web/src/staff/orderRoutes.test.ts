@@ -538,7 +538,7 @@ describe('what the ordering clinician reads of a late report (D17)', () => {
     expect(routeGuidance({ ...done, correctableUntil: null }, 'Ada Patient', true)).toBe('If a result from Yaba Diagnostics on this '
       + 'order is not Ada Patient’s, record that in Ada Patient’s notes without repeating its value, and tell Health ID support.')
     // A receiving facility released from Health ID can no longer act (D17-3): the stop-gap, whatever date an answer carries.
-    expect(routeGuidance({ ...done, endedAt: '2026-06-20T08:00:00.000Z', endedKind: 'receiving_released', ...until }, 'Ada Patient',
+    expect(routeGuidance({ ...done, endedKind: 'receiving_released', ...until }, 'Ada Patient',
       true)).toBe('If a result from Yaba Diagnostics on this order is not Ada Patient’s, record that in Ada Patient’s notes without '
       + 'repeating its value, and tell Health ID support.')
     // Not served, no field (an earlier backend), nothing came back, or already reported: nothing.
