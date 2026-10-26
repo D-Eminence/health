@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { adminApi, type AdminActor, type FacilityOrderRouteSummary, type FoundOrderRoute } from './api'
 import { failure, isProblem } from './problems'
 import { Page, ResourceView, Table, date, has, useGovernedSubmit, useResource } from './ui'
+import { FacilityWrongPatientCount, LATE_CASE_NOTE } from './WrongPatientReports'
 
 /**
  * Support's tools for orders between facilities (Novu, P4c, SPEC-FINAL §8.7 C20-C23, §13.6): a facility's summary and
@@ -18,6 +19,24 @@ const STATE_WORDS: Readonly<Record<string, string>> = {
 
 export function stateWord(state: string): string {
   return STATE_WORDS[state] ?? state.replaceAll('_', ' ')
+}
+
+/** How an order ended, in support's words (item 3, §9.5). */
+const ENDED_WORDS: Readonly<Record<string, string>> = {
+  wrong_patient: 'the receiving facility accepted it for the wrong person',
+  support: 'closed by support',
+  order_changed: 'the order changed',
+  entered_in_error: 'the order was marked entered in error',
+  receiving_released: 'the receiving facility was released',
+  ordering_released: 'the ordering facility was released',
+  orderer: 'withdrawn by the clinician',
+  patient: 'stopped by the patient',
+  order_in_work: 'already in work at the ordering facility',
+  not_accepted: 'not accepted in time',
+}
+
+export function endedWord(kind: string): string {
+  return ENDED_WORDS[kind] ?? kind.replaceAll('_', ' ')
 }
 
 /** The states with access in force: support can close only these (C22). */
@@ -145,6 +164,8 @@ function FacilityOrderRoutesSummary({ facilityId, facilityName, actor, known }: 
       laboratory or pharmacy that is listed and has a laboratory scientist or pharmacist on Health ID.</p>
     <p>{facilityName} accepted {summary.receivedAcceptedLifetime} {summary.receivedAcceptedLifetime === 1 ? 'order' : 'orders'} from
       other facilities, for {summary.receivedPatientsLifetime} {summary.receivedPatientsLifetime === 1 ? 'patient' : 'patients'}.</p>
+    {/* Item 3: the reports it made that it accepted an order for the wrong person (none shown where the backend has no list). */}
+    <FacilityWrongPatientCount facilityId={facilityId} />
     <h3>Last 30 days, by facility</h3>
     {summary.counterparts.length === 0 ? <p className="admin-state">No orders with other facilities in the last 30 days.</p>
       : <Table headings={['Direction', 'Facility', 'Orders']}>
@@ -334,7 +355,7 @@ export function OrderRoutesPage({ actor }: { actor: AdminActor }) {
           <td><Link to={`/admin/facilities/${encodeURIComponent(route.orderingFacilityId)}`}>{route.orderingFacilityName}</Link></td>
           <td><Link to={`/admin/facilities/${encodeURIComponent(route.receivingFacilityId)}`}>{route.receivingFacilityName}</Link></td>
           <td><span className="admin-status" data-state={route.effectiveState}>{stateWord(route.effectiveState)}</span>{route.acceptedAt ? <small>Accepted {date(route.acceptedAt)}</small> : null}
-            {route.endedAt ? <small>Ended {date(route.endedAt)}{route.endedKind ? ` (${route.endedKind.replaceAll('_', ' ')})` : ''}</small> : null}</td>
+            {route.endedAt ? <small>Ended {date(route.endedAt)}{route.endedKind ? ` (${endedWord(route.endedKind)})` : ''}</small> : null}</td>
           <td>{date(route.createdAt)}</td>
           <td>{action(route)}</td>
         </tr>)}
@@ -374,6 +395,9 @@ function CloseForm({ route, onDone }: { route: FoundOrderRoute; onDone: (outcome
         aria-describedby={`${id}-hint`} />
       <small id={`${id}-hint`} className="admin-note">8 to 500 characters, kept in the audit log. For example: “The patient says they
         never agreed to send it there.”</small>
+      <p className="admin-note">If a laboratory or pharmacy accepted it for the wrong person, ask them to end it from their work list
+        instead: only they can withdraw a result or dispensing they sent back. If you close it first, they can’t.</p>
+      <p className="admin-note">{LATE_CASE_NOTE}</p>
       <label className="admin-checkbox"><input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} /> I
         understand that closing can’t be undone.</label>
       <button type="submit" className="admin-primary" disabled={governed.busy || !ready}>{governed.busy ? 'Closing…' : 'Close order'}</button>

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { adminApi, type AdminActor, type CursorPage, type PlatformOverview } from './api'
 import { UNAVAILABLE_CAPABILITIES, canOpen, navigationItemFor, visibleNavigation } from './navigation'
 import { Page, Refresh, ResourceView, has, useResource, type Resource } from './ui'
+import { WrongPatientReportsTile } from './WrongPatientReports'
 
 const number = (value: number) => new Intl.NumberFormat('en-NG').format(value)
 
@@ -85,8 +86,11 @@ export function OverviewPage({ actor }: { actor: AdminActor }) {
   // A total links to its area only for an administrator who may open it there.
   const opens = (link: string) => { const item = navigationItemFor(link.split('?')[0] ?? link); return item !== undefined && canOpen(item, actor) }
   const approvals = navigationItemFor('/admin/approvals')
+  const wrongPatient = navigationItemFor('/admin/wrong-patient-reports')
   const attention = [
     approvals !== undefined && canOpen(approvals, actor) && <PendingApprovals key="approvals" />,
+    // Item 3 (D11): reports to review, where the backend serves them (an Identity without the list shows no tile).
+    wrongPatient !== undefined && canOpen(wrongPatient, actor) && <WrongPatientReportsTile key="wrong-patient" />,
     has(actor, 'platform.identity-review.read') && <OpenApplications key="applications" />,
     has(actor, 'platform.demo.read') && <NewDemoRequests key="demos" />,
     has(actor, 'platform.integration.read') && <IntegrationHealth key="integrations" />,

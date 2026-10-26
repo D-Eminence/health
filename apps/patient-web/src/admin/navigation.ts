@@ -29,7 +29,7 @@ const can = (permission: string) => (actor: AdminActor) => actor.platformPermiss
 const onMainBackend = () => !usesNovuBackend()
 /**
  * Areas only Novu serves: emergency-contact administration (hid-system #109), support's review of facilities
- * that signed themselves up (P4) and orders between facilities (P4c).
+ * that signed themselves up (P4), orders between facilities (P4c) and their wrong-patient reports (item 3).
  */
 const onNovuBackend = () => usesNovuBackend()
 
@@ -54,6 +54,11 @@ export const NAVIGATION: readonly NavigationSection[] = [
     { path: '/admin/order-routes', title: 'Orders between facilities', served: onNovuBackend,
       visible: can('platform.principal.read'),
       description: 'Find a lab request or prescription sent to another facility by its reference or Health ID, and close it.' },
+    // Item 3: reading the reports needs platform.facility.read; marking one reviewed platform.facility.manage. An Identity
+    // before the wrong-patient report (0088) answers 404, which the page says.
+    { path: '/admin/wrong-patient-reports', title: 'Wrong-patient reports', served: onNovuBackend,
+      visible: can('platform.facility.read'),
+      description: 'Orders a laboratory or pharmacy accepted for someone who was not the patient: review each one.' },
   ] },
   { title: 'People and access', items: [
     { path: '/admin/principals', title: 'Users & roles', visible: can('platform.principal.read'),
