@@ -807,8 +807,8 @@ export interface ReceivedOrderRoute extends IncomingOrderRoute {
 
 /**
  * An order sent from the working facility that the receiving laboratory or pharmacy ended as accepted for someone who was
- * not its patient, in the last 30 days (item 3, D10, C28). Only the member who sent it, while they may still read the
- * patient's record, gets it in full; `link` is the order's place in the clinical record.
+ * not its patient, in the last 30 days (item 3, D10, C28). Only the member who sent it gets it in full, whether or not
+ * they may still open the patient's record; `link` is the order's place in the clinical record.
  */
 export interface SentWrongPatientOrderRoute {
   routeId: string
@@ -824,8 +824,8 @@ export interface SentWrongPatientOrderRoute {
 }
 
 /**
- * The ordering facility's Overview read (C28): the member's own such orders in full, and every other one of the facility
- * as a count and its references, never a patient's name. A member without ehr.order-route.send, or a facility with no
+ * The ordering facility's Overview read (C28): every such order the member sent, in full, and every one a colleague sent
+ * as a count and its references, never a patient's name (a member's own order is never among them). A member without ehr.order-route.send, or a facility with no
  * such order, gets `{ windowDays: 30, items: [], others: { count: 0, references: [] } }`.
  */
 export interface SentWrongPatientOrderRoutes {

@@ -524,8 +524,8 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'PERMISSION_DENIED), bound to the live membership like the order-route reads, and audited. Orders sent from this '
     + 'facility that ended wrong_patient in the last 30 days: 200 { windowDays: 30, items [{ routeId, reference, kind, '
     + 'receivingFacility { id, name }, patient { name }, endedAt, resultsWithdrawn, dispensingReversed, link { patientId, '
-    + 'encounterId, kind, orderId } }] (at most 50, newest first: only orders this member sent and whose patient\'s record '
-    + 'they may still read), others { count, references } (every other such order of the facility: its reference only, at '
+    + 'encounterId, kind, orderId } }] (at most 50, newest first: only the orders this member sent, whether or not they may '
+    + 'still open the patient\'s record), others { count, references } (every such order a colleague sent: its reference only, at '
     + 'most 100, never a patient\'s name) }; the empty answer for a facility with none. 403 PERMISSION_DENIED; 503 '
     + 'ORDER_ROUTE_UNAVAILABLE.')),
   // P4c: the patient's orders sent to other facilities, and Stop before acceptance (the patient's only action).

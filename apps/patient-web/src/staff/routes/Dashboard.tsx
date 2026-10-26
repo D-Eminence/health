@@ -73,22 +73,27 @@ function withdrawnText(item: SentWrongPatientOrderRoute, patient: string): strin
     : 'No result had come back from it.'
 }
 
-/** "3 other orders from this facility were reported accepted for the wrong person: AB12CD34, 9F00E1A2 and 1 more." */
+/**
+ * "3 orders that colleagues sent from this facility were reported accepted for the wrong person: AB12CD34, 9F00E1A2 and 1
+ * more." The backend gives the member every order they sent in full, so these are only ever colleagues' (C28).
+ */
 function othersText(others: SentWrongPatientOrderRoutes['others'], own: number): string {
   const references = Array.isArray(others.references) ? others.references.filter(reference => typeof reference === 'string') : []
   const more = others.count - references.length
   const listed = [...references, ...(more > 0 ? [`${more} more`] : [])]
   const named = listed.length > 1 ? `${listed.slice(0, -1).join(', ')} and ${listed.at(-1)}` : listed[0] ?? ''
-  return `${others.count} ${own > 0 ? 'other ' : ''}order${others.count === 1 ? '' : 's'} from this facility `
-    + `${others.count === 1 ? 'was' : 'were'} reported accepted for the wrong person${named ? `: ${named}` : ''}.`
+  return `${others.count} ${own > 0 ? 'more ' : ''}order${others.count === 1 ? '' : 's'} that `
+    + `${others.count === 1 ? 'a colleague' : 'colleagues'} sent from this facility ${others.count === 1 ? 'was' : 'were'} `
+    + `reported accepted for the wrong person${named ? `: ${named}` : ''}.`
 }
 
 /**
  * Orders sent from this facility that the receiving laboratory or pharmacy ended as accepted for someone who was not the
  * patient, in the last 30 days (item 3, owner decision D10's alternative (a), C28): Health ID alerts the ordering clinician
- * no other way. Privacy first: only the member who sent an order, while they may still read the patient's record, sees it
- * in full (the patient's name, what came back and was withdrawn, and a link to the order); every other such order of the
- * facility is only counted, with its reference, never a patient's name (the backend decides, C28). Read once when the
+ * no other way. Privacy first: only the member who sent an order sees it in full (the patient's name, what came back and
+ * was withdrawn, and a link to the order), whether or not they may still open the patient's record, since the report
+ * usually comes after the grant the order was sent under has expired; an order a colleague sent is only counted, with its
+ * reference, never a patient's name (the backend decides, C28). Read once when the
  * Overview opens, only for a member holding ehr.order-route.send (each read is audited); nothing is shown when there is
  * none, or where the backend has no such route (404). It lists; nothing on it acts.
  */

@@ -7,8 +7,9 @@ import { Dashboard } from '../Dashboard'
 /**
  * The ordering facility's Overview card (item 3, owner decision D10's alternative (a), C28): orders sent from this
  * facility that the receiving laboratory or pharmacy ended as accepted for someone who was not the patient, in the last 30
- * days. The member who sent an order sees it in full, with a way to the order; a colleague sees only how many there are
- * and their references, never a patient's name; a member without ehr.order-route.send reads nothing. Read once when the
+ * days. The member who sent an order sees it in full, with a way to the order, whether or not they may still open the
+ * patient's record (the backend decides, C28); an order a colleague sent is shown only as a count and its reference, never a
+ * patient's name, and the card says that colleagues sent them; a member without ehr.order-route.send reads nothing. Read once when the
  * Overview opens; nothing is shown when there is none, or where the backend has no such route (404).
  */
 const api = vi.hoisted(() => ({ listAccessRequests: vi.fn() }))
@@ -99,8 +100,10 @@ describe('the Overview card of orders accepted for the wrong person', () => {
       others: { count: 3, references: ['AB12CD34', '9F00E1A2'], patients: ['Chidi Patient'] } })
     open()
     const shown = await card()
-    expect(within(shown).getByText('3 orders from this facility were reported accepted for the wrong person: AB12CD34, 9F00E1A2 and '
-      + '1 more. Only the clinician who sent each one sees it here in full.')).toBeTruthy()
+    // The backend gives a member every order they sent in full, so the references are only ever colleagues' (C28): the card
+    // says so, and never suggests that one of them may be the reader's own.
+    expect(within(shown).getByText('3 orders that colleagues sent from this facility were reported accepted for the wrong person: '
+      + 'AB12CD34, 9F00E1A2 and 1 more. Only the clinician who sent each one sees it here in full.')).toBeTruthy()
     expect(shown.textContent).not.toMatch(/Chidi|Patient’s record|Ref /)
     expect(shown.querySelectorAll('li')).toHaveLength(0)
     expect(within(shown).queryAllByRole('link')).toHaveLength(0)
@@ -110,7 +113,8 @@ describe('the Overview card of orders accepted for the wrong person', () => {
     routes.sentWrongPatient.mockResolvedValue({ windowDays: 30, items: [lab], others: { count: 1, references: ['AB12CD34'] } })
     open()
     const shown = await card()
-    expect(within(shown).getByText(/^1 other order from this facility was reported accepted for the wrong person: AB12CD34\./)).toBeTruthy()
+    expect(within(shown).getByText('1 more order that a colleague sent from this facility was reported accepted for the wrong '
+      + 'person: AB12CD34. Only the clinician who sent each one sees it here in full.')).toBeTruthy()
   })
 
   it.each([
