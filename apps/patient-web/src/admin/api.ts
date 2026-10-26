@@ -173,8 +173,9 @@ export interface FacilityOrderRouteSummary {
   /**
    * Novu since item 4 (hid-system 0089): what the facility is as a destination. `receivingTypes` are the types of its
    * active laboratory or pharmacy products whose application was approved; `review` is its sign-up's review ('pending',
-   * 'reviewed' or 'released'), else 'governed' (approved by Health ID support), else 'legacy'. An earlier Identity sends
-   * none; read it only through `summaryDestination`.
+   * 'reviewed' or 'released'), else 'governed' (approved by Health ID support), else 'legacy'. It is the database's own
+   * (0089's summary), which Identity passes through as it is: any Identity sends it once 0089 is applied, and none before.
+   * Read it only through `summaryDestination`.
    */
   destination?: { receivingTypes: string[]; review: DestinationReview }
   receivedAcceptedLifetime: number
@@ -200,7 +201,8 @@ export interface FoundOrderRoute extends Versioned {
   createdAt: string | null; acceptedAt: string | null; endedAt: string | null; endedKind: string | null
   /**
    * Novu since item 4 (hid-system 0089): when the receiving facility's access ends (null before it was accepted), and
-   * whether support's Close would act at the time of the Find. An earlier Identity sends neither.
+   * whether support's Close would act at the time of the Find. An earlier Identity, or a schema before 0089, sends
+   * neither.
    */
   accessEndsAt?: string | null
   closable?: boolean

@@ -119,8 +119,9 @@ const LISTABLE_REVIEWS: ReadonlySet<string> = new Set<DestinationReview>(['pendi
 
 /**
  * What the summary says the facility is as a destination (Novu since item 4, hid-system 0089: C20's `destination`), when
- * it says it in the right shape: `receivingTypes` an array of strings and `review` one of the five words. Null from an
- * earlier Identity, or for any other shape: the panel then goes by the link's sign-up and the hedge.
+ * it says it in the right shape: `receivingTypes` an array of strings and `review` one of the five words. Null before
+ * 0089 (Identity passes the summary through, so an earlier Identity on 0089 sends it too), or for any other shape: the
+ * panel then goes by the link's sign-up and the hedge.
  */
 export function summaryDestination(summary: Pick<FacilityOrderRouteSummary, 'destination'>):
   { receivingTypes: string[]; review: DestinationReview } | null {

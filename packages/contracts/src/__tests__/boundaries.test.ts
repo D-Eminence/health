@@ -568,6 +568,36 @@ describe('application boundaries', () => {
     expect(findEndpoint('admin.wrongPatientReportReview')?.note).toContain('If-Match')
   })
 
+  it('names what item 4 (hid-system 0089) adds to the answers the website already reads, as the services answer them', () => {
+    for (const name of ['lab.workItems', 'pharmacy.workItems']) {
+      const note = findEndpoint(name)?.note ?? ''
+      for (const word of ['receives', 'routesHere { waiting, held }', 'receive permission', 'an earlier backend sends neither']) {
+        expect(note, `${name}: ${word}`).toContain(word)
+      }
+    }
+    for (const name of ['lab.orderRoutes', 'pharmacy.orderRoutes', 'lab.orderRouteSearch', 'pharmacy.orderRouteSearch']) {
+      const note = findEndpoint(name)?.note ?? ''
+      expect(note, name).toContain('receives?, routesHere?, crossFacilityOrders, crossFacilityWork }')
+      // The list's 423 while route access is off is a problem without either field, and the work list says them then
+      // (item 4 integration: the services' answer, not an empty body).
+      expect(note, name).toContain('423 is a problem without receives or routesHere')
+      expect(note, name).not.toContain('has no body')
+    }
+    // Routes that answer no such field say nothing of it.
+    for (const name of ['ehr.labRequestOrderRoutes', 'identity.orderDestinations']) {
+      expect(findEndpoint(name)?.note, name).not.toMatch(/receives|routesHere/)
+    }
+    expect(findEndpoint('admin.orderRoutesFind')?.note).toContain('accessEndsAt?, closable?')
+    expect(findEndpoint('admin.orderRoutesFind')?.note).toContain('an earlier Identity, or a schema before 0089, omits both')
+    const summary = findEndpoint('admin.facilityOrderRouteSummary')?.note ?? ''
+    expect(summary).toContain('destination? { receivingTypes: (laboratory | pharmacy)[], review: pending | reviewed | released | '
+      + 'governed | legacy }')
+    // The summary is the database's, passed through by every Identity (item 4 integration: 22cd47f's and aba7c16's
+    // Identity answer destination on the 0089 schema), so the schema decides whether it is sent, not the Identity.
+    expect(summary).toContain('any Identity sends it once 0089 is applied and none before')
+    expect(summary).not.toContain('an earlier Identity sends none')
+  })
+
   it('never sends a Health ID in the address of an order-route lookup (hid-system #116)', () => {
     const refusal = (run: () => unknown): unknown => {
       try { run() } catch (error) { return error }

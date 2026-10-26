@@ -115,8 +115,13 @@ const ORDER_ROUTES_P4C_NOVU = 'Served by staging-novu-ci-20261005 from cross-fac
   + 'hid-system main (404).'
 /** The two P4c switches, answered by every order-route route (SPEC-FINAL §11). */
 const ORDER_ROUTES_PAUSED = '423 CROSS_FACILITY_ORDERS_UNAVAILABLE while cross_facility_orders_enabled (or, for work on '
-  + 'accepted orders, cross_facility_route_access_enabled) is off; the list\'s 423 has no body, so receives and routesHere '
-  + '(item 4) come from the work list then.'
+  + 'accepted orders, cross_facility_route_access_enabled) is off.'
+/**
+ * Incoming while route access is off (item 4 integration: the services answer the list's 423 as a problem, so neither
+ * field is in it): the work list, which that switch never refuses, still says them.
+ */
+const RECEIVING_PAUSED = 'While cross_facility_route_access_enabled is off the list\'s 423 is a problem without receives or '
+  + 'routesHere; the work list still answers them then.'
 /**
  * What item 4 (hid-system 0089, B1 and owner decision D4) adds to the Lab and Pharmacy work lists and Incoming: two facts
  * about the session's own facility, for this service's orders, answered only to a member holding the receive permission.
@@ -159,11 +164,11 @@ const RECEIVE_ROUTE = `${ORDER_ROUTE_STAFF} Accept needs Idempotency-Key and { e
   + 'since hid-system #116 a healthId query is refused 400 '
   + 'HEALTH_ID_NOT_ACCEPTED_IN_URL before any other check (a Health ID in an address is kept by access logs and browser '
   + "history): one patient's orders are found with the search's POST. Before acceptance no row names the patient. "
-  + ORDER_ROUTES_PAUSED
+  + `${ORDER_ROUTES_PAUSED} ${RECEIVING_PAUSED}`
 /** P4c review: one patient's incoming (or recent) orders, found by the Health ID in the body, never in an address. */
 const RECEIVE_SEARCH = `${ORDER_ROUTE_STAFF} Body { view?: 'incoming' | 'recent', healthId } (1 to 64; the Health ID is `
   + 'checked, 400 ORDER_ROUTE_INVALID); the same permission, audit row and answer as the list\'s GET: { items, '
-  + `receives?, routesHere?, crossFacilityOrders, crossFacilityWork }. ${ORDER_ROUTES_PAUSED}`
+  + `receives?, routesHere?, crossFacilityOrders, crossFacilityWork }. ${ORDER_ROUTES_PAUSED} ${RECEIVING_PAUSED}`
 /** What P4c adds to the Lab and Pharmacy work lists and per-item routes. */
 const WORK_LISTS_P4C = 'On Novu since P4c items of orders from other facilities carry orderRoute { id, reference, '
   + 'effectiveState, access, orderingFacilityName, ordererName, ordererLicence? } and patient?, and the answer '
@@ -716,7 +721,8 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     `${ORDER_ROUTES_P4C_NOVU} Also platform.admin.access; audited. 200 { facilityId, listed { value, byDefault, reason, setAt }, `
     + 'destination? { receivingTypes: (laboratory | pharmacy)[], review: pending | reviewed | released | governed | '
     + 'legacy } (since item 4, hid-system 0089: the types of its active, approved laboratory or pharmacy products, and its '
-    + 'sign-up\'s review; an earlier Identity sends none), receivedAcceptedLifetime, receivedPatientsLifetime, '
+    + 'sign-up\'s review; the database\'s summary, which Identity passes through as it is, so any Identity sends it once '
+    + '0089 is applied and none before), receivedAcceptedLifetime, receivedPatientsLifetime, '
     + 'counterparts [{ direction: sent | received, facilityId, facilityName, last30Days { <state>: count } }] }: no '
     + 'patient, no order content. 404 ADMIN_FACILITY_NOT_FOUND.')),
   proposed(r('admin.facilityOrderDestination','admin','/api/v1/admin/facilities/:facilityId/order-destination',P,false,
@@ -729,7 +735,8 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'routeId, reference, kind, version, effectiveState, orderingFacilityId, orderingFacilityName, receivingFacilityId, '
     + 'receivingFacilityName, createdAt, acceptedAt, endedAt, endedKind, accessEndsAt?, closable? }] } (accessEndsAt and '
     + 'closable since item 4, hid-system 0089: when the receiving facility\'s access ends, null before acceptance, and '
-    + 'whether admin.orderRouteClose would act at the time of the Find; an earlier Identity omits both), at most 5. 400 '
+    + 'whether admin.orderRouteClose would act at the time of the Find; an earlier Identity, or a schema before 0089, omits '
+    + 'both), at most 5. 400 '
     + 'ORDER_ROUTE_LOOKUP_INVALID '
     + '(also without a reference); 400 HEALTH_ID_NOT_ACCEPTED_IN_URL for a healthId query, since hid-system #116, before '
     + 'the permission check and with no audit row (a Health ID in an address is kept by access logs and browser history): '
