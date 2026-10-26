@@ -404,6 +404,8 @@ describe('the Accepted panel: this isn’t the order’s patient', () => {
     expect(order.indexOf(button)).toBeLessThan(order.indexOf(accepted))
     fireEvent.click(button)
     const form = within(incoming).getByRole('form', { name: 'End this order: accepted for the wrong person' })
+    // The button is gone: focus is in the form it opened (its title), not back at the top of the page.
+    expect(document.activeElement).toBe(within(form).getByText('End this order: accepted for the wrong person'))
     expect(within(form).getByText('Tunde Bello is the patient on this order. Use this only if the person you accepted it for is someone else.')).toBeTruthy()
     expect(within(form).getByText('If you can’t do the test, don’t use this either: phone General Hospital.')).toBeTruthy()
     expect(within(form).queryByText(/collecting for/)).toBeNull()

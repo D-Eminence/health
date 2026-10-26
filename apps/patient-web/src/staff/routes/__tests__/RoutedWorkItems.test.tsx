@@ -188,6 +188,20 @@ describe('this isn’t the order’s patient, on a work row', () => {
     expect(routes.reportWrongPatient).not.toHaveBeenCalled()
   })
 
+  it('moves focus into the form it opens, and back to its button on Cancel', async () => {
+    api.labWorkItems.mockResolvedValue(labItems(routed({ orderRoute: current() }), local))
+    render(<MemoryRouter><Laboratory /></MemoryRouter>)
+    await screen.findByText('Haemoglobin')
+    const opener = within(row('Haemoglobin')).getByRole('button', { name: 'This isn’t the order’s patient' })
+    opener.focus()
+    fireEvent.click(opener)
+    const form = within(row('Haemoglobin')).getByRole('form', { name: 'End this order: accepted for the wrong person' })
+    expect(document.activeElement).toBe(within(form).getByText('End this order: accepted for the wrong person'))
+    fireEvent.click(within(form).getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(document.activeElement)
+      .toBe(within(row('Haemoglobin')).getByRole('button', { name: 'This isn’t the order’s patient' })))
+  })
+
   it('is not offered to a member who doesn’t receive orders from other facilities', async () => {
     working.permissions = ['lab.work-item.read', 'lab.accession.create']
     api.labWorkItems.mockResolvedValue(labItems(routed({ orderRoute: current() })))

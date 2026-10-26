@@ -18,7 +18,7 @@ import { BUSY, QUIET_UNAVAILABLE, UNAVAILABLE } from '../focus'
  * a confirmation; it sends nothing until all three are given. One Idempotency-Key is kept per identical report, so a
  * report sent again after no answer is the same one. On 412 the route moved on (something was returned or changed): the
  * caller reads it again, and the form stays open at the new version. A backend without the route answers 404: the form
- * says it is not available yet.
+ * says it is not available yet. Opening it moves focus to its title; Cancel returns it to the button that opened it.
  */
 
 /** The route reported on, at the version the report is checked against. */
@@ -59,6 +59,10 @@ export function WrongPatientForm({ id, service, facilityId, route, patient, orde
   const [error, setError] = useState('')
   const [problems, setProblems] = useState<Problems>({})
   const attempt = useRef<{ signature: string; key: string } | null>(null)
+  // The button that opened the form is gone: focus moves to the form's title, so a keyboard or screen-reader user goes
+  // on from the form itself rather than from the top of the page (as the message that follows it does).
+  const title = useRef<HTMLElement>(null)
+  useEffect(() => { title.current?.focus() }, [])
   const lab = service === 'lab'
   const who = patient?.trim() || 'the patient'
   const Who = patient?.trim() || 'The patient'
@@ -103,7 +107,7 @@ export function WrongPatientForm({ id, service, facilityId, route, patient, orde
   }
 
   return <form className="staff-form staff-wrong-patient" onSubmit={event => void submit(event)} aria-labelledby={`${id}-title`} noValidate>
-    <strong id={`${id}-title`}>End this order: accepted for the wrong person</strong>
+    <strong id={`${id}-title`} ref={title} tabIndex={-1}>End this order: accepted for the wrong person</strong>
     <p>{Who} is the patient on this order. Use this only if the person you accepted it for is someone else.</p>
     {!lab && <p>Someone collecting for {who} with their agreement is not the wrong person: don’t use this for them.</p>}
     <p>If you can’t do the {lab ? 'test' : 'medicine'}, don’t use this either: phone {ordering}.</p>
