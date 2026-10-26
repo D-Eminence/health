@@ -607,13 +607,17 @@ describe('application boundaries', () => {
       .toThrow(BrowserRouteError)
     for (const name of ['lab.orderRouteCorrectable', 'pharmacy.orderRouteCorrectable']) {
       const note = findEndpoint(name)?.note ?? ''
-      for (const word of ['{ reference }', 'correction: open | correctable | reported | too_late', 'correctableUntil',
+      for (const word of ['{ reference }', 'correction: open | correctable | reported | receiver_released | too_late', 'correctableUntil',
         'wrongPatient { reportedAt, late } | null', 'details', 'acceptedWith', 'returned [{ at, withdrawn }]',
         'items: [] when none was accepted here', 'never 404', 'no patient', 'lateCorrection: true']) {
         expect(note, `${name}: ${word}`).toContain(word)
       }
       expect(note, name).toContain('never answer ORDER_ROUTE_LOOKUP_INVALID')
     }
+    // Support's find names the state of an order whose receiving facility was released (no deadline then).
+    expect(findEndpoint('admin.orderRoutesFind')?.note)
+      .toContain('correction (not_accepted | open | correctable | reported | receiver_released | too_late;')
+    expect(findEndpoint('admin.orderRoutesFind')?.note).toContain('null for not_accepted, reported and receiver_released')
     for (const name of ['lab.orderRouteWrongPatientCorrection', 'pharmacy.orderRouteWrongPatientCorrection']) {
       const note = findEndpoint(name)?.note ?? ''
       for (const word of ['Idempotency-Key', 'expectedVersion', 'discoveredBy', 'own_check', 'discoveredOn', 'YYYY-MM-DD',

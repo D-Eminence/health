@@ -213,9 +213,10 @@ export interface FoundOrderRoute extends Versioned {
   /**
    * D17 (hid-system 0090; absent from an earlier Identity): what the receiving facility may still do about it
    * (`not_accepted`, `open`: in its window; `correctable`: ended or lapsed, before `correctableUntil`; `reported`;
-   * `too_late`), until when (already past for `too_late`; null for `not_accepted` and `reported`), and its report, if any.
+   * `receiver_released`: the receiving facility was released from Health ID, so it can no longer act; `too_late`), until
+   * when (already past for `too_late`; null for `not_accepted`, `reported` and `receiver_released`), and its report, if any.
    */
-  correction?: 'not_accepted' | 'open' | 'correctable' | 'reported' | 'too_late' | string
+  correction?: 'not_accepted' | 'open' | 'correctable' | 'reported' | 'receiver_released' | 'too_late' | string
   correctableUntil?: string | null
   wrongPatient?: { reportedAt: string; late: boolean } | null
 }

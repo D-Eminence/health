@@ -535,6 +535,10 @@ describe('what the ordering clinician reads of a late report (D17)', () => {
       + '9C1B2D3E: it can reverse the dispensing until 28 Nov 2026, 10:00.')
     expect(routeGuidance({ ...done, correctableUntil: null }, 'Ada Patient', true)).toBe('If a result from Yaba Diagnostics on this '
       + 'order is not Ada Patient’s, record that in Ada Patient’s notes without repeating its value, and tell Health ID support.')
+    // A receiving facility released from Health ID can no longer act (D17-3): the stop-gap, whatever date an answer carries.
+    expect(routeGuidance({ ...done, endedAt: '2026-06-20T08:00:00.000Z', endedKind: 'receiving_released', ...until }, 'Ada Patient',
+      true)).toBe('If a result from Yaba Diagnostics on this order is not Ada Patient’s, record that in Ada Patient’s notes without '
+      + 'repeating its value, and tell Health ID support.')
     // Not served, no field (an earlier backend), nothing came back, or already reported: nothing.
     expect(routeGuidance({ ...done, ...until }, 'Ada Patient', false)).toBeNull()
     expect(routeGuidance(done, 'Ada Patient', true)).toBeNull()
@@ -553,6 +557,9 @@ describe('what the ordering clinician reads of a late report (D17)', () => {
       .toMatch(/ask Yaba Diagnostics to withdraw what it sent back, giving it the reference 9C1B2D3E: it can do so until 28 Nov 2026, 10:00,/)
     // Past its date, or reported: only what a change does.
     expect(routedChangeWarning({ ...done, correctableUntil: null }, 'Ada Patient', true, true)).toBe(change)
+    // The receiving facility released from Health ID can no longer act (D17-3), whatever date an answer carries.
+    expect(routedChangeWarning({ ...done, endedAt: '2026-06-20T08:00:00.000Z', endedKind: 'receiving_released', ...until },
+      'Ada Patient', true, true)).toBe(change)
     // Not served, or no field: as before D17.
     expect(routedChangeWarning({ ...done, ...until }, 'Ada Patient', true, false)).toMatch(/to end it from its work list first/)
     expect(routedChangeWarning(done, 'Ada Patient', true, true)).toMatch(/to end it from its work list first/)

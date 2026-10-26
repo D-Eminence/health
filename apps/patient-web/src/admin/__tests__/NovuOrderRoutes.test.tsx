@@ -566,6 +566,28 @@ describe('the late correction in support’s Find (D17)', () => {
     expect(cancelled!.textContent).not.toMatch(/withdraw|data protection officer/)
   })
 
+  it('says, once the receiving facility was released from Health ID, that it can no longer withdraw it, with the stop-gap '
+    + 'where something came back (D17-3)', async () => {
+    serve(SUPPORT, { 'GET /api/v1/admin/order-routes': () => json({ items: [
+      closed({ correction: 'receiver_released', correctableUntil: null, wrongPatient: null }),
+      closed({ routeId: 'aa000000-0000-4000-8000-000000000002', reference: '5E6F7A8B', version: 5, endedKind: 'receiving_released',
+        correction: 'correctable', correctableUntil: '2027-04-19T10:00:00.000Z', wrongPatient: null }),
+      closed({ routeId: 'aa000000-0000-4000-8000-000000000003', reference: '6F7A8B9C', version: 4, effectiveState: 'cancelled',
+        correction: 'receiver_released', correctableUntil: null, wrongPatient: null }),
+    ], lateCorrection: true }) })
+    await openAt('/admin/order-routes')
+    await findByReference()
+    const [released, releasedBefore, cancelled] = [...document.querySelectorAll('tbody tr')] as HTMLElement[]
+    const words = 'Yaba Diagnostics is no longer on Health ID, so it can no longer withdraw it. If a patient or clinician says it '
+      + 'accepted this for the wrong person, ask the ordering clinician to record in the patient’s notes that it was not theirs, '
+      + 'without repeating its value, and refer it to the data protection officer the same day.'
+    expect(within(released!).getByText(words)).toBeTruthy()
+    // An answer that still says correctable, for an order the release ended, gets the same words, never "can still withdraw".
+    expect(within(releasedBefore!).getByText(words)).toBeTruthy()
+    expect(releasedBefore!.textContent).not.toMatch(/can still withdraw/)
+    expect(cancelled!.textContent).not.toMatch(/withdraw|data protection officer/)
+  })
+
   it('says in Close that closing does not stop the facility withdrawing it later, until its date, with the new case note', async () => {
     serve(SUPPORT, { 'GET /api/v1/admin/order-routes': () => json({ items: [{ ...FOUND, correction: 'open',
       correctableUntil: '2027-04-19T10:00:00.000Z', wrongPatient: null }], wrongPatientReports: true, lateCorrection: true }) })

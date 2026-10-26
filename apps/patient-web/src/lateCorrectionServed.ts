@@ -94,3 +94,15 @@ export function correctableUntilOf(route: unknown): string | null | undefined {
   if (value === null) return null
   return typeof value === 'string' && Number.isFinite(Date.parse(value)) ? value : undefined
 }
+
+/**
+ * Until when the receiving facility can still withdraw what it recorded on a route, for the words that send someone to
+ * it: its `correctableUntil` as `correctableUntilOf` reads it, but `null` once that facility was released from Health ID
+ * (`endedKind` 'receiving_released'): its memberships ended, so it can no longer act, whatever date an answer carries,
+ * and D17-3's stop-gap applies. Since hid-system 0090 is fixed the backend gives no date then either.
+ */
+export function receivingDeadlineOf(route: unknown): string | null | undefined {
+  const until = correctableUntilOf(route)
+  if (until === undefined) return undefined
+  return (route as { endedKind?: unknown }).endedKind === 'receiving_released' ? null : until
+}

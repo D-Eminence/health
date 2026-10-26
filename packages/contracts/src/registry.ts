@@ -232,7 +232,7 @@ const LATE_CORRECTION_LOOKUP = `${LATE_CORRECTION_NOVU} Staff session with X-Fac
   + 'with the route ids, never the patient). A POST so the reference, also an acceptance factor, is in no address. Body { reference } (1 to 16; trimmed '
   + 'and upper-cased, 8 hexadecimal characters). 200 { items [{ id, reference, kind, version, effectiveState, '
   + 'orderingFacilityName, acceptedAt, completedAt, endedAt, endedKind, returned, correction: open | correctable | reported '
-  + '| too_late, correctableUntil, wrongPatient { reportedAt, late } | null, details { what, acceptedBy, acceptedWith: '
+  + '| receiver_released | too_late, correctableUntil, wrongPatient { reportedAt, late } | null, details { what, acceptedBy, acceptedWith: '
   + 'health_id | date_of_birth_with_reference | date_of_birth, returned [{ at, withdrawn }] } | null (only while open or '
   + 'correctable) }], lateCorrection: true }: only orders this facility accepted, at most 5, newest acceptance first; no '
   + 'patient, orderer, work item or value. items: [] when none was accepted here: never 404 for that. 400 '
@@ -814,8 +814,10 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'by Health ID, use admin.orderRoutesSearch. With the wrong-patient report (item 3, hid-system 0088) endedKind may '
     + 'be wrong_patient, and the answer also carries wrongPatientReports: true (as does admin.orderRoutesSearch\'s); an '
     + 'earlier Identity sends no such field. With the late correction (D17, hid-system 0090) each row also carries '
-    + 'correction (not_accepted | open | correctable | reported | too_late), correctableUntil (the deadline for open, '
-    + 'correctable and too_late, then already past; null for not_accepted and reported) and wrongPatient { reportedAt, '
+    + 'correction (not_accepted | open | correctable | reported | receiver_released | too_late; receiver_released once the '
+    + 'receiving facility was released from Health ID, so it can no longer act), correctableUntil (the deadline for open, '
+    + 'correctable and too_late, then already past; null for not_accepted, reported and receiver_released) and '
+    + 'wrongPatient { reportedAt, '
     + 'late } | null, and the answer lateCorrection: true (as does admin.orderRoutesSearch\'s); an earlier Identity sends '
     + 'none of these.')),
   requiredQuery: { GET: ['reference'] }, forbiddenQuery: { GET: ['healthId'] } },

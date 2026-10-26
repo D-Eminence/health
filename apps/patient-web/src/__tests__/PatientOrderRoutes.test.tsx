@@ -345,6 +345,15 @@ describe('a late report, and until when the receiving facility can correct it (D
     expect(within(past).getByText('If you haven’t been to Yaba Diagnostics for this test, tell General Hospital.')).toBeTruthy()
   })
 
+  it('tells the patient to tell the ordering facility once the receiving facility was released, whatever date it carries (D17-3)', async () => {
+    routes = { items: [sent({ ...done, endedAt: '2026-10-23T10:00:00.000Z', endedKind: 'receiving_released', wrongPatient: null,
+      correctableUntil: '2027-04-19T10:00:00.000Z' })] }
+    renderPortal(<AccessPage />, handler)
+    const test = await item(/^Haemoglobin from General Hospital to Yaba Diagnostics/)
+    expect(within(test).getByText('If you haven’t been to Yaba Diagnostics for this test, tell General Hospital.')).toBeTruthy()
+    expect(test.textContent).not.toMatch(/can correct it until/)
+  })
+
   it('says the deadline in the entered-in-error branch too, and nothing of it against today’s answers', async () => {
     routes = { items: [
       sent({ ...done, endedAt: '2026-10-23T10:00:00.000Z', endedKind: 'entered_in_error', enteredInError: true, attestationText: null,

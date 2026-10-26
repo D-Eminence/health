@@ -5,7 +5,7 @@ import type {
   ReceivingService, WorkItemOrderRoute,
 } from './api'
 import { usesNovuBackend } from '../backendContract'
-import { correctableUntilOf, wrongPatientReportOf } from '../lateCorrectionServed'
+import { receivingDeadlineOf, wrongPatientReportOf } from '../lateCorrectionServed'
 import { selfServiceReview, selfServiceType } from './staffAccess'
 
 /**
@@ -200,13 +200,14 @@ export function lateReportNotice(route: Pick<OrderRouteSummary, 'effectiveState'
  * What the ordering clinician may do about an order something came back on (D17-5, CL10, CT5; SPEC-FINAL §9.2): phone
  * the receiving facility with the reference, which can withdraw it until the time the answer carries (its day and time
  * in Lagos: the deadline is a moment, not the whole day, as on the receiving facility's own row); once it can't
- * (`correctableUntil: null`), record it in the patient's notes without repeating the value (D17-3). Only for a completed
+ * (`correctableUntil: null`, or the receiving facility was released from Health ID), record it in the patient's notes
+ * without repeating the value (D17-3). Only for a completed
  * route the receiving facility has not reported, from a backend that serves the late correction (`lateServed`) and says
  * the deadline: null otherwise, as before D17.
  */
 export function routeGuidance(route: Pick<OrderRouteSummary, 'kind' | 'effectiveState' | 'reference' | 'receivingFacility'
   | 'endedKind'> & { wrongPatient?: unknown; correctableUntil?: unknown }, patient: string, lateServed = false): string | null {
-  const until = correctableUntilOf(route)
+  const until = receivingDeadlineOf(route)
   if (!lateServed || until === undefined || route.effectiveState !== 'completed' || route.endedKind === 'wrong_patient'
     || wrongPatientReportOf(route)) return null
   const facility = named(route.receivingFacility.name)
@@ -235,11 +236,11 @@ export function routeGuidance(route: Pick<OrderRouteSummary, 'kind' | 'effective
  * change does.
  */
 export function routedChangeWarning(route: (Pick<OrderRouteSummary, 'receivingFacility' | 'effectiveState' | 'endedAt'>
-  & { reference?: string | null; correctableUntil?: unknown }) | null | undefined, patient: string, reportServed = false,
-  lateServed = false): string {
+  & { reference?: string | null; correctableUntil?: unknown; endedKind?: string | null }) | null | undefined, patient: string,
+  reportServed = false, lateServed = false): string {
   const name = route?.receivingFacility.name?.trim() || 'the other facility'
   const change = `Changing it withdraws it from ${name}, or cancels it there if ${name} has accepted it; a cancelled order can’t be resumed there.`
-  const until = lateServed ? correctableUntilOf(route) : undefined
+  const until = lateServed ? receivingDeadlineOf(route) : undefined
   if (route && until !== undefined) {
     if (until === null) return change
     const what = route.effectiveState === 'completed' ? 'what it sent back' : 'what it recorded on it'

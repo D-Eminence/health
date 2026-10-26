@@ -70,13 +70,21 @@ export function accessEnded(route: Pick<FoundOrderRoute, 'effectiveState' | 'end
  * What support may tell the receiving facility of an order whose access has ended (D17, CT10; SPEC-FINAL §9.4): that it
  * can still withdraw what it recorded until the date Find carries, with the reference, if it accepted the order for the
  * wrong person; or, past it, D17-3's stop-gap, again only if someone says so, and only where something came back
- * (completed): on an order nothing came back on there is no value for the clinician to note, and nothing to refer. Null
+ * (completed): on an order nothing came back on there is no value for the clinician to note, and nothing to refer. Once
+ * the receiving facility was released from Health ID it can no longer act: the stop-gap, on the same conditions. Null
  * from an earlier Identity, and for any other state.
  */
 function correctionAdvice(route: FoundOrderRoute): string | null {
+  const receiving = route.receivingFacilityName?.trim() || 'The receiving facility'
+  // Released from Health ID (D17-3): its memberships ended, so it can no longer withdraw anything, whatever date an
+  // answer carries. Identity says receiver_released; an order the release ended is so whatever else it says.
+  if (route.correction === 'receiver_released' || (route.endedKind === 'receiving_released'
+    && (route.correction === 'correctable' || route.correction === 'too_late'))) {
+    return route.effectiveState === 'completed' ? `${receiving} is no longer on Health ID, so it can no longer withdraw it. If `
+      + `a patient or clinician says it accepted this for the wrong person, ${STOP_GAP}` : null
+  }
   const until = correctableUntilOf(route)
   if (typeof until !== 'string') return null
-  const receiving = route.receivingFacilityName?.trim() || 'The receiving facility'
   if (route.correction === 'correctable') return `${receiving} can still withdraw what it recorded on it, until ${date(until)}: `
     + `if it accepted this for the wrong person, give it reference ${route.reference}.`
   if (route.correction === 'too_late' && route.effectiveState === 'completed') return 'If a patient or clinician says '

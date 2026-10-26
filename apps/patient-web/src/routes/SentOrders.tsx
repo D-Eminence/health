@@ -4,7 +4,8 @@ import { ItemName } from '../ItemName'
 import { useSession } from '../session'
 import type { PatientOrderRoute } from '../api'
 import {
-  carriesCorrectableUntil, correctableUntilOf, learnLateCorrectionServed, useLateCorrectionServed, wrongPatientReportOf,
+  carriesCorrectableUntil, correctableUntilOf, learnLateCorrectionServed, receivingDeadlineOf, useLateCorrectionServed,
+  wrongPatientReportOf,
 } from '../lateCorrectionServed'
 import { usePatientResource } from './usePatientResource'
 import { useActionFocus } from './actionFocus'
@@ -194,7 +195,8 @@ export function haventBeenLine(route: PatientOrderRoute, stoppable: boolean): st
   const receiving = named(route.receivingFacilityName ?? route.receivingFacility.name, 'the other facility')
   const ordering = named(route.orderingFacilityName, 'your clinician’s facility')
   const lab = route.kind === 'lab_request'
-  const until = correctableUntilOf(route)
+  // Once the receiving facility was released from Health ID it can no longer correct it (D17-3): as past its date.
+  const until = receivingDeadlineOf(route)
   if (until === undefined) {
     if (!stoppable) return null
     return lab
