@@ -35,6 +35,11 @@ export interface EndpointDescriptor {
   readonly permissions?: Partial<Record<EndpointMethod, readonly string[]>>
   /** Query keys required by a method; for example OCR job lookup is scoped to a document. */
   readonly requiredQuery?: Partial<Record<EndpointMethod, readonly string[]>>
+  /**
+   * Query keys a method refuses, so the value never leaves the browser in an address; for example the order-route
+   * lookups refuse a Health ID (hid-system #116), which goes in their searches' POST bodies instead.
+   */
+  readonly forbiddenQuery?: Partial<Record<EndpointMethod, readonly string[]>>
   /** The shared JSON client cannot consume a download response. */
   readonly responseKind?: 'json' | 'download'
   readonly status: ContractStatus
@@ -511,7 +516,8 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   // hid-system #51: the released results of the Lab work item accepted from one EHR lab request.
   r('lab.releasedResultsForOrder','lab','/api/v1/lab/ehr-orders/:sourceEhrOrderId/released-results',G,false,one('GET','lab.result.released.read')),
   // P4c: lab requests other facilities send to this laboratory (Incoming and Recent), one of them, accept and decline.
-  proposed(r('lab.orderRoutes','lab','/api/v1/lab/order-routes',G,false,one('GET','lab.order-route.receive'),RECEIVE_ROUTE)),
+  { ...proposed(r('lab.orderRoutes','lab','/api/v1/lab/order-routes',G,false,one('GET','lab.order-route.receive'),RECEIVE_ROUTE)),
+    forbiddenQuery: { GET: ['healthId'] } },
   proposed(r('lab.orderRouteSearch','lab','/api/v1/lab/order-routes/search',P,false,one('POST','lab.order-route.receive'),RECEIVE_SEARCH)),
   proposed(r('lab.orderRoute','lab','/api/v1/lab/order-routes/:routeId',G,false,one('GET','lab.order-route.receive'),
     `${RECEIVE_ROUTE} One route: the Incoming shape, and after acceptance, while it may be read, clinicalInformation, `
@@ -525,7 +531,8 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('pharmacy.reverse','pharmacy','/api/v1/pharmacy/dispensings/:dispensingId/reversals',P,false,one('POST','pharmacy.dispensing.reverse')),
   r('pharmacy.import','pharmacy','/api/v1/pharmacy/imports/:importId',G,false,one('GET','pharmacy.import.read')),
   // P4c: prescriptions other facilities send to this pharmacy, as Lab's.
-  proposed(r('pharmacy.orderRoutes','pharmacy','/api/v1/pharmacy/order-routes',G,false,one('GET','pharmacy.order-route.receive'),RECEIVE_ROUTE)),
+  { ...proposed(r('pharmacy.orderRoutes','pharmacy','/api/v1/pharmacy/order-routes',G,false,one('GET','pharmacy.order-route.receive'),
+    RECEIVE_ROUTE)), forbiddenQuery: { GET: ['healthId'] } },
   proposed(r('pharmacy.orderRouteSearch','pharmacy','/api/v1/pharmacy/order-routes/search',P,false,one('POST','pharmacy.order-route.receive'),RECEIVE_SEARCH)),
   proposed(r('pharmacy.orderRoute','pharmacy','/api/v1/pharmacy/order-routes/:routeId',G,false,one('GET','pharmacy.order-route.receive'),
     `${RECEIVE_ROUTE} One route: the Incoming shape, and after acceptance, while it may be read, instructions, `
@@ -646,13 +653,14 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     `${ORDER_ROUTES_P4C_NOVU} Lists the facility for orders from other facilities, or stops listing it; accepted work is `
     + 'unaffected. Body { listed, reason (8 to 500) }; 200 { facilityId, listed, setAt }. 404 ADMIN_FACILITY_NOT_FOUND '
     + '(also a facility without a laboratory or pharmacy product), 409 ORDER_ROUTE_DESTINATION_UNCHANGED.')),
-  proposed(r('admin.orderRoutesFind','admin','/api/v1/admin/order-routes',G,false,one('GET','platform.principal.read'),
+  { ...proposed(r('admin.orderRoutesFind','admin','/api/v1/admin/order-routes',G,false,one('GET','platform.principal.read'),
     `${ORDER_ROUTES_P4C_NOVU} Audited. Finds by reference only: query reference (8 hexadecimal characters). 200 { items [{ `
     + 'routeId, reference, kind, version, effectiveState, orderingFacilityId, orderingFacilityName, receivingFacilityId, '
     + 'receivingFacilityName, createdAt, acceptedAt, endedAt, endedKind }] }, at most 5. 400 ORDER_ROUTE_LOOKUP_INVALID '
     + '(also without a reference); 400 HEALTH_ID_NOT_ACCEPTED_IN_URL for a healthId query, since hid-system #116, before '
     + 'the permission check and with no audit row (a Health ID in an address is kept by access logs and browser history): '
     + 'by Health ID, use admin.orderRoutesSearch.')),
+  requiredQuery: { GET: ['reference'] }, forbiddenQuery: { GET: ['healthId'] } },
   proposed(r('admin.orderRoutesSearch','admin','/api/v1/admin/order-routes/search',P,false,one('POST','platform.principal.read'),
     `${ORDER_ROUTES_P4C_NOVU} P4c review: finds orders as admin.orderRoutesFind, with the same permissions, audit row `
     + '(admin.order-routes.find) and answer (at most 5 by reference, 20 by Health ID), from the body { reference } or { '

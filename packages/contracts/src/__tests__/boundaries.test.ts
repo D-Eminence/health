@@ -506,6 +506,45 @@ describe('application boundaries', () => {
     expect(findEndpoint('enrollment.providerAvailability')?.note).toContain('crossFacilityOrders')
   })
 
+  it('never sends a Health ID in the address of an order-route lookup (hid-system #116)', () => {
+    const refusal = (run: () => unknown): unknown => {
+      try { run() } catch (error) { return error }
+      return undefined
+    }
+    const lookups = { '/api/v1/lab/order-routes': 'lab.orderRoutes', '/api/v1/pharmacy/order-routes': 'pharmacy.orderRoutes',
+      '/api/v1/admin/order-routes': 'admin.orderRoutesFind' } as const
+    expect(HID_ENDPOINTS.filter(endpoint => endpoint.forbiddenQuery).map(endpoint => endpoint.name).sort())
+      .toEqual(Object.values(lookups).sort())
+    for (const [path, name] of Object.entries(lookups)) {
+      expect(findEndpoint(name)?.forbiddenQuery, name).toEqual({ GET: ['healthId'] })
+      // Refused before transport in every form the backend refuses, alone or beside an allowed key, with a message
+      // that never repeats the value.
+      for (const query of [{ healthId: 'HID-7KQ2M9' }, { view: 'incoming', healthId: 'HID-7KQ2M9' },
+        { reference: '9C1B2D3E', healthId: 'HID-7KQ2M9' }, { 'healthId[]': 'HID-7KQ2M9' }, { healthId: ' ' }]) {
+        const error = refusal(() => assertRegisteredBrowserRequest('GET', path, query))
+        expect(error, `${name} ${Object.keys(query).join(',')}`).toBeInstanceOf(BrowserRouteError)
+        expect(error, `${name} ${Object.keys(query).join(',')}`).toMatchObject({ code: 'FORBIDDEN_QUERY' })
+        expect((error as Error).message).not.toContain('HID-7KQ2M9')
+      }
+    }
+    // A value the HTTP client leaves out of the URL is not sent, so it is not refused.
+    for (const healthId of [undefined, null, '']) {
+      expect(assertRegisteredBrowserRequest('GET', '/api/v1/lab/order-routes', { view: 'recent', healthId }).name).toBe('lab.orderRoutes')
+      expect(assertRegisteredBrowserRequest('GET', '/api/v1/admin/order-routes', { reference: '9C1B2D3E', healthId }).name)
+        .toBe('admin.orderRoutesFind')
+    }
+    expect(assertRegisteredBrowserRequest('GET', '/api/v1/pharmacy/order-routes').name).toBe('pharmacy.orderRoutes')
+    // Support's GET finds by reference only; the searches take the Health ID in their bodies, and a route's own read
+    // is not a lookup.
+    expect(refusal(() => assertRegisteredBrowserRequest('GET', '/api/v1/admin/order-routes'))).toMatchObject({ code: 'REQUIRED_QUERY' })
+    expect(refusal(() => assertRegisteredBrowserRequest('GET', '/api/v1/admin/order-routes', { reference: ' ' })))
+      .toMatchObject({ code: 'REQUIRED_QUERY' })
+    for (const path of ['/api/v1/lab/order-routes/search', '/api/v1/pharmacy/order-routes/search', '/api/v1/admin/order-routes/search']) {
+      expect(() => assertRegisteredBrowserRequest('POST', path), path).not.toThrow()
+    }
+    expect(findEndpoint('lab.orderRoute')?.forbiddenQuery).toBeUndefined()
+  })
+
   it('keeps the public site\'s enrollment routes as they were', () => {
     for (const name of ['enrollment.start', 'enrollment.availability', 'enrollment.current', 'enrollment.google',
       'enrollment.holder', 'enrollment.holderVerify', 'enrollment.facilityCode', 'enrollment.participatingFacilities',
