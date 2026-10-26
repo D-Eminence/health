@@ -452,6 +452,40 @@ closes it (`If-Match`) while its access may still be open, and shows and
 changes a facility's listing on demand, in words that depend on what the
 console knows of the facility's type and review. A 404 from any of these routes means the backend does not serve
 them yet: the page shows nothing new, and a main-v1 build never asks.
+Item 3 (hid-system 0088, built website first and dormant until that release)
+lets a laboratory or pharmacy end an order it accepted for someone who was not
+the patient: "This isn't the order's patient" on the Accepted panel, which now
+leads with a check that the person at the counter is the patient named, and on
+a routed work row while its route allows work and the work list's card carries
+the route's `version` (`staff/routes/WrongPatient.tsx`). The form takes one of
+four reasons, a note for Health ID support only and a confirmation, keeps one
+`Idempotency-Key` per identical report, and reads the route again on 412
+(`GET /{lab|pharmacy}/order-routes/:routeId`); the message that follows stays
+until closed and says to phone the ordering facility, which Health ID does not
+alert. A row whose card says how it ended (`endedKind`) says who ended it, and
+hides only the writes the services would refuse as closed, never Open
+accession. The ordering clinician reads what the receiver reports, a red
+notice that the order can't be sent again, and each withdrawn result as
+"another person's result", its value hidden until asked for; the change
+screen asks for the receiver to end it first while it may still be worked.
+The Overview of a member holding `ehr.order-route.send` lists such orders of
+the last 30 days (`GET /ehr/order-routes/wrong-patient`): in full only those
+the member sent, the rest as a count and references, never a patient's name.
+The patient reads the new ending and its own inbox title; support's console
+lists the reports (`GET /admin/wrong-patient-reports`, flagged first), marks
+one reviewed (`If-Match`, one or more actions, optionally removing the
+reporter's note), and counts them on the Overview and a facility's page. Each
+new read answers 404 on today's backend and then shows nothing; the console's
+page says it is not available yet. The website stays dormant until the
+backend says it serves the report (`wrongPatientServed.ts`): a work list's card
+carrying the route's numeric `version`, `wrongPatientReports: true` on the
+EHR's lab-request and prescription pages and on support's order lookup, or an
+answer from one of the new reads. Until then the Accepted panel asks only for
+the check, with no button and no "end this order now"; the change warning and
+support's Close form keep their earlier words, so nobody is sent to a
+laboratory or pharmacy that cannot end the order, nor away from the
+clinician's change or support's Close; and the console stops listing the
+reports page once a read answers 404.
 A staff sign-in on a product host lands on the Overview, not the host's own
 page, when the working facility cannot use that page (`staff/navigation.ts`).
 The platform console refuses the platform enrolment of an

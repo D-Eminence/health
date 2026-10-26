@@ -83,8 +83,9 @@ describe('orders between facilities in the Novu console', () => {
     const { visibleNavigation, NAVIGATION_ITEMS, isServed } = await import('../navigation')
     const organizations = (permissions: string[]) => visibleNavigation(actor(permissions))
       .find(section => section.title === 'Organizations')?.items.map(item => item.title) ?? []
-    expect(organizations(['platform.admin.access', 'platform.principal.read', 'platform.facility.read'])).toEqual(['Facilities', 'Orders between facilities'])
-    expect(organizations(['platform.admin.access', 'platform.facility.read'])).toEqual(['Facilities'])
+    expect(organizations(['platform.admin.access', 'platform.principal.read', 'platform.facility.read'])).toEqual(['Facilities',
+      'Orders between facilities', 'Wrong-patient reports'])
+    expect(organizations(['platform.admin.access', 'platform.facility.read'])).toEqual(['Facilities', 'Wrong-patient reports'])
     vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'main-v1')
     expect(isServed(NAVIGATION_ITEMS.find(item => item.path === '/admin/order-routes')!)).toBe(false)
   })
@@ -178,6 +179,57 @@ describe('orders between facilities in the Novu console', () => {
     expect(within(row).queryByText('Close', { selector: 'summary' })).toBeNull()
     expect(within(row).getByText('Access ended')).toBeTruthy()
     expect(calls.filter(call => call.path.endsWith('/close'))).toHaveLength(1)
+  })
+
+  it.each([
+    ['wrong_patient', 'cancelled', 'the receiving facility accepted it for the wrong person'],
+    ['support', 'cancelled', 'closed by support'],
+    ['order_changed', 'cancelled', 'the order changed'],
+    ['entered_in_error', 'withdrawn', 'the order was marked entered in error'],
+    ['receiving_released', 'cancelled', 'the receiving facility was released'],
+    ['orderer', 'withdrawn', 'withdrawn by the clinician'],
+    ['patient', 'withdrawn', 'stopped by the patient'],
+    ['order_in_work', 'withdrawn', 'already in work at the ordering facility'],
+    ['not_accepted', 'expired', 'not accepted in time'],
+  ])('says how an order ended in words, never its code (%s)', async (endedKind, effectiveState, says) => {
+    serve(SUPPORT, { 'GET /api/v1/admin/order-routes': () => json({ items: [{ ...FOUND, effectiveState, endedKind,
+      endedAt: '2026-10-23T09:00:00.000Z' }] }) })
+    await openAt('/admin/order-routes')
+    const row = await findByReference()
+    expect(within(row).getByText(/^Ended /).textContent).toMatch(new RegExp(` \\(${says}\\)$`))
+    expect(row.textContent).not.toMatch(/_/)
+  })
+
+  const LATE_CASE = 'If a patient or clinician tells you a result or dispensing went to the wrong person and the facility can no '
+    + 'longer end the order, ask the ordering clinician to record in the patient’s notes that it was not theirs, and refer it to '
+    + 'the data protection officer the same day.'
+  const ASK_THEM_FIRST = 'If a laboratory or pharmacy accepted it for the wrong person, ask them to end it from their work list '
+    + 'instead: only they can withdraw a result or dispensing they sent back. If you close it first, they can’t.'
+
+  it('tells support, where it closes an order, to have a facility that served the wrong person end it first (item 3, C1, C7)', async () => {
+    // An Identity with the wrong-patient report (hid-system 0088) says so in the lookup's answer.
+    serve(SUPPORT, { 'GET /api/v1/admin/order-routes': () => json({ items: [FOUND], wrongPatientReports: true }) })
+    await openAt('/admin/order-routes')
+    const row = await findByReference()
+    fireEvent.click(within(row).getByText('Close', { selector: 'summary' }))
+    expect(within(row).getByText(ASK_THEM_FIRST)).toBeTruthy()
+    expect(within(row).getByText(LATE_CASE)).toBeTruthy()
+    // The sidebar and the narrow-screen navigation both list it.
+    expect(screen.getAllByRole('link', { name: 'Wrong-patient reports' })).toHaveLength(2)
+  })
+
+  it('keeps Close the remedy on an Identity without the wrong-patient report, and stops listing its page (D15)', async () => {
+    // Today's Identity: no laboratory or pharmacy can end an accepted order, so support is not sent to one, and closing
+    // stays the way to end its access.
+    serve(SUPPORT)
+    await openAt('/admin/order-routes')
+    expect(await screen.findAllByRole('link', { name: 'Wrong-patient reports' })).toHaveLength(2)
+    const row = await findByReference()
+    fireEvent.click(within(row).getByText('Close', { selector: 'summary' }))
+    expect(within(row).queryByText(ASK_THEM_FIRST)).toBeNull()
+    expect(within(row).queryByText(/end it from their work list/)).toBeNull()
+    expect(within(row).getByText(LATE_CASE)).toBeTruthy()
+    await waitFor(() => expect(screen.queryAllByRole('link', { name: 'Wrong-patient reports' })).toHaveLength(0))
   })
 
   it('offers no Close without platform.facility.manage', async () => {

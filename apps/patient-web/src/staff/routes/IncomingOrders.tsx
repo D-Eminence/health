@@ -6,10 +6,12 @@ import {
   type ReceivingService,
 } from '../api'
 import {
-  acceptRefusal, calendarDate, CONTROLLED_MEDICINE_CHECK, DECLINE_REASONS, declineRefusal, incomingProblem, licenceLine,
-  priorityLabel, routeMoment,
+  acceptedCheckText, acceptRefusal, calendarDate, CONTROLLED_MEDICINE_CHECK, DECLINE_REASONS, declineRefusal, incomingProblem,
+  licenceLine, priorityLabel, routeMoment,
 } from '../orderRoutes'
 import { BUSY, UNAVAILABLE } from '../focus'
+import { WrongPatientEnded, WrongPatientForm, type WrongPatientEnding } from './WrongPatient'
+import { useWrongPatientServed } from '../../wrongPatientServed'
 
 /** A Health ID as Identity stores it (identity 0002). */
 const HID_PATTERN = /^HID-[A-HJ-NP-Z2-9]{6,32}$/
@@ -29,6 +31,9 @@ function today(): string {
   const pad = (part: number) => String(part).padStart(2, '0')
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
 }
+
+/** How an order was accepted: a date of birth alone does not name the order (P4c review). */
+type AcceptedWith = 'health_id' | 'date_of_birth' | 'date_of_birth_with_reference'
 
 /** What the order is, in its card's title. */
 function orderTitle(route: IncomingOrderRoute, service: ReceivingService): string {
@@ -61,11 +66,12 @@ export function patientCard(patient: { fullName: string; sex: string | null; dat
  * opens, and nothing is shown or read again unless an order is waiting: then `onFound` says so, and the page treats the
  * facility as receiving. A Health ID typed to find a patient's orders goes in the body of the search's POST, never in an
  * address, and is sent only when Find or Refresh is pressed, or an order is acted on: never by the timer or on focus,
- * since each read is audited.
+ * since each read is audited. `onEnded` names an order the Accepted panel ended as accepted for the wrong person, so the
+ * page drops anything of it that it still shows (item 3: the receiver stops seeing the patient's details at once).
  */
-export function IncomingOrders({ service, facilityId, facilityName, onAccepted, probe = false, onFound }: {
+export function IncomingOrders({ service, facilityId, facilityName, onAccepted, onEnded, probe = false, onFound }: {
   service: ReceivingService; facilityId: string; facilityName: string; onAccepted: () => void
-  probe?: boolean; onFound?: () => void
+  onEnded?: (routeId: string) => void; probe?: boolean; onFound?: () => void
 }) {
   const [answer, setAnswer] = useState<IncomingOrderRoutes | null>(null)
   const [missing, setMissing] = useState(false)
@@ -74,7 +80,10 @@ export function IncomingOrders({ service, facilityId, facilityName, onAccepted, 
   const [healthId, setHealthId] = useState('')
   const [filter, setFilter] = useState('')
   const [filterError, setFilterError] = useState('')
-  const [accepted, setAccepted] = useState<{ title: string; result: OrderRouteAccepted } | null>(null)
+  const [accepted, setAccepted] = useState<{ title: string; reference: string | null; ordering: string; acceptedWith: AcceptedWith
+    result: OrderRouteAccepted } | null>(null)
+  // An order just ended as accepted for the wrong person (item 3): said until closed, in place of the Accepted panel.
+  const [ended, setEnded] = useState<WrongPatientEnding | null>(null)
   const [notice, setNotice] = useState('')
   const sequence = useRef(0)
 
@@ -143,14 +152,20 @@ export function IncomingOrders({ service, facilityId, facilityName, onAccepted, 
         shows one patient’s orders: press Refresh incoming, or Show all.</p>}
     </form>
     <div role="status">{notice && <p className="staff-success">{notice}</p>}{loading && !answer && <p className="staff-muted">Loading incoming orders…</p>}</div>
-    {accepted && <AcceptedPanel service={service} title={accepted.title} result={accepted.result} onClose={() => setAccepted(null)} />}
+    {ended && <WrongPatientEnded id={`${service}-wrong-patient-ended`} ending={ended} onClose={() => setEnded(null)} />}
+    {accepted && <AcceptedPanel key={accepted.result.route.id} service={service} facilityId={facilityId} title={accepted.title}
+      reference={accepted.reference} ordering={accepted.ordering} acceptedWith={accepted.acceptedWith} result={accepted.result}
+      onClose={() => setAccepted(null)} onChanged={onAccepted}
+      onEnded={ending => { setAccepted(null); setEnded(ending); onEnded?.(accepted.result.route.id); onAccepted() }} />}
     {error && <p className="staff-error" role="alert">{error}</p>}
     {answer && items.length === 0 && <p className="staff-muted">{filter ? `No order for ${filter} is waiting here.`
       : `No ${word} from other facilities are waiting.`}</p>}
     {items.length > 0 && <div className="staff-list">{items.map(route => <IncomingOrderCard key={`${route.id}-${route.version ?? 0}`}
       service={service} facilityId={facilityId} facilityName={facilityName} route={route} ordersOn={ordersOn}
-      onAccepted={result => {
-        setAccepted({ title: orderTitle(route, service), result }); setNotice('')
+      onAccepted={(result, acceptedWith) => {
+        setAccepted({ title: orderTitle(route, service), reference: route.reference,
+          ordering: route.orderingFacilityName ?? 'The ordering facility', acceptedWith, result })
+        setNotice('')
         onAccepted()
         // The patient's order is accepted: the list goes back to every order, without their Health ID.
         if (filter) { setHealthId(''); setFilter('') } else void load('')
@@ -160,17 +175,61 @@ export function IncomingOrders({ service, facilityId, facilityName, onAccepted, 
   </Card></section>
 }
 
-/** Who the patient is and what the sender wrote, once the order is accepted. */
-function AcceptedPanel({ service, title, result, onClose }: {
-  service: ReceivingService; title: string; result: OrderRouteAccepted; onClose: () => void
+/**
+ * Who the patient is and what the sender wrote, once the order is accepted: the first time the receiver sees who the
+ * order is for. It leads with the check that the person at the counter is that patient (item 3, C8), then "This isn't
+ * the order's patient", which ends the order here before any work is done (WrongPatientForm). On 412 (something was
+ * recorded on the order meanwhile) the route is read again, and the form stays open at its new version. Until the
+ * backend lets the receiver end an order (hid-system 0088: the work list's cards carry the route's version), the panel
+ * only asks for the check, and neither offers the button nor says to end the order (D15).
+ */
+function AcceptedPanel({ service, facilityId, title, reference, ordering, acceptedWith, result, onClose, onChanged, onEnded }: {
+  service: ReceivingService; facilityId: string; title: string; reference: string | null; ordering: string
+  acceptedWith: AcceptedWith; result: OrderRouteAccepted; onClose: () => void; onChanged: () => void
+  onEnded: (ending: WrongPatientEnding) => void
 }) {
+  const [reporting, setReporting] = useState(false)
+  const [version, setVersion] = useState(result.route.version)
+  const [refreshed, setRefreshed] = useState('')
+  // Once the route has moved on, a dispensing may have been recorded since it was accepted.
+  const [moved, setMoved] = useState(false)
   const written = service === 'lab' ? result.clinicalInformation : result.instructions
-  return <div className="staff-notice staff-stack" role="status">
-    <strong>Accepted: {title}.</strong>
-    {result.patient ? <p>{patientCard(result.patient)}.</p> : <p>The patient’s details are in the work list below.</p>}
-    {written && <p className="staff-note-content">{service === 'lab' ? 'Clinical information' : 'Instructions'}: {written}</p>}
-    <p>{licenceLine(result.orderer.licenceBody, result.orderer.licenceNumber)}.</p>
-    <p>It is now in the work list below.</p>
+  const id = `${service}-accepted-${result.route.id}`
+  const patient = result.patient?.fullName ?? null
+  const served = useWrongPatientServed() === true
+
+  // The route moved on: read it again (C8; audited, so only now) for the version the next report is checked against.
+  async function reread() {
+    setRefreshed(''); setMoved(true)
+    try {
+      const read = await orderRoutesApi.get(facilityId, service, result.route.id)
+      if (typeof read?.version === 'number' && Number.isSafeInteger(read.version)) setVersion(read.version)
+      else setRefreshed('This order could not be read again. Refresh the list, then try again.')
+    } catch {
+      setRefreshed('This order could not be read again. Refresh the list, then try again.')
+    }
+    onChanged()
+  }
+
+  return <div className="staff-notice staff-stack" aria-labelledby={`${id}-title`}>
+    <p role="status"><strong>{acceptedCheckText(result.patient, served)}</strong></p>
+    {reporting
+      ? <WrongPatientForm id={`${id}-wrong-patient`} service={service} facilityId={facilityId}
+        route={{ id: result.route.id, version, reference }} patient={patient} ordering={ordering}
+        dispensed={moved ? undefined : false} notice={refreshed || undefined}
+        onStale={reread} onReload={onChanged}
+        onCancel={() => { setReporting(false); window.setTimeout(() => document.getElementById(`${id}-wrong-patient-open`)?.focus(), 0) }}
+        onEnded={ended => onEnded({ service, title, reference, patient, ordering, result: ended,
+          dateOfBirthOnly: acceptedWith === 'date_of_birth' })} />
+      : served && <div className="staff-row"><Button id={`${id}-wrong-patient-open`} tone="secondary" size="sm" aria-expanded={false}
+        onClick={() => setReporting(true)}>This isn’t the order’s patient</Button></div>}
+    <div role="status" className="staff-stack">
+      <strong id={`${id}-title`}>Accepted: {title}.</strong>
+      {result.patient ? <p>{patientCard(result.patient)}.</p> : <p>The patient’s details are in the work list below.</p>}
+      {written && <p className="staff-note-content">{service === 'lab' ? 'Clinical information' : 'Instructions'}: {written}</p>}
+      <p>{licenceLine(result.orderer.licenceBody, result.orderer.licenceNumber)}.</p>
+      <p>It is now in the work list below.</p>
+    </div>
     <div className="staff-row"><Button tone="quiet" size="sm" onClick={onClose}>Close</Button></div>
   </div>
 }
@@ -179,7 +238,7 @@ type Identifier = 'health_id' | 'date_of_birth'
 
 function IncomingOrderCard({ service, facilityId, facilityName, route, ordersOn, onAccepted, onDeclined, onStale }: {
   service: ReceivingService; facilityId: string; facilityName: string; route: IncomingOrderRoute; ordersOn: boolean
-  onAccepted: (result: OrderRouteAccepted) => void; onDeclined: () => void; onStale: () => void
+  onAccepted: (result: OrderRouteAccepted, acceptedWith: AcceptedWith) => void; onDeclined: () => void; onStale: () => void
 }) {
   const [mode, setMode] = useState<'none' | 'accept' | 'decline'>('none')
   const [kind, setKind] = useState<Identifier>('health_id')
@@ -225,7 +284,7 @@ function IncomingOrderCard({ service, facilityId, facilityName, route, ordersOn,
       const result = await orderRoutesApi.accept(facilityId, service, { id: route.id, version },
         { kind, value: identifier }, service === 'pharmacy' ? why : undefined, attempt.current.key, ref || undefined)
       attempt.current = null
-      onAccepted(result)
+      onAccepted(result, kind === 'health_id' ? 'health_id' : ref ? 'date_of_birth_with_reference' : 'date_of_birth')
     } catch (caught) {
       if (isHidApiError(caught) && caught.status > 0 && caught.status < 500 && caught.status !== 408) attempt.current = null
       const refusal = acceptRefusal(caught, ordering, facilityName, kind === 'health_id' || ref !== '')

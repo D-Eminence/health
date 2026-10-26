@@ -43,6 +43,9 @@ const NOT_ON_MAIN = [
   'admin.facilityOrderDestination', 'admin.orderRoutesFind', 'admin.orderRouteClose',
   // P4c review: one patient's incoming orders and support's lookup, found by a Health ID in the body.
   'lab.orderRouteSearch', 'pharmacy.orderRouteSearch', 'admin.orderRoutesSearch',
+  // Item 3 (hid-system 0088): the wrong-patient report, the ordering facility's Overview read, and support's list and review.
+  'lab.orderRouteWrongPatient', 'pharmacy.orderRouteWrongPatient', 'ehr.orderRoutesWrongPatient', 'admin.wrongPatientReports',
+  'admin.wrongPatientReportReview',
 ] as const
 
 describe('routes hid-system main does not serve', () => {

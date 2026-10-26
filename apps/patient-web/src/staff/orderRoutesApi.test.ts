@@ -146,3 +146,48 @@ describe('orders between facilities, on the wire', () => {
     careHeaders(requests[0]!)
   })
 })
+
+/**
+ * Item 3 (hid-system 0088): the receiver's wrong-patient report, the read of one route it is checked against again after
+ * 412, and the ordering facility's Overview read. Each names the working facility and direct care; the report carries the
+ * caller's Idempotency-Key and is sent once.
+ */
+describe('the wrong-patient report, on the wire', () => {
+  it('reports with the version, the reason, the note and the caller’s key, once, for Lab and Pharmacy', async () => {
+    const answer = { route: { id: ROUTE, version: 4, effectiveState: 'cancelled', endedKind: 'wrong_patient' }, resultsVoided: 0,
+      resultReportsMarked: 0, dispensingReversed: false, replayed: false }
+    const { requests, orderRoutesApi } = await signedIn(answer)
+    await expect(orderRoutesApi.reportWrongPatient('facility-1', 'lab', { id: ROUTE, version: 3 },
+      { reason: 'wrong_order_chosen', note: 'Picked the wrong order at the counter' }, 'report-key-0001')).resolves.toEqual(answer)
+    await orderRoutesApi.reportWrongPatient('facility-1', 'pharmacy', { id: ROUTE, version: 7 },
+      { reason: 'other', note: 'The person was not the patient' }, 'report-key-0002')
+    expect(requests.map(request => [request.method, request.url.pathname, request.url.search, request.headers.get('idempotency-key')])).toEqual([
+      ['POST', `/api/v1/lab/order-routes/${ROUTE}/wrong-patient`, '', 'report-key-0001'],
+      ['POST', `/api/v1/pharmacy/order-routes/${ROUTE}/wrong-patient`, '', 'report-key-0002']])
+    expect(requests[0]!.body).toEqual({ expectedVersion: 3, reason: 'wrong_order_chosen', note: 'Picked the wrong order at the counter' })
+    expect(requests[1]!.body).toEqual({ expectedVersion: 7, reason: 'other', note: 'The person was not the patient' })
+    requests.forEach(careHeaders)
+  })
+
+  it('does not repeat a report that got no answer', async () => {
+    const { requests, orderRoutesApi } = await signedIn({ status: 503, code: 'UPSTREAM_UNAVAILABLE', detail: 'Down' }, 503)
+    await expect(orderRoutesApi.reportWrongPatient('facility-1', 'lab', { id: ROUTE, version: 3 },
+      { reason: 'suspected_misuse', note: 'Gave a Health ID that was not theirs' }, 'report-key-0003')).rejects.toMatchObject({ status: 503 })
+    expect(requests).toHaveLength(1)
+  })
+
+  it('reads one route again by its id', async () => {
+    const { requests, orderRoutesApi } = await signedIn({ id: ROUTE, version: 5, effectiveState: 'completed' })
+    await expect(orderRoutesApi.get('facility-1', 'pharmacy', ROUTE)).resolves.toMatchObject({ version: 5 })
+    expect([requests[0]!.method, requests[0]!.url.pathname, requests[0]!.url.search]).toEqual(['GET', `/api/v1/pharmacy/order-routes/${ROUTE}`, ''])
+    careHeaders(requests[0]!)
+  })
+
+  it('reads the Overview’s orders accepted for the wrong person, with no patient in the address', async () => {
+    const { requests, orderRoutesApi } = await signedIn({ windowDays: 30, items: [], others: { count: 0, references: [] } })
+    await orderRoutesApi.sentWrongPatient('facility-1')
+    expect([requests[0]!.method, requests[0]!.url.pathname, requests[0]!.url.search]).toEqual(['GET', '/api/v1/ehr/order-routes/wrong-patient', ''])
+    expect(requests[0]!.headers.get('idempotency-key')).toBeNull()
+    careHeaders(requests[0]!)
+  })
+})

@@ -17,12 +17,14 @@ import { ControlsPage, DemosPage, OperationsPage, PricingPage, ReviewsPage } fro
 import { PrincipalsPage } from './Principals'
 import { SelfServiceFacilitiesPage } from './SelfServiceFacilities'
 import { OrderRoutesPage } from './OrderRoutes'
+import { WrongPatientReportsPage } from './WrongPatientReports'
 import { failure } from './problems'
 import { SecurityPage } from './SecurityPage'
 import {
   clearSessionWindow, currentSessionWindow, onSessionEnded, onSessionWindow, reportSessionEnded, type SessionEndReason,
 } from './session-window'
 import { isServed, navigationItemFor, visibleNavigation } from './navigation'
+import { useWrongPatientServed } from '../wrongPatientServed'
 import { AdminSignIn } from './SignIn'
 import { NovuAdminSignIn } from './NovuSignIn'
 import { usesNovuBackend } from '../backendContract'
@@ -80,6 +82,8 @@ function useAreaTitle() {
 }
 
 export function App() {
+  // The sidebar lists support's wrong-patient reports only while no answer has said the backend lacks them (item 3).
+  useWrongPatientServed()
   const [session, setSession] = useState<AdminSession | null>(null)
   const [checking, setChecking] = useState(true)
   const [checkError, setCheckError] = useState<string | null>(null)
@@ -299,6 +303,7 @@ export function App() {
               <Route path="facilities" element={<Area path="/admin/facilities" actor={actor}><FacilitiesPage actor={actor} /></Area>} />
               <Route path="facilities/:facilityId" element={<Area path="/admin/facilities" actor={actor}><FacilityDetailPage actor={actor} /></Area>} />
               <Route path="order-routes" element={<Area path="/admin/order-routes" actor={actor}><OrderRoutesPage actor={actor} /></Area>} />
+              <Route path="wrong-patient-reports" element={<Area path="/admin/wrong-patient-reports" actor={actor}><WrongPatientReportsPage actor={actor} /></Area>} />
               <Route path="principals" element={<Area path="/admin/principals" actor={actor}><PrincipalsPage actor={actor} /></Area>} />
               <Route path="emergency-contacts" element={<Area path="/admin/emergency-contacts" actor={actor}><EmergencyContactAlertsPage /></Area>} />
               <Route path="approvals" element={<Area path="/admin/approvals" actor={actor}><ApprovalsPage actor={actor} /></Area>} />

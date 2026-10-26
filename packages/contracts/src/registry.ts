@@ -22,7 +22,10 @@ export type EndpointAuth = { readonly kind: 'public' | 'authenticated' }
  * administrator access, first-30-days limits and staff reads (P4b), and lab
  * requests and prescriptions sent to a laboratory or pharmacy at another
  * facility, with the patient's list of them and support's tools (P4c), which
- * only `staging-novu-ci-20261005` serves.
+ * only `staging-novu-ci-20261005` serves; and the wrong-patient report on those
+ * orders, support's list and review of the reports and the ordering facility's
+ * Overview read (item 3, hid-system 0088), which no hid-system release serves
+ * yet: callers treat a 404 as "not available yet" and show nothing.
  */
 export type ContractStatus = 'surface-verified' | 'proposed'
 export interface EndpointDescriptor {
@@ -129,7 +132,9 @@ const ORDER_ROUTE_WITHDRAW = 'Withdraws a route still waiting for acceptance, wi
 /** What P4c adds to the EHR's order lists and reads (SPEC-FINAL §10.1). */
 const ORDER_LISTS_P4C = 'On Novu since P4c the page also answers crossFacilityOrders (whether orders between facilities '
   + 'are on), and each item orderRoute: its latest route to another facility (OrderRouteSummary) or null; absent when '
-  + 'routes could not be read (emergency access).'
+  + 'routes could not be read (emergency access). With the wrong-patient report (item 3, hid-system 0088) the lab-request '
+  + 'and prescription pages also answer wrongPatientReports: true (the receiving facility can end an order it accepted '
+  + 'for the wrong person; an earlier backend sends no such field).'
 /** The Lab and Pharmacy order-route routes' shared rules (SPEC-FINAL §10.2). */
 const RECEIVE_ROUTE = `${ORDER_ROUTE_STAFF} Accept needs Idempotency-Key and { expectedVersion, patientIdentifier { kind: `
   + "'health_id' | 'date_of_birth', value }, reference? } (Pharmacy also reason, 8 to 500; reference, optional, is the "
@@ -153,7 +158,40 @@ const RECEIVE_SEARCH = `${ORDER_ROUTE_STAFF} Body { view?: 'incoming' | 'recent'
 const WORK_LISTS_P4C = 'On Novu since P4c items of orders from other facilities carry orderRoute { id, reference, '
   + 'effectiveState, access, orderingFacilityName, ordererName, ordererLicence? } and patient?, and the answer '
   + 'crossFacilityOrders and crossFacilityWork; every per-item route may answer 409 ORDER_ROUTE_CLOSED or 423 '
-  + 'CROSS_FACILITY_ORDERS_UNAVAILABLE.'
+  + 'CROSS_FACILITY_ORDERS_UNAVAILABLE. With the wrong-patient report (item 3, hid-system 0088) orderRoute also carries '
+  + 'version (the route\'s, a number: the report\'s expectedVersion) and endedKind (null while the route is live; '
+  + 'wrong_patient, support, order_changed, entered_in_error, receiving_released or ordering_released); an item ended '
+  + 'wrong_patient is listed only under the patient\'s own consent (access none, no patient), and every write on it '
+  + 'answers 409 ORDER_ROUTE_CLOSED.'
+/**
+ * The wrong-patient report (item 3, owner decisions D1-D19 of 2026-10-26; hid-system 0088, C25-C28): a laboratory or
+ * pharmacy ends an order it accepted for someone who was not the patient, and in the same transaction every result or
+ * dispensing it sent back is withdrawn; support reviews each report; the ordering facility's Overview lists such orders
+ * for 30 days. No hid-system release serves these yet.
+ */
+const WRONG_PATIENT_NOVU = 'Proposed for staging-novu-ci-20261005 by the wrong-patient report (item 3, hid-system 0088); '
+  + 'not served by hid-system main, nor by staging-novu-ci-20261005 before that release (404).'
+/** The Lab and Pharmacy command (C25, SPEC-FINAL §5.1). */
+const WRONG_PATIENT_ROUTE = `${WRONG_PATIENT_NOVU} Staff session with X-Facility-ID and X-Purpose-Of-Use: direct-care (any `
+  + 'other purpose 403 PERMISSION_DENIED); CSRF; Idempotency-Key required (400 IDEMPOTENCY_KEY_REQUIRED; 16 to 128 '
+  + 'characters, a letter or digit first). Body { expectedVersion, reason: wrong_order_chosen | someone_elses_details | '
+  + 'suspected_misuse | other, note (8 to 500 after trimming; for Health ID support only) }. Any member holding the '
+  + 'receive permission ends an order accepted here (it becomes cancelled), or the access of a completed one, while it may '
+  + 'still be worked, and in the same transaction every result version or dispensing it sent back is withdrawn: 200 { '
+  + 'route { id, version, effectiveState: cancelled | completed, endedKind: wrong_patient }, resultsVoided, '
+  + 'resultReportsMarked, dispensingReversed, replayed } (the same key and report replays). 400 VALIDATION_FAILED (the '
+  + 'body: an unknown reason or field, a note outside 8 to 500 as sent), ORDER_ROUTE_INVALID (a note under 8 once trimmed, '
+  + 'or the command\'s own check); 403 PERMISSION_DENIED, ORDER_ROUTE_CORRECTION_PERMISSION_REQUIRED (the problem member '
+  + 'permission names lab.result.entered-in-error or pharmacy.dispensing.reverse: something must be withdrawn); 404 '
+  + 'ORDER_ROUTE_NOT_FOUND; 409 ORDER_ROUTE_NOT_ACCEPTED, '
+  + 'ORDER_ROUTE_ALREADY_ENDED (checked before the version), IDEMPOTENCY_KEY_REUSED, ORDER_ROUTE_CHANGED_CONCURRENTLY; 412 '
+  + 'VERSION_CONFLICT (something was returned or changed: read the route again); 423 CROSS_FACILITY_ORDERS_UNAVAILABLE '
+  + 'while cross_facility_route_access_enabled is off; 503 ORDER_ROUTE_UNAVAILABLE. It can\'t be undone, and the order '
+  + 'can\'t be received again: the clinician writes a new one.'
+/** What the wrong-patient report changes in the EHR's reads of an order's routes (C3, C4). */
+const ORDER_ROUTES_WRONG_PATIENT = 'With the wrong-patient report (item 3, hid-system 0088) a route\'s endedKind may be '
+  + 'wrong_patient (cancelled, or completed with endedAt), with resendAllowed false, and each result version withdrawn '
+  + 'comes back as a report of kind entered_in_error beside its released one.'
 
 export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   proposed(r('support.chat','support','/api/v1/support/chat',P,true,undefined,CHAT_NOTE)),
@@ -468,11 +506,13 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     'On Novu since P4c, 409 LAB_REQUEST_ROUTED while the request is sent to (or was accepted by) a laboratory at another facility.'),
   // P4c: send an order to another facility's laboratory or pharmacy, list its routes, and withdraw one before acceptance.
   proposed(r('ehr.labRequestOrderRoutes','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/lab-requests/:requestId/order-routes',GP,false,
-    {GET:['ehr.lab-request.read'],POST:['ehr.lab-request.write','ehr.order-route.send']}, `${ORDER_ROUTE_STAFF} ${ORDER_ROUTE_SEND}`)),
+    {GET:['ehr.lab-request.read'],POST:['ehr.lab-request.write','ehr.order-route.send']},
+    `${ORDER_ROUTE_STAFF} ${ORDER_ROUTE_SEND} ${ORDER_ROUTES_WRONG_PATIENT}`)),
   proposed(r('ehr.labRequestOrderRouteWithdraw','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/lab-requests/:requestId/order-routes/:routeId/withdraw',P,false,
     one('POST','ehr.order-route.send'), `${ORDER_ROUTE_STAFF} ${ORDER_ROUTE_WITHDRAW}`)),
   proposed(r('ehr.prescriptionOrderRoutes','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/prescriptions/:prescriptionId/order-routes',GP,false,
-    {GET:['ehr.prescription.read'],POST:['ehr.prescription.write','ehr.order-route.send']}, `${ORDER_ROUTE_STAFF} ${ORDER_ROUTE_SEND}`)),
+    {GET:['ehr.prescription.read'],POST:['ehr.prescription.write','ehr.order-route.send']},
+    `${ORDER_ROUTE_STAFF} ${ORDER_ROUTE_SEND} ${ORDER_ROUTES_WRONG_PATIENT}`)),
   proposed(r('ehr.prescriptionOrderRouteWithdraw','ehr','/api/v1/ehr/patients/:patientId/encounters/:encounterId/prescriptions/:prescriptionId/order-routes/:routeId/withdraw',P,false,
     one('POST','ehr.order-route.send'), `${ORDER_ROUTE_STAFF} ${ORDER_ROUTE_WITHDRAW}`)),
   { ...proposed(r('ehr.orderRouteAttestation','ehr','/api/v1/ehr/order-route-attestation',G,false,one('GET','ehr.order-route.send'),
@@ -480,13 +520,25 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'version, text }: the newest attestation text, with {patient}, {orderingFacility} and {receivingFacility} for the page '
     + `to fill. 400 ORDER_ROUTE_INVALID. ${ORDER_ROUTES_PAUSED}`)),
   requiredQuery: { GET: ['kind'] } },
+  // Item 3 (D10): the ordering facility's Overview card, orders sent from it that the receiver ended as accepted for the wrong person.
+  proposed(r('ehr.orderRoutesWrongPatient','ehr','/api/v1/ehr/order-routes/wrong-patient',G,false,one('GET','ehr.order-route.send'),
+    `${WRONG_PATIENT_NOVU} Staff session with X-Facility-ID and X-Purpose-Of-Use: direct-care (any other purpose 403 `
+    + 'PERMISSION_DENIED), bound to the live membership like the order-route reads, and audited. Orders sent from this '
+    + 'facility that ended wrong_patient in the last 30 days: 200 { windowDays: 30, items [{ routeId, reference, kind, '
+    + 'receivingFacility { id, name }, patient { name }, endedAt, resultsWithdrawn, dispensingReversed, link { patientId, '
+    + 'encounterId, kind, orderId } }] (at most 50, newest first: only the orders this member sent, whether or not they may '
+    + 'still open the patient\'s record), others { count, references } (every such order a colleague sent: its reference only, at '
+    + 'most 100, never a patient\'s name) }; the empty answer for a facility with none. 403 PERMISSION_DENIED; 503 '
+    + 'ORDER_ROUTE_UNAVAILABLE.')),
   // P4c: the patient's orders sent to other facilities, and Stop before acceptance (the patient's only action).
   proposed(r('ehr.myOrderRoutes','ehr','/api/v1/ehr/me/order-routes',G,false,undefined,
     `${ORDER_ROUTES_P4C_NOVU} Patient sessions only. 200 { items: PatientOrderRoute[] }, newest first, at most 100: each with `
     + 'orderingFacilityName, receivingFacilityName, receivingRegisteredAddress, content (every field sent), '
     + 'attestationTextVersion, attestationText, attestedByName, actions (withdraw while it waits for acceptance) and '
     + 'enteredInError: when the order was marked entered in error, content holds only its reference, the attestation '
-    + 'text and attesting clinician are null and actions is empty.')),
+    + 'text and attesting clinician are null and actions is empty. With the wrong-patient report (item 3, hid-system '
+    + '0088) endedKind may be wrong_patient: the content stays in full and actions is empty; the patient\'s inbox gets '
+    + 'ORDER_ROUTE_WRONG_PATIENT (metadata routeId, kind, orderingFacilityName, receivingFacilityName).')),
   proposed(r('ehr.myOrderRouteWithdraw','ehr','/api/v1/ehr/me/order-routes/:routeId/withdraw',P,false,undefined,
     `${ORDER_ROUTES_P4C_NOVU} Patient sessions only; Stop. Body { expectedVersion }; 200 { route: PatientOrderRoute }. 404 `
     + 'ORDER_ROUTE_NOT_FOUND, 409 ORDER_ROUTE_NOT_PENDING (accepted or ended), 412 VERSION_CONFLICT.')),
@@ -524,6 +576,9 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'orderer.licenceNumber, patient and workItemId.')),
   proposed(r('lab.orderRouteAccept','lab','/api/v1/lab/order-routes/:routeId/accept',P,false,one('POST','lab.order-route.receive'),RECEIVE_ROUTE)),
   proposed(r('lab.orderRouteDecline','lab','/api/v1/lab/order-routes/:routeId/decline',P,false,one('POST','lab.order-route.receive'),RECEIVE_ROUTE)),
+  // Item 3: "This isn't the order's patient", ending an order accepted for the wrong person and withdrawing its results.
+  proposed(r('lab.orderRouteWrongPatient','lab','/api/v1/lab/order-routes/:routeId/wrong-patient',P,false,
+    one('POST','lab.order-route.receive'),WRONG_PATIENT_ROUTE)),
   r('pharmacy.workItems','pharmacy','/api/v1/pharmacy/work-items',G,false,one('GET','pharmacy.work-item.read'),WORK_LISTS_P4C),
   r('pharmacy.workItem','pharmacy','/api/v1/pharmacy/work-items/:workItemId',G,false,one('GET','pharmacy.work-item.read')),
   r('pharmacy.dispense','pharmacy','/api/v1/pharmacy/work-items/:workItemId/dispensings',P,false,one('POST','pharmacy.dispensing.create')),
@@ -539,6 +594,9 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'orderer.licenceNumber, patient and workItemId.')),
   proposed(r('pharmacy.orderRouteAccept','pharmacy','/api/v1/pharmacy/order-routes/:routeId/accept',P,false,one('POST','pharmacy.order-route.receive'),RECEIVE_ROUTE)),
   proposed(r('pharmacy.orderRouteDecline','pharmacy','/api/v1/pharmacy/order-routes/:routeId/decline',P,false,one('POST','pharmacy.order-route.receive'),RECEIVE_ROUTE)),
+  // Item 3: the same for a prescription, reversing its dispensing.
+  proposed(r('pharmacy.orderRouteWrongPatient','pharmacy','/api/v1/pharmacy/order-routes/:routeId/wrong-patient',P,false,
+    one('POST','pharmacy.order-route.receive'),WRONG_PATIENT_ROUTE)),
 
   { ...r('ocr.jobs','ocr','/api/v1/ocr/jobs',GP,false,{GET:['ocr.job.read'],POST:['ocr.job.write']}),
     requiredQuery: { GET: ['documentId'] } },
@@ -659,7 +717,9 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'receivingFacilityName, createdAt, acceptedAt, endedAt, endedKind }] }, at most 5. 400 ORDER_ROUTE_LOOKUP_INVALID '
     + '(also without a reference); 400 HEALTH_ID_NOT_ACCEPTED_IN_URL for a healthId query, since hid-system #116, before '
     + 'the permission check and with no audit row (a Health ID in an address is kept by access logs and browser history): '
-    + 'by Health ID, use admin.orderRoutesSearch.')),
+    + 'by Health ID, use admin.orderRoutesSearch. With the wrong-patient report (item 3, hid-system 0088) endedKind may '
+    + 'be wrong_patient, and the answer also carries wrongPatientReports: true (as does admin.orderRoutesSearch\'s); an '
+    + 'earlier Identity sends no such field.')),
   requiredQuery: { GET: ['reference'] }, forbiddenQuery: { GET: ['healthId'] } },
   proposed(r('admin.orderRoutesSearch','admin','/api/v1/admin/order-routes/search',P,false,one('POST','platform.principal.read'),
     `${ORDER_ROUTES_P4C_NOVU} P4c review: finds orders as admin.orderRoutesFind, with the same permissions, audit row `
@@ -670,6 +730,27 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     `${ORDER_ROUTES_P4C_NOVU} Closes an order between facilities at once: access ends at both, and both and the patient are `
     + 'told. Body { reason (8 to 500) } and If-Match with the version; 200 { routeId, version, effectiveState }. 404 '
     + 'ORDER_ROUTE_NOT_FOUND, 409 VERSION_CONFLICT, ORDER_ROUTE_ALREADY_CLOSED, 428 IF_MATCH_REQUIRED.')),
+  // Item 3 (D11): support's list of wrong-patient reports, and its review of one.
+  { ...proposed(r('admin.wrongPatientReports','admin','/api/v1/admin/wrong-patient-reports',G,false,one('GET','platform.facility.read'),
+    `${WRONG_PATIENT_NOVU} Also platform.admin.access; audited (admin.wrong-patient-reports.list). Query status (unreviewed: `
+    + 'every report not reviewed, flagged first, then oldest; recent: the last 90 days, newest first; at most 200) and '
+    + 'facilityId? (the receiving facility that reported). 200 { items [{ reportId, version, routeId, reference, kind, '
+    + 'receivingFacility { id, name }, orderingFacility { id, name }, reportedAt, reportedBy { accountId, name }, acceptedBy, '
+    + 'sameMember, acceptedWith, acceptedAt, reason, note (support only), noteRemoved, stateBefore, resultsVoided, '
+    + 'resultReportsMarked, dispensingReversed, specimensCollected, recordedBy [{ accountId, name }], reporterRecordedWork, '
+    + 'flags (something_came_back, reporter_recorded_work, suspected_misuse, other_reason_nothing_recorded), '
+    + 'facilityReportsLast30Days, memberReportsLast30Days, review: null | { reviewedAt, reviewedBy, actions, note } }] }: no '
+    + 'patient and no order content. 400 WRONG_PATIENT_REPORTS_QUERY_INVALID; 404 ADMIN_FACILITY_NOT_FOUND; 503 '
+    + 'ORDER_ROUTES_ADMIN_UNAVAILABLE.')),
+  requiredQuery: { GET: ['status'] } },
+  proposed(r('admin.wrongPatientReportReview','admin','/api/v1/admin/wrong-patient-reports/:reportId/review',P,false,
+    one('POST','platform.facility.manage'),
+    `${WRONG_PATIENT_NOVU} Also platform.admin.access. Marks a report reviewed, once: If-Match with its version and body { `
+    + 'actions (one or more of ordering_facility_told, facility_contacted, staff_access_changed, facility_suspended, '
+    + 'referred_to_dpo, or exactly [no_further_action]), note (8 to 500), removeNote? (the reporter\'s note becomes '
+    + '"Removed by Health ID support at review.") }; no Idempotency-Key. 200 { reportId, version, reviewedAt, actions, '
+    + 'noteRemoved }. 400 WRONG_PATIENT_REVIEW_INVALID; 404 WRONG_PATIENT_REPORT_NOT_FOUND; 409 VERSION_CONFLICT, '
+    + 'WRONG_PATIENT_REPORT_ALREADY_REVIEWED; 428 IF_MATCH_REQUIRED; 503 ORDER_ROUTES_ADMIN_UNAVAILABLE.')),
   { ...proposed(r('admin.staffInvitationFind','admin','/api/v1/admin/staff-invitations',G,false,one('GET','platform.principal.read'),
     `${STAFF_P4B_NOVU} Query reference (8 hexadecimal characters, any case). 200 { items [{ invitationId, reference, `
     + 'facilityId, facilityName, organizationId, status, roleCode, createdAt, expiresAt }] }, at most 5.')),

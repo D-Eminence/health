@@ -183,3 +183,81 @@ describe('results that came back from another laboratory', () => {
     expect((await screen.findByRole('alert')).textContent).toBe(says)
   })
 })
+
+/**
+ * Item 3 (owner decision D19; SPEC-FINAL §8.2, §9.2): an order the laboratory ended as accepted for someone who was not the
+ * patient. The row says what the laboratory reports, with a red notice; each result it had released reads "another
+ * person's result, withdrawn by {lab} on {date}", and its value (another person's) stays hidden until asked for.
+ */
+describe('an order the laboratory reports it accepted for the wrong person', () => {
+  const wrong = (overrides: Record<string, unknown> = {}) => summary({ endedKind: 'wrong_patient', endedAt: '2026-10-24T09:00:00.000Z',
+    version: 6, ...overrides })
+  function serveRecord(route: Record<string, unknown>) {
+    api.records.mockResolvedValue({ items: [{ patientId: PATIENT, encounterId: ENCOUNTER, facilityId: 'facility-1',
+      createdAt: '2026-10-10T08:05:00.000Z', id: REQUEST, testCodeSystem: 'LOINC', testCode: '718-7', testDisplay: 'Haemoglobin',
+      priority: 'routine', status: 'active', clinicalInformation: null, rowVersion: '2', orderRoute: route }],
+    nextCursor: null, crossFacilityOrders: true })
+  }
+
+  it('says what the laboratory reports, in red, and hides each withdrawn value until asked for', async () => {
+    serveRecord(wrong())
+    routes.routes.mockResolvedValue({ items: [{ ...wrong(), attestation: attestation('Dr Ade Okon', 'Yaba Diagnostics'), events: [],
+      results: [
+        result({}),
+        result({ kind: 'entered_in_error', resultType: null, numericValue: null, unit: null, referenceRange: null, abnormalFlag: null,
+          revisionKind: null, occurredAt: '2026-10-24T09:00:00.000Z' }),
+        result({ resultVersion: 2, numericValue: '10.4', revisionKind: 'correction', correctionReason: 'Re-run',
+          occurredAt: '2026-10-23T10:00:00.000Z' }),
+        result({ resultVersion: 2, kind: 'entered_in_error', resultType: null, numericValue: null, unit: null, referenceRange: null,
+          abnormalFlag: null, revisionKind: null, occurredAt: '2026-10-24T09:00:00.000Z' }),
+      ] }] })
+    render(<MemoryRouter><Clinical /></MemoryRouter>)
+    fireEvent.click(await screen.findByRole('tab', { name: 'Lab requests' }))
+    expect(await screen.findByText('Yaba Diagnostics reports that the results it released belong to someone else, and has ended it. Do not use them.')).toBeTruthy()
+    const panel = document.querySelector('.staff-order-route') as HTMLElement
+    const notice = panel.querySelector('.staff-danger') as HTMLElement
+    expect([...notice.querySelectorAll('p')].map(line => line.textContent)).toEqual([
+      'This order can’t be sent again. Write a new lab request if Ada Patient still needs it.',
+      'Do not use any result from Yaba Diagnostics on this order: Yaba Diagnostics reports they are another person’s. Ada Patient '
+        + 'has not been tested: repeat the test if it is still needed. If you acted on a result, review Ada Patient’s care. Tell Ada '
+        + 'Patient that a result they may have seen was not theirs.'])
+    // The order can't be sent again: no Send.
+    expect(screen.queryByRole('button', { name: 'Send to another laboratory' })).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show details and results' }))
+    await waitFor(() => expect(lines()).toHaveLength(2))
+    const withdrawn = 'Haemoglobin (do not use): another person’s result, withdrawn by Yaba Diagnostics on 24 Oct 2026.'
+    expect(lines()).toEqual([`${withdrawn} Show the withdrawn value`, `${withdrawn} Show the withdrawn value`])
+    // Neither value is on the page until it is asked for.
+    expect(panel.textContent).not.toMatch(/9\.8|10\.4|g\/dL/)
+    const reveal = screen.getAllByRole('button', { name: 'Show the withdrawn value' })
+    expect(reveal[0]!.getAttribute('aria-expanded')).toBe('false')
+    fireEvent.click(reveal[0]!)
+    expect(lines()[0]).toBe(`${withdrawn} Hide the withdrawn value Released by Yaba Diagnostics on 23 Oct 2026: 10.4 g/dL, flagged low, reference 12.0-15.5`)
+    expect(panel.textContent).not.toMatch(/9\.8/)
+    fireEvent.click(screen.getAllByRole('button', { name: 'Show the withdrawn value' })[0]!)
+    expect(lines()[1]).toMatch(/Released by Yaba Diagnostics on 22 Oct 2026: 9\.8 g\/dL/)
+    fireEvent.click(screen.getAllByRole('button', { name: 'Hide the withdrawn value' })[0]!)
+    expect(panel.textContent).not.toMatch(/10\.4/)
+  })
+
+  it('says nothing came back from an order ended before anything was released', async () => {
+    serveRecord(wrong({ effectiveState: 'cancelled', completedAt: null }))
+    render(<MemoryRouter><Clinical /></MemoryRouter>)
+    fireEvent.click(await screen.findByRole('tab', { name: 'Lab requests' }))
+    expect(await screen.findByText('Yaba Diagnostics reports that it accepted this for someone who was not Ada Patient, and has ended it. '
+      + 'Nothing came back from it.')).toBeTruthy()
+    const notice = document.querySelector('.staff-order-route .staff-danger') as HTMLElement
+    expect(notice.textContent).toBe('This order can’t be sent again. Write a new lab request if Ada Patient still needs it.')
+  })
+
+  it('leaves the returns of every other order as they were, values shown', async () => {
+    routes.routes.mockResolvedValue({ items: [{ ...summary(), attestation: attestation('Dr Ade Okon', 'Yaba Diagnostics'), events: [],
+      results: [result({})] }] })
+    await openDetails()
+    await waitFor(() => expect(lines()).toHaveLength(1))
+    expect(lines()).toEqual(['Haemoglobin: Released by Yaba Diagnostics on 22 Oct 2026: 9.8 g/dL, flagged low, reference 12.0-15.5'])
+    expect(screen.queryByRole('button', { name: 'Show the withdrawn value' })).toBeNull()
+    expect(document.querySelector('.staff-order-route .staff-danger')).toBeNull()
+  })
+})

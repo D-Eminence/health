@@ -180,7 +180,9 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       'ehr.labRequests', 'ehr.labRequest', 'ehr.labRequestLabWorkItem',
       // Sending an order to another facility, its routes and their withdrawal, and the clinician's attestation (P4c; Novu only).
       'ehr.labRequestOrderRoutes', 'ehr.labRequestOrderRouteWithdraw', 'ehr.prescriptionOrderRoutes',
-      'ehr.prescriptionOrderRouteWithdraw', 'ehr.orderRouteAttestation'],
+      'ehr.prescriptionOrderRouteWithdraw', 'ehr.orderRouteAttestation',
+      // The Overview's orders that the receiver ended as accepted for the wrong person (item 3, D10; proposed, 404 until served).
+      'ehr.orderRoutesWrongPatient'],
     // Facility billing (docs/BILLING_SPEC.md; proposed routes) and the price catalogue it shows. Not demo requests.
     commercial: ['commercial.pricing', 'commercial.subscription', 'commercial.subscriptionTrial',
       'commercial.subscriptionCheckout', 'commercial.invoices'],
