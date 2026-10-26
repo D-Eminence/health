@@ -2,10 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import type { OrderRouteSummary, WorkItemOrderRoute } from './api'
 import {
-  acceptedCheckText, acceptRefusal, fillAttestation, forgetReceiving, handOverCheckText, holdsReceivePermission, RECEIVING_MEMORY_MS,
-  receivingAnswer, receivingHere, rememberedReceiving, rememberReceiving, routeClosedForWork, routedChangeWarning, routedElsewhere,
-  routedWorkEndedText, routeStatusText, sampleCheckText, sendRefusal, unavailableText, withdrawRefusal, WRONG_PATIENT_REASONS,
-  wrongPatientEndedLines, wrongPatientNotice, wrongPatientOffered, wrongPatientRefusal,
+  acceptedCheckText, acceptRefusal, correctableFindRefusal, correctableRoutes, fillAttestation, forgetReceiving, handOverCheckText,
+  holdsReceivePermission, lagosDay, lateCorrectionLines, lateEndedText, lateWrongPatientRefusal, RECEIVING_MEMORY_MS,
+  receivingAnswer, receivingHere, rememberedReceiving, rememberReceiving, returnedDays, routeClosedForWork, routedChangeWarning,
+  routedElsewhere, routedWorkEndedText, routeStatusText, sampleCheckText, sendRefusal, unavailableText,
+  withdrawRefusal, WRONG_PATIENT_REASONS, wrongPatientEndedLines, wrongPatientNotice, wrongPatientOffered, wrongPatientRefusal,
 } from './orderRoutes'
 
 /**
@@ -390,5 +391,98 @@ describe('whether this facility receives orders from other facilities (item 4)',
       vi.setSystemTime(new Date('2026-10-26T09:10:00.000Z'))
       expect(rememberedReceiving(facility, 'pharmacy')).toBeNull()
     } finally { vi.useRealTimers() }
+  })
+})
+
+/**
+ * D17 (hid-system 0090; SPEC-FINAL §9.1): the receiving facility's late section: how an order it accepted ended, the
+ * lookup's rows as read, its refusals and what follows a withdrawal, and item 3's refusals once the late correction is
+ * served.
+ */
+describe('the receiving facility’s late correction words (D17)', () => {
+  const problem = (status: number, code: string) => new HidApiError(status, 'Refused', { code })
+
+  it('points item 3’s refusals to the late section once served, and keeps today’s words until then (CT10)', () => {
+    const say = (error: unknown, late: { reference: string | null } | null) => wrongPatientRefusal(error, 'lab', 'General Hospital', late)
+    expect(say(problem(409, 'ORDER_ROUTE_ALREADY_ENDED'), { reference: '9C1B2D3E' })).toEqual({ reload: true, text: 'This order '
+      + 'has already ended, so it can’t be ended here. If a result or dispensing had gone back, use “Correct an order that has '
+      + 'ended” above the work list, with reference 9C1B2D3E.' })
+    expect(say(problem(423, 'CROSS_FACILITY_ORDERS_UNAVAILABLE'), { reference: '9C1B2D3E' }).text).toBe('Health ID has paused work '
+      + 'on orders from other facilities, so this can’t be done now. Try again when it resumes, and tell Health ID support now. If '
+      + 'the order is closed meanwhile, you can still withdraw it under “Correct an order that has ended”, until the date shown there.')
+    expect(say(problem(409, 'ORDER_ROUTE_ALREADY_ENDED'), null).text).toMatch(/phone General Hospital and tell Health ID support\.$/)
+    expect(say(problem(423, 'CROSS_FACILITY_ORDERS_UNAVAILABLE'), null).text).toMatch(/closing it stops you withdrawing anything you sent back\.$/)
+  })
+
+  it('says how an order this facility accepted ended, never blaming the ordering facility for another’s end (CT10)', () => {
+    const ended = (effectiveState: string, endedKind: string | null, service: 'lab' | 'pharmacy' = 'lab') =>
+      lateEndedText({ effectiveState, endedKind, orderingFacilityName: 'General Hospital' }, service)
+    expect(ended('completed', null)).toBe('its time for work ended')
+    expect(ended('expired', null)).toBe('nothing was released within 30 days')
+    expect(ended('expired', null, 'pharmacy')).toBe('nothing was dispensed within 30 days')
+    expect(ended('completed', 'support')).toBe('closed by Health ID support')
+    expect(ended('cancelled', 'support')).toBe('closed by Health ID support')
+    expect(ended('cancelled', 'order_changed')).toBe('cancelled by General Hospital')
+    expect(ended('cancelled', 'entered_in_error')).toBe('cancelled by General Hospital')
+    expect(ended('completed', 'entered_in_error')).toBe('General Hospital has since marked the order entered in error')
+    expect(ended('completed', 'ordering_released')).toBe('General Hospital is no longer on Health ID')
+    expect(ended('completed', 'receiving_released')).toBe('this facility was released from Health ID')
+    expect(ended('cancelled', 'wrong_patient')).toBe('ended as accepted for the wrong person')
+  })
+
+  it('reads the lookup’s rows only when they read right, and never a patient', () => {
+    const row = { id: 'r1', reference: '3F2A9C1B', kind: 'prescription', version: 9, effectiveState: 'completed',
+      orderingFacilityName: 'General Hospital', acceptedAt: '2026-06-01T09:00:00.000Z', completedAt: null, endedAt: null, endedKind: null,
+      returned: false, correction: 'correctable', correctableUntil: '2026-11-28T09:00:00.000Z', wrongPatient: null,
+      details: { what: 'Amoxicillin', acceptedBy: 'Bola Ade', acceptedWith: 'health_id',
+        returned: [{ at: '2026-06-03T12:00:00.000Z', withdrawn: false }, { at: 'later', withdrawn: false }, { at: '2026-06-04T12:00:00.000Z' }] },
+      patient: { fullName: 'Tunde Bello' } }
+    const [read] = correctableRoutes({ items: [row, { ...row, id: 'r2', version: '9' }, { ...row, id: 'r3', correction: 'maybe' },
+      { ...row, id: 'r4', correction: 'reported' }, null] })
+    expect(read).toEqual({ id: 'r1', reference: '3F2A9C1B', kind: 'prescription', version: 9, effectiveState: 'completed',
+      orderingFacilityName: 'General Hospital', acceptedAt: '2026-06-01T09:00:00.000Z', completedAt: null, endedAt: null, endedKind: null,
+      returned: false, correction: 'correctable', correctableUntil: '2026-11-28T09:00:00.000Z', wrongPatient: null,
+      details: { what: 'Amoxicillin', acceptedBy: 'Bola Ade', acceptedWith: 'health_id',
+        returned: [{ at: '2026-06-03T12:00:00.000Z', withdrawn: false }] } })
+    expect(correctableRoutes({ items: [{ ...row, correction: 'reported' }] })[0]!.details).toBeNull()
+    expect(correctableRoutes({ items: [row, { ...row, id: 'r2', version: '9' }] })).toHaveLength(1)
+    expect(correctableRoutes(null)).toEqual([])
+    expect(JSON.stringify(correctableRoutes({ items: [row] }))).not.toContain('Tunde')
+  })
+
+  it('says each refusal of a late withdrawal, and of a Find, in the receiver’s words', () => {
+    const say = (error: unknown, service: 'lab' | 'pharmacy' = 'lab') => lateWrongPatientRefusal(error, service, 'General Hospital',
+      '2026-11-28T09:00:00.000Z')
+    expect(say(problem(409, 'ORDER_ROUTE_CORRECTION_TOO_LATE'))).toEqual({ reload: true, text: 'It is past 28 Nov 2026, 10:00, so it '
+      + 'can’t be corrected here. Phone General Hospital, and tell Health ID support.' })
+    expect(say(problem(409, 'ORDER_ROUTE_STILL_OPEN'))).toMatchObject({ reload: true })
+    expect(say(problem(412, 'VERSION_CONFLICT'))).toMatchObject({ stale: true })
+    expect(say(problem(409, 'ORDER_ROUTE_CHANGED_CONCURRENTLY')).text).toBe('Someone changed this order at the same moment. Try again.')
+    expect(say(problem(409, 'IDEMPOTENCY_KEY_REUSED'))).toEqual({ reload: true, text: 'This report was already sent with other '
+      + 'details. Find the order again and check whether it has been withdrawn.' })
+    expect(say(problem(403, 'PERMISSION_DENIED')).text).toBe('Your role can’t withdraw orders from other facilities.')
+    expect(say(problem(404, 'ORDER_ROUTE_NOT_FOUND'))).toEqual({ reload: true, text: 'This order was not found here. Find it again.' })
+    expect(say(problem(429, 'ORDER_ROUTE_CORRECTION_LIMIT')).text).toBe('You have reached the limit for withdrawing ended orders. '
+      + 'You can withdraw more later. If many orders are affected, phone Health ID support now so that they can tell the ordering '
+      + 'facilities.')
+    expect(say(problem(503, 'ORDER_ROUTE_UNAVAILABLE'))).toMatchObject({ reload: true, unanswered: true })
+    expect(say(problem(400, 'IDEMPOTENCY_KEY_REQUIRED')).text).toMatch(/^Check what you entered/)
+    expect(correctableFindRefusal(problem(404, 'API_ROUTE_NOT_FOUND'))).toMatchObject({ missing: true })
+    expect(correctableFindRefusal(problem(404, 'ORDER_ROUTE_NOT_FOUND'))).not.toHaveProperty('missing')
+  })
+
+  it('says what follows a withdrawal, by whether anything had gone back (CT7)', () => {
+    expect(lateCorrectionLines({ service: 'lab', title: 'Full blood count', reference: '3F2A9C1B', ordering: 'General Hospital',
+      returned: false })).toEqual(['Withdrawn: Full blood count, reference 3F2A9C1B. The patient is told in the Health ID app.',
+      'Nothing had gone back to General Hospital. Phone General Hospital if the patient still needs the test, so they can send a new order.',
+      'Follow your laboratory’s procedure for a misidentified specimen. If a value was critical and you can tell who the person '
+        + 'was, tell them or their clinician.'])
+  })
+
+  it('takes the Lagos day of a time, and lists days once each', () => {
+    expect(lagosDay('2026-06-01T23:30:00.000Z')).toBe('2026-06-02')
+    expect(lagosDay('nonsense')).toBeNull()
+    expect(returnedDays(['2026-06-09T12:00:00.000Z', '2026-06-03T12:00:00.000Z', '2026-06-03T15:00:00.000Z'])).toBe('3 Jun 2026 and 9 Jun 2026')
+    expect(returnedDays(['2026-06-03T12:00:00.000Z', '2026-06-05T12:00:00.000Z', '2026-06-09T12:00:00.000Z'])).toBe('3 Jun 2026, 5 Jun 2026 and 9 Jun 2026')
   })
 })

@@ -7,7 +7,7 @@ import {
 } from '../api'
 import {
   acceptedCheckText, acceptRefusal, calendarDate, CONTROLLED_MEDICINE_CHECK, DECLINE_REASONS, declineRefusal, incomingProblem,
-  licenceLine, priorityLabel, receivingAnswer, rememberReceiving, routeMoment,
+  licenceLine, priorityLabel, receivingAnswer, REFERENCE_PATTERN, REFERENCE_PROBLEM, rememberReceiving, routeMoment,
 } from '../orderRoutes'
 import { BUSY, UNAVAILABLE } from '../focus'
 import { WrongPatientEnded, WrongPatientForm, type WrongPatientEnding } from './WrongPatient'
@@ -16,9 +16,6 @@ import { useWrongPatientServed } from '../../wrongPatientServed'
 /** A Health ID as Identity stores it (identity 0002). */
 const HID_PATTERN = /^HID-[A-HJ-NP-Z2-9]{6,32}$/
 const HID_PROBLEM = 'Check the Health ID: it starts with HID-, then 6 to 32 letters and digits, and never uses 0, 1, I or O.'
-/** An order's reference as the patient's app shows it: 8 characters of its id, upper-cased (C9). */
-const REFERENCE_PATTERN = /^[0-9A-F]{8}$/
-const REFERENCE_PROBLEM = 'The reference is the 8 characters shown with the order in the patient’s Health ID app, for example 3F2A9C1B.'
 /** How often Incoming is read again while the page is in view (SPEC-FINAL §13.3). */
 export const INCOMING_REFRESH_MS = 120_000
 

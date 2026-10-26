@@ -11,6 +11,7 @@ import { useFieldProblems } from '../useFieldProblems'
 import { RevisionList } from '../labRevisions'
 import { usesNovuBackend } from '../../backendContract'
 import { learnWrongPatientServed } from '../../wrongPatientServed'
+import { learnLateCorrectionServed, saysLateCorrection, useLateCorrectionServed } from '../../lateCorrectionServed'
 import { BETWEEN_FACILITIES } from '../betweenFacilities'
 import { selfServiceReview, selfServiceType } from '../staffAccess'
 import {
@@ -19,6 +20,7 @@ import {
 } from '../orderRoutes'
 import { IncomingOrders, patientCard } from './IncomingOrders'
 import { WrongPatientAction, WrongPatientEnded, type WrongPatientEnding } from './WrongPatient'
+import { LateCorrectionDone, LateWrongPatient, type LateCorrection } from './LateWrongPatient'
 
 /**
  * OCR's answer when EHR, Lab or Pharmacy refused OCR's own workload identity
@@ -718,6 +720,32 @@ function useLearnWrongPatientServed(items: ReadonlyArray<{ orderRoute?: { versio
   }, [items])
 }
 
+/**
+ * A work list that answers `lateCorrection: true` comes from a backend that lets this facility withdraw what it recorded
+ * on an order that has ended (D17, hid-system 0090; an earlier one sends no such field): "Correct an order that has
+ * ended" may then show (SPEC-FINAL §9.0).
+ */
+function useLearnLateCorrectionServed(answer: unknown) {
+  useEffect(() => {
+    if (saysLateCorrection(answer)) learnLateCorrectionServed(true)
+  }, [answer])
+}
+
+/**
+ * What the page says once an order is ended (item 3) or an ended order withdrawn (D17), until it is closed: one slot,
+ * above the work list's toolbar.
+ */
+type Said = { facilityId: string; ending: WrongPatientEnding; correction?: undefined }
+  | { facilityId: string; correction: LateCorrection; ending?: undefined }
+
+function SaidAboveTheList({ service, said, facilityId, onClose }: { service: 'lab' | 'pharmacy'; said: Said | null; facilityId: string
+  onClose: () => void }) {
+  if (said?.facilityId !== facilityId) return null
+  return said.correction
+    ? <LateCorrectionDone id={`${service}-late-correction-done`} correction={said.correction} onClose={onClose} />
+    : <WrongPatientEnded id={`${service}-wrong-patient-ended`} ending={said.ending} onClose={onClose} />
+}
+
 export function Laboratory() {
   const { facilityId, permissions, facility } = useFacilityAccess()
   const canRead = permissions.includes('lab.work-item.read')
@@ -734,13 +762,25 @@ export function Laboratory() {
   // at a laboratory: a hospital's or clinic's own laboratory is never sent any (useReceiving).
   const { mounted, probe, watch, holds, receives, onFound, onAnswer } = useReceiving(facility, 'lab', read)
   useLearnWrongPatientServed(list.items)
-  // An order ended as accepted for the wrong person (item 3): said until closed; the list is read again, and it goes.
-  const [ended, setEnded] = useState<{ facilityId: string; ending: WrongPatientEnding } | null>(null)
+  useLearnLateCorrectionServed(read.value)
+  // "Correct an order that has ended" (D17): for a member who receives lab requests from other facilities, once the
+  // backend serves it; a laboratory that no longer receives may still hold past orders.
+  const lateCorrection = useLateCorrectionServed() === true && holdsReceivePermission(facility, 'lab')
+  // An order ended as accepted for the wrong person (item 3), or an ended one withdrawn (D17): said until closed; the list
+  // is read again, and it goes.
+  const [ended, setEnded] = useState<Said | null>(null)
   if (!facilityId || !canRead) return <EmptyState titleAs="h1" title="Laboratory unavailable" description="This facility membership needs lab work-item read permission." />
   function endedHere(item: LabWorkItem, ending: WrongPatientEnding) {
     if (!facilityId) return
     setEnded({ facilityId, ending })
     if (selection?.item.id === item.id) setSelection(null)
+    void list.refresh()
+  }
+  // Ended from "Correct an order that has ended" while still open: its accession, if shown, goes too.
+  function endedLate(ending: WrongPatientEnding) {
+    if (!facilityId) return
+    setEnded({ facilityId, ending })
+    setSelection(current => current?.item.orderRoute?.id === ending.result.route.id ? null : current)
     void list.refresh()
   }
   return <>
@@ -751,8 +791,10 @@ export function Laboratory() {
     {mounted && facility && <IncomingOrders service="lab" facilityId={facilityId} facilityName={facility.name} probe={probe}
       watch={watch} membershipId={facility.membershipId} onFound={onFound} onAnswer={onAnswer} onAccepted={() => void list.refresh()}
       onEnded={routeId => setSelection(current => current?.item.orderRoute?.id === routeId ? null : current)} />}
-    {ended?.facilityId === facilityId && <WrongPatientEnded id="lab-wrong-patient-ended" ending={ended.ending} onClose={() => setEnded(null)} />}
+    <SaidAboveTheList service="lab" said={ended} facilityId={facilityId} onClose={() => setEnded(null)} />
     <div className="staff-row staff-toolbar"><RefreshButton loading={list.loading} onRefresh={list.refresh}>Refresh work</RefreshButton></div>
+    {lateCorrection && <LateWrongPatient service="lab" facilityId={facilityId} onEnded={endedLate}
+      onCorrected={correction => setEnded({ facilityId, correction })} />}
     <ListState loading={list.loading} error={list.error} empty="No accepted lab work" retry={() => void list.refresh()} hasItems={Boolean(list.items?.length)} />
     <RoutedWorkPaused items={list.items} crossFacilityWork={read.value?.crossFacilityWork} receives={holds} />
     <WorkListCap count={list.items?.length ?? 0} />
@@ -847,8 +889,12 @@ export function Pharmacy() {
   // only at a pharmacy: a hospital's or clinic's own pharmacy is never sent any (useReceiving).
   const { mounted, probe, watch, holds, receives, onFound, onAnswer } = useReceiving(facility, 'pharmacy', read)
   useLearnWrongPatientServed(list.items)
-  // A prescription ended as accepted for the wrong person (item 3): said until closed; the list is read again, and it goes.
-  const [ended, setEnded] = useState<{ facilityId: string; ending: WrongPatientEnding } | null>(null)
+  useLearnLateCorrectionServed(read.value)
+  // "Correct an order that has ended" (D17), as on the Laboratory page.
+  const lateCorrection = useLateCorrectionServed() === true && holdsReceivePermission(facility, 'pharmacy')
+  // A prescription ended as accepted for the wrong person (item 3), or an ended one withdrawn (D17): said until closed;
+  // the list is read again, and it goes.
+  const [ended, setEnded] = useState<Said | null>(null)
   if (!facilityId || !canRead) return <EmptyState titleAs="h1" title="Pharmacy unavailable" description="This facility membership needs pharmacy work-item read permission." />
   return <>
     <PageHead eyebrow="Provider workspace" title="Pharmacy">{holds
@@ -857,8 +903,11 @@ export function Pharmacy() {
     <StandaloneWorkNote facility={facility} kind="pharmacy" ordersOn={read.value?.crossFacilityOrders === true} receives={receives} />
     {mounted && facility && <IncomingOrders service="pharmacy" facilityId={facilityId} facilityName={facility.name} probe={probe}
       watch={watch} membershipId={facility.membershipId} onFound={onFound} onAnswer={onAnswer} onAccepted={() => void list.refresh()} />}
-    {ended?.facilityId === facilityId && <WrongPatientEnded id="pharmacy-wrong-patient-ended" ending={ended.ending} onClose={() => setEnded(null)} />}
+    <SaidAboveTheList service="pharmacy" said={ended} facilityId={facilityId} onClose={() => setEnded(null)} />
     <div className="staff-row staff-toolbar"><RefreshButton loading={list.loading} onRefresh={list.refresh}>Refresh work</RefreshButton></div>
+    {lateCorrection && <LateWrongPatient service="pharmacy" facilityId={facilityId}
+      onEnded={ending => { setEnded({ facilityId, ending }); void list.refresh() }}
+      onCorrected={correction => setEnded({ facilityId, correction })} />}
     <ListState loading={list.loading} error={list.error} empty="No accepted prescriptions" retry={() => void list.refresh()} hasItems={Boolean(list.items?.length)} />
     <RoutedWorkPaused items={list.items} crossFacilityWork={read.value?.crossFacilityWork} receives={holds} />
     {/* hid-system #48: work whose prescription changed stays listed as accepted (INTERFACE_CONTRACT.md, Pharmacy). */}

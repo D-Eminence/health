@@ -6,6 +6,7 @@ import {
 } from '../api'
 import { WRONG_PATIENT_REASONS, wrongPatientEndedLines, wrongPatientRefusal } from '../orderRoutes'
 import { BUSY, QUIET_UNAVAILABLE, UNAVAILABLE } from '../focus'
+import { useLateCorrectionServed } from '../../lateCorrectionServed'
 
 /**
  * "This isn't the order's patient" (item 3, owner decisions D1-D6, D18; SPEC-FINAL §8.1, §9.1): a laboratory or pharmacy
@@ -66,6 +67,8 @@ export function WrongPatientForm({ id, service, facilityId, route, patient, orde
   const lab = service === 'lab'
   const who = patient?.trim() || 'the patient'
   const Who = patient?.trim() || 'The patient'
+  // From a backend that serves the late correction (D17), an order that has ended can still be withdrawn there.
+  const late = useLateCorrectionServed() === true
 
   function refuse(field: keyof Problems, text: string, target: string) {
     setProblems({ [field]: text })
@@ -99,7 +102,7 @@ export function WrongPatientForm({ id, service, facilityId, route, patient, orde
     } catch (caught) {
       // A refusal settles the report and frees its key; only an unanswered one keeps it for the same report.
       if (isHidApiError(caught) && caught.status > 0 && caught.status < 500 && caught.status !== 408) attempt.current = null
-      const refusal = wrongPatientRefusal(caught, service, ordering)
+      const refusal = wrongPatientRefusal(caught, service, ordering, late ? { reference: route.reference } : null)
       setError(refusal.text)
       if (refusal.stale) await onStale()
       else if (refusal.reload) onReload?.()

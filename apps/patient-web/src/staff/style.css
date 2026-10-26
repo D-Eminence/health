@@ -158,3 +158,9 @@ body { margin: 0; }
 .staff-withdrawn-results li { overflow-wrap: anywhere; }
 .staff-withdrawn-value { color: var(--color-muted); }
 .staff-wrong-patient-orders .staff-list-item p { margin: 0; }
+
+/* D17: "Correct an order that has ended", collapsed after the Laboratory and Pharmacy toolbar. */
+.staff-late-correction { margin-bottom: 18px; border: 0.5px solid var(--color-line-strong); border-radius: var(--radius-control); padding: 10px 14px; }
+.staff-late-correction > summary { cursor: pointer; font-weight: 600; color: var(--color-ink); }
+.staff-late-correction[open] > summary { margin-bottom: 12px; }
+.staff-late-correction .staff-list-item p { margin: 0; overflow-wrap: anywhere; }
