@@ -271,7 +271,10 @@ export interface PatientNotification {
  * SPEC-FINAL §5, §10.1): GET /ehr/me/order-routes, newest first. `content` is every field sent (what the receiving
  * facility received, or will receive once it accepts); `attestationText` is the clinician's confirmation that the
  * patient agreed, as they confirmed it, with {patient}, {orderingFacility} and {receivingFacility} for the page to
- * fill. `actions` holds 'withdraw' (Stop) only while the receiving facility has not accepted it.
+ * fill. `actions` holds 'withdraw' (Stop) only while the receiving facility has not accepted it. `endedKind` says who or
+ * what ended it; since the wrong-patient report (hid-system 0088, item 3) also `wrong_patient`: the receiving facility
+ * reports it accepted the order for someone who was not the patient (cancelled, or completed with `endedAt` once
+ * something had come back and was withdrawn); the content stays in full (D13) and `actions` is empty.
  */
 export interface PatientOrderRoute {
   id: string

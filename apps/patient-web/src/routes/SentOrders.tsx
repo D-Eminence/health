@@ -53,12 +53,26 @@ function whatWasSent(route: PatientOrderRoute): string {
 export function patientRouteState(route: PatientOrderRoute): string {
   const receiving = named(route.receivingFacilityName ?? route.receivingFacility.name, 'the other facility')
   const ordering = named(route.orderingFacilityName, 'your clinician’s facility')
+  // The receiving facility reports it accepted it for someone who was not the patient (item 3, §9.4): said as its report.
+  if (route.endedKind === 'wrong_patient' && (route.effectiveState === 'cancelled' || route.effectiveState === 'completed')) {
+    return `ended: ${receiving} reports it accepted it for someone who was not you`
+  }
   switch (route.effectiveState) {
     case 'sent': return route.acceptLocked
       ? `${receiving} could not confirm it was you, so it can’t take it. Ask your clinician to send it again`
       : `waiting for ${receiving} to accept it`
     case 'accepted': return `accepted by ${receiving}`
-    case 'completed': return route.kind === 'lab_request' ? `${receiving} sent the result back to ${ordering}` : `dispensed by ${receiving}`
+    case 'completed': {
+      const returned = route.kind === 'lab_request' ? `${receiving} sent the result back to ${ordering}` : `dispensed by ${receiving}`
+      // A completed order whose access ended another way no longer reads as a plain return (item 3, §8.3).
+      switch (route.endedKind) {
+        case 'support': return `${returned}; Health ID support has since closed it`
+        case 'entered_in_error': return `${returned}; your clinician has since marked the order as entered in error`
+        case 'receiving_released': return `${returned}; ${receiving} is no longer on Health ID`
+        case 'ordering_released': return `${returned}; ${ordering} is no longer on Health ID`
+        default: return returned
+      }
+    }
     case 'declined': return `${receiving} could not take it`
     case 'withdrawn':
       switch (route.endedKind) {
@@ -76,7 +90,10 @@ export function patientRouteState(route: PatientOrderRoute): string {
   }
 }
 
-/** Every field the other facility receives, as the patient reads it (PRIV P7.5). */
+/**
+ * Every field the other facility receives, as the patient reads it (PRIV P7.5): what it received once it accepted the
+ * order, or will receive once it accepts.
+ */
 export function sentFields(route: PatientOrderRoute): Array<[label: string, value: string]> {
   const content = route.content
   const orderer = text(content.ordererName)
@@ -100,7 +117,7 @@ export function sentFields(route: PatientOrderRoute): Array<[label: string, valu
   ]
   return [...fields,
     [route.kind === 'lab_request' ? 'Requested by' : 'Prescribed by', [orderer, licence ? `licence ${licence}` : null].filter(Boolean).join(', ') || null],
-    ['You', 'your name, sex, date of birth and the last 4 characters of your Health ID, once it accepts'],
+    ['You', `your name, sex, date of birth and the last 4 characters of your Health ID${route.acceptedAt ? '' : ', once it accepts'}`],
   ].filter((entry): entry is [string, string] => entry[1] !== null)
 }
 
@@ -110,6 +127,33 @@ function attestation(route: PatientOrderRoute, patient: string): string | null {
   return route.attestationText.replaceAll('{patient}', patient)
     .replaceAll('{orderingFacility}', named(route.orderingFacilityName, 'the facility'))
     .replaceAll('{receivingFacility}', named(route.receivingFacilityName ?? route.receivingFacility.name, 'the other facility'))
+}
+
+/**
+ * What the patient is told of an order the receiving facility ended as accepted for someone who was not them (item 3,
+ * §9.4; C3, C12): what it had received and can no longer see, what was withdrawn (only once something had come back:
+ * `completedAt`), and what to do. Its words say what the facility reported. `full` is false for an order also marked
+ * entered in error, whose content is not shown: then only what the facility had received is said.
+ */
+export function wrongPatientParagraph(route: PatientOrderRoute, full = true): string[] {
+  const receiving = named(route.receivingFacilityName ?? route.receivingFacility.name, 'the other facility')
+  const ordering = named(route.orderingFacilityName, 'your clinician’s facility')
+  const lab = route.kind === 'lab_request'
+  const first = `${receiving} told Health ID that the person it accepted this ${lab ? 'test request' : 'prescription'} for was `
+    + `not you, so it ended it on ${day(route.endedAt)}. It had received your name, sex, date of birth${full ? ',' : ' and'} the last 4 `
+    + `characters of your Health ID${full ? ' and the details above' : ''}. It can no longer see them through this order.`
+  if (!full) return [first]
+  const lines = [first]
+  if (route.completedAt) lines.push(lab
+    ? 'A result it recorded on this order belongs to that other person. It is marked as not yours and no longer shows in your '
+      + 'health record; the facilities keep it, marked, in their own records.'
+    : 'It recorded the medicine as given on this order to that other person: that record has been cancelled.')
+  lines.push(lab
+    ? `If you did give a sample at ${receiving} for this test, tell ${ordering}.`
+    : `If you did collect this medicine at ${receiving}, or someone collected it for you, tell ${ordering} before you get another prescription.`,
+  `If you still need this ${lab ? 'test' : 'medicine'}, contact ${ordering}: your clinician can send a new order.`,
+  'If you didn’t give anyone your Health ID or date of birth and think someone used them, contact Health ID support.')
+  return lines
 }
 
 /** What a refused Stop means. */
@@ -173,7 +217,10 @@ export function SentOrdersCard() {
         const inError = route.enteredInError === true
         const confirmed = inError ? null : attestation(route, patient)
         const canStop = !inError && route.actions.includes('withdraw') && route.effectiveState === 'sent'
-        const acceptedThere = route.effectiveState === 'accepted' || route.effectiveState === 'completed'
+        // What the facility received, once it accepted (B5), and whether it may still be working on it: two conditions.
+        const received = Boolean(route.acceptedAt)
+        const stoppable = (route.effectiveState === 'accepted' || route.effectiveState === 'completed') && !route.endedAt
+        const wrongPatient = route.endedKind === 'wrong_patient'
         return <li key={route.id} className="patient-access-item patient-order-route"><div>
           <strong>{whatWasSent(route)} from {ordering} to {receiving}: {patientRouteState(route)}</strong>
           {route.receivingRegisteredAddress && <span>{receiving}’s registered office: {route.receivingRegisteredAddress}</span>}
@@ -184,14 +231,20 @@ export function SentOrdersCard() {
           </>}
           {inError ? <>
             <p>{ordering} marked this order as entered in error, so what it contained is no longer shown here.</p>
-            {route.acceptedAt && <p>{receiving} had accepted it, so it received your name, sex, date of birth and the last
-              4 characters of your Health ID.</p>}
+            {wrongPatient ? wrongPatientParagraph(route, false).map((line, index) => <p key={index}>{line}</p>)
+              : route.acceptedAt && <p>{receiving} had accepted it, so it received your name, sex, date of birth and the last
+                4 characters of your Health ID.</p>}
             <p>If you have questions about it, contact {ordering}.</p>
           </> : <>
-            <p><strong>{acceptedThere ? `What ${receiving} received` : `What ${receiving} will receive`}</strong></p>
+            <p><strong>{received ? `What ${receiving} received` : `What ${receiving} will receive`}</strong></p>
             <dl className="patient-details">{sentFields(route).map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
+            {wrongPatient && wrongPatientParagraph(route).map((line, index) => <p key={index}>{line}</p>)}
             {canStop && <p>If you did not agree to this, stop it now: {receiving} has not accepted it yet.</p>}
-            {acceptedThere && <p>{receiving} has accepted it. To stop it, contact {ordering}, who can cancel the order.</p>}
+            {stoppable && route.effectiveState === 'accepted' && <p>{receiving} has accepted it. To stop it, contact {ordering}, who
+              can cancel the order.</p>}
+            {stoppable && <p>{route.kind === 'lab_request'
+              ? `If you haven’t been to ${receiving} for this test, tell ${receiving} or Health ID support straight away.`
+              : `If you haven’t been to ${receiving} for this medicine, and no one collected it for you, tell ${receiving} or Health ID support straight away.`}</p>}
           </>}
         </div>
           {canStop && <div className="patient-decision-actions"><button id={`stop-${route.id}`} type="button" className="patient-secondary-button"

@@ -91,6 +91,8 @@ const ORDER_ROUTE_TITLES: Readonly<Record<string, (thing: string, facility: stri
   ORDER_ROUTE_DECLINED: (thing, facility) => `${facility} could not take your ${thing}`,
   ORDER_ROUTE_ACCEPT_LOCKED: (thing, facility) => `${facility} could not confirm it was you, so it can’t take your ${thing}. Ask your clinician to send it again`,
   ORDER_ROUTE_CANCELLED: (thing, facility) => `Your ${thing} at ${facility} was cancelled`,
+  // Item 3 (D8): the receiving facility reports it accepted the order for someone who was not the patient, and ended it.
+  ORDER_ROUTE_WRONG_PATIENT: (thing, facility) => `${facility} accepted your ${thing} for someone who was not you, and has ended it`,
 }
 
 /** A name from a notice's metadata, or the words that stand for it: never anything but a short plain string. */

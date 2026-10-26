@@ -91,19 +91,24 @@ describe('orders sent to other facilities, on Access and consent', () => {
   it('offers no Stop once the other facility has accepted it, and says whom to contact', async () => {
     routes = { items: [sent({ effectiveState: 'accepted', acceptedAt: '2026-10-21T10:00:00.000Z', actions: [] }),
       sent({ id: 'f0000000-0000-4000-8000-000000000002', kind: 'prescription', effectiveState: 'completed', actions: ['withdraw'],
+        acceptedAt: '2026-10-21T10:00:00.000Z', completedAt: '2026-10-22T10:00:00.000Z',
         content: { medicationDisplay: 'Amoxicillin 500 mg capsules', doseQuantity: '500', doseUnit: 'mg', routeCode: 'oral',
           frequency: 'Three times daily', instructions: 'Take with food', startsOn: '2026-10-20', endsOn: '2026-10-27',
           prescribedAt: '2026-10-20T08:55:00.000Z', ordererName: 'Dr Ade Okon', ordererLicenceBody: null, ordererLicenceNumber: null } })] }
     renderPortal(<AccessPage />, handler)
     expect(await screen.findByText('Haemoglobin from General Hospital to Yaba Diagnostics: accepted by Yaba Diagnostics')).toBeTruthy()
     expect(screen.getByText('Amoxicillin 500 mg capsules from General Hospital to Yaba Diagnostics: dispensed by Yaba Diagnostics')).toBeTruthy()
-    expect(screen.getAllByText('Yaba Diagnostics has accepted it. To stop it, contact General Hospital, who can cancel the order.')).toHaveLength(2)
+    // "To stop it" is said while it is accepted only (item 3, B5); the check that it was them, while it may still be worked.
+    expect(screen.getAllByText('Yaba Diagnostics has accepted it. To stop it, contact General Hospital, who can cancel the order.')).toHaveLength(1)
+    expect(screen.getByText('If you haven’t been to Yaba Diagnostics for this test, tell Yaba Diagnostics or Health ID support straight away.')).toBeTruthy()
+    expect(screen.getByText('If you haven’t been to Yaba Diagnostics for this medicine, and no one collected it for you, tell Yaba '
+      + 'Diagnostics or Health ID support straight away.')).toBeTruthy()
     expect(screen.getAllByText('What Yaba Diagnostics received')).toHaveLength(2)
     const prescription = screen.getByText(/^Amoxicillin 500 mg capsules from/).closest('li')!
     expect([...prescription.querySelectorAll('dt')].map(term => `${term.textContent}: ${term.nextElementSibling?.textContent}`)).toEqual([
       'Medicine: Amoxicillin 500 mg capsules', 'Dose: 500 mg', 'How it is taken: oral', 'How often: Three times daily',
       'Instructions: Take with food', 'Starts: 20 Oct 2026', 'Ends: 27 Oct 2026', 'Prescribed on: 20 Oct 2026', 'Prescribed by: Dr Ade Okon',
-      'You: your name, sex, date of birth and the last 4 characters of your Health ID, once it accepts'])
+      'You: your name, sex, date of birth and the last 4 characters of your Health ID'])
     expect(screen.queryByRole('button', { name: /^Stop it/ })).toBeNull()
   })
 
@@ -155,7 +160,95 @@ describe('orders sent to other facilities, on Access and consent', () => {
   })
 })
 
+/**
+ * Item 3 (owner decisions D8, D13; SPEC-FINAL §8.3, §9.4): an order the receiving facility ended because it accepted it for
+ * someone who was not the patient. The order is kept in full; the words say what the facility reported, what it had
+ * received and can no longer see, what was withdrawn once something had come back, and what to do. While a facility may
+ * still be working on an order, the patient is asked to say if they have not been there (C1).
+ */
+describe('an order the receiving facility reports it accepted for someone else', () => {
+  const ended = (overrides: Partial<PatientOrderRoute> = {}) => sent({ effectiveState: 'cancelled', endedKind: 'wrong_patient',
+    acceptedAt: '2026-10-21T10:00:00.000Z', endedAt: '2026-10-21T11:00:00.000Z', actions: [], ...overrides })
+  const item = async (title: string) => (await screen.findByText(title)).closest('li') as HTMLElement
+  const paragraphs = (element: HTMLElement) => [...element.querySelectorAll('p')].map(line => line.textContent)
+
+  it('says what the laboratory reported, what it had received, and what to do, with no Stop and no “To stop it”', async () => {
+    routes = { items: [ended()] }
+    renderPortal(<AccessPage />, handler)
+    const order = await item('Haemoglobin from General Hospital to Yaba Diagnostics: ended: Yaba Diagnostics reports it accepted it for someone who was not you')
+    expect(within(order).getByText('What Yaba Diagnostics received')).toBeTruthy()
+    expect(within(order).getByText('Tired for two weeks')).toBeTruthy()
+    expect(paragraphs(order).slice(-4)).toEqual([
+      'Yaba Diagnostics told Health ID that the person it accepted this test request for was not you, so it ended it on 21 Oct 2026. '
+        + 'It had received your name, sex, date of birth, the last 4 characters of your Health ID and the details above. It can no '
+        + 'longer see them through this order.',
+      'If you did give a sample at Yaba Diagnostics for this test, tell General Hospital.',
+      'If you still need this test, contact General Hospital: your clinician can send a new order.',
+      'If you didn’t give anyone your Health ID or date of birth and think someone used them, contact Health ID support.'])
+    expect(order.textContent).not.toMatch(/marked as not yours|To stop it|haven’t been to/)
+    expect(within(order).queryByRole('button', { name: /^Stop it/ })).toBeNull()
+  })
+
+  it('says a returned result is marked as not theirs, and a returned dispensing cancelled, only once something had come back', async () => {
+    routes = { items: [
+      ended({ effectiveState: 'completed', completedAt: '2026-10-22T10:00:00.000Z', endedAt: '2026-10-23T10:00:00.000Z' }),
+      ended({ id: 'f0000000-0000-4000-8000-000000000002', kind: 'prescription', effectiveState: 'completed',
+        completedAt: '2026-10-22T10:00:00.000Z', endedAt: '2026-10-23T10:00:00.000Z',
+        content: { medicationDisplay: 'Amoxicillin 500 mg capsules', ordererName: 'Dr Ade Okon' } })] }
+    renderPortal(<AccessPage />, handler)
+    const test = await item('Haemoglobin from General Hospital to Yaba Diagnostics: ended: Yaba Diagnostics reports it accepted it for someone who was not you')
+    expect(within(test).getByText('A result it recorded on this order belongs to that other person. It is marked as not yours and no '
+      + 'longer shows in your health record; the facilities keep it, marked, in their own records.')).toBeTruthy()
+    const medicine = await item('Amoxicillin 500 mg capsules from General Hospital to Yaba Diagnostics: ended: Yaba Diagnostics reports it accepted it for someone who was not you')
+    expect(paragraphs(medicine).slice(-5)).toEqual([
+      'Yaba Diagnostics told Health ID that the person it accepted this prescription for was not you, so it ended it on 23 Oct 2026. '
+        + 'It had received your name, sex, date of birth, the last 4 characters of your Health ID and the details above. It can no '
+        + 'longer see them through this order.',
+      'It recorded the medicine as given on this order to that other person: that record has been cancelled.',
+      'If you did collect this medicine at Yaba Diagnostics, or someone collected it for you, tell General Hospital before you get another prescription.',
+      'If you still need this medicine, contact General Hospital: your clinician can send a new order.',
+      'If you didn’t give anyone your Health ID or date of birth and think someone used them, contact Health ID support.'])
+  })
+
+  it('keeps an order also marked entered in error redacted, saying only what the facility had received', async () => {
+    routes = { items: [ended({ enteredInError: true, attestationText: null, attestedByName: null, content: { reference: '9C1B2D3E' } })] }
+    renderPortal(<AccessPage />, handler)
+    const order = await item('A test request from General Hospital to Yaba Diagnostics: ended: Yaba Diagnostics reports it accepted it for someone who was not you')
+    expect(paragraphs(order)).toEqual([
+      'General Hospital marked this order as entered in error, so what it contained is no longer shown here.',
+      'Yaba Diagnostics told Health ID that the person it accepted this test request for was not you, so it ended it on 21 Oct 2026. '
+        + 'It had received your name, sex, date of birth and the last 4 characters of your Health ID. It can no longer see them '
+        + 'through this order.',
+      'If you have questions about it, contact General Hospital.'])
+    expect(order.querySelector('dl')).toBeNull()
+  })
+
+  it('no longer reads a completed order whose access ended another way as a plain return', async () => {
+    const done = { effectiveState: 'completed', acceptedAt: '2026-10-21T10:00:00.000Z', completedAt: '2026-10-22T10:00:00.000Z',
+      endedAt: '2026-10-23T10:00:00.000Z', actions: [] }
+    routes = { items: [sent({ ...done, endedKind: 'support' }),
+      sent({ ...done, id: 'f0000000-0000-4000-8000-000000000002', endedKind: 'receiving_released' })] }
+    renderPortal(<AccessPage />, handler)
+    expect(await screen.findByText('Haemoglobin from General Hospital to Yaba Diagnostics: Yaba Diagnostics sent the result back to '
+      + 'General Hospital; Health ID support has since closed it')).toBeTruthy()
+    expect(screen.getByText('Haemoglobin from General Hospital to Yaba Diagnostics: Yaba Diagnostics sent the result back to General '
+      + 'Hospital; Yaba Diagnostics is no longer on Health ID')).toBeTruthy()
+    // Neither may still be worked on: no "To stop it", and no check that the patient went there.
+    expect(document.body.textContent).not.toMatch(/To stop it|haven’t been to/)
+  })
+})
+
 describe('notices about orders sent to other facilities', () => {
+  it('names the wrong-person notice with its own title (D8)', async () => {
+    renderPortal(<NotificationsPage />, () => json([{ id: '80000000-0000-4000-8000-000000000009',
+      notificationCode: 'ORDER_ROUTE_WRONG_PATIENT', resourceType: 'order-route', resourceId: ROUTE,
+      metadata: { routeId: ROUTE, kind: 'prescription', orderingFacilityName: 'General Hospital', receivingFacilityName: 'Medplus Yaba' },
+      readAt: null, createdAt: '2026-10-24T09:00:00Z' }]))
+    const [item] = await screen.findAllByRole('listitem')
+    expect(item!.querySelector('strong')?.textContent).toBe('Medplus Yaba accepted your prescription for someone who was not you, and has ended it')
+    expect(document.body.textContent).not.toMatch(/ORDER.ROUTE|WRONG.PATIENT/)
+  })
+
   const notice = (code: string, kind: string, id = '1'): PatientNotification => ({ id: `80000000-0000-4000-8000-00000000000${id}`,
     notificationCode: code, resourceType: 'order-route', resourceId: ROUTE,
     metadata: { routeId: ROUTE, kind, orderingFacilityName: 'General Hospital', receivingFacilityName: 'Yaba Diagnostics' },
