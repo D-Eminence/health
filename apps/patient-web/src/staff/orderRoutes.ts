@@ -850,7 +850,8 @@ const LATE_PAUSED = 'Health ID has paused work on orders from other facilities, 
 
 /**
  * What a refused late withdrawal means (D17, SPEC-FINAL §9.1; CT1, CL12). `stale` says the order moved on (412): find it
- * again and keep the form open at its new version; `reload` that the row is out of date; `unanswered` that no answer came.
+ * again and keep the form open at its new version; `reload` that the row is out of date; `unanswered` that no answer came:
+ * the form stays open with its key, and is not found again.
  */
 export function lateWrongPatientRefusal(error: unknown, service: ReceivingService, ordering: string,
   correctableUntil: string | null | undefined): { text: string; reload?: boolean; stale?: boolean; unanswered?: boolean } {
@@ -882,8 +883,11 @@ export function lateWrongPatientRefusal(error: unknown, service: ReceivingServic
   if (isHidApiError(error) && error.status === 400) return { text: 'Check what you entered: choose how and when you found out and '
     + 'what happened, and describe it for Health ID support in 8 to 500 characters. The date can’t be in the future or before '
     + 'the order was accepted.' }
-  if (unanswered(error)) return { reload: true, unanswered: true,
-    text: 'Health ID did not answer, so it may or may not have been withdrawn. Find the order again and check.' }
+  // No answer: the form stays, keeping its key, so the same request sent again answers what happened: replayed (with the
+  // first report's counts, and what follows) if it had gone through. Finding the order again would close the form on a
+  // withdrawal that went through, and lose what the facility must do next.
+  if (unanswered(error)) return { unanswered: true, text: 'Health ID did not answer, so it may or may not have been withdrawn. '
+    + 'Press “Withdraw it” again: if it was, Health ID says so, and nothing is withdrawn twice.' }
   return { text: 'It could not be withdrawn. Try again.' }
 }
 

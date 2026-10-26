@@ -465,7 +465,9 @@ describe('the receiving facility’s late correction words (D17)', () => {
     expect(say(problem(429, 'ORDER_ROUTE_CORRECTION_LIMIT')).text).toBe('You have reached the limit for withdrawing ended orders. '
       + 'You can withdraw more later. If many orders are affected, phone Health ID support now so that they can tell the ordering '
       + 'facilities.')
-    expect(say(problem(503, 'ORDER_ROUTE_UNAVAILABLE'))).toMatchObject({ reload: true, unanswered: true })
+    // No answer: the form stays with its key, so the same request answers what happened (no finding again).
+    expect(say(problem(503, 'ORDER_ROUTE_UNAVAILABLE'))).toEqual({ unanswered: true, text: 'Health ID did not answer, so it may '
+      + 'or may not have been withdrawn. Press “Withdraw it” again: if it was, Health ID says so, and nothing is withdrawn twice.' })
     expect(say(problem(400, 'IDEMPOTENCY_KEY_REQUIRED')).text).toMatch(/^Check what you entered/)
     expect(correctableFindRefusal(problem(404, 'API_ROUTE_NOT_FOUND'))).toMatchObject({ missing: true })
     expect(correctableFindRefusal(problem(404, 'ORDER_ROUTE_NOT_FOUND'))).not.toHaveProperty('missing')

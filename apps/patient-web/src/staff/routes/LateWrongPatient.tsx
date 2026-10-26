@@ -57,8 +57,9 @@ interface Problems { discoveredBy?: string; discoveredOn?: string; reason?: stri
 /**
  * The late form ("Withdraw what you recorded: accepted for the wrong person"): how and when this facility found out, what
  * happened (item 3's four reasons), a note for Health ID support only, and the attestation that it checked its own
- * records (CL2). One Idempotency-Key per identical request, kept only after no answer (5xx, 408, none). On 412 the caller
- * finds the order again, and the form stays open at its new version.
+ * records (CL2). One Idempotency-Key per identical request, kept only after no answer (5xx, 408, none): the form then
+ * stays open and the order is not found again, so the same request sent again answers what happened (replayed, and what
+ * follows, if it had gone through). On 412 the caller finds the order again, and the form stays open at its new version.
  */
 export function LateWrongPatientForm({ id, service, facilityId, route, onCorrected, onStale, onReload, onCancel }: {
   id: string; service: ReceivingService; facilityId: string; route: CorrectableOrderRoute

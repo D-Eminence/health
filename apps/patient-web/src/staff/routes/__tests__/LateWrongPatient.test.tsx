@@ -349,10 +349,12 @@ describe('the late form (C29)', () => {
     expect(routes.correctWrongPatient).toHaveBeenCalledWith('facility-1', 'lab', { id: ROUTE_ID, version: 9 },
       { reason: 'someone_elses_details', discoveredBy: 'patient', discoveredOn: '2026-06-15', note: 'The patient says it was not them' },
       expect.any(String))
-    expect(await screen.findByText('Health ID did not answer, so it may or may not have been withdrawn. Find the order again and check.')).toBeTruthy()
-    // No answer: the order is found again, and the same request keeps its key.
-    await waitFor(() => expect(routes.findCorrectable).toHaveBeenCalledTimes(2))
+    expect(await screen.findByText('Health ID did not answer, so it may or may not have been withdrawn. Press “Withdraw it” '
+      + 'again: if it was, Health ID says so, and nothing is withdrawn twice.')).toBeTruthy()
+    // No answer: the form stays open, the order is not found again, and the same request keeps its key.
+    expect(routes.findCorrectable).toHaveBeenCalledTimes(1)
     const again = screen.getByRole('form', { name: 'Withdraw what you recorded: accepted for the wrong person' })
+    expect(again).toBe(form)
     fireEvent.click(within(again).getByRole('button', { name: 'Withdraw it' }))
     await waitFor(() => expect(routes.correctWrongPatient).toHaveBeenCalledTimes(2))
     expect(routes.correctWrongPatient.mock.calls[1]![4]).toBe(routes.correctWrongPatient.mock.calls[0]![4])
@@ -362,6 +364,31 @@ describe('the late form (C29)', () => {
     fireEvent.click(within(again).getByRole('button', { name: 'Withdraw it' }))
     await waitFor(() => expect(routes.correctWrongPatient).toHaveBeenCalledTimes(3))
     expect(routes.correctWrongPatient.mock.calls[2]![4]).not.toBe(routes.correctWrongPatient.mock.calls[0]![4])
+  })
+
+  it('says what follows a withdrawal that went through though no answer came: the same request answers replayed', async () => {
+    // As production answers once the withdrawal has committed: a new lookup would say reported, and close the form.
+    routes.findCorrectable.mockResolvedValueOnce({ items: [correctable()], lateCorrection: true })
+      .mockResolvedValue({ items: [correctable({ correction: 'reported', details: null,
+        wrongPatient: { reportedAt: '2026-10-26T09:00:00.000Z', late: true } })], lateCorrection: true })
+    routes.correctWrongPatient.mockRejectedValueOnce(new HidApiError(503, 'Down', { code: 'ORDER_ROUTE_UNAVAILABLE' }))
+      .mockResolvedValueOnce({ ...CORRECTED, replayed: true })
+    const form = await lateForm()
+    fill(form)
+    const withdraw = within(form).getByRole('button', { name: 'Withdraw it' })
+    withdraw.focus()
+    fireEvent.click(withdraw)
+    const said = await within(form).findByRole('alert')
+    expect(said.textContent).toBe('Health ID did not answer, so it may or may not have been withdrawn. Press “Withdraw it” again: '
+      + 'if it was, Health ID says so, and nothing is withdrawn twice.')
+    expect(document.activeElement).toBe(withdraw)
+    fireEvent.click(withdraw)
+    const first = await screen.findByText('Withdrawn: Full blood count, reference 3F2A9C1B. The patient is told in the Health ID app.')
+    expect(routes.correctWrongPatient.mock.calls[1]![4]).toBe(routes.correctWrongPatient.mock.calls[0]![4])
+    expect(screen.getByText('Phone General Hospital now: a result had gone back to them, and Health ID does not alert them. Ask '
+      + 'them to correct anything they recorded from it, and to tell the patient.')).toBeTruthy()
+    expect(document.activeElement).toBe(first)
+    expect(routes.findCorrectable).toHaveBeenCalledTimes(1)
   })
 
   it('finds the order again after 412 and keeps the form open at its new version', async () => {
