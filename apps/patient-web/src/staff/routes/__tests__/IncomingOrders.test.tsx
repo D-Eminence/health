@@ -14,7 +14,7 @@ import { INCOMING_REFRESH_MS } from '../IncomingOrders'
  * and not shown at all where the backend has no such route.
  */
 const api = vi.hoisted(() => ({ labWorkItems: vi.fn(), pharmacyWorkItems: vi.fn() }))
-const routes = vi.hoisted(() => ({ incoming: vi.fn(), accept: vi.fn(), decline: vi.fn() }))
+const routes = vi.hoisted(() => ({ incoming: vi.fn(), accept: vi.fn(), decline: vi.fn(), reportWrongPatient: vi.fn(), get: vi.fn() }))
 const working = vi.hoisted(() => ({ permissions: [] as string[], selfService: undefined as
   { review: string; organizationType: string } | undefined }))
 vi.mock('../../api', () => ({ staffApi: api, orderRoutesApi: routes }))
@@ -356,3 +356,197 @@ describe('a laboratory scientist or pharmacist where orders from other facilitie
     expect(screen.getByText(/^Tests ordered at this facility, and lab requests from other facilities/)).toBeTruthy()
   })
 })
+
+/**
+ * Item 3 (owner decisions D1-D6, D18; SPEC-FINAL §8.1, §9.1): the Accepted panel is where the receiver first sees who the
+ * order is for. It leads with the check that the person at the counter is that patient, then "This isn't the order's
+ * patient", whose form sends nothing until what happened, a note for support and the confirmation are given. The order
+ * then ends here, and the message that says to phone the ordering facility stays until closed. On 412 the route is read
+ * again and the form stays open at its new version; a backend without the route says it is not available yet.
+ */
+describe('the Accepted panel: this isn’t the order’s patient', () => {
+  const ENDED = { route: { id: ROUTE, version: 3, effectiveState: 'cancelled', endedKind: 'wrong_patient' }, resultsVoided: 0,
+    resultReportsMarked: 0, dispensingReversed: false, replayed: false }
+
+  async function acceptAt(open: () => void, identify: (incoming: HTMLElement) => void = incoming =>
+    fireEvent.change(within(incoming).getByLabelText(/^Patient’s Health ID/), { target: { value: 'HID-7KQ2M9' } })) {
+    open()
+    const incoming = (await screen.findByRole('heading', { name: 'Incoming (1)' })).closest('section')!
+    fireEvent.click(within(incoming).getByRole('button', { name: 'Accept' }))
+    identify(incoming)
+    routes.incoming.mockResolvedValue({ items: [], crossFacilityOrders: true, crossFacilityWork: true })
+    fireEvent.click(within(incoming).getByRole('button', { name: 'Accept order' }))
+    await within(incoming).findByText(/^Accepted: /)
+    return incoming
+  }
+  const openLab = () => render(<MemoryRouter><Laboratory /></MemoryRouter>)
+
+  function fill(incoming: HTMLElement, { reason = 'I picked another patient’s order from the list', note = '  Two patients with the same date of birth  ', tick = true } = {}) {
+    if (reason) fireEvent.click(within(incoming).getByRole('radio', { name: reason }))
+    fireEvent.change(within(incoming).getByLabelText('What happened, for Health ID support'), { target: { value: note } })
+    if (tick) fireEvent.click(within(incoming).getByRole('checkbox'))
+  }
+
+  beforeEach(() => {
+    routes.accept.mockResolvedValue(ACCEPTED)
+    routes.reportWrongPatient.mockResolvedValue(ENDED)
+  })
+
+  it('leads with the check that the person is the patient, then the button, then the form', async () => {
+    const incoming = await acceptAt(openLab)
+    const check = within(incoming).getByText('Check that the person in front of you is Tunde Bello, born 12 Mar 1985, before you take '
+      + 'a sample or hand over any medicine. If they are not, end this order now.')
+    const button = within(incoming).getByRole('button', { name: 'This isn’t the order’s patient' })
+    const accepted = within(incoming).getByText('Accepted: Haemoglobin.')
+    const panel = check.closest('.staff-notice') as HTMLElement
+    const order = [...panel.querySelectorAll('*')]
+    expect(order.indexOf(check)).toBeLessThan(order.indexOf(button))
+    expect(order.indexOf(button)).toBeLessThan(order.indexOf(accepted))
+    fireEvent.click(button)
+    const form = within(incoming).getByRole('form', { name: 'End this order: accepted for the wrong person' })
+    expect(within(form).getByText('Tunde Bello is the patient on this order. Use this only if the person you accepted it for is someone else.')).toBeTruthy()
+    expect(within(form).getByText('If you can’t do the test, don’t use this either: phone General Hospital.')).toBeTruthy()
+    expect(within(form).queryByText(/collecting for/)).toBeNull()
+    expect([...form.querySelectorAll('ul li')].map(item => item.textContent)).toEqual([
+      'You stop seeing Tunde Bello’s details and this order at once, and nothing more can be recorded on it.',
+      'Any result you released on it is marked entered in error, and General Hospital is shown not to use it.',
+      'Tunde Bello is told in the Health ID app. General Hospital sees it on the order, but Health ID does not alert them: you must phone them.',
+      'Health ID support reviews every report. This can’t be undone.'])
+    expect(within(form).getAllByRole('radio').map(radio => radio.closest('label')!.textContent!.trim())).toEqual([
+      'I picked another patient’s order from the list', 'The person gave someone else’s Health ID or date of birth',
+      'I think the person was pretending to be the patient', 'The person was not the patient for another reason'])
+    expect(within(form).getByText(/^8 to 500 characters\. Describe what happened at the counter\. Support reads this; the patient and General Hospital don’t\./)).toBeTruthy()
+    expect(within(form).getByRole('checkbox', { name: 'The person I accepted this order for is not Tunde Bello.' })).toBeTruthy()
+    // Prevention first: the panel's own wording is the receiver's, never sent anywhere.
+    expect(routes.reportWrongPatient).not.toHaveBeenCalled()
+  })
+
+  it('sends nothing until what happened, the note and the confirmation are given, then ends the order with one key', async () => {
+    const incoming = await acceptAt(openLab)
+    fireEvent.click(within(incoming).getByRole('button', { name: 'This isn’t the order’s patient' }))
+    const end = () => fireEvent.click(within(incoming).getByRole('button', { name: 'End this order' }))
+    end()
+    expect(await within(incoming).findByText('Choose what happened.')).toBeTruthy()
+    fill(incoming, { note: ' short  ', tick: false })
+    end()
+    expect(await within(incoming).findByText('Describe what happened in 8 to 500 characters.')).toBeTruthy()
+    fill(incoming, { reason: '', tick: false })
+    end()
+    expect(await within(incoming).findByText('Tick the box to confirm that the person was not the patient.')).toBeTruthy()
+    expect(routes.reportWrongPatient).not.toHaveBeenCalled()
+    fireEvent.click(within(incoming).getByRole('checkbox'))
+    api.labWorkItems.mockClear()
+    end()
+    const message = await screen.findByText('Ended: Haemoglobin, reference 9C1B2D3E. Tunde Bello is told in the Health ID app.')
+    expect(routes.reportWrongPatient).toHaveBeenCalledTimes(1)
+    expect(routes.reportWrongPatient).toHaveBeenCalledWith('facility-1', 'lab', { id: ROUTE, version: 2 },
+      { reason: 'wrong_order_chosen', note: 'Two patients with the same date of birth' }, expect.stringMatching(/^[0-9a-f-]{36}$/))
+    // The message replaces the panel and stays until closed; the work list is read again, and the order leaves it.
+    const said = message.closest('.staff-notice') as HTMLElement
+    expect(said.textContent).toContain('Health ID shows this to General Hospital on the order but does not alert them. Phone '
+      + 'General Hospital if the test is urgent, so they can send a new order.')
+    expect(said.textContent).toContain('Set aside any specimen taken for it, following your laboratory’s procedure: it is not Tunde Bello’s.')
+    expect(said.textContent).toContain('This order leaves your work list when it refreshes.')
+    expect(said.textContent).not.toContain('Next time, ask for the order’s reference')
+    expect(within(incoming).queryByText('Accepted: Haemoglobin.')).toBeNull()
+    expect(document.activeElement).toBe(message)
+    await waitFor(() => expect(api.labWorkItems).toHaveBeenCalled())
+    fireEvent.click(within(said).getByRole('button', { name: 'Close' }))
+    expect(screen.queryByText(/^Ended: Haemoglobin/)).toBeNull()
+  })
+
+  it('says to phone now when a result had already gone back', async () => {
+    routes.reportWrongPatient.mockResolvedValue({ ...ENDED, route: { ...ENDED.route, effectiveState: 'completed' }, resultsVoided: 1,
+      resultReportsMarked: 1 })
+    const incoming = await acceptAt(openLab)
+    fireEvent.click(within(incoming).getByRole('button', { name: 'This isn’t the order’s patient' }))
+    fill(incoming)
+    fireEvent.click(within(incoming).getByRole('button', { name: 'End this order' }))
+    expect(await screen.findByText('Health ID shows this to General Hospital on the order but does not alert them. Phone General '
+      + 'Hospital now: a result had already gone back to them.')).toBeTruthy()
+  })
+
+  it('keeps the key for the same report after no answer, and takes a new one once the report changes', async () => {
+    routes.reportWrongPatient.mockRejectedValue(new HidApiError(503, 'Down', { code: 'UPSTREAM_UNAVAILABLE' }))
+    const incoming = await acceptAt(openLab)
+    fireEvent.click(within(incoming).getByRole('button', { name: 'This isn’t the order’s patient' }))
+    fill(incoming)
+    fireEvent.click(within(incoming).getByRole('button', { name: 'End this order' }))
+    expect(await within(incoming).findByText('Health ID did not answer, so it may or may not have ended. Refresh the list and check.')).toBeTruthy()
+    fireEvent.click(within(incoming).getByRole('button', { name: 'End this order' }))
+    await waitFor(() => expect(routes.reportWrongPatient).toHaveBeenCalledTimes(2))
+    fireEvent.change(within(incoming).getByLabelText('What happened, for Health ID support'), { target: { value: 'Another description of it' } })
+    fireEvent.click(within(incoming).getByRole('button', { name: 'End this order' }))
+    await waitFor(() => expect(routes.reportWrongPatient).toHaveBeenCalledTimes(3))
+    const keys = routes.reportWrongPatient.mock.calls.map(call => call[4] as string)
+    expect(keys[1]).toBe(keys[0])
+    expect(keys[2]).not.toBe(keys[0])
+  })
+
+  it('reads the order again after 412 and keeps the form open at its new version', async () => {
+    routes.reportWrongPatient.mockRejectedValueOnce(new HidApiError(412, 'Changed', { code: 'VERSION_CONFLICT' }))
+    routes.get.mockResolvedValue({ ...incomingLab({ version: 5, effectiveState: 'completed' }) })
+    const incoming = await acceptAt(openLab)
+    fireEvent.click(within(incoming).getByRole('button', { name: 'This isn’t the order’s patient' }))
+    fill(incoming)
+    fireEvent.click(within(incoming).getByRole('button', { name: 'End this order' }))
+    expect(await within(incoming).findByText('Something was recorded on this order a moment ago. It has been reloaded: check what '
+      + 'will happen and try again.')).toBeTruthy()
+    expect(routes.get).toHaveBeenCalledWith('facility-1', 'lab', ROUTE)
+    expect(within(incoming).getByRole('form', { name: 'End this order: accepted for the wrong person' })).toBeTruthy()
+    fireEvent.click(within(incoming).getByRole('button', { name: 'End this order' }))
+    await waitFor(() => expect(routes.reportWrongPatient).toHaveBeenCalledTimes(2))
+    expect(routes.reportWrongPatient.mock.calls[1]![2]).toEqual({ id: ROUTE, version: 5 })
+    expect(routes.reportWrongPatient.mock.calls[1]![4]).not.toBe(routes.reportWrongPatient.mock.calls[0]![4])
+  })
+
+  it.each([
+    [new HidApiError(409, 'Ended', { code: 'ORDER_ROUTE_ALREADY_ENDED' }), 'This order has already ended, so it can’t be ended here. '
+      + 'If a result or dispensing had gone back, phone General Hospital and tell Health ID support.'],
+    [new HidApiError(403, 'Permission', { code: 'ORDER_ROUTE_CORRECTION_PERMISSION_REQUIRED' }), 'Results were recorded on this '
+      + 'order, and your role can’t mark results entered in error. Ask a laboratory scientist to end it.'],
+    [new HidApiError(409, 'Raced', { code: 'ORDER_ROUTE_CHANGED_CONCURRENTLY' }), 'Someone changed this order at the same moment. Try again.'],
+    [new HidApiError(423, 'Paused', { code: 'CROSS_FACILITY_ORDERS_UNAVAILABLE' }), 'Health ID has paused work on orders from other '
+      + 'facilities, so this can’t be done now. Try again when it resumes, and tell Health ID support now. Don’t ask support to '
+      + 'close the order: closing it stops you withdrawing anything you sent back.'],
+    [new HidApiError(404, 'Missing', { code: 'API_ROUTE_NOT_FOUND' }), 'Ending an order for the wrong person isn’t available yet. '
+      + 'Tell Health ID support, and phone General Hospital.'],
+  ])('says the refusal %#, and the order stays as it is', async (refusal, says) => {
+    routes.reportWrongPatient.mockRejectedValue(refusal)
+    const incoming = await acceptAt(openLab)
+    fireEvent.click(within(incoming).getByRole('button', { name: 'This isn’t the order’s patient' }))
+    fill(incoming)
+    fireEvent.click(within(incoming).getByRole('button', { name: 'End this order' }))
+    expect((await within(incoming).findByRole('alert')).textContent).toBe(says)
+    expect(within(incoming).getByText('Accepted: Haemoglobin.')).toBeTruthy()
+    expect(screen.queryByText(/^Ended: /)).toBeNull()
+  })
+
+  it('at a pharmacy, says that someone collecting for the patient is not the wrong person, and after a date of birth alone, to ask for the reference', async () => {
+    working.permissions = PHARMACIST
+    working.selfService = { review: 'reviewed', organizationType: 'pharmacy' }
+    routes.incoming.mockResolvedValue({ items: [incomingRx()], crossFacilityOrders: true, crossFacilityWork: true })
+    routes.accept.mockResolvedValue({ ...ACCEPTED, clinicalInformation: undefined, instructions: 'Take with food' })
+    const incoming = await acceptAt(() => render(<MemoryRouter><Pharmacy /></MemoryRouter>), panel => {
+      fireEvent.click(within(panel).getByRole('radio', { name: 'Date of birth' }))
+      fireEvent.change(within(panel).getByLabelText(/^Patient’s date of birth/), { target: { value: '1985-03-12' } })
+      fireEvent.change(within(panel).getByLabelText(/^Reason for accepting/), { target: { value: 'Patient at the counter' } })
+    })
+    fireEvent.click(within(incoming).getByRole('button', { name: 'This isn’t the order’s patient' }))
+    const form = within(incoming).getByRole('form', { name: 'End this order: accepted for the wrong person' })
+    expect(within(form).getByText('Someone collecting for Tunde Bello with their agreement is not the wrong person: don’t use this for them.')).toBeTruthy()
+    expect(within(form).getByText('If you can’t do the medicine, don’t use this either: phone General Hospital.')).toBeTruthy()
+    expect(within(form).queryByText(/marked entered in error/)).toBeNull()
+    expect(within(form).queryByText(/dispensing you recorded/)).toBeNull()
+    fill(incoming, { reason: 'I think the person was pretending to be the patient', note: 'Gave a Health ID card that was not theirs', tick: false })
+    fireEvent.click(within(form).getByRole('checkbox', { name: 'The person I accepted this order for is not Tunde Bello, and was not collecting it for them.' }))
+    fireEvent.click(within(form).getByRole('button', { name: 'End this order' }))
+    const message = await screen.findByText('Ended: Amoxicillin 500 mg capsules, reference 9C1B2D3E. Tunde Bello is told in the Health ID app.')
+    expect(routes.reportWrongPatient).toHaveBeenCalledWith('facility-1', 'pharmacy', { id: ROUTE, version: 2 },
+      { reason: 'suspected_misuse', note: 'Gave a Health ID card that was not theirs' }, expect.any(String))
+    const said = message.closest('.staff-notice') as HTMLElement
+    expect(said.textContent).toContain('If medicine was handed over, try to get it back and follow your pharmacy’s incident procedure.')
+    expect(said.textContent).toContain('Next time, ask for the order’s reference with the date of birth: it shows in the patient’s Health ID app.')
+  })
+})
+

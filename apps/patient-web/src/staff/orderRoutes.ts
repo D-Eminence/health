@@ -1,5 +1,8 @@
 import { isHidApiError } from '@hid/http'
-import type { Facility, OrderRouteDeclineReason, OrderRouteKind, OrderRouteSummary, OrderRouteWithdrawReason, ReceivingService } from './api'
+import type {
+  Facility, OrderRouteDeclineReason, OrderRouteKind, OrderRoutePatient, OrderRouteSummary, OrderRouteWithdrawReason,
+  OrderRouteWrongPatientReason, ReceivingService, WorkItemOrderRoute,
+} from './api'
 import { usesNovuBackend } from '../backendContract'
 import { selfServiceReview, selfServiceType } from './staffAccess'
 
@@ -100,6 +103,11 @@ export function routeStatusText(route: OrderRouteSummary, patient: string): { te
     case 'accepted':
       return { tone: 'success', text: `Accepted by ${facility} on ${routeDay(route.acceptedAt)}.` }
     case 'completed':
+      // The receiving facility reports it accepted the order for the wrong person (item 3, §9.2): what came back is not
+      // the patient's, and has been withdrawn.
+      if (route.endedKind === 'wrong_patient') return { tone: 'warning', text: route.kind === 'lab_request'
+        ? `${facility} reports that the results it released belong to someone else, and has ended it. Do not use them.`
+        : `${facility} reports that it dispensed this to someone who was not ${patient}, and has ended it.` }
       return { tone: 'success', text: route.kind === 'lab_request'
         ? `Results released by ${facility}${route.completedAt ? ` on ${routeDay(route.completedAt)}` : ''}.`
         : `Dispensed by ${facility}${route.completedAt ? ` on ${routeDay(route.completedAt)}` : ''}.` }
@@ -112,7 +120,7 @@ export function routeStatusText(route: OrderRouteSummary, patient: string): { te
         ? `Accepted by ${facility} on ${routeDay(route.acceptedAt)}; nothing came back within 30 days.`
         : `Not accepted by ${facility} within 7 days. Send it elsewhere.` }
     case 'cancelled':
-      return { tone: 'warning', text: cancelledText(route, facility) }
+      return { tone: 'warning', text: cancelledText(route, facility, patient) }
     default:
       return { tone: 'neutral', text: `Sent to ${facility}: ${route.effectiveState.replaceAll('_', ' ')}.` }
   }
@@ -131,8 +139,10 @@ function withdrawnText(route: OrderRouteSummary, facility: string, patient: stri
   }
 }
 
-function cancelledText(route: OrderRouteSummary, facility: string): string {
+function cancelledText(route: OrderRouteSummary, facility: string, patient: string): string {
   switch (route.endedKind) {
+    case 'wrong_patient': return `${facility} reports that it accepted this for someone who was not ${patient}, and has ended it. `
+      + 'Nothing came back from it.'
     case 'order_changed': return `Cancelled at ${facility} because the order changed.`
     case 'entered_in_error': return `Cancelled at ${facility} because the order was marked entered in error.`
     case 'receiving_released': return `Cancelled: ${facility} is no longer on Health ID.`
@@ -140,6 +150,40 @@ function cancelledText(route: OrderRouteSummary, facility: string): string {
     case 'support': return `Cancelled at ${facility} by Health ID support.`
     default: return `Cancelled at ${facility}.`
   }
+}
+
+/**
+ * The red notice under an order whose receiving facility reports it accepted it for someone who was not the patient
+ * (item 3, §9.2): the order can't be sent again (D5), and, when something had come back, what to do about it. The words
+ * say what the facility reports, never that it is so (C3).
+ */
+export function wrongPatientNotice(route: Pick<OrderRouteSummary, 'kind' | 'effectiveState' | 'receivingFacility'>,
+  patient: string): string[] {
+  const facility = named(route.receivingFacility.name)
+  const lines = [`This order can’t be sent again. Write a new ${orderWord(route.kind)} if ${patient} still needs it.`]
+  if (route.effectiveState === 'completed') lines.push(route.kind === 'lab_request'
+    ? `Do not use any result from ${facility} on this order: ${facility} reports they are another person’s. ${patient} has `
+      + `not been tested: repeat the test if it is still needed. If you acted on a result, review ${patient}’s care. Tell `
+      + `${patient} that a result they may have seen was not theirs.`
+    : `${facility} reports that ${patient} did not receive this medicine from it. Check with ${patient} before you prescribe it `
+      + 'again, especially a controlled medicine.')
+  return lines
+}
+
+/**
+ * The warning where a clinician changes an order sent to another facility (Novu, P4c): its change is passed on there
+ * (the EHR's mirror trigger), withdrawing it before that facility accepts it, or cancelling it there after. While that
+ * facility may still work on it (accepted, or completed and not ended), changing it also stops that facility from
+ * withdrawing a result or dispensing it sent back for the wrong person (item 3, C1, §9.2), so the clinician is asked to
+ * have it ended there first.
+ */
+export function routedChangeWarning(route: Pick<OrderRouteSummary, 'receivingFacility' | 'effectiveState' | 'endedAt'>
+  | null | undefined, patient: string): string {
+  const name = route?.receivingFacility.name?.trim() || 'the other facility'
+  const change = `Changing it withdraws it from ${name}, or cancels it there if ${name} has accepted it; a cancelled order can’t be resumed there.`
+  const working = Boolean(route && (route.effectiveState === 'accepted' || route.effectiveState === 'completed') && !route.endedAt)
+  return working ? `${change} If ${name} accepted it for someone who was not ${patient}, ask ${name} to end it from its work `
+    + `list first: once you change this order, ${name} can no longer withdraw a result or dispensing it sent back.` : change
 }
 
 /** Said under a route whose receiving facility is not eligible now (suspended, released or unlisted). */
@@ -336,6 +380,143 @@ export function acceptRefusal(error: unknown, orderingFacility: string, facility
   if (isHidApiError(error) && error.status === 403) return { text: 'Your role at this facility can’t accept orders from other facilities.' }
   if (unanswered(error)) return { reload: true, text: 'Health ID did not answer, so the order may or may not have been accepted. The list has been reloaded: check it before trying again.' }
   return { text: 'The order could not be accepted. Try again.' }
+}
+
+/** What happened, in the receiving facility's words (item 3, §9.1; D6, and D18's "another reason"). */
+export const WRONG_PATIENT_REASONS: ReadonlyArray<{ value: OrderRouteWrongPatientReason; label: string }> = [
+  { value: 'wrong_order_chosen', label: 'I picked another patient’s order from the list' },
+  { value: 'someone_elses_details', label: 'The person gave someone else’s Health ID or date of birth' },
+  { value: 'suspected_misuse', label: 'I think the person was pretending to be the patient' },
+  { value: 'other', label: 'The person was not the patient for another reason' },
+]
+
+/**
+ * The Accepted panel's first line (item 3, C8, §9.1): the patient the order names, to check against the person at the
+ * counter before any work, now that the receiver first sees who it is.
+ */
+export function acceptedCheckText(patient: Pick<OrderRoutePatient, 'fullName' | 'dateOfBirth'> | null | undefined): string {
+  const who = patient?.fullName?.trim()
+    ? `${patient.fullName.trim()}${patient.dateOfBirth ? `, born ${calendarDate(patient.dateOfBirth)}` : ''}`
+    : 'the order’s patient, named in the work list below'
+  return `Check that the person in front of you is ${who}, before you take a sample or hand over any medicine. If they are `
+    + 'not, end this order now.'
+}
+
+/** Beside Prepare accession on work from another facility (item 3, C8). */
+export function sampleCheckText(patient: string): string {
+  return `Check that the person is ${patient} before you take a sample.`
+}
+
+/** Above Record full dispensing on work from another facility (item 3, C8). */
+export function handOverCheckText(patient: string): string {
+  return `Check that the person is ${patient}, or is collecting for them, before you hand anything over.`
+}
+
+/**
+ * What the receiving facility is told once it has ended an order it accepted for the wrong person (item 3, §9.1; C2,
+ * C10): kept on screen until closed. `returned` says whether a result or dispensing had already gone back to the ordering
+ * facility; `dateOfBirthOnly` that it was accepted with a date of birth and no reference.
+ */
+export function wrongPatientEndedLines({ service, title, reference, patient, ordering, returned, dateOfBirthOnly = false }: {
+  service: ReceivingService; title: string; reference: string | null | undefined; patient: string | null | undefined
+  ordering: string; returned: boolean; dateOfBirthOnly?: boolean
+}): string[] {
+  const lab = service === 'lab'
+  const who = patient?.trim() || 'The patient'
+  const theirs = patient?.trim() || 'the patient'
+  const lines = [`Ended: ${title}${reference ? `, reference ${reference}` : ''}. ${who} is told in the Health ID app.`,
+    returned
+      ? `Health ID shows this to ${ordering} on the order but does not alert them. Phone ${ordering} now: a `
+        + `${lab ? 'result' : 'dispensing'} had already gone back to them.`
+      : `Health ID shows this to ${ordering} on the order but does not alert them. Phone ${ordering} if the `
+        + `${lab ? 'test' : 'medicine'} is urgent, so they can send a new order.`]
+  if (lab) lines.push(
+    `Set aside any specimen taken for it, following your laboratory’s procedure: it is not ${theirs}’s.`,
+    'If any value was critical, tell the person or their clinician directly, following your laboratory’s procedure.',
+    'The test can’t be reported to the other person through this order. If they have their own order, find it under '
+      + 'Incoming with their Health ID.')
+  else lines.push(
+    'If medicine was handed over, try to get it back and follow your pharmacy’s incident procedure.',
+    'If the person may have taken it, advise them to get medical advice.',
+    'If they have their own prescription, find it under Incoming with their Health ID.')
+  if (dateOfBirthOnly) lines.push('Next time, ask for the order’s reference with the date of birth: it shows in the patient’s '
+    + 'Health ID app.')
+  lines.push('This order leaves your work list when it refreshes.')
+  return lines
+}
+
+/**
+ * What a work row says of an order from another facility that has ended, by how it ended (item 3, §8.1; B1): seen only
+ * by a member who still holds the patient's own consent here. It no longer says the ordering facility cancelled an order
+ * that support, a release or this facility ended. Null while the route is live, and for an ending the row says otherwise.
+ */
+export function routedWorkEndedText(route: Pick<WorkItemOrderRoute, 'effectiveState' | 'endedKind' | 'orderingFacilityName'>): string | null {
+  const facility = named(route.orderingFacilityName, 'the ordering facility')
+  switch (route.endedKind) {
+    case 'wrong_patient': return 'You ended this order: it was accepted for someone who is not its patient. Nothing more can be '
+      + 'recorded on it.'
+    case 'support': return 'Closed by Health ID support: stop work.'
+    case 'order_changed': case 'entered_in_error': return `Cancelled by ${facility}: stop work.`
+    case 'receiving_released': case 'ordering_released':
+      return `${facility.charAt(0).toUpperCase()}${facility.slice(1)} or this facility is no longer on Health ID: stop work.`
+    default: return route.effectiveState === 'cancelled' ? 'This order was cancelled: stop work.' : null
+  }
+}
+
+/**
+ * Whether the services would refuse a write on a work row's order as closed (item 3, B3): cancelled or lapsed, or
+ * ended as accepted for the wrong person, whatever its state. Only then are the row's write actions hidden; reading
+ * (Open accession) never is.
+ */
+export function routeClosedForWork(route: Pick<WorkItemOrderRoute, 'effectiveState' | 'endedKind'> | null | undefined): boolean {
+  return Boolean(route && (route.effectiveState === 'cancelled' || route.effectiveState === 'expired'
+    || route.endedKind === 'wrong_patient'))
+}
+
+/**
+ * Whether a work row offers "This isn't the order's patient" (item 3, §8.1): work the route still allows, from a backend
+ * that sends the route's version (hid-system 0088; an earlier one sends none, so the row stays as it was), not ended, for
+ * a member holding the kind's receive permission.
+ */
+export function wrongPatientOffered(route: WorkItemOrderRoute | null | undefined, permissions: readonly string[],
+  service: ReceivingService): route is WorkItemOrderRoute & { version: number } {
+  return Boolean(route && route.access === 'work' && typeof route.version === 'number' && Number.isSafeInteger(route.version)
+    && route.version >= 1 && !route.endedKind
+    && permissions.includes(service === 'lab' ? 'lab.order-route.receive' : 'pharmacy.order-route.receive'))
+}
+
+/**
+ * What a refused wrong-patient report means (item 3, §9.1). `reload` says the list is out of date; `stale` that the
+ * route moved on (412): read it again and show the form refreshed; `unanswered` that no answer came, so the order may or
+ * may not have ended.
+ */
+export function wrongPatientRefusal(error: unknown, service: ReceivingService, ordering: string):
+  { text: string; reload?: boolean; stale?: boolean; unanswered?: boolean } {
+  if (!isHidApiError(error) && error instanceof Error && error.message) return { text: error.message }
+  if (isCode(error, 'ORDER_ROUTE_ALREADY_ENDED')) return { reload: true, text: 'This order has already ended, so it can’t be '
+    + `ended here. If a result or dispensing had gone back, phone ${ordering} and tell Health ID support.` }
+  if (isCode(error, 'ORDER_ROUTE_NOT_ACCEPTED')) return { reload: true,
+    text: 'This order hasn’t been accepted, so there is nothing to end: decline it instead.' }
+  if (isHidApiError(error) && error.status === 412) return { stale: true,
+    text: 'Something was recorded on this order a moment ago. It has been reloaded: check what will happen and try again.' }
+  if (isCode(error, 'ORDER_ROUTE_CHANGED_CONCURRENTLY')) return { text: 'Someone changed this order at the same moment. Try again.' }
+  if (isCode(error, 'ORDER_ROUTE_CORRECTION_PERMISSION_REQUIRED')) return { text: service === 'lab'
+    ? 'Results were recorded on this order, and your role can’t mark results entered in error. Ask a laboratory scientist to end it.'
+    : 'A dispensing was recorded on this order, and your role can’t reverse dispensings. Ask a pharmacist to end it.' }
+  if (isCode(error, 'IDEMPOTENCY_KEY_REUSED')) return { reload: true,
+    text: 'This report was already sent with other details. Refresh the list and check whether the order has ended.' }
+  if (routeMissing(error)) return { text: 'Ending an order for the wrong person isn’t available yet. Tell Health ID support, '
+    + `and phone ${ordering}.` }
+  if (isHidApiError(error) && error.status === 404) return { reload: true, text: 'This order was not found here. Refresh the list.' }
+  if (paused(error)) return { text: 'Health ID has paused work on orders from other facilities, so this can’t be done now. Try '
+    + 'again when it resumes, and tell Health ID support now. Don’t ask support to close the order: closing it stops you '
+    + 'withdrawing anything you sent back.' }
+  if (isHidApiError(error) && error.status === 403) return { text: 'Your role can’t end orders from other facilities.' }
+  if (isHidApiError(error) && error.status === 400) return { text: 'Check what you entered: choose what happened, and describe '
+    + 'it for Health ID support in 8 to 500 characters.' }
+  if (unanswered(error)) return { reload: true, unanswered: true,
+    text: 'Health ID did not answer, so it may or may not have ended. Refresh the list and check.' }
+  return { text: 'The order could not be ended. Try again.' }
 }
 
 /** What a refused decline means. */
