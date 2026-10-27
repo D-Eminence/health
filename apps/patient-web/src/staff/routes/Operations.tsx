@@ -183,7 +183,8 @@ function LabWorkRow({ facilityId, item, permissions, said, onOpen, onEnded, onNo
       facilityId={facilityId} route={{ id: route.id, version: route.version, reference: route.reference }} title={title}
       patient={item.patient?.fullName ?? null} ordering={ordering}
       cannotComplete={cannotComplete ? { priority: item.priority ?? null, accession: Boolean(item.accessionId),
-        specimenStatuses: Array.isArray(item.specimenStatuses) ? item.specimenStatuses : [] } : null}
+        acceptedAt: item.acceptedAt ?? null, specimenStatuses: Array.isArray(item.specimenStatuses) ? item.specimenStatuses : [] }
+        : null}
       onReread={(mode, text) => onReread(route.id, mode, text)}
       onWrongPatientEnded={result => onEnded({ service: 'lab', title, reference: route.reference,
         patient: item.patient?.fullName ?? null, ordering, result, dateOfBirthOnly: false })}

@@ -574,7 +574,9 @@ form keeps its words in the row, with focus there, or above the list when the
 row is gone; item 3's row form keeps its words the same way. Each ending is
 said in its own neutral entry above the work list until closed; the row then
 says this facility couldn't complete it, and leaves the list when its reads
-end (at once unless a laboratory had opened an accession); the Accepted panel
+end (at once unless a laboratory had opened an accession; then 7 days later,
+or when the order's 30 days end if that is sooner, which the form says); the
+Accepted panel
 of an order ended from its row closes. The accession of routed work whose
 order no longer lets the laboratory record (`routeClosedForWork`, also an
 order cancelled after it changed) is shown to be read: no specimen step,

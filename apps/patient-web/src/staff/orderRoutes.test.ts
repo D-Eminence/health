@@ -3,7 +3,8 @@ import { HidApiError } from '@hid/http'
 import { findEndpoint, ORDER_ROUTE_CANNOT_COMPLETE_REASONS } from '@hid/contracts'
 import type { OrderRouteNotCompleted, OrderRouteSummary, WorkItemOrderRoute } from './api'
 import {
-  cannotCompleteEndedLines, cannotCompleteMustPhone, cannotCompleteOffered, cannotCompleteRefusal, cannotCompleteReasons,
+  cannotCompleteEndedLines, cannotCompleteMustPhone, cannotCompleteOffered, cannotCompleteReadText, cannotCompleteRefusal,
+  cannotCompleteReasons,
   correctableRoutes as correctableRows, LAB_CANNOT_COMPLETE_REASONS, lateCorrectionRowLines, notCompletedOf, notCompletedText,
   PHARMACY_CANNOT_COMPLETE_REASONS,
 } from './orderRoutes'
@@ -642,6 +643,22 @@ describe('“We can’t complete this order”: the receiving facility’s words
     // A prescription has no priority: the pharmacy never phones because of one.
     expect(cannotCompleteMustPhone('pharmacy', 'out_of_stock', 'stat')).toBe(false)
     expect(cannotCompleteMustPhone('lab', '', 'routine')).toBe(false)
+  })
+
+  it('says how long the laboratory still reads the order: 7 days, never past its 30 days, or not at all (D18-2)', () => {
+    const now = Date.parse('2026-10-27T10:15:00.000Z')
+    const read = (accession: boolean | undefined, acceptedAt: string | null, lab = true) =>
+      cannotCompleteReadText({ lab, accession, acceptedAt, patient: 'Tunde Bello', now })
+    expect(read(true, '2026-10-21T10:00:00.000Z')).toBe('You can still read it for 7 days.')
+    // Accepted 25 days ago: its 30 days end in 5, and so do the reads.
+    expect(read(true, '2026-10-02T10:15:00.000Z')).toBe('You can still read it until 1 Nov 2026, 11:15, when its 30 days end.')
+    expect(read(true, null)).toBe('You can still read it for up to 7 days, and never after its 30 days end.')
+    expect(read(undefined, '2026-10-02T10:15:00.000Z')).toBe('If you opened an accession on it, you can still read it until '
+      + '1 Nov 2026, 11:15, when its 30 days end; otherwise you stop seeing Tunde Bello’s details on this order at once.')
+    expect(read(undefined, '2026-10-21T10:00:00.000Z')).toBe('If you opened an accession on it, you can still read it for 7 days; '
+      + 'otherwise you stop seeing Tunde Bello’s details on this order at once.')
+    expect(read(false, '2026-10-02T10:15:00.000Z')).toBe('You stop seeing Tunde Bello’s details on this order at once.')
+    expect(read(true, '2026-10-02T10:15:00.000Z', false)).toBe('You stop seeing Tunde Bello’s details on this order at once.')
   })
 
   it('says every refusal, whether the list is read again, and keeps the form and its key without an answer', () => {

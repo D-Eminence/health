@@ -885,10 +885,35 @@ export function cannotCompleteRefusal(error: unknown, service: ReceivingService,
   return { text: 'The order could not be ended. Try again.' }
 }
 
+/** An accepted order's time for work, from its acceptance (0086's 30 days): the laboratory's reads never last past it. */
+const WORK_WINDOW_MS = 30 * 24 * 60 * 60 * 1000
+const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000
+
+/**
+ * What the form says of the laboratory's reading once it has ended the order (D18-2, SPEC-FINAL §4.6): it ends at once
+ * without an accession (always at a pharmacy); with one it lasts 7 more days, but never past the order's 30 days of work
+ * from its acceptance (the ending only shortens it), so an order ended late in its window says when the reading ends.
+ * `accession` undefined: the page can't tell (the lookup), and both cases are said. Without the acceptance time, "up to".
+ */
+export function cannotCompleteReadText({ lab, accession, acceptedAt, patient, now = Date.now() }: {
+  lab: boolean; accession?: boolean; acceptedAt?: string | null; patient: string; now?: number
+}): string {
+  const atOnce = `you stop seeing ${patient}’s details on this order at once.`
+  if (!lab || accession === false) return `You stop seeing ${patient}’s details on this order at once.`
+  const accepted = acceptedAt ? Date.parse(acceptedAt) : Number.NaN
+  const windowEnds = Number.isFinite(accepted) ? accepted + WORK_WINDOW_MS : Number.NaN
+  const kept = !Number.isFinite(windowEnds) ? 'for up to 7 days, and never after its 30 days end'
+    : windowEnds < now + SEVEN_DAYS_MS ? `until ${routeMoment(new Date(windowEnds).toISOString())}, when its 30 days end`
+      : 'for 7 days'
+  return accession === true ? `You can still read it ${kept}.`
+    : `If you opened an accession on it, you can still read it ${kept}; otherwise ${atOnce}`
+}
+
 /**
  * What the receiving facility is told once it has ended an order it couldn't complete (D18, SPEC-FINAL §9.1): kept on
  * screen until closed. Whom to phone and when (D18-8), what to do with a sample, a critical value, how long the order
- * stays on the work list (`readUntil`: reads kept 7 days only when a laboratory had opened an accession, D18-2), and
+ * stays on the work list (`readUntil`: reads kept up to 7 days, never past the order's 30 days, only when a laboratory had
+ * opened an accession, D18-2), and
  * where to go if it was the wrong person after all.
  */
 export function cannotCompleteEndedLines({ service, title, reference, patient, ordering, reason, priority, result, now = Date.now() }: {

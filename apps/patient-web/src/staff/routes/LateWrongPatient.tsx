@@ -388,7 +388,7 @@ export function LateWrongPatient({ service, facilityId, onEnded, onCorrected, on
             : open?.mode === 'cannot_complete' && offersCannotComplete
               ? <CannotCompleteForm id={`${rowId}-cannot-complete`} service={service} facilityId={facilityId}
                 route={{ id: route.id, version: route.version, reference: route.reference }} patient={open.patient}
-                ordering={ordering} priority={open.priority}
+                ordering={ordering} priority={open.priority} acceptedAt={route.acceptedAt}
                 onStale={said => again({ routeId: route.id, keeps: 'cannot_complete', text: said })}
                 onReload={said => again({ routeId: route.id, keeps: 'cannot_complete', text: said })}
                 onCancel={() => close(route.id, 'cannot-complete-open')}

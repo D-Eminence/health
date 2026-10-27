@@ -5,7 +5,9 @@ import {
   orderRoutesApi, type OrderRouteCannotCompleteReason, type OrderRouteNotCompleted, type OrderRouteWrongPatientEnded,
   type ReceivingService,
 } from '../api'
-import { cannotCompleteEndedLines, cannotCompleteMustPhone, cannotCompleteReasons, cannotCompleteRefusal } from '../orderRoutes'
+import {
+  cannotCompleteEndedLines, cannotCompleteMustPhone, cannotCompleteReadText, cannotCompleteReasons, cannotCompleteRefusal,
+} from '../orderRoutes'
 import { BUSY, QUIET_UNAVAILABLE, UNAVAILABLE } from '../focus'
 import { learnCannotCompleteServed, useCannotCompleteServed } from '../../cannotCompleteServed'
 import { ItemName } from '../../ItemName'
@@ -58,13 +60,15 @@ export function endingKey(routeId: string): string {
   return `${routeId}-${endings}`
 }
 
-export function CannotCompleteForm({ id, service, facilityId, route, patient, ordering, priority = null, accession, specimenStatuses,
-  onEnded, onStale, onReload, onCancel }: {
+export function CannotCompleteForm({ id, service, facilityId, route, patient, ordering, priority = null, accession, acceptedAt,
+  specimenStatuses, onEnded, onStale, onReload, onCancel }: {
   id: string; service: ReceivingService; facilityId: string; route: CannotCompleteRoute; patient: string | null; ordering: string
   /** Lab: the request's priority (routine, urgent, asap, stat): urgent ones need the phone statement whatever the reason. */
   priority?: string | null
   /** Lab: whether an accession was opened (reads kept 7 days, D18-2), none was (false), or the page can't tell (undefined). */
   accession?: boolean
+  /** When the order was accepted: the reads kept never last past its 30 days of work. */
+  acceptedAt?: string | null
   /** Lab: its specimens' statuses, for whether a rejection can still be recorded first. */
   specimenStatuses?: readonly string[]
   onEnded: (result: OrderRouteNotCompleted, reason: OrderRouteCannotCompleteReason) => void
@@ -161,11 +165,7 @@ export function CannotCompleteForm({ id, service, facilityId, route, patient, or
       with a checked result can’t be ended here.</p>}
     <p><strong>What will happen</strong></p>
     <ul className="staff-order-notes">
-      <li>Nothing more can be recorded on this order. {lab && accession === true ? 'You can still read it for 7 days.'
-        : lab && accession === undefined
-          ? `If you opened an accession on it, you can still read it for 7 days; otherwise you stop seeing ${who}’s details on `
-            + 'this order at once.'
-          : `You stop seeing ${who}’s details on this order at once.`}</li>
+      <li>Nothing more can be recorded on this order. {cannotCompleteReadText({ lab, accession, acceptedAt, patient: who })}</li>
       <li>{lab ? `Nothing you recorded on it is sent to ${ordering}: results you have not released stay in your records only. `
         + `Don’t discard a sample that can still be used until you have spoken to ${ordering}.` : 'Nothing was dispensed on it.'}</li>
       <li>{ordering} sees on the order that you couldn’t complete it, and why. Health ID does not alert them: phone them if it
@@ -233,7 +233,8 @@ export function OrderEndingActions({ base, service, facilityId, route, title, pa
   /** Pharmacy: whether a dispensing it recorded stands, for item 3's form. */
   dispensed?: boolean
   /** Null while the row does not offer D18; else what its form needs to know. */
-  cannotComplete: null | { priority?: string | null; accession?: boolean; specimenStatuses?: readonly string[] }
+  cannotComplete: null | { priority?: string | null; accession?: boolean; acceptedAt?: string | null
+    specimenStatuses?: readonly string[] }
   onWrongPatientEnded: (result: OrderRouteWrongPatientEnded) => void
   onNotCompleted: (result: OrderRouteNotCompleted, reason: OrderRouteCannotCompleteReason) => void
   onReread: (mode: OrderEndingMode, said?: string) => Promise<void> | void
@@ -252,7 +253,8 @@ export function OrderEndingActions({ base, service, facilityId, route, title, pa
     onCancel={() => { setOpened(null); back(`${wrongPatientId}-open`) }} />
   if (shown === 'cannot_complete' && cannotComplete) return <CannotCompleteForm id={cannotCompleteId} service={service}
     facilityId={facilityId} route={route} patient={patient} ordering={ordering} priority={cannotComplete.priority}
-    accession={cannotComplete.accession} specimenStatuses={cannotComplete.specimenStatuses} onEnded={onNotCompleted}
+    accession={cannotComplete.accession} acceptedAt={cannotComplete.acceptedAt} specimenStatuses={cannotComplete.specimenStatuses}
+    onEnded={onNotCompleted}
     onStale={said => onReread('cannot_complete', said)} onReload={said => onReread('cannot_complete', said)}
     onCancel={() => { setOpened(null); back(`${cannotCompleteId}-open`) }} />
   return <>

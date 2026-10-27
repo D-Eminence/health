@@ -682,6 +682,7 @@ describe('application boundaries', () => {
         'ORDER_ROUTE_RESULT_READY', 'ORDER_ROUTE_CRITICAL_VALUE_NOT_TOLD', 'IDEMPOTENCY_KEY_REUSED', 'ORDER_ROUTE_CHANGED_CONCURRENTLY',
         '412 VERSION_CONFLICT', 'CROSS_FACILITY_ORDERS_UNAVAILABLE', '429 ORDER_ROUTE_CANNOT_COMPLETE_LIMIT',
         'problem member retryAfter', '20 per staff member (counted by account, at every facility it belongs to) and 50 per facility',
+        'up to 7 more days (never past its 30 days of work) only when a laboratory had opened an accession',
         'ORDER_ROUTE_UNAVAILABLE', 'ORDER_ROUTE_NOT_COMPLETED']) {
         expect(note, `${name}: ${word}`).toContain(word)
       }
@@ -716,7 +717,7 @@ describe('application boundaries', () => {
       expect(note, name).toContain('a Lab write answers 409 ORDER_ROUTE_CLOSED under the patient\'s own consent and 404 while '
         + 'only the order lets this facility read it')
       expect(note, name).toContain('a dispensing 409 ORDER_ROUTE_CLOSED')
-      expect(note, name).toContain('7 days only when a laboratory had opened an accession')
+      expect(note, name).toContain('up to 7 days (never past the order\'s 30 days) only when a laboratory had opened an accession')
       expect(note, name).not.toContain('receiving_unable (access read while this facility may still read it, every write 409')
     }
     expect(findEndpoint('ehr.myOrderRoutes')?.note).toContain('ORDER_ROUTE_NOT_COMPLETED')

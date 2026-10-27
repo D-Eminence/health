@@ -3,7 +3,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import { Laboratory, Pharmacy } from '../Operations'
-import { forgetReceiving } from '../../orderRoutes'
+import { forgetReceiving, routeMoment } from '../../orderRoutes'
 import { forgetCannotCompleteServed } from '../../../cannotCompleteServed'
 import { forgetLateCorrectionServed } from '../../../lateCorrectionServed'
 import { forgetWrongPatientServed } from '../../../wrongPatientServed'
@@ -51,6 +51,9 @@ const ENDED = { route: { id: ROUTE_ID, version: 4, effectiveState: 'cancelled', 
   criticalCandidates: 0, replayed: false }
 const endedCard = (overrides: Record<string, unknown> = {}) => routeCard({ effectiveState: 'cancelled', access: 'read',
   endedKind: 'receiving_unable', version: 4, ...overrides })
+
+/** An acceptance this many days ago: the reads kept after an ending never last past the order's 30 days (D18-2). */
+const acceptedDaysAgo = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString()
 
 const WP = 'This isn’t the order’s patient'
 const CC = 'We can’t complete this order'
@@ -168,7 +171,8 @@ describe('the button on a routed work row, once served', () => {
 
 describe('the laboratory’s form', () => {
   it('says first that it is not for the wrong person, then what will happen, and asks why, none chosen', async () => {
-    api.labWorkItems.mockResolvedValue(served(labItem({ accessionId: 'acc-1', accessionNumber: 'ACC-1', specimenStatuses: ['collected'] })))
+    api.labWorkItems.mockResolvedValue(served(labItem({ accessionId: 'acc-1', accessionNumber: 'ACC-1', specimenStatuses: ['collected'],
+      acceptedAt: acceptedDaysAgo(6) })))
     const item = await openLab()
     fireEvent.click(await within(item).findByRole('button', { name: `${CC}${NAMED}` }))
     const opened = form(item)
@@ -206,6 +210,23 @@ describe('the laboratory’s form', () => {
     expect(within(opened).queryByRole('checkbox', { name: /We will phone/ })).toBeNull()
     expect(within(opened).queryByText(/collecting/)).toBeNull()
   })
+
+  it('says when the reads kept end once the order’s 30 days end within the 7 (D18-2), and “up to” without its acceptance',
+    async () => {
+      const accepted = acceptedDaysAgo(28)
+      api.labWorkItems.mockResolvedValue(served(labItem({ accessionId: 'acc-1', accessionNumber: 'ACC-1',
+        specimenStatuses: ['received'], acceptedAt: accepted }), labItem({ id: 'w-2', testName: 'Urea', accessionId: 'acc-2',
+        accessionNumber: 'ACC-2', acceptedAt: undefined, orderRoute: routeCard({ id: 'r-2', reference: 'AAAA1111' }) })))
+      const item = await openLab()
+      fireEvent.click(await within(item).findByRole('button', { name: `${CC}${NAMED}` }))
+      const ends = new Date(Date.parse(accepted) + 30 * 86_400_000).toISOString()
+      expect(within(item).getByText(`Nothing more can be recorded on this order. You can still read it until ${routeMoment(ends)}, `
+        + 'when its 30 days end.')).toBeTruthy()
+      expect(within(item).queryByText(/read it for 7 days/)).toBeNull()
+      fireEvent.click(within(row('Urea')).getByRole('button', { name: `${CC}: Urea, Ref AAAA1111` }))
+      expect(within(row('Urea')).getByText('Nothing more can be recorded on this order. You can still read it for up to 7 days, and '
+        + 'never after its 30 days end.')).toBeTruthy()
+    })
 
   it('says a received sample can no longer be rejected, and that reads end at once without an accession', async () => {
     api.labWorkItems.mockResolvedValue(served(labItem({ specimenStatuses: ['received'] }), labItem({ id: 'w-2', testName: 'Urea',
@@ -567,7 +588,7 @@ describe('the Accepted panel, once served', () => {
  */
 describe('in “Correct an order that has ended”', () => {
   const open = { id: ROUTE_ID, reference: '9C1B2D3E', kind: 'lab_request', version: 3, effectiveState: 'accepted',
-    orderingFacilityName: 'General Hospital', acceptedAt: '2026-10-21T10:00:00.000Z', completedAt: null, endedAt: null,
+    orderingFacilityName: 'General Hospital', acceptedAt: acceptedDaysAgo(6), completedAt: null, endedAt: null,
     endedKind: null, returned: false, correction: 'open', correctableUntil: '2027-04-19T10:00:00.000Z', wrongPatient: null,
     details: { what: 'Haemoglobin', acceptedBy: 'Bola Ade', acceptedWith: 'health_id', returned: [] } }
 
