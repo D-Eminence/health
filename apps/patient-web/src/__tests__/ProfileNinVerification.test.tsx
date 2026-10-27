@@ -21,6 +21,7 @@ function gateway(changes: Partial<PatientProfile>, verify: () => Response = () =
   }
 }
 const ninField = () => screen.getByRole('textbox', { name: 'National Identification Number' })
+const fillDateOfBirth = () => fireEvent.change(screen.getByLabelText('Date of birth, as on your NIN record'), { target: { value: '1990-04-12' } })
 
 /**
  * Since the sign-up without a NIN (owner decision, 2026-10-27), the NIN is added
@@ -36,13 +37,15 @@ describe('Verify your NIN, on the profile', () => {
 
     fireEvent.change(ninField(), { target: { value: '1234 567-8901' } })
     expect((ninField() as HTMLInputElement).value).toBe('12345678901')
+    expect(button.disabled).toBe(true)
+    fillDateOfBirth()
     await press(button)
 
     const done = await screen.findByRole('heading', { name: 'NIN verification' })
     await waitFor(() => expect(document.activeElement).toBe(done))
     expect(screen.getByText('NIN verified')).toBeTruthy()
     expect(screen.queryByRole('textbox', { name: 'National Identification Number' })).toBeNull()
-    expect(sent.filter(request => request.path === VERIFY)).toEqual([{ path: VERIFY, method: 'POST', body: { nin: '12345678901' } }])
+    expect(sent.filter(request => request.path === VERIFY)).toEqual([{ path: VERIFY, method: 'POST', body: { nin: '12345678901', dateOfBirth: '1990-04-12' } }])
   })
 
   it('is offered when the profile read has no ninVerified (an Identity before it) for an account not NIN verified', async () => {
@@ -61,12 +64,14 @@ describe('Verify your NIN, on the profile', () => {
 
   it.each([
     [503, 'QOREID_PATIENT_NIN_BINDING_DISABLED', 'Verifying a NIN from your account is not available yet. Try again later.'],
+    [409, 'PATIENT_NIN_DETAILS_MISMATCH', 'This NIN does not match the name and date of birth given. Check them and try again.'],
     [409, 'PATIENT_NIN_BINDING_CONFLICT', 'This NIN needs an identity review before it can be verified on your account. Contact Health ID support.'],
     [422, 'PATIENT_IDENTITY_PROFILE_INCOMPLETE', 'Your profile is missing details needed to check a NIN, such as your date of birth. Contact Health ID support.'],
   ])('says a %i %s plainly, and keeps the card', async (status, code, text) => {
     renderPortal(<ProfilePage />, gateway({ ninVerified: false }, () => problem(status, code, 'refused')))
     await screen.findByRole('heading', { name: 'Verify your NIN' })
     fireEvent.change(ninField(), { target: { value: '12345678901' } })
+    fillDateOfBirth()
     await press(screen.getByRole('button', { name: 'Verify NIN' }))
     expect((await screen.findByRole('alert')).textContent).toBe(text)
     expect(screen.getByRole('heading', { name: 'Verify your NIN' })).toBeTruthy()
@@ -77,6 +82,7 @@ describe('Verify your NIN, on the profile', () => {
     renderPortal(<ProfilePage />, gateway({ ninVerified: false }, () => json({ ...verifiedAnswer, state: 'not_verified' })))
     await screen.findByRole('heading', { name: 'Verify your NIN' })
     fireEvent.change(ninField(), { target: { value: '12345678901' } })
+    fillDateOfBirth()
     await press(screen.getByRole('button', { name: 'Verify NIN' }))
     await waitFor(() => expect(ninField().getAttribute('aria-invalid')).toBe('true'))
     expect(described(ninField())).toContain('We could not match this NIN to the name and date of birth on your profile.')

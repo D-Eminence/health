@@ -13,6 +13,7 @@ import { useActionFocus } from './actionFocus'
 export const NIN_REFUSALS: Readonly<Record<string, string>> = {
   QOREID_PATIENT_NIN_BINDING_DISABLED: 'Verifying a NIN from your account is not available yet. Try again later.',
   PATIENT_NIN_BINDING_CONFLICT: 'This NIN needs an identity review before it can be verified on your account. Contact Health ID support.',
+  PATIENT_NIN_DETAILS_MISMATCH: 'This NIN does not match the name and date of birth given. Check them and try again.',
   PATIENT_IDENTITY_PROFILE_INCOMPLETE: 'Your profile is missing details needed to check a NIN, such as your date of birth. Contact Health ID support.',
   PATIENT_NIN_BINDING_UNAVAILABLE: 'NIN verification is temporarily unavailable. Try again later.',
   VERIFICATION_EVIDENCE_UNAVAILABLE: 'NIN verification is temporarily unavailable. Try again later.',
@@ -49,6 +50,7 @@ export function NinVerificationCard({ profile, onVerified }: {
 }) {
   const { api } = useSession()
   const [nin, setNin] = useState('')
+  const [dateOfBirth, setDateOfBirth] = useState('')
   const [busy, setBusy] = useState(false)
   const [verifiedHere, setVerifiedHere] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -62,12 +64,12 @@ export function NinVerificationCard({ profile, onVerified }: {
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     const fromField = sentFromField(event)
-    if (busy || !/^\d{11}$/.test(nin)) return
+    if (busy || !/^\d{11}$/.test(nin) || !dateOfBirth) return
     setBusy(true); setError(null); setFieldError(false); setErrorAlert(true)
     try {
-      const result = await api.verifyNin(nin)
+      const result = await api.verifyNin(nin, dateOfBirth)
       if (result?.state === 'verified') {
-        setNin(''); setVerifiedHere(true)
+        setNin(''); setDateOfBirth(''); setVerifiedHere(true)
         focusAfter(() => heading.current)
         void onVerified()
         return
@@ -95,7 +97,9 @@ export function NinVerificationCard({ profile, onVerified }: {
       <label>National Identification Number<input ref={fieldFocus.target} required inputMode="numeric" autoComplete="off" pattern="[0-9]{11}" maxLength={11}
         value={nin} onChange={event => { setNin(event.target.value.replace(/\D/g, '').slice(0, 11)); setFieldError(false) }}
         aria-invalid={fieldError || undefined} aria-describedby={describedBy('nin-verify-hint', fieldError && 'nin-verify-error')} /></label>
-      <button type="submit" className="patient-primary-button" disabled={busy || nin.length !== 11}>{busy ? 'Verifying…' : 'Verify NIN'}</button>
+      <label>Date of birth, as on your NIN record<input type="date" required autoComplete="bday" value={dateOfBirth}
+        max={new Date().toISOString().slice(0, 10)} onChange={event => setDateOfBirth(event.target.value)} /></label>
+      <button type="submit" className="patient-primary-button" disabled={busy || nin.length !== 11 || !dateOfBirth}>{busy ? 'Verifying…' : 'Verify NIN'}</button>
     </form>
   </div>
 }

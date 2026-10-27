@@ -462,7 +462,9 @@ export function createPatientApi(client: ApiClient) {
     recoveryComplete: (challengeId: string, verificationToken: string, newPassword: string) =>
       call<{ completed: true }>('POST', 'auth/otp/complete', { challengeId, verificationToken, newPassword, purpose: 'PASSWORD_RESET' }),
     profile: (signal?: AbortSignal) => call<PatientProfile>('GET', 'identity/me', undefined, { signal }),
-    verifyNin: (nin: string) => call<PatientNinVerification>('POST', 'identity/me/verification/nin', { nin }),
+    // The date of birth is checked against the NIN record; an account made without a NIN has none on its profile.
+    verifyNin: (nin: string, dateOfBirth: string) =>
+      call<PatientNinVerification>('POST', 'identity/me/verification/nin', { nin, dateOfBirth }),
     records: async (signal?: AbortSignal) => {
       const value = await call<PatientRecords>('GET', 'ehr/me/records', undefined, { signal })
       // Only the staging branches' answer carries importedRecords; main's does not (it keeps exactly its keys).
