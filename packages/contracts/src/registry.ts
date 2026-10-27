@@ -260,7 +260,8 @@ const CANNOT_COMPLETE_ROUTE = `${CANNOT_COMPLETE_NOVU} Staff session with X-Faci
   + 'limits, so a member or facility at its limit is still asked), '
   + 'IDEMPOTENCY_KEY_REUSED, ORDER_ROUTE_CHANGED_CONCURRENTLY; 412 VERSION_CONFLICT; 423 '
   + 'CROSS_FACILITY_ORDERS_UNAVAILABLE while cross_facility_route_access_enabled is off; 429 '
-  + 'ORDER_ROUTE_CANNOT_COMPLETE_LIMIT (20 per member and 50 per facility in any 24 hours, never lifted, D18-7; the '
+  + 'ORDER_ROUTE_CANNOT_COMPLETE_LIMIT (20 per staff member (counted by account, at every facility it belongs to) and 50 per '
+  + 'facility in any 24 hours, never lifted, D18-7; the '
   + 'problem member retryAfter is the ISO time from which another is possible); 503 ORDER_ROUTE_UNAVAILABLE. It can\'t be '
   + 'undone, and the order can\'t be sent again: the clinician writes a new one (D18-9).'
 /** What the wrong-patient report changes in the EHR's reads of an order's routes (C3, C4). */

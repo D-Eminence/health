@@ -681,7 +681,8 @@ describe('application boundaries', () => {
         'ORDER_ROUTE_NOT_FOUND', 'ORDER_ROUTE_NOT_ACCEPTED', 'ORDER_ROUTE_ALREADY_ENDED', 'ORDER_ROUTE_ALREADY_RETURNED',
         'ORDER_ROUTE_RESULT_READY', 'ORDER_ROUTE_CRITICAL_VALUE_NOT_TOLD', 'IDEMPOTENCY_KEY_REUSED', 'ORDER_ROUTE_CHANGED_CONCURRENTLY',
         '412 VERSION_CONFLICT', 'CROSS_FACILITY_ORDERS_UNAVAILABLE', '429 ORDER_ROUTE_CANNOT_COMPLETE_LIMIT',
-        'problem member retryAfter', '20 per member and 50 per facility', 'ORDER_ROUTE_UNAVAILABLE', 'ORDER_ROUTE_NOT_COMPLETED']) {
+        'problem member retryAfter', '20 per staff member (counted by account, at every facility it belongs to) and 50 per facility',
+        'ORDER_ROUTE_UNAVAILABLE', 'ORDER_ROUTE_NOT_COMPLETED']) {
         expect(note, `${name}: ${word}`).toContain(word)
       }
       expect(note, name).not.toContain('extensions.')
