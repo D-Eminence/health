@@ -3,16 +3,16 @@
   "declared": true,
   "backend_contract": "novu-v1",
   "reviewed_by": "D-Eminence",
-  "review_reference": "Backend release backend-40502851028-1-ebedd31f8bbcebe5 (D-Eminence/hid-system#121 at 6f14123, all 13 components, migration 0091_order_route_cannot_complete.sql applied first, deployed 2026-10-27 13:10 UTC with status success). Browser-facing changes since the previous pin (a3b1822): \"We can't complete this order\" (D18) is served. POST /api/v1/lab/order-routes/:routeId/cannot-complete and the pharmacy twin end an accepted order the laboratory or pharmacy cannot complete, with one listed reason, the patient confirmation and the required phone ticks; optional fields tell the ordering clinician (notCompleted), the patient (a new notice title) and support (per-facility counts on the order-route summary, a later wrong-patient report flagged first) about it. This frontend (D-Eminence/health#16, already live and dormant until now) uses each where it is answered. No other route, payload or error code changed. Reviewed and approved by the repository owner, D-Eminence, in chat on 2026-10-27.",
+  "review_reference": "Backend release from production-backend-images run 40578999423 (D-Eminence/hid-system#122 at 9af06c2, all 13 components, migration 0092_public_patient_signup_without_nin.sql applied first, deployed 2026-10-27). Browser-facing changes since the previous pin (6f14123): patient sign-up without a NIN, as hid-1.0, is served. POST /api/v1/identity/patient-enrollments/signup starts it with the declared name, email, phone, gender, optional hospital and the terms, and sends a code to the email; the existing contact, contact/verify and activate steps finish it and issue the HID; GET .../availability adds signup and ninStart. POST /api/v1/identity/me/verification/nin is on and takes dateOfBirth; GET /api/v1/identity/me adds ninVerified. This frontend (D-Eminence/health#19, merged as 5ea2b38) uses each where it is answered. The NIN-first start is unchanged; no other route, payload or error code changed. Reviewed and approved by the repository owner, D-Eminence, in chat on 2026-10-27.",
   "backend_commits": {
-    "gateway": "6f1412345052657649d06884d27c06d1f8d7644a",
-    "identity-api": "6f1412345052657649d06884d27c06d1f8d7644a",
-    "ehr-api": "6f1412345052657649d06884d27c06d1f8d7644a",
-    "lab-api": "6f1412345052657649d06884d27c06d1f8d7644a",
-    "pharmacy-api": "6f1412345052657649d06884d27c06d1f8d7644a",
-    "ocr-api": "6f1412345052657649d06884d27c06d1f8d7644a",
-    "outreach-api": "6f1412345052657649d06884d27c06d1f8d7644a",
-    "support-api": "6f1412345052657649d06884d27c06d1f8d7644a",
-    "notification-api": "6f1412345052657649d06884d27c06d1f8d7644a"
+    "gateway": "9af06c28a4da6b399932011ef7b54ecae12afec5",
+    "identity-api": "9af06c28a4da6b399932011ef7b54ecae12afec5",
+    "ehr-api": "9af06c28a4da6b399932011ef7b54ecae12afec5",
+    "lab-api": "9af06c28a4da6b399932011ef7b54ecae12afec5",
+    "pharmacy-api": "9af06c28a4da6b399932011ef7b54ecae12afec5",
+    "ocr-api": "9af06c28a4da6b399932011ef7b54ecae12afec5",
+    "outreach-api": "9af06c28a4da6b399932011ef7b54ecae12afec5",
+    "support-api": "9af06c28a4da6b399932011ef7b54ecae12afec5",
+    "notification-api": "9af06c28a4da6b399932011ef7b54ecae12afec5"
   }
 }
