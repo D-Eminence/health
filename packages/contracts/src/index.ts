@@ -24,6 +24,15 @@ export {
   isPrivilegedRole,
   isRestricted,
 } from './domain'
+export {
+  HEALTH_ID_PATTERN,
+  HEALTH_ID_PREFIX,
+  emailOrHealthId,
+  healthIdOrOtherInput,
+  isBlankHealthIdInput,
+  isCompleteHealthId,
+  normalizeHealthIdInput,
+} from './healthId'
 export type {
   DataClassification,
   HidAccessScope,

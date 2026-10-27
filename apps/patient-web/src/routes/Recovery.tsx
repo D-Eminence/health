@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
+import { HEALTH_ID_PREFIX, emailOrHealthId, healthIdOrOtherInput, isBlankHealthIdInput } from '@hid/contracts'
 import { isHidApiError } from '@hid/http'
 import { PasswordInput } from '@hid/ui'
 import { Turnstile } from '../Turnstile'
@@ -15,7 +16,8 @@ export function Recovery() {
   useDocumentTitle('Reset your password · Health ID')
   const stepFocus = useStepFocus()
   const [step, setStep] = useState<Step>('start')
-  const [identifier, setIdentifier] = useState('')
+  // Starts at HID- (owner decision, 2026-10-27); an email typed after it drops it.
+  const [identifier, setIdentifier] = useState(HEALTH_ID_PREFIX)
   const [code, setCode] = useState('')
   const [password, setPassword] = useState('')
   const [challengeId, setChallengeId] = useState('')
@@ -38,7 +40,7 @@ export function Recovery() {
     setBusy(true); setError(null); setFieldError(false)
     try { await operation() }
     catch (reason) {
-      if (isHidApiError(reason) && reason.code === 'OTP_INVALID_OR_EXPIRED') budget.refused(identifier)
+      if (isHidApiError(reason) && reason.code === 'OTP_INVALID_OR_EXPIRED') budget.refused(emailOrHealthId(identifier))
       const aboutField = isFieldProblem(reason, stepCodes)
       setError(isHidApiError(reason) ? reason.message : 'We could not complete that step. Please try again.')
       setFieldError(aboutField)
@@ -49,10 +51,14 @@ export function Recovery() {
   const start = (event: FormEvent) => {
     event.preventDefault()
     if (!turnstileToken || busy) return
+    // Only the prefill: as empty as the field was before it was filled in, so nothing is sent.
+    if (isBlankHealthIdInput(identifier)) {
+      setError('Enter your email or Health ID.'); setFieldError(true); setErrorAlert(stepFocus.onTarget()); stepFocus.focus(); return
+    }
     void run(async () => {
       try {
-        const result = await api.recoveryStart(identifier.trim(), turnstileToken)
-        budget.started(identifier)
+        const result = await api.recoveryStart(emailOrHealthId(identifier), turnstileToken)
+        budget.started(emailOrHealthId(identifier))
         setChallengeId(result.challengeId)
         resend.begin(result.resendAfterSeconds)
         setStep('code')
@@ -98,7 +104,7 @@ export function Recovery() {
   return <AuthLayout brandTo="/sign-in" title="Reset your password." titleId="recovery-title">
     {error && <p id="recovery-error" role={errorAlert ? 'alert' : undefined} className="patient-inline-error">{error}</p>}
     {step === 'start' && <form onSubmit={start} className="patient-form"><p id="recovery-start-hint" className="patient-page-copy">Enter your email or Health ID. We will send a code to your verified contact.</p>
-      <label>Email or Health ID<input ref={stepFocus.target} required autoComplete="username" value={identifier} onChange={event => setIdentifier(event.target.value)}
+      <label>Email or Health ID<input ref={stepFocus.target} required autoComplete="username" value={identifier} onChange={event => setIdentifier(healthIdOrOtherInput(event.target.value))}
         aria-invalid={invalid} aria-describedby={describedBy('recovery-start-hint', errorId)} /></label>
       <Turnstile action="patient-reset-start" onTokenChange={setTurnstileToken} resetKey={resetKey} />
       <button className="patient-primary-button" disabled={busy || !turnstileToken}>{busy ? 'Sending…' : 'Send recovery code'}</button></form>}

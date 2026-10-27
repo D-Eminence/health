@@ -106,8 +106,33 @@ describe('PEHR-03: the Health ID field says what it needs', () => {
     expect(api.lookupPatient).not.toHaveBeenCalled()
   })
 
+  it('starts at HID-, keeps the prefix once and puts what is typed in capitals (owner decision, 2026-10-27)', () => {
+    const field = renderPatients()
+    expect(field.value).toBe('HID-')
+    fireEvent.change(field, { target: { value: 'HID-abc234' } })
+    expect(field.value).toBe('HID-ABC234')
+    fireEvent.change(field, { target: { value: 'abc234' } })
+    expect(field.value).toBe('HID-ABC234')
+    fireEvent.change(field, { target: { value: 'HID-HID-7KQ2M9' } })
+    expect(field.value).toBe('HID-7KQ2M9')
+    fireEvent.change(field, { target: { value: 'HID' } })
+    expect(field.value).toBe('HID-')
+  })
+
+  it('sends what was typed after the prefill as one Health ID, from either card', async () => {
+    const field = renderPatients()
+    fireEvent.change(field, { target: { value: 'HID-7kq2m9' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Verify access' }))
+    await waitFor(() => expect(api.lookupPatient).toHaveBeenCalledWith('facility-1', 'HID-7KQ2M9', 'direct-care'))
+    fireEvent.change(screen.getByLabelText(/^Clinical reason/), { target: { value: 'Follow-up consultation' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send access request' }))
+    await waitFor(() => expect(api.requestAccess).toHaveBeenCalledWith('facility-1', 'HID-7KQ2M9', 'read_records', 'Follow-up consultation', 60))
+  })
+
   it('pressing Enter in the field with an empty Health ID asks for one', async () => {
     const field = renderPatients()
+    // Nothing after the prefill is as empty as the field was before it was filled in.
+    expect(field.value).toBe('HID-')
     fireEvent.submit(field.closest('form') as HTMLFormElement)
     await waitFor(() => expect(document.activeElement).toBe(field))
     expect(describedText(field)).toBe(EMPTY)

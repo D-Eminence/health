@@ -4,6 +4,7 @@ import { PatientImportedHistory } from '../ImportedHistoryPage'
 import { getEnvironment } from '../env'
 import { useRef, useState, type FormEvent, type RefObject } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { HEALTH_ID_PREFIX, emailOrHealthId, healthIdOrOtherInput, isBlankHealthIdInput } from '@hid/contracts'
 import { isHidApiError } from '@hid/http'
 import { PasswordInput } from '@hid/ui'
 import { GoogleButton } from '../GoogleButton'
@@ -413,7 +414,9 @@ export function SettingsPage() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
-  const [googlePrincipal, setGooglePrincipal] = useState('')
+  // Starts at HID- (owner decision, 2026-10-27); an email typed after it drops it, and HID- alone is not filled in.
+  const [googlePrincipal, setGooglePrincipal] = useState(HEALTH_ID_PREFIX)
+  const principalTyped = !isBlankHealthIdInput(googlePrincipal)
   const [googlePassword, setGooglePassword] = useState('')
   const [googleToken, setGoogleToken] = useState<string | null>(null)
   const [googleReset, setGoogleReset] = useState(0)
@@ -448,9 +451,9 @@ export function SettingsPage() {
     } finally { setBusy(false) }
   }
   const linkGoogle = async (idToken: string) => {
-    if (!googleToken || !googlePrincipal.trim() || !googlePassword) return
+    if (!googleToken || !principalTyped || !googlePassword) return
     setBusy(true); setError(null); setNotice(null); setPinFieldError(false); setErrorAlert(true)
-    try { await api.googleLink(idToken, googlePrincipal.trim(), googlePassword, googleToken); setGooglePassword(''); setNotice('Google identity linked.') }
+    try { await api.googleLink(idToken, emailOrHealthId(googlePrincipal), googlePassword, googleToken); setGooglePassword(''); setNotice('Google identity linked.') }
     catch (cause) { setError(isHidApiError(cause) ? cause.message : 'Google identity could not be linked.') }
     finally { setGoogleToken(null); setGoogleReset(value => value + 1); setBusy(false) }
   }
@@ -472,12 +475,12 @@ export function SettingsPage() {
         is off for a patient without contacts. */}
     <EmergencyContactsCard />
     {import.meta.env.VITE_HID_GOOGLE_CLIENT_ID && googleClientId() && <div className="patient-card"><h2>Link a Google account</h2><p className="patient-field-hint">Confirm your existing Health ID credentials before linking.</p>
-      <div className="patient-form"><label>Email or Health ID<input autoComplete="username" value={googlePrincipal} onChange={event => setGooglePrincipal(event.target.value)} /></label>
+      <div className="patient-form"><label>Email or Health ID<input autoComplete="username" value={googlePrincipal} onChange={event => setGooglePrincipal(healthIdOrOtherInput(event.target.value))} /></label>
         {/* No form is sent here (Google's button sends it), so each attempt remounts the field masked. */}
         <div className="patient-field"><label htmlFor="google-link-password">Current password</label><PasswordInput appearance="plain" key={googleReset} id="google-link-password" autoComplete="current-password" value={googlePassword} onChange={event => setGooglePassword(event.target.value)} /></div>
         <Turnstile action="patient-login" onTokenChange={setGoogleToken} resetKey={googleReset} />
-        <GoogleButton text="continue_with" disabled={busy || !googleToken || !googlePrincipal.trim() || !googlePassword} onCredential={linkGoogle}
-          disabledReason={googleToken && googlePrincipal.trim() && googlePassword ? undefined
+        <GoogleButton text="continue_with" disabled={busy || !googleToken || !principalTyped || !googlePassword} onCredential={linkGoogle}
+          disabledReason={googleToken && principalTyped && googlePassword ? undefined
             : 'Enter your email or Health ID and current password, and complete the security check, to link Google.'} /></div>
     </div>}
     {!usesNovuBackend() && <AccountDeletionCard />}

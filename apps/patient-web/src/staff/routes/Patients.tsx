@@ -1,6 +1,8 @@
 import { useLayoutEffect, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { findEndpoint, type EndpointMethod } from '@hid/contracts'
+import {
+  HEALTH_ID_PREFIX, findEndpoint, isBlankHealthIdInput, isCompleteHealthId, normalizeHealthIdInput, type EndpointMethod,
+} from '@hid/contracts'
 import { isHidApiError } from '@hid/http'
 import { Badge, Button, Card, Field, Input, Select, Textarea } from '@hid/ui'
 import { usesNovuBackend } from '../../backendContract'
@@ -11,7 +13,6 @@ import { useFieldProblems } from '../useFieldProblems'
 import { staffSessionGeneration, untilStaffSessionReady } from '../session'
 import { selfServiceReview } from '../staffAccess'
 
-const HID_PATTERN = /^HID-[A-HJ-NP-Z2-9]{6,32}$/
 const HID_FORMAT = 'Starts with HID-, then 6 to 32 letters and digits. Health IDs never use 0, 1, I or O.'
 
 type AccessMethod = 'request' | 'pin' | 'emergency'
@@ -75,8 +76,9 @@ function actionUnavailable({ routes, action }: Action, permissions: readonly str
 
 /** Why `normalized` is not a Health ID, or null when it is one. */
 function healthIdProblem(normalized: string): string | null {
-  if (!normalized) return 'Enter the patient’s Health ID.'
-  return HID_PATTERN.test(normalized) ? null
+  // The field starts at HID-: with nothing after it, it is empty.
+  if (isBlankHealthIdInput(normalized)) return 'Enter the patient’s Health ID.'
+  return isCompleteHealthId(normalized) ? null
     : 'Check the Health ID: it starts with HID-, then 6 to 32 letters and digits, and never uses 0, 1, I or O.'
 }
 
@@ -85,7 +87,7 @@ export function Patients() {
   const navigate = useNavigate()
   const facility = state.status === 'ready' ? state.session.actor.facility : undefined
   const permissions = facility?.permissions ?? []
-  const [hid, setHid] = useState('')
+  const [hid, setHid] = useState(HEALTH_ID_PREFIX)
   const [reason, setReason] = useState('')
   const [emergencyReason, setEmergencyReason] = useState('')
   const [pin, setPin] = useState('')
@@ -106,7 +108,7 @@ export function Patients() {
   const [hidAlert, setHidAlert] = useState(false)
   const [focusHid, setFocusHid] = useState(0)
   useLayoutEffect(() => { if (focusHid) document.getElementById('patient-hid')?.focus() }, [focusHid])
-  const normalized = hid.trim().toUpperCase()
+  const normalized = normalizeHealthIdInput(hid)
   // The grant that authorized the open record, however it was obtained (an
   // approved request, the patient's PIN or emergency access), as the lookup
   // reported it, so it can be closed after a reload or from a later visit.
@@ -219,7 +221,7 @@ export function Patients() {
     <div className="staff-page-head"><p className="staff-eyebrow">Governed access</p><h1 id="patients-title" tabIndex={-1}>Open a patient record.</h1><p>Enter the patient’s Health ID. Their identity and records remain hidden until the backend authorizes this facility and purpose.</p></div>
     {activePatient && <Card className="staff-card staff-current"><h2>{activePatient.purpose === 'emergency' ? 'Current emergency summary' : 'Current authorized record'}</h2><div className="staff-row"><strong>{activePatient.lookup.patient.fullName ?? activePatient.hid}</strong><Badge tone={activePatient.purpose === 'emergency' ? 'danger' : 'success'}>{activePatient.purpose === 'emergency' ? 'Emergency access' : 'Access allowed'}</Badge><Link to="/provider/clinical" className="staff-text-link">{activePatient.purpose === 'emergency' ? 'Open read-only emergency summary →' : 'Open clinical record →'}</Link></div>{grantId && <>{closeUnavailable && <p id="close-grant-unavailable" className="staff-muted">{closeUnavailable}</p>}<Button tone="secondary" size="sm" onClick={() => void closeGrant()} disabled={closeUnavailable !== null} aria-disabled={busy || undefined} className={UNAVAILABLE} aria-describedby={closeUnavailable ? 'close-grant-unavailable' : undefined}>Close my grant</Button></>}</Card>}
     <div className="staff-two-col">
-      <Card className="staff-card"><h2>Check current access</h2><p>Already approved? Verify with the server before opening the chart.</p><form className="staff-form" noValidate onSubmit={event => void checkAccess(event)}><Field label="Health ID" htmlFor="patient-hid" hint={HID_FORMAT} error={hidError ? hidAlert ? <span key={focusHid} role="alert">{hidError}</span> : hidError : undefined} required><Input id="patient-hid" autoComplete="off" placeholder="HID-…" value={hid} onChange={event => { setHid(event.target.value.toUpperCase()); setHidError('') }} required invalid={!!hidError} aria-describedby={hidError ? 'patient-hid-error' : 'patient-hid-hint'} /></Field><Button type="submit" disabled={!facility || !permissions.includes('identity.patient.read')} aria-disabled={busy || undefined} className={BUSY}>Verify access</Button></form></Card>
+      <Card className="staff-card"><h2>Check current access</h2><p>Already approved? Verify with the server before opening the chart.</p><form className="staff-form" noValidate onSubmit={event => void checkAccess(event)}><Field label="Health ID" htmlFor="patient-hid" hint={HID_FORMAT} error={hidError ? hidAlert ? <span key={focusHid} role="alert">{hidError}</span> : hidError : undefined} required><Input id="patient-hid" autoComplete="off" value={hid} onChange={event => { setHid(normalizeHealthIdInput(event.target.value)); setHidError('') }} required invalid={!!hidError} aria-describedby={hidError ? 'patient-hid-error' : 'patient-hid-hint'} /></Field><Button type="submit" disabled={!facility || !permissions.includes('identity.patient.read')} aria-disabled={busy || undefined} className={BUSY}>Verify access</Button></form></Card>
       <Card className="staff-card"><h2>Obtain access</h2><div className="staff-tabs" role="group" aria-label="Access method"><button type="button" aria-pressed={mode === 'request'} onClick={() => { problems.clear(); setMode('request') }}>Request</button><button type="button" aria-pressed={mode === 'pin'} onClick={() => { problems.clear(); setMode('pin') }}>Patient PIN</button><button type="button" aria-pressed={mode === 'emergency'} onClick={() => { problems.clear(); setMode('emergency') }}>Emergency</button></div>
         {/* The page checks each method's fields itself and says what is wrong at the field. */}
         <form className="staff-form" noValidate onSubmit={event => void submitAccess(event)}>
