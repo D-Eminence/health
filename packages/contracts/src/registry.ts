@@ -193,7 +193,10 @@ const WORK_LISTS_P4C = 'On Novu since P4c items of orders from other facilities 
   + 'and an item whose route was reported, in its window or after it ended, answers every write 409 ORDER_ROUTE_CLOSED. '
   + 'With "We can\'t complete this order" (D18, hid-system 0091) the answer also carries cannotComplete: true for a member '
   + 'holding the receive permission, and endedKind may be receiving_unable (access read while this facility may still '
-  + 'read it, every write 409 ORDER_ROUTE_CLOSED); an earlier backend sends no such field.'
+  + 'read it, 7 days only when a laboratory had opened an accession; nothing more can be recorded on it: a Lab write '
+  + 'answers 409 ORDER_ROUTE_CLOSED under the patient\'s own consent and 404 while only the order lets this facility '
+  + 'read it (what it would write is not found for writing, e.g. LAB_EXECUTION_NOT_FOUND, LAB_RESULT_NOT_FOUND), and a '
+  + 'dispensing 409 ORDER_ROUTE_CLOSED); an earlier backend sends no such field.'
 /**
  * The wrong-patient report (item 3, owner decisions D1-D19 of 2026-10-26; hid-system 0088, C25-C28): a laboratory or
  * pharmacy ends an order it accepted for someone who was not the patient, and in the same transaction every result or

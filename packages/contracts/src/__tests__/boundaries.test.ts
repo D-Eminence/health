@@ -707,6 +707,17 @@ describe('application boundaries', () => {
     for (const name of ['lab.workItems', 'ehr.labRequestOrderRoutes', 'ehr.myOrderRoutes', 'admin.orderRoutesFind']) {
       expect(findEndpoint(name)?.note, name).toContain('receiving_unable')
     }
+    // After the ending the services answer a Lab write 409 only under the patient's consent; while only the order lets
+    // the laboratory read it (the 7 days after an accession), the row to write is not found: 404 (INTERFACE_CONTRACT §24,
+    // the runtime verifier's answers). A dispensing is 409 ORDER_ROUTE_CLOSED.
+    for (const name of ['lab.workItems', 'pharmacy.workItems']) {
+      const note = findEndpoint(name)?.note ?? ''
+      expect(note, name).toContain('a Lab write answers 409 ORDER_ROUTE_CLOSED under the patient\'s own consent and 404 while '
+        + 'only the order lets this facility read it')
+      expect(note, name).toContain('a dispensing 409 ORDER_ROUTE_CLOSED')
+      expect(note, name).toContain('7 days only when a laboratory had opened an accession')
+      expect(note, name).not.toContain('receiving_unable (access read while this facility may still read it, every write 409')
+    }
     expect(findEndpoint('ehr.myOrderRoutes')?.note).toContain('ORDER_ROUTE_NOT_COMPLETED')
     expect(findEndpoint('admin.facilityOrderRouteSummary')?.note).toContain('notCompleted { last30Days, soonAfterAcceptance, '
       + 'afterSevenDays, laterReportedWrongPatient, byReason { <reason>: count } }')
