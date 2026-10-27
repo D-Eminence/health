@@ -155,7 +155,7 @@ describe('RequireAccess', () => {
    */
   describe('as soon as the outcome of Try again is shown', () => {
     const environment = globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }
-    afterEach(() => { environment.IS_REACT_ACT_ENVIRONMENT = true })
+    afterEach(() => { environment.IS_REACT_ACT_ENVIRONMENT = undefined })
     const failed = 'We could not check your session. Try again.'
     const unknown: SessionState = { status: 'unknown', principal: null }
 

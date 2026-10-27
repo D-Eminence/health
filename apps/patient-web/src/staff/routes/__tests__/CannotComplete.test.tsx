@@ -74,7 +74,7 @@ afterEach(() => {
 })
 // A request answered outside act, as a fetch's answer arrives, renders in one task and runs its effects in a later one.
 const environment = globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }
-afterEach(() => { environment.IS_REACT_ACT_ENVIRONMENT = true })
+afterEach(() => { environment.IS_REACT_ACT_ENVIRONMENT = undefined })
 
 function row(text: string) { return screen.getByText(text).closest('.staff-list-item') as HTMLElement }
 async function openLab() {

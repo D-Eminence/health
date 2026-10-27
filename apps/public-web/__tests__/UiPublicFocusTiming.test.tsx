@@ -15,9 +15,10 @@ vi.mock('@/components/layout/GlobalSearch', () => ({ GlobalSearch: () => null })
  * Each test reads focus at the moment the change is shown.
  */
 const environment = globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }
-afterEach(() => { environment.IS_REACT_ACT_ENVIRONMENT = true })
+afterEach(() => { environment.IS_REACT_ACT_ENVIRONMENT = undefined })
 
-/** Acts as the browser does, outside act: React renders a click in a microtask and runs its effects after that. */
+/** Acts outside act, as the browser does. A click's render runs every effect before any microtask, so there focus
+ * from an effect could not be told from a layout effect; only a render after an awaited answer shows the difference. */
 function outsideAct(action: () => void) {
   environment.IS_REACT_ACT_ENVIRONMENT = false
   action()
@@ -33,7 +34,8 @@ describe('SupportChat', () => {
   const CONTACT = 'mailto:support@healthidentitydirectory.com'
   const question = () => screen.getByLabelText<HTMLInputElement>('Your question')
 
-  it('has focus on the question as soon as the chat opens, and on the launcher as soon as it closes', async () => {
+  // Opened and closed by a click, whose effects run before any check: this keeps the targets, not the timing.
+  it('has focus on the question when the chat opens, and on the launcher when it closes', async () => {
     render(<SupportChat contact={CONTACT} send={vi.fn()} />)
     const launcher = screen.getByRole('button', { name: 'Support chat' })
     launcher.focus()

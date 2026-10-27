@@ -299,7 +299,7 @@ describe('opening the step again (P9)', () => {
  */
 describe('focus as soon as what follows an answer is shown', () => {
   const environment = globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }
-  afterEach(() => { environment.IS_REACT_ACT_ENVIRONMENT = true })
+  afterEach(() => { environment.IS_REACT_ACT_ENVIRONMENT = undefined })
 
   function deferred<T>() {
     let resolve!: (value: T) => void

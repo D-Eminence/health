@@ -23,7 +23,7 @@ vi.mock('../Turnstile', () => ({
 }))
 
 const environment = globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }
-afterEach(() => { environment.IS_REACT_ACT_ENVIRONMENT = true; vi.unstubAllGlobals(); vi.resetModules() })
+afterEach(() => { environment.IS_REACT_ACT_ENVIRONMENT = undefined; vi.unstubAllGlobals(); vi.resetModules() })
 
 /** The portal's other tabs, as BroadcastChannel would connect them: none here. */
 class TabChannel extends EventTarget {

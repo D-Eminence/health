@@ -17,8 +17,11 @@ export interface Shown<T extends Element> { element: T; focused: Element | null 
  * is in the document, and document.activeElement read in that same callback. An
  * element already there is taken at once, so `find` should match only what the
  * action shows. `find` is a selector, or a function returning the element (a
- * query such as screen.queryByRole, or a search of the document). It gives up
- * after the wait findBy allows.
+ * query such as screen.queryByRole, or a search of the document). Drive the path
+ * where the render follows an awaited request, outside act: React runs every
+ * effect of an update made in act, or in a click handler, before any microtask,
+ * so there an effect cannot be told from a layout effect. It gives up after the
+ * wait findBy allows.
  */
 export function focusWhenShown<T extends Element = Element>(find: string | (() => T | null | undefined)): Promise<Shown<T>> {
   const lookup = typeof find === 'string' ? () => document.querySelector<T>(find) : find

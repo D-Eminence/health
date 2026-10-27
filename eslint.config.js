@@ -60,13 +60,16 @@ const NO_CONSOLE = {
 // named callback (setTimeout(focusTitle)) is not: review catches those. A request from
 // useStepFocus (stepFocus.focus(), pinFocus.focus()) is the fix, not the pattern, and
 // is told apart by its name.
-const FOCUS_CALL = "CallExpression[callee.property.name='focus']:not([callee.object.name=/Focus$/])"
+const FOCUS_CALL = "CallExpression[callee.property.name='focus']:not([callee.object.name=/Focus$/])" +
+  // A listener the effect adds (a key or pointer handler) runs when its event fires, not a task after a render.
+  ":not(CallExpression[callee.property.name='addEventListener'] > :function CallExpression)"
 
 const NO_DEFERRED_FOCUS = {
   selector: [
     "CallExpression[callee.name='useEffect']",
+    "CallExpression[callee.object.name='React'][callee.property.name='useEffect']",
     "CallExpression[callee.name=/^(setTimeout|requestAnimationFrame)$/]",
-    "CallExpression[callee.object.name='window'][callee.property.name=/^(setTimeout|requestAnimationFrame)$/]",
+    "CallExpression[callee.object.name=/^(window|globalThis|self)$/][callee.property.name=/^(setTimeout|requestAnimationFrame)$/]",
   ].map(later => `${later} > :function ${FOCUS_CALL}`).join(', '),
   message:
     'Do not move focus from a useEffect, a setTimeout or a requestAnimationFrame callback. Each runs a task after the commit that shows the element, so anything that looks at focus as soon as the element is shown (a test, a key pressed at once) finds it still where it was, as in health#16. Move the focus into a useLayoutEffect, or make it a focus request handled in one. A timer kept on purpose says why in an eslint-disable comment.',

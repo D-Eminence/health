@@ -299,7 +299,7 @@ describe('on a staff or admin site', () => {
 describe('focus as soon as it is shown', () => {
   // A request answered outside act, as a fetch's answer arrives, renders in one task and would run its effects in a later one.
   const environment = globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }
-  afterEach(() => { environment.IS_REACT_ACT_ENVIRONMENT = true })
+  afterEach(() => { environment.IS_REACT_ACT_ENVIRONMENT = undefined })
 
   // The step's heading takes focus in the commit that shows it: from an effect a task later, a check made as soon as it
   // was shown found focus still where it was (health#16's CI, on another page).

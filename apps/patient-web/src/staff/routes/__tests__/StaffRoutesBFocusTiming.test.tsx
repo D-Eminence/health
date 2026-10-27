@@ -67,7 +67,7 @@ beforeEach(() => {
   forgetReceiving(); forgetCannotCompleteServed(); forgetLateCorrectionServed(); forgetWrongPatientServed()
 })
 afterEach(() => {
-  environment.IS_REACT_ACT_ENVIRONMENT = true
+  environment.IS_REACT_ACT_ENVIRONMENT = undefined
   vi.unstubAllEnvs()
   forgetReceiving(); forgetCannotCompleteServed(); forgetLateCorrectionServed(); forgetWrongPatientServed()
 })

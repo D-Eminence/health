@@ -122,7 +122,8 @@ export function SiteNav({ entries, signInHref, signInLabel, action, audience }: 
       }
     }
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
+      // An Escape the search palette above the menu has already taken closes only the palette.
+      if (event.key !== 'Escape' || event.defaultPrevented) return
 
       event.preventDefault()
       escapedFromRef.current = menuOpen ? mobileMenuTriggerRef.current : desktopMenuTriggerRef.current

@@ -58,7 +58,7 @@ afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); vi.useRealTimers() 
 
 // A request answered outside act, as a fetch's answer arrives, renders in one task and would run its effects in a later one.
 const environment = globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }
-afterEach(() => { environment.IS_REACT_ACT_ENVIRONMENT = true })
+afterEach(() => { environment.IS_REACT_ACT_ENVIRONMENT = undefined })
 function answer(settle: () => void) {
   environment.IS_REACT_ACT_ENVIRONMENT = false
   settle()

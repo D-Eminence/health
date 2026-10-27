@@ -24,10 +24,9 @@ export function RequireAccess({ requirement, children }: RequireAccessProps) {
   const decision = evaluateAccess(state, requirement)
   // 'Try again' is replaced while the session is checked again: focus then goes to
   // the page that opens, or to the new 'Try again' when the check fails again (PR-04).
-  // Only an outcome after the check was seen to start counts: as an effect, this
-  // ran after a quick press when it was still pending from the render that showed
-  // 'Try again'. It moves focus in the commit that shows the outcome, not a task
-  // later: a check made as soon as it is shown finds the focus moved.
+  // Only an outcome after the check was seen to start counts, so the render that
+  // still shows the earlier failure is never taken for the new one. Focus moves in
+  // the commit that shows the outcome.
   const retried = useRef(false)
   const checking = useRef(false)
   const retryButton = useRef<HTMLButtonElement>(null)

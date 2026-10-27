@@ -60,7 +60,7 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllEnvs(); forgetReceiving(); forgetLateCorrectionServed(); forgetWrongPatientServed() })
 // A request answered outside act, as a fetch's answer arrives, renders in one task and runs its effects in a later one.
 const environment = globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }
-afterEach(() => { environment.IS_REACT_ACT_ENVIRONMENT = true })
+afterEach(() => { environment.IS_REACT_ACT_ENVIRONMENT = undefined })
 
 function section() { return screen.getByText(TITLE).closest('details') as HTMLElement }
 

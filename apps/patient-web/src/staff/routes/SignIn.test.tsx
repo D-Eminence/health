@@ -350,7 +350,7 @@ describe('where a sign-in on the EHR site lands', () => {
  */
 describe('focus as soon as it is shown', () => {
   const environment = globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }
-  afterEach(() => { environment.IS_REACT_ACT_ENVIRONMENT = true })
+  afterEach(() => { environment.IS_REACT_ACT_ENVIRONMENT = undefined })
   function answer(settle: () => void) {
     environment.IS_REACT_ACT_ENVIRONMENT = false
     settle()

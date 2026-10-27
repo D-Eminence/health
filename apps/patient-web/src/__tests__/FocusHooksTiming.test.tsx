@@ -16,7 +16,7 @@ import { focusWhenShown } from './focusWhenShown'
  * moment the outcome is shown.
  */
 const environment = globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }
-afterEach(() => { environment.IS_REACT_ACT_ENVIRONMENT = true })
+afterEach(() => { environment.IS_REACT_ACT_ENVIRONMENT = undefined })
 
 function deferred() {
   let resolve!: () => void

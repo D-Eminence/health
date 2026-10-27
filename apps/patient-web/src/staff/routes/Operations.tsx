@@ -626,7 +626,7 @@ function AccessionView({ facilityId, id, permissions: granted, created, routed =
   // once the accession's first read has settled, whether or not that read succeeded.
   const creation = useRef(created)
   // A specimen step reloads the accession, which removes every specimen row until it is
-  // read again; focus goes to the specimen's next step, or the specimen, once it is shown.
+  // read again; focus goes to the specimen's next step, or the specimen, in the commit that shows it.
   const [focusAfterRead, setFocusAfterRead] = useState<readonly string[] | null>(null)
   const focus = useFocusById()
   const [recheck, setRecheck] = useState<LabResultsSignal | null>(null)
@@ -649,7 +649,7 @@ function AccessionView({ facilityId, id, permissions: granted, created, routed =
     const doubt = labResultsReadDoubt(caught)
     if (doubt) setRecheck(previous => ({ reason: doubt, seq: (previous?.seq ?? 0) + 1 }))
   }, [])
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!focusAfterRead || (!accession && !error)) return
     setFocusAfterRead(null)
     focus(accession ? focusAfterRead : 'lab-accession-refresh', true)
