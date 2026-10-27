@@ -243,3 +243,27 @@ describe('the change warning once the late correction is served (D17)', () => {
       + 'Medplus Yaba and give it the reference 9C1B2D3E: it can reverse the dispensing until 19 Apr 2027, 11:00.')).toBeTruthy()
   })
 })
+
+/** D18 (SPEC-FINAL §9.2): a prescription the receiving pharmacy accepted and couldn't complete. */
+describe('a prescription the pharmacy couldn’t complete (D18)', () => {
+  const ended = (overrides: Record<string, unknown> = {}) => route({ effectiveState: 'cancelled', version: 4,
+    acceptedAt: '2026-10-21T10:00:00.000Z', endedAt: '2026-10-23T10:00:00.000Z', endedKind: 'receiving_unable',
+    notCompleted: { reason: 'controlled_requirements', sampleTaken: null, resultRecorded: null }, ...overrides })
+
+  it('says why and what the prescriber does next, with no sample or result sentence', async () => {
+    records = [rx('active', ended())]
+    await openPrescriptions()
+    expect(await screen.findByText('Accepted by Medplus Yaba on 21 Oct 2026; ended on 23 Oct 2026: Medplus Yaba couldn’t complete it.')).toBeTruthy()
+    expect(screen.getByText('Medplus Yaba says it needs a signed or paper prescription for this controlled medicine. Give Ada Patient '
+      + 'a signed paper prescription, or write a new prescription and send it to another pharmacy.').className).toBe('staff-notice')
+    expect(screen.queryByText(/sample|result was recorded/)).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Send to a pharmacy' })).toBeNull()
+  })
+
+  it('drops the paragraph after a later wrong-patient report', async () => {
+    records = [rx('active', ended({ notCompleted: null, wrongPatient: { reportedAt: '2026-10-25T10:00:00.000Z', late: true } }))]
+    await openPrescriptions()
+    expect(await screen.findByText(/^Accepted by Medplus Yaba on 21 Oct 2026; ended on 23 Oct 2026, saying it couldn’t complete it\. /)).toBeTruthy()
+    expect(screen.queryByText(/signed or paper prescription/)).toBeNull()
+  })
+})

@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useLayoutEffect, useRef, useState, type FormEvent } from 'react'
 import { isHidApiError } from '@hid/http'
 import { Button, Field, Textarea } from '@hid/ui'
 import {
   orderRoutesApi, type OrderRouteWrongPatientEnded, type OrderRouteWrongPatientReason, type ReceivingService,
 } from '../api'
 import { WRONG_PATIENT_REASONS, wrongPatientEndedLines, wrongPatientRefusal } from '../orderRoutes'
-import { BUSY, QUIET_UNAVAILABLE, UNAVAILABLE } from '../focus'
+import { BUSY, QUIET_UNAVAILABLE } from '../focus'
 import { useLateCorrectionServed } from '../../lateCorrectionServed'
 
 /**
@@ -20,7 +20,22 @@ import { useLateCorrectionServed } from '../../lateCorrectionServed'
  * report sent again after no answer is the same one. On 412 the route moved on (something was returned or changed): the
  * caller reads it again, and the form stays open at the new version. A backend without the route answers 404: the form
  * says it is not available yet. Opening it moves focus to its title; Cancel returns it to the button that opened it.
+ *
+ * Once the backend serves "We can't complete this order" (D18) where the form opens (`cannotComplete`: on the Accepted
+ * panel, on a work row, or in "Correct an order that has ended"), the form sends a facility that just can't do the work
+ * to that action, saying where it is; until then it says to phone the ordering facility, as before (D18-13).
  */
+
+/** Where "We can't complete this order" is offered beside this form, once it is (D18, SPEC-FINAL §9.1; WB3). */
+export type CannotCompleteBeside = 'panel' | 'row' | 'lookup'
+
+const CANNOT_COMPLETE_INSTEAD: Readonly<Record<CannotCompleteBeside, string>> = {
+  panel: 'If you can’t complete it for another reason, don’t use this: close this and use “We can’t complete this order” on its '
+    + 'row in the work list below.',
+  row: 'If you can’t complete it for another reason, don’t use this: press Cancel and use “We can’t complete this order” below.',
+  lookup: 'If you can’t complete it for another reason, don’t use this: press Cancel and use “We can’t complete this order” on '
+    + 'this order’s row.',
+}
 
 /** The route reported on, at the version the report is checked against. */
 export interface WrongPatientRoute { id: string; version: number; reference: string | null }
@@ -39,11 +54,13 @@ export interface WrongPatientEnding {
 
 interface Problems { reason?: string; note?: string; confirmed?: string }
 
-export function WrongPatientForm({ id, service, facilityId, route, patient, ordering, dispensed, notice, onEnded, onStale,
-  onReload, onCancel }: {
+export function WrongPatientForm({ id, service, facilityId, route, patient, ordering, dispensed, notice, cannotComplete, onEnded,
+  onStale, onReload, onCancel }: {
   id: string; service: ReceivingService; facilityId: string; route: WrongPatientRoute; patient: string | null; ordering: string
   /** Pharmacy: whether a dispensing it recorded stands (true), none does (false), or the page can't tell (undefined). */
   dispensed?: boolean
+  /** D18: where "We can't complete this order" is offered for this order, when it is; undefined until then. */
+  cannotComplete?: CannotCompleteBeside
   /** Said above the actions, for example why the form was refreshed. */
   notice?: string
   onEnded: (result: OrderRouteWrongPatientEnded) => void
@@ -66,7 +83,8 @@ export function WrongPatientForm({ id, service, facilityId, route, patient, orde
   // The button that opened the form is gone: focus moves to the form's title, so a keyboard or screen-reader user goes
   // on from the form itself rather than from the top of the page (as the message that follows it does).
   const title = useRef<HTMLElement>(null)
-  useEffect(() => { title.current?.focus() }, [])
+  // In the commit that shows it, not an effect a task later: a check made as soon as it is shown finds the focus moved.
+  useLayoutEffect(() => { title.current?.focus() }, [])
   const lab = service === 'lab'
   const who = patient?.trim() || 'the patient'
   const Who = patient?.trim() || 'The patient'
@@ -116,7 +134,8 @@ export function WrongPatientForm({ id, service, facilityId, route, patient, orde
     <strong id={`${id}-title`} ref={title} tabIndex={-1}>End this order: accepted for the wrong person</strong>
     <p>{Who} is the patient on this order. Use this only if the person you accepted it for is someone else.</p>
     {!lab && <p>Someone collecting for {who} with their agreement is not the wrong person: don’t use this for them.</p>}
-    <p>If you can’t do the {lab ? 'test' : 'medicine'}, don’t use this either: phone {ordering}.</p>
+    <p>{cannotComplete ? CANNOT_COMPLETE_INSTEAD[cannotComplete]
+      : `If you can’t do the ${lab ? 'test' : 'medicine'}, don’t use this either: phone ${ordering}.`}</p>
     <p><strong>What will happen</strong></p>
     <ul className="staff-order-notes">
       <li>You stop seeing {who}’s details and this order at once, and nothing more can be recorded on it.</li>
@@ -156,25 +175,6 @@ export function WrongPatientForm({ id, service, facilityId, route, patient, orde
 }
 
 /**
- * The button that opens the form, on a routed work row (item 3, §8.1). The row offers it only while the route allows
- * work, from a backend that sends its version, with the receive permission (wrongPatientOffered). On 412 the list is
- * read again and the form stays open at the new version.
- */
-export function WrongPatientAction({ id, service, facilityId, route, patient, ordering, dispensed, onEnded, onRefresh }: {
-  id: string; service: ReceivingService; facilityId: string; route: WrongPatientRoute; patient: string | null; ordering: string
-  dispensed?: boolean
-  onEnded: (result: OrderRouteWrongPatientEnded) => void
-  onRefresh: () => Promise<void> | void
-}) {
-  const [open, setOpen] = useState(false)
-  if (!open) return <div className="staff-row"><Button id={`${id}-open`} tone="secondary" size="sm" className={UNAVAILABLE}
-    aria-expanded={false} onClick={() => setOpen(true)}>This isn’t the order’s patient</Button></div>
-  return <WrongPatientForm id={id} service={service} facilityId={facilityId} route={route} patient={patient} ordering={ordering}
-    dispensed={dispensed} onEnded={onEnded} onStale={onRefresh} onReload={() => void onRefresh()}
-    onCancel={() => { setOpen(false); window.setTimeout(() => document.getElementById(`${id}-open`)?.focus(), 0) }} />
-}
-
-/**
  * Said once an order has ended this way (item 3, §9.1; C2, C10): it stays until closed, with the order's reference, and
  * says that Health ID does not alert the ordering facility, so the receiver must phone it.
  */
@@ -185,7 +185,7 @@ export function WrongPatientEnded({ id, ending, onClose }: { id: string; ending:
     patient: ending.patient, ordering: ending.ordering, returned, dateOfBirthOnly: ending.dateOfBirthOnly })
   // The form that ended it is gone: the work continues at what to do now.
   const title = useRef<HTMLElement>(null)
-  useEffect(() => { title.current?.focus() }, [ending])
+  useLayoutEffect(() => { title.current?.focus() }, [ending])
   return <div className="staff-notice staff-danger staff-stack" aria-labelledby={`${id}-title`}>
     <strong id={`${id}-title`} ref={title} tabIndex={-1}>{first}</strong>
     {rest.map((line, index) => <p key={index}>{line}</p>)}

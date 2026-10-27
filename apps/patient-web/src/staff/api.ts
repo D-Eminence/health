@@ -501,6 +501,12 @@ export interface WorkList<T> extends ReceivingAnswer {
    * sends no such field.
    */
   lateCorrection?: boolean
+  /**
+   * D18 (hid-system 0091): `true`, for a member holding the kind's receive permission, from a backend that lets this
+   * facility end an order it accepted and can't complete ("We can't complete this order"). An earlier backend sends no
+   * such field.
+   */
+  cannotComplete?: boolean
 }
 
 /**
@@ -650,7 +656,8 @@ export type OrderRouteKind = 'lab_request' | 'prescription'
  * sent, accepted, completed, declined, withdrawn, expired or cancelled (a later value is shown as it is); `endedKind`
  * says who or what ended it: since the wrong-patient report (hid-system 0088, item 3) also `wrong_patient`, on a
  * cancelled route (it had been accepted) or a completed one with `endedAt` (something had come back, now withdrawn);
- * `version` is the route's, for its withdrawal.
+ * since D18 (hid-system 0091) also `receiving_unable`, on a cancelled route: the receiving facility accepted it and could
+ * not complete it; `version` is the route's, for its withdrawal.
  */
 export interface OrderRouteSummary {
   id: string
@@ -680,7 +687,20 @@ export interface OrderRouteSummary {
    * date). Read only when its type is right (correctableUntil).
    */
   correctableUntil?: string | null
+  /**
+   * D18 (hid-system 0091; absent from an earlier EHR): why the receiving facility could not complete an order it
+   * accepted, and what it had done, for a route ended `receiving_unable` with no wrong-patient report; null for every
+   * other route, and once such a report exists. Read only when its type is right (notCompletedOf).
+   */
+  notCompleted?: OrderRouteNotCompletedFacts | null
 }
+
+/**
+ * What the receiving facility said when it ended an order it could not complete (D18, C3/C4's `notCompleted`): its
+ * reason code (D18-5's lists), whether a sample was taken there and whether a result was recorded there but never
+ * released (both null for a prescription). No value, no patient, no free text.
+ */
+export interface OrderRouteNotCompletedFacts { reason: string; sampleTaken: boolean | null; resultRecorded: boolean | null }
 
 /** A receiving facility's report that it accepted an order for the wrong person (item 3, and D17's late one). */
 export interface OrderRouteReport { reportedAt: string; late: boolean }
@@ -814,9 +834,9 @@ export interface WorkItemOrderRoute {
   ordererLicence?: { body: string | null; number: string | null }
   /**
    * The route's version (the wrong-patient report's expectedVersion) and how it ended: null while it is live, else
-   * wrong_patient, support, order_changed, entered_in_error, receiving_released or ordering_released. Sent only by a
-   * backend with the wrong-patient report (hid-system 0088, item 3); without a numeric version a row offers no
-   * wrong-patient action.
+   * wrong_patient, support, order_changed, entered_in_error, receiving_released or ordering_released, and since D18
+   * (hid-system 0091) receiving_unable (this facility could not complete it). Sent only by a backend with the
+   * wrong-patient report (hid-system 0088, item 3); without a numeric version a row offers no wrong-patient action.
    */
   version?: number
   endedKind?: string | null
@@ -838,6 +858,30 @@ export interface OrderRouteWrongPatientEnded {
   resultsVoided: number
   resultReportsMarked: number
   dispensingReversed: boolean
+  replayed: boolean
+}
+
+/** Why a receiving laboratory can't complete a lab request it accepted (D18-5, SPEC-FINAL §4.3). */
+export type LabCannotCompleteReason = 'test_not_offered' | 'supplies_unavailable' | 'equipment_unavailable' | 'sample_unusable'
+  | 'sample_not_obtained' | 'cannot_meet_priority' | 'patient_declined' | 'patient_did_not_return' | 'other'
+/** Why a receiving pharmacy can't complete a prescription it accepted (D18-5). Shared codes have their own words by kind. */
+export type PharmacyCannotCompleteReason = 'out_of_stock' | 'medicine_unavailable' | 'needs_prescriber_review'
+  | 'controlled_requirements' | 'cannot_meet_priority' | 'patient_declined' | 'patient_did_not_return' | 'other'
+export type OrderRouteCannotCompleteReason = LabCannotCompleteReason | PharmacyCannotCompleteReason
+
+/**
+ * The answer to "We can't complete this order" (D18, C31): the route as the ending left it (`cancelled`,
+ * `receiving_unable`; a replay: as it is now), the reason given (a replay: the first ending's), until when this facility
+ * may still read it (`readUntil`: the ending's moment when its reads ended at once, else 7 days later) and what it had
+ * recorded (Lab; 0 for a prescription). Never the patient or anything clinical.
+ */
+export interface OrderRouteNotCompleted {
+  route: { id: string; version: number; effectiveState: string; endedKind: string | null }
+  reason: string
+  readUntil: string | null
+  specimensCollected: number
+  resultsRecorded: number
+  criticalCandidates: number
   replayed: boolean
 }
 
@@ -2113,6 +2157,20 @@ export const orderRoutesApi = {
     input: { reason: OrderRouteWrongPatientReason; note: string }, idempotencyKey: string) =>
     client.post<OrderRouteWrongPatientEnded>(`/api/v1/${service}/order-routes/${encodeURIComponent(route.id)}/wrong-patient`,
       { expectedVersion: route.version, reason: input.reason, note: input.note },
+      { headers: { ...facilityHeaders(facilityId, 'direct-care'), ...keyHeaders(idempotencyKey) } }),
+  /**
+   * The receiving laboratory or pharmacy ends an order it accepted and can't complete (D18, C31), with one reason of its
+   * kind's list and the statement that the person it accepted the order for was the order's patient
+   * (`confirmedPatient: true`); a laboratory also says, when it has, that it phoned the ordering facility about a
+   * possibly critical value (`criticalValueTold: true`, sent only then; a pharmacy never sends it, its service refuses
+   * it). The caller keeps one Idempotency-Key per identical request (the same request sent again after no answer is a
+   * replay). A backend without the route answers 404 (the caller says it is not available yet).
+   */
+  cannotComplete: (facilityId: string, service: ReceivingService, route: { id: string; version: number },
+    input: { reason: OrderRouteCannotCompleteReason; confirmedPatient: true; criticalValueTold?: boolean }, idempotencyKey: string) =>
+    client.post<OrderRouteNotCompleted>(`/api/v1/${service}/order-routes/${encodeURIComponent(route.id)}/cannot-complete`,
+      { expectedVersion: route.version, reason: input.reason, confirmedPatient: true,
+        ...(service === 'lab' && input.criticalValueTold === true ? { criticalValueTold: true } : {}) },
       { headers: { ...facilityHeaders(facilityId, 'direct-care'), ...keyHeaders(idempotencyKey) } }),
   /**
    * Finds an order this facility accepted by its exact 8-character reference (D17, C30), to withdraw what it recorded on

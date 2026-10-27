@@ -1,6 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
-import type { OrderRouteSummary, WorkItemOrderRoute } from './api'
+import { findEndpoint, ORDER_ROUTE_CANNOT_COMPLETE_REASONS } from '@hid/contracts'
+import type { OrderRouteNotCompleted, OrderRouteSummary, WorkItemOrderRoute } from './api'
+import {
+  cannotCompleteEndedLines, cannotCompleteMustPhone, cannotCompleteOffered, cannotCompleteReadText, cannotCompleteRefusal,
+  cannotCompleteReasons,
+  correctableRoutes as correctableRows, LAB_CANNOT_COMPLETE_REASONS, lateCorrectionRowLines, notCompletedOf, notCompletedText,
+  PHARMACY_CANNOT_COMPLETE_REASONS,
+} from './orderRoutes'
 import {
   acceptedCheckText, acceptRefusal, correctableFindRefusal, correctableRoutes, fillAttestation, forgetReceiving, handOverCheckText,
   holdsReceivePermission, lagosDay, lateCorrectionLines, lateEndedText, lateReportNotice, lateWrongPatientRefusal, RECEIVING_MEMORY_MS,
@@ -566,5 +573,373 @@ describe('what the ordering clinician reads of a late report (D17)', () => {
     expect(routedChangeWarning({ ...done, ...until }, 'Ada Patient', true, false)).toMatch(/to end it from its work list first/)
     expect(routedChangeWarning(done, 'Ada Patient', true, true)).toMatch(/to end it from its work list first/)
     expect(routedChangeWarning(done, 'Ada Patient')).toBe(change)
+  })
+})
+
+/**
+ * D18 (hid-system 0091, SPEC-FINAL §9.1): what the receiving laboratory or pharmacy reads of "We can't complete this
+ * order": whether a row offers it, the reasons by kind (the registry's lists), when the phone statement is required, every
+ * refusal, what is said once it has ended, and how an ended row and the late section name the new ending.
+ */
+describe('“We can’t complete this order”: the receiving facility’s words (D18)', () => {
+  const card = (overrides: Partial<WorkItemOrderRoute> = {}): WorkItemOrderRoute => ({ id: 'r1', reference: '9C1B2D3E',
+    effectiveState: 'accepted', access: 'work', orderingFacilityName: 'General Hospital', ordererName: 'Dr Ade Okon', version: 3,
+    endedKind: null, ...overrides })
+  const RECEIVE = ['lab.order-route.receive']
+
+  it('is offered only on an accepted order the route still lets this facility work, with its version, the permission, '
+    + 'from a backend that serves it', () => {
+    expect(cannotCompleteOffered(card(), RECEIVE, 'lab', true)).toBe(true)
+    expect(cannotCompleteOffered(card(), ['pharmacy.order-route.receive'], 'pharmacy', true)).toBe(true)
+    // Dormant: until the backend says it serves D18, never (D18-13), whatever else the card says.
+    for (const served of [null, false, undefined]) expect(cannotCompleteOffered(card(), RECEIVE, 'lab', served)).toBe(false)
+    for (const overrides of [{ effectiveState: 'completed' }, { effectiveState: 'expired' }, { effectiveState: 'cancelled' },
+      { endedKind: 'receiving_unable' }, { endedKind: 'wrong_patient' }, { access: 'read' }, { access: 'none' }, { version: undefined },
+      { version: 0 }, { version: '3' as unknown as number }, { version: 1.5 }] as Array<Partial<WorkItemOrderRoute>>) {
+      expect(cannotCompleteOffered(card(overrides), RECEIVE, 'lab', true), JSON.stringify(overrides)).toBe(false)
+    }
+    expect(cannotCompleteOffered(card(), ['lab.work-item.read'], 'lab', true)).toBe(false)
+    expect(cannotCompleteOffered(card(), RECEIVE, 'pharmacy', true)).toBe(false)
+    expect(cannotCompleteOffered(null, RECEIVE, 'lab', true)).toBe(false)
+  })
+
+  it('holds the same reasons as the registry, the services and 0091, "Another reason" last, each labelled once', () => {
+    expect(LAB_CANNOT_COMPLETE_REASONS.map(item => item.value)).toEqual([...ORDER_ROUTE_CANNOT_COMPLETE_REASONS.lab_request])
+    expect(PHARMACY_CANNOT_COMPLETE_REASONS.map(item => item.value)).toEqual([...ORDER_ROUTE_CANNOT_COMPLETE_REASONS.prescription])
+    const note = findEndpoint('lab.orderRouteCannotComplete')?.note ?? ''
+    expect(note).toContain(`Lab reason: ${LAB_CANNOT_COMPLETE_REASONS.map(item => item.value).join(' | ')};`)
+    expect(note).toContain(`Pharmacy reason: ${PHARMACY_CANNOT_COMPLETE_REASONS.map(item => item.value).join(' | ')}.`)
+    expect(cannotCompleteReasons('lab')).toBe(LAB_CANNOT_COMPLETE_REASONS)
+    expect(cannotCompleteReasons('pharmacy')).toBe(PHARMACY_CANNOT_COMPLETE_REASONS)
+    for (const list of [LAB_CANNOT_COMPLETE_REASONS, PHARMACY_CANNOT_COMPLETE_REASONS]) {
+      expect(list.at(-1)).toMatchObject({ value: 'other', label: 'Another reason' })
+      expect(new Set(list.map(item => item.label)).size).toBe(list.length)
+      // None is about identity or money (D18-5); every word uses the typographic apostrophe.
+      for (const item of list) {
+        expect(item.label).not.toMatch(/identity|who the person|pay|cost|money|'/i)
+        expect(item.says({ patient: 'Ada' })).not.toContain("'")
+      }
+    }
+    // A shared code has its own words by kind.
+    expect(LAB_CANNOT_COMPLETE_REASONS.find(item => item.value === 'cannot_meet_priority')!.label)
+      .toBe('We can’t do it in time for its priority')
+    expect(PHARMACY_CANNOT_COMPLETE_REASONS.find(item => item.value === 'cannot_meet_priority')!.label)
+      .toBe('We can’t supply it when it is needed')
+    expect(PHARMACY_CANNOT_COMPLETE_REASONS.find(item => item.value === 'patient_did_not_return')!.label)
+      .toBe('The patient didn’t come back to collect it')
+  })
+
+  it('requires the phone statement for an urgent, asap or stat lab request, and for the must-phone reasons only (D18-8)', () => {
+    for (const priority of ['urgent', 'asap', 'stat']) expect(cannotCompleteMustPhone('lab', 'other', priority), priority).toBe(true)
+    expect(cannotCompleteMustPhone('lab', 'urgent' as string, null)).toBe(false)
+    for (const priority of ['routine', null, undefined]) {
+      expect(cannotCompleteMustPhone('lab', 'supplies_unavailable', priority)).toBe(false)
+      expect(cannotCompleteMustPhone('lab', 'cannot_meet_priority', priority)).toBe(true)
+    }
+    expect(PHARMACY_CANNOT_COMPLETE_REASONS.filter(item => cannotCompleteMustPhone('pharmacy', item.value)).map(item => item.value))
+      .toEqual(['needs_prescriber_review', 'controlled_requirements', 'cannot_meet_priority'])
+    expect(LAB_CANNOT_COMPLETE_REASONS.filter(item => cannotCompleteMustPhone('lab', item.value, 'routine')).map(item => item.value))
+      .toEqual(['cannot_meet_priority'])
+    // A prescription has no priority: the pharmacy never phones because of one.
+    expect(cannotCompleteMustPhone('pharmacy', 'out_of_stock', 'stat')).toBe(false)
+    expect(cannotCompleteMustPhone('lab', '', 'routine')).toBe(false)
+  })
+
+  it('says how long the laboratory still reads the order: 7 days, never past its 30 days, or not at all (D18-2)', () => {
+    const now = Date.parse('2026-10-27T10:15:00.000Z')
+    const read = (accession: boolean | undefined, acceptedAt: string | null, lab = true) =>
+      cannotCompleteReadText({ lab, accession, acceptedAt, patient: 'Tunde Bello', now })
+    expect(read(true, '2026-10-21T10:00:00.000Z')).toBe('You can still read it for 7 days.')
+    // Accepted 25 days ago: its 30 days end in 5, and so do the reads.
+    expect(read(true, '2026-10-02T10:15:00.000Z')).toBe('You can still read it until 1 Nov 2026, 11:15, when its 30 days end.')
+    expect(read(true, null)).toBe('You can still read it for up to 7 days, and never after its 30 days end.')
+    expect(read(undefined, '2026-10-02T10:15:00.000Z')).toBe('If you opened an accession on it, you can still read it until '
+      + '1 Nov 2026, 11:15, when its 30 days end; otherwise you stop seeing Tunde Bello’s details on this order at once.')
+    expect(read(undefined, '2026-10-21T10:00:00.000Z')).toBe('If you opened an accession on it, you can still read it for 7 days; '
+      + 'otherwise you stop seeing Tunde Bello’s details on this order at once.')
+    expect(read(false, '2026-10-02T10:15:00.000Z')).toBe('You stop seeing Tunde Bello’s details on this order at once.')
+    expect(read(true, '2026-10-02T10:15:00.000Z', false)).toBe('You stop seeing Tunde Bello’s details on this order at once.')
+  })
+
+  it('says every refusal, whether the list is read again, and keeps the form and its key without an answer', () => {
+    const refused = (status: number, code: string, extra: Record<string, unknown> = {}) =>
+      cannotCompleteRefusal(new HidApiError(status, 'Refused', { code, ...extra }), 'lab', 'General Hospital', '9C1B2D3E')
+    expect(refused(409, 'ORDER_ROUTE_ALREADY_ENDED')).toEqual({ reload: true, text: 'This order has already ended, so it can’t be '
+      + 'ended here. If you accepted it for the wrong person, use “Correct an order that has ended” above the work list, with '
+      + 'reference 9C1B2D3E.' })
+    expect(refused(409, 'ORDER_ROUTE_ALREADY_RETURNED')).toEqual({ reload: true, text: 'A result has already gone back to General '
+      + 'Hospital on this order, so it can’t be ended here. Phone General Hospital.' })
+    expect(cannotCompleteRefusal(new HidApiError(409, 'Refused', { code: 'ORDER_ROUTE_ALREADY_RETURNED' }), 'pharmacy', 'General Hospital',
+      null).text).toBe('A dispensing has already gone back to General Hospital on this order, so it can’t be ended here. Phone General Hospital.')
+    // Release it, or correct it if it is wrong: no Lab page or route marks one result entered in error.
+    expect(refused(409, 'ORDER_ROUTE_RESULT_READY')).toEqual({ text: 'A checked result is waiting to be released on this order. '
+      + 'Release it under Open accession or, if it is wrong, correct it there first. If you can’t, phone General Hospital.' })
+    expect(refused(409, 'ORDER_ROUTE_CRITICAL_VALUE_NOT_TOLD')).toEqual({ critical: true, text: 'A result recorded on this order is '
+      + 'marked as possibly critical. Phone General Hospital about it now, then tick the box and end the order again.' })
+    expect(refused(409, 'ORDER_ROUTE_NOT_ACCEPTED')).toEqual({ reload: true, text: 'This order hasn’t been accepted: decline it instead.' })
+    expect(refused(412, 'VERSION_CONFLICT')).toEqual({ stale: true, text: 'This order changed a moment ago. It has been reloaded: '
+      + 'check and try again.' })
+    expect(refused(409, 'ORDER_ROUTE_CHANGED_CONCURRENTLY')).toEqual({ text: 'Someone changed this order at the same moment. Try again.' })
+    const limit = 'The most orders that can be ended here in 24 hours have been ended, by you or by your laboratory. '
+    // Past the limit a recorded result goes with the order, unseen by the clinic: the laboratory phones about it first.
+    const after = ' Phone General Hospital and ask them to cancel this order so it doesn’t stay open, or ask Health ID support to '
+      + 'close it. If a result was recorded on this order, phone General Hospital about it first: once the order is cancelled or '
+      + 'closed you can no longer read it, and General Hospital is not told that a result was recorded. If many orders are '
+      + 'affected, phone Health ID support now.'
+    expect(refused(429, 'ORDER_ROUTE_CANNOT_COMPLETE_LIMIT', { retryAt: '2026-10-28T09:14:03.219Z' }).text)
+      .toBe(`${limit}You can end more from 28 Oct 2026, 10:14.${after}`)
+    expect(refused(429, 'ORDER_ROUTE_CANNOT_COMPLETE_LIMIT').text).toBe(`${limit}You can end more later.${after}`)
+    expect(refused(429, 'TOO_MANY_REQUESTS').text).toBe(`${limit}You can end more later.${after}`)
+    expect(cannotCompleteRefusal(new HidApiError(429, 'Limit', { code: 'ORDER_ROUTE_CANNOT_COMPLETE_LIMIT' }), 'pharmacy', 'General Hospital',
+      null).text).toBe('The most orders that can be ended here in 24 hours have been ended, by you or by your pharmacy. You can end '
+      + 'more later. Phone General Hospital and ask them to cancel this order so it doesn’t stay open, or ask Health ID support to '
+      + 'close it. If many orders are affected, phone Health ID support now.')
+    expect(refused(409, 'IDEMPOTENCY_KEY_REUSED')).toEqual({ reload: true, text: 'This was already sent with other details. The list '
+      + 'has been refreshed: check whether the order has ended.' })
+    expect(refused(404, 'API_ROUTE_NOT_FOUND')).toEqual({ missing: true, text: 'Ending an order you can’t complete isn’t available '
+      + 'yet: phone General Hospital.' })
+    expect(refused(404, 'ORDER_ROUTE_NOT_FOUND')).toEqual({ reload: true, text: 'This order was not found here. Refresh the list.' })
+    expect(refused(423, 'CROSS_FACILITY_ORDERS_UNAVAILABLE')).toEqual({ text: 'Health ID has paused work on orders from other '
+      + 'facilities, so this can’t be done now. Try again when it resumes, and phone General Hospital if it is urgent.' })
+    expect(refused(403, 'PERMISSION_DENIED')).toEqual({ text: 'Your role can’t end orders from other facilities.' })
+    for (const code of ['VALIDATION_FAILED', 'ORDER_ROUTE_INVALID', 'IDEMPOTENCY_KEY_REQUIRED']) {
+      expect(refused(400, code), code).toEqual({ text: 'Health ID couldn’t take this request as sent. Reload the page and try '
+        + 'again; if it happens again, tell Health ID support.' })
+    }
+    const silence = 'Health ID did not answer, so it may or may not have ended. Press “End it: we can’t complete it” again: if it '
+      + 'went through, Health ID says so.'
+    for (const error of [new HidApiError(503, 'Down', { code: 'ORDER_ROUTE_UNAVAILABLE' }), new HidApiError(0, 'Offline', {}),
+      new HidApiError(408, 'Timeout', {}), new TypeError('')]) {
+      expect(cannotCompleteRefusal(error, 'lab', 'General Hospital', null)).toEqual({ unanswered: true, text: silence })
+    }
+    expect(refused(409, 'SOMETHING_ELSE')).toEqual({ text: 'The order could not be ended. Try again.' })
+    // Without a reference the words still point somewhere.
+    expect(cannotCompleteRefusal(new HidApiError(409, 'Ended', { code: 'ORDER_ROUTE_ALREADY_ENDED' }), 'lab', 'General Hospital', null).text)
+      .toContain('with reference shown with the order.')
+  })
+
+  describe('what is said once it has ended', () => {
+    const now = Date.parse('2026-10-27T10:15:00.000Z')
+    const ended = (overrides: Partial<OrderRouteNotCompleted> = {}): OrderRouteNotCompleted => ({
+      route: { id: 'r1', version: 4, effectiveState: 'cancelled', endedKind: 'receiving_unable' }, reason: 'supplies_unavailable',
+      readUntil: '2026-10-27T10:15:00.000Z', specimensCollected: 0, resultsRecorded: 0, criticalCandidates: 0, replayed: false,
+      ...overrides })
+    const lines = (reason: string, overrides: Partial<OrderRouteNotCompleted> = {}, service: 'lab' | 'pharmacy' = 'lab',
+      priority: string | null = 'routine') => cannotCompleteEndedLines({ service, title: service === 'lab' ? 'Haemoglobin'
+      : 'Amoxicillin 500 mg capsules', reference: '9C1B2D3E', patient: 'Tunde Bello', ordering: 'General Hospital', reason, priority,
+      result: ended({ reason, ...overrides }), now })
+    const FIRST = 'Ended: Haemoglobin, reference 9C1B2D3E. General Hospital sees on the order that you couldn’t complete it, and '
+      + 'why; Tunde Bello is told in the Health ID app, if they use it.'
+    const LEAVES = 'It leaves your work list now: keep the reference 9C1B2D3E for General Hospital’s call.'
+    const LATER = 'If you find out later that you accepted it for someone who was not Tunde Bello, use “Correct an order that has '
+      + 'ended” with reference 9C1B2D3E.'
+
+    it('a routine lab request with nothing recorded: not alerted, leaves the list now, and where to go if it was the wrong person', () => {
+      expect(lines('supplies_unavailable')).toEqual([FIRST, 'Health ID does not alert General Hospital: phone them if it is urgent.',
+        LEAVES, LATER])
+    })
+
+    it.each([['urgent', 'urgent'], ['asap', 'as soon as possible'], ['stat', 'stat']])('a lab request marked %s: phone now', (priority, words) => {
+      expect(lines('test_not_offered', {}, 'lab', priority)[1])
+        .toBe(`This test was marked ${words}: phone General Hospital now, so they can write a new order.`)
+    })
+
+    it('each must-phone reason says what to phone about', () => {
+      expect(lines('cannot_meet_priority', {}, 'lab', 'urgent')[1]).toBe('Phone General Hospital now, so they can write a new order elsewhere.')
+      expect(lines('cannot_meet_priority', {}, 'pharmacy', null)[1]).toBe('Phone General Hospital now, so they can write a new order elsewhere.')
+      expect(lines('needs_prescriber_review', {}, 'pharmacy', null)[1]).toBe('Phone General Hospital now and tell the prescriber what '
+        + 'needs review: Health ID does not pass it on.')
+      expect(lines('controlled_requirements', {}, 'pharmacy', null)[1]).toBe('Phone General Hospital now: Tunde Bello needs a signed '
+        + 'paper prescription, or a new one sent to another pharmacy.')
+    })
+
+    it('a sample taken: discard it only when it can’t be used or the patient declined; otherwise keep it (CC4)', () => {
+      const keep = 'Keep the sample, stored as your procedure requires, until you have spoken to General Hospital: they may want it '
+        + 'sent to another laboratory.'
+      const discard = 'Discard the sample following your laboratory’s procedure.'
+      for (const reason of ['sample_unusable', 'patient_declined']) expect(lines(reason, { specimensCollected: 1 })).toContain(discard)
+      for (const reason of ['test_not_offered', 'supplies_unavailable', 'equipment_unavailable', 'sample_not_obtained',
+        'cannot_meet_priority', 'patient_did_not_return', 'other']) {
+        expect(lines(reason, { specimensCollected: 2 }), reason).toContain(keep)
+        expect(lines(reason, { specimensCollected: 2 }), reason).not.toContain(discard)
+      }
+      expect(lines('sample_unusable').join(' ')).not.toMatch(/sample following|Keep the sample/)
+    })
+
+    it('a result recorded: the critical-value sentence; reads kept: the list keeps it until then', () => {
+      const result = lines('equipment_unavailable', { specimensCollected: 1, resultsRecorded: 1, readUntil: '2026-11-03T10:15:00.000Z' })
+      expect(result).toContain('If any value was critical, tell Tunde Bello or General Hospital directly, following your laboratory’s procedure.')
+      expect(result).toContain('It stays on your work list, marked ended, until 3 Nov 2026, 11:15.')
+      expect(result).not.toContain(LEAVES)
+      expect(lines('equipment_unavailable', { readUntil: null })).toContain(LEAVES)
+    })
+
+    it('a pharmacy: no sample or result sentences, and it leaves the list now', () => {
+      const result = cannotCompleteEndedLines({ service: 'pharmacy', title: 'Amoxicillin 500 mg capsules', reference: '9C1B2D3E',
+        patient: null, ordering: 'General Hospital', reason: 'out_of_stock', priority: null, result: ended({ reason: 'out_of_stock' }), now })
+      expect(result).toEqual(['Ended: Amoxicillin 500 mg capsules, reference 9C1B2D3E. General Hospital sees on the order that you '
+        + 'couldn’t complete it, and why; The patient is told in the Health ID app, if they use it.',
+      'Health ID does not alert General Hospital: phone them if it is urgent.', LEAVES,
+      'If you find out later that you accepted it for someone who was not the patient, use “Correct an order that has ended” with '
+        + 'reference 9C1B2D3E.'])
+    })
+  })
+
+  it('names the new ending on a work row, with the late-correction pointer once served, and in the late section', () => {
+    const ended = card({ effectiveState: 'cancelled', access: 'read', endedKind: 'receiving_unable' })
+    expect(routedWorkEndedText(ended)).toBe('You ended this order: you couldn’t complete it. Nothing more can be recorded on it.')
+    expect(routedWorkEndedText(ended, true)).toBe('You ended this order: you couldn’t complete it. Nothing more can be recorded on '
+      + 'it. If you accepted it for the wrong person, use “Correct an order that has ended” with reference 9C1B2D3E.')
+    expect(routeClosedForWork(ended)).toBe(true)
+    // Every other ending reads as before, served or not.
+    expect(routedWorkEndedText(card({ effectiveState: 'cancelled', endedKind: 'support' }), true)).toBe('Closed by Health ID support: stop work.')
+    expect(routedWorkEndedText(card({ effectiveState: 'cancelled', endedKind: 'something_new' }), true)).toBe('This order was cancelled: stop work.')
+    expect(lateEndedText({ effectiveState: 'cancelled', endedKind: 'receiving_unable', orderingFacilityName: 'General Hospital' }, 'lab'))
+      .toBe('you said you couldn’t complete it')
+    const [row] = correctableRows({ items: [{ id: 'r1', reference: '9C1B2D3E', kind: 'lab_request', version: 4, effectiveState: 'cancelled',
+      orderingFacilityName: 'General Hospital', acceptedAt: '2026-10-21T10:00:00.000Z', completedAt: null,
+      endedAt: '2026-10-22T10:00:00.000Z', endedKind: 'receiving_unable', returned: false, correction: 'correctable',
+      correctableUntil: '2027-04-19T10:00:00.000Z', wrongPatient: null, details: { what: 'Haemoglobin', acceptedBy: 'Bola Ade',
+        acceptedWith: 'health_id', returned: [] } }] })
+    expect(lateCorrectionRowLines(row!, 'lab', true)[0]).toBe('Lab request from General Hospital · Ref 9C1B2D3E · Haemoglobin · '
+      + 'Accepted 21 Oct 2026 by Bola Ade, with their Health ID · you said you couldn’t complete it.')
+  })
+
+  it('says an open, accepted order in the late section can be ended there once served, and nothing new before', () => {
+    const [open, done] = correctableRows({ items: [
+      { id: 'r1', reference: '9C1B2D3E', kind: 'lab_request', version: 3, effectiveState: 'accepted', orderingFacilityName: 'General Hospital',
+        acceptedAt: '2026-10-21T10:00:00.000Z', completedAt: null, endedAt: null, endedKind: null, returned: false, correction: 'open',
+        correctableUntil: '2027-04-19T10:00:00.000Z', wrongPatient: null, details: null },
+      { id: 'r2', reference: '9C1B2D3F', kind: 'lab_request', version: 5, effectiveState: 'completed', orderingFacilityName: 'General Hospital',
+        acceptedAt: '2026-10-21T10:00:00.000Z', completedAt: '2026-10-22T10:00:00.000Z', endedAt: null, endedKind: null, returned: true,
+        correction: 'open', correctableUntil: '2027-04-19T10:00:00.000Z', wrongPatient: null, details: null }] })
+    const TODAY = 'This order is still open. If you accepted it for the wrong person, report it here.'
+    expect(lateCorrectionRowLines(open!, 'lab').at(-1)).toBe(TODAY)
+    expect(lateCorrectionRowLines(open!, 'lab', true).at(-1)).toBe('This order is still open. If you accepted it for the wrong '
+      + 'person, report it here; if you can’t complete it, end it here.')
+    // Something came back: it can't be ended that way (D18-1).
+    expect(lateCorrectionRowLines(done!, 'lab', true).at(-1)).toBe(TODAY)
+  })
+})
+
+/**
+ * D18 (SPEC-FINAL §9.2): what the ordering clinician reads of an order the receiving facility accepted and couldn't
+ * complete: a short badge with both days, a neutral paragraph with the reason, the next step and the sample and result
+ * sentences (none after a wrong-patient report, CC2), the fallback without `notCompleted`, and the change warning.
+ */
+describe('what the ordering clinician reads of an order the receiving facility couldn’t complete (D18)', () => {
+  // Fields as an answer may carry them, whatever their type: the readers check it.
+  const ended = (overrides: Partial<Omit<OrderRouteSummary, 'notCompleted' | 'wrongPatient'>> & { notCompleted?: unknown
+    wrongPatient?: unknown } = {}) => route({ effectiveState: 'cancelled', acceptedAt: '2026-10-21T10:00:00.000Z',
+    endedAt: '2026-10-23T10:00:00.000Z', endedKind: 'receiving_unable', version: 4,
+    ...(overrides as Partial<OrderRouteSummary>) })
+  const facts = (reason: string, sampleTaken: boolean | null = false, resultRecorded: boolean | null = false) =>
+    ({ reason, sampleTaken, resultRecorded })
+
+  it('says in a short warning badge that it was accepted, ended on a day, and couldn’t be completed', () => {
+    expect(routeStatusText(ended({ notCompleted: facts('other') }), 'Ada Patient')).toEqual({ tone: 'warning',
+      text: 'Accepted by Yaba Diagnostics on 21 Oct 2026; ended on 23 Oct 2026: Yaba Diagnostics couldn’t complete it.' })
+    // After a later wrong-patient report: what it said then, and what it reported since.
+    expect(routeStatusText(ended({ notCompleted: null, wrongPatient: { reportedAt: '2026-10-25T10:00:00.000Z', late: true } }),
+      'Ada Patient').text).toBe('Accepted by Yaba Diagnostics on 21 Oct 2026; ended on 23 Oct 2026, saying it couldn’t complete it. '
+      + 'Yaba Diagnostics has since reported that it accepted it for someone who was not Ada Patient.')
+  })
+
+  it.each([
+    ['test_not_offered', 'Yaba Diagnostics says it does not do this test. Write a new lab request if Ada Patient still needs it.'],
+    ['supplies_unavailable', 'Yaba Diagnostics says it has run out of what this test needs. Write a new lab request if Ada Patient still needs it.'],
+    ['equipment_unavailable', 'Yaba Diagnostics says its equipment for this test is out of service. Write a new lab request if Ada Patient still needs it.'],
+    ['sample_unusable', 'Yaba Diagnostics says the sample could not be used. Write a new lab request, to Yaba Diagnostics or another '
+      + 'laboratory, so a new sample can be taken.'],
+    ['sample_not_obtained', 'Yaba Diagnostics says it could not take a sample. Write a new lab request if Ada Patient still needs it.'],
+    ['cannot_meet_priority', 'Yaba Diagnostics says it can’t do it in time for its priority. Write a new lab request if Ada Patient still needs it.'],
+    ['patient_declined', 'Yaba Diagnostics says Ada Patient chose not to go ahead. Talk to Ada Patient; write a new lab request if still needed.'],
+    ['patient_did_not_return', 'Yaba Diagnostics says Ada Patient left, or did not come back. Talk to Ada Patient; write a new lab request if still needed.'],
+    ['other', 'Yaba Diagnostics says it couldn’t complete it for another reason. Phone Yaba Diagnostics to find out why.'],
+  ])('a laboratory’s %s: the reason and the next step', (reason, text) => {
+    expect(notCompletedText(ended({ notCompleted: facts(reason) }), 'Ada Patient')).toBe(text)
+  })
+
+  it.each([
+    ['out_of_stock', 'Yaba Diagnostics says it has none in stock. Write a new prescription if Ada Patient still needs it.'],
+    ['medicine_unavailable', 'Yaba Diagnostics says it can’t get this medicine. Write a new prescription if Ada Patient still needs it.'],
+    ['needs_prescriber_review', 'Yaba Diagnostics says it needs the prescriber to review the prescription. Phone Yaba Diagnostics, then '
+      + 'write a new prescription.'],
+    ['controlled_requirements', 'Yaba Diagnostics says it needs a signed or paper prescription for this controlled medicine. Give Ada '
+      + 'Patient a signed paper prescription, or write a new prescription and send it to another pharmacy.'],
+    ['cannot_meet_priority', 'Yaba Diagnostics says it can’t supply it when it is needed. Write a new prescription if Ada Patient still needs it.'],
+    ['patient_declined', 'Yaba Diagnostics says Ada Patient chose not to go ahead. Talk to Ada Patient; write a new prescription if still needed.'],
+    ['patient_did_not_return', 'Yaba Diagnostics says Ada Patient did not come back to collect it. Talk to Ada Patient; write a new '
+      + 'prescription if still needed.'],
+    ['other', 'Yaba Diagnostics says it couldn’t complete it for another reason. Phone Yaba Diagnostics to find out why.'],
+  ])('a pharmacy’s %s: the reason and the next step', (reason, text) => {
+    expect(notCompletedText(ended({ kind: 'prescription', notCompleted: facts(reason, null, null) }), 'Ada Patient')).toBe(text)
+  })
+
+  it('adds the sample sentence (not for an unusable sample) and the unreleased-result sentence', () => {
+    const SAMPLE = ' A sample was taken there: phone Yaba Diagnostics if it could be sent to another laboratory.'
+    const RESULT = ' A result was recorded there but not released: phone Yaba Diagnostics if you need to know more.'
+    const base = 'Yaba Diagnostics says its equipment for this test is out of service. Write a new lab request if Ada Patient still needs it.'
+    expect(notCompletedText(ended({ notCompleted: facts('equipment_unavailable', true, false) }), 'Ada Patient')).toBe(`${base}${SAMPLE}`)
+    expect(notCompletedText(ended({ notCompleted: facts('equipment_unavailable', true, true) }), 'Ada Patient')).toBe(`${base}${SAMPLE}${RESULT}`)
+    expect(notCompletedText(ended({ notCompleted: facts('equipment_unavailable', false, true) }), 'Ada Patient')).toBe(`${base}${RESULT}`)
+    expect(notCompletedText(ended({ notCompleted: facts('sample_unusable', true, false) }), 'Ada Patient')).not.toContain('A sample was taken')
+    // The patient chose not to go ahead: the laboratory discards the sample, and the clinician is not asked to send it on.
+    expect(notCompletedText(ended({ notCompleted: facts('patient_declined', true, false) }), 'Ada Patient')).toBe('Yaba Diagnostics '
+      + 'says Ada Patient chose not to go ahead. Talk to Ada Patient; write a new lab request if still needed.')
+    // Prescriptions carry no sample or result facts, whatever arrives.
+    expect(notCompletedText(ended({ kind: 'prescription', notCompleted: facts('out_of_stock', true, true) }), 'Ada Patient'))
+      .toBe('Yaba Diagnostics says it has none in stock. Write a new prescription if Ada Patient still needs it.')
+  })
+
+  it('tells the clinician a sample may be sent on exactly when the laboratory is told to keep it (CC4)', () => {
+    for (const { value: reason } of LAB_CANNOT_COMPLETE_REASONS) {
+      const clinician = notCompletedText(ended({ notCompleted: facts(reason, true, false) }), 'Ada Patient') ?? ''
+      const laboratory = cannotCompleteEndedLines({ service: 'lab', title: 'Haemoglobin', reference: '9C1B2D3E',
+        patient: 'Ada Patient', ordering: 'General Hospital', reason, priority: 'routine', result: { route: { id: 'r1', version: 4,
+          effectiveState: 'cancelled', endedKind: 'receiving_unable' }, reason, readUntil: null, specimensCollected: 1,
+        resultsRecorded: 0, criticalCandidates: 0, replayed: false } }).join(' ')
+      expect(clinician.includes('could be sent to another laboratory'), reason).toBe(laboratory.includes('Keep the sample'))
+      expect(laboratory.includes('Discard the sample'), reason).toBe(!laboratory.includes('Keep the sample'))
+    }
+  })
+
+  it('says only the next step without notCompleted (an EHR rolled back) or with a reason it does not know', () => {
+    expect(notCompletedText(ended(), 'Ada Patient')).toBe('Write a new lab request if Ada Patient still needs it.')
+    expect(notCompletedText(ended({ notCompleted: facts('new_reason_later') }), 'Ada Patient')).toBe('Write a new lab request if Ada Patient still needs it.')
+    expect(notCompletedText(ended({ kind: 'prescription', notCompleted: 'supplies_unavailable' }), 'Ada Patient'))
+      .toBe('Write a new prescription if Ada Patient still needs it.')
+    // A laboratory reason is not a pharmacy's.
+    expect(notCompletedText(ended({ kind: 'prescription', notCompleted: facts('supplies_unavailable') }), 'Ada Patient'))
+      .toBe('Write a new prescription if Ada Patient still needs it.')
+  })
+
+  it('says nothing after a wrong-patient report, nor for any other ending', () => {
+    expect(notCompletedText(ended({ notCompleted: facts('other'), wrongPatient: { reportedAt: '2026-10-25T10:00:00.000Z', late: true } }),
+      'Ada Patient')).toBeNull()
+    for (const endedKind of ['wrong_patient', 'support', 'order_changed', null]) {
+      expect(notCompletedText(ended({ endedKind, notCompleted: facts('other') }), 'Ada Patient'), String(endedKind)).toBeNull()
+    }
+  })
+
+  it('reads notCompleted only when its type is right', () => {
+    expect(notCompletedOf({ notCompleted: { reason: 'other', sampleTaken: true, resultRecorded: 'yes' } }))
+      .toEqual({ reason: 'other', sampleTaken: true, resultRecorded: null })
+    for (const value of [null, undefined, 'other', 3, { reason: '' }, { reason: 4 }, []]) {
+      expect(notCompletedOf({ notCompleted: value }), JSON.stringify(value)).toBeNull()
+    }
+    expect(notCompletedOf(null)).toBeNull()
+  })
+
+  it('warns that a change changes nothing at the facility that ended it, keeping D17’s sentence; other endings unchanged', () => {
+    const until = '2027-04-19T10:00:00.000Z'
+    expect(routedChangeWarning(ended({ correctableUntil: until } as Partial<OrderRouteSummary>), 'Ada Patient', true, true)).toBe(
+      'Yaba Diagnostics has already ended this order there, so changing it here changes nothing at Yaba Diagnostics. If Yaba '
+      + 'Diagnostics accepted it for someone who was not Ada Patient, ask Yaba Diagnostics to withdraw what it recorded on it, giving '
+      + 'it the reference 9C1B2D3E: it can do so until 19 Apr 2027, 11:00, whether or not you change this order.')
+    expect(routedChangeWarning(ended(), 'Ada Patient', true, false)).toBe('Yaba Diagnostics has already ended this order there, so '
+      + 'changing it here changes nothing at Yaba Diagnostics.')
+    expect(routedChangeWarning(ended({ endedKind: 'support' }), 'Ada Patient', true, false)).toBe('Changing it withdraws it from Yaba '
+      + 'Diagnostics, or cancels it there if Yaba Diagnostics has accepted it; a cancelled order can’t be resumed there.')
   })
 })

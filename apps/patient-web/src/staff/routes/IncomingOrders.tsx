@@ -12,6 +12,7 @@ import {
 import { BUSY, UNAVAILABLE } from '../focus'
 import { WrongPatientEnded, WrongPatientForm, type WrongPatientEnding } from './WrongPatient'
 import { useWrongPatientServed } from '../../wrongPatientServed'
+import { useCannotCompleteServed } from '../../cannotCompleteServed'
 
 /** A Health ID as Identity stores it (identity 0002). */
 const HID_PATTERN = /^HID-[A-HJ-NP-Z2-9]{6,32}$/
@@ -72,12 +73,14 @@ export function patientCard(patient: { fullName: string; sex: string | null; dat
  * never in an address, and is sent only when Find or Refresh is pressed, or an order is acted on: never by the timer or
  * on focus, since each read is audited. `onEnded` names an order the Accepted panel ended as accepted for the wrong
  * person, so the page drops anything of it that it still shows (item 3: the receiver stops seeing the patient's details
- * at once).
+ * at once). `closedRouteId` names an order the page ended from its work row because it couldn't be completed (D18): the
+ * Accepted panel of that order closes (WB15).
  */
 export function IncomingOrders({ service, facilityId, facilityName, membershipId, onAccepted, onEnded, probe = false, watch = false,
-  onFound, onAnswer }: {
+  onFound, onAnswer, closedRouteId = null }: {
   service: ReceivingService; facilityId: string; facilityName: string; membershipId?: string; onAccepted: () => void
   onEnded?: (routeId: string) => void; probe?: boolean; watch?: boolean; onFound?: () => void; onAnswer?: (answer: unknown) => void
+  closedRouteId?: string | null
 }) {
   const [answer, setAnswer] = useState<IncomingOrderRoutes | null>(null)
   const [missing, setMissing] = useState(false)
@@ -91,6 +94,10 @@ export function IncomingOrders({ service, facilityId, facilityName, membershipId
   // An order just ended as accepted for the wrong person (item 3): said until closed, in place of the Accepted panel.
   const [ended, setEnded] = useState<WrongPatientEnding | null>(null)
   const [notice, setNotice] = useState('')
+  // The order of the Accepted panel was ended from its work row (D18): the panel goes, as the order did.
+  useEffect(() => {
+    if (closedRouteId) setAccepted(current => current?.result.route.id === closedRouteId ? null : current)
+  }, [closedRouteId])
   const sequence = useRef(0)
   // The page's latest onAnswer, so a new one never starts a read.
   const answered = useRef(onAnswer)
@@ -216,6 +223,8 @@ function AcceptedPanel({ service, facilityId, title, reference, ordering, accept
   const id = `${service}-accepted-${result.route.id}`
   const patient = result.patient?.fullName ?? null
   const served = useWrongPatientServed() === true
+  // D18: once served, an order this facility just can't do is ended from its row in the work list below (WB3).
+  const cannotComplete = useCannotCompleteServed() === true && !moved
 
   // The route moved on: read it again (C8; audited, so only now) for the version the next report is checked against.
   async function reread() {
@@ -235,7 +244,7 @@ function AcceptedPanel({ service, facilityId, title, reference, ordering, accept
     {reporting
       ? <WrongPatientForm id={`${id}-wrong-patient`} service={service} facilityId={facilityId}
         route={{ id: result.route.id, version, reference }} patient={patient} ordering={ordering}
-        dispensed={moved ? undefined : false} notice={refreshed || undefined}
+        dispensed={moved ? undefined : false} notice={refreshed || undefined} cannotComplete={cannotComplete ? 'panel' : undefined}
         onStale={reread} onReload={onChanged}
         onCancel={() => { setReporting(false); window.setTimeout(() => document.getElementById(`${id}-wrong-patient-open`)?.focus(), 0) }}
         onEnded={ended => onEnded({ service, title, reference, patient, ordering, result: ended,

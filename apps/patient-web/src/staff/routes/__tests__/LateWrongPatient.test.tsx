@@ -423,6 +423,25 @@ describe('the late form (C29)', () => {
     expect(screen.queryByText(/^Withdrawn: Full blood count/)).toBeNull()
   })
 
+  // The message takes focus in the same commit that shows it. Focused from an effect, it took focus a task later, and
+  // a check made as soon as it appeared (a slow CI runner's findByText) saw focus on the page instead (health#16's CI).
+  it('has focus on the withdrawal message as soon as the message is shown', async () => {
+    const form = await lateForm()
+    fill(form)
+    const shown = new Promise<{ message: Element; focused: Element | null }>(resolve => {
+      const observer = new MutationObserver(() => {
+        const message = [...document.querySelectorAll('strong')].find(element => element.textContent?.startsWith('Withdrawn: Full blood count'))
+        if (!message) return
+        observer.disconnect()
+        resolve({ message, focused: document.activeElement })
+      })
+      observer.observe(document.body, { childList: true, subtree: true, characterData: true })
+    })
+    fireEvent.click(within(form).getByRole('button', { name: 'Withdraw it' }))
+    const { message, focused } = await shown
+    expect(focused).toBe(message)
+  })
+
   it.each([
     [new HidApiError(409, 'Late', { code: 'ORDER_ROUTE_CORRECTION_TOO_LATE' }), 'It is past 28 Nov 2026, 10:00, so it can’t be '
       + 'corrected here. Phone General Hospital, and tell Health ID support.'],

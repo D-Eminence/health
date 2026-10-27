@@ -1,8 +1,9 @@
 import { isHidApiError } from '@hid/http'
 import type {
-  CorrectableOrderRoute, CorrectableOrderRouteDetails, Facility, OrderRouteDeclineReason, OrderRouteDiscoveredBy, OrderRouteKind,
-  OrderRoutePatient, OrderRouteSummary, OrderRouteWithdrawReason, OrderRouteWrongPatientReason, ReceivingAnswer,
-  ReceivingService, WorkItemOrderRoute,
+  CorrectableOrderRoute, CorrectableOrderRouteDetails, Facility, LabCannotCompleteReason, OrderRouteDeclineReason,
+  OrderRouteDiscoveredBy, OrderRouteKind, OrderRouteNotCompleted, OrderRouteNotCompletedFacts, OrderRoutePatient, OrderRouteSummary,
+  OrderRouteWithdrawReason, OrderRouteWrongPatientReason, PharmacyCannotCompleteReason, ReceivingAnswer, ReceivingService,
+  WorkItemOrderRoute,
 } from './api'
 import { usesNovuBackend } from '../backendContract'
 import { receivingDeadlineOf, wrongPatientReportOf } from '../lateCorrectionServed'
@@ -151,6 +152,12 @@ function cancelledText(route: OrderRouteSummary, facility: string, patient: stri
   switch (route.endedKind) {
     case 'wrong_patient': return `${facility} reports that it accepted this for someone who was not ${patient}, and has ended it. `
       + 'Nothing came back from it.'
+    // D18: the receiving facility accepted it and couldn't complete it (only a backend serving hid-system 0091 says so). A
+    // short badge; why, and what to do next, follow it in a paragraph (notCompletedText). After a wrong-patient report the
+    // line says only what the facility said then, and routeStatusText adds what it reported since (CC2).
+    case 'receiving_unable': return wrongPatientReportOf(route)
+      ? `Accepted by ${facility} on ${routeDay(route.acceptedAt)}; ended on ${routeDay(route.endedAt)}, saying it couldn’t complete it.`
+      : `Accepted by ${facility} on ${routeDay(route.acceptedAt)}; ended on ${routeDay(route.endedAt)}: ${facility} couldn’t complete it.`
     case 'order_changed': return `Cancelled at ${facility} because the order changed.`
     case 'entered_in_error': return `Cancelled at ${facility} because the order was marked entered in error.`
     case 'receiving_released': return `Cancelled: ${facility} is no longer on Health ID.`
@@ -158,6 +165,50 @@ function cancelledText(route: OrderRouteSummary, facility: string, patient: stri
     case 'support': return `Cancelled at ${facility} by Health ID support.`
     default: return `Cancelled at ${facility}.`
   }
+}
+
+/**
+ * What the receiving facility said when it ended an order it couldn't complete (D18, the summary's `notCompleted`), read
+ * only when its type is right: the reason a string, `sampleTaken` and `resultRecorded` each a boolean or null. Null when
+ * the route carries none, or another shape.
+ */
+export function notCompletedOf(route: unknown): OrderRouteNotCompletedFacts | null {
+  const value = route && typeof route === 'object' ? (route as { notCompleted?: unknown }).notCompleted : null
+  if (!value || typeof value !== 'object') return null
+  const { reason, sampleTaken, resultRecorded } = value as { reason?: unknown; sampleTaken?: unknown; resultRecorded?: unknown }
+  const flag = (field: unknown) => typeof field === 'boolean' ? field : null
+  return typeof reason === 'string' && reason ? { reason, sampleTaken: flag(sampleTaken), resultRecorded: flag(resultRecorded) } : null
+}
+
+/**
+ * The laboratory reasons after which the receiving laboratory is told to discard a sample it holds
+ * (cannotCompleteEndedLines), so the clinician is never asked to have it sent on (CC4): it could not be used, or the
+ * patient chose not to go ahead. For every other reason it keeps the sample until it has spoken to the clinic.
+ */
+const SAMPLE_DISCARDED: ReadonlySet<string> = new Set(['sample_unusable', 'patient_declined'])
+
+/**
+ * The ordering clinician's paragraph under an order the receiving facility couldn't complete (D18, SPEC-FINAL §9.2): what
+ * it says and what to do next (§4.3), whether a sample was taken there (it may be sent on, unless the laboratory was told
+ * to discard it: it could not be used, or the patient chose not to go ahead; SAMPLE_DISCARDED), and whether a result was
+ * recorded there but not released. Neutral: nothing came back, and nothing was withdrawn. Without
+ * `notCompleted` (an EHR rolled back on hid-system 0091) or with a reason this website does not know, only the next step.
+ * Null for any other ending, and once the receiving facility reported it accepted the order for the wrong person: what it
+ * said before is then no longer about the patient (CC2).
+ */
+export function notCompletedText(route: Pick<OrderRouteSummary, 'kind' | 'endedKind' | 'receivingFacility'>
+  & { wrongPatient?: unknown; notCompleted?: unknown }, patient: string): string | null {
+  if (route.endedKind !== 'receiving_unable' || wrongPatientReportOf(route)) return null
+  const facts = notCompletedOf(route)
+  const reason = cannotCompleteReason(route.kind, facts?.reason)
+  if (!facts || !reason) return `Write a new ${orderWord(route.kind)} if ${patient} still needs it.`
+  const facility = named(route.receivingFacility.name)
+  const lab = route.kind === 'lab_request'
+  return `${facility} says ${reason.says({ patient })}. ${reason.next({ patient, facility })}`
+    + (lab && facts.sampleTaken === true && !SAMPLE_DISCARDED.has(facts.reason)
+      ? ` A sample was taken there: phone ${facility} if it could be sent to another laboratory.` : '')
+    + (lab && facts.resultRecorded === true
+      ? ` A result was recorded there but not released: phone ${facility} if you need to know more.` : '')
 }
 
 /**
@@ -233,13 +284,16 @@ export function routeGuidance(route: Pick<OrderRouteSummary, 'kind' | 'effective
  * ships it can't, and the warning stays as it was, D15). Since D17 (`lateServed`, hid-system 0090) that facility may still
  * withdraw it after the order has changed or ended, until the time the summary carries (`correctableUntil`, said with its
  * day and time): the warning then says so, with the reference, whether or not the order has ended; once that date is gone (null), it says only what a
- * change does.
+ * change does. An order that facility already ended because it couldn't complete it (D18, `receiving_unable`) is not
+ * touched there by a change, and the first sentence says so; every other ending keeps its words.
  */
 export function routedChangeWarning(route: (Pick<OrderRouteSummary, 'receivingFacility' | 'effectiveState' | 'endedAt'>
   & { reference?: string | null; correctableUntil?: unknown; endedKind?: string | null }) | null | undefined, patient: string,
   reportServed = false, lateServed = false): string {
   const name = route?.receivingFacility.name?.trim() || 'the other facility'
-  const change = `Changing it withdraws it from ${name}, or cancels it there if ${name} has accepted it; a cancelled order can’t be resumed there.`
+  const change = route?.endedKind === 'receiving_unable'
+    ? `${name} has already ended this order there, so changing it here changes nothing at ${name}.`
+    : `Changing it withdraws it from ${name}, or cancels it there if ${name} has accepted it; a cancelled order can’t be resumed there.`
   const until = lateServed ? receivingDeadlineOf(route) : undefined
   if (route && until !== undefined) {
     if (until === null) return change
@@ -590,12 +644,19 @@ export function wrongPatientEndedLines({ service, title, reference, patient, ord
  * What a work row says of an order from another facility that has ended, by how it ended (item 3, §8.1; B1): seen only
  * by a member who still holds the patient's own consent here. It no longer says the ordering facility cancelled an order
  * that support, a release or this facility ended. Null while the route is live, and for an ending the row says otherwise.
+ * An order this facility ended because it couldn't complete it (D18, `receiving_unable`, only from a backend that serves
+ * it) is listed while it may still be read; with the late correction served (`late`) the row says where to go if it was
+ * accepted for the wrong person after all.
  */
-export function routedWorkEndedText(route: Pick<WorkItemOrderRoute, 'effectiveState' | 'endedKind' | 'orderingFacilityName'>): string | null {
+export function routedWorkEndedText(route: Pick<WorkItemOrderRoute, 'effectiveState' | 'endedKind' | 'orderingFacilityName'>
+  & { reference?: string | null }, late = false): string | null {
   const facility = named(route.orderingFacilityName, 'the ordering facility')
   switch (route.endedKind) {
     case 'wrong_patient': return 'You ended this order: it was accepted for someone who is not its patient. Nothing more can be '
       + 'recorded on it.'
+    case 'receiving_unable': return 'You ended this order: you couldn’t complete it. Nothing more can be recorded on it.'
+      + (late ? ` If you accepted it for the wrong person, use “Correct an order that has ended” with reference `
+        + `${route.reference || 'shown with the order'}.` : '')
     case 'support': return 'Closed by Health ID support: stop work.'
     case 'order_changed': case 'entered_in_error': return `Cancelled by ${facility}: stop work.`
     case 'receiving_released': case 'ordering_released':
@@ -665,6 +726,229 @@ export function wrongPatientRefusal(error: unknown, service: ReceivingService, o
   if (unanswered(error)) return { reload: true, unanswered: true,
     text: 'Health ID did not answer, so it may or may not have ended. Refresh the list and check.' }
   return { text: 'The order could not be ended. Try again.' }
+}
+
+/**
+ * One reason a receiving laboratory or pharmacy may give for "We can't complete this order" (D18-5, SPEC-FINAL §4.3): its
+ * words on the form (`label`), what the ordering clinician reads after "{receiving facility} says" (`says`), the
+ * clinician's next step (`next`), and whether the form requires "We will phone {ordering} about this now" (`mustPhone`,
+ * D18-8). Shared codes have their own words by kind.
+ */
+export interface CannotCompleteReason<T extends string = string> {
+  value: T
+  label: string
+  says: (names: { patient: string }) => string
+  next: (names: { patient: string; facility: string }) => string
+  mustPhone: boolean
+}
+
+const newLabRequest = ({ patient }: { patient: string }) => `Write a new lab request if ${patient} still needs it.`
+const talkLab = ({ patient }: { patient: string }) => `Talk to ${patient}; write a new lab request if still needed.`
+const newPrescription = ({ patient }: { patient: string }) => `Write a new prescription if ${patient} still needs it.`
+const talkPharmacy = ({ patient }: { patient: string }) => `Talk to ${patient}; write a new prescription if still needed.`
+const phoneWhy = ({ facility }: { facility: string }) => `Phone ${facility} to find out why.`
+
+/** A laboratory's nine reasons (D18-5), "Another reason" last. The services, 0091 and the registry hold the same codes. */
+export const LAB_CANNOT_COMPLETE_REASONS: ReadonlyArray<CannotCompleteReason<LabCannotCompleteReason>> = [
+  { value: 'test_not_offered', label: 'We don’t do this test after all', says: () => 'it does not do this test',
+    next: newLabRequest, mustPhone: false },
+  { value: 'supplies_unavailable', label: 'Reagents or test kits have run out',
+    says: () => 'it has run out of what this test needs', next: newLabRequest, mustPhone: false },
+  { value: 'equipment_unavailable', label: 'The analyser or other equipment is out of service, or there is no power',
+    says: () => 'its equipment for this test is out of service', next: newLabRequest, mustPhone: false },
+  { value: 'sample_unusable', label: 'The sample can’t be used, and a new one can’t be recorded on this order',
+    says: () => 'the sample could not be used',
+    next: ({ facility }) => `Write a new lab request, to ${facility} or another laboratory, so a new sample can be taken.`,
+    mustPhone: false },
+  { value: 'sample_not_obtained', label: 'We couldn’t take a sample', says: () => 'it could not take a sample',
+    next: newLabRequest, mustPhone: false },
+  { value: 'cannot_meet_priority', label: 'We can’t do it in time for its priority',
+    says: () => 'it can’t do it in time for its priority', next: newLabRequest, mustPhone: true },
+  { value: 'patient_declined', label: 'The patient chose not to go ahead', says: ({ patient }) => `${patient} chose not to go ahead`,
+    next: talkLab, mustPhone: false },
+  { value: 'patient_did_not_return', label: 'The patient left, or didn’t come back',
+    says: ({ patient }) => `${patient} left, or did not come back`, next: talkLab, mustPhone: false },
+  { value: 'other', label: 'Another reason', says: () => 'it couldn’t complete it for another reason', next: phoneWhy,
+    mustPhone: false },
+]
+
+/** A pharmacy's eight reasons (D18-5), "Another reason" last. */
+export const PHARMACY_CANNOT_COMPLETE_REASONS: ReadonlyArray<CannotCompleteReason<PharmacyCannotCompleteReason>> = [
+  { value: 'out_of_stock', label: 'Out of stock, and we can’t get it in time', says: () => 'it has none in stock',
+    next: newPrescription, mustPhone: false },
+  { value: 'medicine_unavailable', label: 'We can’t get this medicine at all', says: () => 'it can’t get this medicine',
+    next: newPrescription, mustPhone: false },
+  { value: 'needs_prescriber_review',
+    label: 'It needs the prescriber’s review before it can be dispensed (dose, allergy, interaction or unclear)',
+    says: () => 'it needs the prescriber to review the prescription',
+    next: ({ facility }) => `Phone ${facility}, then write a new prescription.`, mustPhone: true },
+  { value: 'controlled_requirements', label: 'Controlled medicine: we need a signed or paper prescription',
+    says: () => 'it needs a signed or paper prescription for this controlled medicine',
+    next: ({ patient }) => `Give ${patient} a signed paper prescription, or write a new prescription and send it to another pharmacy.`,
+    mustPhone: true },
+  { value: 'cannot_meet_priority', label: 'We can’t supply it when it is needed', says: () => 'it can’t supply it when it is needed',
+    next: newPrescription, mustPhone: true },
+  { value: 'patient_declined', label: 'The patient chose not to go ahead', says: ({ patient }) => `${patient} chose not to go ahead`,
+    next: talkPharmacy, mustPhone: false },
+  { value: 'patient_did_not_return', label: 'The patient didn’t come back to collect it',
+    says: ({ patient }) => `${patient} did not come back to collect it`, next: talkPharmacy, mustPhone: false },
+  { value: 'other', label: 'Another reason', says: () => 'it couldn’t complete it for another reason', next: phoneWhy,
+    mustPhone: false },
+]
+
+/** The reasons of a receiving service's kind. */
+export function cannotCompleteReasons(service: ReceivingService): ReadonlyArray<CannotCompleteReason> {
+  return service === 'lab' ? LAB_CANNOT_COMPLETE_REASONS : PHARMACY_CANNOT_COMPLETE_REASONS
+}
+
+/** A reason of a kind, by its code; undefined for a code this website does not know. */
+export function cannotCompleteReason(kind: OrderRouteKind, code: string | null | undefined): CannotCompleteReason | undefined {
+  return cannotCompleteReasons(kind === 'lab_request' ? 'lab' : 'pharmacy').find(item => item.value === code)
+}
+
+/** The lab priorities for which the receiving laboratory must phone the ordering facility (D18-8). */
+const URGENT_PRIORITIES: ReadonlySet<string> = new Set(['urgent', 'asap', 'stat'])
+
+/**
+ * Whether ending the order needs "We will phone {ordering} about this now" (D18-8): an urgent, as-soon-as-possible or stat
+ * lab request whatever the reason, or a must-phone reason (a lab's "can't do it in time"; a pharmacy's, its prescriber's
+ * review, controlled-medicine paperwork). Prescriptions carry no priority.
+ */
+export function cannotCompleteMustPhone(service: ReceivingService, reason: string | null | undefined,
+  priority?: string | null): boolean {
+  if (service === 'lab' && priority && URGENT_PRIORITIES.has(priority)) return true
+  return Boolean(cannotCompleteReasons(service).find(item => item.value === reason)?.mustPhone)
+}
+
+/**
+ * Whether a work row offers "We can't complete this order" (D18, SPEC-FINAL §9.1): everything "This isn't the order's
+ * patient" needs (wrongPatientOffered: work the route still allows, its numeric version, not ended, the receive
+ * permission), an accepted order (nothing came back yet, D18-1), and a backend that serves D18 (`served`, from
+ * useCannotCompleteServed: until then no row offers it, D18-13).
+ */
+export function cannotCompleteOffered(route: WorkItemOrderRoute | null | undefined, permissions: readonly string[],
+  service: ReceivingService, served: boolean | null | undefined): route is WorkItemOrderRoute & { version: number } {
+  return served === true && route?.effectiveState === 'accepted' && wrongPatientOffered(route, permissions, service)
+}
+
+/**
+ * What a refused "We can't complete this order" means (D18, SPEC-FINAL §9.1). `reload` says the list is out of date (it is
+ * read again, and if the order's row no longer offers the action, what was said stays in the row); `stale` that the route
+ * moved on (412): read it again and keep the form at the new version; `critical` that the form must now ask for the
+ * critical-value statement; `missing` that the backend has no such route; `unanswered` that no answer came, so the order
+ * may or may not have ended: the form and its key stay.
+ */
+export function cannotCompleteRefusal(error: unknown, service: ReceivingService, ordering: string, reference: string | null):
+  { text: string; reload?: boolean; stale?: boolean; critical?: boolean; missing?: boolean; unanswered?: boolean } {
+  if (!isHidApiError(error) && error instanceof Error && error.message) return { text: error.message }
+  const lab = service === 'lab'
+  if (isCode(error, 'ORDER_ROUTE_ALREADY_ENDED')) return { reload: true, text: 'This order has already ended, so it can’t be '
+    + 'ended here. If you accepted it for the wrong person, use “Correct an order that has ended” above the work list, with '
+    + `reference ${reference || 'shown with the order'}.` }
+  if (isCode(error, 'ORDER_ROUTE_ALREADY_RETURNED')) return { reload: true, text: `A ${lab ? 'result' : 'dispensing'} has `
+    + `already gone back to ${ordering} on this order, so it can’t be ended here. Phone ${ordering}.` }
+  // Release it, or correct it if it is wrong (a correction is a new, unverified version): no Lab page or route marks one
+  // result entered in error (only a wrong-patient report or late correction does, and they end the order).
+  if (isCode(error, 'ORDER_ROUTE_RESULT_READY')) return { text: 'A checked result is waiting to be released on this order. '
+    + `Release it under Open accession or, if it is wrong, correct it there first. If you can’t, phone ${ordering}.` }
+  if (isCode(error, 'ORDER_ROUTE_CRITICAL_VALUE_NOT_TOLD')) return { critical: true, text: 'A result recorded on this order is '
+    + `marked as possibly critical. Phone ${ordering} about it now, then tick the box and end the order again.` }
+  if (isCode(error, 'ORDER_ROUTE_NOT_ACCEPTED')) return { reload: true, text: 'This order hasn’t been accepted: decline it instead.' }
+  if (isHidApiError(error) && error.status === 412) return { stale: true,
+    text: 'This order changed a moment ago. It has been reloaded: check and try again.' }
+  if (isCode(error, 'ORDER_ROUTE_CHANGED_CONCURRENTLY')) return { text: 'Someone changed this order at the same moment. Try again.' }
+  if (isCode(error, 'ORDER_ROUTE_CANNOT_COMPLETE_LIMIT') || (isHidApiError(error) && error.status === 429)) {
+    const after = isHidApiError(error) ? error.retryAt : null
+    return { text: 'The most orders that can be ended here in 24 hours have been ended, by you or by your '
+      + `${lab ? 'laboratory' : 'pharmacy'}. ${after ? `You can end more from ${routeMoment(after)}.` : 'You can end more later.'} `
+      + `Phone ${ordering} and ask them to cancel this order so it doesn’t stay open, or ask Health ID support to close it. `
+      // At the limit a possibly critical value was still asked about (the command checks it first), but any result recorded
+      // here goes with the order: either ending ends this laboratory's reading at once and tells the ordering facility nothing
+      // of a result (CC1, D18-15).
+      + (lab ? `If a result was recorded on this order, phone ${ordering} about it first: once the order is cancelled or `
+        + `closed you can no longer read it, and ${ordering} is not told that a result was recorded. ` : '')
+      + 'If many orders are affected, phone Health ID support now.' }
+  }
+  if (isCode(error, 'IDEMPOTENCY_KEY_REUSED')) return { reload: true,
+    text: 'This was already sent with other details. The list has been refreshed: check whether the order has ended.' }
+  if (routeMissing(error)) return { missing: true, text: `Ending an order you can’t complete isn’t available yet: phone ${ordering}.` }
+  if (isHidApiError(error) && error.status === 404) return { reload: true, text: 'This order was not found here. Refresh the list.' }
+  if (paused(error)) return { text: 'Health ID has paused work on orders from other facilities, so this can’t be done now. Try '
+    + `again when it resumes, and phone ${ordering} if it is urgent.` }
+  if (isHidApiError(error) && error.status === 403) return { text: 'Your role can’t end orders from other facilities.' }
+  // The form sends nothing without a reason and both statements, so a 400 means the website and the backend disagree
+  // (WB12): it is not the member's mistake.
+  if (isHidApiError(error) && error.status === 400) return { text: 'Health ID couldn’t take this request as sent. Reload the page '
+    + 'and try again; if it happens again, tell Health ID support.' }
+  // No answer: the form stays, keeping its key, so the same request sent again answers what happened (replayed).
+  if (unanswered(error)) return { unanswered: true, text: 'Health ID did not answer, so it may or may not have ended. Press “End '
+    + 'it: we can’t complete it” again: if it went through, Health ID says so.' }
+  return { text: 'The order could not be ended. Try again.' }
+}
+
+/** An accepted order's time for work, from its acceptance (0086's 30 days): the laboratory's reads never last past it. */
+const WORK_WINDOW_MS = 30 * 24 * 60 * 60 * 1000
+const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000
+
+/**
+ * What the form says of the laboratory's reading once it has ended the order (D18-2, SPEC-FINAL §4.6): it ends at once
+ * without an accession (always at a pharmacy); with one it lasts 7 more days, but never past the order's 30 days of work
+ * from its acceptance (the ending only shortens it), so an order ended late in its window says when the reading ends.
+ * `accession` undefined: the page can't tell (the lookup), and both cases are said. Without the acceptance time, "up to".
+ */
+export function cannotCompleteReadText({ lab, accession, acceptedAt, patient, now = Date.now() }: {
+  lab: boolean; accession?: boolean; acceptedAt?: string | null; patient: string; now?: number
+}): string {
+  const atOnce = `you stop seeing ${patient}’s details on this order at once.`
+  if (!lab || accession === false) return `You stop seeing ${patient}’s details on this order at once.`
+  const accepted = acceptedAt ? Date.parse(acceptedAt) : Number.NaN
+  const windowEnds = Number.isFinite(accepted) ? accepted + WORK_WINDOW_MS : Number.NaN
+  const kept = !Number.isFinite(windowEnds) ? 'for up to 7 days, and never after its 30 days end'
+    : windowEnds < now + SEVEN_DAYS_MS ? `until ${routeMoment(new Date(windowEnds).toISOString())}, when its 30 days end`
+      : 'for 7 days'
+  return accession === true ? `You can still read it ${kept}.`
+    : `If you opened an accession on it, you can still read it ${kept}; otherwise ${atOnce}`
+}
+
+/**
+ * What the receiving facility is told once it has ended an order it couldn't complete (D18, SPEC-FINAL §9.1): kept on
+ * screen until closed. Whom to phone and when (D18-8), what to do with a sample, a critical value, how long the order
+ * stays on the work list (`readUntil`: reads kept up to 7 days, never past the order's 30 days, only when a laboratory had
+ * opened an accession, D18-2), and
+ * where to go if it was the wrong person after all.
+ */
+export function cannotCompleteEndedLines({ service, title, reference, patient, ordering, reason, priority, result, now = Date.now() }: {
+  service: ReceivingService; title: string; reference: string | null | undefined; patient: string | null | undefined
+  ordering: string; reason: string; priority?: string | null; result: OrderRouteNotCompleted; now?: number
+}): string[] {
+  const lab = service === 'lab'
+  const who = patient?.trim() || 'the patient'
+  const Who = patient?.trim() || 'The patient'
+  const ref = reference ? `, reference ${reference}` : ''
+  const lines = [`Ended: ${title}${ref}. ${ordering} sees on the order that you couldn’t complete it, and why; ${Who} is told `
+    + 'in the Health ID app, if they use it.']
+  if (reason === 'cannot_meet_priority') lines.push(`Phone ${ordering} now, so they can write a new order elsewhere.`)
+  else if (!lab && reason === 'needs_prescriber_review') lines.push(`Phone ${ordering} now and tell the prescriber what needs `
+    + 'review: Health ID does not pass it on.')
+  else if (!lab && reason === 'controlled_requirements') lines.push(`Phone ${ordering} now: ${who} needs a signed paper `
+    + 'prescription, or a new one sent to another pharmacy.')
+  else if (lab && priority && URGENT_PRIORITIES.has(priority)) lines.push(`This test was marked `
+    + `${(priorityLabel(priority) ?? priority).toLowerCase()}: phone ${ordering} now, so they can write a new order.`)
+  else lines.push(`Health ID does not alert ${ordering}: phone them if it is urgent.`)
+  if (lab && result.specimensCollected > 0) lines.push(SAMPLE_DISCARDED.has(reason)
+    ? 'Discard the sample following your laboratory’s procedure.'
+    : `Keep the sample, stored as your procedure requires, until you have spoken to ${ordering}: they may want it sent to `
+      + 'another laboratory.')
+  if (lab && result.resultsRecorded > 0) lines.push(`If any value was critical, tell ${who} or ${ordering} directly, following your `
+    + 'laboratory’s procedure.')
+  const until = result.readUntil ? Date.parse(result.readUntil) : Number.NaN
+  // Reads end at once (the ending's moment) or 7 days later (D18-2): anything more than an hour ahead is the 7 days.
+  lines.push(Number.isFinite(until) && until - now > 60 * 60 * 1000
+    ? `It stays on your work list, marked ended, until ${routeMoment(result.readUntil)}.`
+    : `It leaves your work list now: keep the reference ${reference || 'shown with the order'} for ${ordering}’s call.`)
+  lines.push(`If you find out later that you accepted it for someone who was not ${who}, use “Correct an order that has ended” `
+    + `with reference ${reference || 'shown with the order'}.`)
+  return lines
 }
 
 /** What a refused decline means. */
@@ -783,6 +1067,8 @@ export function lateEndedText(route: Pick<CorrectableOrderRoute, 'effectiveState
   const ordering = named(route.orderingFacilityName, 'the ordering facility')
   switch (route.endedKind) {
     case 'wrong_patient': return 'ended as accepted for the wrong person'
+    // D18: this facility ended it because it couldn't complete it.
+    case 'receiving_unable': return 'you said you couldn’t complete it'
     case 'support': return 'closed by Health ID support'
     case 'order_changed': return `cancelled by ${ordering}`
     case 'entered_in_error': return route.effectiveState === 'completed'
@@ -798,8 +1084,12 @@ export function lateEndedText(route: Pick<CorrectableOrderRoute, 'effectiveState
   }
 }
 
-/** What a row of the late section says (D17, SPEC-FINAL §9.1): the order, this facility's own facts, and what may be done. */
-export function lateCorrectionRowLines(route: CorrectableOrderRoute, service: ReceivingService): string[] {
+/**
+ * What a row of the late section says (D17, SPEC-FINAL §9.1): the order, this facility's own facts, and what may be done.
+ * Once "We can't complete this order" is served (D18, `cannotComplete`), an order still open and accepted can also be
+ * ended here, and its line says so.
+ */
+export function lateCorrectionRowLines(route: CorrectableOrderRoute, service: ReceivingService, cannotComplete = false): string[] {
   const ordering = named(route.orderingFacilityName, 'the ordering facility')
   const details = route.details
   const accepted = `Accepted ${routeDay(route.acceptedAt)}${details?.acceptedBy ? ` by ${details.acceptedBy}` : ''}`
@@ -823,7 +1113,9 @@ export function lateCorrectionRowLines(route: CorrectableOrderRoute, service: Re
   }
   switch (route.correction) {
     case 'correctable': lines.push(`You can withdraw it until ${routeMoment(route.correctableUntil)}.`); break
-    case 'open': lines.push('This order is still open. If you accepted it for the wrong person, report it here.'); break
+    case 'open': lines.push(cannotComplete && route.effectiveState === 'accepted'
+      ? 'This order is still open. If you accepted it for the wrong person, report it here; if you can’t complete it, end it here.'
+      : 'This order is still open. If you accepted it for the wrong person, report it here.'); break
     case 'reported': lines.push(`You reported on ${routeDay(route.wrongPatient?.reportedAt)} that this order was accepted for the `
       + 'wrong person.'); break
     case 'too_late': lines.push(tooLateText(route.correctableUntil, ordering)); break

@@ -274,7 +274,9 @@ export interface PatientNotification {
  * fill. `actions` holds 'withdraw' (Stop) only while the receiving facility has not accepted it. `endedKind` says who or
  * what ended it; since the wrong-patient report (hid-system 0088, item 3) also `wrong_patient`: the receiving facility
  * reports it accepted the order for someone who was not the patient (cancelled, or completed with `endedAt` once
- * something had come back and was withdrawn); the content stays in full (D13) and `actions` is empty.
+ * something had come back and was withdrawn); the content stays in full (D13) and `actions` is empty. Since D18
+ * (hid-system 0091) also `receiving_unable` on a cancelled route: the receiving facility accepted it and could not
+ * complete it (the patient is not told why, D18-4).
  */
 export interface PatientOrderRoute {
   id: string

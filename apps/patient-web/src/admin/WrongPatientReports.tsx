@@ -107,8 +107,10 @@ function plural(count: number, one: string, many = `${one}s`): string {
 function undoneText(report: WrongPatientReport): string {
   const parts: string[] = []
   if (report.late === true) {
+    // D18-12: a report after "We can't complete this order", where the facility had said it was the order's patient.
     parts.push(typeof report.endedKindBefore === 'string' && report.endedKindBefore
-      ? `Ended before the report: ${endedWord(report.endedKindBefore)}.` : 'Its time for work had run out.')
+      ? `Ended before the report: ${endedWord(report.endedKindBefore)}${report.endedKindBefore === 'receiving_unable'
+        ? ', after confirming it was the order’s patient' : ''}.` : 'Its time for work had run out.')
     if (typeof report.discoveredOn === 'string' && report.discoveredOn) parts.push(`Found out on ${dayOf(report.discoveredOn)}`
       + `${typeof report.discoveredBy === 'string' && DISCOVERED_WORDS[report.discoveredBy] ? `: ${DISCOVERED_WORDS[report.discoveredBy]}` : ''}.`)
   }

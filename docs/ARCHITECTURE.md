@@ -551,6 +551,56 @@ work lists, the EHR's order lists, the Overview read, support's Find or its
 reports list, a `correctableUntil` key on any route, or any answer from the
 new lookup; until then every screen keeps its earlier words. It is switched
 off only by rolling the four services back together.
+D18, "We can't complete this order" (hid-system 0091 (staging-novu-ci-20261005),
+owner decisions D18-1 to D18-15, built website first and dormant until that
+release), lets a laboratory or pharmacy end an order it accepted and can't
+finish (`staff/routes/CannotComplete.tsx`): on a routed work row whose route is
+accepted, below "This isn't the order's patient", and in "Correct an order
+that has ended" for an order found still open and accepted (after its own read
+of the order, `GET …/order-routes/:routeId`, for the patient and the request's
+priority), `POST /{lab|pharmacy}/order-routes/:routeId/cannot-complete` with
+`Idempotency-Key` and `{ expectedVersion, reason, confirmedPatient: true,
+criticalValueTold? }`. One form is open per row; once D18 is served both
+buttons name the order they act on. The form takes one of the kind's fixed
+reasons (nine for a laboratory, eight for a pharmacy, the registry's
+`ORDER_ROUTE_CANNOT_COMPLETE_REASONS`; no free text), the statement that the
+person was the order's patient, "We will phone {ordering} about this now" for
+an urgent, asap or stat lab request and the must-phone reasons, and, after the
+Lab's `ORDER_ROUTE_CRITICAL_VALUE_NOT_TOLD`, that it has phoned about the
+possibly critical value (sent as `criticalValueTold: true`, Lab only). One key
+per identical request; no answer keeps the form and the key; 412 reads the
+list again and keeps the form. A refusal whose new list no longer offers the
+form keeps its words in the row, with focus there, or above the list when the
+row is gone; item 3's row form keeps its words the same way. Each ending is
+said in its own neutral entry above the work list until closed; the row then
+says this facility couldn't complete it, and leaves the list when its reads
+end (at once unless a laboratory had opened an accession; then 7 days later,
+or when the order's 30 days end if that is sooner, which the form says); the
+Accepted panel
+of an order ended from its row closes. The accession of routed work whose
+order no longer lets the laboratory record (`routeClosedForWork`, also an
+order cancelled after it changed) is shown to be read: no specimen step,
+execution or result write is offered, as the services refuse them, and a
+write refused 404 for writing on routed work (`LAB_*_NOT_FOUND`) is said as
+the order having closed. The ordering clinician reads a short
+badge with both days and a neutral paragraph with the reason, the next step
+and whether a sample was taken or a result recorded there (the summary's
+`notCompleted`, dropped once a wrong-patient report exists); the change
+warning says a change changes nothing there. The patient reads that the
+facility couldn't complete it (never why), to contact the clinic, and the new
+inbox title (`ORDER_ROUTE_NOT_COMPLETED`). Support's Find names the ending, a
+facility's panel shows its endings of the last 30 days as counts
+(`notCompleted` in the facility summary), a later wrong-patient report names
+the earlier ending, and Close says the facility can end an accepted order
+itself and, for a laboratory's order, to ask it about results first (closing
+ends its reading at once and tells the clinic nothing of a result; the Lab's
+limit refusal says the same, and a possibly critical value is asked about
+before the limit). Every new field is optional and read only when its type is right. The
+website learns that D18 is served only from `cannotComplete: true` on the work
+lists, support's Find or the facility summary (`cannotCompleteServed.ts`);
+until then no screen offers or mentions it, and every page reads as before.
+The words keyed on `receiving_unable`, `notCompleted`, the counts and the
+inbox title need no gate: only a backend that serves D18 sends them.
 A staff sign-in on a product host lands on the Overview, not the host's own
 page, when the working facility cannot use that page (`staff/navigation.ts`).
 The platform console refuses the platform enrolment of an
