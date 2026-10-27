@@ -4,7 +4,8 @@ import { findEndpoint, ORDER_ROUTE_CANNOT_COMPLETE_REASONS } from '@hid/contract
 import type { OrderRouteNotCompleted, OrderRouteSummary, WorkItemOrderRoute } from './api'
 import {
   cannotCompleteEndedLines, cannotCompleteMustPhone, cannotCompleteOffered, cannotCompleteRefusal, cannotCompleteReasons,
-  correctableRoutes as correctableRows, LAB_CANNOT_COMPLETE_REASONS, lateCorrectionRowLines, PHARMACY_CANNOT_COMPLETE_REASONS,
+  correctableRoutes as correctableRows, LAB_CANNOT_COMPLETE_REASONS, lateCorrectionRowLines, notCompletedOf, notCompletedText,
+  PHARMACY_CANNOT_COMPLETE_REASONS,
 } from './orderRoutes'
 import {
   acceptedCheckText, acceptRefusal, correctableFindRefusal, correctableRoutes, fillAttestation, forgetReceiving, handOverCheckText,
@@ -795,5 +796,112 @@ describe('“We can’t complete this order”: the receiving facility’s words
       + 'person, report it here; if you can’t complete it, end it here.')
     // Something came back: it can't be ended that way (D18-1).
     expect(lateCorrectionRowLines(done!, 'lab', true).at(-1)).toBe(TODAY)
+  })
+})
+
+/**
+ * D18 (SPEC-FINAL §9.2): what the ordering clinician reads of an order the receiving facility accepted and couldn't
+ * complete: a short badge with both days, a neutral paragraph with the reason, the next step and the sample and result
+ * sentences (none after a wrong-patient report, CC2), the fallback without `notCompleted`, and the change warning.
+ */
+describe('what the ordering clinician reads of an order the receiving facility couldn’t complete (D18)', () => {
+  // Fields as an answer may carry them, whatever their type: the readers check it.
+  const ended = (overrides: Partial<Omit<OrderRouteSummary, 'notCompleted' | 'wrongPatient'>> & { notCompleted?: unknown
+    wrongPatient?: unknown } = {}) => route({ effectiveState: 'cancelled', acceptedAt: '2026-10-21T10:00:00.000Z',
+    endedAt: '2026-10-23T10:00:00.000Z', endedKind: 'receiving_unable', version: 4,
+    ...(overrides as Partial<OrderRouteSummary>) })
+  const facts = (reason: string, sampleTaken: boolean | null = false, resultRecorded: boolean | null = false) =>
+    ({ reason, sampleTaken, resultRecorded })
+
+  it('says in a short warning badge that it was accepted, ended on a day, and couldn’t be completed', () => {
+    expect(routeStatusText(ended({ notCompleted: facts('other') }), 'Ada Patient')).toEqual({ tone: 'warning',
+      text: 'Accepted by Yaba Diagnostics on 21 Oct 2026; ended on 23 Oct 2026: Yaba Diagnostics couldn’t complete it.' })
+    // After a later wrong-patient report: what it said then, and what it reported since.
+    expect(routeStatusText(ended({ notCompleted: null, wrongPatient: { reportedAt: '2026-10-25T10:00:00.000Z', late: true } }),
+      'Ada Patient').text).toBe('Accepted by Yaba Diagnostics on 21 Oct 2026; ended on 23 Oct 2026, saying it couldn’t complete it. '
+      + 'Yaba Diagnostics has since reported that it accepted it for someone who was not Ada Patient.')
+  })
+
+  it.each([
+    ['test_not_offered', 'Yaba Diagnostics says it does not do this test. Write a new lab request if Ada Patient still needs it.'],
+    ['supplies_unavailable', 'Yaba Diagnostics says it has run out of what this test needs. Write a new lab request if Ada Patient still needs it.'],
+    ['equipment_unavailable', 'Yaba Diagnostics says its equipment for this test is out of service. Write a new lab request if Ada Patient still needs it.'],
+    ['sample_unusable', 'Yaba Diagnostics says the sample could not be used. Write a new lab request, to Yaba Diagnostics or another '
+      + 'laboratory, so a new sample can be taken.'],
+    ['sample_not_obtained', 'Yaba Diagnostics says it could not take a sample. Write a new lab request if Ada Patient still needs it.'],
+    ['cannot_meet_priority', 'Yaba Diagnostics says it can’t do it in time for its priority. Write a new lab request if Ada Patient still needs it.'],
+    ['patient_declined', 'Yaba Diagnostics says Ada Patient chose not to go ahead. Talk to Ada Patient; write a new lab request if still needed.'],
+    ['patient_did_not_return', 'Yaba Diagnostics says Ada Patient left, or did not come back. Talk to Ada Patient; write a new lab request if still needed.'],
+    ['other', 'Yaba Diagnostics says it couldn’t complete it for another reason. Phone Yaba Diagnostics to find out why.'],
+  ])('a laboratory’s %s: the reason and the next step', (reason, text) => {
+    expect(notCompletedText(ended({ notCompleted: facts(reason) }), 'Ada Patient')).toBe(text)
+  })
+
+  it.each([
+    ['out_of_stock', 'Yaba Diagnostics says it has none in stock. Write a new prescription if Ada Patient still needs it.'],
+    ['medicine_unavailable', 'Yaba Diagnostics says it can’t get this medicine. Write a new prescription if Ada Patient still needs it.'],
+    ['needs_prescriber_review', 'Yaba Diagnostics says it needs the prescriber to review the prescription. Phone Yaba Diagnostics, then '
+      + 'write a new prescription.'],
+    ['controlled_requirements', 'Yaba Diagnostics says it needs a signed or paper prescription for this controlled medicine. Give Ada '
+      + 'Patient a signed paper prescription, or write a new prescription and send it to another pharmacy.'],
+    ['cannot_meet_priority', 'Yaba Diagnostics says it can’t supply it when it is needed. Write a new prescription if Ada Patient still needs it.'],
+    ['patient_declined', 'Yaba Diagnostics says Ada Patient chose not to go ahead. Talk to Ada Patient; write a new prescription if still needed.'],
+    ['patient_did_not_return', 'Yaba Diagnostics says Ada Patient did not come back to collect it. Talk to Ada Patient; write a new '
+      + 'prescription if still needed.'],
+    ['other', 'Yaba Diagnostics says it couldn’t complete it for another reason. Phone Yaba Diagnostics to find out why.'],
+  ])('a pharmacy’s %s: the reason and the next step', (reason, text) => {
+    expect(notCompletedText(ended({ kind: 'prescription', notCompleted: facts(reason, null, null) }), 'Ada Patient')).toBe(text)
+  })
+
+  it('adds the sample sentence (not for an unusable sample) and the unreleased-result sentence', () => {
+    const SAMPLE = ' A sample was taken there: phone Yaba Diagnostics if it could be sent to another laboratory.'
+    const RESULT = ' A result was recorded there but not released: phone Yaba Diagnostics if you need to know more.'
+    const base = 'Yaba Diagnostics says its equipment for this test is out of service. Write a new lab request if Ada Patient still needs it.'
+    expect(notCompletedText(ended({ notCompleted: facts('equipment_unavailable', true, false) }), 'Ada Patient')).toBe(`${base}${SAMPLE}`)
+    expect(notCompletedText(ended({ notCompleted: facts('equipment_unavailable', true, true) }), 'Ada Patient')).toBe(`${base}${SAMPLE}${RESULT}`)
+    expect(notCompletedText(ended({ notCompleted: facts('equipment_unavailable', false, true) }), 'Ada Patient')).toBe(`${base}${RESULT}`)
+    expect(notCompletedText(ended({ notCompleted: facts('sample_unusable', true, false) }), 'Ada Patient')).not.toContain('A sample was taken')
+    // Prescriptions carry no sample or result facts, whatever arrives.
+    expect(notCompletedText(ended({ kind: 'prescription', notCompleted: facts('out_of_stock', true, true) }), 'Ada Patient'))
+      .toBe('Yaba Diagnostics says it has none in stock. Write a new prescription if Ada Patient still needs it.')
+  })
+
+  it('says only the next step without notCompleted (an EHR rolled back) or with a reason it does not know', () => {
+    expect(notCompletedText(ended(), 'Ada Patient')).toBe('Write a new lab request if Ada Patient still needs it.')
+    expect(notCompletedText(ended({ notCompleted: facts('new_reason_later') }), 'Ada Patient')).toBe('Write a new lab request if Ada Patient still needs it.')
+    expect(notCompletedText(ended({ kind: 'prescription', notCompleted: 'supplies_unavailable' }), 'Ada Patient'))
+      .toBe('Write a new prescription if Ada Patient still needs it.')
+    // A laboratory reason is not a pharmacy's.
+    expect(notCompletedText(ended({ kind: 'prescription', notCompleted: facts('supplies_unavailable') }), 'Ada Patient'))
+      .toBe('Write a new prescription if Ada Patient still needs it.')
+  })
+
+  it('says nothing after a wrong-patient report, nor for any other ending', () => {
+    expect(notCompletedText(ended({ notCompleted: facts('other'), wrongPatient: { reportedAt: '2026-10-25T10:00:00.000Z', late: true } }),
+      'Ada Patient')).toBeNull()
+    for (const endedKind of ['wrong_patient', 'support', 'order_changed', null]) {
+      expect(notCompletedText(ended({ endedKind, notCompleted: facts('other') }), 'Ada Patient'), String(endedKind)).toBeNull()
+    }
+  })
+
+  it('reads notCompleted only when its type is right', () => {
+    expect(notCompletedOf({ notCompleted: { reason: 'other', sampleTaken: true, resultRecorded: 'yes' } }))
+      .toEqual({ reason: 'other', sampleTaken: true, resultRecorded: null })
+    for (const value of [null, undefined, 'other', 3, { reason: '' }, { reason: 4 }, []]) {
+      expect(notCompletedOf({ notCompleted: value }), JSON.stringify(value)).toBeNull()
+    }
+    expect(notCompletedOf(null)).toBeNull()
+  })
+
+  it('warns that a change changes nothing at the facility that ended it, keeping D17’s sentence; other endings unchanged', () => {
+    const until = '2027-04-19T10:00:00.000Z'
+    expect(routedChangeWarning(ended({ correctableUntil: until } as Partial<OrderRouteSummary>), 'Ada Patient', true, true)).toBe(
+      'Yaba Diagnostics has already ended this order there, so changing it here changes nothing at Yaba Diagnostics. If Yaba '
+      + 'Diagnostics accepted it for someone who was not Ada Patient, ask Yaba Diagnostics to withdraw what it recorded on it, giving '
+      + 'it the reference 9C1B2D3E: it can do so until 19 Apr 2027, 11:00, whether or not you change this order.')
+    expect(routedChangeWarning(ended(), 'Ada Patient', true, false)).toBe('Yaba Diagnostics has already ended this order there, so '
+      + 'changing it here changes nothing at Yaba Diagnostics.')
+    expect(routedChangeWarning(ended({ endedKind: 'support' }), 'Ada Patient', true, false)).toBe('Changing it withdraws it from Yaba '
+      + 'Diagnostics, or cancels it there if Yaba Diagnostics has accepted it; a cancelled order can’t be resumed there.')
   })
 })

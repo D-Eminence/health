@@ -372,3 +372,50 @@ describe('the change warning once the late correction is served (D17)', () => {
     expect(screen.queryByText(/whether or not you change this order/)).toBeNull()
   })
 })
+
+/**
+ * D18 (hid-system 0091; SPEC-FINAL §9.2): a lab request the receiving laboratory accepted and couldn't complete. Its row
+ * says so in a short badge with both days, then, in a neutral paragraph, why, what to do next and whether a sample was
+ * taken or a result recorded there; no red notice, no Send; the change warning says a change changes nothing there. After
+ * a later wrong-patient report the paragraph goes, and item 3's red notice says what is true.
+ */
+describe('a lab request the laboratory couldn’t complete (D18)', () => {
+  const ended = (overrides: Record<string, unknown> = {}) => summary({ effectiveState: 'cancelled', version: 4,
+    acceptedAt: '2026-10-21T10:00:00.000Z', endedAt: '2026-10-23T10:00:00.000Z', endedKind: 'receiving_unable',
+    notCompleted: { reason: 'supplies_unavailable', sampleTaken: true, resultRecorded: true }, ...overrides })
+  const PARAGRAPH = 'Yaba Diagnostics says it has run out of what this test needs. Write a new lab request if Ada Patient still '
+    + 'needs it. A sample was taken there: phone Yaba Diagnostics if it could be sent to another laboratory. A result was recorded '
+    + 'there but not released: phone Yaba Diagnostics if you need to know more.'
+
+  it('says it couldn’t complete it, why and what to do next, in neutral words, and offers no Send', async () => {
+    records = [labRequest('active', ended())]
+    await openLabRequests()
+    expect(await screen.findByText('Accepted by Yaba Diagnostics on 21 Oct 2026; ended on 23 Oct 2026: Yaba Diagnostics couldn’t '
+      + 'complete it.')).toBeTruthy()
+    const paragraph = screen.getByText(PARAGRAPH)
+    expect(paragraph.className).toBe('staff-notice')
+    expect(document.querySelector('.staff-order-route .staff-danger')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Send to another laboratory' })).toBeNull()
+    expect(screen.getByText('Yaba Diagnostics has already ended this order there, so changing it here changes nothing at Yaba '
+      + 'Diagnostics.')).toBeTruthy()
+  })
+
+  it('says only the next step from an EHR without notCompleted (rolled back on 0091)', async () => {
+    records = [labRequest('active', ended({ notCompleted: undefined }))]
+    await openLabRequests()
+    expect(await screen.findByText('Write a new lab request if Ada Patient still needs it.')).toBeTruthy()
+    expect(screen.queryByText(/ says /)).toBeNull()
+  })
+
+  it('drops the paragraph after a later wrong-patient report, and says what was reported', async () => {
+    records = [labRequest('active', ended({ notCompleted: null, wrongPatient: { reportedAt: '2026-10-25T10:00:00.000Z', late: true },
+      correctableUntil: null }))]
+    await openLabRequests()
+    expect(await screen.findByText('Accepted by Yaba Diagnostics on 21 Oct 2026; ended on 23 Oct 2026, saying it couldn’t complete '
+      + 'it. Yaba Diagnostics has since reported that it accepted it for someone who was not Ada Patient.')).toBeTruthy()
+    // The red notice says to write a new one; the paragraph's own words are gone.
+    expect(screen.queryByText(/has run out|^Write a new lab request|A sample was taken/)).toBeNull()
+    expect(document.querySelector('.staff-order-route p.staff-notice:not(.staff-danger)')).toBeNull()
+    expect(screen.getByText('This order can’t be sent again. Write a new lab request if Ada Patient still needs it.')).toBeTruthy()
+  })
+})

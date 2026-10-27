@@ -7,8 +7,8 @@ import {
 } from '../api'
 import { OrderDestinationPicker } from '../components/OrderDestinationPicker'
 import {
-  attestedText, controlledMedicineNote, destinationWord, fillAttestation, lateReportNotice, ORDERS_NOT_AVAILABLE, ORDERS_PAUSED,
-  orderWord, paused, routeDay, routeGuidance, routeMissing, routeStatusText, routeWaiting, sendRefusal, sensitiveTestNote,
+  attestedText, controlledMedicineNote, destinationWord, fillAttestation, lateReportNotice, notCompletedText, ORDERS_NOT_AVAILABLE,
+  ORDERS_PAUSED, orderWord, paused, routeDay, routeGuidance, routeMissing, routeStatusText, routeWaiting, sendRefusal, sensitiveTestNote,
   unavailableText, urgentNote, WITHDRAW_REASONS, withdrawRefusal, wrongPatientNotice,
 } from '../orderRoutes'
 import { UNAVAILABLE } from '../focus'
@@ -342,6 +342,8 @@ export function OrderRoutePanel({ id, kind, route, context, canWithdraw, onWithd
   const lateServed = useLateCorrectionServed() === true
   const lateNotice = lateReportNotice(route, context.patient)
   const guidance = routeGuidance(route, context.patient, lateServed)
+  // D18: why the receiving facility couldn't complete it, and what to do next (only a backend serving it ends one so).
+  const notCompleted = notCompletedText(route, context.patient)
   const [open, setOpen] = useState(false)
   const [views, setViews] = useState<OrderRouteView[] | null>(null)
   const [loading, setLoading] = useState(false)
@@ -384,6 +386,7 @@ export function OrderRoutePanel({ id, kind, route, context, canWithdraw, onWithd
       {route.reference && <span className="staff-muted">Ref {route.reference}</span>}</div>
     <p><Badge tone={status.tone}>{status.text}</Badge></p>
     {guidance && <p className="staff-muted">{guidance}</p>}
+    {notCompleted && <p className="staff-notice">{notCompleted}</p>}
     {(route.endedKind === 'wrong_patient' || report) && <div className="staff-notice staff-danger staff-stack">
       {wrongPatientNotice(route, context.patient).map((line, index) => <p key={index}>{line}</p>)}
       {lateNotice && <p>{lateNotice}</p>}</div>}

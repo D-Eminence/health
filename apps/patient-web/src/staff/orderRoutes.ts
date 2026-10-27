@@ -1,7 +1,7 @@
 import { isHidApiError } from '@hid/http'
 import type {
   CorrectableOrderRoute, CorrectableOrderRouteDetails, Facility, LabCannotCompleteReason, OrderRouteDeclineReason,
-  OrderRouteDiscoveredBy, OrderRouteKind, OrderRouteNotCompleted, OrderRoutePatient, OrderRouteSummary,
+  OrderRouteDiscoveredBy, OrderRouteKind, OrderRouteNotCompleted, OrderRouteNotCompletedFacts, OrderRoutePatient, OrderRouteSummary,
   OrderRouteWithdrawReason, OrderRouteWrongPatientReason, PharmacyCannotCompleteReason, ReceivingAnswer, ReceivingService,
   WorkItemOrderRoute,
 } from './api'
@@ -152,6 +152,12 @@ function cancelledText(route: OrderRouteSummary, facility: string, patient: stri
   switch (route.endedKind) {
     case 'wrong_patient': return `${facility} reports that it accepted this for someone who was not ${patient}, and has ended it. `
       + 'Nothing came back from it.'
+    // D18: the receiving facility accepted it and couldn't complete it (only a backend serving hid-system 0091 says so). A
+    // short badge; why, and what to do next, follow it in a paragraph (notCompletedText). After a wrong-patient report the
+    // line says only what the facility said then, and routeStatusText adds what it reported since (CC2).
+    case 'receiving_unable': return wrongPatientReportOf(route)
+      ? `Accepted by ${facility} on ${routeDay(route.acceptedAt)}; ended on ${routeDay(route.endedAt)}, saying it couldn’t complete it.`
+      : `Accepted by ${facility} on ${routeDay(route.acceptedAt)}; ended on ${routeDay(route.endedAt)}: ${facility} couldn’t complete it.`
     case 'order_changed': return `Cancelled at ${facility} because the order changed.`
     case 'entered_in_error': return `Cancelled at ${facility} because the order was marked entered in error.`
     case 'receiving_released': return `Cancelled: ${facility} is no longer on Health ID.`
@@ -159,6 +165,42 @@ function cancelledText(route: OrderRouteSummary, facility: string, patient: stri
     case 'support': return `Cancelled at ${facility} by Health ID support.`
     default: return `Cancelled at ${facility}.`
   }
+}
+
+/**
+ * What the receiving facility said when it ended an order it couldn't complete (D18, the summary's `notCompleted`), read
+ * only when its type is right: the reason a string, `sampleTaken` and `resultRecorded` each a boolean or null. Null when
+ * the route carries none, or another shape.
+ */
+export function notCompletedOf(route: unknown): OrderRouteNotCompletedFacts | null {
+  const value = route && typeof route === 'object' ? (route as { notCompleted?: unknown }).notCompleted : null
+  if (!value || typeof value !== 'object') return null
+  const { reason, sampleTaken, resultRecorded } = value as { reason?: unknown; sampleTaken?: unknown; resultRecorded?: unknown }
+  const flag = (field: unknown) => typeof field === 'boolean' ? field : null
+  return typeof reason === 'string' && reason ? { reason, sampleTaken: flag(sampleTaken), resultRecorded: flag(resultRecorded) } : null
+}
+
+/**
+ * The ordering clinician's paragraph under an order the receiving facility couldn't complete (D18, SPEC-FINAL §9.2): what
+ * it says and what to do next (§4.3), whether a sample was taken there (it may be sent on, unless it could not be used),
+ * and whether a result was recorded there but not released. Neutral: nothing came back, and nothing was withdrawn. Without
+ * `notCompleted` (an EHR rolled back on hid-system 0091) or with a reason this website does not know, only the next step.
+ * Null for any other ending, and once the receiving facility reported it accepted the order for the wrong person: what it
+ * said before is then no longer about the patient (CC2).
+ */
+export function notCompletedText(route: Pick<OrderRouteSummary, 'kind' | 'endedKind' | 'receivingFacility'>
+  & { wrongPatient?: unknown; notCompleted?: unknown }, patient: string): string | null {
+  if (route.endedKind !== 'receiving_unable' || wrongPatientReportOf(route)) return null
+  const facts = notCompletedOf(route)
+  const reason = cannotCompleteReason(route.kind, facts?.reason)
+  if (!facts || !reason) return `Write a new ${orderWord(route.kind)} if ${patient} still needs it.`
+  const facility = named(route.receivingFacility.name)
+  const lab = route.kind === 'lab_request'
+  return `${facility} says ${reason.says({ patient })}. ${reason.next({ patient, facility })}`
+    + (lab && facts.sampleTaken === true && facts.reason !== 'sample_unusable'
+      ? ` A sample was taken there: phone ${facility} if it could be sent to another laboratory.` : '')
+    + (lab && facts.resultRecorded === true
+      ? ` A result was recorded there but not released: phone ${facility} if you need to know more.` : '')
 }
 
 /**
@@ -234,13 +276,16 @@ export function routeGuidance(route: Pick<OrderRouteSummary, 'kind' | 'effective
  * ships it can't, and the warning stays as it was, D15). Since D17 (`lateServed`, hid-system 0090) that facility may still
  * withdraw it after the order has changed or ended, until the time the summary carries (`correctableUntil`, said with its
  * day and time): the warning then says so, with the reference, whether or not the order has ended; once that date is gone (null), it says only what a
- * change does.
+ * change does. An order that facility already ended because it couldn't complete it (D18, `receiving_unable`) is not
+ * touched there by a change, and the first sentence says so; every other ending keeps its words.
  */
 export function routedChangeWarning(route: (Pick<OrderRouteSummary, 'receivingFacility' | 'effectiveState' | 'endedAt'>
   & { reference?: string | null; correctableUntil?: unknown; endedKind?: string | null }) | null | undefined, patient: string,
   reportServed = false, lateServed = false): string {
   const name = route?.receivingFacility.name?.trim() || 'the other facility'
-  const change = `Changing it withdraws it from ${name}, or cancels it there if ${name} has accepted it; a cancelled order can’t be resumed there.`
+  const change = route?.endedKind === 'receiving_unable'
+    ? `${name} has already ended this order there, so changing it here changes nothing at ${name}.`
+    : `Changing it withdraws it from ${name}, or cancels it there if ${name} has accepted it; a cancelled order can’t be resumed there.`
   const until = lateServed ? receivingDeadlineOf(route) : undefined
   if (route && until !== undefined) {
     if (until === null) return change
