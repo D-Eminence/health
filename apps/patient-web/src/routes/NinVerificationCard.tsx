@@ -83,7 +83,7 @@ export function NinVerificationCard({ profile, onVerified }: {
     } catch (reason) {
       const aboutNumber = isHidApiError(reason) && reason.status === 400
       const code = isHidApiError(reason) ? reason.code : ''
-      setError(aboutNumber ? NIN_RULE : Object.hasOwn(NIN_REFUSALS, code) ? NIN_REFUSALS[code] : isHidApiError(reason) && reason.status < 500 ? reason.message : NIN_FAILED)
+      setError(aboutNumber ? NIN_RULE : Object.hasOwn(NIN_REFUSALS, code) ? NIN_REFUSALS[code] ?? NIN_FAILED : isHidApiError(reason) && reason.status < 500 ? reason.message : NIN_FAILED)
       setFieldError(aboutNumber); setErrorAlert(!aboutNumber || fromField)
     } finally { setBusy(false); fieldFocus.focus() }
   }
