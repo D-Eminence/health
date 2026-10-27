@@ -265,6 +265,12 @@
   .patient-step-list li[aria-current] { border-color: var(--color-brand); color: var(--color-brand); font-weight: 700; }
   .patient-success { display: grid; gap: 14px; margin-top: 26px; }
   .patient-success strong { color: var(--color-brand); font-family: var(--font-mono); font-size: 22px; overflow-wrap: anywhere; }
+  /* Sign-up: the Terms of Service and Privacy Policy, opened beside the agreement; a long text scrolls in its own box. */
+  .patient-legal { min-width: 0; font-size: 13px; }
+  .patient-legal summary { color: var(--color-brand); font-weight: 600; cursor: pointer; }
+  .patient-legal-text { display: grid; gap: 12px; max-height: 320px; margin-top: 10px; padding: 12px 14px; overflow-y: auto; border: 1px solid var(--color-line-strong); border-radius: var(--radius-control); color: var(--color-ink); line-height: 1.6; overflow-wrap: anywhere; }
+  .patient-legal-text h3 { margin: 0 0 4px; font-size: 14px; font-weight: 600; }
+  .patient-legal-text :is(p, ul) { margin: 0 0 6px; }
   /* Enrollment: a route to prove the NIN is the patient's, or a way on when one cannot help, described before its action. */
   .patient-enroll-option { display: grid; justify-items: start; gap: 10px; min-width: 0; padding: 14px 16px; border: 1px solid var(--color-line-strong); border-radius: var(--radius-control); }
   .patient-enroll-option :is(h2, h3), .patient-form .patient-enroll-option h2 { margin: 0; color: var(--color-ink); font-size: 16px; font-weight: 600; }

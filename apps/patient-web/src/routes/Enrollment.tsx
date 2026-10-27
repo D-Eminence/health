@@ -24,6 +24,7 @@ import { ONLINE_NOT_FOR_RECORD, ONLINE_OFF, RouteChoice } from './enrollment/Rou
 import { HolderCodeStep } from './enrollment/HolderCodeStep'
 import { FacilityStep } from './enrollment/FacilityStep'
 import { AlreadyRegistered, RegistrationCompleted, RegistrationEnded } from './enrollment/Outcomes'
+import { PatientSignup } from './enrollment/Signup'
 
 /**
  * The stages of a registration. Since hid-system #84 (ADR-062) every start
@@ -208,6 +209,11 @@ export function Enrollment() {
   const [registration, setRegistration] = useState<Registration>('unknown')
   // The routes the last availability read named; null from an Identity before the holder step.
   const [routes, setRoutes] = useState<OwnershipRoutes | null>(null)
+  // Identity serves the sign-up without a NIN (availability `signup: true`, an owner decision of 2026-10-27):
+  // a new Health ID starts there (enrollment/Signup.tsx). Until then the NIN-first steps below are shown as before.
+  const [signupServed, setSignupServed] = useState(false)
+  // "Start a new sign-up" was pressed: the sign-up's first field takes focus as it is shown.
+  const [signupRestarted, setSignupRestarted] = useState(false)
   const [signOutRequired, setSignOutRequired] = useState(false)
   // Focus moves to the note when a check the person asked for, or a step, finds
   // the sign-in: it is read there, and its message is an alert only otherwise, so
@@ -351,6 +357,7 @@ export function Enrollment() {
         : availability.value?.open === true ? 'open' : 'closed'
       setRegistration(registrationNow)
       setRoutes(availability.status === 'fulfilled' ? routesOf(availability.value) : null)
+      setSignupServed(availability.status === 'fulfilled' && availability.value?.signup === true)
       // The enrollment's own progress must be known before starting, as must
       // availability before a new one (below). A failed check for a pending
       // Google sign-up (for example a browser that sends no Referer, which that
@@ -765,8 +772,9 @@ export function Enrollment() {
   // A new enrollment is offered only while registration is open; one in progress continues.
   const startOffered = GOOGLE_STAGES.includes(stage) && (stage !== 'nin' || registration === 'open')
   // "Use a different NIN" needs a NIN step to go back to, so registration must be open. Whether a Google
-  // sign-up still ties this registration is asked when it is pressed (differentNin).
-  const differentNinOffered = registration === 'open'
+  // sign-up still ties this registration is asked when it is pressed (differentNin). Not after the sign-up
+  // without a NIN, which has no NIN step: "Start a new sign-up" goes back to it instead.
+  const differentNinOffered = registration === 'open' && !signupServed
   const closed = ready && stage === 'nin' && registration === 'closed'
   // Google sign-up is offered until it is pending for this enrollment. On the NIN
   // step it is a path of its own, opened by a button: its check replaces the NIN
@@ -775,9 +783,12 @@ export function Enrollment() {
   const googleChosen = googleOffered && stage === 'nin' && ninPath === 'google'
   const chooseGoogle = () => { setNinPath('google'); stepFocus.focus() }
   const chooseNin = () => { setNinPath('nin'); stepFocus.focus() }
-  // The holder step is listed only where Identity has it.
-  const steps: Array<[string, readonly Stage[]]> = [['NIN', ['nin']],
-    ...(holderSeen ? [['Prove it\'s yours', HOLDER_STAGES] as [string, readonly Stage[]]] : []),
+  // A new Health ID starts with the sign-up without a NIN once Identity serves it. A registration already
+  // past its details (this page reloaded at its code, say) continues with the steps below.
+  if (ready && signupServed && stage === 'nin' && registration === 'open') return <PatientSignup focusOnArrival={signupRestarted} />
+  // The holder step is listed only where Identity has it; the NIN step only where a registration starts with it.
+  const steps: Array<[string, readonly Stage[]]> = [...(signupServed ? [] : [['NIN', ['nin']] as [string, readonly Stage[]]]),
+    ...(holderSeen && (!signupServed || HOLDER_STAGES.includes(stage)) ? [['Prove it\'s yours', HOLDER_STAGES] as [string, readonly Stage[]]] : []),
     ['Contact', ['contact']], ['Code', ['otp']], ['Activate', ['password']]]
   const onlineOpen = online.available && onlineRefusal === null
   const onlineNote = onlineRefusal ?? (routes?.online === false ? ONLINE_OFF : ONLINE_NOT_FOR_RECORD)
@@ -846,6 +857,9 @@ export function Enrollment() {
       {/* Without the name (sent only within 15 minutes of the start), the way back to the NIN step is still offered. */}
       {ready && !recordName && differentNinOffered && RECORD_NAME_STAGES.includes(stage)
         && <button type="button" className="patient-text-button" disabled={busy} onClick={() => void differentNin()}>Use a different NIN</button>}
+      {/* Back to the sign-up's details with nothing typed kept; a new sign-up replaces this registration. */}
+      {ready && signupServed && registration === 'open' && RECORD_NAME_STAGES.includes(stage)
+        && <button type="button" className="patient-text-button" disabled={busy} onClick={() => { clearError(); forgetRegistration(); setSignupRestarted(true) }}>Start a new sign-up</button>}
       {ready && stage === 'complete' && <Complete focusTarget={stepFocus.target} hidCode={hidCode} />}
       {import.meta.env.VITE_HID_GOOGLE_CLIENT_ID && googleOffered && stage === 'nin' && !googleChosen && <section className="patient-auth-separator" aria-label="Google enrollment">
         <button type="button" className="patient-secondary-button" disabled={busy} onClick={chooseGoogle}>{googleRequired ? 'Reconnect Google' : 'Continue with Google'}</button>

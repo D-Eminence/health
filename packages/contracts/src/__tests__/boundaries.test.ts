@@ -52,6 +52,17 @@ describe('c4b5445 route registry', () => {
     expect(findEndpoint('enrollment.activate')?.note).toContain('dateOfBirth')
   })
 
+  it('registers the sign-up without a NIN for the patient portal only', () => {
+    const path = '/api/v1/identity/patient-enrollments/signup'
+    expect(findEndpoint('enrollment.signup')).toMatchObject({ service: 'enrollment', path, methods: ['POST'], auth: { kind: 'public' } })
+    expect(assertRegisteredBrowserRequest('POST', path).name).toBe('enrollment.signup')
+    expect(() => assertRegisteredBrowserRequest('GET', path)).toThrow(BrowserRouteError)
+    expect(() => assertEndpointAllowed('patient-web', 'enrollment.signup')).not.toThrow()
+    for (const app of ['staff-web', 'admin-web', 'public-web'] as const) {
+      expect(() => assertEndpointAllowed(app, 'enrollment.signup'), app).toThrow(BoundaryViolationError)
+    }
+  })
+
   it('records distinct RBAC permissions per EHR method', () => {
     const encounters = findEndpoint('ehr.encounters')
     expect(encounters?.permissions?.GET).toEqual(['ehr.encounter.read'])
