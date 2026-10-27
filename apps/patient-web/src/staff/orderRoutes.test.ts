@@ -866,9 +866,24 @@ describe('what the ordering clinician reads of an order the receiving facility c
     expect(notCompletedText(ended({ notCompleted: facts('equipment_unavailable', true, true) }), 'Ada Patient')).toBe(`${base}${SAMPLE}${RESULT}`)
     expect(notCompletedText(ended({ notCompleted: facts('equipment_unavailable', false, true) }), 'Ada Patient')).toBe(`${base}${RESULT}`)
     expect(notCompletedText(ended({ notCompleted: facts('sample_unusable', true, false) }), 'Ada Patient')).not.toContain('A sample was taken')
+    // The patient chose not to go ahead: the laboratory discards the sample, and the clinician is not asked to send it on.
+    expect(notCompletedText(ended({ notCompleted: facts('patient_declined', true, false) }), 'Ada Patient')).toBe('Yaba Diagnostics '
+      + 'says Ada Patient chose not to go ahead. Talk to Ada Patient; write a new lab request if still needed.')
     // Prescriptions carry no sample or result facts, whatever arrives.
     expect(notCompletedText(ended({ kind: 'prescription', notCompleted: facts('out_of_stock', true, true) }), 'Ada Patient'))
       .toBe('Yaba Diagnostics says it has none in stock. Write a new prescription if Ada Patient still needs it.')
+  })
+
+  it('tells the clinician a sample may be sent on exactly when the laboratory is told to keep it (CC4)', () => {
+    for (const { value: reason } of LAB_CANNOT_COMPLETE_REASONS) {
+      const clinician = notCompletedText(ended({ notCompleted: facts(reason, true, false) }), 'Ada Patient') ?? ''
+      const laboratory = cannotCompleteEndedLines({ service: 'lab', title: 'Haemoglobin', reference: '9C1B2D3E',
+        patient: 'Ada Patient', ordering: 'General Hospital', reason, priority: 'routine', result: { route: { id: 'r1', version: 4,
+          effectiveState: 'cancelled', endedKind: 'receiving_unable' }, reason, readUntil: null, specimensCollected: 1,
+        resultsRecorded: 0, criticalCandidates: 0, replayed: false } }).join(' ')
+      expect(clinician.includes('could be sent to another laboratory'), reason).toBe(laboratory.includes('Keep the sample'))
+      expect(laboratory.includes('Discard the sample'), reason).toBe(!laboratory.includes('Keep the sample'))
+    }
   })
 
   it('says only the next step without notCompleted (an EHR rolled back) or with a reason it does not know', () => {

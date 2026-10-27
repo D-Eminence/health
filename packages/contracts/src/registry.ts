@@ -158,8 +158,8 @@ const ORDER_LISTS_P4C = 'On Novu since P4c the page also answers crossFacilityOr
   + 'also answer lateCorrection: true, and each orderRoute carries wrongPatient { reportedAt, late } | null and '
   + 'correctableUntil (a time while the receiving facility may still withdraw what it recorded, else null); an earlier '
   + 'backend sends none of these. With "We can\'t complete this order" (D18, hid-system 0091) an orderRoute\'s endedKind '
-  + 'may be receiving_unable, with notCompleted { reason, sampleTaken, resultRecorded } | null; an earlier backend sends '
-  + 'no such field.'
+  + 'may be receiving_unable, with notCompleted { reason, sampleTaken, resultRecorded } | null (sampleTaken: a sample was '
+  + 'collected there and not rejected); an earlier backend sends no such field.'
 /** The Lab and Pharmacy order-route routes' shared rules (SPEC-FINAL §10.2). */
 const RECEIVE_ROUTE = `${ORDER_ROUTE_STAFF} Accept needs Idempotency-Key and { expectedVersion, patientIdentifier { kind: `
   + "'health_id' | 'date_of_birth', value }, reference? } (Pharmacy also reason, 8 to 500; reference, optional, is the "

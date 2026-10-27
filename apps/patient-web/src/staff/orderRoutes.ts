@@ -181,9 +181,17 @@ export function notCompletedOf(route: unknown): OrderRouteNotCompletedFacts | nu
 }
 
 /**
+ * The laboratory reasons after which the receiving laboratory is told to discard a sample it holds
+ * (cannotCompleteEndedLines), so the clinician is never asked to have it sent on (CC4): it could not be used, or the
+ * patient chose not to go ahead. For every other reason it keeps the sample until it has spoken to the clinic.
+ */
+const SAMPLE_DISCARDED: ReadonlySet<string> = new Set(['sample_unusable', 'patient_declined'])
+
+/**
  * The ordering clinician's paragraph under an order the receiving facility couldn't complete (D18, SPEC-FINAL §9.2): what
- * it says and what to do next (§4.3), whether a sample was taken there (it may be sent on, unless it could not be used),
- * and whether a result was recorded there but not released. Neutral: nothing came back, and nothing was withdrawn. Without
+ * it says and what to do next (§4.3), whether a sample was taken there (it may be sent on, unless the laboratory was told
+ * to discard it: it could not be used, or the patient chose not to go ahead; SAMPLE_DISCARDED), and whether a result was
+ * recorded there but not released. Neutral: nothing came back, and nothing was withdrawn. Without
  * `notCompleted` (an EHR rolled back on hid-system 0091) or with a reason this website does not know, only the next step.
  * Null for any other ending, and once the receiving facility reported it accepted the order for the wrong person: what it
  * said before is then no longer about the patient (CC2).
@@ -197,7 +205,7 @@ export function notCompletedText(route: Pick<OrderRouteSummary, 'kind' | 'endedK
   const facility = named(route.receivingFacility.name)
   const lab = route.kind === 'lab_request'
   return `${facility} says ${reason.says({ patient })}. ${reason.next({ patient, facility })}`
-    + (lab && facts.sampleTaken === true && facts.reason !== 'sample_unusable'
+    + (lab && facts.sampleTaken === true && !SAMPLE_DISCARDED.has(facts.reason)
       ? ` A sample was taken there: phone ${facility} if it could be sent to another laboratory.` : '')
     + (lab && facts.resultRecorded === true
       ? ` A result was recorded there but not released: phone ${facility} if you need to know more.` : '')
@@ -901,7 +909,7 @@ export function cannotCompleteEndedLines({ service, title, reference, patient, o
   else if (lab && priority && URGENT_PRIORITIES.has(priority)) lines.push(`This test was marked `
     + `${(priorityLabel(priority) ?? priority).toLowerCase()}: phone ${ordering} now, so they can write a new order.`)
   else lines.push(`Health ID does not alert ${ordering}: phone them if it is urgent.`)
-  if (lab && result.specimensCollected > 0) lines.push(reason === 'sample_unusable' || reason === 'patient_declined'
+  if (lab && result.specimensCollected > 0) lines.push(SAMPLE_DISCARDED.has(reason)
     ? 'Discard the sample following your laboratory’s procedure.'
     : `Keep the sample, stored as your procedure requires, until you have spoken to ${ordering}: they may want it sent to `
       + 'another laboratory.')
