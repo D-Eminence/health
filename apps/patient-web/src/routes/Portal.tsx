@@ -21,6 +21,7 @@ import { revealFocusedLink } from '../navStrip'
 import { describedBy, isFieldProblem, useDocumentTitle, useStepFocus } from '../authSteps'
 import { useFocusOnPageChange } from '../pageFocus'
 import { SentOrdersCard } from './SentOrders'
+import { NinVerificationCard } from './NinVerificationCard'
 
 const links = [
   { to: '/', label: 'Overview', end: true },
@@ -163,12 +164,10 @@ export function PortalShell() {
 }
 
 /**
- * The patient's profile. The signed-in "Verify NIN" card is not offered: hid-system
- * main f9dbaf0 answers POST /identity/me/verification/nin with
- * 503 QOREID_PATIENT_NIN_BINDING_DISABLED while QOREID_PATIENT_SELF_NIN_BINDING_ENABLED
- * is off, its default, and production refuses that flag, so the card could only be
- * refused. It stays hidden until the owner decides P27 (PHASE_4_STAGE_5_RELEASE_READINESS.md
- * section 3, Health-id alignment row 13); the API call is kept in api.ts.
+ * The patient's profile, with "Verify your NIN" (NinVerificationCard.tsx): since the
+ * owner's decision of 2026-10-27 a patient signs up without a NIN and may add it here,
+ * optionally. Where Identity still refuses it (503 QOREID_PATIENT_NIN_BINDING_DISABLED
+ * while QOREID_PATIENT_SELF_NIN_BINDING_ENABLED is off), the card says so plainly.
  */
 export function ProfilePage() {
   const { api } = useSession()
@@ -188,6 +187,7 @@ export function ProfilePage() {
       <div><dt>Country</dt><dd>{profile.data.country || 'Not provided'}</dd></div>
       <div><dt>Identity assurance</dt><dd>{profile.data.assuranceState || 'Not available'}</dd></div>
     </dl></div>}
+    {profile.data && !profile.error && <NinVerificationCard profile={profile.data} onVerified={profile.reload} />}
   </section>
 }
 

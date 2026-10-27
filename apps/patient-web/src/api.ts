@@ -94,6 +94,26 @@ export interface EnrollmentAvailability {
   open: boolean
   online?: boolean
   facility?: boolean
+  /**
+   * The sign-up without a NIN (an owner decision, 2026-10-27; hid-1.0's patient
+   * sign-up): only `true` says Identity serves POST .../signup. Absent from an
+   * Identity before it, which keeps the NIN-first enrollment.
+   */
+  signup?: boolean
+}
+
+/** The genders the sign-up takes. */
+export const SIGNUP_GENDERS = ['female', 'male'] as const
+export type SignupGender = typeof SIGNUP_GENDERS[number]
+/** The details step of the sign-up: no NIN, which the patient may verify later from their profile. */
+export interface EnrollmentSignupDetails {
+  firstName: string
+  lastName: string
+  email: string
+  phone: string
+  gender: SignupGender
+  /** Free text, sent only when given. */
+  hospitalCurrentlyUsing?: string
 }
 
 /** A participating facility as the public list shows it (ADR-063): no id. */
@@ -124,6 +144,8 @@ export interface PatientProfile {
   assuranceState: string | null
   accessPinConfigured: boolean
   version: number
+  /** Whether a NIN is verified on this account; absent from an Identity before the sign-up without a NIN. */
+  ninVerified?: boolean
 }
 
 export interface PatientNinVerification {
@@ -406,6 +428,14 @@ export function createPatientApi(client: ApiClient) {
     enrollmentStart: (nin: string, turnstileToken: string, idempotencyKey: string) =>
       call<EnrollmentProgress>('POST', 'identity/patient-enrollments', { nin, turnstileAction: 'patient-enrollment', turnstileToken },
         { headers: { 'Idempotency-Key': idempotencyKey } }),
+    // The sign-up without a NIN: the details and the security check; the answer is verify_contact, with a code
+    // sent to the email. A fresh Idempotency-Key per attempt. Its code is sent again with enrollmentContact.
+    enrollmentSignup: (details: EnrollmentSignupDetails, turnstileToken: string, idempotencyKey: string) =>
+      call<EnrollmentProgress>('POST', 'identity/patient-enrollments/signup', {
+        firstName: details.firstName, lastName: details.lastName, email: details.email, phone: details.phone, gender: details.gender,
+        ...(details.hospitalCurrentlyUsing ? { hospitalCurrentlyUsing: details.hospitalCurrentlyUsing } : {}),
+        termsAccepted: true, turnstileToken, turnstileAction: 'patient-enrollment',
+      }, { headers: { 'Idempotency-Key': idempotencyKey } }),
     enrollmentBindGoogle: () => call<{ bound: true }>('POST', 'identity/patient-enrollments/google'),
     // The NIN holder step (ADR-062): no body; the code goes to the phone on the NIN record, never one typed here.
     enrollmentHolderCode: () =>

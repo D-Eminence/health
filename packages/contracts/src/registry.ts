@@ -381,7 +381,13 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('enrollment.start','enrollment','/api/v1/identity/patient-enrollments',P,true),
   r('enrollment.availability','enrollment','/api/v1/identity/patient-enrollments/availability',G,true,undefined,
     'hid-system#68 (FE-4); since #84 (ADR-062) 200 { open, online, facility }, each a boolean. only open: true opens a start; '
-    + 'online and facility say which route to prove the NIN holder is on. An Identity before #84 sends { open } only.'),
+    + 'online and facility say which route to prove the NIN holder is on. An Identity before #84 sends { open } only. '
+    + 'signup: true says enrollment.signup (the sign-up without a NIN) is served; without it the NIN-first start is used.'),
+  proposed(r('enrollment.signup','enrollment','/api/v1/identity/patient-enrollments/signup',P,true,undefined,
+    'The sign-up without a NIN (owner decision, 2026-10-27; served once availability says signup: true). Idempotency-Key header; '
+    + 'body { firstName, lastName, email, phone, gender: male|female, hospitalCurrentlyUsing?, termsAccepted: true, turnstileToken, '
+    + 'turnstileAction: patient-enrollment }. 200 the verify_contact progress, a code sent to the email, and the enrollment cookie; '
+    + '409 PATIENT_EMAIL_ALREADY_REGISTERED or PATIENT_PHONE_ALREADY_REGISTERED.')),
   r('enrollment.current','enrollment','/api/v1/identity/patient-enrollments/current',G,true),
   r('enrollment.google','enrollment','/api/v1/identity/patient-enrollments/google',P,true),
   r('enrollment.contact','enrollment','/api/v1/identity/patient-enrollments/contact',P,true),
