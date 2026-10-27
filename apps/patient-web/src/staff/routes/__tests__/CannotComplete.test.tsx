@@ -733,7 +733,8 @@ describe('in “Correct an order that has ended”', () => {
     api.labWorkItems.mockResolvedValue(served(endedItem, local))
     render(<MemoryRouter><Laboratory /></MemoryRouter>)
     await screen.findByText('Haemoglobin', { selector: '.staff-list strong' })
-    const area = screen.getByText('Correct an order that has ended').closest('details') as HTMLElement
+    // The area shows once Lab says it serves late correction, a read of its own that can land after the list.
+    const area = (await screen.findByText('Correct an order that has ended')).closest('details') as HTMLElement
     fireEvent.change(within(area).getByLabelText(/^Order reference/), { target: { value: '9c1b2d3e' } })
     fireEvent.click(within(area).getByRole('button', { name: 'Find' }))
     expect(await within(area).findByText(/· you said you couldn’t complete it\.$/)).toBeTruthy()
