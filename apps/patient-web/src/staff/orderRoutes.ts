@@ -852,8 +852,13 @@ export function cannotCompleteRefusal(error: unknown, service: ReceivingService,
     const after = isHidApiError(error) ? error.retryAt : null
     return { text: 'The most orders that can be ended here in 24 hours have been ended, by you or by your '
       + `${lab ? 'laboratory' : 'pharmacy'}. ${after ? `You can end more from ${routeMoment(after)}.` : 'You can end more later.'} `
-      + `Phone ${ordering} and ask them to cancel this order so it doesn’t stay open, or ask Health ID support to close it. If `
-      + 'many orders are affected, phone Health ID support now.' }
+      + `Phone ${ordering} and ask them to cancel this order so it doesn’t stay open, or ask Health ID support to close it. `
+      // At the limit a possibly critical value was still asked about (the command checks it first), but any result recorded
+      // here goes with the order: either ending ends this laboratory's reading at once and tells the ordering facility nothing
+      // of a result (CC1, D18-15).
+      + (lab ? `If a result was recorded on this order, phone ${ordering} about it first: once the order is cancelled or `
+        + `closed you can no longer read it, and ${ordering} is not told that a result was recorded. ` : '')
+      + 'If many orders are affected, phone Health ID support now.' }
   }
   if (isCode(error, 'IDEMPOTENCY_KEY_REUSED')) return { reload: true,
     text: 'This was already sent with other details. The list has been refreshed: check whether the order has ended.' }

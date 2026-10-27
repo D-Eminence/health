@@ -629,6 +629,10 @@ describe('orders a laboratory or pharmacy couldn’t complete (D18)', () => {
   const CLOSE = 'If the laboratory or pharmacy accepted it but can’t complete it, it can end it itself with “We can’t complete this '
     + 'order” on its work list; the ordering facility then sees why. Close it here only when it asks you to because it has reached '
     + 'its daily limit.'
+  // A laboratory's order: closing ends its reading at once and tells the clinic nothing of a result, so support asks first.
+  const CLOSE_LAB = `${CLOSE} Before you close it, ask Yaba Diagnostics whether a result was recorded on it: a checked result `
+    + 'waiting to be released, it should release instead; about any other result, it should phone General Hospital first. Closing '
+    + 'ends its access at once, and General Hospital is not told that a result was recorded.'
 
   it('says in Find that the receiving facility couldn’t complete it, with what it can still withdraw', async () => {
     serve(SUPPORT, { 'GET /api/v1/admin/order-routes': () => json({ items: [{ ...FOUND, effectiveState: 'cancelled',
@@ -678,13 +682,24 @@ describe('orders a laboratory or pharmacy couldn’t complete (D18)', () => {
     expect(second.textContent).not.toMatch(/couldn’t complete/)
   })
 
-  it('says in Close, once served, that the facility can end an accepted order itself', async () => {
-    serve(SUPPORT, { 'GET /api/v1/admin/order-routes': () => json({ items: [FOUND], wrongPatientReports: true, lateCorrection: true,
-      cannotComplete: true }) })
+  it('says in Close, once served, that the facility can end an accepted order itself, and to ask a laboratory about results first',
+    async () => {
+      serve(SUPPORT, { 'GET /api/v1/admin/order-routes': () => json({ items: [FOUND], wrongPatientReports: true, lateCorrection: true,
+        cannotComplete: true }) })
+      await openAt('/admin/order-routes')
+      const row = await findByReference()
+      fireEvent.click(within(row).getByText('Close', { selector: 'summary' }))
+      expect(within(row).getByText(CLOSE_LAB)).toBeTruthy()
+    })
+
+  it('says nothing about results in Close for a prescription', async () => {
+    serve(SUPPORT, { 'GET /api/v1/admin/order-routes': () => json({ items: [{ ...FOUND, kind: 'prescription' }],
+      wrongPatientReports: true, lateCorrection: true, cannotComplete: true }) })
     await openAt('/admin/order-routes')
     const row = await findByReference()
     fireEvent.click(within(row).getByText('Close', { selector: 'summary' }))
     expect(within(row).getByText(CLOSE)).toBeTruthy()
+    expect(within(row).queryByText(/result was recorded/)).toBeNull()
   })
 
   it('keeps Close as it was against today’s Identity', async () => {

@@ -663,14 +663,19 @@ describe('“We can’t complete this order”: the receiving facility’s words
       + 'check and try again.' })
     expect(refused(409, 'ORDER_ROUTE_CHANGED_CONCURRENTLY')).toEqual({ text: 'Someone changed this order at the same moment. Try again.' })
     const limit = 'The most orders that can be ended here in 24 hours have been ended, by you or by your laboratory. '
+    // Past the limit a recorded result goes with the order, unseen by the clinic: the laboratory phones about it first.
     const after = ' Phone General Hospital and ask them to cancel this order so it doesn’t stay open, or ask Health ID support to '
-      + 'close it. If many orders are affected, phone Health ID support now.'
+      + 'close it. If a result was recorded on this order, phone General Hospital about it first: once the order is cancelled or '
+      + 'closed you can no longer read it, and General Hospital is not told that a result was recorded. If many orders are '
+      + 'affected, phone Health ID support now.'
     expect(refused(429, 'ORDER_ROUTE_CANNOT_COMPLETE_LIMIT', { retryAt: '2026-10-28T09:14:03.219Z' }).text)
       .toBe(`${limit}You can end more from 28 Oct 2026, 10:14.${after}`)
     expect(refused(429, 'ORDER_ROUTE_CANNOT_COMPLETE_LIMIT').text).toBe(`${limit}You can end more later.${after}`)
     expect(refused(429, 'TOO_MANY_REQUESTS').text).toBe(`${limit}You can end more later.${after}`)
     expect(cannotCompleteRefusal(new HidApiError(429, 'Limit', { code: 'ORDER_ROUTE_CANNOT_COMPLETE_LIMIT' }), 'pharmacy', 'General Hospital',
-      null).text).toContain('by you or by your pharmacy.')
+      null).text).toBe('The most orders that can be ended here in 24 hours have been ended, by you or by your pharmacy. You can end '
+      + 'more later. Phone General Hospital and ask them to cancel this order so it doesn’t stay open, or ask Health ID support to '
+      + 'close it. If many orders are affected, phone Health ID support now.')
     expect(refused(409, 'IDEMPOTENCY_KEY_REUSED')).toEqual({ reload: true, text: 'This was already sent with other details. The list '
       + 'has been refreshed: check whether the order has ended.' })
     expect(refused(404, 'API_ROUTE_NOT_FOUND')).toEqual({ missing: true, text: 'Ending an order you can’t complete isn’t available '

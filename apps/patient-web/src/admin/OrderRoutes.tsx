@@ -610,7 +610,11 @@ function CloseForm({ route, onDone }: { route: FoundOrderRoute; onDone: (outcome
         can’t.</p>}
       {cannotComplete && <p className="admin-note">If the laboratory or pharmacy accepted it but can’t complete it, it can end it
         itself with “We can’t complete this order” on its work list; the ordering facility then sees why. Close it here only when
-        it asks you to because it has reached its daily limit.</p>}
+        it asks you to because it has reached its daily limit.{route.kind === 'lab_request'
+          ? ` Before you close it, ask ${route.receivingFacilityName} whether a result was recorded on it: a checked result waiting `
+            + `to be released, it should release instead; about any other result, it should phone ${route.orderingFacilityName} `
+            + `first. Closing ends its access at once, and ${route.orderingFacilityName} is not told that a result was recorded.`
+          : ''}</p>}
       <p className="admin-note">{lateCaseNote(lateServed)}</p>
       <label className="admin-checkbox"><input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} /> I
         understand that closing can’t be undone.</label>

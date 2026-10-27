@@ -585,7 +585,10 @@ inbox title (`ORDER_ROUTE_NOT_COMPLETED`). Support's Find names the ending, a
 facility's panel shows its endings of the last 30 days as counts
 (`notCompleted` in the facility summary), a later wrong-patient report names
 the earlier ending, and Close says the facility can end an accepted order
-itself. Every new field is optional and read only when its type is right. The
+itself and, for a laboratory's order, to ask it about results first (closing
+ends its reading at once and tells the clinic nothing of a result; the Lab's
+limit refusal says the same, and a possibly critical value is asked about
+before the limit). Every new field is optional and read only when its type is right. The
 website learns that D18 is served only from `cannotComplete: true` on the work
 lists, support's Find or the facility summary (`cannotCompleteServed.ts`);
 until then no screen offers or mentions it, and every page reads as before.
