@@ -371,3 +371,21 @@ describe('late reports (D17)', () => {
     expect(within(row).queryByText(/needs:/)).toBeNull()
   })
 })
+
+/**
+ * D18-12 (hid-system 0091; SPEC-FINAL §9.4): a wrong-patient report made after "We can't complete this order". Identity
+ * flags it as any late report (and sorts it first); the row says the order had ended because the facility couldn't
+ * complete it, after confirming it was the order's patient: the facility said both.
+ */
+describe('a report after the facility said it couldn’t complete the order (D18-12)', () => {
+  it('says the earlier ending and that the facility had confirmed it was the order’s patient', async () => {
+    serve(READER, { 'GET /api/v1/admin/wrong-patient-reports': () => json({ items: [report({ late: true,
+      endedKindBefore: 'receiving_unable', stateBefore: 'cancelled', discoveredBy: 'own_check', discoveredOn: '2026-10-20',
+      resultsVoided: 0, resultReportsMarked: 0, specimensCollected: 0, requiredActions: [], flags: ['late_correction'] })],
+    lateCorrection: true }) })
+    await openAt('/admin/wrong-patient-reports')
+    const row = (await screen.findByText('9C1B2D3E')).closest('tr')!
+    expect(within(row).getByText('Reported after the order had ended')).toBeTruthy()
+    expect(within(row).getByText(/^Ended before the report: the receiving facility couldn’t complete it, after confirming it was the order’s patient\. Found out on 20 Oct 2026: they found it themselves\. Nothing had come back to the ordering facility\./)).toBeTruthy()
+  })
+})

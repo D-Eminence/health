@@ -607,3 +607,91 @@ describe('the late correction in support’s Find (D17)', () => {
     expect(row.textContent).not.toMatch(/withdraw what it recorded|can no longer withdraw|Reported .*wrong person/)
   })
 })
+
+/**
+ * D18 (hid-system 0091; SPEC-FINAL §9.4, D18-11): support reads an order a laboratory or pharmacy couldn't complete in
+ * Find, a facility's endings of the last 30 days as counts on its page, in support's own words, and, once served, why it
+ * closes such an order only past the facility's daily limit. Against today's Identity nothing new shows.
+ */
+describe('orders a laboratory or pharmacy couldn’t complete (D18)', () => {
+  async function said(value: string) { const { date } = await import('../ui'); return date(value) }
+  const COUNTS = { last30Days: 6, soonAfterAcceptance: 2, afterSevenDays: 0, laterReportedWrongPatient: 1,
+    byReason: { supplies_unavailable: 3, out_of_stock: 1, other: 1, new_reason_later: 1, needs_prescriber_review: 0 } }
+  const summaryWith = (fields: Record<string, unknown>) => ({ 'GET /api/v1/admin/facilities/0f8c6d2e-4b1a-4c3d-9e5f-1a2b3c4d5e6f/order-route-summary':
+    () => json({ ...SUMMARY, ...fields }) })
+  async function openPanel() {
+    await openAt(`/admin/facilities/${FACILITY_ID}`)
+    const panel = (await screen.findByRole('heading', { name: 'Orders with other facilities' })).closest('section')!
+    fireEvent.click(within(panel).getByRole('button', { name: 'Show orders with other facilities' }))
+    await within(panel).findByText('Yaba Diagnostics accepted 3 orders from other facilities, for 2 patients.')
+    return panel
+  }
+  const CLOSE = 'If the laboratory or pharmacy accepted it but can’t complete it, it can end it itself with “We can’t complete this '
+    + 'order” on its work list; the ordering facility then sees why. Close it here only when it asks you to because it has reached '
+    + 'its daily limit.'
+
+  it('says in Find that the receiving facility couldn’t complete it, with what it can still withdraw', async () => {
+    serve(SUPPORT, { 'GET /api/v1/admin/order-routes': () => json({ items: [{ ...FOUND, effectiveState: 'cancelled',
+      endedAt: '2026-10-23T09:00:00.000Z', endedKind: 'receiving_unable', accessEndsAt: '2026-10-23T09:00:00.000Z', closable: false,
+      correction: 'correctable', correctableUntil: '2027-04-19T10:00:00.000Z', wrongPatient: null }], wrongPatientReports: true,
+    lateCorrection: true, cannotComplete: true }) })
+    await openAt('/admin/order-routes')
+    const row = await findByReference()
+    expect(within(row).getByText(`Ended ${await said('2026-10-23T09:00:00.000Z')} (the receiving facility couldn’t complete it)`)).toBeTruthy()
+    expect(within(row).getByText(`Yaba Diagnostics can still withdraw what it recorded on it, until ${await said('2027-04-19T10:00:00.000Z')}: `
+      + 'if it accepted this for the wrong person, give it reference 9C1B2D3E.')).toBeTruthy()
+    expect(within(row).queryByText('Close', { selector: 'summary' })).toBeNull()
+  })
+
+  it('shows the facility’s counts as a list in support’s words, leaving out zero lines but the first', async () => {
+    serve(SUPPORT, summaryWith({ notCompleted: COUNTS, cannotComplete: true }))
+    const panel = await openPanel()
+    const list = within(panel).getByText(/^Orders it accepted but couldn’t complete, last 30 days:/).closest('ul')!
+    expect([...list.children].map(item => item.firstChild?.textContent === 'By reason:' ? 'By reason:' : item.textContent)).toEqual([
+      'Orders it accepted but couldn’t complete, last 30 days: 6.',
+      'Within an hour of accepting, with nothing recorded: 2.Common when a patient changes their mind at the counter; a concern when '
+        + 'it happens across many patients.',
+      'Later reported as accepted for the wrong person: 1.',
+      'By reason:'])
+    // Most first, then by code; a code the console does not know is said with spaces; a 0 is left out.
+    expect([...list.querySelectorAll(':scope ul li')].map(item => item.textContent)).toEqual(['supplies ran out: 3',
+      'new reason later: 1', 'another reason: 1', 'out of stock: 1'])
+    expect(within(panel).getByText(/^A laboratory or pharmacy ends an order it accepted with “We can’t complete this order”/)).toBeTruthy()
+    expect(panel.textContent).not.toMatch(/More than 7 days|needs the prescriber/)
+  })
+
+  it('says only the first line for a facility that ended none', async () => {
+    serve(SUPPORT, summaryWith({ notCompleted: { last30Days: 0, soonAfterAcceptance: 0, afterSevenDays: 0,
+      laterReportedWrongPatient: 0, byReason: {} }, cannotComplete: true }))
+    const panel = await openPanel()
+    const list = within(panel).getByText(/^Orders it accepted but couldn’t complete, last 30 days:/).closest('ul')!
+    expect([...list.children].map(item => item.textContent)).toEqual(['Orders it accepted but couldn’t complete, last 30 days: 0.'])
+  })
+
+  it('shows nothing of them from today’s Identity, or from a summary whose counts are not counts', async () => {
+    serve(SUPPORT)
+    const panel = await openPanel()
+    expect(panel.textContent).not.toMatch(/couldn’t complete|can’t complete/)
+    cleanup()
+    serve(SUPPORT, summaryWith({ notCompleted: { ...COUNTS, last30Days: '6' } }))
+    const second = await openPanel()
+    expect(second.textContent).not.toMatch(/couldn’t complete/)
+  })
+
+  it('says in Close, once served, that the facility can end an accepted order itself', async () => {
+    serve(SUPPORT, { 'GET /api/v1/admin/order-routes': () => json({ items: [FOUND], wrongPatientReports: true, lateCorrection: true,
+      cannotComplete: true }) })
+    await openAt('/admin/order-routes')
+    const row = await findByReference()
+    fireEvent.click(within(row).getByText('Close', { selector: 'summary' }))
+    expect(within(row).getByText(CLOSE)).toBeTruthy()
+  })
+
+  it('keeps Close as it was against today’s Identity', async () => {
+    serve(SUPPORT, { 'GET /api/v1/admin/order-routes': () => json({ items: [FOUND], wrongPatientReports: true, lateCorrection: true }) })
+    await openAt('/admin/order-routes')
+    const row = await findByReference()
+    fireEvent.click(within(row).getByText('Close', { selector: 'summary' }))
+    expect(within(row).queryByText(/can’t complete/)).toBeNull()
+  })
+})

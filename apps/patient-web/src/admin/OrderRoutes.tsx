@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
-import { adminApi, type AdminActor, type DestinationReview, type FacilityOrderRouteSummary, type FoundOrderRoute } from './api'
+import {
+  adminApi, type AdminActor, type DestinationReview, type FacilityNotCompletedCounts, type FacilityOrderRouteSummary,
+  type FoundOrderRoute,
+} from './api'
 import { failure, isProblem } from './problems'
 import { Page, ResourceView, Table, date, has, useGovernedSubmit, useResource } from './ui'
 import { FacilityWrongPatientCount, lateCaseNote } from './WrongPatientReports'
 import { learnWrongPatientServed, useWrongPatientServed } from '../wrongPatientServed'
 import { correctableUntilOf, learnLateCorrectionFrom, useLateCorrectionServed, wrongPatientReportOf } from '../lateCorrectionServed'
+import { learnCannotCompleteFrom, useCannotCompleteServed } from '../cannotCompleteServed'
 
 /**
  * Support's tools for orders between facilities (Novu, P4c, SPEC-FINAL §8.7 C20-C23, §13.6): a facility's summary and
@@ -26,6 +30,8 @@ export function stateWord(state: string): string {
 /** How an order ended, in support's words (item 3, §9.5). */
 const ENDED_WORDS: Readonly<Record<string, string>> = {
   wrong_patient: 'the receiving facility accepted it for the wrong person',
+  // D18 (hid-system 0091): the receiving facility accepted it and couldn't complete it.
+  receiving_unable: 'the receiving facility couldn’t complete it',
   support: 'closed by support',
   order_changed: 'the order changed',
   entered_in_error: 'the order was marked entered in error',
@@ -39,6 +45,74 @@ const ENDED_WORDS: Readonly<Record<string, string>> = {
 
 export function endedWord(kind: string): string {
   return ENDED_WORDS[kind] ?? kind.replaceAll('_', ' ')
+}
+
+/**
+ * Why a laboratory or pharmacy couldn't complete an order, in support's own neutral words (D18-5, SPEC-FINAL §4.3; WB9):
+ * one per code whatever the kind (the summary's counts carry no kind). An unknown code is said with spaces.
+ */
+const NOT_COMPLETED_WORDS: Readonly<Record<string, string>> = {
+  test_not_offered: 'test not offered', supplies_unavailable: 'supplies ran out', equipment_unavailable: 'equipment out of service',
+  sample_unusable: 'sample unusable', sample_not_obtained: 'sample not obtained', cannot_meet_priority: 'couldn’t meet the priority',
+  patient_declined: 'patient chose not to go ahead', patient_did_not_return: 'patient left or didn’t come back',
+  other: 'another reason', out_of_stock: 'out of stock', medicine_unavailable: 'medicine unavailable',
+  needs_prescriber_review: 'needs the prescriber’s review', controlled_requirements: 'controlled-medicine paperwork',
+}
+
+export function notCompletedWord(reason: string): string {
+  return NOT_COMPLETED_WORDS[reason] ?? reason.replaceAll('_', ' ')
+}
+
+function count(value: unknown): number | null {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null
+}
+
+/**
+ * The facility summary's `notCompleted` (D18, C32), only when every count is a whole number of at least 0 and `byReason`
+ * an object of such counts; null otherwise (an earlier Identity sends none).
+ */
+export function notCompletedCounts(summary: Pick<FacilityOrderRouteSummary, 'notCompleted'>): FacilityNotCompletedCounts | null {
+  const value: unknown = summary.notCompleted
+  if (!value || typeof value !== 'object') return null
+  const fields = value as Record<string, unknown>
+  const last30Days = count(fields.last30Days)
+  const soonAfterAcceptance = count(fields.soonAfterAcceptance)
+  const afterSevenDays = count(fields.afterSevenDays)
+  const laterReportedWrongPatient = count(fields.laterReportedWrongPatient)
+  const reasons = fields.byReason
+  if (last30Days === null || soonAfterAcceptance === null || afterSevenDays === null || laterReportedWrongPatient === null
+    || !reasons || typeof reasons !== 'object' || Array.isArray(reasons)) return null
+  const byReason: Record<string, number> = {}
+  for (const [reason, value] of Object.entries(reasons as Record<string, unknown>)) {
+    const n = count(value)
+    if (n === null) return null
+    byReason[reason] = n
+  }
+  return { last30Days, soonAfterAcceptance, afterSevenDays, laterReportedWrongPatient, byReason }
+}
+
+/**
+ * The orders this facility accepted and ended because it couldn't complete them, last 30 days (D18-11): counts only, no
+ * order and no patient, on its own facility page; lines with 0 left out but the first. What support looks for: endings
+ * soon after accepting with nothing recorded (accepting just to see who the patient is), late ones (sitting on orders),
+ * and ones later reported as the wrong person (D18-12).
+ */
+function FacilityNotCompleted({ counts }: { counts: FacilityNotCompletedCounts }) {
+  const reasons = Object.entries(counts.byReason).filter(([, n]) => n > 0).sort(([a, x], [b, y]) => y - x || a.localeCompare(b))
+  return <div className="admin-stack">
+    <p className="admin-note">A laboratory or pharmacy ends an order it accepted with “We can’t complete this order” when it can’t
+      finish it; the ordering facility sees why. Health ID shows these counts per facility only.</p>
+    <ul className="admin-notes">
+      <li>Orders it accepted but couldn’t complete, last 30 days: <strong>{counts.last30Days}</strong>.</li>
+      {counts.soonAfterAcceptance > 0 && <li>Within an hour of accepting, with nothing recorded: <strong>{counts.soonAfterAcceptance}</strong>.
+        <small className="admin-note">Common when a patient changes their mind at the counter; a concern when it happens across
+          many patients.</small></li>}
+      {counts.afterSevenDays > 0 && <li>More than 7 days after accepting: <strong>{counts.afterSevenDays}</strong>.</li>}
+      {counts.laterReportedWrongPatient > 0 && <li>Later reported as accepted for the wrong person:
+        {' '}<strong>{counts.laterReportedWrongPatient}</strong>.</li>}
+      {reasons.length > 0 && <li>By reason:<ul>{reasons.map(([reason, n]) => <li key={reason}>{notCompletedWord(reason)}: {n}</li>)}</ul></li>}
+    </ul>
+  </div>
 }
 
 /** The states with access in force: support can close only these (C22). */
@@ -252,11 +326,16 @@ export function FacilityOrderRoutesPanel({ facilityId, facilityName, actor, know
 
 function FacilityOrderRoutesSummary({ facilityId, facilityName, actor, known }: { facilityId: string; facilityName: string
   actor: AdminActor; known: KnownSignUp | null }) {
-  const load = useCallback((signal?: AbortSignal) => adminApi.facilityOrderRouteSummary(facilityId, signal), [facilityId])
+  // An Identity that serves "We can't complete this order" (D18) says so in the summary.
+  const load = useCallback((signal?: AbortSignal) => adminApi.facilityOrderRouteSummary(facilityId, signal).then(summary => {
+    learnCannotCompleteFrom(summary)
+    return summary
+  }), [facilityId])
   const resource = useResource(load, 'This facility’s orders with other facilities could not be loaded.')
   const canList = has(actor, 'platform.facility.manage') && has(actor, 'platform.facility.unlock')
   return <ResourceView resource={resource}>{summary => {
     const listing = listingText(summary, facilityName, known)
+    const notCompleted = notCompletedCounts(summary)
     return <div className="admin-stack">
     <p>{listing.line}</p>
     <p className="admin-note">A facility can receive orders only while it is an active, reviewed (or support-approved)
@@ -265,6 +344,7 @@ function FacilityOrderRoutesSummary({ facilityId, facilityName, actor, known }: 
       other facilities, for {summary.receivedPatientsLifetime} {summary.receivedPatientsLifetime === 1 ? 'patient' : 'patients'}.</p>
     {/* Item 3: the reports it made that it accepted an order for the wrong person (none shown where the backend has no list). */}
     <FacilityWrongPatientCount facilityId={facilityId} />
+    {notCompleted && <FacilityNotCompleted counts={notCompleted} />}
     <h3>Last 30 days, by facility</h3>
     {summary.counterparts.length === 0 ? <p className="admin-state">No orders with other facilities in the last 30 days.</p>
       : <Table headings={['Direction', 'Facility', 'Orders']}>
@@ -391,6 +471,8 @@ export function OrderRoutesPage({ actor }: { actor: AdminActor }) {
       // and D17's, that it serves the late correction, or its rows carry their deadline.
       learnWrongPatientServed(answer.wrongPatientReports === true)
       learnLateCorrectionFrom(answer, answer.items)
+      // D18: and one that serves "We can't complete this order" says that (only `true` is learned).
+      learnCannotCompleteFrom(answer)
       setFound(answer.items); setLookup(next)
     }
     catch (caught) {
@@ -402,7 +484,9 @@ export function OrderRoutesPage({ actor }: { actor: AdminActor }) {
   /** Reads one order again by its reference and puts it back in its row; an order no longer found leaves the table. */
   async function findAgain(route: FoundOrderRoute) {
     try {
-      const fresh = (await adminApi.findOrderRoutes({ reference: route.reference })).items.filter(item => item.routeId === route.routeId)
+      const answer = await adminApi.findOrderRoutes({ reference: route.reference })
+      learnCannotCompleteFrom(answer)
+      const fresh = answer.items.filter(item => item.routeId === route.routeId)
       setFound(current => current && current.flatMap(item => item.routeId === route.routeId ? fresh : [item]))
     } catch (caught) { setError(failure(caught, `Order ${route.reference} could not be found again. Find it again.`)) }
   }
@@ -483,6 +567,8 @@ function CloseForm({ route, onDone }: { route: FoundOrderRoute; onDone: (outcome
   // stops it withdrawing what it recorded, until the order's date.
   const wrongPatientServed = useWrongPatientServed() === true
   const lateServed = useLateCorrectionServed() === true
+  // D18: an accepted order the facility can't complete, it ends itself; support closes one only past its daily limit.
+  const cannotComplete = useCannotCompleteServed() === true && route.effectiveState === 'accepted'
   const until = correctableUntilOf(route)
   const [reason, setReason] = useState('')
   const [confirmed, setConfirmed] = useState(false)
@@ -522,6 +608,9 @@ function CloseForm({ route, onDone }: { route: FoundOrderRoute; onDone: (outcome
         : wrongPatientServed && <p className="admin-note">If a laboratory or pharmacy accepted it for the wrong person, ask them to end it
         from their work list instead: only they can withdraw a result or dispensing they sent back. If you close it first, they
         can’t.</p>}
+      {cannotComplete && <p className="admin-note">If the laboratory or pharmacy accepted it but can’t complete it, it can end it
+        itself with “We can’t complete this order” on its work list; the ordering facility then sees why. Close it here only when
+        it asks you to because it has reached its daily limit.</p>}
       <p className="admin-note">{lateCaseNote(lateServed)}</p>
       <label className="admin-checkbox"><input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} /> I
         understand that closing can’t be undone.</label>
