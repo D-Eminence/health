@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNod
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { Badge, Button, Card, EmptyState, Field, Input, Select, Textarea } from '@hid/ui'
-import { staffApi, type Facility, type LabAbnormalFlag, type LabAccession, type LabExecution, type LabResult, type LabResultValue, type LabImport, type LabSpecimen, type LabWorkItem, type OcrExtraction, type OcrJob, type OcrPublication, type OcrTargetDomain, type OcrValidation, type OcrValidationInput, type OutreachCampaign, type OutreachCase, type PharmacyImport, type PharmacyWorkItem, type ReceivingAnswer } from '../api'
+import { staffApi, type Facility, type LabAbnormalFlag, type LabAccession, type LabExecution, type LabResult, type LabResultValue, type LabImport, type LabSpecimen, type LabWorkItem, type OcrExtraction, type OcrJob, type OcrPublication, type OcrTargetDomain, type OcrValidation, type OcrValidationInput, type OutreachCampaign, type OutreachCase, type PharmacyImport, type PharmacyWorkItem, type ReceivingAnswer, type WorkItemOrderRoute } from '../api'
 import { useStaff } from '../App'
 import { describedBy } from '../../authSteps'
 import { FieldInputError, problemProps, problemText, refusal, refusalText, type FieldProblem } from '../fieldProblem'
@@ -12,15 +12,19 @@ import { RevisionList } from '../labRevisions'
 import { usesNovuBackend } from '../../backendContract'
 import { learnWrongPatientServed } from '../../wrongPatientServed'
 import { learnLateCorrectionServed, saysLateCorrection, useLateCorrectionServed } from '../../lateCorrectionServed'
+import { learnCannotCompleteFrom, useCannotCompleteServed } from '../../cannotCompleteServed'
 import { BETWEEN_FACILITIES } from '../betweenFacilities'
 import { selfServiceReview, selfServiceType } from '../staffAccess'
 import {
-  handOverCheckText, holdsReceivePermission, licenceLine, receivingAnswer, receivingHere, rememberedReceiving, rememberReceiving,
-  routeClosedForWork, routedWorkEndedText, sampleCheckText, wrongPatientOffered,
+  cannotCompleteOffered, handOverCheckText, holdsReceivePermission, licenceLine, receivingAnswer, receivingHere,
+  rememberedReceiving, rememberReceiving, routeClosedForWork, routedWorkEndedText, sampleCheckText, wrongPatientOffered,
 } from '../orderRoutes'
 import { IncomingOrders, patientCard } from './IncomingOrders'
-import { WrongPatientAction, WrongPatientEnded, type WrongPatientEnding } from './WrongPatient'
+import { WrongPatientEnded, type WrongPatientEnding } from './WrongPatient'
 import { LateCorrectionDone, LateWrongPatient, type LateCorrection } from './LateWrongPatient'
+import {
+  CannotCompleteEndings, endingKey, OrderEndingActions, type CannotCompleteEnding, type OrderEndingMode,
+} from './CannotComplete'
 
 /**
  * OCR's answer when EHR, Lab or Pharmacy refused OCR's own workload identity
@@ -118,9 +122,12 @@ function patientLabel(item: { patientId: string; patient?: LabWorkItem['patient'
  * patient's own consent here (B1).
  */
 function RoutedWorkLines({ route }: { route: LabWorkItem['orderRoute'] }) {
+  // An order this facility could not complete (D18) says where to go if it was the wrong person after all, once the
+  // late correction is served (D17).
+  const late = useLateCorrectionServed() === true
   if (!route) return null
   const facility = route.orderingFacilityName ?? 'the ordering facility'
-  const ended = routedWorkEndedText(route)
+  const ended = routedWorkEndedText(route, late)
   return <>
     <p>From {facility}{route.reference ? ` · Ref ${route.reference}` : ''}{route.ordererName ? ` · Ordered by ${route.ordererName}` : ''}
       {route.ordererLicence ? ` · ${licenceLine(route.ordererLicence.body, route.ordererLicence.number)}` : ''}</p>
@@ -134,27 +141,39 @@ function RoutedWorkLines({ route }: { route: LabWorkItem['orderRoute'] }) {
 /**
  * Lab's work row. On work from another facility it checks that the person is the patient before a sample is taken
  * (item 3, C8), hides Prepare accession once the services would refuse it as closed (never Open accession, B3), and
- * offers "This isn't the order's patient" while the order may still be worked (wrongPatientOffered).
+ * offers "This isn't the order's patient" while the order may still be worked (wrongPatientOffered), and below it, from a
+ * backend that serves it, "We can't complete this order" while it is accepted (cannotCompleteOffered, D18). What a
+ * refusal said stays beside the row's first line when the list read again no longer offers the form (`said`, UX-2).
  */
-function LabWorkRow({ facilityId, item, permissions, onOpen, onEnded, onRefresh }: {
-  facilityId: string; item: LabWorkItem; permissions: readonly string[]; onOpen: () => void
-  onEnded: (ending: WrongPatientEnding) => void; onRefresh: () => Promise<void>
+function LabWorkRow({ facilityId, item, permissions, said, onOpen, onEnded, onNotCompleted, onReread }: {
+  facilityId: string; item: LabWorkItem; permissions: readonly string[]; said: string | null; onOpen: () => void
+  onEnded: (ending: WrongPatientEnding) => void
+  onNotCompleted: (ending: Omit<CannotCompleteEnding, 'key'>) => void
+  onReread: (routeId: string, mode: OrderEndingMode, said?: string) => Promise<void>
 }) {
   const route = item.orderRoute
   const prepare = !item.accessionId && permissions.includes('lab.accession.create') && !routeClosedForWork(route)
   const open = Boolean(item.accessionId) && permissions.includes('lab.accession.read')
   const ordering = route?.orderingFacilityName ?? 'The ordering facility'
+  const cannotComplete = cannotCompleteOffered(route, permissions, 'lab', useCannotCompleteServed())
+  const title = item.testName ?? 'Lab test'
   return <div className="staff-list-item"><div className="staff-row"><strong>{item.testName ?? 'Lab test'}</strong><Badge tone={item.accessionId ? 'information' : 'warning'}>{item.accessionId ? 'Accessioned' : item.status}</Badge></div>
+    {said && route && <p id={`lab-${item.id}-said`} className="staff-error" role="alert" tabIndex={-1}>{said}</p>}
     <p>{patientLabel(item)} · Accepted {dateText(item.acceptedAt)}</p>
     <RoutedWorkLines route={route} />
     {item.accessionNumber && <p>Accession {item.accessionNumber}</p>}
     {prepare && route && item.patient && <p className="staff-muted">{sampleCheckText(item.patient.fullName)}</p>}
     {(open || prepare) && <Button tone="secondary" size="sm" onClick={onOpen}>{item.accessionId ? 'Open accession' : 'Prepare accession'}</Button>}
-    {wrongPatientOffered(route, permissions, 'lab') && <WrongPatientAction id={`lab-${item.id}-wrong-patient`} service="lab"
-      facilityId={facilityId} route={{ id: route.id, version: route.version, reference: route.reference }}
-      patient={item.patient?.fullName ?? null} ordering={ordering} onRefresh={onRefresh}
-      onEnded={result => onEnded({ service: 'lab', title: item.testName ?? 'Lab test', reference: route.reference,
-        patient: item.patient?.fullName ?? null, ordering, result, dateOfBirthOnly: false })} />}
+    {wrongPatientOffered(route, permissions, 'lab') && <OrderEndingActions base={`lab-${item.id}`} service="lab"
+      facilityId={facilityId} route={{ id: route.id, version: route.version, reference: route.reference }} title={title}
+      patient={item.patient?.fullName ?? null} ordering={ordering}
+      cannotComplete={cannotComplete ? { priority: item.priority ?? null, accession: Boolean(item.accessionId),
+        specimenStatuses: Array.isArray(item.specimenStatuses) ? item.specimenStatuses : [] } : null}
+      onReread={(mode, text) => onReread(route.id, mode, text)}
+      onWrongPatientEnded={result => onEnded({ service: 'lab', title, reference: route.reference,
+        patient: item.patient?.fullName ?? null, ordering, result, dateOfBirthOnly: false })}
+      onNotCompleted={(result, reason) => onNotCompleted({ service: 'lab', title, reference: route.reference,
+        patient: item.patient?.fullName ?? null, ordering, reason, priority: item.priority ?? null, result })} />}
   </div>
 }
 
@@ -732,6 +751,94 @@ function useLearnLateCorrectionServed(answer: unknown) {
 }
 
 /**
+ * A work list that answers `cannotComplete: true` comes from a backend that lets this facility end an order it accepted
+ * and can't complete (D18, hid-system 0091; an earlier backend sends no such field): rows may then offer it (§9.0).
+ */
+function useLearnCannotCompleteServed(answer: unknown) {
+  useEffect(() => { learnCannotCompleteFrom(answer) }, [answer])
+}
+
+/** Said on the work-list cap once D18 is served: a row past the cap can be ended from the late section's lookup. */
+const CAP_CANNOT_COMPLETE = 'To end one you can’t complete, find it by its reference under “Correct an order that has ended”.'
+
+/**
+ * What a row's ending form said before the list was read again (a refusal that says the list is out of date, or 412),
+ * and the form it came from. If the new list no longer offers that form (its row's gate closed), the words stay in the
+ * row with focus on them, or above the list when the row is gone (D17's UX-2; SPEC-FINAL D18 §9.1, WB1), for item 3's
+ * form and D18's alike; while the form stays open, it keeps them itself.
+ */
+interface RowSaid { routeId: string; mode: OrderEndingMode; text: string; before: unknown }
+
+function useRowSaid<T extends { id: string; orderRoute?: WorkItemOrderRoute }>(service: 'lab' | 'pharmacy',
+  answer: { items: T[] } | null, refresh: () => Promise<void>, offers: (mode: OrderEndingMode, route: WorkItemOrderRoute) => boolean) {
+  const [pending, setPending] = useState<RowSaid | null>(null)
+  const [kept, setKept] = useState<{ routeId: string; text: string; target: string } | null>(null)
+  const offering = useRef(offers)
+  offering.current = offers
+  useEffect(() => {
+    if (!pending || answer === pending.before) return
+    setPending(null)
+    const item = answer?.items.find(entry => entry.orderRoute?.id === pending.routeId)
+    if (item?.orderRoute && offering.current(pending.mode, item.orderRoute)) return
+    setKept({ routeId: pending.routeId, text: pending.text, target: item ? `${service}-${item.id}-said` : `${service}-said` })
+  }, [answer, pending, service])
+  // Once said, and rendered, focus moves to it: the form that said it is gone.
+  useEffect(() => { if (kept) document.getElementById(kept.target)?.focus() }, [kept])
+  const reread = useCallback(async (routeId: string, mode: OrderEndingMode, text?: string) => {
+    setKept(null)
+    if (text) setPending({ routeId, mode, text, before: answer })
+    await refresh()
+  }, [answer, refresh])
+  const listed = Boolean(kept && answer?.items.some(entry => entry.orderRoute?.id === kept.routeId))
+  return {
+    /** What a row says (its first line's alert), for the row of this route. */
+    rowSaid: (routeId: string | undefined) => kept && listed && kept.routeId === routeId ? kept.text : null,
+    /** What is said above the list, once the row is gone. */
+    listSaid: kept && !listed ? kept.text : null,
+    clear: () => setKept(null),
+    reread,
+  }
+}
+
+function SaidAboveList({ id, text }: { id: string; text: string | null }) {
+  return text ? <p id={id} className="staff-error" role="alert" tabIndex={-1}>{text}</p> : null
+}
+
+/** Whether the ending kept this facility's reads (7 days after an accession, D18-2), from its `readUntil`. */
+function readsKept(result: CannotCompleteEnding['result']): boolean {
+  const until = result.readUntil ? Date.parse(result.readUntil) : Number.NaN
+  return Number.isFinite(until) && until - Date.now() > 60 * 60 * 1000
+}
+
+/**
+ * The orders a page ended because it couldn't complete them (D18, WB4): each said until its own Close, newest first, for
+ * the facility it was ended at; the last one's route, so the Accepted panel closes for it (WB15); and the rows of such
+ * orders later withdrawn as accepted for the wrong person (D17's late correction), which the page no longer shows: their
+ * cards would keep saying only that this facility couldn't complete them (WB16).
+ */
+function useNotCompletedEndings(facilityId: string | undefined) {
+  const [endings, setEndings] = useState<Array<CannotCompleteEnding & { facilityId: string }>>([])
+  const [lastRouteId, setLastRouteId] = useState<string | null>(null)
+  const [dropped, setDropped] = useState<ReadonlySet<string>>(() => new Set())
+  return {
+    endings: endings.filter(ending => ending.facilityId === facilityId),
+    lastRouteId,
+    add: (ending: Omit<CannotCompleteEnding, 'key'>) => {
+      if (!facilityId) return
+      setEndings(current => [{ ...ending, key: endingKey(ending.result.route.id), facilityId }, ...current])
+      setLastRouteId(ending.result.route.id)
+    },
+    close: (key: string) => setEndings(current => current.filter(ending => ending.key !== key)),
+    corrected: (correction: LateCorrection) => {
+      const before = correction.result.endedKindBefore ?? correction.result.route.endedKind
+      if (before === 'receiving_unable') setDropped(current => new Set(current).add(correction.result.route.id))
+    },
+    shown: <T extends { orderRoute?: { id: string } }>(items: T[]) => dropped.size === 0 ? items
+      : items.filter(item => !item.orderRoute || !dropped.has(item.orderRoute.id)),
+  }
+}
+
+/**
  * What the page says once an order is ended (item 3) or an ended order withdrawn (D17), until it is closed: one slot,
  * above the work list's toolbar.
  */
@@ -763,16 +870,23 @@ export function Laboratory() {
   const { mounted, probe, watch, holds, receives, onFound, onAnswer } = useReceiving(facility, 'lab', read)
   useLearnWrongPatientServed(list.items)
   useLearnLateCorrectionServed(read.value)
+  useLearnCannotCompleteServed(read.value)
   // "Correct an order that has ended" (D17): for a member who receives lab requests from other facilities, once the
   // backend serves it; a laboratory that no longer receives may still hold past orders.
   const lateCorrection = useLateCorrectionServed() === true && holdsReceivePermission(facility, 'lab')
+  const cannotServed = useCannotCompleteServed()
   // An order ended as accepted for the wrong person (item 3), or an ended one withdrawn (D17): said until closed; the list
   // is read again, and it goes.
   const [ended, setEnded] = useState<Said | null>(null)
+  // Orders ended because this laboratory couldn't complete them (D18): one entry each, newest first, until closed.
+  const notCompleted = useNotCompletedEndings(facilityId)
+  const said = useRowSaid('lab', read.value, list.refresh, (mode, route) => mode === 'wrong_patient'
+    ? wrongPatientOffered(route, permissions, 'lab') : cannotCompleteOffered(route, permissions, 'lab', cannotServed))
   if (!facilityId || !canRead) return <EmptyState titleAs="h1" title="Laboratory unavailable" description="This facility membership needs lab work-item read permission." />
   function endedHere(item: LabWorkItem, ending: WrongPatientEnding) {
     if (!facilityId) return
     setEnded({ facilityId, ending })
+    said.clear()
     if (selection?.item.id === item.id) setSelection(null)
     void list.refresh()
   }
@@ -783,6 +897,13 @@ export function Laboratory() {
     setSelection(current => current?.item.orderRoute?.id === ending.result.route.id ? null : current)
     void list.refresh()
   }
+  // D18: ended because it can't be completed. Where its reads ended at once, nothing of it is shown again.
+  function notCompletedHere(ending: Omit<CannotCompleteEnding, 'key'>) {
+    notCompleted.add(ending)
+    said.clear()
+    if (!readsKept(ending.result)) setSelection(current => current?.item.orderRoute?.id === ending.result.route.id ? null : current)
+    void list.refresh()
+  }
   return <>
     <PageHead eyebrow="Provider workspace" title="Laboratory">{holds
       ? 'Tests ordered at this facility, and lab requests from other facilities once you accept them. A separate accession records the specimen chain of custody.'
@@ -790,24 +911,32 @@ export function Laboratory() {
     <StandaloneWorkNote facility={facility} kind="laboratory" ordersOn={read.value?.crossFacilityOrders === true} receives={receives} />
     {mounted && facility && <IncomingOrders service="lab" facilityId={facilityId} facilityName={facility.name} probe={probe}
       watch={watch} membershipId={facility.membershipId} onFound={onFound} onAnswer={onAnswer} onAccepted={() => void list.refresh()}
-      onEnded={routeId => setSelection(current => current?.item.orderRoute?.id === routeId ? null : current)} />}
+      onEnded={routeId => setSelection(current => current?.item.orderRoute?.id === routeId ? null : current)}
+      closedRouteId={notCompleted.lastRouteId} />}
     <SaidAboveTheList service="lab" said={ended} facilityId={facilityId} onClose={() => setEnded(null)} />
+    <CannotCompleteEndings service="lab" endings={notCompleted.endings} onClose={notCompleted.close} />
     <div className="staff-row staff-toolbar"><RefreshButton loading={list.loading} onRefresh={list.refresh}>Refresh work</RefreshButton></div>
-    {lateCorrection && <LateWrongPatient service="lab" facilityId={facilityId} onEnded={endedLate}
-      onCorrected={correction => setEnded({ facilityId, correction })} />}
+    {lateCorrection && <LateWrongPatient service="lab" facilityId={facilityId} onEnded={endedLate} onNotCompleted={notCompletedHere}
+      onCorrected={correction => { notCompleted.corrected(correction); setEnded({ facilityId, correction }) }} />}
     <ListState loading={list.loading} error={list.error} empty="No accepted lab work" retry={() => void list.refresh()} hasItems={Boolean(list.items?.length)} />
     <RoutedWorkPaused items={list.items} crossFacilityWork={read.value?.crossFacilityWork} receives={holds} />
-    <WorkListCap count={list.items?.length ?? 0} />
-    {list.items && list.items.length > 0 && <div className="staff-two-col"><div className="staff-list">{list.items.map(item => <LabWorkRow key={item.id}
-      facilityId={facilityId} item={item} permissions={permissions} onOpen={() => setSelection({ facilityId, item })}
-      onEnded={ending => endedHere(item, ending)} onRefresh={list.refresh} />)}</div>
+    <WorkListCap count={list.items?.length ?? 0}>{cannotServed === true && lateCorrection
+      && <p className="staff-notice">{CAP_CANNOT_COMPLETE}</p>}</WorkListCap>
+    <SaidAboveList id="lab-said" text={said.listSaid} />
+    {list.items && list.items.length > 0 && <div className="staff-two-col"><div className="staff-list">{notCompleted.shown(list.items).map(item => <LabWorkRow key={item.id}
+      facilityId={facilityId} item={item} permissions={permissions} said={said.rowSaid(item.orderRoute?.id)}
+      onOpen={() => setSelection({ facilityId, item })} onEnded={ending => endedHere(item, ending)}
+      onNotCompleted={notCompletedHere} onReread={said.reread} />)}</div>
       {selected?.accessionId && permissions.includes('lab.accession.read') ? <AccessionView key={`${facilityId}-${selected.accessionId}`} facilityId={facilityId} id={selected.accessionId} permissions={permissions} created={selection?.created} onChanged={() => void list.refresh()} /> : selected && permissions.includes('lab.accession.create') ? <AccessionForm facilityId={facilityId} item={selected} onCreated={accession => { setSelection({ facilityId, item: { ...selected, accessionId: accession.id, accessionNumber: accession.accessionNumber }, created: `Accession ${accession.accessionNumber} created.` }); focus('lab-accession-title', true); void list.refresh() }} /> : <Card className="staff-card"><h2>Choose work</h2><p>Open an accession or prepare a specimen for an accepted order.</p></Card>}
     </div>}
   </>
 }
 
-function PharmacyAction({ facilityId, item, permissions, onChanged, onEnded }: { facilityId: string; item: PharmacyWorkItem; permissions: string[]
-  onChanged: () => Promise<void>; onEnded: (ending: WrongPatientEnding) => void }) {
+function PharmacyAction({ facilityId, item, permissions, said, onChanged, onEnded, onNotCompleted, onReread }: { facilityId: string
+  item: PharmacyWorkItem; permissions: string[]; said: string | null
+  onChanged: () => Promise<void>; onEnded: (ending: WrongPatientEnding) => void
+  onNotCompleted: (ending: Omit<CannotCompleteEnding, 'key'>) => void
+  onReread: (routeId: string, mode: OrderEndingMode, said?: string) => Promise<void> }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
@@ -860,7 +989,9 @@ function PharmacyAction({ facilityId, item, permissions, onChanged, onEnded }: {
   const canReverse = !closed && Boolean(item.dispensing && !item.dispensing.reversed && permissions.includes('pharmacy.dispensing.reverse') && permissions.includes('pharmacy.dispensing.read'))
   const route = item.orderRoute
   const ordering = route?.orderingFacilityName ?? 'The ordering facility'
-  return <div className="staff-list-item"><div className="staff-row"><strong id={`pharmacy-${item.id}-title`} tabIndex={-1}>{item.medication.display}</strong><Badge tone={item.dispensing?.reversed ? 'warning' : item.dispensing ? 'success' : undispensable ? 'danger' : 'information'}>{item.dispensing?.reversed ? 'Reversed' : item.dispensing ? 'Dispensed' : undispensable ? 'Not dispensable' : 'Accepted'}</Badge></div><p>{patientLabel(item)} · {item.doseQuantity == null ? 'Dose not recorded' : `${item.doseQuantity} ${item.doseUnit ?? ''}`} · {item.frequency ?? 'Frequency not recorded'}</p>
+  const cannotComplete = cannotCompleteOffered(route, permissions, 'pharmacy', useCannotCompleteServed())
+  return <div className="staff-list-item"><div className="staff-row"><strong id={`pharmacy-${item.id}-title`} tabIndex={-1}>{item.medication.display}</strong><Badge tone={item.dispensing?.reversed ? 'warning' : item.dispensing ? 'success' : undispensable ? 'danger' : 'information'}>{item.dispensing?.reversed ? 'Reversed' : item.dispensing ? 'Dispensed' : undispensable ? 'Not dispensable' : 'Accepted'}</Badge></div>
+    {said && route && <p id={`pharmacy-${item.id}-said`} className="staff-error" role="alert" tabIndex={-1}>{said}</p>}<p>{patientLabel(item)} · {item.doseQuantity == null ? 'Dose not recorded' : `${item.doseQuantity} ${item.doseUnit ?? ''}`} · {item.frequency ?? 'Frequency not recorded'}</p>
     <p>{item.routeCode ? `Route: ${item.routeCode}` : 'Route not recorded'}</p>
     <RoutedWorkLines route={item.orderRoute} />
     {item.instructions && <p className="staff-note-content">{item.instructions}</p>}
@@ -872,11 +1003,15 @@ function PharmacyAction({ facilityId, item, permissions, onChanged, onEnded }: {
     {error && <p className="staff-error" role="alert">{error}</p>}
     {/* Mounted throughout, so what was recorded is announced. */}
     <div id={`pharmacy-status-${item.id}`} role="status">{success && <p className="staff-success">{success}</p>}</div>
-    {wrongPatientOffered(route, permissions, 'pharmacy') && <WrongPatientAction id={`pharmacy-${item.id}-wrong-patient`}
+    {wrongPatientOffered(route, permissions, 'pharmacy') && <OrderEndingActions base={`pharmacy-${item.id}`}
       service="pharmacy" facilityId={facilityId} route={{ id: route.id, version: route.version, reference: route.reference }}
-      patient={item.patient?.fullName ?? null} ordering={ordering} dispensed={Boolean(item.dispensing && !item.dispensing.reversed)}
-      onRefresh={onChanged} onEnded={result => onEnded({ service: 'pharmacy', title: item.medication.display, reference: route.reference,
-        patient: item.patient?.fullName ?? null, ordering, result, dateOfBirthOnly: false })} />}
+      title={item.medication.display} patient={item.patient?.fullName ?? null} ordering={ordering}
+      dispensed={Boolean(item.dispensing && !item.dispensing.reversed)} cannotComplete={cannotComplete ? { accession: false } : null}
+      onReread={(mode, text) => onReread(route.id, mode, text)}
+      onWrongPatientEnded={result => onEnded({ service: 'pharmacy', title: item.medication.display, reference: route.reference,
+        patient: item.patient?.fullName ?? null, ordering, result, dateOfBirthOnly: false })}
+      onNotCompleted={(result, reason) => onNotCompleted({ service: 'pharmacy', title: item.medication.display,
+        reference: route.reference, patient: item.patient?.fullName ?? null, ordering, reason, priority: null, result })} />}
   </div>
 }
 
@@ -890,30 +1025,46 @@ export function Pharmacy() {
   const { mounted, probe, watch, holds, receives, onFound, onAnswer } = useReceiving(facility, 'pharmacy', read)
   useLearnWrongPatientServed(list.items)
   useLearnLateCorrectionServed(read.value)
+  useLearnCannotCompleteServed(read.value)
   // "Correct an order that has ended" (D17), as on the Laboratory page.
   const lateCorrection = useLateCorrectionServed() === true && holdsReceivePermission(facility, 'pharmacy')
+  const cannotServed = useCannotCompleteServed()
   // A prescription ended as accepted for the wrong person (item 3), or an ended one withdrawn (D17): said until closed;
   // the list is read again, and it goes.
   const [ended, setEnded] = useState<Said | null>(null)
+  // Prescriptions ended because this pharmacy couldn't complete them (D18), as on the Laboratory page.
+  const notCompleted = useNotCompletedEndings(facilityId)
+  const said = useRowSaid('pharmacy', read.value, list.refresh, (mode, route) => mode === 'wrong_patient'
+    ? wrongPatientOffered(route, permissions, 'pharmacy') : cannotCompleteOffered(route, permissions, 'pharmacy', cannotServed))
   if (!facilityId || !canRead) return <EmptyState titleAs="h1" title="Pharmacy unavailable" description="This facility membership needs pharmacy work-item read permission." />
+  function notCompletedHere(ending: Omit<CannotCompleteEnding, 'key'>) {
+    notCompleted.add(ending)
+    said.clear()
+    void list.refresh()
+  }
   return <>
     <PageHead eyebrow="Provider workspace" title="Pharmacy">{holds
       ? 'Prescriptions accepted here, from this facility and from other facilities, and full dispensing records. The server checks patient authorization before dispensing or reversal.'
       : 'Accepted prescriptions and full dispensing records for the active facility. The server checks patient authorization before dispensing or reversal.'}</PageHead>
     <StandaloneWorkNote facility={facility} kind="pharmacy" ordersOn={read.value?.crossFacilityOrders === true} receives={receives} />
     {mounted && facility && <IncomingOrders service="pharmacy" facilityId={facilityId} facilityName={facility.name} probe={probe}
-      watch={watch} membershipId={facility.membershipId} onFound={onFound} onAnswer={onAnswer} onAccepted={() => void list.refresh()} />}
+      watch={watch} membershipId={facility.membershipId} onFound={onFound} onAnswer={onAnswer} onAccepted={() => void list.refresh()}
+      closedRouteId={notCompleted.lastRouteId} />}
     <SaidAboveTheList service="pharmacy" said={ended} facilityId={facilityId} onClose={() => setEnded(null)} />
+    <CannotCompleteEndings service="pharmacy" endings={notCompleted.endings} onClose={notCompleted.close} />
     <div className="staff-row staff-toolbar"><RefreshButton loading={list.loading} onRefresh={list.refresh}>Refresh work</RefreshButton></div>
     {lateCorrection && <LateWrongPatient service="pharmacy" facilityId={facilityId}
-      onEnded={ending => { setEnded({ facilityId, ending }); void list.refresh() }}
-      onCorrected={correction => setEnded({ facilityId, correction })} />}
+      onEnded={ending => { setEnded({ facilityId, ending }); void list.refresh() }} onNotCompleted={notCompletedHere}
+      onCorrected={correction => { notCompleted.corrected(correction); setEnded({ facilityId, correction }) }} />}
     <ListState loading={list.loading} error={list.error} empty="No accepted prescriptions" retry={() => void list.refresh()} hasItems={Boolean(list.items?.length)} />
     <RoutedWorkPaused items={list.items} crossFacilityWork={read.value?.crossFacilityWork} receives={holds} />
     {/* hid-system #48: work whose prescription changed stays listed as accepted (INTERFACE_CONTRACT.md, Pharmacy). */}
-    <WorkListCap count={list.items?.length ?? 0}><p className="staff-notice">Work whose prescription changed after Pharmacy accepted it cannot be dispensed, but it stays listed and counts toward these {WORK_LIST_CAP}.</p></WorkListCap>
-    {list.items && list.items.length > 0 && <div className="staff-list">{list.items.map(item => <PharmacyAction key={item.id} facilityId={facilityId} item={item} permissions={permissions} onChanged={list.refresh}
-      onEnded={ending => { setEnded({ facilityId, ending }); void list.refresh() }} />)}</div>}
+    <WorkListCap count={list.items?.length ?? 0}><p className="staff-notice">Work whose prescription changed after Pharmacy accepted it cannot be dispensed, but it stays listed and counts toward these {WORK_LIST_CAP}.</p>
+      {cannotServed === true && lateCorrection && <p className="staff-notice">{CAP_CANNOT_COMPLETE}</p>}</WorkListCap>
+    <SaidAboveList id="pharmacy-said" text={said.listSaid} />
+    {list.items && list.items.length > 0 && <div className="staff-list">{notCompleted.shown(list.items).map(item => <PharmacyAction key={item.id} facilityId={facilityId} item={item} permissions={permissions} onChanged={list.refresh}
+      said={said.rowSaid(item.orderRoute?.id)} onNotCompleted={notCompletedHere} onReread={said.reread}
+      onEnded={ending => { said.clear(); setEnded({ facilityId, ending }); void list.refresh() }} />)}</div>}
   </>
 }
 

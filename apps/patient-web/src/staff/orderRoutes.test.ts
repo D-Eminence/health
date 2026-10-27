@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
-import type { OrderRouteSummary, WorkItemOrderRoute } from './api'
+import { findEndpoint, ORDER_ROUTE_CANNOT_COMPLETE_REASONS } from '@hid/contracts'
+import type { OrderRouteNotCompleted, OrderRouteSummary, WorkItemOrderRoute } from './api'
+import {
+  cannotCompleteEndedLines, cannotCompleteMustPhone, cannotCompleteOffered, cannotCompleteRefusal, cannotCompleteReasons,
+  correctableRoutes as correctableRows, LAB_CANNOT_COMPLETE_REASONS, lateCorrectionRowLines, PHARMACY_CANNOT_COMPLETE_REASONS,
+} from './orderRoutes'
 import {
   acceptedCheckText, acceptRefusal, correctableFindRefusal, correctableRoutes, fillAttestation, forgetReceiving, handOverCheckText,
   holdsReceivePermission, lagosDay, lateCorrectionLines, lateEndedText, lateReportNotice, lateWrongPatientRefusal, RECEIVING_MEMORY_MS,
@@ -566,5 +571,229 @@ describe('what the ordering clinician reads of a late report (D17)', () => {
     expect(routedChangeWarning({ ...done, ...until }, 'Ada Patient', true, false)).toMatch(/to end it from its work list first/)
     expect(routedChangeWarning(done, 'Ada Patient', true, true)).toMatch(/to end it from its work list first/)
     expect(routedChangeWarning(done, 'Ada Patient')).toBe(change)
+  })
+})
+
+/**
+ * D18 (hid-system 0091, SPEC-FINAL §9.1): what the receiving laboratory or pharmacy reads of "We can't complete this
+ * order": whether a row offers it, the reasons by kind (the registry's lists), when the phone statement is required, every
+ * refusal, what is said once it has ended, and how an ended row and the late section name the new ending.
+ */
+describe('“We can’t complete this order”: the receiving facility’s words (D18)', () => {
+  const card = (overrides: Partial<WorkItemOrderRoute> = {}): WorkItemOrderRoute => ({ id: 'r1', reference: '9C1B2D3E',
+    effectiveState: 'accepted', access: 'work', orderingFacilityName: 'General Hospital', ordererName: 'Dr Ade Okon', version: 3,
+    endedKind: null, ...overrides })
+  const RECEIVE = ['lab.order-route.receive']
+
+  it('is offered only on an accepted order the route still lets this facility work, with its version, the permission, '
+    + 'from a backend that serves it', () => {
+    expect(cannotCompleteOffered(card(), RECEIVE, 'lab', true)).toBe(true)
+    expect(cannotCompleteOffered(card(), ['pharmacy.order-route.receive'], 'pharmacy', true)).toBe(true)
+    // Dormant: until the backend says it serves D18, never (D18-13), whatever else the card says.
+    for (const served of [null, false, undefined]) expect(cannotCompleteOffered(card(), RECEIVE, 'lab', served)).toBe(false)
+    for (const overrides of [{ effectiveState: 'completed' }, { effectiveState: 'expired' }, { effectiveState: 'cancelled' },
+      { endedKind: 'receiving_unable' }, { endedKind: 'wrong_patient' }, { access: 'read' }, { access: 'none' }, { version: undefined },
+      { version: 0 }, { version: '3' as unknown as number }, { version: 1.5 }] as Array<Partial<WorkItemOrderRoute>>) {
+      expect(cannotCompleteOffered(card(overrides), RECEIVE, 'lab', true), JSON.stringify(overrides)).toBe(false)
+    }
+    expect(cannotCompleteOffered(card(), ['lab.work-item.read'], 'lab', true)).toBe(false)
+    expect(cannotCompleteOffered(card(), RECEIVE, 'pharmacy', true)).toBe(false)
+    expect(cannotCompleteOffered(null, RECEIVE, 'lab', true)).toBe(false)
+  })
+
+  it('holds the same reasons as the registry, the services and 0091, "Another reason" last, each labelled once', () => {
+    expect(LAB_CANNOT_COMPLETE_REASONS.map(item => item.value)).toEqual([...ORDER_ROUTE_CANNOT_COMPLETE_REASONS.lab_request])
+    expect(PHARMACY_CANNOT_COMPLETE_REASONS.map(item => item.value)).toEqual([...ORDER_ROUTE_CANNOT_COMPLETE_REASONS.prescription])
+    const note = findEndpoint('lab.orderRouteCannotComplete')?.note ?? ''
+    expect(note).toContain(`Lab reason: ${LAB_CANNOT_COMPLETE_REASONS.map(item => item.value).join(' | ')};`)
+    expect(note).toContain(`Pharmacy reason: ${PHARMACY_CANNOT_COMPLETE_REASONS.map(item => item.value).join(' | ')}.`)
+    expect(cannotCompleteReasons('lab')).toBe(LAB_CANNOT_COMPLETE_REASONS)
+    expect(cannotCompleteReasons('pharmacy')).toBe(PHARMACY_CANNOT_COMPLETE_REASONS)
+    for (const list of [LAB_CANNOT_COMPLETE_REASONS, PHARMACY_CANNOT_COMPLETE_REASONS]) {
+      expect(list.at(-1)).toMatchObject({ value: 'other', label: 'Another reason' })
+      expect(new Set(list.map(item => item.label)).size).toBe(list.length)
+      // None is about identity or money (D18-5); every word uses the typographic apostrophe.
+      for (const item of list) {
+        expect(item.label).not.toMatch(/identity|who the person|pay|cost|money|'/i)
+        expect(item.says({ patient: 'Ada' })).not.toContain("'")
+      }
+    }
+    // A shared code has its own words by kind.
+    expect(LAB_CANNOT_COMPLETE_REASONS.find(item => item.value === 'cannot_meet_priority')!.label)
+      .toBe('We can’t do it in time for its priority')
+    expect(PHARMACY_CANNOT_COMPLETE_REASONS.find(item => item.value === 'cannot_meet_priority')!.label)
+      .toBe('We can’t supply it when it is needed')
+    expect(PHARMACY_CANNOT_COMPLETE_REASONS.find(item => item.value === 'patient_did_not_return')!.label)
+      .toBe('The patient didn’t come back to collect it')
+  })
+
+  it('requires the phone statement for an urgent, asap or stat lab request, and for the must-phone reasons only (D18-8)', () => {
+    for (const priority of ['urgent', 'asap', 'stat']) expect(cannotCompleteMustPhone('lab', 'other', priority), priority).toBe(true)
+    expect(cannotCompleteMustPhone('lab', 'urgent' as string, null)).toBe(false)
+    for (const priority of ['routine', null, undefined]) {
+      expect(cannotCompleteMustPhone('lab', 'supplies_unavailable', priority)).toBe(false)
+      expect(cannotCompleteMustPhone('lab', 'cannot_meet_priority', priority)).toBe(true)
+    }
+    expect(PHARMACY_CANNOT_COMPLETE_REASONS.filter(item => cannotCompleteMustPhone('pharmacy', item.value)).map(item => item.value))
+      .toEqual(['needs_prescriber_review', 'controlled_requirements', 'cannot_meet_priority'])
+    expect(LAB_CANNOT_COMPLETE_REASONS.filter(item => cannotCompleteMustPhone('lab', item.value, 'routine')).map(item => item.value))
+      .toEqual(['cannot_meet_priority'])
+    // A prescription has no priority: the pharmacy never phones because of one.
+    expect(cannotCompleteMustPhone('pharmacy', 'out_of_stock', 'stat')).toBe(false)
+    expect(cannotCompleteMustPhone('lab', '', 'routine')).toBe(false)
+  })
+
+  it('says every refusal, whether the list is read again, and keeps the form and its key without an answer', () => {
+    const refused = (status: number, code: string, extra: Record<string, unknown> = {}) =>
+      cannotCompleteRefusal(new HidApiError(status, 'Refused', { code, ...extra }), 'lab', 'General Hospital', '9C1B2D3E')
+    expect(refused(409, 'ORDER_ROUTE_ALREADY_ENDED')).toEqual({ reload: true, text: 'This order has already ended, so it can’t be '
+      + 'ended here. If you accepted it for the wrong person, use “Correct an order that has ended” above the work list, with '
+      + 'reference 9C1B2D3E.' })
+    expect(refused(409, 'ORDER_ROUTE_ALREADY_RETURNED')).toEqual({ reload: true, text: 'A result has already gone back to General '
+      + 'Hospital on this order, so it can’t be ended here. Phone General Hospital.' })
+    expect(cannotCompleteRefusal(new HidApiError(409, 'Refused', { code: 'ORDER_ROUTE_ALREADY_RETURNED' }), 'pharmacy', 'General Hospital',
+      null).text).toBe('A dispensing has already gone back to General Hospital on this order, so it can’t be ended here. Phone General Hospital.')
+    expect(refused(409, 'ORDER_ROUTE_RESULT_READY')).toEqual({ text: 'A checked result is waiting to be released on this order. '
+      + 'Release it under Open accession, or, if it is wrong, correct it or mark it entered in error first. If you can’t, phone General Hospital.' })
+    expect(refused(409, 'ORDER_ROUTE_CRITICAL_VALUE_NOT_TOLD')).toEqual({ critical: true, text: 'A result recorded on this order is '
+      + 'marked as possibly critical. Phone General Hospital about it now, then tick the box and end the order again.' })
+    expect(refused(409, 'ORDER_ROUTE_NOT_ACCEPTED')).toEqual({ reload: true, text: 'This order hasn’t been accepted: decline it instead.' })
+    expect(refused(412, 'VERSION_CONFLICT')).toEqual({ stale: true, text: 'This order changed a moment ago. It has been reloaded: '
+      + 'check and try again.' })
+    expect(refused(409, 'ORDER_ROUTE_CHANGED_CONCURRENTLY')).toEqual({ text: 'Someone changed this order at the same moment. Try again.' })
+    const limit = 'The most orders that can be ended here in 24 hours have been ended, by you or by your laboratory. '
+    const after = ' Phone General Hospital and ask them to cancel this order so it doesn’t stay open, or ask Health ID support to '
+      + 'close it. If many orders are affected, phone Health ID support now.'
+    expect(refused(429, 'ORDER_ROUTE_CANNOT_COMPLETE_LIMIT', { retryAt: '2026-10-28T09:14:03.219Z' }).text)
+      .toBe(`${limit}You can end more from 28 Oct 2026, 10:14.${after}`)
+    expect(refused(429, 'ORDER_ROUTE_CANNOT_COMPLETE_LIMIT').text).toBe(`${limit}You can end more later.${after}`)
+    expect(refused(429, 'TOO_MANY_REQUESTS').text).toBe(`${limit}You can end more later.${after}`)
+    expect(cannotCompleteRefusal(new HidApiError(429, 'Limit', { code: 'ORDER_ROUTE_CANNOT_COMPLETE_LIMIT' }), 'pharmacy', 'General Hospital',
+      null).text).toContain('by you or by your pharmacy.')
+    expect(refused(409, 'IDEMPOTENCY_KEY_REUSED')).toEqual({ reload: true, text: 'This was already sent with other details. The list '
+      + 'has been refreshed: check whether the order has ended.' })
+    expect(refused(404, 'API_ROUTE_NOT_FOUND')).toEqual({ missing: true, text: 'Ending an order you can’t complete isn’t available '
+      + 'yet: phone General Hospital.' })
+    expect(refused(404, 'ORDER_ROUTE_NOT_FOUND')).toEqual({ reload: true, text: 'This order was not found here. Refresh the list.' })
+    expect(refused(423, 'CROSS_FACILITY_ORDERS_UNAVAILABLE')).toEqual({ text: 'Health ID has paused work on orders from other '
+      + 'facilities, so this can’t be done now. Try again when it resumes, and phone General Hospital if it is urgent.' })
+    expect(refused(403, 'PERMISSION_DENIED')).toEqual({ text: 'Your role can’t end orders from other facilities.' })
+    for (const code of ['VALIDATION_FAILED', 'ORDER_ROUTE_INVALID', 'IDEMPOTENCY_KEY_REQUIRED']) {
+      expect(refused(400, code), code).toEqual({ text: 'Health ID couldn’t take this request as sent. Reload the page and try '
+        + 'again; if it happens again, tell Health ID support.' })
+    }
+    const silence = 'Health ID did not answer, so it may or may not have ended. Press “End it: we can’t complete it” again: if it '
+      + 'went through, Health ID says so.'
+    for (const error of [new HidApiError(503, 'Down', { code: 'ORDER_ROUTE_UNAVAILABLE' }), new HidApiError(0, 'Offline', {}),
+      new HidApiError(408, 'Timeout', {}), new TypeError('')]) {
+      expect(cannotCompleteRefusal(error, 'lab', 'General Hospital', null)).toEqual({ unanswered: true, text: silence })
+    }
+    expect(refused(409, 'SOMETHING_ELSE')).toEqual({ text: 'The order could not be ended. Try again.' })
+    // Without a reference the words still point somewhere.
+    expect(cannotCompleteRefusal(new HidApiError(409, 'Ended', { code: 'ORDER_ROUTE_ALREADY_ENDED' }), 'lab', 'General Hospital', null).text)
+      .toContain('with reference shown with the order.')
+  })
+
+  describe('what is said once it has ended', () => {
+    const now = Date.parse('2026-10-27T10:15:00.000Z')
+    const ended = (overrides: Partial<OrderRouteNotCompleted> = {}): OrderRouteNotCompleted => ({
+      route: { id: 'r1', version: 4, effectiveState: 'cancelled', endedKind: 'receiving_unable' }, reason: 'supplies_unavailable',
+      readUntil: '2026-10-27T10:15:00.000Z', specimensCollected: 0, resultsRecorded: 0, criticalCandidates: 0, replayed: false,
+      ...overrides })
+    const lines = (reason: string, overrides: Partial<OrderRouteNotCompleted> = {}, service: 'lab' | 'pharmacy' = 'lab',
+      priority: string | null = 'routine') => cannotCompleteEndedLines({ service, title: service === 'lab' ? 'Haemoglobin'
+      : 'Amoxicillin 500 mg capsules', reference: '9C1B2D3E', patient: 'Tunde Bello', ordering: 'General Hospital', reason, priority,
+      result: ended({ reason, ...overrides }), now })
+    const FIRST = 'Ended: Haemoglobin, reference 9C1B2D3E. General Hospital sees on the order that you couldn’t complete it, and '
+      + 'why; Tunde Bello is told in the Health ID app, if they use it.'
+    const LEAVES = 'It leaves your work list now: keep the reference 9C1B2D3E for General Hospital’s call.'
+    const LATER = 'If you find out later that you accepted it for someone who was not Tunde Bello, use “Correct an order that has '
+      + 'ended” with reference 9C1B2D3E.'
+
+    it('a routine lab request with nothing recorded: not alerted, leaves the list now, and where to go if it was the wrong person', () => {
+      expect(lines('supplies_unavailable')).toEqual([FIRST, 'Health ID does not alert General Hospital: phone them if it is urgent.',
+        LEAVES, LATER])
+    })
+
+    it.each([['urgent', 'urgent'], ['asap', 'as soon as possible'], ['stat', 'stat']])('a lab request marked %s: phone now', (priority, words) => {
+      expect(lines('test_not_offered', {}, 'lab', priority)[1])
+        .toBe(`This test was marked ${words}: phone General Hospital now, so they can write a new order.`)
+    })
+
+    it('each must-phone reason says what to phone about', () => {
+      expect(lines('cannot_meet_priority', {}, 'lab', 'urgent')[1]).toBe('Phone General Hospital now, so they can write a new order elsewhere.')
+      expect(lines('cannot_meet_priority', {}, 'pharmacy', null)[1]).toBe('Phone General Hospital now, so they can write a new order elsewhere.')
+      expect(lines('needs_prescriber_review', {}, 'pharmacy', null)[1]).toBe('Phone General Hospital now and tell the prescriber what '
+        + 'needs review: Health ID does not pass it on.')
+      expect(lines('controlled_requirements', {}, 'pharmacy', null)[1]).toBe('Phone General Hospital now: Tunde Bello needs a signed '
+        + 'paper prescription, or a new one sent to another pharmacy.')
+    })
+
+    it('a sample taken: discard it only when it can’t be used or the patient declined; otherwise keep it (CC4)', () => {
+      const keep = 'Keep the sample, stored as your procedure requires, until you have spoken to General Hospital: they may want it '
+        + 'sent to another laboratory.'
+      const discard = 'Discard the sample following your laboratory’s procedure.'
+      for (const reason of ['sample_unusable', 'patient_declined']) expect(lines(reason, { specimensCollected: 1 })).toContain(discard)
+      for (const reason of ['test_not_offered', 'supplies_unavailable', 'equipment_unavailable', 'sample_not_obtained',
+        'cannot_meet_priority', 'patient_did_not_return', 'other']) {
+        expect(lines(reason, { specimensCollected: 2 }), reason).toContain(keep)
+        expect(lines(reason, { specimensCollected: 2 }), reason).not.toContain(discard)
+      }
+      expect(lines('sample_unusable').join(' ')).not.toMatch(/sample following|Keep the sample/)
+    })
+
+    it('a result recorded: the critical-value sentence; reads kept: the list keeps it until then', () => {
+      const result = lines('equipment_unavailable', { specimensCollected: 1, resultsRecorded: 1, readUntil: '2026-11-03T10:15:00.000Z' })
+      expect(result).toContain('If any value was critical, tell Tunde Bello or General Hospital directly, following your laboratory’s procedure.')
+      expect(result).toContain('It stays on your work list, marked ended, until 3 Nov 2026, 11:15.')
+      expect(result).not.toContain(LEAVES)
+      expect(lines('equipment_unavailable', { readUntil: null })).toContain(LEAVES)
+    })
+
+    it('a pharmacy: no sample or result sentences, and it leaves the list now', () => {
+      const result = cannotCompleteEndedLines({ service: 'pharmacy', title: 'Amoxicillin 500 mg capsules', reference: '9C1B2D3E',
+        patient: null, ordering: 'General Hospital', reason: 'out_of_stock', priority: null, result: ended({ reason: 'out_of_stock' }), now })
+      expect(result).toEqual(['Ended: Amoxicillin 500 mg capsules, reference 9C1B2D3E. General Hospital sees on the order that you '
+        + 'couldn’t complete it, and why; The patient is told in the Health ID app, if they use it.',
+      'Health ID does not alert General Hospital: phone them if it is urgent.', LEAVES,
+      'If you find out later that you accepted it for someone who was not the patient, use “Correct an order that has ended” with '
+        + 'reference 9C1B2D3E.'])
+    })
+  })
+
+  it('names the new ending on a work row, with the late-correction pointer once served, and in the late section', () => {
+    const ended = card({ effectiveState: 'cancelled', access: 'read', endedKind: 'receiving_unable' })
+    expect(routedWorkEndedText(ended)).toBe('You ended this order: you couldn’t complete it. Nothing more can be recorded on it.')
+    expect(routedWorkEndedText(ended, true)).toBe('You ended this order: you couldn’t complete it. Nothing more can be recorded on '
+      + 'it. If you accepted it for the wrong person, use “Correct an order that has ended” with reference 9C1B2D3E.')
+    expect(routeClosedForWork(ended)).toBe(true)
+    // Every other ending reads as before, served or not.
+    expect(routedWorkEndedText(card({ effectiveState: 'cancelled', endedKind: 'support' }), true)).toBe('Closed by Health ID support: stop work.')
+    expect(routedWorkEndedText(card({ effectiveState: 'cancelled', endedKind: 'something_new' }), true)).toBe('This order was cancelled: stop work.')
+    expect(lateEndedText({ effectiveState: 'cancelled', endedKind: 'receiving_unable', orderingFacilityName: 'General Hospital' }, 'lab'))
+      .toBe('you said you couldn’t complete it')
+    const [row] = correctableRows({ items: [{ id: 'r1', reference: '9C1B2D3E', kind: 'lab_request', version: 4, effectiveState: 'cancelled',
+      orderingFacilityName: 'General Hospital', acceptedAt: '2026-10-21T10:00:00.000Z', completedAt: null,
+      endedAt: '2026-10-22T10:00:00.000Z', endedKind: 'receiving_unable', returned: false, correction: 'correctable',
+      correctableUntil: '2027-04-19T10:00:00.000Z', wrongPatient: null, details: { what: 'Haemoglobin', acceptedBy: 'Bola Ade',
+        acceptedWith: 'health_id', returned: [] } }] })
+    expect(lateCorrectionRowLines(row!, 'lab', true)[0]).toBe('Lab request from General Hospital · Ref 9C1B2D3E · Haemoglobin · '
+      + 'Accepted 21 Oct 2026 by Bola Ade, with their Health ID · you said you couldn’t complete it.')
+  })
+
+  it('says an open, accepted order in the late section can be ended there once served, and nothing new before', () => {
+    const [open, done] = correctableRows({ items: [
+      { id: 'r1', reference: '9C1B2D3E', kind: 'lab_request', version: 3, effectiveState: 'accepted', orderingFacilityName: 'General Hospital',
+        acceptedAt: '2026-10-21T10:00:00.000Z', completedAt: null, endedAt: null, endedKind: null, returned: false, correction: 'open',
+        correctableUntil: '2027-04-19T10:00:00.000Z', wrongPatient: null, details: null },
+      { id: 'r2', reference: '9C1B2D3F', kind: 'lab_request', version: 5, effectiveState: 'completed', orderingFacilityName: 'General Hospital',
+        acceptedAt: '2026-10-21T10:00:00.000Z', completedAt: '2026-10-22T10:00:00.000Z', endedAt: null, endedKind: null, returned: true,
+        correction: 'open', correctableUntil: '2027-04-19T10:00:00.000Z', wrongPatient: null, details: null }] })
+    const TODAY = 'This order is still open. If you accepted it for the wrong person, report it here.'
+    expect(lateCorrectionRowLines(open!, 'lab').at(-1)).toBe(TODAY)
+    expect(lateCorrectionRowLines(open!, 'lab', true).at(-1)).toBe('This order is still open. If you accepted it for the wrong '
+      + 'person, report it here; if you can’t complete it, end it here.')
+    // Something came back: it can't be ended that way (D18-1).
+    expect(lateCorrectionRowLines(done!, 'lab', true).at(-1)).toBe(TODAY)
   })
 })

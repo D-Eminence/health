@@ -11,7 +11,10 @@ import {
 } from '../orderRoutes'
 import { BUSY, QUIET_UNAVAILABLE, UNAVAILABLE } from '../focus'
 import { learnLateCorrectionServed } from '../../lateCorrectionServed'
+import { useCannotCompleteServed } from '../../cannotCompleteServed'
+import { ItemName } from '../../ItemName'
 import { WrongPatientForm, type WrongPatientEnding } from './WrongPatient'
+import { CannotCompleteAction, CannotCompleteForm, type CannotCompleteEnding } from './CannotComplete'
 
 /**
  * "Correct an order that has ended" (D17, owner decisions D17-1 to D17-10; SPEC-FINAL §9.1): a laboratory or pharmacy
@@ -31,6 +34,11 @@ import { WrongPatientForm, type WrongPatientEnding } from './WrongPatient'
  * backend has said it serves the late correction (lateCorrectionServed); a facility that no longer receives may still
  * hold past orders, so it is not tied to Incoming. What follows a withdrawal is said at page level, in the slot item 3's
  * message uses, until it is closed.
+ *
+ * Once "We can't complete this order" is served (D18), an order found still open and accepted can also be ended here
+ * because it can't be completed (a row past the work list's cap can be reached only here): after its own read of the
+ * order (C8, audited), which names the patient and the request's priority, D18's form opens on the row; one form at a
+ * time. What follows is said at page level, with the page's other D18 endings.
  */
 
 /** What the page says once an ended order is withdrawn here. */
@@ -210,24 +218,37 @@ export function LateWrongPatientForm({ id, service, facilityId, route, onCorrect
   </form>
 }
 
-/** Which form a row has open: the late one, or item 3's for an order still open, once it has been read. */
+/**
+ * Which form a row has open: the late one, or, for an order still open, item 3's or D18's, once it has been read (each
+ * with its own read: the patient, and for D18 the lab request's priority).
+ */
 type Opened = { routeId: string; mode: 'late' } | { routeId: string; mode: 'report'; patient: string | null }
+  | { routeId: string; mode: 'cannot_complete'; patient: string | null; priority: string | null }
+
+/** Whether a row still allows the form a row has open (D18's needs the order still accepted, too). */
+function allows(row: CorrectableOrderRoute | undefined, mode: Opened['mode']): boolean {
+  if (!row) return false
+  if (mode === 'late') return row.correction === 'correctable'
+  return row.correction === 'open' && (mode === 'report' || row.effectiveState === 'accepted')
+}
 
 /**
  * What a form said before the section found its order again (a refusal that says the row is out of date), and the
  * correction state that keeps the form open. If the new answer closes it, what was said moves into the row (role
  * "alert") with focus on the row's first line, or to the section when the order is gone (UX-2).
  */
-interface Said { routeId: string; keeps: 'correctable' | 'open'; text: string }
+interface Said { routeId: string; keeps: Opened['mode']; text: string }
 
 /**
  * "Correct an order that has ended", for one service. `onEnded` takes item 3's ending of an order found still open;
  * `onCorrected` a late withdrawal. Both are said by the page.
  */
-export function LateWrongPatient({ service, facilityId, onEnded, onCorrected }: {
+export function LateWrongPatient({ service, facilityId, onEnded, onCorrected, onNotCompleted }: {
   service: ReceivingService; facilityId: string
   onEnded: (ending: WrongPatientEnding) => void
   onCorrected: (correction: LateCorrection) => void
+  /** D18: an order still open ended here because it can't be completed. */
+  onNotCompleted?: (ending: Omit<CannotCompleteEnding, 'key'>) => void
 }) {
   const id = `${service}-late-correction`
   const [input, setInput] = useState('')
@@ -236,7 +257,9 @@ export function LateWrongPatient({ service, facilityId, onEnded, onCorrected }: 
   const [error, setError] = useState('')
   const [found, setFound] = useState<{ reference: string; items: CorrectableOrderRoute[] } | null>(null)
   const [opened, setOpened] = useState<Opened | null>(null)
-  const [reading, setReading] = useState<string | null>(null)
+  const [reading, setReading] = useState<{ routeId: string; mode: 'report' | 'cannot_complete' } | null>(null)
+  // D18 (§9.0): an open, accepted order can also be ended here because it can't be completed.
+  const cannotServed = useCannotCompleteServed() === true && Boolean(onNotCompleted)
   const [rowError, setRowError] = useState<{ routeId: string; text: string } | null>(null)
 
   /** Focus, once rendered, on an element of this section (a row's first line, or what the section says). */
@@ -255,14 +278,9 @@ export function LateWrongPatient({ service, facilityId, onEnded, onCorrected }: 
       const items = correctableRoutes(answer)
       setFound({ reference, items })
       // A form stays open only on a row that still allows it.
-      setOpened(current => {
-        if (!current) return null
-        const row = items.find(item => item.id === current.routeId)
-        const wanted = current.mode === 'late' ? 'correctable' : 'open'
-        return row && row.correction === wanted ? current : null
-      })
+      setOpened(current => current && allows(items.find(item => item.id === current.routeId), current.mode) ? current : null)
       const row = said ? items.find(item => item.id === said.routeId) : undefined
-      if (said && row?.correction !== said.keeps) {
+      if (said && !allows(row, said.keeps)) {
         if (row) {
           setRowError({ routeId: row.id, text: said.text })
           focusSoon(`${id}-${row.id}-title`)
@@ -293,23 +311,27 @@ export function LateWrongPatient({ service, facilityId, onEnded, onCorrected }: 
     void find(reference)
   }
 
-  /** An order still open: read it first (C8, audited), which names the patient while it is open, then item 3's form. */
-  async function report(route: CorrectableOrderRoute) {
+  /**
+   * An order still open: read it first (C8, audited), which names the patient while it is open, then item 3's form, or,
+   * for D18's, also the lab request's priority (whether the phone statement is required).
+   */
+  async function report(route: CorrectableOrderRoute, mode: 'report' | 'cannot_complete' = 'report') {
     if (reading) return
-    setReading(route.id); setRowError(null)
+    setReading({ routeId: route.id, mode }); setRowError(null)
     try {
       const read = await orderRoutesApi.get(facilityId, service, route.id)
       const patient = typeof read?.patient?.fullName === 'string' && read.patient.fullName.trim() ? read.patient.fullName.trim() : null
-      setOpened({ routeId: route.id, mode: 'report', patient })
+      setOpened(mode === 'report' ? { routeId: route.id, mode, patient }
+        : { routeId: route.id, mode, patient, priority: typeof read?.priority === 'string' ? read.priority : null })
     } catch {
       setRowError({ routeId: route.id, text: 'This order could not be read. Find it again, then try again.' })
     } finally { setReading(null) }
   }
 
   const again = async (said?: Said) => { if (found) await find(found.reference, said) }
-  const close = (routeId: string) => {
+  const close = (routeId: string, opener = 'open') => {
     setOpened(null)
-    window.setTimeout(() => document.getElementById(`${id}-${routeId}-open`)?.focus(), 0)
+    window.setTimeout(() => document.getElementById(`${id}-${routeId}-${opener}`)?.focus(), 0)
   }
 
   return <details className="staff-late-correction" id={id}>
@@ -333,14 +355,15 @@ export function LateWrongPatient({ service, facilityId, onEnded, onCorrected }: 
         const rowId = `${id}-${route.id}`
         const open = opened?.routeId === route.id ? opened : null
         const ordering = orderingOf(route)
+        const offersCannotComplete = cannotServed && route.correction === 'open' && route.effectiveState === 'accepted'
         return <li key={route.id} className="staff-list-item staff-stack">
-          {lateCorrectionRowLines(route, service).map((line, index) => index === 0
+          {lateCorrectionRowLines(route, service, cannotServed).map((line, index) => index === 0
             ? <strong key={index} id={`${rowId}-title`} tabIndex={-1}>{line}</strong> : <p key={index}>{line}</p>)}
           {rowError?.routeId === route.id && <p className="staff-error" role="alert">{rowError.text}</p>}
           {route.correction === 'correctable' && (open?.mode === 'late'
             ? <LateWrongPatientForm id={`${rowId}-form`} service={service} facilityId={facilityId} route={route}
-              onStale={said => again({ routeId: route.id, keeps: 'correctable', text: said })}
-              onReload={said => again({ routeId: route.id, keeps: 'correctable', text: said })} onCancel={() => close(route.id)}
+              onStale={said => again({ routeId: route.id, keeps: 'late', text: said })}
+              onReload={said => again({ routeId: route.id, keeps: 'late', text: said })} onCancel={() => close(route.id)}
               onCorrected={result => {
                 setOpened(null); setFound(null)
                 onCorrected({ service, title: titleOf(route), reference: route.reference, ordering, result,
@@ -353,17 +376,35 @@ export function LateWrongPatient({ service, facilityId, onEnded, onCorrected }: 
               route={{ id: route.id, version: route.version, reference: route.reference }} patient={open.patient} ordering={ordering}
               dispensed={service === 'pharmacy' && route.details
                 ? route.details.returned.some(item => !item.withdrawn) : undefined}
-              onStale={said => again(said ? { routeId: route.id, keeps: 'open', text: said } : undefined)}
-              onReload={said => void again(said ? { routeId: route.id, keeps: 'open', text: said } : undefined)}
+              cannotComplete={offersCannotComplete ? 'lookup' : undefined}
+              onStale={said => again(said ? { routeId: route.id, keeps: 'report', text: said } : undefined)}
+              onReload={said => void again(said ? { routeId: route.id, keeps: 'report', text: said } : undefined)}
               onCancel={() => close(route.id)}
               onEnded={result => {
                 setOpened(null); setFound(null)
                 onEnded({ service, title: titleOf(route), reference: route.reference, patient: open.patient, ordering, result,
                   dateOfBirthOnly: route.details?.acceptedWith === 'date_of_birth' })
               }} />
-            : <div className="staff-row"><Button id={`${rowId}-open`} tone="secondary" size="sm" aria-expanded={false}
-              aria-disabled={reading === route.id || undefined} className={UNAVAILABLE}
-              onClick={() => void report(route)}>{reading === route.id ? 'Reading the order…' : 'This isn’t the order’s patient'}</Button></div>)}
+            : open?.mode === 'cannot_complete' && offersCannotComplete
+              ? <CannotCompleteForm id={`${rowId}-cannot-complete`} service={service} facilityId={facilityId}
+                route={{ id: route.id, version: route.version, reference: route.reference }} patient={open.patient}
+                ordering={ordering} priority={open.priority}
+                onStale={said => again({ routeId: route.id, keeps: 'cannot_complete', text: said })}
+                onReload={said => again({ routeId: route.id, keeps: 'cannot_complete', text: said })}
+                onCancel={() => close(route.id, 'cannot-complete-open')}
+                onEnded={(result, reason) => {
+                  setOpened(null); setFound(null)
+                  onNotCompleted?.({ service, title: titleOf(route), reference: route.reference, patient: open.patient, ordering,
+                    reason, priority: open.priority, result })
+                }} />
+              : <><div className="staff-row"><Button id={`${rowId}-open`} tone="secondary" size="sm" aria-expanded={false}
+                aria-disabled={reading?.routeId === route.id || undefined} className={UNAVAILABLE}
+                onClick={() => void report(route)}>{reading?.routeId === route.id && reading.mode === 'report' ? 'Reading the order…'
+                  : 'This isn’t the order’s patient'}
+                {offersCannotComplete && <ItemName>: {titleOf(route)}{route.reference ? `, Ref ${route.reference}` : ''}</ItemName>}</Button></div>
+              {offersCannotComplete && <CannotCompleteAction id={`${rowId}-cannot-complete-open`} title={titleOf(route)}
+                reference={route.reference} reading={reading?.routeId === route.id && reading.mode === 'cannot_complete'}
+                onOpen={() => void report(route, 'cannot_complete')} />}</>)}
         </li>
       })}</ul>}
     </div>
