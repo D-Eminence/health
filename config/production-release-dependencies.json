@@ -3,16 +3,16 @@
   "declared": true,
   "backend_contract": "novu-v1",
   "reviewed_by": "D-Eminence",
-  "review_reference": "Backend release backend-40413835025-1-29ce39e94666dc6a (D-Eminence/hid-system#120 at a3b1822, all 13 components, migration 0090_order_route_late_correction.sql applied first, deployed 2026-10-26 23:28 UTC with status success). Browser-facing changes since the previous pin (3610a4a): late correction (D17) is served. POST /api/v1/lab/order-routes/correctable and /api/v1/pharmacy/order-routes/correctable find an ended order by its exact reference; POST /api/v1/lab/order-routes/:routeId/wrong-patient-correction and the pharmacy twin withdraw what the laboratory or pharmacy recorded on it; optional fields tell the ordering clinician, the patient and support about a late report and the correction deadline, and support's review of a late report requires the DPO referral. This frontend (D-Eminence/health#14, already live and dormant until now) uses each where it is answered. No other route, payload or error code changed. Reviewed and approved by the repository owner, D-Eminence, in chat on 2026-10-26.",
+  "review_reference": "Backend release backend-40502851028-1-ebedd31f8bbcebe5 (D-Eminence/hid-system#121 at 6f14123, all 13 components, migration 0091_order_route_cannot_complete.sql applied first, deployed 2026-10-27 13:10 UTC with status success). Browser-facing changes since the previous pin (a3b1822): \"We can't complete this order\" (D18) is served. POST /api/v1/lab/order-routes/:routeId/cannot-complete and the pharmacy twin end an accepted order the laboratory or pharmacy cannot complete, with one listed reason, the patient confirmation and the required phone ticks; optional fields tell the ordering clinician (notCompleted), the patient (a new notice title) and support (per-facility counts on the order-route summary, a later wrong-patient report flagged first) about it. This frontend (D-Eminence/health#16, already live and dormant until now) uses each where it is answered. No other route, payload or error code changed. Reviewed and approved by the repository owner, D-Eminence, in chat on 2026-10-27.",
   "backend_commits": {
-    "gateway": "a3b18225490473c31581e13c44339aafccb7deda",
-    "identity-api": "a3b18225490473c31581e13c44339aafccb7deda",
-    "ehr-api": "a3b18225490473c31581e13c44339aafccb7deda",
-    "lab-api": "a3b18225490473c31581e13c44339aafccb7deda",
-    "pharmacy-api": "a3b18225490473c31581e13c44339aafccb7deda",
-    "ocr-api": "a3b18225490473c31581e13c44339aafccb7deda",
-    "outreach-api": "a3b18225490473c31581e13c44339aafccb7deda",
-    "support-api": "a3b18225490473c31581e13c44339aafccb7deda",
-    "notification-api": "a3b18225490473c31581e13c44339aafccb7deda"
+    "gateway": "6f1412345052657649d06884d27c06d1f8d7644a",
+    "identity-api": "6f1412345052657649d06884d27c06d1f8d7644a",
+    "ehr-api": "6f1412345052657649d06884d27c06d1f8d7644a",
+    "lab-api": "6f1412345052657649d06884d27c06d1f8d7644a",
+    "pharmacy-api": "6f1412345052657649d06884d27c06d1f8d7644a",
+    "ocr-api": "6f1412345052657649d06884d27c06d1f8d7644a",
+    "outreach-api": "6f1412345052657649d06884d27c06d1f8d7644a",
+    "support-api": "6f1412345052657649d06884d27c06d1f8d7644a",
+    "notification-api": "6f1412345052657649d06884d27c06d1f8d7644a"
   }
 }
