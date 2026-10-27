@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
 import { ClinicianApplicationStatus } from './ClinicianApplicationStatus'
+import { focusWhenShown } from '../../__tests__/focusWhenShown'
 
 /**
  * The clinician application status page at /provider/join/status (hid-system
@@ -54,6 +55,22 @@ beforeEach(() => {
   api.endSession.mockResolvedValue(undefined)
 })
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks() })
+
+// A request answered outside act, as a fetch's answer arrives, renders in one task and would run its effects in a later one.
+const environment = globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+afterEach(() => { environment.IS_REACT_ACT_ENVIRONMENT = true })
+function answer(settle: () => void) {
+  environment.IS_REACT_ACT_ENVIRONMENT = false
+  settle()
+}
+
+/** A request's answer, settled from the test. */
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason: unknown) => void
+  const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail })
+  return { promise, resolve, reject }
+}
 
 function Where() {
   const location = useLocation()
@@ -545,6 +562,50 @@ describe('the applications', () => {
     expect(api.endSession).toHaveBeenCalledTimes(1)
     expect(screen.getByText('This page is closed.')).toBeTruthy()
   })
+
+  // Focus moves in the commit that shows where it goes: from an effect a task later, a check made as soon as that was
+  // shown found focus still where it was (health#16's CI, on another page).
+  it('gives focus back to Withdraw as soon as the withdrawal closes the dialog', async () => {
+    await listShown()
+    const withdrawn = deferred<unknown>()
+    api.withdraw.mockReturnValueOnce(withdrawn.promise)
+    // The list read again after it: not answered here.
+    api.current.mockReturnValueOnce(new Promise(() => {}))
+    const opener = within(article(FACILITY.name)).getByRole('button', { name: /Withdraw/ })
+    opener.focus()
+    fireEvent.click(opener)
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Withdraw application' }))
+    const shown = focusWhenShown(() => screen.queryByRole('dialog') ? null : opener)
+    answer(() => withdrawn.resolve(view({ state: 'withdrawn', version: 3, canWithdraw: false })))
+    const { element, focused } = await shown
+    expect(focused).toBe(element)
+  })
+
+  it('has focus on what the page says as soon as the list read again says the withdrawal', async () => {
+    await listShown()
+    const reread = deferred<unknown>()
+    api.current.mockReturnValueOnce(reread.promise)
+    fireEvent.click(within(article(FACILITY.name)).getByRole('button', { name: /Withdraw/ }))
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Withdraw application' }))
+    await waitFor(() => expect(api.current).toHaveBeenCalledTimes(2))
+    const shown = focusWhenShown(() => screen.queryByText('You withdrew your application to Lagos General Hospital.')?.closest('[role="status"]'))
+    answer(() => reread.resolve(account({ applications: [view({ state: 'withdrawn', version: 3, canWithdraw: false })] })))
+    const { element, focused } = await shown
+    expect(focused).toBe(element)
+  })
+
+  it('gives focus back to “Close this page” as soon as it says the page could not be closed', async () => {
+    await listShown()
+    const ended = deferred<undefined>()
+    api.endSession.mockReturnValueOnce(ended.promise)
+    // Not focused first: a browser takes focus from a button disabled while its request runs (jsdom does not).
+    const close = screen.getByRole('button', { name: 'Close this page' })
+    fireEvent.click(close)
+    const shown = focusWhenShown(() => screen.queryByText("This page couldn't be closed right now. Try again."))
+    answer(() => ended.reject(problem(503, 'CLINICIAN_APPLICATION_UNAVAILABLE')))
+    const { focused } = await shown
+    expect(focused).toBe(close)
+  })
 })
 
 describe('applying to another facility', () => {
@@ -756,6 +817,19 @@ describe('applying to another facility', () => {
     press('Send application')
     await waitFor(() => expect(api.apply).toHaveBeenCalledTimes(2))
     expect(api.apply.mock.calls.map(call => call[1])).toEqual(['apply-key-1', 'apply-key-1'])
+  })
+
+  it('gives focus back to “Send application” as soon as it says the application was not sent', async () => {
+    await applyForm()
+    const sent = deferred<never>()
+    api.apply.mockReturnValueOnce(sent.promise)
+    // Not focused first: a browser takes focus from a button disabled while its request runs (jsdom does not).
+    const send = screen.getByRole('button', { name: 'Send application' })
+    fireEvent.click(send)
+    const shown = focusWhenShown(() => screen.queryByText(/^We couldn't send your application right now\./))
+    answer(() => sent.reject(problem(503, 'CLINICIAN_APPLICATION_UNAVAILABLE')))
+    const { focused } = await shown
+    expect(focused).toBe(send)
   })
 })
 

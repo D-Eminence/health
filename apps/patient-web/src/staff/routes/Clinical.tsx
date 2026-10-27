@@ -3,7 +3,7 @@ import { usesNovuBackend } from '../../backendContract'
 import { ImportedPatientHistory } from './ImportedPatientHistory'
 import { StaffImportedHistory } from './StaffImportedHistory'
 import { importedRecordsEnabled, staffPatientChatEnabled } from '../stagingOnlyFeatures'
-import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { assertSignedStorageUrl, isHidApiError } from '@hid/http'
 import { Badge, Button, Card, EmptyState, Field, Input, Select, TabList, TabPanel, Textarea } from '@hid/ui'
@@ -1348,7 +1348,8 @@ export function Clinical() {
       .catch(() => undefined)
     return () => { active = false }
   }, [linkedKey, facility?.id, patientId])
-  useEffect(() => {
+  // In the commit that shows the order, not an effect a task later: a check made as soon as it is shown finds the focus moved.
+  useLayoutEffect(() => {
     const orderId = linkedFocus.current
     if (!orderId || !visibleRecords.some(record => record.id === orderId)) return
     linkedFocus.current = null

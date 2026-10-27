@@ -7,6 +7,7 @@ import {
   startOrganizationCompletion, verifyOrganizationCompletion,
   type OrganizationCompletionProfile,
 } from '@/lib/provider-application'
+import { focusWhenShown } from './focusWhenShown'
 
 vi.mock('@/lib/env', () => ({
   getEnvironment: () => ({ name: 'local', appOrigin: 'http://localhost:3100',
@@ -112,6 +113,20 @@ describe('ProviderCompletionForm', () => {
     await waitFor(() => expect(document.activeElement).toBe(entityType))
     expect(entityType.getAttribute('aria-describedby')).toBe('completion-entityType-error')
     expect(saveProfile).not.toHaveBeenCalled()
+  })
+
+  // The field takes focus in the commit that marks it. From an animation frame,
+  // a check made as soon as the error was shown found focus still on Save.
+  it('has focus on the first field to correct as soon as it is marked', async () => {
+    getProfile.mockReset().mockResolvedValue(profile)
+    render(<ProviderCompletionForm initialProduct="laboratory" />)
+    fireEvent.change(await screen.findByRole('textbox', { name: 'Registered address' }), { target: { value: 'abc' } })
+    const submit = screen.getByRole('button', { name: 'Save missing details' })
+    submit.focus()
+    const shown = focusWhenShown('#completion-address[aria-invalid="true"]')
+    fireEvent.click(submit)
+    const { element, focused } = await shown
+    expect(focused).toBe(element)
   })
 
   it('shows the reason the backend gave for refusing the details', async () => {

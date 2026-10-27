@@ -6,6 +6,7 @@ import { Laboratory, Pharmacy } from '../Operations'
 import { INCOMING_REFRESH_MS } from '../IncomingOrders'
 import { forgetWrongPatientServed, learnWrongPatientServed } from '../../../wrongPatientServed'
 import { forgetReceiving, rememberedReceiving, RECEIVING_MEMORY_MS } from '../../orderRoutes'
+import { focusWhenShown } from '../../../__tests__/focusWhenShown'
 
 /**
  * Orders other facilities sent here, waiting to be accepted (Novu, P4c, SPEC-FINAL §4.1, §13.3): a preview without the
@@ -55,6 +56,9 @@ beforeEach(() => {
   forgetReceiving()
 })
 afterEach(() => { vi.unstubAllEnvs(); vi.useRealTimers() })
+// A request answered outside act, as a fetch's answer arrives, renders in one task and runs its effects in a later one.
+const environment = globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+afterEach(() => { environment.IS_REACT_ACT_ENVIRONMENT = true })
 
 async function openLaboratory() {
   render(<MemoryRouter><Laboratory /></MemoryRouter>)
@@ -456,6 +460,18 @@ describe('the Accepted panel: this isn’t the order’s patient', () => {
     expect(routes.reportWrongPatient).not.toHaveBeenCalled()
   })
 
+  // Cancel gives focus back in the commit that shows the button again: from a timer a task later, a check made as soon as
+  // the button was shown found focus on the page.
+  it('has focus on “This isn’t the order’s patient” as soon as Cancel shows it again', async () => {
+    const incoming = await acceptAt(openLab)
+    fireEvent.click(within(incoming).getByRole('button', { name: 'This isn’t the order’s patient' }))
+    const form = within(incoming).getByRole('form', { name: 'End this order: accepted for the wrong person' })
+    const shown = focusWhenShown(() => within(incoming).queryByRole('button', { name: 'This isn’t the order’s patient' }))
+    fireEvent.click(within(form).getByRole('button', { name: 'Cancel' }))
+    const { element, focused } = await shown
+    expect(focused).toBe(element)
+  })
+
   it('sends nothing until what happened, the note and the confirmation are given, then ends the order with one key', async () => {
     const incoming = await acceptAt(openLab)
     fireEvent.click(within(incoming).getByRole('button', { name: 'This isn’t the order’s patient' }))
@@ -471,8 +487,12 @@ describe('the Accepted panel: this isn’t the order’s patient', () => {
     expect(routes.reportWrongPatient).not.toHaveBeenCalled()
     fireEvent.click(within(incoming).getByRole('checkbox'))
     api.labWorkItems.mockClear()
+    // Focus is read the moment the message is shown. Read after findBy, it passed only when the runner was slow enough for
+    // an effect a task later to have run (this test failed under load when the message took focus that way).
+    const shown = focusWhenShown(() => screen.queryByText('Ended: Haemoglobin, reference 9C1B2D3E. Tunde Bello is told in the Health ID app.'))
+    environment.IS_REACT_ACT_ENVIRONMENT = false
     end()
-    const message = await screen.findByText('Ended: Haemoglobin, reference 9C1B2D3E. Tunde Bello is told in the Health ID app.')
+    const { element: message, focused } = await shown
     expect(routes.reportWrongPatient).toHaveBeenCalledTimes(1)
     expect(routes.reportWrongPatient).toHaveBeenCalledWith('facility-1', 'lab', { id: ROUTE, version: 2 },
       { reason: 'wrong_order_chosen', note: 'Two patients with the same date of birth' }, expect.stringMatching(/^[0-9a-f-]{36}$/))
@@ -484,7 +504,7 @@ describe('the Accepted panel: this isn’t the order’s patient', () => {
     expect(said.textContent).toContain('This order leaves your work list when it refreshes.')
     expect(said.textContent).not.toContain('Next time, ask for the order’s reference')
     expect(within(incoming).queryByText('Accepted: Haemoglobin.')).toBeNull()
-    expect(document.activeElement).toBe(message)
+    expect(focused).toBe(message)
     await waitFor(() => expect(api.labWorkItems).toHaveBeenCalled())
     fireEvent.click(within(said).getByRole('button', { name: 'Close' }))
     expect(screen.queryByText(/^Ended: Haemoglobin/)).toBeNull()

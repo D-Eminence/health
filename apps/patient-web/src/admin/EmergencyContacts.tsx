@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useLayoutEffect, useRef, useState, type FormEvent } from 'react'
 import { adminApi, type EmergencyContactOptOut } from './api'
 import { isProblem } from './problems'
 import { Page, useGovernedSubmit } from './ui'
@@ -35,8 +35,8 @@ export function EmergencyContactAlertsPage() {
   const governed = useGovernedSubmit()
   const ready = destination.trim().length >= 5 && reason.trim().length >= 8
   // Identity's own words ("Enter a valid email address" or "... phone number"), said at the field. Focus moves there
-  // once the field shows them, so its description is read.
-  useEffect(() => { if (destinationRefused) destinationInput.current?.focus() }, [destinationRefused])
+  // in the commit that shows them, so its description is read and a check made as soon as they show finds it there.
+  useLayoutEffect(() => { if (destinationRefused) destinationInput.current?.focus() }, [destinationRefused])
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()

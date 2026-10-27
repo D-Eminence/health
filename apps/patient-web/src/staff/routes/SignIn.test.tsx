@@ -3,11 +3,14 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
 import { SignIn } from './SignIn'
+import { focusWhenShown } from '../../__tests__/focusWhenShown'
 
-const calls = vi.hoisted(() => ({ login: vi.fn(), completeSignIn: vi.fn(), loginAction: vi.fn((_hostname: string) => 'staff-login'),
+const calls = vi.hoisted(() => ({ login: vi.fn(), completeSignIn: vi.fn(), verifyMfa: vi.fn(),
+  loginAction: vi.fn((_hostname: string) => 'staff-login'),
   state: { status: 'signed-out' } as { status: string; reason?: string; session?: unknown } }))
 
-vi.mock('../App', () => ({ useStaff: () => ({ state: calls.state, login: calls.login, completeSignIn: calls.completeSignIn }) }))
+vi.mock('../App', () => ({ useStaff: () => ({ state: calls.state, login: calls.login, completeSignIn: calls.completeSignIn,
+  verifyMfa: calls.verifyMfa }) }))
 vi.mock('../env', () => ({ getEnvironment: () => ({ turnstileSiteKey: 'test-site-key' }) }))
 vi.mock('../../productHostname', async importOriginal => ({
   ...await importOriginal<Record<string, unknown>>(),
@@ -337,5 +340,84 @@ describe('where a sign-in on the EHR site lands', () => {
     vi.stubGlobal('turnstile', { render: vi.fn(() => 'widget-1'), remove: vi.fn(), reset: vi.fn() })
     openAt('/provider/sign-in')
     expect(await screen.findByRole('heading', { name: page })).toBeTruthy()
+  })
+})
+
+/**
+ * Each step's heading, and a refused code's field, take focus in the commit that shows them: from an effect a task later,
+ * a check made as soon as one was shown found focus still where it was (health#16's CI, on another page). Each request
+ * is answered outside act, as a fetch's answer arrives.
+ */
+describe('focus as soon as it is shown', () => {
+  const environment = globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+  afterEach(() => { environment.IS_REACT_ACT_ENVIRONMENT = true })
+  function answer(settle: () => void) {
+    environment.IS_REACT_ACT_ENVIRONMENT = false
+    settle()
+  }
+  function deferred<T>() {
+    let resolve!: (value: T) => void
+    let reject!: (reason: unknown) => void
+    const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail })
+    return { promise, resolve, reject }
+  }
+  const CHALLENGE = { kind: 'challenge', challenge: { status: 'mfa_required', expiresAt: '2026-10-14T09:10:00.000Z' } }
+  const heading = (name: string) => () => screen.queryByRole('heading', { name })
+
+  /** Sends the password step, whose answer `login` gives. */
+  async function signIn() {
+    const callbacks: Array<(token: string) => void> = []
+    vi.stubGlobal('turnstile', { render: vi.fn((_host: HTMLElement, options: Record<string, unknown>) => {
+      callbacks.push(options.callback as (token: string) => void)
+      return `widget-${callbacks.length}`
+    }), remove: vi.fn(), reset: vi.fn() })
+    render(<MemoryRouter><SignIn /></MemoryRouter>)
+    await waitFor(() => expect(callbacks).toHaveLength(1))
+    fireEvent.change(screen.getByRole('textbox', { name: 'Work email' }), { target: { value: 'ada@example.test' } })
+    fireEvent.change(screen.getByLabelText(/^Password/), { target: { value: 'a-long-enough-password' } })
+    act(() => callbacks[0]?.('token-1'))
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+  }
+
+  /** Sends a code from the authenticator, whose answer `verifyMfa` gives. */
+  async function verify() {
+    await screen.findByRole('heading', { name: 'Verify it’s you' })
+    fireEvent.change(screen.getByRole('textbox', { name: 'Authenticator code' }), { target: { value: '123456' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Verify' }))
+  }
+
+  it('has focus on the second step’s heading as soon as the password step opens it (StaffMfaSteps)', async () => {
+    const sent = deferred<unknown>()
+    calls.login.mockReturnValueOnce(sent.promise)
+    await signIn()
+    const shown = focusWhenShown(heading('Verify it’s you'))
+    answer(() => sent.resolve(CHALLENGE))
+    const { element, focused } = await shown
+    expect(focused).toBe(element)
+  })
+
+  it('has focus on a refused code’s field as soon as it says why (StaffMfaSteps)', async () => {
+    calls.login.mockResolvedValueOnce(CHALLENGE)
+    const verified = deferred<never>()
+    calls.verifyMfa.mockReturnValueOnce(verified.promise)
+    await signIn()
+    await verify()
+    const shown = focusWhenShown(() => screen.queryByText(/^That code was not accepted\./))
+    answer(() => verified.reject(new HidApiError(401, 'Invalid code', { code: 'MFA_INVALID_CODE' })))
+    const { focused } = await shown
+    expect(focused).toBe(screen.getByRole('textbox', { name: 'Authenticator code' }))
+  })
+
+  it('has focus on the password step’s heading as soon as a spent challenge goes back to it', async () => {
+    calls.login.mockResolvedValueOnce(CHALLENGE)
+    const verified = deferred<never>()
+    calls.verifyMfa.mockReturnValueOnce(verified.promise)
+    await signIn()
+    await verify()
+    // Shown as a paragraph while the second step is: a heading again once back at the password step.
+    const shown = focusWhenShown(heading('Welcome back.'))
+    answer(() => verified.reject(new HidApiError(401, 'Sign in again', { code: 'MFA_CHALLENGE_INVALID' })))
+    const { element, focused } = await shown
+    expect(focused).toBe(element)
   })
 })

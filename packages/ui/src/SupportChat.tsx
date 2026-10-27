@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent } from 'react'
 import { isHidApiError } from '@hid/http'
 
 export interface SupportChatProps {
@@ -22,20 +22,24 @@ export function SupportChat({ contact, send }: SupportChatProps) {
   const input = useRef<HTMLInputElement>(null)
   const history = useRef<HTMLDivElement>(null)
   const previouslyOpen = useRef(false)
+  // "Start new chat" asks for focus on the question once it can take it: while a reply is on its way it is disabled.
+  const [restarted, setRestarted] = useState(0)
   const id = useId()
   useEffect(() => () => { flight.current?.abort() }, [])
-  useEffect(() => {
+  // In the commit that opens or closes the chat, not an effect after it, so focus has moved as soon as it is shown.
+  useLayoutEffect(() => {
     if (open) { dialog.current?.showModal(); input.current?.focus() }
     else { dialog.current?.close(); if (previouslyOpen.current) launcher.current?.focus() }
     previouslyOpen.current = open
   }, [open])
+  useLayoutEffect(() => { if (restarted) input.current?.focus() }, [restarted])
   useEffect(() => {
     if (history.current) history.current.scrollTop = history.current.scrollHeight
   }, [messages, busy, error, open])
   const close = () => { setOpen(false) }
   const reset = () => {
     flight.current?.abort(); flight.current = null; session.current = undefined
-    setMessages([]); setDraft(''); setError(null); setBusy(false); input.current?.focus()
+    setMessages([]); setDraft(''); setError(null); setBusy(false); setRestarted(count => count + 1)
   }
   const submit = async (event: FormEvent) => {
     event.preventDefault()

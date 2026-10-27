@@ -1,10 +1,11 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
 import type { AdminActor, AssistedRegistrationDesignation, Facility } from '../api'
 import { FacilityDetailPage } from '../Facilities'
 import { StepUpProvider } from '../StepUp'
+import { focusWhenShown } from '../../__tests__/focusWhenShown'
 
 const mocks = vi.hoisted(() => ({
   api: { facility: vi.fn(), audit: vi.fn(), command: vi.fn(), stepUp: vi.fn(),
@@ -436,5 +437,56 @@ describe('the facility’s designation for registration in person (hid-system #8
     expect(mocks.api.setAssistedRegistration).toHaveBeenCalledOnce()
     answer({ facilityId: FACILITY_ID, status: 'active', version: 1, replayed: false })
     expect(await section.findByText(/^Saved\./)).toBeTruthy()
+  })
+})
+
+/**
+ * Focus moves in the commit that shows where it goes. From an effect, it moved a task after the render that followed
+ * the answer, and a check made as soon as the answer was shown (findBy on a busy runner) found it elsewhere. The answer
+ * is given outside act, as a fetch's arrives, and focus is read at the moment the answer is shown.
+ */
+describe('focus as soon as an answer is shown', () => {
+  const environment = globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+  const actEnvironment = environment.IS_REACT_ACT_ENVIRONMENT
+  afterEach(() => { environment.IS_REACT_ACT_ENVIRONMENT = actEnvironment })
+
+  it('has focus on the panel heading as soon as a save is shown', async () => {
+    let answer: (value: unknown) => void = () => {}
+    mocks.api.assistedRegistration.mockResolvedValueOnce(NONE).mockResolvedValueOnce({ ...ACTIVE, version: 1 })
+    mocks.api.setAssistedRegistration.mockRejectedValueOnce(problem(409, 'ADMIN_STATE_CONFLICT'))
+      .mockReturnValueOnce(new Promise(resolve => { answer = resolve }))
+    open(MANAGE)
+    const section = await panel()
+    await section.findByText('This facility does not take part in registration in person.')
+    fillLocation()
+    const button = section.getByRole('button', { name: 'Designate facility' })
+    button.focus()
+    // Refused first, so the press that saves clears an answer on screen. A press with no answer to clear leaves the
+    // panel an update React renders straight after the answer's render, running every effect at once: there an
+    // effect cannot be told from a layout effect.
+    fireEvent.click(button)
+    await section.findByRole('alert')
+    fireEvent.click(button)
+    const shown = focusWhenShown(() => section.queryByText(/^Saved\./))
+    environment.IS_REACT_ACT_ENVIRONMENT = false
+    answer({ facilityId: FACILITY_ID, status: 'active', version: 1, replayed: false })
+    const { focused } = await shown
+    expect(focused).toBe(section.getByRole('heading', { name: 'Registration in person' }))
+    // The designation read again replaces the form; focus stays on the heading.
+    expect(await section.findByRole('button', { name: 'Save designation' })).toBeTruthy()
+    expect(document.activeElement).toBe(section.getByRole('heading', { name: 'Registration in person' }))
+  })
+
+  it('has focus on a refused field as soon as it is marked refused', async () => {
+    mocks.api.assistedRegistration.mockResolvedValue(NONE)
+    open(MANAGE)
+    const section = await panel()
+    await section.findByText('This facility does not take part in registration in person.')
+    fillLocation({ town: ' ' })
+    const town = section.getByLabelText(/^Town/)
+    const shown = focusWhenShown(() => town.getAttribute('aria-invalid') === 'true' ? town : null)
+    fireEvent.click(section.getByRole('button', { name: 'Designate facility' }))
+    const { element, focused } = await shown
+    expect(focused).toBe(element)
   })
 })

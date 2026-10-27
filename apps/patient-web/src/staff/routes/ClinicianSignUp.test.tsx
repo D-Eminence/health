@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
 import { ClinicianSignUp } from './ClinicianSignUp'
+import { focusWhenShown } from '../../__tests__/focusWhenShown'
 
 /**
  * Clinician self sign-up at /provider/join (hid-system ADR-066, P0-P9): a
@@ -62,6 +63,22 @@ beforeEach(() => {
   api.authenticator.reopen.mockResolvedValue({ purpose: 'enroll', expiresAt: '2026-10-15T09:20:00.000Z' })
 })
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks() })
+
+// A request answered outside act, as a fetch's answer arrives, renders in one task and would run its effects in a later one.
+const environment = globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+afterEach(() => { environment.IS_REACT_ACT_ENVIRONMENT = true })
+function answer(settle: () => void) {
+  environment.IS_REACT_ACT_ENVIRONMENT = false
+  settle()
+}
+
+/** A request's answer, settled from the test. */
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason: unknown) => void
+  const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail })
+  return { promise, resolve, reject }
+}
 
 function Where() {
   return <span data-testid="where">{useLocation().pathname}{useLocation().search}{useLocation().hash}</span>
@@ -555,6 +572,21 @@ describe('the password, declarations and submit', () => {
     expect(api.submit.mock.calls.map(call => call[1])).toEqual(['submission-key-1', 'submission-key-1'])
   })
 
+  // Focus moves in the commit that shows the refusal: from an effect a task later, a check made as soon as it was shown
+  // found focus still where it was (health#16's CI, on another page).
+  it('has focus on the password as soon as it says the application was not submitted', async () => {
+    const sent = deferred<never>()
+    api.submit.mockReturnValueOnce(sent.promise)
+    await toPassword()
+    fillPassword()
+    press('Submit application')
+    await waitFor(() => expect(api.submit).toHaveBeenCalled())
+    const shown = focusWhenShown(() => screen.queryByText(/^We couldn't submit your application right now\./))
+    answer(() => sent.reject(problem(503, 'CLINICIAN_APPLICATION_UNAVAILABLE')))
+    const { focused } = await shown
+    expect(focused).toBe(screen.getByLabelText(/^Password\*?$/))
+  })
+
   it('sends another password as a new submission after a lost answer, so the first one is never kept unsaid', async () => {
     // The first submit committed but its answer was lost; Identity refuses a new key for a draft already used.
     api.submit.mockRejectedValueOnce(new HidApiError(0, 'Network', { code: 'NETWORK_ERROR' }))
@@ -834,6 +866,17 @@ describe('closing the page at the authenticator step', () => {
     expect((await screen.findByRole('alert')).textContent).toBe("This page couldn't be closed right now. Try again.")
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Close this page' })))
     expect(screen.getByRole('heading', { name: 'Set up your authenticator' })).toBeTruthy()
+  })
+
+  it('has focus on “This page is closed” as soon as it is shown', async () => {
+    const ended = deferred<undefined>()
+    api.endSession.mockReturnValueOnce(ended.promise)
+    await toAuthenticator()
+    press('Close this page')
+    const shown = focusWhenShown('#clinician-signup-closed')
+    answer(() => ended.resolve(undefined))
+    const { element, focused } = await shown
+    expect(focused).toBe(element)
   })
 
   it('keeps the page closed when an authenticator answer arrives after it', async () => {

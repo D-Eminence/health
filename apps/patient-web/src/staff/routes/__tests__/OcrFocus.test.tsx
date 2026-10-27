@@ -1,10 +1,11 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { useRef, useState } from 'react'
 import { MemoryRouter, Outlet, Route, Routes, useNavigate } from 'react-router-dom'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import { Ocr } from '../Operations'
 import { useFocusOnPageChange } from '../../../pageFocus'
+import { focusWhenShown } from '../../../__tests__/focusWhenShown'
 
 /**
  * OCR-A11Y-01 (WCAG 2.4.3 Focus Order, 4.1.3 Status Messages). Each OCR step
@@ -49,6 +50,10 @@ const extraction = { id: 'extraction-1', jobId: base.id, version: 1, provider: '
 const validation = { id: 'validation-1', jobId: base.id, version: 1, disposition: 'validated', targetDomain: 'DOCUMENT_ONLY',
   candidateType: 'document_only', reason: 'Matches the source document', reviewedAt: '2026-10-12T09:30:00.000Z' }
 const unavailable = () => new HidApiError(503, 'The service could not complete the request.', { code: 'SERVICE_UNAVAILABLE' })
+
+// A request answered outside act, as a fetch's answer arrives, renders in one task and would run its effects in a later one.
+const environment = globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+afterEach(() => { environment.IS_REACT_ACT_ENVIRONMENT = true })
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -120,6 +125,24 @@ describe('OCR-A11Y-01: focus and status after each OCR step', () => {
     await press(screen.getByRole('button', { name: 'Validate extraction' }))
     await waitFor(() => expect(focused()).toBe(heading('Confirm source patient')))
     expect(statusRegion().textContent).toBe('Review recorded. Confirm the source patient next.')
+  })
+
+  // The step's focus moves in the commit that shows the job's evidence, read after the job: from an effect a task later, a
+  // check made as soon as it was shown found focus still on the page (health#16's CI, on another page).
+  it('review (validated): has focus on the next step as soon as the job\'s evidence is shown', async () => {
+    await findJob(awaiting)
+    fireEvent.change(await screen.findByLabelText(/^Review reason/), { target: { value: 'Checked against the scanned page' } })
+    api.validateOcrJob.mockResolvedValue({ id: 'validation-1' })
+    api.findOcrJob.mockResolvedValue({ job: validated })
+    const evidence = deferred<{ items: unknown[] }>()
+    api.ocrValidations.mockReturnValueOnce(evidence.promise)
+    await press(screen.getByRole('button', { name: 'Validate extraction' }))
+    await waitFor(() => expect(api.ocrValidations).toHaveBeenCalledTimes(2))
+    const shown = focusWhenShown(() => screen.queryByText('Extraction 1'))
+    environment.IS_REACT_ACT_ENVIRONMENT = false
+    evidence.resolve({ items: [] })
+    const { focused } = await shown
+    expect(focused).toBe(heading('Confirm source patient'))
   })
 
   it('review (validated) without the confirmation permission: moves focus to the job status, naming no next step', async () => {

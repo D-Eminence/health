@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useLocation, useParams } from 'react-router-dom'
 import { usesNovuBackend } from '../backendContract'
 import { adminApi, PAGE_SIZE, type AdminActor, type AuditFilters, type Facility } from './api'
@@ -60,8 +60,9 @@ function FacilityAlertPhone({ facility, actor, reload }: { facility: Facility; a
   // Clearing applies only while a number is set: a reload may find it already cleared, and the checkbox gone.
   const clearingNow = clearing && current !== null
   const ready = reason.trim().length >= 8 && (clearingNow || phone.trim().length > 0)
-  // Said at the field, and focus moves there once the field shows it, so its description is read.
-  useEffect(() => { if (phoneRefused) phoneInput.current?.focus() }, [phoneRefused])
+  // Said at the field, and focus moves there in the commit that shows it, so its description is read and a check made
+  // as soon as it shows finds it there.
+  useLayoutEffect(() => { if (phoneRefused) phoneInput.current?.focus() }, [phoneRefused])
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()

@@ -7,7 +7,7 @@
  * who arrived at the wrong entrance somewhere that makes sense.
  */
 
-import { useEffect, useRef, type ReactNode } from 'react'
+import { useLayoutEffect, useRef, type ReactNode } from 'react'
 import { Navigate } from 'react-router-dom'
 import { evaluateAccess, type AccessRequirement } from '@hid/auth'
 import { useSession } from './session'
@@ -24,12 +24,14 @@ export function RequireAccess({ requirement, children }: RequireAccessProps) {
   const decision = evaluateAccess(state, requirement)
   // 'Try again' is replaced while the session is checked again: focus then goes to
   // the page that opens, or to the new 'Try again' when the check fails again (PR-04).
-  // Only an outcome after the check was seen to start counts: an effect still
-  // pending from the render that showed 'Try again' runs after a quick press.
+  // Only an outcome after the check was seen to start counts: as an effect, this
+  // ran after a quick press when it was still pending from the render that showed
+  // 'Try again'. It moves focus in the commit that shows the outcome, not a task
+  // later: a check made as soon as it is shown finds the focus moved.
   const retried = useRef(false)
   const checking = useRef(false)
   const retryButton = useRef<HTMLButtonElement>(null)
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!retried.current) return
     if (decision.outcome === 'pending' && !sessionError) { checking.current = true; return }
     if (!checking.current) return

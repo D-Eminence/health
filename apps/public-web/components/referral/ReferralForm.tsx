@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react'
+import { useLayoutEffect, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react'
 import { isHidApiError } from '@hid/http'
 import { Button, cx } from '@hid/ui'
 import { TurnstileWidget } from '@/components/shared/TurnstileWidget'
@@ -42,8 +42,9 @@ export function ReferralForm({ lede }: { readonly lede?: string }) {
   const localNoWidget = environment.name === 'local' && !siteKey
     && ['localhost', '127.0.0.1', '[::1]'].includes(new URL(environment.appOrigin).hostname)
 
-  // Move focus to the step's heading when the step changes, not on first load.
-  useEffect(() => {
+  // Move focus to the step's heading when the step changes, not on first load. It moves in the commit that shows the
+  // step or the thanks, not an effect a task later, so a check made as soon as one is shown finds the focus moved.
+  useLayoutEffect(() => {
     if (!moved.current) return
     const field = focusAfterMove.current
     focusAfterMove.current = null

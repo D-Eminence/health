@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { useCallback, useId, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import {
@@ -237,7 +237,9 @@ function ApplicationReview({ applicationId, actor }: { applicationId: string; ac
   const [notice, setNotice] = useState<Outcome | null>(null)
   const noticeRef = useRef<HTMLParagraphElement>(null)
   const { reload } = resource
-  useEffect(() => { if (notice) noticeRef.current?.focus() }, [notice])
+  // In the commit that shows the outcome, not an effect a task later: a check made as soon as it is shown finds the
+  // focus moved.
+  useLayoutEffect(() => { if (notice) noticeRef.current?.focus() }, [notice])
 
   // Every outcome reloads the application: its state, version and the caller's hints come from the server.
   const outcome = (next: Outcome) => { setNotice(next); reload() }

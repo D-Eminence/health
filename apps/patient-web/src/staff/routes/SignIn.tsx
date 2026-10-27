@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ButtonHTMLAttributes } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ButtonHTMLAttributes } from 'react'
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { Button, Field, Input, PasswordInput } from '@hid/ui'
@@ -112,10 +112,10 @@ export function SignIn() {
   const [noFacility, setNoFacility] = useState(false)
   // The second step Identity asked for, while it is shown. The password form is gone meanwhile, so each is a new one.
   const [challenge, setChallenge] = useState<StaffLoginChallenge | null>(null)
-  // Back at the password step from a later one, its heading takes focus: the step left is gone.
+  // Back at the password step from a later one, its heading takes focus in the commit that shows it: the step left is gone.
   const heading = useRef<HTMLHeadingElement & HTMLParagraphElement>(null)
   const [returned, setReturned] = useState(0)
-  useEffect(() => { if (returned) heading.current?.focus() }, [returned])
+  useLayoutEffect(() => { if (returned) heading.current?.focus() }, [returned])
   const siteKey = getEnvironment().turnstileSiteKey
   const mfaRequired = (state.status === 'signed-out' || state.status === 'ended') && state.reason === 'mfa-required'
 

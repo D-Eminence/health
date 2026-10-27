@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, Navigate, useLocation } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { Field, Input, PasswordInput } from '@hid/ui'
@@ -65,7 +65,7 @@ function when(value: string | null | undefined): string | null {
 
 function FocusedHeading({ id, children }: { id: string; children: ReactNode }) {
   const heading = useRef<HTMLHeadingElement>(null)
-  useEffect(() => { heading.current?.focus() }, [])
+  useLayoutEffect(() => { heading.current?.focus() }, [])
   return <h2 id={id} ref={heading} tabIndex={-1} className="hid-mfa-heading">{children}</h2>
 }
 

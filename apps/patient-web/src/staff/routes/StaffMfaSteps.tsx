@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react'
 import { isHidApiError } from '@hid/http'
 import { Field, Input } from '@hid/ui'
 import type { StaffEnrollmentCodeSent, StaffLoginChallenge, StaffMfaActivation, StaffMfaEnrollment, StaffSession } from '../api'
@@ -183,10 +183,10 @@ function Restart({ look, restart, pending }: { look: StaffMfaLook; restart: Step
   return restart ? <look.Button onClick={restart.onRestart} disabled={pending}>{restart.label}</look.Button> : null
 }
 
-/** A step's heading, which takes focus as the step opens: the step before it, and the control used there, are gone. */
+/** A step's heading, which takes focus in the commit that opens the step: the step before it, and the control used there, are gone. */
 function useStepHeading(): RefObject<HTMLHeadingElement | null> {
   const heading = useRef<HTMLHeadingElement>(null)
-  useEffect(() => { heading.current?.focus() }, [])
+  useLayoutEffect(() => { heading.current?.focus() }, [])
   return heading
 }
 
@@ -205,7 +205,8 @@ function useStepProblems(carried: string | null) {
   const [error, setError] = useState<string | null>(carried)
   const [problem, setProblem] = useState<FieldProblem | null>(null)
   const [focusRequest, setFocusRequest] = useState<{ id: string; always: boolean } | null>(null)
-  useEffect(() => {
+  // In the commit that shows the refusal or the field, not an effect a task later.
+  useLayoutEffect(() => {
     if (!focusRequest) return
     if (focusRequest.always || focusLost()) document.getElementById(focusRequest.id)?.focus()
   }, [focusRequest])

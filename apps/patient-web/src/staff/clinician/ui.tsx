@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ButtonHTMLAttributes, type ReactNode } from 'react'
+import { useLayoutEffect, useRef, type ButtonHTMLAttributes, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { BrandLogo } from '../../BrandLogo'
 import { useDocumentTitle } from '../../authSteps'
@@ -30,7 +30,8 @@ export function StepHeading({ id, focus, level = 2, children }: { id: string; fo
   const heading = useRef<HTMLHeadingElement>(null)
   // On mount only: each step's heading is a new element.
   const focusOnMount = useRef(focus)
-  useEffect(() => { if (focusOnMount.current) heading.current?.focus() }, [])
+  // In the commit that shows the step, not an effect a task later: a check made as soon as it is shown finds the focus moved.
+  useLayoutEffect(() => { if (focusOnMount.current) heading.current?.focus() }, [])
   const Heading = level === 1 ? 'h1' : 'h2'
   return <Heading id={id} ref={heading} tabIndex={-1} className={level === 1 ? 'patient-page-title clinician-heading' : 'clinician-heading'}>
     {children}</Heading>
@@ -64,7 +65,7 @@ export interface Problem { field: string; message: string }
  */
 export function ErrorSummary({ problems, focusKey }: { problems: readonly Problem[]; focusKey: number }) {
   const summary = useRef<HTMLDivElement>(null)
-  useEffect(() => { if (problems.length > 0) summary.current?.focus() }, [focusKey, problems.length])
+  useLayoutEffect(() => { if (problems.length > 0) summary.current?.focus() }, [focusKey, problems.length])
   if (problems.length === 0) return null
   return <div ref={summary} tabIndex={-1} role="alert" aria-labelledby="clinician-error-summary-title" className="clinician-error-summary">
     <h3 id="clinician-error-summary-title">Check these details</h3>

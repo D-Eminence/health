@@ -3,6 +3,7 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import { StaffInvitation } from '../StaffInvitation'
+import { focusWhenShown } from '../../../__tests__/focusWhenShown'
 
 /**
  * Joining a facility by invitation on the main site (Novu, P4b SPEC 8.2): the email's link carries the invitation in its
@@ -292,5 +293,26 @@ describe('on a staff or admin site', () => {
     </Routes></MemoryRouter>)
     expect(screen.getByRole('link', { name: 'Continue to the invitation page' }).getAttribute('href'))
       .toBe('https://app.healthidentitydirectory.com/provider/invitation')
+  })
+})
+
+describe('focus as soon as it is shown', () => {
+  // A request answered outside act, as a fetch's answer arrives, renders in one task and would run its effects in a later one.
+  const environment = globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+  afterEach(() => { environment.IS_REACT_ACT_ENVIRONMENT = true })
+
+  // The step's heading takes focus in the commit that shows it: from an effect a task later, a check made as soon as it
+  // was shown found focus still where it was (health#16's CI, on another page).
+  it('has focus on the opened invitation’s heading as soon as it is shown', async () => {
+    let opens: (value: unknown) => void = () => {}
+    api.open.mockReturnValueOnce(new Promise(resolve => { opens = resolve }))
+    open(linkAddress)
+    await waitFor(() => expect(continueButton().disabled).toBe(false))
+    fireEvent.click(continueButton())
+    const shown = focusWhenShown(() => screen.queryByRole('heading', { name: 'Choose a password' }))
+    environment.IS_REACT_ACT_ENVIRONMENT = false
+    opens(opened())
+    const { element, focused } = await shown
+    expect(focused).toBe(element)
   })
 })

@@ -1,7 +1,9 @@
+import { useState } from 'react'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { CommandPalette, type CommandPaletteItem } from '@hid/ui'
 import { GlobalSearch, GlobalSearchProvider } from '@/components/layout/GlobalSearch'
+import { focusWhenShown } from './focusWhenShown'
 
 const push = vi.fn()
 
@@ -86,6 +88,41 @@ describe('CommandPalette', () => {
     fireEvent.keyDown(input, { key: 'Escape' })
 
     await waitFor(() => expect(document.activeElement).toBe(trigger))
+    expect(screen.queryByRole('dialog')).toBeNull()
+  })
+
+  // The search field takes focus in the commit that shows the palette. From an
+  // animation frame, a check made as soon as it was shown found focus still on
+  // the trigger.
+  it('has focus on the search field as soon as the palette is shown', async () => {
+    render(<CommandPalette title="Search Health ID" trigger={<button type="button">Open search</button>} items={items} />)
+    const trigger = screen.getByRole('button', { name: 'Open search' })
+    trigger.focus()
+    const shown = focusWhenShown(() => screen.queryByRole('combobox', { name: 'Search Health ID' }))
+    fireEvent.click(trigger)
+    const { element, focused } = await shown
+    expect(focused).toBe(element)
+  })
+
+  // A host that opens the palette itself leaves it to note where focus was, which
+  // it does before it moves focus to the search field.
+  it('returns focus to where it was when a host opened the palette', async () => {
+    function Host() {
+      const [open, setOpen] = useState(false)
+      return <>
+        <button type="button" onClick={() => setOpen(true)}>Find a page</button>
+        <CommandPalette title="Search Health ID" open={open} onOpenChange={setOpen} items={items} keyboardShortcut={false} />
+      </>
+    }
+    render(<Host />)
+    const opener = screen.getByRole('button', { name: 'Find a page' })
+    opener.focus()
+    fireEvent.click(opener)
+    const input = screen.getByRole('combobox', { name: 'Search Health ID' })
+    expect(document.activeElement).toBe(input)
+    fireEvent.keyDown(input, { key: 'Escape' })
+
+    await waitFor(() => expect(document.activeElement).toBe(opener))
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 

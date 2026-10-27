@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { Field, PasswordInput } from '@hid/ui'
 import { useDocumentTitle } from '../../authSteps'
@@ -82,7 +82,8 @@ function SignUp() {
     : availability !== 'open' ? "Clinician sign-up isn't open yet · Health ID Provider"
       : `Clinician sign-up – ${label(step)} · Health ID Provider`)
 
-  useEffect(() => { if (focusRequest) document.getElementById(focusRequest.id)?.focus() }, [focusRequest])
+  // In the commit that shows the refusal, not an effect a task later: a check made as soon as it is shown finds the focus moved.
+  useLayoutEffect(() => { if (focusRequest) document.getElementById(focusRequest.id)?.focus() }, [focusRequest])
 
   function focusOn(id: string) {
     setFocusRequest(previous => ({ id, count: (previous?.count ?? 0) + 1 }))

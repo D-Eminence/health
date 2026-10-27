@@ -3,6 +3,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HidApiError } from '@hid/http'
 import { DemoDialog } from '@/components/shared/DemoDialog'
 import { submitDemoRequest } from '@/lib/commercial-api'
+import { focusWhenShown } from './focusWhenShown'
 
 vi.mock('@/lib/env', () => ({
   getEnvironment: () => ({ name: 'local', appOrigin: 'http://localhost:3100',
@@ -115,6 +116,32 @@ describe('DemoDialog', () => {
     await waitFor(() => expect(document.activeElement).toBe(field('service')))
     expect(field('service').getAttribute('aria-describedby')).toBe('service-error')
     expect(document.getElementById('service-error')?.textContent).toBe('Choose a service.')
+  })
+
+  // The field takes focus in the commit that marks it. From an animation frame,
+  // a check made as soon as the error was shown found focus still on Send.
+  it('has focus on the first field to correct as soon as it is marked', async () => {
+    openDialog()
+    const send = screen.getByRole('button', { name: 'Send request' })
+    send.focus()
+    const shown = focusWhenShown('dialog [name="service"][aria-invalid="true"]')
+    fireEvent.click(send)
+    const { element, focused } = await shown
+    expect(focused).toBe(element)
+  })
+
+  // The link that opened the dialog has focus back once it closes, not a frame
+  // later. (This file's close() fires the close event at once.)
+  it('has focus on the link that opened it as soon as the dialog closes', async () => {
+    render(<><a href="#demo">Book a demo</a><DemoDialog /></>)
+    const link = screen.getByRole('link', { name: 'Book a demo' })
+    link.focus()
+    fireEvent.click(link)
+    const close = screen.getByRole('button', { name: 'Close' })
+    close.focus()
+    const shown = focusWhenShown(() => document.querySelector('dialog:not([open])'))
+    fireEvent.click(close)
+    expect((await shown).focused).toBe(link)
   })
 
   it('holds a role given under Other to the same limit', () => {
