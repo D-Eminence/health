@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useLayoutEffect, useRef, useState, type FormEvent } from 'react'
 import { isHidApiError } from '@hid/http'
 import { Button, Field, Textarea } from '@hid/ui'
 import {
@@ -83,7 +83,8 @@ export function WrongPatientForm({ id, service, facilityId, route, patient, orde
   // The button that opened the form is gone: focus moves to the form's title, so a keyboard or screen-reader user goes
   // on from the form itself rather than from the top of the page (as the message that follows it does).
   const title = useRef<HTMLElement>(null)
-  useEffect(() => { title.current?.focus() }, [])
+  // In the commit that shows it, not an effect a task later: a check made as soon as it is shown finds the focus moved.
+  useLayoutEffect(() => { title.current?.focus() }, [])
   const lab = service === 'lab'
   const who = patient?.trim() || 'the patient'
   const Who = patient?.trim() || 'The patient'
@@ -184,7 +185,7 @@ export function WrongPatientEnded({ id, ending, onClose }: { id: string; ending:
     patient: ending.patient, ordering: ending.ordering, returned, dateOfBirthOnly: ending.dateOfBirthOnly })
   // The form that ended it is gone: the work continues at what to do now.
   const title = useRef<HTMLElement>(null)
-  useEffect(() => { title.current?.focus() }, [ending])
+  useLayoutEffect(() => { title.current?.focus() }, [ending])
   return <div className="staff-notice staff-danger staff-stack" aria-labelledby={`${id}-title`}>
     <strong id={`${id}-title`} ref={title} tabIndex={-1}>{first}</strong>
     {rest.map((line, index) => <p key={index}>{line}</p>)}

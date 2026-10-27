@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useLayoutEffect, useRef, useState, type FormEvent } from 'react'
 import { isHidApiError } from '@hid/http'
 import { Button, Field, Input, Textarea } from '@hid/ui'
 import {
@@ -93,7 +93,8 @@ export function LateWrongPatientForm({ id, service, facilityId, route, onCorrect
   const attempt = useRef<{ signature: string; key: string } | null>(null)
   // The button that opened the form is gone: focus moves to the form's title.
   const title = useRef<HTMLElement>(null)
-  useEffect(() => { title.current?.focus() }, [])
+  // In the commit that shows it, not an effect a task later: a check made as soon as it is shown finds the focus moved.
+  useLayoutEffect(() => { title.current?.focus() }, [])
   const lab = service === 'lab'
   const ordering = orderingOf(route)
   const accepted = lagosDay(route.acceptedAt)
@@ -420,7 +421,7 @@ export function LateCorrectionDone({ id, correction, onClose }: { id: string; co
   const [first, ...rest] = lateCorrectionLines({ service: correction.service, title: correction.title,
     reference: correction.reference, ordering: correction.ordering, returned })
   const title = useRef<HTMLElement>(null)
-  useEffect(() => { title.current?.focus() }, [correction])
+  useLayoutEffect(() => { title.current?.focus() }, [correction])
   return <div className="staff-notice staff-danger staff-stack" aria-labelledby={`${id}-title`}>
     <strong id={`${id}-title`} ref={title} tabIndex={-1}>{first}</strong>
     {rest.map((line, index) => <p key={index}>{line}</p>)}

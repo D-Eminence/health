@@ -305,6 +305,27 @@ describe('the laboratory’s form', () => {
     expect(screen.queryByText(/^Ended: Haemoglobin/)).toBeNull()
   })
 
+  // What follows takes focus in the same commit that shows it (an effect a task later let a check made as soon as it was
+  // shown find focus on the page: health#16's CI, on the late form's equivalent).
+  it('has focus on what follows as soon as it is shown', async () => {
+    api.labWorkItems.mockResolvedValueOnce(served(labItem(), local)).mockResolvedValue(served(local))
+    const item = await openLab()
+    fireEvent.click(await within(item).findByRole('button', { name: `${CC}${NAMED}` }))
+    fill(form(item))
+    const shown = new Promise<{ message: Element; focused: Element | null }>(resolve => {
+      const observer = new MutationObserver(() => {
+        const message = [...document.querySelectorAll('strong')].find(element => element.textContent?.startsWith('Ended: Haemoglobin'))
+        if (!message) return
+        observer.disconnect()
+        resolve({ message, focused: document.activeElement })
+      })
+      observer.observe(document.body, { childList: true, subtree: true, characterData: true })
+    })
+    submit(form(item))
+    const { message, focused } = await shown
+    expect(focused).toBe(message)
+  })
+
   it('takes a new key once a refusal settled the request', async () => {
     routes.cannotComplete.mockRejectedValueOnce(new HidApiError(409, 'Ready', { code: 'ORDER_ROUTE_RESULT_READY' }))
     const item = await openLab()

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react'
 import { isHidApiError } from '@hid/http'
 import { Button } from '@hid/ui'
 import {
@@ -91,9 +91,10 @@ export function CannotCompleteForm({ id, service, facilityId, route, patient, or
   const attempt = useRef<{ signature: string; key: string } | null>(null)
   // The button that opened the form is gone: focus moves to the form's title.
   const title = useRef<HTMLElement>(null)
-  useEffect(() => { title.current?.focus() }, [])
+  // In the commit that shows it, not an effect a task later: a check made as soon as it is shown finds the focus moved.
+  useLayoutEffect(() => { title.current?.focus() }, [])
   // Once asked for, the critical-value statement is where the work goes on (after the refusal that asks for it).
-  useEffect(() => { if (critical) document.getElementById(`${id}-critical`)?.focus() }, [critical, id])
+  useLayoutEffect(() => { if (critical) document.getElementById(`${id}-critical`)?.focus() }, [critical, id])
   const lab = service === 'lab'
   const who = patient?.trim() || 'the patient'
   const Who = patient?.trim() || 'The patient'
@@ -274,7 +275,7 @@ export function CannotCompleteEnded({ id, ending, onClose }: { id: string; endin
   const [first, ...rest] = cannotCompleteEndedLines({ service: ending.service, title: ending.title, reference: ending.reference,
     patient: ending.patient, ordering: ending.ordering, reason: ending.reason, priority: ending.priority, result: ending.result })
   const title = useRef<HTMLElement>(null)
-  useEffect(() => { title.current?.focus() }, [ending])
+  useLayoutEffect(() => { title.current?.focus() }, [ending])
   return <div className="staff-notice staff-stack" aria-labelledby={`${id}-title`}>
     <strong id={`${id}-title`} ref={title} tabIndex={-1}>{first}</strong>
     {rest.map((line, index) => <p key={index}>{line}</p>)}
