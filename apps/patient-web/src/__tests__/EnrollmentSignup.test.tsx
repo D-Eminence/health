@@ -75,7 +75,8 @@ describe('the sign-up without a NIN (owner decision, 2026-10-27)', () => {
 
     expect(await screen.findByRole('list', { name: 'Sign-up steps' })).toBeTruthy()
     expect(screen.queryByLabelText('National Identification Number')).toBeNull()
-    expect(screen.getByText('Read the Terms of Service and Privacy Policy').tagName).toBe('SUMMARY')
+    expect(screen.getByRole('link', { name: 'Terms of Service' }).getAttribute('href')).toBe('https://healthidentitydirectory.com/terms')
+    expect(screen.getByRole('link', { name: 'Privacy Policy' }).getAttribute('href')).toBe('https://healthidentitydirectory.com/privacy')
     await toPassword()
     expect(document.activeElement).toBe(field('Password'))
     await sendPassword()

@@ -232,6 +232,12 @@
   .patient-app-logo img { display: block; width: auto; height: 27px; }
   .patient-form { display: grid; gap: 18px; margin-top: 28px; }
   .patient-form h2, .patient-card h2, .patient-success h2 { margin: 0 0 6px; color: var(--color-ink); font-size: 20px; font-weight: 600; }
+  .patient-field { display: grid; gap: 7px; }
+  .patient-hospital-picker { position: relative; }
+  .patient-hospital-options { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; right: 0; max-height: 280px; margin: 0; padding: 4px 0; overflow-y: auto; list-style: none; border: 1px solid var(--color-line-strong); border-radius: var(--radius-control); background: var(--color-surface); box-shadow: 0 10px 24px rgb(17 24 39 / 12%); }
+  .patient-hospital-options li { display: grid; gap: 2px; padding: 9px 12px; cursor: pointer; font-size: 14px; color: var(--color-ink); }
+  .patient-hospital-options li small { color: var(--color-muted); font-size: 12px; }
+  .patient-hospital-options li[aria-selected="true"], .patient-hospital-options li:hover { background: var(--color-brand-tint); }
   .patient-form label, .patient-deny-form label { display: grid; gap: 7px; color: var(--color-ink); font-size: 13px; font-weight: 600; }
   /* A label tied by id to a field it does not wrap: a password with its Show toggle beside it. */
   .patient-field { display: grid; gap: 7px; }
@@ -266,11 +272,6 @@
   .patient-success { display: grid; gap: 14px; margin-top: 26px; }
   .patient-success strong { color: var(--color-brand); font-family: var(--font-mono); font-size: 22px; overflow-wrap: anywhere; }
   /* Sign-up: the Terms of Service and Privacy Policy, opened beside the agreement; a long text scrolls in its own box. */
-  .patient-legal { min-width: 0; font-size: 13px; }
-  .patient-legal summary { color: var(--color-brand); font-weight: 600; cursor: pointer; }
-  .patient-legal-text { display: grid; gap: 12px; max-height: 320px; margin-top: 10px; padding: 12px 14px; overflow-y: auto; border: 1px solid var(--color-line-strong); border-radius: var(--radius-control); color: var(--color-ink); line-height: 1.6; overflow-wrap: anywhere; }
-  .patient-legal-text h3 { margin: 0 0 4px; font-size: 14px; font-weight: 600; }
-  .patient-legal-text :is(p, ul) { margin: 0 0 6px; }
   /* Enrollment: a route to prove the NIN is the patient's, or a way on when one cannot help, described before its action. */
   .patient-enroll-option { display: grid; justify-items: start; gap: 10px; min-width: 0; padding: 14px 16px; border: 1px solid var(--color-line-strong); border-radius: var(--radius-control); }
   .patient-enroll-option :is(h2, h3), .patient-form .patient-enroll-option h2 { margin: 0; color: var(--color-ink); font-size: 16px; font-weight: 600; }
