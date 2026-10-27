@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { focusLost } from '../pageFocus'
 
 /**
@@ -12,7 +12,9 @@ import { focusLost } from '../pageFocus'
 export function useActionFocus() {
   const target = useRef<(() => HTMLElement | null) | null>(null)
   const [request, setRequest] = useState(0)
-  useEffect(() => {
+  // In the commit that shows the outcome, not an effect a task later: a check
+  // made as soon as it is shown finds the focus moved.
+  useLayoutEffect(() => {
     const find = target.current
     target.current = null
     const element = find?.()

@@ -9,7 +9,7 @@ import {
   correctableFindRefusal, correctableRoutes, DISCOVERED_BY, lagosDay, lateCorrectionLines, lateCorrectionRowLines,
   lateWrongPatientRefusal, REFERENCE_PATTERN, REFERENCE_PROBLEM, returnedDays, routeDay, WRONG_PATIENT_REASONS,
 } from '../orderRoutes'
-import { BUSY, QUIET_UNAVAILABLE, UNAVAILABLE } from '../focus'
+import { BUSY, QUIET_UNAVAILABLE, UNAVAILABLE, useFocusById } from '../focus'
 import { learnLateCorrectionServed } from '../../lateCorrectionServed'
 import { useCannotCompleteServed } from '../../cannotCompleteServed'
 import { ItemName } from '../../ItemName'
@@ -263,8 +263,8 @@ export function LateWrongPatient({ service, facilityId, onEnded, onCorrected, on
   const cannotServed = useCannotCompleteServed() === true && Boolean(onNotCompleted)
   const [rowError, setRowError] = useState<{ routeId: string; text: string } | null>(null)
 
-  /** Focus, once rendered, on an element of this section (a row's first line, or what the section says). */
-  const focusSoon = (target: string) => { window.setTimeout(() => document.getElementById(target)?.focus(), 0) }
+  /** Focus, in the commit that shows it, on a row's first line or button, or on what the section says. */
+  const focus = useFocusById()
 
   /**
    * Reads the lookup for a reference (audited): on Find, and again after a refusal that says the order moved on. `said` is
@@ -284,10 +284,10 @@ export function LateWrongPatient({ service, facilityId, onEnded, onCorrected, on
       if (said && !allows(row, said.keeps)) {
         if (row) {
           setRowError({ routeId: row.id, text: said.text })
-          focusSoon(`${id}-${row.id}-title`)
+          focus(`${id}-${row.id}-title`)
         } else {
           setError(said.text)
-          focusSoon(`${id}-error`)
+          focus(`${id}-error`)
         }
       }
     } catch (caught) {
@@ -295,7 +295,7 @@ export function LateWrongPatient({ service, facilityId, onEnded, onCorrected, on
       if (refusal.missing) learnLateCorrectionServed(false)
       setFound(null); setOpened(null)
       setError(said ? `${said.text} ${refusal.text}` : refusal.text)
-      if (said) focusSoon(`${id}-error`)
+      if (said) focus(`${id}-error`)
     } finally { setBusy(false) }
   }
 
@@ -332,7 +332,7 @@ export function LateWrongPatient({ service, facilityId, onEnded, onCorrected, on
   const again = async (said?: Said) => { if (found) await find(found.reference, said) }
   const close = (routeId: string, opener = 'open') => {
     setOpened(null)
-    window.setTimeout(() => document.getElementById(`${id}-${routeId}-${opener}`)?.focus(), 0)
+    focus(`${id}-${routeId}-${opener}`)
   }
 
   return <details className="staff-late-correction" id={id}>

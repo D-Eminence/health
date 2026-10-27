@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
 import { ORGANIZATION_TYPE_NOTES, organizationTypeNote, ProviderEnrollment } from './ProviderEnrollment'
+import { focusWhenShown } from '../../__tests__/focusWhenShown'
 
 /**
  * The portal's self-service provider enrollment (/provider/enroll), which the
@@ -54,6 +55,22 @@ beforeEach(() => {
   staffEnvironment.supportContact = 'mailto:support@healthidentitydirectory.com'
 })
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); vi.useRealTimers() })
+
+// A request answered outside act, as a fetch's answer arrives, renders in one task and would run its effects in a later one.
+const environment = globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+afterEach(() => { environment.IS_REACT_ACT_ENVIRONMENT = undefined })
+function answer(settle: () => void) {
+  environment.IS_REACT_ACT_ENVIRONMENT = false
+  settle()
+}
+
+/** A request's answer, settled from the test. */
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (reason: unknown) => void
+  const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail })
+  return { promise, resolve, reject }
+}
 
 function open(entry = '/provider/enroll') {
   render(<MemoryRouter initialEntries={[entry]}><Routes>
@@ -279,6 +296,20 @@ describe('provider enrollment activation, then the authenticator (hid-system #71
     expect(reload).not.toHaveBeenCalled()
     // No session was set.
     expect(TabChannel.posted).toEqual([])
+  })
+
+  // The panel's heading takes focus in the commit that shows it: from an effect a task later, a check made as soon as it
+  // was shown found focus still where it was (health#16's CI, on another page).
+  it('has focus on “Sign in to finish setting up” as soon as it is shown', async () => {
+    const started = deferred<never>()
+    staff.startEnrollment.mockReturnValueOnce(started.promise)
+    await activate('mfa_enrollment_required')
+    await stepShown('Set up an authenticator app')
+    fireEvent.click(screen.getByRole('button', { name: 'Begin setup' }))
+    const shown = focusWhenShown(() => screen.queryByRole('heading', { name: 'Sign in to finish setting up' }))
+    answer(() => started.reject(new HidApiError(401, 'Sign in again to continue', { code: 'MFA_CHALLENGE_INVALID' })))
+    const { element, focused } = await shown
+    expect(focused).toBe(element)
   })
 })
 
@@ -1682,6 +1713,21 @@ describe('facility self sign-up on Novu (P4)', () => {
         expect(api.start).toHaveBeenLastCalledWith(expect.objectContaining({ organizationType: 'clinic' }))
       })
     })
+  })
+})
+
+describe('a panel that replaces the step before it', () => {
+  // Its heading takes focus in the commit that shows it: from an effect a task later, a check made as soon as it was
+  // shown found focus still where it was (health#16's CI, on another page).
+  it('has focus on “Facility sign-up isn’t open right now” as soon as Identity says so', async () => {
+    vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
+    const asked = deferred<unknown>()
+    api.availability.mockReturnValueOnce(asked.promise)
+    open()
+    const shown = focusWhenShown(() => screen.queryByRole('heading', { name: 'Facility sign-up isn’t open right now' }))
+    answer(() => asked.resolve({ open: false, reason: 'closed' }))
+    const { element, focused } = await shown
+    expect(focused).toBe(element)
   })
 })
 

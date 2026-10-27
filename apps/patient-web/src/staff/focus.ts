@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useLayoutEffect, useState } from 'react'
 import { focusLost } from '../pageFocus'
 import { useStaff } from './App'
 
@@ -38,9 +38,11 @@ interface FocusRequest { readonly ids: readonly string[]; readonly ifLost: boole
 export function useFocusById() {
   const { lock } = useStaff()
   const [request, setRequest] = useState<FocusRequest | null>(null)
-  useEffect(() => {
+  // In the commit that shows the target, not an effect a task later: a check made as soon as it is shown finds the
+  // focus moved. Clearing the request renders again at once, and that render, with no request, leaves focus alone.
+  useLayoutEffect(() => {
     if (!request || lock != null) return
-    // Clears only the request handled here: one made since (a press handled before this effect ran) keeps its turn.
+    // Clears only the request handled here: one made since (by a layout effect earlier in this commit) keeps its turn.
     setRequest(current => current === request ? null : current)
     const target = request.ids.map(id => document.getElementById(id)).find(element => element !== null) ?? null
     if (!request.ifLost || focusIsLost(target)) target?.focus()

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { useDocumentTitle } from '../../authSteps'
 import { servesClinicianApplications } from '../../backendContract'
@@ -167,9 +167,11 @@ function StatusPage() {
   // Once, as the page opens.
   useEffect(() => { void load({ initial: true }) }, [])
 
-  useEffect(() => { if (notice) noticeLine.current?.focus() }, [notice])
+  // Focus moves in the commit that shows what takes it, not an effect a task later: a check made as soon as it is shown
+  // finds the focus moved.
+  useLayoutEffect(() => { if (notice) noticeLine.current?.focus() }, [notice])
 
-  useEffect(() => { if (focusRequest) document.getElementById(focusRequest.id)?.focus() }, [focusRequest])
+  useLayoutEffect(() => { if (focusRequest) document.getElementById(focusRequest.id)?.focus() }, [focusRequest])
 
   async function retry(fromList: boolean) {
     setBusy('reload')
@@ -382,7 +384,9 @@ function WithdrawDialog({ view, busy, error, onConfirm, onCancel }: {
 }) {
   const dialog = useRef<HTMLDivElement>(null)
   const keep = useRef<HTMLButtonElement>(null)
-  useEffect(() => {
+  // In the commits that open and close the dialog, not effects a task later: a check made as soon as the dialog opens, or
+  // as soon as it is gone, finds the focus moved.
+  useLayoutEffect(() => {
     const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
     keep.current?.focus()
     return () => { if (opener?.isConnected) opener.focus() }
@@ -443,7 +447,7 @@ function ApplyAnother({ account, onApplied, takeOver, onWorking, onClosed }: {
   const submission = useRef<{ key: string; fingerprint: string } | null>(null)
   // Where focus goes after a refusal that keeps the form: its button was disabled while busy.
   const [focusRequest, setFocusRequest] = useState<{ id: string; count: number } | null>(null)
-  useEffect(() => { if (focusRequest) document.getElementById(focusRequest.id)?.focus() }, [focusRequest])
+  useLayoutEffect(() => { if (focusRequest) document.getElementById(focusRequest.id)?.focus() }, [focusRequest])
   const focusOn = (id: string) => setFocusRequest(previous => ({ id, count: (previous?.count ?? 0) + 1 }))
 
   if (!account.canApply) {

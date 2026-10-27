@@ -1,7 +1,8 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
+import { focusWhenShown } from '../../__tests__/focusWhenShown'
 import { ClinicianAuthenticator, type ClinicianAuthenticatorProps } from './ClinicianAuthenticator'
 
 /**
@@ -287,5 +288,79 @@ describe('opening the step again (P9)', () => {
     await stepShown('Start the authenticator step')
     fireEvent.click(screen.getByRole('button', { name: 'Start again' }))
     await stepShown('Enter a code from your authenticator app')
+  })
+})
+
+/**
+ * Each step, the recovery codes and a refused code take focus in the commit that shows them. From an effect, focus moved
+ * a task after a render that followed a request, and a check made as soon as the step was shown (findBy on a busy
+ * runner, as on health#16's CI) found it still on the step before. Each test answers the request outside act, as a
+ * fetch's answer arrives, and reads focus at the moment what follows is shown.
+ */
+describe('focus as soon as what follows an answer is shown', () => {
+  const environment = globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+  afterEach(() => { environment.IS_REACT_ACT_ENVIRONMENT = undefined })
+
+  function deferred<T>() {
+    let resolve!: (value: T) => void
+    let reject!: (reason: unknown) => void
+    const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail })
+    return { promise, resolve, reject }
+  }
+
+  /** Presses a button the way a keyboard user does: focused, then activated. */
+  async function press(name: string) {
+    const button = screen.getByRole('button', { name })
+    button.focus()
+    await act(async () => { fireEvent.click(button) })
+  }
+
+  /** Settles a request outside act: React renders the outcome in one task and would run its effects in a later one. */
+  function answer(settle: () => void) {
+    environment.IS_REACT_ACT_ENVIRONMENT = false
+    settle()
+  }
+
+  it('has focus on the next step\'s heading as soon as the step is shown (StepHeading)', async () => {
+    const sent = deferred<{ accepted: true; channel: 'email'; expiresAt: string }>()
+    api.authenticator.sendEmailCode.mockReturnValueOnce(sent.promise)
+    show('enrol')
+    await stepShown('Set up your authenticator')
+    await press('Email me a code')
+    const shown = focusWhenShown(() => screen.queryByRole('heading', { name: 'Enter the code we emailed you' }))
+    answer(() => sent.resolve({ accepted: true, channel: 'email', expiresAt: '2026-10-15T09:10:00.000Z' }))
+    const { element, focused } = await shown
+    expect(focused).toBe(element)
+  })
+
+  it('has focus on the recovery codes\' heading as soon as they are shown', async () => {
+    const activated = deferred<typeof ACCOUNT & { recoveryCodes: string[] }>()
+    api.authenticator.activate.mockReturnValueOnce(activated.promise)
+    show('enrol')
+    await stepShown('Set up your authenticator')
+    fireEvent.click(screen.getByRole('button', { name: 'Email me a code' }))
+    await stepShown('Enter the code we emailed you')
+    typeCode('Email code', '654321')
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    await stepShown('Add Health ID to your authenticator app')
+    typeCode('Authenticator code', '112233')
+    await press('Activate authenticator')
+    const shown = focusWhenShown(() => screen.queryByRole('heading', { name: 'Save your recovery codes' }))
+    answer(() => activated.resolve({ ...ACCOUNT, recoveryCodes: ['ABCDE-FGHJK', 'MNPQR-STVWX'] }))
+    const { element, focused } = await shown
+    expect(focused).toBe(element)
+  })
+
+  it('has focus on the field as soon as its refused code is said (useStepProblems)', async () => {
+    const verified = deferred<typeof ACCOUNT>()
+    api.authenticator.verify.mockReturnValueOnce(verified.promise)
+    show('verify')
+    await stepShown('Enter a code from your authenticator app')
+    typeCode('Authenticator code', '123456')
+    await press('Verify')
+    const shown = focusWhenShown(() => screen.queryByText(/^That code was not accepted\. Each code works once/))
+    answer(() => verified.reject(problem(401, 'MFA_INVALID_CODE')))
+    const { focused } = await shown
+    expect(focused).toBe(screen.getByLabelText(/^Authenticator code/))
   })
 })

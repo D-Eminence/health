@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { HidApiError } from '@hid/http'
 import { EMPTY_REFERRAL, FACILITY_FIELDS, REFERRER_FIELDS, referralMessage, stepErrors, toReferralSubmission, validateReferral, type ReferralRequest } from '../lib/referral'
@@ -9,6 +9,7 @@ vi.mock('@/lib/env', () => ({ getEnvironment: () => ({ name: 'local', turnstileS
 vi.mock('@/components/shared/TurnstileWidget', () => ({ TurnstileWidget: () => null }))
 
 import { ReferralForm } from '../components/referral/ReferralForm'
+import { focusWhenShown } from './focusWhenShown'
 
 const FILLED: ReferralRequest = {
   ...EMPTY_REFERRAL,
@@ -155,6 +156,44 @@ describe('referral form', () => {
     const input = document.querySelector('[name="facilityName"]')!
     expect(input.getAttribute('aria-invalid')).toBe('true')
     await waitFor(() => expect(document.activeElement).toBe(input))
+  })
+
+  // What follows a sent referral takes focus in the commit that shows it. From an
+  // effect, after the request's answer, it took focus a task later, and a check
+  // made as soon as it was shown found focus still on the page. Each answer here
+  // arrives outside act, as a fetch's does.
+  describe('when the answer arrives', () => {
+    const environment = globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+    afterEach(() => { environment.IS_REACT_ACT_ENVIRONMENT = undefined })
+    function pending() {
+      let resolve!: () => void
+      let reject!: (reason: Error) => void
+      submitDemoRequest.mockReturnValueOnce(new Promise<void>((done, fail) => { resolve = done; reject = fail }))
+      return {
+        resolve: () => { environment.IS_REACT_ACT_ENVIRONMENT = false; resolve() },
+        reject: (reason: Error) => { environment.IS_REACT_ACT_ENVIRONMENT = false; reject(reason) },
+      }
+    }
+
+    it('has focus on the thanks as soon as it is shown', async () => {
+      const answer = pending()
+      render(<ReferralForm />)
+      await sendFilled()
+      const shown = focusWhenShown(() => screen.queryByRole('heading', { name: 'Thank you. Your referral is in.' }))
+      answer.resolve()
+      const { element, focused } = await shown
+      expect(focused).toBe(element)
+    })
+
+    it('has focus on the refused facility’s name as soon as its step is shown', async () => {
+      const answer = pending()
+      render(<ReferralForm />)
+      await sendFilled()
+      const shown = focusWhenShown('[name="facilityName"]')
+      answer.reject(refused('organizationName'))
+      const { element, focused } = await shown
+      expect(focused).toBe(element)
+    })
   })
 
   it('keeps the backend’s message when the refused field is not one the referrer typed', async () => {

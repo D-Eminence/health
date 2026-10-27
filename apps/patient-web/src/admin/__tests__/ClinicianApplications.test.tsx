@@ -5,6 +5,7 @@ import { HidApiError } from '@hid/http'
 import { ClinicianApplicationPage, ClinicianApplicationsPage } from '../ClinicianApplications'
 import type { AdminActor, ClinicianApplicationDetail, ClinicianApplicationSummary } from '../api'
 import { StepUpProvider } from '../StepUp'
+import { focusWhenShown } from '../../__tests__/focusWhenShown'
 
 /**
  * The clinician verification queue (hid-system ADR-066, branch
@@ -688,5 +689,43 @@ describe('changed, replayed and unanswered commands', () => {
       .toBe('Applicant asked to stop the review')
     expect(api.rejectClinicianApplication).toHaveBeenCalledTimes(1)
     expect(api.clinicianApplication).toHaveBeenCalledTimes(1)
+  })
+})
+
+/**
+ * Focus moves to an outcome in the commit that shows it. From an effect, it moved a task after the render that
+ * followed the command's answer, and a check made as soon as the outcome was shown (findBy on a busy runner) found it
+ * elsewhere. The answer is given outside act, as a fetch's arrives, and focus is read at the moment the outcome is shown.
+ */
+describe('focus as soon as an outcome is shown', () => {
+  const environment = globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+  const actEnvironment = environment.IS_REACT_ACT_ENVIRONMENT
+  afterEach(() => { environment.IS_REACT_ACT_ENVIRONMENT = actEnvironment })
+
+  it('has focus on the outcome as soon as it is shown', async () => {
+    let answer: (value: unknown) => void = () => {}
+    api.approveClinicianApplication.mockRejectedValueOnce(new HidApiError(0, 'Network', { code: 'NETWORK_ERROR' }))
+      .mockReturnValueOnce(new Promise(resolve => { answer = resolve }))
+    await openDetail(underReview())
+    api.clinicianApplication.mockResolvedValueOnce(underReview())
+      .mockResolvedValueOnce(detail({ state: 'approved', version: 5, accessState: 'active' }))
+    type('Reason for approval', 'Step 1 evidence reviewed')
+    const approve = screen.getByRole('button', { name: 'Approve and give access' })
+    approve.focus()
+    // A lost answer first, so the press that approves clears an outcome on screen. A press with none to clear leaves
+    // the page an update React renders straight after the answer's render, running every effect at once: there an
+    // effect cannot be told from a layout effect.
+    fireEvent.click(approve)
+    await screen.findByText(/^We couldn’t confirm whether this step was recorded\./)
+    await waitFor(() => expect(screen.queryByText('Refreshing current information…')).toBeNull())
+    approve.focus()
+    fireEvent.click(approve)
+    const shown = focusWhenShown(() => screen.queryByText(/^Approved\./))
+    environment.IS_REACT_ACT_ENVIRONMENT = false
+    answer({ applicationId: ID, state: 'approved', accountId: 'account-c', facilityId: 'facility-1',
+      membershipId: 'membership-1', roleCode: 'doctor', attestationId: 'attestation-1', version: 5, replayed: false })
+    const { element, focused } = await shown
+    expect(focused).toBe(element)
+    expect(await screen.findByText('Active: they can sign in at this facility')).toBeTruthy()
   })
 })

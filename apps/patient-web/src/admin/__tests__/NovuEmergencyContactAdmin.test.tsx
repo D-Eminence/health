@@ -8,6 +8,7 @@ import { EmergencyContactAlertsPage } from '../EmergencyContacts'
 import { FacilityDetailPage } from '../Facilities'
 import { canOpen, navigationItemFor, visibleNavigation } from '../navigation'
 import { StepUpProvider } from '../StepUp'
+import { focusWhenShown } from '../../__tests__/focusWhenShown'
 
 /**
  * hid-system #109's emergency-contact administration, which only Novu (staging-novu-ci-20261005) serves: the phone an
@@ -246,5 +247,55 @@ describe('stopping alerts to a person', () => {
     vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'main-v1')
     expect(titles(support)).not.toContain('Emergency contact alerts')
     expect(canOpen(navigationItemFor('/admin/emergency-contacts')!, support)).toBe(false)
+  })
+})
+
+/**
+ * Focus moves to a refused field in the commit that marks it refused. From an effect, it moved a task after the render
+ * that followed the refusal, and a check made as soon as the field was marked (findBy on a busy runner) found focus
+ * elsewhere. The refusal is given outside act, as a fetch's answer arrives, and focus is read at the moment the field
+ * is marked.
+ */
+describe('focus as soon as a refusal is shown', () => {
+  const environment = globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+  const actEnvironment = environment.IS_REACT_ACT_ENVIRONMENT
+  afterEach(() => { environment.IS_REACT_ACT_ENVIRONMENT = actEnvironment })
+  const refused = (field: HTMLElement) => () => field.getAttribute('aria-invalid') === 'true' ? field : null
+
+  it('has focus on the alert phone field as soon as it is marked refused', async () => {
+    let refuse: (reason: unknown) => void = () => {}
+    mocks.api.facility.mockResolvedValue(facility())
+    mocks.api.setFacilityAlertPhone.mockReturnValueOnce(new Promise((_resolve, reject) => { refuse = reject }))
+    open(<FacilityDetailPage actor={actor(['platform.facility.manage'])} />)
+    const section = await alertPhone()
+    const phone = section.getByLabelText('Facility phone number')
+    fireEvent.change(phone, { target: { value: '12345' } })
+    fireEvent.change(section.getByLabelText('Reason for changing the alert phone number'), { target: { value: 'Front desk line confirmed' } })
+    const save = section.getByRole('button', { name: 'Save alert phone number' })
+    save.focus()
+    fireEvent.click(save)
+    const shown = focusWhenShown(refused(phone))
+    environment.IS_REACT_ACT_ENVIRONMENT = false
+    refuse(new HidApiError(400, 'Enter the facility phone in international format (+234...) or as an 11-digit number starting '
+      + 'with 0', { code: 'ADMIN_INVALID_FACILITY_PHONE' }))
+    const { element, focused } = await shown
+    expect(focused).toBe(element)
+  })
+
+  it('has focus on the address field as soon as it is marked refused', async () => {
+    let refuse: (reason: unknown) => void = () => {}
+    mocks.api.optOutEmergencyContact.mockReturnValueOnce(new Promise((_resolve, reject) => { refuse = reject }))
+    open(<EmergencyContactAlertsPage />, '/admin/emergency-contacts', '/admin/emergency-contacts')
+    const address = screen.getByLabelText('Email address')
+    fireEvent.change(address, { target: { value: 'ada@example' } })
+    fireEvent.change(screen.getByLabelText('Reason for stopping these alerts'), { target: { value: 'Recipient called support' } })
+    const stop = screen.getByRole('button', { name: 'Stop alerts' })
+    stop.focus()
+    fireEvent.click(stop)
+    const shown = focusWhenShown(refused(address))
+    environment.IS_REACT_ACT_ENVIRONMENT = false
+    refuse(new HidApiError(400, 'Enter a valid email address', { code: 'EMERGENCY_CONTACT_DESTINATION_INVALID' }))
+    const { element, focused } = await shown
+    expect(focused).toBe(element)
   })
 })

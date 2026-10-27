@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { isHidApiError } from '@hid/http'
 
 /**
@@ -14,7 +14,9 @@ import { isHidApiError } from '@hid/http'
 export function useStepFocus() {
   const target = useRef<HTMLElement | null>(null)
   const [request, setRequest] = useState(0)
-  useEffect(() => {
+  // In the commit that shows the step, not an effect a task later: a check made
+  // as soon as it is shown finds the focus moved.
+  useLayoutEffect(() => {
     const element = target.current
     if (!request || !element?.isConnected) return
     const active = document.activeElement

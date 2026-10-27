@@ -56,6 +56,25 @@ const NO_CONSOLE = {
     'Use the logger from @hid/observability. It redacts identifying and clinical fields before anything reaches a console, a breadcrumb or an error report.',
 }
 
+// A .focus() written inside the callback is caught; one reached through a helper or a
+// named callback (setTimeout(focusTitle)) is not: review catches those. A request from
+// useStepFocus (stepFocus.focus(), pinFocus.focus()) is the fix, not the pattern, and
+// is told apart by its name.
+const FOCUS_CALL = "CallExpression[callee.property.name='focus']:not([callee.object.name=/Focus$/])" +
+  // A listener the effect adds (a key or pointer handler) runs when its event fires, not a task after a render.
+  ":not(CallExpression[callee.property.name='addEventListener'] > :function CallExpression)"
+
+const NO_DEFERRED_FOCUS = {
+  selector: [
+    "CallExpression[callee.name='useEffect']",
+    "CallExpression[callee.object.name='React'][callee.property.name='useEffect']",
+    "CallExpression[callee.name=/^(setTimeout|requestAnimationFrame)$/]",
+    "CallExpression[callee.object.name=/^(window|globalThis|self)$/][callee.property.name=/^(setTimeout|requestAnimationFrame)$/]",
+  ].map(later => `${later} > :function ${FOCUS_CALL}`).join(', '),
+  message:
+    'Do not move focus from a useEffect, a setTimeout or a requestAnimationFrame callback. Each runs a task after the commit that shows the element, so anything that looks at focus as soon as the element is shown (a test, a key pressed at once) finds it still where it was, as in health#16. Move the focus into a useLayoutEffect, or make it a focus request handled in one. A timer kept on purpose says why in an eslint-disable comment.',
+}
+
 export default tseslint.config(
   {
     ignores: [
@@ -86,7 +105,7 @@ export default tseslint.config(
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
       ],
       eqeqeq: ['error', 'always', { null: 'ignore' }],
-      'no-restricted-syntax': ['error', NO_RAW_FETCH, NO_BROWSER_STORAGE, NO_INDEXED_DB, NO_SERVICE_WORKER, NO_CACHE_STORAGE, NO_CONSOLE],
+      'no-restricted-syntax': ['error', NO_RAW_FETCH, NO_BROWSER_STORAGE, NO_INDEXED_DB, NO_SERVICE_WORKER, NO_CACHE_STORAGE, NO_CONSOLE, NO_DEFERRED_FOCUS],
 
       'no-restricted-imports': [
         'error',
@@ -121,24 +140,24 @@ export default tseslint.config(
     // The transport layer is where fetch is allowed to exist. That is the point
     // of having a transport layer.
     files: ['packages/http/src/client.ts'],
-    rules: { 'no-restricted-syntax': ['error', NO_BROWSER_STORAGE, NO_INDEXED_DB, NO_SERVICE_WORKER, NO_CACHE_STORAGE, NO_CONSOLE] },
+    rules: { 'no-restricted-syntax': ['error', NO_BROWSER_STORAGE, NO_INDEXED_DB, NO_SERVICE_WORKER, NO_CACHE_STORAGE, NO_CONSOLE, NO_DEFERRED_FOCUS] },
   },
   {
     // The logger is the sanctioned console call.
     files: ['packages/observability/src/logger.ts'],
-    rules: { 'no-restricted-syntax': ['error', NO_RAW_FETCH, NO_BROWSER_STORAGE, NO_INDEXED_DB, NO_SERVICE_WORKER, NO_CACHE_STORAGE] },
+    rules: { 'no-restricted-syntax': ['error', NO_RAW_FETCH, NO_BROWSER_STORAGE, NO_INDEXED_DB, NO_SERVICE_WORKER, NO_CACHE_STORAGE, NO_DEFERRED_FOCUS] },
   },
   {
     // The session module owns the portal hint, the single permitted persisted value.
     files: ['packages/auth/src/session.ts'],
-    rules: { 'no-restricted-syntax': ['error', NO_RAW_FETCH, NO_INDEXED_DB, NO_SERVICE_WORKER, NO_CACHE_STORAGE, NO_CONSOLE] },
+    rules: { 'no-restricted-syntax': ['error', NO_RAW_FETCH, NO_INDEXED_DB, NO_SERVICE_WORKER, NO_CACHE_STORAGE, NO_CONSOLE, NO_DEFERRED_FOCUS] },
   },
   {
     // The script that retires an earlier HID service worker (no Health ID page
     // registers it): a classic worker script that deletes that app's caches.
     files: ['apps/*/public/service-worker.js'],
     languageOptions: { sourceType: 'script', globals: { self: 'readonly', caches: 'readonly' } },
-    rules: { 'no-restricted-syntax': ['error', NO_RAW_FETCH, NO_BROWSER_STORAGE, NO_INDEXED_DB, NO_SERVICE_WORKER, NO_CONSOLE] },
+    rules: { 'no-restricted-syntax': ['error', NO_RAW_FETCH, NO_BROWSER_STORAGE, NO_INDEXED_DB, NO_SERVICE_WORKER, NO_CONSOLE, NO_DEFERRED_FOCUS] },
   },
   {
     // Tests construct fake transports and assert on storage behaviour.

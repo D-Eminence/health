@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useState, type FormEvent, type ReactNode } from 'react'
 import { isHidApiError } from '@hid/http'
 import { Field, Input } from '@hid/ui'
 import { Turnstile } from '../../Turnstile'
@@ -68,7 +68,8 @@ export function EmailCode<Answer>({ idPrefix, action, email, onEmail, focusFirst
     return () => clearTimeout(timer)
   }, [challenge])
 
-  useEffect(() => { if (focusRequest) document.getElementById(focusRequest.id)?.focus() }, [focusRequest])
+  // In the commit that shows the refusal, not an effect a task later: a check made as soon as it is shown finds the focus moved.
+  useLayoutEffect(() => { if (focusRequest) document.getElementById(focusRequest.id)?.focus() }, [focusRequest])
 
   function moveTo(next: EmailCodeStage) {
     setStage(next)

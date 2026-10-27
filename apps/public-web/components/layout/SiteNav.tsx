@@ -11,7 +11,7 @@ import ChevronDownIcon from '@hugeicons/core-free-icons/ChevronDownIcon'
 import { EASE_OUT } from '@/lib/ease'
 import { SharedLayoutBg } from '@/components/motion/shared-layout-bg'
 import { HealthIcon, type HealthIconName } from '@/components/shared/HealthIcon'
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { cx } from '@hid/ui'
 import { HeroDemoButton } from '@/components/shared/HeroDemoButton'
 import { PRODUCTS } from '@/content/products'
@@ -97,6 +97,8 @@ export function SiteNav({ entries, signInHref, signInLabel, action, audience }: 
   const navigationRef = useRef<HTMLDivElement>(null)
   const mobileMenuTriggerRef = useRef<HTMLButtonElement>(null)
   const desktopMenuTriggerRef = useRef<HTMLButtonElement | null>(null)
+  // The trigger Escape returns focus to, once its menu has closed.
+  const escapedFromRef = useRef<HTMLButtonElement | null>(null)
 
   // The navigation stays opaque at every scroll position so its compact
   // controls remain legible without introducing decorative glass effects.
@@ -120,14 +122,14 @@ export function SiteNav({ entries, signInHref, signInLabel, action, audience }: 
       }
     }
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return
+      // An Escape the search palette above the menu has already taken closes only the palette.
+      if (event.key !== 'Escape' || event.defaultPrevented) return
 
       event.preventDefault()
-      const trigger = menuOpen ? mobileMenuTriggerRef.current : desktopMenuTriggerRef.current
+      escapedFromRef.current = menuOpen ? mobileMenuTriggerRef.current : desktopMenuTriggerRef.current
       setOpenMenu(null)
       setMenuOpen(false)
       setMobileOpenGroup(null)
-      requestAnimationFrame(() => trigger?.focus())
     }
 
     document.addEventListener('pointerdown', onPointerDown)
@@ -136,6 +138,14 @@ export function SiteNav({ entries, signInHref, signInLabel, action, audience }: 
       document.removeEventListener('pointerdown', onPointerDown)
       document.removeEventListener('keydown', onKeyDown)
     }
+  }, [menuOpen, openMenu])
+
+  // In the commit that closes the menu, not a frame later: the trigger already
+  // reads as collapsed, and a check made as soon as it does finds focus on it.
+  useLayoutEffect(() => {
+    const trigger = escapedFromRef.current
+    escapedFromRef.current = null
+    trigger?.focus()
   }, [menuOpen, openMenu])
 
   useEffect(() => {

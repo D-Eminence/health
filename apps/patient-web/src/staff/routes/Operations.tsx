@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react'
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { Badge, Button, Card, EmptyState, Field, Input, Select, Textarea } from '@hid/ui'
@@ -626,7 +626,7 @@ function AccessionView({ facilityId, id, permissions: granted, created, routed =
   // once the accession's first read has settled, whether or not that read succeeded.
   const creation = useRef(created)
   // A specimen step reloads the accession, which removes every specimen row until it is
-  // read again; focus goes to the specimen's next step, or the specimen, once it is shown.
+  // read again; focus goes to the specimen's next step, or the specimen, in the commit that shows it.
   const [focusAfterRead, setFocusAfterRead] = useState<readonly string[] | null>(null)
   const focus = useFocusById()
   const [recheck, setRecheck] = useState<LabResultsSignal | null>(null)
@@ -649,7 +649,7 @@ function AccessionView({ facilityId, id, permissions: granted, created, routed =
     const doubt = labResultsReadDoubt(caught)
     if (doubt) setRecheck(previous => ({ reason: doubt, seq: (previous?.seq ?? 0) + 1 }))
   }, [])
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!focusAfterRead || (!accession && !error)) return
     setFocusAfterRead(null)
     focus(accession ? focusAfterRead : 'lab-accession-refresh', true)
@@ -818,8 +818,8 @@ function useRowSaid<T extends { id: string; orderRoute?: WorkItemOrderRoute }>(s
     if (item?.orderRoute && offering.current(pending.mode, item.orderRoute)) return
     setKept({ routeId: pending.routeId, text: pending.text, target: item ? `${service}-${item.id}-said` : `${service}-said` })
   }, [answer, pending, service])
-  // Once said, and rendered, focus moves to it: the form that said it is gone.
-  useEffect(() => { if (kept) document.getElementById(kept.target)?.focus() }, [kept])
+  // Once said, focus moves to it in the commit that shows it: the form that said it is gone.
+  useLayoutEffect(() => { if (kept) document.getElementById(kept.target)?.focus() }, [kept])
   const reread = useCallback(async (routeId: string, mode: OrderEndingMode, text?: string) => {
     setKept(null)
     if (text) setPending({ routeId, mode, text, before: answer })
@@ -1517,12 +1517,12 @@ export function Ocr() {
       .catch(caught => { if (active) setError(errorText(caught, 'OCR review evidence could not be loaded.')) })
     return () => { active = false }
   }, [facilityId, visibleJob?.id, canRead, lookupRevision])
-  // After a step, focus moves to where the work continues once it has rendered: the
+  // After a step, focus moves to where the work continues in the commit that shows it: the
   // job's review evidence is read after the job, and the next step shows only then.
   // While the workspace is locked (hidden and inert) nothing in it can take focus or
   // be heard, so the step waits for it to open. A user who has gone somewhere since
   // the step keeps focus there; the status region still says what was recorded.
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!stepFocus || lock) return
     if (visibleJob && canRead && (extractions === null || validations === null) && !error) return
     const target = stepFocus.targets.map(id => document.getElementById(id)).find(element => element !== null)

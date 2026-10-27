@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useEffect, useState } from 'react'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
@@ -8,7 +8,8 @@ import { RequireAccess } from '../RequireAccess'
 import { createTestSessionValue, SessionContext } from '../session'
 import { createPatientApi, type PatientApi } from '../api'
 import type { PatientPrincipal, StaffPrincipal } from '@hid/auth'
-import { pressOnArrival } from './portalHarness'
+import { focusWhenShown } from './focusWhenShown'
+import { press, pressOnArrival } from './portalHarness'
 
 const patient: PatientPrincipal = {
   kind: 'patient',
@@ -143,6 +144,56 @@ describe('RequireAccess', () => {
     await waitFor(() => expect(pressed()).toBe(true))
     const heading = await screen.findByRole('heading', { level: 1, name: 'Your health, connected.' })
     await waitFor(() => expect(document.activeElement).toBe(heading))
+  })
+
+  /**
+   * Focus after 'Try again' moves in the commit that shows the outcome. From an
+   * effect it moved a task after the render that followed the check's answer, and
+   * a check made as soon as the outcome was shown (findBy on a busy runner) found
+   * focus still on the page. The check is answered outside act, as a fetch's answer
+   * arrives, and focus is read at the moment the outcome is shown.
+   */
+  describe('as soon as the outcome of Try again is shown', () => {
+    const environment = globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+    afterEach(() => { environment.IS_REACT_ACT_ENVIRONMENT = undefined })
+    const failed = 'We could not check your session. Try again.'
+    const unknown: SessionState = { status: 'unknown', principal: null }
+
+    /** A failed session check: 'Try again' checks again, and the check ends as `outcome` once `answered` settles. */
+    function Checking({ answered, outcome }: { answered: Promise<void>; outcome: 'allow' | 'fail' }) {
+      const [value, setValue] = useState<{ state: SessionState; sessionError: string | null }>({ state: unknown, sessionError: failed })
+      const retrySessionCheck = () => {
+        setValue({ state: unknown, sessionError: null })
+        void answered.then(() => setValue(outcome === 'allow'
+          ? { state: { status: 'authenticated', principal: patient }, sessionError: null }
+          : { state: unknown, sessionError: failed }))
+      }
+      return <MemoryRouter><SessionContext.Provider value={{ ...createTestSessionValue(null, stubApi()), ...value, retrySessionCheck }}>
+        <RequireAccess requirement={PATIENT_ROUTE}><main id="main"><h1>Your health, connected.</h1></main></RequireAccess>
+      </SessionContext.Provider></MemoryRouter>
+    }
+
+    /** Answers the check outside act, as a fetch's answer arrives: React renders the outcome in one task and runs its effects in a later one. */
+    async function retryAndAnswer(outcome: 'allow' | 'fail', find: () => HTMLElement | null) {
+      let answer!: () => void
+      render(<Checking answered={new Promise(resolve => { answer = resolve })} outcome={outcome} />)
+      await press(screen.getByRole('button', { name: 'Try again' }))
+      const shown = focusWhenShown(find)
+      environment.IS_REACT_ACT_ENVIRONMENT = false
+      answer()
+      return shown
+    }
+
+    it('has focus on the page that opens as soon as it is shown', async () => {
+      const { element, focused } = await retryAndAnswer('allow',
+        () => screen.queryByRole('heading', { level: 1, name: 'Your health, connected.' }))
+      expect(focused).toBe(element)
+    })
+
+    it('has focus on the new Try again as soon as it is shown after the check fails again', async () => {
+      const { element, focused } = await retryAndAnswer('fail', () => screen.queryByRole('button', { name: 'Try again' }))
+      expect(focused).toBe(element)
+    })
   })
 
   it('redirects an anonymous visitor to sign-in', () => {

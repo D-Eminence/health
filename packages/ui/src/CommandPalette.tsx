@@ -14,6 +14,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -239,19 +240,24 @@ export function CommandPalette({
     return () => document.removeEventListener('keydown', onShortcut)
   }, [keyboardShortcut, setOpen])
 
-  useEffect(() => {
+  // The search field takes focus in the commit that shows the palette, not a
+  // frame later, so a check made as soon as it is shown finds it focused. Where
+  // focus was is noted first, for a palette its host opened.
+  useLayoutEffect(() => {
     if (!isOpen) return
     if (!openerRef.current) {
       const activeElement = document.activeElement
       openerRef.current = activeElement instanceof HTMLElement ? activeElement : null
     }
+    inputRef.current?.focus()
+  }, [isOpen])
 
+  useEffect(() => {
+    if (!isOpen) return
     const originalOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
-    const frame = window.requestAnimationFrame(() => inputRef.current?.focus())
 
     return () => {
-      window.cancelAnimationFrame(frame)
       document.body.style.overflow = originalOverflow
     }
   }, [isOpen])
@@ -269,6 +275,10 @@ export function CommandPalette({
     const restoreFocus = !suppressFocusRestoreRef.current
     suppressFocusRestoreRef.current = false
     if (restoreFocus && opener?.isConnected) {
+      // A frame later, deliberately: a press on the backdrop closes the palette
+      // during mousedown, and the browser's own focus handling for that press,
+      // which runs after it, would otherwise take focus straight off the opener.
+      // eslint-disable-next-line no-restricted-syntax -- the frame is the point: the backdrop press's own focus handling has to run first.
       window.requestAnimationFrame(() => opener.focus())
     }
   }, [isOpen])

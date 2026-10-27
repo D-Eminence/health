@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ButtonHTMLAttributes, type FormEvent, type ReactNode } from 'react'
+import { useLayoutEffect, useRef, useState, type ButtonHTMLAttributes, type FormEvent, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { Field, Input } from '@hid/ui'
@@ -169,7 +169,8 @@ function useStepProblems(carried: string | null) {
   const [error, setError] = useState(carried ? shownError(carried) : null)
   const [problem, setProblem] = useState<FieldProblem | null>(null)
   const [focusRequest, setFocusRequest] = useState<{ id: string; count: number } | null>(null)
-  useEffect(() => { if (focusRequest) document.getElementById(focusRequest.id)?.focus() }, [focusRequest])
+  // In the commit that shows the refusal, not an effect a task later: a check made as soon as it is shown finds the focus moved.
+  useLayoutEffect(() => { if (focusRequest) document.getElementById(focusRequest.id)?.focus() }, [focusRequest])
   return {
     error,
     problem,
@@ -326,7 +327,7 @@ function RecoveryStep({ activation, doneLabel, onDone }: {
   activation: ClinicianActivation; doneLabel: string; onDone(account: ClinicianAccountView): void
 }) {
   const heading = useRef<HTMLHeadingElement>(null)
-  useEffect(() => { heading.current?.focus() }, [])
+  useLayoutEffect(() => { heading.current?.focus() }, [])
   const done = useRef(false)
   function finish() {
     if (done.current) return

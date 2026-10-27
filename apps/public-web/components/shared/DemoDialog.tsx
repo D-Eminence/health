@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Button, Display, IconButton, cx } from '@hid/ui'
 import { HealthIcon } from './HealthIcon'
 import { TurnstileWidget } from './TurnstileWidget'
@@ -47,6 +47,9 @@ export function DemoDialog() {
   // closed, on most pages, which would otherwise each render a hidden widget (a
   // second one beside a page's own form), and each opening needs a fresh token.
   const [isOpen, setIsOpen] = useState(false)
+  // The first field to correct after a failed attempt; a new request each time, so
+  // that every attempt moves focus.
+  const [correct, setCorrect] = useState<{ readonly name: keyof DemoRequest } | null>(null)
   const submissionKeyRef = useRef<string | null>(null)
   const environment = getEnvironment()
   const siteKey = environment.turnstileSiteKey
@@ -65,8 +68,16 @@ export function DemoDialog() {
     submissionKeyRef.current = null
     const opener = openerRef.current
     openerRef.current = null
-    if (opener?.isConnected) requestAnimationFrame(() => opener.focus())
+    // At once rather than a frame later: the opener is already on the page, so a
+    // check made as soon as the dialog has closed finds focus back on it.
+    if (opener?.isConnected) opener.focus()
   }, [])
+
+  // In the commit that marks the field, not a frame later: a check made as soon as
+  // its error is shown finds the focus moved.
+  useLayoutEffect(() => {
+    if (correct) dialogRef.current?.querySelector<HTMLElement>(`[name="${correct.name}"]`)?.focus()
+  }, [correct])
 
   useEffect(() => {
     const open = (opener: HTMLElement) => {
@@ -111,7 +122,7 @@ export function DemoDialog() {
       // Nothing announces the errors: the first field to correct takes focus once
       // it is marked, and its error is read with it.
       const first = FIELD_ORDER.find(name => found[name])
-      if (first) requestAnimationFrame(() => dialogRef.current?.querySelector<HTMLElement>(`[name="${first}"]`)?.focus())
+      if (first) setCorrect({ name: first })
       return
     }
     const localToken = localNoWidget && ['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname)

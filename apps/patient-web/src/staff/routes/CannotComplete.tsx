@@ -8,7 +8,7 @@ import {
 import {
   cannotCompleteEndedLines, cannotCompleteMustPhone, cannotCompleteReadText, cannotCompleteReasons, cannotCompleteRefusal,
 } from '../orderRoutes'
-import { BUSY, QUIET_UNAVAILABLE, UNAVAILABLE } from '../focus'
+import { BUSY, QUIET_UNAVAILABLE, UNAVAILABLE, useFocusById } from '../focus'
 import { learnCannotCompleteServed, useCannotCompleteServed } from '../../cannotCompleteServed'
 import { ItemName } from '../../ItemName'
 import { WrongPatientForm } from './WrongPatient'
@@ -247,17 +247,18 @@ export function OrderEndingActions({ base, service, facilityId, route, title, pa
   useEffect(() => { if (opened && !shown) setOpened(null) }, [opened, shown])
   const wrongPatientId = `${base}-wrong-patient`
   const cannotCompleteId = `${base}-cannot-complete`
-  const back = (target: string) => { window.setTimeout(() => document.getElementById(target)?.focus(), 0) }
+  // Cancel gives focus back to the button that opened the form, in the commit that shows it again.
+  const focus = useFocusById()
   if (shown === 'wrong_patient') return <WrongPatientForm id={wrongPatientId} service={service} facilityId={facilityId}
     route={route} patient={patient} ordering={ordering} dispensed={dispensed} cannotComplete={cannotComplete ? 'row' : undefined}
     onEnded={onWrongPatientEnded} onStale={said => onReread('wrong_patient', said)} onReload={said => void onReread('wrong_patient', said)}
-    onCancel={() => { setOpened(null); back(`${wrongPatientId}-open`) }} />
+    onCancel={() => { setOpened(null); focus(`${wrongPatientId}-open`) }} />
   if (shown === 'cannot_complete' && cannotComplete) return <CannotCompleteForm id={cannotCompleteId} service={service}
     facilityId={facilityId} route={route} patient={patient} ordering={ordering} priority={cannotComplete.priority}
     accession={cannotComplete.accession} acceptedAt={cannotComplete.acceptedAt} specimenStatuses={cannotComplete.specimenStatuses}
     onEnded={onNotCompleted}
     onStale={said => onReread('cannot_complete', said)} onReload={said => onReread('cannot_complete', said)}
-    onCancel={() => { setOpened(null); back(`${cannotCompleteId}-open`) }} />
+    onCancel={() => { setOpened(null); focus(`${cannotCompleteId}-open`) }} />
   return <>
     <div className="staff-row"><Button id={`${wrongPatientId}-open`} tone="secondary" size="sm" className={UNAVAILABLE}
       aria-expanded={false} onClick={() => setOpened('wrong_patient')}>This isn’t the order’s patient

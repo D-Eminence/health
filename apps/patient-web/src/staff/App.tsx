@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { NavLink, Navigate, Outlet, Route, Routes, useHref, useLinkClickHandler, useLocation, useNavigate } from 'react-router-dom'
 import { BrandLogo } from '../BrandLogo'
 import { Badge, Button, ButtonLink, Card, EmptyState, Select } from '@hid/ui'
@@ -146,7 +146,8 @@ export function StaffProvider({ children }: { children: ReactNode }) {
     }
     setStaffSessionReady(next.status === 'ready' && lockRef.current === null)
   }, [setLock])
-  useEffect(() => {
+  // In the commit that opens the workspace, not an effect a task later: a check made as soon as it opens finds the focus given back.
+  useLayoutEffect(() => {
     if (lock !== null) return
     const focused = focusBeforeLock.current
     focusBeforeLock.current = null
@@ -409,7 +410,7 @@ function SessionEnded({ reason }: { reason?: StaffSessionEndReason }) {
   const href = useHref(signIn)
   const follow = useLinkClickHandler(signIn)
   const heading = useRef<HTMLHeadingElement>(null)
-  useEffect(() => { heading.current?.focus() }, [])
+  useLayoutEffect(() => { heading.current?.focus() }, [])
   return <main className="staff-centered"><BrandLogo className="staff-state-logo" />
     <section className="staff-session-ended" aria-labelledby="staff-session-ended-title">
       <h1 id="staff-session-ended-title" ref={heading} tabIndex={-1}>Your session has ended</h1>
@@ -430,7 +431,7 @@ function SessionCheck({ unconfirmed }: { unconfirmed: boolean }) {
   const [signingOut, setSigningOut] = useState(false)
   const [error, setError] = useState('')
   const heading = useRef<HTMLHeadingElement>(null)
-  useEffect(() => { heading.current?.focus() }, [unconfirmed])
+  useLayoutEffect(() => { heading.current?.focus() }, [unconfirmed])
 
   async function leave() {
     if (signingOut) return
@@ -524,7 +525,7 @@ function FacilityChoice({ reason, onChosen }: { reason: FacilityQuestion; onChos
   // once the workspace opens, once. Asked because the facility was found gone, it takes focus wherever
   // it was (Sign out, say): the page and patient closed under the person, and its heading says so.
   const focused = useRef(false)
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (focused.current || lock !== null) return
     focused.current = true
     const active = document.activeElement
@@ -634,7 +635,7 @@ function Shell() {
   // focusing now would reach the old page's heading while the router's transition is
   // pending.
   const [focusHeading, setFocusHeading] = useState(false)
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!focusHeading || lock !== null) return
     setFocusHeading(false)
     const active = document.activeElement

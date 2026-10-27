@@ -1,6 +1,7 @@
 import { act, render, screen, waitFor } from '@testing-library/react'
 import { useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { focusWhenShown } from '../__tests__/focusWhenShown'
 import { useFocusById } from './focus'
 
 vi.mock('./App', () => ({ useStaff: () => ({ lock: null }) }))
@@ -58,5 +59,16 @@ describe('useFocusById', () => {
     act(() => { document.getElementById('find')!.focus() })
     act(() => { screen.getByLabelText('Reason').dispatchEvent(new Event('input', { bubbles: true })) })
     expect(document.activeElement).toBe(document.getElementById('find'))
+  })
+
+  it('has focus where the work continues as soon as the step is shown', async () => {
+    render(<Steps />)
+    // The answer arrives outside act, as a fetch's does. Handled in an effect, the request moved focus a task after
+    // the commit that showed the form, and a check made as soon as it was shown found focus still on the page.
+    environment.IS_REACT_ACT_ENVIRONMENT = false
+    const shown = focusWhenShown('#reason')
+    finishLookup()
+    const { focused } = await shown
+    expect(focused).toBe(document.getElementById('find'))
   })
 })

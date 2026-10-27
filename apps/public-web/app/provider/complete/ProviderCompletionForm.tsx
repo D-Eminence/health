@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useLayoutEffect, useState, type FormEvent } from 'react'
 import { isHidApiError } from '@hid/http'
 import { Button, Card, Field, Input, Select } from '@hid/ui'
 import { TurnstileWidget } from '@/components/shared/TurnstileWidget'
@@ -73,6 +73,9 @@ export function ProviderCompletionForm({ initialProduct }: { readonly initialPro
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  // The first field to correct after a failed attempt; a new request each time, so that every
+  // attempt moves focus.
+  const [correct, setCorrect] = useState<{ readonly name: OrganizationProfileFieldName } | null>(null)
   const environment = getEnvironment()
   const siteKey = environment.turnstileSiteKey
   const localNoWidget = environment.name === 'local' && !siteKey
@@ -86,6 +89,10 @@ export function ProviderCompletionForm({ initialProduct }: { readonly initialPro
     }).catch(() => undefined)
     return () => { active = false }
   }, [])
+
+  // In the commit that marks the field, not a frame later: a check made as soon as its error is
+  // shown finds the focus moved.
+  useLayoutEffect(() => { if (correct) document.getElementById(`completion-${correct.name}`)?.focus() }, [correct])
 
   async function start(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -143,7 +150,7 @@ export function ProviderCompletionForm({ initialProduct }: { readonly initialPro
       setError('Check the details marked below.')
       // The summary reads the same on every attempt, so it is not announced again.
       // The first field to correct takes focus once it is marked, and its error is read with it.
-      requestAnimationFrame(() => document.getElementById(`completion-${first.name}`)?.focus())
+      setCorrect({ name: first.name })
       return
     }
     setBusy(true)

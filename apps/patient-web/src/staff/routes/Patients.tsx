@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useLayoutEffect, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { findEndpoint, type EndpointMethod } from '@hid/contracts'
 import { isHidApiError } from '@hid/http'
@@ -105,7 +105,7 @@ export function Patients() {
   const [hidError, setHidError] = useState('')
   const [hidAlert, setHidAlert] = useState(false)
   const [focusHid, setFocusHid] = useState(0)
-  useEffect(() => { if (focusHid) document.getElementById('patient-hid')?.focus() }, [focusHid])
+  useLayoutEffect(() => { if (focusHid) document.getElementById('patient-hid')?.focus() }, [focusHid])
   const normalized = hid.trim().toUpperCase()
   // The grant that authorized the open record, however it was obtained (an
   // approved request, the patient's PIN or emergency access), as the lookup

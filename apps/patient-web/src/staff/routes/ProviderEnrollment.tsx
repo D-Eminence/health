@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ButtonHTMLAttributes, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ButtonHTMLAttributes, type FormEvent, type ReactNode } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { Field, Input, PasswordInput, Select } from '@hid/ui'
@@ -283,10 +283,10 @@ function SignInLink({ children }: { children: ReactNode }) {
     : <Link className="patient-primary-button" to={STAFF_SIGN_IN_PATH}>{children}</Link>
 }
 
-/** A heading that takes focus when its panel replaces the step before it. */
+/** A heading that takes focus, in the commit that shows it, when its panel replaces the step before it. */
 function FocusedHeading({ id, children }: { id: string; children: ReactNode }) {
   const heading = useRef<HTMLHeadingElement>(null)
-  useEffect(() => { heading.current?.focus() }, [])
+  useLayoutEffect(() => { heading.current?.focus() }, [])
   return <h2 id={id} ref={heading} tabIndex={-1} className="hid-mfa-heading">{children}</h2>
 }
 
@@ -1231,7 +1231,7 @@ function MaybeActive({ email }: { email: string }) {
  */
 function SignInToFinish({ reason }: { reason: string | null }) {
   const heading = useRef<HTMLHeadingElement>(null)
-  useEffect(() => { heading.current?.focus() }, [])
+  useLayoutEffect(() => { heading.current?.focus() }, [])
   return <section className="patient-form" aria-labelledby="provider-enroll-sign-in-title">
     <h2 id="provider-enroll-sign-in-title" ref={heading} tabIndex={-1} className="hid-mfa-heading">Sign in to finish setting up</h2>
     {reason && <p role="alert" className="patient-inline-error">{reason}</p>}

@@ -9,7 +9,7 @@ import {
   acceptedCheckText, acceptRefusal, calendarDate, CONTROLLED_MEDICINE_CHECK, DECLINE_REASONS, declineRefusal, incomingProblem,
   licenceLine, priorityLabel, receivingAnswer, REFERENCE_PATTERN, REFERENCE_PROBLEM, rememberReceiving, routeMoment,
 } from '../orderRoutes'
-import { BUSY, UNAVAILABLE } from '../focus'
+import { BUSY, UNAVAILABLE, useFocusById } from '../focus'
 import { WrongPatientEnded, WrongPatientForm, type WrongPatientEnding } from './WrongPatient'
 import { useWrongPatientServed } from '../../wrongPatientServed'
 import { useCannotCompleteServed } from '../../cannotCompleteServed'
@@ -225,6 +225,8 @@ function AcceptedPanel({ service, facilityId, title, reference, ordering, accept
   const served = useWrongPatientServed() === true
   // D18: once served, an order this facility just can't do is ended from its row in the work list below (WB3).
   const cannotComplete = useCannotCompleteServed() === true && !moved
+  // Cancel gives focus back to the button that opened the form, in the commit that shows it again.
+  const focus = useFocusById()
 
   // The route moved on: read it again (C8; audited, so only now) for the version the next report is checked against.
   async function reread() {
@@ -246,7 +248,7 @@ function AcceptedPanel({ service, facilityId, title, reference, ordering, accept
         route={{ id: result.route.id, version, reference }} patient={patient} ordering={ordering}
         dispensed={moved ? undefined : false} notice={refreshed || undefined} cannotComplete={cannotComplete ? 'panel' : undefined}
         onStale={reread} onReload={onChanged}
-        onCancel={() => { setReporting(false); window.setTimeout(() => document.getElementById(`${id}-wrong-patient-open`)?.focus(), 0) }}
+        onCancel={() => { setReporting(false); focus(`${id}-wrong-patient-open`) }}
         onEnded={ended => onEnded({ service, title, reference, patient, ordering, result: ended,
           dateOfBirthOnly: acceptedWith === 'date_of_birth' })} />
       : served && <div className="staff-row"><Button id={`${id}-wrong-patient-open`} tone="secondary" size="sm" aria-expanded={false}

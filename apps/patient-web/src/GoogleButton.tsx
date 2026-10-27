@@ -74,6 +74,7 @@ export function GoogleButton({ text, disabled, disabledReason, onCredential }: {
         setError(null)
         // After a credential the button is rendered again and the one used is gone:
         // focus left on the page returns to the button's region.
+        // eslint-disable-next-line no-restricted-syntax -- not an effect's delay: this runs once the nonce and Google's script have loaded, straight after renderButton has drawn the new button, and the region was there all along.
         if (attempt > 0 && focusLost()) region.current?.focus()
       } catch (reason) {
         if (active) setError(reason instanceof Error ? reason.message : 'Google sign-in is unavailable.')

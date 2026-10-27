@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react'
 import { isHidApiError } from '@hid/http'
 import { adminApi, newIdempotencyKey, type AdminActor, type AssistedRegistrationDesignation,
   type AssistedRegistrationDesignationInput } from './api'
@@ -114,9 +114,10 @@ export function AssistedRegistrationPanel({ facilityId, facilityStatus, refresh,
   const outcomes = useRef(0)
   const show = (tone: 'error' | 'notice', text: string) => setOutcome({ tone, text, seq: ++outcomes.current })
   // A save or a version conflict reads the designation again, and its new version replaces the form and the
-  // button that had focus: focus moves to the panel's heading instead of falling to the page.
+  // button that had focus: focus moves to the panel's heading instead of falling to the page. In the commit that shows
+  // the answer, not an effect a task later: a check made as soon as it is shown finds the focus moved.
   const [headingFocus, setHeadingFocus] = useState(0)
-  useEffect(() => { if (headingFocus) document.getElementById(TITLE)?.focus() }, [headingFocus])
+  useLayoutEffect(() => { if (headingFocus) document.getElementById(TITLE)?.focus() }, [headingFocus])
   const canManage = has(actor, 'platform.facility.manage')
 
   return <section className="admin-panel" aria-labelledby={TITLE}>
@@ -197,7 +198,7 @@ function DesignationForm({ facilityId, designation, onSubmitting, onSaved, onFai
   // The submission whose answer is unknown (a 503 or a lost connection), sent again with its key while nothing changed.
   const pending = useRef<{ signature: string; key: string } | null>(null)
   const id = (field: Field) => `admin-assisted-${field}`
-  useEffect(() => { if (refused && !refused.alert) document.getElementById(id(refused.field))?.focus() }, [refused])
+  useLayoutEffect(() => { if (refused && !refused.alert) document.getElementById(id(refused.field))?.focus() }, [refused])
 
   function change(field: keyof Values, value: string) {
     setValues(previous => ({ ...previous, [field]: value }))

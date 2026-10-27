@@ -7,6 +7,7 @@ import { forgetReceiving, routeMoment } from '../../orderRoutes'
 import { forgetCannotCompleteServed } from '../../../cannotCompleteServed'
 import { forgetLateCorrectionServed } from '../../../lateCorrectionServed'
 import { forgetWrongPatientServed } from '../../../wrongPatientServed'
+import { focusWhenShown } from '../../../__tests__/focusWhenShown'
 
 /**
  * D18 (hid-system 0091; SPEC-FINAL §9.1, §10.3): "We can't complete this order" on the Laboratory and Pharmacy pages.
@@ -71,6 +72,9 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllEnvs(); forgetReceiving(); forgetCannotCompleteServed(); forgetLateCorrectionServed(); forgetWrongPatientServed()
 })
+// A request answered outside act, as a fetch's answer arrives, renders in one task and runs its effects in a later one.
+const environment = globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+afterEach(() => { environment.IS_REACT_ACT_ENVIRONMENT = undefined })
 
 function row(text: string) { return screen.getByText(text).closest('.staff-list-item') as HTMLElement }
 async function openLab() {
@@ -166,6 +170,17 @@ describe('the button on a routed work row, once served', () => {
     expect(within(row('Haemoglobin')).queryByRole('button', { name: new RegExp(`^${CC}`) })).toBeNull()
     fireEvent.click(within(row('Haemoglobin')).getByRole('button', { name: 'Cancel' }))
     await waitFor(() => expect(document.activeElement).toBe(within(row('Haemoglobin')).getByRole('button', { name: `${WP}${NAMED}` })))
+  })
+
+  // Cancel gives focus back in the commit that shows the button again: from a timer a task later, a check made as soon as
+  // the button was shown found focus on the page.
+  it.each([[CC], [WP]])('has focus on “%s” as soon as Cancel shows it again', async name => {
+    const item = await openLab()
+    fireEvent.click(await within(item).findByRole('button', { name: `${name}${NAMED}` }))
+    const shown = focusWhenShown(() => within(item).queryByRole('button', { name: `${name}${NAMED}` }))
+    fireEvent.click(within(item).getByRole('button', { name: 'Cancel' }))
+    const { element, focused } = await shown
+    expect(focused).toBe(element)
   })
 })
 
@@ -351,6 +366,19 @@ describe('the laboratory’s form', () => {
     submit(form(row('Haemoglobin')))
     await waitFor(() => expect(routes.cannotComplete).toHaveBeenCalledTimes(2))
     expect(routes.cannotComplete.mock.calls[1]![2]).toEqual({ id: ROUTE_ID, version: 4 })
+  })
+
+  // Asked for by a refusal, the statement takes focus in the commit that shows it, not in an effect a task later.
+  it('has focus on the critical-value statement as soon as it is asked for', async () => {
+    routes.cannotComplete.mockRejectedValueOnce(new HidApiError(409, 'Critical', { code: 'ORDER_ROUTE_CRITICAL_VALUE_NOT_TOLD' }))
+    const item = await openLab()
+    fireEvent.click(await within(item).findByRole('button', { name: `${CC}${NAMED}` }))
+    fill(form(item))
+    const shown = focusWhenShown(() => within(item).queryByRole('checkbox', { name: /about the possibly critical value/ }))
+    environment.IS_REACT_ACT_ENVIRONMENT = false
+    submit(form(item))
+    const { element, focused } = await shown
+    expect(focused).toBe(element)
   })
 
   it('asks for the critical-value statement after Lab says a value is possibly critical, then sends it with a new key', async () => {
@@ -654,6 +682,21 @@ describe('in “Correct an order that has ended”', () => {
     expect(routes.cannotComplete).toHaveBeenCalledWith('facility-1', 'lab', { id: ROUTE_ID, version: 3 },
       { reason: 'other', confirmedPatient: true }, expect.any(String))
     expect(said.textContent).toContain('This test was marked stat: phone General Hospital now, so they can write a new order.')
+  })
+
+  // Opened once its read is answered, the form takes focus in the commit that shows it, not in an effect a task later; Cancel
+  // gives it back to the row's button in the commit that shows the button again, not from a timer.
+  it('has focus on the form’s title as soon as it is shown after its read, and on the button as soon as Cancel shows it', async () => {
+    const area = await look(served(local))
+    const opened = focusWhenShown(() => within(area).queryByText('End this order: we can’t complete it'))
+    environment.IS_REACT_ACT_ENVIRONMENT = false
+    fireEvent.click(within(area).getByRole('button', { name: `${CC}${NAMED}` }))
+    const title = await opened
+    expect(title.focused).toBe(title.element)
+    const shown = focusWhenShown(() => within(area).queryByRole('button', { name: `${CC}${NAMED}` }))
+    fireEvent.click(within(area).getByRole('button', { name: 'Cancel' }))
+    const { element, focused } = await shown
+    expect(focused).toBe(element)
   })
 
   it('says in item 3’s form there that the other action is on the row', async () => {

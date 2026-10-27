@@ -6,6 +6,7 @@ import { Laboratory, Pharmacy } from '../Operations'
 import { forgetReceiving, lagosDay } from '../../orderRoutes'
 import { forgetLateCorrectionServed } from '../../../lateCorrectionServed'
 import { forgetWrongPatientServed } from '../../../wrongPatientServed'
+import { focusWhenShown } from '../../../__tests__/focusWhenShown'
 
 /**
  * D17 (hid-system 0090; SPEC-FINAL §9.1, §10.3): "Correct an order that has ended" on the Laboratory and Pharmacy pages.
@@ -57,6 +58,9 @@ beforeEach(() => {
   forgetReceiving(); forgetLateCorrectionServed(); forgetWrongPatientServed()
 })
 afterEach(() => { vi.unstubAllEnvs(); forgetReceiving(); forgetLateCorrectionServed(); forgetWrongPatientServed() })
+// A request answered outside act, as a fetch's answer arrives, renders in one task and runs its effects in a later one.
+const environment = globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT?: boolean }
+afterEach(() => { environment.IS_REACT_ACT_ENVIRONMENT = undefined })
 
 function section() { return screen.getByText(TITLE).closest('details') as HTMLElement }
 
@@ -251,6 +255,25 @@ describe('an order found still open: item 3’s own form (CL5, S2)', () => {
     expect(screen.getByText(/^Next time, ask for the order’s reference with the date of birth/)).toBeTruthy()
   })
 
+  // Opened once its read is answered, the form takes focus in the commit that shows it, not in an effect a task later; Cancel
+  // gives it back to the row's button in the commit that shows the button again, not from a timer.
+  it('has focus on the form’s title as soon as it is shown after its read, and on the button as soon as Cancel shows it', async () => {
+    routes.findCorrectable.mockResolvedValue({ items: [open()], lateCorrection: true })
+    routes.get.mockResolvedValue({ id: ROUTE_ID, version: 9, patient: { fullName: 'Tunde Bello', sex: null, dateOfBirth: null, healthIdLast4: null } })
+    const area = await openLab()
+    await find()
+    const button = await within(area).findByRole('button', { name: 'This isn’t the order’s patient' })
+    const opened = focusWhenShown(() => within(area).queryByText('End this order: accepted for the wrong person'))
+    environment.IS_REACT_ACT_ENVIRONMENT = false
+    fireEvent.click(button)
+    const title = await opened
+    expect(title.focused).toBe(title.element)
+    const shown = focusWhenShown(() => within(area).queryByRole('button', { name: 'This isn’t the order’s patient' }))
+    fireEvent.click(within(area).getByRole('button', { name: 'Cancel' }))
+    const { element, focused } = await shown
+    expect(focused).toBe(element)
+  })
+
   it('says when the order could not be read, and opens nothing', async () => {
     routes.findCorrectable.mockResolvedValue({ items: [open()], lateCorrection: true })
     routes.get.mockRejectedValue(new HidApiError(503, 'Down'))
@@ -312,6 +335,16 @@ describe('the late form (C29)', () => {
     expect(within(form).getByText(warning)).toBeTruthy()
     fireEvent.click(within(form).getByRole('radio', { name: 'We found it ourselves' }))
     expect(within(form).queryByText(warning)).toBeNull()
+  })
+
+  // Cancel gives focus back in the commit that shows the button again: from a timer a task later, a check made as soon as
+  // the button was shown found focus on the page.
+  it('has focus on “This wasn’t the order’s patient” as soon as Cancel shows it again', async () => {
+    const form = await lateForm()
+    const shown = focusWhenShown(() => screen.queryByRole('button', { name: 'This wasn’t the order’s patient' }))
+    fireEvent.click(within(form).getByRole('button', { name: 'Cancel' }))
+    const { element, focused } = await shown
+    expect(focused).toBe(element)
   })
 
   it('needs how and when it was found, what happened, the note and the confirmation before it sends anything', async () => {
@@ -515,6 +548,36 @@ describe('a refusal after which the order reads differently', () => {
     expect(alert.textContent).toBe('This order was not found here. Find it again.')
     await waitFor(() => expect(document.activeElement).toBe(alert))
     expect(screen.getByText(/^No order with that reference was accepted here/)).toBeTruthy()
+  })
+
+  // The refusal takes focus to the row, or to what the section says, in the commit that shows it there: from a timer a task
+  // later, a check made as soon as it was shown found focus on the page.
+  it('has focus on the row as soon as the refusal is shown there', async () => {
+    routes.findCorrectable.mockResolvedValueOnce({ items: [correctable()], lateCorrection: true }).mockResolvedValueOnce({
+      items: [correctable({ correction: 'too_late', details: null, correctableUntil: '2026-10-20T09:00:00.000Z' })], lateCorrection: true })
+    routes.correctWrongPatient.mockRejectedValueOnce(new HidApiError(409, 'Late', { code: 'ORDER_ROUTE_CORRECTION_TOO_LATE' }))
+    const form = await lateForm()
+    fill(form)
+    const shown = focusWhenShown(() => [...document.querySelectorAll('li [role="alert"]')].find(alert => !alert.closest('form')))
+    environment.IS_REACT_ACT_ENVIRONMENT = false
+    fireEvent.click(within(form).getByRole('button', { name: 'Withdraw it' }))
+    const { focused } = await shown
+    expect(focused).toBe(document.getElementById(`lab-late-correction-${ROUTE_ID}-title`))
+  })
+
+  it.each([
+    ['the order is no longer found', () => Promise.resolve({ items: [], lateCorrection: true })],
+    ['finding it again is refused', () => Promise.reject(new HidApiError(503, 'Down'))],
+  ])('has focus on what the section says as soon as it says it: %s', async (_case, again) => {
+    routes.findCorrectable.mockResolvedValueOnce({ items: [correctable()], lateCorrection: true }).mockImplementationOnce(again)
+    routes.correctWrongPatient.mockRejectedValueOnce(new HidApiError(404, 'Missing', { code: 'ORDER_ROUTE_NOT_FOUND' }))
+    const form = await lateForm()
+    fill(form)
+    const shown = focusWhenShown('#lab-late-correction-error')
+    environment.IS_REACT_ACT_ENVIRONMENT = false
+    fireEvent.click(within(form).getByRole('button', { name: 'Withdraw it' }))
+    const { element, focused } = await shown
+    expect(focused).toBe(element)
   })
 
   it('does so for item 3’s refusal in the open row’s form too', async () => {

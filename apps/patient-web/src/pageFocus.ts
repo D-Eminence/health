@@ -1,4 +1,4 @@
-import { useEffect, useRef, type RefObject } from 'react'
+import { useLayoutEffect, useRef, type RefObject } from 'react'
 import { useLocation } from 'react-router-dom'
 
 /**
@@ -15,7 +15,9 @@ import { useLocation } from 'react-router-dom'
 export function useFocusOnPageChange(main: RefObject<HTMLElement | null>, locked = false): void {
   const { pathname } = useLocation()
   const shown = useRef(pathname)
-  useEffect(() => {
+  // In the commit that shows the new page, not an effect a task later: a check
+  // made as soon as it is shown finds the focus moved.
+  useLayoutEffect(() => {
     // A page opened while the workspace is locked (hidden and inert, focus on the
     // check) is taken up when the workspace opens again.
     if (locked || shown.current === pathname) return
