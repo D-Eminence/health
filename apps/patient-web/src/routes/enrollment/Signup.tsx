@@ -11,6 +11,7 @@ import { useSession } from '../../session'
 import { describedBy, sentFromField, useStepFocus } from '../../authSteps'
 import { useResendWait } from '../recoveryWait'
 import { HospitalPicker } from './HospitalPicker'
+import { HealthIdCode } from '../HealthIdCode'
 import { googleProfileOf } from './googleProfile'
 import { REGISTRATION_CLOSED } from './RegistrationClosed'
 import { STEP_UNAVAILABLE, refusedWith, registrationClosed, temporarilyUnavailable } from './problems'
@@ -394,7 +395,7 @@ export function PatientSignup({ focusOnArrival = false }: {
 
     {step === 'done' && <div className="patient-success" role="status">
       <h2 ref={stepFocus.target} tabIndex={-1}>Your Health ID is ready.</h2>
-      <strong>{hidCode}</strong>
+      <HealthIdCode code={hidCode} />
       <p>Save this code: write it down or keep it somewhere safe. This page may not show it again once you leave or reload it.</p>
       <p>Use your Health ID or your email address, with your password, whenever you sign in. Once signed in, you can verify your NIN from your profile.</p>
       <Link className="patient-primary-button" to="/sign-in">Sign in to continue</Link>

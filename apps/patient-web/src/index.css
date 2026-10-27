@@ -304,6 +304,14 @@
   .patient-identity-card { display: grid; gap: 8px; min-height: 190px; padding: 28px; border-radius: var(--radius-card); background: var(--color-inverse-surface); color: var(--color-inverse-ink); }
   .patient-identity-card .patient-eyebrow { color: #a7cbf5; }
   .patient-identity-card strong { font-family: var(--font-mono); font-size: clamp(22px, 3vw, 32px); overflow-wrap: anywhere; }
+  .patient-hid { display: grid; gap: 10px; }
+  .patient-hid .patient-hid-code { display: block; padding: 20px 18px; border: 1px dashed var(--color-brand); border-radius: var(--radius-card); background: var(--color-brand-tint); color: var(--color-brand); font-family: var(--font-mono); font-size: clamp(22px, 7vw, 28px); font-weight: 700; letter-spacing: .04em; text-align: center; overflow-wrap: anywhere; user-select: all; }
+  .patient-hid-note { margin: 0; color: var(--color-muted); font-size: 13px; }
+  .patient-identity-card .patient-hid, .patient-details .patient-hid { justify-items: start; }
+  .patient-identity-card .patient-hid-code { padding: 0; border: 0; background: none; color: inherit; font-size: clamp(22px, 3vw, 32px); text-align: left; }
+  .patient-identity-card .patient-hid-note { color: var(--color-inverse-ink); }
+  .patient-details .patient-hid-code { padding: 0; border: 0; background: none; color: var(--color-ink); font-size: 16px; text-align: left; }
+  .patient-details .patient-hid .patient-secondary-button { min-height: 36px; padding: 6px 12px; }
   .patient-identity-card p { margin: 0; color: var(--color-inverse-muted); }
   .patient-identity-card a { justify-self: start; color: #b8d8f7; text-decoration: none; }
   .patient-overview-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }

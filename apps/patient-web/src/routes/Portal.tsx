@@ -22,6 +22,7 @@ import { describedBy, isFieldProblem, useDocumentTitle, useStepFocus } from '../
 import { useFocusOnPageChange } from '../pageFocus'
 import { SentOrdersCard } from './SentOrders'
 import { NinVerificationCard } from './NinVerificationCard'
+import { HealthIdCode } from './HealthIdCode'
 
 const links = [
   { to: '/', label: 'Overview', end: true },
@@ -179,7 +180,7 @@ export function ProfilePage() {
     <p className="patient-page-copy">These details come from your verified Health ID account.</p>
     <LoadState loading={profile.loading} error={profile.error} retry={profile.reload} hasData={profile.data !== null} focusTarget={heading} />
     {profile.data && !profile.error && <div className="patient-card" aria-busy={profile.loading || undefined}><h2>Bio-data</h2><dl className="patient-details">
-      <div><dt>Health ID</dt><dd className="patient-code">{profile.data.hid}</dd></div>
+      <div><dt>Health ID</dt><dd><HealthIdCode code={profile.data.hid} /></dd></div>
       <div><dt>Full name</dt><dd>{profile.data.fullName}</dd></div>
       <div><dt>Date of birth</dt><dd>{date(profile.data.dateOfBirth)}</dd></div>
       <div><dt>Gender</dt><dd>{profile.data.gender || 'Not provided'}</dd></div>
