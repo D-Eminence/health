@@ -383,3 +383,61 @@ describe('a late report, and until when the receiving facility can correct it (D
     expect(document.body.textContent).not.toMatch(/ORDER.ROUTE|CORRECTED/)
   })
 })
+
+/**
+ * D18 (hid-system 0091; SPEC-FINAL §9.3, D18-3, D18-4): an order the receiving facility accepted and couldn't complete.
+ * The patient reads that it couldn't, never why, and to contact the clinic, once; after a later wrong-patient report the
+ * state reads "ended at" it, and the report's paragraph says to contact the clinic. The inbox has its own title.
+ */
+describe('an order the receiving facility couldn’t complete (D18)', () => {
+  const unable = { effectiveState: 'cancelled', acceptedAt: '2026-10-21T10:00:00.000Z', endedAt: '2026-10-23T10:00:00.000Z',
+    endedKind: 'receiving_unable', actions: [], correctableUntil: '2027-04-19T10:00:00.000Z', wrongPatient: null }
+  const AGAIN = 'If you still need this test, contact General Hospital: your clinician can send a new order.'
+
+  it('says the facility couldn’t complete it and to contact the clinic, never why, and keeps the “haven’t been” line', async () => {
+    routes = { items: [sent(unable as Partial<PatientOrderRoute>)] }
+    renderPortal(<AccessPage />, handler)
+    const item = (await screen.findByText('Haemoglobin from General Hospital to Yaba Diagnostics: Yaba Diagnostics couldn’t '
+      + 'complete it')).closest('li') as HTMLElement
+    const lines = [...item.querySelectorAll('p')].map(line => line.textContent)
+    expect(lines.filter(line => line === AGAIN)).toHaveLength(1)
+    expect(lines.at(-1)).toBe('If you haven’t been to Yaba Diagnostics for this test, tell Yaba Diagnostics, General Hospital or '
+      + 'Health ID support straight away, with the reference 9C1B2D3E: Yaba Diagnostics can correct it until 19 Apr 2027, 11:00.')
+    expect(item.textContent).not.toMatch(/run out|reason|stop it now|Stop it/)
+  })
+
+  it('says “medicine” for a prescription', async () => {
+    routes = { items: [sent({ ...(unable as Partial<PatientOrderRoute>), kind: 'prescription',
+      content: { medicationDisplay: 'Amoxicillin 500 mg capsules' } })] }
+    renderPortal(<AccessPage />, handler)
+    const item = (await screen.findByText(/^Amoxicillin 500 mg capsules from General Hospital to Yaba Diagnostics: Yaba Diagnostics couldn’t complete it$/))
+      .closest('li') as HTMLElement
+    expect(within(item).getByText('If you still need this medicine, contact General Hospital: your clinician can send a new order.')).toBeTruthy()
+  })
+
+  it('after a later report, reads “ended at” the facility, and says to contact the clinic exactly once', async () => {
+    routes = { items: [sent({ ...(unable as Partial<PatientOrderRoute>), correctableUntil: null,
+      wrongPatient: { reportedAt: '2026-10-25T09:00:00.000Z', late: true } } as Partial<PatientOrderRoute>)] }
+    renderPortal(<AccessPage />, handler)
+    const item = (await screen.findByText('Haemoglobin from General Hospital to Yaba Diagnostics: ended at Yaba Diagnostics; Yaba '
+      + 'Diagnostics has since reported it accepted it for someone who was not you')).closest('li') as HTMLElement
+    expect([...item.querySelectorAll('p')].map(line => line.textContent).filter(line => line === AGAIN)).toHaveLength(1)
+    expect(item.textContent).not.toMatch(/couldn’t complete/)
+  })
+
+  it('names its inbox notice with its own title, never the reason', async () => {
+    renderPortal(<NotificationsPage />, () => json([
+      { id: '80000000-0000-4000-8000-000000000001', notificationCode: 'ORDER_ROUTE_NOT_COMPLETED', resourceType: 'order-route',
+        resourceId: ROUTE, metadata: { routeId: ROUTE, kind: 'lab_request', orderingFacilityName: 'General Hospital',
+          receivingFacilityName: 'Yaba Diagnostics' }, readAt: null, createdAt: '2026-10-23T10:00:00Z' },
+      { id: '80000000-0000-4000-8000-000000000002', notificationCode: 'ORDER_ROUTE_NOT_COMPLETED', resourceType: 'order-route',
+        resourceId: ROUTE, metadata: { routeId: ROUTE, kind: 'prescription', orderingFacilityName: 'General Hospital',
+          receivingFacilityName: 'Medplus Yaba' }, readAt: null, createdAt: '2026-10-23T10:00:00Z' },
+    ]))
+    const items = await screen.findAllByRole('listitem')
+    expect(items.map(entry => entry.querySelector('strong')?.textContent)).toEqual([
+      'Yaba Diagnostics couldn’t complete your test request: see it in Access and consent',
+      'Medplus Yaba couldn’t complete your prescription: see it in Access and consent'])
+    expect(document.body.textContent).not.toMatch(/ORDER.ROUTE|NOT.COMPLETED/)
+  })
+})

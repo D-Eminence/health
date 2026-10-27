@@ -63,7 +63,8 @@ function whatWasSent(route: PatientOrderRoute): string {
 
 /**
  * Where it stands, as the patient reads it. A report the receiving facility made after the order had ended another way
- * (D17, `wrongPatient`) follows that ending's words (SPEC-FINAL §9.3).
+ * (D17, `wrongPatient`) follows that ending's words (SPEC-FINAL §9.3). An order the receiving facility accepted and
+ * couldn't complete (D18, `receiving_unable`) says so, and only "ended at" it once it has since reported the wrong person.
  */
 export function patientRouteState(route: PatientOrderRoute): string {
   const receiving = named(route.receivingFacilityName ?? route.receivingFacility.name, 'the other facility')
@@ -106,7 +107,9 @@ function stateWords(route: PatientOrderRoute, receiving: string): string {
         default: return 'withdrawn'
       }
     case 'expired': return route.acceptedAt ? `accepted by ${receiving}, but nothing came back within 30 days` : `not accepted by ${receiving} within 7 days`
-    case 'cancelled': return route.endedKind === 'support' ? 'cancelled by Health ID support' : `cancelled at ${receiving}`
+    case 'cancelled':
+      if (route.endedKind === 'receiving_unable') return wrongPatientReportOf(route) ? `ended at ${receiving}` : `${receiving} couldn’t complete it`
+      return route.endedKind === 'support' ? 'cancelled by Health ID support' : `cancelled at ${receiving}`
     default: return route.effectiveState.replaceAll('_', ' ')
   }
 }
@@ -284,6 +287,9 @@ export function SentOrdersCard() {
         // Item 3's ending, or a report made after the order had ended another way (D17).
         const wrongPatient = route.endedKind === 'wrong_patient' || wrongPatientReportOf(route)?.late === true
         const haventBeen = haventBeenLine(route, stoppable)
+        // D18: the receiving facility couldn't complete it; with a report, wrongPatientParagraph says this once already.
+        const notCompleted = route.endedKind === 'receiving_unable' && route.effectiveState === 'cancelled' && !wrongPatient
+          && !wrongPatientReportOf(route)
         return <li key={route.id} className="patient-access-item patient-order-route"><div>
           <strong>{whatWasSent(route)} from {ordering} to {receiving}: {patientRouteState(route)}</strong>
           {route.receivingRegisteredAddress && <span>{receiving}’s registered office: {route.receivingRegisteredAddress}</span>}
@@ -306,6 +312,8 @@ export function SentOrdersCard() {
             {canStop && <p>If you did not agree to this, stop it now: {receiving} has not accepted it yet.</p>}
             {stoppable && route.effectiveState === 'accepted' && <p>{receiving} has accepted it. To stop it, contact {ordering}, who
               can cancel the order.</p>}
+            {notCompleted && <p>If you still need this {route.kind === 'lab_request' ? 'test' : 'medicine'}, contact {ordering}: your
+              clinician can send a new order.</p>}
             {haventBeen && <p>{haventBeen}</p>}
           </>}
         </div>
