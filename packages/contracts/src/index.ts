@@ -10,6 +10,7 @@ export type { AppBoundary, HidApp, ServicesOf } from './boundaries'
 export {
   HID_ENDPOINTS,
   NON_FRONTEND_ENDPOINTS,
+  ORDER_ROUTE_CANNOT_COMPLETE_REASONS,
   SERVICES_WITHOUT_CONTRACTS,
   endpointsForService,
   findEndpoint,

@@ -49,6 +49,8 @@ const NOT_ON_MAIN = [
   // D17 (hid-system 0090): "Correct an order that has ended", Lab's and Pharmacy's lookup by reference and withdrawal.
   'lab.orderRouteCorrectable', 'lab.orderRouteWrongPatientCorrection', 'pharmacy.orderRouteCorrectable',
   'pharmacy.orderRouteWrongPatientCorrection',
+  // D18 (hid-system 0091 on staging-novu-ci-20261005): "We can't complete this order", Lab's and Pharmacy's command.
+  'lab.orderRouteCannotComplete', 'pharmacy.orderRouteCannotComplete',
 ] as const
 
 describe('routes hid-system main does not serve', () => {

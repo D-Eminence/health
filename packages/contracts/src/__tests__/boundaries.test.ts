@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { APP_BOUNDARIES, APP_ROUTE_GRANTS, BoundaryViolationError,
   assertEndpointAllowed, canUseService } from '../boundaries'
-import { HID_ENDPOINTS, NON_FRONTEND_ENDPOINTS, findEndpoint, hasContracts } from '../registry'
+import { HID_ENDPOINTS, NON_FRONTEND_ENDPOINTS, ORDER_ROUTE_CANNOT_COMPLETE_REASONS, findEndpoint, hasContracts } from '../registry'
 import { BrowserRouteError, assertRegisteredBrowserRequest } from '../browser-routes'
 
 describe('c4b5445 route registry', () => {
@@ -572,7 +572,7 @@ describe('application boundaries', () => {
   })
 
   it('registers D17\'s late correction for Lab and Pharmacy (hid-system 0090): the lookup by reference and the withdrawal, '
-    + 'none served yet, with the services\' codes and problem members', () => {
+    + 'served since D17\'s release, with the services\' codes and problem members', () => {
     const routeId = '9c1b2d3e-4f5a-4b6c-8d7e-0f1a2b3c4d5e'
     type Case = readonly [string, string, string]
     const cases: readonly Case[] = [
@@ -586,7 +586,10 @@ describe('application boundaries', () => {
       const endpoint = findEndpoint(name)
       expect(endpoint, name).toMatchObject({ status: 'proposed', auth: { kind: 'authenticated' }, methods: ['POST'] })
       expect(endpoint?.permissions?.POST, name).toEqual([permission])
-      expect(endpoint?.note, name).toContain('not served by hid-system main, nor by staging-novu-ci-20261005 before that release')
+      // Served since D17's release (hid-system a3b1822, live): no longer "before that release".
+      expect(endpoint?.note, name).toContain('Served by staging-novu-ci-20261005 since hid-system a3b1822')
+      expect(endpoint?.note, name).toContain('not served by hid-system main (404)')
+      expect(endpoint?.note, name).not.toContain('before that release')
       expect(endpoint?.note, name).toContain('0090')
       expect(assertRegisteredBrowserRequest('POST', example).name, name).toBe(name)
       expect(() => assertEndpointAllowed('staff-web', name), name).not.toThrow()
@@ -649,6 +652,64 @@ describe('application boundaries', () => {
     }
     expect(findEndpoint('admin.wrongPatientReportReview')?.note).toContain('400 WRONG_PATIENT_REVIEW_REFERRAL_REQUIRED')
     expect(findEndpoint('admin.wrongPatientReportReview')?.note).toContain('problem member required')
+  })
+
+  it('registers D18\'s "We can\'t complete this order" for Lab and Pharmacy (hid-system 0091), not served yet, with the '
+    + 'services\' body, answer, reasons, codes and problem members', () => {
+    const routeId = '9c1b2d3e-4f5a-4b6c-8d7e-0f1a2b3c4d5e'
+    const cases = [['lab.orderRouteCannotComplete', 'lab'], ['pharmacy.orderRouteCannotComplete', 'pharmacy']] as const
+    for (const [name, service] of cases) {
+      const endpoint = findEndpoint(name)
+      expect(endpoint, name).toMatchObject({ status: 'proposed', auth: { kind: 'authenticated' }, methods: ['POST'],
+        path: `/api/v1/${service}/order-routes/:routeId/cannot-complete` })
+      expect(endpoint?.permissions?.POST, name).toEqual([`${service}.order-route.receive`])
+      expect(assertRegisteredBrowserRequest('POST', `/api/v1/${service}/order-routes/${routeId}/cannot-complete`).name, name).toBe(name)
+      expect(() => assertRegisteredBrowserRequest('GET', `/api/v1/${service}/order-routes/${routeId}/cannot-complete`), name)
+        .toThrow(BrowserRouteError)
+      // The route's own read is unchanged beside it.
+      expect(assertRegisteredBrowserRequest('GET', `/api/v1/${service}/order-routes/${routeId}`).name).toBe(`${service}.orderRoute`)
+      expect(() => assertEndpointAllowed('staff-web', name), name).not.toThrow()
+      for (const other of ['patient-web', 'admin-web', 'public-web'] as const) {
+        expect(() => assertEndpointAllowed(other, name), `${other}: ${name}`).toThrow(BoundaryViolationError)
+      }
+      const note = endpoint?.note ?? ''
+      expect(note, name).toContain('not served by hid-system main, nor by staging-novu-ci-20261005 before that release')
+      expect(note, name).toContain('hid-system 0091 (staging-novu-ci-20261005)')
+      for (const word of ['Idempotency-Key', 'IDEMPOTENCY_KEY_REQUIRED', 'direct-care', 'expectedVersion', 'confirmedPatient: true',
+        'criticalValueTold?', 'Pharmacy refuses the field', 'receiving_unable', 'readUntil', 'specimensCollected', 'resultsRecorded',
+        'criticalCandidates', 'replayed', 'never the patient', 'VALIDATION_FAILED', 'ORDER_ROUTE_INVALID', 'PERMISSION_DENIED',
+        'ORDER_ROUTE_NOT_FOUND', 'ORDER_ROUTE_NOT_ACCEPTED', 'ORDER_ROUTE_ALREADY_ENDED', 'ORDER_ROUTE_ALREADY_RETURNED',
+        'ORDER_ROUTE_RESULT_READY', 'ORDER_ROUTE_CRITICAL_VALUE_NOT_TOLD', 'IDEMPOTENCY_KEY_REUSED', 'ORDER_ROUTE_CHANGED_CONCURRENTLY',
+        '412 VERSION_CONFLICT', 'CROSS_FACILITY_ORDERS_UNAVAILABLE', '429 ORDER_ROUTE_CANNOT_COMPLETE_LIMIT',
+        'problem member retryAfter', '20 per member and 50 per facility', 'ORDER_ROUTE_UNAVAILABLE', 'ORDER_ROUTE_NOT_COMPLETED']) {
+        expect(note, `${name}: ${word}`).toContain(word)
+      }
+      expect(note, name).not.toContain('extensions.')
+    }
+    // D18-5's lists, exactly as the services' DTOs, 0091's command and its endings table hold them (the backend's shared
+    // fixture services/ehr-api/test/fixtures/order-route-cannot-complete-reasons.sql), each in the note.
+    expect(ORDER_ROUTE_CANNOT_COMPLETE_REASONS).toEqual({
+      lab_request: ['test_not_offered', 'supplies_unavailable', 'equipment_unavailable', 'sample_unusable', 'sample_not_obtained',
+        'cannot_meet_priority', 'patient_declined', 'patient_did_not_return', 'other'],
+      prescription: ['out_of_stock', 'medicine_unavailable', 'needs_prescriber_review', 'controlled_requirements',
+        'cannot_meet_priority', 'patient_declined', 'patient_did_not_return', 'other'],
+    })
+    const note = findEndpoint('lab.orderRouteCannotComplete')?.note ?? ''
+    expect(note).toContain(`Lab reason: ${ORDER_ROUTE_CANNOT_COMPLETE_REASONS.lab_request.join(' | ')};`)
+    expect(note).toContain(`Pharmacy reason: ${ORDER_ROUTE_CANNOT_COMPLETE_REASONS.prescription.join(' | ')}.`)
+    // What D18 adds to the reads the website already makes, each optional ("an earlier backend sends no such field").
+    for (const name of ['lab.workItems', 'pharmacy.workItems', 'admin.orderRoutesFind', 'admin.facilityOrderRouteSummary']) {
+      expect(findEndpoint(name)?.note, name).toContain('cannotComplete: true')
+    }
+    for (const name of ['ehr.labRequests', 'ehr.prescriptions', 'ehr.labRequestOrderRoutes', 'ehr.prescriptionOrderRoutes']) {
+      expect(findEndpoint(name)?.note, name).toContain('notCompleted { reason, sampleTaken, resultRecorded } | null')
+    }
+    for (const name of ['lab.workItems', 'ehr.labRequestOrderRoutes', 'ehr.myOrderRoutes', 'admin.orderRoutesFind']) {
+      expect(findEndpoint(name)?.note, name).toContain('receiving_unable')
+    }
+    expect(findEndpoint('ehr.myOrderRoutes')?.note).toContain('ORDER_ROUTE_NOT_COMPLETED')
+    expect(findEndpoint('admin.facilityOrderRouteSummary')?.note).toContain('notCompleted { last30Days, soonAfterAcceptance, '
+      + 'afterSevenDays, laterReportedWrongPatient, byReason { <reason>: count } }')
   })
 
   it('names what item 4 (hid-system 0089) adds to the answers the website already reads, as the services answer them', () => {

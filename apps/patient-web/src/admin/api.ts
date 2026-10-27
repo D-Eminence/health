@@ -182,6 +182,23 @@ export interface FacilityOrderRouteSummary {
   receivedPatientsLifetime: number
   counterparts: Array<{ direction: 'sent' | 'received' | string; facilityId: string; facilityName: string | null
     last30Days: Record<string, number> }>
+  /**
+   * D18 (hid-system 0091; absent from an earlier Identity, or from one whose schema has no 0091): the orders this
+   * facility accepted and then ended because it couldn't complete them, last 30 days, as counts only (D18-11). Read it
+   * only through `notCompletedCounts`.
+   */
+  notCompleted?: FacilityNotCompletedCounts
+  /** D18: `true` from an Identity whose services serve "We can't complete this order"; an earlier one sends none. */
+  cannotComplete?: boolean
+}
+/**
+ * A facility's "can't complete" endings in the last 30 days (D18, C32): how many; how many within an hour of accepting
+ * with nothing recorded; how many 7 days or more after accepting; how many were later reported as accepted for the wrong
+ * person (D18-12); and how many for each reason code that occurred.
+ */
+export interface FacilityNotCompletedCounts {
+  last30Days: number; soonAfterAcceptance: number; afterSevenDays: number; laterReportedWrongPatient: number
+  byReason: Record<string, number>
 }
 /** A facility's sign-up review as a destination (C20's `destination.review`, item 4). */
 export type DestinationReview = 'pending' | 'reviewed' | 'released' | 'governed' | 'legacy'
@@ -197,6 +214,8 @@ export interface FoundOrderRoutes {
   items: FoundOrderRoute[]; wrongPatientReports?: boolean
   /** D17 (hid-system 0090): `true` from an Identity whose services serve the late correction; an earlier one sends none. */
   lateCorrection?: boolean
+  /** D18 (hid-system 0091): `true` from an Identity whose services serve "We can't complete this order"; earlier, none. */
+  cannotComplete?: boolean
 }
 
 export interface FoundOrderRoute extends Versioned {

@@ -268,3 +268,68 @@ describe('the late correction, on the wire', () => {
     await expect(orderRoutesApi.sentWrongPatient('facility-1')).resolves.toEqual(answer)
   })
 })
+
+/**
+ * D18 (hid-system 0091): "We can't complete this order". The command carries the version, the reason, the statement that
+ * the person was the order's patient (`confirmedPatient: true`) and, for a laboratory only and only once ticked, that the
+ * ordering facility was phoned about a possibly critical value; the caller's Idempotency-Key; and is sent once. Each
+ * names the working facility and direct care.
+ */
+describe('“We can’t complete this order”, on the wire', () => {
+  const answer = { route: { id: ROUTE, version: 4, effectiveState: 'cancelled', endedKind: 'receiving_unable' },
+    reason: 'supplies_unavailable', readUntil: '2026-11-03T10:15:00.000Z', specimensCollected: 1, resultsRecorded: 0,
+    criticalCandidates: 0, replayed: false }
+
+  it('sends exactly the version, the reason and confirmedPatient, with the caller’s key, for Lab and Pharmacy', async () => {
+    const { requests, orderRoutesApi } = await signedIn(answer)
+    await expect(orderRoutesApi.cannotComplete('facility-1', 'lab', { id: ROUTE, version: 3 },
+      { reason: 'supplies_unavailable', confirmedPatient: true }, 'ending-key-00000001')).resolves.toEqual(answer)
+    await orderRoutesApi.cannotComplete('facility-1', 'pharmacy', { id: ROUTE, version: 7 },
+      { reason: 'out_of_stock', confirmedPatient: true }, 'ending-key-00000002')
+    expect(requests.map(request => [request.method, request.url.pathname, request.url.search, request.headers.get('idempotency-key')])).toEqual([
+      ['POST', `/api/v1/lab/order-routes/${ROUTE}/cannot-complete`, '', 'ending-key-00000001'],
+      ['POST', `/api/v1/pharmacy/order-routes/${ROUTE}/cannot-complete`, '', 'ending-key-00000002']])
+    expect(requests[0]!.body).toEqual({ expectedVersion: 3, reason: 'supplies_unavailable', confirmedPatient: true })
+    expect(Object.keys(requests[0]!.body as object)).toEqual(['expectedVersion', 'reason', 'confirmedPatient'])
+    expect(requests[1]!.body).toEqual({ expectedVersion: 7, reason: 'out_of_stock', confirmedPatient: true })
+    requests.forEach(careHeaders)
+  })
+
+  it('adds criticalValueTold for a laboratory once ticked, and never for a pharmacy, whose service refuses it', async () => {
+    const { requests, orderRoutesApi } = await signedIn(answer)
+    await orderRoutesApi.cannotComplete('facility-1', 'lab', { id: ROUTE, version: 3 },
+      { reason: 'other', confirmedPatient: true, criticalValueTold: true }, 'ending-key-00000003')
+    await orderRoutesApi.cannotComplete('facility-1', 'lab', { id: ROUTE, version: 3 },
+      { reason: 'other', confirmedPatient: true, criticalValueTold: false }, 'ending-key-00000004')
+    await orderRoutesApi.cannotComplete('facility-1', 'pharmacy', { id: ROUTE, version: 3 },
+      { reason: 'other', confirmedPatient: true, criticalValueTold: true }, 'ending-key-00000005')
+    expect(requests.map(request => Object.keys(request.body as object))).toEqual([
+      ['expectedVersion', 'reason', 'confirmedPatient', 'criticalValueTold'],
+      ['expectedVersion', 'reason', 'confirmedPatient'],
+      ['expectedVersion', 'reason', 'confirmedPatient']])
+    expect(requests[0]!.body).toEqual({ expectedVersion: 3, reason: 'other', confirmedPatient: true, criticalValueTold: true })
+  })
+
+  it('does not repeat an ending that got no answer, and hands the page the limit’s time', async () => {
+    const { requests, orderRoutesApi } = await signedIn({ status: 503, code: 'UPSTREAM_UNAVAILABLE', detail: 'Down' }, 503)
+    await expect(orderRoutesApi.cannotComplete('facility-1', 'lab', { id: ROUTE, version: 3 },
+      { reason: 'other', confirmedPatient: true }, 'ending-key-00000006')).rejects.toMatchObject({ status: 503 })
+    expect(requests).toHaveLength(1)
+    vi.unstubAllGlobals(); vi.resetModules()
+    const limited = await signedIn({ status: 429, code: 'ORDER_ROUTE_CANNOT_COMPLETE_LIMIT', detail: 'Limit',
+      retryAfter: '2026-10-28T09:14:03.219Z' }, 429)
+    await expect(limited.orderRoutesApi.cannotComplete('facility-1', 'pharmacy', { id: ROUTE, version: 3 },
+      { reason: 'other', confirmedPatient: true }, 'ending-key-00000007'))
+      .rejects.toMatchObject({ status: 429, code: 'ORDER_ROUTE_CANNOT_COMPLETE_LIMIT', retryAt: '2026-10-28T09:14:03.219Z' })
+    expect(limited.requests).toHaveLength(1)
+  })
+
+  it('hands the page the work lists’ cannotComplete untouched', async () => {
+    const lists = { items: [], receives: true, crossFacilityOrders: true, crossFacilityWork: true, lateCorrection: true,
+      cannotComplete: true }
+    await signedIn(lists)
+    const { staffApi } = await import('./api')
+    await expect(staffApi.labWorkItems('facility-1')).resolves.toEqual(lists)
+    await expect(staffApi.pharmacyWorkItems('facility-1')).resolves.toEqual(lists)
+  })
+})
