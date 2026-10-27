@@ -48,12 +48,14 @@ describe('Verify your NIN, on the profile', () => {
     expect(sent.filter(request => request.path === VERIFY)).toEqual([{ path: VERIFY, method: 'POST', body: { nin: '12345678901', dateOfBirth: '1990-04-12' } }])
   })
 
-  it('is offered when the profile read has no ninVerified (an Identity before it) for an account not NIN verified', async () => {
+  it('is not shown while the profile read has no ninVerified (an Identity before it)', async () => {
     renderPortal(<ProfilePage />, gateway({ assuranceState: 'LEGACY_MIGRATED' }))
-    expect(await screen.findByRole('heading', { name: 'Verify your NIN' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Bio-data' })).toBeTruthy()
+    expect(screen.queryByRole('heading', { name: 'Verify your NIN' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'NIN verification' })).toBeNull()
   })
 
-  it.each<Partial<PatientProfile>>([{ ninVerified: true, assuranceState: 'SELF_ASSERTED' }, { assuranceState: 'NIN_VERIFIED' }])(
+  it.each<Partial<PatientProfile>>([{ ninVerified: true, assuranceState: 'SELF_ASSERTED' }, { ninVerified: true, assuranceState: 'NIN_VERIFIED' }])(
     'says NIN verified, and asks for nothing, for %j', async changes => {
       const { sent } = renderPortal(<ProfilePage />, gateway(changes))
       expect(await screen.findByRole('heading', { name: 'NIN verification' })).toBeTruthy()

@@ -60,6 +60,9 @@ export function NinVerificationCard({ profile, onVerified }: {
   const focusAfter = useActionFocus()
   const heading = useRef<HTMLHeadingElement>(null)
   const verified = verifiedHere || ninVerifiedOf(profile)
+  // Dormant until Identity says whether the NIN is verified: the Identity before
+  // it does not offer the check to a signed-in patient (it answers 503).
+  if (typeof profile.ninVerified !== 'boolean') return null
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
