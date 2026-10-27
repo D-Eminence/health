@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import { Badge, Button, Card, EmptyState, Field, Input, Select, Textarea } from '@hid/ui'
@@ -42,12 +42,27 @@ const SERVICE_AUTH_UNAVAILABLE: ReadonlySet<string> = new Set(['EHR_SERVICE_AUTH
  */
 const MODULE_NOT_IN_SERVICE = 'This workspace is not in service on this Health ID deployment: its work cannot be loaded or changed here, and refreshing will not help.'
 
-// A refusal's message, with each field a 400 VALIDATION_FAILED names.
-function errorText(error: unknown, fallback: string) {
+/**
+ * What a Lab write on work from an order another facility sent answers once the order no longer lets this laboratory
+ * record on it, while it may still read it (an order that ended with its reads kept, D18-2, or cancelled after the
+ * order changed): the row it would write is not found for writing, 404 LAB_EXECUTION_NOT_FOUND, LAB_RESULT_NOT_FOUND,
+ * LAB_SPECIMEN_NOT_FOUND (INTERFACE_CONTRACT §24; 409 ORDER_ROUTE_CLOSED only under the patient's own consent). Said as
+ * the closed order it is, never as a missing record (UX-1).
+ */
+const ROUTED_WRITE_CLOSED = 'This order from another facility no longer lets you record on it: it has ended, or its time for work is over. You can still read what was recorded. Refresh the list.'
+const LAB_NOT_FOUND_FOR_WRITING = /^LAB_[A-Z_]+_NOT_FOUND$/
+
+/** Whether the accession shown is work from an order another facility sent (its writes may be refused as above). */
+const RoutedAccession = createContext(false)
+
+// A refusal's message, with each field a 400 VALIDATION_FAILED names. `routed`: a Lab write on work from an order another
+// facility sent, whose 404 for writing means the order closed (ROUTED_WRITE_CLOSED).
+function errorText(error: unknown, fallback: string, routed = false) {
   if (isHidApiError(error) && SERVICE_AUTH_UNAVAILABLE.has(error.code)) return 'A connection between Health ID services failed; retry in about 15 seconds.'
   if (isHidApiError(error) && error.status === 404 && error.code === 'API_ROUTE_NOT_FOUND') return MODULE_NOT_IN_SERVICE
   // Novu since P4c, on any action on work from an order another facility sent (SPEC-FINAL §10.2).
   if (isHidApiError(error) && error.code === 'ORDER_ROUTE_CLOSED') return 'This order from another facility is closed: it was cancelled, or its time for work has ended, so nothing more can be recorded on it. Refresh the list.'
+  if (routed && isHidApiError(error) && error.status === 404 && LAB_NOT_FOUND_FOR_WRITING.test(error.code)) return ROUTED_WRITE_CLOSED
   if (isHidApiError(error) && error.status === 423 && error.code === 'CROSS_FACILITY_ORDERS_UNAVAILABLE') return 'Health ID has paused work on orders from other facilities. Try again later.'
   return refusalText(error, fallback)
 }
@@ -242,6 +257,7 @@ function SpecimenAction({ facilityId, accessionId, specimen, permissions, onStar
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const problems = useFieldProblems()
+  const routed = useContext(RoutedAccession)
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (busy) return
@@ -250,7 +266,7 @@ function SpecimenAction({ facilityId, accessionId, specimen, permissions, onStar
     if (action === 'reject' && !detail) return problems.refuse(`lab-detail-${specimen.id}`, 'Enter a rejection reason.')
     setBusy(true); onStarted()
     try { await staffApi.transitionSpecimen(facilityId, accessionId, specimen, action, detail); onChanged(SPECIMEN_STEP_DONE[action]) }
-    catch (caught) { setError(errorText(caught, 'Specimen could not be updated. Refresh and try again.')); onRefused(caught) }
+    catch (caught) { setError(errorText(caught, 'Specimen could not be updated. Refresh and try again.', routed)); onRefused(caught) }
     finally { setBusy(false) }
   }
   return <div className="staff-list-item"><div className="staff-row"><strong id={`lab-specimen-${specimen.id}-title`} tabIndex={-1}>{specimen.specimenType} · {specimen.specimenIdentifier}</strong><Badge tone={specimen.status === 'received' ? 'success' : specimen.status === 'rejected' ? 'danger' : 'warning'}>{specimen.status}</Badge></div>
@@ -294,6 +310,7 @@ function ResultEntry({ facilityId, execution, result, onStarted, onChanged, onRe
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const problems = useFieldProblems()
+  const routed = useContext(RoutedAccession)
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (busy) return
@@ -315,7 +332,7 @@ function ResultEntry({ facilityId, execution, result, onStarted, onChanged, onRe
           String(form.get('revisionKind')) === 'amendment' ? 'amendment' : 'correction')
         : await staffApi.enterLabResult(facilityId, execution, value)
       onChanged(updated, result ? 'A new unverified result revision was recorded.' : 'An unverified result was recorded.')
-    } catch (caught) { setError(errorText(caught, 'Result could not be recorded. Refresh before retrying.')); onRefused(caught) }
+    } catch (caught) { setError(errorText(caught, 'Result could not be recorded. Refresh before retrying.', routed)); onRefused(caught) }
     finally { setBusy(false) }
   }
   return <details className="staff-list-item"><summary>{result ? 'Correct or amend result' : 'Enter manual result'}</summary>
@@ -344,6 +361,7 @@ function ResultGovernance({ facilityId, result, action, onStarted, onChanged, on
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const problems = useFieldProblems()
+  const routed = useContext(RoutedAccession)
   const reasonId = `lab-${action}-reason-${result.id}`
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -357,7 +375,7 @@ function ResultGovernance({ facilityId, result, action, onStarted, onChanged, on
         ? await staffApi.verifyLabResult(facilityId, result, reason)
         : await staffApi.releaseLabResult(facilityId, result, reason)
       onChanged(value, action === 'verify' ? 'This exact result version was verified.' : 'This exact verified result version was released.')
-    } catch (caught) { setError(errorText(caught, 'Decision could not be recorded. Refresh before retrying.')); onRefused(caught) }
+    } catch (caught) { setError(errorText(caught, 'Decision could not be recorded. Refresh before retrying.', routed)); onRefused(caught) }
     finally { setBusy(false) }
   }
   return <form className="staff-form" onSubmit={event => void submit(event)}>
@@ -406,6 +424,7 @@ function ExecutionCard({ facilityId, execution, permissions, onStarted, onExecut
 }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const routed = useContext(RoutedAccession)
   const result = execution.result
   const current = result?.revisions.find(revision => revision.version === result.currentVersion)
   async function complete(event: FormEvent<HTMLFormElement>) {
@@ -414,7 +433,7 @@ function ExecutionCard({ facilityId, execution, permissions, onStarted, onExecut
     const notes = String(new FormData(event.currentTarget).get('notes') ?? '').trim()
     setBusy(true); setError(''); onStarted()
     try { onExecutionChanged(await staffApi.completeLabExecution(facilityId, execution, notes), 'Analytical execution was completed.') }
-    catch (caught) { setError(errorText(caught, 'Execution could not be completed. Refresh before retrying.')); onRefused(caught) }
+    catch (caught) { setError(errorText(caught, 'Execution could not be completed. Refresh before retrying.', routed)); onRefused(caught) }
     finally { setBusy(false) }
   }
   const canCorrect = Boolean(result && permissions.includes('lab.result.correct') &&
@@ -466,6 +485,7 @@ function ExecutionPanel({ facilityId, specimen, permissions, generation, recheck
 }) {
   const canRead = permissions.includes('lab.execution.read')
   const canStart = permissions.includes('lab.execution.start')
+  const routed = useContext(RoutedAccession)
   // Results are kept with the accession generation they were confirmed in and shown only while
   // it is current. A hide anywhere in the accession starts a new generation at once, so these
   // values leave in the same render as the hide, before this panel's own effects have run.
@@ -556,7 +576,7 @@ function ExecutionPanel({ facilityId, specimen, permissions, generation, recheck
     if (!reason) return startProblems.refuse(`lab-start-reason-${specimen.id}`, 'Enter a reason to begin execution.')
     setBusy(true); setNotice('')
     try { changedExecution(await staffApi.startLabExecution(facilityId, specimen, reason, method), 'Analytical execution started.') }
-    catch (caught) { setStartError(errorText(caught, 'Execution could not be started. Refresh the specimen first.')); recheckAccess(caught) }
+    catch (caught) { setStartError(errorText(caught, 'Execution could not be started. Refresh the specimen first.', routed)); recheckAccess(caught) }
     finally { setBusy(false) }
   }
   return <div className="staff-list-item staff-stack"><h3>Analytical execution</h3>
@@ -577,7 +597,20 @@ function ExecutionPanel({ facilityId, specimen, permissions, generation, recheck
   </div>
 }
 
-function AccessionView({ facilityId, id, permissions, created, onChanged }: { facilityId: string; id: string; permissions: string[]; created?: string; onChanged: () => void }) {
+/** The Lab permissions that write on an accession: its specimens' steps, executions and results. */
+const LAB_WRITE_PERMISSIONS: ReadonlySet<string> = new Set(['lab.specimen.collect', 'lab.specimen.receive', 'lab.specimen.reject',
+  'lab.execution.start', 'lab.execution.complete', 'lab.result.enter', 'lab.result.correct', 'lab.result.revise-released',
+  'lab.result.verify', 'lab.result.release'])
+
+/**
+ * An accession. On work from an order another facility sent (`routed`) that no longer lets this laboratory record on it
+ * (`closed`: routeClosedForWork, as its row says "Nothing more can be recorded on it"), it is shown to be read: every
+ * specimen step, execution and result write is left out, as the services refuse them (UX-1), and it says so; what was
+ * recorded can still be read while the order lets it (D18-2).
+ */
+function AccessionView({ facilityId, id, permissions: granted, created, routed = false, closed = false, onChanged }: { facilityId: string; id: string; permissions: string[]; created?: string; routed?: boolean; closed?: boolean; onChanged: () => void }) {
+  const permissions = useMemo(() => closed ? granted.filter(permission => !LAB_WRITE_PERMISSIONS.has(permission)) : granted,
+    [closed, granted])
   // An accession is shown only for the reload it came from, so a reload removes every
   // specimen row at once and each panel reads its results once, when it mounts again.
   const [loaded, setLoaded] = useState<{ revision: number; accession: LabAccession } | null>(null)
@@ -637,13 +670,15 @@ function AccessionView({ facilityId, id, permissions, created, onChanged }: { fa
       })
     return () => { active = false }
   }, [facilityId, id, revision, recheck])
-  return <Card className="staff-card"><h2 id="lab-accession-title" tabIndex={-1}>Specimen accession</h2>
+  return <RoutedAccession.Provider value={routed}><Card className="staff-card"><h2 id="lab-accession-title" tabIndex={-1}>Specimen accession</h2>
+    {closed && <p className="staff-notice">This order from another facility has ended: nothing more can be recorded on it. You can
+      still read what was recorded on it.</p>}
     {/* Mounted throughout, so what a step records is announced; it says so through the read that follows. */}
     <div id="lab-accession-status" role="status">{notice ? <p className="staff-success">{notice}</p> : loading && <p>Loading accession…</p>}</div>
     {error && <p className="staff-error" role="alert">{error}</p>}
     {accession && <><p>Accession {accession.accessionNumber}</p><div className="staff-list">{accession.specimens.map(specimen => <div className="staff-stack" key={`${specimen.id}-${specimen.status}`}><SpecimenAction facilityId={facilityId} accessionId={id} specimen={specimen} permissions={permissions} onStarted={() => setNotice('')} onChanged={message => { specimenChanged(specimen, message); onChanged() }} onRefused={specimenRefused} />{specimen.status === 'received' && (permissions.includes('lab.execution.read') || permissions.includes('lab.execution.start')) && <ExecutionPanel facilityId={facilityId} specimen={specimen} permissions={permissions} generation={generation} recheck={recheck} resultsHidden={resultsHidden} onResultsHidden={hideResults} />}</div>)}</div></>}
     <div className="staff-row"><Button id="lab-accession-refresh" tone="secondary" size="sm" aria-disabled={loading || undefined} className={UNAVAILABLE} onClick={() => { if (loading) return; setNotice(''); reload() }}>Refresh accession</Button></div>
-  </Card>
+  </Card></RoutedAccession.Provider>
 }
 
 /**
@@ -863,6 +898,8 @@ export function Laboratory() {
   // never shows its accession or its patient again, even once other work is listed (item 3).
   const selected = selection && selection.facilityId === facilityId
     && (list.items === null || list.items.some(item => item.id === selection.item.id)) ? selection.item : null
+  // The chosen work as the list now has it: its order may have ended since it was chosen (UX-1).
+  const selectedRoute = (selected && list.items?.find(item => item.id === selected.id) || selected)?.orderRoute
   // A created accession replaces the form that made it: focus goes to the accession.
   const focus = useFocusById()
   // Orders other facilities send here (Novu, P4c): received by laboratory scientists (lab.order-route.receive), and only
@@ -927,7 +964,7 @@ export function Laboratory() {
       facilityId={facilityId} item={item} permissions={permissions} said={said.rowSaid(item.orderRoute?.id)}
       onOpen={() => setSelection({ facilityId, item })} onEnded={ending => endedHere(item, ending)}
       onNotCompleted={notCompletedHere} onReread={said.reread} />)}</div>
-      {selected?.accessionId && permissions.includes('lab.accession.read') ? <AccessionView key={`${facilityId}-${selected.accessionId}`} facilityId={facilityId} id={selected.accessionId} permissions={permissions} created={selection?.created} onChanged={() => void list.refresh()} /> : selected && permissions.includes('lab.accession.create') ? <AccessionForm facilityId={facilityId} item={selected} onCreated={accession => { setSelection({ facilityId, item: { ...selected, accessionId: accession.id, accessionNumber: accession.accessionNumber }, created: `Accession ${accession.accessionNumber} created.` }); focus('lab-accession-title', true); void list.refresh() }} /> : <Card className="staff-card"><h2>Choose work</h2><p>Open an accession or prepare a specimen for an accepted order.</p></Card>}
+      {selected?.accessionId && permissions.includes('lab.accession.read') ? <AccessionView key={`${facilityId}-${selected.accessionId}`} facilityId={facilityId} id={selected.accessionId} permissions={permissions} created={selection?.created} routed={Boolean(selectedRoute)} closed={routeClosedForWork(selectedRoute)} onChanged={() => void list.refresh()} /> : selected && permissions.includes('lab.accession.create') ? <AccessionForm facilityId={facilityId} item={selected} onCreated={accession => { setSelection({ facilityId, item: { ...selected, accessionId: accession.id, accessionNumber: accession.accessionNumber }, created: `Accession ${accession.accessionNumber} created.` }); focus('lab-accession-title', true); void list.refresh() }} /> : <Card className="staff-card"><h2>Choose work</h2><p>Open an accession or prepare a specimen for an accepted order.</p></Card>}
     </div>}
   </>
 }

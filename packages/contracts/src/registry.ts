@@ -196,7 +196,7 @@ const WORK_LISTS_P4C = 'On Novu since P4c items of orders from other facilities 
   + 'read it, 7 days only when a laboratory had opened an accession; nothing more can be recorded on it: a Lab write '
   + 'answers 409 ORDER_ROUTE_CLOSED under the patient\'s own consent and 404 while only the order lets this facility '
   + 'read it (what it would write is not found for writing, e.g. LAB_EXECUTION_NOT_FOUND, LAB_RESULT_NOT_FOUND), and a '
-  + 'dispensing 409 ORDER_ROUTE_CLOSED); an earlier backend sends no such field.'
+  + 'dispensing 409 ORDER_ROUTE_CLOSED; the website offers no write there); an earlier backend sends no such field.'
 /**
  * The wrong-patient report (item 3, owner decisions D1-D19 of 2026-10-26; hid-system 0088, C25-C28): a laboratory or
  * pharmacy ends an order it accepted for someone who was not the patient, and in the same transaction every result or

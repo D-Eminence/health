@@ -575,7 +575,12 @@ row is gone; item 3's row form keeps its words the same way. Each ending is
 said in its own neutral entry above the work list until closed; the row then
 says this facility couldn't complete it, and leaves the list when its reads
 end (at once unless a laboratory had opened an accession); the Accepted panel
-of an order ended from its row closes. The ordering clinician reads a short
+of an order ended from its row closes. The accession of routed work whose
+order no longer lets the laboratory record (`routeClosedForWork`, also an
+order cancelled after it changed) is shown to be read: no specimen step,
+execution or result write is offered, as the services refuse them, and a
+write refused 404 for writing on routed work (`LAB_*_NOT_FOUND`) is said as
+the order having closed. The ordering clinician reads a short
 badge with both days and a neutral paragraph with the reason, the next step
 and whether a sample was taken or a result recorded there (the summary's
 `notCompleted`, dropped once a wrong-patient report exists); the change
