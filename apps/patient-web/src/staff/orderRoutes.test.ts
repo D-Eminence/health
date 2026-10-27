@@ -671,8 +671,9 @@ describe('“We can’t complete this order”: the receiving facility’s words
       + 'Hospital on this order, so it can’t be ended here. Phone General Hospital.' })
     expect(cannotCompleteRefusal(new HidApiError(409, 'Refused', { code: 'ORDER_ROUTE_ALREADY_RETURNED' }), 'pharmacy', 'General Hospital',
       null).text).toBe('A dispensing has already gone back to General Hospital on this order, so it can’t be ended here. Phone General Hospital.')
+    // Release it, or correct it if it is wrong: no Lab page or route marks one result entered in error.
     expect(refused(409, 'ORDER_ROUTE_RESULT_READY')).toEqual({ text: 'A checked result is waiting to be released on this order. '
-      + 'Release it under Open accession, or, if it is wrong, correct it or mark it entered in error first. If you can’t, phone General Hospital.' })
+      + 'Release it under Open accession or, if it is wrong, correct it there first. If you can’t, phone General Hospital.' })
     expect(refused(409, 'ORDER_ROUTE_CRITICAL_VALUE_NOT_TOLD')).toEqual({ critical: true, text: 'A result recorded on this order is '
       + 'marked as possibly critical. Phone General Hospital about it now, then tick the box and end the order again.' })
     expect(refused(409, 'ORDER_ROUTE_NOT_ACCEPTED')).toEqual({ reload: true, text: 'This order hasn’t been accepted: decline it instead.' })

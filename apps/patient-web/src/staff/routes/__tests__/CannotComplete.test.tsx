@@ -312,7 +312,7 @@ describe('the laboratory’s form', () => {
     fill(form(item))
     submit(form(item))
     expect(await within(item).findByText('A checked result is waiting to be released on this order. Release it under Open '
-      + 'accession, or, if it is wrong, correct it or mark it entered in error first. If you can’t, phone General Hospital.')).toBeTruthy()
+      + 'accession or, if it is wrong, correct it there first. If you can’t, phone General Hospital.')).toBeTruthy()
     submit(form(item))
     await waitFor(() => expect(routes.cannotComplete).toHaveBeenCalledTimes(2))
     expect(routes.cannotComplete.mock.calls[1]![4]).not.toBe(routes.cannotComplete.mock.calls[0]![4])

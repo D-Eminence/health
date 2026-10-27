@@ -847,9 +847,10 @@ export function cannotCompleteRefusal(error: unknown, service: ReceivingService,
     + `reference ${reference || 'shown with the order'}.` }
   if (isCode(error, 'ORDER_ROUTE_ALREADY_RETURNED')) return { reload: true, text: `A ${lab ? 'result' : 'dispensing'} has `
     + `already gone back to ${ordering} on this order, so it can’t be ended here. Phone ${ordering}.` }
+  // Release it, or correct it if it is wrong (a correction is a new, unverified version): no Lab page or route marks one
+  // result entered in error (only a wrong-patient report or late correction does, and they end the order).
   if (isCode(error, 'ORDER_ROUTE_RESULT_READY')) return { text: 'A checked result is waiting to be released on this order. '
-    + 'Release it under Open accession, or, if it is wrong, correct it or mark it entered in error first. If you can’t, phone '
-    + `${ordering}.` }
+    + `Release it under Open accession or, if it is wrong, correct it there first. If you can’t, phone ${ordering}.` }
   if (isCode(error, 'ORDER_ROUTE_CRITICAL_VALUE_NOT_TOLD')) return { critical: true, text: 'A result recorded on this order is '
     + `marked as possibly critical. Phone ${ordering} about it now, then tick the box and end the order again.` }
   if (isCode(error, 'ORDER_ROUTE_NOT_ACCEPTED')) return { reload: true, text: 'This order hasn’t been accepted: decline it instead.' }
