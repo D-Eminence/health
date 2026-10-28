@@ -233,7 +233,8 @@ export function SentOrdersCard() {
     if (isHidApiError(caught) && caught.status === 404) return null
     throw caught
   }), [api])
-  const routes = usePatientResource(load)
+  // Kept for the account under its own name: `load` is made again each time the card is.
+  const routes = usePatientResource(load, 'order-routes')
   const profile = usePatientResource(api.profile)
   const [working, setWorking] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)

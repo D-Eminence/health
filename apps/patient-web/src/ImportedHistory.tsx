@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ImportedAttachmentDownload, ImportedMedicalRecord, ImportedRecordVersion } from './importedRecords'
+import { dayWords, groupByDay as byDay, matchesQuery, textOf } from './routes/recordSearch'
 import './imported-history.css'
 
 function date(value: string) {
@@ -34,7 +35,26 @@ function InformationValue({ value }: { value: unknown }) {
     ? new Date(text).toLocaleDateString('en-NG', { dateStyle: 'medium', timeZone: 'UTC' }) : text
   return <span className="imported-history-value">{display}</span>
 }
-function VersionContent({ version }: { version: ImportedRecordVersion }) {
+const originLabel = (record: ImportedMedicalRecord) => record.origin === 'patient-provided' ? 'Patient reported' : 'Provider authored'
+
+/**
+ * Everything the card shows of a record, for the patient's search: its title, kind, date and the day heading it is
+ * under, every version and file.
+ */
+export function importedRecordText(record: ImportedMedicalRecord): string[] {
+  return [record.title, record.infoType || record.category ? label(record.infoType || record.category!) : null,
+    originLabel(record), date(record.createdAt), dayWords(record.createdAt),
+    ...record.versions.flatMap(version => textOf([version.record, version.notes, version.structuredData, version.transcriptionText])),
+    ...record.files.map(file => file.fileName)].filter((text): text is string => Boolean(text))
+}
+
+/** The records the patient's search matches: all of them, the same list, when nothing is searched. */
+export function matchingImported(records: readonly ImportedMedicalRecord[], query: string): readonly ImportedMedicalRecord[] {
+  return query.trim() ? records.filter(record => matchesQuery(importedRecordText(record), query)) : records
+}
+
+function VersionContent({ version, level }: { version: ImportedRecordVersion; level: 4 | 5 }) {
+  const Heading = level === 4 ? 'h4' : 'h5'
   const compare = (value: unknown) => typeof value === 'string' ? value.trim().replace(/\s+/g, ' ') : ''
   const notes = compare(version.notes)
   const record = compare(version.record)
@@ -45,16 +65,20 @@ function VersionContent({ version }: { version: ImportedRecordVersion }) {
     ['Transcription', version.transcriptionText],
   ] as const
   return <div className="imported-history-content">{sections.map(([heading, value]) => {
-    return present(value) ? <div key={heading}><h4>{heading}</h4><InformationValue value={value} /></div> : null
+    return present(value) ? <div key={heading}><Heading>{heading}</Heading><InformationValue value={value} /></div> : null
   })}</div>
 }
 
-export function ImportedHistory({ records, limit, download, allowLocalHttp = false, paged = false }: {
+export function ImportedHistory({ records, limit, download, allowLocalHttp = false, paged = false, query = '', groupedByDay = false }: {
   records: ImportedMedicalRecord[]; limit: number
   /** Read a page at a time (hid-system main): the footer counts what is shown rather than naming a limit. */
   paged?: boolean
   download?: (fileId: string, signal: AbortSignal) => Promise<ImportedAttachmentDownload>
   allowLocalHttp?: boolean
+  /** The patient's search (routes/recordSearch.ts): only the records it matches are shown. */
+  query?: string
+  /** Under day headings, newest day first, as the patient's records page lists them. */
+  groupedByDay?: boolean
 }) {
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState('')
@@ -80,29 +104,38 @@ export function ImportedHistory({ records, limit, download, allowLocalHttp = fal
       if (!request.signal.aborted) { controller.current = null; setBusy(null) }
     }
   }
+  // Under day headings each record's title is a level lower, and so is everything inside it.
+  const Title = groupedByDay ? 'h4' : 'h3'
+  const Inner = groupedByDay ? 'h5' : 'h4'
+  const innerLevel = groupedByDay ? 5 : 4
+  const card = (record: ImportedMedicalRecord) => {
+    const current = record.versions.find(version => version.id === record.currentVersionId)!
+    return <article className="imported-history-card" key={record.id}>
+      <header><Title>{record.title || 'Imported medical record'}</Title><span className="imported-history-origin">{originLabel(record)}</span></header>
+      <p>{[record.infoType || record.category ? label(record.infoType || record.category!) : '', date(record.createdAt)].filter(Boolean).join(' · ')}</p>
+      <VersionContent version={current} level={innerLevel} />
+      {record.versions.length > 1 && <details><summary>Previous versions</summary>{record.versions.filter(version => version.id !== record.currentVersionId)
+        .map(version => <div key={version.id}><Inner>Version {version.versionNo} · {date(version.createdAt)}</Inner><VersionContent version={version} level={innerLevel} /></div>)}</details>}
+      {record.files.length > 0 && <div><Inner>Attachments</Inner><ul>{record.files.map(file => <li key={file.id}>
+        <span>{file.fileName || 'Attachment'}</span>{file.accessStatus === 'available'
+          ? download ? <button type="button" disabled={busy !== null} onClick={() => void openFile(file.id)}>
+            {busy === file.id ? 'Opening…' : `Download ${file.fileName || 'attachment'}`}</button> : <span>Document access permission required.</span>
+          : <span>{file.accessStatus === 'rejected' ? 'Download unavailable: file failed safety verification.' : 'Download pending safety verification.'}</span>}
+      </li>)}</ul></div>}
+    </article>
+  }
+  const shown = matchingImported(records, query)
+  const searching = shown !== records
   return <section className="imported-history" aria-label="Imported medical history">
     <h2>Imported medical history</h2>
     <p>Medical information preserved from the previous Health ID system.</p>
     {error && <p role="alert">{error}</p>}
-    {records.length === 0 ? <p>No imported medical history is available.</p> : <div className="imported-history-list">
-      {records.map(record => {
-        const current = record.versions.find(version => version.id === record.currentVersionId)!
-        return <article className="imported-history-card" key={record.id}>
-          <header><h3>{record.title || 'Imported medical record'}</h3><span className="imported-history-origin">
-            {record.origin === 'patient-provided' ? 'Patient reported' : 'Provider authored'}</span></header>
-          <p>{[record.infoType || record.category ? label(record.infoType || record.category!) : '', date(record.createdAt)].filter(Boolean).join(' · ')}</p>
-          <VersionContent version={current} />
-          {record.versions.length > 1 && <details><summary>Previous versions</summary>{record.versions.filter(version => version.id !== record.currentVersionId)
-            .map(version => <div key={version.id}><h4>Version {version.versionNo} · {date(version.createdAt)}</h4><VersionContent version={version} /></div>)}</details>}
-          {record.files.length > 0 && <div><h4>Attachments</h4><ul>{record.files.map(file => <li key={file.id}>
-            <span>{file.fileName || 'Attachment'}</span>{file.accessStatus === 'available'
-              ? download ? <button type="button" disabled={busy !== null} onClick={() => void openFile(file.id)}>
-                {busy === file.id ? 'Opening…' : `Download ${file.fileName || 'attachment'}`}</button> : <span>Document access permission required.</span>
-              : <span>{file.accessStatus === 'rejected' ? 'Download unavailable: file failed safety verification.' : 'Download pending safety verification.'}</span>}
-          </li>)}</ul></div>}
-        </article>
-      })}
-    </div>}
-    {records.length > 0 && <p>{paged ? `Showing ${records.length} imported ${records.length === 1 ? 'record' : 'records'}, newest first.` : `Showing up to ${limit} imported records, newest first.`}</p>}
+    {records.length === 0 ? <p>No imported medical history is available.</p>
+      : shown.length === 0 ? <p>No imported records match your search.</p>
+      : groupedByDay ? byDay(shown, record => record.createdAt).map(group => <div className="imported-history-day" key={group.day ?? 'undated'}>
+        <h3 className="patient-day-heading">{group.label}</h3><div className="imported-history-list">{group.items.map(card)}</div></div>)
+      : <div className="imported-history-list">{shown.map(card)}</div>}
+    {records.length > 0 && <p>{searching ? `${shown.length} of the ${records.length} imported ${records.length === 1 ? 'record' : 'records'} shown match your search.`
+      : paged ? `Showing ${records.length} imported ${records.length === 1 ? 'record' : 'records'}, newest first.` : `Showing up to ${limit} imported records, newest first.`}</p>}
   </section>
 }

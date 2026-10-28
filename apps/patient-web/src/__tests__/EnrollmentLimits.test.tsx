@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
 import { Enrollment } from '../routes/Enrollment'
+import { enterCode } from './codeBoxes'
 
 const api = vi.hoisted(() => ({
   enrollmentCurrent: vi.fn(), googleOnboarding: vi.fn(), enrollmentStart: vi.fn(), enrollmentContact: vi.fn(),
@@ -39,8 +40,7 @@ describe('enrollment limits', () => {
     render(<MemoryRouter><Enrollment /></MemoryRouter>)
     const code = await screen.findByLabelText('Verification code')
     expect(screen.queryByText(/every code is refused/)).toBeNull()
-    fireEvent.change(code, { target: { value: '000000' } })
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Verify code' })) })
+    await enterCode(code, '000000')
     expect((await screen.findByText(/every code is refused, even a correct one/)).textContent).toMatch(/no new code is sent/)
   })
 
@@ -49,8 +49,7 @@ describe('enrollment limits', () => {
     api.enrollmentVerify.mockRejectedValue(new HidApiError(422, 'The verification code is invalid or expired', { code: 'OTP_INVALID' }))
     api.enrollmentContact.mockResolvedValue({ challengeId: 'challenge-2', expiresInSeconds: 600, resendAfterSeconds: 60 })
     render(<MemoryRouter><Enrollment /></MemoryRouter>)
-    fireEvent.change(await screen.findByLabelText('Verification code'), { target: { value: '000000' } })
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Verify code' })) })
+    await enterCode(await screen.findByLabelText('Verification code'), '000000')
     await screen.findByText(/every code is refused, even a correct one/)
 
     fireEvent.click(screen.getByRole('button', { name: 'Request another code or change contact' }))

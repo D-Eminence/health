@@ -8,6 +8,7 @@ import { createTestSessionValue, SessionContext } from '../session'
 import { AccountDeletionCard, EmergencyContactsCard } from '../routes/AccountSafety'
 import { AccessPage } from '../routes/Portal'
 import { described } from './portalHarness'
+import { enterCode } from './codeBoxes'
 
 function json(value: unknown, status = 200) {
   return new Response(JSON.stringify(value), { status, headers: { 'content-type': 'application/json' } })
@@ -175,9 +176,13 @@ describe('patient emergency contacts', () => {
       .toEqual({ name: 'Chidi Okafor', relationship: 'relative', channel: 'sms', destination: '0803 123 4567', notifyOnEmergencyAccess: true })
 
     fireEvent.click(await screen.findByRole('button', { name: 'Send verification code to Chidi Okafor, +234•••••567' }))
-    fireEvent.change(await screen.findByRole('textbox', { name: /Code from Chidi Okafor/ }), { target: { value: '482913' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Verify contact' }))
+    // Six boxes, as every code a patient types (CodeBoxes.tsx): the sixth digit sends it, once.
+    const code = await screen.findByRole('textbox', { name: /Code from Chidi Okafor/ })
+    expect(screen.getByRole('group', { name: 'Code from Chidi Okafor' }).querySelectorAll('input')).toHaveLength(6)
+    await enterCode(code, '482913')
     expect(await screen.findByText('Verified · will be notified in an emergency')).toBeTruthy()
+    expect(requests.filter(request => request.path.endsWith('/verification/confirm')).map(request => request.body))
+      .toEqual([{ challengeId: expect.any(String), code: '482913' }])
   })
 
   it('keeps the contact unverified when delivery is not yet available', async () => {

@@ -900,12 +900,19 @@ no localStorage, sessionStorage, IndexedDB, Cache API, service worker or push
 subscription. ESLint enforces each where it is used plainly, through a property
 or by destructuring (`eslint.config.js`: `NO_BROWSER_STORAGE`, `NO_INDEXED_DB`,
 `NO_SERVICE_WORKER`, `NO_CACHE_STORAGE`); computed or aliased access is left to
-review. The portal can be
-installed as an app: a web app manifest (`public/health-id.webmanifest`, named
-Health ID, standalone, `start_url` `/` so that each product and admin host opens
-its own workspace) and icons derived from the supplied mark. Its `id` is `/`,
-which deliberately continues the identity of an earlier HID app installed on
-the same host. That is installability only: with no service worker nothing is
+review. The portal's pages keep each read's last answer
+in memory for the patient signed in (`apps/patient-web/src/resourceCache.ts`),
+so a page opened again shows it at once while it reads again; it goes as that
+patient signs out or another account signs in, and is never written to browser
+storage. The portal can be
+added to a home screen: a web app manifest
+(`apps/patient-web/public/health-id.webmanifest`, named Health ID, standalone,
+theme colour the tokens' brand, `start_url` `/` so that each product and admin
+host opens its own workspace) and the public site's icons
+(`apps/public-web/app/icon.png` and `apple-icon.png`, copied to
+`apps/patient-web/public/icons/`), linked from the shell for the tab and the
+home screen. Its `id` is `/`, which deliberately continues the identity of an
+earlier HID app installed on the same host. With no service worker nothing is
 available offline, and an installed app that cannot reach the network shows the
 browser's own offline page. Each app also serves `/service-worker.js`, which no
 Health ID page registers: when the browser checks a worker that hid-system's

@@ -9,6 +9,7 @@ import { Turnstile } from '../Turnstile'
 import { AuthLayout } from '../AuthLayout'
 import { useSession } from '../session'
 import { useDocumentTitle } from '../authSteps'
+import { signupHandoff } from './enrollment/signupHandoff'
 
 export function SignIn() {
   const { state, sessionError, otherPortalSession, signedOutElsewhere, signIn, acceptGoogleSession, api } = useSession()
@@ -22,6 +23,9 @@ export function SignIn() {
   const [resetKey, setResetKey] = useState(0)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Refused as invalid credentials (401), which is also what an account whose sign-up was never finished gets
+  // (hid-system local-auth.provider.ts): the way to finish it is offered, as hid-1.0 did for "email not confirmed".
+  const [unfinished, setUnfinished] = useState(false)
 
   if (state.status === 'authenticated') return <Navigate to="/" replace />
 
@@ -32,11 +36,13 @@ export function SignIn() {
     if (isBlankHealthIdInput(email)) { setError('Enter your email or Health ID.'); return }
     setBusy(true)
     setError(null)
+    setUnfinished(false)
     try {
       await signIn(emailOrHealthId(email), password, turnstileToken)
       navigate('/', { replace: true })
     } catch (reason) {
       setError(isHidApiError(reason) ? reason.message : 'Sign-in could not be completed. Please try again.')
+      setUnfinished(isHidApiError(reason) && reason.status === 401)
     } finally {
       setTurnstileToken(null)
       setResetKey(value => value + 1)
@@ -48,6 +54,7 @@ export function SignIn() {
     if (!turnstileToken) return
     setBusy(true)
     setError(null)
+    setUnfinished(false)
     try {
       const result = await api.googleExchange(idToken, turnstileToken, 'sign_in')
       if (!('actor' in result)) throw new Error('This Google account is not linked to a patient account.')
@@ -65,7 +72,10 @@ export function SignIn() {
   return <AuthLayout brandTo="/"
     title="Welcome back." titleId="sign-in-title"
     lede="Sign in to view your health information and manage who can see it.">
-    {(error || sessionError) && <p role="alert" className="patient-inline-error">{error || sessionError}</p>}
+    {/* One alert, so a screen reader reads the way to finish a sign-up with the refusal. The email typed goes with
+        the link in router state, never the URL, so the sign-up starts with it. */}
+    {(error || sessionError) && <div role="alert" className="auth-alert"><p className="patient-inline-error">{error || sessionError}</p>
+      {error && unfinished && <p className="patient-field-hint">Didn't finish signing up? <Link to="/enroll" state={signupHandoff(emailOrHealthId(email))}>Finish creating your Health ID</Link></p>}</div>}
     {signedOutElsewhere && !error && <p role="alert" className="patient-inline-error">You were signed out because this browser's Health ID sign-in changed in another tab or window. Sign in again to continue.</p>}
     {otherPortalSession && <div className="patient-session-note">
       <p>A provider sign-in is active in this browser. Signing in here as a patient replaces it.</p>

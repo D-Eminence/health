@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
 import { App } from '../App'
+import { LEGACY_PATIENT_PATHS } from '../legacyPaths'
 
 const calls = vi.hoisted(() => ({
   patientSession: vi.fn(), patientRefresh: vi.fn(), patientEnrollmentCurrent: vi.fn(), patientGoogleOnboarding: vi.fn(), patientProfile: vi.fn(),
@@ -43,7 +44,8 @@ vi.mock('../admin/api', () => ({
 }))
 
 function Path() {
-  return <output data-testid="portal-path">{useLocation().pathname}</output>
+  const { pathname, search } = useLocation()
+  return <><output data-testid="portal-path">{pathname}</output><output data-testid="portal-search">{search}</output></>
 }
 
 function open(path: string) {
@@ -477,5 +479,30 @@ describe('the staff invitation page', () => {
     await waitFor(() => expect(screen.getByTestId('portal-path').textContent).toBe('/provider/sign-in'), { timeout: 5000 })
     expect(screen.queryByRole('heading', { name: 'Join your facility.' })).toBeNull()
     expect(calls.staffSession).toHaveBeenCalled()
+  })
+})
+
+/**
+ * hid-1.0's patient addresses (its src/App.tsx 259-273): bookmarks and links open the page that replaces each. The
+ * session is still being checked, so each stays at its page rather than going on to sign-in.
+ */
+describe("hid-1.0's old patient addresses", () => {
+  beforeEach(() => { calls.patientSession.mockReturnValue(new Promise(() => {})) })
+
+  it.each(Object.entries(LEGACY_PATIENT_PATHS))('%s opens %s', async (from, to) => {
+    open(from)
+    await waitFor(() => expect(screen.getByTestId('portal-path').textContent).toBe(to))
+  })
+
+  it('takes them in any case and with a trailing slash, and keeps nothing of the old address', async () => {
+    open('/Patient/Records/?tab=history&id=7')
+    await waitFor(() => expect(screen.getByTestId('portal-path').textContent).toBe('/records'))
+    expect(screen.getByTestId('portal-search').textContent).toBe('')
+  })
+
+  it('leaves the portal\'s own pages and other unknown addresses as they were', async () => {
+    open('/patient/settings')
+    expect(await screen.findByRole('heading', { name: 'Checking your session…' })).toBeTruthy()
+    expect(screen.getByTestId('portal-path').textContent).toBe('/patient/settings')
   })
 })

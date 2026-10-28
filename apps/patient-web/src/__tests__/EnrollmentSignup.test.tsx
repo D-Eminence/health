@@ -3,6 +3,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { Enrollment } from '../routes/Enrollment'
 import { googleProfileOf } from '../routes/enrollment/googleProfile'
 import { described, json, press, problem, renderPortal, type Handler } from './portalHarness'
+import { enterCode } from './codeBoxes'
 
 vi.mock('../Turnstile', () => ({
   Turnstile: ({ onTokenChange }: { onTokenChange: (token: string | null) => void }) =>
@@ -89,8 +90,7 @@ describe('the sign-up without a NIN (owner decision, 2026-10-27)', () => {
       hospitalCurrentlyUsing: 'Lagos General', termsAccepted: true, turnstileToken: 'turnstile-token', turnstileAction: 'patient-enrollment' })
     expect(headers.find(request => request.path === `${BASE}/signup`)?.headers.get('Idempotency-Key')).toMatch(/^[0-9a-f-]{36}$/)
 
-    fireEvent.change(codeField, { target: { value: '123456' } })
-    await press(screen.getByRole('button', { name: 'Verify code' }))
+    await enterCode(codeField, '123456')
 
     const ready = await screen.findByRole('heading', { name: 'Your Health ID is ready.' })
     await waitFor(() => expect(document.activeElement).toBe(ready))
@@ -150,6 +150,19 @@ describe('the sign-up without a NIN (owner decision, 2026-10-27)', () => {
     expect((field('First name') as HTMLInputElement).value).toBe('Ada')
   })
 
+  it('offers Female, Male and Other, as hid-1.0 did, and sends Other as Identity takes it', async () => {
+    const { sent } = renderPortal(<Enrollment />, gateway(happy), anonymous)
+    await fillDetails()
+    const gender = field('Gender') as HTMLSelectElement
+    expect([...gender.options].map(option => [option.value, option.textContent])).toEqual([['', 'Select…'], ['female', 'Female'], ['male', 'Male'], ['other', 'Other']])
+    fireEvent.change(gender, { target: { value: 'other' } })
+    await press(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByRole('heading', { name: 'Create a secure password' })
+    await sendPassword()
+    await screen.findByLabelText('Verification code')
+    expect(sent.find(request => request.path === `${BASE}/signup`)?.body).toMatchObject({ gender: 'other' })
+  })
+
   it('sends the code again to the same email, and says a wrong code at its field', async () => {
     let verify = () => problem(422, 'OTP_INVALID', 'The code is invalid or expired')
     const { sent } = renderPortal(<Enrollment />, gateway((path, method, body) => path === `${BASE}/contact/verify` ? verify() : happy(path, method, body)), anonymous)
@@ -161,15 +174,16 @@ describe('the sign-up without a NIN (owner decision, 2026-10-27)', () => {
     expect(sent.find(request => request.path === `${BASE}/contact`)?.body).toEqual({ channel: 'email', contact: 'ada@example.com' })
     expect(await screen.findByText('A new code was sent to a•••@example.com.')).toBeTruthy()
 
-    fireEvent.change(codeField, { target: { value: '000000' } })
-    await press(screen.getByRole('button', { name: 'Verify code' }))
+    await enterCode(codeField, '000000')
     await waitFor(() => expect(codeField.getAttribute('aria-invalid')).toBe('true'))
     expect(described(codeField)).toContain('That code is wrong or has expired. Check the latest email, or send a new code.')
     // The new code's challenge is the one checked.
     expect(sent.find(request => request.path === `${BASE}/contact/verify`)?.body).toEqual({ challengeId: 'challenge-2', code: '000000' })
 
+    // A code corrected after a refusal is sent with the button, not by itself: a slip spends no other try.
     verify = () => json({ stage: 'set_password' })
     fireEvent.change(codeField, { target: { value: '654321' } })
+    expect(sent.filter(request => request.path === `${BASE}/contact/verify`)).toHaveLength(1)
     await press(screen.getByRole('button', { name: 'Verify code' }))
     expect(await screen.findByText('HID-NEW234')).toBeTruthy()
   })

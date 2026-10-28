@@ -9,6 +9,7 @@ import { Overview } from '../routes/Overview'
 import { AccountDeletionCard, EmergencyContactsCard } from '../routes/AccountSafety'
 import { useFocusOnPageChange } from '../pageFocus'
 import { json, press, pressOnArrival, problem, profile, renderPortal, type Handler } from './portalHarness'
+import { enterCode } from './codeBoxes'
 
 // Record chat is a staging feature; these tests run without a configured environment.
 vi.mock('../chatFeatures', () => ({ patientChatEnabled: () => false, patientChatHost: () => false }))
@@ -360,8 +361,8 @@ describe('emergency contacts', () => {
     })
     await inChromium(await screen.findByRole('button', { name: /^Send verification code/ }))
     await waitFor(() => expect(focused()).toBe(screen.getByRole('textbox', { name: /Code from Chidi Okafor/ })))
-    fireEvent.change(screen.getByRole('textbox', { name: /Code from Chidi Okafor/ }), { target: { value: '482913' } })
-    await inChromium(screen.getByRole('button', { name: 'Verify contact' }))
+    // The sixth digit sends the code, from the last box, which goes with the form once it is verified.
+    await enterCode(screen.getByRole('textbox', { name: /Code from Chidi Okafor/ }), '482913')
     expect(await screen.findByText('Verified · will be notified in an emergency')).toBeTruthy()
     await waitFor(() => expect(focused()).toBe(screen.getByRole('heading', { name: 'Emergency contacts' })))
   })

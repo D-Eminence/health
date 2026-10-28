@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { Enrollment } from '../routes/Enrollment'
 import { described, json, press, problem, renderPortal, type Handler } from './portalHarness'
+import { enterCode } from './codeBoxes'
 
 vi.mock('../Turnstile', () => ({
   Turnstile: ({ onTokenChange }: { onTokenChange: (token: string | null) => void }) =>
@@ -100,8 +101,7 @@ describe('a NIN record without a date of birth or gender (ADR-061)', () => {
       path === '/identity/patient-enrollments/contact/verify' && method === 'POST'
         ? json({ stage: 'set_password', requiredProfileFields: ['dateOfBirth'] })
         : problem(500, 'UNEXPECTED', `${method} ${path}`)), anonymous)
-    fireEvent.change(await screen.findByLabelText('Verification code'), { target: { value: '123456' } })
-    await press(screen.getByRole('button', { name: 'Verify code' }))
+    await enterCode(await screen.findByLabelText('Verification code'), '123456')
     const dob = await screen.findByLabelText('Date of birth')
     await waitFor(() => expect(document.activeElement).toBe(dob))
     expect(screen.queryByLabelText('Gender')).toBeNull()

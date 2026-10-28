@@ -2,6 +2,7 @@ import {
   isLegacyMigratePath,
   migrateRedirectUrl,
 } from './migrate-route-redirects.mjs'
+import { legacyPatientPath } from './legacy-patient-redirects.mjs'
 
 const API_PATH = /^\/api\/v1(?:\/|$)/
 const CORRELATION_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/
@@ -93,6 +94,7 @@ function configuredDeployment(environment) {
     application,
     expectedHost,
     migrateOrigin: `https://${profile.hosts.ocr}`,
+    portalOrigin: `https://${profile.hosts.web}`,
     origin: new URL(profile.apiOrigin),
     originAuthToken: environment.ORIGIN_AUTH_TOKEN,
   }
@@ -143,6 +145,10 @@ function applicationRouteRedirect(request, requestUrl, deployment) {
   if (deployment.application === 'public' && requestUrl.pathname === '/products/identity') {
     return Response.redirect(new URL('/patients', requestUrl), 308)
   }
+  // hid-1.0's patient pages were on this host: each opens its portal page. Only the deployment's portal origin and
+  // a fixed path: nothing from the request, its query included, is copied into the address.
+  const portalPath = deployment.application === 'public' ? legacyPatientPath(requestUrl.pathname) : null
+  if (portalPath) return Response.redirect(new URL(portalPath, deployment.portalOrigin), 308)
   if (!['GET', 'HEAD'].includes(request.method) || !isLegacyMigratePath(requestUrl.pathname)) return null
   if (deployment.application !== 'ocr' && deployment.application !== 'web') return null
 

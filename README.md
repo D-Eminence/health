@@ -47,10 +47,15 @@ npm run audit:launch-build
 
 `audit:launch-build` runs hid-system's staging refusals over the patient portal
 build (`apps/patient-web/dist`): no Google sign-in (build without
-`VITE_HID_GOOGLE_CLIENT_ID` at launch), service worker, web app manifest, source
-map, file outside `index.html` and content-hashed `assets/`, or an `index.html`
-other than the Vite shell staging allow-lists (a meta tag may only be a charset
-or a viewport or robots name, so no `theme-color`).
+`VITE_HID_GOOGLE_CLIENT_ID` at launch), service worker, source map, file
+outside `index.html` and content-hashed `assets/`, or an `index.html` other than
+the Vite shell staging allow-lists. One widening, for the Health ID icon in the
+browser tab and on a phone's home screen: the files in `apps/patient-web/public`
+(`health-id.webmanifest` and its two icons under `icons/`, fixed names), the
+shell's links to them, and a `#rrggbb` `theme-color` meta. The production release
+serves them from the frontend Worker's assets; hid-system's stager (its `main`
+branch only) must take the same widening before a Health-id build is staged
+there again.
 
 `npm run check` runs typecheck, lint and tests in sequence. See
 [architecture](./docs/ARCHITECTURE.md) for the request and session model and

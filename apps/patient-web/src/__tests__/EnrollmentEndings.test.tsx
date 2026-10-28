@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { Enrollment } from '../routes/Enrollment'
 import { json, press, problem, renderPortal, type Handler } from './portalHarness'
+import { enterCode } from './codeBoxes'
 
 vi.mock('../Turnstile', () => ({
   Turnstile: ({ onTokenChange }: { onTokenChange: (token: string | null) => void }) =>
@@ -110,8 +111,7 @@ describe('starting again after review', () => {
     await submitNin()
     fireEvent.change(await screen.findByLabelText('Phone number'), { target: { value: '+2348011111111' } })
     await press(screen.getByRole('button', { name: 'Send verification code' }))
-    fireEvent.change(await screen.findByLabelText('Verification code'), { target: { value: '123456' } })
-    await press(screen.getByRole('button', { name: 'Verify code' }))
+    await enterCode(await screen.findByLabelText('Verification code'), '123456')
     fireEvent.change(await screen.findByLabelText('Password'), { target: { value: PASSWORD } })
     await press(screen.getByRole('button', { name: 'Activate Health ID' }))
     await screen.findByLabelText('National Identification Number')

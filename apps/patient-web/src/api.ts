@@ -1,7 +1,7 @@
 import {
-  parseImportedHistory, parseImportedHistorySharing, parseImportedHistorySharingChange, parseImportedRecords,
-  type ImportedAttachmentDownload, type ImportedHistoryPage, type ImportedHistorySharing, type ImportedHistorySharingChange,
-  type ImportedMedicalRecord,
+  parseImportedHealthProfile, parseImportedHistory, parseImportedHistorySharing, parseImportedHistorySharingChange, parseImportedRecords,
+  type ImportedAttachmentDownload, type ImportedHealthProfile, type ImportedHistoryPage, type ImportedHistorySharing,
+  type ImportedHistorySharingChange, type ImportedMedicalRecord,
 } from './importedRecords'
 import { stagingChatQuestion, parseStagingPatientChat, parseStagingChatHistory } from '@hid/contracts'
 import type { ApiClient } from '@hid/http'
@@ -102,8 +102,11 @@ export interface EnrollmentAvailability {
   signup?: boolean
 }
 
-/** The genders the sign-up takes. */
-export const SIGNUP_GENDERS = ['female', 'male'] as const
+/**
+ * The genders the sign-up offers, as hid-1.0's did. Identity takes these and more
+ * (hid-system patient-enrollment.dto.ts SIGNUP_GENDERS; 0092's sign-up check).
+ */
+export const SIGNUP_GENDERS = ['female', 'male', 'other'] as const
 export type SignupGender = typeof SIGNUP_GENDERS[number]
 /** The details step of the sign-up: no NIN, which the patient may verify later from their profile. */
 export interface EnrollmentSignupDetails {
@@ -170,6 +173,11 @@ export type RecordSection = 'encounters' | 'notes' | 'vitals' | 'diagnoses' | 'p
 export interface PatientRecords {
   /** The staging branches' shape: imported history inside the records answer. hid-system main serves it at importedHistory instead. */
   importedRecords?: ImportedMedicalRecord[]
+  /**
+   * The staging branches' shape too (Novu, patient-records.service.ts): the health details a migrated patient kept
+   * on hid-1.0, null for anyone else. hid-system main sends no such key.
+   */
+  importedHealthProfile?: ImportedHealthProfile | null
   encounters: Array<{ id: string; facilityId: string; encounterType: string; status: string; startedAt: string; endedAt: string | null }>
   notes: Array<{ id: string; encounterId: string; facilityId: string; noteType: string; title: string; status: string; revisionNo: number; content: string; signedAt: string | null }>
   vitals: Array<{ id: string; encounterId: string; facilityId: string; recordedAt: string; heightCm: number | null; weightKg: number | null; temperatureC: number | null; pulseBpm: number | null; respiratoryRate: number | null; systolicMmhg: number | null; diastolicMmhg: number | null; oxygenSaturationPercent: number | null; source: string }>
@@ -469,6 +477,7 @@ export function createPatientApi(client: ApiClient) {
       const value = await call<PatientRecords>('GET', 'ehr/me/records', undefined, { signal })
       // Only the staging branches' answer carries importedRecords; main's does not (it keeps exactly its keys).
       if (value.importedRecords !== undefined) value.importedRecords = parseImportedRecords(value.importedRecords)
+      if (value.importedHealthProfile !== undefined) value.importedHealthProfile = parseImportedHealthProfile(value.importedHealthProfile)
       return value
     },
     importedAttachment: (id: string, signal?: AbortSignal) => call<ImportedAttachmentDownload>('GET',

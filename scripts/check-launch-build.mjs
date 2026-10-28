@@ -11,6 +11,15 @@
  * first. Google sign-in is off at launch: build without
  * VITE_HID_GOOGLE_CLIENT_ID.
  *
+ * One widening, for the Health ID icon in the browser tab and on a phone's
+ * home screen (hid-1.0 parity, 2026-10-28): the files in
+ * apps/patient-web/public (PUBLIC_FILES: the web app manifest and its two
+ * icons, at fixed names) and the shell's links to them and theme-color meta.
+ * The production release (scripts/build-production.py, the frontend Worker's
+ * ASSETS binding) serves them; hid-system's stager, on its main branch only,
+ * must take the same widening before a Health-id build is staged there again.
+ * Still refused: a service worker, any other manifest, file or link.
+ *
  * Not checked here: the public environment record, which depends on the
  * environment and host being staged.
  *
@@ -26,6 +35,12 @@ const dist = join(root, 'apps', 'patient-web', 'dist')
 
 // The same patterns as hid-system's stager.
 const HASHED_ASSET = /^assets\/[A-Za-z0-9][A-Za-z0-9_.-]*-[A-Za-z0-9_-]{8,}\.(?:js|css|png|svg|webp|jpe?g|gif|ico|woff2?)$/
+// apps/patient-web/public, copied to the build root as they are: the shell links each, and only these.
+const PUBLIC_FILES = Object.freeze({
+  'health-id.webmanifest': 'manifest',
+  'icons/icon-48.png': 'icon',
+  'icons/apple-touch-icon.png': 'apple-touch-icon',
+})
 const TEXT_FILE = /\.(?:html|js|css|svg)$/
 const GOOGLE_SIGN_IN = /accounts\.google\.com|\.apps\.googleusercontent\.com|\bgoogle\.accounts\.id\b|\/gsi\/client\b/
 
@@ -53,9 +68,10 @@ const SHELL_ELEMENTS = Object.freeze({
   title: Object.freeze({ allowed: {}, required: [] }),
   body: Object.freeze({ allowed: {}, required: [] }),
   div: Object.freeze({ allowed: { id: /^root$/ }, required: ['id'] }),
-  meta: Object.freeze({ allowed: { charset: /^utf-8$/i, name: /^(?:viewport|robots)$/, content: /^[^<>]*$/ }, required: [] }),
+  meta: Object.freeze({ allowed: { charset: /^utf-8$/i, name: /^(?:viewport|robots|theme-color)$/, content: /^[^<>]*$/ }, required: [] }),
   script: Object.freeze({ allowed: { type: /^module$/, crossorigin: CROSS_ORIGIN, src: 'asset' }, required: ['type', 'src'] }),
-  link: Object.freeze({ allowed: { rel: /^(?:modulepreload|stylesheet)$/, crossorigin: CROSS_ORIGIN, href: 'asset' }, required: ['rel', 'href'] }),
+  link: Object.freeze({ allowed: { rel: /^(?:modulepreload|stylesheet|icon|apple-touch-icon|manifest)$/, crossorigin: CROSS_ORIGIN, href: 'asset',
+    type: /^image\/png$/, sizes: /^\d{1,4}x\d{1,4}$/ }, required: ['rel', 'href'] }),
 })
 const VOID_ELEMENTS = new Set(['meta', 'link'])
 const CLOSED_ELEMENTS = new Set(['html', 'head', 'title', 'body', 'div', 'script'])
@@ -92,10 +108,23 @@ function checkShellElement(name, attributes, paths, refuse) {
   }
   if (name === 'meta') {
     const keys = [...attributes.keys()].sort().join(',')
-    if (keys !== 'charset' && keys !== 'content,name') refuse('has a <meta> that is neither a charset nor a viewport or robots name')
+    if (keys !== 'charset' && keys !== 'content,name') refuse('has a <meta> that is neither a charset nor a viewport, robots or theme-color name')
+    if (attributes.get('name') === 'theme-color' && !/^#[0-9a-f]{6}$/i.test(attributes.get('content') ?? '')) {
+      refuse('has a theme-color that is not a #rrggbb colour')
+    }
   }
   const reference = name === 'script' ? attributes.get('src') : name === 'link' ? attributes.get('href') : undefined
   if (reference === undefined) return
+  // The icons and the manifest, each only from its own fixed file in the build (PUBLIC_FILES).
+  const rel = name === 'link' ? attributes.get('rel') : undefined
+  if (rel === 'icon' || rel === 'apple-touch-icon' || rel === 'manifest') {
+    const file = reference.slice(1)
+    if (!reference.startsWith('/') || PUBLIC_FILES[file] !== rel || !paths.includes(file)) {
+      refuse(`links ${reference} as ${rel}, which is not the build's own ${rel} file`)
+    }
+    return
+  }
+  if (name === 'link' && (attributes.has('type') || attributes.has('sizes'))) refuse(`has a ${rel} link with type or sizes, which only an icon link takes`)
   const extension = ASSET_EXTENSION[name === 'script' ? 'script' : attributes.get('rel')]
   if (!reference.startsWith('/assets/') || !paths.includes(reference.slice(1))) {
     refuse(`loads ${reference} from outside its own /assets/ files`)
@@ -145,10 +174,6 @@ function inspectIndexHtml(html, paths, failures) {
     if (unparsed !== '') refuse(`has a <${name}> whose attributes cannot be parsed (${JSON.stringify(unparsed.slice(0, 40))})`)
     for (const duplicate of duplicates) refuse(`has a <${name}> with a duplicate ${duplicate} attribute`)
     if (selfClosing !== '' && !VOID_ELEMENTS.has(name)) refuse(`has a self-closing <${name}/>`)
-    if (name === 'link' && /^manifest$/i.test(attributes.get('rel') ?? '')) {
-      refuse('links a web app manifest; the Health-id portal is not installable')
-      continue
-    }
     checkShellElement(name, attributes, paths, refuse)
     if (name === 'script' || name === 'title') {
       // Raw text (script) or escapable raw text (title) runs to the end tag.
@@ -185,10 +210,24 @@ function classify(path, failures) {
   const name = path.split('/').at(-1)
   if (/\.map$/i.test(path)) failures.push(`${path} is a source map`)
   else if (/^(?:service-worker|sw|workbox)(?:[-.][^/]*)?\.js$/i.test(name)) failures.push(`${path} is a service worker`)
-  else if (/\.webmanifest$/i.test(name) || /^manifest(?:[-.][^/]*)?\.json$/i.test(name)) {
-    failures.push(`${path} is a web app manifest`)
-  } else if (path !== 'index.html' && !HASHED_ASSET.test(path)) {
-    failures.push(`${path} is outside the expected set (index.html and content-hashed files under assets/)`)
+  else if ((/\.webmanifest$/i.test(name) || /^manifest(?:[-.][^/]*)?\.json$/i.test(name)) && !Object.hasOwn(PUBLIC_FILES, path)) {
+    failures.push(`${path} is a web app manifest other than health-id.webmanifest`)
+  } else if (path !== 'index.html' && !HASHED_ASSET.test(path) && !Object.hasOwn(PUBLIC_FILES, path)) {
+    failures.push(`${path} is outside the expected set (index.html, content-hashed files under assets/ and the icon files)`)
+  }
+}
+
+/** The manifest installs the portal and does nothing else: no service worker, and icons only from the build. */
+function inspectManifest(source, paths, failures) {
+  let manifest
+  try { manifest = JSON.parse(source) } catch { failures.push('health-id.webmanifest is not JSON'); return }
+  if (typeof manifest !== 'object' || manifest === null || Array.isArray(manifest)) { failures.push('health-id.webmanifest is not a JSON object'); return }
+  if (Object.hasOwn(manifest, 'serviceworker')) failures.push('health-id.webmanifest names a service worker')
+  for (const icon of Array.isArray(manifest.icons) ? manifest.icons : []) {
+    const file = typeof icon?.src === 'string' && icon.src.startsWith('/') ? icon.src.slice(1) : ''
+    if (!Object.hasOwn(PUBLIC_FILES, file) || !file.endsWith('.png') || !paths.includes(file)) {
+      failures.push(`health-id.webmanifest names an icon (${String(icon?.src)}) that is not one of the build's icon files`)
+    }
   }
 }
 
@@ -213,10 +252,11 @@ for (const path of paths) {
   }
   if (path === 'index.html') inspectIndexHtml(source, paths, failures)
 }
+if (paths.includes('health-id.webmanifest')) inspectManifest(await readFile(join(dist, 'health-id.webmanifest'), 'utf8'), paths, failures)
 
 if (failures.length > 0) {
   process.stdout.write(`\nLaunch build check failed (${failures.length}):\n`)
   for (const failure of failures) process.stdout.write(`  ✗ ${failure}\n`)
   process.exit(1)
 }
-process.stdout.write(`Launch build check: ${paths.length} files; no Google sign-in, service worker, manifest or source map; index.html is the Vite shell staging accepts.\n`)
+process.stdout.write(`Launch build check: ${paths.length} files; no Google sign-in, service worker, source map or file but the icon files and their manifest outside assets/; index.html is the Vite shell with its icon links.\n`)

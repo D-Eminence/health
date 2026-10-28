@@ -7,6 +7,7 @@ import { Turnstile } from '../Turnstile'
 import { AuthLayout } from '../AuthLayout'
 import { useSession } from '../session'
 import { describedBy, isFieldProblem, useDocumentTitle, useStepFocus } from '../authSteps'
+import { CodeBoxes, codeComplete } from '../CodeBoxes'
 import { CODE_BUDGET_HINT, useCodeBudgetNote, useResendWait } from './recoveryWait'
 
 type Step = 'start' | 'code' | 'password' | 'complete'
@@ -21,6 +22,11 @@ export function Recovery() {
   const [identifier, setIdentifier] = useState('')
   const [code, setCode] = useState('')
   const [password, setPassword] = useState('')
+  // Nothing is sent until it agrees with the new password (hid-1.0's "Passwords do not match"), as for staff.
+  const [confirm, setConfirm] = useState('')
+  // A confirmation was left, or Enter pressed with one: from then on one that differs is told, even one the new
+  // password begins with, which would otherwise leave Reset off with nothing to say why.
+  const [confirmChecked, setConfirmChecked] = useState(false)
   const [challengeId, setChallengeId] = useState('')
   const [verificationToken, setVerificationToken] = useState('')
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
@@ -69,7 +75,7 @@ export function Recovery() {
 
   const verify = (event: FormEvent) => {
     event.preventDefault()
-    if (!challengeId || busy) return
+    if (!challengeId || busy || !codeComplete(code)) return
     void run(async () => {
       const result = await api.recoveryVerify(challengeId, code)
       budget.accepted()
@@ -81,10 +87,10 @@ export function Recovery() {
 
   const complete = (event: FormEvent) => {
     event.preventDefault()
-    if (!verificationToken || password.length < 12 || busy) return
+    if (!verificationToken || password.length < 12 || password !== confirm || busy) return
     void run(async () => {
       await api.recoveryComplete(challengeId, verificationToken, password)
-      setVerificationToken(''); setPassword(''); setStep('complete')
+      setVerificationToken(''); setPassword(''); setConfirm(''); setConfirmChecked(false); setStep('complete')
     })
   }
 
@@ -94,13 +100,15 @@ export function Recovery() {
   const restart = () => {
     if (busy) return
     setStep('start'); setError(null); setFieldError(false); setCode(''); setChallengeId(''); setVerificationToken('')
-    setPassword(''); resend.reset()
+    setPassword(''); setConfirm(''); setConfirmChecked(false); resend.reset()
     stepFocus.focus()
   }
 
   // The error is about the step's one field when the server refused its value.
   const invalid = fieldError ? true : undefined
   const errorId = fieldError ? 'recovery-error' : undefined
+  // Not while the confirmation is still being typed and agrees so far.
+  const mismatch = confirm !== '' && password !== confirm && (confirmChecked || !password.startsWith(confirm))
 
   return <AuthLayout brandTo="/sign-in" title="Reset your password." titleId="recovery-title">
     {error && <p id="recovery-error" role={errorAlert ? 'alert' : undefined} className="patient-inline-error">{error}</p>}
@@ -110,14 +118,20 @@ export function Recovery() {
       <Turnstile action="patient-reset-start" onTokenChange={setTurnstileToken} resetKey={resetKey} />
       <button className="patient-primary-button" disabled={busy || !turnstileToken}>{busy ? 'Sending…' : 'Send recovery code'}</button></form>}
     {step === 'code' && <form onSubmit={verify} className="patient-form"><p id="recovery-code-hint" className="patient-page-copy">Enter the six digit code sent to your verified contact.</p>
-      <label>Recovery code<input ref={stepFocus.target} required inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" value={code} onChange={event => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
-        aria-invalid={invalid} aria-describedby={describedBy('recovery-code-hint', errorId)} /></label>
-      <button className="patient-primary-button" disabled={busy || code.length !== 6}>{busy ? 'Checking…' : 'Verify code'}</button>
+      <CodeBoxes id="recovery-code" label="Recovery code" value={code} onChange={setCode} inputRef={stepFocus.target} busy={busy}
+        invalid={invalid} describedBy={describedBy('recovery-code-hint', errorId)} />
+      <button className="patient-primary-button" disabled={busy || !codeComplete(code)}>{busy ? 'Checking…' : 'Verify code'}</button>
       {budget.shown && <p className="patient-field-hint">{CODE_BUDGET_HINT}</p>}</form>}
-    {step === 'password' && <form onSubmit={complete} className="patient-form"><p id="recovery-password-hint" className="patient-page-copy">Choose a new password of at least 12 characters.</p>
-      <div className="patient-field"><label htmlFor="recovery-password">New password</label><PasswordInput appearance="plain" id="recovery-password" ref={stepFocus.target} required autoComplete="new-password" minLength={12} value={password} onChange={event => setPassword(event.target.value)}
+    {/* Enter sends nothing while Reset is off (the form's default button), so it checks the confirmation instead. */}
+    {step === 'password' && <form onSubmit={complete} onKeyDown={event => { if (event.key === 'Enter' && confirm) setConfirmChecked(true) }} className="patient-form"><p id="recovery-password-hint" className="patient-page-copy">Choose a new password of at least 12 characters.</p>
+      {/* Two fields, so each toggle is named for its own (a screen reader's list of buttons shows both). */}
+      <div className="patient-field"><label htmlFor="recovery-password">New password</label><PasswordInput appearance="plain" id="recovery-password" toggleLabel="Show new password" ref={stepFocus.target} required autoComplete="new-password" minLength={12} value={password} onChange={event => setPassword(event.target.value)}
         aria-invalid={invalid} aria-describedby={describedBy('recovery-password-hint', errorId)} /></div>
-      <button className="patient-primary-button" disabled={busy || password.length < 12}>{busy ? 'Saving…' : 'Reset password'}</button></form>}
+      <div className="patient-field"><label htmlFor="recovery-confirm">Confirm new password</label><PasswordInput appearance="plain" id="recovery-confirm" toggleLabel="Show confirmed password" required autoComplete="new-password" minLength={12} value={confirm} onChange={event => setConfirm(event.target.value)}
+        onBlur={() => { if (confirm) setConfirmChecked(true) }} aria-invalid={mismatch || undefined} aria-describedby={mismatch ? 'recovery-mismatch' : undefined} /></div>
+      {/* Always mounted, so the mismatch is announced once when it appears, not on each keystroke (PA-05). */}
+      <div aria-live="polite">{mismatch && <p id="recovery-mismatch" className="patient-inline-error">Passwords do not match.</p>}</div>
+      <button className="patient-primary-button" disabled={busy || password.length < 12 || password !== confirm}>{busy ? 'Saving…' : 'Reset password'}</button></form>}
     {step === 'complete' && <div role="status" className="patient-success"><h2 ref={stepFocus.target} tabIndex={-1}>Password reset complete.</h2><Link className="patient-primary-button" to="/sign-in">Sign in</Link></div>}
     {/* A start within the previous one's wait sends no code for the same identifier, which answers the same
         challenge (hid-system #55, migration 0081), nor for the same account's other identifier, which since #55

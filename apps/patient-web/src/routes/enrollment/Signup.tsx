@@ -9,6 +9,7 @@ import { googleClientId } from '../../googleClient'
 import { Turnstile } from '../../Turnstile'
 import { useSession } from '../../session'
 import { describedBy, sentFromField, useStepFocus } from '../../authSteps'
+import { CodeBoxes, codeComplete } from '../../CodeBoxes'
 import { useResendWait } from '../recoveryWait'
 import { HospitalPicker } from './HospitalPicker'
 import { HealthIdCode } from '../HealthIdCode'
@@ -34,7 +35,7 @@ type FieldErrors = Partial<Record<Field, string>>
 const DETAILS_ORDER: readonly DetailsField[] = ['firstName', 'lastName', 'email', 'phone', 'gender', 'hospitalCurrentlyUsing', 'terms']
 const PASSWORD_ORDER: readonly Field[] = ['password', 'confirm']
 
-const GENDER_LABELS: Record<SignupGender, string> = { female: 'Female', male: 'Male' }
+const GENDER_LABELS: Record<SignupGender, string> = { female: 'Female', male: 'Male', other: 'Other' }
 
 export const SIGNUP_PROBLEMS: Record<DetailsField, string> = {
   firstName: 'Enter your first name.',
@@ -115,9 +116,11 @@ function serverDetailsProblems(reason: unknown): FieldErrors {
 
 const firstOf = <T extends string>(order: readonly T[], errors: Partial<Record<T, string>>) => order.find(field => errors[field])
 
-export function PatientSignup({ focusOnArrival = false }: {
+export function PatientSignup({ focusOnArrival = false, initialEmail = '' }: {
   /** Focus goes to the first field as the sign-up is shown: it replaced the control that was used. */
   focusOnArrival?: boolean
+  /** The email typed at sign-in, when its "Finish creating your Health ID" opened the sign-up (SignIn.tsx). */
+  initialEmail?: string
 }) {
   const { api } = useSession()
   const stepFocus = useStepFocus()
@@ -125,7 +128,7 @@ export function PatientSignup({ focusOnArrival = false }: {
   useLayoutEffect(() => { if (focusOnArrival) focus() }, [focusOnArrival, focus])
   const resend = useResendWait()
   const [step, setStep] = useState<SignupStep>('details')
-  const [details, setDetails] = useState<Details>(EMPTY_DETAILS)
+  const [details, setDetails] = useState<Details>(() => ({ ...EMPTY_DETAILS, email: initialEmail }))
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
   const [code, setCode] = useState('')
@@ -246,7 +249,7 @@ export function PatientSignup({ focusOnArrival = false }: {
   const submitCode = async (event: FormEvent) => {
     event.preventDefault()
     const fromField = sentFromField(event)
-    if (busy || !challengeId || !/^\d{6}$/.test(code)) return
+    if (busy || !challengeId || !codeComplete(code)) return
     setBusy(true); clearMessages()
     let proved = verified
     try {
@@ -381,11 +384,10 @@ export function PatientSignup({ focusOnArrival = false }: {
     {step === 'code' && <form onSubmit={event => void submitCode(event)} className="patient-form" aria-labelledby="signup-code-title">
       <h2 id="signup-code-title">Enter verification code</h2>
       <p id="signup-code-hint" className="patient-field-hint">We sent a 6-digit code to {maskedContact || 'your email address'}. Enter it here to finish creating your Health ID account.</p>
-      <label>Verification code<input ref={stepFocus.target} required inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} value={code}
-        onChange={event => { setCode(event.target.value.replace(/\D/g, '').slice(0, 6)); setFieldErrors({}) }}
-        aria-invalid={invalid('code')} aria-describedby={describedBy('signup-code-hint', errorId('code'))} /></label>
+      <CodeBoxes id="signup-code" label="Verification code" value={code} onChange={value => { setCode(value); setFieldErrors({}) }}
+        inputRef={stepFocus.target} busy={busy} invalid={invalid('code')} describedBy={describedBy('signup-code-hint', errorId('code'))} />
       {fieldError('code')}
-      <button type="submit" className="patient-primary-button" disabled={busy || code.length !== 6}>{busy ? 'Checking…' : 'Verify code'}</button>
+      <button type="submit" className="patient-primary-button" disabled={busy || !codeComplete(code)}>{busy ? 'Checking…' : 'Verify code'}</button>
       <button type="button" className="patient-text-button" disabled={busy || !resend.ready} onClick={() => void sendCodeAgain()}
         aria-describedby={resend.ready ? undefined : 'signup-resend-wait'}>Send code again</button>
       {!resend.ready && <p id="signup-resend-wait" className="patient-field-hint">A new code can be sent {resendWaitSeconds} seconds after the last one.</p>}

@@ -4,6 +4,7 @@ import type { AccessRequest, EmergencyContact } from '../api'
 import { AccessPage, SettingsPage } from '../routes/Portal'
 import { AccountDeletionCard, EmergencyContactsCard } from '../routes/AccountSafety'
 import { json, press, problem, profile, renderPortal } from './portalHarness'
+import { enterCode } from './codeBoxes'
 
 /**
  * A region marked aria-busy may have its changes held back by assistive
@@ -134,8 +135,7 @@ describe('an action\'s notice is not inside the region that reloads', () => {
   it('Contact verified', async () => {
     contacts(() => json([contact]))
     await press(await screen.findByRole('button', { name: /^Send verification code/ }))
-    fireEvent.change(await screen.findByRole('textbox', { name: /Code from Chidi Okafor/ }), { target: { value: '482913' } })
-    await press(screen.getByRole('button', { name: 'Verify contact' }))
+    await enterCode(await screen.findByRole('textbox', { name: /Code from Chidi Okafor/ }), '482913')
     await noticeOutsideBusy('Contact verified. They will be notified if emergency access to your record is used.', 'Chidi Okafor')
   })
 

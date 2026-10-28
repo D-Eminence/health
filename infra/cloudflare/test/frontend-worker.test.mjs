@@ -268,3 +268,65 @@ test('public export accepts only its exact staging hostname', async () => {
   const rejected = await worker.fetch(new Request('https://evil.example/about'), config)
   assert.equal(rejected.status, 421)
 })
+
+test('sends hid-1.0\'s patient pages on the public host to the portal page that replaces each', async () => {
+  const cases = [
+    ['/patient', 'https://app.healthidentitydirectory.com/'],
+    ['/patient/profile', 'https://app.healthidentitydirectory.com/profile'],
+    ['/patient/biodata', 'https://app.healthidentitydirectory.com/profile'],
+    ['/patient/records', 'https://app.healthidentitydirectory.com/records'],
+    ['/records', 'https://app.healthidentitydirectory.com/records'],
+    ['/patient/history', 'https://app.healthidentitydirectory.com/access'],
+    ['/logs', 'https://app.healthidentitydirectory.com/access'],
+    ['/patient/notifications', 'https://app.healthidentitydirectory.com/notifications'],
+    ['/patient/auth', 'https://app.healthidentitydirectory.com/sign-in'],
+    ['/login', 'https://app.healthidentitydirectory.com/sign-in'],
+    ['/signin', 'https://app.healthidentitydirectory.com/sign-in'],
+    ['/signup', 'https://app.healthidentitydirectory.com/enroll'],
+    ['/register', 'https://app.healthidentitydirectory.com/enroll'],
+    // In any case, with a trailing slash; nothing of the request, its query included, is copied.
+    ['/Patient/Records/?next=https://evil.example', 'https://app.healthidentitydirectory.com/records'],
+  ]
+  const config = environment({ APP_NAME: 'public', EXPECTED_HOST: 'healthidentitydirectory.com' })
+  for (const [path, location] of cases) {
+    const response = await worker.fetch(new Request(`https://healthidentitydirectory.com${path}`), config)
+    assert.equal(response.status, 308, path)
+    assert.equal(response.headers.get('location'), location, path)
+    assert.equal(response.headers.get('x-content-type-options'), 'nosniff')
+  }
+  const staging = await worker.fetch(new Request('https://www.staging.healthidentitydirectory.com/signup'),
+    environment({ DEPLOYMENT_ENV: 'staging', APP_NAME: 'public', EXPECTED_HOST: 'www.staging.healthidentitydirectory.com' }))
+  assert.equal(staging.headers.get('location'), 'https://staging.healthidentitydirectory.com/enroll')
+})
+
+test('leaves the public site\'s own pages, and the portal\'s paths on other hosts, to their assets', async () => {
+  const config = environment({ APP_NAME: 'public', EXPECTED_HOST: 'healthidentitydirectory.com' })
+  for (const path of ['/patients', '/patient-stories', '/patient/unknown', '/about']) {
+    const response = await worker.fetch(new Request(`https://healthidentitydirectory.com${path}`), config)
+    assert.equal(response.status, 200, path)
+  }
+  const portal = await worker.fetch(new Request('https://app.healthidentitydirectory.com/patient/records'),
+    environment({ APP_NAME: 'web', EXPECTED_HOST: 'app.healthidentitydirectory.com' }))
+  assert.equal(portal.status, 200)
+  assert.equal(await portal.text(), '<p>/patient/records</p>')
+})
+
+test('serves the portal\'s icon files and web app manifest from its assets', async () => {
+  const config = environment({ APP_NAME: 'web', EXPECTED_HOST: 'app.healthidentitydirectory.com' })
+  for (const path of ['/health-id.webmanifest', '/icons/icon-48.png', '/icons/apple-touch-icon.png']) {
+    const response = await worker.fetch(new Request(`https://app.healthidentitydirectory.com${path}`), config)
+    assert.equal(response.status, 200, path)
+    assert.equal(await response.text(), `<p>${path}</p>`)
+    assert.equal(response.headers.get('x-frame-options'), 'DENY')
+  }
+})
+
+test('keeps the portal\'s table of hid-1.0 addresses and the edge\'s the same, /records apart', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const { LEGACY_PATIENT_PATHS } = await import('../src/legacy-patient-redirects.mjs')
+  const source = await readFile(new URL('../../../apps/patient-web/src/legacyPaths.ts', import.meta.url), 'utf8')
+  const portal = Object.fromEntries([...source.matchAll(/^\s*'([^']+)': '([^']+)',$/gm)].map(match => [match[1], match[2]]))
+  const { '/records': shortLink, ...edge } = LEGACY_PATIENT_PATHS
+  assert.equal(shortLink, '/records')
+  assert.deepEqual(portal, edge)
+})

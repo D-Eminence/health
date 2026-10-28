@@ -1,5 +1,6 @@
 import type { FormEvent } from 'react'
 import { describedBy } from '../../authSteps'
+import { CodeBoxes, codeComplete } from '../../CodeBoxes'
 
 /** Codes one registration may send to the phone on the NIN record (hid-system ADR-062). */
 export const HOLDER_CODES_PER_REGISTRATION = 3
@@ -29,15 +30,14 @@ export function HolderCodeStep(props: HolderCodeStepProps) {
   const { focusTarget, busy, codeError, errorId, expiresInSeconds, code, onCode, onSubmit,
     resendReady, resendWaitSeconds, onResend, onOtherWay, onDifferentNin } = props
   const minutes = expiresInSeconds !== null && expiresInSeconds > 0 ? Math.ceil(expiresInSeconds / 60) : null
-  const incomplete = code.length !== 6
+  const incomplete = !codeComplete(code)
   return <form onSubmit={onSubmit} className="patient-form">
     <h2 ref={codeError ? undefined : focusTarget} tabIndex={-1}>Enter the code we texted you</h2>
     <p id="enroll-holder-code-hint" className="patient-field-hint">
       We sent a 6-digit code to the phone number linked to your NIN.{minutes !== null && ` It expires in ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}.`}
     </p>
-    <label>Verification code<input ref={codeError ? focusTarget : undefined} required inputMode="numeric" autoComplete="one-time-code" value={code}
-      onChange={event => onCode(event.target.value.replace(/\D/g, '').slice(0, 6))} pattern="[0-9]{6}" maxLength={6}
-      aria-invalid={codeError ? true : undefined} aria-describedby={describedBy('enroll-holder-code-hint', codeError && errorId)} /></label>
+    <CodeBoxes id="enroll-holder-code" label="Verification code" value={code} onChange={onCode} inputRef={codeError ? focusTarget : undefined}
+      busy={busy} invalid={codeError ? true : undefined} describedBy={describedBy('enroll-holder-code-hint', codeError && errorId)} />
     {incomplete && <p id="enroll-holder-code-needed" className="patient-field-hint">Enter the 6-digit code to continue.</p>}
     <button type="submit" className="patient-primary-button" disabled={busy || incomplete}
       aria-describedby={incomplete ? 'enroll-holder-code-needed' : undefined}>{busy ? 'Checking…' : 'Verify code'}</button>

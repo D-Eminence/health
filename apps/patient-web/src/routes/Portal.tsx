@@ -1,8 +1,8 @@
-import { ImportedHistory } from '../ImportedHistory'
+import { ImportedHistory, matchingImported } from '../ImportedHistory'
 import { usesNovuBackend } from '../backendContract'
 import { PatientImportedHistory } from '../ImportedHistoryPage'
 import { getEnvironment } from '../env'
-import { useRef, useState, type FormEvent, type RefObject } from 'react'
+import { useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { HEALTH_ID_PREFIX, emailOrHealthId, healthIdOrOtherInput, isBlankHealthIdInput } from '@hid/contracts'
 import { isHidApiError } from '@hid/http'
@@ -14,6 +14,7 @@ import { BrandLogo } from '../BrandLogo'
 import { ItemName } from '../ItemName'
 import { useSession } from '../session'
 import type { PatientNotification, PatientRecords, RecordSection } from '../api'
+import { IMPORTED_HEALTH_FIELDS, type ImportedHealthField, type ImportedHealthProfile, type ImportedMedicalRecord } from '../importedRecords'
 import { patientChatEnabled } from '../chatFeatures'
 import { usePatientResource } from './usePatientResource'
 import { useActionFocus, useRetryFocus } from './actionFocus'
@@ -24,6 +25,7 @@ import { useFocusOnPageChange } from '../pageFocus'
 import { SentOrdersCard } from './SentOrders'
 import { NinVerificationCard } from './NinVerificationCard'
 import { HealthIdCode } from './HealthIdCode'
+import { dayWords, groupByDay, matchesQuery } from './recordSearch'
 
 const links = [
   { to: '/', label: 'Overview', end: true },
@@ -165,6 +167,24 @@ export function PortalShell() {
   </div>
 }
 
+const HEALTH_LABELS: Readonly<Record<ImportedHealthField, string>> = {
+  blood_group: 'Blood group', genotype: 'Genotype', allergies: 'Allergies', current_medications: 'Current medications',
+  chronic_conditions: 'Chronic conditions', medical_notes: 'Medical notes',
+}
+
+/** hid-system main sends no hid-1.0 health details with the records, so the profile reads none there. */
+const noRecords = async (): Promise<PatientRecords | null> => null
+
+/** A migrated patient's hid-1.0 health details, as they were: read-only, and only the ones they filled in. */
+function ImportedHealthCard({ profile }: { profile: ImportedHealthProfile }) {
+  return <div className="patient-card"><h2>From your hid-1.0 account</h2>
+    <p className="patient-field-hint">The health details you kept in hid-1.0, carried over with your account{profile.updatedAt
+      ? `, as last updated on ${date(profile.updatedAt)}` : ''}. They can't be changed here.</p>
+    <dl className="patient-details">{IMPORTED_HEALTH_FIELDS.filter(field => profile.content[field]).map(field =>
+      <div key={field}><dt>{HEALTH_LABELS[field]}</dt><dd className="patient-multiline">{profile.content[field]}</dd></div>)}</dl>
+  </div>
+}
+
 /**
  * The patient's profile, with "Verify your NIN" (NinVerificationCard.tsx): since the
  * owner's decision of 2026-10-27 a patient signs up without a NIN and may add it here,
@@ -175,6 +195,9 @@ export function ProfilePage() {
   const { api } = useSession()
   useDocumentTitle('Your profile · Health ID')
   const profile = usePatientResource(api.profile)
+  // Novu sends a migrated patient's hid-1.0 health details with the records (importedHealthProfile), null for anyone else.
+  const records = usePatientResource<PatientRecords | null>(usesNovuBackend() ? api.records : noRecords)
+  const health = records.error ? null : records.data?.importedHealthProfile ?? null
   const heading = useRef<HTMLHeadingElement>(null)
 
   return <section className="patient-section"><p className="patient-eyebrow">Identity</p><h1 ref={heading} tabIndex={-1} className="patient-page-title">Your profile</h1>
@@ -189,6 +212,7 @@ export function ProfilePage() {
       <div><dt>Country</dt><dd>{profile.data.country || 'Not provided'}</dd></div>
       <div><dt>Identity assurance</dt><dd>{profile.data.assuranceState || 'Not available'}</dd></div>
     </dl></div>}
+    {profile.data && !profile.error && health && <ImportedHealthCard profile={health} />}
     {profile.data && !profile.error && <NinVerificationCard profile={profile.data} onVerified={profile.reload} />}
   </section>
 }
@@ -233,43 +257,94 @@ function Truncated({ data, section }: { data: PatientRecords; section: RecordSec
     : `Showing only your most recent ${SECTION_NAMES[section]}; older ones are not shown.`}</p>
 }
 
+type Row<S extends RecordSection> = PatientRecords[S][number]
+
+/**
+ * What the search reads in each section (recordSearch.ts): what its rows show, their kind and their date, and the
+ * day heading they are under. The records answer names a facility by id only and no clinician, so those are found
+ * where a note's text names them.
+ */
+const SEARCHED: { readonly [S in RecordSection]: (item: Row<S>) => Array<string | null> } = {
+  encounters: item => ['Encounter', item.encounterType, item.status, date(item.startedAt)],
+  notes: item => ['Clinical note', item.title, item.noteType, item.status, item.content, date(item.signedAt)],
+  vitals: item => ['Vitals', date(item.recordedAt), vitalsSummary(item)],
+  diagnoses: item => ['Diagnosis', item.display, item.code, item.clinicalStatus, item.verificationStatus, item.notes],
+  prescriptions: item => ['Prescription', item.medicationDisplay, item.frequency, item.instructions, item.status],
+  labRequests: item => ['Laboratory request', item.testDisplay, item.priority, item.status, item.clinicalInformation, date(item.createdAt)],
+  documents: item => ['Clinical document', item.fileName, item.mediaType, date(item.createdAt)],
+}
+/** The date each section's rows are listed under. */
+const DATED: { readonly [S in RecordSection]: (item: Row<S>) => string | null } = {
+  encounters: item => item.startedAt, notes: item => item.signedAt, vitals: item => item.recordedAt, diagnoses: item => item.onsetAt,
+  prescriptions: item => item.startsOn, labRequests: item => item.createdAt, documents: item => item.createdAt,
+}
+
+const sectionMatches = <S extends RecordSection>(data: PatientRecords, section: S, query: string): Array<Row<S>> =>
+  (data[section] as Array<Row<S>>).filter(item => matchesQuery([...SEARCHED[section](item), dayWords(DATED[section](item))], query))
+
+/** A section's card: its rows under their day, newest first, or why there are none. */
+function SectionCard<S extends RecordSection>({ data, section, title, none, query, row }: {
+  data: PatientRecords; section: S; title: string; none: string; query: string; row: (item: Row<S>) => ReactNode
+}) {
+  const all = data[section] as Array<Row<S>>
+  const shown = sectionMatches(data, section, query)
+  return <div className="patient-card"><h2>{title}</h2>
+    {all.length === 0 ? <p className="patient-empty">{emptyText(data, section, none)}</p>
+      : shown.length === 0 ? <p className="patient-empty">No {SECTION_NAMES[section]} match your search.</p>
+      : groupByDay(shown, DATED[section]).map(group => <div key={group.day ?? 'undated'} className="patient-day-group">
+        <h3 className="patient-day-heading">{group.label}</h3><ul className="patient-list">{group.items.map(row)}</ul></div>)}
+    <Truncated data={data} section={section} /></div>
+}
+
+/** The sections each backend sends: Novu serves encounters and notes, and imported history with them. */
+const sectionsShown = (): RecordSection[] => usesNovuBackend() ? ['encounters', 'notes']
+  : ['encounters', 'notes', 'vitals', 'diagnoses', 'prescriptions', 'labRequests', 'documents']
+
 export function RecordsPage() {
   const { api } = useSession()
   useDocumentTitle('Health records · Health ID')
   const records = usePatientResource(api.records)
   const heading = useRef<HTMLHeadingElement>(null)
+  const [query, setQuery] = useState('')
+  // hid-system main's imported records, read a page at a time beside the records (PatientImportedHistory).
+  const [pagedImported, setPagedImported] = useState<readonly ImportedMedicalRecord[]>([])
   const data = records.data
+  const searching = query.trim() !== ''
+  const matched = data && searching ? sectionsShown().reduce((count, section) => count + sectionMatches(data, section, query).length,
+    matchingImported([...data.importedRecords ?? [], ...pagedImported], query).length) : 0
   return <section className="patient-section"><p className="patient-eyebrow">Care history</p><h1 ref={heading} tabIndex={-1} className="patient-page-title">Health records</h1>
     <p className="patient-page-copy">{recordsIntro(records.error ? null : data)}</p>
     <LoadState loading={records.loading} error={records.error} retry={records.reload} hasData={data !== null} focusTarget={heading} />
-    {!usesNovuBackend() && <PatientImportedHistory api={api} />}
+    {/* hid-1.0's "Search by date, title, or keyword": over the records on this page; nothing is sent. */}
+    {data && !records.error && <div role="search" className="patient-record-search">
+      <label>Search your records<input type="search" autoComplete="off" maxLength={200} value={query} onChange={event => setQuery(event.target.value)}
+        aria-describedby="record-search-hint" /></label>
+      <p id="record-search-hint" className="patient-field-hint">Find a record by its date, type, title or the words in it.</p>
+      {/* Mounted with the field, so each new count is announced. */}
+      <p role="status" className="patient-field-hint">{searching
+        ? `${matched === 0 ? 'No records match' : matched === 1 ? '1 record matches' : `${matched} records match`} your search.` : ''}</p>
+    </div>}
+    {!usesNovuBackend() && <PatientImportedHistory api={api} query={query} onRecords={setPagedImported} />}
     {data && !records.error && <>
-      {data.importedRecords !== undefined && <ImportedHistory records={data.importedRecords}
+      {data.importedRecords !== undefined && <ImportedHistory records={data.importedRecords} query={query} groupedByDay
         limit={data.limit} download={api.importedAttachment} allowLocalHttp={getEnvironment().name === 'local'} />}
-      <div className="patient-card"><h2>Encounters</h2>{data.encounters.length === 0 ? <p className="patient-empty">{emptyText(data, 'encounters', 'No completed encounters are available.')}</p> : <ul className="patient-list">
-        {data.encounters.map(item => <li key={item.id}><div><strong>{item.encounterType}</strong><span>{date(item.startedAt)} · {item.status}</span></div></li>)}
-      </ul>}<Truncated data={data} section="encounters" /></div>
-      <div className="patient-card"><h2>Clinical notes</h2>{data.notes.length === 0 ? <p className="patient-empty">{emptyText(data, 'notes', 'No signed clinical notes are available.')}</p> : <ul className="patient-list">
-        {data.notes.map(item => <li key={item.id} className="patient-note"><div><strong>{item.title || item.noteType}</strong><span>{date(item.signedAt)} · {item.status}</span></div><p>{item.content}</p></li>)}
-      </ul>}<Truncated data={data} section="notes" /></div>
+      <SectionCard data={data} section="encounters" title="Encounters" none="No completed encounters are available." query={query}
+        row={item => <li key={item.id}><div><strong>{item.encounterType}</strong><span>{date(item.startedAt)} · {item.status}</span></div></li>} />
+      <SectionCard data={data} section="notes" title="Clinical notes" none="No signed clinical notes are available." query={query}
+        row={item => <li key={item.id} className="patient-note"><div><strong>{item.title || item.noteType}</strong><span>{date(item.signedAt)} · {item.status}</span></div><p>{item.content}</p></li>} />
       {/* Novu serves encounters, notes and imported history; these additional
           aggregate sections belong to main-v1 and are absent from its response. */}
       {!usesNovuBackend() && <>
-      <div className="patient-card"><h2>Vitals</h2>{data.vitals.length === 0 ? <p className="patient-empty">{emptyText(data, 'vitals', 'No vitals are available.')}</p> : <ul className="patient-list">
-        {data.vitals.map(item => <li key={item.id}><div><strong>{date(item.recordedAt)}</strong><span>{vitalsSummary(item)}</span></div></li>)}
-      </ul>}<Truncated data={data} section="vitals" /></div>
-      <div className="patient-card"><h2>Diagnoses</h2>{data.diagnoses.length === 0 ? <p className="patient-empty">{emptyText(data, 'diagnoses', 'No diagnoses are available.')}</p> : <ul className="patient-list">
-        {data.diagnoses.map(item => <li key={item.id}><div><strong>{item.display}</strong><span>{item.codeSystem}: {item.code} · {item.clinicalStatus} · {item.verificationStatus}</span></div>{item.notes && <p>{item.notes}</p>}</li>)}
-      </ul>}<Truncated data={data} section="diagnoses" /></div>
-      <div className="patient-card"><h2>Prescriptions</h2>{data.prescriptions.length === 0 ? <p className="patient-empty">{emptyText(data, 'prescriptions', 'No prescriptions are available.')}</p> : <ul className="patient-list">
-        {data.prescriptions.map(item => <li key={item.id}><div><strong>{item.medicationDisplay}</strong><span>{item.doseQuantity != null ? `${item.doseQuantity} ${item.doseUnit || ''}` : ''}{item.frequency ? ` · ${item.frequency}` : ''} · {item.status}</span></div><p>{item.instructions}</p></li>)}
-      </ul>}<Truncated data={data} section="prescriptions" /></div>
-      <div className="patient-card"><h2>Laboratory requests</h2>{data.labRequests.length === 0 ? <p className="patient-empty">{emptyText(data, 'labRequests', 'No laboratory requests are available.')}</p> : <ul className="patient-list">
-        {data.labRequests.map(item => <li key={item.id}><div><strong>{item.testDisplay}</strong><span>{item.priority} · {item.status} · {date(item.createdAt)}</span></div>{item.clinicalInformation && <p>{item.clinicalInformation}</p>}</li>)}
-      </ul>}<Truncated data={data} section="labRequests" /></div>
-      <div className="patient-card"><h2>Clinical documents</h2>{data.documents.length === 0 ? <p className="patient-empty">{emptyText(data, 'documents', 'No clinical documents are available.')}</p> : <ul className="patient-list">
-        {data.documents.map(item => <li key={item.id}><div><strong>{item.fileName}</strong><span>{item.mediaType} · {bytes(item.sizeBytes)} · {date(item.createdAt)}</span></div></li>)}
-      </ul>}<Truncated data={data} section="documents" /></div>
+      <SectionCard data={data} section="vitals" title="Vitals" none="No vitals are available." query={query}
+        row={item => <li key={item.id}><div><strong>{date(item.recordedAt)}</strong><span>{vitalsSummary(item)}</span></div></li>} />
+      <SectionCard data={data} section="diagnoses" title="Diagnoses" none="No diagnoses are available." query={query}
+        row={item => <li key={item.id}><div><strong>{item.display}</strong><span>{item.codeSystem}: {item.code} · {item.clinicalStatus} · {item.verificationStatus}</span></div>{item.notes && <p>{item.notes}</p>}</li>} />
+      <SectionCard data={data} section="prescriptions" title="Prescriptions" none="No prescriptions are available." query={query}
+        row={item => <li key={item.id}><div><strong>{item.medicationDisplay}</strong><span>{item.doseQuantity != null ? `${item.doseQuantity} ${item.doseUnit || ''}` : ''}{item.frequency ? ` · ${item.frequency}` : ''} · {item.status}</span></div><p>{item.instructions}</p></li>} />
+      <SectionCard data={data} section="labRequests" title="Laboratory requests" none="No laboratory requests are available." query={query}
+        row={item => <li key={item.id}><div><strong>{item.testDisplay}</strong><span>{item.priority} · {item.status} · {date(item.createdAt)}</span></div>{item.clinicalInformation && <p>{item.clinicalInformation}</p>}</li>} />
+      <SectionCard data={data} section="documents" title="Clinical documents" none="No clinical documents are available." query={query}
+        row={item => <li key={item.id}><div><strong>{item.fileName}</strong><span>{item.mediaType} · {bytes(item.sizeBytes)} · {date(item.createdAt)}</span></div></li>} />
       </>}
       <p className="patient-field-hint">The record aggregate is scoped to your authenticated patient identity and audited by the backend.</p>
     </>}
