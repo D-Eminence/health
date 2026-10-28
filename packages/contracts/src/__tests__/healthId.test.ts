@@ -38,9 +38,34 @@ describe('a field that takes only a Health ID', () => {
     expect(normalizeHealthIdInput('-')).toBe('HID-')
   })
 
-  it('leaves a mistyped Health ID to be refused, as typed', () => {
+  it('leaves a mistyped Health ID to be refused, its hyphens aside', () => {
     expect(normalizeHealthIdInput('HID-K0LO1I')).toBe('HID-K0LO1I')
-    expect(normalizeHealthIdInput('HID-4471-08')).toBe('HID-4471-08')
+    expect(normalizeHealthIdInput('HID-4471-08')).toBe('HID-447108')
+    expect(isCompleteHealthId('HID-4471-08')).toBe(false)
+  })
+})
+
+describe('typing with the caret inside or before the prefilled HID- (a tap on it on a phone)', () => {
+  it('keeps what was typed and the prefix once, in a field that takes only a Health ID', () => {
+    expect(normalizeHealthIdInput('7kq2m9HID-')).toBe('HID-7KQ2M9')
+    expect(normalizeHealthIdInput('HID7KQ2M9-')).toBe('HID-7KQ2M9')
+    expect(normalizeHealthIdInput('HI7KQ2M9D-')).toBe('HID-7KQ2M9')
+    expect(normalizeHealthIdInput('H7KQ2M9ID-')).toBe('HID-7KQ2M9')
+    // Pasted over a long-pressed "HID", with or without its own prefix.
+    expect(normalizeHealthIdInput('7KQ2M9-')).toBe('HID-7KQ2M9')
+    expect(normalizeHealthIdInput('HID-7KQ2M9-')).toBe('HID-7KQ2M9')
+    // Typed at the start of what follows the prefix.
+    expect(normalizeHealthIdInput('HIDZ-ABC234')).toBe('HID-ZABC234')
+  })
+
+  it('keeps an email or a Health ID in a field that takes either', () => {
+    expect(healthIdOrOtherInput('ada@example.comHID-')).toBe('ada@example.com')
+    expect(healthIdOrOtherInput('HIada@example.comD-')).toBe('ada@example.com')
+    expect(healthIdOrOtherInput('7kq2m9HID-')).toBe('HID-7kq2m9')
+    expect(emailOrHealthId(healthIdOrOtherInput('7kq2m9HID-'))).toBe('HID-7KQ2M9')
+    // Deleting the prefix, from either end, leaves what is left.
+    expect(healthIdOrOtherInput('HID')).toBe('HID')
+    expect(healthIdOrOtherInput('ID-')).toBe('ID-')
   })
 })
 

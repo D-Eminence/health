@@ -147,7 +147,7 @@ describe('orders between facilities in the Novu console', () => {
     const find = screen.getByRole('button', { name: 'Find' }) as HTMLButtonElement
     expect(field.value).toBe('HID-')
     expect(document.getElementById(field.getAttribute('aria-describedby') ?? '')?.textContent)
-      .toBe('HID- is filled in for a Health ID. Delete it to enter an order reference.')
+      .toBe('HID- is filled in for a Health ID. An 8-character order reference works with it or without it.')
     // Only the prefill is nothing to find, as an empty field was.
     expect(find.disabled).toBe(true)
     // A Health ID typed after the prefill, or pasted with its own prefix, is sent once, in capitals.
@@ -170,6 +170,16 @@ describe('orders between facilities in the Novu console', () => {
     fireEvent.click(find)
     await waitFor(() => expect(calls.filter(call => call.path === '/api/v1/admin/order-routes/search').map(call => call.body))
       .toEqual([{ healthId: 'HID-7KQ2M9' }, { healthId: 'HID-ABC234' }]))
+    // A reference typed after the prefill is still a reference, even one a Health ID's alphabet could spell.
+    const searches = ['?reference=9C1B2D3E']
+    for (const [typed, reference] of [['HID-3f2a9c1b', '3F2A9C1B'], ['HID-3F2A9C2B', '3F2A9C2B']]) {
+      await waitFor(() => expect(find.disabled).toBe(false))
+      fireEvent.change(field, { target: { value: typed } })
+      fireEvent.click(find)
+      searches.push(`?reference=${reference}`)
+      await waitFor(() => expect(calls.filter(call => call.path === '/api/v1/admin/order-routes').map(call => call.search))
+        .toEqual(searches))
+    }
   })
 
   it('says a reference finds just that order, without claiming a Health ID goes in an address', async () => {

@@ -521,9 +521,11 @@ export function OrderRoutesPage({ actor }: { actor: AdminActor }) {
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const value = input.trim().toUpperCase()
-    // Anything but a reference is a Health ID, with its prefix once.
+    // 8 characters are a reference, typed after the prefilled HID- or with it deleted: Health IDs were issued with 16
+    // characters, then 6, never 8. Anything else is a Health ID, with its prefix once.
+    const bare = value.startsWith(HEALTH_ID_PREFIX) ? value.slice(HEALTH_ID_PREFIX.length) : value
     const healthId = normalizeHealthIdInput(value)
-    const next = REFERENCE.test(value) ? { reference: value } : isCompleteHealthId(healthId) ? { healthId } : null
+    const next = REFERENCE.test(bare) ? { reference: bare } : isCompleteHealthId(healthId) ? { healthId } : null
     if (!next) { setInvalid(true); return }
     setInvalid(false); setNotice(null)
     void find(next)
@@ -544,7 +546,7 @@ export function OrderRoutesPage({ actor }: { actor: AdminActor }) {
           aria-invalid={invalid} aria-describedby={invalid ? 'order-routes-lookup-hint order-routes-lookup-error' : 'order-routes-lookup-hint'}
           onChange={event => { setInput(healthIdOrOtherInput(event.target.value)); setInvalid(false) }} placeholder="For example 3F2A9C1B" />
           <button className="admin-primary" type="submit" disabled={busy || isBlankHealthIdInput(input)}>{busy ? 'Finding…' : 'Find'}</button></div>
-        <p id="order-routes-lookup-hint" className="admin-note">HID- is filled in for a Health ID. Delete it to enter an order reference.</p>
+        <p id="order-routes-lookup-hint" className="admin-note">HID- is filled in for a Health ID. An 8-character order reference works with it or without it.</p>
         {invalid && <p id="order-routes-lookup-error" role="alert" className="admin-error">{LOOKUP_INVALID}</p>}
       </form>
       {error && <p role="alert" className="admin-error">{error}</p>}

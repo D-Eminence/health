@@ -15,8 +15,23 @@ export const HEALTH_ID_PATTERN = /^HID-[A-HJ-NP-Z2-9]{6,32}$/
  * the prefix, holds "HID-" again.
  */
 export function normalizeHealthIdInput(value: string): string {
-  // The alphabet has no I, so "HID" never begins what follows the prefix: every leading HID and hyphen is a prefix.
-  return `${HEALTH_ID_PREFIX}${value.toUpperCase().replace(/\s+/g, '').replace(/^(?:HID|-)+/, '')}`
+  const compact = value.toUpperCase().replace(/\s+/g, '')
+  // The alphabet has no I or hyphen, so "HID" never begins what follows the prefix and a hyphen is only ever the
+  // prefix's: every leading HID and every hyphen goes.
+  return `${HEALTH_ID_PREFIX}${(aroundPrefix(compact) ?? compact).replace(/^(?:HID|-)+/, '').replace(/-/g, '')}`
+}
+
+/**
+ * What was typed around the prefilled prefix, wherever the caret was (a tap on "HID-" on a phone puts it inside or
+ * before the prefix): "HID-abc", "HIDabc-", "HIabcD-" and "abcHID-" all give "abc". Null when the prefix is gone.
+ */
+function aroundPrefix(value: string): string | null {
+  for (let cut = HEALTH_ID_PREFIX.length; cut >= 0; cut -= 1) {
+    const head = HEALTH_ID_PREFIX.slice(0, cut), tail = HEALTH_ID_PREFIX.slice(cut)
+    const at = value.startsWith(head) ? value.indexOf(tail, head.length) : -1
+    if (at >= 0) return value.slice(head.length, at) + value.slice(at + tail.length)
+  }
+  return null
 }
 
 /** Whether a value is a complete Health ID once normalized. */
@@ -35,8 +50,10 @@ export function isBlankHealthIdInput(value: string): boolean {
  * Nothing is put in capitals while typing, so an email keeps its case; a Health ID pasted after the prefix keeps one.
  */
 export function healthIdOrOtherInput(value: string): string {
-  if (value.startsWith(HEALTH_ID_PREFIX) && value.includes('@')) return value.slice(HEALTH_ID_PREFIX.length)
-  return value.replace(/^(?:HID-)+(?=HID-)/, '')
+  const typed = aroundPrefix(value)
+  if (typed === null) return value
+  if (typed.includes('@')) return typed
+  return `${HEALTH_ID_PREFIX}${typed.replace(/^(?:HID-)+/i, '')}`
 }
 
 /** What a field that takes an email or a Health ID sends: an email as typed, anything else as a normalized Health ID. */

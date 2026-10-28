@@ -12,6 +12,7 @@ export function HealthIdCode({ code }: { code: string }) {
     catch { setCopyState('failed') }
   }
 
+  if (!code) return null
   return <div className="patient-hid">
     <strong className="patient-hid-code">{code}</strong>
     <button type="button" className="patient-secondary-button" onClick={() => void copy()}>{copyState === 'copied' ? 'Copied' : 'Copy HID'}</button>
