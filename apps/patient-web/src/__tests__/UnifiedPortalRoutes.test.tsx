@@ -27,7 +27,9 @@ vi.mock('../api', () => ({
     onSessionAccepted: () => () => undefined,
     // The overview's other cards (hid-1.0 parity B3): not served here, as a backend without them answers.
     ...Object.fromEntries(['records', 'accessHistory', 'accessRequests', 'notifications', 'accessLog', 'profileDetails', 'healthProfile',
-      'emergencyContactsAvailability', 'emergencyContacts', 'photo'].map(name => [name, () => Promise.reject(new HidApiError(404, 'Not served'))])) }),
+      'emergencyContactsAvailability', 'emergencyContacts', 'photo',
+      // Sharing's probe (hid-1.0 parity B4, hid-system 0095): not served here either.
+      'shareInvitations'].map(name => [name, () => Promise.reject(new HidApiError(404, 'Not served'))])) }),
 }))
 vi.mock('../staff/api', () => ({
   staffApi: { session: calls.staffSession, refresh: calls.staffRefresh,

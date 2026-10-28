@@ -8,11 +8,12 @@ import {
 } from '../routes/Overview'
 import { ProfilePage } from '../routes/Portal'
 import { json, press, problem, profile, renderPortal, type Handler } from './portalHarness'
+import { forgetShareServed } from '../shareServed'
 
 const novu = vi.hoisted(() => ({ on: true }))
 vi.mock('../backendContract', () => ({ usesNovuBackend: () => novu.on }))
 // Grants end relative to now: the tests' now is fixed.
-beforeEach(() => { vi.spyOn(Date, 'now').mockReturnValue(NOW) })
+beforeEach(() => { vi.spyOn(Date, 'now').mockReturnValue(NOW); forgetShareServed() })
 
 /**
  * The home dashboard as hid-1.0 had it (HomeDashboard.tsx; hid-1.0 parity B3, contract D), against the backend with
@@ -140,6 +141,22 @@ describe('the overview with patient parity served', () => {
     await press(await screen.findByRole('link', { name: 'Add Health Information' }))
     const heading = await screen.findByRole('heading', { name: 'Health information' })
     await waitFor(() => expect(document.activeElement).toBe(heading))
+  })
+})
+
+describe('Share Records (hid-1.0 parity B4, hid-system 0095)', () => {
+  it('opens the share flow once the backend serves sharing (its probe answers 200)', async () => {
+    const { sent } = renderPortal(<Overview />, gateway({ '/identity/me/share-invitations': () => json({ items: [],
+      limits: { maxOpen: 20, maxNewPerDay: 5, remainingToday: 5 } }) }), {}, { ...parity, parityB4: true })
+    await waitFor(() => expect(screen.getByRole('link', { name: 'Share Records' }).getAttribute('href')).toBe('/access/share'))
+    expect(sent.filter(item => item.path === '/identity/me/share-invitations')).toHaveLength(1)
+  })
+
+  it('opens Access and consent where sharing is not served (404), and says nothing', async () => {
+    renderPortal(<Overview />, gateway({ '/identity/me/share-invitations': () => problem(404, 'NOT_FOUND', 'Cannot GET') }), {},
+      { ...parity, parityB4: true })
+    expect((await screen.findByRole('link', { name: 'Share Records' })).getAttribute('href')).toBe('/access')
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
   })
 })
 

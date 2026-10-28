@@ -13,6 +13,11 @@ import {
   type EmailChangeStarted, type HealthFields, type HealthProfile, type PhoneChanged, type ProfileDetails,
 } from './profileParity'
 import { photoBody } from './photoImage'
+import {
+  parseShareInvitations, parseShareProviders,
+  type ShareCreated, type ShareInput, type ShareInvitationConfirmed, type ShareInvitationCreated, type ShareInvitationInput,
+  type ShareInvitationList, type ShareProvider, type ShareDuration, type ShareLevel,
+} from './shareRecords'
 
 /**
  * Contracts read from hid-system c4b5445 Identity and EHR controllers, and later
@@ -218,6 +223,13 @@ export interface AccessHistory {
     breakGlass?: boolean
     /** The backend decides whether this patient may revoke the grant. */
     patientRevocable?: boolean
+    /**
+     * hid-1.0 parity B4 (hid-system 0095; absent from a backend before it): set only for a grant that came from the
+     * patient's own share or a confirmed invitation, null otherwise.
+     */
+    shareLevel?: ShareLevel | null
+    shareDuration?: ShareDuration | null
+    clinicianName?: string | null
   }>
 }
 
@@ -571,6 +583,23 @@ export function createPatientApi(sender: ApiClient) {
     importedAttachment: (id: string, signal?: AbortSignal) => call<ImportedAttachmentDownload>('GET',
       `ehr/me/imported-attachments/${encodeURIComponent(id)}/download`, undefined, { signal }),
     accessHistory: (signal?: AbortSignal) => call<AccessHistory>('GET', 'identity/me/access-history', undefined, { signal }),
+    // hid-1.0 parity B4 (hid-system 0095 on Novu; a backend before it, or with sharing off, answers 404). The search
+    // text goes in a POST body, never an address. Sharing gives access, so it takes an Idempotency-Key made once per
+    // confirm and reused when that confirm is sent again; so does an invitation.
+    searchShareProviders: async (query: string, signal?: AbortSignal): Promise<ShareProvider[]> =>
+      parseShareProviders(await call<unknown>('POST', 'identity/me/share-providers/search', { query }, { signal })),
+    createShare: (body: ShareInput, idempotencyKey: string) => call<ShareCreated>('POST', 'identity/me/shares',
+      { membershipId: body.membershipId, level: body.level, duration: body.duration }, { headers: { 'Idempotency-Key': idempotencyKey } }),
+    // The probe for sharing: 200 means served, 404 not.
+    shareInvitations: async (signal?: AbortSignal): Promise<ShareInvitationList> =>
+      parseShareInvitations(await call<unknown>('GET', 'identity/me/share-invitations', undefined, { signal })),
+    createShareInvitation: (body: ShareInvitationInput, idempotencyKey: string) => call<ShareInvitationCreated>('POST',
+      'identity/me/share-invitations', { email: body.email, ...(body.name ? { name: body.name } : {}), level: body.level, duration: body.duration },
+      { headers: { 'Idempotency-Key': idempotencyKey } }),
+    cancelShareInvitation: (invitationId: string) => call<{ invitationId: string; status: 'cancelled'; replayed: boolean }>('POST',
+      `identity/me/share-invitations/${encodeURIComponent(invitationId)}/cancel`),
+    confirmShareInvitation: (invitationId: string) => call<ShareInvitationConfirmed>('POST',
+      `identity/me/share-invitations/${encodeURIComponent(invitationId)}/confirm`),
     // Patient-owned revocation; the staff `consent-grants/:id/close` route is not a patient route.
     revokeAccess: (grantId: string, reason: string) => call<{ consentGrantId: string; status: 'revoked'; replayed: boolean }>(
       'POST', `identity/me/consent-grants/${encodeURIComponent(grantId)}/revoke`, { reason }),

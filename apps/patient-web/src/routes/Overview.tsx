@@ -20,6 +20,7 @@ import { notificationTitle } from './notificationTitles'
 import { ninVerifiedOf } from './NinVerificationCard'
 import { neverSaved } from './HealthInformation'
 import { useOnNotificationChange } from '../notificationBadge'
+import { useShareProbe } from './ShareRecords'
 
 /**
  * The home dashboard as hid-1.0 had it (HomeDashboard.tsx; hid-1.0 parity B3, contract D): the profile card with the
@@ -129,6 +130,8 @@ export function Overview() {
   const history = usePatientResource(api.accessHistory)
   const requests = usePatientResource(api.accessRequests)
   const notifications = usePatientResource(api.notifications)
+  // Sharing (hid-system 0095): learned once per page life from its probe; a 404 (today's backend) keeps Access and consent.
+  const share = useShareProbe()
   // The access log's newest page (hid-system 0093), under the access page's own name; a backend before it answers 404.
   const readLog = useMemo(() => servedOrNull((signal?: AbortSignal) => api.accessLog(null, signal)), [api])
   const log = usePatientResource<AccessLogPage | null>(readLog, 'access-log')
@@ -167,8 +170,8 @@ export function Overview() {
           <span className="patient-eyebrow">Health ID</span><HealthIdCode code={shown.hid} />
           {completion && <ProfileCompletionCard completion={completion} compact />}
           <div className="patient-overview-actions">
-            {/* Until Health ID has a way to share records from here, Share Records opens Access and consent. */}
-            <Link className="patient-primary-button" to="/access">Share Records</Link>
+            {/* Share Records opens the share flow once the backend serves sharing; until then, Access and consent. */}
+            <Link className="patient-primary-button" to={share.served === true ? '/access/share' : '/access'}>Share Records</Link>
             {savedHealth && <Link className="patient-secondary-button" to="/profile#health-information">Add Health Information</Link>}
           </div>
           <Link to="/profile">View profile →</Link></div>

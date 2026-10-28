@@ -2,6 +2,10 @@ import { stagingChatQuestion, parseStagingPatientChat, parseStagingChatHistory, 
   parsePatientChatAvailability, parsePatientChatHistory, parsePatientChatCleared } from '@hid/contracts'
 import { parseImportedHistory, type ImportedRecordsResponse, type ImportedAttachmentDownload, type ImportedHistoryPage } from '../importedRecords'
 import { parseReportedHealthProfile, type ReportedHealthProfile } from '../profileParity'
+import {
+  parseShareInvitationAccepted, parseSharedWithMe, parseStaffShareInvitations,
+  type ShareInvitationAccepted, type SharedPatient, type StaffShareInvitationList,
+} from '../shareRecords'
 import { createApiClient, HidApiError, isHidApiError, NO_RETRY, uploadPresignedObject, type ApiClient, type RequestSpec } from '@hid/http'
 import { createRegisteredBrowserClient } from '@hid/api'
 import { getEnvironment } from './env'
@@ -1805,6 +1809,19 @@ export const staffApi = {
   closeGrant: (facilityId: string, grantId: string, reason: string) =>
     client.post<GrantResult>(`/api/v1/identity/consent-grants/${encodeURIComponent(grantId)}/close`, { reason },
       { headers: facilityHeaders(facilityId) }),
+  // The clinician's side of patient sharing (hid-1.0 parity B4, hid-system 0095 on Novu; contract S1 to S3): direct care
+  // at the selected facility, identity.consent.write. A backend before 0095, or with sharing off, answers 404.
+  sharedWithMe: async (facilityId: string, signal?: AbortSignal): Promise<SharedPatient[]> =>
+    parseSharedWithMe(await client.get<unknown>('/api/v1/identity/shared-with-me',
+      { headers: facilityHeaders(facilityId, 'direct-care'), signal, dedupe: false })),
+  staffShareInvitations: async (facilityId: string, signal?: AbortSignal): Promise<StaffShareInvitationList> =>
+    parseStaffShareInvitations(await client.get<unknown>('/api/v1/identity/share-invitations',
+      { headers: facilityHeaders(facilityId, 'direct-care'), signal, dedupe: false })),
+  // No body; the client adds the CSRF token. The patient must then confirm before the record opens.
+  acceptShareInvitation: async (facilityId: string, invitationId: string): Promise<ShareInvitationAccepted> =>
+    parseShareInvitationAccepted(await client.post<unknown>(
+      `/api/v1/identity/share-invitations/${encodeURIComponent(invitationId)}/accept`, undefined,
+      { headers: facilityHeaders(facilityId, 'direct-care') })),
 
   encounters: (facilityId: string, patientId: string, page: PageRequest = {}) =>
     client.get<Page<Encounter>>(patientPath(patientId), { ...pageQuery(page), headers: facilityHeaders(facilityId) }),

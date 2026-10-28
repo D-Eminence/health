@@ -83,6 +83,15 @@ const PARITY_B2 = 'Served by hid-system staging-novu-ci-20261005 from migration 
  */
 const PARITY_B3 = 'Served by hid-system staging-novu-ci-20261005 from migration 0094 (patient parity B3); not served by hid-system main, '
   + 'and a backend before 0094 answers 404, which the portal takes as not offered.'
+/**
+ * hid-1.0 patient parity B4 (owner approval 2026-10-28; contract b45-contract.md §2): sharing with a clinician, invitations
+ * by email, and the clinician's side. Served once hid-system 0095 is, and only by Novu. A backend before it, or one with
+ * PATIENT_SHARES_ENABLED off, answers 404, which the portal takes as not offered: the section is hidden.
+ */
+const PARITY_B4 = 'Novu only, hid-system 0095 (patient parity B4, sharing); not served by hid-system main, and a backend before 0095 '
+  + '(or with sharing switched off) answers 404, which the portal takes as not offered.'
+/** Account deletion (hid-1.0 parity B5): hid-system main's 0064 routes, which Novu serves from 0096 under the same paths. */
+const ACCOUNT_DELETION_NOTE = 'Novu: hid-system 0096; 404 before'
 const CHAT_NOTE = `${NOT_ON_MAIN} The screen is off unless the build turns it on.`
 const STAFF_CHAT_NOTE = 'Staff sessions holding ehr.record-chat.use, for direct care only (X-Purpose-Of-Use: direct-care, never break-glass). '
   + 'Off by default in hid-system (ADR-069, 0101): 503 RECORD_CHAT_DISABLED until RECORD_CHAT_STAFF_ENABLED and the platform control are on.'
@@ -453,10 +462,32 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   proposed(r('identity.contactChangeVerify','identity','/api/v1/identity/me/contact-changes/:changeId/verify',P,false,undefined,
     `${PARITY_B3} Patient sessions only, CSRF. { code } answers { email }: sign-in and recovery use the new address from `
     + 'then on. 400 OTP_INVALID_OR_EXPIRED for a wrong or expired code.')),
-  // Phase 3 patient safety (hid-system phase-3-patient-safety, ADR-036).
-  r('identity.accountDeletion','identity','/api/v1/identity/me/account-deletion',GP),
-  r('identity.accountDeletionConfirm','identity','/api/v1/identity/me/account-deletion/confirm',P),
-  r('identity.accountDeletionCancel','identity','/api/v1/identity/me/account-deletion/cancel',P),
+  // hid-1.0 patient parity B4 (hid-system 0095 on Novu): share my records with a clinician, and invite one by email.
+  proposed(r('identity.shareProviderSearch','identity','/api/v1/identity/me/share-providers/search',P,false,undefined,
+    `${PARITY_B4} Patient sessions only, CSRF. { query } (3 to 80 characters) answers { items: [{ membershipId, clinicianName, `
+    + 'role, facilityName, organizationName, newOnHealthId }] }, at most 10; never an email, phone, licence or id beyond the '
+    + 'membership. 400 SHARE_SEARCH_QUERY_INVALID, 429 SHARE_SEARCH_LIMITED (30 an hour).')),
+  proposed(r('identity.shares','identity','/api/v1/identity/me/shares',P,false,undefined,
+    `${PARITY_B4} Patient sessions only, CSRF, Idempotency-Key. { membershipId, level, duration } answers 201 { consentGrantId, `
+    + 'membershipId, scope, level, duration, startsAt, expiresAt, clinicianName, facilityName, replacedConsentGrantId, replayed }. '
+    + '403 PATIENT_RECENT_AUTH_REQUIRED (10 minutes), 404 SHARE_PROVIDER_UNAVAILABLE, 429 SHARE_CREATE_LIMITED.')),
+  proposed(r('identity.shareInvitations','identity','/api/v1/identity/me/share-invitations',GP,false,undefined,
+    `${PARITY_B4} Patient sessions only. GET (the portal's probe for sharing) answers { items, limits }; POST (CSRF, `
+    + 'Idempotency-Key) { email, name?, level, duration } answers 201 { invitationId, reference, status: pending, expiresAt, '
+    + 'deliveryOutcome, replayed }, the same whether or not the address is registered. 409 SHARE_INVITATION_ALREADY_OPEN, '
+    + 'SHARE_INVITATION_TOO_MANY_OPEN; 429 SHARE_INVITATION_LIMITED.')),
+  proposed(r('identity.shareInvitationCancel','identity','/api/v1/identity/me/share-invitations/:invitationId/cancel',P,false,undefined,
+    `${PARITY_B4} Patient sessions only, CSRF, no body: { invitationId, status: cancelled, replayed }. Declines an accepted `
+    + 'offer. 404 SHARE_INVITATION_NOT_FOUND, 409 SHARE_INVITATION_NOT_CANCELLABLE.')),
+  proposed(r('identity.shareInvitationConfirm','identity','/api/v1/identity/me/share-invitations/:invitationId/confirm',P,false,undefined,
+    `${PARITY_B4} Patient sessions only, CSRF, no body: grants the accepting clinician access, as a share does. 403 `
+    + 'PATIENT_RECENT_AUTH_REQUIRED, 409 SHARE_INVITATION_NOT_ACCEPTED or SHARE_PROVIDER_UNAVAILABLE.')),
+  // Phase 3 patient safety (hid-system phase-3-patient-safety, ADR-036). On Novu, hid-1.0 parity B5 (contract
+  // b45-contract.md §3): hid-system 0096 serves the same paths and answers; a backend before it answers 404, which the
+  // portal takes as not offered (the card is hidden).
+  r('identity.accountDeletion','identity','/api/v1/identity/me/account-deletion',GP,false,undefined,ACCOUNT_DELETION_NOTE),
+  r('identity.accountDeletionConfirm','identity','/api/v1/identity/me/account-deletion/confirm',P,false,undefined,ACCOUNT_DELETION_NOTE),
+  r('identity.accountDeletionCancel','identity','/api/v1/identity/me/account-deletion/cancel',P,false,undefined,ACCOUNT_DELETION_NOTE),
   r('identity.emergencyContacts','identity','/api/v1/identity/me/emergency-contacts',GP,false,undefined,EMERGENCY_CONTACTS_NOTE),
   proposed(r('identity.emergencyContactsAvailability','identity','/api/v1/identity/me/emergency-contacts/availability',G,false,undefined,
     `${EMERGENCY_CONTACTS_NOVU} Patient sessions only, no database work: 200 { delivery, channels }; delivery is false while `
@@ -471,6 +502,19 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('identity.patientLookup','identity','/api/v1/identity/patient-lookup',P,false,one('POST','identity.patient.read')),
   r('identity.authorization','identity','/api/v1/identity/authorization/check',P,false,one('POST','identity.authorization.check')),
   r('identity.consentStatus','identity','/api/v1/identity/consent-status',P,false,one('POST','identity.consent.read')),
+  // The clinician's side of patient sharing (hid-1.0 parity B4, hid-system 0095 on Novu): the provider portal's Patients page.
+  proposed(r('identity.sharedWithMe','identity','/api/v1/identity/shared-with-me',G,false,one('GET','identity.consent.write'),
+    `${PARITY_B4} Staff sessions, X-Facility-ID, direct-care. 200 { items: [{ consentGrantId, patientId, hid, fullName, level, `
+    + 'duration, scope, startsAt, expiresAt }] }: the active patient shares to the caller\'s membership, newest first, at most 100.')),
+  proposed(r('identity.staffShareInvitations','identity','/api/v1/identity/share-invitations',G,false,one('GET','identity.consent.write'),
+    `${PARITY_B4} Staff sessions, X-Facility-ID, direct-care. 200 { eligible, items: [{ invitationId, reference, inviteeName, `
+    + 'level, duration, createdAt, expiresAt }] }: pending invitations to the caller\'s verified sign-in email, none when the '
+    + 'membership may not receive shares; never the patient\'s identity.')),
+  proposed(r('identity.staffShareInvitationAccept','identity','/api/v1/identity/share-invitations/:invitationId/accept',P,false,
+    one('POST','identity.consent.write'),
+    `${PARITY_B4} Staff sessions, X-Facility-ID, direct-care, CSRF, no body: 200 { invitationId, status: accepted, acceptedAt, `
+    + 'replayed }; the patient then confirms. 404 SHARE_INVITATION_NOT_FOUND, 403 SHARE_PROVIDER_NOT_ELIGIBLE, 409 '
+    + 'SHARE_INVITATION_NOT_PENDING.')),
   r('identity.registrationCapabilities','identity','/api/v1/identity/registration-capabilities',G,false,one('GET','identity.registration.write')),
   r('identity.resolveNin','identity','/api/v1/identity/nin/resolve',P,false,one('POST','identity.registration.write')),
   r('identity.registrationCase','identity','/api/v1/identity/registration-cases/:caseId',G,false,one('GET','identity.registration.write')),

@@ -1,12 +1,13 @@
-import { useMemo, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useMemo, useRef, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
 import {
-  EMERGENCY_CONTACT_RELATIONSHIPS, type AccountDeletionBlockedReason, type AccountDeletionRequested,
+  EMERGENCY_CONTACT_RELATIONSHIPS, type AccountDeletionBlockedReason, type AccountDeletionRequested, type AccountDeletionStatus,
   type EmergencyContact, type EmergencyContactChannel, type EmergencyContactRelationship, type EmergencyContactsAvailability,
   type PatientApi,
 } from '../api'
 import { usesNovuBackend } from '../backendContract'
+import { learnAccountDeletionServed, useAccountDeletionServed } from '../accountDeletionServed'
 import { describedBy } from '../authSteps'
 import { useSession } from '../session'
 import { ItemName } from '../ItemName'
@@ -42,6 +43,28 @@ function problem(cause: unknown, fallback: string) {
 
 function problemCode(cause: unknown): string | undefined {
   return isHidApiError(cause) ? cause.code : undefined
+}
+
+/** The deletion card's dates, in WAT as the deletion emails give them (contract b45-contract.md §3.3). */
+function watDateTime(value: string | null | undefined) {
+  if (!value) return 'Not available'
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? value
+    : `${new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Africa/Lagos' }).format(parsed)} WAT`
+}
+
+/**
+ * A refused deletion step, in the card's own words for the two sign-in rules (contract §3.1): a sign-in more than 10
+ * minutes old, and (hid-system 0096 on Novu) an account recovered in the last 24 hours. Any other refusal says its detail.
+ */
+function deletionProblem(cause: unknown, fallback: string) {
+  switch (problemCode(cause)) {
+    case 'PATIENT_RECENT_AUTH_REQUIRED':
+      return 'For your security, sign out, sign in again, and return here within 10 minutes to delete your account.'
+    case 'PATIENT_RECENT_RECOVERY_HOLD':
+      return 'For your security, account deletion is not available for 24 hours after you recover your account.'
+    default: return problem(cause, fallback)
+  }
 }
 
 const BLOCKED_REASONS: Record<AccountDeletionBlockedReason, string> = {
@@ -444,10 +467,26 @@ export function EmergencyContactsCard() {
   </div>
 }
 
+/**
+ * Delete account, on both backends: hid-system main's patient-safety routes (0064), and on Novu hid-system 0096
+ * (contract b45-contract.md §3). The status read is its probe: a backend that does not serve it (Novu before 0096, or
+ * with ACCOUNT_DELETION_ENABLED off) answers 404, and the card is not shown and says nothing. On Novu nothing shows
+ * before an answer says it is served; main always serves it, so its loading line stays as it was.
+ */
 export function AccountDeletionCard() {
   const { api, signOut } = useSession()
   const navigate = useNavigate()
-  const status = usePatientResource(api.accountDeletionStatus)
+  const load = useCallback((signal?: AbortSignal) => api.accountDeletionStatus(signal).then(value => {
+    learnAccountDeletionServed(true)
+    return value
+  }, (caught: unknown) => {
+    if (isHidApiError(caught) && caught.status === 404) { learnAccountDeletionServed(false); return null }
+    throw caught
+  }), [api])
+  // Kept for the account under its own name: `load` is made again each time the card is.
+  const status = usePatientResource<AccountDeletionStatus | null>(load, 'account-deletion')
+  const served = useAccountDeletionServed()
+  const [retried, setRetried] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -467,9 +506,7 @@ export function AccountDeletionCard() {
     // On success the confirmation opens with focus in its phrase field.
     try { setPending(await api.requestAccountDeletion()); setPhrase('') }
     catch (cause) {
-      setError(problemCode(cause) === 'PATIENT_RECENT_AUTH_REQUIRED'
-        ? 'For your security, sign out, sign in again, and return here within 10 minutes to delete your account.'
-        : problem(cause, 'The deletion request could not be started.'))
+      setError(deletionProblem(cause, 'The deletion request could not be started.'))
       focusAfter(() => proceedButton.current)
     } finally { setBusy(false) }
   }
@@ -485,7 +522,7 @@ export function AccountDeletionCard() {
       else { await status.reload(); focusAfter(() => heading.current) }
     } catch (cause) {
       setPending(null); setPhrase('')
-      setError(problem(cause, 'The deletion could not be confirmed. Start again.'))
+      setError(deletionProblem(cause, 'The deletion could not be confirmed. Start again.'))
       await status.reload()
       focusAfter(() => heading.current)
     } finally { setBusy(false) }
@@ -517,6 +554,12 @@ export function AccountDeletionCard() {
     </div>
   }
 
+  // Not served (404), or on Novu not known yet: nothing is shown. An action's own outcome is still said, and so is the
+  // outcome of 'Try again', whose heading then takes focus.
+  const unserved = status.data === null && !status.error && !status.loading
+  const unknown = status.data === null && !status.error && status.loading && usesNovuBackend() && served !== true
+  if ((unserved || unknown) && !error && !notice && !retried) return null
+
   const current = status.data?.request
   const waiting = status.data ? days(status.data.waitingPeriodSeconds) : null
   const scheduled = current?.state === 'pending' && current.scheduledFor
@@ -527,11 +570,14 @@ export function AccountDeletionCard() {
     {error && <p role="alert" className="patient-inline-error">{error}</p>}
     <div role="status">{notice && <p className="patient-inline-success">{notice}</p>}</div>
     {status.loading && !status.data && <p role="status" className="patient-loading">Checking your account…</p>}
-    {status.error && <div role="alert"><p>{status.error}</p><button ref={retryFocus.button} type="button" onClick={() => retryFocus.retry(status.reload)}>Try again</button></div>}
+    {status.error && <div role="alert"><p>{status.error}</p><button ref={retryFocus.button} type="button"
+      onClick={() => { setRetried(true); retryFocus.retry(status.reload) }}>Try again</button></div>}
+    {unserved && <p>Deleting your account is not available here right now.</p>}
     {status.data && !status.error && <div aria-busy={status.loading || undefined}>{scheduled
       ? <>
-        <p>Your account is scheduled for deletion on <strong>{dateTime(current.scheduledFor)}</strong>.</p>
+        <p>Your account is scheduled for deletion on <strong>{watDateTime(current.scheduledFor)}</strong>.</p>
         <p className="patient-field-hint">Until then you can keep using Health ID and cancel at any time. After that date this cannot be undone.</p>
+        <p className="patient-field-hint">Your Health ID and the medical records facilities hold about you will be kept, as required for your care and the law.</p>
         <button type="button" className="patient-primary-button" disabled={busy || status.loading} onClick={event => void cancel(current.requestId, event.currentTarget)}>Cancel deletion</button>
       </>
       : <>
@@ -540,9 +586,12 @@ export function AccountDeletionCard() {
         <ul className="patient-consequences">
           <li>You will no longer be able to sign in, and every device you are signed in on will be signed out.</li>
           <li>Access you have given providers, and your Access PIN, will be withdrawn.</li>
+          {/* hid-system 0096 (Novu) closes these too and sends these emails; main's 0064 does neither. */}
+          {usesNovuBackend() && <li>Invitations you sent to share your records are cancelled, and your emergency contacts are removed.</li>}
           <li>Your Health ID and the medical records facilities hold about you are kept. Facilities may still need them to treat you, and emergency care rules still apply.</li>
           <li>Some security and audit records must be kept even after deletion.</li>
           <li>You have {waiting} to change your mind. After that, deletion cannot be undone.</li>
+          {usesNovuBackend() && <li>{'We\'ll email you when your account is scheduled for deletion and when it is deleted.'}</li>}
           <li>If any of your records are under a legal hold, deletion will be blocked and nothing is removed.</li>
         </ul>
         {!pending ? <>
@@ -551,7 +600,7 @@ export function AccountDeletionCard() {
           <p className="patient-field-hint">You must have signed in within the last 10 minutes.</p>
           <button ref={proceedButton} type="button" className="patient-danger-button" disabled={busy || status.loading || !acknowledged} onClick={() => void request()}>Continue to delete account</button>
         </> : <form className="patient-form" onSubmit={event => void confirm(event)}>
-          <p className="patient-field-hint">This confirmation expires at {dateTime(pending.confirmationExpiresAt)}.</p>
+          <p className="patient-field-hint">This confirmation expires at {watDateTime(pending.confirmationExpiresAt)}.</p>
           <label>Type {CONFIRMATION_PHRASE} to confirm<input autoFocus required autoComplete="off" spellCheck={false} value={phrase}
             onChange={event => setPhrase(event.target.value)} /></label>
           <div className="patient-decision-actions">

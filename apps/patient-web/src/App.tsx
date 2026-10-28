@@ -18,6 +18,7 @@ import { resolveStaffProductHostname, isPlatformAdminHostname, PLATFORM_ADMIN_RO
 import { CLINICIAN_SIGNUP_PATH, CLINICIAN_STATUS_PATH, STAFF_INVITATION_PATH } from './productHostname'
 import { usesNovuBackend } from './backendContract'
 import { LEGACY_PATIENT_PATHS } from './legacyPaths'
+import { ShareRecords } from './routes/ShareRecords'
 
 const StaffApp = lazy(async () => ({ default: (await import('./staff/App')).App }))
 const ProviderEnrollment = lazy(async () => ({ default: (await import('./staff/routes/ProviderEnrollment')).ProviderEnrollment }))
@@ -51,6 +52,8 @@ function PatientRoutes() {
         <Route path="records" element={<RecordsPage />} />
         {patientChatEnabled() && <Route path="chat" element={<PatientChat />} />}
         <Route path="access" element={<AccessPage />} />
+        {/* Share my records (hid-system 0095): opens Access and consent where the backend does not serve sharing (404). */}
+        <Route path="access/share" element={<ShareRecords />} />
         <Route path="notifications" element={<NotificationsPage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="*" element={<PatientNotFound />} />
