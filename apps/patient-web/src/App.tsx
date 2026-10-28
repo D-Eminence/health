@@ -17,6 +17,7 @@ import { AccessPage, NotificationsPage, PortalShell, ProfilePage, RecordsPage, S
 import { resolveStaffProductHostname, isPlatformAdminHostname, PLATFORM_ADMIN_ROUTE, STAFF_RECOVERY_PATH } from './productHostname'
 import { CLINICIAN_SIGNUP_PATH, CLINICIAN_STATUS_PATH, STAFF_INVITATION_PATH } from './productHostname'
 import { usesNovuBackend } from './backendContract'
+import { LEGACY_PATIENT_PATHS } from './legacyPaths'
 
 const StaffApp = lazy(async () => ({ default: (await import('./staff/App')).App }))
 const ProviderEnrollment = lazy(async () => ({ default: (await import('./staff/routes/ProviderEnrollment')).ProviderEnrollment }))
@@ -42,6 +43,8 @@ function PatientRoutes() {
       <Route path="/enroll" element={<Enrollment />} />
       <Route path="/enroll/facilities" element={<ParticipatingFacilitiesPage />} />
       <Route path="/recover" element={<Recovery />} />
+      {/* hid-1.0's old addresses open the page that replaces each; nothing of the old address is kept. */}
+      {Object.entries(LEGACY_PATIENT_PATHS).map(([from, to]) => <Route key={from} path={from} element={<Navigate to={to} replace />} />)}
       <Route path="/" element={<RequireAccess requirement={PATIENT_ROUTE}><PortalShell /></RequireAccess>}>
         <Route index element={<Overview />} />
         <Route path="profile" element={<ProfilePage />} />

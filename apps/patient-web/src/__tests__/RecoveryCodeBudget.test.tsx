@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
 import { Recovery } from '../routes/Recovery'
 import { PrincipalRecovery } from '../routes/PrincipalRecovery'
+import { enterCode } from './codeBoxes'
 
 const api = vi.hoisted(() => ({ recoveryStart: vi.fn(), recoveryVerify: vi.fn(), recoveryComplete: vi.fn() }))
 const principal = vi.hoisted(() => ({ start: vi.fn(), verify: vi.fn(), complete: vi.fn() }))
@@ -33,10 +34,16 @@ afterEach(() => { cleanup(); vi.clearAllMocks(); vi.useRealTimers() })
 const pages = [
   { name: 'patient', field: 'Email or Health ID', identifier: 'patient@example.test', same: /same email or Health ID/,
     different: 'Use a different email or Health ID',
-    start: api.recoveryStart, verify: api.recoveryVerify, open: () => render(<MemoryRouter><Recovery /></MemoryRouter>) },
+    start: api.recoveryStart, verify: api.recoveryVerify, open: () => render(<MemoryRouter><Recovery /></MemoryRouter>),
+    // Six boxes (CodeBoxes.tsx): the sixth digit sends the code.
+    send: (code: HTMLElement, value: string) => enterCode(code, value) },
   { name: 'provider', field: 'Work email', identifier: 'clinician@example.test', same: /same work email/,
     different: 'Use a different work email',
-    start: principal.start, verify: principal.verify, open: () => render(<MemoryRouter><PrincipalRecovery audience="staff" /></MemoryRouter>) },
+    start: principal.start, verify: principal.verify, open: () => render(<MemoryRouter><PrincipalRecovery audience="staff" /></MemoryRouter>),
+    send: async (code: HTMLElement, value: string) => {
+      fireEvent.change(code, { target: { value } })
+      await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Verify code' })) })
+    } },
 ] as const
 const NEW_CODE = 'Start again for a new code'
 
@@ -55,8 +62,7 @@ describe.each(pages)('$name password recovery', page => {
     const code = await toCode(page, 60)
     expect(screen.queryByText(BUDGET)).toBeNull()
     page.verify.mockRejectedValue(refused())
-    fireEvent.change(code, { target: { value: '000000' } })
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Verify code' })) })
+    await page.send(code, '000000')
     const hint = await screen.findByText(BUDGET)
     expect(hint.textContent).toMatch(/no new code is sent/)
   })
@@ -84,8 +90,7 @@ describe.each(pages)('$name password recovery', page => {
   ])('keeps the budget note when starting again at once with the same identifier, %s', async (_case, again) => {
     const code = await toCode(page, 60)
     page.verify.mockRejectedValue(refused())
-    fireEvent.change(code, { target: { value: '000000' } })
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Verify code' })) })
+    await page.send(code, '000000')
     await screen.findByText(BUDGET)
     fireEvent.click(screen.getByRole('button', { name: page.different }))
     fireEvent.change(await screen.findByLabelText(page.field), { target: { value: again(page.identifier) } })
@@ -99,8 +104,7 @@ describe.each(pages)('$name password recovery', page => {
   it('does not carry the budget note to a code started for another identifier', async () => {
     const code = await toCode(page, 60)
     page.verify.mockRejectedValue(refused())
-    fireEvent.change(code, { target: { value: '000000' } })
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Verify code' })) })
+    await page.send(code, '000000')
     await screen.findByText(BUDGET)
     fireEvent.click(screen.getByRole('button', { name: page.different }))
     fireEvent.change(await screen.findByLabelText(page.field), { target: { value: `other.${page.identifier}` } })
@@ -114,8 +118,7 @@ describe.each(pages)('$name password recovery', page => {
   it('does not carry the budget note past a code that was accepted', async () => {
     const code = await toCode(page, 60)
     page.verify.mockRejectedValueOnce(refused())
-    fireEvent.change(code, { target: { value: '000000' } })
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Verify code' })) })
+    await page.send(code, '000000')
     await screen.findByText(BUDGET)
     page.verify.mockResolvedValueOnce({ verified: true, challengeId: 'challenge-1', verificationToken: 'token-1' })
     fireEvent.change(screen.getByLabelText('Recovery code'), { target: { value: '123456' } })

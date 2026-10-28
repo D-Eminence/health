@@ -5,6 +5,7 @@ import { HidApiError } from '@hid/http'
 import { Enrollment } from '../routes/Enrollment'
 import { Recovery } from '../routes/Recovery'
 import { PrincipalRecovery } from '../routes/PrincipalRecovery'
+import { enterCode } from './codeBoxes'
 
 /**
  * Enrollment and password recovery show one step at a time (PA-02, PA-03,
@@ -81,12 +82,13 @@ describe('patient password recovery', () => {
     expect(described(code)).toBe('Enter the six digit code sent to your verified contact.')
 
     api.recoveryVerify.mockResolvedValue({ verified: true, challengeId: 'challenge-1', verificationToken: 'token-1' })
-    fireEvent.change(code, { target: { value: '123456' } })
-    await press('Verify code')
+    // The sixth digit sends the code.
+    await enterCode(code, '123456')
     await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('New password')))
 
     api.recoveryComplete.mockResolvedValue({ completed: true })
     fireEvent.change(screen.getByLabelText('New password'), { target: { value: 'a-long-new-password' } })
+    fireEvent.change(screen.getByLabelText('Confirm new password'), { target: { value: 'a-long-new-password' } })
     await press('Reset password')
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Password reset complete.' })))
   })
@@ -95,17 +97,18 @@ describe('patient password recovery', () => {
     await toCode()
     api.recoveryVerify.mockRejectedValue(new HidApiError(403, 'The verification code is invalid or expired', { code: 'OTP_INVALID_OR_EXPIRED' }))
     const code = screen.getByLabelText('Recovery code')
-    fireEvent.change(code, { target: { value: '000000' } })
-    await press('Verify code')
+    // Sent by its sixth digit, from the last box: focus returns to the first, whose description says why.
+    await enterCode(code, '000000')
     await waitFor(() => expect(document.activeElement).toBe(code))
     expect(code.getAttribute('aria-invalid')).toBe('true')
     expect(described(code)).toBe('Enter the six digit code sent to your verified contact. | The verification code is invalid or expired')
     // Focus moved to the field, whose description says it: an alert as well would be spoken twice.
     expect(screen.queryByRole('alert')).toBeNull()
 
-    // Correcting it clears the mark on the next attempt.
+    // Correcting it clears the mark on the next attempt, sent with the button: a corrected code is not sent by itself.
     api.recoveryVerify.mockResolvedValue({ verified: true, challengeId: 'challenge-1', verificationToken: 'token-1' })
     fireEvent.change(code, { target: { value: '123456' } })
+    expect(api.recoveryVerify).toHaveBeenCalledTimes(1)
     await press('Verify code')
     await waitFor(() => expect(screen.getByLabelText('New password').getAttribute('aria-invalid')).toBeNull())
   })
@@ -114,8 +117,7 @@ describe('patient password recovery', () => {
     await toCode()
     api.recoveryVerify.mockRejectedValue(new HidApiError(429, 'Too many attempts. Try again later.'))
     const code = screen.getByLabelText('Recovery code')
-    fireEvent.change(code, { target: { value: '123456' } })
-    await press('Verify code')
+    await enterCode(code, '123456')
     await waitFor(() => expect(document.activeElement).toBe(code))
     expect(code.getAttribute('aria-invalid')).toBeNull()
     expect(described(code)).toBe('Enter the six digit code sent to your verified contact.')
@@ -132,8 +134,13 @@ describe('patient password recovery', () => {
     api.recoveryVerify.mockRejectedValue(new HidApiError(403, 'The verification code is invalid or expired', { code: 'OTP_INVALID_OR_EXPIRED' }))
     const code = screen.getByLabelText('Recovery code')
     await waitFor(() => expect(document.activeElement).toBe(code))
-    fireEvent.change(code, { target: { value: '000000' } })
+    await enterCode(code, '000000')
+    await waitFor(() => expect(document.activeElement).toBe(code))
+    // Corrected in its first box, which keeps focus, and sent with Enter there.
+    fireEvent.change(code, { target: { value: '000001' } })
+    code.focus()
     await act(async () => { fireEvent.submit(code.closest('form') as HTMLFormElement) })
+    expect(api.recoveryVerify).toHaveBeenCalledTimes(2)
     expect((await screen.findByRole('alert')).textContent).toBe('The verification code is invalid or expired')
     expect(code.getAttribute('aria-invalid')).toBe('true')
     expect(document.activeElement).toBe(code)
@@ -142,13 +149,13 @@ describe('patient password recovery', () => {
   it('a verification that ran out before the new password was sent leaves the password field valid', async () => {
     await toCode()
     api.recoveryVerify.mockResolvedValue({ verified: true, challengeId: 'challenge-1', verificationToken: 'token-1' })
-    fireEvent.change(screen.getByLabelText('Recovery code'), { target: { value: '123456' } })
-    await press('Verify code')
+    await enterCode(screen.getByLabelText('Recovery code'), '123456')
     const password = screen.getByLabelText('New password')
     await waitFor(() => expect(document.activeElement).toBe(password))
     // The completion token lasts as long as the code; a slow password step gets the code's refusal.
     api.recoveryComplete.mockRejectedValue(new HidApiError(403, 'The verification code is invalid or expired', { code: 'OTP_INVALID_OR_EXPIRED' }))
     fireEvent.change(password, { target: { value: 'a-long-new-password' } })
+    fireEvent.change(screen.getByLabelText('Confirm new password'), { target: { value: 'a-long-new-password' } })
     await press('Reset password')
     await waitFor(() => expect(document.activeElement).toBe(password))
     expect(password.getAttribute('aria-invalid')).toBeNull()
@@ -172,8 +179,7 @@ describe('patient password recovery', () => {
     await toCode()
     const reply = deferred<{ verified: true; challengeId: string; verificationToken: string }>()
     api.recoveryVerify.mockReturnValue(reply.promise)
-    fireEvent.change(screen.getByLabelText('Recovery code'), { target: { value: '123456' } })
-    await press('Verify code')
+    await enterCode(screen.getByLabelText('Recovery code'), '123456')
     const back = screen.getByRole('link', { name: 'Back to sign in' })
     back.focus()
     await act(async () => { reply.resolve({ verified: true, challengeId: 'challenge-1', verificationToken: 'token-1' }) })
@@ -344,8 +350,7 @@ describe('patient enrollment', () => {
 
     api.enrollmentVerify.mockRejectedValueOnce(new HidApiError(422, 'The verification code is invalid or expired', { code: 'OTP_INVALID' }))
       .mockResolvedValueOnce({ verified: true })
-    fireEvent.change(screen.getByLabelText('Verification code'), { target: { value: '000000' } })
-    await press('Verify code')
+    await enterCode(screen.getByLabelText('Verification code'), '000000')
     await waitFor(() => expect(screen.getByLabelText('Verification code').getAttribute('aria-invalid')).toBe('true'))
     expect(document.activeElement).toBe(screen.getByLabelText('Verification code'))
 
@@ -381,8 +386,7 @@ describe('patient enrollment', () => {
     fireEvent.change(screen.getByLabelText('Phone number'), { target: { value: '+2348000000000' } })
     await press('Send verification code')
     api.enrollmentVerify.mockReturnValue(new Promise(() => {}))
-    fireEvent.change(await screen.findByLabelText('Verification code'), { target: { value: '123456' } })
-    await press('Verify code')
+    await enterCode(await screen.findByLabelText('Verification code'), '123456')
     expect((screen.getByRole('button', { name: 'Request another code or change contact' }) as HTMLButtonElement).disabled).toBe(true)
   })
 

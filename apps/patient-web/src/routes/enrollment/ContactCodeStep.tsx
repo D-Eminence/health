@@ -1,5 +1,6 @@
 import type { FormEvent } from 'react'
 import { describedBy } from '../../authSteps'
+import { CodeBoxes, codeComplete } from '../../CodeBoxes'
 import type { StepProps } from './stepProps'
 
 /**
@@ -24,9 +25,9 @@ interface ContactCodeStepProps extends StepProps {
 export function ContactCodeStep({ focusTarget, busy, invalid, errorId, maskedContact, code, onCode, onSubmit, onAnotherCode, budgetNote }: ContactCodeStepProps) {
   return <form onSubmit={onSubmit} className="patient-form">
     <h2>Verify your contact</h2><p id="enroll-code-hint" className="patient-field-hint">Enter the six digit code sent to {maskedContact || 'your contact'}.</p>
-    <label>Verification code<input ref={focusTarget} required inputMode="numeric" autoComplete="one-time-code" value={code} onChange={event => onCode(event.target.value.replace(/\D/g, '').slice(0, 6))} pattern="[0-9]{6}" maxLength={6}
-      aria-invalid={invalid} aria-describedby={describedBy('enroll-code-hint', errorId)} /></label>
-    <button type="submit" className="patient-primary-button" disabled={busy || code.length !== 6}>{busy ? 'Checking…' : 'Verify code'}</button>
+    <CodeBoxes id="enroll-code" label="Verification code" value={code} onChange={onCode} inputRef={focusTarget} busy={busy}
+      invalid={invalid} describedBy={describedBy('enroll-code-hint', errorId)} />
+    <button type="submit" className="patient-primary-button" disabled={busy || !codeComplete(code)}>{busy ? 'Checking…' : 'Verify code'}</button>
     {/* The note on a refused code is about that code: a new one starts without it. */}
     <button type="button" className="patient-text-button" disabled={busy} onClick={onAnotherCode}>Request another code or change contact</button>
     {budgetNote && <p className="patient-field-hint">{CODE_BUDGET_HINT}</p>}

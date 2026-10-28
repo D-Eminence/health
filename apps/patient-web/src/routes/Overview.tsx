@@ -17,9 +17,10 @@ export function Overview() {
     <p className="patient-eyebrow">Your account</p>
     <h1 ref={heading} tabIndex={-1} className="patient-page-title">Your health, connected.</h1>
     <p className="patient-page-copy">Your Health ID helps keep your records linked while you manage who can access them.</p>
-    {profile.loading ? <div role="status" className="patient-card patient-loading">Loading your profile…</div>
+    {/* The profile last shown stays while it is read again (usePatientResource), with no loading state. */}
+    {profile.loading && !profile.data ? <div role="status" className="patient-card patient-loading">Loading your profile…</div>
       : profile.error ? <div role="alert" className="patient-card"><p>{profile.error}</p><button ref={retryFocus.button} type="button" onClick={() => retryFocus.retry(profile.reload)}>Try again</button></div>
-      : profile.data ? <div className="patient-identity-card"><span className="patient-eyebrow">Health ID</span><HealthIdCode code={profile.data.hid} />
+      : profile.data ? <div className="patient-identity-card" aria-busy={profile.loading || undefined}><span className="patient-eyebrow">Health ID</span><HealthIdCode code={profile.data.hid} />
           <p>{profile.data.fullName}</p><Link to="/profile">View profile →</Link></div>
       : <div className="patient-card">No profile was returned.</div>}
     <div className="patient-overview-grid">

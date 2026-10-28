@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { MemoryRouter } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
 import { Enrollment } from '../routes/Enrollment'
+import { enterCode } from './codeBoxes'
 
 const api = vi.hoisted(() => ({
   enrollmentCurrent: vi.fn(), googleOnboarding: vi.fn(), enrollmentStart: vi.fn(), enrollmentContact: vi.fn(),
@@ -40,8 +41,7 @@ async function press(name: string) {
 async function proveContact() {
   fireEvent.change(await screen.findByLabelText('Phone number'), { target: { value: '+2348000000000' } })
   await press('Send verification code')
-  fireEvent.change(await screen.findByLabelText('Verification code'), { target: { value: '123456' } })
-  await press('Verify code')
+  await enterCode(await screen.findByLabelText('Verification code'), '123456')
   return screen.findByLabelText('Password')
 }
 

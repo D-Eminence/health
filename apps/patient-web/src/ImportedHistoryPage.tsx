@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { isHidApiError } from '@hid/http'
 import { ImportedHistory } from './ImportedHistory'
 import type { ImportedHistoryPage, ImportedHistorySharing, ImportedHistorySharingChange, ImportedMedicalRecord } from './importedRecords'
@@ -93,7 +93,9 @@ export function ImportedHistoryView({ load, audience }: { load: ImportedHistoryL
 }
 
 type HistoryHook = ReturnType<typeof useImportedHistory>
-function ImportedHistoryBody({ state, more, loadMore, retry, audience }: HistoryHook & { audience: ImportedHistoryAudience }) {
+function ImportedHistoryBody({ state, more, loadMore, retry, audience, query, groupedByDay }: HistoryHook & {
+  audience: ImportedHistoryAudience; query?: string; groupedByDay?: boolean
+}) {
   if (state.status === 'unavailable') return null
   if (state.status === 'loading') return <p role="status">Loading imported medical history…</p>
   if (state.status === 'error') return <section className="imported-history" aria-label="Imported medical history"><h2>Imported medical history</h2>
@@ -103,7 +105,7 @@ function ImportedHistoryBody({ state, more, loadMore, retry, audience }: History
       <p role="status">This patient has not shared their imported medical history, or has none.</p></section>
   }
   return <>
-    <ImportedHistory records={state.records} limit={state.limit} paged />
+    <ImportedHistory records={state.records} limit={state.limit} paged query={query} groupedByDay={groupedByDay} />
     {state.nextCursor && <div className="imported-history">
       {more.error && <p role="alert">{more.error}</p>}
       <button type="button" disabled={more.busy} onClick={loadMore}>{more.busy ? 'Loading more…' : 'Show more imported records'}</button>
@@ -172,15 +174,26 @@ export function ImportedHistorySharingCard({ api }: { api: SharingApi }) {
   </section>
 }
 
+const NONE: readonly ImportedMedicalRecord[] = []
+
 /**
  * The patient's imported history, then the choice to share it. hid-system refuses the sharing switch without the
  * patient's own read, so the choice is asked for only where the history is available.
  */
-export function PatientImportedHistory({ api }: { api: SharingApi & { importedHistory(cursor?: string | null, signal?: AbortSignal): Promise<ImportedHistoryPage> } }) {
+export function PatientImportedHistory({ api, query = '', onRecords }: {
+  api: SharingApi & { importedHistory(cursor?: string | null, signal?: AbortSignal): Promise<ImportedHistoryPage> }
+  /** The records page's search, over the pages read so far. */
+  query?: string
+  /** The records read so far, none while there are none to show: the records page counts those its search matches. */
+  onRecords?: (records: readonly ImportedMedicalRecord[]) => void
+}) {
   const load = useCallback<ImportedHistoryLoad>((cursor, signal) => api.importedHistory(cursor, signal), [api])
   const history = useImportedHistory(load, 'patient')
+  const read = history.state.status === 'ready' ? history.state.records : NONE
+  // In the commit that shows them, so the count beside the search never trails the records on screen.
+  useLayoutEffect(() => { onRecords?.(read) }, [read, onRecords])
   return <>
-    <ImportedHistoryBody {...history} audience="patient" />
+    <ImportedHistoryBody {...history} audience="patient" query={query} groupedByDay />
     {history.state.status !== 'unavailable' && history.state.status !== 'loading' && <ImportedHistorySharingCard api={api} />}
   </>
 }

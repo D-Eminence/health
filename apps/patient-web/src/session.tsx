@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { createApiClient, HidApiError, isHidApiError, type ApiClient, type RequestSpec } from '@hid/http'
 import { createRegisteredBrowserClient } from '@hid/api'
@@ -7,6 +7,7 @@ import { createSessionStore, type AuthPrincipal, type SessionState } from '@hid/
 import { createPatientApi, type PatientApi, type PatientSession } from './api'
 import { getEnvironment } from './env'
 import { announceSessionChange, heldByOtherPortal, onOtherTabSessionChange, patientSessionRequired } from './sessionChange'
+import { createPatientResourceCache, PatientResourcesContext } from './resourceCache'
 
 interface SessionContextValue {
   readonly state: SessionState
@@ -77,6 +78,14 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   const recheckSession = useRef<() => Promise<void>>(async () => undefined)
 
   useEffect(() => store.subscribe(setState), [store])
+
+  // The pages' last answers (resourceCache.ts), one account's at a time: a sign-out, a session ended elsewhere, or
+  // another account's sign-in drops them before any page reads again. Pages rendered meanwhile find none, since a
+  // read names its account.
+  const resources = useRef(createPatientResourceCache()).current
+  const account = state.status === 'authenticated' ? state.principal.subjectId : null
+  useLayoutEffect(() => { resources.holdFor(account) }, [resources, account])
+  const cached = useMemo(() => ({ cache: resources, account }), [resources, account])
 
   const api = useMemo(() => {
     let patientApi: PatientApi | null = null
@@ -359,7 +368,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     },
   }), [state, api, sessionError, otherPortalSession, signedOutElsewhere, store])
 
-  return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>
+  return <SessionContext.Provider value={value}><PatientResourcesContext.Provider value={cached}>{children}</PatientResourcesContext.Provider></SessionContext.Provider>
 }
 
 export function useSession(): SessionContextValue {

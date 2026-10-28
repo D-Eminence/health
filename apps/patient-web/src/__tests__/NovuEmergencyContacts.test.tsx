@@ -3,6 +3,7 @@ import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import type { EmergencyContact } from '../api'
 import { EmergencyContactsCard } from '../routes/AccountSafety'
 import { described, json, press, problem, renderPortal, type Handler, type Sent } from './portalHarness'
+import { enterCode } from './codeBoxes'
 
 /**
  * The emergency contacts card on the novu-v1 build, against hid-system #109 (services/identity-api/src/patient-safety
@@ -303,8 +304,7 @@ describe('a contact with notifications off', () => {
     expect(await screen.findByText('Contact added. Notifications are off for this contact, so they will not be notified in an '
       + 'emergency. To have them notified, send a verification code and turn notifications on in Edit.')).toBeTruthy()
     await press(await screen.findByRole('button', { name: /^Send verification code/ }))
-    fireEvent.change(await screen.findByRole('textbox', { name: /Code from Ada Obi/ }), { target: { value: '482913' } })
-    await press(screen.getByRole('button', { name: 'Verify contact' }))
+    await enterCode(await screen.findByRole('textbox', { name: /Code from Ada Obi/ }), '482913')
     expect(await screen.findByText('Contact verified. Notifications are off for this contact, so they will not be notified in an '
       + 'emergency. To have them notified, turn notifications on in Edit.')).toBeTruthy()
     expect(await screen.findByText('Verified · notifications off')).toBeTruthy()
@@ -415,8 +415,7 @@ describe('an edit the list no longer matches', () => {
     await press(await screen.findByRole('button', { name: /^Edit/ }))
     fireEvent.change(screen.getByRole('textbox', { name: 'Name' }), { target: { value: 'Chidi O.' } })
     await press(screen.getByRole('button', { name: /^Send verification code/ }))
-    fireEvent.change(await screen.findByRole('textbox', { name: /Code from Chidi Okafor/ }), { target: { value: '482913' } })
-    await press(screen.getByRole('button', { name: 'Verify contact' }))
+    await enterCode(await screen.findByRole('textbox', { name: /Code from Chidi Okafor/ }), '482913')
     expect(await screen.findByText('Contact verified. They will be notified if emergency access to your record is used.')).toBeTruthy()
     expect(await screen.findByText('Verified · will be notified in an emergency')).toBeTruthy()
     expect(screen.queryByRole('textbox', { name: 'Name' })).toBeNull()

@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import { Enrollment } from '../routes/Enrollment'
 import { json, press, problem, renderPortal, type Handler } from './portalHarness'
+import { enterCode } from './codeBoxes'
 
 vi.mock('../Turnstile', () => ({
   Turnstile: ({ onTokenChange }: { onTokenChange: (token: string | null) => void }) =>
@@ -136,8 +137,7 @@ describe('new Health ID registration (hid-system#68, FE-4)', () => {
     renderPortal(<Enrollment />, gateway(() => json({ open: false }),
       () => json({ stage: 'verify_contact', challengeId: 'challenge-1', maskedContact: 'a•••@example.com' }),
       () => problem(404, 'ENROLLMENT_NOT_FOUND', 'No pending enrollment was found')), anonymous)
-    fireEvent.change(await screen.findByLabelText('Verification code'), { target: { value: '123456' } })
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Verify code' })) })
+    await enterCode(await screen.findByLabelText('Verification code'), '123456')
 
     await closedNotice()
     expect(screen.getByText('This registration is no longer open on this device. It may have expired after 24 hours, been replaced by a newer registration for the same NIN, or ended when someone signed in or out in this browser.')).toBeTruthy()
@@ -150,10 +150,10 @@ describe('new Health ID registration (hid-system#68, FE-4)', () => {
     let current = () => json({ stage: 'verify_contact', challengeId: 'challenge-1', maskedContact: 'a•••@example.com' })
     renderPortal(<Enrollment />, gateway(() => open(), () => current(),
       () => problem(404, 'ENROLLMENT_NOT_FOUND', 'No pending enrollment was found')), anonymous)
-    fireEvent.change(await screen.findByLabelText('Verification code'), { target: { value: '123456' } })
+    const code = await screen.findByLabelText('Verification code')
     // A sign-in or sign-out in another tab expired the enrollment cookie.
     current = none
-    await press(screen.getByRole('button', { name: 'Verify code' }))
+    await enterCode(code, '123456')
 
     const retry = await screen.findByRole('button', { name: 'Try again' })
     await waitFor(() => expect(document.activeElement).toBe(retry))
@@ -176,9 +176,9 @@ describe('new Health ID registration (hid-system#68, FE-4)', () => {
     renderPortal(<Enrollment />, gateway(availability,
       () => json({ stage: 'verify_contact', challengeId: 'challenge-1', maskedContact: 'a•••@example.com', googleOnboardingRequired: true }),
       () => problem(404, 'ENROLLMENT_NOT_FOUND', 'No pending enrollment was found')), anonymous)
-    fireEvent.change(await screen.findByLabelText('Verification code'), { target: { value: '123456' } })
+    const code = await screen.findByLabelText('Verification code')
     expect(screen.getByText('Reconnect the Google account used to start this enrollment.')).toBeTruthy()
-    await press(screen.getByRole('button', { name: 'Verify code' }))
+    await enterCode(code, '123456')
 
     await screen.findByText(/This registration is no longer open on this device/)
     expect(screen.queryByText('Reconnect the Google account used to start this enrollment.')).toBeNull()
@@ -191,9 +191,9 @@ describe('new Health ID registration (hid-system#68, FE-4)', () => {
     let current = () => json({ stage: 'verify_contact', challengeId: 'challenge-1', maskedContact: 'a•••@example.com', googleOnboardingRequired: true })
     renderPortal(<Enrollment />, gateway(() => open(), () => current(),
       () => problem(404, 'ENROLLMENT_NOT_FOUND', 'No pending enrollment was found')), anonymous)
-    fireEvent.change(await screen.findByLabelText('Verification code'), { target: { value: '123456' } })
+    const code = await screen.findByLabelText('Verification code')
     current = none
-    await press(screen.getByRole('button', { name: 'Verify code' }))
+    await enterCode(code, '123456')
 
     open = () => json({ open: true })
     await press(await screen.findByRole('button', { name: 'Try again' }))

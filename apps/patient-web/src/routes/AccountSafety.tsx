@@ -11,6 +11,7 @@ import { describedBy } from '../authSteps'
 import { useSession } from '../session'
 import { ItemName } from '../ItemName'
 import { usePatientResource } from './usePatientResource'
+import { CodeBoxes, codeComplete } from '../CodeBoxes'
 import { useActionFocus, useRetryFocus } from './actionFocus'
 
 /*
@@ -187,7 +188,7 @@ interface Refusal { message: string; focus: Find; field?: boolean; read?: 'list'
 export function EmergencyContactsCard() {
   const { api } = useSession()
   const source = useMemo(() => contactsSource(api), [api])
-  const card = usePatientResource(source.load)
+  const card = usePatientResource(source.load, 'emergency-contacts')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -371,9 +372,8 @@ export function EmergencyContactsCard() {
           <button id={`contact-remove-${contact.contactId}`} type="button" disabled={busy} onClick={() => setRemoving(contact.contactId)}>Remove <ItemName>{contact.name}, {contact.destinationHint}</ItemName></button>
         </div>
         {!paused && verifying?.contactId === contact.contactId && <form className="patient-deny-form" onSubmit={confirmCode}>
-          <label>Code from {contact.name}<input id={`contact-code-${contact.contactId}`} autoFocus inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6}
-            required value={code} onChange={event => setCode(event.target.value.replace(/\D/g, '').slice(0, 6))} /></label>
-          <button type="submit" disabled={busy || !/^\d{6}$/.test(code)}>Verify contact</button></form>}
+          <CodeBoxes id={`contact-code-${contact.contactId}`} label={`Code from ${contact.name}`} value={code} onChange={setCode} busy={busy} autoFocus />
+          <button type="submit" disabled={busy || !codeComplete(code)}>Verify contact</button></form>}
         {!paused && editing?.contactId === contact.contactId && <form className="patient-form patient-contact-form" onSubmit={saveEdit}>
           <label>Name<input id={`contact-name-${contact.contactId}`} autoFocus required minLength={2} maxLength={120} value={editing.name}
             onChange={event => setEditing({ ...editing, name: event.target.value })} aria-describedby={`contact-name-hint-${contact.contactId}`} /></label>

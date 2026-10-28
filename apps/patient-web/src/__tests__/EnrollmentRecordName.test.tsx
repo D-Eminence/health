@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, within } from '@testing-library/react'
 import { Enrollment } from '../routes/Enrollment'
 import { json, press, problem, renderPortal, type Handler } from './portalHarness'
+import { enterCode } from './codeBoxes'
 
 vi.mock('../Turnstile', () => ({
   Turnstile: ({ onTokenChange }: { onTokenChange: (token: string | null) => void }) =>
@@ -59,9 +60,9 @@ describe('the name on the NIN record, under "NIN verified"', () => {
 
     fireEvent.change(phone, { target: { value: '+2348000000000' } })
     await press(screen.getByRole('button', { name: 'Send verification code' }))
-    fireEvent.change(await screen.findByLabelText('Verification code'), { target: { value: '123456' } })
+    await screen.findByLabelText('Verification code')
     expect(verified()?.textContent).toContain(NAME)
-    await press(screen.getByRole('button', { name: 'Verify code' }))
+    await enterCode(screen.getByLabelText('Verification code'), '123456')
     fireEvent.change(await screen.findByLabelText('Password'), { target: { value: 'a-long-enough-password' } })
     expect(verified()?.textContent).toContain(NAME)
 
@@ -222,8 +223,7 @@ describe('"Use a different NIN" at the contact, code and password steps', () => 
     await submitNin()
     fireEvent.change(await screen.findByLabelText('Phone number'), { target: { value: '+2348000000000' } })
     await press(screen.getByRole('button', { name: 'Send verification code' }))
-    fireEvent.change(await screen.findByLabelText('Verification code'), { target: { value: '123456' } })
-    await press(screen.getByRole('button', { name: 'Verify code' }))
+    await enterCode(await screen.findByLabelText('Verification code'), '123456')
     fireEvent.change(await screen.findByLabelText('Password'), { target: { value: 'a-long-enough-password' } })
     const before = sent.length
     await press(button()!)

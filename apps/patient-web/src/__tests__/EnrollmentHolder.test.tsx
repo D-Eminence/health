@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { Enrollment } from '../routes/Enrollment'
 import { described, json, press, problem, renderPortal, type Handler, type Sent } from './portalHarness'
+import { codeValue, enterCode as enterCodeInto } from './codeBoxes'
 
 vi.mock('../Turnstile', () => ({
   Turnstile: ({ onTokenChange }: { onTokenChange: (token: string | null) => void }) =>
@@ -59,9 +60,9 @@ async function toCode() {
   await press(screen.getByRole('button', { name: 'Text me a code' }))
   return codeStep()
 }
+/** The sixth digit sends the code (CodeBoxes.tsx). */
 async function enterCode(code = '123456') {
-  fireEvent.change(screen.getByLabelText('Verification code'), { target: { value: code } })
-  await press(screen.getByRole('button', { name: 'Verify code' }))
+  await enterCodeInto(screen.getByLabelText('Verification code'), code)
 }
 const sending = { holder: () => json({ challengeId: CHALLENGE, expiresInSeconds: 600, resendAfterSeconds: 60 }) }
 
@@ -298,7 +299,7 @@ describe('the NIN holder step: the code texted to the phone on the NIN record', 
     await toCode()
     await enterCode()
     expect((await screen.findByRole('alert')).textContent).toBe('Registration is temporarily unavailable. Try again in a few minutes.')
-    expect((screen.getByLabelText('Verification code') as HTMLInputElement).value).toBe('123456')
+    expect(codeValue(screen.getByLabelText('Verification code'))).toBe('123456')
     expect(signOut).not.toHaveBeenCalled()
   })
 

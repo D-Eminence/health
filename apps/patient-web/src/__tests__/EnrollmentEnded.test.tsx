@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
 import { Enrollment } from '../routes/Enrollment'
+import { enterCode } from './codeBoxes'
 
 const api = vi.hoisted(() => ({
   enrollmentCurrent: vi.fn(), googleOnboarding: vi.fn(), enrollmentStart: vi.fn(), enrollmentContact: vi.fn(),
@@ -55,8 +56,7 @@ describe('an enrollment that ended on this device', () => {
   it('goes back to the NIN step when a step finds it gone, and continues it with the same key', async () => {
     const code = await startEnrollment()
     api.enrollmentVerify.mockRejectedValue(notFound())
-    fireEvent.change(code, { target: { value: '123456' } })
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Verify code' })) })
+    await enterCode(code, '123456')
 
     const nin = await screen.findByLabelText('National Identification Number')
     expect(screen.getByText(ENDED).textContent).toMatch(/Enter your NIN to start again\.$/)
@@ -75,8 +75,7 @@ describe('an enrollment that ended on this device', () => {
     const code = await startEnrollment()
     // Someone signed in on this device meanwhile: the step is refused until they sign out.
     api.enrollmentVerify.mockRejectedValue(signOutFirst())
-    fireEvent.change(code, { target: { value: '123456' } })
-    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Verify code' })) })
+    await enterCode(code, '123456')
     const check = await screen.findByRole('button', { name: 'Check again' })
 
     // They signed out, which ended the enrollment here too.

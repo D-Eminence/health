@@ -9,7 +9,9 @@ import { isHidApiError } from '@hid/http'
  * current step's target once the render showing it has committed: after a
  * step change, the new step's field (or its heading when it has none); after a
  * refused step, the field again. Focus the person has moved elsewhere in the
- * meantime is left where it is.
+ * meantime is left where it is. A code's six boxes (CodeBoxes.tsx) are one
+ * field, whose target is the first box: focus in a later box, where the sixth
+ * digit sent the code, returns to it, and its description says why.
  */
 export function useStepFocus() {
   const target = useRef<HTMLElement | null>(null)
@@ -24,7 +26,7 @@ export function useStepFocus() {
     // A submit button still holding focus while disabled (Chromium moves it to the
     // page; other engines may not) is the step just sent, not a place the person chose.
     const lost = !(active instanceof HTMLElement) || active === document.body || !active.isConnected
-      || active === element
+      || active === element || inSameCode(active, element)
       || (form !== null && form.contains(active) && active instanceof HTMLButtonElement && active.type === 'submit')
     if (lost) element.focus()
   }, [request])
@@ -37,6 +39,12 @@ export function useStepFocus() {
   }
 }
 
+/** Whether `element` is a box of the code (CodeBoxes.tsx) that `target` is a box of. */
+function inSameCode(element: Element, target: Element): boolean {
+  const code = target.closest('[data-code-boxes]')
+  return code !== null && element.closest('[data-code-boxes]') === code
+}
+
 /**
  * Whether a form was sent with Enter in one of its fields, where focus stays.
  * A refusal must then be an alert: focus does not move, so a description on
@@ -47,8 +55,9 @@ export function useStepFocus() {
 export function sentFromField(event: { currentTarget: EventTarget | null }): boolean {
   const form = event.currentTarget
   const active = document.activeElement
+  // From a code's later box focus returns to its first (useStepFocus), where the error is read: it moves.
   return form instanceof HTMLFormElement && active instanceof HTMLElement && form.contains(active)
-    && active.matches('input, select, textarea')
+    && active.matches('input, select, textarea') && !active.matches('[data-code-box]:not([data-code-box="1"])')
 }
 
 /** Refusals sent as 400 that are not about the value typed: the security check, the request's own key. */

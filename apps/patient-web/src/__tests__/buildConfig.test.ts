@@ -41,6 +41,12 @@ describe('portal build configuration', () => {
     expect(config.env.VITE_HID_ENVIRONMENT).toBe('local')
   })
 
+  it('copies the icon files in public/ to the build root, where the shell links them', async () => {
+    const config = await resolveBuild()
+    expect(config.publicDir).toBe(join(root, 'public'))
+    expect(config.build.copyPublicDir).toBe(true)
+  })
+
   it('publishes no source maps, which would hand out the whole portal source', async () => {
     const config = await resolveBuild()
     expect(config.build.sourcemap).toBe(false)

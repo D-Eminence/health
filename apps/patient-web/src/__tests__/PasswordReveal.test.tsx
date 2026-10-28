@@ -8,6 +8,7 @@ import { Recovery } from '../routes/Recovery'
 import { PrincipalRecovery } from '../routes/PrincipalRecovery'
 import { SignIn as StaffSignIn } from '../staff/routes/SignIn'
 import { AdminSignIn } from '../admin/SignIn'
+import { enterCode } from './codeBoxes'
 
 /**
  * Every password a person types into Health ID can be shown and hidden with a
@@ -86,17 +87,21 @@ describe('showing the password', () => {
     expect(password.getAttribute('aria-describedby')).toBe('enroll-password-hint')
   })
 
-  it('patient password reset', async () => {
+  it('patient password reset: each field has its own toggle', async () => {
     api.recoveryStart.mockResolvedValue({ challengeId: 'challenge-1', resendAfterSeconds: 60 })
     api.recoveryVerify.mockResolvedValue({ verificationToken: 'verified' })
     show(<Recovery />)
     fireEvent.change(screen.getByLabelText('Email or Health ID'), { target: { value: 'ada@example.test' } })
     fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
     fireEvent.click(screen.getByRole('button', { name: 'Send recovery code' }))
-    fireEvent.change(await screen.findByLabelText('Recovery code'), { target: { value: '123456' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Verify code' }))
+    // The sixth digit sends the code (CodeBoxes.tsx).
+    await enterCode(await screen.findByLabelText('Recovery code'), '123456')
     await screen.findByLabelText('New password')
-    typeAndShow('New password')
+    // Two fields since the confirmation was added, so each toggle is named for its own, as for staff.
+    typeAndShow('New password', 'Show new password')
+    const confirm = screen.getByLabelText('Confirm new password') as HTMLInputElement
+    expect(confirm.type).toBe('password')
+    typeAndShow('Confirm new password', 'Show confirmed password')
   })
 
   it('provider and administrator password reset: each field has its own toggle', async () => {

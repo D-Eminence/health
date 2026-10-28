@@ -100,6 +100,45 @@ export function parseImportedHistorySharingChange(value: unknown): ImportedHisto
   return { ...parseImportedHistorySharing(value), changed: value.changed }
 }
 
+/**
+ * The health details a patient kept on hid-1.0's profile, carried over for a migrated patient (Novu:
+ * ehr.imported_patient_health_profiles, read by imported-records.query.ts readImportedHealthProfile). Read-only:
+ * nothing writes them now. hid-1.0 held each as free text (its patients table).
+ */
+export const IMPORTED_HEALTH_FIELDS = ['blood_group', 'genotype', 'allergies', 'current_medications', 'chronic_conditions', 'medical_notes'] as const
+export type ImportedHealthField = typeof IMPORTED_HEALTH_FIELDS[number]
+export interface ImportedHealthProfile {
+  /** Only the fields with something in them. */
+  content: Partial<Record<ImportedHealthField, string>>
+  updatedAt: string | null
+}
+
+/**
+ * A field kept only when it holds text. hid-1.0 gave every patient a blood group of 'Unknown' until they chose one
+ * (20260407130000_secure_backend_foundation.sql), which says nothing about them and is not shown.
+ */
+function healthText(field: ImportedHealthField, value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const text = value.trim()
+  if (!text || (field === 'blood_group' && /^unknown$/i.test(text))) return null
+  return text
+}
+
+/**
+ * The records answer's importedHealthProfile: null when it is absent, malformed or holds nothing to show. It is an
+ * extra, so a shape it cannot read hides it rather than the records it came with.
+ */
+export function parseImportedHealthProfile(value: unknown): ImportedHealthProfile | null {
+  if (!object(value) || !object(value.content)) return null
+  const content: Partial<Record<ImportedHealthField, string>> = {}
+  for (const field of IMPORTED_HEALTH_FIELDS) {
+    const text = healthText(field, value.content[field])
+    if (text !== null) content[field] = text
+  }
+  if (Object.keys(content).length === 0) return null
+  return { content, updatedAt: typeof value.updatedAt === 'string' ? value.updatedAt : null }
+}
+
 export interface ImportedRecordsResponse { importedRecords: ImportedMedicalRecord[]; limit: number }
 export interface ImportedAttachmentDownload { url: string; expiresInSeconds: number }
 

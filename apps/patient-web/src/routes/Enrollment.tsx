@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
-import { Link, Navigate, useNavigate } from 'react-router-dom'
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { isHidApiError, retryAfterSeconds } from '@hid/http'
 import { ENROLLMENT_PROFILE_FIELDS, type EnrollmentFacilityRoute, type EnrollmentGender, type EnrollmentOnlineRoute, type EnrollmentProfile,
   type EnrollmentProfileField, type EnrollmentProgress } from '../api'
@@ -25,6 +25,7 @@ import { HolderCodeStep } from './enrollment/HolderCodeStep'
 import { FacilityStep } from './enrollment/FacilityStep'
 import { AlreadyRegistered, RegistrationCompleted, RegistrationEnded } from './enrollment/Outcomes'
 import { PatientSignup } from './enrollment/Signup'
+import { signupEmailOf } from './enrollment/signupHandoff'
 
 /**
  * The stages of a registration. Since hid-system #84 (ADR-062) every start
@@ -170,6 +171,13 @@ const profileFieldsOf = (fields: unknown): EnrollmentProfileField[] | null =>
 export function Enrollment() {
   const { state, api, acceptGoogleSession, otherPortalSession, retrySessionCheck } = useSession()
   const navigate = useNavigate()
+  const location = useLocation()
+  // The email typed at sign-in, sent here to finish signing up (signupHandoff.ts): held in memory, and taken out
+  // of the history entry it came in.
+  const [signupEmail] = useState(() => signupEmailOf(location.state))
+  useEffect(() => {
+    if (signupEmailOf(location.state)) navigate(location.pathname, { replace: true, state: null })
+  }, [location, navigate])
   useDocumentTitle('Get your Health ID · Health ID')
   const stepFocus = useStepFocus()
   const [stage, setStage] = useState<Stage>('nin')
@@ -785,7 +793,10 @@ export function Enrollment() {
   const chooseNin = () => { setNinPath('nin'); stepFocus.focus() }
   // A new Health ID starts with the sign-up without a NIN once Identity serves it. A registration already
   // past its details (this page reloaded at its code, say) continues with the steps below.
-  if (ready && signupServed && stage === 'nin' && registration === 'open') return <PatientSignup focusOnArrival={signupRestarted} />
+  if (ready && signupServed && stage === 'nin' && registration === 'open') {
+    // "Start a new sign-up" keeps nothing typed, the email from sign-in included.
+    return <PatientSignup focusOnArrival={signupRestarted} initialEmail={signupRestarted ? '' : signupEmail} />
+  }
   // The holder step is listed only where Identity has it; the NIN step only where a registration starts with it.
   const steps: Array<[string, readonly Stage[]]> = [...(signupServed ? [] : [['NIN', ['nin']] as [string, readonly Stage[]]]),
     ...(holderSeen && (!signupServed || HOLDER_STAGES.includes(stage)) ? [['Prove it\'s yours', HOLDER_STAGES] as [string, readonly Stage[]]] : []),
