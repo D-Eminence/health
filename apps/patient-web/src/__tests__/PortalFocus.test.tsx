@@ -4,7 +4,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, useLocation, useNavigate } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
 import type { AccessRequest, EmergencyContact } from '../api'
-import { AccessPage, NotificationsPage, PortalShell, RecordsPage, SettingsPage } from '../routes/Portal'
+import { AccessPage, NotificationsPage, PortalShell, ProfilePage, RecordsPage } from '../routes/Portal'
 import { Overview } from '../routes/Overview'
 import { AccountDeletionCard, EmergencyContactsCard } from '../routes/AccountSafety'
 import { useFocusOnPageChange } from '../pageFocus'
@@ -283,7 +283,7 @@ describe('a change of page', () => {
 
 const settings = (pin: Handler = () => json({ configured: true })) => {
   let configured = false
-  return renderPortal(<SettingsPage />, (path, method, body) => {
+  return renderPortal(<ProfilePage />, (path, method, body) => {
     if (path === '/identity/me/access-pin') {
       const answer = pin(path, method, body) as Response
       if (answer.ok) configured = method === 'POST'
@@ -292,10 +292,10 @@ const settings = (pin: Handler = () => json({ configured: true })) => {
     if (path === '/identity/me') return json({ ...profile, accessPinConfigured: configured })
     if (path === '/identity/me/emergency-contacts') return json([])
     return json(noDeletion)
-  })
+  }, {}, { at: '/profile#access-pin' })
 }
 
-describe('settings', () => {
+describe('the Access PIN, in the profile\'s Bio-data', () => {
   it('keeps the PIN field on screen while the profile reloads, and focus in it after Save PIN', async () => {
     settings()
     const input = await screen.findByLabelText('Set PIN')
@@ -315,14 +315,14 @@ describe('settings', () => {
     await waitFor(() => expect(focused()).toBe(screen.getByRole('heading', { name: 'Access PIN' })))
   })
 
-  it('reports the outcome in the page\'s status region that was there before the action', async () => {
+  it('reports the outcome in the PIN\'s status region that was there before the action', async () => {
     settings()
     fireEvent.change(await screen.findByLabelText('Set PIN'), { target: { value: '1234' } })
-    const region = document.querySelector('section > [role="status"]')!
+    const region = document.querySelector('#access-pin > [role="status"]')!
     expect(region.textContent).toBe('')
     await press(screen.getByRole('button', { name: 'Save PIN' }))
     await screen.findByText('Access PIN configured.')
-    expect(document.querySelector('section > [role="status"]')).toBe(region)
+    expect(document.querySelector('#access-pin > [role="status"]')).toBe(region)
     expect(region.textContent).toBe('Access PIN configured.')
   })
 })

@@ -54,7 +54,7 @@ describe('Health information', () => {
       ['health-bloodGroup', 'O+'], ['health-genotype', 'AS'], ['health-allergies', 'Penicillin\nShellfish'],
       ['health-currentMedications', 'Amlodipine 5mg'], ['health-chronicConditions', 'Hypertension'], ['health-medicalNotes', 'Prefers a female doctor'],
     ]))
-    expect(shown.getByText(/We started this from the health details you kept in hid-1.0/)).toBeTruthy()
+    expect(shown.getByText(/Filled in from hid-1.0. Check, then save to keep them./)).toBeTruthy()
     expect(shown.getByRole('textbox', { name: 'Medical notes for my care team' })).toBeTruthy()
     await press(shown.getByRole('button', { name: 'Save health information' }))
     expect(await shown.findByText('Your health information was saved.')).toBeTruthy()
@@ -62,7 +62,7 @@ describe('Health information', () => {
       currentMedications: 'Amlodipine 5mg', chronicConditions: 'Hypertension', medicalNotes: 'Prefers a female doctor', expectedVersion: 0 } }])
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Health information' })))
     // Now the patient's own: the hid-1.0 note goes, and the date it was saved shows.
-    expect(shown.queryByText(/We started this from the health details you kept in hid-1.0/)).toBeNull()
+    expect(shown.queryByText(/Filled in from hid-1.0. Check, then save to keep them./)).toBeNull()
     expect(shown.getByText(/^Last saved /)).toBeTruthy()
     // The hid-1.0 details stay, read-only, in their own card.
     expect(screen.getByRole('heading', { name: 'From your hid-1.0 account' })).toBeTruthy()
@@ -90,7 +90,7 @@ describe('Health information', () => {
       chronicConditions: null, medicalNotes: null, expectedVersion: 2 } }])
     // Saved empty at version 3: the form stays as the patient left it, with nothing from hid-1.0 and nothing to save.
     expect(values(shown).every(([, value]) => value === '')).toBe(true)
-    expect(shown.queryByText(/We started this from the health details you kept in hid-1.0/)).toBeNull()
+    expect(shown.queryByText(/Filled in from hid-1.0. Check, then save to keep them./)).toBeNull()
     expect((shown.getByRole('button', { name: 'Save health information' }) as HTMLButtonElement).disabled).toBe(true)
   })
 
@@ -108,7 +108,7 @@ describe('Health information', () => {
       chronicConditions: null, medicalNotes: null, expectedVersion: 0 } }])
     // Saved empty at version 1: nothing from hid-1.0 comes back, and there is nothing to save.
     expect(values(shown).every(([, value]) => value === '')).toBe(true)
-    expect(shown.queryByText(/We started this from the health details you kept in hid-1.0/)).toBeNull()
+    expect(shown.queryByText(/Filled in from hid-1.0. Check, then save to keep them./)).toBeNull()
     expect((shown.getByRole('button', { name: 'Save health information' }) as HTMLButtonElement).disabled).toBe(true)
   })
 

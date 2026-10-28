@@ -151,7 +151,7 @@ describe('the notification bell', () => {
     await minute()
     expect(reads(sent)).toBe(1)
     answer = () => json({ unread: 2 })
-    await act(async () => { fireEvent.click(screen.getByRole('link', { name: 'Settings' })) })
+    await act(async () => { fireEvent.click(screen.getByRole('link', { name: 'Access' })) })
     expect(await screen.findByText('Another page')).toBeTruthy()
     expect(await screen.findByRole('link', { name: 'Notifications, 2 unread' })).toBeTruthy()
     expect(reads(sent)).toBe(2)

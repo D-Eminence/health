@@ -5,7 +5,7 @@ import { fallbackMessageForStatus, isHidApiError } from '@hid/http'
  * Google on the sign-up page (POST auth/oidc/exchange with intent `enroll`) for a Google email that already belongs to
  * a patient account: 409 GOOGLE_ACCOUNT_EXISTS (hid-system, owner decision 2026-10-28), instead of a new sign-up. The
  * patient signs in with Google, which links that account when its email is verified. An Identity before it answers
- * 409 GOOGLE_EXISTING_ACCOUNT_LINK_REQUIRED, and there Google is linked from Settings once signed in with a password.
+ * 409 GOOGLE_EXISTING_ACCOUNT_LINK_REQUIRED, whose own words are shown.
  */
 export const GOOGLE_ACCOUNT_EXISTS = 'You already have a Health ID. Sign in with Google instead.'
 

@@ -104,7 +104,7 @@ describe('Coverage', () => {
   it('is not shown by an Identity that does not serve it (404)', async () => {
     renderPortal(<ProfilePage />, (path, method) => path === '/identity/me' && method === 'GET' ? json(patient) : problem(404, 'NOT_FOUND', path))
     await screen.findByRole('heading', { name: 'Bio-data' })
-    await screen.findByRole('heading', { name: 'Contact details' })
+    await waitFor(() => expect(document.getElementById('contact-details')).not.toBeNull())
     expect(screen.queryByRole('heading', { name: 'Coverage' })).toBeNull()
   })
 

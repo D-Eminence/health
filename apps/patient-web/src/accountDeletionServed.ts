@@ -4,7 +4,7 @@ import { useSyncExternalStore } from 'react'
  * Whether the backend serves account deletion, as this page has learned it from the backend's own answers (contract
  * b45-contract.md §1 "Served detection" and §3.4): GET identity/me/account-deletion answering 200 says served; its 404
  * says not served, only while nothing has said otherwise. hid-system main serves it (0064); on Novu it is served from
- * hid-system 0096, and a backend before 0096, or one with ACCOUNT_DELETION_ENABLED off, answers 404: Settings then shows
+ * hid-system 0096, and a backend before 0096, or one with ACCOUNT_DELETION_ENABLED off, answers 404: the profile then shows
  * no "Delete account" card and says nothing. Held in memory for the page's life, as shareServed.ts holds its own.
  *
  * `null` until an answer has said either (treated as not served on Novu).

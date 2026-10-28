@@ -3,12 +3,13 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import type { PatientProfile } from '../api'
 import { ProfilePage } from '../routes/Portal'
 import { enterCode } from './codeBoxes'
-import { described, json, openSection, press, problem, profile, renderPortal, type Handler, type Sent } from './portalHarness'
+import { described, json, openContactDetails, openSection, press, problem, profile, renderPortal, type Handler, type Sent } from './portalHarness'
 
 /**
- * "Contact details" on the profile (hid-1.0 parity B3, the lead's decisions): a new email needs the current password
- * and the 6-digit code sent to it; a new phone needs the current password only, since production sends no SMS, and is
- * then shown as not verified. The verified email is told either way.
+ * The contact details on the profile (hid-1.0 parity B3, the lead's decisions), at the end of Bio-data with no heading
+ * of their own (the owner's decision of 2026-10-28): a new email needs the current password and the 6-digit code sent
+ * to it; a new phone needs the current password only, since production sends no SMS, and is then shown as not
+ * verified. The verified email is told either way. A change that goes through ends with focus on its Change button.
  */
 const CHANGES = '/identity/me/contact-changes'
 const withContacts: PatientProfile = { ...profile, email: 'ada.example@example.com', phone: '+2348031234567', phoneVerified: true, hasPhoto: false }
@@ -34,7 +35,7 @@ function gateway(answers: { start?: (body: unknown) => Response | undefined; ver
     return problem(404, 'NOT_FOUND', `${method} ${path}`)
   }
 }
-const card = async () => within(await openSection('Contact details'))
+const card = async () => within(await openContactDetails())
 const changes = (sent: Sent[]) => sent.filter(request => request.path.startsWith(CHANGES))
 const type = (name: string | RegExp, value: string) => fireEvent.change(screen.getByLabelText(name), { target: { value } })
 /** Moves the page's clock on by `seconds` from now on (Date.now only: React's own timing is left alone). */
@@ -92,8 +93,18 @@ describe('Contact details', () => {
 
   it('is not shown by an Identity that does not send the contacts', async () => {
     renderPortal(<ProfilePage />, (path, method) => path === '/identity/me' && method === 'GET' ? json(profile) : problem(404, 'NOT_FOUND', path))
-    await screen.findByText('Ada Example')
+    const bio = await openSection('Bio-data')
+    expect(within(bio).getByText('Ada Example')).toBeTruthy()
+    expect(document.getElementById('contact-details')).toBeNull()
+    expect(screen.queryByRole('button', { name: /email address/ })).toBeNull()
+  })
+
+  it('is in Bio-data, after its rows, under no heading of its own', async () => {
+    renderPortal(<ProfilePage />, gateway(), {}, { parityB3: true })
+    const block = await openContactDetails()
     expect(screen.queryByRole('heading', { name: 'Contact details' })).toBeNull()
+    expect(block.closest('#bio-data')).not.toBeNull()
+    expect(block.querySelector('h2, h3')).toBeNull()
   })
 })
 
@@ -116,7 +127,7 @@ describe('changing the email', () => {
 
     expect(await screen.findByText(/Your email address is now n•••@example\.com\. Use it to sign in and to reset your password\. We told your previous address\./))
       .toBeTruthy()
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Contact details' })))
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Change email address' })))
     expect(changes(sent)).toEqual([
       { path: CHANGES, method: 'POST', body: { channel: 'email', email: 'new.address@example.com', currentPassword: 'Secret-pass-1' } },
       { path: `${CHANGES}/change-1/verify`, method: 'POST', body: { code: '123456' } },
@@ -370,7 +381,7 @@ describe('verifying an email that is not verified yet', () => {
     expect(screen.queryByText('The new contact must be different.')).toBeNull()
     expect(screen.queryByRole('textbox', { name: 'Email address' })).toBeNull()
     await waitFor(() => expect(reads()).toBeGreaterThan(before))
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Contact details' })))
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Change email address' })))
   })
 
   it('is not offered for a verified email', async () => {
@@ -389,6 +400,8 @@ describe('changing the phone', () => {
     await press(screen.getByRole('button', { name: 'Change phone number' }))
 
     expect(await screen.findByText(/Your phone number is now \+234 •••• 1234\. It shows as not verified/)).toBeTruthy()
+    // The form is gone: focus is on the Change button that started it.
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Change phone number' })))
     expect(changes(sent)).toEqual([{ path: CHANGES, method: 'POST', body: { channel: 'phone', phone: '+2348055551234', currentPassword: 'Secret-pass-1' } }])
     const shown = await card()
     // The profile is read again: the phone row says the new number, not verified.

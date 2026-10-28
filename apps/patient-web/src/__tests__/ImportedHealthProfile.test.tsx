@@ -37,7 +37,7 @@ describe('your hid-1.0 health details, on the profile', () => {
     const rows = shown.getAllByRole('term').map(term => [term.textContent, term.nextElementSibling?.textContent])
     expect(rows).toEqual([['Blood group', 'O+'], ['Genotype', 'AS'], ['Allergies', 'Penicillin\nShellfish'],
       ['Current medications', 'Amlodipine 5mg daily']])
-    expect(shown.getByText(/carried over with your account, as last updated on/).textContent).toMatch(/They can't be changed here\.$/)
+    expect(shown.getByText(/Carried over from hid-1.0, last updated on/).textContent).toMatch(/They can't be changed here\.$/)
     expect(shown.queryByRole('textbox')).toBeNull()
     // Its one button opens and closes it.
     expect(shown.getAllByRole('button')).toEqual([sectionToggle('From your hid-1.0 account')])
@@ -64,7 +64,8 @@ describe('your hid-1.0 health details, on the profile', () => {
     novu.on = false
     const { sent } = renderPortal(<ProfilePage />, gateway(() => json(records(HEALTH))))
     expect(await screen.findByText('Ada Example')).toBeTruthy()
-    expect(sent.map(request => request.path)).toEqual(['/identity/me'])
+    expect(sent[0]?.path).toBe('/identity/me')
+    expect(sent.some(request => request.path.startsWith('/ehr/'))).toBe(false)
     expect(screen.queryByRole('heading', { name: 'From your hid-1.0 account' })).toBeNull()
   })
 })

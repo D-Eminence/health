@@ -408,10 +408,20 @@
   .patient-photo-preview img { width: 128px; height: 128px; border: 1px solid var(--color-line-strong); border-radius: var(--radius-card); object-fit: cover; }
   .patient-file-button { position: relative; }
   .patient-file-button:focus-within { outline: 2px solid var(--color-brand); outline-offset: 2px; }
+  /* Bio-data's picture is the photo control (hid-1.0's): its label wraps the hidden file field, whose focus it shows. */
+  .patient-photo-control { position: relative; display: inline-flex; border-radius: 50%; cursor: pointer; }
+  .patient-photo-control:hover .patient-avatar { box-shadow: 0 0 0 2px var(--color-brand-border); }
+  .patient-photo-control:focus-within { outline: 2px solid var(--color-brand); outline-offset: 2px; }
+  .patient-photo-actions { display: grid; justify-items: start; gap: 8px; min-width: 0; }
+  .patient-details + .patient-field-hint { margin-top: 12px; }
   .patient-form textarea { width: 100%; min-height: 88px; padding: 10px 12px; border: 1px solid var(--color-line-control); border-radius: var(--radius-control); background: var(--color-surface); color: var(--color-ink); font: inherit; font-size: 15px; resize: vertical; }
   .patient-form textarea:focus { border-color: var(--color-brand); }
   .patient-health-selects { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
   .patient-contact-form h3 { margin: 6px 0 0; color: var(--color-ink); font-size: 16px; font-weight: 600; }
+  /* A part of a profile section under a small heading of its own: Bio-data's Access PIN, Health information's emergency contacts. */
+  .patient-access-pin, .patient-emergency-contacts { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--color-line); }
+  .patient-access-pin h3, .patient-emergency-contacts h3 { margin: 0 0 6px; color: var(--color-ink); font-size: 16px; font-weight: 600; }
+  .patient-section-body > .patient-emergency-contacts:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
   .patient-completion-figure { margin: 6px 0 10px; color: var(--color-ink); }
   .patient-completion-figure strong { font-size: 32px; }
   .patient-completion-bar { height: 10px; overflow: hidden; border-radius: 999px; background: var(--color-surface-sunk); }

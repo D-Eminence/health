@@ -35,7 +35,7 @@ const noBell = { onSessionAccepted: () => () => undefined, profile: () => new Pr
 
 function openPortal() {
   render(<SessionContext.Provider value={createTestSessionValue({ kind: 'patient', subjectId: 'subject-a', appRole: 'patient', assuranceLevel: 'aal1' }, noBell)}>
-    <MemoryRouter initialEntries={['/settings']}><Routes><Route path="/" element={<PortalShell />}><Route path="settings" element={<p>Settings page</p>} /></Route></Routes></MemoryRouter>
+    <MemoryRouter initialEntries={['/notifications']}><Routes><Route path="/" element={<PortalShell />}><Route path="notifications" element={<p>Notifications page</p>} /></Route></Routes></MemoryRouter>
   </SessionContext.Provider>)
   const strip = screen.getByRole('navigation', { name: 'Patient pages' })
   return { strip, link: screen.getByRole('link', { name: 'Profile' }) }

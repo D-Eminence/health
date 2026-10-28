@@ -14,6 +14,7 @@ import { ItemName } from '../ItemName'
 import { usePatientResource } from './usePatientResource'
 import { CodeBoxes, codeComplete } from '../CodeBoxes'
 import { useActionFocus, useRetryFocus } from './actionFocus'
+import { ProfileSection } from './ProfileSection'
 
 /*
  * Patient-facing account deletion and emergency-contact management. The
@@ -68,9 +69,9 @@ function deletionProblem(cause: unknown, fallback: string) {
 }
 
 const BLOCKED_REASONS: Record<AccountDeletionBlockedReason, string> = {
-  LEGAL_HOLD: 'Some of your records must be kept for a legal or regulatory reason, so this account cannot be deleted right now. Contact Health ID support for help.',
-  RETENTION_POLICY_UNAVAILABLE: 'We could not confirm how your records must be kept, so nothing was deleted. Try again later or contact Health ID support.',
-  WORKFORCE_ACCOUNT: 'This sign-in is also used for provider or administrator access, so it cannot be deleted from the patient portal. Contact your organisation or Health ID support.',
+  LEGAL_HOLD: 'Your account can’t be deleted now: some of your records are under a legal hold. Contact Health ID support.',
+  RETENTION_POLICY_UNAVAILABLE: 'Nothing was deleted: we couldn’t confirm how your records must be kept. Try again later or contact Health ID support.',
+  WORKFORCE_ACCOUNT: 'This sign-in is also used for staff access, so it can’t be deleted here. Contact your organisation or Health ID support.',
 }
 
 const RELATIONSHIP_LABELS: Record<EmergencyContactRelationship, string> = {
@@ -81,15 +82,13 @@ const CHANNEL_LABELS: Record<EmergencyContactChannel, string> = { sms: 'SMS', em
 const CHANNEL_WORDS: Record<EmergencyContactChannel, string> = { sms: 'SMS', email: 'email' }
 const DESTINATION_LABELS: Record<EmergencyContactChannel, string> = { sms: 'phone number', email: 'email address' }
 
-/** What each backend's alert to a verified contact says: Novu's is hid-system #109's emergencyContactAlertContent. */
-const NOVU_ALERT = 'If a health worker uses emergency access to open your record, each verified contact gets a message with '
-  + 'your full name, the last four characters of your Health ID, the health worker\'s name, the facility and the time. It says '
-  + 'only that your record was opened for emergency care. It never includes medical details or the reason the health worker '
-  + 'gave. It also gives the facility\'s phone number, or Health ID support\'s if the facility has none, and how to stop these '
-  + 'alerts. A contact is only notified after they confirm a verification code and while alerts are on.'
-const MAIN_ALERT = 'If a provider uses emergency access to your record, verified contacts are told your first name, the '
-  + 'facility, and the time. They never receive medical details. A contact is only notified after they confirm a '
-  + 'verification code and while notifications are on.'
+/**
+ * What each backend's alert to a verified contact says, in short: Novu's (hid-system #109's emergencyContactAlertContent)
+ * gives the patient's name, the last four characters of their Health ID, the health worker, the facility, its phone
+ * and the time; main's the first name, the facility and the time. Neither gives medical details or the reason.
+ */
+const NOVU_ALERT = 'If a health worker opens your record in an emergency, verified contacts are told who opened it, where and when. Never medical details.'
+const MAIN_ALERT = 'If a provider opens your record in an emergency, verified contacts are told your first name, where and when. Never medical details.'
 
 /** hid-system main does not serve availability (404): its card stays as it was, with both channels. */
 const MAIN_OFFER: EmergencyContactsAvailability = { delivery: true, channels: ['sms', 'email'] }
@@ -137,7 +136,7 @@ function contactsSource(api: PatientApi) {
 
 /**
  * Availability, then the list, read afresh: what the profile's completion and the overview count (hid-1.0 parity B3).
- * Kept under the card's own name ('emergency-contacts'), so Settings shows it at once.
+ * Kept under the card's own name ('emergency-contacts'), so the profile's card shows it at once.
  */
 export const readEmergencyContacts = (api: PatientApi) => (signal?: AbortSignal): Promise<ContactsView> => contactsSource(api).load(signal)
 
@@ -224,7 +223,7 @@ type Find = () => HTMLElement | null
 /** What a refused action says, where focus goes, whether the destination field is at fault, and what is read again first. */
 interface Refusal { message: string; focus: Find; field?: boolean; read?: 'list' | 'availability' }
 
-export function EmergencyContactsCard() {
+export function EmergencyContactsCard({ alone = false }: { alone?: boolean }) {
   const { api } = useSession()
   const source = useMemo(() => contactsSource(api), [api])
   const card = usePatientResource(source.load, 'emergency-contacts')
@@ -380,11 +379,10 @@ export function EmergencyContactsCard() {
   const unoffered = hidden && retried && Boolean(card.data) && !error && !notice
 
   // Only the list is busy while it reloads: a notice outside it is not held back.
-  return <div className="patient-card" id="emergency-contacts" aria-labelledby="emergency-contacts-heading">
-    <h2 ref={heading} tabIndex={-1} id="emergency-contacts-heading">Emergency contacts</h2>
+  const block = <div id="emergency-contacts" className="patient-emergency-contacts" aria-labelledby="emergency-contacts-heading">
+    <h3 ref={heading} tabIndex={-1} id="emergency-contacts-heading">Emergency contacts</h3>
     {!hidden && <p className="patient-field-hint">{usesNovuBackend() ? NOVU_ALERT : MAIN_ALERT}</p>}
-    {!hidden && paused && <p className="patient-field-hint">Alerts to emergency contacts are paused. Contacts cannot be added or
-      verified right now; you can still remove one.</p>}
+    {!hidden && paused && <p className="patient-field-hint">Alerts are paused. You can only remove contacts for now.</p>}
     {error && <p id="emergency-contacts-error" role="alert" className="patient-inline-error">{error}</p>}
     <div role="status">{notice && <p className="patient-inline-success">{notice}</p>}
       {unoffered && <p className="patient-field-hint">Emergency contacts are not available for your account right now.</p>}</div>
@@ -434,7 +432,7 @@ export function EmergencyContactsCard() {
           <button type="button" disabled={busy} onClick={() => { setRemoving(null); focusAfter(byId(`contact-remove-${contact.contactId}`)) }}>Keep contact</button></div>}
       </li>)}</ul>}</div>}
     {!hidden && channels.length > 0 && <>
-      <p id="emergency-contacts-limit" className="patient-field-hint">You can add up to 5 emergency contacts.</p>
+      <p id="emergency-contacts-limit" className="patient-field-hint">Up to 5 contacts.</p>
       {!adding ? <button ref={addButton} type="button" className="patient-secondary-button" disabled={busy || (listed?.length ?? 0) >= 5}
         aria-describedby="emergency-contacts-limit"
         onClick={() => setAdding(true)}>Add emergency contact</button>
@@ -465,6 +463,8 @@ export function EmergencyContactsCard() {
         </form>}
     </>}
   </div>
+  // On the profile, in Health information after its form; or, where that is not served, the section itself.
+  return alone ? <ProfileSection id="health-information" title="Health information">{block}</ProfileSection> : block
 }
 
 /**
@@ -548,8 +548,8 @@ export function AccountDeletionCard() {
   if (completed) {
     return <div className="patient-card patient-danger-card" role="status" aria-labelledby="account-deletion-heading">
       <h2 ref={completedHeading} tabIndex={-1} id="account-deletion-heading">Your account has been deleted</h2>
-      <p>You have been signed out everywhere and this sign-in can no longer be used.</p>
-      <p className="patient-field-hint">Your Health ID and the records healthcare facilities hold about you were kept, as required for your care and the law.</p>
+      <p>You are signed out everywhere, and this sign-in no longer works.</p>
+      <p className="patient-field-hint">Your Health ID and medical records were kept, as your care and the law require.</p>
       <button type="button" className="patient-primary-button" onClick={() => void finish()}>Finish</button>
     </div>
   }
@@ -564,9 +564,10 @@ export function AccountDeletionCard() {
   const waiting = status.data ? days(status.data.waitingPeriodSeconds) : null
   const scheduled = current?.state === 'pending' && current.scheduledFor
 
-  // Only the status is busy while it reloads: a notice outside it is not held back.
-  return <div className="patient-card patient-danger-card" aria-labelledby="account-deletion-heading">
-    <h2 ref={heading} tabIndex={-1} id="account-deletion-heading">Delete account</h2>
+  // Only the status is busy while it reloads: a notice outside it is not held back. On the profile, last: a section
+  // closed until opened (ProfileSection.tsx), as hid-1.0's Danger Zone ended its profile.
+  return <ProfileSection id="account-deletion" title="Delete account" className="patient-danger-card" headingRef={heading}
+    headingId="account-deletion-heading">
     {error && <p role="alert" className="patient-inline-error">{error}</p>}
     <div role="status">{notice && <p className="patient-inline-success">{notice}</p>}</div>
     {status.loading && !status.data && <p role="status" className="patient-loading">Checking your account…</p>}
@@ -576,23 +577,21 @@ export function AccountDeletionCard() {
     {status.data && !status.error && <div aria-busy={status.loading || undefined}>{scheduled
       ? <>
         <p>Your account is scheduled for deletion on <strong>{watDateTime(current.scheduledFor)}</strong>.</p>
-        <p className="patient-field-hint">Until then you can keep using Health ID and cancel at any time. After that date this cannot be undone.</p>
-        <p className="patient-field-hint">Your Health ID and the medical records facilities hold about you will be kept, as required for your care and the law.</p>
+        <p className="patient-field-hint">Until then you can cancel. After that it can’t be undone. Your Health ID and medical records are kept.</p>
         <button type="button" className="patient-primary-button" disabled={busy || status.loading} onClick={event => void cancel(current.requestId, event.currentTarget)}>Cancel deletion</button>
       </>
       : <>
         {current?.state === 'blocked' && current.blockedReasonCode && <p role="alert" className="patient-inline-error">{BLOCKED_REASONS[current.blockedReasonCode]}</p>}
-        <p>Deleting your account closes your Health ID sign-in. Before you continue:</p>
+        <p>Deleting your account:</p>
         <ul className="patient-consequences">
-          <li>You will no longer be able to sign in, and every device you are signed in on will be signed out.</li>
-          <li>Access you have given providers, and your Access PIN, will be withdrawn.</li>
+          <li>Signs you out everywhere, and you can’t sign in again.</li>
+          <li>Withdraws provider access and your Access PIN.</li>
           {/* hid-system 0096 (Novu) closes these too and sends these emails; main's 0064 does neither. */}
-          {usesNovuBackend() && <li>Invitations you sent to share your records are cancelled, and your emergency contacts are removed.</li>}
-          <li>Your Health ID and the medical records facilities hold about you are kept. Facilities may still need them to treat you, and emergency care rules still apply.</li>
-          <li>Some security and audit records must be kept even after deletion.</li>
-          <li>You have {waiting} to change your mind. After that, deletion cannot be undone.</li>
-          {usesNovuBackend() && <li>{'We\'ll email you when your account is scheduled for deletion and when it is deleted.'}</li>}
-          <li>If any of your records are under a legal hold, deletion will be blocked and nothing is removed.</li>
+          {usesNovuBackend() && <li>Cancels your sharing invitations and removes your emergency contacts.</li>}
+          <li>Keeps your Health ID, your medical records and some security records.</li>
+          <li>Gives you {waiting} to cancel. After that it can’t be undone.</li>
+          {usesNovuBackend() && <li>Emails you when it is scheduled and when it is done.</li>}
+          <li>Is blocked, with nothing removed, if your records are under a legal hold.</li>
         </ul>
         {!pending ? <>
           <label className="patient-checkbox"><input type="checkbox" checked={acknowledged}
@@ -609,5 +608,5 @@ export function AccountDeletionCard() {
           </div>
         </form>}
       </>}</div>}
-  </div>
+  </ProfileSection>
 }

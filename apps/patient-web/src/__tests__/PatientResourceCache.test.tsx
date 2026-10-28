@@ -87,7 +87,8 @@ describe('a page opened again', () => {
     expect(screen.getByText('Ada Example')).toBeTruthy()
     expect(screen.queryByText('Loading your information…')).toBeNull()
     // It reads again meanwhile, and says the card is being brought up to date.
-    await waitFor(() => expect(client.sent.map(request => request.path)).toEqual(['/identity/me', '/identity/me']))
+    // (The emergency contacts and Delete account on the profile read for themselves.)
+    await waitFor(() => expect(client.sent.map(request => request.path).filter(path => path === '/identity/me')).toEqual(['/identity/me', '/identity/me']))
     expect(screen.getByRole('heading', { name: 'Bio-data' }).closest('.patient-card')?.getAttribute('aria-busy')).toBe('true')
 
     await act(async () => { later.resolve(json({ ...profile, fullName: 'Ada Updated' })) })

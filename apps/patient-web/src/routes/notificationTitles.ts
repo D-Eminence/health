@@ -19,10 +19,10 @@ const NOTIFICATION_TITLES: Readonly<Record<string, string>> = {
   // hid-1.0 parity B4 (hid-system 0095): an invitation the patient sent by email ended unanswered. Its metadata is empty.
   SHARE_INVITATION_EXPIRED: 'An invitation you sent to share your records has expired',
   // hid-1.0 parity B5 (hid-system 0096): the patient's own account deletion. The scheduled notice's metadata holds the date,
-  // the blocked one's a reason code; neither is shown in the title, and Settings says the rest.
+  // the blocked one's a reason code; neither is shown in the title, and the profile's Delete account says the rest.
   ACCOUNT_DELETION_SCHEDULED: 'Your Health ID account is scheduled for deletion',
   ACCOUNT_DELETION_CANCELLED: 'Your Health ID account deletion was cancelled',
-  ACCOUNT_DELETION_BLOCKED: 'Your Health ID account could not be deleted: see Settings',
+  ACCOUNT_DELETION_BLOCKED: 'Your Health ID account could not be deleted: see your profile',
 }
 
 /** What each notice is about, shown beside its date. */

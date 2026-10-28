@@ -6,7 +6,6 @@ import { useAnnounceProfileChange } from '../profileChange'
 import { PHOTO_SIDE, PhotoProblem, base64Of, reencodePhoto } from '../photoImage'
 import { usePatientResource } from './usePatientResource'
 import { useActionFocus } from './actionFocus'
-import { ProfileSection } from './ProfileSection'
 
 const noPhoto = async (): Promise<Blob | null> => null
 
@@ -69,11 +68,12 @@ export function Avatar({ profile, url, size, alt = '' }: {
 const PHOTO_REFUSED = 'This picture can’t be used. Choose a JPEG or PNG photo.'
 
 /**
- * "Photo" on the profile (hid-1.0 parity B3): choose a JPEG or PNG, see it cropped to a square, and save it; or remove
- * it. The page draws the picture afresh, at most 256 x 256, and sends only that JPEG (photoImage.ts), so nothing the
- * file itself held, such as where it was taken, is uploaded. Shown only where Identity says whether there is a photo.
+ * The profile photo, at the top of Bio-data (hid-1.0 parity B3; as hid-1.0 had it, the avatar itself is the control):
+ * selecting the picture opens the file picker for a JPEG or PNG, shown cropped to a square to save; Remove photo
+ * removes it. The page draws the picture afresh, at most 256 x 256, and sends only that JPEG (photoImage.ts), so nothing
+ * the file itself held, such as where it was taken, is uploaded. Shown only where Identity says whether there is a photo.
  */
-export function PhotoCard({ profile, onChanged }: { profile: PatientProfile; onChanged: () => Promise<unknown> }) {
+export function ProfilePhotoControl({ profile, onChanged }: { profile: PatientProfile; onChanged: () => Promise<unknown> }) {
   const { api } = useSession()
   const hasPhoto = profile.hasPhoto === true
   const photo = usePatientPhoto(hasPhoto)
@@ -83,7 +83,6 @@ export function PhotoCard({ profile, onChanged }: { profile: PatientProfile; onC
   const [busy, setBusy] = useState<'preparing' | 'saving' | 'removing' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
-  const heading = useRef<HTMLHeadingElement>(null)
   const chooser = useRef<HTMLInputElement>(null)
   const focusAfter = useActionFocus()
 
@@ -111,7 +110,7 @@ export function PhotoCard({ profile, onChanged }: { profile: PatientProfile; onC
       await onChanged()
       void photo.reload()
       announce()
-      focusAfter(() => heading.current)
+      focusAfter(() => chooser.current)
     } catch (cause) {
       setError(isHidApiError(cause) && cause.code === 'PHOTO_INVALID' ? PHOTO_REFUSED
         : isHidApiError(cause) ? cause.message : 'Your photo could not be saved. Try again.')
@@ -135,11 +134,23 @@ export function PhotoCard({ profile, onChanged }: { profile: PatientProfile; onC
     } finally { setBusy(null) }
   }
 
-  return <ProfileSection id="photo" title="Photo" busy={busy !== null} headingRef={heading}>
+  return <div className="patient-photo" aria-busy={busy !== null || undefined}>
     <div className="patient-photo-row">
-      <Avatar profile={profile} url={photo.url} size="large" alt={photo.url ? 'Your photo' : ''} />
-      <p id="profile-photo-hint" className="patient-field-hint">A JPEG or PNG picture of you. It is cropped to a square and saved as a
-        small picture, at most {PHOTO_SIDE} × {PHOTO_SIDE}; nothing else in the file, such as where it was taken, is kept.</p>
+      {/* The picture is the control: its label wraps the hidden file field, which takes focus and opens the picker.
+          While a new photo waits to be saved it is the picture only, and Save takes focus. */}
+      {prepared ? <Avatar profile={profile} url={photo.url} size="large" alt={photo.url ? 'Your photo' : ''} />
+        : <label className="patient-photo-control">
+          <Avatar profile={profile} url={photo.url} size="large" alt={photo.url ? 'Your photo' : ''} />
+          <input ref={chooser} type="file" accept="image/jpeg,image/png" className="patient-visually-hidden" disabled={busy !== null}
+            aria-label={hasPhoto ? 'Change profile photo' : 'Add profile photo'}
+            aria-describedby={error ? 'profile-photo-hint profile-photo-error' : 'profile-photo-hint'} onChange={event => void choose(event)} />
+        </label>}
+      <div className="patient-photo-actions">
+        <p id="profile-photo-hint" className="patient-field-hint">Select the picture to {hasPhoto ? 'change your photo' : 'add a photo'}: a
+          JPEG or PNG, cropped to a square.</p>
+        {hasPhoto && !prepared && <button id="profile-photo-remove" type="button" disabled={busy !== null}
+          onClick={() => void remove()}>{busy === 'removing' ? 'Removing…' : 'Remove photo'}</button>}
+      </div>
     </div>
     {error && <p id="profile-photo-error" role="alert" className="patient-inline-error">{error}</p>}
     <div role="status">{notice && <p className="patient-inline-success">{notice}</p>}{busy === 'preparing' && <p>Preparing your photo…</p>}</div>
@@ -152,12 +163,5 @@ export function PhotoCard({ profile, onChanged }: { profile: PatientProfile; onC
         <button type="button" className="patient-secondary-button" disabled={busy !== null} onClick={cancel}>Cancel</button>
       </div>
     </div>}
-    {!prepared && <div className="patient-decision-actions">
-      <label className="patient-secondary-button patient-file-button">{hasPhoto ? 'Choose a new photo' : 'Choose a photo'}
-        <input ref={chooser} type="file" accept="image/jpeg,image/png" className="patient-visually-hidden" disabled={busy !== null}
-          aria-describedby={error ? 'profile-photo-hint profile-photo-error' : 'profile-photo-hint'} onChange={event => void choose(event)} /></label>
-      {hasPhoto && <button id="profile-photo-remove" type="button" className="patient-secondary-button" disabled={busy !== null}
-        onClick={() => void remove()}>{busy === 'removing' ? 'Removing…' : 'Remove photo'}</button>}
-    </div>}
-  </ProfileSection>
+  </div>
 }

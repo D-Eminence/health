@@ -125,3 +125,21 @@ export async function openSection(name: string | RegExp): Promise<HTMLElement> {
   expect(toggle.getAttribute('aria-expanded')).toBe('true')
   return toggle.closest('.patient-card') as HTMLElement
 }
+
+/**
+ * The email and phone, at the end of the profile's Bio-data with no heading of their own (ProfileContact.tsx): opens
+ * Bio-data as the patient does, and returns the block (#contact-details) inside it.
+ */
+export async function openContactDetails(): Promise<HTMLElement> {
+  const bio = await openSection('Bio-data')
+  const block = bio.querySelector<HTMLElement>('#contact-details')
+  expect(block).not.toBeNull()
+  return block as HTMLElement
+}
+
+/** The profile's completion card, always shown and never closed (ProfileCompletion.tsx), once it is shown. */
+export async function completionCard(): Promise<HTMLElement> {
+  const title = await screen.findByRole('heading', { name: 'Profile completion', level: 2 })
+  expect(within(title).queryByRole('button')).toBeNull()
+  return title.closest('.patient-card') as HTMLElement
+}

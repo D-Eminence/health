@@ -13,7 +13,7 @@ import { Enrollment } from './routes/Enrollment'
 import { ParticipatingFacilitiesPage } from './routes/ParticipatingFacilities'
 import { Recovery } from './routes/Recovery'
 import { PrincipalRecovery } from './routes/PrincipalRecovery'
-import { AccessPage, NotificationsPage, PortalShell, ProfilePage, RecordsPage, SettingsPage } from './routes/Portal'
+import { AccessPage, NotificationsPage, PortalShell, ProfilePage, RecordsPage, SettingsRedirect } from './routes/Portal'
 import { resolveStaffProductHostname, isPlatformAdminHostname, PLATFORM_ADMIN_ROUTE, STAFF_RECOVERY_PATH } from './productHostname'
 import { CLINICIAN_SIGNUP_PATH, CLINICIAN_STATUS_PATH, STAFF_INVITATION_PATH } from './productHostname'
 import { usesNovuBackend } from './backendContract'
@@ -55,7 +55,8 @@ function PatientRoutes() {
         {/* Share my records (hid-system 0095): opens Access and consent where the backend does not serve sharing (404). */}
         <Route path="access/share" element={<ShareRecords />} />
         <Route path="notifications" element={<NotificationsPage />} />
-        <Route path="settings" element={<SettingsPage />} />
+        {/* Settings is gone: its parts are on the profile, and an old link opens it at the same #. */}
+        <Route path="settings" element={<SettingsRedirect />} />
         <Route path="*" element={<PatientNotFound />} />
       </Route>
     </Routes>

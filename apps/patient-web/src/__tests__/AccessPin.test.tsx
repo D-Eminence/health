@@ -1,17 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
-import { SettingsPage } from '../routes/Portal'
+import { ProfilePage } from '../routes/Portal'
 import { described, json, problem, profile, renderPortal, type Handler } from './portalHarness'
 
 /**
- * The patient's Access PIN, POST and DELETE /identity/me/access-pin (hid-system
+ * The patient's Access PIN, at the end of the profile's Bio-data (Settings is gone: the owner's decision of 2026-10-28;
+ * a link to #access-pin opens Bio-data), POST and DELETE /identity/me/access-pin (hid-system
  * patient-self.controller.ts). The PIN is 4 to 8 digits
  * (set-patient-access-pin.dto.ts), and both commands need a sign-in within the
  * last 10 minutes (403 PATIENT_RECENT_AUTH_REQUIRED, recent-authentication.ts).
  */
 function renderSettings(pin: Handler) {
   let configured = false
-  return renderPortal(<SettingsPage />, (path, method, body) => {
+  return renderPortal(<ProfilePage />, (path, method, body) => {
     if (path === '/identity/me/access-pin') {
       const answer = pin(path, method, body) as Response
       if (answer.ok) configured = method === 'POST'
@@ -21,7 +22,7 @@ function renderSettings(pin: Handler) {
     if (path === '/identity/me/emergency-contacts') return json([])
     if (path === '/identity/me/account-deletion') return json({ waitingPeriodSeconds: 1_209_600, confirmationTtlSeconds: 600, request: null })
     return json({}, 404)
-  })
+  }, {}, { at: '/profile#access-pin' })
 }
 
 const pinCard = () => within(screen.getByRole('heading', { name: 'Access PIN' }).closest('.patient-card') as HTMLElement)
@@ -96,5 +97,15 @@ describe('patient Access PIN', () => {
     expect((await screen.findByRole('alert')).textContent)
       .toBe('For your security, sign out, sign in again, and return here within 10 minutes to change your Access PIN.')
     expect(screen.getByText('Configured')).toBeTruthy()
+  })
+
+  it('is in Bio-data, after the email and phone, and a link to #access-pin opens Bio-data with focus on its heading', async () => {
+    renderSettings(() => json({ configured: true }))
+    const title = await screen.findByRole('heading', { name: 'Access PIN', level: 3 })
+    const bio = document.getElementById('bio-data-content') as HTMLElement
+    expect(bio.hidden).toBe(false)
+    expect(bio.contains(title)).toBe(true)
+    await waitFor(() => expect(document.activeElement).toBe(title))
+    expect(screen.queryByRole('heading', { name: 'Settings' })).toBeNull()
   })
 })

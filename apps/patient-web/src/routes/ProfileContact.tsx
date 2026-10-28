@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 import { isHidApiError } from '@hid/http'
 import { PasswordInput } from '@hid/ui'
 import type { PatientProfile } from '../api'
@@ -10,7 +10,6 @@ import { maskEmail, maskPhone, oneLine, type EmailChangeStarted } from '../profi
 import { DEFAULT_PHONE_COUNTRY, PHONE_COUNTRIES, internationalPhone } from './enrollment/phoneCountries'
 import { useActionFocus } from './actionFocus'
 import { ItemName } from '../ItemName'
-import { ProfileSection } from './ProfileSection'
 
 /** Which part of a step a refusal is about: focus goes there and its description names the error. */
 type Field = 'value' | 'password' | 'code' | null
@@ -73,13 +72,15 @@ const secondsBeforeResend = ({ change, sentAt }: PendingEmail, now: number) =>
 const codeLive = ({ change, sentAt }: PendingEmail, now: number) => now - sentAt < change.expiresInSeconds * 1000
 
 /**
- * "Contact details" on the profile (hid-1.0 parity B3, the lead's decisions): the account's email and phone, shown
- * masked, each with Change. A new email needs the current password and the 6-digit code sent to it; a new phone needs
+ * The account's email and phone, in Bio-data under its other rows with no heading of its own (hid-1.0 parity B3, the
+ * lead's decisions; the owner's of 2026-10-28), shown masked, each with Change. A link to /profile#contact-details
+ * opens Bio-data with focus on this block (PROFILE_SECTION_PARTS in Portal.tsx). A new email needs the current password and the 6-digit code sent to it; a new phone needs
  * the current password only (production sends no SMS) and is then shown as not verified. Either way the verified
  * email is told, and sign-in and recovery use the new contact from then on. An email not verified yet (one kept from
  * hid-1.0) has Verify too: the same steps with that address, whose code verifies it. Shown only where Identity sends them.
+ * A change that goes through ends with focus on the button that started it.
  */
-export function ContactDetailsCard({ profile, onChanged }: { profile: PatientProfile; onChanged: () => Promise<unknown> }) {
+export function ContactDetails({ profile, onChanged }: { profile: PatientProfile; onChanged: () => Promise<unknown> }) {
   const { api } = useSession()
   const announce = useAnnounceProfileChange()
   const [step, setStep] = useState<Step>({ kind: 'idle' })
@@ -95,7 +96,6 @@ export function ContactDetailsCard({ profile, onChanged }: { profile: PatientPro
   const [resendNote, setResendNote] = useState<string | null>(null)
   const stepFocus = useStepFocus()
   const focusAfter = useActionFocus()
-  const heading = useRef<HTMLHeadingElement>(null)
   if (profile.email === undefined && profile.phone === undefined) return null
   // Identity tells the account's email of a phone change only while that email is verified.
   const phoneNoticeByEmail = Boolean(profile.email) && profile.emailVerified !== false
@@ -157,7 +157,7 @@ export function ContactDetailsCard({ profile, onChanged }: { profile: PatientPro
         // Identity answers this for the account's own address only once it is verified (in another tab, say).
         setStep({ kind: 'idle' }); setPassword(''); setEmail(''); setResendNote(null)
         setNotice('Your email address is already verified.')
-        focusAfter(() => heading.current)
+        focusAfter(() => document.getElementById('contact-change-email'))
         void onChanged()
       } else {
         // Identity may have ended the open change already (see Step): the code already sent is no longer offered.
@@ -204,7 +204,7 @@ export function ContactDetailsCard({ profile, onChanged }: { profile: PatientPro
           + (profile.email ? ' We told your previous address.' : ''))
       await onChanged()
       announce()
-      focusAfter(() => heading.current)
+      focusAfter(() => document.getElementById('contact-change-email'))
     } catch (cause) { refused(cause, 'email-code', fromField); stepFocus.focus() } finally { setBusy(false) }
   }
 
@@ -228,7 +228,7 @@ export function ContactDetailsCard({ profile, onChanged }: { profile: PatientPro
         + (phoneNoticeByEmail ? ' We emailed your verified address about the change.' : ''))
       await onChanged()
       announce()
-      focusAfter(() => heading.current)
+      focusAfter(() => document.getElementById('contact-change-phone'))
     } catch (cause) { refused(cause, 'phone', fromField); stepFocus.focus() } finally { setBusy(false) }
   }
 
@@ -239,8 +239,7 @@ export function ContactDetailsCard({ profile, onChanged }: { profile: PatientPro
       aria-invalid={invalid('password')} aria-describedby={describedBy('contact-password-hint', errorFor('password'))} />
     <p id="contact-password-hint" className="patient-field-hint">The password you sign in to Health ID with, to confirm it is you.</p></div>
 
-  return <ProfileSection id="contact-details" title="Contact details" busy={busy} headingRef={heading}>
-    <p className="patient-field-hint">You sign in and reset your password with these. Each is shown in part, to keep it private.</p>
+  return <div id="contact-details" aria-busy={busy || undefined}>
     <div role="status">{notice && <p className="patient-inline-success">{notice}</p>}</div>
     <dl className="patient-details">
       <div><dt>Email</dt><dd>{profile.email ? maskEmail(profile.email) : 'No email address'}
@@ -257,6 +256,7 @@ export function ContactDetailsCard({ profile, onChanged }: { profile: PatientPro
         {step.kind === 'idle' && <dd><button id="contact-change-phone" type="button" className="patient-secondary-button" disabled={busy}
           onClick={() => open('phone')}>{profile.phone ? 'Change' : 'Add'} <ItemName>phone number</ItemName></button></dd>}</div>
     </dl>
+    <p className="patient-field-hint">You sign in and reset your password with these. Shown in part, for privacy.</p>
 
     {step.kind === 'email' && <form className="patient-form patient-contact-form" onSubmit={event => void startEmail(event)} noValidate>
       <h3>{verifying ? 'Verify your email address' : 'New email address'}</h3>
@@ -310,5 +310,5 @@ export function ContactDetailsCard({ profile, onChanged }: { profile: PatientPro
         <button type="button" className="patient-secondary-button" disabled={busy} onClick={() => close('phone')}>Cancel</button>
       </div>
     </form>}
-  </ProfileSection>
+  </div>
 }

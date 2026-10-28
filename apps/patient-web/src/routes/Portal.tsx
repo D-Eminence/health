@@ -3,17 +3,12 @@ import { usesNovuBackend } from '../backendContract'
 import { PatientImportedHistory } from '../ImportedHistoryPage'
 import { getEnvironment } from '../env'
 import { useCallback, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react'
-import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { HEALTH_ID_PREFIX, emailOrHealthId, healthIdOrOtherInput, isBlankHealthIdInput } from '@hid/contracts'
+import { Link, NavLink, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { isHidApiError } from '@hid/http'
-import { PasswordInput } from '@hid/ui'
-import { GoogleButton } from '../GoogleButton'
-import { googleClientId } from '../googleClient'
-import { Turnstile } from '../Turnstile'
 import { BrandLogo } from '../BrandLogo'
 import { ItemName } from '../ItemName'
 import { useSession } from '../session'
-import { IMPORTED_NOTIFICATIONS_PAGE, type AccessHistory, type ImportedNotification, type PatientRecords, type RecordSection } from '../api'
+import { IMPORTED_NOTIFICATIONS_PAGE, type AccessHistory, type PatientProfile, type ImportedNotification, type PatientRecords, type RecordSection } from '../api'
 import { IMPORTED_HEALTH_FIELDS, type ImportedHealthField, type ImportedHealthProfile, type ImportedMedicalRecord } from '../importedRecords'
 import { patientChatEnabled } from '../chatFeatures'
 import { usePatientResource } from './usePatientResource'
@@ -35,8 +30,8 @@ import { OpenSectionsContext, ProfileSection } from './ProfileSection'
 import { completionOf, useProfileSources } from './profileSources'
 import { completionServed } from './profileCompletion'
 import { ProfileCompletionCard } from './ProfileCompletion'
-import { ContactDetailsCard } from './ProfileContact'
-import { Avatar, PhotoCard, usePatientPhoto } from './ProfilePhoto'
+import { ContactDetails } from './ProfileContact'
+import { Avatar, ProfilePhotoControl, usePatientPhoto } from './ProfilePhoto'
 import { CoverageCard } from './ProfileCoverage'
 import { HealthInformationCard } from './HealthInformation'
 import { ShareInvitationsCard } from './ShareInvitations'
@@ -49,7 +44,6 @@ const links = [
   { to: '/records', label: 'Records' },
   { to: '/access', label: 'Access' },
   { to: '/notifications', label: 'Notifications' },
-  { to: '/settings', label: 'Settings' },
 ] as const
 
 function date(value: string | null | undefined) {
@@ -157,11 +151,16 @@ const noRecords = async (): Promise<PatientRecords | null> => null
 /** A migrated patient's hid-1.0 health details, as they were: read-only, and only the ones they filled in. */
 function ImportedHealthCard({ profile }: { profile: ImportedHealthProfile }) {
   return <ProfileSection id="hid1-health-details" title="From your hid-1.0 account">
-    <p className="patient-field-hint">The health details you kept in hid-1.0, carried over with your account{profile.updatedAt
-      ? `, as last updated on ${date(profile.updatedAt)}` : ''}. They can't be changed here.</p>
+    <p className="patient-field-hint">Carried over from hid-1.0{profile.updatedAt
+      ? `, last updated on ${date(profile.updatedAt)}` : ''}. They can't be changed here.</p>
     <dl className="patient-details">{IMPORTED_HEALTH_FIELDS.filter(field => profile.content[field]).map(field =>
       <div key={field}><dt>{HEALTH_LABELS[field]}</dt><dd className="patient-multiline">{profile.content[field]}</dd></div>)}</dl>
   </ProfileSection>
+}
+
+/** The profile's parts with an id of their own, and the section each is in: a link to one opens that section. */
+const PROFILE_SECTION_PARTS: Readonly<Record<string, string>> = {
+  'contact-details': 'bio-data', 'access-pin': 'bio-data', 'emergency-contacts': 'health-information',
 }
 
 /**
@@ -173,8 +172,11 @@ function ImportedHealthCard({ profile }: { profile: ImportedHealthProfile }) {
  * hid-1.0 parity B3 (hid-system 0094): the profile's completion, contact details, photo, coverage and health
  * information, each shown only where the backend serves it (a 404, or GET identity/me without the new keys, hides it).
  *
- * Every section starts closed and opens as the patient clicks its heading (the owner's decision of 2026-10-28:
- * ProfileSection.tsx); a link to one (/profile#coverage) opens it (useOpenSections).
+ * As hid-1.0 had it (the owner's decisions of 2026-10-28): the completion first, always shown; then Bio-data, whose
+ * picture is the photo control and whose rows end with the email and phone and the Access PIN; then Coverage, Health
+ * information with the emergency contacts in it, and Delete account last. There is no Settings page. Every section
+ * but the completion starts closed and opens as the patient clicks its heading (ProfileSection.tsx); a link to one
+ * (/profile#coverage) opens it (useOpenSections), and one to a part of one (PROFILE_SECTION_PARTS) opens its section.
  */
 export function ProfilePage() {
   const { api } = useSession()
@@ -184,7 +186,7 @@ export function ProfilePage() {
   const records = usePatientResource<PatientRecords | null>(usesNovuBackend() ? api.records : noRecords)
   const imported = records.error ? null : records.data?.importedHealthProfile ?? null
   const heading = useRef<HTMLHeadingElement>(null)
-  const sections = useOpenSections()
+  const sections = useOpenSections(PROFILE_SECTION_PARTS)
   useFocusSectionFromHash(heading)
   const completion = completionOf(profile.error ? null : profile.data, { details, health, contacts })
   const shown = profile.data && !profile.error ? profile.data : null
@@ -192,23 +194,33 @@ export function ProfilePage() {
   return <section className="patient-section"><p className="patient-eyebrow">Identity</p><h1 ref={heading} tabIndex={-1} className="patient-page-title">Your profile</h1>
     <p className="patient-page-copy">These details come from your verified Health ID account.</p>
     <LoadState loading={profile.loading} error={profile.error} retry={profile.reload} hasData={profile.data !== null} focusTarget={heading} />
+    {shown && completion && <ProfileCompletionCard completion={completion} />}
     <OpenSectionsContext.Provider value={sections}>
-      {shown && completion && <ProfileCompletionCard completion={completion} />}
-      {shown && <ProfileSection id="bio-data" title="Bio-data" busy={profile.loading}><dl className="patient-details">
-        <div><dt>Health ID</dt><dd><HealthIdCode code={shown.hid} /></dd></div>
-        <div><dt>Full name</dt><dd>{shown.fullName}</dd></div>
-        <div><dt>Date of birth</dt><dd>{date(shown.dateOfBirth)}</dd></div>
-        <div><dt>Gender</dt><dd>{shown.gender || 'Not provided'}</dd></div>
-        <div><dt>State</dt><dd>{shown.state || 'Not provided'}</dd></div>
-        <div><dt>Country</dt><dd>{shown.country || 'Not provided'}</dd></div>
-        <div><dt>Identity assurance</dt><dd>{shown.assuranceState || 'Not available'}</dd></div>
-      </dl></ProfileSection>}
-      {shown && <ContactDetailsCard profile={shown} onChanged={profile.reload} />}
-      {shown && completionServed(shown) && <PhotoCard profile={shown} onChanged={profile.reload} />}
+      {shown && <ProfileSection id="bio-data" title="Bio-data" busy={profile.loading}>
+        {completionServed(shown) && <ProfilePhotoControl profile={shown} onChanged={profile.reload} />}
+        <dl className="patient-details">
+          <div><dt>Health ID</dt><dd><HealthIdCode code={shown.hid} /></dd></div>
+          <div><dt>Full name</dt><dd>{shown.fullName}</dd></div>
+          <div><dt>Date of birth</dt><dd>{date(shown.dateOfBirth)}</dd></div>
+          <div><dt>Gender</dt><dd>{shown.gender || 'Not provided'}</dd></div>
+          <div><dt>State</dt><dd>{shown.state || 'Not provided'}</dd></div>
+          <div><dt>Country</dt><dd>{shown.country || 'Not provided'}</dd></div>
+          <div><dt>Identity assurance</dt><dd>{shown.assuranceState || 'Not available'}</dd></div>
+        </dl>
+        <ContactDetails profile={shown} onChanged={profile.reload} />
+        <AccessPinSettings profile={shown} loading={profile.loading} onChanged={profile.reload} />
+      </ProfileSection>}
       {shown && <CoverageCard resource={details} />}
-      {shown && <HealthInformationCard resource={health} fromHid1={imported} />}
+      {/* The emergency contacts, in Health information (alone in it where the health information is not served). Both
+          backends: main's patient-safety routes, and hid-system #109's on Novu. They read availability first, and
+          show nothing where the routes are not served (Novu's 404), or while delivery is off for a patient without
+          contacts. */}
+      {shown && <HealthInformationCard resource={health} fromHid1={imported} contacts={alone => <EmergencyContactsCard alone={alone} />} />}
       {shown && imported && <ImportedHealthCard profile={imported} />}
       {shown && <NinVerificationCard profile={shown} onVerified={profile.reload} />}
+      {/* Both backends: hid-system main's 0064, and on Novu hid-system 0096. A backend that does not serve it answers 404,
+          and the card shows nothing. */}
+      {shown && <AccountDeletionCard />}
     </OpenSectionsContext.Provider>
   </section>
 }
@@ -452,7 +464,7 @@ export function AccessPage() {
             {revoking === item.consentGrantId
               ? <form className="patient-deny-form" onSubmit={event => { event.preventDefault(); void revoke(item.consentGrantId) }}><label>Reason for revocation<input id={`revoke-reason-${item.consentGrantId}`} autoFocus required minLength={3} maxLength={500} value={revokeReason} onChange={event => setRevokeReason(event.target.value)}
                   aria-describedby={`revoke-reason-hint-${item.consentGrantId}`} /></label>
-                <p id={`revoke-reason-hint-${item.consentGrantId}`} className="patient-field-hint">At least 3 characters. If this facility has your Access PIN, it can use it to get access again. To stop that, change or remove your PIN in Settings.</p><button type="submit" disabled={revokeBusy || history.loading || revokeReason.trim().length < 3}>Confirm revocation</button>
+                <p id={`revoke-reason-hint-${item.consentGrantId}`} className="patient-field-hint">At least 3 characters. If this facility has your Access PIN, it can use it to get access again. To stop that, change or remove your PIN in your profile’s Bio-data.</p><button type="submit" disabled={revokeBusy || history.loading || revokeReason.trim().length < 3}>Confirm revocation</button>
                 <button type="button" className="patient-secondary-button" disabled={revokeBusy} onClick={() => cancelRevocation(item.consentGrantId)}>Cancel</button></form>
               : <button id={`revoke-${item.consentGrantId}`} type="button" className="patient-secondary-button" disabled={history.loading} onClick={() => openRevocation(item.consentGrantId)}>Revoke access <ItemName>for {grantee(item)}, {item.scope}, from {dateTime(item.startsAt)}</ItemName></button>}
           </div>}
@@ -578,38 +590,32 @@ function pinProblem(cause: unknown, fallback: string) {
     ? 'For your security, sign out, sign in again, and return here within 10 minutes to change your Access PIN.' : cause.message
 }
 
-export function SettingsPage() {
+/**
+ * The Access PIN, at the end of Bio-data (moved there from Settings, which is gone: the owner's decision of
+ * 2026-10-28): its status, Set or Replace PIN, and Revoke. A refused PIN is tied to its field (PR-07), as a refused
+ * NIN is.
+ */
+function AccessPinSettings({ profile, loading, onChanged }: {
+  profile: PatientProfile; loading: boolean; onChanged: () => Promise<unknown>
+}) {
   const { api } = useSession()
-  useDocumentTitle('Settings · Health ID')
-  const profile = usePatientResource(api.profile)
   const [pin, setPin] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
-  // Starts at HID- (owner decision, 2026-10-27); an email typed after it drops it, and HID- alone is not filled in.
-  // Empty until focused, so a browser can still fill a saved sign-in; HID- as soon as the person starts.
-  const [googlePrincipal, setGooglePrincipal] = useState('')
-  const principalTyped = !isBlankHealthIdInput(googlePrincipal)
-  const [googlePassword, setGooglePassword] = useState('')
-  const [googleToken, setGoogleToken] = useState<string | null>(null)
-  const [googleReset, setGoogleReset] = useState(0)
-  // A refused PIN is tied to its field (PR-07), as a refused NIN is on the profile.
   const [pinFieldError, setPinFieldError] = useState(false)
   const [errorAlert, setErrorAlert] = useState(true)
-  const heading = useRef<HTMLHeadingElement>(null)
   const pinHeading = useRef<HTMLHeadingElement>(null)
   // Save PIN is disabled once the field is cleared, so focus goes back to the field.
   const pinFocus = useStepFocus()
   const revokePinButton = useRef<HTMLButtonElement>(null)
   const focusAfter = useActionFocus()
-  // The profile's completion links to the emergency contacts here (/settings#emergency-contacts).
-  useFocusSectionFromHash(heading)
 
   const configurePin = async (event: FormEvent) => {
     event.preventDefault(); if (busy || !/^\d{4,8}$/.test(pin)) return
     const fromField = pinFocus.onTarget()
     setBusy(true); setError(null); setNotice(null); setPinFieldError(false); setErrorAlert(true)
-    try { await api.setAccessPin(pin); setPin(''); setNotice('Access PIN configured.'); await profile.reload() }
+    try { await api.setAccessPin(pin); setPin(''); setNotice('Access PIN configured.'); await onChanged() }
     catch (cause) {
       const aboutField = isFieldProblem(cause)
       setError(pinProblem(cause, 'Access PIN could not be updated.'))
@@ -619,47 +625,32 @@ export function SettingsPage() {
   const revokePin = async () => {
     if (busy) return
     setBusy(true); setError(null); setNotice(null); setPinFieldError(false); setErrorAlert(true)
-    try { await api.revokeAccessPin(); setNotice('Access PIN revoked.'); await profile.reload(); focusAfter(() => pinHeading.current) }
+    try { await api.revokeAccessPin(); setNotice('Access PIN revoked.'); await onChanged(); focusAfter(() => pinHeading.current) }
     catch (cause) {
       setError(pinProblem(cause, 'Access PIN could not be revoked.'))
       focusAfter(() => revokePinButton.current)
     } finally { setBusy(false) }
   }
-  const linkGoogle = async (idToken: string) => {
-    if (!googleToken || !principalTyped || !googlePassword) return
-    setBusy(true); setError(null); setNotice(null); setPinFieldError(false); setErrorAlert(true)
-    try { await api.googleLink(idToken, emailOrHealthId(googlePrincipal), googlePassword, googleToken); setGooglePassword(''); setNotice('Google identity linked.') }
-    catch (cause) { setError(isHidApiError(cause) ? cause.message : 'Google identity could not be linked.') }
-    finally { setGoogleToken(null); setGoogleReset(value => value + 1); setBusy(false) }
-  }
 
-  return <section className="patient-section"><p className="patient-eyebrow">Account</p><h1 ref={heading} tabIndex={-1} className="patient-page-title">Settings</h1>
-    {error && <p id="settings-error" role={errorAlert ? 'alert' : undefined} className="patient-inline-error">{error}</p>}
+  return <div id="access-pin" className="patient-access-pin">
+    <h3 ref={pinHeading} tabIndex={-1}>Access PIN</h3>
+    {error && <p id="access-pin-error" role={errorAlert ? 'alert' : undefined} className="patient-inline-error">{error}</p>}
     <div role="status">{notice && <p className="patient-inline-success">{notice}</p>}</div>
-    <LoadState loading={profile.loading} error={profile.error} retry={profile.reload} hasData={profile.data !== null} focusTarget={heading} />
-    {profile.data && !profile.error && <div className="patient-card" aria-busy={profile.loading || undefined}><h2 ref={pinHeading} tabIndex={-1}>Access PIN</h2>
-      <p id="access-pin-hint" className="patient-field-hint">Your PIN is 4 to 8 digits. A provider must still have the right role and purpose to use this PIN. You must have signed in within the last 10 minutes to change it.</p>
-      <p>Status: <strong>{profile.data.accessPinConfigured ? 'Configured' : 'Not configured'}</strong></p>
-      <form onSubmit={event => void configurePin(event)} className="patient-form patient-inline-form"><label>{profile.data.accessPinConfigured ? 'Replace PIN' : 'Set PIN'}<input ref={pinFocus.target} required type="password" inputMode="numeric" autoComplete="new-password" pattern="[0-9]{4,8}" minLength={4} maxLength={8} value={pin} onChange={event => setPin(event.target.value.replace(/\D/g, '').slice(0, 8))}
-        aria-invalid={pinFieldError || undefined} aria-describedby={describedBy('access-pin-hint', pinFieldError && 'settings-error')} /></label>
-        <button type="submit" className="patient-primary-button" disabled={busy || !/^\d{4,8}$/.test(pin)}>Save PIN</button></form>
-      {profile.data.accessPinConfigured && <button ref={revokePinButton} type="button" className="patient-secondary-button" disabled={busy || profile.loading} onClick={() => void revokePin()}>Revoke Access PIN</button>}
-    </div>}
-    {/* Both backends: main's patient-safety routes, and hid-system #109's on Novu (staging-novu-ci-20261005). The card
-        reads availability first, and shows nothing where the routes are not served (Novu's 404), or while delivery
-        is off for a patient without contacts. */}
-    <EmergencyContactsCard />
-    {import.meta.env.VITE_HID_GOOGLE_CLIENT_ID && googleClientId() && <div className="patient-card"><h2>Link a Google account</h2><p className="patient-field-hint">Confirm your existing Health ID credentials before linking.</p>
-      <div className="patient-form"><label>Email or Health ID<input autoComplete="username" value={googlePrincipal} onFocus={() => { if (!googlePrincipal) setGooglePrincipal(HEALTH_ID_PREFIX) }} onChange={event => setGooglePrincipal(healthIdOrOtherInput(event.target.value))} /></label>
-        {/* No form is sent here (Google's button sends it), so each attempt remounts the field masked. */}
-        <div className="patient-field"><label htmlFor="google-link-password">Current password</label><PasswordInput appearance="plain" key={googleReset} id="google-link-password" autoComplete="current-password" value={googlePassword} onChange={event => setGooglePassword(event.target.value)} /></div>
-        <Turnstile action="patient-login" onTokenChange={setGoogleToken} resetKey={googleReset} />
-        <GoogleButton text="continue_with" disabled={busy || !googleToken || !principalTyped || !googlePassword} onCredential={linkGoogle}
-          disabledReason={googleToken && principalTyped && googlePassword ? undefined
-            : 'Enter your email or Health ID and current password, and complete the security check, to link Google.'} /></div>
-    </div>}
-    {/* Both backends: hid-system main's 0064, and on Novu hid-system 0096. A backend that does not serve it answers 404,
-        and the card shows nothing. */}
-    <AccountDeletionCard />
-  </section>
+    <p id="access-pin-hint" className="patient-field-hint">4 to 8 digits. You must have signed in within the last 10 minutes to change it.</p>
+    <p>Status: <strong>{profile.accessPinConfigured ? 'Configured' : 'Not configured'}</strong></p>
+    <form onSubmit={event => void configurePin(event)} className="patient-form patient-inline-form"><label>{profile.accessPinConfigured ? 'Replace PIN' : 'Set PIN'}<input ref={pinFocus.target} required type="password" inputMode="numeric" autoComplete="new-password" pattern="[0-9]{4,8}" minLength={4} maxLength={8} value={pin} onChange={event => setPin(event.target.value.replace(/\D/g, '').slice(0, 8))}
+      aria-invalid={pinFieldError || undefined} aria-describedby={describedBy('access-pin-hint', pinFieldError && 'access-pin-error')} /></label>
+      <button type="submit" className="patient-primary-button" disabled={busy || !/^\d{4,8}$/.test(pin)}>Save PIN</button></form>
+    {profile.accessPinConfigured && <button ref={revokePinButton} type="button" className="patient-secondary-button" disabled={busy || loading} onClick={() => void revokePin()}>Revoke Access PIN</button>}
+  </div>
+}
+
+/**
+ * Settings is gone (the owner's decision of 2026-10-28): its Access PIN, emergency contacts and account deletion are on
+ * the profile, and Google sign-in links by the verified email, so there is nothing to link here. An old link opens the
+ * profile at the same # (/settings#emergency-contacts opens Health information there).
+ */
+export function SettingsRedirect() {
+  const { hash } = useLocation()
+  return <Navigate to={{ pathname: '/profile', hash }} replace />
 }

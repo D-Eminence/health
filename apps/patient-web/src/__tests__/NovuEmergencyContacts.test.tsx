@@ -51,12 +51,9 @@ async function fillNewContact(destination: string) {
 describe('what a contact is told', () => {
   it('says what #109\'s alert carries, and never the first name only', async () => {
     serve(on([contact()]))
-    const copy = (await screen.findByText(/each verified contact gets a message/)).textContent
-    expect(copy).toBe('If a health worker uses emergency access to open your record, each verified contact gets a message with '
-      + 'your full name, the last four characters of your Health ID, the health worker\'s name, the facility and the time. It says '
-      + 'only that your record was opened for emergency care. It never includes medical details or the reason the health worker '
-      + 'gave. It also gives the facility\'s phone number, or Health ID support\'s if the facility has none, and how to stop these '
-      + 'alerts. A contact is only notified after they confirm a verification code and while alerts are on.')
+    // One short line (the owner's decision of 2026-10-28): who, where and when, and never medical details.
+    const copy = (await screen.findByText(/verified contacts are told who opened it/)).textContent
+    expect(copy).toBe('If a health worker opens your record in an emergency, verified contacts are told who opened it, where and when. Never medical details.')
     expect(screen.queryByText(/first name/)).toBeNull()
   })
 })
@@ -446,8 +443,7 @@ describe('delivery off with contacts (state B)', () => {
     expect(within(items[0]!).getByText('Not verified · will not be notified')).toBeTruthy()
     expect(within(items[1]!).getByText('Verified · alerts are paused')).toBeTruthy()
     expect(within(items[2]!).getByText('Verified · notifications off')).toBeTruthy()
-    expect(screen.getByText('Alerts to emergency contacts are paused. Contacts cannot be added or verified right now; you can '
-      + 'still remove one.')).toBeTruthy()
+    expect(screen.getByText('Alerts are paused. You can only remove contacts for now.')).toBeTruthy()
     expect(screen.queryByText(/will be notified in an emergency/)).toBeNull()
     expect(screen.queryByText(/A verification code is pending/)).toBeNull()
     for (const name of [/^Send verification code/, /^Edit/, /^Add emergency contact/]) expect(screen.queryByRole('button', { name })).toBeNull()

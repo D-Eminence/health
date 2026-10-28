@@ -523,8 +523,6 @@ export function createPatientApi(sender: ApiClient) {
       inRefreshTurn(() => call<PatientSession | { stage: 'GOOGLE_AUTHENTICATED_PENDING_IDENTITY'; expiresAt: string }>(
         'POST', 'auth/oidc/exchange', { idToken, turnstileToken, turnstileAction: 'patient-login', intent })),
     googleOnboarding: () => call<{ stage: 'GOOGLE_AUTHENTICATED_PENDING_IDENTITY'; expiresAt: string }>('GET', 'auth/google/onboarding'),
-    googleLink: (idToken: string, principal: string, password: string, turnstileToken: string) =>
-      call<{ linked: true }>('POST', 'auth/google/link', { idToken, principal, password, turnstileToken, turnstileAction: 'patient-login' }),
     enrollmentCurrent: () => call<EnrollmentProgress>('GET', 'identity/patient-enrollments/current'),
     // hid-system#68 (FE-4): whether a start would pass its checks made before a NIN is read.
     // Only `{ open: true }` means open (INTERFACE_CONTRACT.md, public patient enrollment).
