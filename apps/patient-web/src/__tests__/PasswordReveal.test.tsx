@@ -68,7 +68,7 @@ describe('showing the password', () => {
   it('patient sign-in: a refused attempt keeps the password and masks it again', async () => {
     signIn.mockRejectedValue(new HidApiError(401, 'Email, Health ID or password is incorrect.'))
     show(<SignIn />)
-    fireEvent.change(screen.getByLabelText('Email or Health ID'), { target: { value: 'ada@example.test' } })
+    fireEvent.change(screen.getByLabelText('Email, phone or Health ID'), { target: { value: 'ada@example.test' } })
     const password = typeAndShow('Password')
     fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Sign in' })) })
@@ -91,7 +91,7 @@ describe('showing the password', () => {
     api.recoveryStart.mockResolvedValue({ challengeId: 'challenge-1', resendAfterSeconds: 60 })
     api.recoveryVerify.mockResolvedValue({ verificationToken: 'verified' })
     show(<Recovery />)
-    fireEvent.change(screen.getByLabelText('Email or Health ID'), { target: { value: 'ada@example.test' } })
+    fireEvent.change(screen.getByLabelText('Email, phone or Health ID'), { target: { value: 'ada@example.test' } })
     fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
     fireEvent.click(screen.getByRole('button', { name: 'Send recovery code' }))
     // The sixth digit sends the code (CodeBoxes.tsx).

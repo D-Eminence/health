@@ -74,6 +74,9 @@ const one = (method: EndpointMethod, ...permissions: string[]): Partial<Record<E
  * served by main (#94, #95) under the contracts in the entries further down.
  */
 const NOT_ON_MAIN = 'Served by a hid-system staging branch; not served by hid-system main (41542fc).'
+/** hid-1.0 patient parity B2 (owner decisions of 2026-10-28): served once hid-system 0093 is, and only by Novu. */
+const PARITY_B2 = 'Served by hid-system staging-novu-ci-20261005 from migration 0093 (patient parity B2); not served by hid-system main, '
+  + 'and an Identity before 0093 answers 404, which the portal takes as not offered.'
 const CHAT_NOTE = `${NOT_ON_MAIN} The screen is off unless the build turns it on.`
 const STAFF_CHAT_NOTE = 'Staff sessions holding ehr.record-chat.use, for direct care only (X-Purpose-Of-Use: direct-care, never break-glass). '
   + 'Off by default in hid-system (ADR-069, 0101): 503 RECORD_CHAT_DISABLED until RECORD_CHAT_STAFF_ENABLED and the platform control are on.'
@@ -411,6 +414,12 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
 
   r('identity.me','identity','/api/v1/identity/me',G),
   r('identity.accessHistory','identity','/api/v1/identity/me/access-history',G),
+  // hid-1.0 patient parity B2 (hid-system 0093 on staging-novu-ci-20261005): who viewed or changed the record.
+  proposed(r('identity.accessLog','identity','/api/v1/identity/me/access-log',G,false,undefined,
+    `${PARITY_B2} Patient sessions only. Optional limit (1 to 100, 50 by default) and before (the opaque nextBefore of `
+    + 'the page before); 200 { events: [{ id, at, action, actorKind, actorName, facilityName }], nextBefore }, newest first. '
+    + 'action is viewed, changed, access_granted, access_ended or emergency_access; actorKind clinician, facility, patient, '
+    + 'support or system. Refused attempts and record contents are never sent.')),
   r('identity.accessPin','identity','/api/v1/identity/me/access-pin',['POST','DELETE']),
   r('identity.verifyNin','identity','/api/v1/identity/me/verification/nin',P),
   // Phase 3 patient safety (hid-system phase-3-patient-safety, ADR-036).
@@ -599,6 +608,16 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('access.revokeMyGrant','access','/api/v1/identity/me/consent-grants/:grantId/revoke',P),
   r('notifications.list','notifications','/api/v1/identity/me/notifications',G),
   r('notifications.read','notifications','/api/v1/identity/me/notifications/:notificationId/read',P),
+  // hid-1.0 patient parity B2 (hid-system 0093 on staging-novu-ci-20261005): the bell's count; an Identity before it answers 404.
+  proposed(r('notifications.unreadCount','notifications','/api/v1/identity/me/notifications/unread-count',G,false,undefined,
+    `${PARITY_B2} Patient sessions only: 200 { unread }, the unread inbox items and unread imported hid-1.0 notifications. `
+    + 'Read every minute while the portal is visible, without renewing the sign-in.')),
+  // The patient's notifications carried over from hid-1.0 (hid-system 0062 on staging-novu-ci-20261005).
+  proposed(r('notifications.imported','notifications','/api/v1/identity/me/imported-notifications',G,false,undefined,
+    'Served by hid-system staging-novu-ci-20261005 (0062); not served by hid-system main. Optional limit (1 to 100) and offset; '
+    + '200 [{ id, title, message, type, readAt, createdAt }]. Each list is audited, so it is read once per visit and never polled.')),
+  proposed(r('notifications.importedRead','notifications','/api/v1/identity/me/imported-notifications/:notificationId/read',P,false,undefined,
+    'Served by hid-system staging-novu-ci-20261005 (0062); not served by hid-system main. 200 { id, readAt }; audited.')),
 
   r('ehr.myRecords','ehr','/api/v1/ehr/me/records',G),
   r('ehr.myImportedHistory','ehr','/api/v1/ehr/me/imported-history',G,false,undefined,

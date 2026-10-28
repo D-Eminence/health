@@ -86,7 +86,8 @@ describe('the sign-up without a NIN (owner decision, 2026-10-27)', () => {
     expect(document.activeElement).toBe(codeField)
     expect(described(codeField)).toContain('We sent a 6-digit code to a•••@example.com.')
     const signup = sent.find(request => request.path === `${BASE}/signup`)
-    expect(signup?.body).toEqual({ firstName: 'Ada', lastName: 'Obi', email: 'ada@example.com', phone: '08012345678', gender: 'female',
+    // The country code picker starts at Nigeria: a number written locally is sent as E.164 (hid-1.0 parity B2).
+    expect(signup?.body).toEqual({ firstName: 'Ada', lastName: 'Obi', email: 'ada@example.com', phone: '+2348012345678', gender: 'female',
       hospitalCurrentlyUsing: 'Lagos General', termsAccepted: true, turnstileToken: 'turnstile-token', turnstileAction: 'patient-enrollment' })
     expect(headers.find(request => request.path === `${BASE}/signup`)?.headers.get('Idempotency-Key')).toMatch(/^[0-9a-f-]{36}$/)
 
@@ -248,20 +249,83 @@ describe('the sign-up without a NIN (owner decision, 2026-10-27)', () => {
     expect((screen.getByRole('button', { name: 'Create account' }) as HTMLButtonElement).disabled).toBe(true)
   })
 
-  it('fills in the name and email from Google, with nothing sent for it', async () => {
+  it('asks Identity about the Google account first, then fills in the name and email from it', async () => {
     vi.stubEnv('VITE_HID_GOOGLE_CLIENT_ID', 'google-client')
     googleCredential = idToken({ given_name: 'Adaeze', family_name: 'Okafor', name: 'Adaeze Okafor', email: 'adaeze@gmail.com' })
-    const { sent } = renderPortal(<Enrollment />, gateway(happy), anonymous)
+    const { sent } = renderPortal(<Enrollment />, gateway((path, method, body) => path === '/auth/oidc/exchange'
+      ? json({ stage: 'GOOGLE_AUTHENTICATED_PENDING_IDENTITY', expiresAt: '2099-01-01T00:00:00.000Z' }, 202) : happy(path, method, body)), anonymous)
     await screen.findByRole('heading', { name: 'Your details' })
 
+    // Its own security check, as on the sign-in page ('patient-login'): until then Google cannot be used.
+    await press(screen.getByRole('button', { name: 'Continue with Google' }))
+    expect(sent.some(request => request.path.startsWith('/auth/oidc'))).toBe(false)
+    fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
     await press(screen.getByRole('button', { name: 'Continue with Google' }))
 
     expect((field('First name') as HTMLInputElement).value).toBe('Adaeze')
     expect((field('Last name') as HTMLInputElement).value).toBe('Okafor')
     expect((field('Email address') as HTMLInputElement).value).toBe('adaeze@gmail.com')
     expect(screen.getByText('Google details added. Check them and complete the form to continue.')).toBeTruthy()
-    expect(sent.filter(request => request.method === 'POST')).toEqual([])
-    expect(sent.some(request => request.path.startsWith('/auth/oidc'))).toBe(false)
+    expect(sent.filter(request => request.method === 'POST')).toEqual([{ path: '/auth/oidc/exchange', method: 'POST',
+      body: { idToken: googleCredential, turnstileToken: 'turnstile-token', turnstileAction: 'patient-login', intent: 'enroll' } }])
+  })
+
+  it('tells a Google email that already has a Health ID to sign in with Google, and fills in nothing (409 GOOGLE_ACCOUNT_EXISTS)', async () => {
+    vi.stubEnv('VITE_HID_GOOGLE_CLIENT_ID', 'google-client')
+    googleCredential = idToken({ given_name: 'Adaeze', family_name: 'Okafor', email: 'adaeze@gmail.com' })
+    const { sent } = renderPortal(<Enrollment />, gateway((path, method, body) => path === '/auth/oidc/exchange'
+      ? problem(409, 'GOOGLE_ACCOUNT_EXISTS', 'You already have a Health ID. Sign in with Google instead.') : happy(path, method, body)), anonymous)
+    await screen.findByRole('heading', { name: 'Your details' })
+    fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
+    const google = screen.getByRole('button', { name: 'Continue with Google' })
+    await press(google)
+
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toContain('You already have a Health ID. Sign in with Google instead.')
+    expect(within(alert).getByRole('link', { name: 'Sign in with Google' }).getAttribute('href')).toBe('/sign-in')
+    expect((field('First name') as HTMLInputElement).value).toBe('')
+    expect((field('Email address') as HTMLInputElement).value).toBe('')
+    // Said where it was asked, with focus left there.
+    expect(document.activeElement).toBe(google)
+    expect(sent.filter(request => request.method === 'POST').map(request => request.path)).toEqual(['/auth/oidc/exchange'])
+  })
+
+  it('says an older Identity\'s refusal for an existing account with a link to sign in (409 GOOGLE_EXISTING_ACCOUNT_LINK_REQUIRED)', async () => {
+    vi.stubEnv('VITE_HID_GOOGLE_CLIENT_ID', 'google-client')
+    googleCredential = idToken({ given_name: 'Adaeze', email: 'adaeze@gmail.com' })
+    renderPortal(<Enrollment />, gateway((path, method, body) => path === '/auth/oidc/exchange'
+      ? problem(409, 'GOOGLE_EXISTING_ACCOUNT_LINK_REQUIRED', 'Sign in to your existing Health ID account to link Google') : happy(path, method, body)), anonymous)
+    await screen.findByRole('heading', { name: 'Your details' })
+    fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
+    await press(screen.getByRole('button', { name: 'Continue with Google' }))
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toContain('Sign in to your existing Health ID account to link Google')
+    expect(within(alert).getByRole('link', { name: 'Sign in' }).getAttribute('href')).toBe('/sign-in')
+  })
+
+  it('signs in a Google account already linked, as the sign-in page does', async () => {
+    vi.stubEnv('VITE_HID_GOOGLE_CLIENT_ID', 'google-client')
+    googleCredential = idToken({ given_name: 'Adaeze', email: 'adaeze@gmail.com' })
+    const session = { actor: { kind: 'patient', subject: 'patient:ada', patientId: 'patient-1', accountId: 'account-1', authenticationMethod: 'oidc' } }
+    const acceptGoogleSession = vi.fn()
+    renderPortal(<Enrollment />, gateway((path, method, body) => path === '/auth/oidc/exchange' ? json(session) : happy(path, method, body)),
+      { ...anonymous, acceptGoogleSession })
+    await screen.findByRole('heading', { name: 'Your details' })
+    fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
+    await press(screen.getByRole('button', { name: 'Continue with Google' }))
+    expect(acceptGoogleSession).toHaveBeenCalledWith(session)
+  })
+
+  it('still fills in the details when Identity could not be asked', async () => {
+    vi.stubEnv('VITE_HID_GOOGLE_CLIENT_ID', 'google-client')
+    googleCredential = idToken({ given_name: 'Adaeze', family_name: 'Okafor', email: 'adaeze@gmail.com' })
+    renderPortal(<Enrollment />, gateway((path, method, body) => path === '/auth/oidc/exchange'
+      ? problem(503, 'UPSTREAM_UNAVAILABLE', 'Unavailable') : happy(path, method, body)), anonymous)
+    await screen.findByRole('heading', { name: 'Your details' })
+    fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
+    await press(screen.getByRole('button', { name: 'Continue with Google' }))
+    expect((field('Email address') as HTMLInputElement).value).toBe('adaeze@gmail.com')
+    expect(screen.queryByRole('alert')).toBeNull()
   })
 
   it('shows the NIN-first enrollment, as before, while availability does not say signup: true', async () => {
@@ -290,5 +354,63 @@ describe('reading a Google credential (googleProfileOf)', () => {
   it('reads nothing from a token that is not a JWT', () => {
     expect(googleProfileOf('not-a-token')).toBeNull()
     expect(googleProfileOf('a.%%%.c')).toBeNull()
+  })
+})
+
+/** The country code picker (hid-1.0 parity B2, owner decision 2026-10-28): any country's number, sent as E.164. */
+describe('the sign-up phone number', () => {
+  async function signUpWith(phone: string, country?: string) {
+    const view = renderPortal(<Enrollment />, gateway(happy), anonymous)
+    await fillDetails({ phone })
+    if (country) fireEvent.change(field('Country code'), { target: { value: country } })
+    await press(screen.getByRole('button', { name: 'Continue' }))
+    return view
+  }
+  const sentPhone = async (sent: ReturnType<typeof renderPortal>['sent']) => {
+    await screen.findByRole('heading', { name: 'Create a secure password' })
+    await sendPassword()
+    await screen.findByLabelText('Verification code')
+    return (sent.find(request => request.path === `${BASE}/signup`)?.body as { phone?: string } | undefined)?.phone
+  }
+
+  it('starts at Nigeria, offers every country with its code, and says how to write the number', async () => {
+    renderPortal(<Enrollment />, gateway(happy), anonymous)
+    await screen.findByRole('heading', { name: 'Your details' })
+    const picker = field('Country code') as HTMLSelectElement
+    expect(picker.value).toBe('NG')
+    expect(picker.selectedOptions[0]?.textContent).toBe('Nigeria (+234)')
+    expect(within(picker).getByRole('option', { name: 'United Kingdom (+44)' })).toBeTruthy()
+    expect(within(picker).getByRole('option', { name: 'Ghana (+233)' })).toBeTruthy()
+    expect(picker.options.length).toBeGreaterThan(190)
+    expect(described(field('Phone number'))).toContain('Choose your country, then enter your number.')
+  })
+
+  it.each([
+    ['a Nigerian number written locally', '0801 234 5678', undefined, '+2348012345678'],
+    ['a Nigerian number without its 0', '801 234 5678', undefined, '+2348012345678'],
+    ['a United Kingdom number written locally', '07700 900123', 'GB', '+447700900123'],
+    ['a United States number', '(212) 555-0123', 'US', '+12125550123'],
+    ['a number typed with + and its code, whatever the picker says', '+44 7700 900123', 'NG', '+447700900123'],
+    ['a number typed with 00 and its code', '00233 24 123 4567', 'NG', '+233241234567'],
+  ])('sends %s as E.164', async (_, typed, country, phone) => {
+    const { sent } = await signUpWith(typed, country)
+    expect(await sentPhone(sent)).toBe(phone)
+  })
+
+  it.each([
+    ['too short', '12', undefined],
+    ['a Nigerian number of the wrong length', '0801 234 567', undefined],
+    ['letters', '0801 ABC 5678', undefined],
+  ])('refuses a number that is %s at its field, and sends nothing', async (_, typed, country) => {
+    const { sent } = await signUpWith(typed, country)
+    expect(described(field('Phone number'))).toContain('Enter a valid phone number for the country chosen')
+    expect(sent.filter(request => request.method === 'POST')).toEqual([])
+  })
+
+  it('drops the phone number\'s mark once its country is changed', async () => {
+    await signUpWith('07700 900', undefined)
+    expect(field('Phone number').getAttribute('aria-invalid')).toBe('true')
+    fireEvent.change(field('Country code'), { target: { value: 'GB' } })
+    expect(field('Phone number').getAttribute('aria-invalid')).toBeNull()
   })
 })

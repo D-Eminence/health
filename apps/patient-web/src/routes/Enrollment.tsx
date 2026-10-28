@@ -4,6 +4,7 @@ import { isHidApiError, retryAfterSeconds } from '@hid/http'
 import { ENROLLMENT_PROFILE_FIELDS, type EnrollmentActivation, type EnrollmentFacilityRoute, type EnrollmentGender, type EnrollmentOnlineRoute,
   type EnrollmentProfile, type EnrollmentProfileField, type EnrollmentProgress } from '../api'
 import { GoogleButton } from '../GoogleButton'
+import { ExistingAccountAlert, existingAccount, type ExistingAccount } from './enrollment/googleAccountExists'
 import { googleClientId } from '../googleClient'
 import { Turnstile } from '../Turnstile'
 import { AuthLayout } from '../AuthLayout'
@@ -210,6 +211,8 @@ export function Enrollment() {
   // and 'patient-login'), so one is shown at a time: the path the person chose.
   const [ninPath, setNinPath] = useState<'nin' | 'google'>('nin')
   const googleHeading = useRef<HTMLSpanElement>(null)
+  // A Google sign-up refused because that Google email already has a Health ID (googleAccountExists.tsx).
+  const [accountExists, setAccountExists] = useState<ExistingAccount | null>(null)
   const [busy, setBusy] = useState(false)
   const [checking, setChecking] = useState(true)
   const [checkError, setCheckError] = useState(false)
@@ -447,7 +450,7 @@ export function Enrollment() {
     setFieldError(aboutField)
     setErrorAlert(!aboutField || fromField)
   }
-  const clearError = () => { setError(null); setFieldError(false); setErrorAlert(true); setNotice(null); setHolderCodeError(false); setNotRecordedYet(false) }
+  const clearError = () => { setError(null); setFieldError(false); setErrorAlert(true); setNotice(null); setHolderCodeError(false); setNotRecordedYet(false); setAccountExists(null) }
   /** An error that is not about a field, read as an alert. */
   const sayError = (message: string) => { setError(message); setFieldError(false); setErrorAlert(true) }
 
@@ -796,7 +799,12 @@ export function Enrollment() {
       // Binding answers only that it bound; the enrollment's own progress is read
       // again, so a patient already past the contact step is not sent back to it.
       if (stage !== 'nin') { await api.enrollmentBindGoogle(); applyProgress(await api.enrollmentCurrent()) }
-    } catch (reason) { displayError(reason); setFieldError(false); setErrorAlert(true) }
+    } catch (reason) {
+      // The Google email already has a Health ID (409 GOOGLE_ACCOUNT_EXISTS): said with the way to sign in instead.
+      const existing = existingAccount(reason)
+      if (existing) setAccountExists(existing)
+      else { displayError(reason); setFieldError(false); setErrorAlert(true) }
+    }
     finally { setGoogleTurnstileToken(null); setGoogleResetKey(value => value + 1); setBusy(false); stepFocus.focus() }
   }
 
@@ -905,6 +913,7 @@ export function Enrollment() {
         {/* On the NIN step, the chosen path's start is also where the step's focus goes (useStepFocus). */}
         <span ref={element => { googleHeading.current = element; if (element && stage === 'nin') stepFocus.target(element) }} tabIndex={-1}>{googleRequired ? 'Reconnect Google' : 'Continue with Google'}</span>
         {stage === 'nin' && <p className="patient-field-hint">You will still verify your NIN after Google confirms your account, unless that Google account already has a Health ID.</p>}
+        {accountExists && <ExistingAccountAlert account={accountExists} />}
         <Turnstile action="patient-login" onTokenChange={setGoogleTurnstileToken} resetKey={googleResetKey} />
         <GoogleButton text="signup_with" disabled={busy || !googleTurnstileToken} onCredential={onGoogle}
           disabledReason={googleTurnstileToken ? undefined : 'Complete the security check to continue with Google.'} />

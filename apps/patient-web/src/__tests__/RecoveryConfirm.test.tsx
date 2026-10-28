@@ -20,7 +20,7 @@ async function toPassword() {
   api.recoveryStart.mockResolvedValue({ accepted: true, challengeId: 'challenge-1', resendAfterSeconds: 60 })
   api.recoveryVerify.mockResolvedValue({ verified: true, challengeId: 'challenge-1', verificationToken: 'token-1' })
   render(<MemoryRouter><Recovery /></MemoryRouter>)
-  fireEvent.change(screen.getByLabelText('Email or Health ID'), { target: { value: 'ada@example.test' } })
+  fireEvent.change(screen.getByLabelText('Email, phone or Health ID'), { target: { value: 'ada@example.test' } })
   fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
   await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Send recovery code' })) })
   await enterCode(await screen.findByLabelText('Recovery code'), '123456')

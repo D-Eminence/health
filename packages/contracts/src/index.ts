@@ -32,6 +32,8 @@ export {
   isBlankHealthIdInput,
   isCompleteHealthId,
   normalizeHealthIdInput,
+  signInPrincipal,
+  signInPrincipalInput,
 } from './healthId'
 export type {
   DataClassification,

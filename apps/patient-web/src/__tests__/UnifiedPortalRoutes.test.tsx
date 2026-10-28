@@ -22,7 +22,9 @@ vi.mock('../admin/env', () => ({ environment: () => localEnvironment }))
 vi.mock('../api', () => ({
   createPatientApi: () => ({ session: calls.patientSession, refresh: calls.patientRefresh,
     enrollmentCurrent: calls.patientEnrollmentCurrent, googleOnboarding: calls.patientGoogleOnboarding, profile: calls.patientProfile,
-    enrollmentAvailability: calls.patientEnrollmentAvailability, participatingFacilities: calls.patientParticipatingFacilities }),
+    enrollmentAvailability: calls.patientEnrollmentAvailability, participatingFacilities: calls.patientParticipatingFacilities,
+    // The portal's bell listens for answered requests (notificationBadge.tsx).
+    onSessionAccepted: () => () => undefined }),
 }))
 vi.mock('../staff/api', () => ({
   staffApi: { session: calls.staffSession, refresh: calls.staffRefresh,
@@ -93,7 +95,7 @@ describe('unified authenticated portal routes', () => {
   it('opens patient sign in at /sign-in without mounting a staff or admin session', async () => {
     open('/sign-in')
 
-    expect(await screen.findByLabelText('Email or Health ID')).toBeTruthy()
+    expect(await screen.findByLabelText('Email, phone or Health ID')).toBeTruthy()
     expect(screen.getByTestId('portal-path').textContent).toBe('/sign-in')
     await waitFor(() => expect(calls.patientSession).toHaveBeenCalledOnce())
     expect(calls.staffSession).not.toHaveBeenCalled()
@@ -253,7 +255,7 @@ describe('unified authenticated portal routes', () => {
     await waitFor(() => expect(calls.staffSession).toHaveBeenCalledOnce())
     expect(calls.patientSession).not.toHaveBeenCalled()
     expect(calls.adminSession).not.toHaveBeenCalled()
-    expect(screen.queryByLabelText('Email or Health ID')).toBeNull()
+    expect(screen.queryByLabelText('Email, phone or Health ID')).toBeNull()
   })
 
   it('opens provider password recovery without requiring an existing session', async () => {
@@ -295,7 +297,7 @@ describe('unified authenticated portal routes', () => {
     await waitFor(() => expect(calls.adminSession).toHaveBeenCalledOnce())
     expect(calls.patientSession).not.toHaveBeenCalled()
     expect(calls.staffSession).not.toHaveBeenCalled()
-    expect(screen.queryByLabelText('Email or Health ID')).toBeNull()
+    expect(screen.queryByLabelText('Email, phone or Health ID')).toBeNull()
   })
 
   it('opens platform password recovery without requiring an existing session', async () => {
@@ -332,7 +334,7 @@ describe('unified authenticated portal routes', () => {
     await waitFor(() => expect(screen.getByTestId('portal-path').textContent).toBe('/provider/patients'))
     expect(screen.getByRole('heading', { name: 'Open a patient record.' })).toBeTruthy()
     expect(calls.patientSession).not.toHaveBeenCalled()
-    expect(screen.queryByLabelText('Email or Health ID')).toBeNull()
+    expect(screen.queryByLabelText('Email, phone or Health ID')).toBeNull()
   })
 
   it('keeps the provider session visible when server sign-out fails', async () => {

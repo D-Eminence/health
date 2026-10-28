@@ -63,7 +63,7 @@ describe('patient password recovery', () => {
   async function toCode() {
     api.recoveryStart.mockResolvedValue({ accepted: true, challengeId: 'challenge-1' })
     open()
-    fireEvent.change(screen.getByLabelText('Email or Health ID'), { target: { value: 'patient@example.test' } })
+    fireEvent.change(screen.getByLabelText('Email, phone or Health ID'), { target: { value: 'patient@example.test' } })
     fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
     await press('Send recovery code')
   }
@@ -166,7 +166,7 @@ describe('patient password recovery', () => {
   it('a missing security check (400 TURNSTILE_REQUIRED) is not about the identifier', async () => {
     api.recoveryStart.mockRejectedValue(new HidApiError(400, 'Complete the security check and try again.', { code: 'TURNSTILE_REQUIRED' }))
     open()
-    const identifier = screen.getByLabelText('Email or Health ID')
+    const identifier = screen.getByLabelText('Email, phone or Health ID')
     fireEvent.change(identifier, { target: { value: 'patient@example.test' } })
     fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
     await press('Send recovery code')

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { SignIn } from '../routes/SignIn'
 import { Recovery } from '../routes/Recovery'
@@ -30,7 +30,9 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllEnvs(); vi.clearAllMocks() })
 
 const show = (page: React.ReactElement) => render(<MemoryRouter>{page}</MemoryRouter>)
-const field = () => screen.getByLabelText('Email or Health ID') as HTMLInputElement
+const field = () => screen.getByLabelText('Email, phone or Health ID') as HTMLInputElement
+/** The sign-in page again, from nothing: a field already emptied of its prefix stays empty until it is focused. */
+const cleanupAndShow = () => { cleanup(); show(<SignIn />); fireEvent.focus(field()) }
 
 describe('patient sign-in', () => {
   async function signInWith(value: string) {
@@ -77,10 +79,45 @@ describe('patient sign-in', () => {
     expect(signIn).toHaveBeenCalledWith('ada@example.test', 'typed-secret-123', 'turnstile-token')
   })
 
+  // hid-1.0 parity B2 (owner decision 2026-10-28): a phone number signs in too. The Health ID alphabet has no 0 and no
+  // "+", so either typed after the prefix drops it, as "@" does, and the number goes as typed without spaces, dashes
+  // or brackets; Identity reads 0… as +234….
+  it.each([
+    ['a Nigerian number written locally', 'HID-0', '0', '0803 123-4567', '08031234567'],
+    ['an international number', 'HID-+', '+', '+44 (7700) 900-123', '+447700900123'],
+  ])('drops the prefix for %s typed after it, and sends the number without its spacing', async (_, typed, kept, number, sent) => {
+    show(<SignIn />)
+    fireEvent.focus(field())
+    fireEvent.change(field(), { target: { value: typed } })
+    expect(field().value).toBe(kept)
+    fireEvent.change(field(), { target: { value: number } })
+    expect(field().value).toBe(number)
+    fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'typed-secret-123' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Sign in' })) })
+    expect(signIn).toHaveBeenCalledWith(sent, 'typed-secret-123', 'turnstile-token')
+  })
+
+  it('takes a phone number pasted after the prefix, and keeps a Health ID of digits as a Health ID', async () => {
+    show(<SignIn />)
+    fireEvent.focus(field())
+    fireEvent.change(field(), { target: { value: 'HID-+2348031234567' } })
+    expect(field().value).toBe('+2348031234567')
+    cleanupAndShow()
+    // A Health ID can be all digits (2 to 9): only + and 0 start a phone number.
+    fireEvent.change(field(), { target: { value: 'HID-234567' } })
+    expect(field().value).toBe('HID-234567')
+  })
+
+  it('shows a phone number among the examples while empty', () => {
+    show(<SignIn />)
+    expect(field().placeholder).toBe('you@example.com, 0803… or HID-…')
+  })
+
   it('sends nothing while only the prefix is there, and says what is missing', async () => {
     await signInWith('HID-')
     expect(signIn).not.toHaveBeenCalled()
-    expect((await screen.findByRole('alert')).textContent).toBe('Enter your email or Health ID.')
+    expect((await screen.findByRole('alert')).textContent).toBe('Enter your email, phone number or Health ID.')
   })
 })
 
@@ -116,13 +153,26 @@ describe('patient password reset', () => {
     expect(api.recoveryStart).toHaveBeenCalledWith('ada@example.test', 'turnstile-token')
   })
 
+  it('drops the prefix for a phone number, sends it without its spacing, and says the code goes to the account\'s email', async () => {
+    show(<Recovery />)
+    expect(document.getElementById('recovery-start-hint')?.textContent)
+      .toBe('Enter your email, phone number or Health ID. We will send a code to the verified email address on your account.')
+    fireEvent.change(field(), { target: { value: 'HID-0' } })
+    expect(field().value).toBe('0')
+    fireEvent.change(field(), { target: { value: '(0803) 123 4567' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Send recovery code' })) })
+    expect(api.recoveryStart).toHaveBeenCalledWith('08031234567', 'turnstile-token')
+    expect(await screen.findByLabelText('Recovery code')).toBeTruthy()
+  })
+
   it('sends nothing while only the prefix is there, and says so at the field, which takes focus', async () => {
     await startWith('HID-')
     expect(api.recoveryStart).not.toHaveBeenCalled()
     const input = field()
     expect(document.activeElement).toBe(input)
     expect(input.getAttribute('aria-invalid')).toBe('true')
-    expect(document.getElementById('recovery-error')?.textContent).toBe('Enter your email or Health ID.')
+    expect(document.getElementById('recovery-error')?.textContent).toBe('Enter your email, phone number or Health ID.')
     expect(input.getAttribute('aria-describedby')).toContain('recovery-error')
     // Focus moved to the field, whose description says it: an alert as well would be spoken twice.
     expect(screen.queryByRole('alert')).toBeNull()

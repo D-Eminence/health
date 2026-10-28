@@ -291,6 +291,13 @@
   .patient-app-logo { margin: 0; }
   .patient-header-title { color: var(--color-muted); font-size: 13px; }
   .patient-signout { min-height: 40px; margin-left: auto; padding: 8px 13px; border: 1px solid var(--color-line-strong); border-radius: var(--radius-button); background: var(--color-surface); color: var(--color-ink); cursor: pointer; }
+  /* The bell (notificationBadge.tsx): shown only while something is unread, before Sign out. */
+  .patient-bell { display: inline-flex; min-width: 40px; min-height: 40px; align-items: center; justify-content: center; gap: 6px; margin-left: auto; padding: 6px 10px; border: 1px solid var(--color-line-strong); border-radius: var(--radius-button); background: var(--color-surface); color: var(--color-brand); text-decoration: none; }
+  .patient-bell:hover { background: var(--color-brand-tint); }
+  .patient-bell + .patient-signout { margin-left: 0; }
+  .patient-bell-count { min-width: 20px; padding: 1px 6px; border-radius: 999px; background: var(--color-brand); color: var(--color-surface); font-size: 12px; font-weight: 700; line-height: 18px; text-align: center; }
+  /* The sign-up's country code and phone number, side by side where there is room. */
+  .patient-phone-field { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 12px; align-items: end; }
   .patient-app-body { display: grid; grid-template-columns: 220px minmax(0, 1fr); width: min(100%, 1440px); min-height: calc(100svh - 66px); margin: auto; }
   .patient-side-nav { display: grid; align-content: start; gap: 4px; padding: 30px 14px; border-right: 1px solid var(--color-line-strong); }
   .patient-nav-link { display: block; padding: 12px 15px; border-radius: var(--radius-card); color: var(--color-muted); font-size: 14px; text-decoration: none; }
@@ -390,6 +397,7 @@
   .patient-overview-grid, .patient-details { grid-template-columns: 1fr; }
   .patient-card { padding: 18px; }
   .patient-list li, .patient-deny-form, .patient-inline-form { display: grid; grid-template-columns: 1fr; }
+  .patient-phone-field { grid-template-columns: 1fr; }
   .patient-list li > p { overflow-wrap: anywhere; }
   .patient-decision-actions { justify-content: start; }
 }

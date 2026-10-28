@@ -1,5 +1,5 @@
 import { useLayoutEffect, useState, type FormEvent } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { isHidApiError, retryAfterSeconds } from '@hid/http'
 import { PasswordInput } from '@hid/ui'
 import { SIGNUP_GENDERS, type EnrollmentActivation, type EnrollmentSignupDetails, type SignupGender } from '../../api'
@@ -17,6 +17,8 @@ import { googleProfileOf } from './googleProfile'
 import { REGISTRATION_CLOSED } from './RegistrationClosed'
 import { SIGNED_IN_ON_THIS_DEVICE } from './Complete'
 import { STEP_UNAVAILABLE, refusedWith, registrationClosed, temporarilyUnavailable } from './problems'
+import { DEFAULT_PHONE_COUNTRY, PHONE_COUNTRIES, internationalPhone } from './phoneCountries'
+import { ExistingAccountAlert, existingAccount, type ExistingAccount } from './googleAccountExists'
 
 /**
  * The patient sign-up without a NIN (an owner decision, 2026-10-27), as hid-1.0's
@@ -45,7 +47,7 @@ export const SIGNUP_PROBLEMS: Record<DetailsField, string> = {
   firstName: 'Enter your first name.',
   lastName: 'Enter your last name.',
   email: 'Enter a valid email address, like name@example.com.',
-  phone: 'Enter a valid phone number, like 08012345678 or +2348012345678.',
+  phone: 'Enter a valid phone number for the country chosen, like 0801 234 5678 for Nigeria, or start it with + and the country code.',
   gender: 'Select your gender.',
   hospitalCurrentlyUsing: 'Check the name of the hospital you currently use.',
   terms: 'Agree to the Terms of Service and Privacy Policy to create an account.',
@@ -70,8 +72,6 @@ const SERVER_FIELDS: Readonly<Record<string, DetailsField>> = {
 }
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-/** The phone number as sent: without the spaces, dashes, dots and brackets people type. */
-const normalizePhone = (value: string) => value.replace(/[\s().-]/g, '')
 const enrollmentEnded = (reason: unknown) => refusedWith(reason, 404, 'ENROLLMENT_NOT_FOUND')
 
 interface Details {
@@ -79,6 +79,11 @@ interface Details {
   lastName: string
   email: string
   phone: string
+  /**
+   * The country chosen for the phone number (phoneCountries.ts), Nigeria at first: since hid-1.0 parity B2 (owner
+   * decision 2026-10-28) a number of any country is taken, sent as E.164.
+   */
+  phoneCountry: string
   gender: SignupGender | ''
   hospitalCurrentlyUsing: string
   terms: boolean
@@ -86,14 +91,16 @@ interface Details {
 /** The agreement a patient accepts at sign-up, on the public site (hid-1.0's legal text). */
 export const TERMS_URL = 'https://healthidentitydirectory.com/terms'
 export const PRIVACY_URL = 'https://healthidentitydirectory.com/privacy'
-const EMPTY_DETAILS: Details = { firstName: '', lastName: '', email: '', phone: '', gender: '', hospitalCurrentlyUsing: '', terms: false }
+const EMPTY_DETAILS: Details = {
+  firstName: '', lastName: '', email: '', phone: '', phoneCountry: DEFAULT_PHONE_COUNTRY, gender: '', hospitalCurrentlyUsing: '', terms: false,
+}
 
 function detailsProblems(details: Details): FieldErrors {
   const problems: FieldErrors = {}
   if (!details.firstName.trim()) problems.firstName = SIGNUP_PROBLEMS.firstName
   if (!details.lastName.trim()) problems.lastName = SIGNUP_PROBLEMS.lastName
   if (!EMAIL_PATTERN.test(details.email.trim())) problems.email = SIGNUP_PROBLEMS.email
-  if (!/^\+?\d{7,15}$/.test(normalizePhone(details.phone))) problems.phone = SIGNUP_PROBLEMS.phone
+  if (internationalPhone(details.phone, details.phoneCountry) === null) problems.phone = SIGNUP_PROBLEMS.phone
   if (!details.gender) problems.gender = SIGNUP_PROBLEMS.gender
   if (!details.terms) problems.terms = SIGNUP_PROBLEMS.terms
   return problems
@@ -130,7 +137,8 @@ export function PatientSignup({ focusOnArrival = false, initialEmail = '', signe
   /** "Proceed to profile", once signed in. */
   onProceed: () => void
 }) {
-  const { api } = useSession()
+  const { api, acceptGoogleSession } = useSession()
+  const navigate = useNavigate()
   const stepFocus = useStepFocus()
   const { focus } = stepFocus
   useLayoutEffect(() => { if (focusOnArrival) focus() }, [focusOnArrival, focus])
@@ -156,6 +164,11 @@ export function PatientSignup({ focusOnArrival = false, initialEmail = '', signe
   // An error is an alert when focus does not move to what it describes (PA-02): sent with Enter in a field.
   const [errorAlert, setErrorAlert] = useState(true)
   const [notice, setNotice] = useState<string | null>(null)
+  // Google on the sign-up asks Identity first (intent `enroll`), with its own security check ('patient-login'): a
+  // Google email that already has a Health ID is told to sign in instead.
+  const [googleToken, setGoogleToken] = useState<string | null>(null)
+  const [googleResetKey, setGoogleResetKey] = useState(0)
+  const [accountExists, setAccountExists] = useState<ExistingAccount | null>(null)
 
   /** A field's error goes once it is changed. */
   const dropError = (field: Field) => setFieldErrors(current => {
@@ -166,9 +179,10 @@ export function PatientSignup({ focusOnArrival = false, initialEmail = '', signe
   })
   const update = <K extends keyof Details>(field: K, value: Details[K]) => {
     setDetails(current => ({ ...current, [field]: value }))
-    dropError(field)
+    // The country is part of the phone number: its error goes with it.
+    dropError(field === 'phoneCountry' ? 'phone' : field as Exclude<K, 'phoneCountry'>)
   }
-  const clearMessages = () => { setFieldErrors({}); setError(null); setErrorAlert(true); setNotice(null) }
+  const clearMessages = () => { setFieldErrors({}); setError(null); setErrorAlert(true); setNotice(null); setAccountExists(null) }
   const sayError = (message: string) => { setError(message); setErrorAlert(true) }
   const beginResendWait = (seconds: unknown) => {
     resend.begin(seconds)
@@ -237,7 +251,7 @@ export function PatientSignup({ focusOnArrival = false, initialEmail = '', signe
       if (verified) { await activate(); return }
       const input: EnrollmentSignupDetails = {
         firstName: details.firstName.trim(), lastName: details.lastName.trim(), email: details.email.trim(),
-        phone: normalizePhone(details.phone), gender: details.gender as SignupGender,
+        phone: internationalPhone(details.phone, details.phoneCountry) ?? details.phone, gender: details.gender as SignupGender,
         ...(details.hospitalCurrentlyUsing.trim() ? { hospitalCurrentlyUsing: details.hospitalCurrentlyUsing.trim() } : {}),
       }
       const progress = await api.enrollmentSignup(input, turnstileToken!, crypto.randomUUID())
@@ -294,10 +308,10 @@ export function PatientSignup({ focusOnArrival = false, initialEmail = '', signe
     } finally { setBusy(false); stepFocus.focus() }
   }
 
-  /** "Continue with Google": fills in the name and email from the credential, with nothing sent (as hid-1.0). */
-  const fillFromGoogle = (idToken: string): Promise<void> => {
+  /** Fills in the name and email from a Google credential (as hid-1.0's prefillSignupWithGoogle). */
+  const fillFrom = (idToken: string) => {
     const google = googleProfileOf(idToken)
-    if (!google || (!google.firstName && !google.lastName && !google.email)) { setNotice(null); sayError(GOOGLE_UNREAD); return Promise.resolve() }
+    if (!google || (!google.firstName && !google.lastName && !google.email)) { setNotice(null); sayError(GOOGLE_UNREAD); return }
     setDetails(current => ({
       ...current,
       firstName: google.firstName || current.firstName,
@@ -312,7 +326,27 @@ export function PatientSignup({ focusOnArrival = false, initialEmail = '', signe
       return rest
     })
     setError(null); setNotice(GOOGLE_FILLED)
-    return Promise.resolve()
+  }
+
+  /**
+   * "Continue with Google": Identity is asked first (intent `enroll`). A Google account already linked signs in, as on
+   * the sign-in page; one whose email already has a Health ID is told to sign in with Google instead (409
+   * GOOGLE_ACCOUNT_EXISTS, owner decision 2026-10-28). Otherwise the name and email are filled in from the credential,
+   * for the patient to check, and the sign-up goes on as before; they are filled in too when Identity could not be
+   * asked, since the email is proved with a code anyway.
+   */
+  const continueWithGoogle = async (idToken: string): Promise<void> => {
+    if (!googleToken || busy) return
+    setBusy(true); clearMessages()
+    try {
+      const result = await api.googleExchange(idToken, googleToken, 'enroll')
+      if ('actor' in result) { acceptGoogleSession(result); navigate('/', { replace: true }); return }
+      fillFrom(idToken)
+    } catch (reason) {
+      const existing = existingAccount(reason)
+      if (existing) setAccountExists(existing)
+      else fillFrom(idToken)
+    } finally { setGoogleToken(null); setGoogleResetKey(value => value + 1); setBusy(false) }
   }
 
   const invalid = (field: Field) => fieldErrors[field] ? true as const : undefined
@@ -348,8 +382,16 @@ export function PatientSignup({ focusOnArrival = false, initialEmail = '', signe
         aria-describedby={describedBy('signup-email-hint', errorId('email'))} /></label>
       <p id="signup-email-hint" className="patient-field-hint">We will send a 6-digit code to this email address.</p>
       {fieldError('email')}
-      <label>Phone number<input ref={target('phone', detailsFocus)} required type="tel" inputMode="tel" autoComplete="tel" maxLength={20} value={details.phone}
-        onChange={event => update('phone', event.target.value.replace(/[^\d+\s().-]/g, ''))} aria-invalid={invalid('phone')} aria-describedby={errorId('phone')} /></label>
+      <div className="patient-phone-field">
+        <label>Country code<select autoComplete="tel-country-code" value={details.phoneCountry}
+          onChange={event => update('phoneCountry', event.target.value)}>
+          {PHONE_COUNTRIES.map(country => <option key={country.iso} value={country.iso}>{country.name} (+{country.code})</option>)}
+        </select></label>
+        <label>Phone number<input ref={target('phone', detailsFocus)} required type="tel" inputMode="tel" autoComplete="tel-national" maxLength={24} value={details.phone}
+          onChange={event => update('phone', event.target.value.replace(/[^\d+\s().-]/g, ''))} aria-invalid={invalid('phone')}
+          aria-describedby={describedBy('signup-phone-hint', errorId('phone'))} /></label>
+      </div>
+      <p id="signup-phone-hint" className="patient-field-hint">Choose your country, then enter your number. A number that starts with + and its country code is used as typed.</p>
       {fieldError('phone')}
       <label>Gender<select ref={target('gender', detailsFocus)} required value={details.gender} onChange={event => update('gender', event.target.value as SignupGender | '')}
         aria-invalid={invalid('gender')} aria-describedby={errorId('gender')}>
@@ -424,7 +466,10 @@ export function PatientSignup({ focusOnArrival = false, initialEmail = '', signe
 
     {import.meta.env.VITE_HID_GOOGLE_CLIENT_ID && googleOffered && <section className="patient-auth-separator" aria-label="Google sign-up">
       <p className="patient-field-hint">Continue with Google to fill in your name and email address.</p>
-      <GoogleButton text="continue_with" disabled={busy} onCredential={fillFromGoogle} />
+      {accountExists && <ExistingAccountAlert account={accountExists} />}
+      <Turnstile action="patient-login" onTokenChange={setGoogleToken} resetKey={googleResetKey} />
+      <GoogleButton text="continue_with" disabled={busy || !googleToken} onCredential={continueWithGoogle}
+        disabledReason={googleToken ? undefined : 'Complete the security check to continue with Google.'} />
     </section>}
     <p className="patient-auth-footer">Already have a Health ID? <Link to="/sign-in">Sign in</Link></p>
   </AuthLayout>
