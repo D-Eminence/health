@@ -1,6 +1,8 @@
+import contextlib
 import copy
 import importlib.util
 import http.client
+import io
 import json
 import os
 import pathlib
@@ -219,24 +221,29 @@ class WorkerTests(unittest.TestCase):
             root=pathlib.Path(folder); c.atomic_json(root/'release/candidate.json',candidate)
             with (patch.dict(os.environ,{'EXPECTED_CANDIDATE_SHA256':c.file_sha(root/'release/candidate.json')}),patch.multiple(w,ROOT=root,
                     AWS=FakeAWS,Store=FakeStore,Cloudflare=FakeCloud,Lease=lambda *a:lease,context=lambda kind:ctx('frontend')),
-                    patch.object(w,'GitHub',autospec=True) as github,patch.object(w,'notify')):
+                    patch.object(w,'GitHub',autospec=True) as github,patch.object(w,'notify'),
+                    contextlib.redirect_stdout(io.StringIO()) as output):
                 github.return_value.assert_approval.return_value={'reviewer_ids':[9]}
                 # A first failed version is enough to exercise restoration; no archive download occurs.
                 with self.assertRaises(c.ReleaseError): w.deploy('rollback')
-        return baseline,current,calls,objects,lease
+        return baseline,current,calls,objects,lease,[json.loads(line) for line in output.getvalue().splitlines()]
 
     def test_partial_worker_failure_restores_before_versions_and_index(self):
-        baseline,current,calls,objects,lease=self.execute(fail=True)
+        baseline,current,calls,objects,lease,lines=self.execute(fail=True)
         self.assertEqual(len(calls),2); self.assertTrue(lease.released)
+        self.assertEqual(lines,[{'stage':'rollback','status':'restored','apps_changed':['admin']}])
         self.assertEqual(objects[c.INDEX_KEY],baseline)
         self.assertTrue(all(v=='11111111-1111-1111-1111-111111111111' for v in current.values()))
 
     def test_lease_loss_stops_worker_restore_and_retains_lock(self):
-        baseline,current,calls,objects,lease=self.execute(fail=True,loss=True)
+        baseline,current,calls,objects,lease,lines=self.execute(fail=True,loss=True)
         self.assertFalse(lease.released); self.assertEqual(len(calls),1)
+        self.assertEqual(lines,[{'stage':'rollback','status':'reconciliation-required','code':'LEASE_LOST',
+            'restoring':'admin','apps_changed':['admin']}])
 
     def test_rotated_secret_blocks_before_any_worker_mutation(self):
-        baseline,current,calls,objects,lease=self.execute(rotate=True)
+        baseline,current,calls,objects,lease,lines=self.execute(rotate=True)
         self.assertEqual(calls,[]); self.assertTrue(lease.released)
+        self.assertEqual(lines,[])
 
 if __name__=='__main__': unittest.main()

@@ -6,6 +6,8 @@ import io
 import json
 import os
 import pathlib
+import runpy
+import sys
 import tempfile
 import unittest
 import zipfile
@@ -38,7 +40,8 @@ def dependencies():
 
 class UploadTests(unittest.TestCase):
     def execute(self, *, failure_app=None, declaration=None, version_case=None, missing_binding=False,
-                case_app=None, printed=('Worker Version ID: ' + TARGET,), faults=None, lost_on_sleep=False):
+                case_app=None, printed=('Worker Version ID: ' + TARGET,), faults=None, lost_on_sleep=False,
+                upload_hangs=None, release_fails=None, alert_fails=False):
         baseline = index()
         before = {app: {'version_id': PRIOR, 'hostname': host, 'origin_secret_version_id': 'secret-v1'}
                   for app, host in w.HOSTS.items()}
@@ -47,12 +50,17 @@ class UploadTests(unittest.TestCase):
         current = {app: PRIOR for app in w.HOSTS}
         uploaded, deployments, health_checks, secret_reads, sleeps = [], [], [], [], []
         reads = {}
-        # (app, route template, version or None) -> errors the real Cloudflare.call meets in turn: a status or 'unreachable'.
+        # (app, route template, version or None) -> what the real Cloudflare.call meets in turn: a status, 'unreachable',
+        # an exception, 'not-json' or the bytes of an answer.
         faults = {key: list(value) for key, value in (faults or {}).items()}
+
+        def release(reconciled=True):
+            lease.released = reconciled
+            # The real release writes to DynamoDB, once, only for a reconciled lease.
+            if release_fails and reconciled: raise c.ReleaseError(release_fails)
         # lost_on_sleep: the lease is lost once the controller has paused.
-        lease = SimpleNamespace(released=None, acquire=lambda: lease,
-                                assert_owned=lambda: c.require(not (lost_on_sleep and sleeps), 'LEASE_LOST'),
-                                release=lambda reconciled=True: setattr(lease, 'released', reconciled))
+        lease = SimpleNamespace(released=None, acquire=lambda: lease, release=release,
+                                assert_owned=lambda: c.require(not (lost_on_sleep and sleeps), 'LEASE_LOST'))
         release_id = None
 
         class FakeAWS:
@@ -86,8 +94,9 @@ class UploadTests(unittest.TestCase):
                 # None answers normally, so a later call can be the one refused.
                 fault = faults[(app, route, version)].pop(0) if faults.get((app, route, version)) else None
                 if fault is not None:
-                    if fault == 'not-json':
-                        with patch.object(w.urllib.request, 'urlopen', return_value=io.BytesIO(b'<html>Bad gateway</html>')):
+                    if fault == 'not-json' or isinstance(fault, bytes):
+                        answer = b'<html>Bad gateway</html>' if fault == 'not-json' else fault
+                        with patch.object(w.urllib.request, 'urlopen', return_value=io.BytesIO(answer)):
                             return super().call(app, suffix, body)
                     error = (fault if isinstance(fault, BaseException) else
                              w.urllib.error.URLError('timed out') if fault == 'unreachable' else w.urllib.error.HTTPError(
@@ -174,6 +183,7 @@ class UploadTests(unittest.TestCase):
                 app = config_path.name.split('.')[0]
                 secret = pathlib.Path(command[command.index('--secrets-file') + 1])
                 self.assertEqual(json.loads(secret.read_text()), {'ORIGIN_AUTH_TOKEN': 'a' * 32})
+                if app == upload_hangs: raise w.subprocess.TimeoutExpired(command, kwargs['timeout'])
                 uploaded.append(app)
                 return SimpleNamespace(returncode=0, stdout=wrangler_stdout(app, printed), stderr='')
 
@@ -187,14 +197,19 @@ class UploadTests(unittest.TestCase):
             with (patch.dict(os.environ, {'EXPECTED_CANDIDATE_SHA256': c.file_sha(root / 'release/candidate.json')}),
                   patch.multiple(w, ROOT=root, AWS=FakeAWS, Store=FakeStore, Cloudflare=lambda: cloud,
                                  Lease=lambda *args: lease, context=lambda kind: ctx('frontend')),
-                  patch.object(w, 'GitHub', autospec=True), patch.object(w, 'notify'),
+                  patch.object(w, 'GitHub', autospec=True),
+                  patch.object(w, 'notify', side_effect=c.ReleaseError('AWS_REQUEST_UNCERTAIN') if alert_fails else None),
                   patch.object(w, 'entries', return_value=selected), patch.object(w, 'prepared_configs', return_value=configs),
                   patch.object(w, 'verify_assets', side_effect=health), patch.object(w.subprocess, 'run', side_effect=upload),
                   patch.object(w.time, 'sleep', side_effect=sleeps.append),
                   contextlib.redirect_stdout(io.StringIO()) as output):
                 error = None
                 try: w.deploy('deploy')
-                except c.ReleaseError as cause: error = str(cause)
+                except AssertionError: raise
+                except Exception as cause:
+                    # As __main__ does: name what deploy() has not named, then the final code.
+                    w.unexpected(cause, 'release')
+                    error = w.error_code(cause)
         return SimpleNamespace(baseline=baseline, current=current, objects=objects, deployments=deployments,
                                uploaded=uploaded, health=health_checks, secret_reads=secret_reads,
                                lease=lease, error=error, release_id=release_id, sleeps=sleeps, reads=reads,
@@ -205,6 +220,9 @@ class UploadTests(unittest.TestCase):
 
     def refusals(self, result):
         return [json.loads(line) for line in result.output.splitlines() if '"cloudflare_call"' in line]
+
+    def stages(self, result):
+        return [json.loads(line) for line in result.output.splitlines() if '"stage"' in line]
 
     def assert_restored_after(self, result, apps):
         self.assertEqual(result.deployments, [(app, TARGET) for app in apps] + [(app, PRIOR) for app in reversed(apps)])
@@ -386,6 +404,108 @@ class UploadTests(unittest.TestCase):
         self.assertIs(result.lease.released, False)
         self.assertEqual(self.refusals(result), [{'app': 'web', 'cloudflare_call': 'POST deployments', 'status': 404}])
 
+    def test_restoring_a_version_live_before_this_run_is_never_asked_again(self):
+        for fault, code in [(429, 'CLOUDFLARE_HTTP_429'), (500, 'CLOUDFLARE_HTTP_500'), (502, 'CLOUDFLARE_HTTP_502'),
+                            (503, 'CLOUDFLARE_HTTP_503'), ('unreachable', 'CLOUDFLARE_REQUEST_UNCERTAIN'),
+                            (TimeoutError('timed out'), 'CLOUDFLARE_REQUEST_UNCERTAIN'), ('not-json', 'CLOUDFLARE_REQUEST_UNCERTAIN')]:
+            with self.subTest(fault=fault):
+                # One fault, then Cloudflare would answer: a second attempt would restore web.
+                result = self.execute(failure_app='web', faults={('web', 'POST deployments', PRIOR): [fault]})
+                self.assertEqual((result.error, result.sleeps), ('SYNTHETIC_HEALTH_FAILURE', []))
+                self.assertEqual(result.deployments, [('admin', TARGET), ('web', TARGET)])
+                self.assertIs(result.lease.released, False)
+                self.assertNotIn('production/releases/' + result.release_id + '/failed.json', result.objects)
+                # Never read like a clean rollback: the code, the portal being restored and the portals changed.
+                self.assertEqual(self.stages(result), [{'stage': 'rollback', 'status': 'reconciliation-required', 'code': code,
+                                                        'restoring': 'web', 'apps_changed': ['admin', 'web']}])
+                for value in ['a' * 32, 'synthetic-token', 'token=', 'ORIGIN_AUTH_TOKEN', 'bindings', 'errors', 'Not Found',
+                              'timed out', 'Bad gateway', 'api.cloudflare.com']:
+                    self.assertNotIn(value, result.output)
+
+    def test_a_clean_rollback_says_so(self):
+        result = self.execute(failure_app='web')
+        self.assertTrue(result.lease.released)
+        self.assertEqual(self.stages(result), [{'stage': 'rollback', 'status': 'restored', 'apps_changed': ['admin', 'web']}])
+
+    def test_a_rollback_that_fails_after_restoring_every_portal_names_no_portal_being_restored(self):
+        # public's second live read is the rollback's final check: the restores are done, the check is refused.
+        result = self.execute(failure_app='web', faults={('public', 'GET deployments', None): [None, 403]})
+        self.assertEqual(result.error, 'SYNTHETIC_HEALTH_FAILURE')
+        self.assertEqual(result.deployments, [('admin', TARGET), ('web', TARGET), ('web', PRIOR), ('admin', PRIOR)])
+        self.assertIs(result.lease.released, False)
+        self.assertEqual(self.stages(result), [{'stage': 'rollback', 'status': 'reconciliation-required',
+            'code': 'CLOUDFLARE_HTTP_403', 'restoring': None, 'apps_changed': ['admin', 'web']}])
+
+    def test_an_unexpected_error_while_restoring_is_named_by_stage_class_and_own_lines(self):
+        result = self.execute(failure_app='web', faults={('web', 'POST deployments', PRIOR): [KeyError('synthetic-secret-value')]})
+        self.assertEqual(result.error, 'SYNTHETIC_HEALTH_FAILURE')
+        self.assertIs(result.lease.released, False)
+        named, status = self.stages(result)
+        self.assertEqual((named['stage'], named['unexpected_error']), ('rollback', 'KeyError'))
+        self.assertIn('deploy_version', [frame[1] for frame in named['at']])
+        self.assertTrue(all(frame[0] in ('deploy-production-workers.py', 'test_production_deployment_upload.py')
+                            for frame in named['at']))
+        self.assertEqual(status, {'stage': 'rollback', 'status': 'reconciliation-required', 'code': 'CONTROLLER_FAILED',
+                                  'restoring': 'web', 'apps_changed': ['admin', 'web']})
+        self.assertNotIn('synthetic-secret-value', result.output)
+
+    def test_an_unexpected_error_is_named_once_and_before_the_rollback(self):
+        result = self.execute(faults={('web', 'POST deployments', TARGET): [KeyError('synthetic-secret-value')]})
+        self.assertEqual(result.error, 'CONTROLLER_FAILED')
+        self.assertEqual(result.deployments, [('admin', TARGET), ('web', PRIOR), ('admin', PRIOR)])
+        # Printed by deploy() and skipped by __main__'s own call, which the harness makes as __main__ does.
+        named, restored = self.stages(result)
+        self.assertEqual((named['stage'], named['unexpected_error']), ('deploy', 'KeyError'))
+        self.assertIn(['deploy-production-workers.py', 'deploy_version'], [frame[:2] for frame in named['at']])
+        self.assertEqual(restored, {'stage': 'rollback', 'status': 'restored', 'apps_changed': ['admin', 'web']})
+        failed = result.objects['production/releases/' + result.release_id + '/failed.json']
+        self.assertEqual(failed['error_code'], 'CONTROLLER_FAILED')
+        self.assertNotIn('synthetic-secret-value', result.output)
+
+    def test_a_failed_lease_release_never_replaces_the_error_on_its_way_out(self):
+        for faults, failure_app, code in [({('web', 'POST deployments', TARGET): [KeyError('synthetic-secret-value')]}, None,
+                                           'CONTROLLER_FAILED'), ({}, 'web', 'SYNTHETIC_HEALTH_FAILURE')]:
+            with self.subTest(code=code):
+                result = self.execute(faults=faults, failure_app=failure_app, release_fails='AWS_REQUEST_UNCERTAIN')
+                self.assertEqual(result.error, code)
+                failed = result.objects['production/releases/' + result.release_id + '/failed.json']
+                self.assertEqual(failed['error_code'], code)
+                lines = self.stages(result)
+                self.assertEqual(lines[-1], {'stage': 'lease-release', 'code': 'AWS_REQUEST_UNCERTAIN'})
+                self.assertEqual([line.get('unexpected_error') for line in lines],
+                                 ['KeyError', None, None] if code == 'CONTROLLER_FAILED' else [None, None])
+        # With nothing else on its way out, the failed release is the error.
+        result = self.execute(release_fails='AWS_REQUEST_UNCERTAIN')
+        self.assertEqual((result.error, self.stages(result)), ('AWS_REQUEST_UNCERTAIN', []))
+
+    def test_a_failed_alert_is_said_on_both_paths(self):
+        for failure_app, code in [('web', 'SYNTHETIC_HEALTH_FAILURE'), (None, 'DEPLOYED_HEALTHY_BUT_OPERATIONS_ALERT_FAILED')]:
+            with self.subTest(code=code):
+                result = self.execute(failure_app=failure_app, alert_fails=True)
+                self.assertEqual(result.error, code)
+                self.assertIn('{"release_id": "' + result.release_id + '", "alert_status": "failed"}', result.output.splitlines())
+
+    def test_a_hung_wrangler_upload_is_an_upload_failure_and_restores_earlier_portals(self):
+        result = self.execute(upload_hangs='web')
+        self.assertEqual(result.error, 'WORKER_VERSION_UPLOAD_FAILED')
+        self.assertEqual(result.uploaded, ['admin'])
+        # admin deployed then restored; web never deployed; failed.json carries the upload code, not CONTROLLER_FAILED.
+        self.assert_restored_after(result, ['admin'])
+
+    def test_main_names_an_unexpected_error_before_controller_failed(self):
+        with (patch.object(c, 'context', side_effect=KeyError('synthetic-secret-value')),
+              patch.object(sys, 'argv', ['deploy-production-workers.py', 'candidate']),
+              contextlib.redirect_stdout(io.StringIO()) as output, self.assertRaises(SystemExit) as exit):
+            runpy.run_path(str(pathlib.Path(__file__).with_name('deploy-production-workers.py')), run_name='__main__')
+        self.assertEqual(exit.exception.code, 1)
+        lines = [json.loads(line) for line in output.getvalue().splitlines()]
+        self.assertEqual(len(lines), 2)
+        self.assertEqual((lines[0]['stage'], lines[0]['unexpected_error']), ('release', 'KeyError'))
+        self.assertEqual([frame[:2] for frame in lines[0]['at']],
+                         [['deploy-production-workers.py', '<module>'], ['deploy-production-workers.py', 'candidate']])
+        self.assertEqual(lines[1], {'status': 'failed', 'code': 'CONTROLLER_FAILED'})
+        self.assertNotIn('synthetic-secret-value', output.getvalue())
+
     def test_uncertain_delivery_of_a_deployment_is_never_asked_again(self):
         for fault in ['unreachable', TimeoutError('timed out'), w.http.client.RemoteDisconnected('closed'),
                       w.http.client.IncompleteRead(b'', 10), 'not-json']:
@@ -424,6 +544,13 @@ class UploadTests(unittest.TestCase):
                 self.assertEqual((result.error, result.sleeps), ('CLOUDFLARE_HTTP_' + str(status), []))
                 self.assertEqual(self.refusals(result), [{'app': 'web', 'cloudflare_call': 'GET versions/:id', 'status': status}])
 
+    def test_an_unsuccessful_or_malformed_answer_is_refused_and_not_asked_again(self):
+        for answer in [b'{"success": false, "errors": [], "result": null}', b'{"success": true}', b'[]', b'null']:
+            with self.subTest(answer=answer):
+                result = self.execute(faults={('web', 'GET versions/:id', PRIOR): [answer] * 3})
+                self.assertEqual((result.error, result.sleeps, result.deployments), ('CLOUDFLARE_REQUEST_FAILED', [], []))
+                self.assertNotIn('unexpected_error', result.output)
+
     def test_an_unexpected_controller_error_names_its_class_and_lines_but_never_its_message(self):
         try:
             raise KeyError('synthetic-secret-value')
@@ -438,8 +565,8 @@ class UploadTests(unittest.TestCase):
         self.assertEqual(output.getvalue(), '')
 
     def test_other_http_errors_for_a_new_version_are_not_asked_again(self):
-        # A 5xx on a read is asked again as a read (below); on the deployment it is an uncertain delivery.
-        for route, statuses in [('GET versions/:id', [409]), ('POST deployments', [409, 500, 502])]:
+        # A 429 or a 5xx is asked again on a read (below), never on the deployment, a mutation.
+        for route, statuses in [('GET versions/:id', [409]), ('POST deployments', [409, 429, 500, 502])]:
             for status in statuses:
                 with self.subTest(route=route, status=status):
                     result = self.execute(faults={('web', route, TARGET): [status, status]})
@@ -461,6 +588,63 @@ class UploadTests(unittest.TestCase):
                 self.assertEqual(result.uploaded, [])
                 self.assertEqual(result.secret_reads, [])
                 self.assertEqual(result.objects[c.INDEX_KEY], result.baseline)
+
+
+class DomainTests(unittest.TestCase):
+    LISTED = json.dumps({'success': True, 'result': [{'hostname': host, 'service': 'hid-' + app + '-production'}
+                                                     for app, host in w.HOSTS.items()]}).encode()
+
+    def domains(self, answers):
+        """Runs the real assert_domains against answers in turn: an exception, a status or the bytes of a body."""
+        def answer(value):
+            if isinstance(value, int):
+                return w.urllib.error.HTTPError('https://api.cloudflare.com/x?token=synthetic-token', value, 'Refused', {},
+                                                io.BytesIO(b'{"errors":"synthetic-secret-value"}'))
+            return value if isinstance(value, BaseException) else io.BytesIO(value)
+        sleeps = []
+        with (patch.object(w.urllib.request, 'urlopen', side_effect=[answer(value) for value in answers]) as urlopen,
+              patch.object(w.time, 'sleep', side_effect=sleeps.append), contextlib.redirect_stdout(io.StringIO()) as output):
+            try: error = w.Cloudflare('a' * 32, 'synthetic-token').assert_domains()
+            except c.ReleaseError as cause: error = str(cause)
+        for value in ['a' * 32, 'synthetic-token', 'synthetic-secret-value', 'Refused', 'api.cloudflare.com']:
+            self.assertNotIn(value, output.getvalue())
+        return SimpleNamespace(error=error, calls=urlopen.call_count, sleeps=sleeps,
+                               lines=[json.loads(line) for line in output.getvalue().splitlines()])
+
+    def test_a_domain_read_with_no_answer_a_rate_limit_or_a_provider_error_is_asked_again(self):
+        for fault in [TimeoutError('timed out'), w.http.client.RemoteDisconnected('closed'), w.http.client.IncompleteRead(b'', 10),
+                      w.urllib.error.URLError('reset'), b'<html>Bad gateway</html>', 429, 500, 503]:
+            with self.subTest(fault=fault):
+                result = self.domains([fault, fault, self.LISTED])
+                self.assertEqual((result.error, result.calls, result.sleeps), (None, 3, [w.READ_RETRY_SECONDS] * 2))
+
+    def test_a_domain_read_that_never_answers_fails_after_bounded_attempts(self):
+        for fault, lines in [(TimeoutError('timed out'), []), (503, [{'cloudflare_call': 'GET domains', 'status': 503}] * 3)]:
+            with self.subTest(fault=fault):
+                result = self.domains([fault] * 3 + [self.LISTED])
+                self.assertEqual((result.error, result.calls, result.sleeps), ('WORKER_DOMAIN_READ_FAILED', 3, [2, 2]))
+                self.assertEqual(result.lines, lines)
+
+    def test_a_refused_domain_read_is_not_asked_again(self):
+        for status in [400, 401, 403, 404]:
+            with self.subTest(status=status):
+                result = self.domains([status, self.LISTED])
+                self.assertEqual((result.error, result.calls, result.sleeps), ('WORKER_DOMAIN_READ_FAILED', 1, []))
+                self.assertEqual(result.lines, [{'cloudflare_call': 'GET domains', 'status': status}])
+
+    def test_an_unsuccessful_or_malformed_domain_answer_fails_and_is_not_asked_again(self):
+        for body in [b'[]', b'null', b'{"success": false}', b'{"success": true}', b'{"success": true, "result": null}',
+                     b'{"success": true, "result": {}}', b'{"success": true, "result": [null]}',
+                     b'{"success": true, "result": [{"service": "hid-web-production"}]}']:
+            with self.subTest(body=body):
+                result = self.domains([body, self.LISTED])
+                self.assertEqual((result.error, result.calls, result.sleeps), ('WORKER_DOMAIN_READ_FAILED', 1, []))
+        unsuccessful = dict(json.loads(self.LISTED), success=False)
+        result = self.domains([json.dumps(unsuccessful).encode(), self.LISTED])
+        self.assertEqual((result.error, result.calls), ('WORKER_DOMAIN_READ_FAILED', 1))
+        moved = json.loads(self.LISTED); moved['result'][0]['service'] = 'hid-web-production'
+        result = self.domains([json.dumps(moved).encode(), self.LISTED])
+        self.assertEqual((result.error, result.calls), ('STAGING_WORKER_DOMAINS_DIFFER', 1))
 
 
 class DependencyTests(unittest.TestCase):

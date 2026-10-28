@@ -1,6 +1,7 @@
 import copy
 from io import BytesIO
 import datetime as dt
+import http.client
 import json
 import os
 import pathlib
@@ -96,6 +97,36 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(urls, ['https://api.github.com/repos/D-Eminence/hid-system',
             'https://api.github.com/repos/D-Eminence/hid-system/branches/staging-novu-ci-20261005'])
 
+    def github(self, answers):
+        """Runs the real GitHub.get against answers in turn: an exception, a status or the bytes of a body."""
+        def answer(value):
+            if isinstance(value, int):
+                return c.urllib.error.HTTPError('https://api.github.com/x?token=synthetic', value, 'Refused', {}, BytesIO(b'secret body'))
+            return value if isinstance(value, BaseException) else BytesIO(value)
+        sleeps = []
+        with patch.object(c.urllib.request, 'urlopen', side_effect=[answer(v) for v in answers]) as urlopen, \
+             patch.object(c.time, 'sleep', side_effect=sleeps.append):
+            try: result = c.GitHub('D-Eminence/health', token='synthetic').get('')
+            except c.ReleaseError as error: result = str(error)
+        return result, urlopen.call_count, sleeps
+
+    def test_a_github_read_with_no_answer_a_rate_limit_or_a_provider_error_is_asked_again(self):
+        for fault in [TimeoutError('timed out'), http.client.RemoteDisconnected('closed'), http.client.IncompleteRead(b'', 10),
+                      ConnectionResetError('reset'), c.urllib.error.URLError('reset'), b'<html>Unicorn</html>', 429, 500, 503]:
+            with self.subTest(fault=fault):
+                self.assertEqual(self.github([fault, fault, b'{"id":1}']), ({'id': 1}, 3, [c.READ_RETRY_SECONDS] * 2))
+
+    def test_a_github_read_that_never_answers_or_is_refused_fails_with_a_fixed_code(self):
+        self.assertEqual((c.READ_ATTEMPTS, c.READ_RETRY_SECONDS), (3, 2))
+        for answers, expected in [([TimeoutError('timed out')] * 3, ('GITHUB_TRANSPORT_UNAVAILABLE', 3, [2, 2])),
+                                  ([b'not json'] * 3, ('GITHUB_TRANSPORT_UNAVAILABLE', 3, [2, 2])),
+                                  ([503] * 3, ('GITHUB_HTTP_503', 3, [2, 2])),
+                                  # A refusal is not asked again.
+                                  ([401, b'{}'], ('GITHUB_HTTP_401', 1, [])), ([403, b'{}'], ('GITHUB_HTTP_403', 1, [])),
+                                  ([404, b'{}'], ('GITHUB_HTTP_404', 1, []))]:
+            with self.subTest(answers=answers[0]):
+                self.assertEqual(self.github(answers), expected)
+
     def test_streaming_get_object_passes_explicit_routes_and_preserves_version_owner(self):
         observed = []
         def runner(command, **kwargs):
@@ -156,6 +187,49 @@ class CoreTests(unittest.TestCase):
         lease.generation='1'
         with self.assertRaises(c.ReleaseError): lease.assert_owned()
         count=len(aws.calls); lease.release(reconciled=False); self.assertEqual(len(aws.calls),count)
+
+    def heartbeat(self, answers):
+        """Acquires a real Lease at t=1000 and runs its heartbeat on a fake clock: each answer is a heartbeat's."""
+        clock={'now':1000.0,'waits':[]}; answers=list(answers)
+        class Fake:
+            def __init__(self): self.calls=[]
+            def call(self,s,o,args,**kw):
+                self.calls.append((o,args))
+                if o=='get-item': return {'Item':{'holder':{'S':'test'},'generation':{'N':'1'},'expires_at':{'N':str(self.expiry)}}}
+                if 'ADD generation' in args.get('UpdateExpression',''): self.expiry=1180; return {'Attributes':{'generation':{'N':'1'}}}
+                if 'REMOVE' in args['UpdateExpression']: return {}
+                answer=answers.pop(0)
+                if answer: raise c.ReleaseError(answer)
+                self.expiry=int(args['ExpressionAttributeValues'][':e']['N']); return {}
+        def wait(seconds):
+            clock['waits'].append(seconds); clock['now']+=seconds
+            return not answers
+        aws=Fake()
+        with patch.object(c.time,'time',side_effect=lambda: clock['now']), patch.object(c.threading,'Thread'):
+            lease=c.Lease(aws,'test',table='hid-staging-deployment-leases').acquire()
+            lease.stop=type('Stop',(),{'wait':staticmethod(wait),'set':lambda self: None})()
+            lease._heartbeat()
+        return lease,aws,clock
+
+    def test_a_heartbeat_with_no_answer_is_sent_again_while_the_confirmed_expiry_leaves_margin(self):
+        # Every 30 s; one failure at 1030, a success at 1060 (confirmed to 1240), then failures until 1150.
+        lease,aws,clock=self.heartbeat([None if a=='ok' else 'AWS_REQUEST_UNCERTAIN' for a in ['x','ok','x','x','x']])
+        self.assertEqual(clock['waits'],[30.0]*6)
+        self.assertFalse(lease.lost.is_set())
+        with patch.object(c.time,'time',return_value=clock['now']): lease.assert_owned()
+        self.assertEqual(aws.calls[-1][0],'get-item')
+        lease.release(reconciled=True)
+        self.assertIn('REMOVE',aws.calls[-1][1]['UpdateExpression'])
+
+    def test_a_heartbeat_is_lost_once_the_margin_is_spent_or_dynamodb_says_the_lease_is_not_ours(self):
+        for answers,beats in [(['AWS_REQUEST_UNCERTAIN']*10,4),(['AWS_ConditionalCheckFailedException']+[None]*10,1)]:
+            with self.subTest(answer=answers[0]):
+                lease,aws,clock=self.heartbeat(answers)
+                # Four failures: at 1120 the expiry confirmed at acquire (1180) is a third of the lease away.
+                self.assertEqual((lease.lost.is_set(),len(clock['waits'])),(True,beats))
+                count=len(aws.calls)
+                with self.assertRaisesRegex(c.ReleaseError,'LEASE_LOST'): lease.assert_owned()
+                lease.release(reconciled=True); self.assertEqual(len(aws.calls),count)
 
     @patch.dict(os.environ, {'PRODUCTION_APPROVAL_MODE': 'protected'})
     def test_approval_requires_enabled_native_gate_and_new_run(self):

@@ -15,7 +15,7 @@ import urllib.error
 import urllib.request
 from html.parser import HTMLParser
 from production_deployment_core import (ACCOUNT, REGION, INDEX_KEY, COMPONENTS, AWS, GitHub, Lease, Store, ReleaseError,
-    atomic_json, canonical, changed_paths, context, file_sha, git, make_candidate, notify,
+    READ_ATTEMPTS, READ_RETRY_SECONDS, atomic_json, canonical, changed_paths, context, file_sha, git, make_candidate, notify,
     require, sha, summarize, validate_candidate, validate_index)
 from staging_release import ROOT, PRODUCTION_HOSTS as HOSTS, verify_manifest, archive_files
 
@@ -82,9 +82,6 @@ VERSION_ID = r"[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}"
 # Right after an upload the version list can lag behind it, so a version not listed yet is re-read briefly.
 UPLOAD_LIST_ATTEMPTS = 6
 UPLOAD_LIST_RETRY_SECONDS = 6
-# Reads change nothing, so a read with no answer, a rate limit or a provider error is asked again.
-READ_ATTEMPTS = 3
-READ_RETRY_SECONDS = 2
 
 def printed_version(stdout):
     # Wrangler 4.147.0 logs "Worker Version ID: <id>" to stdout once after an upload. Anything else is not guessed at.
@@ -209,12 +206,24 @@ class Cloudflare:
     def assert_domains(self):
         request = urllib.request.Request(self.base+"domains",
             headers={"Authorization":"Bearer "+self.token})
-        try:
-            with urllib.request.urlopen(request,timeout=30) as response: data = json.load(response)
-        except (urllib.error.URLError, OSError, http.client.HTTPException, ValueError):
-            raise ReleaseError("WORKER_DOMAIN_READ_FAILED") from None
-        require(isinstance(data,dict) and data.get("success") is True, "WORKER_DOMAIN_READ_FAILED")
-        domains = {r["hostname"]:r.get("service") for r in data["result"]}
+        # A read, asked again as read() asks: on no answer, a rate limit or a provider error only.
+        for attempt in range(READ_ATTEMPTS):
+            if attempt: time.sleep(READ_RETRY_SECONDS)
+            try:
+                with urllib.request.urlopen(request,timeout=30) as response: data = json.load(response)
+                break
+            except urllib.error.HTTPError as error:
+                # The route template and status only, as in call(): never the token, account id or body.
+                print(json.dumps({"cloudflare_call":"GET domains","status":error.code}), flush=True)
+                if attempt == READ_ATTEMPTS-1 or not (error.code == 429 or 500 <= error.code < 600):
+                    raise ReleaseError("WORKER_DOMAIN_READ_FAILED") from None
+            except (urllib.error.URLError, OSError, http.client.HTTPException, ValueError):
+                if attempt == READ_ATTEMPTS-1: raise ReleaseError("WORKER_DOMAIN_READ_FAILED") from None
+        # An unsuccessful or malformed answer is definite: it is not asked again.
+        rows = data.get("result") if isinstance(data,dict) and data.get("success") is True else None
+        require(isinstance(rows,list) and all(isinstance(r,dict) and isinstance(r.get("hostname"),str) for r in rows),
+                "WORKER_DOMAIN_READ_FAILED")
+        domains = {r["hostname"]:r.get("service") for r in rows}
         require(all(domains.get(host) == "hid-"+app+"-production" for app,host in HOSTS.items()), "STAGING_WORKER_DOMAINS_DIFFER")
 
 def dependency_commits(value, expected_contract=None):
@@ -323,10 +332,14 @@ def verify_live_assets(app,manifest_entry):
         require(matches(get("about"),manifest_entry["files"]["about.html"],html=True), "PUBLIC_DEEP_LINK_DIFFERS")
     return {"entry_assets_verified":len(refs.paths),"deep_link_verified":True}
 
+def error_code(error):
+    return str(error) if isinstance(error,ReleaseError) else "CONTROLLER_FAILED"
+
 def unexpected(error, stage):
     # For CONTROLLER_FAILED: the class and the controller's own lines only, never the message or values,
-    # which can carry provider data.
-    if isinstance(error,ReleaseError): return
+    # which can carry provider data. Once per error, by the first stage that catches it.
+    if isinstance(error,ReleaseError) or getattr(error,"_controller_named",False): return
+    error._controller_named = True
     here = pathlib.Path(__file__).resolve().parent
     print(json.dumps({"stage":stage,"unexpected_error":type(error).__name__,
         "at":[[pathlib.Path(f.filename).name,f.name,f.lineno] for f in traceback.extract_tb(error.__traceback__)
@@ -344,7 +357,7 @@ def deploy(mode):
     store = Store(aws); cloud = Cloudflare()
     cloud.assert_domains()
     lease = Lease(aws,release["release_id"]).acquire()
-    reconciled, started, updated = False, False, []
+    reconciled, started, updated, failure = False, False, [], None
     alert_failed = False
     prefix = "production/releases/"+release["release_id"]+"/"
     try:
@@ -441,9 +454,13 @@ def deploy(mode):
             print(json.dumps({"release_id":release["release_id"],"alert_status":"failed"}))
         print(json.dumps({"release_id":release["release_id"],"status":"success","apps":updated}))
     except Exception as error:
+        # Named before the rollback, which can take minutes, and before anything else can replace it.
+        failure = error; unexpected(error,"deploy")
         if started:
+            restoring = None
             try:
-                for app in reversed(updated): cloud.deploy_version(app,before[app]["version_id"],lease)
+                for restoring in reversed(updated): cloud.deploy_version(restoring,before[restoring]["version_id"],lease)
+                restoring = None
                 require(all(cloud.version(app) == before[app]["version_id"] for app in HOSTS), "WORKER_ROLLBACK_FAILED")
                 latest,latest_meta = store.read(INDEX_KEY)
                 require(latest == index or latest.get("frontend_release") == release["release_id"], "FOREIGN_INDEX_UPDATE")
@@ -451,16 +468,26 @@ def deploy(mode):
                 store.put(INDEX_KEY,index,etag=latest_meta["ETag"])
                 store.put(prefix+"failed.json",{"schema":"hid.release-receipt/v1","kind":"frontend",
                     "status":"failed-rolled-back","before":before,"after":before,
-                    "error_code":str(error) if isinstance(error,ReleaseError) else "CONTROLLER_FAILED"})
+                    "error_code":error_code(error)})
                 reconciled = True
+                print(json.dumps({"stage":"rollback","status":"restored","apps_changed":updated}), flush=True)
             except Exception as cause:
                 unexpected(cause,"rollback")
+                # A rollback that did not finish never reads like a clean one: a fixed code and app names only.
+                print(json.dumps({"stage":"rollback","status":"reconciliation-required","code":error_code(cause),
+                    "restoring":restoring,"apps_changed":updated}), flush=True)
                 reconciled = False
         else: reconciled = True
         try: notify(aws,release,"failed-rolled-back" if reconciled and started else "reconciliation-required")
-        except Exception: pass
+        except Exception: print(json.dumps({"release_id":release["release_id"],"alert_status":"failed"}), flush=True)
         raise
-    finally: lease.release(reconciled=reconciled)
+    finally:
+        # A failed lease release never replaces an error already on its way out: it gets its own line.
+        try: lease.release(reconciled=reconciled)
+        except Exception as cause:
+            if failure is None: raise
+            unexpected(cause,"lease-release")
+            print(json.dumps({"stage":"lease-release","code":error_code(cause)}), flush=True)
     if alert_failed: raise ReleaseError("DEPLOYED_HEALTHY_BUT_OPERATIONS_ALERT_FAILED")
 
 if __name__ == "__main__":
@@ -474,5 +501,5 @@ if __name__ == "__main__":
         else: deploy(args.mode)
     except Exception as error:
         unexpected(error,"release")
-        print(json.dumps({"status":"failed","code":str(error) if isinstance(error,ReleaseError) else "CONTROLLER_FAILED"}))
+        print(json.dumps({"status":"failed","code":error_code(error)}))
         raise SystemExit(1)
