@@ -11,13 +11,37 @@ describe('the Health ID on the profile and the dashboard', () => {
     render(<HealthIdCode code="HID-AB2C3D" />)
     const code = screen.getByText('HID-AB2C3D')
     expect(code.className).toBe('patient-hid-code patient-hid-plain')
-    expect(screen.queryByRole('button')).toBeNull()
+    // The code itself is what copies: its name is the code, and there is no separate Copy HID control.
+    expect(screen.getAllByRole('button').map(button => button.textContent)).toEqual(['HID-AB2C3D'])
+    expect(screen.queryByRole('button', { name: /Copy HID/ })).toBeNull()
     expect(writeText).not.toHaveBeenCalled()
 
     fireEvent.click(code)
 
     expect((await screen.findByRole('status')).textContent).toBe('Health ID copied.')
     expect(writeText).toHaveBeenCalledWith('HID-AB2C3D')
+  })
+
+  it.each(['Enter', ' '])('can be reached and copied from the keyboard (%j)', async key => {
+    const writeText = vi.fn(async () => {})
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } })
+    render(<HealthIdCode code="HID-AB2C3D" />)
+    const code = screen.getByText('HID-AB2C3D')
+    code.focus()
+    expect(document.activeElement).toBe(code)
+
+    fireEvent.keyDown(code, { key })
+
+    expect((await screen.findByRole('status')).textContent).toBe('Health ID copied.')
+    expect(writeText).toHaveBeenCalledWith('HID-AB2C3D')
+  })
+
+  it('does not copy on other keys', () => {
+    const writeText = vi.fn(async () => {})
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } })
+    render(<HealthIdCode code="HID-AB2C3D" />)
+    fireEvent.keyDown(screen.getByText('HID-AB2C3D'), { key: 'Tab' })
+    expect(writeText).not.toHaveBeenCalled()
   })
 
   it('says how to copy by hand when the browser refuses', async () => {

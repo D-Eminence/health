@@ -85,6 +85,13 @@ describe('the overview with patient parity served', () => {
     expect(card.getByRole('link', { name: 'See what is missing from your profile' }).getAttribute('href')).toBe('/profile#profile-completion')
   })
 
+  it('shows the Health ID on the profile bio-data as plain text, with no Copy HID button', async () => {
+    renderPortal(<ProfilePage />, gateway(), {}, parity)
+    const bio = await region('Bio-data')
+    expect(bio.getByText('HID-ABC234').className).toContain('patient-hid-plain')
+    expect(bio.queryByRole('button', { name: 'Copy HID' })).toBeNull()
+  })
+
   it('shows the health summary tiles from what the patient entered, and the active accesses', async () => {
     renderPortal(<Overview />, gateway(), {}, parity)
     await waitFor(() => expect(tiles()).toEqual([['Blood group', 'B+'], ['Genotype', 'AA'], ['Allergies', 'Shellfish'], ['Active accesses', '1']]))
