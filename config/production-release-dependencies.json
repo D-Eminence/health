@@ -3,16 +3,16 @@
   "declared": true,
   "backend_contract": "novu-v1",
   "reviewed_by": "D-Eminence",
-  "review_reference": "Backend release backend-40684227016-1-fc43a6ab8b47c543 from production-backend-images run 40684227016 (D-Eminence/hid-system#127 at 80d3435, carrying #126's migration 0094; deployed 2026-10-28). That release deployed all twelve services at 80d3435, so every pin moves to it. Browser-facing changes since the previous pins: GET /api/v1/identity/me adds email, emailVerified, phone, phoneVerified and hasPhoto; new POST /api/v1/identity/me/contact-changes and POST .../{changeId}/verify (email change with a code, phone change with the password; CONTACT_UNCHANGED, CONTACT_UNAVAILABLE, CONTACT_CHANGE_STAFF_ACCOUNT, PATIENT_RECENT_RECOVERY_HOLD, CONTACT_CHANGE_RATE_LIMITED, CONTACT_CODE_UNDELIVERABLE); GET/PUT /api/v1/identity/me/profile-details (hospital and HMO, 409 on a stale version); GET/PUT/DELETE /api/v1/identity/me/photo (a body of at most 8,000 bytes at the edge); GET/PUT /api/v1/ehr/me/health-profile and the staff read of patient-reported health in direct care. This frontend (D-Eminence/health#27, merged as 0c77441) uses each where it is answered and keeps working without. Reviewed and approved by the repository owner, D-Eminence, in chat on 2026-10-28 (batch approval for this parity work).",
+  "review_reference": "Backend release backend-40696235036-1-11fa78180d5a22c9 from production-backend-images run 40696235036 (D-Eminence/hid-system#128 at 0a8f4d7, carrying migrations 0095 and 0096; deployed 2026-10-28). That release deployed identity-api, ehr-api and notification-api at 0a8f4d7, so those three pins move to it; the other six stay at 80d3435, the commit they run. Browser-facing changes since the previous pins: POST /api/v1/identity/me/share-providers/search; GET/POST /api/v1/identity/me/shares; GET/POST /api/v1/identity/me/share-invitations with .../{invitationId}/confirm and .../{invitationId}/cancel; GET /api/v1/identity/share-invitations and .../{invitationId}/accept; GET /api/v1/identity/shared-with-me; GET/POST /api/v1/identity/me/account-deletion with .../confirm and .../cancel. This frontend (D-Eminence/health#29, merged as ccca129) uses each where it is answered and hides it where it is not. Reviewed and approved by the repository owner, D-Eminence, in chat on 2026-10-28 (batch approval for this parity work).",
   "backend_commits": {
     "gateway": "80d34353ea275e09752330ed0c7c8cece85a89ef",
-    "identity-api": "80d34353ea275e09752330ed0c7c8cece85a89ef",
-    "ehr-api": "80d34353ea275e09752330ed0c7c8cece85a89ef",
+    "identity-api": "0a8f4d70da7aede982934a23d83219b2003d29d6",
+    "ehr-api": "0a8f4d70da7aede982934a23d83219b2003d29d6",
     "lab-api": "80d34353ea275e09752330ed0c7c8cece85a89ef",
     "pharmacy-api": "80d34353ea275e09752330ed0c7c8cece85a89ef",
     "ocr-api": "80d34353ea275e09752330ed0c7c8cece85a89ef",
     "outreach-api": "80d34353ea275e09752330ed0c7c8cece85a89ef",
     "support-api": "80d34353ea275e09752330ed0c7c8cece85a89ef",
-    "notification-api": "80d34353ea275e09752330ed0c7c8cece85a89ef"
+    "notification-api": "0a8f4d70da7aede982934a23d83219b2003d29d6"
   }
 }
