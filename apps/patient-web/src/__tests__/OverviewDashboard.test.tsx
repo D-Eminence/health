@@ -70,11 +70,12 @@ const tiles = () => within(screen.getByRole('list', { name: 'Health summary' }))
   .map(tile => [tile.querySelector('.patient-tile-label')?.textContent, tile.querySelector('.patient-tile-value')?.textContent])
 
 describe('the overview with patient parity served', () => {
-  it('shows the profile card: name, Health ID with Copy HID, the NIN badge, the completion and the two buttons', async () => {
+  it('shows the black Health ID card: name, the Health ID as plain text, the NIN badge, the completion and the two buttons', async () => {
     renderPortal(<Overview />, gateway(), {}, parity)
     const card = await region('Ada Example')
-    expect(card.getByText('HID-ABC234')).toBeTruthy()
-    expect(card.getByRole('button', { name: 'Copy HID' })).toBeTruthy()
+    expect((await screen.findByRole('heading', { name: 'Ada Example' })).closest('.patient-identity-card')).toBeTruthy()
+    expect(card.getByText('HID-ABC234').className).toContain('patient-hid-plain')
+    expect(card.queryByRole('button', { name: 'Copy HID' })).toBeNull()
     expect(card.getByText('NIN not verified')).toBeTruthy()
     expect(card.getByText('AE')).toBeTruthy()
     // No photo, HMO, verified NIN or emergency contact: 8 of 12 is 67%.

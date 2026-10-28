@@ -312,9 +312,11 @@
   .patient-loading { color: var(--color-muted); }
   .patient-identity-card { display: grid; gap: 8px; min-height: 190px; padding: 28px; border-radius: var(--radius-card); background: var(--color-inverse-surface); color: var(--color-inverse-ink); }
   .patient-identity-card .patient-eyebrow { color: #a7cbf5; }
-  .patient-identity-card strong { font-family: var(--font-mono); font-size: clamp(22px, 3vw, 32px); overflow-wrap: anywhere; }
+  .patient-identity-card > strong { font-family: var(--font-mono); font-size: clamp(22px, 3vw, 32px); overflow-wrap: anywhere; }
   .patient-hid { display: grid; gap: 10px; }
   .patient-hid .patient-hid-code { display: block; padding: 20px 18px; border: 1px dashed var(--color-brand); border-radius: var(--radius-card); background: var(--color-brand-tint); color: var(--color-brand); font-family: var(--font-mono); font-size: clamp(22px, 7vw, 28px); font-weight: 700; letter-spacing: .04em; text-align: center; overflow-wrap: anywhere; user-select: all; }
+  /* On the profile and the dashboard the Health ID is plain text in the card's colour; a click copies it. */
+  .patient-hid .patient-hid-plain { justify-self: start; padding: 0; border: 0; background: none; color: inherit; font-size: 20px; text-align: left; cursor: copy; }
   .patient-hid-note { margin: 0; color: var(--color-muted); font-size: 13px; }
   .patient-hid-note:empty { position: absolute; }
   .patient-identity-card .patient-hid, .patient-details .patient-hid { justify-items: start; }
@@ -325,6 +327,13 @@
   .patient-details .patient-hid .patient-secondary-button { min-height: 36px; padding: 6px 12px; }
   .patient-identity-card p { margin: 0; color: var(--color-inverse-muted); }
   .patient-identity-card a { justify-self: start; color: #b8d8f7; text-decoration: none; }
+  /* The dashboard's profile card is the black Health ID card: its name, completion, links and buttons keep readable colours on it. */
+  .patient-card.patient-identity-card { border-color: var(--color-inverse-surface); }
+  .patient-identity-card .patient-overview-name { color: inherit; }
+  .patient-identity-card .patient-completion-compact p { color: var(--color-inverse-ink); }
+  .patient-identity-card .patient-completion-compact a, .patient-identity-card.patient-overview-profile > a { color: #b8d8f7; }
+  .patient-identity-card .patient-primary-button { color: #fff; }
+  .patient-identity-card .patient-secondary-button { color: var(--color-brand); }
   .patient-overview-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
   .patient-action-card { display: grid; align-content: start; gap: 12px; color: var(--color-muted); font-size: 14px; text-decoration: none; }
   .patient-action-card strong { color: var(--color-ink); font-size: 18px; }
