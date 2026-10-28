@@ -351,6 +351,19 @@ export interface PatientOrderRoute {
   correctableUntil?: string | null
 }
 
+/**
+ * POST .../activate's answer, for the sign-up without a NIN and the NIN route alike. `signedIn: true` (hid-system,
+ * owner decision 2026-10-28): the answer also set the cookies a patient sign-in sets, and made its session, for the
+ * browser that holds the enrollment's cookie, once. Absent from an Identity before it, and false for a replayed
+ * activation or when no session could be made: the patient then signs in. It names no actor, so the session is
+ * read before it is taken up (session.tsx, takeUpActivatedSession).
+ */
+export interface EnrollmentActivation {
+  stage: 'active'
+  hidCode: string
+  signedIn?: boolean
+}
+
 export interface RecoveryChallenge {
   accepted: true
   challengeId: string
@@ -456,13 +469,15 @@ export function createPatientApi(client: ApiClient) {
       call<{ challengeId: string; expiresInSeconds: number; resendAfterSeconds: number }>('POST', 'identity/patient-enrollments/contact', { channel, contact }),
     enrollmentVerify: (challengeId: string, code: string) =>
       call<{ stage: 'set_password'; requiredProfileFields?: EnrollmentProfileField[] }>('POST', 'identity/patient-enrollments/contact/verify', { challengeId, code }),
-    // A field is sent only when given (ADR-061: one the NIN record provides is refused).
+    // A field is sent only when given (ADR-061: one the NIN record provides is refused). Activation may sign the
+    // patient in (`signedIn`), so it waits for another window's refresh, as a sign-in does: that refresh's answer
+    // would otherwise replace or clear the new session's cookies.
     enrollmentActivate: (password: string, profile: EnrollmentProfile = {}) =>
-      call<{ stage: 'active'; hidCode: string }>('POST', 'identity/patient-enrollments/activate', {
+      inRefreshTurn(() => call<EnrollmentActivation>('POST', 'identity/patient-enrollments/activate', {
         password,
         ...(profile.dateOfBirth === undefined ? {} : { dateOfBirth: profile.dateOfBirth }),
         ...(profile.gender === undefined ? {} : { gender: profile.gender }),
-      }),
+      })),
     recoveryStart: (identifier: string, turnstileToken: string) =>
       call<RecoveryChallenge>('POST', 'auth/otp/start', { identifier, purpose: 'PASSWORD_RESET', turnstileAction: 'patient-reset-start', turnstileToken }),
     recoveryVerify: (challengeId: string, code: string) =>

@@ -174,9 +174,11 @@ describe('SESSION_CLIENT_MISMATCH: the browser holds a provider\'s sign-in now',
 
   it('blames no other tab when a refresh is refused for a tab that showed no patient', async () => {
     outcome = undefined
-    serve({ [SESSION]: [accessExpired], [PROFILE]: [accessExpired], [REFRESH]: [providerHoldsCookies] })
+    // The page's own session check restores the session once, and is refused as the read's refresh is.
+    const sent = serve({ [SESSION]: [accessExpired], [PROFILE]: [accessExpired], [REFRESH]: [providerHoldsCookies, providerHoldsCookies] })
     render(<SessionProvider><Probe /></SessionProvider>)
     await waitFor(() => expect(status()).toBe('anonymous'))
+    expect(routes(sent)).toEqual([REFRESH])
     await press('Read profile')
     expect(outcome).toBe('401 AUTHENTICATION_REQUIRED')
     expect(screen.getByTestId('elsewhere').textContent).toBe('false')

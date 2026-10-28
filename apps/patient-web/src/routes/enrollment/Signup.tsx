@@ -2,7 +2,7 @@ import { useLayoutEffect, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { isHidApiError, retryAfterSeconds } from '@hid/http'
 import { PasswordInput } from '@hid/ui'
-import { SIGNUP_GENDERS, type EnrollmentSignupDetails, type SignupGender } from '../../api'
+import { SIGNUP_GENDERS, type EnrollmentActivation, type EnrollmentSignupDetails, type SignupGender } from '../../api'
 import { AuthLayout } from '../../AuthLayout'
 import { GoogleButton } from '../../GoogleButton'
 import { googleClientId } from '../../googleClient'
@@ -15,6 +15,7 @@ import { HospitalPicker } from './HospitalPicker'
 import { HealthIdCode } from '../HealthIdCode'
 import { googleProfileOf } from './googleProfile'
 import { REGISTRATION_CLOSED } from './RegistrationClosed'
+import { SIGNED_IN_ON_THIS_DEVICE } from './Complete'
 import { STEP_UNAVAILABLE, refusedWith, registrationClosed, temporarilyUnavailable } from './problems'
 
 /**
@@ -25,7 +26,10 @@ import { STEP_UNAVAILABLE, refusedWith, registrationClosed, temporarilyUnavailab
  * `signup: true`; until then the NIN-first enrollment is shown as before.
  *
  * The password is kept in memory from its step until activation, which follows
- * the code at once: Identity takes it only at `set_password`.
+ * the code at once: Identity takes it only at `set_password`. An activation that
+ * signs the patient in (`signedIn: true`, owner decision 2026-10-28) shows the
+ * Health ID with "Proceed to profile", as hid-1.0 did; otherwise with a link to
+ * sign in.
  */
 type SignupStep = 'details' | 'password' | 'code' | 'done'
 type DetailsField = 'firstName' | 'lastName' | 'email' | 'phone' | 'gender' | 'hospitalCurrentlyUsing' | 'terms'
@@ -116,11 +120,15 @@ function serverDetailsProblems(reason: unknown): FieldErrors {
 
 const firstOf = <T extends string>(order: readonly T[], errors: Partial<Record<T, string>>) => order.find(field => errors[field])
 
-export function PatientSignup({ focusOnArrival = false, initialEmail = '' }: {
+export function PatientSignup({ focusOnArrival = false, initialEmail = '', signedInByActivation, onProceed }: {
   /** Focus goes to the first field as the sign-up is shown: it replaced the control that was used. */
   focusOnArrival?: boolean
   /** The email typed at sign-in, when its "Finish creating your Health ID" opened the sign-up (SignIn.tsx). */
   initialEmail?: string
+  /** Whether the activation signed the patient in here, its session taken up (Enrollment.tsx, which holds the page). */
+  signedInByActivation: (activation: EnrollmentActivation) => Promise<boolean>
+  /** "Proceed to profile", once signed in. */
+  onProceed: () => void
 }) {
   const { api } = useSession()
   const stepFocus = useStepFocus()
@@ -138,6 +146,8 @@ export function PatientSignup({ focusOnArrival = false, initialEmail = '' }: {
   // The email is proved (set_password): what is left is activation, with no new sign-up or security check.
   const [verified, setVerified] = useState(false)
   const [hidCode, setHidCode] = useState('')
+  // The activation signed the patient in on this device, and the session was taken up.
+  const [signedIn, setSignedIn] = useState(false)
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
   const [resetKey, setResetKey] = useState(0)
   const [busy, setBusy] = useState(false)
@@ -193,8 +203,10 @@ export function PatientSignup({ focusOnArrival = false, initialEmail = '' }: {
 
   const activate = async () => {
     const result = await api.enrollmentActivate(password)
+    // Taken up before the Health ID is shown, as sign-in takes up its session; never a refusal of the activation.
+    const signedInHere = await signedInByActivation(result)
     setPassword(''); setConfirm(''); setCode('')
-    setHidCode(result.hidCode); setStep('done')
+    setSignedIn(signedInHere); setHidCode(result.hidCode); setStep('done')
   }
 
   /** Activation refused after the email was proved: the password step again, with the password kept. */
@@ -398,9 +410,16 @@ export function PatientSignup({ focusOnArrival = false, initialEmail = '' }: {
     {step === 'done' && <div className="patient-success" role="status" aria-atomic="false">
       <h2 ref={stepFocus.target} tabIndex={-1}>Your Health ID is ready.</h2>
       <HealthIdCode code={hidCode} />
-      <p>Save this code: write it down or keep it somewhere safe. This page may not show it again once you leave or reload it.</p>
-      <p>Use your Health ID or your email address, with your password, whenever you sign in. Once signed in, you can verify your NIN from your profile.</p>
-      <Link className="patient-primary-button" to="/sign-in">Sign in to continue</Link>
+      {signedIn ? <>
+        <p>Save this code: write it down or keep it somewhere safe. You can also find it on your profile.</p>
+        <p>Use your Health ID or your email address, with your password, whenever you sign in. You can verify your NIN from your profile.</p>
+        <p>{SIGNED_IN_ON_THIS_DEVICE}</p>
+        <button type="button" className="patient-primary-button" onClick={onProceed}>Proceed to profile</button>
+      </> : <>
+        <p>Save this code: write it down or keep it somewhere safe. This page may not show it again once you leave or reload it.</p>
+        <p>Use your Health ID or your email address, with your password, whenever you sign in. Once signed in, you can verify your NIN from your profile.</p>
+        <Link className="patient-primary-button" to="/sign-in">Sign in to continue</Link>
+      </>}
     </div>}
 
     {import.meta.env.VITE_HID_GOOGLE_CLIENT_ID && googleOffered && <section className="patient-auth-separator" aria-label="Google sign-up">

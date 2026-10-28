@@ -9,14 +9,37 @@ import { HealthIdCode } from '../HealthIdCode'
  * in and resets their password with it.
  */
 const SAVE_HID = 'Save your Health ID now: write it down or keep it somewhere safe. This page may not show it again once you leave or reload it, and never more than 15 minutes after activation.'
+/** Signed in by the activation: the profile shows the Health ID from now on. */
+const SAVE_HID_SIGNED_IN = 'Save your Health ID now: write it down or keep it somewhere safe. You can also find it on your profile.'
+/**
+ * Said wherever an activation signed the patient in (POST .../activate `signedIn: true`, hid-system, owner decision
+ * 2026-10-28): on a shared device, the person who signed up stays signed in until they sign out.
+ */
+export const SIGNED_IN_ON_THIS_DEVICE = 'You are signed in on this device. If other people use it, sign out when you finish.'
 
-/** The activated Health ID. Nothing is stored; it is copied only when the patient asks. */
-export function Complete({ focusTarget, hidCode }: { focusTarget: (element: HTMLElement | null) => void; hidCode: string }) {
+/**
+ * The activated Health ID. Nothing is stored; it is copied only when the patient asks. When the activation signed the
+ * patient in, "Proceed to profile" opens the portal (hid-1.0 PatientAuth.tsx); otherwise the patient signs in.
+ */
+export function Complete({ focusTarget, hidCode, signedIn = false, onProceed }: {
+  focusTarget: (element: HTMLElement | null) => void
+  hidCode: string
+  /** The activation signed the patient in on this device, and the session was taken up. */
+  signedIn?: boolean
+  onProceed?: () => void
+}) {
   return <div className="patient-success" role="status" aria-atomic="false">
     <h2 ref={focusTarget} tabIndex={-1}>Your Health ID is ready.</h2>
     <HealthIdCode code={hidCode} />
-    <p>{SAVE_HID}</p>
-    <p>Sign in with your verified email or Health ID and new password. With a verified phone number, your Health ID is how you sign in and reset your password.</p>
-    <Link className="patient-primary-button" to="/sign-in">Sign in</Link>
+    {signedIn && onProceed ? <>
+      <p>{SAVE_HID_SIGNED_IN}</p>
+      <p>Sign in with your verified email or Health ID and your password. With a verified phone number, your Health ID is how you sign in and reset your password.</p>
+      <p>{SIGNED_IN_ON_THIS_DEVICE}</p>
+      <button type="button" className="patient-primary-button" onClick={onProceed}>Proceed to profile</button>
+    </> : <>
+      <p>{SAVE_HID}</p>
+      <p>Sign in with your verified email or Health ID and new password. With a verified phone number, your Health ID is how you sign in and reset your password.</p>
+      <Link className="patient-primary-button" to="/sign-in">Sign in</Link>
+    </>}
   </div>
 }

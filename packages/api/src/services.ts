@@ -104,9 +104,12 @@ export function createEnrollmentService(context: ServiceContext) {
       options: CallOptions = {}): Promise<PatientEnrollmentProgress> {
       return request('enrollment.verifyContact','POST',{ body, ...options })
     },
-    /** A date of birth or gender only for a field the NIN record lacks (ADR-061). */
+    /**
+     * A date of birth or gender only for a field the NIN record lacks (ADR-061). `signedIn: true` (owner decision
+     * 2026-10-28): the answer also set the patient session cookies; absent from an Identity before it.
+     */
     activate(password: string, profile: PatientEnrollmentProfile = {},
-      options: CallOptions = {}): Promise<{ stage: 'active'; hidCode: string }> {
+      options: CallOptions = {}): Promise<{ stage: 'active'; hidCode: string; signedIn?: boolean }> {
       return request('enrollment.activate','POST',{ body: { password,
         ...(profile.dateOfBirth === undefined ? {} : { dateOfBirth: profile.dateOfBirth }),
         ...(profile.gender === undefined ? {} : { gender: profile.gender }) }, ...options })

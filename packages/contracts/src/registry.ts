@@ -339,7 +339,9 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('ehr.patientChatHistory','ehr','/api/v1/ehr/me/chat/history',['GET','DELETE'],false,undefined,
     'Patient sessions only; available while chat is off. Newest first, at most 50. DELETE answers 200 { cleared, deletedCount }, '
     + 'or 409 CHAT_HISTORY_ON_HOLD.'),
-  r('auth.patientLogin','auth','/api/v1/auth/patient/login',P,true),
+  r('auth.patientLogin','auth','/api/v1/auth/patient/login',P,true,undefined,
+    'With the right password for a suspended, blocked or disabled account, 403 ACCOUNT_SUSPENDED with a detail naming support '
+    + '(owner decision 2026-10-28); a wrong password stays the generic 401. Google sign-in the same where it applies.'),
   r('auth.staffLogin','auth','/api/v1/auth/login',P,true,undefined,
     'Requires Origin and a workforce Turnstile action. Since hid-system #71 returns an MFA status, not a session.'),
   r('auth.googleNonce','auth','/api/v1/auth/google/nonce',G,true),
@@ -393,7 +395,9 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   r('enrollment.contact','enrollment','/api/v1/identity/patient-enrollments/contact',P,true),
   r('enrollment.verifyContact','enrollment','/api/v1/identity/patient-enrollments/contact/verify',P,true),
   r('enrollment.activate','enrollment','/api/v1/identity/patient-enrollments/activate',P,true,undefined,
-    'Returns HIDCode; does not create a login session. Takes dateOfBirth and gender only for the requiredProfileFields the NIN record lacks (ADR-061).'),
+    'Returns { stage: active, hidCode }. With signedIn: true (owner decision 2026-10-28) it also set the cookies and session a patient '
+    + 'login sets, for the browser holding the enrollment cookie, once; absent from an Identity before it, false on a replay or when no '
+    + 'session could be made. Takes dateOfBirth and gender only for the requiredProfileFields the NIN record lacks (ADR-061).'),
   // The NIN holder step (#84, ADR-062) and the facility route (#85, ADR-063). Each
   // POST needs Origin and the enrollment cookie, and takes no Turnstile token or Idempotency-Key.
   r('enrollment.holder','enrollment','/api/v1/identity/patient-enrollments/holder',P,true,undefined,
