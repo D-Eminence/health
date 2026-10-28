@@ -1,6 +1,6 @@
-import { describe, expect, it, vi } from 'vitest'
-import { act, fireEvent, render, screen, within } from '@testing-library/react'
-import { useState, type FormEvent } from 'react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { CodeBoxes, codeComplete } from '../CodeBoxes'
 
 /**
@@ -22,6 +22,30 @@ const boxes = () => within(group()).getAllByRole('textbox') as HTMLInputElement[
 const box = (n: number) => boxes()[n - 1]!
 const value = () => screen.getByTestId('value').textContent
 const paste = (target: HTMLElement, text: string) => fireEvent.paste(target, { clipboardData: { getData: () => text } })
+/**
+ * The code's form as a page shows it after a request answers: in a later task, at React's default priority (outside
+ * act), so React commits that render and leaves its effects for a task after the next paint. Until then the code is
+ * shown as `waiting`, and "Checking…" says a request is running.
+ */
+function Answered({ onSubmit, waiting }: { onSubmit: (code: string) => void; waiting: 'hidden' | 'busy' }) {
+  const [answered, setAnswered] = useState(false)
+  useEffect(() => { const timer = setTimeout(() => setAnswered(true)); return () => clearTimeout(timer) }, [])
+  if (!answered && waiting === 'hidden') return null
+  return <>{!answered && <p>Checking…</p>}<Form onSubmit={onSubmit} busy={!answered} initial={waiting === 'busy' ? '12345' : ''} /></>
+}
+/** Observers a failed test left watching, so none fires into a later test. */
+const watching: MutationObserver[] = []
+afterEach(() => { watching.splice(0).forEach(observer => observer.disconnect()) })
+/** Runs `then` the moment `ready` holds after a change to the page: after a render commits, before its effects run. */
+function onCommit(ready: () => boolean, then: () => void) {
+  const observer = new MutationObserver(() => {
+    if (!ready()) return
+    observer.disconnect()
+    then()
+  })
+  observer.observe(document.body, { childList: true, subtree: true })
+  watching.push(observer)
+}
 /** Typed as a keyboard does: a character at a time into the box with focus, after what it holds. */
 const typeKeys = (text: string) => {
   for (const character of text) {
@@ -209,12 +233,44 @@ describe('six-box code entry', () => {
     expect(onSubmit).toHaveBeenCalledWith('193456')
   })
 
+  // A code pasted or filled in from a message the moment the boxes appear, or the sixth digit typed just as a request
+  // ends: React runs the earlier render's effect first, and that one must not take the code (the CI failure of
+  // EnrollmentProfileFields' "carries the fields named by the contact proof", whose code was never sent).
+  it('sends a code completed the moment the boxes appear, before React has run their first effect', async () => {
+    const onSubmit = vi.fn()
+    onCommit(() => screen.queryByLabelText('Verification code') !== null,
+      () => { fireEvent.change(screen.getByLabelText('Verification code'), { target: { value: '123456' } }) })
+    render(<Answered onSubmit={onSubmit} waiting="hidden" />)
+    await waitFor(() => expect(value()).toBe('123456'))
+    expect(onSubmit).toHaveBeenCalledTimes(1)
+    expect(onSubmit).toHaveBeenCalledWith('123456')
+  })
+
+  it('sends a code completed the moment a request ends, before React has run that render\'s effect', async () => {
+    const onSubmit = vi.fn()
+    onCommit(() => screen.queryByText('Checking…') === null, () => { fireEvent.change(box(6), { target: { value: '6' } }) })
+    render(<Answered onSubmit={onSubmit} waiting="busy" />)
+    await waitFor(() => expect(value()).toBe('123456'))
+    expect(onSubmit).toHaveBeenCalledTimes(1)
+    expect(onSubmit).toHaveBeenCalledWith('123456')
+  })
+
   it('does not send a code completed while a request is running', async () => {
     const onSubmit = vi.fn()
     render(<Form onSubmit={onSubmit} busy />)
     await act(async () => { paste(box(1), '123456') })
     expect(value()).toBe('123456')
     expect(onSubmit).not.toHaveBeenCalled()
+  })
+
+  it('does not send a code completed while a request was running once that request ends', async () => {
+    const onSubmit = vi.fn()
+    const { rerender } = render(<Form onSubmit={onSubmit} busy />)
+    await act(async () => { paste(box(1), '123456') })
+    await act(async () => { rerender(<Form onSubmit={onSubmit} busy={false} />) })
+    expect(value()).toBe('123456')
+    expect(onSubmit).not.toHaveBeenCalled()
+    expect((screen.getByRole('button', { name: 'Verify code' }) as HTMLButtonElement).disabled).toBe(false)
   })
 
   it('marks every box invalid when the code was refused', () => {

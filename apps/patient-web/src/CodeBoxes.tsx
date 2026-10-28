@@ -41,8 +41,8 @@ export function CodeBoxes({ id, label, value, onChange, inputRef, invalid, descr
   const boxes = useRef<Array<HTMLInputElement | null>>([])
   const group = useRef<HTMLFieldSetElement>(null)
   const digits = Array.from({ length: CODE_LENGTH }, (_, index) => /\d/.test(value[index] ?? '') ? value[index]! : '')
-  // This change completed the code: the form is sent once the page holds it (below).
-  const completed = useRef(false)
+  // The code a change just completed: the form is sent once the page holds it (below).
+  const completed = useRef<string | null>(null)
   const boxId = (index: number) => index === 0 ? id : `${id}-${index + 1}`
   const firstEmpty = digits.findIndex(digit => !digit)
   /** Whether a box may hold focus: one with a digit, or the first empty one. */
@@ -58,9 +58,12 @@ export function CodeBoxes({ id, label, value, onChange, inputRef, invalid, descr
   const moving = useRef(false)
 
   useEffect(() => {
-    if (!completed.current) return
-    completed.current = false
-    if (!codeComplete(value) || busy) return
+    // Only the effect of the render that holds the completed code takes it. React may still owe an earlier render's
+    // effect when the code arrives (one that showed the boxes or ended a request, which it runs after the next paint),
+    // and runs that one first: it must not take the code, or the form is never sent.
+    if (completed.current === null || completed.current !== value) return
+    completed.current = null
+    if (busy) return
     // As the form's button would, so its own checks run; a browser without requestSubmit leaves it to the button.
     const form = group.current?.closest('form')
     if (typeof form?.requestSubmit === 'function') form.requestSubmit()
@@ -68,7 +71,7 @@ export function CodeBoxes({ id, label, value, onChange, inputRef, invalid, descr
 
   const emit = (next: string[]) => {
     const code = next.map(digit => digit || ' ').join('').trimEnd()
-    completed.current = codeComplete(code) && !codeComplete(value)
+    completed.current = codeComplete(code) && !codeComplete(value) ? code : null
     onChange(code)
   }
   const moveTo = (index: number) => {

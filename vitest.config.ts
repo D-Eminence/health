@@ -40,9 +40,10 @@ export default defineConfig({
           exclude: ['**/node_modules/**', '**/dist/**', '**/.next/**'],
           setupFiles: ['./vitest.setup.ts'],
           restoreMocks: true,
-          // A test may now wait up to five seconds for an element (vitest.setup.ts), so it needs more than the
-          // default five seconds to run; OcrFields timed out at exactly 5000ms on a busy runner.
-          testTimeout: 15000,
+          // A test may now wait up to ten seconds for an element (vitest.setup.ts), so it needs more than that to
+          // run; OcrFields timed out at the default 5000ms on a busy runner, and the enrollment tests needed over 5s
+          // for one element.
+          testTimeout: 30000,
         },
         resolve: {
           // Mirrors the `@/*` path alias each Next.js app declares in its

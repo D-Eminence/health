@@ -4,6 +4,7 @@ No workstation profiles, customer data, third-party packages or deployment on im
 import copy
 import datetime as dt
 import hashlib
+import http.client
 import json
 import os
 import pathlib
@@ -32,6 +33,9 @@ COMPONENTS = ("identity-api","ehr-api","lab-api","pharmacy-api","ocr-api","ocr-w
 INDEX_KEY = "production/current.json"
 CHECK_SETTLE_SECONDS = 1200
 CHECK_POLL_SECONDS = 20
+# Reads change nothing, so a read with no answer, a rate limit or a provider error is asked again.
+READ_ATTEMPTS = 3
+READ_RETRY_SECONDS = 2
 
 class ReleaseError(RuntimeError):
     pass
@@ -131,13 +135,20 @@ class GitHub:
         request = urllib.request.Request("https://api.github.com/repos/"+self.repo+("/"+suffix if suffix else ""),
             headers={"Authorization":"Bearer "+self.token, "Accept":"application/vnd.github+json",
                      "X-GitHub-Api-Version":"2022-11-28", "User-Agent":"HID-Production-Release/1"})
-        try:
-            with urllib.request.urlopen(request, timeout=30) as response:
-                return json.load(response)
-        except urllib.error.HTTPError as error:
-            raise ReleaseError("GITHUB_HTTP_"+str(error.code)) from None
-        except urllib.error.URLError:
-            raise ReleaseError("GITHUB_TRANSPORT_UNAVAILABLE") from None
+        # Every GitHub call is a read: one with no answer, a rate limit or a provider error is asked again, a
+        # bounded number of times. Any other refusal is not.
+        for attempt in range(READ_ATTEMPTS):
+            if attempt: time.sleep(READ_RETRY_SECONDS)
+            try:
+                with urllib.request.urlopen(request, timeout=30) as response:
+                    return json.load(response)
+            except urllib.error.HTTPError as error:
+                if attempt == READ_ATTEMPTS-1 or not (error.code == 429 or 500 <= error.code < 600):
+                    raise ReleaseError("GITHUB_HTTP_"+str(error.code)) from None
+            except (urllib.error.URLError, OSError, http.client.HTTPException, ValueError):
+                # urllib passes on, unwrapped, a timeout, reset or cut-off answer met after the request was sent;
+                # a body that is not JSON is no more certain.
+                if attempt == READ_ATTEMPTS-1: raise ReleaseError("GITHUB_TRANSPORT_UNAVAILABLE") from None
 
     def jobs(self, candidate):
         values = []
@@ -259,12 +270,16 @@ class AWS:
         return self._run(command, env, extra)
 
     def _run(self, command, env, extra):
-        result = self.runner(command+(extra or [])+["--region",REGION,"--output","json","--no-cli-pager"],
-                             env=env, capture_output=True, text=True, timeout=90)
+        try:
+            result = self.runner(command+(extra or [])+["--region",REGION,"--output","json","--no-cli-pager"],
+                                 env=env, capture_output=True, text=True, timeout=90)
+        except subprocess.TimeoutExpired:
+            raise ReleaseError("AWS_REQUEST_UNCERTAIN") from None
         if result.returncode:
             match = re.search(r"\(([A-Za-z0-9]+)\)", result.stderr or "")
             raise ReleaseError("AWS_"+(match.group(1) if match else "REQUEST_UNCERTAIN"))
-        return json.loads(result.stdout) if result.stdout.strip() else {}
+        try: return json.loads(result.stdout) if result.stdout.strip() else {}
+        except ValueError: raise ReleaseError("AWS_REQUEST_UNCERTAIN") from None
 
     def account(self):
         require(self.call("sts","get-caller-identity").get("Account") == ACCOUNT, "WRONG_AWS_ACCOUNT")
@@ -313,7 +328,7 @@ class Lease:
         self.aws, self.holder, self.ttl = aws, holder, ttl
         self.table = table or os.environ.get("RELEASE_LEASE_TABLE", "")
         require(self.table == "hid-staging-deployment-leases", "STAGING_LEASE_TABLE_REQUIRED")
-        self.generation = None
+        self.generation, self.confirmed = None, None
         self.lost = threading.Event()
         self.stop = threading.Event()
         self.thread = None
@@ -331,7 +346,7 @@ class Lease:
                 ":active":{"S":"active"},":one":{"N":"1"}}, "ReturnValues":"ALL_NEW"}
         # Expired holders are never silently stolen. Explicit reconciliation must release them.
         body = self.aws.call("dynamodb","update-item",args,mutation=True)
-        self.generation = body["Attributes"]["generation"]["N"]
+        self.generation, self.confirmed = body["Attributes"]["generation"]["N"], expiry
         self.thread = threading.Thread(target=self._heartbeat, daemon=True)
         self.thread.start()
         return self
@@ -344,16 +359,23 @@ class Lease:
                 and int(item.get("expires_at",{}).get("N","0")) > time.time(), "LEASE_LOST")
 
     def _heartbeat(self):
-        while not self.stop.wait(self.ttl/3):
+        # A failed heartbeat is not asked again: the next one is sent ttl/6 later, as usual. The lease is lost
+        # once DynamoDB says it is no longer ours, or a heartbeat sent within ttl/3 of the expiry it last confirmed
+        # fails. Judged by when it was sent, not when it failed: one heartbeat that hangs until the CLI's 90 s timeout
+        # never loses a lease DynamoDB still holds. assert_owned's consistent read stays the authority either way.
+        while not self.stop.wait(self.ttl/6):
+            sent = time.time(); expiry = int(sent)+self.ttl
             try:
                 args = {**self._args(), "UpdateExpression":"SET expires_at = :e",
                     "ConditionExpression":"holder = :h AND generation = :g AND expires_at > :now",
                     "ExpressionAttributeValues":{":h":{"S":self.holder},":g":{"N":self.generation},
-                        ":e":{"N":str(int(time.time())+self.ttl)},":now":{"N":str(int(time.time()))}}}
+                        ":e":{"N":str(expiry)},":now":{"N":str(int(time.time()))}}}
                 self.aws.call("dynamodb","update-item",args,mutation=True)
-            except Exception:
-                self.lost.set()
-                return
+                self.confirmed = expiry
+            except Exception as error:
+                if str(error) == "AWS_ConditionalCheckFailedException" or sent >= self.confirmed-self.ttl/3:
+                    self.lost.set()
+                    return
 
     def release(self, reconciled=True):
         self.stop.set()

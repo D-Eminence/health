@@ -1,6 +1,7 @@
 """Approved production Worker release/rollback controller. Never uses workstation OAuth."""
 import argparse
 import copy
+import http.client
 import importlib.util
 import json
 import os
@@ -9,11 +10,12 @@ import re
 import subprocess
 import tempfile
 import time
+import traceback
 import urllib.error
 import urllib.request
 from html.parser import HTMLParser
 from production_deployment_core import (ACCOUNT, REGION, INDEX_KEY, COMPONENTS, AWS, GitHub, Lease, Store, ReleaseError,
-    atomic_json, canonical, changed_paths, context, file_sha, git, make_candidate, notify,
+    READ_ATTEMPTS, READ_RETRY_SECONDS, atomic_json, canonical, changed_paths, context, file_sha, git, make_candidate, notify,
     require, sha, summarize, validate_candidate, validate_index)
 from staging_release import ROOT, PRODUCTION_HOSTS as HOSTS, verify_manifest, archive_files
 
@@ -105,16 +107,44 @@ class Cloudflare:
         try:
             with urllib.request.urlopen(request,timeout=30) as response:
                 data = json.load(response)
-                require(data.get("success") is True, "CLOUDFLARE_REQUEST_FAILED")
+                require(isinstance(data,dict) and data.get("success") is True and "result" in data,
+                        "CLOUDFLARE_REQUEST_FAILED")
                 return data["result"]
         except urllib.error.HTTPError as error:
+            # Which call was refused, as a route template: never the token, ids, query, response body or bindings.
+            print(json.dumps({"app":app,"cloudflare_call":("POST " if body is not None else "GET ")
+                +("versions/:id" if suffix.startswith("versions/") else suffix),"status":error.code}), flush=True)
             raise ReleaseError("CLOUDFLARE_HTTP_"+str(error.code)) from None
-        except urllib.error.URLError:
-            # Mutations are not retried on uncertain delivery.
+        except (urllib.error.URLError, OSError, http.client.HTTPException, ValueError):
+            # urllib passes on, unwrapped, a timeout, reset or cut-off answer met after the request was sent;
+            # a body that is not JSON is no more certain. Mutations are not retried on uncertain delivery.
             raise ReleaseError("CLOUDFLARE_REQUEST_UNCERTAIN") from None
 
+    def read(self, app, suffix):
+        # Only reads come here: a read with no answer, a rate limit or a provider error is asked again, a bounded
+        # number of times. A refusal (4xx) or an unsuccessful answer is not.
+        for attempt in range(READ_ATTEMPTS):
+            if attempt: time.sleep(READ_RETRY_SECONDS)
+            try: return self.call(app,suffix)
+            except ReleaseError as error:
+                code = str(error)
+                if attempt == READ_ATTEMPTS-1 or not (code in ("CLOUDFLARE_REQUEST_UNCERTAIN","CLOUDFLARE_HTTP_429")
+                                                      or re.fullmatch(r"CLOUDFLARE_HTTP_5\d\d",code)): raise
+
+    def uploaded_call(self, app, suffix, body=None, lease=None):
+        # A version this run just uploaded can briefly 404 on its detail read and on its deployment, even once
+        # the list shows it. A 404 is a definite refusal, so asking again cannot deploy twice; only a 404 is
+        # asked again, a bounded number of times. Versions live before this run never come here.
+        for attempt in range(UPLOAD_LIST_ATTEMPTS):
+            if attempt:
+                time.sleep(UPLOAD_LIST_RETRY_SECONDS)
+                if lease: lease.assert_owned()
+            try: return self.read(app,suffix) if body is None else self.call(app,suffix,body)
+            except ReleaseError as error:
+                if str(error) != "CLOUDFLARE_HTTP_404" or attempt == UPLOAD_LIST_ATTEMPTS-1: raise
+
     def version(self, app):
-        body = self.call(app,"deployments")
+        body = self.read(app,"deployments")
         records = body.get("deployments",[]) if isinstance(body,dict) else body
         require(records and len(records[0].get("versions",[])) == 1
                 and records[0]["versions"][0].get("percentage") == 100, "SINGLE_LIVE_WORKER_VERSION_REQUIRED")
@@ -122,8 +152,8 @@ class Cloudflare:
         require(re.fullmatch(r"[a-f0-9-]{36}",version), "INVALID_LIVE_WORKER_VERSION")
         return version
 
-    def check_version(self, app, version):
-        details = self.call(app,"versions/"+version)
+    def check_version(self, app, version, uploaded=False):
+        details = (self.uploaded_call if uploaded else self.read)(app,"versions/"+version)
         # Store names/types only; provider metadata may include secret binding data.
         bindings = details.get("resources",{}).get("bindings",[])
         require(any(b.get("name") == "ORIGIN_AUTH_TOKEN" and b.get("type") == "secret_text" for b in bindings),
@@ -133,7 +163,7 @@ class Cloudflare:
     def uploaded_version(self, app, release_id, printed=None):
         for attempt in range(UPLOAD_LIST_ATTEMPTS):
             if attempt: time.sleep(UPLOAD_LIST_RETRY_SECONDS)
-            versions = self.call(app,"versions")
+            versions = self.read(app,"versions")
             values = versions.get("items",[]) if isinstance(versions,dict) else versions
             require(isinstance(values,list) and all(isinstance(v,dict) for v in values),
                     "INVALID_WORKER_VERSION_LIST")
@@ -153,16 +183,19 @@ class Cloudflare:
         target = selected[0].get("id", "")
         require(isinstance(target,str) and re.fullmatch(VERSION_ID,target),
                 "INVALID_UPLOADED_WORKER_VERSION")
-        details = self.check_version(app,target)
+        details = self.check_version(app,target,uploaded=True)
         require(details.get("id") == target and isinstance(details.get("annotations"),dict)
                 and details["annotations"].get("workers/tag") == release_id,
                 "UPLOADED_WORKER_VERSION_TAG_DIFFERS")
         return target
 
-    def deploy_version(self, app, version, lease):
-        self.check_version(app,version)
+    def deploy_version(self, app, version, lease, uploaded=False):
+        # uploaded: this run's own version. Restoring a version live before this run fails closed on any 404.
+        self.check_version(app,version,uploaded)
         lease.assert_owned()
-        self.call(app,"deployments",{"strategy":"percentage","versions":[{"version_id":version,"percentage":100}]})
+        body = {"strategy":"percentage","versions":[{"version_id":version,"percentage":100}]}
+        if uploaded: self.uploaded_call(app,"deployments",body,lease)
+        else: self.call(app,"deployments",body)
         end = time.monotonic()+60
         while time.monotonic() < end:
             lease.assert_owned()
@@ -173,12 +206,24 @@ class Cloudflare:
     def assert_domains(self):
         request = urllib.request.Request(self.base+"domains",
             headers={"Authorization":"Bearer "+self.token})
-        try:
-            with urllib.request.urlopen(request,timeout=30) as response: data = json.load(response)
-        except (urllib.error.HTTPError,urllib.error.URLError):
-            raise ReleaseError("WORKER_DOMAIN_READ_FAILED") from None
-        require(data.get("success") is True, "WORKER_DOMAIN_READ_FAILED")
-        domains = {r["hostname"]:r.get("service") for r in data["result"]}
+        # A read, asked again as read() asks: on no answer, a rate limit or a provider error only.
+        for attempt in range(READ_ATTEMPTS):
+            if attempt: time.sleep(READ_RETRY_SECONDS)
+            try:
+                with urllib.request.urlopen(request,timeout=30) as response: data = json.load(response)
+                break
+            except urllib.error.HTTPError as error:
+                # The route template and status only, as in call(): never the token, account id or body.
+                print(json.dumps({"cloudflare_call":"GET domains","status":error.code}), flush=True)
+                if attempt == READ_ATTEMPTS-1 or not (error.code == 429 or 500 <= error.code < 600):
+                    raise ReleaseError("WORKER_DOMAIN_READ_FAILED") from None
+            except (urllib.error.URLError, OSError, http.client.HTTPException, ValueError):
+                if attempt == READ_ATTEMPTS-1: raise ReleaseError("WORKER_DOMAIN_READ_FAILED") from None
+        # An unsuccessful or malformed answer is definite: it is not asked again.
+        rows = data.get("result") if isinstance(data,dict) and data.get("success") is True else None
+        require(isinstance(rows,list) and all(isinstance(r,dict) and isinstance(r.get("hostname"),str) for r in rows),
+                "WORKER_DOMAIN_READ_FAILED")
+        domains = {r["hostname"]:r.get("service") for r in rows}
         require(all(domains.get(host) == "hid-"+app+"-production" for app,host in HOSTS.items()), "STAGING_WORKER_DOMAINS_DIFFER")
 
 def dependency_commits(value, expected_contract=None):
@@ -268,7 +313,8 @@ def verify_live_assets(app,manifest_entry):
             # Only a new asset can be missing from an edge that still runs the previous version.
             raise ReleaseError("WORKER_ASSET_NOT_YET_SERVED" if asset and error.code == 404
                                else "WORKER_ASSET_REQUEST_FAILED") from None
-        except urllib.error.URLError:
+        except (urllib.error.URLError, OSError, http.client.HTTPException):
+            # Includes a timeout, reset or cut-off body met after the request was sent, which urllib passes on unwrapped.
             raise ReleaseError("WORKER_ASSET_UNREACHABLE") from None
     html = get("")
     if not matches(html,manifest_entry["files"]["index.html"],html=True):
@@ -286,6 +332,19 @@ def verify_live_assets(app,manifest_entry):
         require(matches(get("about"),manifest_entry["files"]["about.html"],html=True), "PUBLIC_DEEP_LINK_DIFFERS")
     return {"entry_assets_verified":len(refs.paths),"deep_link_verified":True}
 
+def error_code(error):
+    return str(error) if isinstance(error,ReleaseError) else "CONTROLLER_FAILED"
+
+def unexpected(error, stage):
+    # For CONTROLLER_FAILED: the class and the controller's own lines only, never the message or values,
+    # which can carry provider data. Once per error, by the first stage that catches it.
+    if isinstance(error,ReleaseError) or getattr(error,"_controller_named",False): return
+    error._controller_named = True
+    here = pathlib.Path(__file__).resolve().parent
+    print(json.dumps({"stage":stage,"unexpected_error":type(error).__name__,
+        "at":[[pathlib.Path(f.filename).name,f.name,f.lineno] for f in traceback.extract_tb(error.__traceback__)
+              if pathlib.Path(f.filename).resolve().parent == here]}), flush=True)
+
 def deploy(mode):
     ctx = context("frontend")
     candidate_path = ROOT/"release/candidate.json"
@@ -298,7 +357,7 @@ def deploy(mode):
     store = Store(aws); cloud = Cloudflare()
     cloud.assert_domains()
     lease = Lease(aws,release["release_id"]).acquire()
-    reconciled, started, updated = False, False, []
+    reconciled, started, updated, failure = False, False, [], None
     alert_failed = False
     prefix = "production/releases/"+release["release_id"]+"/"
     try:
@@ -366,17 +425,18 @@ def deploy(mode):
                     secret_file = pathlib.Path(folder)/"secrets.json"
                     secret_file.write_bytes(canonical({"ORIGIN_AUTH_TOKEN":origin["SecretString"]}))
                     secret_file.chmod(0o600)
-                    result = subprocess.run(["node",str(ROOT/"node_modules/wrangler/wrangler-dist/cli.js"),
+                    try: result = subprocess.run(["node",str(ROOT/"node_modules/wrangler/wrangler-dist/cli.js"),
                         "versions","upload","--config",configs[app]["path"],"--secrets-file",str(secret_file),
                         "--tag",release["release_id"],"--message","Source "+release["source_commit"]],
                         cwd=ROOT,env=dict(os.environ,CI="true",WRANGLER_SEND_METRICS="false"),
                         capture_output=True,text=True,timeout=180)
+                    except subprocess.TimeoutExpired: raise ReleaseError("WORKER_VERSION_UPLOAD_FAILED") from None
                 # A failed/uncertain upload is inspected, never retried automatically.
                 require(result.returncode == 0, "WORKER_VERSION_UPLOAD_FAILED")
                 target = cloud.uploaded_version(app,release["release_id"],printed_version(result.stdout))
                 store.put(prefix+"intent-"+app+".json",{"app":app,"before":before[app],"target_version":target})
                 updated.append(app)
-                cloud.deploy_version(app,target,lease)
+                cloud.deploy_version(app,target,lease,uploaded=True)
                 checks = verify_assets(app,entry)
                 after[app] = {"version_id":target,"hostname":HOSTS[app],"source_commit":release["source_commit"],
                     "archive":archive,"origin_secret_version_id":origin["VersionId"],"checks":checks}
@@ -394,9 +454,13 @@ def deploy(mode):
             print(json.dumps({"release_id":release["release_id"],"alert_status":"failed"}))
         print(json.dumps({"release_id":release["release_id"],"status":"success","apps":updated}))
     except Exception as error:
+        # Named before the rollback, which can take minutes, and before anything else can replace it.
+        failure = error; unexpected(error,"deploy")
         if started:
+            restoring = None
             try:
-                for app in reversed(updated): cloud.deploy_version(app,before[app]["version_id"],lease)
+                for restoring in reversed(updated): cloud.deploy_version(restoring,before[restoring]["version_id"],lease)
+                restoring = None
                 require(all(cloud.version(app) == before[app]["version_id"] for app in HOSTS), "WORKER_ROLLBACK_FAILED")
                 latest,latest_meta = store.read(INDEX_KEY)
                 require(latest == index or latest.get("frontend_release") == release["release_id"], "FOREIGN_INDEX_UPDATE")
@@ -404,14 +468,27 @@ def deploy(mode):
                 store.put(INDEX_KEY,index,etag=latest_meta["ETag"])
                 store.put(prefix+"failed.json",{"schema":"hid.release-receipt/v1","kind":"frontend",
                     "status":"failed-rolled-back","before":before,"after":before,
-                    "error_code":str(error) if isinstance(error,ReleaseError) else "CONTROLLER_FAILED"})
+                    "error_code":error_code(error)})
                 reconciled = True
-            except Exception: reconciled = False
+                print(json.dumps({"stage":"rollback","status":"restored","apps_changed":updated}), flush=True)
+            except Exception as cause:
+                unexpected(cause,"rollback")
+                # A rollback that did not finish never reads like a clean one: a fixed code and app names only.
+                print(json.dumps({"stage":"rollback","status":"reconciliation-required","code":error_code(cause),
+                    "restoring":restoring,"apps_changed":updated}), flush=True)
+                reconciled = False
         else: reconciled = True
         try: notify(aws,release,"failed-rolled-back" if reconciled and started else "reconciliation-required")
-        except Exception: pass
+        except Exception: print(json.dumps({"release_id":release["release_id"],"alert_status":"failed"}), flush=True)
         raise
-    finally: lease.release(reconciled=reconciled)
+    finally:
+        # A failed lease release never replaces an error already on its way out: it gets its own line.
+        try: lease.release(reconciled=reconciled)
+        except Exception as cause:
+            unexpected(cause,"lease-release")
+            print(json.dumps({"stage":"lease-release","code":error_code(cause)}), flush=True)
+            # After a recorded healthy release the job still fails, but never with a code a rollback also uses.
+            if failure is None: raise ReleaseError("DEPLOYED_HEALTHY_BUT_LEASE_RELEASE_FAILED") from None
     if alert_failed: raise ReleaseError("DEPLOYED_HEALTHY_BUT_OPERATIONS_ALERT_FAILED")
 
 if __name__ == "__main__":
@@ -424,5 +501,6 @@ if __name__ == "__main__":
         elif args.mode == "rollback-candidate": rollback_candidate(args.release_id)
         else: deploy(args.mode)
     except Exception as error:
-        print(json.dumps({"status":"failed","code":str(error) if isinstance(error,ReleaseError) else "CONTROLLER_FAILED"}))
+        unexpected(error,"release")
+        print(json.dumps({"status":"failed","code":error_code(error)}))
         raise SystemExit(1)
