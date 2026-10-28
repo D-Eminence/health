@@ -48,3 +48,49 @@ describe('the Google link card’s current password', () => {
     expect(card.getByRole('button', { name: 'Show password', pressed: false })).toBeTruthy()
   })
 })
+
+describe('the Google link card’s email or Health ID (owner decision, 2026-10-27)', () => {
+  async function openCard() {
+    const { sent } = renderPortal(<SettingsPage />, path => {
+      if (path === '/identity/me') return json(profile)
+      if (path === '/identity/me/emergency-contacts') return json([])
+      if (path === '/identity/me/account-deletion') return json({ waitingPeriodSeconds: 1_209_600, confirmationTtlSeconds: 600, request: null })
+      if (path === '/auth/google/link') return json({ linked: true })
+      return json({}, 404)
+    })
+    const card = within((await screen.findByRole('heading', { name: 'Link a Google account' })).closest('.patient-card') as HTMLElement)
+    fireEvent.change(card.getByLabelText('Current password'), { target: { value: 'typed-secret-123' } })
+    fireEvent.click(card.getByRole('button', { name: 'Complete check' }))
+    return { sent, card, principal: card.getByLabelText('Email or Health ID') as HTMLInputElement }
+  }
+  const linked = (sent: Array<{ path: string; body: unknown }>) => sent.filter(request => request.path === '/auth/google/link')
+
+  it('starts at HID- once focused, which alone does not count as filled in', async () => {
+    const { card, principal } = await openCard()
+    expect(principal.value).toBe('')
+    fireEvent.focus(principal)
+    expect(principal.value).toBe('HID-')
+    expect((card.getByRole('button', { name: 'Continue with Google' }) as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.change(principal, { target: { value: 'HID-a' } })
+    expect((card.getByRole('button', { name: 'Continue with Google' }) as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('sends what follows the prefix as a Health ID in capitals', async () => {
+    const { sent, card, principal } = await openCard()
+    fireEvent.change(principal, { target: { value: 'HID-abc234' } })
+    expect(principal.value).toBe('HID-abc234')
+    await act(async () => { fireEvent.click(card.getByRole('button', { name: 'Continue with Google' })) })
+    await waitFor(() => expect(linked(sent)).toHaveLength(1))
+    expect(linked(sent)[0]!.body).toMatchObject({ idToken: 'google-id-token', principal: 'HID-ABC234', password: 'typed-secret-123' })
+  })
+
+  it('drops the prefix for an email typed after it, and sends the email as typed', async () => {
+    const { sent, card, principal } = await openCard()
+    fireEvent.change(principal, { target: { value: 'HID-Ada@' } })
+    expect(principal.value).toBe('Ada@')
+    fireEvent.change(principal, { target: { value: 'Ada@Example.test' } })
+    await act(async () => { fireEvent.click(card.getByRole('button', { name: 'Continue with Google' })) })
+    await waitFor(() => expect(linked(sent)).toHaveLength(1))
+    expect(linked(sent)[0]!.body).toMatchObject({ principal: 'Ada@Example.test' })
+  })
+})

@@ -27,6 +27,9 @@ export const ROUTES = {
   documentation: '/resources/documentation',
   security: '/resources/security',
   privacy: '/resources/privacy',
+  /** The platform's Terms of Service and Privacy Policy, which patient sign-up links to. */
+  terms: '/terms',
+  privacyPolicy: '/privacy',
   howItWorksProvider: '/providers#products',
   howItWorksPatient: '/patients#steps',
 } as const

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import { HEALTH_ID_PREFIX, isBlankHealthIdInput, isCompleteHealthId, normalizeHealthIdInput } from '@hid/contracts'
 import { isHidApiError } from '@hid/http'
 import { Badge, Button, Card, Field, Input, Select, Textarea } from '@hid/ui'
 import {
@@ -14,15 +15,9 @@ import { WrongPatientEnded, WrongPatientForm, type WrongPatientEnding } from './
 import { useWrongPatientServed } from '../../wrongPatientServed'
 import { useCannotCompleteServed } from '../../cannotCompleteServed'
 
-/** A Health ID as Identity stores it (identity 0002). */
-const HID_PATTERN = /^HID-[A-HJ-NP-Z2-9]{6,32}$/
 const HID_PROBLEM = 'Check the Health ID: it starts with HID-, then 6 to 32 letters and digits, and never uses 0, 1, I or O.'
 /** How often Incoming is read again while the page is in view (SPEC-FINAL §13.3). */
 export const INCOMING_REFRESH_MS = 120_000
-
-function normalizedHealthId(value: string): string {
-  return value.trim().toUpperCase()
-}
 
 function today(): string {
   const now = new Date()
@@ -86,7 +81,7 @@ export function IncomingOrders({ service, facilityId, facilityName, membershipId
   const [missing, setMissing] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [healthId, setHealthId] = useState('')
+  const [healthId, setHealthId] = useState(HEALTH_ID_PREFIX)
   const [filter, setFilter] = useState('')
   const [filterError, setFilterError] = useState('')
   const [accepted, setAccepted] = useState<{ title: string; reference: string | null; ordering: string; acceptedWith: AcceptedWith
@@ -144,9 +139,10 @@ export function IncomingOrders({ service, facilityId, facilityName, membershipId
 
   function find(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const value = normalizedHealthId(healthId)
-    if (!value) { setFilterError(''); setFilter(''); return }
-    if (!HID_PATTERN.test(value)) { setFilterError(HID_PROBLEM); return }
+    const value = normalizeHealthIdInput(healthId)
+    // The field starts at HID-: with nothing after it, it asks for every order.
+    if (isBlankHealthIdInput(value)) { setFilterError(''); setFilter(''); return }
+    if (!isCompleteHealthId(value)) { setFilterError(HID_PROBLEM); return }
     setFilterError(''); setNotice(''); setFilter(value)
   }
 
@@ -170,10 +166,10 @@ export function IncomingOrders({ service, facilityId, facilityName, membershipId
       <Field label="Find by Health ID" htmlFor={`${service}-incoming-hid`} error={filterError || undefined}
         hint="Ask for the patient’s Health ID to find their order.">
         <Input id={`${service}-incoming-hid`} value={healthId} autoComplete="off" spellCheck={false} maxLength={40}
-          onChange={event => setHealthId(event.target.value)} placeholder="HID-…" />
+          onChange={event => setHealthId(normalizeHealthIdInput(event.target.value))} />
       </Field>
       <div className="staff-row"><Button type="submit" tone="secondary" size="sm">Find</Button>
-        {filter && <Button tone="quiet" size="sm" onClick={() => { setHealthId(''); setFilter(''); setFilterError('') }}>Show all</Button>}</div>
+        {filter && <Button tone="quiet" size="sm" onClick={() => { setHealthId(HEALTH_ID_PREFIX); setFilter(''); setFilterError('') }}>Show all</Button>}</div>
       {filter && <p className="staff-muted">Showing the orders for {filter} only. This list is not refreshed on its own while it
         shows one patient’s orders: press Refresh incoming, or Show all.</p>}
     </form>
@@ -194,7 +190,7 @@ export function IncomingOrders({ service, facilityId, facilityName, membershipId
         setNotice('')
         onAccepted()
         // The patient's order is accepted: the list goes back to every order, without their Health ID.
-        if (filter) { setHealthId(''); setFilter('') } else void load('')
+        if (filter) { setHealthId(HEALTH_ID_PREFIX); setFilter('') } else void load('')
       }}
       onDeclined={() => { setNotice(`Declined. ${route.orderingFacilityName ?? 'The ordering facility'} is told.`); void load(filter) }}
       onStale={() => void load(filter)} />)}</div>}
@@ -272,7 +268,8 @@ function IncomingOrderCard({ service, facilityId, facilityName, route, acceptabl
 }) {
   const [mode, setMode] = useState<'none' | 'accept' | 'decline'>('none')
   const [kind, setKind] = useState<Identifier>('health_id')
-  const [value, setValue] = useState('')
+  // A Health ID starts at HID-; a date of birth starts empty.
+  const [value, setValue] = useState(HEALTH_ID_PREFIX)
   const [reference, setReference] = useState('')
   const [reason, setReason] = useState('')
   const [declineReason, setDeclineReason] = useState<OrderRouteDeclineReason | ''>('')
@@ -290,8 +287,8 @@ function IncomingOrderCard({ service, facilityId, facilityName, route, acceptabl
     event.preventDefault()
     if (busy) return
     setError(''); setFieldError({})
-    const identifier = kind === 'health_id' ? normalizedHealthId(value) : value.trim()
-    if (kind === 'health_id' && !HID_PATTERN.test(identifier)) { setFieldError({ identifier: HID_PROBLEM }); document.getElementById(`${id}-identifier`)?.focus(); return }
+    const identifier = kind === 'health_id' ? normalizeHealthIdInput(value) : value.trim()
+    if (kind === 'health_id' && !isCompleteHealthId(identifier)) { setFieldError({ identifier: HID_PROBLEM }); document.getElementById(`${id}-identifier`)?.focus(); return }
     if (kind === 'date_of_birth' && !/^\d{4}-\d{2}-\d{2}$/.test(identifier)) {
       setFieldError({ identifier: 'Enter the patient’s date of birth: day, month and year.' }); document.getElementById(`${id}-identifier`)?.focus(); return
     }
@@ -366,14 +363,14 @@ function IncomingOrderCard({ service, facilityId, facilityName, route, acceptabl
       <fieldset className="staff-order-choices">
         <legend>Confirm who the patient is, with their</legend>
         <label className="staff-choice"><input type="radio" name={`${id}-kind`} checked={kind === 'health_id'}
-          onChange={() => { setKind('health_id'); setValue(''); setReference(''); setFieldError({}) }} /> Health ID</label>
+          onChange={() => { setKind('health_id'); setValue(HEALTH_ID_PREFIX); setReference(''); setFieldError({}) }} /> Health ID</label>
         <label className="staff-choice"><input type="radio" name={`${id}-kind`} checked={kind === 'date_of_birth'}
           onChange={() => { setKind('date_of_birth'); setValue(''); setReference(''); setFieldError({}) }} /> Date of birth</label>
       </fieldset>
       <Field label={kind === 'health_id' ? 'Patient’s Health ID' : 'Patient’s date of birth'} htmlFor={`${id}-identifier`} error={fieldError.identifier}
         hint={kind === 'health_id' ? 'As on the patient’s Health ID card or app, for example HID-7KQ2M9.' : 'Ask the patient; check it against a document if you can.'}>
         {kind === 'health_id'
-          ? <Input id={`${id}-identifier`} value={value} autoComplete="off" spellCheck={false} maxLength={40} onChange={event => setValue(event.target.value)} />
+          ? <Input id={`${id}-identifier`} value={value} autoComplete="off" spellCheck={false} maxLength={40} onChange={event => setValue(normalizeHealthIdInput(event.target.value))} />
           : <Input id={`${id}-identifier`} type="date" value={value} max={today()} onChange={event => setValue(event.target.value)} />}
       </Field>
       {kind === 'date_of_birth' && <Field label="Order reference from the patient’s app (optional)" htmlFor={`${id}-reference`}
@@ -390,7 +387,7 @@ function IncomingOrderCard({ service, facilityId, facilityName, route, acceptabl
       {error && <p className="staff-error" role="alert">{error}</p>}
       <div className="staff-row"><Button id={`${id}-accept`} type="submit" size="sm" aria-disabled={busy || undefined} className={BUSY}>
         {busy ? 'Accepting…' : 'Accept order'}</Button>
-        <Button tone="quiet" size="sm" onClick={() => { setMode('none'); setError(''); setFieldError({}); setValue(''); setReference('') }}>Cancel</Button></div>
+        <Button tone="quiet" size="sm" onClick={() => { setMode('none'); setError(''); setFieldError({}); setValue(kind === 'health_id' ? HEALTH_ID_PREFIX : ''); setReference('') }}>Cancel</Button></div>
     </form>}
     {mode === 'decline' && <form className="staff-form" onSubmit={event => void decline(event)} aria-label={`Decline ${title}`}>
       <Field label="Why can’t you take it?" htmlFor={`${id}-decline-reason`}>

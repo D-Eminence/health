@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import {
+  HEALTH_ID_PREFIX, healthIdOrOtherInput, isBlankHealthIdInput, isCompleteHealthId, normalizeHealthIdInput,
+} from '@hid/contracts'
+import {
   adminApi, type AdminActor, type DestinationReview, type FacilityNotCompletedCounts, type FacilityOrderRouteSummary,
   type FoundOrderRoute,
 } from './api'
@@ -427,7 +430,6 @@ export function ReleaseOrderRoutesNote({ facilityId, facilityName, canRead }: { 
 }
 
 const REFERENCE = /^[0-9A-F]{8}$/
-const HEALTH_ID = /^HID-[A-HJ-NP-Z2-9]{6,32}$/
 const LOOKUP_INVALID = 'Enter the 8-character order reference, for example 3F2A9C1B, or the patient’s Health ID, for example HID-7KQ2M9.'
 
 const CLOSE_PROBLEMS: Readonly<Record<string, string>> = {
@@ -453,7 +455,8 @@ type CloseOutcome = 'closed' | 'ended' | 'stale'
  * never by the Health ID again.
  */
 export function OrderRoutesPage({ actor }: { actor: AdminActor }) {
-  const [input, setInput] = useState('')
+  // Starts at HID- (owner decision, 2026-10-27), which is deleted to type a reference.
+  const [input, setInput] = useState(HEALTH_ID_PREFIX)
   const [invalid, setInvalid] = useState(false)
   const [busy, setBusy] = useState(false)
   const [lookup, setLookup] = useState<{ reference: string } | { healthId: string } | null>(null)
@@ -518,7 +521,11 @@ export function OrderRoutesPage({ actor }: { actor: AdminActor }) {
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const value = input.trim().toUpperCase()
-    const next = REFERENCE.test(value) ? { reference: value } : HEALTH_ID.test(value) ? { healthId: value } : null
+    // 8 characters are a reference, typed after the prefilled HID- or with it deleted: Health IDs were issued with 16
+    // characters, then 6, never 8. Anything else is a Health ID, with its prefix once.
+    const bare = value.startsWith(HEALTH_ID_PREFIX) ? value.slice(HEALTH_ID_PREFIX.length) : value
+    const healthId = normalizeHealthIdInput(value)
+    const next = REFERENCE.test(bare) ? { reference: bare } : isCompleteHealthId(healthId) ? { healthId } : null
     if (!next) { setInvalid(true); return }
     setInvalid(false); setNotice(null)
     void find(next)
@@ -536,9 +543,10 @@ export function OrderRoutesPage({ actor }: { actor: AdminActor }) {
       <form className="admin-search" onSubmit={submit} role="search" aria-label="Orders by reference or Health ID">
         <label htmlFor="order-routes-lookup">Order reference (8 characters) or patient Health ID</label>
         <div><input id="order-routes-lookup" value={input} autoComplete="off" spellCheck={false} maxLength={40}
-          aria-invalid={invalid} aria-describedby={invalid ? 'order-routes-lookup-error' : undefined}
-          onChange={event => { setInput(event.target.value); setInvalid(false) }} placeholder="For example 3F2A9C1B" />
-          <button className="admin-primary" type="submit" disabled={busy || !input.trim()}>{busy ? 'Finding…' : 'Find'}</button></div>
+          aria-invalid={invalid} aria-describedby={invalid ? 'order-routes-lookup-hint order-routes-lookup-error' : 'order-routes-lookup-hint'}
+          onChange={event => { setInput(healthIdOrOtherInput(event.target.value)); setInvalid(false) }} placeholder="For example 3F2A9C1B" />
+          <button className="admin-primary" type="submit" disabled={busy || isBlankHealthIdInput(input)}>{busy ? 'Finding…' : 'Find'}</button></div>
+        <p id="order-routes-lookup-hint" className="admin-note">HID- is filled in for a Health ID. An 8-character order reference works with it or without it.</p>
         {invalid && <p id="order-routes-lookup-error" role="alert" className="admin-error">{LOOKUP_INVALID}</p>}
       </form>
       {error && <p role="alert" className="admin-error">{error}</p>}

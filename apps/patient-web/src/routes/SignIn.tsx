@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { Link, Navigate, useNavigate } from 'react-router-dom'
+import { HEALTH_ID_PREFIX, emailOrHealthId, healthIdOrOtherInput, isBlankHealthIdInput } from '@hid/contracts'
 import { isHidApiError } from '@hid/http'
 import { PasswordInput } from '@hid/ui'
 import { GoogleButton } from '../GoogleButton'
@@ -13,6 +14,8 @@ export function SignIn() {
   const { state, sessionError, otherPortalSession, signedOutElsewhere, signIn, acceptGoogleSession, api } = useSession()
   const navigate = useNavigate()
   useDocumentTitle('Sign in · Health ID')
+  // Starts at HID- (owner decision, 2026-10-27); an email typed after it drops it.
+  // Empty until focused, so a browser can still fill a saved sign-in; HID- as soon as the person starts.
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
@@ -25,10 +28,12 @@ export function SignIn() {
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     if (!turnstileToken || busy) return
+    // Only the prefill: as empty as the field was before it was filled in, so nothing is sent.
+    if (isBlankHealthIdInput(email)) { setError('Enter your email or Health ID.'); return }
     setBusy(true)
     setError(null)
     try {
-      await signIn(email.trim(), password, turnstileToken)
+      await signIn(emailOrHealthId(email), password, turnstileToken)
       navigate('/', { replace: true })
     } catch (reason) {
       setError(isHidApiError(reason) ? reason.message : 'Sign-in could not be completed. Please try again.')
@@ -67,7 +72,7 @@ export function SignIn() {
       <Link to="/provider">Go to the provider portal</Link>
     </div>}
     <form onSubmit={event => void submit(event)} className="patient-form">
-      <label>Email or Health ID<input required autoComplete="username" value={email} onChange={event => setEmail(event.target.value)} placeholder="you@example.com or HID-…" /></label>
+      <label>Email or Health ID<input required autoComplete="username" value={email} onFocus={() => { if (!email) setEmail(HEALTH_ID_PREFIX) }} onChange={event => setEmail(healthIdOrOtherInput(event.target.value))} placeholder="you@example.com or HID-…" /></label>
       <div className="patient-field"><label htmlFor="sign-in-password">Password</label><PasswordInput appearance="plain" id="sign-in-password" required autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} minLength={6} /></div>
       <div className="patient-form-aside"><Link to="/recover">Forgot password?</Link></div>
       <Turnstile action="patient-login" onTokenChange={setTurnstileToken} resetKey={resetKey} />

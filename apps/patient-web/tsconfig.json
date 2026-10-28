@@ -6,6 +6,7 @@
     "declarationMap": false,
     "noEmit": true,
     "jsx": "react-jsx",
+    "resolveJsonModule": true,
     "types": ["vite/client"]
   },
   "include": ["src/**/*.ts", "src/**/*.tsx", "vite.config.ts"]

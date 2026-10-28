@@ -30,7 +30,9 @@ const FOOTER_GROUPS = [
       { label: 'Resources', href: ROUTES.resources },
       { label: 'Documentation', href: ROUTES.documentation },
       { label: 'Security', href: ROUTES.security },
-      { label: 'Privacy', href: ROUTES.privacy },
+      { label: 'Website privacy', href: ROUTES.privacy },
+      { label: 'Terms of Service', href: ROUTES.terms },
+      { label: 'Privacy Policy', href: ROUTES.privacyPolicy },
     ],
   },
   {

@@ -133,9 +133,9 @@ export const PRODUCT_DETAILS: readonly ProductDetail[] = [
       title: "Recent encounters",
       columns: ["Patient", "Detail"],
       rows: [
-        { primary: "Ngozi Bello", secondary: "HID-71-2204 · consultation", detail: "Completed", tone: "ok" },
-        { primary: "Samuel Okoro", secondary: "HID-44-8810 · follow-up", detail: "In progress", tone: "pending" },
-        { primary: "Aisha Mohammed", secondary: "HID-20-5517 · consultation", detail: "Note draft", tone: "active" },
+        { primary: "Ngozi Bello", secondary: "HID-N4B7X2 · consultation", detail: "Completed", tone: "ok" },
+        { primary: "Samuel Okoro", secondary: "HID-S8K3P5 · follow-up", detail: "In progress", tone: "pending" },
+        { primary: "Aisha Mohammed", secondary: "HID-A2M9T6 · consultation", detail: "Note draft", tone: "active" },
       ],
     },
     alerts: {
@@ -303,7 +303,7 @@ export const PRODUCT_DETAILS: readonly ProductDetail[] = [
     profile: {
       title: "Patient identity",
       name: "Amina Yusuf",
-      id: "HID-38291",
+      id: "HID-R3W8H4",
       fields: [
         { label: "Date of birth", value: "14 Mar 1991" },
         { label: "Phone", value: "Verified" },

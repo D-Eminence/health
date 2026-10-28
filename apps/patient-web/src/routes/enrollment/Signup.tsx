@@ -10,7 +10,8 @@ import { Turnstile } from '../../Turnstile'
 import { useSession } from '../../session'
 import { describedBy, sentFromField, useStepFocus } from '../../authSteps'
 import { useResendWait } from '../recoveryWait'
-import { LegalDocuments } from './LegalDocuments'
+import { HospitalPicker } from './HospitalPicker'
+import { HealthIdCode } from '../HealthIdCode'
 import { googleProfileOf } from './googleProfile'
 import { REGISTRATION_CLOSED } from './RegistrationClosed'
 import { STEP_UNAVAILABLE, refusedWith, registrationClosed, temporarilyUnavailable } from './problems'
@@ -77,6 +78,9 @@ interface Details {
   hospitalCurrentlyUsing: string
   terms: boolean
 }
+/** The agreement a patient accepts at sign-up, on the public site (hid-1.0's legal text). */
+export const TERMS_URL = 'https://healthidentitydirectory.com/terms'
+export const PRIVACY_URL = 'https://healthidentitydirectory.com/privacy'
 const EMPTY_DETAILS: Details = { firstName: '', lastName: '', email: '', phone: '', gender: '', hospitalCurrentlyUsing: '', terms: false }
 
 function detailsProblems(details: Details): FieldErrors {
@@ -338,15 +342,17 @@ export function PatientSignup({ focusOnArrival = false }: {
         {SIGNUP_GENDERS.map(value => <option key={value} value={value}>{GENDER_LABELS[value]}</option>)}
       </select></label>
       {fieldError('gender')}
-      <label>Hospital you currently use (optional)<input ref={target('hospitalCurrentlyUsing', detailsFocus)} autoComplete="off" maxLength={200}
-        value={details.hospitalCurrentlyUsing} onChange={event => update('hospitalCurrentlyUsing', event.target.value)}
-        aria-invalid={invalid('hospitalCurrentlyUsing')} aria-describedby={errorId('hospitalCurrentlyUsing')} /></label>
+      <div className="patient-field"><label htmlFor="signup-hospital">Hospital you currently use (optional)</label>
+        <HospitalPicker id="signup-hospital" inputRef={target('hospitalCurrentlyUsing', detailsFocus)} value={details.hospitalCurrentlyUsing}
+          onChange={value => update('hospitalCurrentlyUsing', value)}
+          invalid={invalid('hospitalCurrentlyUsing')} describedBy={errorId('hospitalCurrentlyUsing')} /></div>
       {fieldError('hospitalCurrentlyUsing')}
       <label className="patient-checkbox"><input ref={target('terms', detailsFocus)} type="checkbox" checked={details.terms}
         onChange={event => update('terms', event.target.checked)} aria-invalid={invalid('terms')} aria-describedby={errorId('terms')} />
         I agree to the Terms of Service and Privacy Policy</label>
       {fieldError('terms')}
-      <LegalDocuments />
+      <p className="patient-field-hint">Read the <a href={TERMS_URL} target="_blank" rel="noopener">Terms of Service</a> and
+        the <a href={PRIVACY_URL} target="_blank" rel="noopener">Privacy Policy</a> (each opens in a new tab).</p>
       <button type="submit" className="patient-primary-button" disabled={busy}>Continue</button>
     </form>}
 
@@ -387,9 +393,9 @@ export function PatientSignup({ focusOnArrival = false }: {
         onClick={() => { clearMessages(); backToDetails(); stepFocus.focus() }}>Change your details</button>
     </form>}
 
-    {step === 'done' && <div className="patient-success" role="status">
+    {step === 'done' && <div className="patient-success" role="status" aria-atomic="false">
       <h2 ref={stepFocus.target} tabIndex={-1}>Your Health ID is ready.</h2>
-      <strong>{hidCode}</strong>
+      <HealthIdCode code={hidCode} />
       <p>Save this code: write it down or keep it somewhere safe. This page may not show it again once you leave or reload it.</p>
       <p>Use your Health ID or your email address, with your password, whenever you sign in. Once signed in, you can verify your NIN from your profile.</p>
       <Link className="patient-primary-button" to="/sign-in">Sign in to continue</Link>

@@ -60,7 +60,7 @@ export const MODULES: readonly HealthModule[] = [
         steps: ['Access request', 'Patient authorises', 'Appropriate record scope'],
       },
     ],
-    panelBadge: 'HID-4471-08',
+    panelBadge: 'HID-7KQ2M9',
     rows: [
       { label: 'Identity verified', value: 'Confirmed', tone: 'ok' },
       { label: 'Access PIN', value: 'Awaiting patient', tone: 'pending' },
@@ -137,7 +137,7 @@ export const MODULES: readonly HealthModule[] = [
         ],
       },
     ],
-    panelBadge: 'HID-4471-08',
+    panelBadge: 'HID-7KQ2M9',
     rows: [
       { label: 'Full blood count', value: 'Verified', tone: 'ok' },
       { label: 'Malaria parasite', value: 'Verified', tone: 'ok' },

@@ -18,7 +18,7 @@ function IdentityPreview() {
     <motion.div className="patient-id-reveal" initial={{ opacity: 0, y: reduce ? 0 : 18 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, amount: .3 }} transition={{ duration: .32, delay: reduce ? 0 : .15, ease: EASE_OUT }}>
       <div className="patient-id-card">
         <p>YOUR HEALTH ID</p>
-        <div className="mt-6 flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-full bg-brand-tint text-[13px] font-semibold text-brand">AF</span><span><b>Abeki Faridat</b><small>HID-4471-08</small></span></div>
+        <div className="mt-6 flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-full bg-brand-tint text-[13px] font-semibold text-brand">AF</span><span><b>Abeki Faridat</b><small>HID-7KQ2M9</small></span></div>
         <div className="mt-6 flex items-center justify-between border-t border-line pt-3"><span>Connected care</span><span className="patient-id-verified"><HealthIcon name="check" size={12} />Verified</span></div>
       </div>
     </motion.div>

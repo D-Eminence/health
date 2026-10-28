@@ -1,11 +1,12 @@
 'use client'
 
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { HEALTH_ID_PREFIX } from '@hid/contracts'
 import { cx, Section, Wrap } from '@hid/ui'
 import { HealthIcon, type HealthIconName } from '@/components/shared/HealthIcon'
 
 const PATIENT = 'Aisha Bello'
-const HEALTH_ID = 'HID-4471-08'
+const HEALTH_ID = 'HID-7KQ2M9'
 type StatusTone = 'blue' | 'success' | 'muted'
 
 function useSectionReveal() {
@@ -71,11 +72,13 @@ function WorkflowCard({ number, title, copy, delay, className, children }: { num
 
 function Registration({ reduced, active }: { reduced: boolean; active: boolean }) {
   const [searched, setSearched] = useState(false)
-  const [typed, setTyped] = useState('')
+  // The lookup starts at HID-, as every Health ID field does; only what follows it is typed.
+  const [typed, setTyped] = useState(HEALTH_ID_PREFIX)
+  const started = typed.length > HEALTH_ID_PREFIX.length
   useEffect(() => {
     if (!active) return
     if (reduced) { setTyped(HEALTH_ID); setSearched(true); return }
-    let index = 0
+    let index = HEALTH_ID_PREFIX.length
     const timer = window.setInterval(() => { index += 1; setTyped(HEALTH_ID.slice(0, index)); if (index === HEALTH_ID.length) window.clearInterval(timer) }, 70)
     const result = window.setTimeout(() => setSearched(true), 950)
     return () => { window.clearInterval(timer); window.clearTimeout(result) }
@@ -83,7 +86,7 @@ function Registration({ reduced, active }: { reduced: boolean; active: boolean }
   const search = () => { setTyped(HEALTH_ID); setSearched(true) }
   return <div className="ehr-lookup mt-8 rounded-(--radius-card) border border-line bg-surface-tint p-4 sm:p-5">
     <p className="font-mono text-[11px] font-semibold tracking-[0.1em] text-faint">PATIENT LOOKUP</p>
-    <div className="mt-3 flex gap-2"><label className="sr-only" htmlFor="ehr-health-id">Health ID</label><div className="flex min-h-11 flex-1 items-center gap-2 rounded-xl border border-line bg-white px-3 text-[13px] text-ink"><Icon name="search" /><input id="ehr-health-id" readOnly value={typed} placeholder="Health ID" className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-muted" /><span aria-hidden="true" className={cx('ehr-caret', typed && 'hidden')}>|</span></div><button type="button" onClick={search} className={cx('ehr-primary-button min-h-11 rounded-xl px-4 text-[13px] font-semibold', typed ? 'bg-brand text-white' : 'bg-brand-tint text-brand')}><span className="sm:hidden">Go</span><span className="hidden sm:inline">Search</span></button></div>
+    <div className="mt-3 flex gap-2"><label className="sr-only" htmlFor="ehr-health-id">Health ID</label><div className="flex min-h-11 flex-1 items-center gap-2 rounded-xl border border-line bg-white px-3 text-[13px] text-ink"><Icon name="search" /><input id="ehr-health-id" readOnly value={typed} placeholder="Health ID" className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-muted" /><span aria-hidden="true" className={cx('ehr-caret', started && 'hidden')}>|</span></div><button type="button" onClick={search} className={cx('ehr-primary-button min-h-11 rounded-xl px-4 text-[13px] font-semibold', started ? 'bg-brand text-white' : 'bg-brand-tint text-brand')}><span className="sm:hidden">Go</span><span className="hidden sm:inline">Search</span></button></div>
     <div aria-hidden="true" className={cx('ehr-progress mt-2', searched && 'is-complete')} />
     {searched ? <div className="ehr-lookup-result mt-4 rounded-xl border border-brand/15 bg-white p-4"><div className="flex items-start justify-between gap-3"><div className="flex items-center gap-3"><span className="grid h-9 w-9 place-items-center rounded-full bg-brand-tint text-brand"><Icon name="person" /></span><div><p className="text-[11px] font-semibold tracking-[0.08em] text-brand">PATIENT FOUND</p><p className="mt-1 text-[14px] font-semibold text-ink">{PATIENT}</p><p className="text-[12px] text-muted">{HEALTH_ID} · 32 years · Female</p></div></div><Status tone="success">Verified</Status></div><dl className="mt-4 grid grid-cols-3 gap-2 border-t border-line pt-3 text-center"><div><dt>Previous visits</dt><dd>4</dd></div><div><dt>Known allergies</dt><dd>2</dd></div><div><dt>Last visit</dt><dd>12 Mar 2024</dd></div></dl><button type="button" className="mt-4 text-[13px] font-semibold text-brand hover:text-brand-dark">Open patient <span aria-hidden="true">→</span></button></div> : null}
   </div>

@@ -87,6 +87,58 @@ describe('Incoming at a laboratory', () => {
     expect(await within(incoming).findByText(/^Check the Health ID: it starts with HID-/)).toBeTruthy()
   })
 
+  it('starts the find field at HID-, keeps it in capitals, and finds every order while only HID- is there', async () => {
+    const incoming = await openLaboratory()
+    const field = within(incoming).getByLabelText('Find by Health ID') as HTMLInputElement
+    expect(field.value).toBe('HID-')
+    fireEvent.change(field, { target: { value: 'HID-abc234' } })
+    expect(field.value).toBe('HID-ABC234')
+    fireEvent.change(field, { target: { value: 'HID-HID-7KQ2M9' } })
+    expect(field.value).toBe('HID-7KQ2M9')
+    fireEvent.change(field, { target: { value: '' } })
+    expect(field.value).toBe('HID-')
+    // Only the prefill: Find asks for every order, as an empty field did, and says nothing is wrong.
+    const reads = routes.incoming.mock.calls.length
+    fireEvent.click(within(incoming).getByRole('button', { name: 'Find' }))
+    expect(within(incoming).queryByText(/^Check the Health ID/)).toBeNull()
+    expect(routes.incoming.mock.calls.slice(reads).every(call => call[2] === undefined)).toBe(true)
+    fireEvent.change(field, { target: { value: 'abc234' } })
+    expect(field.value).toBe('HID-ABC234')
+    fireEvent.click(within(incoming).getByRole('button', { name: 'Find' }))
+    await waitFor(() => expect(routes.incoming).toHaveBeenLastCalledWith('facility-1', 'lab', 'HID-ABC234'))
+    // Show all puts the prefill back.
+    fireEvent.click(await within(incoming).findByRole('button', { name: 'Show all' }))
+    expect(field.value).toBe('HID-')
+  })
+
+  it('starts the patient’s Health ID at HID- when accepting, and the date of birth empty', async () => {
+    routes.accept.mockResolvedValue(ACCEPTED)
+    const incoming = await openLaboratory()
+    fireEvent.click(within(incoming).getByRole('button', { name: 'Accept' }))
+    const field = () => within(incoming).getByLabelText(/^Patient’s (Health ID|date of birth)/) as HTMLInputElement
+    expect(field().value).toBe('HID-')
+    // Only the prefill is refused before sending, as an empty field was.
+    fireEvent.click(within(incoming).getByRole('button', { name: 'Accept order' }))
+    expect(await within(incoming).findByText(/^Check the Health ID: it starts with HID-/)).toBeTruthy()
+    expect(routes.accept).not.toHaveBeenCalled()
+    fireEvent.click(within(incoming).getByRole('radio', { name: 'Date of birth' }))
+    expect(field().value).toBe('')
+    fireEvent.click(within(incoming).getByRole('radio', { name: 'Health ID' }))
+    expect(field().value).toBe('HID-')
+    fireEvent.change(field(), { target: { value: 'HID-abc234' } })
+    expect(field().value).toBe('HID-ABC234')
+    // Cancel, then Accept again: back at the prefill.
+    fireEvent.click(within(incoming).getByRole('button', { name: 'Cancel' }))
+    fireEvent.click(within(incoming).getByRole('button', { name: 'Accept' }))
+    expect(field().value).toBe('HID-')
+    fireEvent.change(field(), { target: { value: 'HID-7kq2m9' } })
+    routes.incoming.mockResolvedValue({ items: [], crossFacilityOrders: true, crossFacilityWork: true })
+    fireEvent.click(within(incoming).getByRole('button', { name: 'Accept order' }))
+    expect(await within(incoming).findByText('Accepted: Haemoglobin.')).toBeTruthy()
+    expect(routes.accept).toHaveBeenCalledWith('facility-1', 'lab', { id: ROUTE, version: 1 }, { kind: 'health_id', value: 'HID-7KQ2M9' },
+      undefined, expect.any(String), undefined)
+  })
+
   it('sends a Health ID only when asked: never again by the timer or on focus, and not after the order is accepted', async () => {
     const every = vi.spyOn(window, 'setInterval')
     routes.accept.mockResolvedValue(ACCEPTED)
@@ -113,7 +165,8 @@ describe('Incoming at a laboratory', () => {
     expect(await within(incoming).findByText('Accepted: Haemoglobin.')).toBeTruthy()
     await waitFor(() => expect(routes.incoming).toHaveBeenLastCalledWith('facility-1', 'lab', undefined))
     expect(withHealthId()).toBe(2)
-    expect((within(incoming).getByLabelText('Find by Health ID') as HTMLInputElement).value).toBe('')
+    // The field is back at its prefill (owner decision, 2026-10-27).
+    expect((within(incoming).getByLabelText('Find by Health ID') as HTMLInputElement).value).toBe('HID-')
     every.mockRestore()
   })
 
