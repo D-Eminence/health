@@ -108,10 +108,25 @@ class Cloudflare:
                 require(data.get("success") is True, "CLOUDFLARE_REQUEST_FAILED")
                 return data["result"]
         except urllib.error.HTTPError as error:
+            # Which call was refused, as a route template: never the token, ids, query, response body or bindings.
+            print(json.dumps({"app":app,"cloudflare_call":("POST " if body is not None else "GET ")
+                +("versions/:id" if suffix.startswith("versions/") else suffix),"status":error.code}), flush=True)
             raise ReleaseError("CLOUDFLARE_HTTP_"+str(error.code)) from None
         except urllib.error.URLError:
             # Mutations are not retried on uncertain delivery.
             raise ReleaseError("CLOUDFLARE_REQUEST_UNCERTAIN") from None
+
+    def uploaded_call(self, app, suffix, body=None, lease=None):
+        # A version this run just uploaded can briefly 404 on its detail read and on its deployment, even once
+        # the list shows it. A 404 is a definite refusal, so asking again cannot deploy twice; only a 404 is
+        # asked again, a bounded number of times. Versions live before this run never come here.
+        for attempt in range(UPLOAD_LIST_ATTEMPTS):
+            if attempt:
+                time.sleep(UPLOAD_LIST_RETRY_SECONDS)
+                if lease: lease.assert_owned()
+            try: return self.call(app,suffix,body)
+            except ReleaseError as error:
+                if str(error) != "CLOUDFLARE_HTTP_404" or attempt == UPLOAD_LIST_ATTEMPTS-1: raise
 
     def version(self, app):
         body = self.call(app,"deployments")
@@ -122,8 +137,8 @@ class Cloudflare:
         require(re.fullmatch(r"[a-f0-9-]{36}",version), "INVALID_LIVE_WORKER_VERSION")
         return version
 
-    def check_version(self, app, version):
-        details = self.call(app,"versions/"+version)
+    def check_version(self, app, version, uploaded=False):
+        details = (self.uploaded_call if uploaded else self.call)(app,"versions/"+version)
         # Store names/types only; provider metadata may include secret binding data.
         bindings = details.get("resources",{}).get("bindings",[])
         require(any(b.get("name") == "ORIGIN_AUTH_TOKEN" and b.get("type") == "secret_text" for b in bindings),
@@ -153,16 +168,19 @@ class Cloudflare:
         target = selected[0].get("id", "")
         require(isinstance(target,str) and re.fullmatch(VERSION_ID,target),
                 "INVALID_UPLOADED_WORKER_VERSION")
-        details = self.check_version(app,target)
+        details = self.check_version(app,target,uploaded=True)
         require(details.get("id") == target and isinstance(details.get("annotations"),dict)
                 and details["annotations"].get("workers/tag") == release_id,
                 "UPLOADED_WORKER_VERSION_TAG_DIFFERS")
         return target
 
-    def deploy_version(self, app, version, lease):
-        self.check_version(app,version)
+    def deploy_version(self, app, version, lease, uploaded=False):
+        # uploaded: this run's own version. Restoring a version live before this run fails closed on any 404.
+        self.check_version(app,version,uploaded)
         lease.assert_owned()
-        self.call(app,"deployments",{"strategy":"percentage","versions":[{"version_id":version,"percentage":100}]})
+        body = {"strategy":"percentage","versions":[{"version_id":version,"percentage":100}]}
+        if uploaded: self.uploaded_call(app,"deployments",body,lease)
+        else: self.call(app,"deployments",body)
         end = time.monotonic()+60
         while time.monotonic() < end:
             lease.assert_owned()
@@ -376,7 +394,7 @@ def deploy(mode):
                 target = cloud.uploaded_version(app,release["release_id"],printed_version(result.stdout))
                 store.put(prefix+"intent-"+app+".json",{"app":app,"before":before[app],"target_version":target})
                 updated.append(app)
-                cloud.deploy_version(app,target,lease)
+                cloud.deploy_version(app,target,lease,uploaded=True)
                 checks = verify_assets(app,entry)
                 after[app] = {"version_id":target,"hostname":HOSTS[app],"source_commit":release["source_commit"],
                     "archive":archive,"origin_secret_version_id":origin["VersionId"],"checks":checks}
