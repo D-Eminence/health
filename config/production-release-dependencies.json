@@ -3,16 +3,16 @@
   "declared": true,
   "backend_contract": "novu-v1",
   "reviewed_by": "D-Eminence",
-  "review_reference": "Backend release backend-40640255055-1-02b120fc1ecb1889 from production-backend-images run 40640255055 (D-Eminence/hid-system#124 at be1bad5, identity-api and notification-api only, no migration, deployed 2026-10-28). Browser-facing changes since the previous pins: patient sessions last 7 days idle and 30 days at most; POST /api/v1/identity/patient-enrollments/activate signs the patient in on the login path and answers signedIn; POST /api/v1/auth/patient/login answers 403 ACCOUNT_SUSPENDED for a suspended patient with the right password; welcome, reset-code and password-updated emails in hid-1.0's design. This frontend (D-Eminence/health#23, merged as 82e6d2e) uses each where it is answered and keeps working without. The other services stay on the commits they run. Reviewed and approved by the repository owner, D-Eminence, in chat on 2026-10-28 (batch approval for this parity work).",
+  "review_reference": "Backend release backend-40654084217-1-c309822bf676f096 from production-backend-images run 40654084217 (D-Eminence/hid-system#125 at 8ceef6f, migration 0093, deployed 2026-10-28). That release deployed all twelve services at 8ceef6f, so every pin moves to it. Browser-facing changes since the previous pins: patients sign in and reset with an email, phone or Health ID; POST /api/v1/auth/patient/google signs in a patient whose verified Google email matches exactly one account and answers GOOGLE_NOT_REGISTERED (404), GOOGLE_LINK_REQUIRED (409) or GOOGLE_ACCOUNT_EXISTS (409) otherwise; sign-up takes international phones in E.164; new inbox notices SECURITY_PASSWORD_RESET_REQUESTED, SECURITY_PASSWORD_CHANGED, SECURITY_GOOGLE_LINKED and CONSENT_GRANT_ENDED_BY_CLINICIAN; new GET /api/v1/identity/me/notifications/unread-count and GET /api/v1/identity/me/access-log. This frontend (D-Eminence/health#25, merged as 27c958f) uses each where it is answered and keeps working without. Reviewed and approved by the repository owner, D-Eminence, in chat on 2026-10-28 (batch approval for this parity work).",
   "backend_commits": {
-    "gateway": "9af06c28a4da6b399932011ef7b54ecae12afec5",
-    "identity-api": "be1bad5f78bd2de65354b00bc4d1cfd031a9de56",
-    "ehr-api": "9af06c28a4da6b399932011ef7b54ecae12afec5",
-    "lab-api": "9af06c28a4da6b399932011ef7b54ecae12afec5",
-    "pharmacy-api": "9af06c28a4da6b399932011ef7b54ecae12afec5",
-    "ocr-api": "9af06c28a4da6b399932011ef7b54ecae12afec5",
-    "outreach-api": "9af06c28a4da6b399932011ef7b54ecae12afec5",
-    "support-api": "9af06c28a4da6b399932011ef7b54ecae12afec5",
-    "notification-api": "be1bad5f78bd2de65354b00bc4d1cfd031a9de56"
+    "gateway": "8ceef6f15cdde4c2a66f80697c31c90ed94f94c1",
+    "identity-api": "8ceef6f15cdde4c2a66f80697c31c90ed94f94c1",
+    "ehr-api": "8ceef6f15cdde4c2a66f80697c31c90ed94f94c1",
+    "lab-api": "8ceef6f15cdde4c2a66f80697c31c90ed94f94c1",
+    "pharmacy-api": "8ceef6f15cdde4c2a66f80697c31c90ed94f94c1",
+    "ocr-api": "8ceef6f15cdde4c2a66f80697c31c90ed94f94c1",
+    "outreach-api": "8ceef6f15cdde4c2a66f80697c31c90ed94f94c1",
+    "support-api": "8ceef6f15cdde4c2a66f80697c31c90ed94f94c1",
+    "notification-api": "8ceef6f15cdde4c2a66f80697c31c90ed94f94c1"
   }
 }
