@@ -485,9 +485,10 @@ def deploy(mode):
         # A failed lease release never replaces an error already on its way out: it gets its own line.
         try: lease.release(reconciled=reconciled)
         except Exception as cause:
-            if failure is None: raise
             unexpected(cause,"lease-release")
             print(json.dumps({"stage":"lease-release","code":error_code(cause)}), flush=True)
+            # After a recorded healthy release the job still fails, but never with a code a rollback also uses.
+            if failure is None: raise ReleaseError("DEPLOYED_HEALTHY_BUT_LEASE_RELEASE_FAILED") from None
     if alert_failed: raise ReleaseError("DEPLOYED_HEALTHY_BUT_OPERATIONS_ALERT_FAILED")
 
 if __name__ == "__main__":

@@ -360,10 +360,11 @@ class Lease:
 
     def _heartbeat(self):
         # A failed heartbeat is not asked again: the next one is sent ttl/6 later, as usual. The lease is lost
-        # once DynamoDB says it is no longer ours or the expiry it last confirmed is within ttl/3; assert_owned's
-        # consistent read stays the authority either way.
+        # once DynamoDB says it is no longer ours, or a heartbeat sent within ttl/3 of the expiry it last confirmed
+        # fails. Judged by when it was sent, not when it failed: one heartbeat that hangs until the CLI's 90 s timeout
+        # never loses a lease DynamoDB still holds. assert_owned's consistent read stays the authority either way.
         while not self.stop.wait(self.ttl/6):
-            expiry = int(time.time())+self.ttl
+            sent = time.time(); expiry = int(sent)+self.ttl
             try:
                 args = {**self._args(), "UpdateExpression":"SET expires_at = :e",
                     "ConditionExpression":"holder = :h AND generation = :g AND expires_at > :now",
@@ -372,7 +373,7 @@ class Lease:
                 self.aws.call("dynamodb","update-item",args,mutation=True)
                 self.confirmed = expiry
             except Exception as error:
-                if str(error) == "AWS_ConditionalCheckFailedException" or time.time() >= self.confirmed-self.ttl/3:
+                if str(error) == "AWS_ConditionalCheckFailedException" or sent >= self.confirmed-self.ttl/3:
                     self.lost.set()
                     return
 

@@ -189,7 +189,8 @@ class CoreTests(unittest.TestCase):
         count=len(aws.calls); lease.release(reconciled=False); self.assertEqual(len(aws.calls),count)
 
     def heartbeat(self, answers):
-        """Acquires a real Lease at t=1000 and runs its heartbeat on a fake clock: each answer is a heartbeat's."""
+        """Acquires a real Lease at t=1000 and runs its heartbeat on a fake clock: each answer is a heartbeat's,
+        a (code, seconds) answer fails only after that long."""
         clock={'now':1000.0,'waits':[]}; answers=list(answers)
         class Fake:
             def __init__(self): self.calls=[]
@@ -199,6 +200,7 @@ class CoreTests(unittest.TestCase):
                 if 'ADD generation' in args.get('UpdateExpression',''): self.expiry=1180; return {'Attributes':{'generation':{'N':'1'}}}
                 if 'REMOVE' in args['UpdateExpression']: return {}
                 answer=answers.pop(0)
+                if isinstance(answer,tuple): answer,seconds=answer; clock['now']+=seconds
                 if answer: raise c.ReleaseError(answer)
                 self.expiry=int(args['ExpressionAttributeValues'][':e']['N']); return {}
         def wait(seconds):
@@ -230,6 +232,15 @@ class CoreTests(unittest.TestCase):
                 count=len(aws.calls)
                 with self.assertRaisesRegex(c.ReleaseError,'LEASE_LOST'): lease.assert_owned()
                 lease.release(reconciled=True); self.assertEqual(len(aws.calls),count)
+
+    def test_one_heartbeat_that_hangs_until_the_cli_timeout_never_loses_the_lease_by_itself(self):
+        # Sent at 1030, failed at 1120 (the 90 s subprocess timeout); 1030 was well before 1180-60.
+        for answer,lost in [(None,False),('AWS_REQUEST_UNCERTAIN',True)]:
+            with self.subTest(next_answer=answer):
+                lease,aws,clock=self.heartbeat([('AWS_REQUEST_UNCERTAIN',90),answer])
+                # The next heartbeat is sent at 1150, within ttl/3 of 1180: a failure there loses the lease.
+                self.assertEqual(aws.calls[-1][1]['ExpressionAttributeValues'][':now']['N'],'1150')
+                self.assertEqual((lease.lost.is_set(),lease.confirmed),(lost,1180 if lost else 1330))
 
     @patch.dict(os.environ, {'PRODUCTION_APPROVAL_MODE': 'protected'})
     def test_approval_requires_enabled_native_gate_and_new_run(self):

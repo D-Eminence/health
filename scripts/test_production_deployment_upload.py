@@ -57,7 +57,8 @@ class UploadTests(unittest.TestCase):
         def release(reconciled=True):
             lease.released = reconciled
             # The real release writes to DynamoDB, once, only for a reconciled lease.
-            if release_fails and reconciled: raise c.ReleaseError(release_fails)
+            if release_fails and reconciled:
+                raise release_fails if isinstance(release_fails, BaseException) else c.ReleaseError(release_fails)
         # lost_on_sleep: the lease is lost once the controller has paused.
         lease = SimpleNamespace(released=None, acquire=lambda: lease, release=release,
                                 assert_owned=lambda: c.require(not (lost_on_sleep and sleeps), 'LEASE_LOST'))
@@ -474,9 +475,26 @@ class UploadTests(unittest.TestCase):
                 self.assertEqual(lines[-1], {'stage': 'lease-release', 'code': 'AWS_REQUEST_UNCERTAIN'})
                 self.assertEqual([line.get('unexpected_error') for line in lines],
                                  ['KeyError', None, None] if code == 'CONTROLLER_FAILED' else [None, None])
-        # With nothing else on its way out, the failed release is the error.
-        result = self.execute(release_fails='AWS_REQUEST_UNCERTAIN')
-        self.assertEqual((result.error, self.stages(result)), ('AWS_REQUEST_UNCERTAIN', []))
+        # After a recorded healthy release: its own line, then a code no rollback uses, even over a failed alert.
+        for alert_fails in (False, True):
+            with self.subTest(alert_fails=alert_fails):
+                result = self.execute(release_fails='AWS_REQUEST_UNCERTAIN', alert_fails=alert_fails)
+                self.assertEqual((result.error, self.stages(result)), ('DEPLOYED_HEALTHY_BUT_LEASE_RELEASE_FAILED',
+                                 [{'stage': 'lease-release', 'code': 'AWS_REQUEST_UNCERTAIN'}]))
+                prefix = 'production/releases/' + result.release_id + '/'
+                self.assertEqual(result.objects[prefix + 'complete.json']['status'], 'success')
+                self.assertNotIn(prefix + 'failed.json', result.objects)
+                self.assertEqual('"alert_status": "failed"' in result.output, alert_fails)
+
+    def test_an_unexpected_lease_release_error_is_named_by_class_and_never_by_message(self):
+        result = self.execute(failure_app='web', release_fails=KeyError('synthetic-secret-value'))
+        self.assertEqual(result.error, 'SYNTHETIC_HEALTH_FAILURE')
+        restored, named, released = self.stages(result)
+        self.assertEqual(restored['status'], 'restored')
+        self.assertEqual((named['stage'], named['unexpected_error']), ('lease-release', 'KeyError'))
+        self.assertIn(['deploy-production-workers.py', 'deploy'], [frame[:2] for frame in named['at']])
+        self.assertEqual(released, {'stage': 'lease-release', 'code': 'CONTROLLER_FAILED'})
+        self.assertNotIn('synthetic-secret-value', result.output)
 
     def test_a_failed_alert_is_said_on_both_paths(self):
         for failure_app, code in [('web', 'SYNTHETIC_HEALTH_FAILURE'), (None, 'DEPLOYED_HEALTHY_BUT_OPERATIONS_ALERT_FAILED')]:
