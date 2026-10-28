@@ -20,9 +20,13 @@ interface PendingEmail { change: EmailChangeStarted; email: string; sentAt: numb
 /**
  * A step, or none open. Asking for a new code goes back to the address step (a new code needs the current password
  * again) and keeps the code already sent, which still works until a new one is sent: the patient can go back to it,
- * and does when Identity refuses the new one.
+ * and does when Identity refuses a new one for now (429). After any other refusal or failure it is no longer offered:
+ * Identity ends the open change as it starts a new one, which may be before it finds the address taken (409) or the
+ * code undeliverable (422), or before an answer is lost. `verify`: the address step was opened to verify the account's
+ * own email, which is not verified yet.
  */
-type Step = { kind: 'idle' } | { kind: 'email'; pending?: PendingEmail } | { kind: 'email-code'; pending: PendingEmail } | { kind: 'phone' }
+type Step = { kind: 'idle' } | { kind: 'email'; pending?: PendingEmail; verify?: boolean } | { kind: 'email-code'; pending: PendingEmail }
+  | { kind: 'phone' }
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -71,7 +75,8 @@ const codeLive = ({ change, sentAt }: PendingEmail, now: number) => now - sentAt
  * "Contact details" on the profile (hid-1.0 parity B3, the lead's decisions): the account's email and phone, shown
  * masked, each with Change. A new email needs the current password and the 6-digit code sent to it; a new phone needs
  * the current password only (production sends no SMS) and is then shown as not verified. Either way the verified
- * email is told, and sign-in and recovery use the new contact from then on. Shown only where Identity sends them.
+ * email is told, and sign-in and recovery use the new contact from then on. An email not verified yet (one kept from
+ * hid-1.0) has Verify too: the same steps with that address, whose code verifies it. Shown only where Identity sends them.
  */
 export function ContactDetailsCard({ profile, onChanged }: { profile: PatientProfile; onChanged: () => Promise<unknown> }) {
   const { api } = useSession()
@@ -93,25 +98,30 @@ export function ContactDetailsCard({ profile, onChanged }: { profile: PatientPro
   if (profile.email === undefined && profile.phone === undefined) return null
   // Identity tells the account's email of a phone change only while that email is verified.
   const phoneNoticeByEmail = Boolean(profile.email) && profile.emailVerified !== false
+  const unverified = Boolean(profile.email) && profile.emailVerified === false
+  /** Whether `address` is the account's own email, not verified yet: a code sent to it verifies it rather than changing it. */
+  const ownUnverified = (address: string) => unverified && address.toLowerCase() === profile.email?.toLowerCase()
+  const verifying = step.kind === 'email' ? step.verify === true : step.kind === 'email-code' && ownUnverified(step.pending.email)
 
   const fieldRef = (field: Exclude<Field, null>) => (error?.field ?? (step.kind === 'email-code' ? 'code' : 'value')) === field ? stepFocus.target : undefined
   const invalid = (field: Exclude<Field, null>) => error?.field === field || undefined
   const errorFor = (field: Exclude<Field, null>) => error?.field === field ? 'contact-error' : undefined
 
-  const open = (kind: 'email' | 'phone') => {
-    setStep({ kind }); setError(null); setNotice(null); setResendNote(null); setPassword(''); setCode('')
-    if (kind === 'email') setEmail('')
+  const open = (kind: 'email' | 'phone', verify = false) => {
+    setStep(kind === 'email' && verify ? { kind, verify } : { kind }); setError(null); setNotice(null); setResendNote(null); setPassword(''); setCode('')
+    if (kind === 'email') setEmail(verify ? profile.email ?? '' : '')
     else { setPhone(''); setPhoneCountry(DEFAULT_PHONE_COUNTRY) }
     stepFocus.focus()
   }
   const close = (back: 'email' | 'phone') => {
+    const button = back === 'email' && verifying ? 'contact-verify-email' : `contact-change-${back}`
     setStep({ kind: 'idle' }); setError(null); setResendNote(null); setPassword(''); setCode('')
-    focusAfter(() => document.getElementById(`contact-change-${back}`))
+    focusAfter(() => document.getElementById(button))
   }
-  const refused = (cause: unknown, kind: Step['kind'], fromField: boolean) => {
+  const refused = (cause: unknown, kind: Step['kind'], fromField: boolean, after = '') => {
     const problem = refusal(cause, kind)
     // Sent with Enter in a field, focus stays where it is: the refusal is then said as an alert.
-    setError({ ...problem, alert: problem.field === null || fromField })
+    setError({ ...problem, message: problem.message + after, alert: problem.field === null || fromField })
     if (problem.field === 'password') setPassword('')
     if (problem.field === 'code') setCode('')
   }
@@ -122,12 +132,14 @@ export function ContactDetailsCard({ profile, onChanged }: { profile: PatientPro
     const typed = email.trim()
     if (busy) return
     if (!EMAIL.test(typed)) { setError({ message: 'Enter an email address, like name@example.com.', field: 'value', alert: fromField }); stepFocus.focus(); return }
-    if (profile.email && typed.toLowerCase() === profile.email.toLowerCase()) {
+    // The account's own address is sent a code only while it is not verified, to verify it.
+    if (profile.email && profile.emailVerified !== false && typed.toLowerCase() === profile.email.toLowerCase()) {
       setError({ message: 'This is already your email address.', field: 'value', alert: fromField }); stepFocus.focus(); return
     }
     if (!password) { setError({ message: 'Enter your current password.', field: 'password', alert: fromField }); stepFocus.focus(); return }
     setBusy(true); setError(null); setNotice(null)
     const pending = step.kind === 'email' ? step.pending : undefined
+    const verify = step.kind === 'email' && step.verify === true
     try {
       const change = await api.startEmailChange(typed, password)
       setPassword(''); setCode('')
@@ -140,7 +152,19 @@ export function ContactDetailsCard({ profile, onChanged }: { profile: PatientPro
         setStep({ kind: 'email-code', pending })
         const wait = refusal(cause, 'email').message
         setError({ message: `${wait} The code we sent to ${pending.change.maskedContact} still works: enter it here.`, field: null, alert: true })
-      } else refused(cause, 'email', fromField)
+      } else if (ownUnverified(typed) && isHidApiError(cause) && cause.code === 'CONTACT_UNCHANGED') {
+        // Identity answers this for the account's own address only once it is verified (in another tab, say).
+        setStep({ kind: 'idle' }); setPassword(''); setEmail(''); setResendNote(null)
+        setNotice('Your email address is already verified.')
+        focusAfter(() => heading.current)
+        void onChanged()
+      } else {
+        // Identity may have ended the open change already (see Step): the code already sent is no longer offered.
+        if (pending) setStep({ kind: 'email', verify })
+        // A 409 or 422 comes after Identity ended it, so the patient is told the code in their inbox is dead.
+        const ended = pending && isHidApiError(cause) && (cause.status === 409 || cause.status === 422)
+        refused(cause, 'email', fromField, ended ? ` The code we sent to ${pending.change.maskedContact} no longer works.` : '')
+      }
     } finally { setBusy(false); stepFocus.focus() }
   }
 
@@ -152,7 +176,7 @@ export function ContactDetailsCard({ profile, onChanged }: { profile: PatientPro
       setResendNote(`You can ask for a new code in ${duration(wait)}. The code we sent to ${step.pending.change.maskedContact} still works.`)
       return
     }
-    setStep({ kind: 'email', pending: step.pending }); setEmail(step.pending.email)
+    setStep({ kind: 'email', pending: step.pending, verify: ownUnverified(step.pending.email) }); setEmail(step.pending.email)
     setError(null); setResendNote(null); setCode(''); setPassword(''); stepFocus.focus()
   }
   const backToCode = () => {
@@ -160,7 +184,7 @@ export function ContactDetailsCard({ profile, onChanged }: { profile: PatientPro
     if (codeLive(step.pending, Date.now())) {
       setStep({ kind: 'email-code', pending: step.pending }); setError(null); setPassword(''); setCode('')
     } else {
-      setStep({ kind: 'email' }); setError({ message: 'The code we sent has expired. Send a new code.', field: null, alert: true })
+      setStep({ kind: 'email', verify: step.verify }); setError({ message: 'The code we sent has expired. Send a new code.', field: null, alert: true })
     }
     stepFocus.focus()
   }
@@ -174,8 +198,9 @@ export function ContactDetailsCard({ profile, onChanged }: { profile: PatientPro
       const answer = await api.verifyEmailChange(step.pending.change.changeId, code)
       const now = typeof answer?.email === 'string' && answer.email ? answer.email : step.pending.email
       setStep({ kind: 'idle' }); setCode(''); setEmail(''); setResendNote(null)
-      setNotice(`Your email address is now ${maskEmail(now)}. Use it to sign in and to reset your password.`
-        + (profile.email ? ' We told your previous address.' : ''))
+      setNotice(ownUnverified(now) ? 'Your email address is verified.'
+        : `Your email address is now ${maskEmail(now)}. Use it to sign in and to reset your password.`
+          + (profile.email ? ' We told your previous address.' : ''))
       await onChanged()
       announce()
       focusAfter(() => heading.current)
@@ -221,8 +246,11 @@ export function ContactDetailsCard({ profile, onChanged }: { profile: PatientPro
       <div><dt>Email</dt><dd>{profile.email ? maskEmail(profile.email) : 'No email address'}
         {/* Health ID sends nothing to an address that was never confirmed (one kept from hid-1.0). */}
         {profile.email && profile.emailVerified === false && <> <span className="patient-status-tag">Not verified</span></>}</dd>
-        {step.kind === 'idle' && <dd><button id="contact-change-email" type="button" className="patient-secondary-button" disabled={busy}
-          onClick={() => open('email')}>{profile.email ? 'Change' : 'Add'} <ItemName>email address</ItemName></button></dd>}</div>
+        {step.kind === 'idle' && <dd>
+          {unverified && <><button id="contact-verify-email" type="button" className="patient-secondary-button" disabled={busy}
+            onClick={() => open('email', true)}>Verify <ItemName>email address</ItemName></button> </>}
+          <button id="contact-change-email" type="button" className="patient-secondary-button" disabled={busy}
+            onClick={() => open('email')}>{profile.email ? 'Change' : 'Add'} <ItemName>email address</ItemName></button></dd>}</div>
       <div><dt>Phone</dt><dd>{profile.phone ? maskPhone(profile.phone) : 'No phone number'}
         {profile.phone && <> <span className={profile.phoneVerified ? 'patient-status-tag patient-status-tag-ok' : 'patient-status-tag'}>
           {profile.phoneVerified ? 'Verified' : 'Not verified'}</span></>}</dd>
@@ -231,12 +259,13 @@ export function ContactDetailsCard({ profile, onChanged }: { profile: PatientPro
     </dl>
 
     {step.kind === 'email' && <form className="patient-form patient-contact-form" onSubmit={event => void startEmail(event)} noValidate>
-      <h3>New email address</h3>
+      <h3>{verifying ? 'Verify your email address' : 'New email address'}</h3>
       {errorLine}
-      <label>New email address<input ref={fieldRef('value')} type="email" autoComplete="email" maxLength={254} value={email}
-        onChange={event => { setEmail(oneLine(event.target.value)); if (error?.field === 'value') setError(null) }}
+      <label>{verifying ? 'Email address' : 'New email address'}<input ref={fieldRef('value')} type="email" autoComplete="email" maxLength={254}
+        value={email} onChange={event => { setEmail(oneLine(event.target.value)); if (error?.field === 'value') setError(null) }}
         aria-invalid={invalid('value')} aria-describedby={describedBy('contact-email-hint', errorFor('value'))} /></label>
-      <p id="contact-email-hint" className="patient-field-hint">We will send a 6-digit code to this address. Your email changes once you enter it.</p>
+      <p id="contact-email-hint" className="patient-field-hint">We will send a 6-digit code to this address. {verifying
+        ? 'It shows as verified once you enter it.' : 'Your email changes once you enter it.'}</p>
       {passwordField}
       <div className="patient-decision-actions">
         <button type="submit" className="patient-primary-button" disabled={busy}>{busy ? 'Sending…' : 'Send code'}</button>
@@ -251,7 +280,7 @@ export function ContactDetailsCard({ profile, onChanged }: { profile: PatientPro
       <p id="contact-code-hint" className="patient-field-hint">We sent a 6-digit code to {step.pending.change.maskedContact}. It works for
         {' '}{minutes(step.pending.change.expiresInSeconds)}.</p>
       {errorLine}
-      <CodeBoxes id="contact-code" label="Code from your new email" value={code} busy={busy} inputRef={fieldRef('code')}
+      <CodeBoxes id="contact-code" label={verifying ? 'Code from your email' : 'Code from your new email'} value={code} busy={busy} inputRef={fieldRef('code')}
         onChange={value => { setCode(value); if (error?.field === 'code') setError(null) }}
         invalid={invalid('code')} describedBy={describedBy('contact-code-hint', errorFor('code'))} />
       <div className="patient-decision-actions">

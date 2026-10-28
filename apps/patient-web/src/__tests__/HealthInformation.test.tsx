@@ -77,6 +77,64 @@ describe('Health information', () => {
     expect((shown.getByRole('button', { name: 'Save health information' }) as HTMLButtonElement).disabled).toBe(true)
   })
 
+  it('keeps a profile cleared after a save empty: the hid-1.0 details start the form only until the first save', async () => {
+    const saved = { ...nothing, bloodGroup: 'A-' as const, allergies: 'Latex', rowVersion: 2, updatedAt: '2026-10-27T10:00:00.000Z' }
+    const { sent } = renderPortal(<ProfilePage />, gateway(saved, hid1), {}, { parityB3: true })
+    const shown = await card()
+    await waitFor(() => expect((shown.getByRole('combobox', { name: 'Blood group' }) as HTMLSelectElement).value).toBe('A-'))
+    fireEvent.change(shown.getByRole('combobox', { name: 'Blood group' }), { target: { value: '' } })
+    fireEvent.change(shown.getByRole('textbox', { name: 'Allergies' }), { target: { value: '' } })
+    await press(shown.getByRole('button', { name: 'Save health information' }))
+    expect(await shown.findByText('Your health information was saved.')).toBeTruthy()
+    expect(puts(sent)).toEqual([{ path: HEALTH, method: 'PUT', body: { bloodGroup: null, genotype: null, allergies: null, currentMedications: null,
+      chronicConditions: null, medicalNotes: null, expectedVersion: 2 } }])
+    // Saved empty at version 3: the form stays as the patient left it, with nothing from hid-1.0 and nothing to save.
+    expect(values(shown).every(([, value]) => value === '')).toBe(true)
+    expect(shown.queryByText(/We started this from the health details you kept in hid-1.0/)).toBeNull()
+    expect((shown.getByRole('button', { name: 'Save health information' }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('saves a form started from hid-1.0 even when the patient empties it, so they can say they have none', async () => {
+    const { sent } = renderPortal(<ProfilePage />, gateway(nothing, hid1), {}, { parityB3: true })
+    const shown = await card()
+    await waitFor(() => expect((shown.getByRole('combobox', { name: 'Blood group' }) as HTMLSelectElement).value).toBe('O+'))
+    for (const name of ['Blood group', 'Genotype']) fireEvent.change(shown.getByRole('combobox', { name }), { target: { value: '' } })
+    for (const name of ['Allergies', 'Current medications', 'Chronic conditions', 'Medical notes for my care team']) {
+      fireEvent.change(shown.getByRole('textbox', { name }), { target: { value: '' } })
+    }
+    await press(shown.getByRole('button', { name: 'Save health information' }))
+    expect(await shown.findByText('Your health information was saved.')).toBeTruthy()
+    expect(puts(sent)).toEqual([{ path: HEALTH, method: 'PUT', body: { bloodGroup: null, genotype: null, allergies: null, currentMedications: null,
+      chronicConditions: null, medicalNotes: null, expectedVersion: 0 } }])
+    // Saved empty at version 1: nothing from hid-1.0 comes back, and there is nothing to save.
+    expect(values(shown).every(([, value]) => value === '')).toBe(true)
+    expect(shown.queryByText(/We started this from the health details you kept in hid-1.0/)).toBeNull()
+    expect((shown.getByRole('button', { name: 'Save health information' }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('does not send a save whose body would be over 8,000 bytes, as text in a script of several bytes a character can be', async () => {
+    const { sent } = renderPortal(<ProfilePage />, gateway(nothing), {}, { parityB3: true })
+    const shown = await card()
+    // Yoruba with its tone marks: each "ẹ̀" is two characters and five bytes, so 1000 characters are 2,500 bytes.
+    const yoruba = 'ẹ̀'.repeat(500)
+    for (const name of ['Allergies', 'Current medications', 'Chronic conditions', 'Medical notes for my care team']) {
+      fireEvent.change(shown.getByRole('textbox', { name }), { target: { value: yoruba } })
+    }
+    await press(shown.getByRole('button', { name: 'Save health information' }))
+    expect((await shown.findByRole('alert')).textContent)
+      .toBe('Your health information is too long to save. Shorten the longer fields, then save again.')
+    expect(puts(sent)).toEqual([])
+    // Shortened to fit, it goes: the same number of characters in plain letters takes 1,000 bytes.
+    for (const name of ['Chronic conditions', 'Medical notes for my care team']) {
+      fireEvent.change(shown.getByRole('textbox', { name }), { target: { value: 'x'.repeat(1000) } })
+    }
+    await press(shown.getByRole('button', { name: 'Save health information' }))
+    expect(await shown.findByText('Your health information was saved.')).toBeTruthy()
+    const body = JSON.stringify(puts(sent)[0]?.body)
+    expect(new TextEncoder().encode(body).byteLength).toBeLessThanOrEqual(8000)
+    expect(new TextEncoder().encode(body).byteLength).toBeGreaterThan(7000)
+  })
+
   it('sends a cleared field as null, keeps newlines and drops other control characters', async () => {
     const saved = { ...nothing, bloodGroup: 'A-' as const, allergies: 'Latex', rowVersion: 1, updatedAt: '2026-10-27T10:00:00.000Z' }
     const { sent } = renderPortal(<ProfilePage />, gateway(saved), {}, { parityB3: true })

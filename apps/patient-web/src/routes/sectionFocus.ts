@@ -25,7 +25,9 @@ export function useFocusSectionFromHash(pageHeading: RefObject<HTMLElement | nul
       if (shown.current.pathname === pathname) withinPage.current = key
       shown.current = { pathname, key }
     }
-    const id = hash.length > 1 ? decodeURIComponent(hash.slice(1)) : ''
+    let id = ''
+    // A pasted or cut-off link can hold a % that does not decode: it names no section.
+    try { id = hash.length > 1 ? decodeURIComponent(hash.slice(1)) : '' } catch { return }
     if (!id || taken.current === key) return
     const section = document.getElementById(id)
     if (!section) return

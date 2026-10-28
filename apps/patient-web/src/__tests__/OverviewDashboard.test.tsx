@@ -93,6 +93,13 @@ describe('the overview with patient parity served', () => {
     await waitFor(() => expect(tiles().slice(0, 3)).toEqual([['Blood group', 'O+'], ['Genotype', 'AS'], ['Allergies', 'Penicillin']]))
   })
 
+  it('shows nothing from hid-1.0 once the patient has saved their own, even with every field cleared', async () => {
+    renderPortal(<Overview />, gateway({ '/ehr/me/health-profile': () => json({ ...emptyHealth, rowVersion: 3, updatedAt: at(1) }) }), {}, parity)
+    // The records, with the hid-1.0 details, are read: they are not shown as the patient's current health.
+    await screen.findByText('Malaria review')
+    await waitFor(() => expect(tiles().slice(0, 3)).toEqual([['Blood group', 'Not added'], ['Genotype', 'Not added'], ['Allergies', 'Not added']]))
+  })
+
   it('lists what needs attention, each a link to where it is done', async () => {
     renderPortal(<Overview />, gateway(), {}, parity)
     const card = await region('Attention required')

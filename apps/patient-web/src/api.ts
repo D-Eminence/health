@@ -12,6 +12,7 @@ import {
   parseEmailChangeStarted, parseHealthProfile, parsePhoneChanged, parseProfileDetails,
   type EmailChangeStarted, type HealthFields, type HealthProfile, type PhoneChanged, type ProfileDetails,
 } from './profileParity'
+import { photoBody } from './photoImage'
 
 /**
  * Contracts read from hid-system c4b5445 Identity and EHR controllers, and later
@@ -624,8 +625,9 @@ export function createPatientApi(sender: ApiClient) {
       if (type !== 'image/jpeg' && type !== 'image/png') throw new Error('Your photo could not be shown.')
       return answer.blob.type === type ? answer.blob : new Blob([answer.blob], { type })
     },
-    // Always the 512 x 512 JPEG the page drew from the chosen picture (photoImage.ts), base64, with no metadata.
-    savePhoto: (data: string) => call<{ hasPhoto: true }>('PUT', 'identity/me/photo', { mediaType: 'image/jpeg', data }),
+    // Always the JPEG the page drew from the chosen picture, base64, with no metadata, in a body made to pass
+    // production's 8 KB edge limit (photoImage.ts).
+    savePhoto: (data: string) => call<{ hasPhoto: true }>('PUT', 'identity/me/photo', photoBody(data)),
     removePhoto: () => call<{ hasPhoto: false }>('DELETE', 'identity/me/photo'),
     // A new email needs the current password and a 6-digit code sent to it; the old address is told.
     startEmailChange: async (email: string, currentPassword: string): Promise<EmailChangeStarted> =>

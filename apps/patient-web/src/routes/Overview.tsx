@@ -18,7 +18,7 @@ import { contactsToCount } from './AccountSafety'
 import { WHAT, accessLogActor } from './AccessLog'
 import { notificationTitle } from './notificationTitles'
 import { ninVerifiedOf } from './NinVerificationCard'
-import { nothingEntered } from './HealthInformation'
+import { neverSaved } from './HealthInformation'
 import { useOnNotificationChange } from '../notificationBadge'
 
 /**
@@ -97,10 +97,10 @@ export function attentionItems({ profile, requests, completion, contacts }: {
   return items
 }
 
-/** A tile's value: what the patient entered, or what they kept in hid-1.0 while they have entered nothing. */
+/** A tile's value: what the patient entered, or what they kept in hid-1.0 until they first save their own. */
 function healthValue(entered: string | null, fromHid1: string | undefined, saved: HealthProfile): string {
   if (entered) return entered
-  if (nothingEntered(saved) && fromHid1) return fromHid1
+  if (neverSaved(saved) && fromHid1) return fromHid1
   return 'Not added'
 }
 

@@ -4,8 +4,8 @@ import { useSession } from '../session'
 import { describedBy } from '../authSteps'
 import type { ImportedHealthProfile } from '../importedRecords'
 import {
-  BLOOD_GROUPS, GENOTYPES, HEALTH_FIELDS, HEALTH_TEXT_FIELDS, HEALTH_TEXT_LIMIT, bloodGroupOf, genotypeOf, multiLine, sentText,
-  type BloodGroup, type Genotype, type HealthFields, type HealthProfile, type HealthTextField,
+  BLOOD_GROUPS, EDGE_BODY_MAX_BYTES, GENOTYPES, HEALTH_FIELDS, HEALTH_TEXT_FIELDS, HEALTH_TEXT_LIMIT, bloodGroupOf, genotypeOf,
+  jsonBodyBytes, multiLine, sentText, type BloodGroup, type Genotype, type HealthFields, type HealthProfile, type HealthTextField,
 } from '../profileParity'
 import { useActionFocus, useRetryFocus } from './actionFocus'
 import { ItemName } from '../ItemName'
@@ -57,17 +57,21 @@ const fieldsOf = (draft: Draft): HealthFields => ({
   medicalNotes: sentText(draft.medicalNotes),
 })
 
-/** Whether the patient has entered nothing here yet. */
-export const nothingEntered = (saved: HealthFields): boolean => HEALTH_FIELDS.every(field => saved[field] === null)
+/**
+ * Whether the patient has never saved health information here: EHR answers rowVersion 0 until the first save. Once
+ * saved, even with every field cleared, what is shown is the patient's own.
+ */
+export const neverSaved = (saved: HealthProfile): boolean => saved.rowVersion === 0
 
 const sameFields = (a: HealthFields, b: HealthFields) => HEALTH_FIELDS.every(field => a[field] === b[field])
 
-/** Where the form starts: what the patient saved, or, while they have saved nothing, what they kept in hid-1.0. */
+/** Where the form starts: what the patient saved, or, until they first save, what they kept in hid-1.0. */
 const startOf = (saved: HealthProfile, fromHid1: ImportedHealthProfile | null): Draft =>
-  nothingEntered(saved) && fromHid1 ? draftFromImported(fromHid1) : draftOf(saved)
+  neverSaved(saved) && fromHid1 ? draftFromImported(fromHid1) : draftOf(saved)
 
 const CONFLICT = 'Your health information was changed somewhere else (in another window, perhaps), so this was not saved. '
   + 'The latest is shown now: make your change again.'
+const TOO_LONG = 'Your health information is too long to save. Shorten the longer fields, then save again.'
 
 function savedOn(value: string | null) {
   if (!value) return null
@@ -78,9 +82,9 @@ function savedOn(value: string | null) {
 /**
  * "Health information" on the profile (hid-1.0 parity B3, the owner's decision of 2026-10-28): blood group, genotype,
  * allergies, current medications, chronic conditions and medical notes, as the patient states them. It is kept in EHR
- * apart from what clinicians record; a clinician with access sees it marked "Reported by the patient". When the
- * patient has entered nothing yet, the form starts from the details they kept in hid-1.0, which they save to keep
- * here. Not shown where EHR does not serve it (404).
+ * apart from what clinicians record; a clinician with access sees it marked "Reported by the patient". Until the
+ * patient first saves here, the form starts from the details they kept in hid-1.0, which they save to keep here. Not
+ * shown where EHR does not serve it (404).
  */
 export function HealthInformationCard({ resource, fromHid1 }: {
   resource: ProfileResource<HealthProfile | null>
@@ -110,8 +114,9 @@ function HealthInformationForm({ resource, fromHid1 }: { resource: ProfileResour
     if (saved && (untouched || saved.rowVersion !== basis.saved?.rowVersion)) setDraft(startOf(saved, fromHid1))
   }
 
-  const changed = saved !== null && draft !== null && !sameFields(fieldsOf(draft), saved)
-  const seeded = saved !== null && nothingEntered(saved) && fromHid1 !== null
+  const seeded = saved !== null && neverSaved(saved) && fromHid1 !== null
+  // A form started from hid-1.0 can be saved as it stands, even emptied: that is how the patient says "none".
+  const changed = saved !== null && draft !== null && (seeded || !sameFields(fieldsOf(draft), saved))
   const set = <K extends keyof Draft>(field: K, value: Draft[K]) => {
     setDraft(current => current ? { ...current, [field]: value } : current)
     setNotice(null)
@@ -120,9 +125,13 @@ function HealthInformationForm({ resource, fromHid1 }: { resource: ProfileResour
   const save = async (event: FormEvent) => {
     event.preventDefault()
     if (!saved || !draft || busy || !changed) return
+    const body = { ...fieldsOf(draft), expectedVersion: saved.rowVersion }
+    // Production's edge refuses a body over 8 KB (EDGE_BODY_MAX_BYTES): long texts in a script of several bytes a
+    // character can pass it, so such a save is not sent.
+    if (jsonBodyBytes(body) > EDGE_BODY_MAX_BYTES) { setError(TOO_LONG); setNotice(null); return }
     setBusy(true); setError(null); setNotice(null)
     try {
-      resource.replace(await api.saveHealthProfile({ ...fieldsOf(draft), expectedVersion: saved.rowVersion }))
+      resource.replace(await api.saveHealthProfile(body))
       setNotice('Your health information was saved.')
       focusAfter(() => heading.current)
     } catch (cause) {

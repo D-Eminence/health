@@ -2,17 +2,19 @@ import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vite
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { Route, Routes } from 'react-router-dom'
 import type { PatientProfile } from '../api'
-import { PHOTO_MAX_BYTES, PHOTO_SIDE, reencodePhoto, withoutJpegMetadata } from '../photoImage'
+import { PHOTO_SIDE, PHOTO_SIDES, base64Of, photoBody, reencodePhoto, withoutJpegMetadata } from '../photoImage'
+import { EDGE_BODY_MAX_BYTES, jsonBodyBytes } from '../profileParity'
 import { PortalShell, ProfilePage } from '../routes/Portal'
 import { json, press, problem, profile, renderPortal, type Handler, type Sent } from './portalHarness'
 
 vi.mock('../chatFeatures', () => ({ patientChatEnabled: () => false, patientChatHost: () => false }))
 
 /**
- * The profile photo (hid-1.0 parity B3, the lead's decision): the page decodes the chosen JPEG or PNG, crops it to its
- * centre square, draws it afresh on a 512 x 512 canvas and sends only the JPEG the canvas encodes. These tests stand in
- * for the browser's decoder and canvas, and check that what is uploaded is exactly that fresh JPEG and never the chosen
- * file's own bytes, with its EXIF and GPS block.
+ * The profile photo (hid-1.0 parity B3, the lead's decisions): the page decodes the chosen JPEG or PNG, crops it to its
+ * centre square, draws it afresh on a small square canvas and sends only the JPEG the canvas encodes, in a body of at
+ * most 8,000 bytes, which production's edge lets through. These tests stand in for the browser's decoder and canvas,
+ * and check that what is uploaded is exactly that fresh JPEG and never the chosen file's own bytes, with its EXIF and
+ * GPS block.
  */
 
 /** A camera JPEG with an EXIF block holding a GPS position: SOI, APP1 "Exif", a GPS tag, then picture bytes. */
@@ -25,25 +27,25 @@ const decoded = (base64: string) => Uint8Array.from(atob(base64), character => c
 /** A JPEG segment: FF, the marker, the length (its own two bytes included), the payload. */
 const segment = (marker: number, payload: readonly number[]) => [0xff, marker, (payload.length + 2) >> 8, (payload.length + 2) & 0xff, ...payload]
 const JFIF = segment(0xe0, [0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00])
-/** The rest of a canvas JPEG, laid out as an encoder writes it (the tables shortened): DQT, a 512 x 512 SOF0, DHT, SOS. */
-const PICTURE_HEAD = [...segment(0xdb, [0x00, 0x55, 0x66, 0x77]),
-  ...segment(0xc0, [0x08, 0x02, 0x00, 0x02, 0x00, 0x03, 0x01, 0x22, 0x00, 0x02, 0x11, 0x01, 0x03, 0x11, 0x01]),
+/** The rest of a canvas JPEG, laid out as an encoder writes it (the tables shortened): DQT, a `side` x `side` SOF0, DHT, SOS. */
+const pictureHead = (side: number) => [...segment(0xdb, [0x00, 0x55, 0x66, 0x77]),
+  ...segment(0xc0, [0x08, side >> 8, side & 0xff, side >> 8, side & 0xff, 0x03, 0x01, 0x22, 0x00, 0x02, 0x11, 0x01, 0x03, 0x11, 0x01]),
   ...segment(0xc4, [0x00, 0x01, 0x05, 0x01]), ...segment(0xda, [0x03, 0x01, 0x00, 0x02, 0x11, 0x03, 0x11, 0x00, 0x3f, 0x00])]
 /** SOI, the header segments given, the picture's tables and frame, the scan, EOI. */
-function jpeg(header: readonly number[], scan: Uint8Array = new Uint8Array([0x12, 0x34, 0x56, 0x78])): Uint8Array<ArrayBuffer> {
-  const head = [0xff, 0xd8, ...header, ...PICTURE_HEAD]
+function jpeg(header: readonly number[], scan: Uint8Array = new Uint8Array([0x12, 0x34, 0x56, 0x78]), side: number = PHOTO_SIDE): Uint8Array<ArrayBuffer> {
+  const head = [0xff, 0xd8, ...header, ...pictureHead(side)]
   const whole = new Uint8Array(head.length + scan.length + 2)
   whole.set(head)
   whole.set(scan, head.length)
   whole.set([0xff, 0xd9], head.length + scan.length)
   return whole
 }
-/** What the stand-in canvas encodes, as Chromium and Firefox do: a fresh JFIF JPEG with no metadata. */
+/** What the stand-in canvas encodes, as Chromium and Firefox do: a fresh JFIF JPEG with no metadata, 256 x 256. */
 const CANVAS_JPEG = jpeg(JFIF)
 /**
  * The start of every canvas JPEG WebKit (Safari, and every browser on iOS) encodes through ImageIO: SOI, JFIF at 72 dpi,
  * an APP1 Exif block (ColorSpace, PixelXDimension and PixelYDimension, here 512) and an APP13 Photoshop 3.0 block (8BIM
- * 0x0404 and 0x0425). Identity refuses a JPEG with either.
+ * 0x0404 and 0x0425). Identity refuses a JPEG with either. The frame that follows here is 256 x 256.
  */
 const WEBKIT_HEAD = decoded('/9j/4AAQSkZJRgABAQAASABIAAD/4QBMRXhpZgAATU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAA6ABAAMAAAABAAEAAKACAAQAAAABAAACAKADAAQAAAABAAACAAAAAAD/7QA4UGhvdG9zaG9wIDMuMAA4QklNBAQAAAAAAAA4QklNBCUAAAAAABDUHYzZjwCyBOmACZjs+EJ+')
 const WEBKIT_JPEG = jpeg([...WEBKIT_HEAD.slice(2)])
@@ -136,15 +138,40 @@ async function choose(file: File) {
 }
 const puts = (sent: Sent[]) => sent.filter(request => request.path === '/identity/me/photo' && request.method === 'PUT')
 
+/** The JPEG the page uploaded, from the body of its PUT. */
+const uploaded = (sent: Sent[]) => decoded((puts(sent)[0]?.body as { data: string }).data)
+/**
+ * A stand-in canvas that encodes, at each side and quality, a JPEG with `header`: `length(side, quality)` bytes once
+ * the metadata is dropped, which leaves `kept` of the header.
+ */
+function encodes(length: (side: number, quality: number) => number, header: readonly number[] = JFIF, kept: readonly number[] = header) {
+  const tried: Array<[number, unknown]> = []
+  vi.mocked(HTMLCanvasElement.prototype.toBlob).mockImplementation(function (this: HTMLCanvasElement, callback: BlobCallback, _type?: string, quality?: unknown) {
+    tried.push([this.width, quality])
+    const scan = length(this.width, quality as number) - jpeg(kept, new Uint8Array(0), this.width).length
+    callback(new Blob([jpeg(header, new Uint8Array(Math.max(1, scan)), this.width)], { type: 'image/jpeg' }))
+  } as unknown as typeof HTMLCanvasElement.prototype.toBlob)
+  return tried
+}
+/**
+ * The bytes libjpeg encodes a typical portrait in (the centre square of an 810 x 1080 head-and-shoulders photo, drawn
+ * at each side and encoded at each quality the page tries), once the encoder's metadata is dropped.
+ */
+const PORTRAIT: Readonly<Record<number, Readonly<Record<number, number>>>> = {
+  256: { 0.86: 16841, 0.75: 12005, 0.62: 9541, 0.5: 8070 }, 224: { 0.86: 13377, 0.75: 9551, 0.62: 7554, 0.5: 6465 },
+  192: { 0.86: 10192, 0.75: 7347, 0.62: 5873, 0.5: 5017 }, 160: { 0.86: 7496, 0.75: 5469, 0.62: 4428, 0.5: 3814 },
+  128: { 0.86: 5257, 0.75: 3926, 0.62: 3168, 0.5: 2789 },
+}
+
 describe('the photo the page sends', () => {
-  it('is a fresh 512 x 512 canvas JPEG of the centre square: none of the chosen file, its EXIF or GPS, is uploaded', async () => {
+  it('is a fresh canvas JPEG of the centre square: none of the chosen file, its EXIF or GPS, is uploaded', async () => {
     const { sent } = renderPortal(<ProfilePage />, gateway(false), {}, { parityB3: true })
     await choose(new File([CAMERA_JPEG], 'IMG_0001.jpg', { type: 'image/jpeg' }))
     expect(await screen.findByRole('img', { name: 'Your new photo, cropped to a square' })).toBeTruthy()
-    // Decoded, drawn at 512 x 512 on white from the centre square (1200 x 800: 200 in, 800 across), encoded as a JPEG.
-    expect(canvas.sizes).toEqual([[PHOTO_SIDE, PHOTO_SIDE]])
-    expect(canvas.context.fillRect).toHaveBeenCalledWith(0, 0, 512, 512)
-    expect(canvas.context.drawImage).toHaveBeenCalledWith(bitmap, 200, 0, 800, 800, 0, 0, 512, 512)
+    // Decoded, drawn at 256 x 256 on white from the centre square (1200 x 800: 200 in, 800 across), encoded as a JPEG.
+    expect(canvas.sizes).toEqual([[256, 256]])
+    expect(canvas.context.fillRect).toHaveBeenCalledWith(0, 0, 256, 256)
+    expect(canvas.context.drawImage).toHaveBeenCalledWith(bitmap, 200, 0, 800, 800, 0, 0, 256, 256)
     expect(canvas.toBlob).toHaveBeenCalledWith('image/jpeg', 0.86)
     expect(bitmap.close).toHaveBeenCalled()
     expect(puts(sent)).toEqual([])
@@ -167,25 +194,53 @@ describe('the photo the page sends', () => {
     const photo = await reencodePhoto(new File([PNG], 'scan.png', { type: 'image/png' }))
     expect(photo.type).toBe('image/jpeg')
     expect(new Uint8Array(await photo.arrayBuffer())).toEqual(CANVAS_JPEG)
-    expect(canvas.context.drawImage).toHaveBeenCalledWith(bitmap, 0, 150, 600, 600, 0, 0, 512, 512)
+    expect(canvas.context.drawImage).toHaveBeenCalledWith(bitmap, 0, 150, 600, 600, 0, 0, 256, 256)
   })
 
-  it('tries a lower quality until the photo is at most 300 KB, and refuses one that never is', async () => {
-    let qualities: unknown[] = []
-    vi.mocked(HTMLCanvasElement.prototype.toBlob).mockImplementation((callback: BlobCallback, _type?: string, quality?: unknown) => {
-      qualities.push(quality)
-      callback(new Blob([jpeg(JFIF, new Uint8Array(qualities.length < 3 ? PHOTO_MAX_BYTES : 10))], { type: 'image/jpeg' }))
-    })
-    expect((await reencodePhoto(new File([CAMERA_JPEG], 'a.jpg', { type: 'image/jpeg' }))).size).toBeLessThanOrEqual(PHOTO_MAX_BYTES)
-    expect(qualities).toEqual([0.86, 0.75, 0.62])
+  it('sends a typical photo at the largest side whose body fits in 8,000 bytes, which production\'s edge lets through', async () => {
+    // As Safari encodes it, with its Exif and Photoshop blocks on every candidate: each is measured without them.
+    const tried = encodes((side, quality) => PORTRAIT[side]?.[quality] ?? 40_000, [...WEBKIT_HEAD.slice(2)], WEBKIT_JFIF)
+    const { sent } = renderPortal(<ProfilePage />, gateway(false), {}, { parityB3: true })
+    await choose(new File([CAMERA_JPEG], 'IMG_0003.jpg', { type: 'image/jpeg' }))
+    await press(await screen.findByRole('button', { name: 'Save photo' }))
+    await screen.findByText('Your photo was saved.')
+    // 256 and 224 px are too large at every quality; 192 px fits at 0.62.
+    expect(tried).toEqual([[256, 0.86], [256, 0.75], [256, 0.62], [256, 0.5], [224, 0.86], [224, 0.75], [224, 0.62], [224, 0.5],
+      [192, 0.86], [192, 0.75], [192, 0.62]])
+    expect(canvas.sizes).toEqual([[256, 256], [224, 224], [192, 192]])
+    expect(canvas.context.drawImage).toHaveBeenLastCalledWith(bitmap, 200, 0, 800, 800, 0, 0, 192, 192)
+    const bytes = uploaded(sent)
+    expect(bytes).toHaveLength(5873)
+    expect(identityJpegSize(bytes)).toEqual({ width: 192, height: 192 })
+    expect(contains(bytes, [0xff, 0xe1])).toBe(false)
+    expect(contains(bytes, [0xff, 0xed])).toBe(false)
+    // The body as the client sends it: JSON, its one text base64.
+    const body = JSON.stringify(puts(sent)[0]?.body)
+    expect(body.length).toBeLessThanOrEqual(EDGE_BODY_MAX_BYTES)
+    expect(body.length).toBe(7868)
+  })
 
-    qualities = []
-    vi.mocked(HTMLCanvasElement.prototype.toBlob).mockImplementation((callback: BlobCallback, _type?: string, quality?: unknown) => {
-      qualities.push(quality)
-      callback(new Blob([jpeg(JFIF, new Uint8Array(PHOTO_MAX_BYTES))], { type: 'image/jpeg' }))
-    })
-    await expect(reencodePhoto(new File([CAMERA_JPEG], 'a.jpg', { type: 'image/jpeg' }))).rejects.toThrow('could not be made small enough')
-    expect(qualities).toEqual([0.86, 0.75, 0.62, 0.5])
+  it('takes a body of exactly 8,000 bytes, and tries a lower quality, then a smaller side, for one larger', async () => {
+    // 5,973 bytes of JPEG are 7,964 of base64, in a body of 8,000; 5,974 bytes make one of 8,004.
+    const tried = encodes((side, quality) => side === 224 && quality === 0.75 ? 5973 : 5974)
+    const photo = await reencodePhoto(new File([CAMERA_JPEG], 'a.jpg', { type: 'image/jpeg' }))
+    expect(tried).toEqual([[256, 0.86], [256, 0.75], [256, 0.62], [256, 0.5], [224, 0.86], [224, 0.75]])
+    expect(jsonBodyBytes(photoBody(await base64Of(photo)))).toBe(8000)
+    expect(EDGE_BODY_MAX_BYTES).toBe(8000)
+    expect(PHOTO_SIDES).toEqual([256, 224, 192, 160, 128])
+  })
+
+  it('says a picture that fits at no side can\'t be sent, and sends nothing', async () => {
+    const tried = encodes(() => 5974)
+    const { sent } = renderPortal(<ProfilePage />, gateway(false), {}, { parityB3: true })
+    await choose(new File([CAMERA_JPEG], 'crowd.jpg', { type: 'image/jpeg' }))
+    expect((await screen.findByRole('alert')).textContent).toBe('This picture has too much detail to send as a profile photo. Choose another '
+      + 'one, such as a photo of your face against a plain background.')
+    // Every side, each at every quality.
+    expect(tried).toEqual(PHOTO_SIDES.flatMap(side => [0.86, 0.75, 0.62, 0.5].map(quality => [side, quality])))
+    expect(screen.queryByRole('button', { name: 'Save photo' })).toBeNull()
+    expect(puts(sent)).toEqual([])
+    expect(bitmap.close).toHaveBeenCalled()
   })
 
   it('refuses a browser that answers anything but a JPEG', async () => {
@@ -205,15 +260,15 @@ describe('the photo the page sends', () => {
     await choose(new File([CAMERA_JPEG], 'IMG_0002.jpg', { type: 'image/jpeg' }))
     await press(await screen.findByRole('button', { name: 'Save photo' }))
     await screen.findByText('Your photo was saved.')
-    const bytes = decoded((puts(sent)[0]?.body as { data: string }).data)
+    const bytes = uploaded(sent)
     expect(contains(bytes, [0xff, 0xe1])).toBe(false)
     expect(contains(bytes, [0xff, 0xed])).toBe(false)
     expect(contains(bytes, [0x45, 0x78, 0x69, 0x66])).toBe(false) // "Exif"
     expect(contains(bytes, [...new TextEncoder().encode('Photoshop')])).toBe(false)
     // The JFIF, the tables, the frame and the scan are WebKit's own, untouched.
     expect(bytes).toEqual(jpeg(WEBKIT_JFIF))
-    expect(identityJpegSize(bytes)).toEqual({ width: 512, height: 512 })
-    expect(bytes.length).toBeLessThanOrEqual(PHOTO_MAX_BYTES)
+    expect(identityJpegSize(bytes)).toEqual({ width: 256, height: 256 })
+    expect(JSON.stringify(puts(sent)[0]?.body).length).toBeLessThanOrEqual(EDGE_BODY_MAX_BYTES)
   })
 })
 
@@ -229,7 +284,7 @@ describe('the metadata dropped from the canvas JPEG', () => {
   it('drops every APP1 to APP15 segment and comment before the scan, and keeps JFIF and the Adobe colour transform', () => {
     const cleaned = withoutJpegMetadata(jpeg([...JFIF, ...xmp, ...icc, ...iptc, ...comment, ...adobe, ...other14, ...app15]))
     expect(cleaned).toEqual(jpeg([...JFIF, ...adobe]))
-    expect(identityJpegSize(cleaned!)).toEqual({ width: 512, height: 512 })
+    expect(identityJpegSize(cleaned!)).toEqual({ width: 256, height: 256 })
     // Already clean, it is the same bytes.
     expect(withoutJpegMetadata(CANVAS_JPEG)).toEqual(CANVAS_JPEG)
   })
@@ -267,6 +322,16 @@ describe('choosing a photo', () => {
     expect(screen.queryByRole('button', { name: 'Save photo' })).toBeNull()
     expect(puts(sent)).toEqual([])
     await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('Choose a photo')))
+  })
+
+  it('moves focus to Save photo once the photo is prepared', async () => {
+    renderPortal(<ProfilePage />, gateway(false), {}, { parityB3: true })
+    const input = (await photoCard()).getByLabelText('Choose a photo') as HTMLInputElement
+    // Chosen from the keyboard: the chooser holds focus, and is disabled and then gone as the photo is prepared.
+    input.focus()
+    await act(async () => { fireEvent.change(input, { target: { files: [new File([CAMERA_JPEG], 'a.jpg', { type: 'image/jpeg' })] } }) })
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Save photo' })))
+    expect(await screen.findByRole('img', { name: 'Your new photo, cropped to a square' })).toBeTruthy()
   })
 
   it('says so when the picture cannot be decoded', async () => {

@@ -251,6 +251,37 @@ describe('asking for a new code', () => {
     expect(changes(sent).map(request => request.path)).toEqual([CHANGES, CHANGES, `${CHANGES}/change-1/verify`])
   })
 
+  it.each<[string, () => Response, string]>([
+    ['409 CONTACT_UNAVAILABLE', () => problem(409, 'CONTACT_UNAVAILABLE', 'refused'),
+      'That email address or phone number can’t be used. The code we sent to n•••@example.com no longer works.'],
+    ['422 CONTACT_CODE_UNDELIVERABLE', () => problem(422, 'CONTACT_CODE_UNDELIVERABLE', 'The code could not be sent to that address.'),
+      'The code could not be sent to that address. The code we sent to n•••@example.com no longer works.'],
+    ['a failure with no answer', () => { throw new TypeError('Failed to fetch') }, 'We could not reach the service. Check your connection and try again.'],
+  ])('no longer offers the code already sent once a new one fails with %s, as Identity may have ended it', async (_label, answer, message) => {
+    let next: (() => Response) | undefined
+    const { sent } = renderPortal(<ProfilePage />, gateway({ start: () => next?.() }), {}, { parityB3: true })
+    await startChange()
+    later(61)
+    await press(screen.getByRole('button', { name: 'Send a new code' }))
+    expect(screen.getByRole('button', { name: 'Enter the code already sent' })).toBeTruthy()
+    next = answer
+    type('New email address', 'other.address@example.com')
+    type('Current password', 'Secret-pass-1')
+    await press(screen.getByRole('button', { name: 'Send code' }))
+    expect(await screen.findByText(message)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Enter the code already sent' })).toBeNull()
+    expect(screen.queryByText(/still works/)).toBeNull()
+
+    // Identity counts that start toward its wait: the wait is said in its words, with no code offered.
+    next = () => problem(429, 'CONTACT_CHANGE_RATE_LIMITED', 'Wait a moment before asking for another code.')
+    type('Current password', 'Secret-pass-1')
+    await press(screen.getByRole('button', { name: 'Send code' }))
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('Wait a moment before asking for another code.'))
+    expect(screen.queryByRole('textbox', { name: /Digit 1 of 6/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Enter the code already sent' })).toBeNull()
+    expect(changes(sent).some(request => request.path.endsWith('/verify'))).toBe(false)
+  })
+
   it('offers the code already sent from the address step, until it expires', async () => {
     const { sent } = renderPortal(<ProfilePage />, gateway(), {}, { parityB3: true })
     await startChange()
@@ -276,6 +307,75 @@ describe('asking for a new code', () => {
     await press(screen.getByRole('button', { name: 'Cancel' }))
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Change email address' })))
     expect(changes(sent)).toEqual([])
+  })
+})
+
+describe('verifying an email that is not verified yet', () => {
+  /** Identity with an email kept from hid-1.0, never confirmed: a code sent to it verifies it (hid-system 0094 as changed). */
+  function unverifiedGateway(start: () => Response = () => json({ changeId: 'change-1', maskedContact: 'a•••@example.com',
+    expiresInSeconds: 600, resendAfterSeconds: 60 })): Handler {
+    let current: PatientProfile = { ...withContacts, emailVerified: false }
+    return (path, method) => {
+      if (path === '/identity/me' && method === 'GET') return json(current)
+      if (path === CHANGES && method === 'POST') return start()
+      if (path === `${CHANGES}/change-1/verify` && method === 'POST') { current = { ...current, emailVerified: true }; return json({ email: current.email }) }
+      return problem(404, 'NOT_FOUND', `${method} ${path}`)
+    }
+  }
+
+  it('offers Verify, sends a code to the address itself, and then says it is verified', async () => {
+    const { sent } = renderPortal(<ProfilePage />, unverifiedGateway(), {}, { parityB3: true })
+    await press((await card()).getByRole('button', { name: 'Verify email address' }))
+    expect(screen.getByRole('heading', { name: 'Verify your email address' })).toBeTruthy()
+    const field = screen.getByRole('textbox', { name: 'Email address' }) as HTMLInputElement
+    expect(field.value).toBe('ada.example@example.com')
+    await waitFor(() => expect(document.activeElement).toBe(field))
+    expect(screen.getByText(/It shows as verified once you enter it\./)).toBeTruthy()
+    type('Current password', 'Secret-pass-1')
+    await press(screen.getByRole('button', { name: 'Send code' }))
+    await enterCode(await screen.findByRole('textbox', { name: /Digit 1 of 6/ }), '123456')
+
+    const notice = await screen.findByText(/Your email address is verified\./)
+    expect(notice.textContent).toBe('Your email address is verified.')
+    expect(changes(sent)).toEqual([
+      { path: CHANGES, method: 'POST', body: { channel: 'email', email: 'ada.example@example.com', currentPassword: 'Secret-pass-1' } },
+      { path: `${CHANGES}/change-1/verify`, method: 'POST', body: { code: '123456' } },
+    ])
+    // The profile is read again: verified, with nothing more to do.
+    const shown = await card()
+    await waitFor(() => expect(shown.getByText('Email').nextElementSibling?.textContent).toBe('a•••@example.com'))
+    expect(shown.queryByRole('button', { name: 'Verify email address' })).toBeNull()
+  })
+
+  it('takes the same address through Change too, while it is not verified', async () => {
+    const { sent } = renderPortal(<ProfilePage />, unverifiedGateway(), {}, { parityB3: true })
+    await press((await card()).getByRole('button', { name: 'Change email address' }))
+    type('New email address', 'ADA.example@example.com')
+    type('Current password', 'Secret-pass-1')
+    await press(screen.getByRole('button', { name: 'Send code' }))
+    expect(await screen.findByRole('textbox', { name: /Digit 1 of 6/ })).toBeTruthy()
+    expect(screen.queryByText('This is already your email address.')).toBeNull()
+    expect(changes(sent)).toHaveLength(1)
+  })
+
+  it('says the address is already verified when Identity answers CONTACT_UNCHANGED for it, and reads the profile again', async () => {
+    const { sent } = renderPortal(<ProfilePage />, unverifiedGateway(() => problem(400, 'CONTACT_UNCHANGED', 'The new contact must be different.')), {},
+      { parityB3: true })
+    await press((await card()).getByRole('button', { name: 'Verify email address' }))
+    const reads = () => sent.filter(request => request.path === '/identity/me' && request.method === 'GET').length
+    const before = reads()
+    type('Current password', 'Secret-pass-1')
+    await press(screen.getByRole('button', { name: 'Send code' }))
+    expect(await screen.findByText('Your email address is already verified.')).toBeTruthy()
+    expect(screen.queryByText('The new contact must be different.')).toBeNull()
+    expect(screen.queryByRole('textbox', { name: 'Email address' })).toBeNull()
+    await waitFor(() => expect(reads()).toBeGreaterThan(before))
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Contact details' })))
+  })
+
+  it('is not offered for a verified email', async () => {
+    renderPortal(<ProfilePage />, gateway(), {}, { parityB3: true })
+    expect((await card()).queryByRole('button', { name: 'Verify email address' })).toBeNull()
   })
 })
 

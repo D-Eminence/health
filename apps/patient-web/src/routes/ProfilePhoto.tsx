@@ -69,8 +69,8 @@ const PHOTO_REFUSED = 'This picture can’t be used. Choose a JPEG or PNG photo.
 
 /**
  * "Photo" on the profile (hid-1.0 parity B3): choose a JPEG or PNG, see it cropped to a square, and save it; or remove
- * it. The page draws the picture afresh at 512 x 512 and sends only that JPEG (photoImage.ts), so nothing the file
- * itself held, such as where it was taken, is uploaded. Shown only where Identity says whether there is a photo.
+ * it. The page draws the picture afresh, at most 256 x 256, and sends only that JPEG (photoImage.ts), so nothing the
+ * file itself held, such as where it was taken, is uploaded. Shown only where Identity says whether there is a photo.
  */
 export function PhotoCard({ profile, onChanged }: { profile: PatientProfile; onChanged: () => Promise<unknown> }) {
   const { api } = useSession()
@@ -139,12 +139,13 @@ export function PhotoCard({ profile, onChanged }: { profile: PatientProfile; onC
     <div className="patient-photo-row">
       <Avatar profile={profile} url={photo.url} size="large" alt={photo.url ? 'Your photo' : ''} />
       <p id="profile-photo-hint" className="patient-field-hint">A JPEG or PNG picture of you. It is cropped to a square and saved as a
-        512 × 512 picture; nothing else in the file, such as where it was taken, is kept.</p>
+        small picture, at most {PHOTO_SIDE} × {PHOTO_SIDE}; nothing else in the file, such as where it was taken, is kept.</p>
     </div>
     {error && <p id="profile-photo-error" role="alert" className="patient-inline-error">{error}</p>}
     <div role="status">{notice && <p className="patient-inline-success">{notice}</p>}{busy === 'preparing' && <p>Preparing your photo…</p>}</div>
-    {prepared && preview && <div className="patient-photo-preview">
-      <img src={preview} alt="Your new photo, cropped to a square" width={PHOTO_SIDE} height={PHOTO_SIDE} />
+    {/* Save is shown in the commit that asks for focus on it; only the preview waits for its blob: URL. */}
+    {prepared && <div className="patient-photo-preview">
+      {preview && <img src={preview} alt="Your new photo, cropped to a square" width={PHOTO_SIDE} height={PHOTO_SIDE} />}
       <div className="patient-decision-actions">
         <button id="profile-photo-save" type="button" className="patient-primary-button" disabled={busy !== null} onClick={() => void save()}>
           {busy === 'saving' ? 'Saving…' : 'Save photo'}</button>

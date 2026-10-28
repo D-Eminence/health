@@ -19,6 +19,16 @@ export const COVERAGE_TEXT_LIMIT = 120
 /** The most characters EHR keeps for each health text. */
 export const HEALTH_TEXT_LIMIT = 1000
 
+/**
+ * The most bytes a JSON body the profile sends may take. Production's load balancer runs AWS WAF's common rule set,
+ * whose SizeRestrictions_BODY rule refuses any request body over 8 KB (8,192 bytes) with a 403 before it reaches the
+ * gateway, and the rule stays (the lead's decision). The photo and the health information are the bodies that can
+ * grow past it: each is measured against this, with room to spare, and is not sent when it is over.
+ */
+export const EDGE_BODY_MAX_BYTES = 8000
+/** The bytes `body` takes as the client sends it: JSON.stringify, as UTF-8. */
+export const jsonBodyBytes = (body: unknown): number => new TextEncoder().encode(JSON.stringify(body)).byteLength
+
 /** GET and PUT identity/me/profile-details. */
 export interface ProfileDetails {
   hospitalCurrentlyUsing: string | null

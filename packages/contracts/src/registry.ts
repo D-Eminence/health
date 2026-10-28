@@ -441,13 +441,15 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
   proposed(r('identity.myPhotoChange','identity','/api/v1/identity/me/photo',['PUT','DELETE'],false,undefined,
     `${PARITY_B3} Patient sessions only, CSRF. PUT { mediaType: image/jpeg | image/png, data: base64 } (decoded at most `
     + '300 KB and 1024 x 1024; the server checks the type by its magic bytes) answers { hasPhoto: true }, 400 PHOTO_INVALID '
-    + 'otherwise; DELETE answers { hasPhoto: false }. The portal always sends a 512 x 512 JPEG it drew itself, with no metadata.')),
+    + 'otherwise; DELETE answers { hasPhoto: false }. The portal always sends a JPEG it drew itself, at most 256 x 256 with no '
+    + 'metadata, in a body of at most 8,000 bytes: production\'s edge (AWS WAF SizeRestrictions_BODY) refuses one over 8 KB.')),
   proposed(r('identity.contactChanges','identity','/api/v1/identity/me/contact-changes',P,false,undefined,
     `${PARITY_B3} Patient sessions only, CSRF. { channel: email, email, currentPassword } sends a 6-digit code to the new `
     + 'address and answers { changeId, maskedContact, expiresInSeconds, resendAfterSeconds }; { channel: phone, phone, '
     + 'currentPassword } changes the phone at once (no SMS is sent) and answers { phone, phoneVerified: false }. The old '
     + 'email is told either way. 403 PASSWORD_INCORRECT (rate limited), 409 CONTACT_UNAVAILABLE, 409 PASSWORD_REQUIRED for '
-    + 'an account without a password.')),
+    + 'an account without a password. The account\'s own email is taken only while it is not verified, and its code verifies '
+    + 'it; an Identity before that answers 400 CONTACT_UNCHANGED.')),
   proposed(r('identity.contactChangeVerify','identity','/api/v1/identity/me/contact-changes/:changeId/verify',P,false,undefined,
     `${PARITY_B3} Patient sessions only, CSRF. { code } answers { email }: sign-in and recovery use the new address from `
     + 'then on. 400 OTP_INVALID_OR_EXPIRED for a wrong or expired code.')),
@@ -655,7 +657,8 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     `${PARITY_B3} Patient sessions only, CSRF on PUT. 200 { bloodGroup, genotype, allergies, currentMedications, `
     + 'chronicConditions, medicalNotes, rowVersion, updatedAt }; PUT the six with expectedVersion answers the same, 409 '
     + 'VERSION_CONFLICT on a stale version. bloodGroup A+ A- B+ B- AB+ AB- O+ O- or null; genotype AA AS AC SS SC CC or null; '
-    + 'each text null or at most 1000 characters, newlines the only control characters.')),
+    + 'each text null or at most 1000 characters, newlines the only control characters. The portal sends no body over 8,000 '
+    + 'bytes (production\'s edge refuses one over 8 KB), which long texts of several bytes a character can reach.')),
   proposed(r('ehr.patientReportedHealthProfile','ehr','/api/v1/ehr/patients/:patientId/reported-health-profile',G,false,
     one('GET','ehr.note.read'),
     `${PARITY_B3} Staff sessions with X-Facility-ID and X-Purpose-Of-Use: direct-care, while access to the patient is granted, `

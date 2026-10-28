@@ -1,20 +1,25 @@
+import { EDGE_BODY_MAX_BYTES, jsonBodyBytes } from './profileParity'
+
 /**
- * The profile photo as the portal sends it (hid-1.0 parity B3, the lead's decision): whatever JPEG or PNG the patient
- * chooses is decoded here, cropped to its centre square and drawn afresh on a 512 x 512 canvas, and only the JPEG the
+ * The profile photo as the portal sends it (hid-1.0 parity B3, the lead's decisions): whatever JPEG or PNG the patient
+ * chooses is decoded here, cropped to its centre square and drawn afresh on a small square canvas, and only the JPEG the
  * canvas encodes is sent. Nothing of the chosen file's own bytes goes, so its metadata (EXIF, the GPS position where it
  * was taken, the camera, any comment) is never uploaded; what the browser's own encoder adds besides the picture
  * (WebKit's Exif and Photoshop blocks) is dropped from the canvas JPEG too. Identity checks the type by its magic bytes
  * again, the size (at most 300 KB), the dimensions (at most 1024 x 1024) and that no such block is left. Nothing is
  * kept: the bytes live in memory only.
+ *
+ * The whole request has to pass production's edge, which refuses a body over 8 KB (EDGE_BODY_MAX_BYTES): the photo is
+ * made at the largest side, and then the best quality, whose JSON body fits, so a typical photo goes at 160 to 256 px.
  */
 
-/** The side of the square the portal sends. */
-export const PHOTO_SIDE = 512
-/** The most Identity stores, decoded. */
-export const PHOTO_MAX_BYTES = 300 * 1024
+/** The sides of the square tried in turn, largest first. The portal shows the photo at most 96 px across (192 on a sharp screen). */
+export const PHOTO_SIDES = [256, 224, 192, 160, 128] as const
+/** The largest side the portal sends. */
+export const PHOTO_SIDE = PHOTO_SIDES[0]
 /** The largest file the page decodes: a phone's camera picture fits; anything larger is refused before it is read. */
 export const PHOTO_SOURCE_MAX_BYTES = 10 * 1024 * 1024
-/** The JPEG qualities tried in turn until the photo fits in PHOTO_MAX_BYTES (a 512 x 512 photo nearly always fits at the first). */
+/** The JPEG qualities tried in turn at each side; below the last, the next smaller side looks better. */
 const QUALITIES = [0.86, 0.75, 0.62, 0.5] as const
 
 export type PhotoType = 'image/jpeg' | 'image/png'
@@ -31,7 +36,8 @@ export const PHOTO_TYPE_PROBLEM = 'Choose a JPEG or PNG picture.'
 export const PHOTO_SOURCE_TOO_LARGE = 'This picture is too large to use. Choose one under 10 MB.'
 export const PHOTO_UNREADABLE = 'This picture could not be opened. Choose another JPEG or PNG picture.'
 export const PHOTO_UNSUPPORTED = 'This browser can’t prepare the photo. Try another browser.'
-export const PHOTO_TOO_DETAILED = 'This picture could not be made small enough. Choose another one.'
+export const PHOTO_TOO_DETAILED = 'This picture has too much detail to send as a profile photo. Choose another one, such as a photo of '
+  + 'your face against a plain background.'
 
 /** The type a file's first bytes say it is: FF D8 FF for a JPEG, the eight-byte signature for a PNG, or null. */
 export async function sniffPhotoType(file: Blob): Promise<PhotoType | null> {
@@ -143,10 +149,30 @@ async function pictureOnly(encoded: Blob): Promise<Blob> {
   return new Blob([bytes], { type: 'image/jpeg' })
 }
 
+/** The JSON body of PUT identity/me/photo: the JPEG as base64. */
+export const photoBody = (data: string) => ({ mediaType: 'image/jpeg' as const, data })
+
+/** The centre square of `image`, drawn at `side` x `side` on a white ground (a PNG's transparent parts become white). */
+function drawn(image: Decoded, side: number): HTMLCanvasElement {
+  const square = Math.min(image.width, image.height)
+  const canvas = document.createElement('canvas')
+  canvas.width = side
+  canvas.height = side
+  const context = canvas.getContext('2d')
+  if (!context) throw new PhotoProblem(PHOTO_UNSUPPORTED)
+  context.fillStyle = '#ffffff'
+  context.fillRect(0, 0, side, side)
+  context.imageSmoothingEnabled = true
+  context.imageSmoothingQuality = 'high'
+  context.drawImage(image.source, (image.width - square) / 2, (image.height - square) / 2, square, square, 0, 0, side, side)
+  return canvas
+}
+
 /**
- * The photo to send: the centre square of `file`, drawn at 512 x 512 on a white ground (a PNG's transparent parts
- * become white) and encoded as a JPEG of at most 300 KB. Refuses anything that is not a JPEG or PNG by its type and by
- * its first bytes.
+ * The photo to send: the centre square of `file`, drawn on white and encoded as a JPEG, at the first side (largest
+ * first) and quality (best first) whose PUT identity/me/photo body is at most EDGE_BODY_MAX_BYTES once the encoder's
+ * metadata is dropped. Refuses anything that is not a JPEG or PNG by its type and by its first bytes, and a picture
+ * that fits at none.
  */
 export async function reencodePhoto(file: File): Promise<Blob> {
   if (file.type !== 'image/jpeg' && file.type !== 'image/png') throw new PhotoProblem(PHOTO_TYPE_PROBLEM)
@@ -156,20 +182,12 @@ export async function reencodePhoto(file: File): Promise<Blob> {
   try { image = await decode(file) } catch { throw new PhotoProblem(PHOTO_UNREADABLE) }
   try {
     if (!(image.width > 0) || !(image.height > 0)) throw new PhotoProblem(PHOTO_UNREADABLE)
-    const side = Math.min(image.width, image.height)
-    const canvas = document.createElement('canvas')
-    canvas.width = PHOTO_SIDE
-    canvas.height = PHOTO_SIDE
-    const context = canvas.getContext('2d')
-    if (!context) throw new PhotoProblem(PHOTO_UNSUPPORTED)
-    context.fillStyle = '#ffffff'
-    context.fillRect(0, 0, PHOTO_SIDE, PHOTO_SIDE)
-    context.imageSmoothingEnabled = true
-    context.imageSmoothingQuality = 'high'
-    context.drawImage(image.source, (image.width - side) / 2, (image.height - side) / 2, side, side, 0, 0, PHOTO_SIDE, PHOTO_SIDE)
-    for (const quality of QUALITIES) {
-      const photo = await pictureOnly(await encode(canvas, quality))
-      if (photo.size <= PHOTO_MAX_BYTES) return photo
+    for (const side of PHOTO_SIDES) {
+      const canvas = drawn(image, side)
+      for (const quality of QUALITIES) {
+        const photo = await pictureOnly(await encode(canvas, quality))
+        if (jsonBodyBytes(photoBody(await base64Of(photo))) <= EDGE_BODY_MAX_BYTES) return photo
+      }
     }
     throw new PhotoProblem(PHOTO_TOO_DETAILED)
   } finally {

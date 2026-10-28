@@ -5,7 +5,7 @@ import type { EmergencyContact, PatientProfile } from '../api'
 import type { HealthProfile, ProfileDetails } from '../profileParity'
 import { COMPLETION_ITEMS, completionServed, profileCompletion } from '../routes/profileCompletion'
 import { contactsToCount } from '../routes/AccountSafety'
-import { ProfilePage } from '../routes/Portal'
+import { ProfilePage, SettingsPage } from '../routes/Portal'
 import { json, press, problem, profile, renderPortal, type Handler } from './portalHarness'
 
 /**
@@ -151,6 +151,16 @@ describe('Profile completion, on the profile', () => {
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Coverage' })))
   })
 
+  it('takes "A verified email address" to Contact details, where the email can be verified', async () => {
+    renderPortal(<Routes><Route path="/profile" element={<ProfilePage />} /></Routes>, gateway({ emailVerified: false }), {}, { parityB3: true, at: '/profile' })
+    const link = await (await card()).findByRole('link', { name: 'A verified email address' })
+    expect(link.getAttribute('href')).toBe('/profile#contact-details')
+    await press(link)
+    const heading = screen.getByRole('heading', { name: 'Contact details' })
+    await waitFor(() => expect(document.activeElement).toBe(heading))
+    expect(within(heading.closest('.patient-card') as HTMLElement).getByRole('button', { name: 'Verify email address' })).toBeTruthy()
+  })
+
   it('says the profile is complete when nothing is missing', async () => {
     renderPortal(<ProfilePage />, gateway({}, {
       'GET /identity/me/emergency-contacts': () => json([contact]),
@@ -178,5 +188,17 @@ describe('Profile completion, on the profile', () => {
     await screen.findByText('Ada Example')
     expect(screen.queryByRole('heading', { name: 'Profile completion' })).toBeNull()
     expect(sent.some(request => request.path.startsWith('/identity/me/emergency-contacts'))).toBe(false)
+  })
+})
+
+describe('a link to a section', () => {
+  it.each([
+    ['the profile', '/profile#%E0%A4%A', 'Your profile', 'Contact details'],
+    ['the settings', '/settings#%', 'Settings', 'Access PIN'],
+  ])('to %s with a # that does not decode names no section, and the page is shown', async (_label, at, title, card) => {
+    renderPortal(<Routes><Route path="/profile" element={<ProfilePage />} /><Route path="/settings" element={<SettingsPage />} /></Routes>,
+      gateway({}), {}, { parityB3: true, at })
+    expect(await screen.findByRole('heading', { name: title, level: 1 })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: card })).toBeTruthy()
   })
 })
