@@ -158,7 +158,7 @@ export function Overview() {
     {/* The profile last shown stays while it is read again (usePatientResource), with no loading state. */}
     {profile.loading && !profile.data ? <div role="status" className="patient-card patient-loading">Loading your profile…</div>
       : profile.error ? <div role="alert" className="patient-card"><p>{profile.error}</p><button ref={retryFocus.button} type="button" onClick={() => retryFocus.retry(profile.reload)}>Try again</button></div>
-      : shown ? <div className="patient-card patient-overview-profile" aria-busy={profile.loading || undefined}>
+      : shown ? <div className="patient-card patient-identity-card patient-overview-profile" aria-busy={profile.loading || undefined}>
           <div className="patient-overview-person">
             <Avatar profile={shown} url={photo.url} size="medium" />
             <div>

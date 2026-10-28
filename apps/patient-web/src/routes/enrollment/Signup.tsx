@@ -451,7 +451,7 @@ export function PatientSignup({ focusOnArrival = false, initialEmail = '', signe
 
     {step === 'done' && <div className="patient-success" role="status" aria-atomic="false">
       <h2 ref={stepFocus.target} tabIndex={-1}>Your Health ID is ready.</h2>
-      <HealthIdCode code={hidCode} />
+      <HealthIdCode code={hidCode} copyButton />
       {signedIn ? <>
         <p>Save this code: write it down or keep it somewhere safe. You can also find it on your profile.</p>
         <p>Use your Health ID or your email address, with your password, whenever you sign in. You can verify your NIN from your profile.</p>

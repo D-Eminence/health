@@ -7,7 +7,7 @@ import {
   Overview, RECENT_ROWS, activeAccesses, attentionItems, pendingRequests, providerContributions, recentActivity,
 } from '../routes/Overview'
 import { ProfilePage } from '../routes/Portal'
-import { json, press, problem, profile, renderPortal, type Handler } from './portalHarness'
+import { json, openSection, press, problem, profile, renderPortal, sectionToggle, type Handler } from './portalHarness'
 import { forgetShareServed } from '../shareServed'
 
 const novu = vi.hoisted(() => ({ on: true }))
@@ -70,11 +70,12 @@ const tiles = () => within(screen.getByRole('list', { name: 'Health summary' }))
   .map(tile => [tile.querySelector('.patient-tile-label')?.textContent, tile.querySelector('.patient-tile-value')?.textContent])
 
 describe('the overview with patient parity served', () => {
-  it('shows the profile card: name, Health ID with Copy HID, the NIN badge, the completion and the two buttons', async () => {
+  it('shows the black Health ID card: name, the Health ID as plain text, the NIN badge, the completion and the two buttons', async () => {
     renderPortal(<Overview />, gateway(), {}, parity)
     const card = await region('Ada Example')
-    expect(card.getByText('HID-ABC234')).toBeTruthy()
-    expect(card.getByRole('button', { name: 'Copy HID' })).toBeTruthy()
+    expect((await screen.findByRole('heading', { name: 'Ada Example' })).closest('.patient-identity-card')).toBeTruthy()
+    expect(card.getByText('HID-ABC234').className).toContain('patient-hid-plain')
+    expect(card.queryByRole('button', { name: 'Copy HID' })).toBeNull()
     expect(card.getByText('NIN not verified')).toBeTruthy()
     expect(card.getByText('AE')).toBeTruthy()
     // No photo, HMO, verified NIN or emergency contact: 8 of 12 is 67%.
@@ -82,6 +83,14 @@ describe('the overview with patient parity served', () => {
     expect(card.getByRole('link', { name: 'Share Records' }).getAttribute('href')).toBe('/access')
     expect(card.getByRole('link', { name: 'Add Health Information' }).getAttribute('href')).toBe('/profile#health-information')
     expect(card.getByRole('link', { name: 'See what is missing from your profile' }).getAttribute('href')).toBe('/profile#profile-completion')
+  })
+
+  it('shows the Health ID on the profile bio-data as plain text, with no Copy HID button', async () => {
+    renderPortal(<ProfilePage />, gateway(), {}, parity)
+    // Opened first: role queries skip a closed section's content.
+    const bio = within(await openSection('Bio-data'))
+    expect(bio.getByRole('button', { name: 'HID-ABC234' }).className).toContain('patient-hid-plain')
+    expect(bio.queryByRole('button', { name: 'Copy HID' })).toBeNull()
   })
 
   it('shows the health summary tiles from what the patient entered, and the active accesses', async () => {
@@ -136,11 +145,15 @@ describe('the overview with patient parity served', () => {
     expect(await contributions.findByText('Malaria review')).toBeTruthy()
   })
 
-  it('takes Add Health Information to the profile\'s health information, with focus on it', async () => {
+  it('takes Add Health Information to the profile\'s health information, opened, with focus on it', async () => {
     renderPortal(<Routes><Route path="/" element={<Overview />} /><Route path="/profile" element={<ProfilePage />} /></Routes>, gateway(), {}, parity)
     await press(await screen.findByRole('link', { name: 'Add Health Information' }))
-    const heading = await screen.findByRole('heading', { name: 'Health information' })
-    await waitFor(() => expect(document.activeElement).toBe(heading))
+    await screen.findByRole('heading', { name: 'Health information' })
+    // On the button in the section's heading, which says it is open; the form is shown.
+    const toggle = sectionToggle('Health information')
+    await waitFor(() => expect(document.activeElement).toBe(toggle))
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    expect(await within(toggle.closest('.patient-card') as HTMLElement).findByRole('button', { name: 'Save health information' })).toBeTruthy()
   })
 })
 

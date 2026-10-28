@@ -30,7 +30,7 @@ export function Complete({ focusTarget, hidCode, signedIn = false, onProceed }: 
 }) {
   return <div className="patient-success" role="status" aria-atomic="false">
     <h2 ref={focusTarget} tabIndex={-1}>Your Health ID is ready.</h2>
-    <HealthIdCode code={hidCode} />
+    <HealthIdCode code={hidCode} copyButton />
     {signedIn && onProceed ? <>
       <p>{SAVE_HID_SIGNED_IN}</p>
       <p>Sign in with your verified email or Health ID and your password. With a verified phone number, your Health ID is how you sign in and reset your password.</p>

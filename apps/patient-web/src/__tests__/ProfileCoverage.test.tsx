@@ -3,7 +3,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import type { PatientProfile } from '../api'
 import type { ProfileDetails } from '../profileParity'
 import { ProfilePage } from '../routes/Portal'
-import { json, press, problem, profile, renderPortal, type Handler, type Sent } from './portalHarness'
+import { json, openSection, press, problem, profile, renderPortal, type Handler, type Sent } from './portalHarness'
 
 /**
  * "Coverage" on the profile (hid-1.0 parity B3): the hospital the patient uses now, with the sign-up's hospital
@@ -30,7 +30,7 @@ function gateway(start: ProfileDetails, put?: (body: unknown) => Response): Hand
   handler.saved = () => saved
   return handler
 }
-const card = async () => within((await screen.findByRole('heading', { name: 'Coverage' })).closest('.patient-card') as HTMLElement)
+const card = async () => within(await openSection('Coverage'))
 const puts = (sent: Sent[]) => sent.filter(request => request.path === DETAILS && request.method === 'PUT')
 
 describe('Coverage', () => {

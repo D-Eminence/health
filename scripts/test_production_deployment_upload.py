@@ -1,6 +1,8 @@
 """Exercise the actual version-selection/deploy controller with provider-shaped reads."""
+import contextlib
 import copy
 import importlib.util
+import io
 import json
 import os
 import pathlib
@@ -18,6 +20,12 @@ w = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(w)
 PRIOR = '11111111-1111-1111-1111-111111111111'
 TARGET = '22222222-2222-2222-2222-222222222222'
+RETRIED = '33333333-3333-3333-3333-333333333333'
+
+
+def wrangler_stdout(app, lines):
+    # Shape of `wrangler versions upload` 4.147.0 stdout: logger.log lines, version id last.
+    return '\n'.join(['Worker Startup Time: 1 ms', 'Uploaded hid-' + app + '-production (2.41 sec)', *lines]) + '\n'
 
 
 def dependencies():
@@ -29,14 +37,16 @@ def dependencies():
 
 
 class UploadTests(unittest.TestCase):
-    def execute(self, *, failure_app=None, declaration=None, version_case=None, missing_binding=False):
+    def execute(self, *, failure_app=None, declaration=None, version_case=None, missing_binding=False,
+                case_app=None, printed=('Worker Version ID: ' + TARGET,)):
         baseline = index()
         before = {app: {'version_id': PRIOR, 'hostname': host, 'origin_secret_version_id': 'secret-v1'}
                   for app, host in w.HOSTS.items()}
         baseline['frontend'] = copy.deepcopy(before)
         objects = {c.INDEX_KEY: copy.deepcopy(baseline)}
         current = {app: PRIOR for app in w.HOSTS}
-        uploaded, deployments, health_checks, secret_reads = [], [], [], []
+        uploaded, deployments, health_checks, secret_reads, sleeps = [], [], [], [], []
+        reads = {}
         lease = SimpleNamespace(released=None, acquire=lambda: lease, assert_owned=lambda: None,
                                 release=lambda reconciled=True: setattr(lease, 'released', reconciled))
         release_id = None
@@ -69,14 +79,25 @@ class UploadTests(unittest.TestCase):
             def call(self, app, suffix, body=None):
                 if suffix == 'versions':
                     self_test.assertIn(app, uploaded)
+                    reads[app] = reads.get(app, 0) + 1
+                    case = version_case if case_app in (None, app) else None
                     row = {'id': TARGET, 'number': 2,
                            'metadata': {'created_on': '2026-10-18T00:00:00Z', 'source': 'wrangler'},
                            'annotations': {'workers/tag': release_id}}
-                    if version_case == 'wrong-tag': row['annotations']['workers/tag'] = 'other-release'
-                    if version_case == 'bad-id': row['id'] = 'not-a-version'
-                    if version_case == 'nested': row['metadata']['annotations'] = row.pop('annotations')
-                    values = [] if version_case == 'zero' else [row]
-                    if version_case == 'duplicate': values.append(copy.deepcopy(row))
+                    if case == 'wrong-tag': row['annotations']['workers/tag'] = 'other-release'
+                    if case == 'bad-id': row['id'] = 'not-a-version'
+                    if case == 'nested': row['metadata']['annotations'] = row.pop('annotations')
+                    values = [] if case == 'zero' or (case == 'lagging' and reads[app] <= 2) else [row]
+                    if case == 'duplicate': values.append(copy.deepcopy(row))
+                    # A retried slow upload leaves an earlier version with the same tag beside Wrangler's.
+                    if case == 'retried': values.insert(0, {**copy.deepcopy(row), 'id': RETRIED, 'number': 3})
+                    # The retry's earlier copy is listed before Wrangler's own version is.
+                    if case == 'retried-lagging':
+                        values = ([] if reads[app] <= 2 else values) + [{**copy.deepcopy(row), 'id': RETRIED, 'number': 3}]
+                    if case == 'untagged-retried':
+                        values.insert(0, {**copy.deepcopy(row), 'id': RETRIED, 'annotations': {'workers/tag': 'other-release'}})
+                    values.append({'id': PRIOR, 'number': 1, 'metadata': {'source': 'wrangler'},
+                                   'annotations': {'workers/tag': 'prior-release'}})
                     return {'items': values}
                 if suffix.startswith('versions/'):
                     version = suffix.split('/')[-1]
@@ -136,7 +157,7 @@ class UploadTests(unittest.TestCase):
                 secret = pathlib.Path(command[command.index('--secrets-file') + 1])
                 self.assertEqual(json.loads(secret.read_text()), {'ORIGIN_AUTH_TOKEN': 'a' * 32})
                 uploaded.append(app)
-                return SimpleNamespace(returncode=0)
+                return SimpleNamespace(returncode=0, stdout=wrangler_stdout(app, printed), stderr='')
 
             def health(app, entry):
                 self.assertEqual(current[app], TARGET)
@@ -150,13 +171,27 @@ class UploadTests(unittest.TestCase):
                                  Lease=lambda *args: lease, context=lambda kind: ctx('frontend')),
                   patch.object(w, 'GitHub', autospec=True), patch.object(w, 'notify'),
                   patch.object(w, 'entries', return_value=selected), patch.object(w, 'prepared_configs', return_value=configs),
-                  patch.object(w, 'verify_assets', side_effect=health), patch.object(w.subprocess, 'run', side_effect=upload)):
+                  patch.object(w, 'verify_assets', side_effect=health), patch.object(w.subprocess, 'run', side_effect=upload),
+                  patch.object(w.time, 'sleep', side_effect=sleeps.append),
+                  contextlib.redirect_stdout(io.StringIO()) as output):
                 error = None
                 try: w.deploy('deploy')
                 except c.ReleaseError as cause: error = str(cause)
         return SimpleNamespace(baseline=baseline, current=current, objects=objects, deployments=deployments,
                                uploaded=uploaded, health=health_checks, secret_reads=secret_reads,
-                               lease=lease, error=error, release_id=release_id)
+                               lease=lease, error=error, release_id=release_id, sleeps=sleeps, reads=reads,
+                               output=output.getvalue())
+
+    def diagnostics(self, result):
+        return [json.loads(line) for line in result.output.splitlines() if '"tagged_versions"' in line]
+
+    def assert_restored_after(self, result, apps):
+        self.assertEqual(result.deployments, [(app, TARGET) for app in apps] + [(app, PRIOR) for app in reversed(apps)])
+        self.assertEqual(result.objects[c.INDEX_KEY], result.baseline)
+        self.assertTrue(all(version == PRIOR for version in result.current.values()))
+        self.assertTrue(result.lease.released)
+        failed = result.objects['production/releases/' + result.release_id + '/failed.json']
+        self.assertEqual((failed['status'], failed['error_code']), ('failed-rolled-back', result.error))
 
     def test_successful_upload_selects_top_level_tag_verifies_and_records_all_portals(self):
         result = self.execute()
@@ -164,6 +199,7 @@ class UploadTests(unittest.TestCase):
         self.assertEqual(result.uploaded, list(w.HOSTS))
         self.assertEqual(result.health, list(w.HOSTS))
         self.assertTrue(all(version == TARGET for version in result.current.values()))
+        self.assertEqual((result.sleeps, result.reads), ([], {app: 1 for app in w.HOSTS}))
         self.assertTrue(result.lease.released)
         receipt = result.objects['production/releases/' + result.release_id + '/complete.json']
         self.assertEqual(receipt['status'], 'success')
@@ -178,13 +214,97 @@ class UploadTests(unittest.TestCase):
         self.assertTrue(result.lease.released)
 
     def test_zero_duplicate_wrong_and_nested_tags_cannot_deploy(self):
-        for case in ['zero', 'duplicate', 'wrong-tag', 'nested', 'detail-mismatch', 'bad-id']:
-            with self.subTest(case=case):
-                result = self.execute(version_case=case)
-                self.assertIn(result.error, ['EXACT_UPLOADED_WORKER_VERSION_REQUIRED', 'UPLOADED_WORKER_VERSION_TAG_DIFFERS',
-                                             'INVALID_UPLOADED_WORKER_VERSION'])
+        # Wrangler's printed id never stands in for the tag: each case fails closed with and without it.
+        exact, differs, invalid = ('EXACT_UPLOADED_WORKER_VERSION_REQUIRED', 'UPLOADED_WORKER_VERSION_TAG_DIFFERS',
+                                   'INVALID_UPLOADED_WORKER_VERSION')
+        for case, printed, code in [
+                ('zero', None, exact), ('zero', TARGET, exact),
+                # Two rows with the same id: no single listed version carries Wrangler's id.
+                ('duplicate', None, exact), ('duplicate', TARGET, exact),
+                ('wrong-tag', None, exact), ('wrong-tag', TARGET, exact),
+                ('nested', None, exact), ('nested', TARGET, exact),
+                ('detail-mismatch', None, differs), ('detail-mismatch', TARGET, differs),
+                ('bad-id', None, invalid), ('bad-id', TARGET, exact)]:
+            with self.subTest(case=case, printed=printed):
+                result = self.execute(version_case=case, printed=() if printed is None else ('Worker Version ID: ' + printed,))
+                self.assertEqual(result.error, code)
                 self.assertEqual(result.deployments, [])
                 self.assertEqual(result.objects[c.INDEX_KEY], result.baseline)
+                # Read again only while what selects the version is missing: any tagged row without Wrangler's
+                # id, or a listed row with Wrangler's id.
+                waits = case in ('zero', 'wrong-tag', 'nested') if printed is None else case in ('zero', 'bad-id')
+                self.assertEqual(result.sleeps, [w.UPLOAD_LIST_RETRY_SECONDS] * (w.UPLOAD_LIST_ATTEMPTS - 1) if waits else [])
+                self.assertEqual(len(self.diagnostics(result)), 1 if code == exact else 0)
+
+    def test_tag_missing_from_first_version_reads_is_read_again_then_deploys(self):
+        result = self.execute(version_case='lagging', case_app='web')
+        self.assertIsNone(result.error)
+        self.assertEqual((result.reads['web'], result.sleeps), (3, [w.UPLOAD_LIST_RETRY_SECONDS] * 2))
+        self.assertEqual(result.deployments, [(app, TARGET) for app in w.HOSTS])
+        self.assertEqual(self.diagnostics(result), [])
+        receipt = result.objects['production/releases/' + result.release_id + '/complete.json']
+        self.assertTrue(all(row['version_id'] == TARGET for row in receipt['after'].values()))
+
+    def test_tag_that_never_appears_fails_closed_after_bounded_reads_and_restores_earlier_portals(self):
+        result = self.execute(version_case='zero', case_app='web')
+        self.assertEqual(result.error, 'EXACT_UPLOADED_WORKER_VERSION_REQUIRED')
+        self.assertEqual(result.uploaded, ['admin', 'web'])
+        # Six reads, five 6-second pauses (patched): about 30 seconds in production, no real wait here.
+        self.assertEqual((result.reads['web'], result.sleeps), (6, [6] * 5))
+        self.assert_restored_after(result, ['admin'])
+        self.assertEqual(self.diagnostics(result), [{'app': 'web', 'tagged_versions': 0, 'wrangler_version_id_parsed': True,
+                                                     'wrangler_version_id_listed': False}])
+        for value in ['a' * 32, 'synthetic-token', 'Worker Version ID', 'ORIGIN_AUTH_TOKEN', 'bindings']:
+            self.assertNotIn(value, result.output)
+
+    def test_duplicate_tag_rows_deploy_exactly_the_version_wrangler_printed(self):
+        result = self.execute(version_case='retried')
+        self.assertIsNone(result.error)
+        self.assertEqual(result.deployments, [(app, TARGET) for app in w.HOSTS])
+        self.assertEqual((result.sleeps, self.diagnostics(result)), ([], []))
+        receipt = result.objects['production/releases/' + result.release_id + '/complete.json']
+        self.assertTrue(all(row['version_id'] == TARGET for row in receipt['after'].values()))
+
+    def test_duplicate_tag_rows_without_a_parsed_wrangler_id_fail_closed(self):
+        for printed in [(), ('Worker Version ID: not-a-version',), ('Worker Version ID: ' + 'ABCDEF00-' + TARGET[9:],),
+                        ('Worker Version ID: ' + TARGET + ' (retried)',), ('  Worker Version ID: ' + TARGET,),
+                        ('Worker Version ID: ' + RETRIED, 'Worker Version ID: ' + TARGET)]:
+            with self.subTest(printed=printed):
+                result = self.execute(version_case='retried', case_app='web', printed=printed)
+                self.assertEqual(result.error, 'EXACT_UPLOADED_WORKER_VERSION_REQUIRED')
+                self.assertNotIn(('web', RETRIED), result.deployments)
+                self.assert_restored_after(result, ['admin'])
+                self.assertEqual(self.diagnostics(result), [{'app': 'web', 'tagged_versions': 2,
+                    'wrangler_version_id_parsed': False, 'wrangler_version_id_listed': False}])
+
+    def test_retried_upload_listed_before_wranglers_version_is_read_again_then_deploys_wranglers(self):
+        result = self.execute(version_case='retried-lagging', case_app='web')
+        self.assertIsNone(result.error)
+        self.assertEqual((result.reads['web'], result.sleeps), (3, [w.UPLOAD_LIST_RETRY_SECONDS] * 2))
+        self.assertIn(('web', TARGET), result.deployments)
+        self.assertNotIn(('web', RETRIED), result.deployments)
+
+    def test_single_tag_row_that_is_not_the_version_wrangler_printed_fails_closed(self):
+        # An id never listed is read again until the bounded reads run out; a listed one fails at once.
+        for case, printed, listed, sleeps in [(None, '44444444-4444-4444-4444-444444444444', False, [6] * 5),
+                                              (None, PRIOR, True, []), ('untagged-retried', RETRIED, True, [])]:
+            with self.subTest(case=case, printed=printed):
+                result = self.execute(version_case=case, printed=('Worker Version ID: ' + printed,))
+                self.assertEqual(result.error, 'EXACT_UPLOADED_WORKER_VERSION_REQUIRED')
+                self.assertEqual((result.deployments, result.sleeps), ([], sleeps))
+                self.assertEqual(result.objects[c.INDEX_KEY], result.baseline)
+                self.assertEqual(self.diagnostics(result), [{'app': 'admin', 'tagged_versions': 1,
+                    'wrangler_version_id_parsed': True, 'wrangler_version_id_listed': listed}])
+
+    def test_wrangler_version_line_is_parsed_strictly(self):
+        line = 'Worker Version ID: ' + TARGET
+        self.assertEqual(w.printed_version(wrangler_stdout('web', [line])), TARGET)
+        self.assertEqual(w.printed_version('Uploaded hid-web-production (1.0 sec)\r\n' + line + '\r\n'), TARGET)
+        for stdout in [None, '', wrangler_stdout('web', []), line + ' ', 'Worker Version ID:' + TARGET,
+                       'Worker Version ID: undefined', 'Worker Version ID: ' + TARGET[:-1],
+                       'Worker Version ID: ABCDEF00-' + TARGET[9:], line + '\n' + line]:
+            with self.subTest(stdout=stdout):
+                self.assertIsNone(w.printed_version(stdout))
 
     def test_uploaded_version_without_origin_secret_is_refused(self):
         result = self.execute(missing_binding=True)

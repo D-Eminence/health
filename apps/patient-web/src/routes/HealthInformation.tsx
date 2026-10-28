@@ -10,6 +10,7 @@ import {
 import { useActionFocus, useRetryFocus } from './actionFocus'
 import { ItemName } from '../ItemName'
 import { useShownOnceServed, type ProfileResource } from './ProfileCoverage'
+import { ProfileSection } from './ProfileSection'
 
 /** What each health field is called, as hid-1.0's biodata named them; the sixth is its "Medical notes for my care team". */
 export const HEALTH_LABELS: Readonly<Record<keyof HealthFields, string>> = {
@@ -147,8 +148,9 @@ function HealthInformationForm({ resource, fromHid1 }: { resource: ProfileResour
   }
 
   const when = savedOn(saved?.updatedAt ?? null)
-  return <div className="patient-card" id="health-information" aria-busy={resource.loading || undefined}>
-    <h2 ref={heading} tabIndex={-1}>Health information</h2>
+  // A read that failed is said in the heading too: the card's alert is not seen while it is closed.
+  return <ProfileSection id="health-information" title="Health information" state={resource.error ? 'Could not load' : null}
+    busy={resource.loading} headingRef={heading}>
     <p id="health-hint" className="patient-field-hint">What you tell the people caring for you about your health. Clinicians with
       access to your record see it marked as reported by you; it does not change what they record.</p>
     {resource.error && <div role="alert"><p>{resource.error}</p>
@@ -179,5 +181,5 @@ function HealthInformationForm({ resource, fromHid1 }: { resource: ProfileResour
       </div>)}
       <button type="submit" className="patient-primary-button" disabled={busy || !changed}>{busy ? 'Saving…' : 'Save health information'}</button>
     </form>}
-  </div>
+  </ProfileSection>
 }

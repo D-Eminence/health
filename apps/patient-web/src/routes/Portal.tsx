@@ -30,7 +30,8 @@ import { NOTIFICATION_SUBJECTS, notificationTitle } from './notificationTitles'
 import { AccessLogCard } from './AccessLog'
 import { NotificationBell, UnreadNotificationsProvider, useOnNotificationChange, useUnreadNotifications } from '../notificationBadge'
 import { ProfileChangeProvider, useOnProfileChange } from '../profileChange'
-import { useFocusSectionFromHash } from './sectionFocus'
+import { useFocusSectionFromHash, useOpenSections } from './sectionFocus'
+import { OpenSectionsContext, ProfileSection } from './ProfileSection'
 import { completionOf, useProfileSources } from './profileSources'
 import { completionServed } from './profileCompletion'
 import { ProfileCompletionCard } from './ProfileCompletion'
@@ -155,12 +156,12 @@ const noRecords = async (): Promise<PatientRecords | null> => null
 
 /** A migrated patient's hid-1.0 health details, as they were: read-only, and only the ones they filled in. */
 function ImportedHealthCard({ profile }: { profile: ImportedHealthProfile }) {
-  return <div className="patient-card"><h2>From your hid-1.0 account</h2>
+  return <ProfileSection id="hid1-health-details" title="From your hid-1.0 account">
     <p className="patient-field-hint">The health details you kept in hid-1.0, carried over with your account{profile.updatedAt
       ? `, as last updated on ${date(profile.updatedAt)}` : ''}. They can't be changed here.</p>
     <dl className="patient-details">{IMPORTED_HEALTH_FIELDS.filter(field => profile.content[field]).map(field =>
       <div key={field}><dt>{HEALTH_LABELS[field]}</dt><dd className="patient-multiline">{profile.content[field]}</dd></div>)}</dl>
-  </div>
+  </ProfileSection>
 }
 
 /**
@@ -171,6 +172,9 @@ function ImportedHealthCard({ profile }: { profile: ImportedHealthProfile }) {
  *
  * hid-1.0 parity B3 (hid-system 0094): the profile's completion, contact details, photo, coverage and health
  * information, each shown only where the backend serves it (a 404, or GET identity/me without the new keys, hides it).
+ *
+ * Every section starts closed and opens as the patient clicks its heading (the owner's decision of 2026-10-28:
+ * ProfileSection.tsx); a link to one (/profile#coverage) opens it (useOpenSections).
  */
 export function ProfilePage() {
   const { api } = useSession()
@@ -180,6 +184,7 @@ export function ProfilePage() {
   const records = usePatientResource<PatientRecords | null>(usesNovuBackend() ? api.records : noRecords)
   const imported = records.error ? null : records.data?.importedHealthProfile ?? null
   const heading = useRef<HTMLHeadingElement>(null)
+  const sections = useOpenSections()
   useFocusSectionFromHash(heading)
   const completion = completionOf(profile.error ? null : profile.data, { details, health, contacts })
   const shown = profile.data && !profile.error ? profile.data : null
@@ -187,22 +192,24 @@ export function ProfilePage() {
   return <section className="patient-section"><p className="patient-eyebrow">Identity</p><h1 ref={heading} tabIndex={-1} className="patient-page-title">Your profile</h1>
     <p className="patient-page-copy">These details come from your verified Health ID account.</p>
     <LoadState loading={profile.loading} error={profile.error} retry={profile.reload} hasData={profile.data !== null} focusTarget={heading} />
-    {shown && completion && <ProfileCompletionCard completion={completion} />}
-    {shown && <div className="patient-card" id="bio-data" aria-busy={profile.loading || undefined}><h2 tabIndex={-1}>Bio-data</h2><dl className="patient-details">
-      <div><dt>Health ID</dt><dd><HealthIdCode code={shown.hid} /></dd></div>
-      <div><dt>Full name</dt><dd>{shown.fullName}</dd></div>
-      <div><dt>Date of birth</dt><dd>{date(shown.dateOfBirth)}</dd></div>
-      <div><dt>Gender</dt><dd>{shown.gender || 'Not provided'}</dd></div>
-      <div><dt>State</dt><dd>{shown.state || 'Not provided'}</dd></div>
-      <div><dt>Country</dt><dd>{shown.country || 'Not provided'}</dd></div>
-      <div><dt>Identity assurance</dt><dd>{shown.assuranceState || 'Not available'}</dd></div>
-    </dl></div>}
-    {shown && <ContactDetailsCard profile={shown} onChanged={profile.reload} />}
-    {shown && completionServed(shown) && <PhotoCard profile={shown} onChanged={profile.reload} />}
-    {shown && <CoverageCard resource={details} />}
-    {shown && <HealthInformationCard resource={health} fromHid1={imported} />}
-    {shown && imported && <ImportedHealthCard profile={imported} />}
-    {shown && <div id="nin-verification"><NinVerificationCard profile={shown} onVerified={profile.reload} /></div>}
+    <OpenSectionsContext.Provider value={sections}>
+      {shown && completion && <ProfileCompletionCard completion={completion} />}
+      {shown && <ProfileSection id="bio-data" title="Bio-data" busy={profile.loading}><dl className="patient-details">
+        <div><dt>Health ID</dt><dd><HealthIdCode code={shown.hid} /></dd></div>
+        <div><dt>Full name</dt><dd>{shown.fullName}</dd></div>
+        <div><dt>Date of birth</dt><dd>{date(shown.dateOfBirth)}</dd></div>
+        <div><dt>Gender</dt><dd>{shown.gender || 'Not provided'}</dd></div>
+        <div><dt>State</dt><dd>{shown.state || 'Not provided'}</dd></div>
+        <div><dt>Country</dt><dd>{shown.country || 'Not provided'}</dd></div>
+        <div><dt>Identity assurance</dt><dd>{shown.assuranceState || 'Not available'}</dd></div>
+      </dl></ProfileSection>}
+      {shown && <ContactDetailsCard profile={shown} onChanged={profile.reload} />}
+      {shown && completionServed(shown) && <PhotoCard profile={shown} onChanged={profile.reload} />}
+      {shown && <CoverageCard resource={details} />}
+      {shown && <HealthInformationCard resource={health} fromHid1={imported} />}
+      {shown && imported && <ImportedHealthCard profile={imported} />}
+      {shown && <NinVerificationCard profile={shown} onVerified={profile.reload} />}
+    </OpenSectionsContext.Provider>
   </section>
 }
 
