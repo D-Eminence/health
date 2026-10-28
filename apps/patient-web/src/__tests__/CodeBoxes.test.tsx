@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { useEffect, useState, type FormEvent } from 'react'
 import { CodeBoxes, codeComplete } from '../CodeBoxes'
@@ -33,6 +33,9 @@ function Answered({ onSubmit, waiting }: { onSubmit: (code: string) => void; wai
   if (!answered && waiting === 'hidden') return null
   return <>{!answered && <p>Checking…</p>}<Form onSubmit={onSubmit} busy={!answered} initial={waiting === 'busy' ? '12345' : ''} /></>
 }
+/** Observers a failed test left watching, so none fires into a later test. */
+const watching: MutationObserver[] = []
+afterEach(() => { watching.splice(0).forEach(observer => observer.disconnect()) })
 /** Runs `then` the moment `ready` holds after a change to the page: after a render commits, before its effects run. */
 function onCommit(ready: () => boolean, then: () => void) {
   const observer = new MutationObserver(() => {
@@ -41,6 +44,7 @@ function onCommit(ready: () => boolean, then: () => void) {
     then()
   })
   observer.observe(document.body, { childList: true, subtree: true })
+  watching.push(observer)
 }
 /** Typed as a keyboard does: a character at a time into the box with focus, after what it holds. */
 const typeKeys = (text: string) => {
@@ -257,6 +261,16 @@ describe('six-box code entry', () => {
     await act(async () => { paste(box(1), '123456') })
     expect(value()).toBe('123456')
     expect(onSubmit).not.toHaveBeenCalled()
+  })
+
+  it('does not send a code completed while a request was running once that request ends', async () => {
+    const onSubmit = vi.fn()
+    const { rerender } = render(<Form onSubmit={onSubmit} busy />)
+    await act(async () => { paste(box(1), '123456') })
+    await act(async () => { rerender(<Form onSubmit={onSubmit} busy={false} />) })
+    expect(value()).toBe('123456')
+    expect(onSubmit).not.toHaveBeenCalled()
+    expect((screen.getByRole('button', { name: 'Verify code' }) as HTMLButtonElement).disabled).toBe(false)
   })
 
   it('marks every box invalid when the code was refused', () => {
