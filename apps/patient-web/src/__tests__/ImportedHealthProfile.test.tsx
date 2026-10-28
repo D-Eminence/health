@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { screen, within } from '@testing-library/react'
 import { parseImportedHealthProfile } from '../importedRecords'
 import { ProfilePage } from '../routes/Portal'
-import { json, problem, profile, renderPortal, type Handler } from './portalHarness'
+import { json, openSection, problem, profile, renderPortal, sectionToggle, type Handler } from './portalHarness'
 
 const novu = vi.hoisted(() => ({ on: true }))
 vi.mock('../backendContract', () => ({ usesNovuBackend: () => novu.on }))
@@ -28,7 +28,7 @@ function gateway(recordsAnswer: () => Response): Handler {
     return problem(500, 'UNEXPECTED', `${method} ${path}`)
   }
 }
-const card = async () => (await screen.findByRole('heading', { name: 'From your hid-1.0 account' })).closest('.patient-card') as HTMLElement
+const card = () => openSection('From your hid-1.0 account')
 
 describe('your hid-1.0 health details, on the profile', () => {
   it('shows the details the patient kept, read-only, and only those with something in them', async () => {
@@ -39,7 +39,8 @@ describe('your hid-1.0 health details, on the profile', () => {
       ['Current medications', 'Amlodipine 5mg daily']])
     expect(shown.getByText(/carried over with your account, as last updated on/).textContent).toMatch(/They can't be changed here\.$/)
     expect(shown.queryByRole('textbox')).toBeNull()
-    expect(shown.queryByRole('button')).toBeNull()
+    // Its one button opens and closes it.
+    expect(shown.getAllByRole('button')).toEqual([sectionToggle('From your hid-1.0 account')])
     // The bio-data is still first.
     expect(screen.getByRole('heading', { name: 'Bio-data' })).toBeTruthy()
   })
@@ -55,7 +56,8 @@ describe('your hid-1.0 health details, on the profile', () => {
     renderPortal(<ProfilePage />, gateway(() => problem(503, 'EHR_UNAVAILABLE', 'Records are unavailable.')))
     expect(await screen.findByText('Ada Example')).toBeTruthy()
     expect(screen.queryByRole('heading', { name: 'From your hid-1.0 account' })).toBeNull()
-    expect(screen.queryByRole('alert')).toBeNull()
+    // Counting the alerts in the sections that are closed, too.
+    expect(screen.queryByRole('alert', { hidden: true })).toBeNull()
   })
 
   it('reads no records from hid-system main, which sends no such details', async () => {

@@ -10,6 +10,7 @@ import { maskEmail, maskPhone, oneLine, type EmailChangeStarted } from '../profi
 import { DEFAULT_PHONE_COUNTRY, PHONE_COUNTRIES, internationalPhone } from './enrollment/phoneCountries'
 import { useActionFocus } from './actionFocus'
 import { ItemName } from '../ItemName'
+import { ProfileSection } from './ProfileSection'
 
 /** Which part of a step a refusal is about: focus goes there and its description names the error. */
 type Field = 'value' | 'password' | 'code' | null
@@ -238,8 +239,7 @@ export function ContactDetailsCard({ profile, onChanged }: { profile: PatientPro
       aria-invalid={invalid('password')} aria-describedby={describedBy('contact-password-hint', errorFor('password'))} />
     <p id="contact-password-hint" className="patient-field-hint">The password you sign in to Health ID with, to confirm it is you.</p></div>
 
-  return <div className="patient-card" id="contact-details" aria-busy={busy || undefined}>
-    <h2 ref={heading} tabIndex={-1}>Contact details</h2>
+  return <ProfileSection id="contact-details" title="Contact details" busy={busy} headingRef={heading}>
     <p className="patient-field-hint">You sign in and reset your password with these. Each is shown in part, to keep it private.</p>
     <div role="status">{notice && <p className="patient-inline-success">{notice}</p>}</div>
     <dl className="patient-details">
@@ -310,5 +310,5 @@ export function ContactDetailsCard({ profile, onChanged }: { profile: PatientPro
         <button type="button" className="patient-secondary-button" disabled={busy} onClick={() => close('phone')}>Cancel</button>
       </div>
     </form>}
-  </div>
+  </ProfileSection>
 }

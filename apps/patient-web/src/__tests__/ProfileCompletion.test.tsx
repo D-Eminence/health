@@ -6,7 +6,7 @@ import type { HealthProfile, ProfileDetails } from '../profileParity'
 import { COMPLETION_ITEMS, completionServed, profileCompletion } from '../routes/profileCompletion'
 import { contactsToCount } from '../routes/AccountSafety'
 import { ProfilePage, SettingsPage } from '../routes/Portal'
-import { json, press, problem, profile, renderPortal, type Handler } from './portalHarness'
+import { json, openSection, press, problem, profile, renderPortal, sectionToggle, type Handler } from './portalHarness'
 
 /**
  * "Profile completion" (hid-1.0 parity B3, contract D): twelve items of equal weight, counted in the page from what
@@ -125,7 +125,7 @@ function gateway(changes: Partial<PatientProfile>, overrides: Partial<Record<str
     return problem(404, 'NOT_FOUND', `${method} ${path}`)
   }
 }
-const card = async () => within((await screen.findByRole('heading', { name: 'Profile completion' })).closest('.patient-card') as HTMLElement)
+const card = async () => within(await openSection('Profile completion'))
 
 describe('Profile completion, on the profile', () => {
   it('shows the percentage and links each missing item to where it is filled in', async () => {
@@ -137,7 +137,7 @@ describe('Profile completion, on the profile', () => {
       ['An emergency contact', '/settings#emergency-contacts']])
   })
 
-  it('takes a missing item\'s link to its section on the same page, with focus on the section\'s heading', async () => {
+  it('takes a missing item\'s link to its section on the same page, opened, with focus on the section\'s heading', async () => {
     renderPortal(<Routes><Route path="/profile" element={<ProfilePage />} /></Routes>, gateway({}, {
       'GET /ehr/me/health-profile': () => json({ ...health, bloodGroup: null }),
       'GET /identity/me/profile-details': () => json({ ...details, hmoName: null }),
@@ -145,10 +145,13 @@ describe('Profile completion, on the profile', () => {
     const shown = await card()
     // Pressed with the keyboard: the link it follows still holds focus as the address changes.
     await press(await shown.findByRole('link', { name: 'Your blood group' }))
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Health information' })))
+    // On the button in the section's heading, which says it is open.
+    await waitFor(() => expect(document.activeElement).toBe(sectionToggle('Health information')))
+    expect(sectionToggle('Health information').getAttribute('aria-expanded')).toBe('true')
     // Another item of the same list, from the same page again.
     await press(shown.getByRole('link', { name: 'Your HMO' }))
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Coverage' })))
+    await waitFor(() => expect(document.activeElement).toBe(sectionToggle('Coverage')))
+    expect(sectionToggle('Coverage').getAttribute('aria-expanded')).toBe('true')
   })
 
   it('takes "A verified email address" to Contact details, where the email can be verified', async () => {
@@ -156,9 +159,10 @@ describe('Profile completion, on the profile', () => {
     const link = await (await card()).findByRole('link', { name: 'A verified email address' })
     expect(link.getAttribute('href')).toBe('/profile#contact-details')
     await press(link)
-    const heading = screen.getByRole('heading', { name: 'Contact details' })
-    await waitFor(() => expect(document.activeElement).toBe(heading))
-    expect(within(heading.closest('.patient-card') as HTMLElement).getByRole('button', { name: 'Verify email address' })).toBeTruthy()
+    const toggle = sectionToggle('Contact details')
+    await waitFor(() => expect(document.activeElement).toBe(toggle))
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    expect(within(toggle.closest('.patient-card') as HTMLElement).getByRole('button', { name: 'Verify email address' })).toBeTruthy()
   })
 
   it('says the profile is complete when nothing is missing', async () => {

@@ -7,7 +7,7 @@ import {
   Overview, RECENT_ROWS, activeAccesses, attentionItems, pendingRequests, providerContributions, recentActivity,
 } from '../routes/Overview'
 import { ProfilePage } from '../routes/Portal'
-import { json, press, problem, profile, renderPortal, type Handler } from './portalHarness'
+import { json, openSection, press, problem, profile, renderPortal, sectionToggle, type Handler } from './portalHarness'
 import { forgetShareServed } from '../shareServed'
 
 const novu = vi.hoisted(() => ({ on: true }))
@@ -87,8 +87,9 @@ describe('the overview with patient parity served', () => {
 
   it('shows the Health ID on the profile bio-data as plain text, with no Copy HID button', async () => {
     renderPortal(<ProfilePage />, gateway(), {}, parity)
-    const bio = await region('Bio-data')
-    expect(bio.getByText('HID-ABC234').className).toContain('patient-hid-plain')
+    // Opened first: role queries skip a closed section's content.
+    const bio = within(await openSection('Bio-data'))
+    expect(bio.getByRole('button', { name: 'HID-ABC234' }).className).toContain('patient-hid-plain')
     expect(bio.queryByRole('button', { name: 'Copy HID' })).toBeNull()
   })
 
@@ -144,11 +145,15 @@ describe('the overview with patient parity served', () => {
     expect(await contributions.findByText('Malaria review')).toBeTruthy()
   })
 
-  it('takes Add Health Information to the profile\'s health information, with focus on it', async () => {
+  it('takes Add Health Information to the profile\'s health information, opened, with focus on it', async () => {
     renderPortal(<Routes><Route path="/" element={<Overview />} /><Route path="/profile" element={<ProfilePage />} /></Routes>, gateway(), {}, parity)
     await press(await screen.findByRole('link', { name: 'Add Health Information' }))
-    const heading = await screen.findByRole('heading', { name: 'Health information' })
-    await waitFor(() => expect(document.activeElement).toBe(heading))
+    await screen.findByRole('heading', { name: 'Health information' })
+    // On the button in the section's heading, which says it is open; the form is shown.
+    const toggle = sectionToggle('Health information')
+    await waitFor(() => expect(document.activeElement).toBe(toggle))
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    expect(await within(toggle.closest('.patient-card') as HTMLElement).findByRole('button', { name: 'Save health information' })).toBeTruthy()
   })
 })
 

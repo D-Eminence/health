@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 import type { PatientProfile } from '../api'
 import { ProfilePage } from '../routes/Portal'
-import { described, json, press, problem, profile, renderPortal, type Handler } from './portalHarness'
+import { described, json, openSection, press, problem, profile, renderPortal, sectionToggle, type Handler } from './portalHarness'
 
 const VERIFY = '/identity/me/verification/nin'
 const verifiedAnswer = { entityType: 'patient', verificationType: 'nin', provider: 'qoreid', state: 'verified', recordedAt: '2026-10-27T10:00:00.000Z' }
@@ -30,7 +30,7 @@ const fillDateOfBirth = () => fireEvent.change(screen.getByLabelText('Date of bi
 describe('Verify your NIN, on the profile', () => {
   it('is offered while the profile says ninVerified false, sends the 11 digits, then says NIN verified', async () => {
     const { sent } = renderPortal(<ProfilePage />, gateway({ ninVerified: false, assuranceState: 'SELF_ASSERTED' }))
-    expect(await screen.findByRole('heading', { name: 'Verify your NIN' })).toBeTruthy()
+    await openSection('Verify your NIN')
     expect(screen.getByRole('heading', { name: 'Bio-data' })).toBeTruthy()
     const button = screen.getByRole('button', { name: 'Verify NIN' }) as HTMLButtonElement
     expect(button.disabled).toBe(true)
@@ -43,6 +43,9 @@ describe('Verify your NIN, on the profile', () => {
 
     const done = await screen.findByRole('heading', { name: 'NIN verification' })
     await waitFor(() => expect(document.activeElement).toBe(done))
+    // Still open, and its heading says it is verified, as it does while closed.
+    expect(sectionToggle('NIN verification').getAttribute('aria-expanded')).toBe('true')
+    expect(screen.getByRole('button', { name: 'NIN verification', description: 'Verified' })).toBeTruthy()
     expect(screen.getByText('NIN verified')).toBeTruthy()
     expect(screen.queryByRole('textbox', { name: 'National Identification Number' })).toBeNull()
     expect(sent.filter(request => request.path === VERIFY)).toEqual([{ path: VERIFY, method: 'POST', body: { nin: '12345678901', dateOfBirth: '1990-04-12' } }])
@@ -58,7 +61,8 @@ describe('Verify your NIN, on the profile', () => {
   it.each<Partial<PatientProfile>>([{ ninVerified: true, assuranceState: 'SELF_ASSERTED' }, { ninVerified: true, assuranceState: 'NIN_VERIFIED' }])(
     'says NIN verified, and asks for nothing, for %j', async changes => {
       const { sent } = renderPortal(<ProfilePage />, gateway(changes))
-      expect(await screen.findByRole('heading', { name: 'NIN verification' })).toBeTruthy()
+      // Opened, so that no form in it could be missed while hidden.
+      await openSection('NIN verification')
       expect(screen.getByText('NIN verified')).toBeTruthy()
       expect(screen.queryByRole('textbox', { name: 'National Identification Number' })).toBeNull()
       expect(sent.filter(request => request.path === VERIFY)).toEqual([])
@@ -71,7 +75,7 @@ describe('Verify your NIN, on the profile', () => {
     [422, 'PATIENT_IDENTITY_PROFILE_INCOMPLETE', 'Your profile is missing details needed to check a NIN, such as your date of birth. Contact Health ID support.'],
   ])('says a %i %s plainly, and keeps the card', async (status, code, text) => {
     renderPortal(<ProfilePage />, gateway({ ninVerified: false }, () => problem(status, code, 'refused')))
-    await screen.findByRole('heading', { name: 'Verify your NIN' })
+    await openSection('Verify your NIN')
     fireEvent.change(ninField(), { target: { value: '12345678901' } })
     fillDateOfBirth()
     await press(screen.getByRole('button', { name: 'Verify NIN' }))
@@ -82,7 +86,7 @@ describe('Verify your NIN, on the profile', () => {
 
   it('says a NIN that did not match at its field', async () => {
     renderPortal(<ProfilePage />, gateway({ ninVerified: false }, () => json({ ...verifiedAnswer, state: 'not_verified' })))
-    await screen.findByRole('heading', { name: 'Verify your NIN' })
+    await openSection('Verify your NIN')
     fireEvent.change(ninField(), { target: { value: '12345678901' } })
     fillDateOfBirth()
     await press(screen.getByRole('button', { name: 'Verify NIN' }))

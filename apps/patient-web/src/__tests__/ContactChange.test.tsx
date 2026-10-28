@@ -3,7 +3,7 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import type { PatientProfile } from '../api'
 import { ProfilePage } from '../routes/Portal'
 import { enterCode } from './codeBoxes'
-import { described, json, press, problem, profile, renderPortal, type Handler, type Sent } from './portalHarness'
+import { described, json, openSection, press, problem, profile, renderPortal, type Handler, type Sent } from './portalHarness'
 
 /**
  * "Contact details" on the profile (hid-1.0 parity B3, the lead's decisions): a new email needs the current password
@@ -34,7 +34,7 @@ function gateway(answers: { start?: (body: unknown) => Response | undefined; ver
     return problem(404, 'NOT_FOUND', `${method} ${path}`)
   }
 }
-const card = async () => within((await screen.findByRole('heading', { name: 'Contact details' })).closest('.patient-card') as HTMLElement)
+const card = async () => within(await openSection('Contact details'))
 const changes = (sent: Sent[]) => sent.filter(request => request.path.startsWith(CHANGES))
 const type = (name: string | RegExp, value: string) => fireEvent.change(screen.getByLabelText(name), { target: { value } })
 /** Moves the page's clock on by `seconds` from now on (Date.now only: React's own timing is left alone). */

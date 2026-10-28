@@ -6,6 +6,7 @@ import { COVERAGE_TEXT_LIMIT, oneLine, sentText, type ProfileDetails } from '../
 import { HospitalPicker } from './enrollment/HospitalPicker'
 import { useActionFocus, useRetryFocus } from './actionFocus'
 import { ItemName } from '../ItemName'
+import { ProfileSection } from './ProfileSection'
 
 /** A profile resource as usePatientResource gives it: null data is "not served" (404) once it has loaded. */
 export interface ProfileResource<T> {
@@ -85,8 +86,9 @@ function CoverageForm({ resource }: { resource: ProfileResource<ProfileDetails |
     } finally { setBusy(false) }
   }
 
-  return <div className="patient-card" id="coverage" aria-busy={resource.loading || undefined}>
-    <h2 ref={heading} id="coverage-heading" tabIndex={-1}>Coverage</h2>
+  // A read that failed is said in the heading too: the card's alert is not seen while it is closed.
+  return <ProfileSection id="coverage" title="Coverage" state={resource.error ? 'Could not load' : null} busy={resource.loading}
+    headingRef={heading} headingId="coverage-heading">
     <p className="patient-field-hint">The hospital you use now and your health insurance (HMO), so the people caring for you know.</p>
     {resource.error && <div role="alert"><p>{resource.error}</p>
       <button ref={retryFocus.button} type="button" onClick={() => retryFocus.retry(resource.reload)}>Try again <ItemName>loading your coverage details</ItemName></button></div>}
@@ -104,5 +106,5 @@ function CoverageForm({ resource }: { resource: ProfileResource<ProfileDetails |
       <p id="coverage-hmo-hint" className="patient-field-hint">The health insurance (HMO) you are enrolled with, if any. Leave a field empty to clear it.</p>
       <button type="submit" className="patient-primary-button" disabled={busy || !changed}>{busy ? 'Saving…' : 'Save coverage'}</button>
     </form>}
-  </div>
+  </ProfileSection>
 }

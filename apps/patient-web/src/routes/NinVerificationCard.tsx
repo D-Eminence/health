@@ -4,6 +4,7 @@ import type { PatientNinVerification, PatientProfile } from '../api'
 import { useSession } from '../session'
 import { describedBy, sentFromField, useStepFocus } from '../authSteps'
 import { useActionFocus } from './actionFocus'
+import { ProfileSection } from './ProfileSection'
 
 /**
  * Why Identity refused POST /identity/me/verification/nin (hid-system
@@ -88,12 +89,13 @@ export function NinVerificationCard({ profile, onVerified }: {
     } finally { setBusy(false); fieldFocus.focus() }
   }
 
+  // One section either way (#nin-verification), so it stays open, with focus on its heading, as the NIN is verified.
   if (verified) {
-    return <div className="patient-card"><h2 ref={heading} tabIndex={-1}>NIN verification</h2>
+    return <ProfileSection id="nin-verification" title="NIN verification" state="Verified" headingRef={heading}>
       <p role="status"><strong>NIN verified</strong></p>
-    </div>
+    </ProfileSection>
   }
-  return <div className="patient-card"><h2 ref={heading} tabIndex={-1}>Verify your NIN</h2>
+  return <ProfileSection id="nin-verification" title="Verify your NIN" headingRef={heading}>
     <p id="nin-verify-hint" className="patient-field-hint">Optional. Add your 11-digit National Identification Number to verify your identity on your Health ID. Your Health ID works without it.</p>
     {error && <p id="nin-verify-error" role={errorAlert ? 'alert' : undefined} className="patient-inline-error">{error}</p>}
     <form onSubmit={event => void submit(event)} className="patient-form patient-inline-form">
@@ -104,5 +106,5 @@ export function NinVerificationCard({ profile, onVerified }: {
         max={new Date().toISOString().slice(0, 10)} onChange={event => setDateOfBirth(event.target.value)} /></label>
       <button type="submit" className="patient-primary-button" disabled={busy || nin.length !== 11 || !dateOfBirth}>{busy ? 'Verifying…' : 'Verify NIN'}</button>
     </form>
-  </div>
+  </ProfileSection>
 }

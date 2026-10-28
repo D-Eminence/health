@@ -6,6 +6,7 @@ import { useAnnounceProfileChange } from '../profileChange'
 import { PHOTO_SIDE, PhotoProblem, base64Of, reencodePhoto } from '../photoImage'
 import { usePatientResource } from './usePatientResource'
 import { useActionFocus } from './actionFocus'
+import { ProfileSection } from './ProfileSection'
 
 const noPhoto = async (): Promise<Blob | null> => null
 
@@ -134,8 +135,7 @@ export function PhotoCard({ profile, onChanged }: { profile: PatientProfile; onC
     } finally { setBusy(null) }
   }
 
-  return <div className="patient-card" id="photo" aria-busy={busy !== null || undefined}>
-    <h2 ref={heading} tabIndex={-1}>Photo</h2>
+  return <ProfileSection id="photo" title="Photo" busy={busy !== null} headingRef={heading}>
     <div className="patient-photo-row">
       <Avatar profile={profile} url={photo.url} size="large" alt={photo.url ? 'Your photo' : ''} />
       <p id="profile-photo-hint" className="patient-field-hint">A JPEG or PNG picture of you. It is cropped to a square and saved as a
@@ -159,5 +159,5 @@ export function PhotoCard({ profile, onChanged }: { profile: PatientProfile; onC
       {hasPhoto && <button id="profile-photo-remove" type="button" className="patient-secondary-button" disabled={busy !== null}
         onClick={() => void remove()}>{busy === 'removing' ? 'Removing…' : 'Remove photo'}</button>}
     </div>}
-  </div>
+  </ProfileSection>
 }

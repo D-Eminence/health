@@ -4,7 +4,7 @@ import type { PatientProfile } from '../api'
 import type { HealthProfile } from '../profileParity'
 import { draftFromImported } from '../routes/HealthInformation'
 import { ProfilePage } from '../routes/Portal'
-import { json, press, problem, profile, renderPortal, type Handler, type Sent } from './portalHarness'
+import { json, openSection, press, problem, profile, renderPortal, type Handler, type Sent } from './portalHarness'
 
 const novu = vi.hoisted(() => ({ on: true }))
 vi.mock('../backendContract', () => ({ usesNovuBackend: () => novu.on }))
@@ -39,7 +39,7 @@ function gateway(start: HealthProfile, imported: unknown = null, put?: (body: un
     return problem(404, 'NOT_FOUND', `${method} ${path}`)
   }
 }
-const card = async () => within((await screen.findByRole('heading', { name: 'Health information' })).closest('.patient-card') as HTMLElement)
+const card = async () => within(await openSection('Health information'))
 const puts = (sent: Sent[]) => sent.filter(request => request.path === HEALTH && request.method === 'PUT')
 const values = (shown: ReturnType<typeof within>) => [
   ...shown.getAllByRole('combobox').map((field: HTMLElement) => [field.getAttribute('id'), (field as HTMLSelectElement).value]),

@@ -5,7 +5,7 @@ import type { PatientProfile } from '../api'
 import { PHOTO_SIDE, PHOTO_SIDES, base64Of, photoBody, reencodePhoto, withoutJpegMetadata } from '../photoImage'
 import { EDGE_BODY_MAX_BYTES, jsonBodyBytes } from '../profileParity'
 import { PortalShell, ProfilePage } from '../routes/Portal'
-import { json, press, problem, profile, renderPortal, type Handler, type Sent } from './portalHarness'
+import { json, openSection, press, problem, profile, renderPortal, type Handler, type Sent } from './portalHarness'
 
 vi.mock('../chatFeatures', () => ({ patientChatEnabled: () => false, patientChatHost: () => false }))
 
@@ -131,7 +131,7 @@ function gateway(start: boolean, answers: { put?: () => Response; del?: () => Re
   handler.hasPhoto = () => has
   return handler
 }
-const photoCard = async () => within((await screen.findByRole('heading', { name: 'Photo' })).closest('.patient-card') as HTMLElement)
+const photoCard = async () => within(await openSection('Photo'))
 async function choose(file: File) {
   const input = (await photoCard()).getByLabelText(/Choose a (new )?photo/) as HTMLInputElement
   await act(async () => { fireEvent.change(input, { target: { files: [file] } }) })
@@ -365,7 +365,7 @@ describe('the photo shown', () => {
   it('is read as bytes and shown from a blob: URL, which goes when the page does; nothing is stored', async () => {
     const setItem = vi.spyOn(Storage.prototype, 'setItem')
     const { sent, view } = renderPortal(<ProfilePage />, gateway(true), {}, { parityB3: true })
-    const shown = await screen.findByRole('img', { name: 'Your photo' })
+    const shown = await (await photoCard()).findByRole('img', { name: 'Your photo' })
     expect(shown.getAttribute('src')).toMatch(/^blob:/)
     expect(sent.filter(request => request.path === '/identity/me/photo')).toEqual([{ path: '/identity/me/photo', method: 'GET', body: null }])
     const url = shown.getAttribute('src')!
@@ -376,7 +376,7 @@ describe('the photo shown', () => {
 
   it('is removed with Remove photo, and the initials show again', async () => {
     const { sent } = renderPortal(<ProfilePage />, gateway(true), {}, { parityB3: true })
-    const url = (await screen.findByRole('img', { name: 'Your photo' })).getAttribute('src')!
+    const url = (await (await photoCard()).findByRole('img', { name: 'Your photo' })).getAttribute('src')!
     await press(screen.getByRole('button', { name: 'Remove photo' }))
     await screen.findByText('Your photo was removed.')
     await waitFor(() => expect(screen.queryByRole('img', { name: 'Your photo' })).toBeNull())

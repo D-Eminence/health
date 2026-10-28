@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react'
-import { vi } from 'vitest'
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { expect, vi } from 'vitest'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { createRegisteredBrowserClient } from '@hid/api'
 import { createApiClient } from '@hid/http'
@@ -109,3 +109,19 @@ export const described = (element: HTMLElement) => (element.getAttribute('aria-d
   .map(id => document.getElementById(id)?.textContent ?? '').join(' | ')
 
 export const heading = (name: string | RegExp) => screen.getByRole('heading', { name })
+
+/** The button in the heading of the profile's section named `name`, which opens and closes it (ProfileSection.tsx). */
+export const sectionToggle = (name: string | RegExp) => within(heading(name)).getByRole('button')
+
+/**
+ * Opens the profile's section headed `name` once it is shown, as the patient does, with a click on its heading: each
+ * starts closed (ProfileSection.tsx). Focus is left where it was, as a click leaves it in Safari, so what a test does
+ * next starts from where it did before the sections closed. One already open is left open. Returns the section's card.
+ */
+export async function openSection(name: string | RegExp): Promise<HTMLElement> {
+  await screen.findByRole('heading', { name, level: 2 })
+  const toggle = sectionToggle(name)
+  if (toggle.getAttribute('aria-expanded') !== 'true') await act(async () => { fireEvent.click(toggle) })
+  expect(toggle.getAttribute('aria-expanded')).toBe('true')
+  return toggle.closest('.patient-card') as HTMLElement
+}
