@@ -38,7 +38,7 @@ def dependencies():
 
 class UploadTests(unittest.TestCase):
     def execute(self, *, failure_app=None, declaration=None, version_case=None, missing_binding=False,
-                case_app=None, printed=('Worker Version ID: ' + TARGET,), faults=None):
+                case_app=None, printed=('Worker Version ID: ' + TARGET,), faults=None, lost_on_sleep=False):
         baseline = index()
         before = {app: {'version_id': PRIOR, 'hostname': host, 'origin_secret_version_id': 'secret-v1'}
                   for app, host in w.HOSTS.items()}
@@ -49,7 +49,9 @@ class UploadTests(unittest.TestCase):
         reads = {}
         # (app, route template, version or None) -> errors the real Cloudflare.call meets in turn: a status or 'unreachable'.
         faults = {key: list(value) for key, value in (faults or {}).items()}
-        lease = SimpleNamespace(released=None, acquire=lambda: lease, assert_owned=lambda: None,
+        # lost_on_sleep: the lease is lost once the controller has paused.
+        lease = SimpleNamespace(released=None, acquire=lambda: lease,
+                                assert_owned=lambda: c.require(not (lost_on_sleep and sleeps), 'LEASE_LOST'),
                                 release=lambda reconciled=True: setattr(lease, 'released', reconciled))
         release_id = None
 
@@ -81,8 +83,9 @@ class UploadTests(unittest.TestCase):
             def call(self, app, suffix, body=None):
                 route = ('POST ' if body is not None else 'GET ') + ('versions/:id' if suffix.startswith('versions/') else suffix)
                 version = body['versions'][0]['version_id'] if body is not None else suffix[9:] if route == 'GET versions/:id' else None
-                if faults.get((app, route, version)):
-                    fault = faults[(app, route, version)].pop(0)
+                # None answers normally, so a later call can be the one refused.
+                fault = faults[(app, route, version)].pop(0) if faults.get((app, route, version)) else None
+                if fault is not None:
                     if fault == 'not-json':
                         with patch.object(w.urllib.request, 'urlopen', return_value=io.BytesIO(b'<html>Bad gateway</html>')):
                             return super().call(app, suffix, body)
@@ -333,6 +336,19 @@ class UploadTests(unittest.TestCase):
                 self.assertEqual(result.sleeps, [w.UPLOAD_LIST_RETRY_SECONDS] * 2)
                 self.assertEqual(self.refusals(result), [{'app': 'web', 'cloudflare_call': route, 'status': 404}] * 2)
 
+    def test_deploy_detail_read_of_a_new_version_is_asked_again(self):
+        result = self.execute(faults={('web', 'GET versions/:id', TARGET): [None, 404, 404]})
+        self.assertIsNone(result.error)
+        self.assertEqual(result.deployments, [(app, TARGET) for app in w.HOSTS])
+        self.assertEqual(result.sleeps, [w.UPLOAD_LIST_RETRY_SECONDS] * 2)
+
+    def test_lease_lost_between_404s_stops_the_deployment_retry(self):
+        result = self.execute(faults={('web', 'POST deployments', TARGET): [404, 404]}, lost_on_sleep=True)
+        self.assertEqual(result.error, 'LEASE_LOST')
+        self.assertEqual(result.deployments, [('admin', TARGET)])
+        self.assertEqual(self.refusals(result), [{'app': 'web', 'cloudflare_call': 'POST deployments', 'status': 404}])
+        self.assertIs(result.lease.released, False)
+
     def test_new_version_that_keeps_404ing_fails_closed_after_bounded_attempts_and_restores(self):
         for route, deployments in [('GET versions/:id', [('admin', TARGET), ('admin', PRIOR)]),
                                    ('POST deployments', [('admin', TARGET), ('web', PRIOR), ('admin', PRIOR)])]:
@@ -420,6 +436,16 @@ class UploadTests(unittest.TestCase):
         self.assertNotIn('synthetic-secret-value', output.getvalue())
         with contextlib.redirect_stdout(io.StringIO()) as output: w.unexpected(c.ReleaseError('KNOWN'), 'release')
         self.assertEqual(output.getvalue(), '')
+
+    def test_other_http_errors_for_a_new_version_are_not_asked_again(self):
+        # A 5xx on a read is asked again as a read (below); on the deployment it is an uncertain delivery.
+        for route, statuses in [('GET versions/:id', [409]), ('POST deployments', [409, 500, 502])]:
+            for status in statuses:
+                with self.subTest(route=route, status=status):
+                    result = self.execute(faults={('web', route, TARGET): [status, status]})
+                    self.assertEqual((result.error, result.sleeps), ('CLOUDFLARE_HTTP_' + str(status), []))
+                    self.assertEqual(self.refusals(result), [{'app': 'web', 'cloudflare_call': route, 'status': status}])
+                    self.assertTrue(result.lease.released)
 
     def test_uploaded_version_without_origin_secret_is_refused(self):
         result = self.execute(missing_binding=True)
