@@ -82,6 +82,8 @@ describe('"Finish your sign-up" after a refused sign-in', () => {
     ['the security check', new HidApiError(400, 'Complete the security check and try again.', { code: 'TURNSTILE_REQUIRED' })],
     ['an outage', new HidApiError(503, 'A required platform service is temporarily unavailable.', { code: 'UPSTREAM_UNAVAILABLE' })],
     ['an error from the browser', new Error('offline')],
+    // The right password for a suspended account (hid-system, owner decision 2026-10-28): there is no sign-up to finish.
+    ['a suspended account', new HidApiError(403, 'This account is suspended. Contact support@healthidentitydirectory.com.', { code: 'ACCOUNT_SUSPENDED' })],
   ])('is not offered after a refusal for %s', async (_reason, refusal) => {
     open(refusal)
     await signInWith('ada@example.com')

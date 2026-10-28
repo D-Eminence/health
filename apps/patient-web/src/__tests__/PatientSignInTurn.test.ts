@@ -33,6 +33,9 @@ describe('a patient sign-in while another window refreshes', () => {
   it.each([
     ['password', (api: ReturnType<typeof createPatientApi>) => api.login('ada@example.test', 'secret', 'turnstile'), 'POST /api/v1/auth/patient/login'],
     ['Google', (api: ReturnType<typeof createPatientApi>) => api.googleExchange('id-token', 'turnstile', 'sign_in'), 'POST /api/v1/auth/oidc/exchange'],
+    // An activation may sign the patient in (`signedIn: true`, hid-system, owner decision 2026-10-28), on either route.
+    ['an activation', (api: ReturnType<typeof createPatientApi>) => api.enrollmentActivate('a-long-enough-password'),
+      'POST /api/v1/identity/patient-enrollments/activate'],
   ])('with %s is sent only once that refresh has finished', async (_label, signIn, request) => {
     const other = lockHeldElsewhere()
     const { client, sent } = recordingClient()

@@ -27,6 +27,12 @@ interface SessionContextValue {
   readonly retrySessionCheck: () => void
   readonly signIn: (email: string, password: string, turnstileToken: string) => Promise<void>
   readonly acceptGoogleSession: (session: PatientSession) => void
+  /**
+   * Takes up the session an activation made (POST .../activate answered `signedIn: true`, hid-system, owner decision
+   * 2026-10-28) as sign-in takes up its own. That answer names no actor, so the session is read first. Resolves
+   * whether it is a patient's; the other tabs are told either way, since the cookies changed.
+   */
+  readonly takeUpActivatedSession: () => Promise<boolean>
   readonly refresh: () => Promise<void>
   readonly signOut: () => Promise<void>
 }
@@ -152,25 +158,43 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let active = true
+    // A provider's sign-in: no patient is signed in here, and asking again would only find it again.
+    const providerSignedIn = () => {
+      store.setAnonymous()
+      setSessionError(null)
+      setOtherPortalSession(true)
+    }
     void (async () => {
+      // Whether the refresh below refused to restore a session, which ends it as its 401 does.
+      let refused = false
       try {
-        const session = await api.session()
-        if (!active) return
-        if (heldForAnotherPortal(session)) {
-          // A provider's sign-in: no patient is signed in here, and asking again
-          // would only find it again.
-          store.setAnonymous()
-          setSessionError(null)
-          setOtherPortalSession(true)
-          return
+        let session: PatientSession
+        try { session = await api.session() }
+        catch (error) {
+          // The access cookie lasts its 15-minute token, the refresh cookie the patient's sign-in (7 days idle, 30 at
+          // most: hid-system, owner decision 2026-10-28). A page opened after a longer idle finds no access cookie,
+          // and the client never refreshes an auth/ request itself, so the session is restored once before it is
+          // judged, as a tab in use restores it (ask, below). The refresh takes its turn, and one that waited reads
+          // the session first.
+          if (!active || !isHidApiError(error) || error.status !== 401) throw error
+          try { session = await api.refresh() }
+          catch (refreshError) {
+            // Identity refuses a provider's sign-in before rotating it (SESSION_CLIENT_MISMATCH).
+            if (heldByOtherPortal(refreshError)) { if (active) providerSignedIn(); return }
+            // No refresh cookie left (403 CSRF_VALIDATION_FAILED), or one Identity no longer accepts (401).
+            refused = isHidApiError(refreshError) && refreshError.status === 403
+            throw refreshError
+          }
         }
+        if (!active) return
+        if (heldForAnotherPortal(session)) { providerSignedIn(); return }
         store.setAuthenticated(patientPrincipal(session))
         setSessionError(null)
         setOtherPortalSession(false)
         setSignedOutElsewhere(false)
       } catch (error) {
         if (!active) return
-        if (isHidApiError(error) && error.status === 401) {
+        if (refused || (isHidApiError(error) && error.status === 401)) {
           store.setAnonymous()
           setSessionError(null)
           setOtherPortalSession(false)
@@ -322,6 +346,19 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         setSignedOutElsewhere(false)
       } finally { announceSessionChange() }
     },
+    takeUpActivatedSession: async () => {
+      try {
+        const session = await api.session()
+        store.setAuthenticated(patientPrincipal(session))
+        setSessionError(null)
+        setOtherPortalSession(false)
+        setSignedOutElsewhere(false)
+        return true
+      } catch {
+        // Not read (an outage, or cookies the browser did not keep), or not a patient's: the patient signs in.
+        return false
+      } finally { announceSessionChange() }
+    },
     refresh: async () => {
       const shown = store.getState().principal?.subjectId
       const session = await api.refresh()
@@ -388,6 +425,7 @@ export function createTestSessionValue(principal: AuthPrincipal | null, api: Pat
     retrySessionCheck: () => {},
     signIn: async () => {},
     acceptGoogleSession: () => {},
+    takeUpActivatedSession: async () => false,
     refresh: async () => {},
     signOut: async () => {},
   }

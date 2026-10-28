@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { isHidApiError, retryAfterSeconds } from '@hid/http'
-import { ENROLLMENT_PROFILE_FIELDS, type EnrollmentFacilityRoute, type EnrollmentGender, type EnrollmentOnlineRoute, type EnrollmentProfile,
-  type EnrollmentProfileField, type EnrollmentProgress } from '../api'
+import { ENROLLMENT_PROFILE_FIELDS, type EnrollmentActivation, type EnrollmentFacilityRoute, type EnrollmentGender, type EnrollmentOnlineRoute,
+  type EnrollmentProfile, type EnrollmentProfileField, type EnrollmentProgress } from '../api'
 import { GoogleButton } from '../GoogleButton'
 import { googleClientId } from '../googleClient'
 import { Turnstile } from '../Turnstile'
@@ -169,7 +169,7 @@ const profileFieldsOf = (fields: unknown): EnrollmentProfileField[] | null =>
   Array.isArray(fields) ? ENROLLMENT_PROFILE_FIELDS.filter(field => fields.includes(field)) : null
 
 export function Enrollment() {
-  const { state, api, acceptGoogleSession, otherPortalSession, retrySessionCheck } = useSession()
+  const { state, api, acceptGoogleSession, takeUpActivatedSession, otherPortalSession, retrySessionCheck, sessionError } = useSession()
   const navigate = useNavigate()
   const location = useLocation()
   // The email typed at sign-in, sent here to finish signing up (signupHandoff.ts): held in memory, and taken out
@@ -274,6 +274,24 @@ export function Enrollment() {
   // The step shown, for the check, which runs apart from any one render.
   const stageShown = useRef<Stage>(stage)
   useEffect(() => { stageShown.current = stage }, [stage])
+  // An activation here signed the patient in (POST .../activate `signedIn: true`, hid-system, owner decision 2026-10-28),
+  // on either route: the Health ID is shown, with "Proceed to profile", instead of the portal a sign-in opens at once.
+  const [heldForHealthId, setHeldForHealthId] = useState(false)
+  // The same, for the NIN route's Health ID (enrollment/Complete.tsx).
+  const [signedInHere, setSignedInHere] = useState(false)
+  /**
+   * Whether an activation signed the patient in on this device. Its session is taken up as sign-in takes up its own
+   * (session.tsx), with this page held first, so the render that finds the patient signed in still shows the Health ID.
+   * A session that cannot be read leaves the activation done and the patient to sign in.
+   */
+  const signedInByActivation = useCallback(async (activation: EnrollmentActivation): Promise<boolean> => {
+    if (activation.signedIn !== true) return false
+    setHeldForHealthId(true)
+    const signedIn = await takeUpActivatedSession()
+    if (!signedIn) setHeldForHealthId(false)
+    return signedIn
+  }, [takeUpActivatedSession])
+  const proceedToProfile = useCallback(() => navigate('/profile', { replace: true }), [navigate])
 
   const forgetRecordName = () => { shownName.current = null; setRecordName(null) }
   // Back to the NIN step, the enrollment's challenge and contact gone with it.
@@ -410,7 +428,11 @@ export function Enrollment() {
     return () => { active = false }
   }, [api, checkKey, focusAfter, stepFocus.focus])
 
-  if (state.status === 'authenticated') return <Navigate to="/" replace />
+  if (state.status === 'authenticated' && !heldForHealthId) return <Navigate to="/" replace />
+  // A sign-in found before the browser's session is read (409 ...REQUIRES_SIGN_OUT) is most often the patient's own,
+  // made at activation, on a reload of the Health ID: once the session is read the portal opens, so the note waits for
+  // that read instead of flashing first.
+  const sessionUnread = state.status === 'unknown' && !sessionError
 
   const displayError = (reason: unknown, fromField = false, stepCodes: readonly string[] = []) => {
     if (enrollmentEnded(reason)) return restartAtNin()
@@ -713,8 +735,11 @@ export function Enrollment() {
     setBusy(true); clearError(); setProfileError(null)
     try {
       const result = await api.enrollmentActivate(password, profile)
+      // Taken up before the Health ID is shown, as sign-in takes up its session; never a refusal of the activation.
+      const signedIn = await signedInByActivation(result)
       setPassword(''); forgetProfile(); forgetRecordName()
       setHidCode(result.hidCode)
+      setSignedInHere(signedIn)
       setStepHint(null)
       setStage('complete')
     } catch (reason) {
@@ -795,7 +820,8 @@ export function Enrollment() {
   // past its details (this page reloaded at its code, say) continues with the steps below.
   if (ready && signupServed && stage === 'nin' && registration === 'open') {
     // "Start a new sign-up" keeps nothing typed, the email from sign-in included.
-    return <PatientSignup focusOnArrival={signupRestarted} initialEmail={signupRestarted ? '' : signupEmail} />
+    return <PatientSignup focusOnArrival={signupRestarted} initialEmail={signupRestarted ? '' : signupEmail}
+      signedInByActivation={signedInByActivation} onProceed={proceedToProfile} />
   }
   // The holder step is listed only where Identity has it; the NIN step only where a registration starts with it.
   const steps: Array<[string, readonly Stage[]]> = [...(signupServed ? [] : [['NIN', ['nin']] as [string, readonly Stage[]]]),
@@ -812,9 +838,9 @@ export function Enrollment() {
     lede="Verify your identity, confirm a contact, and activate your account."
     steps={!closed && STEP_STAGES.includes(stage) ? steps.map(([label, stages]) => ({ label, current: stages.includes(stage) })) : undefined}
     stepsLabel="Enrollment steps">
-      {checking ? <p role="status">Checking for an enrollment in progress…</p> : null}
+      {checking || (signOutRequired && sessionUnread) ? <p role="status">Checking for an enrollment in progress…</p> : null}
       {checkError && <div className="patient-inline-error" role="alert"><p>We could not check for an enrollment in progress. Try again before starting.</p><button ref={checkRetry} type="button" className="patient-secondary-button" onClick={() => { retriedCheck.current = true; setCheckKey(value => value + 1) }}>Try again</button></div>}
-      {signOutRequired && <div ref={signOutNote} tabIndex={-1} role="group" aria-labelledby="enroll-sign-out" className="patient-inline-error patient-session-note">
+      {signOutRequired && !sessionUnread && <div ref={signOutNote} tabIndex={-1} role="group" aria-labelledby="enroll-sign-out" className="patient-inline-error patient-session-note">
         {otherPortalSession ? <>
           <p id="enroll-sign-out" role={signOutAlert ? 'alert' : undefined}>A provider sign-in is active in this browser. Sign out of the provider portal before starting a new Health ID.</p>
           <p>{ENDS_ENROLLMENT}</p>
@@ -871,7 +897,7 @@ export function Enrollment() {
       {/* Back to the sign-up's details with nothing typed kept; a new sign-up replaces this registration. */}
       {ready && signupServed && registration === 'open' && RECORD_NAME_STAGES.includes(stage)
         && <button type="button" className="patient-text-button" disabled={busy} onClick={() => { clearError(); forgetRegistration(); setSignupRestarted(true) }}>Start a new sign-up</button>}
-      {ready && stage === 'complete' && <Complete focusTarget={stepFocus.target} hidCode={hidCode} />}
+      {ready && stage === 'complete' && <Complete focusTarget={stepFocus.target} hidCode={hidCode} signedIn={signedInHere} onProceed={proceedToProfile} />}
       {import.meta.env.VITE_HID_GOOGLE_CLIENT_ID && googleOffered && stage === 'nin' && !googleChosen && <section className="patient-auth-separator" aria-label="Google enrollment">
         <button type="button" className="patient-secondary-button" disabled={busy} onClick={chooseGoogle}>{googleRequired ? 'Reconnect Google' : 'Continue with Google'}</button>
       </section>}

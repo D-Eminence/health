@@ -1,8 +1,16 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, render, screen, waitFor } from '@testing-library/react'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { PATIENT_ROUTE } from '@hid/auth'
+import { RequireAccess } from '../RequireAccess'
 import { SessionProvider, useSession } from '../session'
 
-vi.mock('../env', () => ({ getEnvironment: () => ({ name: 'local', apiBaseUrl: 'http://localhost:3000', turnstileSiteKey: null }) }))
+// One environment for the whole run, as the app's own: a new one each render would make a new client, and check the
+// session again on every render.
+vi.mock('../env', () => {
+  const environment = { name: 'local', apiBaseUrl: 'http://localhost:3000', turnstileSiteKey: null }
+  return { getEnvironment: () => environment }
+})
 
 afterEach(() => { vi.unstubAllGlobals() })
 
@@ -76,5 +84,84 @@ describe('a read after the access token expired', () => {
       [REFRESH]: [() => problem(503, 'IDENTITY_SERVICE_UNAVAILABLE')] })
     expect(outcome).toBe('503')
     expect(screen.getByTestId('status').textContent).toBe('authenticated')
+  })
+})
+
+/**
+ * The access cookie expires with its 15-minute token, while the refresh cookie lasts the patient's sign-in (7 days
+ * idle, 30 at most: owner decision 2026-10-28). A page opened after that idle finds no access cookie, and the client
+ * never refreshes for an auth/ path itself, so the first session check restores the session once before it is judged.
+ */
+describe('a page opened after the access token expired', () => {
+  const SESSION = 'GET /api/v1/auth/session'
+
+  function Checked() {
+    const { state, sessionError, otherPortalSession } = useSession()
+    return <>
+      <output data-testid="status">{state.status}</output>
+      <output data-testid="error">{sessionError ?? ''}</output>
+      <output data-testid="other-portal">{String(otherPortalSession)}</output>
+    </>
+  }
+
+  let signInShown = false
+  function SignInPage() { signInShown = true; return <p>Sign-in page</p> }
+
+  function open(routes: Record<string, Array<() => Response>>) {
+    signInShown = false
+    const calls = serve(routes)
+    render(<SessionProvider><MemoryRouter initialEntries={['/profile']}><Routes>
+      <Route path="/profile" element={<RequireAccess requirement={PATIENT_ROUTE}><p>Profile page</p></RequireAccess>} />
+      <Route path="/sign-in" element={<SignInPage />} />
+    </Routes><Checked /></MemoryRouter></SessionProvider>)
+    return calls
+  }
+
+  it('restores the patient session with the refresh cookie instead of sending the patient to sign-in', async () => {
+    const calls = open({ [SESSION]: [() => problem(401, 'AUTHENTICATION_REQUIRED')], [REFRESH]: [patient] })
+    await screen.findByText('Profile page')
+    expect(screen.getByTestId('status').textContent).toBe('authenticated')
+    expect(screen.getByTestId('error').textContent).toBe('')
+    expect(signInShown).toBe(false)
+    expect(calls).toEqual([SESSION, REFRESH])
+  })
+
+  it('signs out when the refresh is refused for want of a live refresh cookie', async () => {
+    const calls = open({ [SESSION]: [() => problem(401, 'AUTHENTICATION_REQUIRED')],
+      [REFRESH]: [() => problem(403, 'CSRF_VALIDATION_FAILED')] })
+    await screen.findByText('Sign-in page')
+    expect(screen.getByTestId('status').textContent).toBe('anonymous')
+    expect(screen.getByTestId('error').textContent).toBe('')
+    expect(screen.getByTestId('other-portal').textContent).toBe('false')
+    expect(calls).toEqual([SESSION, REFRESH])
+  })
+
+  it('signs out on a refused refresh that answers 401', async () => {
+    open({ [SESSION]: [() => problem(401, 'AUTHENTICATION_REQUIRED')], [REFRESH]: [() => problem(401, 'AUTHENTICATION_REQUIRED')] })
+    await screen.findByText('Sign-in page')
+    expect(screen.getByTestId('status').textContent).toBe('anonymous')
+    expect(screen.getByTestId('error').textContent).toBe('')
+  })
+
+  it("says the browser holds a provider's sign-in when Identity refuses the refresh as another portal's", async () => {
+    open({ [SESSION]: [() => problem(401, 'AUTHENTICATION_REQUIRED')], [REFRESH]: [() => problem(403, 'SESSION_CLIENT_MISMATCH')] })
+    await screen.findByText('Sign-in page')
+    expect(screen.getByTestId('status').textContent).toBe('anonymous')
+    expect(screen.getByTestId('other-portal').textContent).toBe('true')
+  })
+
+  it("never takes up a provider's restored session as a patient's", async () => {
+    open({ [SESSION]: [() => problem(401, 'AUTHENTICATION_REQUIRED')],
+      [REFRESH]: [() => json({ actor: { kind: 'staff', subject: 'staff-1' }, expiresAt: '2026-10-11T12:00:00.000Z' })] })
+    await screen.findByText('Sign-in page')
+    expect(screen.getByTestId('status').textContent).toBe('anonymous')
+    expect(screen.getByTestId('other-portal').textContent).toBe('true')
+  })
+
+  it('says the session could not be checked when the refresh could not be made', async () => {
+    open({ [SESSION]: [() => problem(401, 'AUTHENTICATION_REQUIRED')], [REFRESH]: [() => problem(503, 'IDENTITY_SERVICE_UNAVAILABLE')] })
+    await waitFor(() => expect(screen.getByTestId('error').textContent).toBe('We could not check your session. Try again.'))
+    expect(screen.getByText('We could not check your session')).toBeTruthy()
+    expect(signInShown).toBe(false)
   })
 })
