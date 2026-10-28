@@ -3,10 +3,10 @@
   "declared": true,
   "backend_contract": "novu-v1",
   "reviewed_by": "D-Eminence",
-  "review_reference": "Backend release from production-backend-images run 40578999423 (D-Eminence/hid-system#122 at 9af06c2, all 13 components, migration 0092_public_patient_signup_without_nin.sql applied first, deployed 2026-10-27). Browser-facing changes since the previous pin (6f14123): patient sign-up without a NIN, as hid-1.0, is served. POST /api/v1/identity/patient-enrollments/signup starts it with the declared name, email, phone, gender, optional hospital and the terms, and sends a code to the email; the existing contact, contact/verify and activate steps finish it and issue the HID; GET .../availability adds signup and ninStart. POST /api/v1/identity/me/verification/nin is on and takes dateOfBirth; GET /api/v1/identity/me adds ninVerified. This frontend (D-Eminence/health#19, merged as 5ea2b38) uses each where it is answered. The NIN-first start is unchanged; no other route, payload or error code changed. Reviewed and approved by the repository owner, D-Eminence, in chat on 2026-10-27.",
+  "review_reference": "Backend release backend-40605062176-1-f0bd6d255591559d from production-backend-images run 40605062176 (D-Eminence/hid-system#123 at f5b6aba, identity-api only, no migration, deployed 2026-10-28). Browser-facing change since the previous pin (9af06c2): new Health IDs are HID- and 6 characters, as hid-1.0 issued them; every validator still accepts 6 to 32, so existing Health IDs keep working. No route, payload or error code changed. The other services stay on 9af06c2, the release they run. This frontend (D-Eminence/health#21) shows the Health ID with a Copy HID button and prefills HID- in every Health ID field. Reviewed and approved by the repository owner, D-Eminence, in chat on 2026-10-27.",
   "backend_commits": {
     "gateway": "9af06c28a4da6b399932011ef7b54ecae12afec5",
-    "identity-api": "9af06c28a4da6b399932011ef7b54ecae12afec5",
+    "identity-api": "f5b6abad1a3601cfcca9a94415665bc4ab95d750",
     "ehr-api": "9af06c28a4da6b399932011ef7b54ecae12afec5",
     "lab-api": "9af06c28a4da6b399932011ef7b54ecae12afec5",
     "pharmacy-api": "9af06c28a4da6b399932011ef7b54ecae12afec5",
