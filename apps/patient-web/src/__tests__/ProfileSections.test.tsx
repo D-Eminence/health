@@ -184,9 +184,28 @@ describe('a section of the profile', () => {
     expect(toggle.getAttribute('aria-expanded')).toBe('false')
     expect(screen.queryByRole('button', { name: 'Continue to delete account' })).toBeNull()
     const card = within(await openSection('Delete account'))
-    expect(card.getByText('Keeps your Health ID, your medical records and some security records.')).toBeTruthy()
+    expect(card.getByText('Deleting your account signs you out everywhere and withdraws provider access and your Access PIN, sharing invitations and emergency contacts; your Health ID and medical records are kept, and after 14 days it can’t be undone.')).toBeTruthy()
     expect(card.getByText('You must have signed in within the last 10 minutes.')).toBeTruthy()
     expect(card.getByRole('button', { name: 'Continue to delete account' })).toBeTruthy()
+    expect(toggle.getAttribute('aria-describedby')).toBeNull()
+  })
+
+  it('says in the closed Delete account heading that its status could not be read, or that a deletion is scheduled', async () => {
+    const first = renderPortal(<ProfilePage />, gateway({
+      'GET /identity/me/account-deletion': () => problem(500, 'INTERNAL', 'Account deletion is unavailable.'),
+    }), {}, { parityB3: true })
+    const failed = await screen.findByRole('button', { name: 'Delete account', description: 'Could not load' })
+    expect(failed.getAttribute('aria-expanded')).toBe('false')
+    expect(within(await openSection('Delete account')).getByRole('alert').textContent).toContain('Account deletion is unavailable.')
+    first.view.unmount()
+
+    renderPortal(<ProfilePage />, gateway({
+      'GET /identity/me/account-deletion': () => json({ waitingPeriodSeconds: 1_209_600, confirmationTtlSeconds: 600, request: {
+        requestId: 'req-1', state: 'pending', requestedAt: '2026-10-08T10:00:00Z', confirmationExpiresAt: null,
+        scheduledFor: '2026-10-22T10:00:00Z', blockedReasonCode: null, cancelledAt: null, cancellable: true } }),
+    }), {}, { parityB3: true })
+    const scheduled = await screen.findByRole('button', { name: 'Delete account', description: 'Scheduled' })
+    expect(scheduled.getAttribute('aria-expanded')).toBe('false')
   })
 
   it('has a heading that is a button in the tab order, which the browser presses with Enter or Space', async () => {

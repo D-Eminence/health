@@ -391,7 +391,6 @@
   .patient-status-tag { justify-self: start; padding: 3px 9px; border-radius: 999px; background: #fff4e5; color: #8a4b08; font-size: 12px; font-weight: 600; }
   .patient-status-tag-ok { background: #ecf9f1; color: #126239; }
   .patient-danger-card { border-color: #f1c9c6; }
-  .patient-consequences { display: grid; gap: 8px; margin: 12px 0 18px; padding-left: 20px; color: var(--color-ink); font-size: 14px; line-height: 1.5; }
   .patient-danger-button { display: inline-flex; min-height: 44px; align-items: center; justify-content: center; padding: 10px 16px; border: 1px solid #b42318; border-radius: var(--radius-button); background: #b42318; color: #fff; font-size: 14px; font-weight: 600; cursor: pointer; }
   .patient-danger-button:disabled { cursor: not-allowed; opacity: .55; }
   /* A six-digit code (CodeBoxes.tsx): a box a digit, in a row that shrinks to fit a phone. */
@@ -415,14 +414,12 @@
   .patient-photo-row { display: flex; align-items: center; gap: 18px; margin: 12px 0; }
   .patient-photo-preview { display: grid; justify-items: start; gap: 12px; margin-top: 12px; }
   .patient-photo-preview img { width: 128px; height: 128px; border: 1px solid var(--color-line-strong); border-radius: var(--radius-card); object-fit: cover; }
-  .patient-file-button { position: relative; }
-  .patient-file-button:focus-within { outline: 2px solid var(--color-brand); outline-offset: 2px; }
   /* Bio-data's picture is the photo control (hid-1.0's): its label wraps the hidden file field, whose focus it shows. */
   .patient-photo-control { position: relative; display: inline-flex; border-radius: 50%; cursor: pointer; }
   .patient-photo-control:hover .patient-avatar { box-shadow: 0 0 0 2px var(--color-brand-border); }
   .patient-photo-control:focus-within { outline: 2px solid var(--color-brand); outline-offset: 2px; }
   .patient-photo-actions { display: grid; justify-items: start; gap: 8px; min-width: 0; }
-  .patient-details + .patient-field-hint { margin-top: 12px; }
+  #contact-details > .patient-details + .patient-field-hint { margin-top: 12px; }
   .patient-form textarea { width: 100%; min-height: 88px; padding: 10px 12px; border: 1px solid var(--color-line-control); border-radius: var(--radius-control); background: var(--color-surface); color: var(--color-ink); font: inherit; font-size: 15px; resize: vertical; }
   .patient-form textarea:focus { border-color: var(--color-brand); }
   .patient-health-selects { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }

@@ -197,9 +197,10 @@ export function ProfilePage() {
     <LoadState loading={profile.loading} error={profile.error} retry={profile.reload} hasData={profile.data !== null} focusTarget={heading} />
     {shown && completion && <ProfileCompletionCard completion={completion} />}
     <OpenSectionsContext.Provider value={sections}>
-      {shown && <ProfileSection id="bio-data" title="Bio-data" busy={profile.loading}>
+      {/* Not the whole section busy while the profile reloads: the photo's, contact's and PIN's notices are in it. */}
+      {shown && <ProfileSection id="bio-data" title="Bio-data">
         {completionServed(shown) && <ProfilePhotoControl profile={shown} onChanged={profile.reload} />}
-        <dl className="patient-details">
+        <dl className="patient-details" aria-busy={profile.loading || undefined}>
           <div><dt>Health ID</dt><dd><HealthIdCode code={shown.hid} /></dd></div>
           <div><dt>Full name</dt><dd>{shown.fullName}</dd></div>
           <div><dt>Date of birth</dt><dd>{date(shown.dateOfBirth)}</dd></div>
@@ -642,7 +643,7 @@ function AccessPinSettings({ profile, loading, onChanged }: {
     {error && <p id="access-pin-error" role={errorAlert ? 'alert' : undefined} className="patient-inline-error">{error}</p>}
     <div role="status">{notice && <p className="patient-inline-success">{notice}</p>}</div>
     <p id="access-pin-hint" className="patient-field-hint">4 to 8 digits. You must have signed in within the last 10 minutes to change it.</p>
-    <p>Status: <strong>{profile.accessPinConfigured ? 'Configured' : 'Not configured'}</strong></p>
+    <p aria-busy={loading || undefined}>Status: <strong>{profile.accessPinConfigured ? 'Configured' : 'Not configured'}</strong></p>
     <form onSubmit={event => void configurePin(event)} className="patient-form patient-inline-form"><label>{profile.accessPinConfigured ? 'Replace PIN' : 'Set PIN'}<input ref={pinFocus.target} required type="password" inputMode="numeric" autoComplete="new-password" pattern="[0-9]{4,8}" minLength={4} maxLength={8} value={pin} onChange={event => setPin(event.target.value.replace(/\D/g, '').slice(0, 8))}
       aria-invalid={pinFieldError || undefined} aria-describedby={describedBy('access-pin-hint', pinFieldError && 'access-pin-error')} /></label>
       <button type="submit" className="patient-primary-button" disabled={busy || !/^\d{4,8}$/.test(pin)}>Save PIN</button></form>

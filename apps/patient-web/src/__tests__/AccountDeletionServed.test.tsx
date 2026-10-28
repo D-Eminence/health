@@ -72,14 +72,12 @@ describe('account deletion on Novu', () => {
       return json({ requestId: 'req-1', state: 'cancelled', replayed: false })
     })
 
-    const title = await screen.findByRole('heading', { name: 'Delete account' })
+    // The status is read before its words show: wait for them, not the heading, which can show first.
+    expect(await screen.findByText('Deleting your account signs you out everywhere and withdraws provider access and your Access PIN, sharing invitations and emergency contacts; your Health ID and medical records are kept, and after 14 days it can’t be undone.')).toBeTruthy()
+    const title = screen.getByRole('heading', { name: 'Delete account' })
     expect(accountDeletionServed()).toBe(true)
-    // The profile's last section, opened by the link to it; each fact in one short line.
+    // The profile's last section, opened by the link to it; what it does in one short sentence.
     expect(title.closest('.patient-card')?.id).toBe('account-deletion')
-    expect(screen.getByText('Keeps your Health ID, your medical records and some security records.')).toBeTruthy()
-    expect(screen.getByText('Cancels your sharing invitations and removes your emergency contacts.')).toBeTruthy()
-    expect(screen.getByText('Emails you when it is scheduled and when it is done.')).toBeTruthy()
-    expect(screen.getByText('Gives you 14 days to cancel. After that it can’t be undone.')).toBeTruthy()
     expect(screen.getByText('You must have signed in within the last 10 minutes.')).toBeTruthy()
 
     fireEvent.click(screen.getByRole('checkbox', { name: /I understand/ }))
@@ -148,8 +146,8 @@ describe('account deletion on hid-system main', () => {
     expect(await screen.findByText('Checking your account…')).toBeTruthy()
     await act(async () => { read.release(json(noRequest)) })
     expect(await screen.findByRole('button', { name: 'Continue to delete account' })).toBeTruthy()
-    expect(screen.queryByText(/Cancels your sharing invitations/)).toBeNull()
-    expect(screen.queryByText(/Emails you/)).toBeNull()
+    expect(screen.getByText('Deleting your account signs you out everywhere and withdraws provider access and your Access PIN; your Health ID and medical records are kept, and after 14 days it can’t be undone.')).toBeTruthy()
+    expect(screen.queryByText(/sharing invitations/)).toBeNull()
     first.view.unmount()
 
     renderPortal(<AccountDeletionCard />, path => notFound(path))

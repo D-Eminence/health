@@ -154,6 +154,29 @@ describe('an action\'s notice is not inside the region that reloads', () => {
     await noticeOutsideBusy('Contact removed. They will no longer be notified.', 'Chidi Okafor')
   })
 
+  // On the profile, in Bio-data, whose rows reload after it (Settings is gone: the owner's decision of 2026-10-28).
+  const pin = (configured: boolean) => {
+    const reads = heldReload(() => json({ ...profile, accessPinConfigured: configured }))
+    renderPortal(<ProfilePage />, (path, method) => {
+      if (path === '/identity/me') return reads.read()
+      if (path === '/identity/me/access-pin') return json(method === 'POST' ? { configured: true } : { revoked: true })
+      return problem(404, 'NOT_FOUND', `Cannot GET /api/v1${path}`)
+    }, {}, { at: '/profile#access-pin' })
+  }
+
+  it('Access PIN configured', async () => {
+    pin(false)
+    fireEvent.change(await screen.findByLabelText('Set PIN'), { target: { value: '1234' } })
+    await press(screen.getByRole('button', { name: 'Save PIN' }))
+    await noticeOutsideBusy('Access PIN configured.', 'Ada Example')
+  })
+
+  it('Access PIN revoked', async () => {
+    pin(true)
+    await press(await screen.findByRole('button', { name: 'Revoke Access PIN' }))
+    await noticeOutsideBusy('Access PIN revoked.', 'Ada Example')
+  })
+
   it('Account deletion cancelled', async () => {
     const reads = heldReload(() => json(scheduled))
     renderPortal(<AccountDeletionCard />, (_path, method) => method === 'GET' ? reads.read() : json({ requestId: 'req-1', state: 'cancelled', replayed: false }))

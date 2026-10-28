@@ -57,8 +57,7 @@ describe('patient account deletion', () => {
       return json({}, 404)
     })
 
-    expect(await screen.findByText('Keeps your Health ID, your medical records and some security records.')).toBeTruthy()
-    expect(screen.getByText('Gives you 14 days to cancel. After that it can’t be undone.')).toBeTruthy()
+    expect(await screen.findByText(/^Deleting your account signs you out everywhere and withdraws provider access and your Access PIN.*; your Health ID and medical records are kept, and after 14 days it can’t be undone\.$/)).toBeTruthy()
     const proceed = screen.getByRole('button', { name: 'Continue to delete account' }) as HTMLButtonElement
     expect(proceed.disabled).toBe(true)
     fireEvent.click(screen.getByRole('checkbox', { name: /I understand/ }))

@@ -5,7 +5,7 @@ import { fallbackMessageForStatus, isHidApiError } from '@hid/http'
  * Google on the sign-up page (POST auth/oidc/exchange with intent `enroll`) for a Google email that already belongs to
  * a patient account: 409 GOOGLE_ACCOUNT_EXISTS (hid-system, owner decision 2026-10-28), instead of a new sign-up. The
  * patient signs in with Google, which links that account when its email is verified. An Identity before it answers
- * 409 GOOGLE_EXISTING_ACCOUNT_LINK_REQUIRED, whose own words are shown.
+ * 409 GOOGLE_EXISTING_ACCOUNT_LINK_REQUIRED, for which the website's own words are shown.
  */
 export const GOOGLE_ACCOUNT_EXISTS = 'You already have a Health ID. Sign in with Google instead.'
 
@@ -19,7 +19,8 @@ export function existingAccount(reason: unknown): ExistingAccount | null {
   if (!isHidApiError(reason) || reason.status !== 409) return null
   if (reason.code === 'GOOGLE_ACCOUNT_EXISTS') return { text: own(reason, GOOGLE_ACCOUNT_EXISTS), link: 'Sign in with Google' }
   if (reason.code === 'GOOGLE_EXISTING_ACCOUNT_LINK_REQUIRED') {
-    return { text: own(reason, 'Sign in to your existing Health ID account to link Google.'), link: 'Sign in' }
+    // Identity's words send the patient to link Google, which the website no longer has: its own text instead.
+    return { text: 'You already have a Health ID. Sign in with your email or Health ID and password.', link: 'Sign in' }
   }
   return null
 }

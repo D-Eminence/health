@@ -89,12 +89,14 @@ describe('a page opened again', () => {
     // It reads again meanwhile, and says the card is being brought up to date.
     // (The emergency contacts and Delete account on the profile read for themselves.)
     await waitFor(() => expect(client.sent.map(request => request.path).filter(path => path === '/identity/me')).toEqual(['/identity/me', '/identity/me']))
-    expect(screen.getByRole('heading', { name: 'Bio-data' }).closest('.patient-card')?.getAttribute('aria-busy')).toBe('true')
+    // The rows, not the whole section: Bio-data also holds the PIN's and contact's notices (PR-03).
+    expect(screen.getByText('Ada Example').closest('dl')?.getAttribute('aria-busy')).toBe('true')
+    expect(screen.getByRole('heading', { name: 'Bio-data' }).closest('.patient-card')?.getAttribute('aria-busy')).toBeNull()
 
     await act(async () => { later.resolve(json({ ...profile, fullName: 'Ada Updated' })) })
     expect(screen.getByText('Ada Updated')).toBeTruthy()
     expect(screen.queryByText('Ada Example')).toBeNull()
-    expect(screen.getByRole('heading', { name: 'Bio-data' }).closest('.patient-card')?.getAttribute('aria-busy')).toBeNull()
+    expect(screen.getByText('Ada Updated').closest('dl')?.getAttribute('aria-busy')).toBeNull()
   })
 
   it('shows nothing it holds for another account', async () => {

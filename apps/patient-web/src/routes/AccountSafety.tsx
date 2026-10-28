@@ -566,8 +566,9 @@ export function AccountDeletionCard() {
 
   // Only the status is busy while it reloads: a notice outside it is not held back. On the profile, last: a section
   // closed until opened (ProfileSection.tsx), as hid-1.0's Danger Zone ended its profile.
+  // Said in the heading too: the card's alert, or the date, is not seen while it is closed.
   return <ProfileSection id="account-deletion" title="Delete account" className="patient-danger-card" headingRef={heading}
-    headingId="account-deletion-heading">
+    headingId="account-deletion-heading" state={status.error ? 'Could not load' : scheduled ? 'Scheduled' : null}>
     {error && <p role="alert" className="patient-inline-error">{error}</p>}
     <div role="status">{notice && <p className="patient-inline-success">{notice}</p>}</div>
     {status.loading && !status.data && <p role="status" className="patient-loading">Checking your account…</p>}
@@ -582,17 +583,8 @@ export function AccountDeletionCard() {
       </>
       : <>
         {current?.state === 'blocked' && current.blockedReasonCode && <p role="alert" className="patient-inline-error">{BLOCKED_REASONS[current.blockedReasonCode]}</p>}
-        <p>Deleting your account:</p>
-        <ul className="patient-consequences">
-          <li>Signs you out everywhere, and you can’t sign in again.</li>
-          <li>Withdraws provider access and your Access PIN.</li>
-          {/* hid-system 0096 (Novu) closes these too and sends these emails; main's 0064 does neither. */}
-          {usesNovuBackend() && <li>Cancels your sharing invitations and removes your emergency contacts.</li>}
-          <li>Keeps your Health ID, your medical records and some security records.</li>
-          <li>Gives you {waiting} to cancel. After that it can’t be undone.</li>
-          {usesNovuBackend() && <li>Emails you when it is scheduled and when it is done.</li>}
-          <li>Is blocked, with nothing removed, if your records are under a legal hold.</li>
-        </ul>
+        {/* hid-system 0096 (Novu) also closes sharing invitations and emergency contacts; main's 0064 does not. */}
+        <p>Deleting your account signs you out everywhere and withdraws provider access and your Access PIN{usesNovuBackend() ? ', sharing invitations and emergency contacts' : ''}; your Health ID and medical records are kept, and after {waiting} it can’t be undone.</p>
         {!pending ? <>
           <label className="patient-checkbox"><input type="checkbox" checked={acknowledged}
             onChange={event => setAcknowledged(event.target.checked)} /> I understand what deleting my account means</label>
