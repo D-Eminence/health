@@ -3,16 +3,16 @@
   "declared": true,
   "backend_contract": "novu-v1",
   "reviewed_by": "D-Eminence",
-  "review_reference": "Backend release backend-40605062176-1-f0bd6d255591559d from production-backend-images run 40605062176 (D-Eminence/hid-system#123 at f5b6aba, identity-api only, no migration, deployed 2026-10-28). Browser-facing change since the previous pin (9af06c2): new Health IDs are HID- and 6 characters, as hid-1.0 issued them; every validator still accepts 6 to 32, so existing Health IDs keep working. No route, payload or error code changed. The other services stay on 9af06c2, the release they run. This frontend (D-Eminence/health#21) shows the Health ID with a Copy HID button and prefills HID- in every Health ID field. Reviewed and approved by the repository owner, D-Eminence, in chat on 2026-10-27.",
+  "review_reference": "Backend release backend-40640255055-1-02b120fc1ecb1889 from production-backend-images run 40640255055 (D-Eminence/hid-system#124 at be1bad5, identity-api and notification-api only, no migration, deployed 2026-10-28). Browser-facing changes since the previous pins: patient sessions last 7 days idle and 30 days at most; POST /api/v1/identity/patient-enrollments/activate signs the patient in on the login path and answers signedIn; POST /api/v1/auth/patient/login answers 403 ACCOUNT_SUSPENDED for a suspended patient with the right password; welcome, reset-code and password-updated emails in hid-1.0's design. This frontend (D-Eminence/health#23, merged as 82e6d2e) uses each where it is answered and keeps working without. The other services stay on the commits they run. Reviewed and approved by the repository owner, D-Eminence, in chat on 2026-10-28 (batch approval for this parity work).",
   "backend_commits": {
     "gateway": "9af06c28a4da6b399932011ef7b54ecae12afec5",
-    "identity-api": "f5b6abad1a3601cfcca9a94415665bc4ab95d750",
+    "identity-api": "be1bad5f78bd2de65354b00bc4d1cfd031a9de56",
     "ehr-api": "9af06c28a4da6b399932011ef7b54ecae12afec5",
     "lab-api": "9af06c28a4da6b399932011ef7b54ecae12afec5",
     "pharmacy-api": "9af06c28a4da6b399932011ef7b54ecae12afec5",
     "ocr-api": "9af06c28a4da6b399932011ef7b54ecae12afec5",
     "outreach-api": "9af06c28a4da6b399932011ef7b54ecae12afec5",
     "support-api": "9af06c28a4da6b399932011ef7b54ecae12afec5",
-    "notification-api": "9af06c28a4da6b399932011ef7b54ecae12afec5"
+    "notification-api": "be1bad5f78bd2de65354b00bc4d1cfd031a9de56"
   }
 }
