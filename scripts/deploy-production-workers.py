@@ -76,6 +76,17 @@ def rollback_candidate(release_id):
         with open(os.environ["GITHUB_OUTPUT"],"a") as output:
             output.write("candidate_sha256="+file_sha(ROOT/"release/candidate.json")+"\n")
 
+VERSION_ID = r"[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}"
+# Right after an upload the version list can lag behind it, so a version not listed yet is re-read briefly.
+UPLOAD_LIST_ATTEMPTS = 6
+UPLOAD_LIST_RETRY_SECONDS = 6
+
+def printed_version(stdout):
+    # Wrangler 4.147.0 logs "Worker Version ID: <id>" to stdout once after an upload. Anything else is not guessed at.
+    lines = [line for line in stdout.splitlines() if line.startswith("Worker Version ID:")] if isinstance(stdout,str) else []
+    found = re.fullmatch(r"Worker Version ID: ("+VERSION_ID+")",lines[0]) if len(lines) == 1 else None
+    return found.group(1) if found else None
+
 class Cloudflare:
     def __init__(self, account=None, token=None):
         self.account = account or os.environ.get("CLOUDFLARE_ACCOUNT_ID","")
@@ -119,16 +130,28 @@ class Cloudflare:
                 "WORKER_ORIGIN_SECRET_BINDING_REQUIRED")
         return details
 
-    def uploaded_version(self, app, release_id):
-        versions = self.call(app,"versions")
-        values = versions.get("items",[]) if isinstance(versions,dict) else versions
-        require(isinstance(values,list) and all(isinstance(v,dict) for v in values),
-                "INVALID_WORKER_VERSION_LIST")
-        matching = [v for v in values if isinstance(v.get("annotations"),dict)
-                    and v["annotations"].get("workers/tag") == release_id]
-        require(len(matching) == 1, "EXACT_UPLOADED_WORKER_VERSION_REQUIRED")
-        target = matching[0].get("id", "")
-        require(isinstance(target,str) and re.fullmatch(r"[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}",target),
+    def uploaded_version(self, app, release_id, printed=None):
+        for attempt in range(UPLOAD_LIST_ATTEMPTS):
+            if attempt: time.sleep(UPLOAD_LIST_RETRY_SECONDS)
+            versions = self.call(app,"versions")
+            values = versions.get("items",[]) if isinstance(versions,dict) else versions
+            require(isinstance(values,list) and all(isinstance(v,dict) for v in values),
+                    "INVALID_WORKER_VERSION_LIST")
+            matching = [v for v in values if isinstance(v.get("annotations"),dict)
+                        and v["annotations"].get("workers/tag") == release_id]
+            # With Wrangler's id, read until that version is listed: a retry's earlier copy can be listed first.
+            if any(v.get("id") == printed for v in values) if printed is not None else matching: break
+        # Wrangler retries a slow upload, so a tag can match more than one version. Its printed id then
+        # selects exactly one listed, tagged version; without that id, exactly one tag is still required.
+        listed = [v for v in values if printed is not None and v.get("id") == printed]
+        selected = matching if printed is None else [v for v in matching if len(listed) == 1 and v is listed[0]]
+        if len(selected) != 1:
+            # Counts only: never the list, bindings or Wrangler's output.
+            print(json.dumps({"app":app,"tagged_versions":len(matching),"wrangler_version_id_parsed":printed is not None,
+                "wrangler_version_id_listed":bool(listed)}), flush=True)
+            raise ReleaseError("EXACT_UPLOADED_WORKER_VERSION_REQUIRED")
+        target = selected[0].get("id", "")
+        require(isinstance(target,str) and re.fullmatch(VERSION_ID,target),
                 "INVALID_UPLOADED_WORKER_VERSION")
         details = self.check_version(app,target)
         require(details.get("id") == target and isinstance(details.get("annotations"),dict)
@@ -350,7 +373,7 @@ def deploy(mode):
                         capture_output=True,text=True,timeout=180)
                 # A failed/uncertain upload is inspected, never retried automatically.
                 require(result.returncode == 0, "WORKER_VERSION_UPLOAD_FAILED")
-                target = cloud.uploaded_version(app,release["release_id"])
+                target = cloud.uploaded_version(app,release["release_id"],printed_version(result.stdout))
                 store.put(prefix+"intent-"+app+".json",{"app":app,"before":before[app],"target_version":target})
                 updated.append(app)
                 cloud.deploy_version(app,target,lease)
