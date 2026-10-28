@@ -94,7 +94,7 @@ async function readOffer(api: PatientApi, signal?: AbortSignal): Promise<Emergen
   }
 }
 
-interface ContactsView { offer: EmergencyContactsAvailability | null; contacts: EmergencyContact[] }
+export interface ContactsView { offer: EmergencyContactsAvailability | null; contacts: EmergencyContact[] }
 
 /**
  * Availability, then the list. Availability is read once, and again only after its read failed or when an action
@@ -110,6 +110,22 @@ function contactsSource(api: PatientApi) {
       return { offer: current, contacts: current ? await api.emergencyContacts(signal) : [] }
     },
   }
+}
+
+/**
+ * Availability, then the list, read afresh: what the profile's completion and the overview count (hid-1.0 parity B3).
+ * Kept under the card's own name ('emergency-contacts'), so Settings shows it at once.
+ */
+export const readEmergencyContacts = (api: PatientApi) => (signal?: AbortSignal): Promise<ContactsView> => contactsSource(api).load(signal)
+
+/**
+ * The contacts the completion counts, or null where the patient can't add one now (the routes are not served, or
+ * delivery is off and they have none): the item is then left out rather than counted as missing.
+ */
+export function contactsToCount(view: ContactsView | null | undefined): readonly EmergencyContact[] | null {
+  if (!view?.offer) return null
+  if (!view.offer.delivery && view.contacts.length === 0) return null
+  return view.contacts
 }
 
 /**
@@ -341,7 +357,7 @@ export function EmergencyContactsCard() {
   const unoffered = hidden && retried && Boolean(card.data) && !error && !notice
 
   // Only the list is busy while it reloads: a notice outside it is not held back.
-  return <div className="patient-card" aria-labelledby="emergency-contacts-heading">
+  return <div className="patient-card" id="emergency-contacts" aria-labelledby="emergency-contacts-heading">
     <h2 ref={heading} tabIndex={-1} id="emergency-contacts-heading">Emergency contacts</h2>
     {!hidden && <p className="patient-field-hint">{usesNovuBackend() ? NOVU_ALERT : MAIN_ALERT}</p>}
     {!hidden && paused && <p className="patient-field-hint">Alerts to emergency contacts are paused. Contacts cannot be added or

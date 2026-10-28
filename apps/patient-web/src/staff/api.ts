@@ -1,6 +1,7 @@
 import { stagingChatQuestion, parseStagingPatientChat, parseStagingChatHistory, chatQuestion, parsePatientChat,
   parsePatientChatAvailability, parsePatientChatHistory, parsePatientChatCleared } from '@hid/contracts'
 import { parseImportedHistory, type ImportedRecordsResponse, type ImportedAttachmentDownload, type ImportedHistoryPage } from '../importedRecords'
+import { parseReportedHealthProfile, type ReportedHealthProfile } from '../profileParity'
 import { createApiClient, HidApiError, isHidApiError, NO_RETRY, uploadPresignedObject, type ApiClient, type RequestSpec } from '@hid/http'
 import { createRegisteredBrowserClient } from '@hid/api'
 import { getEnvironment } from './env'
@@ -1852,6 +1853,11 @@ export const staffApi = {
   importedAttachment: (facilityId: string, patientId: string, fileId: string, purpose: 'direct-care' | 'emergency', signal?: AbortSignal) =>
     client.get<ImportedAttachmentDownload>(`/api/v1/ehr/patients/${encodeURIComponent(patientId)}/imported-attachments/${encodeURIComponent(fileId)}/download`,
       { headers: facilityHeaders(facilityId, purpose), signal, dedupe: false }),
+  // What the patient entered about their health (hid-1.0 parity B3, hid-system 0094; 404 from a backend before it): read
+  // as the chart's other reads are, at the selected facility for direct care, and audited as a view of the record.
+  reportedHealthProfile: async (facilityId: string, patientId: string, signal?: AbortSignal): Promise<ReportedHealthProfile | null> =>
+    parseReportedHealthProfile(await client.get<unknown>(`/api/v1/ehr/patients/${encodeURIComponent(patientId)}/reported-health-profile`,
+      { headers: facilityHeaders(facilityId, 'direct-care'), signal, dedupe: false })),
   emergencyRecords: (facilityId: string, patientId: string) =>
     client.get<EmergencyRecords>(`/api/v1/ehr/patients/${encodeURIComponent(patientId)}/emergency-records`,
       { headers: facilityHeaders(facilityId, 'emergency') }),

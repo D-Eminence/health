@@ -24,7 +24,10 @@ vi.mock('../api', () => ({
     enrollmentCurrent: calls.patientEnrollmentCurrent, googleOnboarding: calls.patientGoogleOnboarding, profile: calls.patientProfile,
     enrollmentAvailability: calls.patientEnrollmentAvailability, participatingFacilities: calls.patientParticipatingFacilities,
     // The portal's bell listens for answered requests (notificationBadge.tsx).
-    onSessionAccepted: () => () => undefined }),
+    onSessionAccepted: () => () => undefined,
+    // The overview's other cards (hid-1.0 parity B3): not served here, as a backend without them answers.
+    ...Object.fromEntries(['records', 'accessHistory', 'accessRequests', 'notifications', 'accessLog', 'profileDetails', 'healthProfile',
+      'emergencyContactsAvailability', 'emergencyContacts', 'photo'].map(name => [name, () => Promise.reject(new HidApiError(404, 'Not served'))])) }),
 }))
 vi.mock('../staff/api', () => ({
   staffApi: { session: calls.staffSession, refresh: calls.staffRefresh,

@@ -44,5 +44,12 @@ export function usePatientResource<T>(load: (signal?: AbortSignal) => Promise<T>
     return () => controller.abort()
   }, [load, version, resources, key, account])
 
-  return { data, loading, error, reload }
+  // What an action's own answer says the resource now is (a save answers the saved row): shown, and kept, at once.
+  const replace = useCallback((value: T) => {
+    setData(value)
+    setError(null)
+    resources?.cache.write(key, account, value)
+  }, [resources, key, account])
+
+  return { data, loading, error, reload, replace }
 }

@@ -4,10 +4,15 @@ import {
   type ImportedHistorySharingChange, type ImportedMedicalRecord,
 } from './importedRecords'
 import { stagingChatQuestion, parseStagingPatientChat, parseStagingChatHistory } from '@hid/contracts'
-import { NO_RETRY, type ApiClient, type HidApiError, type RequestSpec, type RetryPolicy } from '@hid/http'
+import { NO_RETRY, type ApiClient, type DownloadResult, type HidApiError, type RequestSpec, type RetryPolicy } from '@hid/http'
 import { createEhrService, createSupportService } from '@hid/api'
 import { inRefreshTurn, refreshInTurn, signOutInTurn } from './sessionRefreshTurn'
 import { ACCESS_LOG_PAGE_SIZE, parseAccessLog, type AccessLogPage } from './accessLog'
+import {
+  parseEmailChangeStarted, parseHealthProfile, parsePhoneChanged, parseProfileDetails,
+  type EmailChangeStarted, type HealthFields, type HealthProfile, type PhoneChanged, type ProfileDetails,
+} from './profileParity'
+import { photoBody } from './photoImage'
 
 /**
  * Contracts read from hid-system c4b5445 Identity and EHR controllers, and later
@@ -150,6 +155,17 @@ export interface PatientProfile {
   version: number
   /** Whether a NIN is verified on this account; absent from an Identity before the sign-up without a NIN. */
   ninVerified?: boolean
+  /**
+   * hid-1.0 parity B3 (hid-system 0094; absent from an Identity before it): the account's email, which sign-in and
+   * recovery use, and its phone, each null when there is none, whether each was verified (an email changed in the portal
+   * is, by its code; one migrated from hid-1.0 may not be, and Health ID sends nothing to it; a phone changed in the
+   * portal is not: production sends no SMS), and whether the patient has a photo. Held in memory only, shown masked.
+   */
+  email?: string | null
+  emailVerified?: boolean
+  phone?: string | null
+  phoneVerified?: boolean
+  hasPhoto?: boolean
 }
 
 export interface PatientNinVerification {
@@ -424,9 +440,9 @@ export function createPatientApi(sender: ApiClient) {
     get: (path, spec) => client.request({ ...spec, method: 'GET', path }),
     post: (path, body, spec) => client.request({ ...spec, method: 'POST', path, body }),
   }
-  const call = <T>(method: 'GET' | 'POST' | 'DELETE', path: string, body?: unknown,
+  const call = <T>(method: 'GET' | 'POST' | 'PUT' | 'DELETE', path: string, body?: unknown,
     options?: { signal?: AbortSignal; headers?: Readonly<Record<string, string>>; query?: Readonly<Record<string, string>>; reportUnauthorized?: boolean; timeoutMs?: number
-      refreshOnUnauthorized?: (error: HidApiError) => boolean; retry?: RetryPolicy }) =>
+      refreshOnUnauthorized?: (error: HidApiError) => boolean; retry?: RetryPolicy; responseType?: 'json' | 'download' }) =>
     client.request<T>({ method, path: `/api/v1/${path}`, auth: path.startsWith('auth/') || path.startsWith('identity/patient-enrollments') ? 'optional' : 'required',
       ...(body === undefined ? {} : { body }), ...options })
 
@@ -593,6 +609,39 @@ export function createPatientApi(sender: ApiClient) {
     accessLog: async (before: string | null, signal?: AbortSignal): Promise<AccessLogPage> =>
       parseAccessLog(await call<unknown>('GET', 'identity/me/access-log', undefined,
         { signal, query: { limit: String(ACCESS_LOG_PAGE_SIZE), ...(before ? { before } : {}) } })),
+    // hid-1.0 parity B3 (hid-system 0094 on staging-novu-ci-20261005; a backend before it answers 404). The hospital the
+    // patient uses now and their HMO, saved against the version read; a stale one is refused with 409 VERSION_CONFLICT.
+    profileDetails: async (signal?: AbortSignal): Promise<ProfileDetails> =>
+      parseProfileDetails(await call<unknown>('GET', 'identity/me/profile-details', undefined, { signal })),
+    saveProfileDetails: async (input: { hospitalCurrentlyUsing: string | null; hmoName: string | null; expectedVersion: number }): Promise<ProfileDetails> =>
+      parseProfileDetails(await call<unknown>('PUT', 'identity/me/profile-details', input)),
+    /**
+     * The patient's photo as bytes, to be shown through a blob: URL held in memory only (Identity answers it with
+     * Cache-Control: private, no-store). Only a JPEG or PNG is taken; anything else is refused as no photo.
+     */
+    photo: async (signal?: AbortSignal): Promise<Blob> => {
+      const answer = await call<DownloadResult>('GET', 'identity/me/photo', undefined, { signal, responseType: 'download' })
+      const type = (answer.headers.get('content-type') ?? answer.blob.type).split(';')[0]?.trim().toLowerCase()
+      if (type !== 'image/jpeg' && type !== 'image/png') throw new Error('Your photo could not be shown.')
+      return answer.blob.type === type ? answer.blob : new Blob([answer.blob], { type })
+    },
+    // Always the JPEG the page drew from the chosen picture, base64, with no metadata, in a body made to pass
+    // production's 8 KB edge limit (photoImage.ts).
+    savePhoto: (data: string) => call<{ hasPhoto: true }>('PUT', 'identity/me/photo', photoBody(data)),
+    removePhoto: () => call<{ hasPhoto: false }>('DELETE', 'identity/me/photo'),
+    // A new email needs the current password and a 6-digit code sent to it; the old address is told.
+    startEmailChange: async (email: string, currentPassword: string): Promise<EmailChangeStarted> =>
+      parseEmailChangeStarted(await call<unknown>('POST', 'identity/me/contact-changes', { channel: 'email', email, currentPassword })),
+    verifyEmailChange: (changeId: string, code: string) =>
+      call<{ email: string }>('POST', `identity/me/contact-changes/${encodeURIComponent(changeId)}/verify`, { code }),
+    // A new phone needs the current password only, and is then shown as not verified: production sends no SMS.
+    changePhone: async (phone: string, currentPassword: string): Promise<PhoneChanged> =>
+      parsePhoneChanged(await call<unknown>('POST', 'identity/me/contact-changes', { channel: 'phone', phone, currentPassword }), phone),
+    // What the patient says about their health, apart from clinicians' records; saved against the version read.
+    healthProfile: async (signal?: AbortSignal): Promise<HealthProfile> =>
+      parseHealthProfile(await call<unknown>('GET', 'ehr/me/health-profile', undefined, { signal })),
+    saveHealthProfile: async (input: HealthFields & { expectedVersion: number }): Promise<HealthProfile> =>
+      parseHealthProfile(await call<unknown>('PUT', 'ehr/me/health-profile', input)),
     setAccessPin: (pin: string) => call<{ configured: true }>('POST', 'identity/me/access-pin', { pin }),
     revokeAccessPin: () => call<{ revoked: true }>('DELETE', 'identity/me/access-pin'),
     accountDeletionStatus: (signal?: AbortSignal) =>

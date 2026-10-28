@@ -29,8 +29,9 @@ afterEach(() => {
   Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView')
 })
 
-// The shell's bell (notificationBadge.tsx) listens for answered requests; its count is never served here.
-const noBell = { onSessionAccepted: () => () => undefined } as Partial<PatientApi> as PatientApi
+// The shell's bell (notificationBadge.tsx) listens for answered requests; its count is never served here, and nor is the
+// profile the header's avatar reads (hid-1.0 parity B3).
+const noBell = { onSessionAccepted: () => () => undefined, profile: () => new Promise(() => undefined) } as Partial<PatientApi> as PatientApi
 
 function openPortal() {
   render(<SessionContext.Provider value={createTestSessionValue({ kind: 'patient', subjectId: 'subject-a', appRole: 'patient', assuranceLevel: 'aal1' }, noBell)}>

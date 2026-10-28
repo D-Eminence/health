@@ -5,7 +5,7 @@
  */
 export type HidService = 'auth' | 'enrollment' | 'identity' | 'access' | 'ehr' | 'files'
   | 'notifications' | 'lab' | 'pharmacy' | 'ocr' | 'outreach' | 'admin' | 'commercial' | 'platform' | 'support'
-export type EndpointMethod = 'GET' | 'POST' | 'PATCH' | 'DELETE'
+export type EndpointMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 export type EndpointAuth = { readonly kind: 'public' | 'authenticated' }
 /**
  * 'surface-verified': hid-system serves the route. 'proposed': built against
@@ -77,6 +77,12 @@ const NOT_ON_MAIN = 'Served by a hid-system staging branch; not served by hid-sy
 /** hid-1.0 patient parity B2 (owner decisions of 2026-10-28): served once hid-system 0093 is, and only by Novu. */
 const PARITY_B2 = 'Served by hid-system staging-novu-ci-20261005 from migration 0093 (patient parity B2); not served by hid-system main, '
   + 'and an Identity before 0093 answers 404, which the portal takes as not offered.'
+/**
+ * hid-1.0 patient parity B3 (owner decisions of 2026-10-28; lead's decisions for the wave): served once hid-system 0094
+ * is, and only by Novu. A backend before it answers 404, which the portal takes as not offered: the section is hidden.
+ */
+const PARITY_B3 = 'Served by hid-system staging-novu-ci-20261005 from migration 0094 (patient parity B3); not served by hid-system main, '
+  + 'and a backend before 0094 answers 404, which the portal takes as not offered.'
 const CHAT_NOTE = `${NOT_ON_MAIN} The screen is off unless the build turns it on.`
 const STAFF_CHAT_NOTE = 'Staff sessions holding ehr.record-chat.use, for direct care only (X-Purpose-Of-Use: direct-care, never break-glass). '
   + 'Off by default in hid-system (ADR-069, 0101): 503 RECORD_CHAT_DISABLED until RECORD_CHAT_STAFF_ENABLED and the platform control are on.'
@@ -422,6 +428,31 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'support or system. Refused attempts and record contents are never sent.')),
   r('identity.accessPin','identity','/api/v1/identity/me/access-pin',['POST','DELETE']),
   r('identity.verifyNin','identity','/api/v1/identity/me/verification/nin',P),
+  // hid-1.0 patient parity B3 (hid-system 0094 on staging-novu-ci-20261005): the profile's coverage, photo and contact
+  // details. GET identity.me gains email, emailVerified, phone, phoneVerified and hasPhoto there.
+  proposed(r('identity.profileDetails','identity','/api/v1/identity/me/profile-details',['GET','PUT'],false,undefined,
+    `${PARITY_B3} Patient sessions only, CSRF on PUT. 200 { hospitalCurrentlyUsing, hmoName, rowVersion }; PUT `
+    + '{ hospitalCurrentlyUsing, hmoName, expectedVersion } answers the same, 409 VERSION_CONFLICT on a stale version. Each '
+    + 'value is null or at most 120 characters with no control characters.')),
+  { ...proposed(r('identity.myPhoto','identity','/api/v1/identity/me/photo',G,false,undefined,
+    `${PARITY_B3} Patient sessions only. The image bytes, Content-Type the stored type (image/jpeg or image/png), `
+    + 'Cache-Control: private, no-store; 404 PHOTO_NOT_FOUND. Shown only through a blob: URL held in memory.')),
+  responseKind: 'download' },
+  proposed(r('identity.myPhotoChange','identity','/api/v1/identity/me/photo',['PUT','DELETE'],false,undefined,
+    `${PARITY_B3} Patient sessions only, CSRF. PUT { mediaType: image/jpeg | image/png, data: base64 } (decoded at most `
+    + '300 KB and 1024 x 1024; the server checks the type by its magic bytes) answers { hasPhoto: true }, 400 PHOTO_INVALID '
+    + 'otherwise; DELETE answers { hasPhoto: false }. The portal always sends a JPEG it drew itself, at most 256 x 256 with no '
+    + 'metadata, in a body of at most 8,000 bytes: production\'s edge (AWS WAF SizeRestrictions_BODY) refuses one over 8 KB.')),
+  proposed(r('identity.contactChanges','identity','/api/v1/identity/me/contact-changes',P,false,undefined,
+    `${PARITY_B3} Patient sessions only, CSRF. { channel: email, email, currentPassword } sends a 6-digit code to the new `
+    + 'address and answers { changeId, maskedContact, expiresInSeconds, resendAfterSeconds }; { channel: phone, phone, '
+    + 'currentPassword } changes the phone at once (no SMS is sent) and answers { phone, phoneVerified: false }. The old '
+    + 'email is told either way. 403 PASSWORD_INCORRECT (rate limited), 409 CONTACT_UNAVAILABLE, 409 PASSWORD_REQUIRED for '
+    + 'an account without a password. The account\'s own email is taken only while it is not verified, and its code verifies '
+    + 'it; an Identity before that answers 400 CONTACT_UNCHANGED.')),
+  proposed(r('identity.contactChangeVerify','identity','/api/v1/identity/me/contact-changes/:changeId/verify',P,false,undefined,
+    `${PARITY_B3} Patient sessions only, CSRF. { code } answers { email }: sign-in and recovery use the new address from `
+    + 'then on. 400 OTP_INVALID_OR_EXPIRED for a wrong or expired code.')),
   // Phase 3 patient safety (hid-system phase-3-patient-safety, ADR-036).
   r('identity.accountDeletion','identity','/api/v1/identity/me/account-deletion',GP),
   r('identity.accountDeletionConfirm','identity','/api/v1/identity/me/account-deletion/confirm',P),
@@ -620,6 +651,19 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     'Served by hid-system staging-novu-ci-20261005 (0062); not served by hid-system main. 200 { id, readAt }; audited.')),
 
   r('ehr.myRecords','ehr','/api/v1/ehr/me/records',G),
+  // hid-1.0 patient parity B3 (hid-system 0094 on staging-novu-ci-20261005): the health information the patient enters,
+  // kept apart from clinicians' records, and the clinician's read of it.
+  proposed(r('ehr.myHealthProfile','ehr','/api/v1/ehr/me/health-profile',['GET','PUT'],false,undefined,
+    `${PARITY_B3} Patient sessions only, CSRF on PUT. 200 { bloodGroup, genotype, allergies, currentMedications, `
+    + 'chronicConditions, medicalNotes, rowVersion, updatedAt }; PUT the six with expectedVersion answers the same, 409 '
+    + 'VERSION_CONFLICT on a stale version. bloodGroup A+ A- B+ B- AB+ AB- O+ O- or null; genotype AA AS AC SS SC CC or null; '
+    + 'each text null or at most 1000 characters, newlines the only control characters. The portal sends no body over 8,000 '
+    + 'bytes (production\'s edge refuses one over 8 KB), which long texts of several bytes a character can reach.')),
+  proposed(r('ehr.patientReportedHealthProfile','ehr','/api/v1/ehr/patients/:patientId/reported-health-profile',G,false,
+    one('GET','ehr.note.read'),
+    `${PARITY_B3} Staff sessions with X-Facility-ID and X-Purpose-Of-Use: direct-care, while access to the patient is granted, `
+    + 'authorised and audited as the chart reads are (a view in the patient\'s access log). 200 { bloodGroup, genotype, '
+    + 'allergies, currentMedications, chronicConditions, medicalNotes, updatedAt }, shown as reported by the patient.')),
   r('ehr.myImportedHistory','ehr','/api/v1/ehr/me/imported-history',G,false,undefined,
     'Patient sessions only. 503 IMPORTED_HISTORY_DISABLED until hid-system turns the patient read on (ADR-067, 0099). '
     + 'Optional cursor. Not part of ehr.myRecords.'),

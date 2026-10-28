@@ -54,6 +54,10 @@ const NOT_ON_MAIN = [
   // hid-1.0 patient parity B2 (hid-system 0093 on staging-novu-ci-20261005): the bell's count and the access log, and the
   // hid-1.0 notifications carried over (0062), which the count includes.
   'notifications.unreadCount', 'identity.accessLog', 'notifications.imported', 'notifications.importedRead',
+  // hid-1.0 patient parity B3 (hid-system 0094 on staging-novu-ci-20261005): the profile's coverage, photo and contact
+  // details, the health information the patient enters, and the chart's read of it.
+  'identity.profileDetails', 'identity.myPhoto', 'identity.myPhotoChange', 'identity.contactChanges', 'identity.contactChangeVerify',
+  'ehr.myHealthProfile', 'ehr.patientReportedHealthProfile',
 ] as const
 
 describe('routes hid-system main does not serve', () => {

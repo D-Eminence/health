@@ -815,6 +815,48 @@ describe('application boundaries', () => {
     }
   })
 
+  it('registers the profile parity routes (hid-1.0 parity B3, hid-system 0094) for the portal only, as proposed', () => {
+    const routes = [
+      ['identity.profileDetails', '/api/v1/identity/me/profile-details', ['GET', 'PUT']],
+      ['identity.myPhoto', '/api/v1/identity/me/photo', ['GET']],
+      ['identity.myPhotoChange', '/api/v1/identity/me/photo', ['PUT', 'DELETE']],
+      ['identity.contactChanges', '/api/v1/identity/me/contact-changes', ['POST']],
+      ['identity.contactChangeVerify', '/api/v1/identity/me/contact-changes/:changeId/verify', ['POST']],
+      ['ehr.myHealthProfile', '/api/v1/ehr/me/health-profile', ['GET', 'PUT']],
+    ] as const
+    for (const [name, path, methods] of routes) {
+      expect(findEndpoint(name), name).toMatchObject({ path, methods, status: 'proposed', auth: { kind: 'authenticated' } })
+      expect(() => assertEndpointAllowed('patient-web', name), name).not.toThrow()
+      for (const app of ['staff-web', 'admin-web', 'public-web'] as const) {
+        expect(() => assertEndpointAllowed(app, name), `${app}: ${name}`).toThrow(BoundaryViolationError)
+      }
+    }
+    // The photo is read as bytes and changed as JSON, at the one path.
+    expect(assertRegisteredBrowserRequest('GET', '/api/v1/identity/me/photo', undefined, 'download').name).toBe('identity.myPhoto')
+    expect(() => assertRegisteredBrowserRequest('GET', '/api/v1/identity/me/photo')).toThrow(BrowserRouteError)
+    expect(assertRegisteredBrowserRequest('PUT', '/api/v1/identity/me/photo').name).toBe('identity.myPhotoChange')
+    expect(assertRegisteredBrowserRequest('DELETE', '/api/v1/identity/me/photo').name).toBe('identity.myPhotoChange')
+    expect(() => assertRegisteredBrowserRequest('POST', '/api/v1/identity/me/photo')).toThrow(BrowserRouteError)
+    expect(assertRegisteredBrowserRequest('PUT', '/api/v1/identity/me/profile-details').name).toBe('identity.profileDetails')
+    expect(assertRegisteredBrowserRequest('PUT', '/api/v1/ehr/me/health-profile').name).toBe('ehr.myHealthProfile')
+    expect(assertRegisteredBrowserRequest('POST', '/api/v1/identity/me/contact-changes/change-1/verify').name)
+      .toBe('identity.contactChangeVerify')
+    expect(() => assertRegisteredBrowserRequest('PATCH', '/api/v1/identity/me/profile-details')).toThrow(BrowserRouteError)
+  })
+
+  it('lets the chart read what the patient reported, and nothing else reach it (hid-1.0 parity B3)', () => {
+    const name = 'ehr.patientReportedHealthProfile'
+    expect(findEndpoint(name)).toMatchObject({ path: '/api/v1/ehr/patients/:patientId/reported-health-profile', methods: ['GET'],
+      status: 'proposed', permissions: { GET: ['ehr.note.read'] } })
+    expect(findEndpoint(name)?.note).toMatch(/direct-care/)
+    expect(() => assertEndpointAllowed('staff-web', name)).not.toThrow()
+    expect(() => assertEndpointAllowed('ehr-web', name)).not.toThrow()
+    expect(() => assertEndpointAllowed('patient-web', name)).toThrow(BoundaryViolationError)
+    expect(() => assertEndpointAllowed('ehr-web', 'ehr.myHealthProfile')).toThrow(BoundaryViolationError)
+    expect(assertRegisteredBrowserRequest('GET', '/api/v1/ehr/patients/patient-1/reported-health-profile').name).toBe(name)
+    expect(() => assertRegisteredBrowserRequest('PUT', '/api/v1/ehr/patients/patient-1/reported-health-profile')).toThrow(BrowserRouteError)
+  })
+
   it('refuses an admin endpoint in a patient application', () => {
     expect(() => assertEndpointAllowed('patient-web','admin.overview')).toThrow(BoundaryViolationError)
   })
