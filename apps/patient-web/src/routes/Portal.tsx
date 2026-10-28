@@ -29,6 +29,15 @@ import { dayWords, groupByDay, matchesQuery } from './recordSearch'
 import { NOTIFICATION_SUBJECTS, notificationTitle } from './notificationTitles'
 import { AccessLogCard } from './AccessLog'
 import { NotificationBell, UnreadNotificationsProvider, useOnNotificationChange, useUnreadNotifications } from '../notificationBadge'
+import { ProfileChangeProvider, useOnProfileChange } from '../profileChange'
+import { useFocusSectionFromHash } from './sectionFocus'
+import { completionOf, useProfileSources } from './profileSources'
+import { completionServed } from './profileCompletion'
+import { ProfileCompletionCard } from './ProfileCompletion'
+import { ContactDetailsCard } from './ProfileContact'
+import { Avatar, PhotoCard, usePatientPhoto } from './ProfilePhoto'
+import { CoverageCard } from './ProfileCoverage'
+import { HealthInformationCard } from './HealthInformation'
 
 const links = [
   { to: '/', label: 'Overview', end: true },
@@ -104,18 +113,33 @@ export function PortalShell() {
   }
 
   // The bell's count is read here, for every page under the shell (notificationBadge.tsx).
-  return <UnreadNotificationsProvider><div className="patient-app">
+  return <UnreadNotificationsProvider><ProfileChangeProvider><div className="patient-app">
     <header className="patient-app-header"><div className="patient-app-header-inner">
       <NavLink to="/" className="patient-app-logo" aria-label="Health ID home"><BrandLogo /></NavLink>
       <span className="patient-header-title">Patient portal</span>
       <NotificationBell />
+      <HeaderAvatar />
       <button ref={signOutButton} type="button" className="patient-signout" onClick={() => void logout()} disabled={signingOut}>{signingOut ? 'Signing out…' : 'Sign out'}</button>
     </div></header>
     <div className="patient-app-body"><nav className="patient-side-nav" aria-label="Patient pages" onFocus={revealFocusedLink}>
       {patientChatEnabled() && <NavLink to="/chat" className="patient-nav-link">Ask about your records</NavLink>}
       {links.map(link => <NavLink key={link.to} to={link.to} end={'end' in link ? link.end : false} className={({ isActive }) => isActive ? 'patient-nav-link active' : 'patient-nav-link'}>{link.label}</NavLink>)}
     </nav><main ref={main} className="patient-main" id="main">{error && <p role="alert" className="patient-inline-error">{error}</p>}<Outlet /></main></div>
-  </div></UnreadNotificationsProvider>
+  </div></ProfileChangeProvider></UnreadNotificationsProvider>
+}
+
+/**
+ * The patient's photo, or their initials, in the header, linking to their profile (hid-1.0's profile pill; parity B3).
+ * The photo is read only when Identity says there is one, and again when the profile page changes it.
+ */
+function HeaderAvatar() {
+  const { api } = useSession()
+  const profile = usePatientResource(api.profile)
+  const shown = profile.data && !profile.error && typeof profile.data === 'object' ? profile.data : null
+  const photo = usePatientPhoto(shown?.hasPhoto === true)
+  useOnProfileChange(() => { void profile.reload().then(() => photo.reload()) })
+  return <NavLink to="/profile" className="patient-avatar-link" aria-label="Your profile">
+    <Avatar profile={shown} url={photo.url} size="small" /></NavLink>
 }
 
 const HEALTH_LABELS: Readonly<Record<ImportedHealthField, string>> = {
@@ -141,30 +165,41 @@ function ImportedHealthCard({ profile }: { profile: ImportedHealthProfile }) {
  * owner's decision of 2026-10-27 a patient signs up without a NIN and may add it here,
  * optionally. Where Identity still refuses it (503 QOREID_PATIENT_NIN_BINDING_DISABLED
  * while QOREID_PATIENT_SELF_NIN_BINDING_ENABLED is off), the card says so plainly.
+ *
+ * hid-1.0 parity B3 (hid-system 0094): the profile's completion, contact details, photo, coverage and health
+ * information, each shown only where the backend serves it (a 404, or GET identity/me without the new keys, hides it).
  */
 export function ProfilePage() {
   const { api } = useSession()
   useDocumentTitle('Your profile · Health ID')
-  const profile = usePatientResource(api.profile)
+  const { profile, details, health, contacts } = useProfileSources()
   // Novu sends a migrated patient's hid-1.0 health details with the records (importedHealthProfile), null for anyone else.
   const records = usePatientResource<PatientRecords | null>(usesNovuBackend() ? api.records : noRecords)
-  const health = records.error ? null : records.data?.importedHealthProfile ?? null
+  const imported = records.error ? null : records.data?.importedHealthProfile ?? null
   const heading = useRef<HTMLHeadingElement>(null)
+  useFocusSectionFromHash(heading)
+  const completion = completionOf(profile.error ? null : profile.data, { details, health, contacts })
+  const shown = profile.data && !profile.error ? profile.data : null
 
   return <section className="patient-section"><p className="patient-eyebrow">Identity</p><h1 ref={heading} tabIndex={-1} className="patient-page-title">Your profile</h1>
     <p className="patient-page-copy">These details come from your verified Health ID account.</p>
     <LoadState loading={profile.loading} error={profile.error} retry={profile.reload} hasData={profile.data !== null} focusTarget={heading} />
-    {profile.data && !profile.error && <div className="patient-card" aria-busy={profile.loading || undefined}><h2>Bio-data</h2><dl className="patient-details">
-      <div><dt>Health ID</dt><dd><HealthIdCode code={profile.data.hid} /></dd></div>
-      <div><dt>Full name</dt><dd>{profile.data.fullName}</dd></div>
-      <div><dt>Date of birth</dt><dd>{date(profile.data.dateOfBirth)}</dd></div>
-      <div><dt>Gender</dt><dd>{profile.data.gender || 'Not provided'}</dd></div>
-      <div><dt>State</dt><dd>{profile.data.state || 'Not provided'}</dd></div>
-      <div><dt>Country</dt><dd>{profile.data.country || 'Not provided'}</dd></div>
-      <div><dt>Identity assurance</dt><dd>{profile.data.assuranceState || 'Not available'}</dd></div>
+    {shown && completion && <ProfileCompletionCard completion={completion} />}
+    {shown && <div className="patient-card" id="bio-data" aria-busy={profile.loading || undefined}><h2 tabIndex={-1}>Bio-data</h2><dl className="patient-details">
+      <div><dt>Health ID</dt><dd><HealthIdCode code={shown.hid} /></dd></div>
+      <div><dt>Full name</dt><dd>{shown.fullName}</dd></div>
+      <div><dt>Date of birth</dt><dd>{date(shown.dateOfBirth)}</dd></div>
+      <div><dt>Gender</dt><dd>{shown.gender || 'Not provided'}</dd></div>
+      <div><dt>State</dt><dd>{shown.state || 'Not provided'}</dd></div>
+      <div><dt>Country</dt><dd>{shown.country || 'Not provided'}</dd></div>
+      <div><dt>Identity assurance</dt><dd>{shown.assuranceState || 'Not available'}</dd></div>
     </dl></div>}
-    {profile.data && !profile.error && health && <ImportedHealthCard profile={health} />}
-    {profile.data && !profile.error && <NinVerificationCard profile={profile.data} onVerified={profile.reload} />}
+    {shown && <ContactDetailsCard profile={shown} onChanged={profile.reload} />}
+    {shown && completionServed(shown) && <PhotoCard profile={shown} onChanged={profile.reload} />}
+    {shown && <CoverageCard resource={details} />}
+    {shown && <HealthInformationCard resource={health} fromHid1={imported} />}
+    {shown && imported && <ImportedHealthCard profile={imported} />}
+    {shown && <div id="nin-verification"><NinVerificationCard profile={shown} onVerified={profile.reload} /></div>}
   </section>
 }
 
@@ -536,6 +571,8 @@ export function SettingsPage() {
   const pinFocus = useStepFocus()
   const revokePinButton = useRef<HTMLButtonElement>(null)
   const focusAfter = useActionFocus()
+  // The profile's completion links to the emergency contacts here (/settings#emergency-contacts).
+  useFocusSectionFromHash(heading)
 
   const configurePin = async (event: FormEvent) => {
     event.preventDefault(); if (busy || !/^\d{4,8}$/.test(pin)) return

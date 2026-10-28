@@ -38,13 +38,15 @@ export function suggest(facilities: readonly Facility[], text: string): Facility
  * hospital directory as the person types, as hid-1.0's sign-up offered. A combobox:
  * arrow keys move through the suggestions, Enter picks one, Escape closes them.
  */
-export function HospitalPicker({ id: inputId, inputRef, value, onChange, invalid, describedBy }: {
+export function HospitalPicker({ id: inputId, inputRef, value, onChange, invalid, describedBy, maxLength = 200 }: {
   id: string
   inputRef?: Ref<HTMLInputElement>
   value: string
   onChange: (value: string) => void
   invalid?: boolean
   describedBy?: string
+  /** The most characters the field takes: the profile's coverage keeps 120 (hid-1.0 parity B3). */
+  maxLength?: number
 }) {
   const id = useId()
   const listId = `${id}-suggestions`
@@ -79,7 +81,7 @@ export function HospitalPicker({ id: inputId, inputRef, value, onChange, invalid
   return <div ref={area} className="patient-hospital-picker">
     <input id={inputId} ref={inputRef} role="combobox" aria-autocomplete="list" aria-expanded={shown} aria-controls={listId}
       aria-activedescendant={shown && active >= 0 ? `${listId}-${active}` : undefined}
-      autoComplete="off" maxLength={200} value={value}
+      autoComplete="off" maxLength={maxLength} value={value}
       onFocus={() => { start(); setOpen(true) }}
       onChange={event => { start(); onChange(event.target.value); setOpen(true); setActive(-1) }}
       onBlur={() => { setOpen(false); setActive(-1) }}

@@ -1,6 +1,7 @@
 import { StaffPatientChat } from './StaffPatientChat'
 import { usesNovuBackend } from '../../backendContract'
 import { ImportedPatientHistory } from './ImportedPatientHistory'
+import { PatientReportedHealth } from './PatientReportedHealth'
 import { StaffImportedHistory } from './StaffImportedHistory'
 import { importedRecordsEnabled, staffPatientChatEnabled } from '../stagingOnlyFeatures'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
@@ -1779,6 +1780,11 @@ export function Clinical() {
       key={JSON.stringify([state.status==='ready'?state.session.actor.id:'',facility.id,facility.membershipId,patientId,activePatient.purpose,permissions])}
       facilityId={facility.id} facilityName={facility.name} patientId={patientId!}
       patientName={activePatient.lookup.patient.fullName??activePatient.hid} hid={activePatient.hid} />}
+    {/* hid-1.0 parity B3 (hid-system 0094): what the patient entered about their health, as reported by them. Read as the
+        chart's other reads are; a backend before it answers 404 and nothing is shown. */}
+    {permissions.includes('ehr.note.read') && activePatient.purpose === 'direct-care' && <PatientReportedHealth
+      key={JSON.stringify([state.status === 'ready' ? state.session.actor.id : '', facility.id, patientId, activePatient.purpose, permissions])}
+      facilityId={facility.id} patientId={patientId!} />}
     {permissions.includes('ehr.note.read') && importedRecordsEnabled() && <ImportedPatientHistory
       key={JSON.stringify([state.status === 'ready' ? state.session.actor.id : '', facility.id, patientId, activePatient.purpose, permissions])}
       facilityId={facility.id} patientId={patientId!} purpose="direct-care" verify={verify}

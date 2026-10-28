@@ -30,8 +30,15 @@ export const profile: PatientProfile = {
  */
 export const PARITY_B2_PATHS = ['/identity/me/notifications/unread-count', '/identity/me/access-log', '/identity/me/imported-notifications'] as const
 const isParityB2 = (path: string) => PARITY_B2_PATHS.some(served => path === served || path.startsWith(`${served}/`))
+/**
+ * The same for hid-1.0 parity B3 (hid-system 0094): the profile's coverage, photo and contact changes, and the
+ * health information the patient enters. Unless a test serves them (`parityB3`), they answer 404, as a backend before
+ * 0094 does, and are not recorded in `sent`.
+ */
+export const PARITY_B3_PATHS = ['/identity/me/profile-details', '/identity/me/photo', '/identity/me/contact-changes', '/ehr/me/health-profile'] as const
+const isParityB3 = (path: string) => PARITY_B3_PATHS.some(served => path === served || path.startsWith(`${served}/`))
 
-export function patientApi(handler: Handler, { parityB2 = false }: { parityB2?: boolean } = {}) {
+export function patientApi(handler: Handler, { parityB2 = false, parityB3 = false }: { parityB2?: boolean; parityB3?: boolean } = {}) {
   const sent: Sent[] = []
   // Each request's headers, in the order sent, apart from `sent` so its entries stay comparable as they are.
   const headers: Array<{ path: string; method: string; headers: Headers }> = []
@@ -40,6 +47,7 @@ export function patientApi(handler: Handler, { parityB2 = false }: { parityB2?: 
     const method = init?.method ?? 'GET'
     const body = init?.body ? JSON.parse(String(init.body)) as unknown : null
     if (!parityB2 && isParityB2(path)) return problem(404, 'NOT_FOUND', `Cannot ${method} ${path}`)
+    if (!parityB3 && isParityB3(path)) return problem(404, 'NOT_FOUND', `Cannot ${method} ${path}`)
     sent.push({ path, method, body })
     headers.push({ path, method, headers: new Headers(init?.headers) })
     return handler(path, method, body)
@@ -54,9 +62,9 @@ type SessionValue = ReturnType<typeof createTestSessionValue>
 
 /** Renders `ui` for a signed-in patient. Paths are recorded without the /api/v1 prefix. */
 export function renderPortal(ui: ReactElement, handler: Handler, session: Partial<SessionValue> = {},
-  options: { parityB2?: boolean } = {}) {
+  options: { parityB2?: boolean; parityB3?: boolean; at?: string } = {}) {
   const { api, sent, headers } = patientApi(handler, options)
-  const view = render(<MemoryRouter><SessionContext.Provider value={{ ...createTestSessionValue({
+  const view = render(<MemoryRouter initialEntries={[options.at ?? '/']}><SessionContext.Provider value={{ ...createTestSessionValue({
     kind: 'patient', subjectId: 'patient:subject', appRole: 'patient', assuranceLevel: 'aal1',
   }, api), ...session }}>{ui}</SessionContext.Provider></MemoryRouter>)
   return { sent, view, headers }

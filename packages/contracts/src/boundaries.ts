@@ -134,14 +134,19 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       // The patient's choice to share imported history with staff (hid-system #94, ADR-067).
       'identity.importedHistorySharing',
       // Who viewed or changed the patient's record (hid-system 0093, Novu only; an Identity before it answers 404).
-      'identity.accessLog'],
+      'identity.accessLog',
+      // The profile's coverage, photo and contact details (hid-system 0094, Novu only; a backend before it answers 404).
+      'identity.profileDetails', 'identity.myPhoto', 'identity.myPhotoChange', 'identity.contactChanges',
+      'identity.contactChangeVerify'],
     access: ['access.patientRequests', 'access.approve', 'access.deny', 'access.revokeMyGrant'],
     // Imported history (#94) and patient record chat (#95, ADR-068) are patient-only routes.
     ehr: ['ehr.myRecords', 'ehr.myImportedHistory', 'ehr.patientChatAvailability', 'ehr.patientChat', 'ehr.patientChatHistory',
       // Served by hid-system's staging branches, not main; off unless the build turns the screens on.
       'ehr.myImportedAttachment', 'ehr.patientChatSource',
       // The patient's orders sent to other facilities, and Stop before acceptance (P4c; Novu only, main answers 404).
-      'ehr.myOrderRoutes', 'ehr.myOrderRouteWithdraw'],
+      'ehr.myOrderRoutes', 'ehr.myOrderRouteWithdraw',
+      // The health information the patient enters (hid-system 0094, Novu only; a backend before it answers 404).
+      'ehr.myHealthProfile'],
   },
   'staff-web': {
     // Staff sign-in is two steps since hid-system #71: the password, then an
@@ -186,7 +191,9 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       'ehr.labRequestOrderRoutes', 'ehr.labRequestOrderRouteWithdraw', 'ehr.prescriptionOrderRoutes',
       'ehr.prescriptionOrderRouteWithdraw', 'ehr.orderRouteAttestation',
       // The Overview's orders that the receiver ended as accepted for the wrong person (item 3, D10; proposed, 404 until served).
-      'ehr.orderRoutesWrongPatient'],
+      'ehr.orderRoutesWrongPatient',
+      // The health information the patient entered, on the chart as reported by the patient (hid-system 0094; 404 until served).
+      'ehr.patientReportedHealthProfile'],
     // Facility billing (docs/BILLING_SPEC.md; proposed routes) and the price catalogue it shows. Not demo requests.
     commercial: ['commercial.pricing', 'commercial.subscription', 'commercial.subscriptionTrial',
       'commercial.subscriptionCheckout', 'commercial.invoices'],
@@ -236,6 +243,11 @@ export function assertEndpointAllowed(app: HidApp, endpointName: string): void {
   }
   if (['ehr.patientChatAvailability', 'ehr.patientChat', 'ehr.patientChatHistory', 'ehr.patientChatSource'].includes(endpointName) && app !== 'patient-web') {
     throw new BoundaryViolationError('Patient record chat is available only to the patient application.')
+  }
+  // Patient parity B3: the patient enters their health information in the portal; a clinician reads it in the chart only.
+  if ((endpointName === 'ehr.myHealthProfile' && app !== 'patient-web')
+    || (endpointName === 'ehr.patientReportedHealthProfile' && !['staff-web', 'ehr-web'].includes(app))) {
+    throw new BoundaryViolationError('Patient-reported health information is available only in its patient or provider context.')
   }
   const descriptor = findEndpoint(endpointName)
 

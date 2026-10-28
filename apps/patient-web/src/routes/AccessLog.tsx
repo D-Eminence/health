@@ -11,7 +11,7 @@ import { useActionFocus, useRetryFocus } from './actionFocus'
  * access log, newest first, a page at a time, with "Show more" for older events. Clinicians and facilities are named,
  * as hid-1.0 named them. An Identity before it answers 404 and the section is not shown.
  */
-const WHAT: Readonly<Record<AccessLogAction, string>> = {
+export const WHAT: Readonly<Record<AccessLogAction, string>> = {
   viewed: 'Viewed your record',
   changed: 'Changed your record',
   access_granted: 'Was given access to your record',

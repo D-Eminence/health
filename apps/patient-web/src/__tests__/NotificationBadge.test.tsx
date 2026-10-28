@@ -200,8 +200,10 @@ describe('the bell after a 401, while the patient stays on the page', () => {
       return 3
     })
     const { api } = patientApi(() => json([]))
+    // Until then the header's profile read (hid-1.0 parity B3) is refused as the count is, so no answer says the sign-in is live.
+    const profile = vi.fn(async () => { throw new HidApiError(401, 'Sign in again.', { code: 'AUTHENTICATION_REQUIRED' }) })
     renderPortal(<ToastProvider><Routes><Route path="/" element={<PortalShell />}><Route index element={<p>Overview page</p>} /></Route>
-    </Routes></ToastProvider>, () => json([]), { api: { ...api, unreadNotificationCount } })
+    </Routes></ToastProvider>, () => json([]), { api: { ...api, unreadNotificationCount, profile } })
     await waitFor(() => expect(unreadNotificationCount).toHaveBeenCalledTimes(1))
     for (let held = 1; held < UNREAD_WAITING_EVERY; held += 1) await minute()
     expect(unreadNotificationCount).toHaveBeenCalledTimes(1)

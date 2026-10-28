@@ -164,3 +164,7 @@ body { margin: 0; }
 .staff-late-correction > summary { cursor: pointer; font-weight: 600; color: var(--color-ink); }
 .staff-late-correction[open] > summary { margin-bottom: 12px; }
 .staff-late-correction .staff-list-item p { margin: 0; overflow-wrap: anywhere; }
+/* hid-1.0 parity B3: what the patient reported about their health, on the chart. */
+.staff-reported-health { display: grid; gap: 4px; margin: 8px 0 0; }
+.staff-reported-health dd { margin: 0; }
+.staff-multiline { white-space: pre-line; }
