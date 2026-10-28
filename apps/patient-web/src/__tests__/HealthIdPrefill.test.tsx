@@ -41,8 +41,11 @@ describe('patient sign-in', () => {
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Sign in' })) })
   }
 
-  it('starts at HID- and sends what follows it as a Health ID in capitals', async () => {
+  it('starts at HID- once focused and sends what follows it as a Health ID in capitals', async () => {
     show(<SignIn />)
+    // Empty until focused, so a browser can still fill a saved sign-in.
+    expect(field().value).toBe('')
+    fireEvent.focus(field())
     expect(field().value).toBe('HID-')
     // Nothing is put in capitals while typing: the field may yet hold an email.
     fireEvent.change(field(), { target: { value: 'HID-abc234' } })
@@ -91,8 +94,9 @@ describe('patient password reset', () => {
     await act(async () => { fireEvent.click(send) })
   }
 
-  it('starts at HID- and sends what follows it as a Health ID in capitals', async () => {
+  it('starts at HID- once focused and sends what follows it as a Health ID in capitals', async () => {
     show(<Recovery />)
+    fireEvent.focus(field())
     expect(field().value).toBe('HID-')
     fireEvent.change(field(), { target: { value: 'HID-abc234' } })
     expect(field().value).toBe('HID-abc234')

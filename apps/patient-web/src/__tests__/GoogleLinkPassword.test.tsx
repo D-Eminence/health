@@ -65,8 +65,10 @@ describe('the Google link card’s email or Health ID (owner decision, 2026-10-2
   }
   const linked = (sent: Array<{ path: string; body: unknown }>) => sent.filter(request => request.path === '/auth/google/link')
 
-  it('starts at HID-, which alone does not count as filled in', async () => {
+  it('starts at HID- once focused, which alone does not count as filled in', async () => {
     const { card, principal } = await openCard()
+    expect(principal.value).toBe('')
+    fireEvent.focus(principal)
     expect(principal.value).toBe('HID-')
     expect((card.getByRole('button', { name: 'Continue with Google' }) as HTMLButtonElement).disabled).toBe(true)
     fireEvent.change(principal, { target: { value: 'HID-a' } })

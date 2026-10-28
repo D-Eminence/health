@@ -265,6 +265,7 @@
   .patient-session-note p { margin: 0; }
   .patient-session-note a { color: var(--color-brand); font-weight: 600; text-decoration: underline; }
   .patient-field-hint { margin: 0; color: var(--color-muted); font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+  .patient-field-hint a { color: var(--color-brand); font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
   .patient-text-button { justify-self: start; padding: 0; border: 0; background: transparent; font-size: 13px; cursor: pointer; }
   .patient-step-list { display: flex; gap: 8px; margin: 26px 0 0; padding: 0; list-style: none; }
   .patient-step-list li { flex: 1; padding: 9px 4px; border-bottom: 2px solid var(--color-line-strong); color: var(--color-muted); font-size: 12px; text-align: center; }
@@ -307,7 +308,9 @@
   .patient-hid { display: grid; gap: 10px; }
   .patient-hid .patient-hid-code { display: block; padding: 20px 18px; border: 1px dashed var(--color-brand); border-radius: var(--radius-card); background: var(--color-brand-tint); color: var(--color-brand); font-family: var(--font-mono); font-size: clamp(22px, 7vw, 28px); font-weight: 700; letter-spacing: .04em; text-align: center; overflow-wrap: anywhere; user-select: all; }
   .patient-hid-note { margin: 0; color: var(--color-muted); font-size: 13px; }
+  .patient-hid-note:empty { position: absolute; }
   .patient-identity-card .patient-hid, .patient-details .patient-hid { justify-items: start; }
+  .patient-details .patient-hid { padding-top: 0; border-top: 0; }
   .patient-identity-card .patient-hid-code { padding: 0; border: 0; background: none; color: inherit; font-size: clamp(22px, 3vw, 32px); text-align: left; }
   .patient-identity-card .patient-hid-note { color: var(--color-inverse-ink); }
   .patient-details .patient-hid-code { padding: 0; border: 0; background: none; color: var(--color-ink); font-size: 16px; text-align: left; }

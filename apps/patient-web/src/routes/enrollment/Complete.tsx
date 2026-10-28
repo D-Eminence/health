@@ -12,7 +12,7 @@ const SAVE_HID = 'Save your Health ID now: write it down or keep it somewhere sa
 
 /** The activated Health ID. Nothing is stored; it is copied only when the patient asks. */
 export function Complete({ focusTarget, hidCode }: { focusTarget: (element: HTMLElement | null) => void; hidCode: string }) {
-  return <div className="patient-success" role="status">
+  return <div className="patient-success" role="status" aria-atomic="false">
     <h2 ref={focusTarget} tabIndex={-1}>Your Health ID is ready.</h2>
     <HealthIdCode code={hidCode} />
     <p>{SAVE_HID}</p>

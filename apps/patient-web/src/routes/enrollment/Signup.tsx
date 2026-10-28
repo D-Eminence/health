@@ -393,7 +393,7 @@ export function PatientSignup({ focusOnArrival = false }: {
         onClick={() => { clearMessages(); backToDetails(); stepFocus.focus() }}>Change your details</button>
     </form>}
 
-    {step === 'done' && <div className="patient-success" role="status">
+    {step === 'done' && <div className="patient-success" role="status" aria-atomic="false">
       <h2 ref={stepFocus.target} tabIndex={-1}>Your Health ID is ready.</h2>
       <HealthIdCode code={hidCode} />
       <p>Save this code: write it down or keep it somewhere safe. This page may not show it again once you leave or reload it.</p>

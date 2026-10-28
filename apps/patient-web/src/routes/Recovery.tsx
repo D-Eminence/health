@@ -17,7 +17,8 @@ export function Recovery() {
   const stepFocus = useStepFocus()
   const [step, setStep] = useState<Step>('start')
   // Starts at HID- (owner decision, 2026-10-27); an email typed after it drops it.
-  const [identifier, setIdentifier] = useState(HEALTH_ID_PREFIX)
+  // Empty until focused, so a browser can still fill a saved sign-in; HID- as soon as the person starts.
+  const [identifier, setIdentifier] = useState('')
   const [code, setCode] = useState('')
   const [password, setPassword] = useState('')
   const [challengeId, setChallengeId] = useState('')
@@ -104,7 +105,7 @@ export function Recovery() {
   return <AuthLayout brandTo="/sign-in" title="Reset your password." titleId="recovery-title">
     {error && <p id="recovery-error" role={errorAlert ? 'alert' : undefined} className="patient-inline-error">{error}</p>}
     {step === 'start' && <form onSubmit={start} className="patient-form"><p id="recovery-start-hint" className="patient-page-copy">Enter your email or Health ID. We will send a code to your verified contact.</p>
-      <label>Email or Health ID<input ref={stepFocus.target} required autoComplete="username" value={identifier} onChange={event => setIdentifier(healthIdOrOtherInput(event.target.value))}
+      <label>Email or Health ID<input ref={stepFocus.target} required autoComplete="username" value={identifier} onFocus={() => { if (!identifier) setIdentifier(HEALTH_ID_PREFIX) }} onChange={event => setIdentifier(healthIdOrOtherInput(event.target.value))}
         aria-invalid={invalid} aria-describedby={describedBy('recovery-start-hint', errorId)} /></label>
       <Turnstile action="patient-reset-start" onTokenChange={setTurnstileToken} resetKey={resetKey} />
       <button className="patient-primary-button" disabled={busy || !turnstileToken}>{busy ? 'Sending…' : 'Send recovery code'}</button></form>}

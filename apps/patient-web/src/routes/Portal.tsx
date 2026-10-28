@@ -415,7 +415,8 @@ export function SettingsPage() {
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   // Starts at HID- (owner decision, 2026-10-27); an email typed after it drops it, and HID- alone is not filled in.
-  const [googlePrincipal, setGooglePrincipal] = useState(HEALTH_ID_PREFIX)
+  // Empty until focused, so a browser can still fill a saved sign-in; HID- as soon as the person starts.
+  const [googlePrincipal, setGooglePrincipal] = useState('')
   const principalTyped = !isBlankHealthIdInput(googlePrincipal)
   const [googlePassword, setGooglePassword] = useState('')
   const [googleToken, setGoogleToken] = useState<string | null>(null)
@@ -475,7 +476,7 @@ export function SettingsPage() {
         is off for a patient without contacts. */}
     <EmergencyContactsCard />
     {import.meta.env.VITE_HID_GOOGLE_CLIENT_ID && googleClientId() && <div className="patient-card"><h2>Link a Google account</h2><p className="patient-field-hint">Confirm your existing Health ID credentials before linking.</p>
-      <div className="patient-form"><label>Email or Health ID<input autoComplete="username" value={googlePrincipal} onChange={event => setGooglePrincipal(healthIdOrOtherInput(event.target.value))} /></label>
+      <div className="patient-form"><label>Email or Health ID<input autoComplete="username" value={googlePrincipal} onFocus={() => { if (!googlePrincipal) setGooglePrincipal(HEALTH_ID_PREFIX) }} onChange={event => setGooglePrincipal(healthIdOrOtherInput(event.target.value))} /></label>
         {/* No form is sent here (Google's button sends it), so each attempt remounts the field masked. */}
         <div className="patient-field"><label htmlFor="google-link-password">Current password</label><PasswordInput appearance="plain" key={googleReset} id="google-link-password" autoComplete="current-password" value={googlePassword} onChange={event => setGooglePassword(event.target.value)} /></div>
         <Turnstile action="patient-login" onTokenChange={setGoogleToken} resetKey={googleReset} />

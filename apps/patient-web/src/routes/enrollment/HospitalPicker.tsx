@@ -82,11 +82,12 @@ export function HospitalPicker({ id: inputId, inputRef, value, onChange, invalid
       autoComplete="off" maxLength={200} value={value}
       onFocus={() => { start(); setOpen(true) }}
       onChange={event => { start(); onChange(event.target.value); setOpen(true); setActive(-1) }}
+      onBlur={() => { setOpen(false); setActive(-1) }}
       onKeyDown={onKeyDown} aria-invalid={invalid || undefined} aria-describedby={describedBy} />
     <ul id={listId} role="listbox" aria-label="Hospitals" hidden={!shown} className="patient-hospital-options">
       {shown && suggestions.map((facility, index) => (
         <li key={`${facility.name}-${facility.state}-${index}`} id={`${listId}-${index}`} role="option" aria-selected={index === active}
-          onPointerDown={event => { event.preventDefault(); pick(facility) }}>
+          onPointerDown={event => event.preventDefault()} onClick={() => pick(facility)}>
           <span>{facility.name}</span><small>{[facility.state, facility.type].filter(Boolean).join(' · ')}</small>
         </li>
       ))}

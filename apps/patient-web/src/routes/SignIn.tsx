@@ -15,7 +15,8 @@ export function SignIn() {
   const navigate = useNavigate()
   useDocumentTitle('Sign in · Health ID')
   // Starts at HID- (owner decision, 2026-10-27); an email typed after it drops it.
-  const [email, setEmail] = useState(HEALTH_ID_PREFIX)
+  // Empty until focused, so a browser can still fill a saved sign-in; HID- as soon as the person starts.
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
   const [resetKey, setResetKey] = useState(0)
@@ -71,7 +72,7 @@ export function SignIn() {
       <Link to="/provider">Go to the provider portal</Link>
     </div>}
     <form onSubmit={event => void submit(event)} className="patient-form">
-      <label>Email or Health ID<input required autoComplete="username" value={email} onChange={event => setEmail(healthIdOrOtherInput(event.target.value))} placeholder="you@example.com or HID-…" /></label>
+      <label>Email or Health ID<input required autoComplete="username" value={email} onFocus={() => { if (!email) setEmail(HEALTH_ID_PREFIX) }} onChange={event => setEmail(healthIdOrOtherInput(event.target.value))} placeholder="you@example.com or HID-…" /></label>
       <div className="patient-field"><label htmlFor="sign-in-password">Password</label><PasswordInput appearance="plain" id="sign-in-password" required autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} minLength={6} /></div>
       <div className="patient-form-aside"><Link to="/recover">Forgot password?</Link></div>
       <Turnstile action="patient-login" onTokenChange={setTurnstileToken} resetKey={resetKey} />

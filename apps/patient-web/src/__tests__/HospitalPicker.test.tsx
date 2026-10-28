@@ -65,12 +65,27 @@ describe('the hospital picker (hid-1.0 directory)', () => {
     const input = screen.getByRole('combobox', { name: 'Hospital you currently use (optional)' })
     fireEvent.focus(input)
     fireEvent.change(input, { target: { value: 'Nnamdi Azikiwe' } })
-    fireEvent.pointerDown(await screen.findByRole('option', { name: /Nnamdi Azikiwe University Teaching Hospital/ }))
+    const option = await screen.findByRole('option', { name: /Nnamdi Azikiwe University Teaching Hospital/ })
+    // A touch that only scrolls the list presses no option: nothing is picked until the click.
+    fireEvent.pointerDown(option)
+    expect((input as HTMLInputElement).value).toBe('Nnamdi Azikiwe')
+    fireEvent.click(option)
     expect((input as HTMLInputElement).value).toBe('Nnamdi Azikiwe University Teaching Hospital')
 
     fireEvent.change(input, { target: { value: 'Nnamdi' } })
     await screen.findAllByRole('option')
     fireEvent.pointerDown(document.body)
     expect(screen.queryByRole('option')).toBeNull()
+  })
+
+  it('closes the suggestions when focus leaves the field', async () => {
+    render(<Field />)
+    const input = screen.getByRole('combobox', { name: 'Hospital you currently use (optional)' })
+    fireEvent.focus(input)
+    fireEvent.change(input, { target: { value: 'Aba Gen' } })
+    await screen.findAllByRole('option')
+    fireEvent.blur(input)
+    expect(screen.queryByRole('option')).toBeNull()
+    expect(input.getAttribute('aria-expanded')).toBe('false')
   })
 })

@@ -16,7 +16,7 @@ export function HealthIdCode({ code }: { code: string }) {
   return <div className="patient-hid">
     <strong className="patient-hid-code">{code}</strong>
     <button type="button" className="patient-secondary-button" onClick={() => void copy()}>{copyState === 'copied' ? 'Copied' : 'Copy HID'}</button>
-    {copyState === 'copied' && <p role="status" className="patient-hid-note">Health ID copied.</p>}
+    <p role="status" className="patient-hid-note">{copyState === 'copied' ? 'Health ID copied.' : ''}</p>
     {copyState === 'failed' && <p role="alert" className="patient-hid-note">Copying is not available here. Press and hold your Health ID to copy it, or write it down.</p>}
   </div>
 }
