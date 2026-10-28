@@ -83,7 +83,11 @@ class UploadTests(unittest.TestCase):
                 version = body['versions'][0]['version_id'] if body is not None else suffix[9:] if route == 'GET versions/:id' else None
                 if faults.get((app, route, version)):
                     fault = faults[(app, route, version)].pop(0)
-                    error = (w.urllib.error.URLError('timed out') if fault == 'unreachable' else w.urllib.error.HTTPError(
+                    if fault == 'not-json':
+                        with patch.object(w.urllib.request, 'urlopen', return_value=io.BytesIO(b'<html>Bad gateway</html>')):
+                            return super().call(app, suffix, body)
+                    error = (fault if isinstance(fault, BaseException) else
+                             w.urllib.error.URLError('timed out') if fault == 'unreachable' else w.urllib.error.HTTPError(
                         self.base + 'scripts/hid-' + app + '-production/' + suffix + '?token=synthetic-token', fault,
                         'Not Found', {}, io.BytesIO(b'{"errors":[{"message":"ORIGIN_AUTH_TOKEN bindings"}]}')))
                     with patch.object(w.urllib.request, 'urlopen', side_effect=error):
@@ -366,15 +370,56 @@ class UploadTests(unittest.TestCase):
         self.assertIs(result.lease.released, False)
         self.assertEqual(self.refusals(result), [{'app': 'web', 'cloudflare_call': 'POST deployments', 'status': 404}])
 
-    def test_uncertain_delivery_for_a_new_version_is_never_asked_again(self):
-        for route, deployments in [('GET versions/:id', [('admin', TARGET), ('admin', PRIOR)]),
-                                   ('POST deployments', [('admin', TARGET), ('web', PRIOR), ('admin', PRIOR)])]:
-            with self.subTest(route=route):
-                result = self.execute(faults={('web', route, TARGET): ['unreachable', 'unreachable']})
+    def test_uncertain_delivery_of_a_deployment_is_never_asked_again(self):
+        for fault in ['unreachable', TimeoutError('timed out'), w.http.client.RemoteDisconnected('closed'),
+                      w.http.client.IncompleteRead(b'', 10), 'not-json']:
+            with self.subTest(fault=fault):
+                result = self.execute(faults={('web', 'POST deployments', TARGET): [fault, fault]})
                 self.assertEqual((result.error, result.sleeps), ('CLOUDFLARE_REQUEST_UNCERTAIN', []))
-                self.assertEqual(result.deployments, deployments)
+                self.assertEqual(result.deployments, [('admin', TARGET), ('web', PRIOR), ('admin', PRIOR)])
                 self.assertTrue(result.lease.released)
                 self.assertEqual(self.refusals(result), [])
+                self.assertNotIn('unexpected_error', result.output)
+
+    def test_a_read_with_no_answer_a_rate_limit_or_a_provider_error_is_asked_again(self):
+        faults = ['unreachable', TimeoutError('timed out'), w.http.client.RemoteDisconnected('closed'), 'not-json', 429, 500, 503]
+        for key in [('web', 'GET versions/:id', TARGET), ('web', 'GET versions', None), ('web', 'GET deployments', None),
+                    ('web', 'GET versions/:id', PRIOR)]:
+            for fault in faults:
+                with self.subTest(key=key, fault=fault):
+                    result = self.execute(faults={key: [fault] * 2})
+                    self.assertIsNone(result.error)
+                    self.assertEqual(result.deployments, [(app, TARGET) for app in w.HOSTS])
+                    self.assertEqual(result.sleeps, [w.READ_RETRY_SECONDS] * 2)
+
+    def test_a_read_that_never_answers_fails_closed_after_bounded_attempts(self):
+        result = self.execute(faults={('web', 'GET versions/:id', TARGET): [TimeoutError('timed out')] * 100})
+        self.assertEqual(result.error, 'CLOUDFLARE_REQUEST_UNCERTAIN')
+        # Three reads, then it fails: the 404 rounds are never entered, as only a 404 starts one.
+        self.assertEqual((w.READ_ATTEMPTS, w.READ_RETRY_SECONDS), (3, 2))
+        self.assertEqual(result.sleeps, [w.READ_RETRY_SECONDS] * 2)
+        self.assertEqual(result.deployments, [('admin', TARGET), ('admin', PRIOR)])
+        self.assertTrue(result.lease.released)
+
+    def test_a_refused_read_is_not_asked_again(self):
+        for status in [400, 401, 403, 409]:
+            with self.subTest(status=status):
+                result = self.execute(faults={('web', 'GET versions/:id', TARGET): [status] * 10})
+                self.assertEqual((result.error, result.sleeps), ('CLOUDFLARE_HTTP_' + str(status), []))
+                self.assertEqual(self.refusals(result), [{'app': 'web', 'cloudflare_call': 'GET versions/:id', 'status': status}])
+
+    def test_an_unexpected_controller_error_names_its_class_and_lines_but_never_its_message(self):
+        try:
+            raise KeyError('synthetic-secret-value')
+        except KeyError as error:
+            with contextlib.redirect_stdout(io.StringIO()) as output: w.unexpected(error, 'release')
+        line = json.loads(output.getvalue())
+        self.assertEqual((line['stage'], line['unexpected_error']), ('release', 'KeyError'))
+        self.assertEqual([frame[:2] for frame in line['at']],
+                         [['test_production_deployment_upload.py', 'test_an_unexpected_controller_error_names_its_class_and_lines_but_never_its_message']])
+        self.assertNotIn('synthetic-secret-value', output.getvalue())
+        with contextlib.redirect_stdout(io.StringIO()) as output: w.unexpected(c.ReleaseError('KNOWN'), 'release')
+        self.assertEqual(output.getvalue(), '')
 
     def test_uploaded_version_without_origin_secret_is_refused(self):
         result = self.execute(missing_binding=True)

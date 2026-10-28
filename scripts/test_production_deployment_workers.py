@@ -1,5 +1,6 @@
 import copy
 import importlib.util
+import http.client
 import json
 import os
 import pathlib
@@ -50,8 +51,12 @@ class WorkerTests(unittest.TestCase):
             queued = answers.get(path)
             body, status, headers = queued.pop(0) if queued else (released[path], 200, None)
             if status == 'unreachable': raise w.urllib.error.URLError('connection reset')
-            if status != 200: raise w.urllib.error.HTTPError(request.full_url, status, 'Refused', {}, None)
+            # Met after the request was sent: urllib passes these on unwrapped.
+            if status == 'timeout': raise TimeoutError('timed out')
+            if status == 'reset': raise http.client.RemoteDisconnected('Remote end closed connection')
+            if status != 200 and status != 'cut': raise w.urllib.error.HTTPError(request.full_url, status, 'Refused', {}, None)
             response = BytesIO(body)
+            if status == 'cut': response.read = lambda *_: (_ for _ in ()).throw(http.client.IncompleteRead(b'', 10))
             response.status = 200
             response.headers = headers or {'x-content-type-options': 'nosniff', 'x-frame-options': 'DENY'}
             return response
@@ -83,6 +88,19 @@ class WorkerTests(unittest.TestCase):
         self.assertTrue(result['deep_link_verified'])
         self.assertEqual([line['waiting_for_edge'] for line in clock['printed']],
                          ['WORKER_ASSET_UNREACHABLE', 'WORKER_DEEP_LINK_DIFFERS'])
+
+    def test_a_timeout_reset_or_cut_off_answer_from_the_edge_is_waited_out(self):
+        for status in ['timeout', 'reset', 'cut']:
+            for path in ['', 'entry.js', 'sign-in']:
+                with self.subTest(status=status, path=path):
+                    result, clock = self.propagation('web', {path: [(b'', status, None)] * 2})
+                    self.assertTrue(result['deep_link_verified'])
+                    self.assertEqual(clock['sleeps'], [w.PROPAGATION_RETRY_SECONDS] * 2)
+                    self.assertEqual([line['waiting_for_edge'] for line in clock['printed']], ['WORKER_ASSET_UNREACHABLE'] * 2)
+        # Still bounded: an edge that never answers fails once the propagation window is spent.
+        result, clock = self.propagation('web', {'': [(b'', 'timeout', None)] * 1000})
+        self.assertEqual(str(result), 'WORKER_ASSET_UNREACHABLE')
+        self.assertEqual(sum(clock['sleeps']), w.PROPAGATION_SECONDS)
 
     def test_a_failed_html_check_says_what_the_edge_served(self):
         previous = b'<html><script src="/previous.js"></script></html>'

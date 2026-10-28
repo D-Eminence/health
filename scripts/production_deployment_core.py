@@ -259,12 +259,16 @@ class AWS:
         return self._run(command, env, extra)
 
     def _run(self, command, env, extra):
-        result = self.runner(command+(extra or [])+["--region",REGION,"--output","json","--no-cli-pager"],
-                             env=env, capture_output=True, text=True, timeout=90)
+        try:
+            result = self.runner(command+(extra or [])+["--region",REGION,"--output","json","--no-cli-pager"],
+                                 env=env, capture_output=True, text=True, timeout=90)
+        except subprocess.TimeoutExpired:
+            raise ReleaseError("AWS_REQUEST_UNCERTAIN") from None
         if result.returncode:
             match = re.search(r"\(([A-Za-z0-9]+)\)", result.stderr or "")
             raise ReleaseError("AWS_"+(match.group(1) if match else "REQUEST_UNCERTAIN"))
-        return json.loads(result.stdout) if result.stdout.strip() else {}
+        try: return json.loads(result.stdout) if result.stdout.strip() else {}
+        except ValueError: raise ReleaseError("AWS_REQUEST_UNCERTAIN") from None
 
     def account(self):
         require(self.call("sts","get-caller-identity").get("Account") == ACCOUNT, "WRONG_AWS_ACCOUNT")

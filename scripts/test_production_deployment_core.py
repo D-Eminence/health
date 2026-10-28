@@ -114,6 +114,13 @@ class CoreTests(unittest.TestCase):
                 'ExpectedBucketOwner': c.ACCOUNT, 'UnexpectedConstraint': 'must-not-disappear'}, extra=['output-file'])
         self.assertEqual(len(observed), 1)
 
+    def test_an_aws_cli_that_hangs_or_prints_no_json_is_uncertain(self):
+        def hangs(command, **kwargs): raise c.subprocess.TimeoutExpired(command, kwargs['timeout'])
+        def garbled(command, **kwargs): return type('Result', (), {'returncode': 0, 'stdout': 'not json', 'stderr': ''})()
+        for runner in [hangs, garbled]:
+            with self.subTest(runner=runner.__name__), self.assertRaisesRegex(c.ReleaseError, '^AWS_REQUEST_UNCERTAIN$'):
+                c.AWS(runner).call('dynamodb', 'get-item', {'TableName': 'hid-staging-deployment-leases'})
+
     def test_s3_stream_body_owner_and_conditional_writes(self):
         class Fake:
             def call(self,s,o,args,**kw):
