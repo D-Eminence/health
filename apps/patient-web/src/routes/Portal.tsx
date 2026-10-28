@@ -14,6 +14,7 @@ import { patientChatEnabled } from '../chatFeatures'
 import { usePatientResource } from './usePatientResource'
 import { useActionFocus, useRetryFocus } from './actionFocus'
 import { AccountDeletionCard, EmergencyContactsCard } from './AccountSafety'
+import { DeviceNotificationsCard, InstallAppCard } from './DeviceSettings'
 import { revealFocusedLink } from '../navStrip'
 import { describedBy, isFieldProblem, useDocumentTitle, useStepFocus } from '../authSteps'
 import { useFocusOnPageChange } from '../pageFocus'
@@ -497,6 +498,10 @@ export function NotificationsPage() {
     } finally { setWorking(null) }
   }
   return <section className="patient-section"><p className="patient-eyebrow">Updates</p><h1 ref={heading} tabIndex={-1} className="patient-page-title">Notifications</h1>
+    {/* Phone and computer notifications (B6): hid-system 0097 on Novu, once the owner has configured the push keys. Until
+        Identity answers 200, the section shows nothing (a 404 before 0097, and while push is not configured). */}
+    <DeviceNotificationsCard />
+    <InstallAppCard afterward={heading} />
     <LoadState loading={notifications.loading} error={notifications.error} retry={notifications.reload} hasData={notifications.data !== null} focusTarget={heading} />
     {error && <p role="alert" className="patient-inline-error">{error}</p>}
     {notifications.data && !notifications.error && <div className="patient-card" aria-busy={notifications.loading || undefined}>{notifications.data.length === 0 ? <p className="patient-empty">You have no notifications.</p> : <ul className="patient-list">

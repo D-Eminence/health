@@ -41,7 +41,7 @@ const NO_SERVICE_WORKER = {
     "ObjectPattern > Property[key.name=/^(serviceWorker|pushManager|showNotification|requestPermission)$/]",
   ].join(', '),
   message:
-    'Health ID registers no service worker, subscribes to no push messages, shows no system notification and asks for no notification permission: no backend route accepts a push subscription. See docs/ARCHITECTURE.md (PHI handling) and hand-off B15.',
+    'The browser\'s service worker, push and notification APIs are used in two places only: apps/patient-web/src/pushDevice.ts, which registers /sw.js, asks for notification permission from the Notifications page switch and subscribes, and apps/patient-web/public/sw.js, the push-only worker that shows a fixed notification and keeps nothing (B6). Use pushDevice.ts. See docs/ARCHITECTURE.md (PHI handling).',
 }
 
 const NO_CACHE_STORAGE = {
@@ -158,6 +158,19 @@ export default tseslint.config(
     files: ['apps/*/public/service-worker.js'],
     languageOptions: { sourceType: 'script', globals: { self: 'readonly', caches: 'readonly' } },
     rules: { 'no-restricted-syntax': ['error', NO_RAW_FETCH, NO_BROWSER_STORAGE, NO_INDEXED_DB, NO_SERVICE_WORKER, NO_CONSOLE, NO_DEFERRED_FOCUS] },
+  },
+  {
+    // "Notifications on this device" (B6): the one module allowed the service worker, push and notification APIs.
+    // Every other restriction stays, the Cache API and browser storage among them.
+    files: ['apps/patient-web/src/pushDevice.ts'],
+    rules: { 'no-restricted-syntax': ['error', NO_RAW_FETCH, NO_BROWSER_STORAGE, NO_INDEXED_DB, NO_CACHE_STORAGE, NO_CONSOLE, NO_DEFERRED_FOCUS] },
+  },
+  {
+    // The portal's push-only worker (B6), a classic worker script: it shows a fixed notification and opens
+    // Notifications. No fetch, Cache API, storage or IndexedDB (scripts/check-launch-build.mjs checks the build too).
+    files: ['apps/patient-web/public/sw.js'],
+    languageOptions: { sourceType: 'script', globals: { self: 'readonly', URL: 'readonly' } },
+    rules: { 'no-restricted-syntax': ['error', NO_RAW_FETCH, NO_BROWSER_STORAGE, NO_INDEXED_DB, NO_CACHE_STORAGE, NO_CONSOLE, NO_DEFERRED_FOCUS] },
   },
   {
     // Tests construct fake transports and assert on storage behaviour.

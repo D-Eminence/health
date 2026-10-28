@@ -18,6 +18,12 @@ import {
   type ShareCreated, type ShareInput, type ShareInvitationConfirmed, type ShareInvitationCreated, type ShareInvitationInput,
   type ShareInvitationList, type ShareProvider, type ShareDuration, type ShareLevel,
 } from './shareRecords'
+import {
+  parseWebPushRemoved, parseWebPushState, parseWebPushSubscribed,
+  type WebPushState, type WebPushSubscribed, type WebPushSubscriptionInput,
+} from './webPush'
+
+export type { WebPushPushService, WebPushState, WebPushSubscribed, WebPushSubscriptionInput, WebPushSubscriptionItem } from './webPush'
 
 /**
  * Contracts read from hid-system c4b5445 Identity and EHR controllers, and later
@@ -671,6 +677,19 @@ export function createPatientApi(sender: ApiClient) {
       parseHealthProfile(await call<unknown>('PUT', 'ehr/me/health-profile', input)),
     setAccessPin: (pin: string) => call<{ configured: true }>('POST', 'identity/me/access-pin', { pin }),
     revokeAccessPin: () => call<{ revoked: true }>('DELETE', 'identity/me/access-pin'),
+    // "Notifications on this device" (hid-system 0097, B6; contract b6-contract.md §3). All three answer 404 on a backend
+    // before 0097 and while push is not configured: the Notifications page then shows nothing. The endpoint goes in a body, never an
+    // address; the subscribe body stays far under production's 8 KB edge limit (an endpoint is at most 2048 characters).
+    webPush: async (signal?: AbortSignal): Promise<WebPushState> =>
+      parseWebPushState(await call<unknown>('GET', 'identity/me/web-push', undefined, { signal })),
+    saveWebPushSubscription: async (input: WebPushSubscriptionInput): Promise<WebPushSubscribed> =>
+      parseWebPushSubscribed(await call<unknown>('PUT', 'identity/me/web-push/subscription', {
+        endpoint: input.endpoint, expirationTime: input.expirationTime, keys: { p256dh: input.keys.p256dh, auth: input.keys.auth }, keyId: input.keyId,
+      })),
+    // Never rate limited: turning off must always work. Sign-out sends it with its own options (session.tsx).
+    removeWebPushSubscription: async (endpoint: string, options: { signal?: AbortSignal; reportUnauthorized?: boolean; retry?: RetryPolicy
+      refreshOnUnauthorized?: (error: HidApiError) => boolean; timeoutMs?: number } = {}): Promise<{ removed: boolean }> =>
+      parseWebPushRemoved(await call<unknown>('POST', 'identity/me/web-push/subscription/remove', { endpoint }, options)),
     accountDeletionStatus: (signal?: AbortSignal) =>
       call<AccountDeletionStatus>('GET', 'identity/me/account-deletion', undefined, { signal }),
     requestAccountDeletion: () => call<AccountDeletionRequested>('POST', 'identity/me/account-deletion'),

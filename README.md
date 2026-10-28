@@ -49,13 +49,17 @@ npm run audit:launch-build
 build (`apps/patient-web/dist`): no Google sign-in (build without
 `VITE_HID_GOOGLE_CLIENT_ID` at launch), service worker, source map, file
 outside `index.html` and content-hashed `assets/`, or an `index.html` other than
-the Vite shell staging allow-lists. One widening, for the Health ID icon in the
-browser tab and on a phone's home screen: the files in `apps/patient-web/public`
-(`health-id.webmanifest` and its two icons under `icons/`, fixed names), the
-shell's links to them, and a `#rrggbb` `theme-color` meta. The production release
-serves them from the frontend Worker's assets; hid-system's stager (its `main`
-branch only) must take the same widening before a Health-id build is staged
-there again.
+the Vite shell staging allow-lists. Two widenings. For the Health ID icon in the
+browser tab, on a phone's home screen and in the installed app: the files in
+`apps/patient-web/public` (`health-id.webmanifest` and its five icons under
+`icons/`, fixed names), the shell's links to them, and a `#rrggbb` `theme-color`
+meta. For phone and computer notifications (B6): exactly one service worker,
+`/sw.js`, which only shows a fixed notification on a push and opens
+Notifications on a tap (no fetch handler, Cache API, storage or network),
+registered only by the `assets/pushDevice-<hash>.js` chunk. The production
+release serves them from the frontend Worker's assets; hid-system's stager (its
+`main` branch only) must take the same widenings before a Health-id build is
+staged there again.
 
 `npm run check` runs typecheck, lint and tests in sequence. See
 [architecture](./docs/ARCHITECTURE.md) for the request and session model and

@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { createApiClient, HidApiError, isHidApiError, type ApiClient, type RequestSpec } from '@hid/http'
+import { createApiClient, HidApiError, isHidApiError, NO_RETRY, type ApiClient, type RequestSpec } from '@hid/http'
 import { createRegisteredBrowserClient } from '@hid/api'
 import { createLogger } from '@hid/observability'
 import { createSessionStore, type AuthPrincipal, type SessionState } from '@hid/auth'
@@ -52,6 +52,35 @@ function heldForAnotherPortal(session: PatientSession): boolean {
 /** Whether `session` is the patient session of `subject`. */
 function isPatientSessionOf(session: PatientSession | null | undefined, subject: string): boolean {
   return session?.actor?.kind === 'patient' && session.actor.subject === subject
+}
+
+/** How long sign-out waits for this device's notifications to be turned off (contract b6-contract.md §11.6). */
+const PUSH_OFF_LIMIT_MS = 2_000
+
+/**
+ * Signing out turns notifications off on this device (contract D5, §11.6): when the browser holds a push subscription,
+ * Identity is told to remove it, and the browser unsubscribes. Best effort, at most PUSH_OFF_LIMIT_MS, and never a
+ * reason for the sign-out to fail or wait longer: the server never pushes to a sign-in that has ended, and erases its
+ * subscription in its next sweep. With no subscription (any backend before push, any browser that never turned it on)
+ * nothing is sent.
+ */
+async function turnOffDevicePush(api: PatientApi): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const limit = new Promise<void>(done => { timer = setTimeout(done, PUSH_OFF_LIMIT_MS) })
+  const work = (async () => {
+    const device = await import('./pushDevice')
+    const current = await device.browserSubscription()
+    if (!current) return
+    try {
+      await api.removeWebPushSubscription(current.endpoint, {
+        signal: AbortSignal.timeout(PUSH_OFF_LIMIT_MS), timeoutMs: PUSH_OFF_LIMIT_MS, retry: NO_RETRY,
+        // Its 401 neither signs the tab out nor starts a refresh: the sign-out deals with the session itself.
+        reportUnauthorized: false, refreshOnUnauthorized: () => false,
+      })
+    } catch { /* Identity stops on its own once the sign-in ends */ }
+    await device.turnOffBrowser()
+  })().catch(() => { /* never fails the sign-out */ })
+  try { await Promise.race([work, limit]) } finally { clearTimeout(timer) }
 }
 
 /** A tab back in view after this long asks whose session the browser holds. */
@@ -372,6 +401,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     },
     signOut: async () => {
       const signedIn = store.getState().principal?.subjectId
+      await turnOffDevicePush(api)
       try {
         await api.logout(signedIn)
       } catch (error) {

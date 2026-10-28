@@ -56,7 +56,7 @@ describe('patient notifications', () => {
     expect(sent.filter(request => request.method === 'POST')).toEqual([
       { path: `/identity/me/notifications/${item({}).id}/read`, method: 'POST', body: null },
     ])
-    expect(sent.filter(request => request.method === 'GET')).toHaveLength(2)
+    expect(sent.filter(request => request.method === 'GET' && !request.path.startsWith('/identity/me/web-push'))).toHaveLength(2)
   })
 
   it('says when there are none', async () => {

@@ -313,12 +313,93 @@ test('leaves the public site\'s own pages, and the portal\'s paths on other host
 
 test('serves the portal\'s icon files and web app manifest from its assets', async () => {
   const config = environment({ APP_NAME: 'web', EXPECTED_HOST: 'app.healthidentitydirectory.com' })
-  for (const path of ['/health-id.webmanifest', '/icons/icon-48.png', '/icons/apple-touch-icon.png']) {
+  for (const path of ['/health-id.webmanifest', '/icons/icon-48.png', '/icons/apple-touch-icon.png',
+    // The installable app's icons (B6), served exactly as the first two.
+    '/icons/icon-192.png', '/icons/icon-512.png', '/icons/icon-maskable-512.png']) {
     const response = await worker.fetch(new Request(`https://app.healthidentitydirectory.com${path}`), config)
     assert.equal(response.status, 200, path)
     assert.equal(await response.text(), `<p>${path}</p>`)
     assert.equal(response.headers.get('x-frame-options'), 'DENY')
+    assert.equal(response.headers.get('x-content-type-options'), 'nosniff')
+    assert.equal(response.headers.get('cache-control'), null, path)
   }
+})
+
+/** An asset binding that answers each path as given, and anything else with the single-page fallback's index.html. */
+function assets(files) {
+  return { fetch: async request => {
+    const path = new URL(request.url).pathname
+    const file = files[path]
+    if (typeof file === 'function') return file(request)
+    if (file) return new Response(file.body, { status: 200, headers: { 'content-type': file.type, 'cache-control': 'public, max-age=14400' } })
+    return new Response('<!doctype html><div id="root"></div>', { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } })
+  } }
+}
+const PUSH_WORKER = { body: "self.addEventListener('push', () => {})", type: 'application/javascript; charset=utf-8' }
+
+test('serves the push worker as JavaScript that a browser never keeps a stale copy of (B6)', async () => {
+  for (const app of ['web', 'ehr', 'lab', 'pharmacy', 'ocr', 'outreach', 'admin']) {
+    const config = environment({ APP_NAME: app, ASSETS: assets({ '/sw.js': PUSH_WORKER }) })
+    const host = deploymentProfiles.production.hosts[app]
+    const response = await worker.fetch(new Request(`https://${host}/sw.js`), config)
+    assert.equal(response.status, 200, app)
+    assert.equal(await response.text(), PUSH_WORKER.body)
+    assert.equal(response.headers.get('content-type'), 'application/javascript; charset=utf-8')
+    assert.equal(response.headers.get('cache-control'), 'no-cache, no-store, must-revalidate', app)
+    assert.equal(response.headers.get('service-worker-allowed'), null)
+    assert.equal(response.headers.get('x-content-type-options'), 'nosniff')
+  }
+  // A revalidation the asset binding answers 304 stays a 304, still not to be kept.
+  const notModified = await worker.fetch(new Request('https://app.healthidentitydirectory.com/sw.js'), environment({
+    APP_NAME: 'web', EXPECTED_HOST: 'app.healthidentitydirectory.com',
+    ASSETS: assets({ '/sw.js': () => new Response(null, { status: 304 }) }) }))
+  assert.equal(notModified.status, 304)
+  assert.equal(notModified.headers.get('cache-control'), 'no-cache, no-store, must-revalidate')
+})
+
+test('answers 404, never index.html, for a push worker the build does not hold', async () => {
+  for (const [app, host] of [['web', 'app.healthidentitydirectory.com'], ['public', 'healthidentitydirectory.com']]) {
+    const response = await worker.fetch(new Request(`https://${host}/sw.js`),
+      environment({ APP_NAME: app, EXPECTED_HOST: host, ASSETS: assets({}) }))
+    assert.equal(response.status, 404, app)
+    assert.match(response.headers.get('content-type'), /^application\/problem\+json/)
+    assert.equal((await response.json()).code, 'NOT_FOUND')
+    assert.equal(response.headers.get('cache-control'), 'private, no-store, max-age=0')
+  }
+  // The same for an asset binding's own 404 page, and for a worker path anywhere but the root, which is just a page.
+  const missing = await worker.fetch(new Request('https://healthidentitydirectory.com/sw.js'), environment({
+    APP_NAME: 'public', EXPECTED_HOST: 'healthidentitydirectory.com',
+    ASSETS: assets({ '/sw.js': () => new Response('<p>Not found</p>', { status: 404, headers: { 'content-type': 'text/html' } }) }) }))
+  assert.equal(missing.status, 404)
+  assert.equal((await missing.json()).code, 'NOT_FOUND')
+  const nested = await worker.fetch(new Request('https://app.healthidentitydirectory.com/settings/sw.js'),
+    environment({ APP_NAME: 'web', EXPECTED_HOST: 'app.healthidentitydirectory.com', ASSETS: assets({}) }))
+  assert.equal(nested.status, 200)
+  assert.equal(nested.headers.get('cache-control'), null)
+})
+
+test('keeps no copy of the retiring /service-worker.js, judged by the request path', async () => {
+  // The asset binding's Response has no url (as here), so the path the browser asked for decides.
+  const config = environment({ APP_NAME: 'public', EXPECTED_HOST: 'healthidentitydirectory.com',
+    ASSETS: assets({ '/service-worker.js': { body: 'self.registration.unregister()', type: 'application/javascript' } }) })
+  const response = await worker.fetch(new Request('https://healthidentitydirectory.com/service-worker.js?release=abc'), config)
+  assert.equal(response.status, 200)
+  assert.equal(response.headers.get('cache-control'), 'no-cache, no-store, must-revalidate')
+})
+
+test('serves the web app manifest as application/manifest+json', async () => {
+  const config = environment({ APP_NAME: 'web', EXPECTED_HOST: 'app.healthidentitydirectory.com',
+    ASSETS: assets({ '/health-id.webmanifest': { body: '{"name":"Health ID"}', type: 'application/octet-stream' } }) })
+  const response = await worker.fetch(new Request('https://app.healthidentitydirectory.com/health-id.webmanifest'), config)
+  assert.equal(response.status, 200)
+  assert.equal(response.headers.get('content-type'), 'application/manifest+json; charset=utf-8')
+  assert.deepEqual(await response.json(), { name: 'Health ID' })
+  // Only a file the binding has: its own error page keeps its type.
+  const failed = await worker.fetch(new Request('https://app.healthidentitydirectory.com/health-id.webmanifest'), environment({
+    APP_NAME: 'web', EXPECTED_HOST: 'app.healthidentitydirectory.com',
+    ASSETS: assets({ '/health-id.webmanifest': () => new Response('<p>gone</p>', { status: 404, headers: { 'content-type': 'text/html' } }) }) }))
+  assert.equal(failed.status, 404)
+  assert.equal(failed.headers.get('content-type'), 'text/html')
 })
 
 test('keeps the portal\'s table of hid-1.0 addresses and the edge\'s the same, /records apart', async () => {

@@ -844,6 +844,30 @@ describe('application boundaries', () => {
     expect(() => assertRegisteredBrowserRequest('PATCH', '/api/v1/identity/me/profile-details')).toThrow(BrowserRouteError)
   })
 
+  it('registers "Notifications on this device" (B6, hid-system 0097) for the portal only, as proposed, and keeps the send internal', () => {
+    const routes = [
+      ['notifications.webPush', '/api/v1/identity/me/web-push', ['GET']],
+      ['notifications.webPushSubscription', '/api/v1/identity/me/web-push/subscription', ['PUT']],
+      ['notifications.webPushSubscriptionRemove', '/api/v1/identity/me/web-push/subscription/remove', ['POST']],
+    ] as const
+    for (const [name, path, methods] of routes) {
+      expect(findEndpoint(name), name).toMatchObject({ path, methods, service: 'notifications', status: 'proposed', auth: { kind: 'authenticated' } })
+      expect(findEndpoint(name)?.note, name).toMatch(/^Novu: hid-system 0097 \(B6\); 404 before, and while push is not configured/)
+      expect(() => assertEndpointAllowed('patient-web', name), name).not.toThrow()
+      for (const app of ['staff-web', 'admin-web', 'public-web', 'ehr-web'] as const) {
+        expect(() => assertEndpointAllowed(app, name), `${app}: ${name}`).toThrow(BoundaryViolationError)
+      }
+      expect(assertRegisteredBrowserRequest(methods[0], path).name).toBe(name)
+    }
+    expect(() => assertRegisteredBrowserRequest('POST', '/api/v1/identity/me/web-push/subscription')).toThrow(BrowserRouteError)
+    expect(() => assertRegisteredBrowserRequest('DELETE', '/api/v1/identity/me/web-push/subscription')).toThrow(BrowserRouteError)
+    // notification-api's send is the dispatcher's, never the browser's: the gateway does not route it.
+    expect(NON_FRONTEND_ENDPOINTS).toContain('/api/v1/notifications/web-push')
+    let refused: unknown
+    try { assertRegisteredBrowserRequest('POST', '/api/v1/notifications/web-push') } catch (error) { refused = error }
+    expect(refused).toMatchObject({ code: 'INTERNAL_ROUTE' })
+  })
+
   it('lets the chart read what the patient reported, and nothing else reach it (hid-1.0 parity B3)', () => {
     const name = 'ehr.patientReportedHealthProfile'
     expect(findEndpoint(name)).toMatchObject({ path: '/api/v1/ehr/patients/:patientId/reported-health-profile', methods: ['GET'],
