@@ -8,6 +8,7 @@ import {
   wrongPatientReportOf,
 } from '../lateCorrectionServed'
 import { usePatientResource } from './usePatientResource'
+import { useOnNotificationChange } from '../notificationBadge'
 import { useActionFocus } from './actionFocus'
 
 /**
@@ -235,6 +236,8 @@ export function SentOrdersCard() {
   }), [api])
   // Kept for the account under its own name: `load` is made again each time the card is.
   const routes = usePatientResource(load, 'order-routes')
+  // An order's notice came (the bell's count changed): the list is read again by itself.
+  useOnNotificationChange(() => { void routes.reload() })
   const profile = usePatientResource(api.profile)
   const [working, setWorking] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)

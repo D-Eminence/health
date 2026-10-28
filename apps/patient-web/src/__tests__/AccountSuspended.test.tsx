@@ -37,7 +37,7 @@ function openSignIn(handler: Handler, { google = false } = {}) {
   return { sent }
 }
 async function signInWithPassword() {
-  fireEvent.change(screen.getByLabelText('Email or Health ID'), { target: { value: 'ada@example.com' } })
+  fireEvent.change(screen.getByLabelText('Email, phone or Health ID'), { target: { value: 'ada@example.com' } })
   fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'typed-secret-123' } })
   fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
   await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Sign in' })) })

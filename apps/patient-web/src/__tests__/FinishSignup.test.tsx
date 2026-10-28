@@ -44,7 +44,7 @@ function open(refusal: unknown) {
   return signIn
 }
 async function signInWith(principal: string) {
-  fireEvent.change(screen.getByLabelText('Email or Health ID'), { target: { value: principal } })
+  fireEvent.change(screen.getByLabelText('Email, phone or Health ID'), { target: { value: principal } })
   fireEvent.change(screen.getByLabelText('Password'), { target: { value: 'typed-secret-123' } })
   fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
   await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Sign in' })) })

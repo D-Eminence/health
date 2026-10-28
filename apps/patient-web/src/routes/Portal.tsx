@@ -2,7 +2,7 @@ import { ImportedHistory, matchingImported } from '../ImportedHistory'
 import { usesNovuBackend } from '../backendContract'
 import { PatientImportedHistory } from '../ImportedHistoryPage'
 import { getEnvironment } from '../env'
-import { useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react'
+import { useCallback, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react'
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { HEALTH_ID_PREFIX, emailOrHealthId, healthIdOrOtherInput, isBlankHealthIdInput } from '@hid/contracts'
 import { isHidApiError } from '@hid/http'
@@ -13,7 +13,7 @@ import { Turnstile } from '../Turnstile'
 import { BrandLogo } from '../BrandLogo'
 import { ItemName } from '../ItemName'
 import { useSession } from '../session'
-import type { PatientNotification, PatientRecords, RecordSection } from '../api'
+import { IMPORTED_NOTIFICATIONS_PAGE, type ImportedNotification, type PatientRecords, type RecordSection } from '../api'
 import { IMPORTED_HEALTH_FIELDS, type ImportedHealthField, type ImportedHealthProfile, type ImportedMedicalRecord } from '../importedRecords'
 import { patientChatEnabled } from '../chatFeatures'
 import { usePatientResource } from './usePatientResource'
@@ -26,6 +26,9 @@ import { SentOrdersCard } from './SentOrders'
 import { NinVerificationCard } from './NinVerificationCard'
 import { HealthIdCode } from './HealthIdCode'
 import { dayWords, groupByDay, matchesQuery } from './recordSearch'
+import { NOTIFICATION_SUBJECTS, notificationTitle } from './notificationTitles'
+import { AccessLogCard } from './AccessLog'
+import { NotificationBell, UnreadNotificationsProvider, useOnNotificationChange, useUnreadNotifications } from '../notificationBadge'
 
 const links = [
   { to: '/', label: 'Overview', end: true },
@@ -67,60 +70,6 @@ function vitalsSummary(item: PatientRecords['vitals'][number]) {
 }
 
 /**
- * What each inbox code means to the patient. Identity writes the first two
- * (hid-system 0037_patient_notification_inbox.sql), and on Novu hid-system #109
- * the third when support removes a contact who asked to stop receiving alerts
- * (its payload holds only the relationship and channel, and is never shown); a
- * code added later reads as a general account update until it has its own
- * words, never as the code itself.
- */
-const NOTIFICATION_TITLES: Readonly<Record<string, string>> = {
-  ACCESS_REQUEST_RECEIVED: 'A facility asked to access your health information',
-  EMERGENCY_ACCESS_ACTIVATED: 'A provider used emergency access to your health information',
-  EMERGENCY_CONTACT_OPTED_OUT: 'One of your emergency contacts asked Health ID to stop sending them alerts, so they were removed',
-}
-const NOTIFICATION_SUBJECTS: Readonly<Record<string, string>> = {
-  'access-request': 'Access request', 'consent-grant': 'Access grant', 'emergency-contact': 'Emergency contact',
-  // P4c (Novu): an order a clinician sent to a laboratory or pharmacy at another facility.
-  'order-route': 'Order to another facility',
-}
-
-/**
- * The inbox codes of orders sent to another facility (Novu, P4c, SPEC-FINAL §5, §13.4). Their metadata holds only
- * the kind and the two facilities' names; the receiving facility is named in the title.
- */
-const ORDER_ROUTE_TITLES: Readonly<Record<string, (thing: string, facility: string) => string>> = {
-  ORDER_ROUTE_SENT: (thing, facility) => `Your ${thing} was sent to ${facility}: see it in Access and consent`,
-  ORDER_ROUTE_WITHDRAWN: (thing, facility) => `Your ${thing} to ${facility} was withdrawn`,
-  ORDER_ROUTE_ACCEPTED: (thing, facility) => `${facility} accepted your ${thing}`,
-  ORDER_ROUTE_DECLINED: (thing, facility) => `${facility} could not take your ${thing}`,
-  ORDER_ROUTE_ACCEPT_LOCKED: (thing, facility) => `${facility} could not confirm it was you, so it can’t take your ${thing}. Ask your clinician to send it again`,
-  ORDER_ROUTE_CANCELLED: (thing, facility) => `Your ${thing} at ${facility} was cancelled`,
-  // Item 3 (D8): the receiving facility reports it accepted the order for someone who was not the patient, and ended it.
-  ORDER_ROUTE_WRONG_PATIENT: (thing, facility) => `${facility} accepted your ${thing} for someone who was not you, and has ended it`,
-  // D17: it reported it after the order had ended another way, which it keeps (SPEC-FINAL §9.3).
-  ORDER_ROUTE_WRONG_PATIENT_CORRECTED: (thing, facility) => `${facility} reports that it accepted your ${thing} for someone who was not you`,
-  // D18 (D18-3): the receiving facility accepted it and couldn't complete it; the reason is not sent (D18-4).
-  ORDER_ROUTE_NOT_COMPLETED: (thing, facility) => `${facility} couldn’t complete your ${thing}: see it in Access and consent`,
-}
-
-/** A name from a notice's metadata, or the words that stand for it: never anything but a short plain string. */
-function metadataName(metadata: Record<string, unknown> | null | undefined, key: string): string | null {
-  const value = metadata?.[key]
-  return typeof value === 'string' && value.trim() && value.length <= 200 ? value.trim() : null
-}
-
-function notificationTitle(item: PatientNotification) {
-  const orderRoute = ORDER_ROUTE_TITLES[item.notificationCode]
-  if (orderRoute) {
-    const kind = metadataName(item.metadata, 'kind')
-    const thing = kind === 'lab_request' ? 'test request' : kind === 'prescription' ? 'prescription' : 'test request or prescription'
-    return orderRoute(thing, metadataName(item.metadata, 'receivingFacilityName') ?? 'another facility')
-  }
-  return NOTIFICATION_TITLES[item.notificationCode] ?? 'An update about your Health ID account'
-}
-
-/**
  * The first load and a failed one. Content already on screen stays there while it
  * reloads (PR-03), and after 'Try again' focus goes to `focusTarget` (PR-04). A
  * card is aria-busy only while it reloads what it shows: assistive technology may
@@ -154,17 +103,19 @@ export function PortalShell() {
     } finally { setSigningOut(false) }
   }
 
-  return <div className="patient-app">
+  // The bell's count is read here, for every page under the shell (notificationBadge.tsx).
+  return <UnreadNotificationsProvider><div className="patient-app">
     <header className="patient-app-header"><div className="patient-app-header-inner">
       <NavLink to="/" className="patient-app-logo" aria-label="Health ID home"><BrandLogo /></NavLink>
       <span className="patient-header-title">Patient portal</span>
+      <NotificationBell />
       <button ref={signOutButton} type="button" className="patient-signout" onClick={() => void logout()} disabled={signingOut}>{signingOut ? 'Signing out…' : 'Sign out'}</button>
     </div></header>
     <div className="patient-app-body"><nav className="patient-side-nav" aria-label="Patient pages" onFocus={revealFocusedLink}>
       {patientChatEnabled() && <NavLink to="/chat" className="patient-nav-link">Ask about your records</NavLink>}
       {links.map(link => <NavLink key={link.to} to={link.to} end={'end' in link ? link.end : false} className={({ isActive }) => isActive ? 'patient-nav-link active' : 'patient-nav-link'}>{link.label}</NavLink>)}
     </nav><main ref={main} className="patient-main" id="main">{error && <p role="alert" className="patient-inline-error">{error}</p>}<Outlet /></main></div>
-  </div>
+  </div></UnreadNotificationsProvider>
 }
 
 const HEALTH_LABELS: Readonly<Record<ImportedHealthField, string>> = {
@@ -369,6 +320,8 @@ export function AccessPage() {
   const historyHeading = useRef<HTMLHeadingElement>(null)
   const focusAfter = useActionFocus()
   const byId = (id: string) => () => document.getElementById(id)
+  // A notice came, or one was read elsewhere (the bell's count changed): the page reads its lists again by itself.
+  useOnNotificationChange(() => { void requests.reload(); void history.reload() })
 
   const decide = async (id: string, decision: 'approve' | 'deny') => {
     if (working) return
@@ -441,6 +394,8 @@ export function AccessPage() {
           </div>}
         </li>)}
       </ul>)}</div>
+    {/* hid-system 0093: who viewed or changed the record. An Identity before it answers 404, and the section is not shown. */}
+    <AccessLogCard />
   </section>
 }
 
@@ -448,13 +403,16 @@ export function NotificationsPage() {
   const { api } = useSession()
   useDocumentTitle('Notifications · Health ID')
   const notifications = usePatientResource(api.notifications)
+  const { settle } = useUnreadNotifications()
   const [working, setWorking] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const heading = useRef<HTMLHeadingElement>(null)
   const focusAfter = useActionFocus()
+  // A notice came, or one was read in another window (the bell's count changed): the list is read again by itself.
+  useOnNotificationChange(() => { void notifications.reload() })
   const markRead = async (id: string) => {
     setWorking(id); setError(null)
-    try { await api.markNotificationRead(id); await notifications.reload(); focusAfter(() => heading.current) }
+    try { await api.markNotificationRead(id); await notifications.reload(); void settle(); focusAfter(() => heading.current) }
     catch (cause) {
       setError(isHidApiError(cause) ? cause.message : 'Notification could not be updated.')
       focusAfter(() => document.getElementById(`mark-read-${id}`))
@@ -467,7 +425,80 @@ export function NotificationsPage() {
       {notifications.data.map(item => <li key={item.id}><div><strong>{notificationTitle(item)}</strong><span>{[item.resourceType && NOTIFICATION_SUBJECTS[item.resourceType], date(item.createdAt), item.readAt ? 'Read' : 'Unread'].filter(Boolean).join(' · ')}</span></div>
         {!item.readAt && <button id={`mark-read-${item.id}`} type="button" disabled={working === item.id || notifications.loading} onClick={() => void markRead(item.id)}>Mark as read<ItemName>: {notificationTitle(item)}, {dateTime(item.createdAt)}</ItemName></button>}</li>)}
     </ul>}</div>}
+    <ImportedNotificationsCard />
   </section>
+}
+
+/**
+ * The patient's notifications from their hid-1.0 account (hid-system 0062, on staging-novu-ci-20261005), which the
+ * bell counts while unread. Read once as the page opens, since each read is audited, and never again on a timer; a
+ * read marked here changes the row in place. Title and message are hid-1.0's own text, shown as plain text. Not
+ * shown when there are none, or where Identity does not serve them (404).
+ */
+function ImportedNotificationsCard() {
+  const { api } = useSession()
+  const { settle } = useUnreadNotifications()
+  const load = useCallback((signal?: AbortSignal) => api.importedNotifications(0, signal).catch((caught: unknown) => {
+    if (isHidApiError(caught) && caught.status === 404) return []
+    throw caught
+  }), [api])
+  // Kept for the account under its own name: `load` is made again each time the card is.
+  const first = usePatientResource<ImportedNotification[]>(load, 'imported-notifications')
+  // Older pages "Show older" added; read marks made here, by id.
+  const [older, setOlder] = useState<ImportedNotification[]>([])
+  const [olderEnd, setOlderEnd] = useState(false)
+  const [readHere, setReadHere] = useState<Readonly<Record<string, string>>>({})
+  const [working, setWorking] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const heading = useRef<HTMLHeadingElement>(null)
+  const focusAfter = useActionFocus()
+  const retryFocus = useRetryFocus(heading)
+
+  const seen = new Set<string>()
+  const items = [...first.data ?? [], ...older].filter(item => !seen.has(item.id) && (seen.add(item.id), true))
+    .map(item => readHere[item.id] && !item.readAt ? { ...item, readAt: readHere[item.id] ?? null } : item)
+  if (first.error === null && items.length === 0) return null
+  // A full page may have more after it.
+  const more = !olderEnd && (older.length > 0 ? older.length % IMPORTED_NOTIFICATIONS_PAGE === 0
+    : (first.data?.length ?? 0) === IMPORTED_NOTIFICATIONS_PAGE)
+
+  const markRead = async (id: string) => {
+    setWorking(id); setError(null)
+    try {
+      const answer = await api.markImportedNotificationRead(id)
+      setReadHere(current => ({ ...current, [id]: answer?.readAt ?? new Date().toISOString() }))
+      void settle()
+      focusAfter(() => heading.current)
+    } catch (cause) {
+      setError(isHidApiError(cause) ? cause.message : 'Notification could not be updated.')
+      focusAfter(() => document.getElementById(`mark-imported-read-${id}`))
+    } finally { setWorking(null) }
+  }
+  const showOlder = async () => {
+    setWorking('older'); setError(null)
+    try {
+      const page = await api.importedNotifications(items.length)
+      setOlder(current => [...current, ...page])
+      if (page.length < IMPORTED_NOTIFICATIONS_PAGE) setOlderEnd(true)
+    } catch (cause) {
+      setError(isHidApiError(cause) ? cause.message : 'Older notifications could not be loaded.')
+    } finally { setWorking(null); focusAfter(() => document.getElementById('imported-notifications-older') ?? heading.current) }
+  }
+
+  return <div className="patient-card"><h2 ref={heading} tabIndex={-1}>From your hid-1.0 account</h2>
+    <p className="patient-field-hint">Notifications you had in hid-1.0, carried over with your account.</p>
+    {first.error && <div role="alert"><p>{first.error}</p>
+      <button ref={retryFocus.button} type="button" onClick={() => retryFocus.retry(first.reload)}>Try again</button></div>}
+    {error && <p role="alert" className="patient-inline-error">{error}</p>}
+    {items.length > 0 && <ul className="patient-list">{items.map(item => <li key={item.id}><div>
+      <strong>{item.title || 'A notification from hid-1.0'}</strong>
+      {item.message && <p className="patient-multiline">{item.message}</p>}
+      <span>{[dateTime(item.createdAt), item.readAt ? 'Read' : 'Unread'].join(' · ')}</span></div>
+      {!item.readAt && <button id={`mark-imported-read-${item.id}`} type="button" disabled={working !== null} onClick={() => void markRead(item.id)}>
+        Mark as read<ItemName>: {item.title || 'a notification from hid-1.0'}, {dateTime(item.createdAt)}</ItemName></button>}</li>)}</ul>}
+    {more && <button id="imported-notifications-older" type="button" className="patient-secondary-button" disabled={working !== null}
+      onClick={() => void showOlder()}>{working === 'older' ? 'Loading…' : 'Show older'}</button>}
+  </div>
 }
 
 /**

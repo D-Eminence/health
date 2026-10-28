@@ -61,3 +61,35 @@ export function emailOrHealthId(value: string): string {
   const typed = value.trim()
   return typed.includes('@') ? typed : normalizeHealthIdInput(typed)
 }
+
+/**
+ * Whether what was typed starts as a phone number does: "+" (E.164, any country) or "0" (a Nigerian number written
+ * locally). A Health ID's alphabet has no 0, and no "+", so neither can begin one; a number written with spaces,
+ * dashes or brackets ("(0803) 123-4567") counts too.
+ */
+function startsAsPhone(value: string): boolean {
+  return /^[+0]/.test(value.replace(/[\s()-]/g, ''))
+}
+
+/**
+ * What a sign-in or password reset field holds after a change (hid-1.0 parity B2, owner decision 2026-10-28): it takes
+ * an email, a phone number or a Health ID, and starts at "HID-" as every Health ID field does. The prefix drops as an
+ * email is typed after it ("HID-ada@"), and as a phone number is: when what follows it starts with "+" or "0".
+ */
+export function signInPrincipalInput(value: string): string {
+  const typed = aroundPrefix(value)
+  if (typed !== null && startsAsPhone(typed)) return typed
+  return healthIdOrOtherInput(value)
+}
+
+/**
+ * What a sign-in or password reset field sends (POST auth/patient/login `email`, POST auth/otp/start `identifier`): an
+ * email as typed; a phone number as typed without its spaces, dashes and brackets, which Identity normalizes ("0803…"
+ * as +234803…); anything else as a normalized Health ID.
+ */
+export function signInPrincipal(value: string): string {
+  const typed = value.trim()
+  if (typed.includes('@')) return typed
+  if (startsAsPhone(typed)) return typed.replace(/[\s()-]/g, '')
+  return normalizeHealthIdInput(typed)
+}

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   HEALTH_ID_PATTERN, HEALTH_ID_PREFIX, emailOrHealthId, healthIdOrOtherInput, isBlankHealthIdInput, isCompleteHealthId,
+  signInPrincipal, signInPrincipalInput,
   normalizeHealthIdInput,
 } from '../index'
 
@@ -135,5 +136,43 @@ describe('a field that takes a Health ID or something else', () => {
     expect(emailOrHealthId('hid-abc234 ')).toBe('HID-ABC234')
     expect(emailOrHealthId('HID-hid-abc234')).toBe('HID-ABC234')
     expect(emailOrHealthId('abc234')).toBe('HID-ABC234')
+  })
+})
+
+/**
+ * Sign-in and password reset take a phone number too (hid-1.0 parity B2, owner decision 2026-10-28): "+" and 7 to 15
+ * digits of any country, or a Nigerian number written locally from 0, which Identity reads as +234. A Health ID's
+ * alphabet has neither 0 nor "+", so either typed after the prefill drops it, as "@" does.
+ */
+describe('a sign-in field: email, phone number or Health ID', () => {
+  it('drops the prefix once what follows it starts with 0 or +', () => {
+    expect(signInPrincipalInput('HID-0')).toBe('0')
+    expect(signInPrincipalInput('HID-+')).toBe('+')
+    expect(signInPrincipalInput('HID-08031234567')).toBe('08031234567')
+    expect(signInPrincipalInput('HID-+44 7700 900123')).toBe('+44 7700 900123')
+    // Typed around a prefix the caret was inside, and with the spacing people type.
+    expect(signInPrincipalInput('0HID-')).toBe('0')
+    expect(signInPrincipalInput('HID-(0803) 123')).toBe('(0803) 123')
+    // Once dropped, the number is kept as typed.
+    expect(signInPrincipalInput('0803 123 4567')).toBe('0803 123 4567')
+  })
+
+  it('keeps the prefix for a Health ID, all of digits included, and drops it for an email, as before', () => {
+    expect(signInPrincipalInput('HID-')).toBe('HID-')
+    expect(signInPrincipalInput('HID-234567')).toBe('HID-234567')
+    expect(signInPrincipalInput('HID-abc234')).toBe('HID-abc234')
+    expect(signInPrincipalInput('HID-HID-ABC234')).toBe('HID-ABC234')
+    expect(signInPrincipalInput('HID-ada@')).toBe('ada@')
+    expect(signInPrincipalInput('')).toBe('')
+  })
+
+  it('sends a phone number as typed without spaces, dashes and brackets, an email as typed, and a Health ID in capitals', () => {
+    expect(signInPrincipal(' 0803 123-4567 ')).toBe('08031234567')
+    expect(signInPrincipal('+44 (7700) 900-123')).toBe('+447700900123')
+    expect(signInPrincipal('+2348031234567')).toBe('+2348031234567')
+    expect(signInPrincipal(' Ada@Example.test ')).toBe('Ada@Example.test')
+    expect(signInPrincipal('HID-abc234')).toBe('HID-ABC234')
+    expect(signInPrincipal('abc234')).toBe('HID-ABC234')
+    expect(signInPrincipal('234567')).toBe('HID-234567')
   })
 })

@@ -32,8 +32,8 @@ beforeEach(() => { vi.useFakeTimers({ shouldAdvanceTime: true }) })
 afterEach(() => { cleanup(); vi.clearAllMocks(); vi.useRealTimers() })
 
 const pages = [
-  { name: 'patient', field: 'Email or Health ID', identifier: 'patient@example.test', same: /same email or Health ID/,
-    different: 'Use a different email or Health ID',
+  { name: 'patient', field: 'Email, phone or Health ID', identifier: 'patient@example.test', same: /same email, phone number or Health ID/,
+    different: 'Use a different email, phone number or Health ID',
     start: api.recoveryStart, verify: api.recoveryVerify, open: () => render(<MemoryRouter><Recovery /></MemoryRouter>),
     // Six boxes (CodeBoxes.tsx): the sixth digit sends the code.
     send: (code: HTMLElement, value: string) => enterCode(code, value) },
@@ -155,10 +155,10 @@ describe.each(pages)('$name password recovery', page => {
  * the wait was the account's, and the start answered the same challenge.
  */
 describe('patient password recovery and the same account\'s other identifier', () => {
-  const OTHER = /^The same account's other email or Health ID will not get a new code until a new code is offered here/
+  const OTHER = /^The same account's other email, phone number or Health ID will not get a new code until a new code is offered here/
   const patient = pages[0]
 
-  it('says during the wait that the same account\'s other email or Health ID will not get a new code', async () => {
+  it('says during the wait that the same account\'s other email, phone number or Health ID will not get a new code', async () => {
     await toCode(patient, 60)
     const said = screen.getByText(OTHER)
     expect(said.textContent).toMatch(/using it before then may stop the code already sent from being accepted\.$/)

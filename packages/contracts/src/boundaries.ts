@@ -132,7 +132,9 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       // Whether delivery is on, and on which channels (hid-system #109, Novu only; main answers 404).
       'identity.emergencyContactsAvailability',
       // The patient's choice to share imported history with staff (hid-system #94, ADR-067).
-      'identity.importedHistorySharing'],
+      'identity.importedHistorySharing',
+      // Who viewed or changed the patient's record (hid-system 0093, Novu only; an Identity before it answers 404).
+      'identity.accessLog'],
     access: ['access.patientRequests', 'access.approve', 'access.deny', 'access.revokeMyGrant'],
     // Imported history (#94) and patient record chat (#95, ADR-068) are patient-only routes.
     ehr: ['ehr.myRecords', 'ehr.myImportedHistory', 'ehr.patientChatAvailability', 'ehr.patientChat', 'ehr.patientChatHistory',

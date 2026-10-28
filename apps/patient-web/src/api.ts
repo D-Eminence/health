@@ -4,9 +4,10 @@ import {
   type ImportedHistorySharingChange, type ImportedMedicalRecord,
 } from './importedRecords'
 import { stagingChatQuestion, parseStagingPatientChat, parseStagingChatHistory } from '@hid/contracts'
-import type { ApiClient } from '@hid/http'
+import { NO_RETRY, type ApiClient, type HidApiError, type RequestSpec, type RetryPolicy } from '@hid/http'
 import { createEhrService, createSupportService } from '@hid/api'
 import { inRefreshTurn, refreshInTurn, signOutInTurn } from './sessionRefreshTurn'
+import { ACCESS_LOG_PAGE_SIZE, parseAccessLog, type AccessLogPage } from './accessLog'
 
 /**
  * Contracts read from hid-system c4b5445 Identity and EHR controllers, and later
@@ -364,6 +365,39 @@ export interface EnrollmentActivation {
   signedIn?: boolean
 }
 
+/**
+ * A notification carried over from the patient's hid-1.0 account (hid-system 0062, served on
+ * staging-novu-ci-20261005): its own title and message, as hid-1.0 wrote them, shown as plain text only. Each list and
+ * each read is audited, so the list is read once per visit and never polled.
+ */
+export interface ImportedNotification {
+  id: string
+  title: string
+  message: string
+  type: string | null
+  readAt: string | null
+  createdAt: string
+}
+
+const text = (value: unknown, limit: number): string | null =>
+  typeof value === 'string' && value.trim() !== '' ? value.trim().slice(0, limit) : null
+
+/** The imported list as shown: a row without an id or a time is left out. */
+export function parseImportedNotifications(value: unknown): ImportedNotification[] {
+  if (!Array.isArray(value)) throw new Error('Your hid-1.0 notifications could not be read.')
+  return value.flatMap((entry): ImportedNotification[] => {
+    if (typeof entry !== 'object' || entry === null) return []
+    const row = entry as Record<string, unknown>
+    const id = text(row.id, 100), createdAt = text(row.createdAt, 64)
+    if (!id || !createdAt) return []
+    return [{ id, createdAt, title: text(row.title, 300) ?? '', message: text(row.message, 4000) ?? '', type: text(row.type, 50),
+      readAt: text(row.readAt, 64) }]
+  })
+}
+
+/** The most imported notifications one read lists (Identity takes 1 to 100). */
+export const IMPORTED_NOTIFICATIONS_PAGE = 100
+
 export interface RecoveryChallenge {
   accepted: true
   challengeId: string
@@ -372,9 +406,27 @@ export interface RecoveryChallenge {
   resendAfterSeconds: number
 }
 
-export function createPatientApi(client: ApiClient) {
+export function createPatientApi(sender: ApiClient) {
+  // Told each time a request that needs the session is answered: the browser's sign-in is live, perhaps just renewed
+  // by that request's refresh. The bell (notificationBadge.tsx) reads again then, after readings it held back on a 401.
+  const accepted = new Set<() => void>()
+  const client: ApiClient = {
+    ...sender,
+    async request<T>(spec: RequestSpec): Promise<T> {
+      const answer = await sender.request<T>(spec)
+      if ((spec.auth ?? 'required') === 'required') {
+        for (const listener of [...accepted]) {
+          try { listener() } catch { /* a listener's own fault never fails the request */ }
+        }
+      }
+      return answer
+    },
+    get: (path, spec) => client.request({ ...spec, method: 'GET', path }),
+    post: (path, body, spec) => client.request({ ...spec, method: 'POST', path, body }),
+  }
   const call = <T>(method: 'GET' | 'POST' | 'DELETE', path: string, body?: unknown,
-    options?: { signal?: AbortSignal; headers?: Readonly<Record<string, string>>; query?: Readonly<Record<string, string>>; reportUnauthorized?: boolean; timeoutMs?: number }) =>
+    options?: { signal?: AbortSignal; headers?: Readonly<Record<string, string>>; query?: Readonly<Record<string, string>>; reportUnauthorized?: boolean; timeoutMs?: number
+      refreshOnUnauthorized?: (error: HidApiError) => boolean; retry?: RetryPolicy }) =>
     client.request<T>({ method, path: `/api/v1/${path}`, auth: path.startsWith('auth/') || path.startsWith('identity/patient-enrollments') ? 'optional' : 'required',
       ...(body === undefined ? {} : { body }), ...options })
 
@@ -386,6 +438,11 @@ export function createPatientApi(client: ApiClient) {
   const chatService = createEhrService({ app: 'patient-web', client })
 
   return {
+    /** Calls `listener` each time a request that needs the session is answered; returns the way to stop. */
+    onSessionAccepted: (listener: () => void): (() => void) => {
+      accepted.add(listener)
+      return () => { accepted.delete(listener) }
+    },
     // Retained Novu backend: real ready/preparing replies, 10 exchanges/30 days,
     // source reads and a 500-character question. No main-only notice endpoint.
     novuChat: async (question: string, signal?: AbortSignal) =>
@@ -513,6 +570,29 @@ export function createPatientApi(client: ApiClient) {
     stopOrderRoute: (route: Pick<PatientOrderRoute, 'id' | 'version'>) => call<{ route: PatientOrderRoute }>('POST',
       `ehr/me/order-routes/${encodeURIComponent(route.id)}/withdraw`, { expectedVersion: route.version }),
     markNotificationRead: (id: string) => call<{ id: string; readAt: string }>('POST', `identity/me/notifications/${encodeURIComponent(id)}/read`),
+    /**
+     * The bell's count (hid-system 0093; an Identity before it answers 404): unread inbox items and unread imported
+     * hid-1.0 notifications. Never retried, and its 401 never signs the patient out: the next reading comes soon.
+     * Without `refresh` (a reading on the minute) an expired access token is not refreshed either, so a page left
+     * open does not keep the sign-in alive.
+     */
+    unreadNotificationCount: async ({ refresh, signal }: { refresh: boolean; signal?: AbortSignal }): Promise<number> => {
+      const answer = await call<{ unread?: unknown }>('GET', 'identity/me/notifications/unread-count', undefined, {
+        signal, reportUnauthorized: false, retry: NO_RETRY, ...(refresh ? {} : { refreshOnUnauthorized: () => false }) })
+      const unread = answer?.unread
+      if (typeof unread !== 'number' || !Number.isFinite(unread) || unread < 0) throw new Error('The unread count could not be read.')
+      return Math.floor(unread)
+    },
+    // The patient's hid-1.0 notifications (hid-system 0062): a page from `offset`, newest first; each read is audited.
+    importedNotifications: async (offset = 0, signal?: AbortSignal): Promise<ImportedNotification[]> =>
+      parseImportedNotifications(await call<unknown>('GET', 'identity/me/imported-notifications', undefined,
+        { signal, query: { limit: String(IMPORTED_NOTIFICATIONS_PAGE), offset: String(offset) } })),
+    markImportedNotificationRead: (id: string) => call<{ id: string; readAt: string | null }>('POST',
+      `identity/me/imported-notifications/${encodeURIComponent(id)}/read`),
+    // Who viewed or changed the patient's record (hid-system 0093; an Identity before it answers 404), newest first.
+    accessLog: async (before: string | null, signal?: AbortSignal): Promise<AccessLogPage> =>
+      parseAccessLog(await call<unknown>('GET', 'identity/me/access-log', undefined,
+        { signal, query: { limit: String(ACCESS_LOG_PAGE_SIZE), ...(before ? { before } : {}) } })),
     setAccessPin: (pin: string) => call<{ configured: true }>('POST', 'identity/me/access-pin', { pin }),
     revokeAccessPin: () => call<{ revoked: true }>('DELETE', 'identity/me/access-pin'),
     accountDeletionStatus: (signal?: AbortSignal) =>

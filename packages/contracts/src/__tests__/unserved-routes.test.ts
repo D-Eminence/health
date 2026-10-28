@@ -51,6 +51,9 @@ const NOT_ON_MAIN = [
   'pharmacy.orderRouteWrongPatientCorrection',
   // D18 (hid-system 0091 on staging-novu-ci-20261005): "We can't complete this order", Lab's and Pharmacy's command.
   'lab.orderRouteCannotComplete', 'pharmacy.orderRouteCannotComplete',
+  // hid-1.0 patient parity B2 (hid-system 0093 on staging-novu-ci-20261005): the bell's count and the access log, and the
+  // hid-1.0 notifications carried over (0062), which the count includes.
+  'notifications.unreadCount', 'identity.accessLog', 'notifications.imported', 'notifications.importedRead',
 ] as const
 
 describe('routes hid-system main does not serve', () => {

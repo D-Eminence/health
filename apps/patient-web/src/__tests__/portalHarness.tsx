@@ -23,7 +23,15 @@ export const profile: PatientProfile = {
   assuranceState: 'NIN_VERIFIED', accessPinConfigured: false, version: 1,
 }
 
-export function patientApi(handler: Handler) {
+/**
+ * Reads the portal makes that the gateways in these tests were written before (hid-1.0 parity B2, hid-system 0093:
+ * the bell's count and the access log; and the hid-1.0 notifications, which the bell counts). Unless a test serves
+ * them (`parityB2`), they answer 404, as an Identity before 0093 does for the first two, and are not recorded in `sent`.
+ */
+export const PARITY_B2_PATHS = ['/identity/me/notifications/unread-count', '/identity/me/access-log', '/identity/me/imported-notifications'] as const
+const isParityB2 = (path: string) => PARITY_B2_PATHS.some(served => path === served || path.startsWith(`${served}/`))
+
+export function patientApi(handler: Handler, { parityB2 = false }: { parityB2?: boolean } = {}) {
   const sent: Sent[] = []
   // Each request's headers, in the order sent, apart from `sent` so its entries stay comparable as they are.
   const headers: Array<{ path: string; method: string; headers: Headers }> = []
@@ -31,6 +39,7 @@ export function patientApi(handler: Handler) {
     const path = new URL(String(input)).pathname.replace('/api/v1/', '/')
     const method = init?.method ?? 'GET'
     const body = init?.body ? JSON.parse(String(init.body)) as unknown : null
+    if (!parityB2 && isParityB2(path)) return problem(404, 'NOT_FOUND', `Cannot ${method} ${path}`)
     sent.push({ path, method, body })
     headers.push({ path, method, headers: new Headers(init?.headers) })
     return handler(path, method, body)
@@ -44,8 +53,9 @@ export function patientApi(handler: Handler) {
 type SessionValue = ReturnType<typeof createTestSessionValue>
 
 /** Renders `ui` for a signed-in patient. Paths are recorded without the /api/v1 prefix. */
-export function renderPortal(ui: ReactElement, handler: Handler, session: Partial<SessionValue> = {}) {
-  const { api, sent, headers } = patientApi(handler)
+export function renderPortal(ui: ReactElement, handler: Handler, session: Partial<SessionValue> = {},
+  options: { parityB2?: boolean } = {}) {
+  const { api, sent, headers } = patientApi(handler, options)
   const view = render(<MemoryRouter><SessionContext.Provider value={{ ...createTestSessionValue({
     kind: 'patient', subjectId: 'patient:subject', appRole: 'patient', assuranceLevel: 'aal1',
   }, api), ...session }}>{ui}</SessionContext.Provider></MemoryRouter>)

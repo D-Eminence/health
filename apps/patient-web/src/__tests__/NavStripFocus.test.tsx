@@ -29,8 +29,11 @@ afterEach(() => {
   Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView')
 })
 
+// The shell's bell (notificationBadge.tsx) listens for answered requests; its count is never served here.
+const noBell = { onSessionAccepted: () => () => undefined } as Partial<PatientApi> as PatientApi
+
 function openPortal() {
-  render(<SessionContext.Provider value={createTestSessionValue({ kind: 'patient', subjectId: 'subject-a', appRole: 'patient', assuranceLevel: 'aal1' }, {} as PatientApi)}>
+  render(<SessionContext.Provider value={createTestSessionValue({ kind: 'patient', subjectId: 'subject-a', appRole: 'patient', assuranceLevel: 'aal1' }, noBell)}>
     <MemoryRouter initialEntries={['/settings']}><Routes><Route path="/" element={<PortalShell />}><Route path="settings" element={<p>Settings page</p>} /></Route></Routes></MemoryRouter>
   </SessionContext.Provider>)
   const strip = screen.getByRole('navigation', { name: 'Patient pages' })
