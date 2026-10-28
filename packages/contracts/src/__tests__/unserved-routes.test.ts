@@ -58,6 +58,9 @@ const NOT_ON_MAIN = [
   // details, the health information the patient enters, and the chart's read of it.
   'identity.profileDetails', 'identity.myPhoto', 'identity.myPhotoChange', 'identity.contactChanges', 'identity.contactChangeVerify',
   'ehr.myHealthProfile', 'ehr.patientReportedHealthProfile',
+  // hid-1.0 patient parity B4 (hid-system 0095, Novu only): sharing with a clinician and invitations by email.
+  'identity.shareProviderSearch', 'identity.shares', 'identity.shareInvitations', 'identity.shareInvitationCancel',
+  'identity.shareInvitationConfirm', 'identity.sharedWithMe', 'identity.staffShareInvitations', 'identity.staffShareInvitationAccept',
 ] as const
 
 describe('routes hid-system main does not serve', () => {

@@ -37,8 +37,16 @@ const isParityB2 = (path: string) => PARITY_B2_PATHS.some(served => path === ser
  */
 export const PARITY_B3_PATHS = ['/identity/me/profile-details', '/identity/me/photo', '/identity/me/contact-changes', '/ehr/me/health-profile'] as const
 const isParityB3 = (path: string) => PARITY_B3_PATHS.some(served => path === served || path.startsWith(`${served}/`))
+/**
+ * The same for hid-1.0 parity B4 (hid-system 0095): sharing, whose probe (the invitations list) Overview and Access and
+ * consent read. Unless a test serves them (`parityB4`), they answer 404, as a backend before 0095 does, and are not
+ * recorded in `sent`.
+ */
+export const PARITY_B4_PATHS = ['/identity/me/share-invitations', '/identity/me/share-providers', '/identity/me/shares'] as const
+const isParityB4 = (path: string) => PARITY_B4_PATHS.some(served => path === served || path.startsWith(`${served}/`))
 
-export function patientApi(handler: Handler, { parityB2 = false, parityB3 = false }: { parityB2?: boolean; parityB3?: boolean } = {}) {
+export function patientApi(handler: Handler, { parityB2 = false, parityB3 = false, parityB4 = false }:
+  { parityB2?: boolean; parityB3?: boolean; parityB4?: boolean } = {}) {
   const sent: Sent[] = []
   // Each request's headers, in the order sent, apart from `sent` so its entries stay comparable as they are.
   const headers: Array<{ path: string; method: string; headers: Headers }> = []
@@ -48,6 +56,7 @@ export function patientApi(handler: Handler, { parityB2 = false, parityB3 = fals
     const body = init?.body ? JSON.parse(String(init.body)) as unknown : null
     if (!parityB2 && isParityB2(path)) return problem(404, 'NOT_FOUND', `Cannot ${method} ${path}`)
     if (!parityB3 && isParityB3(path)) return problem(404, 'NOT_FOUND', `Cannot ${method} ${path}`)
+    if (!parityB4 && isParityB4(path)) return problem(404, 'NOT_FOUND', `Cannot ${method} ${path}`)
     sent.push({ path, method, body })
     headers.push({ path, method, headers: new Headers(init?.headers) })
     return handler(path, method, body)
@@ -62,7 +71,7 @@ type SessionValue = ReturnType<typeof createTestSessionValue>
 
 /** Renders `ui` for a signed-in patient. Paths are recorded without the /api/v1 prefix. */
 export function renderPortal(ui: ReactElement, handler: Handler, session: Partial<SessionValue> = {},
-  options: { parityB2?: boolean; parityB3?: boolean; at?: string } = {}) {
+  options: { parityB2?: boolean; parityB3?: boolean; parityB4?: boolean; at?: string } = {}) {
   const { api, sent, headers } = patientApi(handler, options)
   const view = render(<MemoryRouter initialEntries={[options.at ?? '/']}><SessionContext.Provider value={{ ...createTestSessionValue({
     kind: 'patient', subjectId: 'patient:subject', appRole: 'patient', assuranceLevel: 'aal1',

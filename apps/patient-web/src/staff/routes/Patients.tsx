@@ -12,6 +12,7 @@ import { BUSY, UNAVAILABLE, useFocusById } from '../focus'
 import { useFieldProblems } from '../useFieldProblems'
 import { staffSessionGeneration, untilStaffSessionReady } from '../session'
 import { selfServiceReview } from '../staffAccess'
+import { ShareInvitationsForMe, SharedWithYou } from './SharedPatients'
 
 const HID_FORMAT = 'Starts with HID-, then 6 to 32 letters and digits. Health IDs never use 0, 1, I or O.'
 
@@ -45,6 +46,8 @@ const METHOD_ROUTES: Record<AccessMethod, Action> = {
 const EMERGENCY_CONTACTS_TOLD = 'While emergency-contact alerts are on, each verified emergency contact the patient has chosen to notify is told that the patient’s record was opened for emergency care, with your name, this facility and the time, but never the reason you type or any medical details.'
 // Closing the grant that opened the record (identity consent.controller.ts closeOwnGrant).
 const CLOSE_GRANT: Action = { routes: [{ route: 'access.closeOwnGrant', method: 'POST' }], action: 'close this grant' }
+// Opening a record a patient shared with this clinician (B4, "Shared with you"): the same Health ID lookup.
+const OPEN_SHARED: Action = { routes: [{ route: 'identity.patientLookup', method: 'POST' }], action: 'open a patient’s record' }
 
 /**
  * Who to ask for a missing permission. The administrator of a facility that signed itself up (Novu, P4b) is the one an
@@ -118,6 +121,7 @@ export function Patients() {
   const administrator = usesNovuBackend() && permissions.includes('workforce.manage') ? selfServiceReview(facility) : null
   const unavailable = actionUnavailable(METHOD_ROUTES[mode], permissions, administrator)
   const closeUnavailable = actionUnavailable(CLOSE_GRANT, permissions, administrator)
+  const openSharedUnavailable = actionUnavailable(OPEN_SHARED, permissions, administrator)
 
   function clearFeedback() { setMessage(''); setError(''); problems.clear() }
 
@@ -206,6 +210,15 @@ export function Patients() {
     finally { setBusy(false) }
   }
 
+  /** Opens a patient who shared their record with this clinician, through the same lookup as a typed Health ID. */
+  async function openShared(sharedHid: string) {
+    if (busy) return
+    clearFeedback(); setBusy(true)
+    try { await openPatient('direct-care', sharedHid) }
+    catch (caught) { setError(caught instanceof Error ? caught.message : 'Patient access could not be verified.') }
+    finally { setBusy(false) }
+  }
+
   async function closeGrant() {
     if (!facility || !grantId || busy || closeUnavailable) return
     clearFeedback(); setBusy(true)
@@ -232,6 +245,11 @@ export function Patients() {
           <Button type="submit" disabled={!facility || unavailable !== null} aria-disabled={busy || undefined} className={BUSY} aria-describedby={unavailable ? 'access-method-unavailable' : undefined}>{busy ? 'Working…' : mode === 'request' ? 'Send access request' : mode === 'pin' ? 'Verify PIN and open' : 'Activate emergency access'}</Button>
         </form>
       </Card>
+    </div>
+    <div className="staff-two-col">
+      <SharedWithYou facilityId={facility?.id} permissions={permissions} openUnavailable={openSharedUnavailable} busy={busy}
+        onOpen={sharedHid => void openShared(sharedHid)} />
+      <ShareInvitationsForMe facilityId={facility?.id} permissions={permissions} />
     </div>
     {error && <div className="staff-feedback" role="alert"><p className="staff-error">{error}</p></div>}
     {/* Mounted throughout, so what an access step says is announced. */}

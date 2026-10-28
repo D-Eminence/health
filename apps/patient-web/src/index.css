@@ -363,6 +363,12 @@
   .patient-contact-form { width: 100%; max-width: 520px; margin-top: 12px; }
   .patient-card .patient-checkbox, .patient-form .patient-checkbox { display: flex; align-items: center; gap: 10px; font-weight: 500; }
   .patient-card .patient-checkbox input, .patient-form .patient-checkbox input { width: auto; min-height: 0; }
+  /* Share my records (hid-system 0095): a choice of one, each option a row with its words beside the radio. */
+  .patient-share-options { display: grid; gap: 10px; min-width: 0; margin: 0; padding: 0; border: 0; }
+  .patient-share-options legend { margin-bottom: 8px; padding: 0; color: var(--color-ink); font-size: 14px; font-weight: 600; }
+  .patient-share-option { display: flex; align-items: flex-start; gap: 10px; padding: 12px; border: 1px solid var(--color-line-control); border-radius: var(--radius-control); font-weight: 500; }
+  .patient-share-option > span { display: grid; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
+  .patient-form .patient-share-option input, .patient-share-option input { width: auto; min-height: 0; margin-top: 3px; }
   .patient-status-tag { justify-self: start; padding: 3px 9px; border-radius: 999px; background: #fff4e5; color: #8a4b08; font-size: 12px; font-weight: 600; }
   .patient-status-tag-ok { background: #ecf9f1; color: #126239; }
   .patient-danger-card { border-color: #f1c9c6; }

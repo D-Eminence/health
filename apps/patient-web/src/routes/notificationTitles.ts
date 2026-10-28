@@ -16,6 +16,13 @@ const NOTIFICATION_TITLES: Readonly<Record<string, string>> = {
   SECURITY_PASSWORD_RESET_REQUESTED: 'Someone asked to reset your Health ID password',
   SECURITY_PASSWORD_CHANGED: 'Your Health ID password was changed',
   SECURITY_GOOGLE_LINKED: 'A Google account was linked to your Health ID',
+  // hid-1.0 parity B4 (hid-system 0095): an invitation the patient sent by email ended unanswered. Its metadata is empty.
+  SHARE_INVITATION_EXPIRED: 'An invitation you sent to share your records has expired',
+  // hid-1.0 parity B5 (hid-system 0096): the patient's own account deletion. The scheduled notice's metadata holds the date,
+  // the blocked one's a reason code; neither is shown in the title, and Settings says the rest.
+  ACCOUNT_DELETION_SCHEDULED: 'Your Health ID account is scheduled for deletion',
+  ACCOUNT_DELETION_CANCELLED: 'Your Health ID account deletion was cancelled',
+  ACCOUNT_DELETION_BLOCKED: 'Your Health ID account could not be deleted: see Settings',
 }
 
 /** What each notice is about, shown beside its date. */
@@ -25,6 +32,11 @@ export const NOTIFICATION_SUBJECTS: Readonly<Record<string, string>> = {
   'order-route': 'Order to another facility',
   // Patient parity B2 (hid-system 0093): the account's own security notices.
   account: 'Account security',
+  // hid-1.0 parity B4 (hid-system 0095): a facility opened the record, and the patient's invitations to share.
+  'record-access': 'Record access',
+  'share-invitation': 'Invitation to share',
+  // hid-1.0 parity B5 (hid-system 0096): the patient's own account deletion.
+  'account-deletion': 'Account',
 }
 
 /**
@@ -63,6 +75,14 @@ export function notificationTitle(item: PatientNotification): string {
   // (identity.close_own_consent_grant). Its metadata holds the facility's name only, never the clinician's reason.
   if (item.notificationCode === 'CONSENT_GRANT_ENDED_BY_CLINICIAN') {
     return `${metadataName(item.metadata, 'facilityName') ?? 'A facility'} ended its access to your health information early`
+  }
+  // hid-1.0 parity B4 (hid-system 0095): a facility's staff opened the record (once per facility a day; the email names no
+  // one), and a provider accepted the patient's invitation. Each names the facility only, never the clinician or a record.
+  if (item.notificationCode === 'RECORDS_OPENED') {
+    return `${metadataName(item.metadata, 'facilityName') ?? 'A facility'} opened your health records`
+  }
+  if (item.notificationCode === 'SHARE_INVITATION_ACCEPTED') {
+    return `A provider at ${metadataName(item.metadata, 'facilityName') ?? 'a facility'} accepted your invitation: confirm it in Access and consent to share your records`
   }
   return NOTIFICATION_TITLES[item.notificationCode] ?? 'An update about your Health ID account'
 }

@@ -42,8 +42,9 @@ it('rejects an unknown configured backend rather than guessing an API contract',
   expect(() => backendContract()).toThrow('Unsupported backend contract')
 });
 
-// Novu (staging-novu-ci-20261005) serves no account deletion, and serves emergency contacts from hid-system #109 with an
-// availability read first. Production answers 404 for every emergency-contact route until #109 deploys.
+// Novu (staging-novu-ci-20261005) serves account deletion only from hid-system 0096 (404 before it, and the card shows
+// nothing), and serves emergency contacts from hid-system #109 with an availability read first. Production answers 404
+// for every emergency-contact route until #109 deploys.
 describe('Novu settings', () => {
   const settings = (contacts: Handler) => renderPortal(<SettingsPage />, (path, method, body) => path === '/identity/me'
     ? json(profile) : path.startsWith('/identity/me/emergency-contacts') ? contacts(path, method, body)
@@ -51,8 +52,10 @@ describe('Novu settings', () => {
   const paths = (sent: Sent[]) => sent.map(request => `${request.method} ${request.path}`)
   // The card renders nothing either way: let every answer settle before asserting what was not asked or shown.
   const settled = () => act(async () => { await new Promise(resolve => setTimeout(resolve, 20)) })
+  // Before 0096: the card reads its status once, is answered 404, and shows nothing.
   const noDeletion = (sent: Sent[]) => {
-    expect(sent.some(request => request.path.includes('account-deletion'))).toBe(false)
+    expect(sent.filter(request => request.path.includes('account-deletion')).map(request => `${request.method} ${request.path}`))
+      .toEqual(['GET /identity/me/account-deletion'])
     expect(screen.queryByRole('heading', { name: /Delete.*account/i })).toBeNull()
   }
 

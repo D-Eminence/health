@@ -168,3 +168,4 @@ body { margin: 0; }
 .staff-reported-health { display: grid; gap: 4px; margin: 8px 0 0; }
 .staff-reported-health dd { margin: 0; }
 .staff-multiline { white-space: pre-line; }
+.staff-share-list { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 10px; }

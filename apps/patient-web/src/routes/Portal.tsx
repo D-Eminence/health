@@ -3,7 +3,7 @@ import { usesNovuBackend } from '../backendContract'
 import { PatientImportedHistory } from '../ImportedHistoryPage'
 import { getEnvironment } from '../env'
 import { useCallback, useRef, useState, type FormEvent, type ReactNode, type RefObject } from 'react'
-import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { Link, NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { HEALTH_ID_PREFIX, emailOrHealthId, healthIdOrOtherInput, isBlankHealthIdInput } from '@hid/contracts'
 import { isHidApiError } from '@hid/http'
 import { PasswordInput } from '@hid/ui'
@@ -13,7 +13,7 @@ import { Turnstile } from '../Turnstile'
 import { BrandLogo } from '../BrandLogo'
 import { ItemName } from '../ItemName'
 import { useSession } from '../session'
-import { IMPORTED_NOTIFICATIONS_PAGE, type ImportedNotification, type PatientRecords, type RecordSection } from '../api'
+import { IMPORTED_NOTIFICATIONS_PAGE, type AccessHistory, type ImportedNotification, type PatientRecords, type RecordSection } from '../api'
 import { IMPORTED_HEALTH_FIELDS, type ImportedHealthField, type ImportedHealthProfile, type ImportedMedicalRecord } from '../importedRecords'
 import { patientChatEnabled } from '../chatFeatures'
 import { usePatientResource } from './usePatientResource'
@@ -38,6 +38,9 @@ import { ContactDetailsCard } from './ProfileContact'
 import { Avatar, PhotoCard, usePatientPhoto } from './ProfilePhoto'
 import { CoverageCard } from './ProfileCoverage'
 import { HealthInformationCard } from './HealthInformation'
+import { ShareInvitationsCard } from './ShareInvitations'
+import { useShareServed } from '../shareServed'
+import { shareDurationLabel, shareLevelLabel } from '../shareRecords'
 
 const links = [
   { to: '/', label: 'Overview', end: true },
@@ -337,11 +340,27 @@ export function RecordsPage() {
   </section>
 }
 
+type HistoryItem = AccessHistory['items'][number]
+
+/** Who holds a grant: the clinician at their facility for the patient's own share (hid-system 0095), else the facility. */
+function grantee(item: HistoryItem) {
+  return typeof item.clinicianName === 'string' && item.clinicianName.trim() ? `${item.clinicianName.trim()} at ${item.facilityName}` : item.facilityName
+}
+
+/** "Shared by you · View Only · 7 days" for the patient's own share; nothing for any other grant, or from an older backend. */
+function sharedAs(item: HistoryItem) {
+  const level = shareLevelLabel(item.shareLevel), duration = item.shareDuration === 'until_revoked' ? 'Until you end it'
+    : shareDurationLabel(item.shareDuration)
+  return level || duration ? ['Shared by you', level, duration].filter(Boolean).join(' · ') : null
+}
+
 export function AccessPage() {
   const { api } = useSession()
   useDocumentTitle('Access and consent · Health ID')
   const requests = usePatientResource(api.accessRequests)
   const history = usePatientResource(api.accessHistory)
+  // Sharing (hid-system 0095): offered once the invitations card's read says it is served; hidden before (404).
+  const shareServed = useShareServed()
   const [working, setWorking] = useState<string | null>(null)
   const [denying, setDenying] = useState<string | null>(null)
   const [reason, setReason] = useState('')
@@ -398,6 +417,7 @@ export function AccessPage() {
 
   return <section className="patient-section"><p className="patient-eyebrow">Consent</p><h1 className="patient-page-title">Access and consent</h1>
     <p className="patient-page-copy">Review requests before deciding whether a facility can access information within the requested scope.</p>
+    {shareServed === true && <p><Link className="patient-primary-button" to="/access/share">Share my records</Link></p>}
     {error && <p role="alert" className="patient-inline-error">{error}</p>}
     <div role="status">{notice && <p className="patient-inline-success">{notice}</p>}</div>
     <div className="patient-card" aria-busy={(requests.loading && requests.data !== null) || undefined}><h2 ref={requestsHeading} tabIndex={-1}>Access requests</h2>
@@ -417,7 +437,9 @@ export function AccessPage() {
     <div className="patient-card" aria-busy={(history.loading && history.data !== null) || undefined}><h2 ref={historyHeading} tabIndex={-1}>Access history</h2>
       <LoadState loading={history.loading} error={history.error} retry={history.reload} hasData={history.data !== null} focusTarget={historyHeading} />
       {history.data && !history.error && (history.data.items.length === 0 ? <p className="patient-empty">No access grants are recorded.</p> : <ul className="patient-list">
-        {history.data.items.map(item => <li key={item.consentGrantId}><div><strong>{item.facilityName}</strong><span>{item.breakGlass ? 'Emergency access' : item.scope} · {item.purpose}</span><span>{date(item.startsAt)} to {date(item.expiresAt)} · {item.status}</span>
+        {history.data.items.map(item => <li key={item.consentGrantId}><div><strong>{grantee(item)}</strong><span>{item.breakGlass ? 'Emergency access' : item.scope} · {item.purpose}</span>
+          {sharedAs(item) && <span>{sharedAs(item)}</span>}
+          <span>{date(item.startsAt)} to {date(item.expiresAt)} · {item.status}</span>
           {item.breakGlass && <p>A provider used emergency access. It is time-limited and audited; it cannot be revoked here.</p>}</div>
           {item.patientRevocable === true && <div className="patient-decision-actions">
             {revoking === item.consentGrantId
@@ -425,10 +447,12 @@ export function AccessPage() {
                   aria-describedby={`revoke-reason-hint-${item.consentGrantId}`} /></label>
                 <p id={`revoke-reason-hint-${item.consentGrantId}`} className="patient-field-hint">At least 3 characters. If this facility has your Access PIN, it can use it to get access again. To stop that, change or remove your PIN in Settings.</p><button type="submit" disabled={revokeBusy || history.loading || revokeReason.trim().length < 3}>Confirm revocation</button>
                 <button type="button" className="patient-secondary-button" disabled={revokeBusy} onClick={() => cancelRevocation(item.consentGrantId)}>Cancel</button></form>
-              : <button id={`revoke-${item.consentGrantId}`} type="button" className="patient-secondary-button" disabled={history.loading} onClick={() => openRevocation(item.consentGrantId)}>Revoke access <ItemName>for {item.facilityName}, {item.scope}, from {dateTime(item.startsAt)}</ItemName></button>}
+              : <button id={`revoke-${item.consentGrantId}`} type="button" className="patient-secondary-button" disabled={history.loading} onClick={() => openRevocation(item.consentGrantId)}>Revoke access <ItemName>for {grantee(item)}, {item.scope}, from {dateTime(item.startsAt)}</ItemName></button>}
           </div>}
         </li>)}
       </ul>)}</div>
+    {/* hid-system 0095: invitations to share sent by email. A backend before it answers 404, and the section is not shown. */}
+    <ShareInvitationsCard onShared={history.reload} />
     {/* hid-system 0093: who viewed or changed the record. An Identity before it answers 404, and the section is not shown. */}
     <AccessLogCard />
   </section>
@@ -627,6 +651,8 @@ export function SettingsPage() {
           disabledReason={googleToken && principalTyped && googlePassword ? undefined
             : 'Enter your email or Health ID and current password, and complete the security check, to link Google.'} /></div>
     </div>}
-    {!usesNovuBackend() && <AccountDeletionCard />}
+    {/* Both backends: hid-system main's 0064, and on Novu hid-system 0096. A backend that does not serve it answers 404,
+        and the card shows nothing. */}
+    <AccountDeletionCard />
   </section>
 }
