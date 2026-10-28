@@ -3,16 +3,16 @@
   "declared": true,
   "backend_contract": "novu-v1",
   "reviewed_by": "D-Eminence",
-  "review_reference": "Backend release backend-40654084217-1-c309822bf676f096 from production-backend-images run 40654084217 (D-Eminence/hid-system#125 at 8ceef6f, migration 0093, deployed 2026-10-28). That release deployed all twelve services at 8ceef6f, so every pin moves to it. Browser-facing changes since the previous pins: patients sign in and reset with an email, phone or Health ID; POST /api/v1/auth/patient/google signs in a patient whose verified Google email matches exactly one account and answers GOOGLE_NOT_REGISTERED (404), GOOGLE_LINK_REQUIRED (409) or GOOGLE_ACCOUNT_EXISTS (409) otherwise; sign-up takes international phones in E.164; new inbox notices SECURITY_PASSWORD_RESET_REQUESTED, SECURITY_PASSWORD_CHANGED, SECURITY_GOOGLE_LINKED and CONSENT_GRANT_ENDED_BY_CLINICIAN; new GET /api/v1/identity/me/notifications/unread-count and GET /api/v1/identity/me/access-log. This frontend (D-Eminence/health#25, merged as 27c958f) uses each where it is answered and keeps working without. Reviewed and approved by the repository owner, D-Eminence, in chat on 2026-10-28 (batch approval for this parity work).",
+  "review_reference": "Backend release backend-40684227016-1-fc43a6ab8b47c543 from production-backend-images run 40684227016 (D-Eminence/hid-system#127 at 80d3435, carrying #126's migration 0094; deployed 2026-10-28). That release deployed all twelve services at 80d3435, so every pin moves to it. Browser-facing changes since the previous pins: GET /api/v1/identity/me adds email, emailVerified, phone, phoneVerified and hasPhoto; new POST /api/v1/identity/me/contact-changes and POST .../{changeId}/verify (email change with a code, phone change with the password; CONTACT_UNCHANGED, CONTACT_UNAVAILABLE, CONTACT_CHANGE_STAFF_ACCOUNT, PATIENT_RECENT_RECOVERY_HOLD, CONTACT_CHANGE_RATE_LIMITED, CONTACT_CODE_UNDELIVERABLE); GET/PUT /api/v1/identity/me/profile-details (hospital and HMO, 409 on a stale version); GET/PUT/DELETE /api/v1/identity/me/photo (a body of at most 8,000 bytes at the edge); GET/PUT /api/v1/ehr/me/health-profile and the staff read of patient-reported health in direct care. This frontend (D-Eminence/health#27, merged as 0c77441) uses each where it is answered and keeps working without. Reviewed and approved by the repository owner, D-Eminence, in chat on 2026-10-28 (batch approval for this parity work).",
   "backend_commits": {
-    "gateway": "8ceef6f15cdde4c2a66f80697c31c90ed94f94c1",
-    "identity-api": "8ceef6f15cdde4c2a66f80697c31c90ed94f94c1",
-    "ehr-api": "8ceef6f15cdde4c2a66f80697c31c90ed94f94c1",
-    "lab-api": "8ceef6f15cdde4c2a66f80697c31c90ed94f94c1",
-    "pharmacy-api": "8ceef6f15cdde4c2a66f80697c31c90ed94f94c1",
-    "ocr-api": "8ceef6f15cdde4c2a66f80697c31c90ed94f94c1",
-    "outreach-api": "8ceef6f15cdde4c2a66f80697c31c90ed94f94c1",
-    "support-api": "8ceef6f15cdde4c2a66f80697c31c90ed94f94c1",
-    "notification-api": "8ceef6f15cdde4c2a66f80697c31c90ed94f94c1"
+    "gateway": "80d34353ea275e09752330ed0c7c8cece85a89ef",
+    "identity-api": "80d34353ea275e09752330ed0c7c8cece85a89ef",
+    "ehr-api": "80d34353ea275e09752330ed0c7c8cece85a89ef",
+    "lab-api": "80d34353ea275e09752330ed0c7c8cece85a89ef",
+    "pharmacy-api": "80d34353ea275e09752330ed0c7c8cece85a89ef",
+    "ocr-api": "80d34353ea275e09752330ed0c7c8cece85a89ef",
+    "outreach-api": "80d34353ea275e09752330ed0c7c8cece85a89ef",
+    "support-api": "80d34353ea275e09752330ed0c7c8cece85a89ef",
+    "notification-api": "80d34353ea275e09752330ed0c7c8cece85a89ef"
   }
 }
