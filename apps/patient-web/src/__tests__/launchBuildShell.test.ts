@@ -19,6 +19,10 @@ import { describe, expect, it } from 'vitest'
  * Since the Health ID icon was added (hid-1.0 parity, 2026-10-28) the check is
  * that copy widened by exactly the icon files in apps/patient-web/public, the
  * shell's links to them and a #rrggbb theme-color (check-launch-build.mjs).
+ * Since B6 (phone and computer notifications) it accepts exactly one service
+ * worker, public/sw.js, which only shows a fixed notification and opens
+ * Notifications, registered only by pushDevice's chunk; every other worker,
+ * and a sw.js that does more, is still refused.
  */
 const repository = fileURLToPath(new URL('../../../..', import.meta.url))
 const script = join(repository, 'scripts', 'check-launch-build.mjs')
@@ -97,6 +101,53 @@ describe('the launch build check refuses a shell staging refuses', () => {
   })
 })
 
+const PUSH_WORKER = readFileSync(join(publicFiles, 'sw.js'), 'utf8')
+// What Vite makes of apps/patient-web/src/pushDevice.ts, minified as it is: the one chunk allowed the worker API.
+const PUSH_DEVICE_CHUNK = 'assets/pushDevice-Qr5tUv78.js'
+const PUSH_DEVICE = 'async function t(){return"serviceWorker"in navigator?navigator.serviceWorker.getRegistration("/"):void 0}'
+  + 'async function r(){await navigator.serviceWorker.register("/sw.js",{scope:"/",updateViaCache:"none"});return navigator.serviceWorker.ready}export{t,r};\n'
+/** The real sw.js with `extra` added after its listeners. */
+const workerWith = (extra: string) => `${PUSH_WORKER}\n${extra}\n`
+
+describe('the push worker (B6)', () => {
+  it('accepts the real public files with pushDevice\'s chunk, the only code that registers it', () => {
+    const result = launchBuildCheck(built, { [PUSH_DEVICE_CHUNK]: PUSH_DEVICE })
+    expect(result.output).not.toMatch(/failed/)
+    expect(result.status).toBe(0)
+  })
+
+  it.each([
+    ['a fetch listener', { 'sw.js': workerWith("self.addEventListener('fetch', event => event.respondWith(fetch(event.request)))") },
+      /sw\.js handles requests/],
+    ['a fetch listener in double quotes', { 'sw.js': workerWith('self.addEventListener("fetch", () => {})') }, /sw\.js handles requests/],
+    ['an onfetch handler', { 'sw.js': workerWith('self.onfetch = () => {}') }, /sw\.js handles requests \(onfetch\)/],
+    ['the Cache API', { 'sw.js': workerWith("self.addEventListener('push', () => caches.open('hid-pages'))") }, /sw\.js uses the Cache API/],
+    ['an imported script', { 'sw.js': workerWith("importScripts('/assets/firebase-messaging.js')") }, /sw\.js imports scripts/],
+    ['a read of the push\'s data', { 'sw.js': PUSH_WORKER.replace('self.registration.showNotification(TITLE, OPTIONS)',
+      'self.registration.showNotification(event.data.json().title, OPTIONS)') }, /sw\.js reads a message's data/],
+    ['a network request', { 'sw.js': workerWith("self.addEventListener('push', () => self.fetch('/api/v1/identity/me'))") }, /sw\.js calls fetch/],
+    ['IndexedDB', { 'sw.js': workerWith("self.addEventListener('push', () => self.indexedDB.open('hid'))") }, /sw\.js uses IndexedDB/],
+    ['another listener', { 'sw.js': workerWith("self.addEventListener('message', () => {})") }, /sw\.js listens for message/],
+    ['an install listener that takes over at once', { 'sw.js': workerWith("self.addEventListener('install', () => self.skipWaiting())") },
+      /sw\.js listens for install/],
+    ['no push listener', { 'sw.js': PUSH_WORKER.replace("addEventListener('push'", "addEventListener('notificationclose'") },
+      /sw\.js does not listen for push/],
+    ['a tap that opens somewhere else', { 'sw.js': PUSH_WORKER.replace("'/notifications'", "'/records'") },
+      /does not open '\/notifications'/],
+    ['a worker anywhere but the root', { 'icons/sw.js': PUSH_WORKER }, /icons\/sw\.js is a service worker/],
+    ['the worker API outside pushDevice\'s chunk', { [ENTRY]: 'navigator.serviceWorker.register("/sw.js")\n' },
+      /index-AbCdEf12\.js registers a service worker/],
+    ['a chunk that registers another script', { [PUSH_DEVICE_CHUNK]: PUSH_DEVICE.replace('"/sw.js"', '"/firebase-messaging-sw.js"') },
+      /registers \/firebase-messaging-sw\.js; only \/sw\.js may be registered/],
+    ['a chunk that registers a script it names at run time', { [PUSH_DEVICE_CHUNK]: `${PUSH_DEVICE}navigator.serviceWorker.register(e.url)\n` },
+      /registers \(e\.url\); only \/sw\.js may be registered/],
+  ])('refuses %s', (_name, files, reason) => {
+    const result = launchBuildCheck(built, { [PUSH_DEVICE_CHUNK]: PUSH_DEVICE, ...files })
+    expect(result.status).toBe(1)
+    expect(result.output).toMatch(reason)
+  })
+})
+
 describe('the launch build check refuses a build staging refuses', () => {
   const manifest = readFileSync(join(publicFiles, 'health-id.webmanifest'), 'utf8')
   it.each([
@@ -107,6 +158,9 @@ describe('the launch build check refuses a build staging refuses', () => {
     ['a manifest icon from outside the build', { 'health-id.webmanifest': JSON.stringify({ ...JSON.parse(manifest), icons: [{ src: 'https://cdn.example.test/i.png' }] }) },
       /names an icon/],
     ['a service worker', { 'service-worker.js': 'self.skipWaiting()' }, /service-worker\.js is a service worker/],
+    ['a Workbox worker', { 'workbox-1a2b3c4d.js': 'self.skipWaiting()' }, /workbox-1a2b3c4d\.js is a service worker/],
+    ['a manifest that names a file other than its icons', { 'health-id.webmanifest': JSON.stringify({ ...JSON.parse(manifest),
+      icons: [{ src: '/sw.js', sizes: '512x512', type: 'image/png' }] }) }, /names an icon \(\/sw\.js\)/],
   ])('%s', (_name, files, reason) => {
     const result = launchBuildCheck(built, files)
     expect(result.status).toBe(1)

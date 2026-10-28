@@ -10,7 +10,7 @@ import { json, patientApi, problem, type Handler } from './portalHarness'
  * Google sign-in for a registered patient whose Google account is not linked yet (hid-1.0 parity B2, owner decision
  * 2026-10-28). Identity links it when Google says the email is verified and exactly one patient account has that
  * verified email, and signs in as a linked Google sign-in does. Otherwise: 404 GOOGLE_NOT_REGISTERED (no account has
- * it: the page offers the sign-up), 409 GOOGLE_LINK_REQUIRED (more than one: password, then Settings), and 403
+ * it: the page offers the sign-up), 409 GOOGLE_LINK_REQUIRED (more than one: the website's own words, since Identity's name Settings, which is gone), and 403
  * ACCOUNT_SUSPENDED as before. On the sign-up, 409 GOOGLE_ACCOUNT_EXISTS says to sign in with Google instead.
  */
 vi.mock('../Turnstile', () => ({
@@ -59,11 +59,14 @@ describe('Google sign-in for an account not linked yet', () => {
     expect(screen.queryByText(/Didn't finish signing up\?/)).toBeNull()
   })
 
-  it('says to sign in with the password and link Google in Settings when more than one account has it (409 GOOGLE_LINK_REQUIRED)', async () => {
-    openSignIn(exchange(() => problem(409, 'GOOGLE_LINK_REQUIRED', GOOGLE_LINK_REQUIRED)))
+  it('says to sign in with the password, and not to go to Settings, when more than one account has it (409 GOOGLE_LINK_REQUIRED)', async () => {
+    // Identity's own words name Settings, which the portal no longer has: the page says its own.
+    openSignIn(exchange(() => problem(409, 'GOOGLE_LINK_REQUIRED', 'Sign in with your password, then link Google from Settings.')))
     await google()
     const alert = await screen.findByRole('alert')
-    expect(alert.textContent).toBe('Sign in with your password, then link Google from Settings.')
+    expect(alert.textContent).toBe('This Google account can’t be linked automatically. Sign in with your email or Health ID and password.')
+    expect(alert.textContent).toBe(GOOGLE_LINK_REQUIRED)
+    expect(alert.textContent).not.toMatch(/Settings/)
     expect(within(alert).queryByRole('link')).toBeNull()
   })
 

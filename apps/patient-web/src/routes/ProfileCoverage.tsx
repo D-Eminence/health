@@ -89,7 +89,7 @@ function CoverageForm({ resource }: { resource: ProfileResource<ProfileDetails |
   // A read that failed is said in the heading too: the card's alert is not seen while it is closed.
   return <ProfileSection id="coverage" title="Coverage" state={resource.error ? 'Could not load' : null} busy={resource.loading}
     headingRef={heading} headingId="coverage-heading">
-    <p className="patient-field-hint">The hospital you use now and your health insurance (HMO), so the people caring for you know.</p>
+    <p className="patient-field-hint">Your hospital and HMO, for the people caring for you.</p>
     {resource.error && <div role="alert"><p>{resource.error}</p>
       <button ref={retryFocus.button} type="button" onClick={() => retryFocus.retry(resource.reload)}>Try again <ItemName>loading your coverage details</ItemName></button></div>}
     {error && <p id="coverage-error" role="alert" className="patient-inline-error">{error}</p>}
@@ -103,7 +103,7 @@ function CoverageForm({ resource }: { resource: ProfileResource<ProfileDetails |
       <label>HMO name<input id="coverage-hmo" autoComplete="off" maxLength={COVERAGE_TEXT_LIMIT} value={hmo}
         onChange={event => { setHmo(oneLine(event.target.value).slice(0, COVERAGE_TEXT_LIMIT)); setNotice(null) }}
         aria-describedby={describedBy('coverage-hmo-hint', error && 'coverage-error')} /></label>
-      <p id="coverage-hmo-hint" className="patient-field-hint">The health insurance (HMO) you are enrolled with, if any. Leave a field empty to clear it.</p>
+      <p id="coverage-hmo-hint" className="patient-field-hint">Your health insurance, if any. Leave a field empty to clear it.</p>
       <button type="submit" className="patient-primary-button" disabled={busy || !changed}>{busy ? 'Saving…' : 'Save coverage'}</button>
     </form>}
   </ProfileSection>

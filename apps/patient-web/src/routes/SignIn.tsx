@@ -24,17 +24,17 @@ const suspended = (reason: unknown) => isHidApiError(reason) && reason.code === 
  * Google sign-in for a Google account not linked yet (hid-system, owner decision 2026-10-28): Identity links it when
  * Google says its email is verified and exactly one patient account has that verified email. With none, 404
  * GOOGLE_NOT_REGISTERED, and the page offers the sign-up; with more than one, 409 GOOGLE_LINK_REQUIRED. Identity's
- * own words are shown; these stand in only if a problem came without them.
+ * own words are shown; these stand in only if a problem came without them. GOOGLE_LINK_REQUIRED's are always ours:
+ * Identity's say to link Google from Settings, which the portal no longer has (the owner's decision of 2026-10-28).
  */
 export const GOOGLE_NOT_REGISTERED = 'This Google account is not registered on Health ID. Use Sign Up first.'
-export const GOOGLE_LINK_REQUIRED = 'Sign in with your password, then link Google from Settings.'
-const STAND_INS: Readonly<Record<string, string>> = {
-  ACCOUNT_SUSPENDED, GOOGLE_NOT_REGISTERED, GOOGLE_LINK_REQUIRED,
-}
+export const GOOGLE_LINK_REQUIRED = 'This Google account can’t be linked automatically. Sign in with your email or Health ID and password.'
+const STAND_INS: Readonly<Record<string, string>> = { ACCOUNT_SUSPENDED, GOOGLE_NOT_REGISTERED }
 const googleNotRegistered = (reason: unknown) => isHidApiError(reason) && reason.code === 'GOOGLE_NOT_REGISTERED'
 
 /** Identity's words for a refused sign-in: its own, or ours for a problem that came without them. */
 const refusalText = (reason: HidApiError) => {
+  if (reason.code === 'GOOGLE_LINK_REQUIRED') return GOOGLE_LINK_REQUIRED
   const standIn = reason.code !== undefined && Object.hasOwn(STAND_INS, reason.code) ? STAND_INS[reason.code] : undefined
   return standIn && reason.message === fallbackMessageForStatus(reason.status) ? standIn : reason.message
 }

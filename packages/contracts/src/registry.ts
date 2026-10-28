@@ -30,8 +30,11 @@ export type EndpointAuth = { readonly kind: 'public' | 'authenticated' }
  * its withdrawal), which `staging-novu-ci-20261005` serves since hid-system
  * a3b1822; and "We can't complete this order" (D18, hid-system 0091 on
  * `staging-novu-ci-20261005`: the receiving facility ends an order it accepted
- * and can't complete), which no hid-system release serves yet: callers treat a
- * 404 as "not available yet" and show nothing.
+ * and can't complete), which no hid-system release serves yet; and phone and
+ * computer notifications (B6, hid-system 0097 on `staging-novu-ci-20261005`:
+ * the patient's push subscriptions), which answer 404 until the owner configures
+ * the push keys as well: callers treat a 404 as "not available yet" and show
+ * nothing.
  */
 export type ContractStatus = 'surface-verified' | 'proposed'
 export interface EndpointDescriptor {
@@ -92,6 +95,12 @@ const PARITY_B4 = 'Novu only, hid-system 0095 (patient parity B4, sharing); not 
   + '(or with sharing switched off) answers 404, which the portal takes as not offered.'
 /** Account deletion (hid-1.0 parity B5): hid-system main's 0064 routes, which Novu serves from 0096 under the same paths. */
 const ACCOUNT_DELETION_NOTE = 'Novu: hid-system 0096; 404 before'
+/**
+ * "Notifications on this device" (B6, contract b6-contract.md §3): payload-free Web Push, the subscription stored by
+ * Identity. Served by Novu from hid-system 0097, and only once the owner has configured the push keys: before that, and
+ * on a backend before 0097, each route answers 404, which the portal takes as not offered (the section is hidden).
+ */
+const WEB_PUSH_NOTE = 'Novu: hid-system 0097 (B6); 404 before, and while push is not configured'
 const CHAT_NOTE = `${NOT_ON_MAIN} The screen is off unless the build turns it on.`
 const STAFF_CHAT_NOTE = 'Staff sessions holding ehr.record-chat.use, for direct care only (X-Purpose-Of-Use: direct-care, never break-glass). '
   + 'Off by default in hid-system (ADR-069, 0101): 503 RECORD_CHAT_DISABLED until RECORD_CHAT_STAFF_ENABLED and the platform control are on.'
@@ -693,6 +702,16 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + '200 [{ id, title, message, type, readAt, createdAt }]. Each list is audited, so it is read once per visit and never polled.')),
   proposed(r('notifications.importedRead','notifications','/api/v1/identity/me/imported-notifications/:notificationId/read',P,false,undefined,
     'Served by hid-system staging-novu-ci-20261005 (0062); not served by hid-system main. 200 { id, readAt }; audited.')),
+  // Phone and computer notifications (B6, hid-system 0097 on staging-novu-ci-20261005): patient sessions only, CSRF on
+  // PUT and POST. The endpoint, a bearer capability, goes in a body only and is never answered back.
+  proposed(r('notifications.webPush','notifications','/api/v1/identity/me/web-push',G,false,undefined,
+    `${WEB_PUSH_NOTE}. 200 { applicationServerKey, keyId, limit, subscriptions: [{ id, endpointDigest, pushService, `
+    + 'thisSignIn, keyCurrent, createdAt, boundAt, lastDeliveredAt }] }; never an endpoint or key.')),
+  proposed(r('notifications.webPushSubscription','notifications','/api/v1/identity/me/web-push/subscription',['PUT'],false,undefined,
+    `${WEB_PUSH_NOTE}. Body { endpoint, expirationTime, keys: { p256dh, auth }, keyId } (about 2.3 KB at most); 200 { id, created, `
+    + 'endpointDigest, pushService }; 409 WEB_PUSH_KEY_CHANGED when keyId is not the current key; 429 WEB_PUSH_RATE_LIMITED.')),
+  proposed(r('notifications.webPushSubscriptionRemove','notifications','/api/v1/identity/me/web-push/subscription/remove',P,false,undefined,
+    `${WEB_PUSH_NOTE}. Body { endpoint }; 200 { removed }; idempotent and never rate limited.`)),
 
   r('ehr.myRecords','ehr','/api/v1/ehr/me/records',G),
   // hid-1.0 patient parity B3 (hid-system 0094 on staging-novu-ci-20261005): the health information the patient enters,
@@ -1146,6 +1165,8 @@ export const NON_FRONTEND_ENDPOINTS: readonly string[] = [
   '/api/v1/lab/imports/from-ocr', '/api/v1/pharmacy/work-items/accept-ehr-prescription',
   '/api/v1/pharmacy/imports/from-ocr', '/api/v1/notifications/otp',
   '/api/v1/notifications/emergency-contact-alert', '/api/v1/notifications/staff-invitation',
+  // The empty, VAPID-signed push Identity's dispatcher asks notification-api to send (B6); the gateway does not route it.
+  '/api/v1/notifications/web-push',
   // This admin route exists but always returns INTEGRATION_CREDENTIAL_ROTATION_EXTERNAL.
   '/api/v1/admin/integrations/:provider/credential-reference',
 ]

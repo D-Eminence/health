@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent } from 'react'
+import { useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { isHidApiError } from '@hid/http'
 import { useSession } from '../session'
 import { describedBy } from '../authSteps'
@@ -87,15 +87,26 @@ function savedOn(value: string | null) {
  * patient first saves here, the form starts from the details they kept in hid-1.0, which they save to keep here. Not
  * shown where EHR does not serve it (404).
  */
-export function HealthInformationCard({ resource, fromHid1 }: {
+export function HealthInformationCard({ resource, fromHid1, contacts }: {
   resource: ProfileResource<HealthProfile | null>
   /** The patient's hid-1.0 health details (Novu's records answer), or null. */
   fromHid1: ImportedHealthProfile | null
+  /**
+   * The emergency contacts, after the form in the same section (the owner's decision of 2026-10-28). Where the health
+   * information is not served (404) they are `alone`, and are the section themselves, or nothing where they are not
+   * served either.
+   */
+  contacts?: (alone: boolean) => ReactNode
 }) {
-  return useShownOnceServed(resource) ? <HealthInformationForm resource={resource} fromHid1={fromHid1} /> : null
+  const shown = useShownOnceServed(resource)
+  if (shown) return <HealthInformationForm resource={resource} fromHid1={fromHid1}>{contacts?.(false)}</HealthInformationForm>
+  const unserved = resource.data === null && resource.error === null && !resource.loading
+  return unserved ? contacts?.(true) ?? null : null
 }
 
-function HealthInformationForm({ resource, fromHid1 }: { resource: ProfileResource<HealthProfile | null>; fromHid1: ImportedHealthProfile | null }) {
+function HealthInformationForm({ resource, fromHid1, children }: {
+  resource: ProfileResource<HealthProfile | null>; fromHid1: ImportedHealthProfile | null; children?: ReactNode
+}) {
   const { api } = useSession()
   const saved = resource.data
   const [draft, setDraft] = useState<Draft | null>(() => saved ? startOf(saved, fromHid1) : null)
@@ -151,12 +162,10 @@ function HealthInformationForm({ resource, fromHid1 }: { resource: ProfileResour
   // A read that failed is said in the heading too: the card's alert is not seen while it is closed.
   return <ProfileSection id="health-information" title="Health information" state={resource.error ? 'Could not load' : null}
     busy={resource.loading} headingRef={heading}>
-    <p id="health-hint" className="patient-field-hint">What you tell the people caring for you about your health. Clinicians with
-      access to your record see it marked as reported by you; it does not change what they record.</p>
+    <p id="health-hint" className="patient-field-hint">Clinicians with access see this marked as reported by you.</p>
     {resource.error && <div role="alert"><p>{resource.error}</p>
       <button ref={retryFocus.button} type="button" onClick={() => retryFocus.retry(resource.reload)}>Try again <ItemName>loading your health information</ItemName></button></div>}
-    {seeded && <p className="patient-field-hint">We started this from the health details you kept in hid-1.0. Check them, then save
-      to keep them here.</p>}
+    {seeded && <p className="patient-field-hint">Filled in from hid-1.0. Check, then save to keep them.</p>}
     {when && <p className="patient-field-hint">Last saved {when}.</p>}
     {error && <p id="health-error" role="alert" className="patient-inline-error">{error}</p>}
     <div role="status">{notice && <p className="patient-inline-success">{notice}</p>}</div>
@@ -181,5 +190,6 @@ function HealthInformationForm({ resource, fromHid1 }: { resource: ProfileResour
       </div>)}
       <button type="submit" className="patient-primary-button" disabled={busy || !changed}>{busy ? 'Saving…' : 'Save health information'}</button>
     </form>}
+    {children}
   </ProfileSection>
 }

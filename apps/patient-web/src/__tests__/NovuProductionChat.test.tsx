@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { SessionContext, createTestSessionValue } from '../session'
 import { SelectedPatientChat } from '../routes/SelectedPatientChat'
 import { backendContract } from '../backendContract'
-import { SettingsPage } from '../routes/Portal'
+import { ProfilePage } from '../routes/Portal'
 import { json, problem, profile, renderPortal, type Handler, type Sent } from './portalHarness'
 
 afterEach(() => vi.unstubAllEnvs())
@@ -45,10 +45,11 @@ it('rejects an unknown configured backend rather than guessing an API contract',
 // Novu (staging-novu-ci-20261005) serves account deletion only from hid-system 0096 (404 before it, and the card shows
 // nothing), and serves emergency contacts from hid-system #109 with an availability read first. Production answers 404
 // for every emergency-contact route until #109 deploys.
-describe('Novu settings', () => {
-  const settings = (contacts: Handler) => renderPortal(<SettingsPage />, (path, method, body) => path === '/identity/me'
+// On the profile, opened at the emergency contacts (Settings is gone: the owner's decision of 2026-10-28).
+describe('Novu emergency contacts and account deletion on the profile', () => {
+  const settings = (contacts: Handler) => renderPortal(<ProfilePage />, (path, method, body) => path === '/identity/me'
     ? json(profile) : path.startsWith('/identity/me/emergency-contacts') ? contacts(path, method, body)
-      : problem(404, 'NOT_FOUND', `Cannot GET /api/v1${path}`))
+      : problem(404, 'NOT_FOUND', `Cannot GET /api/v1${path}`), {}, { at: '/profile#emergency-contacts' })
   const paths = (sent: Sent[]) => sent.map(request => `${request.method} ${request.path}`)
   // The card renders nothing either way: let every answer settle before asserting what was not asked or shown.
   const settled = () => act(async () => { await new Promise(resolve => setTimeout(resolve, 20)) })
@@ -67,7 +68,7 @@ describe('Novu settings', () => {
     let release!: (response: Response) => void
     const { sent } = settings(path => path.endsWith('/availability')
       ? new Promise<Response>(resolve => { release = resolve }) : json([]))
-    expect(await screen.findByRole('heading', { name: 'Access PIN' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Bio-data' })).toBeTruthy()
     await waitFor(() => expect(paths(sent)).toContain('GET /identity/me/emergency-contacts/availability'))
     const nothing = () => {
       expect(screen.queryByRole('heading', { name: 'Emergency contacts' })).toBeNull()
@@ -82,7 +83,7 @@ describe('Novu settings', () => {
   it('shows no card, no alert and reads no list while the routes are not served (404)', async () => {
     vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
     const { sent } = settings(path => problem(404, 'NOT_FOUND', `Cannot GET /api/v1${path}`))
-    expect(await screen.findByRole('heading', { name: 'Access PIN' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Bio-data' })).toBeTruthy()
     await waitFor(() => expect(paths(sent)).toContain('GET /identity/me/emergency-contacts/availability'))
     await settled()
     expect(paths(sent).filter(request => request.includes('emergency-contacts'))).toEqual(['GET /identity/me/emergency-contacts/availability'])
@@ -94,7 +95,7 @@ describe('Novu settings', () => {
   it('shows no card and asks to add nothing while delivery is off for a patient without contacts', async () => {
     vi.stubEnv('VITE_HID_BACKEND_CONTRACT', 'novu-v1')
     const { sent } = settings(path => path.endsWith('/availability') ? json({ delivery: false, channels: ['email'] }) : json([]))
-    expect(await screen.findByRole('heading', { name: 'Access PIN' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Bio-data' })).toBeTruthy()
     await waitFor(() => expect(paths(sent)).toContain('GET /identity/me/emergency-contacts'))
     await settled()
     expect(screen.queryByRole('heading', { name: 'Emergency contacts' })).toBeNull()

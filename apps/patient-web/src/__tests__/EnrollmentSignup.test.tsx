@@ -290,7 +290,7 @@ describe('the sign-up without a NIN (owner decision, 2026-10-27)', () => {
     expect(sent.filter(request => request.method === 'POST').map(request => request.path)).toEqual(['/auth/oidc/exchange'])
   })
 
-  it('says an older Identity\'s refusal for an existing account with a link to sign in (409 GOOGLE_EXISTING_ACCOUNT_LINK_REQUIRED)', async () => {
+  it('says, in its own words, an older Identity\'s refusal for an existing account with a link to sign in (409 GOOGLE_EXISTING_ACCOUNT_LINK_REQUIRED)', async () => {
     vi.stubEnv('VITE_HID_GOOGLE_CLIENT_ID', 'google-client')
     googleCredential = idToken({ given_name: 'Adaeze', email: 'adaeze@gmail.com' })
     renderPortal(<Enrollment />, gateway((path, method, body) => path === '/auth/oidc/exchange'
@@ -299,7 +299,9 @@ describe('the sign-up without a NIN (owner decision, 2026-10-27)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Complete check' }))
     await press(screen.getByRole('button', { name: 'Continue with Google' }))
     const alert = await screen.findByRole('alert')
-    expect(alert.textContent).toContain('Sign in to your existing Health ID account to link Google')
+    // Identity's words send the patient to link Google, which the website has nowhere to do.
+    expect(alert.textContent).toContain('You already have a Health ID. Sign in with your email or Health ID and password.')
+    expect(alert.textContent).not.toMatch(/link/i)
     expect(within(alert).getByRole('link', { name: 'Sign in' }).getAttribute('href')).toBe('/sign-in')
   })
 

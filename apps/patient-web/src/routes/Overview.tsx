@@ -94,7 +94,7 @@ export function attentionItems({ profile, requests, completion, contacts }: {
   if (profile && profile.ninVerified === false) items.push({ id: 'nin', to: '/profile#nin-verification', text: 'Your NIN is not verified yet' })
   if (completion && completion.percent < 100) items.push({ id: 'completion', to: '/profile#profile-completion',
     text: `Your profile is ${completion.percent}% complete` })
-  if (contacts && contacts.length === 0) items.push({ id: 'emergency-contact', to: '/settings#emergency-contacts', text: 'You have no emergency contact' })
+  if (contacts && contacts.length === 0) items.push({ id: 'emergency-contact', to: '/profile#emergency-contacts', text: 'You have no emergency contact' })
   return items
 }
 

@@ -45,8 +45,16 @@ const isParityB3 = (path: string) => PARITY_B3_PATHS.some(served => path === ser
 export const PARITY_B4_PATHS = ['/identity/me/share-invitations', '/identity/me/share-providers', '/identity/me/shares'] as const
 const isParityB4 = (path: string) => PARITY_B4_PATHS.some(served => path === served || path.startsWith(`${served}/`))
 
-export function patientApi(handler: Handler, { parityB2 = false, parityB3 = false, parityB4 = false }:
-  { parityB2?: boolean; parityB3?: boolean; parityB4?: boolean } = {}) {
+/**
+ * The same for B6 (hid-system 0097): "Notifications on this device", which the Notifications page reads. Unless a test serves it
+ * (`webPush`), it answers 404, as a backend before 0097, or one whose push keys are not configured, does, and is not
+ * recorded in `sent`.
+ */
+export const WEB_PUSH_PATHS = ['/identity/me/web-push'] as const
+const isWebPush = (path: string) => WEB_PUSH_PATHS.some(served => path === served || path.startsWith(`${served}/`))
+
+export function patientApi(handler: Handler, { parityB2 = false, parityB3 = false, parityB4 = false, webPush = false }:
+  { parityB2?: boolean; parityB3?: boolean; parityB4?: boolean; webPush?: boolean } = {}) {
   const sent: Sent[] = []
   // Each request's headers, in the order sent, apart from `sent` so its entries stay comparable as they are.
   const headers: Array<{ path: string; method: string; headers: Headers }> = []
@@ -57,6 +65,7 @@ export function patientApi(handler: Handler, { parityB2 = false, parityB3 = fals
     if (!parityB2 && isParityB2(path)) return problem(404, 'NOT_FOUND', `Cannot ${method} ${path}`)
     if (!parityB3 && isParityB3(path)) return problem(404, 'NOT_FOUND', `Cannot ${method} ${path}`)
     if (!parityB4 && isParityB4(path)) return problem(404, 'NOT_FOUND', `Cannot ${method} ${path}`)
+    if (!webPush && isWebPush(path)) return problem(404, 'NOT_FOUND', `Cannot ${method} ${path}`)
     sent.push({ path, method, body })
     headers.push({ path, method, headers: new Headers(init?.headers) })
     return handler(path, method, body)
@@ -71,7 +80,7 @@ type SessionValue = ReturnType<typeof createTestSessionValue>
 
 /** Renders `ui` for a signed-in patient. Paths are recorded without the /api/v1 prefix. */
 export function renderPortal(ui: ReactElement, handler: Handler, session: Partial<SessionValue> = {},
-  options: { parityB2?: boolean; parityB3?: boolean; parityB4?: boolean; at?: string } = {}) {
+  options: { parityB2?: boolean; parityB3?: boolean; parityB4?: boolean; webPush?: boolean; at?: string } = {}) {
   const { api, sent, headers } = patientApi(handler, options)
   const view = render(<MemoryRouter initialEntries={[options.at ?? '/']}><SessionContext.Provider value={{ ...createTestSessionValue({
     kind: 'patient', subjectId: 'patient:subject', appRole: 'patient', assuranceLevel: 'aal1',
@@ -124,4 +133,22 @@ export async function openSection(name: string | RegExp): Promise<HTMLElement> {
   if (toggle.getAttribute('aria-expanded') !== 'true') await act(async () => { fireEvent.click(toggle) })
   expect(toggle.getAttribute('aria-expanded')).toBe('true')
   return toggle.closest('.patient-card') as HTMLElement
+}
+
+/**
+ * The email and phone, at the end of the profile's Bio-data with no heading of their own (ProfileContact.tsx): opens
+ * Bio-data as the patient does, and returns the block (#contact-details) inside it.
+ */
+export async function openContactDetails(): Promise<HTMLElement> {
+  const bio = await openSection('Bio-data')
+  const block = bio.querySelector<HTMLElement>('#contact-details')
+  expect(block).not.toBeNull()
+  return block as HTMLElement
+}
+
+/** The profile's completion card, always shown and never closed (ProfileCompletion.tsx), once it is shown. */
+export async function completionCard(): Promise<HTMLElement> {
+  const title = await screen.findByRole('heading', { name: 'Profile completion', level: 2 })
+  expect(within(title).queryByRole('button')).toBeNull()
+  return title.closest('.patient-card') as HTMLElement
 }

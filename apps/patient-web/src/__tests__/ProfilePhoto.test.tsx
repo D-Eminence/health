@@ -131,9 +131,10 @@ function gateway(start: boolean, answers: { put?: () => Response; del?: () => Re
   handler.hasPhoto = () => has
   return handler
 }
-const photoCard = async () => within(await openSection('Photo'))
+/** The photo control, at the top of Bio-data: the avatar, whose label wraps the hidden file field. */
+const photoCard = async () => within(await openSection('Bio-data'))
 async function choose(file: File) {
-  const input = (await photoCard()).getByLabelText(/Choose a (new )?photo/) as HTMLInputElement
+  const input = (await photoCard()).getByLabelText(/^(Add|Change) profile photo$/) as HTMLInputElement
   await act(async () => { fireEvent.change(input, { target: { files: [file] } }) })
 }
 const puts = (sent: Sent[]) => sent.filter(request => request.path === '/identity/me/photo' && request.method === 'PUT')
@@ -321,12 +322,12 @@ describe('choosing a photo', () => {
     expect(createImageBitmap).not.toHaveBeenCalled()
     expect(screen.queryByRole('button', { name: 'Save photo' })).toBeNull()
     expect(puts(sent)).toEqual([])
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('Choose a photo')))
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('Add profile photo')))
   })
 
   it('moves focus to Save photo once the photo is prepared', async () => {
     renderPortal(<ProfilePage />, gateway(false), {}, { parityB3: true })
-    const input = (await photoCard()).getByLabelText('Choose a photo') as HTMLInputElement
+    const input = (await photoCard()).getByLabelText('Add profile photo') as HTMLInputElement
     // Chosen from the keyboard: the chooser holds focus, and is disabled and then gone as the photo is prepared.
     input.focus()
     await act(async () => { fireEvent.change(input, { target: { files: [new File([CAMERA_JPEG], 'a.jpg', { type: 'image/jpeg' })] } }) })
@@ -357,7 +358,59 @@ describe('choosing a photo', () => {
     expect(screen.queryByRole('img', { name: 'Your new photo, cropped to a square' })).toBeNull()
     expect(revoked).toContain(preview)
     expect(puts(sent)).toEqual([])
-    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('Choose a photo')))
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('Add profile photo')))
+  })
+})
+
+describe('the photo control', () => {
+  it('is the avatar at the top of Bio-data, with no Photo section: a label wrapping it and the file field, from the keyboard too', async () => {
+    renderPortal(<ProfilePage />, gateway(false), {}, { parityB3: true })
+    const bio = await photoCard()
+    expect(screen.queryByRole('heading', { name: 'Photo' })).toBeNull()
+    const input = bio.getByLabelText('Add profile photo') as HTMLInputElement
+    const control = input.closest('label') as HTMLLabelElement
+    // The initials stand for the picture while there is none; selecting it opens the picker.
+    expect(within(control).getByText('AE').className).toContain('patient-avatar-large')
+    expect([input.type, input.accept, input.disabled, input.tabIndex]).toEqual(['file', 'image/jpeg,image/png', false, 0])
+    input.focus()
+    expect(document.activeElement).toBe(input)
+    const picked = vi.fn()
+    input.addEventListener('click', picked)
+    fireEvent.click(within(control).getByText('AE'))
+    expect(picked).toHaveBeenCalled()
+    // One short line says what it takes, and is the field's description.
+    expect(document.getElementById('profile-photo-hint')?.textContent).toBe('Select the picture to add a photo: a JPEG or PNG, cropped to a square.')
+    expect(input.getAttribute('aria-describedby')).toBe('profile-photo-hint')
+    // Before the Bio-data rows, and nothing to remove yet.
+    expect(control.compareDocumentPosition(bio.getByText('Health ID')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(bio.queryByRole('button', { name: 'Remove photo' })).toBeNull()
+  })
+
+  it('uploads from Bio-data, then shows the photo on it, named for changing it, with focus back on it', async () => {
+    const handler = gateway(false)
+    const { sent } = renderPortal(<ProfilePage />, handler, {}, { parityB3: true })
+    await choose(new File([CAMERA_JPEG], 'a.jpg', { type: 'image/jpeg' }))
+    await press(await screen.findByRole('button', { name: 'Save photo' }))
+    expect(await screen.findByText('Your photo was saved.')).toBeTruthy()
+    expect(puts(sent)).toHaveLength(1)
+    expect(handler.hasPhoto()).toBe(true)
+    const bio = await photoCard()
+    const input = await bio.findByLabelText('Change profile photo')
+    await waitFor(() => expect(document.activeElement).toBe(input))
+    expect((await within(input.closest('label') as HTMLElement).findByRole('img', { name: 'Your photo' })).getAttribute('src')).toMatch(/^blob:/)
+    expect(bio.getByRole('button', { name: 'Remove photo' })).toBeTruthy()
+  })
+
+  it('removes the photo from Bio-data, with focus back on the control', async () => {
+    const { sent } = renderPortal(<ProfilePage />, gateway(true), {}, { parityB3: true })
+    const bio = await photoCard()
+    await bio.findByRole('img', { name: 'Your photo' })
+    await press(bio.getByRole('button', { name: 'Remove photo' }))
+    expect(await screen.findByText('Your photo was removed.')).toBeTruthy()
+    expect(sent.filter(request => request.method === 'DELETE')).toEqual([{ path: '/identity/me/photo', method: 'DELETE', body: null }])
+    const input = await bio.findByLabelText('Add profile photo')
+    await waitFor(() => expect(document.activeElement).toBe(input))
+    expect(bio.queryByRole('button', { name: 'Remove photo' })).toBeNull()
   })
 })
 
@@ -387,8 +440,10 @@ describe('the photo shown', () => {
 
   it('is not offered by an Identity that does not say whether there is one', async () => {
     renderPortal(<ProfilePage />, (path, method) => path === '/identity/me' && method === 'GET' ? json(profile) : problem(404, 'NOT_FOUND', path))
-    await screen.findByText('Ada Example')
-    expect(screen.queryByRole('heading', { name: 'Photo' })).toBeNull()
+    const bio = await openSection('Bio-data')
+    expect(within(bio).getByText('Ada Example')).toBeTruthy()
+    expect(within(bio).queryByLabelText(/profile photo/)).toBeNull()
+    expect(bio.querySelector('input[type="file"]')).toBeNull()
   })
 })
 

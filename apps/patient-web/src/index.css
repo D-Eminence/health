@@ -308,8 +308,17 @@
   .patient-section > .patient-eyebrow { margin: 0 0 -14px; }
   .patient-section > .patient-page-copy { margin: -14px 0 0; }
   .patient-card { min-width: 0; padding: 24px; border: 1px solid var(--color-line-strong); border-radius: var(--radius-card); background: var(--color-surface); }
-  .patient-card button:not(.patient-primary-button):not(.patient-secondary-button):not(.patient-section-toggle) { min-height: 38px; padding: 6px 11px; border: 1px solid var(--color-line-strong); border-radius: var(--radius-button); background: var(--color-surface); color: var(--color-brand); cursor: pointer; }
+  .patient-card button:not(.patient-primary-button):not(.patient-secondary-button):not(.patient-switch):not(.patient-section-toggle) { min-height: 38px; padding: 6px 11px; border: 1px solid var(--color-line-strong); border-radius: var(--radius-button); background: var(--color-surface); color: var(--color-brand); cursor: pointer; }
   .patient-loading { color: var(--color-muted); }
+  /* The Notifications page's "Notifications on this device": a switch whose track has a form control's 3:1 boundary, filled brand when on. */
+  .patient-switch { display: inline-flex; min-height: 44px; align-items: center; gap: 10px; padding: 0; border: 0; background: none; color: var(--color-ink); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+  .patient-switch:disabled { cursor: not-allowed; opacity: .55; }
+  .patient-switch-track { position: relative; display: inline-block; flex: none; width: 44px; height: 24px; border: 1px solid var(--color-line-control); border-radius: 999px; background: var(--color-surface); transition: background-color .15s, border-color .15s; }
+  .patient-switch-thumb { position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: var(--color-line-control); transition: transform .15s; }
+  .patient-switch[aria-checked="true"] .patient-switch-track { border-color: var(--color-brand); background: var(--color-brand); }
+  .patient-switch[aria-checked="true"] .patient-switch-thumb { background: var(--color-surface); transform: translateX(20px); }
+  .patient-switch:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 3px; border-radius: var(--radius-button); }
+  @media (prefers-reduced-motion: reduce) { .patient-switch-track, .patient-switch-thumb { transition: none; } }
   .patient-identity-card { display: grid; gap: 8px; min-height: 190px; padding: 28px; border-radius: var(--radius-card); background: var(--color-inverse-surface); color: var(--color-inverse-ink); }
   .patient-identity-card .patient-eyebrow { color: #a7cbf5; }
   .patient-identity-card > strong { font-family: var(--font-mono); font-size: clamp(22px, 3vw, 32px); overflow-wrap: anywhere; }
@@ -382,7 +391,6 @@
   .patient-status-tag { justify-self: start; padding: 3px 9px; border-radius: 999px; background: #fff4e5; color: #8a4b08; font-size: 12px; font-weight: 600; }
   .patient-status-tag-ok { background: #ecf9f1; color: #126239; }
   .patient-danger-card { border-color: #f1c9c6; }
-  .patient-consequences { display: grid; gap: 8px; margin: 12px 0 18px; padding-left: 20px; color: var(--color-ink); font-size: 14px; line-height: 1.5; }
   .patient-danger-button { display: inline-flex; min-height: 44px; align-items: center; justify-content: center; padding: 10px 16px; border: 1px solid #b42318; border-radius: var(--radius-button); background: #b42318; color: #fff; font-size: 14px; font-weight: 600; cursor: pointer; }
   .patient-danger-button:disabled { cursor: not-allowed; opacity: .55; }
   /* A six-digit code (CodeBoxes.tsx): a box a digit, in a row that shrinks to fit a phone. */
@@ -406,12 +414,20 @@
   .patient-photo-row { display: flex; align-items: center; gap: 18px; margin: 12px 0; }
   .patient-photo-preview { display: grid; justify-items: start; gap: 12px; margin-top: 12px; }
   .patient-photo-preview img { width: 128px; height: 128px; border: 1px solid var(--color-line-strong); border-radius: var(--radius-card); object-fit: cover; }
-  .patient-file-button { position: relative; }
-  .patient-file-button:focus-within { outline: 2px solid var(--color-brand); outline-offset: 2px; }
+  /* Bio-data's picture is the photo control (hid-1.0's): its label wraps the hidden file field, whose focus it shows. */
+  .patient-photo-control { position: relative; display: inline-flex; border-radius: 50%; cursor: pointer; }
+  .patient-photo-control:hover .patient-avatar { box-shadow: 0 0 0 2px var(--color-brand-border); }
+  .patient-photo-control:focus-within { outline: 2px solid var(--color-brand); outline-offset: 2px; }
+  .patient-photo-actions { display: grid; justify-items: start; gap: 8px; min-width: 0; }
+  #contact-details > .patient-details + .patient-field-hint { margin-top: 12px; }
   .patient-form textarea { width: 100%; min-height: 88px; padding: 10px 12px; border: 1px solid var(--color-line-control); border-radius: var(--radius-control); background: var(--color-surface); color: var(--color-ink); font: inherit; font-size: 15px; resize: vertical; }
   .patient-form textarea:focus { border-color: var(--color-brand); }
   .patient-health-selects { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
   .patient-contact-form h3 { margin: 6px 0 0; color: var(--color-ink); font-size: 16px; font-weight: 600; }
+  /* A part of a profile section under a small heading of its own: Bio-data's Access PIN, Health information's emergency contacts. */
+  .patient-access-pin, .patient-emergency-contacts { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--color-line); }
+  .patient-access-pin h3, .patient-emergency-contacts h3 { margin: 0 0 6px; color: var(--color-ink); font-size: 16px; font-weight: 600; }
+  .patient-section-body > .patient-emergency-contacts:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
   .patient-completion-figure { margin: 6px 0 10px; color: var(--color-ink); }
   .patient-completion-figure strong { font-size: 32px; }
   .patient-completion-bar { height: 10px; overflow: hidden; border-radius: 999px; background: var(--color-surface-sunk); }

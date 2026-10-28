@@ -57,9 +57,7 @@ describe('patient account deletion', () => {
       return json({}, 404)
     })
 
-    expect(await screen.findByText(/medical records facilities hold about you are kept/)).toBeTruthy()
-    expect(screen.getByText(/You have 14 days to change your mind/)).toBeTruthy()
-    expect(screen.getByText(/Some security and audit records must be kept/)).toBeTruthy()
+    expect(await screen.findByText(/^Deleting your account signs you out everywhere and withdraws provider access and your Access PIN.*; your Health ID and medical records are kept, and after 14 days it can’t be undone\.$/)).toBeTruthy()
     const proceed = screen.getByRole('button', { name: 'Continue to delete account' }) as HTMLButtonElement
     expect(proceed.disabled).toBe(true)
     fireEvent.click(screen.getByRole('checkbox', { name: /I understand/ }))
@@ -94,7 +92,7 @@ describe('patient account deletion', () => {
       requestedAt: '2026-10-08T10:00:00Z', confirmationExpiresAt: null, scheduledFor: null, blockedReasonCode: 'LEGAL_HOLD',
       cancelledAt: null, cancellable: false } }))
     const alert = await screen.findByRole('alert')
-    expect(alert.textContent).toContain('must be kept for a legal or regulatory reason')
+    expect(alert.textContent).toContain('some of your records are under a legal hold')
     expect(alert.textContent).not.toMatch(/LEGAL_HOLD|legal_holds|retention_policies/)
   })
 
@@ -133,9 +131,7 @@ describe('patient emergency contacts', () => {
     expect(within(items[1]!).getByText('Verified · will be notified in an emergency')).toBeTruthy()
     expect(within(items[2]!).getByText('Verified · notifications off')).toBeTruthy()
     // What hid-system main's alert carries: the first name, the facility and the time.
-    expect(screen.getByText('If a provider uses emergency access to your record, verified contacts are told your first name, '
-      + 'the facility, and the time. They never receive medical details. A contact is only notified after they confirm a '
-      + 'verification code and while notifications are on.')).toBeTruthy()
+    expect(screen.getByText('If a provider opens your record in an emergency, verified contacts are told your first name, where and when. Never medical details.')).toBeTruthy()
     expect(screen.queryByText(/last four characters of your Health ID/)).toBeNull()
   })
 

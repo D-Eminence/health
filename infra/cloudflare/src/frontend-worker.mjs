@@ -37,6 +37,9 @@ const DEPLOYMENT_PROFILES = Object.freeze({
   }),
 })
 
+// No Content-Security-Policy yet (hand-off D6). Whenever one is added, the portal hosts need `worker-src 'self'` (the
+// push worker, /sw.js, B6) and `manifest-src 'self'` (/health-id.webmanifest). The Permissions-Policy below governs
+// no push or notification feature, so it stays as it is.
 const SECURITY_HEADERS = Object.freeze({
   'cross-origin-opener-policy': 'same-origin',
   'referrer-policy': 'strict-origin-when-cross-origin',
@@ -100,7 +103,12 @@ function configuredDeployment(environment) {
   }
 }
 
-function withSecurityHeaders(response, apiResponse = false, application) {
+// The portal's push worker (B6, apps/patient-web/public/sw.js) and the earlier HID worker the public site retires
+// (/service-worker.js): a browser checks either for an update, and must never be handed a stale copy.
+const WORKER_PATHS = /^\/sw\.js$|\/service-worker\.js$/
+const JAVASCRIPT = /^(?:text|application)\/(?:x-)?javascript\s*(?:;|$)/i
+
+function withSecurityHeaders(response, apiResponse = false, application, path = '') {
   const headers = new Headers(response.headers)
   for (const [name, value] of Object.entries(SECURITY_HEADERS)) headers.set(name, value)
   if (application === 'web') headers.set('cross-origin-opener-policy', 'same-origin-allow-popups')
@@ -112,10 +120,21 @@ function withSecurityHeaders(response, apiResponse = false, application) {
     headers.set('pragma', 'no-cache')
     headers.delete('age')
     headers.delete('cf-cache-status')
-  } else if (new URL(response.url || 'https://static.invalid/').pathname.endsWith('/service-worker.js')) {
+  } else if (WORKER_PATHS.test(path) || new URL(response.url || 'https://static.invalid/').pathname.endsWith('/service-worker.js')) {
     headers.set('cache-control', 'no-cache, no-store, must-revalidate')
+  } else if (path === '/health-id.webmanifest' && response.status >= 200 && response.status < 300) {
+    headers.set('content-type', 'application/manifest+json; charset=utf-8')
   }
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers })
+}
+
+/**
+ * /sw.js must be the portal's push worker or nothing: where a build has none (the public site, or a build before B6),
+ * the single-page fallback would answer index.html with 200, which a browser must never be offered as a worker.
+ */
+function servesWorker(path, response) {
+  return path !== '/sw.js' || response.status === 304
+    || (response.status >= 200 && response.status < 300 && JAVASCRIPT.test(response.headers.get('content-type') ?? ''))
 }
 
 function applicationRouteRedirect(request, requestUrl, deployment) {
@@ -225,9 +244,12 @@ export function createFrontendWorker() {
         return problem(404, 'API_ROUTE_NOT_FOUND', 'The requested API route is not available.', correlationId(request))
       }
       const redirect = applicationRouteRedirect(request, url, deployment)
-      if (redirect) return withSecurityHeaders(redirect, false, deployment.application)
+      if (redirect) return withSecurityHeaders(redirect, false, deployment.application, url.pathname)
       const assetResponse = await environment.ASSETS.fetch(request)
-      return withSecurityHeaders(assetResponse, false, deployment.application)
+      if (!servesWorker(url.pathname, assetResponse)) {
+        return problem(404, 'NOT_FOUND', 'The requested file is not available.', correlationId(request))
+      }
+      return withSecurityHeaders(assetResponse, false, deployment.application, url.pathname)
     },
   }
 }

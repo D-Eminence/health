@@ -96,7 +96,7 @@ export function NinVerificationCard({ profile, onVerified }: {
     </ProfileSection>
   }
   return <ProfileSection id="nin-verification" title="Verify your NIN" headingRef={heading}>
-    <p id="nin-verify-hint" className="patient-field-hint">Optional. Add your 11-digit National Identification Number to verify your identity on your Health ID. Your Health ID works without it.</p>
+    <p id="nin-verify-hint" className="patient-field-hint">Optional: your 11-digit NIN verifies your identity. Your Health ID works without it.</p>
     {error && <p id="nin-verify-error" role={errorAlert ? 'alert' : undefined} className="patient-inline-error">{error}</p>}
     <form onSubmit={event => void submit(event)} className="patient-form patient-inline-form">
       <label>National Identification Number<input ref={fieldFocus.target} required inputMode="numeric" autoComplete="off" pattern="[0-9]{11}" maxLength={11}

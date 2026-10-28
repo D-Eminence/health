@@ -896,11 +896,14 @@ whose `X-Facility-ID` is no longer one of the session's facilities
 `staff/session.ts`).
 
 The browser keeps nothing about a person beyond the portal hint (`@hid/auth`):
-no localStorage, sessionStorage, IndexedDB, Cache API, service worker or push
-subscription. ESLint enforces each where it is used plainly, through a property
-or by destructuring (`eslint.config.js`: `NO_BROWSER_STORAGE`, `NO_INDEXED_DB`,
-`NO_SERVICE_WORKER`, `NO_CACHE_STORAGE`); computed or aliased access is left to
-review. The portal's pages keep each read's last answer
+no localStorage, sessionStorage, IndexedDB or Cache API, and no service worker
+or push subscription except the one a patient turns on for phone and computer
+notifications (B6, below). ESLint enforces each where it is used plainly,
+through a property or by destructuring (`eslint.config.js`:
+`NO_BROWSER_STORAGE`, `NO_INDEXED_DB`, `NO_SERVICE_WORKER`, `NO_CACHE_STORAGE`);
+computed or aliased access is left to review. `NO_SERVICE_WORKER` is lifted for
+exactly two files, `apps/patient-web/src/pushDevice.ts` and
+`apps/patient-web/public/sw.js`; every other rule stays on in both. The portal's pages keep each read's last answer
 in memory for the patient signed in (`apps/patient-web/src/resourceCache.ts`),
 so a page opened again shows it at once while it reads again; it goes as that
 patient signs out or another account signs in, and is never written to browser
@@ -911,17 +914,40 @@ theme colour the tokens' brand, `start_url` `/` so that each product and admin
 host opens its own workspace) and the public site's icons
 (`apps/public-web/app/icon.png` and `apple-icon.png`, copied to
 `apps/patient-web/public/icons/`), linked from the shell for the tab and the
-home screen. Its `id` is `/`, which deliberately continues the identity of an
-earlier HID app installed on the same host. With no service worker nothing is
-available offline, and an installed app that cannot reach the network shows the
-browser's own offline page. Each app also serves `/service-worker.js`, which no
+home screen, and 192, 512 and maskable 512 icons for installing it as an app
+(B6; made once from the 180 px mark). Its `id` is `/`, which deliberately
+continues the identity of an earlier HID app installed on the same host.
+The Notifications page offers "Install the Health ID app" where the browser has offered
+installing (`beforeinstallprompt`, held in memory), and the Home Screen steps on
+iPhone and iPad. Nothing is available offline: an installed app that cannot
+reach the network shows the browser's own offline page. Each app also serves
+`/service-worker.js`, which no
 Health ID page registers: when the browser checks a worker that hid-system's
 earlier apps registered on a host (scope `/`, caches named `hid-…`) for an
 update, this script replaces it, deletes those caches and unregisters itself.
 It serves and stores nothing and reloads no page itself, but it takes over at
 once, so an open page of hid-system's EHR, which reloads when its worker
-changes, reloads once, as on any EHR release. Web push is not offered: no
-backend route accepts a subscription (hand-off B15).
+changes, reloads once, as on any EHR release.
+
+Phone and computer notifications (B6; hid-system 0097, contract
+b6-contract.md) are payload-free Web Push. A patient turns on "Notifications on
+this device" on the Notifications page; only that click asks for notification permission (a
+permission another app left on the host is not consent). `pushDevice.ts`, a
+chunk of its own loaded only then and at sign-out, registers `/sw.js` at scope
+`/` and subscribes with Identity's VAPID public key; the subscription goes to
+Identity (`PUT /identity/me/web-push/subscription`), which stores the endpoint
+encrypted and binds it to that sign-in. A push carries nothing: `/sw.js`
+listens for `push` and `notificationclick` only, shows the fixed "Health ID /
+You have a new notification." (no item text, unlike hid-1.0) and opens
+`/notifications`. It has no fetch handler and uses no Cache API, storage,
+IndexedDB or network, so nothing about a patient is kept on the device; the
+launch build check (`scripts/check-launch-build.mjs`, `inspectServiceWorker`)
+refuses a build whose worker does more, or any other worker. Signing out turns
+notifications off on that device (Identity is told, at most 2 seconds, and the
+browser unsubscribes), and the server pushes only to a live sign-in. While
+Identity's push is not configured, or on a backend before 0097, its routes
+answer 404 and the Notifications page shows no device section. The browser vendors' push services learn
+only that an empty message was sent to a browser, and when.
 
 ## Production requirements
 

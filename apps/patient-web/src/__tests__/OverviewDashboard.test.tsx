@@ -117,7 +117,7 @@ describe('the overview with patient parity served', () => {
       ['2 access requests are waiting for your decision →', '/access'],
       ['Your NIN is not verified yet →', '/profile#nin-verification'],
       ['Your profile is 67% complete →', '/profile#profile-completion'],
-      ['You have no emergency contact →', '/settings#emergency-contacts'],
+      ['You have no emergency contact →', '/profile#emergency-contacts'],
     ]))
   })
 

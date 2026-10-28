@@ -50,7 +50,7 @@ describe('patient portal pages', () => {
     await screen.findByRole('heading', { level: 1, name: 'Health records' })
     expect(document.title).toBe('Health records · Health ID')
     for (const [link, title] of [['Access', 'Access and consent · Health ID'], ['Notifications', 'Notifications · Health ID'],
-      ['Settings', 'Settings · Health ID'], ['Profile', 'Your profile · Health ID'], ['Overview', 'Overview · Health ID']] as const) {
+      ['Profile', 'Your profile · Health ID'], ['Overview', 'Overview · Health ID']] as const) {
       fireEvent.click(nav().getByRole('link', { name: link }))
       await waitFor(() => expect(document.title).toBe(title))
     }

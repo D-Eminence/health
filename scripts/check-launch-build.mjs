@@ -11,14 +11,24 @@
  * first. Google sign-in is off at launch: build without
  * VITE_HID_GOOGLE_CLIENT_ID.
  *
- * One widening, for the Health ID icon in the browser tab and on a phone's
- * home screen (hid-1.0 parity, 2026-10-28): the files in
- * apps/patient-web/public (PUBLIC_FILES: the web app manifest and its two
- * icons, at fixed names) and the shell's links to them and theme-color meta.
- * The production release (scripts/build-production.py, the frontend Worker's
- * ASSETS binding) serves them; hid-system's stager, on its main branch only,
- * must take the same widening before a Health-id build is staged there again.
- * Still refused: a service worker, any other manifest, file or link.
+ * Two widenings. First, for the Health ID icon in the browser tab and on a
+ * phone's home screen (hid-1.0 parity, 2026-10-28): the files in
+ * apps/patient-web/public (PUBLIC_FILES: the web app manifest and its icons,
+ * at fixed names) and the shell's links to them and theme-color meta. Second,
+ * for "Notifications on this device" (B6, owner approval 2026-10-28): exactly
+ * one service worker, /sw.js from apps/patient-web/public, which shows a fixed
+ * notification on a push and opens Notifications on a tap and does nothing
+ * else (inspectServiceWorker: no fetch handler, Cache API, storage, network,
+ * imported script or message data), registered only by the chunk Vite makes
+ * of apps/patient-web/src/pushDevice.ts (assets/pushDevice-<hash>.js), which
+ * registers that file and nothing else. The production release
+ * (scripts/build-production.py, the frontend Worker's ASSETS binding) serves
+ * them; hid-system's stager, on its main branch only, must take the same
+ * widenings before a Health-id build is staged there again, and its CSP's
+ * `worker-src 'none'` would need `'self'` (and `manifest-src 'self'`).
+ * Still refused: any other service worker (service-worker.js, workbox, a
+ * worker anywhere but the root), a manifest naming one, any other manifest,
+ * file or link.
  *
  * Not checked here: the public environment record, which depends on the
  * environment and host being staged.
@@ -35,12 +45,37 @@ const dist = join(root, 'apps', 'patient-web', 'dist')
 
 // The same patterns as hid-system's stager.
 const HASHED_ASSET = /^assets\/[A-Za-z0-9][A-Za-z0-9_.-]*-[A-Za-z0-9_-]{8,}\.(?:js|css|png|svg|webp|jpe?g|gif|ico|woff2?)$/
-// apps/patient-web/public, copied to the build root as they are: the shell links each, and only these.
+// apps/patient-web/public, copied to the build root as they are: the shell links the first three, the manifest names
+// the icons, and pushDevice.ts registers the worker; only these.
 const PUBLIC_FILES = Object.freeze({
   'health-id.webmanifest': 'manifest',
   'icons/icon-48.png': 'icon',
   'icons/apple-touch-icon.png': 'apple-touch-icon',
+  'icons/icon-192.png': 'manifest-icon',
+  'icons/icon-512.png': 'manifest-icon',
+  'icons/icon-maskable-512.png': 'manifest-icon',
+  'sw.js': 'service-worker',
 })
+const MANIFEST_ICONS = new Set(['icon', 'apple-touch-icon', 'manifest-icon'])
+// The chunk Vite makes of apps/patient-web/src/pushDevice.ts: the only code that may use the worker API.
+const PUSH_DEVICE_CHUNK = /^assets\/pushDevice-[A-Za-z0-9_-]{8,}\.js$/
+// What the push worker may not do: handle requests, use the Cache API, storage or the network, import code, or read
+// a push's data. Matched on the file as served, comments included, so its comments may not name them either.
+const WORKER_REFUSALS = Object.freeze([
+  [/addEventListener\s*\(\s*['"`]fetch['"`]/, 'handles requests (a fetch listener)'],
+  [/\bonfetch\b/, 'handles requests (onfetch)'],
+  [/\bcaches\b/, 'uses the Cache API'],
+  [/\bimportScripts\b/, 'imports scripts'],
+  [/\bindexedDB\b/, 'uses IndexedDB'],
+  [/\bfetch\s*\(/, 'calls fetch'],
+  [/\bXMLHttpRequest\b/, 'uses XMLHttpRequest'],
+  [/\bWebSocket\b/, 'opens a WebSocket'],
+  [/\blocalStorage\b/, 'uses localStorage'],
+  [/\bsessionStorage\b/, 'uses sessionStorage'],
+  [/\.data\b/, 'reads a message\'s data'],
+  [/\.on[a-z]+\s*=(?!=)/, 'assigns an event handler property'],
+])
+const WORKER_EVENTS = new Set(['push', 'notificationclick'])
 const TEXT_FILE = /\.(?:html|js|css|svg)$/
 const GOOGLE_SIGN_IN = /accounts\.google\.com|\.apps\.googleusercontent\.com|\bgoogle\.accounts\.id\b|\/gsi\/client\b/
 
@@ -209,7 +244,8 @@ async function files(directory) {
 function classify(path, failures) {
   const name = path.split('/').at(-1)
   if (/\.map$/i.test(path)) failures.push(`${path} is a source map`)
-  else if (/^(?:service-worker|sw|workbox)(?:[-.][^/]*)?\.js$/i.test(name)) failures.push(`${path} is a service worker`)
+  // A worker-like name is accepted for exactly one file: sw.js at the root, the push worker (inspectServiceWorker).
+  else if (/^(?:service-worker|sw|workbox)(?:[-.][^/]*)?\.js$/i.test(name) && path !== 'sw.js') failures.push(`${path} is a service worker`)
   else if ((/\.webmanifest$/i.test(name) || /^manifest(?:[-.][^/]*)?\.json$/i.test(name)) && !Object.hasOwn(PUBLIC_FILES, path)) {
     failures.push(`${path} is a web app manifest other than health-id.webmanifest`)
   } else if (path !== 'index.html' && !HASHED_ASSET.test(path) && !Object.hasOwn(PUBLIC_FILES, path)) {
@@ -225,9 +261,37 @@ function inspectManifest(source, paths, failures) {
   if (Object.hasOwn(manifest, 'serviceworker')) failures.push('health-id.webmanifest names a service worker')
   for (const icon of Array.isArray(manifest.icons) ? manifest.icons : []) {
     const file = typeof icon?.src === 'string' && icon.src.startsWith('/') ? icon.src.slice(1) : ''
-    if (!Object.hasOwn(PUBLIC_FILES, file) || !file.endsWith('.png') || !paths.includes(file)) {
+    if (!MANIFEST_ICONS.has(PUBLIC_FILES[file]) || !file.endsWith('.png') || !paths.includes(file)) {
       failures.push(`health-id.webmanifest names an icon (${String(icon?.src)}) that is not one of the build's icon files`)
     }
+  }
+}
+
+/**
+ * The push worker shows a fixed notification on a push and opens Notifications on a tap (B6), and does nothing else:
+ * its only listeners are push and notificationclick, and it never handles a request, uses the Cache API, storage or
+ * the network, imports a script, or reads what a push carries.
+ */
+function inspectServiceWorker(source, failures) {
+  for (const [pattern, reason] of WORKER_REFUSALS) {
+    if (pattern.test(source)) failures.push(`sw.js ${reason}`)
+  }
+  const listened = [...source.matchAll(/addEventListener\s*\(\s*(?:(['"`])([^'"`]*)\1|([^,)]*))/g)].map(match => match[2] ?? `(${match[3].trim()})`)
+  for (const event of listened) {
+    if (!WORKER_EVENTS.has(event)) failures.push(`sw.js listens for ${event}; only push and notificationclick are allowed`)
+  }
+  for (const event of WORKER_EVENTS) {
+    if (!listened.includes(event)) failures.push(`sw.js does not listen for ${event}`)
+  }
+  if (!source.includes("'/notifications'")) failures.push("sw.js does not open '/notifications'")
+}
+
+/** pushDevice's chunk registers /sw.js at most, and nothing else: every register() it makes names that file. */
+function inspectPushDeviceChunk(path, source, failures) {
+  const registered = [...source.matchAll(/\.register\s*\(\s*(?:(['"`])([^'"`]*)\1|([^,)]*))/g)].map(match => match[2] ?? `(${match[3].trim()})`)
+  if (!registered.includes('/sw.js')) failures.push(`${path} does not register /sw.js`)
+  for (const script of registered) {
+    if (script !== '/sw.js') failures.push(`${path} registers ${script}; only /sw.js may be registered`)
   }
 }
 
@@ -246,7 +310,11 @@ for (const path of paths) {
   if (!TEXT_FILE.test(path)) continue
   const source = await readFile(join(dist, path), 'utf8')
   if (/sourceMappingURL\s*=/.test(source)) failures.push(`${path} references a source map`)
-  if (path.endsWith('.js') && /\bserviceWorker\b/.test(source)) failures.push(`${path} registers a service worker`)
+  if (path.endsWith('.js') && /\bserviceWorker\b/.test(source)) {
+    if (PUSH_DEVICE_CHUNK.test(path)) inspectPushDeviceChunk(path, source, failures)
+    else failures.push(`${path} registers a service worker`)
+  }
+  if (path === 'sw.js') inspectServiceWorker(source, failures)
   if (GOOGLE_SIGN_IN.test(source)) {
     failures.push(`${path} carries Google sign-in (Google Identity Services or a Google OAuth client id)`)
   }
@@ -259,4 +327,4 @@ if (failures.length > 0) {
   for (const failure of failures) process.stdout.write(`  ✗ ${failure}\n`)
   process.exit(1)
 }
-process.stdout.write(`Launch build check: ${paths.length} files; no Google sign-in, service worker, source map or file but the icon files and their manifest outside assets/; index.html is the Vite shell with its icon links.\n`)
+process.stdout.write(`Launch build check: ${paths.length} files; no Google sign-in, source map, or file outside assets/ but the icon files, their manifest and the push worker; no service worker but sw.js, which only shows a fixed notification, registered only by pushDevice's chunk; index.html is the Vite shell with its icon links.\n`)

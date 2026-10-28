@@ -14,13 +14,13 @@ export const COMPLETION_ITEMS = [
   { key: 'gender', label: 'Your gender', href: '/profile#bio-data' },
   { key: 'dateOfBirth', label: 'Your date of birth', href: '/profile#bio-data' },
   { key: 'state', label: 'Your state', href: '/profile#bio-data' },
-  { key: 'photo', label: 'A profile photo', href: '/profile#photo' },
+  { key: 'photo', label: 'A profile photo', href: '/profile#bio-data' },
   { key: 'hospital', label: 'The hospital you use', href: '/profile#coverage' },
   { key: 'hmo', label: 'Your HMO', href: '/profile#coverage' },
   { key: 'bloodGroup', label: 'Your blood group', href: '/profile#health-information' },
   { key: 'genotype', label: 'Your genotype', href: '/profile#health-information' },
   { key: 'nin', label: 'A verified NIN', href: '/profile#nin-verification' },
-  { key: 'emergencyContact', label: 'An emergency contact', href: '/settings#emergency-contacts' },
+  { key: 'emergencyContact', label: 'An emergency contact', href: '/profile#emergency-contacts' },
 ] as const
 export type CompletionItem = typeof COMPLETION_ITEMS[number]
 export type CompletionKey = CompletionItem['key']

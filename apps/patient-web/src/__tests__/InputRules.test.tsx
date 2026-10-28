@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 import type { EmergencyContact } from '../api'
-import { AccessPage, SettingsPage } from '../routes/Portal'
+import { AccessPage, ProfilePage } from '../routes/Portal'
 import { EmergencyContactsCard } from '../routes/AccountSafety'
 import { described, json, press, problem, profile, renderPortal, type Handler } from './portalHarness'
 
@@ -16,17 +16,17 @@ import { described, json, press, problem, profile, renderPortal, type Handler } 
  * until P27 (ProfileNinVerification.test.tsx).
  * A refusal about the value is tied to its field.
  */
-const settings = (pin: Handler) => renderPortal(<SettingsPage />, (path, method, body) => {
+const settings = (pin: Handler) => renderPortal(<ProfilePage />, (path, method, body) => {
   if (path === '/identity/me/access-pin') return pin(path, method, body)
   if (path === '/identity/me') return json(profile)
   if (path === '/identity/me/emergency-contacts') return json([])
   return json({ waitingPeriodSeconds: 1_209_600, confirmationTtlSeconds: 600, request: null })
-})
+}, {}, { at: '/profile#access-pin' })
 
 describe('Access PIN', () => {
   it('says the PIN is 4 to 8 digits', async () => {
     settings(() => json({ configured: true }))
-    expect(described(await screen.findByLabelText('Set PIN'))).toContain('Your PIN is 4 to 8 digits.')
+    expect(described(await screen.findByLabelText('Set PIN'))).toContain('4 to 8 digits.')
   })
 
   it('ties a refused PIN to the field, and returns focus to it', async () => {
@@ -71,7 +71,7 @@ describe('reasons and contacts', () => {
         startsAt: '2026-10-08T10:00:00Z', expiresAt: '2026-10-08T11:00:00Z', reason: 'Follow-up', facilityName: 'Ikeja Clinic', breakGlass: false, patientRevocable: true }] }))
     fireEvent.click(await screen.findByRole('button', { name: /^Revoke access/ }))
     expect(described(screen.getByRole('textbox', { name: 'Reason for revocation' }))).toBe('At least 3 characters. If this facility has your '
-      + 'Access PIN, it can use it to get access again. To stop that, change or remove your PIN in Settings.')
+      + 'Access PIN, it can use it to get access again. To stop that, change or remove your PIN in your profile’s Bio-data.')
     fireEvent.click(screen.getByRole('button', { name: /^Deny/ }))
     expect(described(screen.getByRole('textbox', { name: 'Reason for denial' }))).toBe('At least 3 characters.')
   })
@@ -85,7 +85,7 @@ describe('reasons and contacts', () => {
     renderPortal(<EmergencyContactsCard />, () => json([1, 2, 3, 4, 5].map(contact)))
     const add = await screen.findByRole('button', { name: 'Add emergency contact' }) as HTMLButtonElement
     expect(add.disabled).toBe(true)
-    expect(described(add)).toContain('You can add up to 5 emergency contacts.')
+    expect(described(add)).toContain('Up to 5 contacts.')
     fireEvent.click(screen.getAllByRole('button', { name: /^Edit/ })[0]!)
     expect(described(screen.getByRole('textbox', { name: 'Name' }))).toContain('At least 2 characters.')
   })

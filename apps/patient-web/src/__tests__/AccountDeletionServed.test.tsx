@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, fireEvent, screen, waitFor } from '@testing-library/react'
 import type { AccountDeletionStatus, PatientNotification } from '../api'
 import { AccountDeletionCard } from '../routes/AccountSafety'
-import { SettingsPage } from '../routes/Portal'
+import { ProfilePage } from '../routes/Portal'
 import { NOTIFICATION_SUBJECTS, notificationTitle } from '../routes/notificationTitles'
 import { accountDeletionServed, forgetAccountDeletionServed } from '../accountDeletionServed'
 import { json, press, problem, profile, renderPortal, type Handler, type Sent } from './portalHarness'
@@ -14,8 +14,8 @@ vi.mock('../backendContract', async importOriginal => ({
 beforeEach(() => { backend.novu = true; forgetAccountDeletionServed() })
 
 /**
- * Delete my account on Novu (hid-1.0 parity B5, hid-system 0096; contract b45-contract.md §3.1, §3.4): Settings shows the
- * card only once its status read says it is served, and nothing (no card, no alert) where it answers 404, as today's
+ * Delete my account on Novu (hid-1.0 parity B5, hid-system 0096; contract b45-contract.md §3.1, §3.4): the profile shows
+ * its last section only once its status read says it is served, and nothing (no card, no alert) where it answers 404, as today's
  * backend does. Requesting, the waiting period with its end date in WAT, cancelling during it, what is kept, the new
  * recovery-hold refusal, and the three inbox notices.
  */
@@ -32,15 +32,19 @@ function held() {
   return { promise, release }
 }
 
-/** Settings on Novu: the profile, emergency contacts not served, and the deletion routes as `deletion` answers. */
-const settings = (deletion: Handler) => renderPortal(<SettingsPage />, (path, method, body) => path === '/identity/me'
-  ? json(profile) : path.startsWith('/identity/me/account-deletion') ? deletion(path, method, body) : notFound(path))
+/**
+ * The profile on Novu, opened at its Delete account (Settings is gone: the owner's decision of 2026-10-28): emergency
+ * contacts not served, and the deletion routes as `deletion` answers.
+ */
+const settings = (deletion: Handler) => renderPortal(<ProfilePage />, (path, method, body) => path === '/identity/me'
+  ? json(profile) : path.startsWith('/identity/me/account-deletion') ? deletion(path, method, body) : notFound(path),
+{}, { at: '/profile#account-deletion' })
 
 describe('account deletion on Novu', () => {
   it('shows nothing while the status is read, nor after it answers 404, and asks nothing else', async () => {
     const read = held()
     const { sent } = settings(() => read.promise)
-    expect(await screen.findByRole('heading', { name: 'Access PIN' })).toBeTruthy()
+    expect(await screen.findByRole('heading', { name: 'Bio-data' })).toBeTruthy()
     await waitFor(() => expect(deletionRequests(sent)).toEqual(['GET /identity/me/account-deletion']))
     expect(screen.queryByRole('heading', { name: 'Delete account' })).toBeNull()
     expect(screen.queryByText('Checking your account…')).toBeNull()
@@ -68,12 +72,13 @@ describe('account deletion on Novu', () => {
       return json({ requestId: 'req-1', state: 'cancelled', replayed: false })
     })
 
-    expect(await screen.findByRole('heading', { name: 'Delete account' })).toBeTruthy()
+    // The status is read before its words show: wait for them, not the heading, which can show first.
+    expect(await screen.findByText('Deleting your account signs you out everywhere and withdraws provider access and your Access PIN, sharing invitations and emergency contacts; your Health ID and medical records are kept, and after 14 days it can’t be undone.')).toBeTruthy()
+    const title = screen.getByRole('heading', { name: 'Delete account' })
     expect(accountDeletionServed()).toBe(true)
-    expect(screen.getByText(/medical records facilities hold about you are kept/)).toBeTruthy()
-    expect(screen.getByText('Invitations you sent to share your records are cancelled, and your emergency contacts are removed.')).toBeTruthy()
-    expect(screen.getByText('We\'ll email you when your account is scheduled for deletion and when it is deleted.')).toBeTruthy()
-    expect(screen.getByText('You have 14 days to change your mind. After that, deletion cannot be undone.')).toBeTruthy()
+    // The profile's last section, opened by the link to it; what it does in one short sentence.
+    expect(title.closest('.patient-card')?.id).toBe('account-deletion')
+    expect(screen.getByText('You must have signed in within the last 10 minutes.')).toBeTruthy()
 
     fireEvent.click(screen.getByRole('checkbox', { name: /I understand/ }))
     await press(screen.getByRole('button', { name: 'Continue to delete account' }))
@@ -83,7 +88,7 @@ describe('account deletion on Novu', () => {
     await press(screen.getByRole('button', { name: 'Delete my account' }))
 
     expect(await screen.findByText('11 Nov 2026, 11:00 WAT')).toBeTruthy()
-    expect(screen.getByText(/Your Health ID and the medical records facilities hold about you will be kept/)).toBeTruthy()
+    expect(screen.getByText('Until then you can cancel. After that it can’t be undone. Your Health ID and medical records are kept.')).toBeTruthy()
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Delete account' })))
     await press(screen.getByRole('button', { name: 'Cancel deletion' }))
     expect(await screen.findByText('Account deletion cancelled. Your account stays open.')).toBeTruthy()
@@ -141,8 +146,8 @@ describe('account deletion on hid-system main', () => {
     expect(await screen.findByText('Checking your account…')).toBeTruthy()
     await act(async () => { read.release(json(noRequest)) })
     expect(await screen.findByRole('button', { name: 'Continue to delete account' })).toBeTruthy()
-    expect(screen.queryByText(/Invitations you sent to share your records/)).toBeNull()
-    expect(screen.queryByText(/We'll email you/)).toBeNull()
+    expect(screen.getByText('Deleting your account signs you out everywhere and withdraws provider access and your Access PIN; your Health ID and medical records are kept, and after 14 days it can’t be undone.')).toBeTruthy()
+    expect(screen.queryByText(/sharing invitations/)).toBeNull()
     first.view.unmount()
 
     renderPortal(<AccountDeletionCard />, path => notFound(path))
@@ -161,7 +166,7 @@ describe('account deletion inbox notices', () => {
       .toBe('Your Health ID account is scheduled for deletion')
     expect(notificationTitle(notice('ACCOUNT_DELETION_CANCELLED', {}))).toBe('Your Health ID account deletion was cancelled')
     expect(notificationTitle(notice('ACCOUNT_DELETION_BLOCKED', { reasonCode: 'LEGAL_HOLD' })))
-      .toBe('Your Health ID account could not be deleted: see Settings')
+      .toBe('Your Health ID account could not be deleted: see your profile')
     expect(NOTIFICATION_SUBJECTS['account-deletion']).toBe('Account')
   })
 })
