@@ -62,6 +62,8 @@ export interface MediaHost {
   now(): number
   /** Storage is low (storageHealth.ts). */
   storageLow(): boolean
+  /** New files may be staged (false for a send-only vault). */
+  acceptsNew?(): boolean
   readonly reencode?: Reencoder | null
 }
 
@@ -70,7 +72,7 @@ export class MediaStore {
 
   async stage(file: Blob, o: { index: number }): Promise<StagedMedia> {
     const v = this.host.vault()
-    if (!v) throw new Error('Offline saving is not available')
+    if (!v || !(this.host.acceptsNew?.() ?? true)) throw new Error('Offline saving is not available')
     const type = file.type as MediaType
     if (!(MEDIA_TYPES as readonly string[]).includes(type)) throw new MediaRefused('type')
     if (this.host.storageLow()) throw new MediaRefused('storage-low')
@@ -89,7 +91,7 @@ export class MediaStore {
     for (let n = 0; n < chunkCount; n += 1) {
       const chunk = bytes.subarray(n * LIMITS.chunkBytes, (n + 1) * LIMITS.chunkBytes)
       records.push({
-        v: 1, vaultId: v.vaultId, blobId, chunkNo: n, chunkCount, bytes: chunk.length,
+        v: 1, vaultId: v.vaultId, blobId, chunkNo: n, chunkCount, bytes: chunk.length, stagedAt: this.host.now(),
         value: await sealBytes(v.keys.qk, 'qk', mediaAad(v.vaultId, blobId, n, chunkCount, sha), chunk),
       })
     }
@@ -132,12 +134,16 @@ export class MediaStore {
     })
   }
 
-  /** Delete chunks no unfinished command refers to (a save that never happened). */
+  /**
+   * Delete chunks no command refers to (a save that never happened). Only after a day: a form may hold a staged
+   * file across a lock or in another tab, and the lease is at most 24 hours anyway.
+   */
   async sweepOrphans(referenced: ReadonlySet<string>): Promise<void> {
     const v = this.host.vault()
     if (!v) return
     const records = await this.host.store.read(['media'], tx => tx.all('media', vaultRange(v.vaultId)))
-    const orphans = [...new Set(records.map(r => r.blobId))].filter(id => !referenced.has(id))
+    const cutoff = this.host.now() - 86400_000
+    const orphans = [...new Set(records.filter(r => r.stagedAt <= cutoff).map(r => r.blobId))].filter(id => !referenced.has(id))
     for (const id of orphans) await this.discard(id)
   }
 }

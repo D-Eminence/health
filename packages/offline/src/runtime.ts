@@ -263,6 +263,7 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
     vault: queueVault,
     now: () => clock.now(),
     storageLow: () => storageHealth.current().low,
+    acceptsNew: () => unlocked !== null && !unlocked.sendOnly,
     ...(o.reencode !== undefined ? { reencode: o.reencode } : {}),
   })
 
@@ -284,6 +285,7 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
       return { ...v, scope: { accountId: s.accountId, membershipId: s.membershipId, facilityId: s.facilityId } }
     },
     canSend: sendAllowed,
+    acceptsNew: () => unlocked !== null && !unlocked.sendOnly,
     offline: () => connectivity.current() === 'offline',
     now: () => clock.now(),
     clock: () => clock.state(),
@@ -737,10 +739,15 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
       const id = unlocked?.open.record.vaultId ?? lastVaultId
       engine.stop()
       unlocked = null
-      if (id && openStore) {
+      const s = id ? openStore : await storeIfExists()
+      if (s) {
+        openStore = s
         const vs = await vaults()
-        await vs.wipeCache([id], { logoutPending: !opts.online })
-        if (opts.online) await vs.deleteIfIdle(id)
+        // Without a key this tab cannot tell which vault is this person's (an online reload never unlocked), so
+        // every readable copy on this app host is wiped: a sign-out must never leave a chart readable offline.
+        const ids = id ? [id] : (await vs.list()).map(v => v.vaultId)
+        await vs.wipeCache(ids, { logoutPending: !opts.online })
+        if (opts.online) for (const v of ids) await vs.deleteIfIdle(v)
         broadcast.post({ type: 'wipe', reason: 'sign-out' })
       }
       attachedSession = null

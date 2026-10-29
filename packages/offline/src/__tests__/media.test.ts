@@ -1,21 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { LIMITS, type Json, type OpDefinition } from '../contracts'
-import type { StagedMedia } from '../types'
-import { PATIENT } from './fixtures'
+import { PATIENT, documentUpload } from './fixtures'
 import { createServer, makeEnv, makeRuntime, settle, signIn } from './harness'
-
-type DocIn = { patientId: string; encounterId: string; media: StagedMedia }
-export const documentUpload: OpDefinition<DocIn> = {
-  op: 'ehr.document.upload', opVersion: 1, method: 'POST', keyed: true,
-  lane: i => ({ patientId: i.patientId, visit: 'media' }),
-  refs: i => ({ encounterId: { server: i.encounterId } }),
-  path: () => '/api/v1/ehr/documents/upload-intents',
-  body: (i, r) => ({
-    patientId: i.patientId, encounterId: r.encounterId!, fileName: i.media.fileName, mediaType: i.media.mediaType,
-    sizeBytes: i.media.sizeBytes, sha256Hex: i.media.sha256Hex, classification: 'phi', retentionClass: 'clinical-10y',
-  }),
-  receipt: b => ({ resourceType: 'document', resourceId: (b as { document: { id: string } }).document.id }),
-}
 
 async function ready(extra: Parameters<typeof makeRuntime>[0]['extra'] = {}) {
   const server = createServer()

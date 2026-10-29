@@ -96,6 +96,8 @@ export interface MediaRecord {
   chunkNo: number
   chunkCount: number
   bytes: number
+  /** When it was staged (ms). Chunks no command refers to are deleted a day after this. */
+  stagedAt: number
   /** Sealed with QK, media AAD. */
   value: Envelope
 }

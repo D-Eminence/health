@@ -265,11 +265,15 @@ export class Vaults {
     await this.store.write(['vaults', 'cache', ...KEPT_STORES], tx => deleteVaultIn(tx, vaultId))
   }
 
-  /** Delete the vault if it has nothing pending. Returns whether it was deleted. */
+  /**
+   * Delete the vault if it has nothing pending. A vault still holding a discarded entry (kept sealed 30 days, §2.9)
+   * or one held after a membership ended is kept. Returns whether it was deleted.
+   */
   async deleteIfIdle(vaultId: string): Promise<boolean> {
     return this.store.write(['vaults', 'cache', ...KEPT_STORES], async tx => {
       const r = await recountPending(tx, vaultId)
       if (!r || hasPendingWork(r)) return false
+      if ((await tx.all('outbox', vaultRange(vaultId))).some(o => o.state === 'discarded' || o.state === 'held_membership')) return false
       await deleteVaultIn(tx, vaultId)
       return true
     })

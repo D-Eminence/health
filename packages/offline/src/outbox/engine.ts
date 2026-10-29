@@ -69,6 +69,8 @@ export interface EngineHost {
   vault(): OpenVaultRef | null
   /** Session ready, connectivity not offline, vault unlocked. */
   canSend(): boolean
+  /** New commands may be saved (false for a send-only vault after the kill switch or a facility leaving the pilot). */
+  acceptsNew(): boolean
   /** Connectivity is offline right now (for "saved offline"). */
   offline(): boolean
   /** Trusted time, ms. */
@@ -316,7 +318,7 @@ export class OutboxEngine implements CommandQueue, ReviewQueue {
 
   async save<V>(op: OpName, input: Json, o: { awaitMs?: number; dependsOn?: string[]; supersedes?: string } = {}): Promise<CommandOutcome<V>> {
     const v = this.host.vault()
-    if (!v) throw new SaveRefused('unavailable')
+    if (!v || !this.host.acceptsNew()) throw new SaveRefused('unavailable')
     const def = this.defs.get(op)
     if (!def) throw new Error(`The offline operation ${op} is not registered.`)
     const bytes = sizeAtSave(def, input)
@@ -452,9 +454,14 @@ export class OutboxEngine implements CommandQueue, ReviewQueue {
       if (bytes > LIMITS.maxBodyBytes) throw new SaveRefused('too-long', { bytes })
       const refs = def.refs(input)
       const { lane } = laneFor(def, input, item.cmd.id)
+      // Moving an entry to another visit would break that visit's order (I4): save it as a new entry instead.
+      if (lane !== item.cmd.lane) throw new Error('This entry belongs to another visit now. Save it as a new entry.')
+      const oldLocal = new Set(Object.values(item.cmd.refs).flatMap(r => ('local' in r ? [r.local] : [])))
+      const newLocal = Object.values(refs).flatMap(r => ('local' in r ? [r.local] : []))
+      const dependsOn = [...new Set([...item.cmd.dependsOn.filter(id => !oldLocal.has(id)), ...newLocal])]
       const fromSafety = item.cmd.review?.class === 'CC4'
       return {
-        ...item.cmd, input, refs, lane, frozen: undefined,
+        ...item.cmd, input, refs, lane, dependsOn, frozen: undefined,
         ...(def.intent ? { intent: def.intent(input) } : {}),
         ...(safety ? { safety } : {}),
         ...(fromSafety ? { state: 'queued' as const, review: undefined, savedOffline: this.host.offline() } : {}),
@@ -552,8 +559,10 @@ export class OutboxEngine implements CommandQueue, ReviewQueue {
       case 'new-visit':
       case 'edit-as-new': {
         if (o.input === undefined) throw new Error('A new entry needs its details.')
-        await this.discard(v, item, reason, guard)
+        // The successor is saved first, so a failure here leaves the original in review rather than losing both.
+        // The original still heads its lane, so the successor cannot be sent before the discard below lands.
         await this.save(item.cmd.op, o.input, { awaitMs: 0, supersedes: item.cmd.id })
+        await this.discard(v, item, reason, guard)
         break
       }
     }
@@ -583,10 +592,15 @@ export class OutboxEngine implements CommandQueue, ReviewQueue {
   async holdMembership(): Promise<void> {
     const v = this.host.vault()
     if (!v) return
+    // Nothing new starts; what is already on the wire finishes and keeps its answer (a 2xx is still applied).
+    this.sessionHeld = true
+    await Promise.allSettled([...this.inflight.values()])
     await this.load(true)
     const openedAt = new Date(this.host.now()).toISOString()
     for (const it of this.items.filter(i => isUnfinished(i.cmd.state) && i.cmd.state !== 'held_membership')) {
-      await this.persist(v, it, { ...it.cmd, state: 'held_membership', review: { class: 'CC8', openedAt } })
+      const at = it.rec.updatedAt
+      await this.persist(v, it, { ...it.cmd, state: 'held_membership', review: { class: 'CC8', openedAt } },
+        { guard: c => c !== undefined && c.updatedAt === at })
     }
   }
 
@@ -618,8 +632,10 @@ export class OutboxEngine implements CommandQueue, ReviewQueue {
         const blobId = mediaBlobOf(i.cmd.input)
         if (blobId && i.cmd.state !== 'applied') await tx.delete('media', vaultRange(v.vaultId, blobId))
       }
+      // A receipt an unfinished command still depends on is kept past 30 days, or that command could never resolve.
+      const needed = new Set(this.items.filter(i => isUnfinished(i.cmd.state)).flatMap(i => i.cmd.dependsOn))
       for (const r of await tx.all('receipts', vaultRange(v.vaultId))) {
-        if (r.appliedAt + LIMITS.receiptKeepMs <= now) await tx.delete('receipts', [v.vaultId, r.commandId])
+        if (r.appliedAt + LIMITS.receiptKeepMs <= now && !needed.has(r.commandId)) await tx.delete('receipts', [v.vaultId, r.commandId])
       }
       if (expired.length > 0) await recountPending(tx, v.vaultId)
     })
@@ -742,22 +758,29 @@ export class OutboxEngine implements CommandQueue, ReviewQueue {
           }
         }
       }
+      // A reference or a `$ref` placeholder that cannot be resolved although every dependency is applied (a receipt
+      // without a row version, for example) will never resolve: it goes to review instead of being retried.
+      const unresolved = async () => {
+        await this.persist(v, it, { ...cmd, state: 'review', review: { class: 'CC3', openedAt: at() },
+          lastProblem: { status: null, code: 'REFERENCE_UNRESOLVED', problem: false, at: at() } }, { guard: c => c?.updatedAt === loadedAt })
+      }
       const resolved = resolveRefs(cmd.refs, this.lookupRef)
-      if (!resolved) return
+      if (!resolved) { await unresolved(); return }
       try {
         const frozen = freeze({
           def, input: cmd.input, key: cmd.key, facilityId: cmd.scope.facilityId, capturedAt: cmd.capturedAt, clock: cmd.clock,
           resolved, lookup: this.lookupRef, frozenAt: at(),
         })
-        if (!frozen) return
+        if (!frozen) { await unresolved(); return }
         cmd.frozen = frozen
       } catch (error) {
-        if (error instanceof TooLongError) {
-          await this.persist(v, it, { ...cmd, state: 'review', review: { class: 'CC7', openedAt: at() },
-            lastProblem: { status: 413, code: 'TOO_LONG', problem: false, at: at() } }, { guard: c => c?.updatedAt === loadedAt })
-          return
-        }
-        throw error
+        const tooLong = error instanceof TooLongError
+        // A definition that throws on this input always will: review (CC7), never a busy retry loop.
+        this.host.report?.({ kind: 'defect', op: cmd.op, status: tooLong ? 413 : null, code: tooLong ? 'TOO_LONG' : 'FREEZE_FAILED' })
+        await this.persist(v, it, { ...cmd, state: 'review', review: { class: 'CC7', openedAt: at() },
+          lastProblem: { status: tooLong ? 413 : null, code: tooLong ? 'TOO_LONG' : 'FREEZE_FAILED', problem: false, at: at() } },
+          { guard: c => c?.updatedAt === loadedAt })
+        return
       }
     }
 
@@ -784,7 +807,11 @@ export class OutboxEngine implements CommandQueue, ReviewQueue {
     }
     const f = failure!
     const answer = { status: f.status, code: f.code, problem: f.problem, networkError: f.networkError, path: cmd.frozen!.path }
-    const cls = classify(answer)
+    // The intent key completing says nothing about the PUT or `/complete`: a document upload is applied only by its
+    // own successful `/complete`, never by a receipt lookup.
+    const isMedia = def.op === 'ehr.document.upload'
+    const raw = classify(answer)
+    const cls = isMedia && raw === 'applied-unreadable' ? 'transient' : raw
     const lastProblem: LastProblem = { status: f.status, code: f.code, problem: f.problem, at: at() }
 
     if (cls === 'transient') {
@@ -803,7 +830,7 @@ export class OutboxEngine implements CommandQueue, ReviewQueue {
       lastProblem.firstRefusal = true
       lastProblem.body = f.body
     }
-    if (needsReceiptCheck(cls, sentBefore)) {
+    if (!isMedia && needsReceiptCheck(cls, sentBefore)) {
       let found: Awaited<ReturnType<typeof lookupReceipts>> | null = null
       try {
         found = await lookupReceipts(this.host.transport, cmd.scope.facilityId, [cmd.key])
@@ -897,7 +924,12 @@ export class OutboxEngine implements CommandQueue, ReviewQueue {
     const documentId = body.document?.id
     const url = body.upload?.url
     if (!documentId || !url) throw new TransportError({ status: 502, code: 'INVALID_RESPONSE' })
-    const blob = await this.host.readMedia(media)
+    let blob: Blob
+    try {
+      blob = await this.host.readMedia(media)
+    } catch {
+      throw new TransportError({ status: 400, code: 'MEDIA_UNAVAILABLE', problem: false })
+    }
     try {
       await this.host.upload({ url, body: blob, requiredHeaders: body.upload?.requiredHeaders ?? {} })
     } catch (error) {

@@ -27,6 +27,8 @@ export function createServer() {
     receiptsDown: false,
     /** Apply the write but lose the answer (network error after commit). */
     loseNextAnswer: false,
+    /** Hold every clinical write until this promise settles. */
+    gate: null as Promise<void> | null,
     /** Apply the write and never answer (the tab is closed mid-send). */
     hangNextAnswer: false,
     rereadBody: null as unknown,
@@ -75,6 +77,7 @@ export function createServer() {
         },
       }
     }
+    if (state.gate && !spec.path.startsWith('/api/v1/ehr/offline/')) await state.gate
     const ruled = rules.findIndex(r => r.when(spec, bodyText))
     if (ruled >= 0) {
       const r = rules[ruled]!
