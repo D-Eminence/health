@@ -1,0 +1,16 @@
+# Health ID UI rules — proposed, awaiting approval
+
+This is the proposed convention for the requested simplification. Current shared primitives remain documented in UI-PATTERNS.md; this file does not claim the redesign has been implemented.
+
+1. **One primary home.** Navigation owns modules; Home owns useful work summaries. Avatar menu owns profile, personal preferences, presence, help and sign-out. Bell opens the existing notification centre. Settings owns ongoing facility configuration. Secondary links are explicit shortcuts to these same destinations.
+2. **One navigation registry.** Sidebar, mobile menu, search and shortcuts share IDs, labels, groups, icons, capability metadata and permission gates. Parent visibility is the union of allowed tabs; tab actions retain their own permissions. User preferences never expand access.
+3. **One page header.** Title, optional useful description and one primary action. Filters/export are secondary. No group/role/facility label repeated merely because it already exists in the shell. Breadcrumbs only for actual depth.
+4. **One state, one message.** Routine success uses the existing generic toast. Validation stays linked to its field. Persistent actionable conditions use a banner. Loading, empty and failure states belong to the affected section. A notice already in a banner is not also toasted.
+5. **Use existing overlays.** Shared Drawer for contextual details/editing, Popover for immediate small choices, and decision dialog only for a short consequential decision. Preserve focus, Escape, inert background and unsaved edits. No stacked dialogs or long forms in popovers.
+6. **Quiet shell.** Provider context appears once. Role appears in avatar menu/profile. Demo chip owns the simulation explanation/link. Presence is a person status; connectivity is a separate passive status in reserved layout space, never over actions.
+7. **Honest dashboards.** Only permitted, provider-relevant data. Period comparisons require actual comparable records. Avoid zero grids, repeated source captions, fabricated alerts and unavailable metrics. Active staff is operational, not a financial value. At most six shortcuts.
+8. **Precise language.** Brand: Health ID; product: EHR. Use Facility for provider-neutral administration. Display proposed approved names consistently without renaming stable identifiers. Distinguish Patient billing from Facility subscription, Nursing observations from Nursing tasks, and appointment from visit. Use a shared plural/count helper and meaningful date/amount units.
+9. **Privacy follows shortcuts.** Patient/staff search uses the current account/facility/branch permissions; keep sensitive queries transient. No clinical text in toasts or telemetry. Subscription data only for Hospital Owner, Hospital Admin and Billing Officer.
+10. **Accessible and consistent.** Use existing spacing/type/color tokens. Group toggles and avatar controls have visible focus and keyboard behavior. Preserve real table/form semantics and label icons. Clickable cards have one semantic link, not nested competing actions. Check desktop/tablet/phone, zoom/reflow and assistive-technology behavior.
+
+Before implementation, read UI-SIMPLIFICATION-AUDIT.md and ROLE-PROVIDER-MATRIX.md. Additional module merges and new aggregate permissions require an explicit decision.

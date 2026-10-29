@@ -1,0 +1,18 @@
+/* Health ID identity. Source: .hid-static/packages/ui/src/tokens.css.
+   Change shared brand values here; retain Waya layout rules in redesign.css. */
+:root {
+  --brand: #086dd9;
+  --brand-dark: #075fbe;
+  --brand-tint: #eaf4ff;
+  --brand-ink: #0b1b2e;
+  --brand-muted: #5b6b80;
+  --brand-faint: #7b8a9c;
+  --brand-surface: #ffffff;
+  --brand-surface-sunk: #eef2f7;
+  --brand-surface-tint: #f4f7fb;
+  --brand-line: #e3e9f0;
+  --brand-line-strong: #d7deea;
+  --brand-positive: #12805c;
+  --brand-caution: #b06a12;
+  --brand-critical: #b3261e;
+}

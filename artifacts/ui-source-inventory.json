@@ -1,0 +1,3802 @@
+{
+  "modules": [
+    {
+      "id": "patients",
+      "title": "Patients",
+      "group": "Clinical",
+      "kind": "patient",
+      "fields": [
+        {
+          "key": "name",
+          "label": "Full name",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "dob",
+          "label": "Date of birth",
+          "type": "date",
+          "required": true
+        },
+        {
+          "key": "phone",
+          "label": "Phone",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "sex",
+          "label": "Sex",
+          "options": [
+            "Female",
+            "Male",
+            "Other"
+          ],
+          "required": true
+        },
+        {
+          "key": "address",
+          "label": "Address",
+          "type": "text",
+          "required": false
+        },
+        {
+          "key": "allergies",
+          "label": "Recorded allergies",
+          "type": "textarea",
+          "required": false
+        },
+        {
+          "key": "provisional",
+          "label": "Provisional local identity",
+          "type": "checkbox"
+        },
+        {
+          "key": "healthId",
+          "label": "Existing Health ID (optional)",
+          "type": "text",
+          "required": false
+        }
+      ],
+      "actions": [
+        {
+          "id": "edit",
+          "label": "Correct demographics",
+          "from": [
+            "active"
+          ],
+          "to": "active",
+          "fields": [
+            {
+              "key": "name",
+              "label": "Full name",
+              "type": "text",
+              "required": true
+            },
+            {
+              "key": "phone",
+              "label": "Phone",
+              "type": "text",
+              "required": true
+            },
+            {
+              "key": "reason",
+              "label": "Reason",
+              "type": "textarea",
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "appointments",
+      "title": "Appointments",
+      "group": "Clinical",
+      "kind": "appointment",
+      "patient": true,
+      "fields": [
+        {
+          "key": "starts",
+          "label": "Appointment time",
+          "type": "datetime-local",
+          "required": true
+        },
+        {
+          "key": "clinician",
+          "label": "Clinician",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "department",
+          "label": "Department",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "reason",
+          "label": "Reason",
+          "type": "text",
+          "required": true
+        }
+      ],
+      "initial": "booked",
+      "actions": [
+        {
+          "id": "reschedule",
+          "label": "Reschedule",
+          "from": [
+            "booked"
+          ],
+          "to": "booked",
+          "fields": [
+            {
+              "key": "starts",
+              "label": "New time",
+              "type": "datetime-local",
+              "required": true
+            },
+            {
+              "key": "reason",
+              "label": "Reason",
+              "type": "textarea",
+              "required": true
+            }
+          ]
+        },
+        {
+          "id": "checkin",
+          "label": "Check in",
+          "from": [
+            "booked"
+          ],
+          "to": "checked-in",
+          "fields": []
+        },
+        {
+          "id": "cancel",
+          "label": "Cancel appointment",
+          "from": [
+            "booked"
+          ],
+          "to": "cancelled",
+          "fields": [
+            {
+              "key": "reason",
+              "label": "Reason",
+              "type": "textarea",
+              "required": true
+            }
+          ]
+        },
+        {
+          "id": "noShow",
+          "label": "Mark no-show",
+          "from": [
+            "booked"
+          ],
+          "to": "no-show",
+          "fields": []
+        }
+      ]
+    },
+    {
+      "id": "journey",
+      "title": "Patient Journey",
+      "group": "Clinical",
+      "kind": "visit",
+      "patient": true,
+      "initial": "waiting",
+      "fields": [
+        {
+          "key": "complaint",
+          "label": "Presenting complaint",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "department",
+          "label": "Department",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "clinician",
+          "label": "Clinician",
+          "type": "text",
+          "required": false
+        }
+      ],
+      "actions": [
+        {
+          "id": "assign",
+          "label": "Assign / transfer queue",
+          "from": [
+            "waiting",
+            "triaged",
+            "consulting"
+          ],
+          "to": "waiting",
+          "fields": [
+            {
+              "key": "department",
+              "label": "Department",
+              "type": "text",
+              "required": true
+            },
+            {
+              "key": "clinician",
+              "label": "Clinician",
+              "type": "text",
+              "required": true
+            },
+            {
+              "key": "reason",
+              "label": "Reason",
+              "type": "textarea",
+              "required": true
+            }
+          ]
+        },
+        {
+          "id": "complete",
+          "label": "Complete visit",
+          "from": [
+            "waiting",
+            "triaged",
+            "consulting"
+          ],
+          "to": "completed",
+          "fields": [
+            {
+              "key": "disposition",
+              "label": "Disposition",
+              "type": "text",
+              "required": true
+            }
+          ]
+        },
+        {
+          "id": "cancel",
+          "label": "Cancel visit",
+          "from": [
+            "waiting",
+            "triaged"
+          ],
+          "to": "cancelled",
+          "fields": [
+            {
+              "key": "reason",
+              "label": "Reason",
+              "type": "textarea",
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "triage",
+      "title": "Triage & Vitals",
+      "group": "Clinical",
+      "kind": "triage",
+      "patient": true,
+      "initial": "draft",
+      "fields": [
+        {
+          "key": "visit",
+          "label": "Visit",
+          "ref": "visit",
+          "required": true
+        },
+        {
+          "key": "complaint",
+          "label": "Presenting complaint",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "bp",
+          "label": "Blood pressure (mmHg)",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "pulse",
+          "label": "Pulse (bpm)",
+          "type": "number",
+          "required": true
+        },
+        {
+          "key": "temperature",
+          "label": "Temperature (°C)",
+          "type": "number",
+          "required": true
+        },
+        {
+          "key": "spo2",
+          "label": "Oxygen saturation (%)",
+          "type": "number",
+          "required": true
+        },
+        {
+          "key": "priority",
+          "label": "Priority",
+          "options": [
+            "Routine",
+            "Urgent",
+            "Emergency"
+          ],
+          "required": true
+        },
+        {
+          "key": "observations",
+          "label": "Observations",
+          "type": "textarea",
+          "required": false
+        }
+      ],
+      "actions": [
+        {
+          "id": "complete",
+          "label": "Complete triage",
+          "from": [
+            "draft"
+          ],
+          "to": "completed",
+          "fields": []
+        },
+        {
+          "id": "amend",
+          "label": "Amend observation",
+          "from": [
+            "completed"
+          ],
+          "to": "completed",
+          "fields": [
+            {
+              "key": "observations",
+              "label": "Corrected observations",
+              "type": "textarea",
+              "required": true
+            },
+            {
+              "key": "reason",
+              "label": "Reason",
+              "type": "textarea",
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "consult",
+      "title": "Consultation",
+      "group": "Clinical",
+      "kind": "encounter",
+      "patient": true,
+      "initial": "draft",
+      "fields": [
+        {
+          "key": "visit",
+          "label": "Visit",
+          "ref": "visit",
+          "required": true
+        },
+        {
+          "key": "complaint",
+          "label": "Presenting complaint",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "history",
+          "label": "History",
+          "type": "textarea",
+          "required": true
+        },
+        {
+          "key": "examination",
+          "label": "Examination",
+          "type": "textarea",
+          "required": true
+        },
+        {
+          "key": "diagnosis",
+          "label": "Diagnosis / assessment (fictional catalogue)",
+          "type": "text",
+          "required": true,
+          "suggestions": [
+            "DEMO-01 ? Fictional assessment A",
+            "DEMO-02 ? Fictional assessment B",
+            "DEMO-03 ? Fictional follow-up"
+          ]
+        },
+        {
+          "key": "note",
+          "label": "Clinical note",
+          "type": "textarea",
+          "required": true
+        },
+        {
+          "key": "followup",
+          "label": "Follow-up",
+          "type": "text",
+          "required": false
+        },
+        {
+          "key": "confirmed",
+          "label": "I reviewed this fictional assessment",
+          "type": "checkbox",
+          "required": true
+        }
+      ],
+      "actions": [
+        {
+          "id": "sign",
+          "label": "Sign encounter",
+          "from": [
+            "draft"
+          ],
+          "to": "signed",
+          "fields": [],
+          "permission": "sign"
+        },
+        {
+          "id": "amend",
+          "label": "Amend signed note",
+          "from": [
+            "signed"
+          ],
+          "to": "signed",
+          "fields": [
+            {
+              "key": "note",
+              "label": "Amendment",
+              "type": "textarea",
+              "required": true
+            },
+            {
+              "key": "reason",
+              "label": "Reason",
+              "type": "textarea",
+              "required": true
+            }
+          ],
+          "permission": "sign"
+        }
+      ]
+    },
+    {
+      "id": "lab",
+      "title": "Laboratory",
+      "group": "Diagnostics",
+      "kind": "labOrder",
+      "department": "Laboratory",
+      "patient": true,
+      "initial": "ordered",
+      "fields": [
+        {
+          "key": "encounter",
+          "label": "Encounter",
+          "ref": "encounter",
+          "required": true
+        },
+        {
+          "key": "test",
+          "label": "Fictional test name",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "indication",
+          "label": "Indication",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "urgency",
+          "label": "Urgency",
+          "options": [
+            "Routine",
+            "Urgent"
+          ],
+          "required": true
+        }
+      ],
+      "actions": [
+        {
+          "id": "collect",
+          "label": "Collect sample",
+          "from": [
+            "ordered",
+            "rejected"
+          ],
+          "to": "collected",
+          "fields": [
+            {
+              "key": "sampleCode",
+              "label": "Sample identifier",
+              "type": "text",
+              "required": true
+            }
+          ],
+          "permission": "collect"
+        },
+        {
+          "id": "process",
+          "label": "Start processing",
+          "from": [
+            "collected"
+          ],
+          "to": "processing",
+          "fields": [
+            {
+              "key": "processing",
+              "label": "Processing details",
+              "type": "text",
+              "required": true
+            }
+          ],
+          "permission": "process"
+        },
+        {
+          "id": "result",
+          "label": "Save draft result",
+          "from": [
+            "processing"
+          ],
+          "to": "draft-result",
+          "fields": [
+            {
+              "key": "value",
+              "label": "Result value",
+              "type": "text",
+              "required": true
+            },
+            {
+              "key": "unit",
+              "label": "Unit",
+              "type": "text",
+              "required": true
+            },
+            {
+              "key": "comments",
+              "label": "Result comments",
+              "type": "textarea",
+              "required": true
+            }
+          ],
+          "permission": "edit"
+        },
+        {
+          "id": "verify",
+          "label": "Verify result",
+          "from": [
+            "draft-result"
+          ],
+          "to": "verified",
+          "fields": [
+            {
+              "key": "review",
+              "label": "Review note",
+              "type": "text",
+              "required": true
+            }
+          ],
+          "permission": "approve"
+        },
+        {
+          "id": "publish",
+          "label": "Publish result",
+          "from": [
+            "verified"
+          ],
+          "to": "published",
+          "fields": [],
+          "permission": "publish"
+        },
+        {
+          "id": "reject",
+          "label": "Reject sample",
+          "from": [
+            "collected",
+            "processing"
+          ],
+          "to": "rejected",
+          "fields": [
+            {
+              "key": "reason",
+              "label": "Reason",
+              "type": "textarea",
+              "required": true
+            }
+          ],
+          "permission": "edit"
+        },
+        {
+          "id": "correct",
+          "label": "Correct published result",
+          "from": [
+            "published"
+          ],
+          "to": "draft-result",
+          "fields": [
+            {
+              "key": "value",
+              "label": "Corrected value",
+              "type": "text",
+              "required": true
+            },
+            {
+              "key": "unit",
+              "label": "Unit",
+              "type": "text",
+              "required": true
+            },
+            {
+              "key": "reason",
+              "label": "Reason",
+              "type": "textarea",
+              "required": true
+            }
+          ],
+          "permission": "edit"
+        },
+        {
+          "id": "cancel",
+          "label": "Cancel order",
+          "from": [
+            "ordered"
+          ],
+          "to": "cancelled",
+          "fields": [
+            {
+              "key": "reason",
+              "label": "Reason",
+              "type": "textarea",
+              "required": true
+            }
+          ],
+          "permission": "create"
+        }
+      ]
+    },
+    {
+      "id": "radiology",
+      "title": "Radiology",
+      "group": "Diagnostics",
+      "kind": "radiologyOrder",
+      "department": "Radiology",
+      "patient": true,
+      "initial": "ordered",
+      "fields": [
+        {
+          "key": "encounter",
+          "label": "Encounter",
+          "ref": "encounter",
+          "required": true
+        },
+        {
+          "key": "modality",
+          "label": "Modality",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "indication",
+          "label": "Indication",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "urgency",
+          "label": "Urgency",
+          "options": [
+            "Routine",
+            "Urgent"
+          ],
+          "required": true
+        }
+      ],
+      "actions": [
+        {
+          "id": "schedule",
+          "label": "Schedule examination",
+          "from": [
+            "ordered"
+          ],
+          "to": "scheduled",
+          "fields": [
+            {
+              "key": "scheduled",
+              "label": "Scheduled time",
+              "type": "datetime-local",
+              "required": true
+            }
+          ],
+          "permission": "edit"
+        },
+        {
+          "id": "examine",
+          "label": "Record examination",
+          "from": [
+            "scheduled"
+          ],
+          "to": "examined",
+          "fields": [
+            {
+              "key": "exam",
+              "label": "Examination details",
+              "type": "text",
+              "required": true
+            }
+          ],
+          "permission": "edit"
+        },
+        {
+          "id": "attach",
+          "label": "Attach local study",
+          "from": [
+            "examined"
+          ],
+          "to": "study-attached",
+          "fields": [
+            {
+              "key": "attachment",
+              "label": "Image or PDF (max 2 MB)",
+              "type": "file",
+              "required": true
+            }
+          ],
+          "permission": "edit"
+        },
+        {
+          "id": "report",
+          "label": "Draft report",
+          "from": [
+            "study-attached"
+          ],
+          "to": "draft-report",
+          "fields": [
+            {
+              "key": "report",
+              "label": "Report",
+              "type": "textarea",
+              "required": true
+            }
+          ],
+          "permission": "edit"
+        },
+        {
+          "id": "review",
+          "label": "Review report",
+          "from": [
+            "draft-report"
+          ],
+          "to": "reviewed",
+          "fields": [
+            {
+              "key": "review",
+              "label": "Reviewer note",
+              "type": "text",
+              "required": true
+            }
+          ],
+          "permission": "approve"
+        },
+        {
+          "id": "publish",
+          "label": "Publish report",
+          "from": [
+            "reviewed"
+          ],
+          "to": "published",
+          "fields": [],
+          "permission": "publish"
+        },
+        {
+          "id": "correct",
+          "label": "Correct report",
+          "from": [
+            "published"
+          ],
+          "to": "draft-report",
+          "fields": [
+            {
+              "key": "report",
+              "label": "Corrected report",
+              "type": "textarea",
+              "required": true
+            },
+            {
+              "key": "reason",
+              "label": "Reason",
+              "type": "textarea",
+              "required": true
+            }
+          ],
+          "permission": "edit"
+        }
+      ]
+    },
+    {
+      "id": "pharmacy",
+      "title": "Pharmacy",
+      "group": "Diagnostics",
+      "kind": "prescription",
+      "department": "Pharmacy",
+      "patient": true,
+      "initial": "prescribed",
+      "fields": [
+        {
+          "key": "encounter",
+          "label": "Encounter",
+          "ref": "encounter",
+          "required": true
+        },
+        {
+          "key": "item",
+          "label": "Medication (fictional)",
+          "ref": "inventory",
+          "required": true
+        },
+        {
+          "key": "quantity",
+          "label": "Prescribed units",
+          "type": "number",
+          "required": true
+        },
+        {
+          "key": "instructions",
+          "label": "Directions",
+          "type": "textarea",
+          "required": true
+        },
+        {
+          "key": "controlled",
+          "label": "Controlled-drug simulation",
+          "type": "checkbox"
+        },
+        {
+          "key": "confirmed",
+          "label": "Clinician confirms medication and allergy review",
+          "type": "checkbox",
+          "required": true
+        }
+      ],
+      "actions": [
+        {
+          "id": "review",
+          "label": "Review prescription",
+          "from": [
+            "prescribed"
+          ],
+          "to": "reviewed",
+          "fields": [
+            {
+              "key": "review",
+              "label": "Pharmacist review",
+              "type": "text",
+              "required": true
+            }
+          ],
+          "permission": "edit"
+        },
+        {
+          "id": "dispense",
+          "label": "Dispense quantity",
+          "from": [
+            "reviewed",
+            "partial"
+          ],
+          "to": "partial",
+          "fields": [
+            {
+              "key": "batch",
+              "label": "Stock batch",
+              "ref": "batch",
+              "required": true
+            },
+            {
+              "key": "quantity",
+              "label": "Units to dispense",
+              "type": "number",
+              "required": true
+            }
+          ],
+          "permission": "dispense"
+        }
+      ]
+    },
+    {
+      "id": "inpatient",
+      "title": "Inpatient / Wards",
+      "group": "Clinical",
+      "kind": "admission",
+      "department": "Inpatient",
+      "patient": true,
+      "initial": "requested",
+      "fields": [
+        {
+          "key": "reason",
+          "label": "Admission reason",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "team",
+          "label": "Assigned care team",
+          "type": "text",
+          "required": true
+        }
+      ],
+      "actions": [
+        {
+          "id": "admit",
+          "label": "Admit and allocate bed",
+          "from": [
+            "requested"
+          ],
+          "to": "admitted",
+          "fields": [
+            {
+              "key": "bed",
+              "label": "Available bed",
+              "ref": "bed",
+              "required": true
+            }
+          ],
+          "permission": "assign"
+        },
+        {
+          "id": "transfer",
+          "label": "Transfer bed",
+          "from": [
+            "admitted"
+          ],
+          "to": "admitted",
+          "fields": [
+            {
+              "key": "bed",
+              "label": "Destination bed",
+              "ref": "bed",
+              "required": true
+            },
+            {
+              "key": "handover",
+              "label": "Nursing handover",
+              "type": "textarea",
+              "required": true
+            }
+          ],
+          "permission": "assign"
+        },
+        {
+          "id": "prepare",
+          "label": "Prepare discharge",
+          "from": [
+            "admitted"
+          ],
+          "to": "discharge-ready",
+          "fields": [
+            {
+              "key": "followup",
+              "label": "Follow-up plan",
+              "type": "text",
+              "required": true
+            }
+          ],
+          "permission": "sign"
+        },
+        {
+          "id": "discharge",
+          "label": "Discharge patient",
+          "from": [
+            "discharge-ready"
+          ],
+          "to": "discharged",
+          "fields": [
+            {
+              "key": "summary",
+              "label": "Discharge summary",
+              "type": "textarea",
+              "required": true
+            }
+          ],
+          "permission": "sign"
+        }
+      ]
+    },
+    {
+      "id": "wards",
+      "title": "Wards & Beds",
+      "group": "Clinical",
+      "kind": "bed",
+      "department": "Inpatient",
+      "initial": "available",
+      "fields": [
+        {
+          "key": "name",
+          "label": "Bed name",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "ward",
+          "label": "Ward",
+          "ref": "ward",
+          "required": true
+        }
+      ],
+      "actions": [
+        {
+          "id": "clean",
+          "label": "Complete bed turnover",
+          "from": [
+            "cleaning"
+          ],
+          "to": "available",
+          "fields": [
+            {
+              "key": "cleaning",
+              "label": "Cleaning record",
+              "type": "text",
+              "required": true
+            }
+          ],
+          "permission": "edit"
+        },
+        {
+          "id": "maintenance",
+          "label": "Place in maintenance",
+          "from": [
+            "available"
+          ],
+          "to": "maintenance",
+          "fields": [
+            {
+              "key": "reason",
+              "label": "Reason",
+              "type": "textarea",
+              "required": true
+            }
+          ],
+          "permission": "edit"
+        },
+        {
+          "id": "release",
+          "label": "Release from maintenance",
+          "from": [
+            "maintenance"
+          ],
+          "to": "available",
+          "fields": [
+            {
+              "key": "review",
+              "label": "Maintenance completed",
+              "type": "text",
+              "required": true
+            }
+          ],
+          "permission": "edit"
+        }
+      ]
+    },
+    {
+      "id": "nursing",
+      "title": "Nursing observations & tasks",
+      "group": "Clinical",
+      "kind": "observation",
+      "patient": true,
+      "initial": "recorded",
+      "fields": [
+        {
+          "key": "admission",
+          "label": "Admission",
+          "ref": "admission",
+          "required": true
+        },
+        {
+          "key": "category",
+          "label": "Observation category",
+          "options": [
+            "Vitals",
+            "Medication administration",
+            "Handover",
+            "Care task"
+          ],
+          "required": true
+        },
+        {
+          "key": "note",
+          "label": "Observation / administration details",
+          "type": "textarea",
+          "required": true
+        },
+        {
+          "key": "units",
+          "label": "Units / dose if applicable",
+          "type": "text",
+          "required": false
+        }
+      ],
+      "actions": [
+        {
+          "id": "amend",
+          "label": "Amend observation",
+          "from": [
+            "recorded"
+          ],
+          "to": "recorded",
+          "fields": [
+            {
+              "key": "note",
+              "label": "Corrected record",
+              "type": "textarea",
+              "required": true
+            },
+            {
+              "key": "reason",
+              "label": "Reason",
+              "type": "textarea",
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "emergency",
+      "title": "Emergency",
+      "group": "Clinical",
+      "kind": "procedure",
+      "department": "Emergency",
+      "patient": true,
+      "initial": "arrived",
+      "fields": [
+        {
+          "key": "complaint",
+          "label": "Presenting complaint",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "priority",
+          "label": "Triage priority",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "team",
+          "label": "Assigned clinician",
+          "type": "text",
+          "required": true
+        }
+      ],
+      "actions": [
+        {
+          "id": "assess",
+          "label": "Record assessment",
+          "from": [
+            "arrived"
+          ],
+          "to": "assessed",
+          "fields": [
+            {
+              "key": "assessment",
+              "label": "Assessment",
+              "type": "textarea",
+              "required": true
+            }
+          ],
+          "permission": "edit"
+        },
+        {
+          "id": "disposition",
+          "label": "Record disposition",
+          "from": [
+            "assessed"
+          ],
+          "to": "completed",
+          "fields": [
+            {
+              "key": "disposition",
+              "label": "Disposition",
+              "type": "text",
+              "required": true
+            },
+            {
+              "key": "followup",
+              "label": "Follow-up",
+              "type": "text",
+              "required": true
+            }
+          ],
+          "permission": "sign"
+        }
+      ]
+    },
+    {
+      "id": "maternity",
+      "title": "Maternity",
+      "group": "Clinical",
+      "kind": "procedure",
+      "department": "Maternity",
+      "patient": true,
+      "initial": "enrolled",
+      "fields": [
+        {
+          "key": "gestation",
+          "label": "Gestation / enrolment details",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "nextVisit",
+          "label": "Antenatal visit",
+          "type": "datetime-local",
+          "required": true
+        }
+      ],
+      "actions": [
+        {
+          "id": "observe",
+          "label": "Antenatal observation",
+          "from": [
+            "enrolled"
+          ],
+          "to": "observed",
+          "fields": [
+            {
+              "key": "observations",
+              "label": "Observations",
+              "type": "textarea",
+              "required": true
+            }
+          ],
+          "permission": "edit"
+        },
+        {
+          "id": "delivery",
+          "label": "Record delivery",
+          "from": [
+            "observed"
+          ],
+          "to": "delivered",
+          "fields": [
+            {
+              "key": "delivery",
+              "label": "Delivery record",
+              "type": "textarea",
+              "required": true
+            },
+            {
+              "key": "newborn",
+              "label": "Newborn name (creates provisional identity)",
+              "type": "text",
+              "required": true
+            }
+          ],
+          "permission": "sign"
+        },
+        {
+          "id": "followup",
+          "label": "Postnatal follow-up",
+          "from": [
+            "delivered"
+          ],
+          "to": "completed",
+          "fields": [
+            {
+              "key": "followup",
+              "label": "Postnatal follow-up",
+              "type": "textarea",
+              "required": true
+            }
+          ],
+          "permission": "edit"
+        }
+      ]
+    },
+    {
+      "id": "surgery",
+      "title": "Theatre",
+      "group": "Clinical",
+      "kind": "procedure",
+      "department": "Theatre",
+      "patient": true,
+      "initial": "requested",
+      "fields": [
+        {
+          "key": "procedure",
+          "label": "Procedure",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "reason",
+          "label": "Indication",
+          "type": "text",
+          "required": true
+        }
+      ],
+      "actions": [
+        {
+          "id": "schedule",
+          "label": "Schedule procedure",
+          "from": [
+            "requested"
+          ],
+          "to": "scheduled",
+          "fields": [
+            {
+              "key": "scheduled",
+              "label": "Time",
+              "type": "datetime-local",
+              "required": true
+            },
+            {
+              "key": "team",
+              "label": "Team assignment",
+              "type": "text",
+              "required": true
+            }
+          ],
+          "permission": "assign"
+        },
+        {
+          "id": "checklist",
+          "label": "Complete demo checklist",
+          "from": [
+            "scheduled"
+          ],
+          "to": "ready",
+          "fields": [
+            {
+              "key": "checklist",
+              "label": "Checklist record (not clinical guidance)",
+              "type": "textarea",
+              "required": true
+            }
+          ],
+          "permission": "edit"
+        },
+        {
+          "id": "perform",
+          "label": "Document procedure",
+          "from": [
+            "ready"
+          ],
+          "to": "recovery",
+          "fields": [
+            {
+              "key": "documentation",
+              "label": "Procedure record",
+              "type": "textarea",
+              "required": true
+            }
+          ],
+          "permission": "sign"
+        },
+        {
+          "id": "recover",
+          "label": "Complete recovery",
+          "from": [
+            "recovery"
+          ],
+          "to": "completed",
+          "fields": [
+            {
+              "key": "recovery",
+              "label": "Recovery and follow-up",
+              "type": "textarea",
+              "required": true
+            }
+          ],
+          "permission": "edit"
+        },
+        {
+          "id": "cancel",
+          "label": "Cancel procedure",
+          "from": [
+            "requested",
+            "scheduled"
+          ],
+          "to": "cancelled",
+          "fields": [
+            {
+              "key": "reason",
+              "label": "Reason",
+              "type": "textarea",
+              "required": true
+            }
+          ],
+          "permission": "edit"
+        }
+      ]
+    },
+    {
+      "id": "icu",
+      "title": "ICU",
+      "group": "Clinical",
+      "kind": "admission",
+      "department": "ICU",
+      "patient": true,
+      "initial": "requested",
+      "fields": [
+        {
+          "key": "reason",
+          "label": "ICU admission reason",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "team",
+          "label": "Care team",
+          "type": "text",
+          "required": true
+        }
+      ],
+      "actions": [
+        {
+          "id": "admit",
+          "label": "Admit and allocate bed",
+          "from": [
+            "requested"
+          ],
+          "to": "admitted",
+          "fields": [
+            {
+              "key": "bed",
+              "label": "Available bed",
+              "ref": "bed",
+              "required": true
+            }
+          ],
+          "permission": "assign"
+        },
+        {
+          "id": "transfer",
+          "label": "Transfer bed",
+          "from": [
+            "admitted"
+          ],
+          "to": "admitted",
+          "fields": [
+            {
+              "key": "bed",
+              "label": "Destination bed",
+              "ref": "bed",
+              "required": true
+            },
+            {
+              "key": "handover",
+              "label": "Nursing handover",
+              "type": "textarea",
+              "required": true
+            }
+          ],
+          "permission": "assign"
+        },
+        {
+          "id": "prepare",
+          "label": "Prepare discharge",
+          "from": [
+            "admitted"
+          ],
+          "to": "discharge-ready",
+          "fields": [
+            {
+              "key": "followup",
+              "label": "Follow-up plan",
+              "type": "text",
+              "required": true
+            }
+          ],
+          "permission": "sign"
+        },
+        {
+          "id": "discharge",
+          "label": "Discharge patient",
+          "from": [
+            "discharge-ready"
+          ],
+          "to": "discharged",
+          "fields": [
+            {
+              "key": "summary",
+              "label": "Discharge summary",
+              "type": "textarea",
+              "required": true
+            }
+          ],
+          "permission": "sign"
+        }
+      ]
+    },
+    {
+      "id": "dental",
+      "title": "Dental",
+      "group": "Clinical",
+      "kind": "procedure",
+      "department": "Dental",
+      "patient": true,
+      "initial": "booked",
+      "fields": [
+        {
+          "key": "scheduled",
+          "label": "Appointment",
+          "type": "datetime-local",
+          "required": true
+        },
+        {
+          "key": "complaint",
+          "label": "Complaint",
+          "type": "text",
+          "required": true
+        }
+      ],
+      "actions": [
+        {
+          "id": "assess",
+          "label": "Record assessment",
+          "from": [
+            "booked"
+          ],
+          "to": "assessed",
+          "fields": [
+            {
+              "key": "findings",
+              "label": "Findings",
+              "type": "textarea",
+              "required": true
+            },
+            {
+              "key": "plan",
+              "label": "Treatment plan",
+              "type": "textarea",
+              "required": true
+            }
+          ],
+          "permission": "edit"
+        },
+        {
+          "id": "perform",
+          "label": "Record treatment",
+          "from": [
+            "assessed"
+          ],
+          "to": "treated",
+          "fields": [
+            {
+              "key": "procedure",
+              "label": "Treatment documentation",
+              "type": "textarea",
+              "required": true
+            }
+          ],
+          "permission": "sign"
+        },
+        {
+          "id": "followup",
+          "label": "Arrange follow-up",
+          "from": [
+            "treated"
+          ],
+          "to": "completed",
+          "fields": [
+            {
+              "key": "followup",
+              "label": "Follow-up plan",
+              "type": "text",
+              "required": true
+            }
+          ],
+          "permission": "edit"
+        }
+      ]
+    },
+    {
+      "id": "billing",
+      "title": "Billing & Revenue",
+      "group": "Operations",
+      "kind": "invoice",
+      "patient": true,
+      "initial": "draft",
+      "fields": [
+        {
+          "key": "service",
+          "label": "Service charge",
+          "ref": "service",
+          "required": true
+        },
+        {
+          "key": "quantity",
+          "label": "Service quantity",
+          "type": "number",
+          "required": true
+        },
+        {
+          "key": "source",
+          "label": "Unique charge reference (order / service ID)",
+          "type": "text",
+          "required": true
+        }
+      ],
+      "actions": [
+        {
+          "id": "issue",
+          "label": "Issue invoice",
+          "from": [
+            "draft"
+          ],
+          "to": "issued",
+          "fields": [],
+          "permission": "approve"
+        },
+        {
+          "id": "pay",
+          "label": "Record simulated payment",
+          "from": [
+            "issued",
+            "partial"
+          ],
+          "to": "partial",
+          "fields": [
+            {
+              "key": "amount",
+              "label": "Amount (currency units)",
+              "type": "number",
+              "required": true
+            },
+            {
+              "key": "method",
+              "label": "Method",
+              "options": [
+                "Cash",
+                "Transfer",
+                "Card",
+                "Insurance"
+              ],
+              "required": true
+            },
+            {
+              "key": "reference",
+              "label": "Unique transaction reference",
+              "type": "text",
+              "required": true
+            }
+          ],
+          "permission": "collect-payment"
+        },
+        {
+          "id": "refund",
+          "label": "Refund payment",
+          "from": [
+            "paid",
+            "partial"
+          ],
+          "to": "partial",
+          "fields": [
+            {
+              "key": "amount",
+              "label": "Refund amount",
+              "type": "number",
+              "required": true
+            },
+            {
+              "key": "reason",
+              "label": "Reason",
+              "type": "textarea",
+              "required": true
+            }
+          ],
+          "permission": "refund"
+        },
+        {
+          "id": "void",
+          "label": "Void invoice",
+          "from": [
+            "draft",
+            "issued"
+          ],
+          "to": "void",
+          "fields": [
+            {
+              "key": "reason",
+              "label": "Reason",
+              "type": "textarea",
+              "required": true
+            }
+          ],
+          "permission": "approve"
+        }
+      ]
+    },
+    {
+      "id": "insurance",
+      "title": "Insurance & Claims",
+      "group": "Operations",
+      "kind": "claim",
+      "patient": true,
+      "initial": "draft",
+      "fields": [
+        {
+          "key": "invoice",
+          "label": "Invoice",
+          "ref": "invoice",
+          "required": true
+        },
+        {
+          "key": "policy",
+          "label": "Patient policy",
+          "ref": "policy",
+          "required": true
+        },
+        {
+          "key": "authorization",
+          "label": "Authorization reference",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "support",
+          "label": "Supporting service records",
+          "type": "textarea",
+          "required": true
+        }
+      ],
+      "actions": [
+        {
+          "id": "submit",
+          "label": "Submit simulated claim",
+          "from": [
+            "draft",
+            "rejected"
+          ],
+          "to": "submitted",
+          "fields": [],
+          "permission": "create"
+        },
+        {
+          "id": "approve",
+          "label": "Record payer decision",
+          "from": [
+            "submitted"
+          ],
+          "to": "approved",
+          "fields": [
+            {
+              "key": "approvedAmount",
+              "label": "Approved amount",
+              "type": "number",
+              "required": true
+            },
+            {
+              "key": "review",
+              "label": "Local fixture decision",
+              "type": "text",
+              "required": true
+            }
+          ],
+          "permission": "approve"
+        },
+        {
+          "id": "reject",
+          "label": "Record rejection",
+          "from": [
+            "submitted"
+          ],
+          "to": "rejected",
+          "fields": [
+            {
+              "key": "reason",
+              "label": "Reason",
+              "type": "textarea",
+              "required": true
+            }
+          ],
+          "permission": "approve"
+        },
+        {
+          "id": "settle",
+          "label": "Record simulated settlement",
+          "from": [
+            "approved"
+          ],
+          "to": "settled",
+          "fields": [
+            {
+              "key": "amount",
+              "label": "Received amount",
+              "type": "number",
+              "required": true
+            },
+            {
+              "key": "reference",
+              "label": "Unique settlement reference",
+              "type": "text",
+              "required": true
+            }
+          ],
+          "permission": "collect-payment"
+        }
+      ]
+    },
+    {
+      "id": "inventory",
+      "title": "Inventory & Procurement",
+      "group": "Operations",
+      "kind": "inventory",
+      "initial": "active",
+      "fields": [
+        {
+          "key": "name",
+          "label": "Item name",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "category",
+          "label": "Category",
+          "options": [
+            "Medication",
+            "Consumable",
+            "Equipment"
+          ],
+          "required": true
+        },
+        {
+          "key": "unit",
+          "label": "Base unit",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "packSize",
+          "label": "Units per pack",
+          "type": "number",
+          "required": true
+        },
+        {
+          "key": "threshold",
+          "label": "Reorder threshold",
+          "type": "number",
+          "required": true
+        }
+      ],
+      "actions": [
+        {
+          "id": "receive",
+          "label": "Receive stock",
+          "from": [
+            "active"
+          ],
+          "to": "active",
+          "fields": [
+            {
+              "key": "lot",
+              "label": "Batch number",
+              "type": "text",
+              "required": true
+            },
+            {
+              "key": "quantity",
+              "label": "Base units received",
+              "type": "number",
+              "required": true
+            },
+            {
+              "key": "expiry",
+              "label": "Expiry",
+              "type": "date",
+              "required": true
+            },
+            {
+              "key": "reference",
+              "label": "Receipt reference",
+              "type": "text",
+              "required": true
+            }
+          ],
+          "permission": "edit"
+        },
+        {
+          "id": "adjust",
+          "label": "Consume / adjust stock",
+          "from": [
+            "active"
+          ],
+          "to": "active",
+          "fields": [
+            {
+              "key": "batch",
+              "label": "Batch",
+              "ref": "batch",
+              "required": true
+            },
+            {
+              "key": "delta",
+              "label": "Signed unit change",
+              "type": "number",
+              "required": true
+            },
+            {
+              "key": "reason",
+              "label": "Reason",
+              "type": "textarea",
+              "required": true
+            }
+          ],
+          "permission": "edit"
+        },
+        {
+          "id": "transfer",
+          "label": "Transfer stock",
+          "from": [
+            "active"
+          ],
+          "to": "active",
+          "fields": [
+            {
+              "key": "batch",
+              "label": "Batch",
+              "ref": "batch",
+              "required": true
+            },
+            {
+              "key": "quantity",
+              "label": "Units to transfer",
+              "type": "number",
+              "required": true
+            },
+            {
+              "key": "destination",
+              "label": "Destination branch",
+              "type": "text",
+              "required": true
+            },
+            {
+              "key": "reason",
+              "label": "Reason",
+              "type": "textarea",
+              "required": true
+            }
+          ],
+          "permission": "assign"
+        }
+      ]
+    },
+    {
+      "id": "procurement",
+      "title": "Procurement",
+      "group": "Operations",
+      "kind": "purchaseRequest",
+      "initial": "requested",
+      "fields": [
+        {
+          "key": "item",
+          "label": "Inventory item",
+          "ref": "inventory",
+          "required": true
+        },
+        {
+          "key": "quantity",
+          "label": "Base units requested",
+          "type": "number",
+          "required": true
+        },
+        {
+          "key": "supplier",
+          "label": "Fictional supplier",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "reason",
+          "label": "Request reason",
+          "type": "text",
+          "required": true
+        }
+      ],
+      "actions": [
+        {
+          "id": "approve",
+          "label": "Approve request",
+          "from": [
+            "requested"
+          ],
+          "to": "approved",
+          "fields": [],
+          "permission": "approve"
+        },
+        {
+          "id": "order",
+          "label": "Create purchase order",
+          "from": [
+            "approved"
+          ],
+          "to": "ordered",
+          "fields": [
+            {
+              "key": "reference",
+              "label": "Purchase order reference",
+              "type": "text",
+              "required": true
+            }
+          ],
+          "permission": "create"
+        },
+        {
+          "id": "receive",
+          "label": "Receive goods",
+          "from": [
+            "ordered",
+            "partial"
+          ],
+          "to": "partial",
+          "fields": [
+            {
+              "key": "quantity",
+              "label": "Base units received",
+              "type": "number",
+              "required": true
+            },
+            {
+              "key": "lot",
+              "label": "Batch",
+              "type": "text",
+              "required": true
+            },
+            {
+              "key": "expiry",
+              "label": "Expiry",
+              "type": "date",
+              "required": true
+            },
+            {
+              "key": "reference",
+              "label": "Unique receipt reference",
+              "type": "text",
+              "required": true
+            }
+          ],
+          "permission": "edit"
+        }
+      ]
+    },
+    {
+      "id": "referrals",
+      "title": "Referral Network",
+      "group": "Network & Services",
+      "kind": "referral",
+      "patient": true,
+      "initial": "draft",
+      "fields": [
+        {
+          "key": "destination",
+          "label": "Destination facility",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "reason",
+          "label": "Referral reason",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "urgency",
+          "label": "Urgency",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "summary",
+          "label": "Selected clinical summary",
+          "type": "textarea",
+          "required": true
+        },
+        {
+          "key": "scope",
+          "label": "Consent scope",
+          "type": "text",
+          "required": true
+        }
+      ],
+      "actions": [
+        {
+          "id": "send",
+          "label": "Send simulated referral",
+          "from": [
+            "draft"
+          ],
+          "to": "sent",
+          "fields": [],
+          "permission": "create"
+        },
+        {
+          "id": "accept",
+          "label": "Simulate recipient acceptance",
+          "from": [
+            "sent"
+          ],
+          "to": "accepted",
+          "fields": [
+            {
+              "key": "review",
+              "label": "Recipient response",
+              "type": "text",
+              "required": true
+            }
+          ],
+          "permission": "approve"
+        },
+        {
+          "id": "complete",
+          "label": "Complete referral",
+          "from": [
+            "accepted"
+          ],
+          "to": "completed",
+          "fields": [
+            {
+              "key": "outcome",
+              "label": "Outcome",
+              "type": "textarea",
+              "required": true
+            }
+          ],
+          "permission": "edit"
+        }
+      ]
+    },
+    {
+      "id": "ambulance",
+      "title": "Ambulance dispatch",
+      "group": "Network & Services",
+      "kind": "dispatch",
+      "initial": "requested",
+      "fields": [
+        {
+          "key": "vehicle",
+          "label": "Vehicle",
+          "ref": "ambulance",
+          "required": true
+        },
+        {
+          "key": "pickup",
+          "label": "Pickup location",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "destination",
+          "label": "Destination",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "crew",
+          "label": "Assigned crew",
+          "type": "text",
+          "required": true
+        }
+      ],
+      "actions": [
+        {
+          "id": "dispatch",
+          "label": "Dispatch vehicle",
+          "from": [
+            "requested"
+          ],
+          "to": "dispatched",
+          "fields": [],
+          "permission": "assign"
+        },
+        {
+          "id": "complete",
+          "label": "Complete dispatch",
+          "from": [
+            "dispatched"
+          ],
+          "to": "completed",
+          "fields": [
+            {
+              "key": "handover",
+              "label": "Handover details",
+              "type": "text",
+              "required": true
+            }
+          ],
+          "permission": "edit"
+        },
+        {
+          "id": "cancel",
+          "label": "Cancel dispatch",
+          "from": [
+            "requested",
+            "dispatched"
+          ],
+          "to": "cancelled",
+          "fields": [
+            {
+              "key": "reason",
+              "label": "Reason",
+              "type": "textarea",
+              "required": true
+            }
+          ],
+          "permission": "edit"
+        }
+      ]
+    },
+    {
+      "id": "bloodbank",
+      "title": "Blood Bank",
+      "group": "Network & Services",
+      "kind": "donation",
+      "department": "Laboratory",
+      "initial": "quarantine",
+      "fields": [
+        {
+          "key": "donor",
+          "label": "Fictional donor reference",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "group",
+          "label": "Blood group (does not prove compatibility)",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "expiry",
+          "label": "Expiry",
+          "type": "date",
+          "required": true
+        }
+      ],
+      "actions": [
+        {
+          "id": "screen",
+          "label": "Record screening review",
+          "from": [
+            "quarantine"
+          ],
+          "to": "screened",
+          "fields": [
+            {
+              "key": "screening",
+              "label": "Screening record",
+              "type": "textarea",
+              "required": true
+            }
+          ],
+          "permission": "approve"
+        },
+        {
+          "id": "reserve",
+          "label": "Reserve unit",
+          "from": [
+            "screened"
+          ],
+          "to": "reserved",
+          "fields": [
+            {
+              "key": "patient",
+              "label": "Patient",
+              "ref": "patient",
+              "required": true
+            },
+            {
+              "key": "review",
+              "label": "Suitability review (simulation)",
+              "type": "text",
+              "required": true
+            }
+          ],
+          "permission": "assign"
+        },
+        {
+          "id": "issue",
+          "label": "Issue unit",
+          "from": [
+            "reserved"
+          ],
+          "to": "issued",
+          "fields": [
+            {
+              "key": "authorization",
+              "label": "Authorization record",
+              "type": "text",
+              "required": true
+            }
+          ],
+          "permission": "publish"
+        },
+        {
+          "id": "dispose",
+          "label": "Dispose unit",
+          "from": [
+            "quarantine",
+            "screened",
+            "reserved"
+          ],
+          "to": "disposed",
+          "fields": [
+            {
+              "key": "reason",
+              "label": "Reason",
+              "type": "textarea",
+              "required": true
+            }
+          ],
+          "permission": "edit"
+        }
+      ]
+    },
+    {
+      "id": "telemedicine",
+      "title": "Telemedicine",
+      "group": "Network & Services",
+      "kind": "telemedicine",
+      "patient": true,
+      "initial": "booked",
+      "fields": [
+        {
+          "key": "scheduled",
+          "label": "Session time",
+          "type": "datetime-local",
+          "required": true
+        },
+        {
+          "key": "clinician",
+          "label": "Clinician",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "reason",
+          "label": "Reason",
+          "type": "text",
+          "required": true
+        }
+      ],
+      "actions": [
+        {
+          "id": "wait",
+          "label": "Enter local waiting room",
+          "from": [
+            "booked"
+          ],
+          "to": "waiting",
+          "fields": [],
+          "permission": "edit"
+        },
+        {
+          "id": "start",
+          "label": "Start local session simulation",
+          "from": [
+            "waiting"
+          ],
+          "to": "in-progress",
+          "fields": [],
+          "permission": "edit"
+        },
+        {
+          "id": "end",
+          "label": "End and document session",
+          "from": [
+            "in-progress"
+          ],
+          "to": "completed",
+          "fields": [
+            {
+              "key": "note",
+              "label": "Session note",
+              "type": "textarea",
+              "required": true
+            },
+            {
+              "key": "followup",
+              "label": "Follow-up",
+              "type": "text",
+              "required": true
+            }
+          ],
+          "permission": "sign"
+        }
+      ]
+    },
+    {
+      "id": "shifts",
+      "title": "Shifts & Roster",
+      "group": "Administration",
+      "kind": "roster",
+      "initial": "assigned",
+      "fields": [
+        {
+          "key": "staff",
+          "label": "Staff member",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "starts",
+          "label": "Shift start",
+          "type": "datetime-local",
+          "required": true
+        },
+        {
+          "key": "ends",
+          "label": "Shift end",
+          "type": "datetime-local",
+          "required": true
+        },
+        {
+          "key": "department",
+          "label": "Department",
+          "type": "text",
+          "required": true
+        }
+      ],
+      "actions": [
+        {
+          "id": "clockin",
+          "label": "Simulated clock-in",
+          "from": [
+            "assigned"
+          ],
+          "to": "on-duty",
+          "fields": [],
+          "permission": "edit"
+        },
+        {
+          "id": "clockout",
+          "label": "Simulated clock-out",
+          "from": [
+            "on-duty"
+          ],
+          "to": "completed",
+          "fields": [
+            {
+              "key": "handover",
+              "label": "Handover notes",
+              "type": "textarea",
+              "required": true
+            }
+          ],
+          "permission": "edit"
+        }
+      ]
+    },
+    {
+      "id": "hr",
+      "title": "HR & Credentials",
+      "group": "Administration",
+      "kind": "credential",
+      "initial": "recorded",
+      "fields": [
+        {
+          "key": "staff",
+          "label": "Staff member",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "name",
+          "label": "Fictional credential",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "expiry",
+          "label": "Expiry",
+          "type": "date",
+          "required": true
+        },
+        {
+          "key": "employment",
+          "label": "Employment information",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "leave",
+          "label": "Leave request (optional)",
+          "type": "text",
+          "required": false
+        }
+      ],
+      "actions": [
+        {
+          "id": "review",
+          "label": "Record credential review",
+          "from": [
+            "recorded"
+          ],
+          "to": "reviewed",
+          "fields": [
+            {
+              "key": "review",
+              "label": "Simulated review (not independent verification)",
+              "type": "text",
+              "required": true
+            }
+          ],
+          "permission": "approve"
+        }
+      ]
+    },
+    {
+      "id": "quality",
+      "title": "Quality & Safety",
+      "group": "Administration",
+      "kind": "incident",
+      "initial": "reported",
+      "fields": [
+        {
+          "key": "title",
+          "label": "Incident title",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "description",
+          "label": "Description",
+          "type": "textarea",
+          "required": true
+        }
+      ],
+      "actions": [
+        {
+          "id": "assign",
+          "label": "Assign reviewer",
+          "from": [
+            "reported"
+          ],
+          "to": "assigned",
+          "fields": [
+            {
+              "key": "reviewer",
+              "label": "Reviewer membership ID",
+              "type": "text",
+              "required": true
+            }
+          ],
+          "permission": "assign"
+        },
+        {
+          "id": "investigate",
+          "label": "Record investigation",
+          "from": [
+            "assigned"
+          ],
+          "to": "investigated",
+          "fields": [
+            {
+              "key": "investigation",
+              "label": "Investigation",
+              "type": "textarea",
+              "required": true
+            },
+            {
+              "key": "corrective",
+              "label": "Corrective actions",
+              "type": "textarea",
+              "required": true
+            }
+          ],
+          "permission": "edit"
+        },
+        {
+          "id": "resolve",
+          "label": "Resolve incident",
+          "from": [
+            "investigated"
+          ],
+          "to": "resolved",
+          "fields": [
+            {
+              "key": "resolution",
+              "label": "Resolution",
+              "type": "textarea",
+              "required": true
+            }
+          ],
+          "permission": "approve"
+        }
+      ]
+    },
+    {
+      "id": "consent",
+      "title": "External access",
+      "group": "Clinical",
+      "kind": "consent",
+      "patient": true,
+      "initial": "pending",
+      "fields": [
+        {
+          "key": "reason",
+          "label": "Purpose of access",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "categories",
+          "label": "Requested category",
+          "options": [
+            "Published results",
+            "Signed notes"
+          ],
+          "required": true
+        },
+        {
+          "key": "duration",
+          "label": "Duration (minutes, max 60)",
+          "type": "number",
+          "required": true
+        }
+      ],
+      "actions": []
+    },
+    {
+      "id": "services",
+      "title": "Service catalogue",
+      "group": "Administration",
+      "kind": "service",
+      "initial": "active",
+      "fields": [
+        {
+          "key": "name",
+          "label": "Service name",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "price",
+          "label": "Price",
+          "type": "number",
+          "required": true
+        }
+      ],
+      "actions": []
+    },
+    {
+      "id": "ward-config",
+      "title": "Ward configuration",
+      "group": "Administration",
+      "kind": "ward",
+      "initial": "active",
+      "fields": [
+        {
+          "key": "name",
+          "label": "Ward name",
+          "type": "text",
+          "required": true
+        }
+      ],
+      "actions": []
+    },
+    {
+      "id": "vehicles",
+      "title": "Vehicle configuration",
+      "group": "Administration",
+      "kind": "ambulance",
+      "initial": "available",
+      "fields": [
+        {
+          "key": "name",
+          "label": "Vehicle registration",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "crew",
+          "label": "Default crew",
+          "type": "text",
+          "required": true
+        }
+      ],
+      "actions": [
+        {
+          "id": "maintenance",
+          "label": "Maintenance",
+          "from": [
+            "available"
+          ],
+          "to": "maintenance",
+          "fields": [
+            {
+              "key": "reason",
+              "label": "Reason",
+              "type": "textarea",
+              "required": true
+            }
+          ]
+        },
+        {
+          "id": "release",
+          "label": "Release vehicle",
+          "from": [
+            "maintenance"
+          ],
+          "to": "available",
+          "fields": [
+            {
+              "key": "review",
+              "label": "Maintenance completed",
+              "type": "text",
+              "required": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "policies",
+      "title": "Insurance policies",
+      "group": "Operations",
+      "kind": "policy",
+      "patient": true,
+      "initial": "active",
+      "fields": [
+        {
+          "key": "insurer",
+          "label": "Fictional insurer",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "number",
+          "label": "Policy number",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "expiry",
+          "label": "Coverage expiry",
+          "type": "date",
+          "required": true
+        },
+        {
+          "key": "coverage",
+          "label": "Coverage description",
+          "type": "text",
+          "required": true
+        }
+      ],
+      "actions": []
+    },
+    {
+      "id": "nursing-tasks",
+      "title": "Nursing care tasks",
+      "group": "Clinical",
+      "kind": "nursingTask",
+      "patient": true,
+      "initial": "assigned",
+      "fields": [
+        {
+          "key": "admission",
+          "label": "Admission",
+          "ref": "admission",
+          "required": true
+        },
+        {
+          "key": "name",
+          "label": "Care task",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "assignedTo",
+          "label": "Assigned nurse",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "due",
+          "label": "Due time",
+          "type": "datetime-local",
+          "required": true
+        }
+      ],
+      "actions": [
+        {
+          "id": "start",
+          "label": "Start task",
+          "from": [
+            "assigned"
+          ],
+          "to": "in-progress",
+          "fields": [],
+          "permission": "edit"
+        },
+        {
+          "id": "complete",
+          "label": "Complete task",
+          "from": [
+            "in-progress"
+          ],
+          "to": "completed",
+          "fields": [
+            {
+              "key": "note",
+              "label": "Completion record",
+              "type": "textarea",
+              "required": true
+            }
+          ],
+          "permission": "edit"
+        },
+        {
+          "id": "cancel",
+          "label": "Cancel task",
+          "from": [
+            "assigned"
+          ],
+          "to": "cancelled",
+          "fields": [
+            {
+              "key": "reason",
+              "label": "Reason",
+              "type": "textarea",
+              "required": true
+            }
+          ],
+          "permission": "assign"
+        }
+      ]
+    }
+  ],
+  "roles": [
+    {
+      "role": "Platform Super Admin",
+      "permissions": [
+        "dashboard.view",
+        "notifications.view",
+        "profile.view",
+        "platform.view",
+        "platform.create",
+        "platform.edit",
+        "platform.assign",
+        "platform.approve",
+        "platform.export",
+        "staff.view",
+        "staff.create",
+        "staff.edit",
+        "staff.assign",
+        "staff.approve",
+        "staff.export",
+        "setup.view",
+        "setup.create",
+        "setup.edit",
+        "setup.assign",
+        "setup.approve",
+        "setup.export",
+        "audit.view",
+        "audit.create",
+        "audit.edit",
+        "audit.assign",
+        "audit.approve",
+        "audit.export"
+      ]
+    },
+    {
+      "role": "Hospital Owner",
+      "permissions": [
+        "dashboard.view",
+        "notifications.view",
+        "profile.view",
+        "subscription.view",
+        "subscription.edit",
+        "facility.view",
+        "facility.edit",
+        "setup.view",
+        "setup.create",
+        "setup.edit",
+        "setup.assign",
+        "setup.approve",
+        "setup.export",
+        "staff.view",
+        "staff.create",
+        "staff.edit",
+        "staff.assign",
+        "staff.approve",
+        "staff.export",
+        "reports.view",
+        "reports.create",
+        "reports.edit",
+        "reports.assign",
+        "reports.approve",
+        "reports.export",
+        "audit.view",
+        "audit.create",
+        "audit.edit",
+        "audit.assign",
+        "audit.approve",
+        "audit.export",
+        "services.view",
+        "services.create",
+        "services.edit",
+        "services.assign",
+        "services.approve",
+        "services.export",
+        "ward-config.view",
+        "ward-config.create",
+        "ward-config.edit",
+        "ward-config.assign",
+        "ward-config.approve",
+        "ward-config.export",
+        "vehicles.view",
+        "vehicles.create",
+        "vehicles.edit",
+        "vehicles.assign",
+        "vehicles.approve",
+        "vehicles.export",
+        "shifts.view",
+        "shifts.create",
+        "shifts.edit",
+        "shifts.assign",
+        "shifts.approve",
+        "shifts.export",
+        "hr.view",
+        "hr.create",
+        "hr.edit",
+        "hr.assign",
+        "hr.approve",
+        "hr.export",
+        "quality.view",
+        "quality.create",
+        "quality.edit",
+        "quality.assign",
+        "quality.approve",
+        "quality.export",
+        "inventory.view",
+        "inventory.create",
+        "inventory.edit",
+        "inventory.assign",
+        "inventory.approve",
+        "inventory.export",
+        "procurement.view",
+        "procurement.create",
+        "procurement.edit",
+        "procurement.assign",
+        "procurement.approve",
+        "procurement.export",
+        "ambulance.view",
+        "ambulance.create",
+        "ambulance.edit",
+        "ambulance.assign",
+        "ambulance.approve",
+        "ambulance.export",
+        "billing.view",
+        "billing.create",
+        "billing.edit",
+        "billing.assign",
+        "billing.approve",
+        "billing.export",
+        "billing.refund",
+        "billing.collect-payment",
+        "insurance.view",
+        "insurance.create",
+        "insurance.edit",
+        "insurance.assign",
+        "insurance.approve",
+        "insurance.export",
+        "insurance.refund",
+        "insurance.collect-payment",
+        "policies.view",
+        "policies.create",
+        "policies.edit",
+        "policies.assign",
+        "policies.approve",
+        "policies.export",
+        "policies.refund",
+        "policies.collect-payment"
+      ]
+    },
+    {
+      "role": "Medical Director",
+      "permissions": [
+        "dashboard.view",
+        "notifications.view",
+        "profile.view",
+        "nursing-tasks.view",
+        "nursing-tasks.create",
+        "nursing-tasks.edit",
+        "nursing-tasks.assign",
+        "patients.view",
+        "patients.create",
+        "patients.edit",
+        "patients.assign",
+        "patients.sign",
+        "patients.export",
+        "patients.request-external",
+        "patients.emergency",
+        "appointments.view",
+        "appointments.create",
+        "appointments.edit",
+        "appointments.assign",
+        "appointments.sign",
+        "appointments.export",
+        "appointments.request-external",
+        "appointments.emergency",
+        "journey.view",
+        "journey.create",
+        "journey.edit",
+        "journey.assign",
+        "journey.sign",
+        "journey.export",
+        "journey.request-external",
+        "journey.emergency",
+        "triage.view",
+        "triage.create",
+        "triage.edit",
+        "triage.assign",
+        "triage.sign",
+        "triage.export",
+        "triage.request-external",
+        "triage.emergency",
+        "consult.view",
+        "consult.create",
+        "consult.edit",
+        "consult.assign",
+        "consult.sign",
+        "consult.export",
+        "consult.request-external",
+        "consult.emergency",
+        "inpatient.view",
+        "inpatient.create",
+        "inpatient.edit",
+        "inpatient.assign",
+        "inpatient.sign",
+        "inpatient.export",
+        "inpatient.request-external",
+        "inpatient.emergency",
+        "wards.view",
+        "wards.create",
+        "wards.edit",
+        "wards.assign",
+        "wards.sign",
+        "wards.export",
+        "wards.request-external",
+        "wards.emergency",
+        "nursing.view",
+        "nursing.create",
+        "nursing.edit",
+        "nursing.assign",
+        "nursing.sign",
+        "nursing.export",
+        "nursing.request-external",
+        "nursing.emergency",
+        "emergency.view",
+        "emergency.create",
+        "emergency.edit",
+        "emergency.assign",
+        "emergency.sign",
+        "emergency.export",
+        "emergency.request-external",
+        "emergency.emergency",
+        "maternity.view",
+        "maternity.create",
+        "maternity.edit",
+        "maternity.assign",
+        "maternity.sign",
+        "maternity.export",
+        "maternity.request-external",
+        "maternity.emergency",
+        "surgery.view",
+        "surgery.create",
+        "surgery.edit",
+        "surgery.assign",
+        "surgery.sign",
+        "surgery.export",
+        "surgery.request-external",
+        "surgery.emergency",
+        "icu.view",
+        "icu.create",
+        "icu.edit",
+        "icu.assign",
+        "icu.sign",
+        "icu.export",
+        "icu.request-external",
+        "icu.emergency",
+        "dental.view",
+        "dental.create",
+        "dental.edit",
+        "dental.assign",
+        "dental.sign",
+        "dental.export",
+        "dental.request-external",
+        "dental.emergency",
+        "referrals.view",
+        "referrals.create",
+        "referrals.edit",
+        "referrals.assign",
+        "referrals.sign",
+        "referrals.export",
+        "referrals.request-external",
+        "referrals.emergency",
+        "telemedicine.view",
+        "telemedicine.create",
+        "telemedicine.edit",
+        "telemedicine.assign",
+        "telemedicine.sign",
+        "telemedicine.export",
+        "telemedicine.request-external",
+        "telemedicine.emergency",
+        "consent.view",
+        "consent.create",
+        "consent.edit",
+        "consent.assign",
+        "consent.sign",
+        "consent.export",
+        "consent.request-external",
+        "consent.emergency",
+        "lab.view",
+        "lab.create",
+        "radiology.view",
+        "radiology.create",
+        "pharmacy.view",
+        "pharmacy.create",
+        "quality.view",
+        "quality.create",
+        "quality.edit",
+        "quality.assign",
+        "quality.approve",
+        "quality.export",
+        "referrals.approve",
+        "audit.view",
+        "audit.approve",
+        "audit.export",
+        "reports.view",
+        "reports.approve",
+        "reports.export",
+        "staff.view",
+        "staff.approve",
+        "staff.export",
+        "hr.view",
+        "hr.approve",
+        "hr.export",
+        "radiology.approve",
+        "radiology.publish"
+      ]
+    },
+    {
+      "role": "Hospital Admin",
+      "permissions": [
+        "dashboard.view",
+        "notifications.view",
+        "profile.view",
+        "subscription.view",
+        "subscription.edit",
+        "facility.view",
+        "facility.edit",
+        "setup.view",
+        "setup.create",
+        "setup.edit",
+        "setup.assign",
+        "setup.approve",
+        "setup.export",
+        "staff.view",
+        "staff.create",
+        "staff.edit",
+        "staff.assign",
+        "staff.approve",
+        "staff.export",
+        "reports.view",
+        "reports.create",
+        "reports.edit",
+        "reports.assign",
+        "reports.approve",
+        "reports.export",
+        "audit.view",
+        "audit.create",
+        "audit.edit",
+        "audit.assign",
+        "audit.approve",
+        "audit.export",
+        "services.view",
+        "services.create",
+        "services.edit",
+        "services.assign",
+        "services.approve",
+        "services.export",
+        "ward-config.view",
+        "ward-config.create",
+        "ward-config.edit",
+        "ward-config.assign",
+        "ward-config.approve",
+        "ward-config.export",
+        "vehicles.view",
+        "vehicles.create",
+        "vehicles.edit",
+        "vehicles.assign",
+        "vehicles.approve",
+        "vehicles.export",
+        "shifts.view",
+        "shifts.create",
+        "shifts.edit",
+        "shifts.assign",
+        "shifts.approve",
+        "shifts.export",
+        "hr.view",
+        "hr.create",
+        "hr.edit",
+        "hr.assign",
+        "hr.approve",
+        "hr.export",
+        "quality.view",
+        "quality.create",
+        "quality.edit",
+        "quality.assign",
+        "quality.approve",
+        "quality.export",
+        "inventory.view",
+        "inventory.create",
+        "inventory.edit",
+        "inventory.assign",
+        "inventory.approve",
+        "inventory.export",
+        "procurement.view",
+        "procurement.create",
+        "procurement.edit",
+        "procurement.assign",
+        "procurement.approve",
+        "procurement.export",
+        "ambulance.view",
+        "ambulance.create",
+        "ambulance.edit",
+        "ambulance.assign",
+        "ambulance.approve",
+        "ambulance.export",
+        "billing.view",
+        "insurance.view",
+        "policies.view"
+      ]
+    },
+    {
+      "role": "Consultant",
+      "permissions": [
+        "dashboard.view",
+        "notifications.view",
+        "profile.view",
+        "nursing-tasks.view",
+        "nursing-tasks.create",
+        "nursing-tasks.edit",
+        "nursing-tasks.assign",
+        "patients.view",
+        "patients.create",
+        "patients.edit",
+        "patients.assign",
+        "patients.sign",
+        "patients.export",
+        "patients.request-external",
+        "patients.emergency",
+        "appointments.view",
+        "appointments.create",
+        "appointments.edit",
+        "appointments.assign",
+        "appointments.sign",
+        "appointments.export",
+        "appointments.request-external",
+        "appointments.emergency",
+        "journey.view",
+        "journey.create",
+        "journey.edit",
+        "journey.assign",
+        "journey.sign",
+        "journey.export",
+        "journey.request-external",
+        "journey.emergency",
+        "triage.view",
+        "triage.create",
+        "triage.edit",
+        "triage.assign",
+        "triage.sign",
+        "triage.export",
+        "triage.request-external",
+        "triage.emergency",
+        "consult.view",
+        "consult.create",
+        "consult.edit",
+        "consult.assign",
+        "consult.sign",
+        "consult.export",
+        "consult.request-external",
+        "consult.emergency",
+        "inpatient.view",
+        "inpatient.create",
+        "inpatient.edit",
+        "inpatient.assign",
+        "inpatient.sign",
+        "inpatient.export",
+        "inpatient.request-external",
+        "inpatient.emergency",
+        "wards.view",
+        "wards.create",
+        "wards.edit",
+        "wards.assign",
+        "wards.sign",
+        "wards.export",
+        "wards.request-external",
+        "wards.emergency",
+        "nursing.view",
+        "nursing.create",
+        "nursing.edit",
+        "nursing.assign",
+        "nursing.sign",
+        "nursing.export",
+        "nursing.request-external",
+        "nursing.emergency",
+        "emergency.view",
+        "emergency.create",
+        "emergency.edit",
+        "emergency.assign",
+        "emergency.sign",
+        "emergency.export",
+        "emergency.request-external",
+        "emergency.emergency",
+        "maternity.view",
+        "maternity.create",
+        "maternity.edit",
+        "maternity.assign",
+        "maternity.sign",
+        "maternity.export",
+        "maternity.request-external",
+        "maternity.emergency",
+        "surgery.view",
+        "surgery.create",
+        "surgery.edit",
+        "surgery.assign",
+        "surgery.sign",
+        "surgery.export",
+        "surgery.request-external",
+        "surgery.emergency",
+        "icu.view",
+        "icu.create",
+        "icu.edit",
+        "icu.assign",
+        "icu.sign",
+        "icu.export",
+        "icu.request-external",
+        "icu.emergency",
+        "dental.view",
+        "dental.create",
+        "dental.edit",
+        "dental.assign",
+        "dental.sign",
+        "dental.export",
+        "dental.request-external",
+        "dental.emergency",
+        "referrals.view",
+        "referrals.create",
+        "referrals.edit",
+        "referrals.assign",
+        "referrals.sign",
+        "referrals.export",
+        "referrals.request-external",
+        "referrals.emergency",
+        "telemedicine.view",
+        "telemedicine.create",
+        "telemedicine.edit",
+        "telemedicine.assign",
+        "telemedicine.sign",
+        "telemedicine.export",
+        "telemedicine.request-external",
+        "telemedicine.emergency",
+        "consent.view",
+        "consent.create",
+        "consent.edit",
+        "consent.assign",
+        "consent.sign",
+        "consent.export",
+        "consent.request-external",
+        "consent.emergency",
+        "lab.view",
+        "lab.create",
+        "radiology.view",
+        "radiology.create",
+        "pharmacy.view",
+        "pharmacy.create",
+        "quality.view",
+        "quality.create",
+        "quality.edit",
+        "quality.assign",
+        "quality.approve",
+        "quality.export"
+      ]
+    },
+    {
+      "role": "Doctor",
+      "permissions": [
+        "dashboard.view",
+        "notifications.view",
+        "profile.view",
+        "nursing-tasks.view",
+        "nursing-tasks.create",
+        "nursing-tasks.edit",
+        "nursing-tasks.assign",
+        "patients.view",
+        "patients.create",
+        "patients.edit",
+        "patients.assign",
+        "patients.sign",
+        "patients.export",
+        "patients.request-external",
+        "patients.emergency",
+        "appointments.view",
+        "appointments.create",
+        "appointments.edit",
+        "appointments.assign",
+        "appointments.sign",
+        "appointments.export",
+        "appointments.request-external",
+        "appointments.emergency",
+        "journey.view",
+        "journey.create",
+        "journey.edit",
+        "journey.assign",
+        "journey.sign",
+        "journey.export",
+        "journey.request-external",
+        "journey.emergency",
+        "triage.view",
+        "triage.create",
+        "triage.edit",
+        "triage.assign",
+        "triage.sign",
+        "triage.export",
+        "triage.request-external",
+        "triage.emergency",
+        "consult.view",
+        "consult.create",
+        "consult.edit",
+        "consult.assign",
+        "consult.sign",
+        "consult.export",
+        "consult.request-external",
+        "consult.emergency",
+        "inpatient.view",
+        "inpatient.create",
+        "inpatient.edit",
+        "inpatient.assign",
+        "inpatient.sign",
+        "inpatient.export",
+        "inpatient.request-external",
+        "inpatient.emergency",
+        "wards.view",
+        "wards.create",
+        "wards.edit",
+        "wards.assign",
+        "wards.sign",
+        "wards.export",
+        "wards.request-external",
+        "wards.emergency",
+        "nursing.view",
+        "nursing.create",
+        "nursing.edit",
+        "nursing.assign",
+        "nursing.sign",
+        "nursing.export",
+        "nursing.request-external",
+        "nursing.emergency",
+        "emergency.view",
+        "emergency.create",
+        "emergency.edit",
+        "emergency.assign",
+        "emergency.sign",
+        "emergency.export",
+        "emergency.request-external",
+        "emergency.emergency",
+        "maternity.view",
+        "maternity.create",
+        "maternity.edit",
+        "maternity.assign",
+        "maternity.sign",
+        "maternity.export",
+        "maternity.request-external",
+        "maternity.emergency",
+        "surgery.view",
+        "surgery.create",
+        "surgery.edit",
+        "surgery.assign",
+        "surgery.sign",
+        "surgery.export",
+        "surgery.request-external",
+        "surgery.emergency",
+        "icu.view",
+        "icu.create",
+        "icu.edit",
+        "icu.assign",
+        "icu.sign",
+        "icu.export",
+        "icu.request-external",
+        "icu.emergency",
+        "dental.view",
+        "dental.create",
+        "dental.edit",
+        "dental.assign",
+        "dental.sign",
+        "dental.export",
+        "dental.request-external",
+        "dental.emergency",
+        "referrals.view",
+        "referrals.create",
+        "referrals.edit",
+        "referrals.assign",
+        "referrals.sign",
+        "referrals.export",
+        "referrals.request-external",
+        "referrals.emergency",
+        "telemedicine.view",
+        "telemedicine.create",
+        "telemedicine.edit",
+        "telemedicine.assign",
+        "telemedicine.sign",
+        "telemedicine.export",
+        "telemedicine.request-external",
+        "telemedicine.emergency",
+        "consent.view",
+        "consent.create",
+        "consent.edit",
+        "consent.assign",
+        "consent.sign",
+        "consent.export",
+        "consent.request-external",
+        "consent.emergency",
+        "lab.view",
+        "lab.create",
+        "radiology.view",
+        "radiology.create",
+        "pharmacy.view",
+        "pharmacy.create",
+        "quality.view",
+        "quality.create",
+        "quality.edit",
+        "quality.assign",
+        "quality.approve",
+        "quality.export"
+      ]
+    },
+    {
+      "role": "Nurse",
+      "permissions": [
+        "dashboard.view",
+        "notifications.view",
+        "profile.view",
+        "nursing-tasks.view",
+        "nursing-tasks.create",
+        "nursing-tasks.edit",
+        "nursing-tasks.assign",
+        "patients.view",
+        "appointments.view",
+        "journey.view",
+        "triage.view",
+        "triage.create",
+        "triage.edit",
+        "triage.assign",
+        "nursing.view",
+        "nursing.create",
+        "nursing.edit",
+        "nursing.assign",
+        "inpatient.view",
+        "inpatient.create",
+        "inpatient.edit",
+        "inpatient.assign",
+        "wards.view",
+        "wards.create",
+        "wards.edit",
+        "wards.assign",
+        "icu.view",
+        "icu.create",
+        "icu.edit",
+        "icu.assign",
+        "maternity.view",
+        "maternity.create",
+        "maternity.edit",
+        "maternity.assign"
+      ]
+    },
+    {
+      "role": "Receptionist",
+      "permissions": [
+        "dashboard.view",
+        "notifications.view",
+        "profile.view",
+        "patients.view",
+        "patients.create",
+        "patients.edit",
+        "patients.assign",
+        "appointments.view",
+        "appointments.create",
+        "appointments.edit",
+        "appointments.assign",
+        "journey.view",
+        "journey.create",
+        "journey.edit",
+        "journey.assign"
+      ]
+    },
+    {
+      "role": "Records Officer",
+      "permissions": [
+        "dashboard.view",
+        "notifications.view",
+        "profile.view",
+        "patients.view",
+        "patients.create",
+        "patients.edit",
+        "patients.assign",
+        "patients.approve",
+        "patients.export",
+        "audit.view",
+        "audit.export",
+        "reports.view",
+        "reports.export"
+      ]
+    },
+    {
+      "role": "Lab Manager",
+      "permissions": [
+        "dashboard.view",
+        "notifications.view",
+        "profile.view",
+        "lab.view",
+        "lab.collect",
+        "lab.process",
+        "lab.edit",
+        "bloodbank.view",
+        "bloodbank.create",
+        "bloodbank.edit",
+        "inventory.view",
+        "lab.approve",
+        "lab.publish",
+        "bloodbank.approve",
+        "bloodbank.assign",
+        "bloodbank.publish",
+        "inventory.create",
+        "inventory.edit",
+        "inventory.assign",
+        "inventory.approve",
+        "inventory.export",
+        "procurement.view",
+        "procurement.create",
+        "procurement.edit",
+        "procurement.assign",
+        "procurement.approve",
+        "procurement.export"
+      ]
+    },
+    {
+      "role": "Lab Scientist",
+      "permissions": [
+        "dashboard.view",
+        "notifications.view",
+        "profile.view",
+        "lab.view",
+        "lab.collect",
+        "lab.process",
+        "lab.edit",
+        "bloodbank.view",
+        "bloodbank.create",
+        "bloodbank.edit",
+        "inventory.view"
+      ]
+    },
+    {
+      "role": "Pharmacy Manager",
+      "permissions": [
+        "dashboard.view",
+        "notifications.view",
+        "profile.view",
+        "pharmacy.view",
+        "pharmacy.edit",
+        "pharmacy.dispense",
+        "inventory.view",
+        "pharmacy.controlled",
+        "inventory.create",
+        "inventory.edit",
+        "inventory.assign",
+        "inventory.approve",
+        "inventory.export",
+        "procurement.view",
+        "procurement.create",
+        "procurement.edit",
+        "procurement.assign",
+        "procurement.approve",
+        "procurement.export"
+      ]
+    },
+    {
+      "role": "Pharmacist",
+      "permissions": [
+        "dashboard.view",
+        "notifications.view",
+        "profile.view",
+        "pharmacy.view",
+        "pharmacy.edit",
+        "pharmacy.dispense",
+        "inventory.view"
+      ]
+    },
+    {
+      "role": "Billing Officer",
+      "permissions": [
+        "dashboard.view",
+        "notifications.view",
+        "profile.view",
+        "subscription.view",
+        "subscription.edit",
+        "billing.view",
+        "billing.create",
+        "billing.edit",
+        "billing.assign",
+        "billing.approve",
+        "billing.export",
+        "insurance.view",
+        "insurance.create",
+        "insurance.edit",
+        "insurance.assign",
+        "insurance.approve",
+        "insurance.export",
+        "policies.view",
+        "policies.create",
+        "policies.edit",
+        "policies.assign",
+        "policies.approve",
+        "policies.export",
+        "reports.view",
+        "reports.export"
+      ]
+    },
+    {
+      "role": "Cashier",
+      "permissions": [
+        "dashboard.view",
+        "notifications.view",
+        "profile.view",
+        "billing.view",
+        "billing.collect-payment",
+        "insurance.view",
+        "insurance.collect-payment",
+        "reports.view"
+      ]
+    },
+    {
+      "role": "Radiology Reporter",
+      "permissions": [
+        "dashboard.view",
+        "notifications.view",
+        "profile.view",
+        "radiology.view",
+        "radiology.edit",
+        "radiology.approve",
+        "radiology.publish"
+      ]
+    }
+  ],
+  "departments": [
+    "General Outpatient",
+    "Emergency",
+    "Inpatient",
+    "Laboratory",
+    "Pharmacy",
+    "Maternity",
+    "Pediatrics",
+    "Radiology",
+    "Dental",
+    "Physiotherapy",
+    "Dialysis",
+    "Oncology",
+    "Cardiology",
+    "ICU",
+    "Theatre"
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "date": "2026-10-03",
+  "logoFiles": "byte-identical to supplied source",
+  "title": "Health ID | Hospital workspace",
+  "primaryButton": "rgb(8, 109, 217)",
+  "runtimeErrors": [],
+  "screenshots": [
+    "login",
+    "dashboard",
+    "collapsed",
+    "mobile"
+  ]
+}

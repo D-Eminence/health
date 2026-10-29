@@ -1,0 +1,2432 @@
+[
+  {
+    "role": "Platform Super Admin",
+    "provider": "Hospital",
+    "navigation": [
+      "Home (platform review)",
+      "Facility review",
+      "Staff administration",
+      "Audit",
+      "Platform configuration"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "facility-review-queue",
+      "review-decisions-today",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Platform Super Admin",
+    "provider": "Clinic",
+    "navigation": [
+      "Home (platform review)",
+      "Facility review",
+      "Staff administration",
+      "Audit",
+      "Platform configuration"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "facility-review-queue",
+      "review-decisions-today",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Platform Super Admin",
+    "provider": "Maternity home",
+    "navigation": [
+      "Home (platform review)",
+      "Facility review",
+      "Staff administration",
+      "Audit",
+      "Platform configuration"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "facility-review-queue",
+      "review-decisions-today",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Platform Super Admin",
+    "provider": "Diagnostic lab",
+    "navigation": [
+      "Home (platform review)",
+      "Facility review",
+      "Staff administration",
+      "Audit",
+      "Platform configuration"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "facility-review-queue",
+      "review-decisions-today",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Platform Super Admin",
+    "provider": "Pharmacy",
+    "navigation": [
+      "Home (platform review)",
+      "Facility review",
+      "Staff administration",
+      "Audit",
+      "Platform configuration"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "facility-review-queue",
+      "review-decisions-today",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Platform Super Admin",
+    "provider": "Specialist centre",
+    "navigation": [
+      "Home (platform review)",
+      "Facility review",
+      "Staff administration",
+      "Audit",
+      "Platform configuration"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "facility-review-queue",
+      "review-decisions-today",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Platform Super Admin",
+    "provider": "Individual practitioner",
+    "navigation": [],
+    "eligibleWidgets": [],
+    "subscription": false,
+    "conditions": "UNSUPPORTED provider account model. Do not create a standalone practitioner portal in this change."
+  },
+  {
+    "role": "Hospital Owner",
+    "provider": "Hospital",
+    "navigation": [
+      "Home",
+      "Billing & Revenue",
+      "Insurance & Claims / Claims",
+      "Supply / Stock",
+      "Supply / Procurement",
+      "Ambulance dispatch",
+      "Shifts & Roster",
+      "HR & Credentials",
+      "Quality & Safety",
+      "Settings / Service catalogue",
+      "Settings / Ward configuration",
+      "Settings / Vehicle configuration",
+      "Insurance & Claims / Policies",
+      "Settings / audit",
+      "Settings / facility",
+      "Settings / reports",
+      "Settings / setup",
+      "Settings / staff",
+      "Settings / Facility subscription"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "setup-checklist",
+      "active-staff",
+      "financial-summary",
+      "stock-attention",
+      "purchase-worklist",
+      "credentials-attention",
+      "shift-worklist",
+      "claims-pipeline",
+      "subscription-action-only-when-needed",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": true,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Hospital Owner",
+    "provider": "Clinic",
+    "navigation": [
+      "Home",
+      "Billing & Revenue",
+      "Insurance & Claims / Claims",
+      "Supply / Stock",
+      "Supply / Procurement",
+      "Shifts & Roster",
+      "HR & Credentials",
+      "Quality & Safety",
+      "Settings / Service catalogue",
+      "Insurance & Claims / Policies",
+      "Settings / audit",
+      "Settings / facility",
+      "Settings / reports",
+      "Settings / setup",
+      "Settings / staff",
+      "Settings / Facility subscription"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "setup-checklist",
+      "active-staff",
+      "financial-summary",
+      "stock-attention",
+      "purchase-worklist",
+      "credentials-attention",
+      "shift-worklist",
+      "claims-pipeline",
+      "subscription-action-only-when-needed",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": true,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Hospital Owner",
+    "provider": "Maternity home",
+    "navigation": [
+      "Home",
+      "Billing & Revenue",
+      "Insurance & Claims / Claims",
+      "Supply / Stock",
+      "Supply / Procurement",
+      "Shifts & Roster",
+      "HR & Credentials",
+      "Quality & Safety",
+      "Settings / Service catalogue",
+      "Insurance & Claims / Policies",
+      "Settings / audit",
+      "Settings / facility",
+      "Settings / reports",
+      "Settings / setup",
+      "Settings / staff",
+      "Settings / Facility subscription"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "setup-checklist",
+      "active-staff",
+      "financial-summary",
+      "stock-attention",
+      "purchase-worklist",
+      "credentials-attention",
+      "shift-worklist",
+      "claims-pipeline",
+      "subscription-action-only-when-needed",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": true,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Hospital Owner",
+    "provider": "Diagnostic lab",
+    "navigation": [
+      "Home",
+      "Billing & Revenue",
+      "Insurance & Claims / Claims",
+      "Supply / Stock",
+      "Supply / Procurement",
+      "Shifts & Roster",
+      "HR & Credentials",
+      "Quality & Safety",
+      "Settings / Service catalogue",
+      "Insurance & Claims / Policies",
+      "Settings / audit",
+      "Settings / facility",
+      "Settings / reports",
+      "Settings / setup",
+      "Settings / staff",
+      "Settings / Facility subscription"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "setup-checklist",
+      "active-staff",
+      "financial-summary",
+      "stock-attention",
+      "purchase-worklist",
+      "credentials-attention",
+      "shift-worklist",
+      "claims-pipeline",
+      "subscription-action-only-when-needed",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": true,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Hospital Owner",
+    "provider": "Pharmacy",
+    "navigation": [
+      "Home",
+      "Billing & Revenue",
+      "Insurance & Claims / Claims",
+      "Supply / Stock",
+      "Supply / Procurement",
+      "Shifts & Roster",
+      "HR & Credentials",
+      "Quality & Safety",
+      "Settings / Service catalogue",
+      "Insurance & Claims / Policies",
+      "Settings / audit",
+      "Settings / facility",
+      "Settings / reports",
+      "Settings / setup",
+      "Settings / staff",
+      "Settings / Facility subscription"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "setup-checklist",
+      "active-staff",
+      "financial-summary",
+      "stock-attention",
+      "purchase-worklist",
+      "credentials-attention",
+      "shift-worklist",
+      "claims-pipeline",
+      "subscription-action-only-when-needed",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": true,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Hospital Owner",
+    "provider": "Specialist centre",
+    "navigation": [
+      "Home",
+      "Billing & Revenue",
+      "Insurance & Claims / Claims",
+      "Supply / Stock",
+      "Supply / Procurement",
+      "Shifts & Roster",
+      "HR & Credentials",
+      "Quality & Safety",
+      "Settings / Service catalogue",
+      "Insurance & Claims / Policies",
+      "Settings / audit",
+      "Settings / facility",
+      "Settings / reports",
+      "Settings / setup",
+      "Settings / staff",
+      "Settings / Facility subscription"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "setup-checklist",
+      "active-staff",
+      "financial-summary",
+      "stock-attention",
+      "purchase-worklist",
+      "credentials-attention",
+      "shift-worklist",
+      "claims-pipeline",
+      "subscription-action-only-when-needed",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": true,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Hospital Owner",
+    "provider": "Individual practitioner",
+    "navigation": [],
+    "eligibleWidgets": [],
+    "subscription": false,
+    "conditions": "UNSUPPORTED provider account model. Do not create a standalone practitioner portal in this change."
+  },
+  {
+    "role": "Medical Director",
+    "provider": "Hospital",
+    "navigation": [
+      "Home",
+      "Patients",
+      "Appointments",
+      "Patient Journey",
+      "Triage & Vitals",
+      "Consultation",
+      "Laboratory",
+      "Radiology",
+      "Pharmacy",
+      "Inpatient / Wards",
+      "Wards & Beds",
+      "Nursing observations & tasks",
+      "Emergency",
+      "Maternity",
+      "Theatre",
+      "ICU",
+      "Dental",
+      "Referral Network",
+      "Telemedicine",
+      "HR & Credentials",
+      "Quality & Safety",
+      "External access",
+      "Nursing care tasks",
+      "Settings / audit",
+      "Settings / reports",
+      "Settings / staff"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "incident-attention",
+      "clinical-worklist",
+      "referral-worklist",
+      "appointments-today",
+      "results-awaiting-action",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Medical Director",
+    "provider": "Clinic",
+    "navigation": [
+      "Home",
+      "Patients",
+      "Appointments",
+      "Patient Journey",
+      "Triage & Vitals",
+      "Consultation",
+      "Laboratory",
+      "Radiology",
+      "Pharmacy",
+      "Nursing observations & tasks",
+      "Emergency",
+      "Maternity",
+      "Dental",
+      "Referral Network",
+      "Telemedicine",
+      "HR & Credentials",
+      "Quality & Safety",
+      "External access",
+      "Nursing care tasks",
+      "Settings / audit",
+      "Settings / reports",
+      "Settings / staff"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "incident-attention",
+      "clinical-worklist",
+      "referral-worklist",
+      "appointments-today",
+      "results-awaiting-action",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Medical Director",
+    "provider": "Maternity home",
+    "navigation": [
+      "Home",
+      "Patients",
+      "Appointments",
+      "Patient Journey",
+      "Triage & Vitals",
+      "Consultation",
+      "Laboratory",
+      "Pharmacy",
+      "Nursing observations & tasks",
+      "Maternity",
+      "Referral Network",
+      "Telemedicine",
+      "HR & Credentials",
+      "Quality & Safety",
+      "External access",
+      "Nursing care tasks",
+      "Settings / audit",
+      "Settings / reports",
+      "Settings / staff"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "incident-attention",
+      "clinical-worklist",
+      "referral-worklist",
+      "appointments-today",
+      "results-awaiting-action",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Medical Director",
+    "provider": "Diagnostic lab",
+    "navigation": [
+      "Home",
+      "Patients",
+      "Laboratory",
+      "Radiology",
+      "Referral Network",
+      "HR & Credentials",
+      "Quality & Safety",
+      "External access",
+      "Settings / audit",
+      "Settings / reports",
+      "Settings / staff"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "incident-attention",
+      "referral-worklist",
+      "results-awaiting-action",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Medical Director",
+    "provider": "Pharmacy",
+    "navigation": [
+      "Home",
+      "Patients",
+      "Pharmacy",
+      "HR & Credentials",
+      "Quality & Safety",
+      "External access",
+      "Settings / audit",
+      "Settings / reports",
+      "Settings / staff"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "incident-attention",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Medical Director",
+    "provider": "Specialist centre",
+    "navigation": [
+      "Home",
+      "Patients",
+      "Appointments",
+      "Patient Journey",
+      "Triage & Vitals",
+      "Consultation",
+      "Laboratory",
+      "Radiology",
+      "Pharmacy",
+      "Nursing observations & tasks",
+      "Emergency",
+      "Maternity",
+      "Theatre",
+      "Dental",
+      "Referral Network",
+      "Telemedicine",
+      "HR & Credentials",
+      "Quality & Safety",
+      "External access",
+      "Nursing care tasks",
+      "Settings / audit",
+      "Settings / reports",
+      "Settings / staff"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "incident-attention",
+      "clinical-worklist",
+      "referral-worklist",
+      "appointments-today",
+      "results-awaiting-action",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Medical Director",
+    "provider": "Individual practitioner",
+    "navigation": [],
+    "eligibleWidgets": [],
+    "subscription": false,
+    "conditions": "UNSUPPORTED provider account model. Do not create a standalone practitioner portal in this change."
+  },
+  {
+    "role": "Hospital Admin",
+    "provider": "Hospital",
+    "navigation": [
+      "Home",
+      "Billing & Revenue",
+      "Insurance & Claims / Claims",
+      "Supply / Stock",
+      "Supply / Procurement",
+      "Ambulance dispatch",
+      "Shifts & Roster",
+      "HR & Credentials",
+      "Quality & Safety",
+      "Settings / Service catalogue",
+      "Settings / Ward configuration",
+      "Settings / Vehicle configuration",
+      "Insurance & Claims / Policies",
+      "Settings / audit",
+      "Settings / facility",
+      "Settings / reports",
+      "Settings / setup",
+      "Settings / staff",
+      "Settings / Facility subscription"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "setup-checklist",
+      "active-staff",
+      "financial-summary",
+      "stock-attention",
+      "purchase-worklist",
+      "credentials-attention",
+      "shift-worklist",
+      "claims-pipeline",
+      "subscription-action-only-when-needed",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": true,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Hospital Admin",
+    "provider": "Clinic",
+    "navigation": [
+      "Home",
+      "Billing & Revenue",
+      "Insurance & Claims / Claims",
+      "Supply / Stock",
+      "Supply / Procurement",
+      "Shifts & Roster",
+      "HR & Credentials",
+      "Quality & Safety",
+      "Settings / Service catalogue",
+      "Insurance & Claims / Policies",
+      "Settings / audit",
+      "Settings / facility",
+      "Settings / reports",
+      "Settings / setup",
+      "Settings / staff",
+      "Settings / Facility subscription"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "setup-checklist",
+      "active-staff",
+      "financial-summary",
+      "stock-attention",
+      "purchase-worklist",
+      "credentials-attention",
+      "shift-worklist",
+      "claims-pipeline",
+      "subscription-action-only-when-needed",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": true,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Hospital Admin",
+    "provider": "Maternity home",
+    "navigation": [
+      "Home",
+      "Billing & Revenue",
+      "Insurance & Claims / Claims",
+      "Supply / Stock",
+      "Supply / Procurement",
+      "Shifts & Roster",
+      "HR & Credentials",
+      "Quality & Safety",
+      "Settings / Service catalogue",
+      "Insurance & Claims / Policies",
+      "Settings / audit",
+      "Settings / facility",
+      "Settings / reports",
+      "Settings / setup",
+      "Settings / staff",
+      "Settings / Facility subscription"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "setup-checklist",
+      "active-staff",
+      "financial-summary",
+      "stock-attention",
+      "purchase-worklist",
+      "credentials-attention",
+      "shift-worklist",
+      "claims-pipeline",
+      "subscription-action-only-when-needed",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": true,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Hospital Admin",
+    "provider": "Diagnostic lab",
+    "navigation": [
+      "Home",
+      "Billing & Revenue",
+      "Insurance & Claims / Claims",
+      "Supply / Stock",
+      "Supply / Procurement",
+      "Shifts & Roster",
+      "HR & Credentials",
+      "Quality & Safety",
+      "Settings / Service catalogue",
+      "Insurance & Claims / Policies",
+      "Settings / audit",
+      "Settings / facility",
+      "Settings / reports",
+      "Settings / setup",
+      "Settings / staff",
+      "Settings / Facility subscription"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "setup-checklist",
+      "active-staff",
+      "financial-summary",
+      "stock-attention",
+      "purchase-worklist",
+      "credentials-attention",
+      "shift-worklist",
+      "claims-pipeline",
+      "subscription-action-only-when-needed",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": true,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Hospital Admin",
+    "provider": "Pharmacy",
+    "navigation": [
+      "Home",
+      "Billing & Revenue",
+      "Insurance & Claims / Claims",
+      "Supply / Stock",
+      "Supply / Procurement",
+      "Shifts & Roster",
+      "HR & Credentials",
+      "Quality & Safety",
+      "Settings / Service catalogue",
+      "Insurance & Claims / Policies",
+      "Settings / audit",
+      "Settings / facility",
+      "Settings / reports",
+      "Settings / setup",
+      "Settings / staff",
+      "Settings / Facility subscription"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "setup-checklist",
+      "active-staff",
+      "financial-summary",
+      "stock-attention",
+      "purchase-worklist",
+      "credentials-attention",
+      "shift-worklist",
+      "claims-pipeline",
+      "subscription-action-only-when-needed",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": true,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Hospital Admin",
+    "provider": "Specialist centre",
+    "navigation": [
+      "Home",
+      "Billing & Revenue",
+      "Insurance & Claims / Claims",
+      "Supply / Stock",
+      "Supply / Procurement",
+      "Shifts & Roster",
+      "HR & Credentials",
+      "Quality & Safety",
+      "Settings / Service catalogue",
+      "Insurance & Claims / Policies",
+      "Settings / audit",
+      "Settings / facility",
+      "Settings / reports",
+      "Settings / setup",
+      "Settings / staff",
+      "Settings / Facility subscription"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "setup-checklist",
+      "active-staff",
+      "financial-summary",
+      "stock-attention",
+      "purchase-worklist",
+      "credentials-attention",
+      "shift-worklist",
+      "claims-pipeline",
+      "subscription-action-only-when-needed",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": true,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Hospital Admin",
+    "provider": "Individual practitioner",
+    "navigation": [],
+    "eligibleWidgets": [],
+    "subscription": false,
+    "conditions": "UNSUPPORTED provider account model. Do not create a standalone practitioner portal in this change."
+  },
+  {
+    "role": "Consultant",
+    "provider": "Hospital",
+    "navigation": [
+      "Home",
+      "Patients",
+      "Appointments",
+      "Patient Journey",
+      "Triage & Vitals",
+      "Consultation",
+      "Laboratory",
+      "Radiology",
+      "Pharmacy",
+      "Inpatient / Wards",
+      "Wards & Beds",
+      "Nursing observations & tasks",
+      "Emergency",
+      "Maternity",
+      "Theatre",
+      "ICU",
+      "Dental",
+      "Referral Network",
+      "Telemedicine",
+      "Quality & Safety",
+      "External access",
+      "Nursing care tasks"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "appointments-today",
+      "clinical-worklist",
+      "results-awaiting-action",
+      "referral-worklist",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Consultant",
+    "provider": "Clinic",
+    "navigation": [
+      "Home",
+      "Patients",
+      "Appointments",
+      "Patient Journey",
+      "Triage & Vitals",
+      "Consultation",
+      "Laboratory",
+      "Radiology",
+      "Pharmacy",
+      "Nursing observations & tasks",
+      "Emergency",
+      "Maternity",
+      "Dental",
+      "Referral Network",
+      "Telemedicine",
+      "Quality & Safety",
+      "External access",
+      "Nursing care tasks"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "appointments-today",
+      "clinical-worklist",
+      "results-awaiting-action",
+      "referral-worklist",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Consultant",
+    "provider": "Maternity home",
+    "navigation": [
+      "Home",
+      "Patients",
+      "Appointments",
+      "Patient Journey",
+      "Triage & Vitals",
+      "Consultation",
+      "Laboratory",
+      "Pharmacy",
+      "Nursing observations & tasks",
+      "Maternity",
+      "Referral Network",
+      "Telemedicine",
+      "Quality & Safety",
+      "External access",
+      "Nursing care tasks"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "appointments-today",
+      "clinical-worklist",
+      "results-awaiting-action",
+      "referral-worklist",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Consultant",
+    "provider": "Diagnostic lab",
+    "navigation": [
+      "Home",
+      "Patients",
+      "Laboratory",
+      "Radiology",
+      "Referral Network",
+      "Quality & Safety",
+      "External access"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "results-awaiting-action",
+      "referral-worklist",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Consultant",
+    "provider": "Pharmacy",
+    "navigation": [
+      "Home",
+      "Patients",
+      "Pharmacy",
+      "Quality & Safety",
+      "External access"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Consultant",
+    "provider": "Specialist centre",
+    "navigation": [
+      "Home",
+      "Patients",
+      "Appointments",
+      "Patient Journey",
+      "Triage & Vitals",
+      "Consultation",
+      "Laboratory",
+      "Radiology",
+      "Pharmacy",
+      "Nursing observations & tasks",
+      "Emergency",
+      "Maternity",
+      "Theatre",
+      "Dental",
+      "Referral Network",
+      "Telemedicine",
+      "Quality & Safety",
+      "External access",
+      "Nursing care tasks"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "appointments-today",
+      "clinical-worklist",
+      "results-awaiting-action",
+      "referral-worklist",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Consultant",
+    "provider": "Individual practitioner",
+    "navigation": [],
+    "eligibleWidgets": [],
+    "subscription": false,
+    "conditions": "UNSUPPORTED provider account model. Do not create a standalone practitioner portal in this change."
+  },
+  {
+    "role": "Doctor",
+    "provider": "Hospital",
+    "navigation": [
+      "Home",
+      "Patients",
+      "Appointments",
+      "Patient Journey",
+      "Triage & Vitals",
+      "Consultation",
+      "Laboratory",
+      "Radiology",
+      "Pharmacy",
+      "Inpatient / Wards",
+      "Wards & Beds",
+      "Nursing observations & tasks",
+      "Emergency",
+      "Maternity",
+      "Theatre",
+      "ICU",
+      "Dental",
+      "Referral Network",
+      "Telemedicine",
+      "Quality & Safety",
+      "External access",
+      "Nursing care tasks"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "appointments-today",
+      "clinical-worklist",
+      "results-awaiting-action",
+      "referral-worklist",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Doctor",
+    "provider": "Clinic",
+    "navigation": [
+      "Home",
+      "Patients",
+      "Appointments",
+      "Patient Journey",
+      "Triage & Vitals",
+      "Consultation",
+      "Laboratory",
+      "Radiology",
+      "Pharmacy",
+      "Nursing observations & tasks",
+      "Emergency",
+      "Maternity",
+      "Dental",
+      "Referral Network",
+      "Telemedicine",
+      "Quality & Safety",
+      "External access",
+      "Nursing care tasks"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "appointments-today",
+      "clinical-worklist",
+      "results-awaiting-action",
+      "referral-worklist",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Doctor",
+    "provider": "Maternity home",
+    "navigation": [
+      "Home",
+      "Patients",
+      "Appointments",
+      "Patient Journey",
+      "Triage & Vitals",
+      "Consultation",
+      "Laboratory",
+      "Pharmacy",
+      "Nursing observations & tasks",
+      "Maternity",
+      "Referral Network",
+      "Telemedicine",
+      "Quality & Safety",
+      "External access",
+      "Nursing care tasks"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "appointments-today",
+      "clinical-worklist",
+      "results-awaiting-action",
+      "referral-worklist",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Doctor",
+    "provider": "Diagnostic lab",
+    "navigation": [
+      "Home",
+      "Patients",
+      "Laboratory",
+      "Radiology",
+      "Referral Network",
+      "Quality & Safety",
+      "External access"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "results-awaiting-action",
+      "referral-worklist",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Doctor",
+    "provider": "Pharmacy",
+    "navigation": [
+      "Home",
+      "Patients",
+      "Pharmacy",
+      "Quality & Safety",
+      "External access"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Doctor",
+    "provider": "Specialist centre",
+    "navigation": [
+      "Home",
+      "Patients",
+      "Appointments",
+      "Patient Journey",
+      "Triage & Vitals",
+      "Consultation",
+      "Laboratory",
+      "Radiology",
+      "Pharmacy",
+      "Nursing observations & tasks",
+      "Emergency",
+      "Maternity",
+      "Theatre",
+      "Dental",
+      "Referral Network",
+      "Telemedicine",
+      "Quality & Safety",
+      "External access",
+      "Nursing care tasks"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "appointments-today",
+      "clinical-worklist",
+      "results-awaiting-action",
+      "referral-worklist",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Doctor",
+    "provider": "Individual practitioner",
+    "navigation": [],
+    "eligibleWidgets": [],
+    "subscription": false,
+    "conditions": "UNSUPPORTED provider account model. Do not create a standalone practitioner portal in this change."
+  },
+  {
+    "role": "Nurse",
+    "provider": "Hospital",
+    "navigation": [
+      "Home",
+      "Patients",
+      "Appointments",
+      "Patient Journey",
+      "Triage & Vitals",
+      "Inpatient / Wards",
+      "Wards & Beds",
+      "Nursing observations & tasks",
+      "Maternity",
+      "ICU",
+      "Nursing care tasks"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "nursing-tasks-due",
+      "observations-due",
+      "visits-today",
+      "bed-status",
+      "maternity-worklist",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Nurse",
+    "provider": "Clinic",
+    "navigation": [
+      "Home",
+      "Patients",
+      "Appointments",
+      "Patient Journey",
+      "Triage & Vitals",
+      "Nursing observations & tasks",
+      "Maternity",
+      "Nursing care tasks"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "nursing-tasks-due",
+      "observations-due",
+      "visits-today",
+      "maternity-worklist",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Nurse",
+    "provider": "Maternity home",
+    "navigation": [
+      "Home",
+      "Patients",
+      "Appointments",
+      "Patient Journey",
+      "Triage & Vitals",
+      "Nursing observations & tasks",
+      "Maternity",
+      "Nursing care tasks"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "nursing-tasks-due",
+      "observations-due",
+      "visits-today",
+      "maternity-worklist",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Nurse",
+    "provider": "Diagnostic lab",
+    "navigation": [
+      "Home",
+      "Patients"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Nurse",
+    "provider": "Pharmacy",
+    "navigation": [
+      "Home",
+      "Patients"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Nurse",
+    "provider": "Specialist centre",
+    "navigation": [
+      "Home",
+      "Patients",
+      "Appointments",
+      "Patient Journey",
+      "Triage & Vitals",
+      "Nursing observations & tasks",
+      "Maternity",
+      "Nursing care tasks"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "nursing-tasks-due",
+      "observations-due",
+      "visits-today",
+      "maternity-worklist",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Nurse",
+    "provider": "Individual practitioner",
+    "navigation": [],
+    "eligibleWidgets": [],
+    "subscription": false,
+    "conditions": "UNSUPPORTED provider account model. Do not create a standalone practitioner portal in this change."
+  },
+  {
+    "role": "Receptionist",
+    "provider": "Hospital",
+    "navigation": [
+      "Home",
+      "Patients",
+      "Appointments",
+      "Patient Journey"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "appointments-today",
+      "visits-today",
+      "registrations-today",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Receptionist",
+    "provider": "Clinic",
+    "navigation": [
+      "Home",
+      "Patients",
+      "Appointments",
+      "Patient Journey"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "appointments-today",
+      "visits-today",
+      "registrations-today",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Receptionist",
+    "provider": "Maternity home",
+    "navigation": [
+      "Home",
+      "Patients",
+      "Appointments",
+      "Patient Journey"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "appointments-today",
+      "visits-today",
+      "registrations-today",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Receptionist",
+    "provider": "Diagnostic lab",
+    "navigation": [
+      "Home",
+      "Patients"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "registrations-today",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Receptionist",
+    "provider": "Pharmacy",
+    "navigation": [
+      "Home",
+      "Patients"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "registrations-today",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Receptionist",
+    "provider": "Specialist centre",
+    "navigation": [
+      "Home",
+      "Patients",
+      "Appointments",
+      "Patient Journey"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "appointments-today",
+      "visits-today",
+      "registrations-today",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Receptionist",
+    "provider": "Individual practitioner",
+    "navigation": [],
+    "eligibleWidgets": [],
+    "subscription": false,
+    "conditions": "UNSUPPORTED provider account model. Do not create a standalone practitioner portal in this change."
+  },
+  {
+    "role": "Records Officer",
+    "provider": "Hospital",
+    "navigation": [
+      "Home",
+      "Patients",
+      "Settings / audit",
+      "Settings / reports"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "registrations-today",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Records Officer",
+    "provider": "Clinic",
+    "navigation": [
+      "Home",
+      "Patients",
+      "Settings / audit",
+      "Settings / reports"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "registrations-today",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Records Officer",
+    "provider": "Maternity home",
+    "navigation": [
+      "Home",
+      "Patients",
+      "Settings / audit",
+      "Settings / reports"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "registrations-today",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Records Officer",
+    "provider": "Diagnostic lab",
+    "navigation": [
+      "Home",
+      "Patients",
+      "Settings / audit",
+      "Settings / reports"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "registrations-today",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Records Officer",
+    "provider": "Pharmacy",
+    "navigation": [
+      "Home",
+      "Patients",
+      "Settings / audit",
+      "Settings / reports"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "registrations-today",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Records Officer",
+    "provider": "Specialist centre",
+    "navigation": [
+      "Home",
+      "Patients",
+      "Settings / audit",
+      "Settings / reports"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "registrations-today",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Records Officer",
+    "provider": "Individual practitioner",
+    "navigation": [],
+    "eligibleWidgets": [],
+    "subscription": false,
+    "conditions": "UNSUPPORTED provider account model. Do not create a standalone practitioner portal in this change."
+  },
+  {
+    "role": "Lab Manager",
+    "provider": "Hospital",
+    "navigation": [
+      "Home",
+      "Laboratory",
+      "Supply / Stock",
+      "Supply / Procurement",
+      "Blood Bank"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "results-awaiting-action",
+      "stock-attention",
+      "purchase-worklist",
+      "bloodbank-worklist",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Lab Manager",
+    "provider": "Clinic",
+    "navigation": [
+      "Home",
+      "Laboratory",
+      "Supply / Stock",
+      "Supply / Procurement"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "results-awaiting-action",
+      "stock-attention",
+      "purchase-worklist",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Lab Manager",
+    "provider": "Maternity home",
+    "navigation": [
+      "Home",
+      "Laboratory",
+      "Supply / Stock",
+      "Supply / Procurement"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "results-awaiting-action",
+      "stock-attention",
+      "purchase-worklist",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Lab Manager",
+    "provider": "Diagnostic lab",
+    "navigation": [
+      "Home",
+      "Laboratory",
+      "Supply / Stock",
+      "Supply / Procurement"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "results-awaiting-action",
+      "stock-attention",
+      "purchase-worklist",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Lab Manager",
+    "provider": "Pharmacy",
+    "navigation": [
+      "Home",
+      "Supply / Stock",
+      "Supply / Procurement"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "stock-attention",
+      "purchase-worklist",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Lab Manager",
+    "provider": "Specialist centre",
+    "navigation": [
+      "Home",
+      "Laboratory",
+      "Supply / Stock",
+      "Supply / Procurement"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "results-awaiting-action",
+      "stock-attention",
+      "purchase-worklist",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Lab Manager",
+    "provider": "Individual practitioner",
+    "navigation": [],
+    "eligibleWidgets": [],
+    "subscription": false,
+    "conditions": "UNSUPPORTED provider account model. Do not create a standalone practitioner portal in this change."
+  },
+  {
+    "role": "Lab Scientist",
+    "provider": "Hospital",
+    "navigation": [
+      "Home",
+      "Laboratory",
+      "Supply / Stock",
+      "Blood Bank"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "results-awaiting-action",
+      "stock-attention",
+      "bloodbank-worklist",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Lab Scientist",
+    "provider": "Clinic",
+    "navigation": [
+      "Home",
+      "Laboratory",
+      "Supply / Stock"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "results-awaiting-action",
+      "stock-attention",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Lab Scientist",
+    "provider": "Maternity home",
+    "navigation": [
+      "Home",
+      "Laboratory",
+      "Supply / Stock"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "results-awaiting-action",
+      "stock-attention",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Lab Scientist",
+    "provider": "Diagnostic lab",
+    "navigation": [
+      "Home",
+      "Laboratory",
+      "Supply / Stock"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "results-awaiting-action",
+      "stock-attention",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Lab Scientist",
+    "provider": "Pharmacy",
+    "navigation": [
+      "Home",
+      "Supply / Stock"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "stock-attention",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Lab Scientist",
+    "provider": "Specialist centre",
+    "navigation": [
+      "Home",
+      "Laboratory",
+      "Supply / Stock"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "results-awaiting-action",
+      "stock-attention",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Lab Scientist",
+    "provider": "Individual practitioner",
+    "navigation": [],
+    "eligibleWidgets": [],
+    "subscription": false,
+    "conditions": "UNSUPPORTED provider account model. Do not create a standalone practitioner portal in this change."
+  },
+  {
+    "role": "Pharmacy Manager",
+    "provider": "Hospital",
+    "navigation": [
+      "Home",
+      "Pharmacy",
+      "Supply / Stock",
+      "Supply / Procurement"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "dispensing-queue",
+      "stock-attention",
+      "purchase-worklist",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Pharmacy Manager",
+    "provider": "Clinic",
+    "navigation": [
+      "Home",
+      "Pharmacy",
+      "Supply / Stock",
+      "Supply / Procurement"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "dispensing-queue",
+      "stock-attention",
+      "purchase-worklist",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Pharmacy Manager",
+    "provider": "Maternity home",
+    "navigation": [
+      "Home",
+      "Pharmacy",
+      "Supply / Stock",
+      "Supply / Procurement"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "dispensing-queue",
+      "stock-attention",
+      "purchase-worklist",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Pharmacy Manager",
+    "provider": "Diagnostic lab",
+    "navigation": [
+      "Home",
+      "Supply / Stock",
+      "Supply / Procurement"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "stock-attention",
+      "purchase-worklist",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Pharmacy Manager",
+    "provider": "Pharmacy",
+    "navigation": [
+      "Home",
+      "Pharmacy",
+      "Supply / Stock",
+      "Supply / Procurement"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "dispensing-queue",
+      "stock-attention",
+      "purchase-worklist",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Pharmacy Manager",
+    "provider": "Specialist centre",
+    "navigation": [
+      "Home",
+      "Pharmacy",
+      "Supply / Stock",
+      "Supply / Procurement"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "dispensing-queue",
+      "stock-attention",
+      "purchase-worklist",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Pharmacy Manager",
+    "provider": "Individual practitioner",
+    "navigation": [],
+    "eligibleWidgets": [],
+    "subscription": false,
+    "conditions": "UNSUPPORTED provider account model. Do not create a standalone practitioner portal in this change."
+  },
+  {
+    "role": "Pharmacist",
+    "provider": "Hospital",
+    "navigation": [
+      "Home",
+      "Pharmacy",
+      "Supply / Stock"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "dispensing-queue",
+      "stock-attention",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Pharmacist",
+    "provider": "Clinic",
+    "navigation": [
+      "Home",
+      "Pharmacy",
+      "Supply / Stock"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "dispensing-queue",
+      "stock-attention",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Pharmacist",
+    "provider": "Maternity home",
+    "navigation": [
+      "Home",
+      "Pharmacy",
+      "Supply / Stock"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "dispensing-queue",
+      "stock-attention",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Pharmacist",
+    "provider": "Diagnostic lab",
+    "navigation": [
+      "Home",
+      "Supply / Stock"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "stock-attention",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Pharmacist",
+    "provider": "Pharmacy",
+    "navigation": [
+      "Home",
+      "Pharmacy",
+      "Supply / Stock"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "dispensing-queue",
+      "stock-attention",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Pharmacist",
+    "provider": "Specialist centre",
+    "navigation": [
+      "Home",
+      "Pharmacy",
+      "Supply / Stock"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "dispensing-queue",
+      "stock-attention",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Pharmacist",
+    "provider": "Individual practitioner",
+    "navigation": [],
+    "eligibleWidgets": [],
+    "subscription": false,
+    "conditions": "UNSUPPORTED provider account model. Do not create a standalone practitioner portal in this change."
+  },
+  {
+    "role": "Billing Officer",
+    "provider": "Hospital",
+    "navigation": [
+      "Home",
+      "Billing & Revenue",
+      "Insurance & Claims / Claims",
+      "Insurance & Claims / Policies",
+      "Settings / reports",
+      "Settings / Facility subscription"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "financial-summary",
+      "claims-pipeline",
+      "subscription-action-only-when-needed",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": true,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Billing Officer",
+    "provider": "Clinic",
+    "navigation": [
+      "Home",
+      "Billing & Revenue",
+      "Insurance & Claims / Claims",
+      "Insurance & Claims / Policies",
+      "Settings / reports",
+      "Settings / Facility subscription"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "financial-summary",
+      "claims-pipeline",
+      "subscription-action-only-when-needed",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": true,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Billing Officer",
+    "provider": "Maternity home",
+    "navigation": [
+      "Home",
+      "Billing & Revenue",
+      "Insurance & Claims / Claims",
+      "Insurance & Claims / Policies",
+      "Settings / reports",
+      "Settings / Facility subscription"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "financial-summary",
+      "claims-pipeline",
+      "subscription-action-only-when-needed",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": true,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Billing Officer",
+    "provider": "Diagnostic lab",
+    "navigation": [
+      "Home",
+      "Billing & Revenue",
+      "Insurance & Claims / Claims",
+      "Insurance & Claims / Policies",
+      "Settings / reports",
+      "Settings / Facility subscription"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "financial-summary",
+      "claims-pipeline",
+      "subscription-action-only-when-needed",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": true,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Billing Officer",
+    "provider": "Pharmacy",
+    "navigation": [
+      "Home",
+      "Billing & Revenue",
+      "Insurance & Claims / Claims",
+      "Insurance & Claims / Policies",
+      "Settings / reports",
+      "Settings / Facility subscription"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "financial-summary",
+      "claims-pipeline",
+      "subscription-action-only-when-needed",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": true,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Billing Officer",
+    "provider": "Specialist centre",
+    "navigation": [
+      "Home",
+      "Billing & Revenue",
+      "Insurance & Claims / Claims",
+      "Insurance & Claims / Policies",
+      "Settings / reports",
+      "Settings / Facility subscription"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "financial-summary",
+      "claims-pipeline",
+      "subscription-action-only-when-needed",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": true,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Billing Officer",
+    "provider": "Individual practitioner",
+    "navigation": [],
+    "eligibleWidgets": [],
+    "subscription": false,
+    "conditions": "UNSUPPORTED provider account model. Do not create a standalone practitioner portal in this change."
+  },
+  {
+    "role": "Cashier",
+    "provider": "Hospital",
+    "navigation": [
+      "Home",
+      "Billing & Revenue",
+      "Insurance & Claims / Claims",
+      "Settings / reports"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "financial-summary",
+      "claims-pipeline",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Cashier",
+    "provider": "Clinic",
+    "navigation": [
+      "Home",
+      "Billing & Revenue",
+      "Insurance & Claims / Claims",
+      "Settings / reports"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "financial-summary",
+      "claims-pipeline",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Cashier",
+    "provider": "Maternity home",
+    "navigation": [
+      "Home",
+      "Billing & Revenue",
+      "Insurance & Claims / Claims",
+      "Settings / reports"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "financial-summary",
+      "claims-pipeline",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Cashier",
+    "provider": "Diagnostic lab",
+    "navigation": [
+      "Home",
+      "Billing & Revenue",
+      "Insurance & Claims / Claims",
+      "Settings / reports"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "financial-summary",
+      "claims-pipeline",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Cashier",
+    "provider": "Pharmacy",
+    "navigation": [
+      "Home",
+      "Billing & Revenue",
+      "Insurance & Claims / Claims",
+      "Settings / reports"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "financial-summary",
+      "claims-pipeline",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Cashier",
+    "provider": "Specialist centre",
+    "navigation": [
+      "Home",
+      "Billing & Revenue",
+      "Insurance & Claims / Claims",
+      "Settings / reports"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "financial-summary",
+      "claims-pipeline",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Cashier",
+    "provider": "Individual practitioner",
+    "navigation": [],
+    "eligibleWidgets": [],
+    "subscription": false,
+    "conditions": "UNSUPPORTED provider account model. Do not create a standalone practitioner portal in this change."
+  },
+  {
+    "role": "Radiology Reporter",
+    "provider": "Hospital",
+    "navigation": [
+      "Home",
+      "Radiology"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "radiology-worklist",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Radiology Reporter",
+    "provider": "Clinic",
+    "navigation": [
+      "Home",
+      "Radiology"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "radiology-worklist",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Radiology Reporter",
+    "provider": "Maternity home",
+    "navigation": [
+      "Home"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Radiology Reporter",
+    "provider": "Diagnostic lab",
+    "navigation": [
+      "Home",
+      "Radiology"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "radiology-worklist",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Radiology Reporter",
+    "provider": "Pharmacy",
+    "navigation": [
+      "Home"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Radiology Reporter",
+    "provider": "Specialist centre",
+    "navigation": [
+      "Home",
+      "Radiology"
+    ],
+    "eligibleWidgets": [
+      "needs-attention (authorized items only)",
+      "today (applicable items only)",
+      "radiology-worklist",
+      "pinned-shortcuts (max 6)"
+    ],
+    "subscription": false,
+    "conditions": "PROPOSED. Intersect with enabled modules, branch departments, current action permissions, record scope and facility verification. No new grants."
+  },
+  {
+    "role": "Radiology Reporter",
+    "provider": "Individual practitioner",
+    "navigation": [],
+    "eligibleWidgets": [],
+    "subscription": false,
+    "conditions": "UNSUPPORTED provider account model. Do not create a standalone practitioner portal in this change."
+  }
+]

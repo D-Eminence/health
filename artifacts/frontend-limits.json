@@ -1,0 +1,208 @@
+{
+  "auth": [
+    {
+      "route": "signin",
+      "width": 1440,
+      "viewport": 1440,
+      "heading": "Welcome back.",
+      "fields": 2
+    },
+    {
+      "route": "register",
+      "width": 1440,
+      "viewport": 1440,
+      "heading": "Register your hospital",
+      "fields": 6
+    },
+    {
+      "route": "recover",
+      "width": 1440,
+      "viewport": 1440,
+      "heading": "Recover account access",
+      "fields": 1
+    },
+    {
+      "route": "reset-password",
+      "width": 1440,
+      "viewport": 1440,
+      "heading": "Set a new password",
+      "fields": 2
+    },
+    {
+      "route": "verify",
+      "width": 1440,
+      "viewport": 1440,
+      "heading": "Enter your verification code",
+      "fields": 1
+    },
+    {
+      "route": "accept-invitation",
+      "width": 1440,
+      "viewport": 1440,
+      "heading": "Accept an invitation",
+      "fields": 1
+    },
+    {
+      "route": "signin",
+      "width": 820,
+      "viewport": 820,
+      "heading": "Welcome back.",
+      "fields": 2
+    },
+    {
+      "route": "register",
+      "width": 820,
+      "viewport": 820,
+      "heading": "Register your hospital",
+      "fields": 6
+    },
+    {
+      "route": "recover",
+      "width": 820,
+      "viewport": 820,
+      "heading": "Recover account access",
+      "fields": 1
+    },
+    {
+      "route": "reset-password",
+      "width": 820,
+      "viewport": 820,
+      "heading": "Set a new password",
+      "fields": 2
+    },
+    {
+      "route": "verify",
+      "width": 820,
+      "viewport": 820,
+      "heading": "Enter your verification code",
+      "fields": 1
+    },
+    {
+      "route": "accept-invitation",
+      "width": 820,
+      "viewport": 820,
+      "heading": "Accept an invitation",
+      "fields": 1
+    },
+    {
+      "route": "signin",
+      "width": 390,
+      "viewport": 390,
+      "heading": "Welcome back.",
+      "fields": 2
+    },
+    {
+      "route": "register",
+      "width": 390,
+      "viewport": 390,
+      "heading": "Register your hospital",
+      "fields": 6
+    },
+    {
+      "route": "recover",
+      "width": 390,
+      "viewport": 390,
+      "heading": "Recover account access",
+      "fields": 1
+    },
+    {
+      "route": "reset-password",
+      "width": 390,
+      "viewport": 390,
+      "heading": "Set a new password",
+      "fields": 2
+    },
+    {
+      "route": "verify",
+      "width": 390,
+      "viewport": 390,
+      "heading": "Enter your verification code",
+      "fields": 1
+    },
+    {
+      "route": "accept-invitation",
+      "width": 390,
+      "viewport": 390,
+      "heading": "Accept an invitation",
+      "fields": 1
+    },
+    {
+      "route": "signin",
+      "width": 320,
+      "viewport": 320,
+      "heading": "Welcome back.",
+      "fields": 2
+    },
+    {
+      "route": "register",
+      "width": 320,
+      "viewport": 320,
+      "heading": "Register your hospital",
+      "fields": 6
+    },
+    {
+      "route": "recover",
+      "width": 320,
+      "viewport": 320,
+      "heading": "Recover account access",
+      "fields": 1
+    },
+    {
+      "route": "reset-password",
+      "width": 320,
+      "viewport": 320,
+      "heading": "Set a new password",
+      "fields": 2
+    },
+    {
+      "route": "verify",
+      "width": 320,
+      "viewport": 320,
+      "heading": "Enter your verification code",
+      "fields": 1
+    },
+    {
+      "route": "accept-invitation",
+      "width": 320,
+      "viewport": 320,
+      "heading": "Accept an invitation",
+      "fields": 1
+    }
+  ],
+  "reflow": [
+    {
+      "route": "dashboard",
+      "width": 320,
+      "viewport": 320
+    },
+    {
+      "route": "patients",
+      "width": 320,
+      "viewport": 320
+    },
+    {
+      "route": "patients/new",
+      "width": 320,
+      "viewport": 320
+    },
+    {
+      "route": "profile",
+      "width": 320,
+      "viewport": 320
+    }
+  ],
+  "performance": [
+    {
+      "scenario": "2000 fictional patients, local Chrome, warm application, no network or CPU throttling",
+      "renderMs": 1246,
+      "filterMs": 2070,
+      "domNodesBeforeFilter": 24233,
+      "renderedRows": 2000
+    }
+  ],
+  "errors": [],
+  "searchPrivacy": {
+    "storedUnencrypted": true,
+    "retainedAfterSignOut": true
+  }
+}
