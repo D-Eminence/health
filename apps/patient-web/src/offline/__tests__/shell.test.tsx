@@ -1,6 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { CHANNEL } from '../../../../../packages/offline/src/contracts'
+import { CHANNEL, type UpdateSafeAnswer, type UpdateSafeQuery } from '../../../../../packages/offline/src/contracts'
 
 /**
  * The app shell's page side (docs/OFFLINE-CONTRACT.md 2.12, amendment A5): registration only when asked after a vault
@@ -10,6 +10,8 @@ import { CHANNEL } from '../../../../../packages/offline/src/contracts'
  */
 const environment = vi.hoisted(() => ({ VITE_HID_OFFLINE_MODE: 'pilot' as string | undefined }))
 vi.mock('../../publicEnvironment', () => ({ PUBLIC_ENVIRONMENT: environment }))
+
+import type * as Shell from '../shell'
 
 const shell = await import('../shell')
 
@@ -58,8 +60,13 @@ describe('shellMode', () => {
     for (const mode of [undefined, '', 'off', 'ON', 'true']) expect(shell.shellMode({ VITE_HID_OFFLINE_MODE: mode })).toBe('off')
   })
 
-  it('uses the offline package\'s channel name', () => {
+  it('uses the offline package\'s channel name and its update-safe message types (A7)', () => {
     expect(shell.OFFLINE_CHANNEL).toBe(CHANNEL)
+    // Compile-time: the shell's messages are assignable both ways to the frozen contract's.
+    const query: UpdateSafeQuery = { type: 'update-safe-query', id: 'q' } satisfies Shell.UpdateSafeQuery
+    const answer: UpdateSafeAnswer = { type: 'update-safe', id: 'q', safe: false } satisfies Shell.UpdateSafeAnswer
+    const back: [Shell.UpdateSafeQuery, Shell.UpdateSafeAnswer] = [query, answer]
+    expect(back).toHaveLength(2)
   })
 })
 
