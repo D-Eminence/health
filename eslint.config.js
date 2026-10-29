@@ -41,13 +41,13 @@ const NO_SERVICE_WORKER = {
     "ObjectPattern > Property[key.name=/^(serviceWorker|pushManager|showNotification|requestPermission)$/]",
   ].join(', '),
   message:
-    'The browser\'s service worker, push and notification APIs are used in two places only: apps/patient-web/src/pushDevice.ts, which registers /sw.js, asks for notification permission from the Notifications page switch and subscribes, and apps/patient-web/public/sw.js, the push-only worker that shows a fixed notification and keeps nothing (B6). Use pushDevice.ts. See docs/ARCHITECTURE.md (PHI handling).',
+    'The browser\'s service worker, push and notification APIs are used in three places only: apps/patient-web/src/pushDevice.ts, which registers /sw.js, asks for notification permission from the Notifications page switch and subscribes, and apps/patient-web/public/sw.js, the worker that shows a fixed notification (B6) and keeps the offline app shell; plus apps/patient-web/src/offline/shell.ts, which registers the same /sw.js for the offline app shell. Use pushDevice.ts or shell.ts. See docs/ARCHITECTURE.md (PHI handling).',
 }
 
 const NO_CACHE_STORAGE = {
   selector: "Identifier[name='caches'], MemberExpression[property.name='caches'], ObjectPattern > Property[key.name='caches']",
   message:
-    'The Cache API must not hold Health ID pages or data: nothing is kept for offline use. See docs/ARCHITECTURE.md (PHI handling).',
+    'The Cache API must not hold Health ID pages or data. Only apps/patient-web/public/sw.js uses it, for the offline app shell (index.html and the build\'s own files, identical for every user). See docs/ARCHITECTURE.md (PHI handling).',
 }
 
 const NO_CONSOLE = {
@@ -166,10 +166,18 @@ export default tseslint.config(
     rules: { 'no-restricted-syntax': ['error', NO_RAW_FETCH, NO_BROWSER_STORAGE, NO_INDEXED_DB, NO_CACHE_STORAGE, NO_CONSOLE, NO_DEFERRED_FOCUS] },
   },
   {
-    // The portal's push-only worker (B6), a classic worker script: it shows a fixed notification and opens
-    // Notifications. No fetch, Cache API, storage or IndexedDB (scripts/check-launch-build.mjs checks the build too).
+    // The portal's worker, a classic worker script: push (B6) shows a fixed notification and opens Notifications; the
+    // offline app shell (docs/OFFLINE-CONTRACT.md 2.12) keeps the build's own files in health-id-shell- caches, so the
+    // Cache API and fetch are allowed here. No storage or IndexedDB (scripts/check-launch-build.mjs checks the build too).
     files: ['apps/patient-web/public/sw.js'],
-    languageOptions: { sourceType: 'script', globals: { self: 'readonly', URL: 'readonly' } },
+    languageOptions: { sourceType: 'script', globals: { self: 'readonly', URL: 'readonly', caches: 'readonly', fetch: 'readonly',
+      Request: 'readonly', Promise: 'readonly', setTimeout: 'readonly' } },
+    rules: { 'no-restricted-syntax': ['error', NO_BROWSER_STORAGE, NO_INDEXED_DB, NO_CONSOLE, NO_DEFERRED_FOCUS] },
+  },
+  {
+    // Offline-first app shell (docs/OFFLINE-CONTRACT.md 2.13): registers /sw.js for the shell and asks it to keep,
+    // purge or hand over the shell. Every other restriction stays, the Cache API and browser storage among them.
+    files: ['apps/patient-web/src/offline/shell.ts'],
     rules: { 'no-restricted-syntax': ['error', NO_RAW_FETCH, NO_BROWSER_STORAGE, NO_INDEXED_DB, NO_CACHE_STORAGE, NO_CONSOLE, NO_DEFERRED_FOCUS] },
   },
   {

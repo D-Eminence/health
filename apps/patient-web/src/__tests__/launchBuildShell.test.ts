@@ -22,7 +22,11 @@ import { describe, expect, it } from 'vitest'
  * Since B6 (phone and computer notifications) it accepts exactly one service
  * worker, public/sw.js, which only shows a fixed notification and opens
  * Notifications, registered only by pushDevice's chunk; every other worker,
- * and a sw.js that does more, is still refused.
+ * and a sw.js that does more, is still refused. Since the offline app shell
+ * (docs/OFFLINE-CONTRACT.md 2.12-2.13, A5) the same sw.js may also keep the
+ * build's own files in health-id-shell- caches and handle navigations and
+ * those files, and the shell's chunk may register it too; the refusals that
+ * replace "no fetch, no Cache API" are below.
  */
 const repository = fileURLToPath(new URL('../../../..', import.meta.url))
 const script = join(repository, 'scripts', 'check-launch-build.mjs')
@@ -45,7 +49,7 @@ function asBuilt(html: string): string {
  * Runs `npm run audit:launch-build` over a build holding this index.html, two hashed assets and, as Vite copies them,
  * the files in apps/patient-web/public; `files` adds or replaces files in it.
  */
-function launchBuildCheck(html: string, files: Record<string, string> = {}): { status: number | null; output: string } {
+function launchBuildCheck(html: string, files: Record<string, string> = {}, env: Record<string, string> = {}): { status: number | null; output: string } {
   const root = mkdtempSync(join(tmpdir(), 'hid-launch-shell-'))
   try {
     const dist = join(root, 'apps', 'patient-web', 'dist')
@@ -58,7 +62,8 @@ function launchBuildCheck(html: string, files: Record<string, string> = {}): { s
       mkdirSync(join(dist, path, '..'), { recursive: true })
       writeFileSync(join(dist, path), content)
     }
-    const result = spawnSync(process.execPath, [script], { cwd: root, encoding: 'utf8' })
+    const inherited = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('VITE_')))
+    const result = spawnSync(process.execPath, [script], { cwd: root, encoding: 'utf8', env: { ...inherited, ...env } })
     return { status: result.status, output: `${result.stdout}${result.stderr}` }
   } finally {
     rmSync(root, { recursive: true, force: true })
@@ -108,6 +113,13 @@ const PUSH_DEVICE = 'async function t(){return"serviceWorker"in navigator?naviga
   + 'async function r(){await navigator.serviceWorker.register("/sw.js",{scope:"/",updateViaCache:"none"});return navigator.serviceWorker.ready}export{t,r};\n'
 /** The real sw.js with `extra` added after its listeners. */
 const workerWith = (extra: string) => `${PUSH_WORKER}\n${extra}\n`
+/** The real sw.js as a pilot build writes it (vite.config.ts): the shell's file list in place of null. */
+const withShell = (assets: string[], extra: Record<string, unknown> = {}) => PUSH_WORKER.replace('self.__HID_SHELL__ = null',
+  `self.__HID_SHELL__ = ${JSON.stringify({ build: '0123456789abcdef', environment: 'production', debug: false, assets, ...extra })}`)
+// What Vite makes of apps/patient-web/src/offline/shell.ts: the other chunk allowed the worker API.
+const SHELL_CHUNK = 'assets/shell-Ab12Cd34.js'
+const SHELL_CODE = 'async function n(){const e=navigator.serviceWorker;const t=await e.register("/sw.js",{scope:"/",updateViaCache:"none"});'
+  + 't.active?.postMessage({type:"HID_SHELL_ENABLE"})}export{n};\n'
 
 describe('the push worker (B6)', () => {
   it('accepts the real public files with pushDevice\'s chunk, the only code that registers it', () => {
@@ -116,31 +128,75 @@ describe('the push worker (B6)', () => {
     expect(result.status).toBe(0)
   })
 
+  it('accepts a pilot build: the shell\'s file list naming the build\'s own files, and the shell\'s chunk registering /sw.js', () => {
+    const result = launchBuildCheck(built, {
+      [PUSH_DEVICE_CHUNK]: PUSH_DEVICE, [SHELL_CHUNK]: SHELL_CODE,
+      'sw.js': withShell([`/${ENTRY}`, `/${STYLE}`, `/${PUSH_DEVICE_CHUNK}`, `/${SHELL_CHUNK}`, '/health-id.webmanifest', '/icons/icon-192.png']),
+    })
+    expect(result.output).not.toMatch(/failed/)
+    expect(result.status).toBe(0)
+  })
+
+  it('accepts a staging build with the debug panel on', () => {
+    const result = launchBuildCheck(built, { [PUSH_DEVICE_CHUNK]: PUSH_DEVICE, 'sw.js': withShell([`/${ENTRY}`], { environment: 'staging', debug: true }) })
+    expect(result.status).toBe(0)
+  })
+
+  it('refuses any build made with the offline debug panel on for production', () => {
+    const result = launchBuildCheck(built, { [PUSH_DEVICE_CHUNK]: PUSH_DEVICE }, { VITE_HID_ENVIRONMENT: 'production', VITE_HID_OFFLINE_DEBUG: 'true' })
+    expect(result.status).toBe(1)
+    expect(result.output).toMatch(/turns the offline debug panel on for production/)
+  })
+
   it.each([
-    ['a fetch listener', { 'sw.js': workerWith("self.addEventListener('fetch', event => event.respondWith(fetch(event.request)))") },
-      /sw\.js handles requests/],
-    ['a fetch listener in double quotes', { 'sw.js': workerWith('self.addEventListener("fetch", () => {})') }, /sw\.js handles requests/],
-    ['an onfetch handler', { 'sw.js': workerWith('self.onfetch = () => {}') }, /sw\.js handles requests \(onfetch\)/],
-    ['the Cache API', { 'sw.js': workerWith("self.addEventListener('push', () => caches.open('hid-pages'))") }, /sw\.js uses the Cache API/],
+    ['an onfetch handler', { 'sw.js': workerWith('self.onfetch = () => {}') }, /sw\.js handles requests through onfetch/],
+    ['a cache named hid-', { 'sw.js': workerWith("self.addEventListener('activate', () => caches.open('hid-pages'))") },
+      /opens a cache whose name does not start with health-id-shell-/],
+    ['a cache name not built from the shell prefix', { 'sw.js': PUSH_WORKER.replace('caches.open(SHELL_PREFIX + SHELL.build)', "caches.open('pages')") },
+      /opens a cache whose name does not start with health-id-shell-/],
+    ['a listing of every cache', { 'sw.js': PUSH_WORKER.replace('.filter(name => name.startsWith(SHELL_PREFIX))', '') },
+      /lists caches without keeping only health-id-shell- ones/],
+    ['a read across every cache', { 'sw.js': PUSH_WORKER.replace('caches.match(path, { cacheName: name })', 'caches.match(path)') },
+      /reads from the Cache API other than from one named shell cache/],
+    ['caching an API answer', { 'sw.js': workerWith("self.addEventListener('message', event => event.waitUntil(caches.open(SHELL_PREFIX + 'x').then(c => c.add('/api/v1/identity/me'))))") },
+      /names an \/api\/ path other than in its exclusion guard/],
+    ['no exclusion guard for the API', { 'sw.js': PUSH_WORKER.replace("path.startsWith('/api/')", "path.startsWith('/a/')") },
+      /lacks the startsWith\('\/api\/'\) guard/],
+    ['saving the shell at install', { 'sw.js': PUSH_WORKER.replace("self.addEventListener('install', () => {})",
+      "self.addEventListener('install', event => event.waitUntil(precacheShell()))") }, /does work at install/],
+    ['an install listener that takes over at once', { 'sw.js': workerWith("self.addEventListener('install', () => self.skipWaiting())") },
+      /takes over from the running worker other than when a page asks/],
+    ['taking control of open pages', { 'sw.js': workerWith("self.addEventListener('activate', event => event.waitUntil(self.clients.claim()))") },
+      /takes control of open pages/],
     ['an imported script', { 'sw.js': workerWith("importScripts('/assets/firebase-messaging.js')") }, /sw\.js imports scripts/],
     ['a read of the push\'s data', { 'sw.js': PUSH_WORKER.replace('self.registration.showNotification(TITLE, OPTIONS)',
-      'self.registration.showNotification(event.data.json().title, OPTIONS)') }, /sw\.js reads a message's data/],
-    ['a network request', { 'sw.js': workerWith("self.addEventListener('push', () => self.fetch('/api/v1/identity/me'))") }, /sw\.js calls fetch/],
-    ['IndexedDB', { 'sw.js': workerWith("self.addEventListener('push', () => self.indexedDB.open('hid'))") }, /sw\.js uses IndexedDB/],
-    ['another listener', { 'sw.js': workerWith("self.addEventListener('message', () => {})") }, /sw\.js listens for message/],
-    ['an install listener that takes over at once', { 'sw.js': workerWith("self.addEventListener('install', () => self.skipWaiting())") },
-      /sw\.js listens for install/],
+      'self.registration.showNotification(event.data.json().title, OPTIONS)') }, /sw\.js reads a message's or push's data/],
+    ['a read of a message\'s data beyond its type', { 'sw.js': PUSH_WORKER.replace('const type = event.data?.type', 'const type = event.data?.kind') },
+      /sw\.js reads a message's or push's data/],
+    ['a network request on a push', { 'sw.js': workerWith("self.addEventListener('push', () => self.fetch('/x'))") },
+      /sw\.js uses the network or the Cache API on push/],
+    ['IndexedDB', { 'sw.js': workerWith("self.addEventListener('message', () => self.indexedDB.open('hid'))") }, /sw\.js uses IndexedDB/],
+    ['local storage', { 'sw.js': workerWith("self.addEventListener('message', () => self.localStorage)") }, /sw\.js uses localStorage/],
+    ['another listener', { 'sw.js': workerWith("self.addEventListener('sync', () => {})") }, /sw\.js listens for sync/],
     ['no push listener', { 'sw.js': PUSH_WORKER.replace("addEventListener('push'", "addEventListener('notificationclose'") },
       /sw\.js does not listen for push/],
     ['a tap that opens somewhere else', { 'sw.js': PUSH_WORKER.replace("'/notifications'", "'/records'") },
       /does not open '\/notifications'/],
+    ['a shell file list naming a file the build lacks', { 'sw.js': withShell(['/assets/index-AbCdEf12.js', '/assets/missing-ZzZzZz99.js']) },
+      /would keep \/assets\/missing-ZzZzZz99\.js/],
+    ['a shell file list naming a file outside the shell', { 'sw.js': withShell(['/index.html']) }, /would keep \/index\.html/],
+    ['a production shell with the debug panel on', { 'sw.js': withShell([`/${ENTRY}`], { debug: true }) },
+      /production build with the offline debug panel on/],
+    ['a shell file list set twice', { 'sw.js': `${withShell([`/${ENTRY}`])}self.__HID_SHELL__ = null\n` }, /set self\.__HID_SHELL__ exactly once/],
     ['a worker anywhere but the root', { 'icons/sw.js': PUSH_WORKER }, /icons\/sw\.js is a service worker/],
-    ['the worker API outside pushDevice\'s chunk', { [ENTRY]: 'navigator.serviceWorker.register("/sw.js")\n' },
+    ['the worker API outside pushDevice\'s and the shell\'s chunks', { [ENTRY]: 'navigator.serviceWorker.register("/sw.js")\n' },
       /index-AbCdEf12\.js registers a service worker/],
     ['a chunk that registers another script', { [PUSH_DEVICE_CHUNK]: PUSH_DEVICE.replace('"/sw.js"', '"/firebase-messaging-sw.js"') },
       /registers \/firebase-messaging-sw\.js; only \/sw\.js may be registered/],
     ['a chunk that registers a script it names at run time', { [PUSH_DEVICE_CHUNK]: `${PUSH_DEVICE}navigator.serviceWorker.register(e.url)\n` },
       /registers \(e\.url\); only \/sw\.js may be registered/],
+    ['a shell chunk that registers another script', { [SHELL_CHUNK]: SHELL_CODE.replace('"/sw.js"', '"/offline-sw.js"') },
+      /shell-Ab12Cd34\.js registers \/offline-sw\.js; only \/sw\.js may be registered/],
   ])('refuses %s', (_name, files, reason) => {
     const result = launchBuildCheck(built, { [PUSH_DEVICE_CHUNK]: PUSH_DEVICE, ...files })
     expect(result.status).toBe(1)

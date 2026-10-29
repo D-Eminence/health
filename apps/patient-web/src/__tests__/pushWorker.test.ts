@@ -1,4 +1,5 @@
 // @vitest-environment node
+import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { runInNewContext } from 'node:vm'
@@ -8,8 +9,12 @@ import { describe, expect, it, vi } from 'vitest'
  * The portal's push worker (B6, contract b6-contract.md §11.2 and D14): apps/patient-web/public/sw.js, served at /sw.js
  * and registered at scope '/' only when a patient turns on "Notifications on this device". A push carries nothing:
  * whatever arrives, it shows the same fixed notification and never reads the message, and a tap opens Notifications.
- * It handles no request, keeps nothing (no Cache API, storage or IndexedDB) and reaches no network of its own. Run here
+ * On a push or a tap it keeps nothing (no Cache API, storage or IndexedDB) and reaches no network of its own. Run here
  * in a sandbox that holds only what a worker could reach, each of them recorded.
+ *
+ * The same file is also the offline app shell's worker (docs/OFFLINE-CONTRACT.md 2.12, A5; shellWorker.test.ts). The
+ * push and notificationclick listeners are kept byte for byte as B6 shipped them: the section from TITLE to the end
+ * of the tap listener is pinned below by its SHA-256.
  */
 const script = readFileSync(fileURLToPath(new URL('../../public/sw.js', import.meta.url)), 'utf8')
 const ORIGIN = 'https://app.healthidentitydirectory.com'
@@ -69,10 +74,18 @@ function tap() {
 }
 
 describe('the push worker', () => {
-  it('listens for a push and a tap, and for nothing else', () => {
+  it('listens for a push and a tap, and otherwise only for the app shell\'s events', () => {
     const run = worker()
-    expect([...run.added].sort()).toEqual(['notificationclick', 'push'])
+    expect([...run.added].sort()).toEqual(['activate', 'fetch', 'install', 'message', 'notificationclick', 'push'])
     expect(run.self.skipWaiting).not.toHaveBeenCalled()
+  })
+
+  it('keeps the push and tap listeners exactly as B6 shipped them', () => {
+    const start = script.indexOf('const TITLE')
+    const endMarker = 'return self.clients.openWindow(target)\n  })())\n})\n'
+    const section = script.slice(start, script.indexOf(endMarker) + endMarker.length)
+    expect(start).toBeGreaterThan(-1)
+    expect(createHash('sha256').update(section).digest('hex')).toBe('e371d4159600c5004259be9b57f8b35faaedf33170a50906bc5992601802c3b8')
   })
 
   it('shows the same fixed notification for any push, without reading what it carries', async () => {
@@ -149,9 +162,19 @@ describe('the push worker', () => {
     expect(WebSocket).not.toHaveBeenCalled()
   })
 
-  it('names none of them in its source, and has no request handler', () => {
-    expect(script).not.toMatch(/addEventListener\s*\(\s*['"`](?:fetch|install|activate|message|sync|periodicsync)['"`]/)
-    expect(script).not.toMatch(/\bonfetch\b|\bcaches\b|\bimportScripts\b|\bindexedDB\b|\bfetch\s*\(|\blocalStorage\b|\bsessionStorage\b|\.data\b/)
-    expect(script).not.toMatch(/skipWaiting|clients\.claim/)
+  it('names none of them in its push and tap listeners, and nothing anywhere reads storage or other scripts', () => {
+    const pushSection = script.slice(script.indexOf('const TITLE'), script.indexOf('// --- App shell'))
+    expect(pushSection).not.toMatch(/\bcaches\b|\bfetch\s*\(|\.data\b|skipWaiting/)
+    expect(script).not.toMatch(/addEventListener\s*\(\s*['"`](?:sync|periodicsync)['"`]/)
+    expect(script).not.toMatch(/\bonfetch\b|\bimportScripts\b|\bindexedDB\b|\blocalStorage\b|\bsessionStorage\b|clients\.claim/)
+  })
+
+  it('handles no request in a build without the app shell (every host but an offline pilot)', async () => {
+    const run = worker()
+    const respondWith = vi.fn()
+    await run.fire('fetch', { request: { method: 'GET', url: `${ORIGIN}/records`, mode: 'navigate' }, respondWith })
+    await run.fire('fetch', { request: { method: 'GET', url: `${ORIGIN}/assets/index-AbCdEf12.js`, mode: 'no-cors' }, respondWith })
+    expect(respondWith).not.toHaveBeenCalled()
+    expect(run.sandbox.fetch).not.toHaveBeenCalled()
   })
 })
