@@ -895,15 +895,73 @@ whose `X-Facility-ID` is no longer one of the session's facilities
 (`setStaffSessionFacilities` and `assertStaffSessionFacility` in
 `staff/session.ts`).
 
-The browser keeps nothing about a person beyond the portal hint (`@hid/auth`):
-no localStorage, sessionStorage, IndexedDB or Cache API, and no service worker
-or push subscription except the one a patient turns on for phone and computer
-notifications (B6, below). ESLint enforces each where it is used plainly,
-through a property or by destructuring (`eslint.config.js`:
-`NO_BROWSER_STORAGE`, `NO_INDEXED_DB`, `NO_SERVICE_WORKER`, `NO_CACHE_STORAGE`);
-computed or aliased access is left to review. `NO_SERVICE_WORKER` is lifted for
-exactly two files, `apps/patient-web/src/pushDevice.ts` and
-`apps/patient-web/public/sw.js`; every other rule stays on in both. The portal's pages keep each read's last answer
+The browser keeps nothing about a person beyond the portal hint (`@hid/auth`),
+with one exception approved by the owner on 29 October 2026 (D1): the
+encrypted offline vault of the EHR and Migrate (offline-first wave 1,
+`docs/OFFLINE-CONTRACT.md`). Outside that vault there is no localStorage,
+sessionStorage, IndexedDB or Cache API holding anything about a person, and no
+service worker or push subscription except the one a patient turns on for phone
+and computer notifications (B6, below) and the app shell described here.
+
+**The offline vault (D1).** It exists only where all of these hold: the build's
+offline mode is not `off` (`config/{staging,production}.json`, block `offline`,
+validated in `scripts/staging_release.py` and turned into `VITE_HID_OFFLINE_*`
+per app by `scripts/build-staging.py`); the host is one of the block's `hosts`
+(wave 1: `ehr` and `ocr`, every other host is built with mode `off`); the
+signed-in facility is in the pilot list (mode `pilot`; production starts with
+the sealed Demo Hospital only, A2 and A5); the person chose "Keep an offline copy
+on this device (personal devices only)" after a full online sign-in (D8); and the
+password is at least 12 characters. It is one IndexedDB database per origin
+(`health-id-offline`), opened only by `packages/offline/src/store.ts`. Every
+value about a person is sealed with AES-GCM under keys wrapped by a key derived
+from the password (PBKDF2), and the queue key is also wrapped by a server escrow
+key; key handling lives only in `packages/offline/src/crypto.ts`. Plaintext
+fields are non-identifying (tags are HMACs). Chart copies are readable only
+while unlocked, inside the 8-hour lease (never more than 24 hours after the last
+full sign-in), while the patient's access lasts (D2, D3); 5 wrong passwords,
+sign-out, lease expiry, the end of a membership and the kill switch erase the
+readable copy, while changes not yet sent stay sealed until they are sent or,
+after a membership ends, for 30 days (D9). Never stored, in the vault or
+anywhere else: the password, PIN, TOTP, recovery codes, tokens, cookies or
+invitation links; break-glass or emergency reads (D5); document bytes from the
+server; email, Health ID, names or patient ids in plaintext; and any
+localStorage or sessionStorage key beyond the portal hint. The kill switch is a
+config release with mode `off` (or without the facility): the next online load
+refuses offline unlock, wipes the readable copies and the app shell, and keeps
+sending pending work (D15: never roll the site back past the first offline
+release).
+
+**The app shell.** `/sw.js` also keeps the build's own files (index.html,
+`assets/*`, the manifest and icons) in Cache Storage under `health-id-shell-<build>`,
+so an EHR or Migrate tab can reload without a connection. The shell is identical
+for every user: nothing about a person or a patient is ever in Cache Storage.
+Only a build with offline on for its host carries the shell's file list (the
+Vite plugin in `apps/patient-web/vite.config.ts`); everywhere else `/sw.js`
+handles no request. Even there it saves nothing at install and passes every
+request through until `apps/patient-web/src/offline/shell.ts` posts
+`HID_SHELL_ENABLE`, which it does only after a vault opened for an enabled
+facility (A5); in a build with offline off it posts `HID_PURGE_SHELL`, and it
+never unregisters (push may share the registration). The worker never handles
+`/api/`, `/sw.js` or `/service-worker.js`; navigations are network first for 4
+seconds, then the saved index.html. A new build waits until the page's "Update
+now", which is enabled only while no form is unsaved and no tab is sending, and
+which asks it to take over (`HID_SKIP_WAITING`); it never takes over by itself.
+HTML responses carry a report-only Content-Security-Policy
+(`infra/cloudflare/src/frontend-worker.mjs`, D11), to be enforced after 48
+hours without violations.
+
+ESLint enforces the storage rules where they are used plainly, through a
+property or by destructuring (`eslint.config.js`: `NO_BROWSER_STORAGE`,
+`NO_INDEXED_DB`, `NO_SERVICE_WORKER`, `NO_CACHE_STORAGE`); computed or aliased
+access is left to review. `NO_INDEXED_DB` is lifted only for
+`packages/offline/src/store.ts`. `NO_SERVICE_WORKER` is lifted for exactly
+three files, `apps/patient-web/src/pushDevice.ts`,
+`apps/patient-web/src/offline/shell.ts` and `apps/patient-web/public/sw.js`;
+`NO_CACHE_STORAGE` (and the raw fetch rule) only for `apps/patient-web/public/sw.js`.
+`scripts/check-launch-build.mjs` checks the built worker: storage, IndexedDB,
+imported scripts, a cache by another name, any API path but its exclusion
+guard, work at install, an unrequested takeover and a shell list naming a file
+outside the build are refused. The portal's pages keep each read's last answer
 in memory for the patient signed in (`apps/patient-web/src/resourceCache.ts`),
 so a page opened again shows it at once while it reads again; it goes as that
 patient signs out or another account signs in, and is never written to browser
@@ -919,8 +977,9 @@ home screen, and 192, 512 and maskable 512 icons for installing it as an app
 continues the identity of an earlier HID app installed on the same host.
 The Notifications page offers "Install the Health ID app" where the browser has offered
 installing (`beforeinstallprompt`, held in memory), and the Home Screen steps on
-iPhone and iPad. Nothing is available offline: an installed app that cannot
-reach the network shows the browser's own offline page. Each app also serves
+iPhone and iPad. Outside the offline pilot (EHR and Migrate, above) nothing is
+available offline: an installed app that cannot reach the network shows the
+browser's own offline page. Each app also serves
 `/service-worker.js`, which no
 Health ID page registers: when the browser checks a worker that hid-system's
 earlier apps registered on a host (scope `/`, caches named `hid-…`) for an
@@ -939,10 +998,12 @@ Identity (`PUT /identity/me/web-push/subscription`), which stores the endpoint
 encrypted and binds it to that sign-in. A push carries nothing: `/sw.js`
 listens for `push` and `notificationclick` only, shows the fixed "Health ID /
 You have a new notification." (no item text, unlike hid-1.0) and opens
-`/notifications`. It has no fetch handler and uses no Cache API, storage,
-IndexedDB or network, so nothing about a patient is kept on the device; the
-launch build check (`scripts/check-launch-build.mjs`, `inspectServiceWorker`)
-refuses a build whose worker does more, or any other worker. Signing out turns
+`/notifications`. Its push and notificationclick listeners use no Cache API,
+storage, IndexedDB or network, so nothing about a patient is kept on the
+device; on the patient portal (`app.`, offline off) the same worker handles no
+request either. The launch build check (`scripts/check-launch-build.mjs`,
+`inspectServiceWorker`) refuses a build whose worker does more than push and
+the app shell, or any other worker. Signing out turns
 notifications off on that device (Identity is told, at most 2 seconds, and the
 browser unsubscribes), and the server pushes only to a live sign-in. While
 Identity's push is not configured, or on a backend before 0097, its routes

@@ -5,7 +5,7 @@ import os
 import pathlib
 import subprocess
 import zipfile
-from staging_release import ROOT, archive_files, chat_features, digest, tree_digest, validate_config
+from staging_release import ROOT, archive_files, chat_features, digest, offline_features, tree_digest, validate_config
 
 
 def run(*args, env=None):
@@ -43,6 +43,8 @@ def main(environment='staging'):
             env[prefix + 'BACKEND_CONTRACT'] = config.get('backend_contract', 'main-v1')
             env[prefix + 'IMPORTED_HISTORY_ENABLED'] = str(config.get('backend_contract') == 'novu-v1' and app == 'ehr').lower()
             env[prefix + 'STAFF_PATIENT_CHAT_ENABLED'] = str(config.get('backend_contract') == 'novu-v1' and app == 'ehr').lower()
+            # Offline-first (docs/OFFLINE-CONTRACT.md 2.3): mode off for every app outside the block's hosts.
+            env.update(offline_features(config, app))
         if public:
             env[prefix + 'PORTAL_ORIGIN'] = config['portal_origin']
             assets = ROOT / 'apps/public-web/out'
@@ -63,7 +65,8 @@ def main(environment='staging'):
         files = archive_files(archive)
         entries.append({'app': app, 'hostname': host, 'archive': archive.name,
                         'sha256': digest(archive), 'size_bytes': archive.stat().st_size, 'files': files,
-                        'chat_features': chat_features(config, app)})
+                        'chat_features': chat_features(config, app),
+                        'offline_features': None if public else offline_features(config, app)})
         print(json.dumps({'built': app, 'files': len(files), 'sha256': digest(archive)}), flush=True)
     manifest = {'schema_version': 1, 'environment': environment, 'source_repository': 'D-Eminence/health' if environment == 'production' else 'D-Eminence/Health-id',
                 'source_commit': source, 'source_branch': run(*git, 'branch', '--show-current'),

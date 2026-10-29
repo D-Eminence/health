@@ -76,9 +76,9 @@ function worker({ shell = SHELL as typeof SHELL | null, caches = new FakeCaches(
   }
   /** Fires a fetch event: what the worker answered, or null when it let the request pass through. */
   const request = async (path: string, { method = 'GET', mode = 'no-cors', origin = ORIGIN } = {}) => {
-    let responded: Promise<FakeResponse> | null = null
-    listeners.get('fetch')?.({ request: { method, mode, url: `${origin}${path}` }, respondWith: (work: Promise<FakeResponse>) => { responded = work } })
-    return responded
+    const responded: Promise<FakeResponse>[] = []
+    listeners.get('fetch')?.({ request: { method, mode, url: `${origin}${path}` }, respondWith: (work: Promise<FakeResponse>) => { responded.push(work) } })
+    return responded[0] ?? null
   }
   const settle = () => new Promise(resolve => setImmediate(resolve))
   return { self, caches, fetch, timers, fire, request, settle }
@@ -99,7 +99,7 @@ describe('before HID_SHELL_ENABLE', () => {
   it('passes every request through, the worker making none of its own', async () => {
     const run = worker()
     await run.settle()
-    for (const [path, mode] of [['/patients', 'navigate'], ['/assets/index-AbCdEf12.js', 'no-cors'], ['/health-id.webmanifest', 'no-cors']]) {
+    for (const [path, mode] of [['/patients', 'navigate'], ['/assets/index-AbCdEf12.js', 'no-cors'], ['/health-id.webmanifest', 'no-cors']] as const) {
       expect(await run.request(path, { mode })).toBeNull()
     }
     expect(run.fetch).not.toHaveBeenCalled()
@@ -183,7 +183,7 @@ describe('once the shell is kept', () => {
     const response = run.request('/patients/1', { mode: 'navigate' })
     await run.settle()
     expect(run.timers).toHaveLength(1)
-    run.timers[0]()
+    run.timers[0]?.()
     expect((await (await response)!).body).toBe('network /')
   })
 

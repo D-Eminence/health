@@ -411,3 +411,67 @@ test('keeps the portal\'s table of hid-1.0 addresses and the edge\'s the same, /
   assert.equal(shortLink, '/records')
   assert.deepEqual(portal, edge)
 })
+
+// Content-Security-Policy-Report-Only (docs/OFFLINE-CONTRACT.md 2.12, D11): HTML responses only, never the API.
+const CSP = 'content-security-policy-report-only'
+
+test('adds the report-only CSP to every HTML response, with worker-src and manifest-src for /sw.js and the manifest', async () => {
+  for (const app of ['ehr', 'ocr', 'admin', 'lab', 'pharmacy', 'outreach', 'web', 'public']) {
+    const host = deploymentProfiles.production.hosts[app]
+    const response = await worker.fetch(new Request(`https://${host}/patients/1`), environment({ APP_NAME: app }))
+    const policy = response.headers.get(CSP)
+    assert.ok(policy, app)
+    for (const directive of ["default-src 'self'", "worker-src 'self'", "manifest-src 'self'", "object-src 'none'", "base-uri 'none'",
+      "frame-ancestors 'none'", "form-action 'self'", "img-src 'self' data: blob:",
+      'frame-src https://challenges.cloudflare.com']) {
+      assert.ok(policy.split('; ').some(part => part.startsWith(directive)), `${app}: ${directive}`)
+    }
+    assert.match(policy, /script-src 'self' https:\/\/static\.cloudflareinsights\.com https:\/\/challenges\.cloudflare\.com/)
+    assert.match(policy, /connect-src 'self' https:\/\/cloudflareinsights\.com/)
+    assert.equal(response.headers.get('content-security-policy'), null, 'report-only first: nothing is enforced yet')
+  }
+})
+
+test('allows Google Identity Services on the patient portal only', async () => {
+  const web = await worker.fetch(new Request('https://app.healthidentitydirectory.com/'), environment({ APP_NAME: 'web' }))
+  const policy = web.headers.get(CSP)
+  assert.match(policy, /script-src [^;]*https:\/\/accounts\.google\.com\/gsi\/client/)
+  assert.match(policy, /frame-src [^;]*https:\/\/accounts\.google\.com\/gsi\//)
+  assert.match(policy, /connect-src [^;]*https:\/\/accounts\.google\.com\/gsi\//)
+  for (const app of ['ehr', 'ocr', 'admin', 'public']) {
+    const host = deploymentProfiles.production.hosts[app]
+    const response = await worker.fetch(new Request(`https://${host}/`), environment({ APP_NAME: app }))
+    assert.doesNotMatch(response.headers.get(CSP), /google/, app)
+  }
+})
+
+test('adds the Sentry ingest and document storage origins only when the Worker is given them', async () => {
+  const plain = await worker.fetch(new Request('https://ehr.healthidentitydirectory.com/'), environment())
+  assert.doesNotMatch(plain.headers.get(CSP), /sentry|storage/)
+  const given = await worker.fetch(new Request('https://ehr.healthidentitydirectory.com/'), environment({
+    SENTRY_DSN: 'https://publickey@o123.ingest.sentry.io/456', DOCUMENT_STORAGE_ORIGIN: 'https://documents.example-storage.test/bucket',
+  }))
+  assert.match(given.headers.get(CSP), /connect-src 'self' https:\/\/cloudflareinsights\.com https:\/\/documents\.example-storage\.test https:\/\/o123\.ingest\.sentry\.io;/)
+  for (const bad of ['http://o123.ingest.sentry.io/1', 'not a url', "https://x.test; script-src 'unsafe-eval'"]) {
+    const response = await worker.fetch(new Request('https://ehr.healthidentitydirectory.com/'), environment({ SENTRY_DSN: bad, DOCUMENT_STORAGE_ORIGIN: bad }))
+    assert.doesNotMatch(response.headers.get(CSP), /sentry|unsafe-eval|x\.test|not a url/, bad)
+  }
+})
+
+test('never adds the CSP to API responses, API refusals, or files that are not HTML', async () => {
+  globalThis.fetch = async () => new Response('<html>api</html>', { status: 200, headers: { 'content-type': 'text/html' } })
+  const api = await worker.fetch(new Request('https://ehr.healthidentitydirectory.com/api/v1/ehr/offline/ping'), environment())
+  assert.equal(api.status, 200)
+  assert.equal(api.headers.get(CSP), null)
+  const missing = await worker.fetch(new Request('https://ehr.healthidentitydirectory.com/api/other'), environment())
+  assert.equal(missing.status, 404)
+  assert.equal(missing.headers.get(CSP), null)
+  const script = await worker.fetch(new Request('https://ehr.healthidentitydirectory.com/assets/index-AbCdEf12.js'), environment({
+    ASSETS: { fetch: async () => new Response('export {}', { status: 200, headers: { 'content-type': 'text/javascript' } }) },
+  }))
+  assert.equal(script.headers.get(CSP), null)
+  const sw = await worker.fetch(new Request('https://ehr.healthidentitydirectory.com/sw.js'), environment({
+    ASSETS: { fetch: async () => new Response('self.x = 1', { status: 200, headers: { 'content-type': 'application/javascript' } }) },
+  }))
+  assert.equal(sw.headers.get(CSP), null)
+})

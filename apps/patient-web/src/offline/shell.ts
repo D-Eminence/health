@@ -44,6 +44,7 @@ const listeners = new Set<() => void>()
 let watched: ServiceWorkerRegistration | null = null
 let reloadRequested = false
 let controllerWatched = false
+let reloadPage = () => window.location.reload()
 
 function setState(next: Partial<ShellState>) {
   const merged = { ...state, ...next }
@@ -65,7 +66,7 @@ function watch(registration: ServiceWorkerRegistration, api: ServiceWorkerContai
     controllerWatched = true
     api.addEventListener('controllerchange', () => {
       if (reloadRequested) {
-        window.location.reload()
+        reloadPage()
         return
       }
       setState({ ready: false, updatedElsewhere: true })
@@ -74,8 +75,9 @@ function watch(registration: ServiceWorkerRegistration, api: ServiceWorkerContai
   check()
 }
 
-/** Test seam: forget what this tab has seen. */
-export function resetShellForTests() {
+/** Test seam: forget what this tab has seen, and replace the reload. */
+export function resetShellForTests({ reload = () => window.location.reload() }: { reload?: () => void } = {}) {
+  reloadPage = reload
   state = { ready: false, updatedElsewhere: false }
   listeners.clear()
   watched = null

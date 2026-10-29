@@ -19,5 +19,6 @@
     "patientChatEnabled": true,
     "supportContact": "mailto:support@healthidentitydirectory.com"
   },
-  "backend_contract": "novu-v1"
+  "backend_contract": "novu-v1",
+  "offline": { "mode": "off", "hosts": ["ehr", "ocr"], "facilities": [], "debug": false }
 }

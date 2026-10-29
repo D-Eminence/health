@@ -37,9 +37,8 @@ const DEPLOYMENT_PROFILES = Object.freeze({
   }),
 })
 
-// No Content-Security-Policy yet (hand-off D6). Whenever one is added, the portal hosts need `worker-src 'self'` (the
-// push worker, /sw.js, B6) and `manifest-src 'self'` (/health-id.webmanifest). The Permissions-Policy below governs
-// no push or notification feature, so it stays as it is.
+// The Permissions-Policy below governs no push or notification feature, so it stays as it is. The
+// Content-Security-Policy is report-only for now (contentSecurityPolicy, below).
 const SECURITY_HEADERS = Object.freeze({
   'cross-origin-opener-policy': 'same-origin',
   'referrer-policy': 'strict-origin-when-cross-origin',
@@ -57,6 +56,55 @@ const PERMISSIONS_BY_APP = Object.freeze({
   outreach: 'camera=(self), microphone=(), geolocation=(self)',
   admin: 'camera=(), microphone=(), geolocation=()',
 })
+
+/**
+ * Content-Security-Policy-Report-Only for HTML responses (docs/OFFLINE-CONTRACT.md 2.12, owner decision D11; hand-off
+ * D6): report-only first, enforced after 48 hours without problems. `worker-src 'self'` covers /sw.js (push, B6, and
+ * the offline app shell) and `manifest-src 'self'` /health-id.webmanifest. Google Identity Services only on the
+ * patient portal (web), the one host with Google sign-in. Two optional origins join connect-src when the Worker is
+ * given them: the presigned document storage (DOCUMENT_STORAGE_ORIGIN) and the Sentry ingest of SENTRY_DSN. Neither
+ * is set today, so their requests show as report-only violations rather than being guessed here. There is no report
+ * endpoint in wave 1: violations are read from the browser console.
+ */
+const GOOGLE_IDENTITY = Object.freeze({
+  script: 'https://accounts.google.com/gsi/client',
+  frame: 'https://accounts.google.com/gsi/',
+  connect: 'https://accounts.google.com/gsi/',
+  style: 'https://accounts.google.com/gsi/style',
+})
+const HTTPS_ORIGIN = /^https:\/\/[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/
+const HTML = /^text\/html\s*(?:;|$)/i
+
+function optionalOrigin(value) {
+  if (typeof value !== 'string' || value === '') return null
+  try {
+    const origin = new URL(value).origin
+    return HTTPS_ORIGIN.test(origin) ? origin : null
+  } catch {
+    return null
+  }
+}
+
+export function contentSecurityPolicy(application, environment = {}) {
+  const google = application === 'web'
+  const connect = ["'self'", 'https://cloudflareinsights.com',
+    optionalOrigin(environment.DOCUMENT_STORAGE_ORIGIN), optionalOrigin(environment.SENTRY_DSN),
+    google ? GOOGLE_IDENTITY.connect : null]
+  return [
+    "default-src 'self'",
+    ['script-src', "'self'", 'https://static.cloudflareinsights.com', 'https://challenges.cloudflare.com', google ? GOOGLE_IDENTITY.script : null],
+    ['connect-src', ...connect],
+    ['frame-src', 'https://challenges.cloudflare.com', google ? GOOGLE_IDENTITY.frame : null],
+    "img-src 'self' data: blob:",
+    ['style-src', "'self'", "'unsafe-inline'", google ? GOOGLE_IDENTITY.style : null],
+    "worker-src 'self'",
+    "manifest-src 'self'",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "frame-ancestors 'none'",
+    "form-action 'self'",
+  ].map(directive => Array.isArray(directive) ? directive.filter(Boolean).join(' ') : directive).join('; ')
+}
 
 function problem(status, code, detail, correlationId) {
   return new Response(JSON.stringify({
@@ -100,6 +148,7 @@ function configuredDeployment(environment) {
     portalOrigin: `https://${profile.hosts.web}`,
     origin: new URL(profile.apiOrigin),
     originAuthToken: environment.ORIGIN_AUTH_TOKEN,
+    contentSecurityPolicy: contentSecurityPolicy(application, environment),
   }
 }
 
@@ -108,7 +157,7 @@ function configuredDeployment(environment) {
 const WORKER_PATHS = /^\/sw\.js$|\/service-worker\.js$/
 const JAVASCRIPT = /^(?:text|application)\/(?:x-)?javascript\s*(?:;|$)/i
 
-function withSecurityHeaders(response, apiResponse = false, application, path = '') {
+function withSecurityHeaders(response, apiResponse = false, application, path = '', policy = null) {
   const headers = new Headers(response.headers)
   for (const [name, value] of Object.entries(SECURITY_HEADERS)) headers.set(name, value)
   if (application === 'web') headers.set('cross-origin-opener-policy', 'same-origin-allow-popups')
@@ -125,6 +174,7 @@ function withSecurityHeaders(response, apiResponse = false, application, path = 
   } else if (path === '/health-id.webmanifest' && response.status >= 200 && response.status < 300) {
     headers.set('content-type', 'application/manifest+json; charset=utf-8')
   }
+  if (!apiResponse && policy && HTML.test(headers.get('content-type') ?? '')) headers.set('content-security-policy-report-only', policy)
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers })
 }
 
@@ -244,12 +294,12 @@ export function createFrontendWorker() {
         return problem(404, 'API_ROUTE_NOT_FOUND', 'The requested API route is not available.', correlationId(request))
       }
       const redirect = applicationRouteRedirect(request, url, deployment)
-      if (redirect) return withSecurityHeaders(redirect, false, deployment.application, url.pathname)
+      if (redirect) return withSecurityHeaders(redirect, false, deployment.application, url.pathname, deployment.contentSecurityPolicy)
       const assetResponse = await environment.ASSETS.fetch(request)
       if (!servesWorker(url.pathname, assetResponse)) {
         return problem(404, 'NOT_FOUND', 'The requested file is not available.', correlationId(request))
       }
-      return withSecurityHeaders(assetResponse, false, deployment.application, url.pathname)
+      return withSecurityHeaders(assetResponse, false, deployment.application, url.pathname, deployment.contentSecurityPolicy)
     },
   }
 }
