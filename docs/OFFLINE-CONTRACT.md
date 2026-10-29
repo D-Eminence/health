@@ -36,6 +36,13 @@ Code references use two prefixes: `health:` is this repository; `hid:` is D-Emin
 11. Sign-out wipes the readable copy and the vault header (the outbox, audit and media stay). Offline unlock afterwards needs an online sign-in first (as T10). A sign-out from a tab that never unlocked wipes every readable copy on that host.
 12. Offline unlock while the mode is `off` returns `no-vault`.
 
+**A9. Shell seams and retention (after the second reviews of PRs #34 and #36).**
+1. This replaces the last sentence of A7. The unsaved-form check plugs into `apps/patient-web/src/offline/shellUpdate.ts` through `setUnsavedFormsSource(fn)`. That module has no service worker API, so it may be imported statically. It also exports `useShellUpdate()`, which returns `{ready, canUpdate, updatedElsewhere, sending, update(), reload()}`. `apps/patient-web/src/offline/shell.ts` (`enableShell`, `purgeShell`) is reached only through `import()`; the launch build check refuses a static import. Screens disable "Update now" on `!canUpdate`, and `canUpdate` already includes unsaved forms and the A7 `sending` answer.
+2. Retention on the device, all measured on server time (`clock.serverNow()`); nothing is deleted before a server `Date` has been seen in the tab:
+   - A wiped vault (no header) is deleted when its membership ended 30 days ago, or when it holds nothing but applied records and its last server contact was 30 days ago. Unsent offline-open audit in such an abandoned vault is dropped at that point. This is the only case where audit is deleted before acknowledgement, and it amends §2.11.
+   - Every other expired record is deleted one at a time, never by deleting its whole vault.
+   - A server-verified sign-in at the vault's own facility clears the vault's membership-ended marker.
+
 **A3. Approved owner decisions.** D1 to D15 below were approved by the owner on 29 October 2026 ("Yes to D1-D15"). The pilot facility for testing is Demo Hospital; the first real pilot facility is named by the owner before it is switched on.
 
 ## Owner decisions (approved 29 October 2026)
