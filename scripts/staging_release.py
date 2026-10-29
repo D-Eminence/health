@@ -39,6 +39,43 @@ def release_profile(environment):
 
 
 
+# Offline-first (docs/OFFLINE-CONTRACT.md 2.3, amendments A2 and A5). Wave 1 is the EHR and Migrate only.
+OFFLINE_KEYS = {'mode', 'hosts', 'facilities', 'debug'}
+OFFLINE_MODES = ('off', 'pilot', 'on')
+OFFLINE_APPS = ('ehr', 'ocr')
+FACILITY_ID = re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')
+
+
+def validate_offline(offline, environment):
+    if not isinstance(offline, dict) or set(offline) != OFFLINE_KEYS:
+        raise ValueError('Exact offline configuration required (mode, hosts, facilities, debug)')
+    if type(offline['mode']) is not str or offline['mode'] not in OFFLINE_MODES:
+        raise ValueError('Offline mode must be off, pilot or on')
+    hosts, facilities = offline['hosts'], offline['facilities']
+    if (type(hosts) is not list or len(set(map(str, hosts))) != len(hosts)
+            or any(type(app) is not str or app not in OFFLINE_APPS for app in hosts)):
+        raise ValueError('Offline hosts must be distinct names from ' + ', '.join(OFFLINE_APPS))
+    if (type(facilities) is not list or len(set(map(str, facilities))) != len(facilities)
+            or any(type(f) is not str or not FACILITY_ID.fullmatch(f) for f in facilities)):
+        raise ValueError('Offline facilities must be distinct lowercase facility UUIDs')
+    if offline['mode'] == 'pilot' and (not facilities or not hosts):
+        raise ValueError('Offline pilot mode needs at least one host and one facility')
+    if type(offline['debug']) is not bool:
+        raise ValueError('Offline debug must be a boolean')
+    if environment == 'production' and offline['debug']:
+        raise ValueError('The offline debug panel is never built for production')
+
+
+def offline_features(config, app):
+    """The VITE_HID_OFFLINE_* values one app is built with: every app outside the block's hosts is built with mode off."""
+    offline = config['offline']
+    enabled = offline['mode'] != 'off' and app in offline['hosts']
+    return {'VITE_HID_OFFLINE_MODE': offline['mode'] if enabled else 'off',
+            'VITE_HID_OFFLINE_FACILITIES': ','.join(offline['facilities']) if enabled else '',
+            'VITE_HID_OFFLINE_HOSTS': ','.join(offline['hosts']) if enabled else '',
+            'VITE_HID_OFFLINE_DEBUG': str(enabled and offline['debug']).lower()}
+
+
 def digest(path):
     return hashlib.sha256(pathlib.Path(path).read_bytes()).hexdigest()
 
@@ -55,7 +92,7 @@ def validate_config(config, environment='staging'):
         raise ValueError('Exact ' + environment + ' frontend hosts required')
     if config.get('api_origin') != api_origin or config.get('portal_origin') != portal_origin:
         raise ValueError('Exact ' + environment + ' API/portal required')
-    if set(config) - {'backend_contract'} != {'environment', 'hosts', 'api_origin', 'portal_origin', 'turnstile_site_key', 'google_client_id', 'chat'}:
+    if set(config) - {'backend_contract'} != {'environment', 'hosts', 'api_origin', 'portal_origin', 'turnstile_site_key', 'google_client_id', 'chat', 'offline'}:
         raise ValueError('Unexpected configuration fields')
     if config.get('backend_contract', 'main-v1') not in ('main-v1', 'novu-v1'):
         raise ValueError('Unsupported backend contract')
@@ -68,6 +105,7 @@ def validate_config(config, environment='staging'):
         raise ValueError('Approved support contact required')
     if not re.fullmatch(r'0x[A-Za-z0-9_-]+', config.get('turnstile_site_key', '')) or not config.get('google_client_id', '').endswith('.apps.googleusercontent.com'):
         raise ValueError('Public identity configuration required')
+    validate_offline(config.get('offline'), environment)
 
 
 def archive_files(archive):
@@ -116,6 +154,8 @@ def verify_manifest(manifest, folder, source_commit, config_path, lock_path, edg
         app = entry['app']
         if entry.get('chat_features') != chat_features(config, app):
             raise ValueError('Artifact chat configuration differs')
+        if entry.get('offline_features') != (None if app == 'public' else offline_features(config, app)):
+            raise ValueError('Artifact offline configuration differs')
         if entry.get('hostname') != hosts[app] or entry.get('archive') != app + '.zip':
             raise ValueError('Artifact destination differs')
         path = folder / entry['archive']

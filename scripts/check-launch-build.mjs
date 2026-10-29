@@ -26,6 +26,19 @@
  * them; hid-system's stager, on its main branch only, must take the same
  * widenings before a Health-id build is staged there again, and its CSP's
  * `worker-src 'none'` would need `'self'` (and `manifest-src 'self'`).
+ *
+ * Third, for the offline app shell (docs/OFFLINE-CONTRACT.md 2.12 and 2.13,
+ * amendment A5, owner decision D1): the same sw.js may also listen for
+ * install, activate, fetch and message, and keep the build's own files in
+ * health-id-shell- caches. inspectServiceWorker now refuses, instead of any
+ * fetch or Cache API: storage, IndexedDB, imported scripts, other
+ * connections, a cache by any other name, a listing of caches not kept to that
+ * prefix, any mention of an /api/ path but the exclusion guard, work at
+ * install, a takeover not asked for by a page, a read of a message's data
+ * other than its type, and a shell file list naming a file the build does not
+ * have (or a production build with the offline debug panel on). The chunk Vite
+ * makes of apps/patient-web/src/offline/shell.ts (assets/shell-<hash>.js) may
+ * register /sw.js too, and nothing else.
  * Still refused: any other service worker (service-worker.js, workbox, a
  * worker anywhere but the root), a manifest naming one, any other manifest,
  * file or link.
@@ -36,6 +49,7 @@
  * Run after `npm run build:patient-web`.
  */
 
+import { createHash } from 'node:crypto'
 import { readdir, readFile } from 'node:fs/promises'
 import { join, relative, sep } from 'node:path'
 import process from 'node:process'
@@ -57,25 +71,47 @@ const PUBLIC_FILES = Object.freeze({
   'sw.js': 'service-worker',
 })
 const MANIFEST_ICONS = new Set(['icon', 'apple-touch-icon', 'manifest-icon'])
-// The chunk Vite makes of apps/patient-web/src/pushDevice.ts: the only code that may use the worker API.
-const PUSH_DEVICE_CHUNK = /^assets\/pushDevice-[A-Za-z0-9_-]{8,}\.js$/
-// What the push worker may not do: handle requests, use the Cache API, storage or the network, import code, or read
-// a push's data. Matched on the file as served, comments included, so its comments may not name them either.
+// The chunks Vite makes of apps/patient-web/src/pushDevice.ts and apps/patient-web/src/offline/shell.ts: the only code
+// that may use the worker API.
+const WORKER_API_CHUNK = /^assets\/(?:pushDevice|shell)-[A-Za-z0-9_-]{8,}\.js$/
+// Those chunks load only when asked for (import()), never with the page: no preload, no static import.
+const WORKER_API_PRELOAD = /<link\b[^>]*\brel="modulepreload"[^>]*\bhref="\/(assets\/(?:pushDevice|shell)-[A-Za-z0-9_-]{8,}\.js)"/g
+const WORKER_API_STATIC_IMPORT = /(?:\bfrom|\bimport)\s*["']\.\/((?:pushDevice|shell)-[A-Za-z0-9_-]{8,}\.js)["']/g
+// What the worker may never do: use storage or IndexedDB, import code, open other connections, assign handler
+// properties, or take control of pages on its own. Matched on the file as served, comments included, so its comments
+// may not name them either.
 const WORKER_REFUSALS = Object.freeze([
-  [/addEventListener\s*\(\s*['"`]fetch['"`]/, 'handles requests (a fetch listener)'],
-  [/\bonfetch\b/, 'handles requests (onfetch)'],
-  [/\bcaches\b/, 'uses the Cache API'],
+  [/\bonfetch\b/, 'handles requests through onfetch'],
   [/\bimportScripts\b/, 'imports scripts'],
   [/\bindexedDB\b/, 'uses IndexedDB'],
-  [/\bfetch\s*\(/, 'calls fetch'],
   [/\bXMLHttpRequest\b/, 'uses XMLHttpRequest'],
   [/\bWebSocket\b/, 'opens a WebSocket'],
   [/\blocalStorage\b/, 'uses localStorage'],
   [/\bsessionStorage\b/, 'uses sessionStorage'],
-  [/\.data\b/, 'reads a message\'s data'],
   [/\.on[a-z]+\s*=(?!=)/, 'assigns an event handler property'],
+  [/\bclients\s*\.\s*claim\b/, 'takes control of open pages (clients.claim)'],
 ])
-const WORKER_EVENTS = new Set(['push', 'notificationclick'])
+// push and notificationclick (B6), and the offline app shell's install, activate, fetch and message
+// (docs/OFFLINE-CONTRACT.md 2.12, amendment A5).
+const WORKER_EVENTS = new Set(['push', 'notificationclick', 'install', 'activate', 'fetch', 'message'])
+const REQUIRED_WORKER_EVENTS = ['push', 'notificationclick']
+const SHELL_PREFIX_DECLARATION = "const SHELL_PREFIX = 'health-id-shell-'"
+const API_GUARD = "startsWith('/api/')"
+const MESSAGE_TYPE = 'event.data?.type'
+// B6's push and tap listeners, from `const TITLE` to the end of the tap listener, pinned by SHA-256 (as in
+// pushWorker.test.ts): anything they call is theirs, so a change there must come through review with a new pin.
+const PUSH_SECTION_START = 'const TITLE'
+const PUSH_SECTION_END = 'return self.clients.openWindow(target)\n  })())\n})\n'
+const PUSH_SECTION_SHA256 = 'e371d4159600c5004259be9b57f8b35faaedf33170a50906bc5992601802c3b8'
+const SHELL_RESPOND = 'respondWith(shellResponse(request, path, navigation))'
+// The whole worker as reviewed: apps/patient-web/public/sw.js, with the build's shell list put back to null. The rules
+// above match how code is written, so a call through .call, an alias or a computed name could slip past them; this pin
+// cannot. Any change to public/sw.js must update this pin in the same reviewed commit (launchBuildShell.test.ts checks
+// the pin is the file's SHA-256). The rules stay: they state what a reviewed change must still hold.
+const WORKER_SHA256 = '918ef7f352f5d67522f018df46f13400176203774ed92c47af66d252f31fcb8b'
+// The file list the build writes into sw.js (vite.config.ts, hidShellManifest).
+const SHELL_MANIFEST = /self\.__HID_SHELL__ = (.*)$/gm
+const SHELL_FILE = /^(?:assets\/[A-Za-z0-9][A-Za-z0-9_.-]*|health-id\.webmanifest|icons\/[A-Za-z0-9][A-Za-z0-9_.-]*\.png)$/
 const TEXT_FILE = /\.(?:html|js|css|svg)$/
 const GOOGLE_SIGN_IN = /accounts\.google\.com|\.apps\.googleusercontent\.com|\bgoogle\.accounts\.id\b|\/gsi\/client\b/
 
@@ -268,28 +304,212 @@ function inspectManifest(source, paths, failures) {
 }
 
 /**
- * The push worker shows a fixed notification on a push and opens Notifications on a tap (B6), and does nothing else:
- * its only listeners are push and notificationclick, and it never handles a request, uses the Cache API, storage or
- * the network, imports a script, or reads what a push carries.
+ * The index just past the bracket that closes the one at `open` (a '(', '{' or '['), or the end of the source when
+ * there is none. Strings, template literals and comments are skipped while counting brackets.
  */
-function inspectServiceWorker(source, failures) {
+function closingBracket(source, open) {
+  let depth = 0
+  for (let index = open; index >= 0 && index < source.length; index += 1) {
+    const character = source[index]
+    if (character === '/' && source[index + 1] === '/') index = source.indexOf('\n', index)
+    else if (character === '/' && source[index + 1] === '*') index = source.indexOf('*/', index) + 1
+    else if (character === "'" || character === '"' || character === '`') {
+      for (index += 1; index < source.length && source[index] !== character; index += source[index] === '\\' ? 2 : 1) { /* inside a string */ }
+    } else if (character === '(' || character === '{' || character === '[') depth += 1
+    else if (character === ')' || character === '}' || character === ']') {
+      depth -= 1
+      if (depth === 0) return index + 1
+    }
+    if (index < 0) break
+  }
+  return source.length
+}
+
+/** Where each listener for `event` starts and ends (from addEventListener to its closing parenthesis). */
+function listenerSpans(source, event) {
+  return [...source.matchAll(new RegExp(`addEventListener\\s*\\(\\s*(['"\`])${event}\\1`, 'g'))]
+    .map(found => ({ start: found.index, end: closingBracket(source, source.indexOf('(', found.index)) }))
+}
+
+/** Where each top-level `function name(` or `async function name(` declaration starts and ends (to its body's close). */
+function functionSpans(source, name) {
+  return [...source.matchAll(new RegExp(`^(?:async\\s+)?function\\s+${name}\\s*\\(`, 'gm'))].map(found => {
+    const parameters = source.indexOf('(', found.index)
+    return { start: found.index, end: closingBracket(source, source.indexOf('{', closingBracket(source, parameters))) }
+  })
+}
+
+const within = (spans, index) => spans.some(span => index >= span.start && index < span.end)
+
+/**
+ * The Cache API, only as the app shell uses it: caches opened by the health-id-shell- prefix, names listed only through
+ * that prefix, a saved file read only from one named cache, and caches deleted only by a name from that list.
+ */
+function inspectCacheUse(source, failures) {
+  const uses = [...source.matchAll(/\bcaches\b/g)]
+  if (uses.length === 0) return
+  if (!source.includes(SHELL_PREFIX_DECLARATION)) failures.push(`sw.js uses the Cache API without ${SHELL_PREFIX_DECLARATION}`)
+  for (const use of uses) {
+    const rest = source.slice(use.index)
+    const call = /^caches\s*\.\s*(open|keys|match|delete)\s*\(\s*/.exec(rest)
+    const argument = call ? rest.slice(call[0].length) : ''
+    if (!call) failures.push('sw.js uses the Cache API other than to open, list, read or delete a shell cache')
+    else if (call[1] === 'open' && !/^SHELL_PREFIX\s*\+/.test(argument)) {
+      failures.push(`sw.js opens a cache whose name does not start with health-id-shell- (caches.open(${argument.split(')')[0]}))`)
+    } else if (call[1] === 'keys' && !/^\)\)\s*\.filter\(\s*name\s*=>\s*name\.startsWith\(SHELL_PREFIX\)\)/.test(argument)) {
+      failures.push('sw.js lists caches without keeping only health-id-shell- ones')
+    } else if (call[1] === 'match' && !/^[A-Za-z_$][\w$]*\s*,\s*\{\s*cacheName:\s*[A-Za-z_$][\w$]*\s*\}\s*\)/.test(argument)) {
+      failures.push('sw.js reads from the Cache API other than from one named shell cache')
+    } else if (call[1] === 'delete' && !/^[A-Za-z_$][\w$]*\s*\)/.test(argument)) {
+      failures.push('sw.js deletes a cache other than by a name from the shell list')
+    }
+  }
+}
+
+/**
+ * What the shell may fetch and write: Cache Storage is written (opened, put, added) only inside precacheShell, which
+ * fetches only `new Request(path, …)` for its own list; any other fetch is only the request being answered, inside
+ * shellResponse; and the fetch listener answers only through shellResponse, once.
+ */
+function inspectShellRequests(source, failures) {
+  const precache = functionSpans(source, 'precacheShell')
+  const answer = functionSpans(source, 'shellResponse')
+  for (const write of source.matchAll(/\bcaches\s*\.\s*open\s*\(|\.(?:put|add|addAll)\s*\(/g)) {
+    if (!within(precache, write.index)) failures.push('sw.js writes to the Cache API outside precacheShell')
+  }
+  for (const call of source.matchAll(/\bfetch\s*\(/g)) {
+    const rest = source.slice(call.index)
+    const allowed = (rest.startsWith('fetch(request)') && within(answer, call.index))
+      || (rest.startsWith('fetch(new Request(path, {') && within(precache, call.index))
+    if (!allowed) failures.push(`sw.js fetches other than the request it answers or its own shell files (${rest.slice(0, 40).split('\n')[0]})`)
+  }
+  // fetch is only ever called, never aliased or passed (`const get = self.fetch`); its listener's name is the one exception.
+  for (const reference of source.matchAll(/\bfetch\b(?!\s*\()/g)) {
+    if (!/addEventListener\s*\(\s*['"`]$/.test(source.slice(Math.max(0, reference.index - 24), reference.index))) {
+      failures.push('sw.js refers to fetch other than by calling it')
+    }
+  }
+  const declaration = index => /\bfunction\s+$/.test(source.slice(Math.max(0, index - 16), index))
+  // The shell is saved only when a page asks (HID_SHELL_ENABLE) or on activate (A5): never at start or on a request.
+  const asked = [...listenerSpans(source, 'message'), ...listenerSpans(source, 'activate')]
+  for (const call of source.matchAll(/\bprecacheShell\s*\(/g)) {
+    if (!declaration(call.index) && !within(asked, call.index)) {
+      failures.push('sw.js saves the shell other than when a page asks (HID_SHELL_ENABLE) or on activate')
+    }
+  }
+  const listeners = listenerSpans(source, 'fetch')
+  // shellResponse fetches the request it is given, so only the fetch event may give it one.
+  for (const call of source.matchAll(/\bshellResponse\s*\(/g)) {
+    if (declaration(call.index)) continue
+    if (!within(listeners, call.index) || !source.startsWith(SHELL_RESPOND, call.index - 'respondWith('.length)) {
+      failures.push('sw.js calls shellResponse other than to answer the fetch event')
+    }
+  }
+  const answers = [...source.matchAll(/\brespondWith\s*\(/g)]
+  if (answers.length > 1 || answers.some(found => !within(listeners, found.index) || !source.startsWith(SHELL_RESPOND, found.index))) {
+    failures.push('sw.js answers requests other than through shellResponse')
+  }
+}
+
+/** The shell's file list the build wrote: null, or this build's own files (vite.config.ts, hidShellManifest). */
+function inspectShellManifest(source, paths, indexHtml, failures) {
+  const written = [...source.matchAll(SHELL_MANIFEST)]
+  if (written.length !== 1) {
+    failures.push(`sw.js must set self.__HID_SHELL__ exactly once; it does ${written.length} times`)
+    return
+  }
+  let shell
+  try { shell = JSON.parse(written[0][1]) } catch { failures.push('sw.js sets self.__HID_SHELL__ to something other than JSON'); return }
+  if (shell === null) return
+  const keys = shell && typeof shell === 'object' && !Array.isArray(shell) ? Object.keys(shell).sort().join(',') : ''
+  if (keys !== 'assets,build,debug,entry,environment' || !/^[0-9a-f]{16}$/.test(shell.build) || typeof shell.environment !== 'string'
+    || typeof shell.debug !== 'boolean' || typeof shell.entry !== 'string' || !Array.isArray(shell.assets)) {
+    failures.push('sw.js has a shell file list that is not { build, environment, debug, entry, assets }')
+    return
+  }
+  // The worker saves a page only if it loads this entry, so it must be the built page's own module script.
+  if (!shell.assets.includes(shell.entry) || !indexHtml.includes(`src="${shell.entry}"`)) {
+    failures.push(`sw.js names ${shell.entry} as the page's entry, which is not the built index.html's module script`)
+  }
+  if (shell.debug && shell.environment === 'production') failures.push('sw.js is a production build with the offline debug panel on')
+  for (const asset of shell.assets) {
+    const file = typeof asset === 'string' && asset.startsWith('/') ? asset.slice(1) : ''
+    if (!SHELL_FILE.test(file) || !paths.includes(file)) failures.push(`sw.js would keep ${String(asset)}, which is not one of the build's own files`)
+  }
+}
+
+/**
+ * The worker (B6 push, and the offline app shell). Push shows a fixed notification and opens Notifications. The
+ * shell keeps only the build's own files in health-id-shell- caches, never handles the API, saves nothing at install,
+ * reads only a message's type, and takes over only when a page asks. Neither uses storage, IndexedDB or other
+ * connections, or imports a script.
+ */
+function inspectServiceWorker(source, paths, indexHtml, failures) {
   for (const [pattern, reason] of WORKER_REFUSALS) {
     if (pattern.test(source)) failures.push(`sw.js ${reason}`)
   }
   const listened = [...source.matchAll(/addEventListener\s*\(\s*(?:(['"`])([^'"`]*)\1|([^,)]*))/g)].map(match => match[2] ?? `(${match[3].trim()})`)
   for (const event of listened) {
-    if (!WORKER_EVENTS.has(event)) failures.push(`sw.js listens for ${event}; only push and notificationclick are allowed`)
+    if (!WORKER_EVENTS.has(event)) failures.push(`sw.js listens for ${event}; only ${[...WORKER_EVENTS].join(', ')} are allowed`)
   }
-  for (const event of WORKER_EVENTS) {
+  for (const event of REQUIRED_WORKER_EVENTS) {
     if (!listened.includes(event)) failures.push(`sw.js does not listen for ${event}`)
   }
   if (!source.includes("'/notifications'")) failures.push("sw.js does not open '/notifications'")
+
+  // The API is never handled or kept: the one mention of it is the guard that lets its requests pass.
+  if (!source.includes(API_GUARD)) failures.push(`sw.js lacks the ${API_GUARD} guard that keeps API requests out of the worker`)
+  const code = source.replace(SHELL_MANIFEST, '')
+  if (/\/api\b/.test(code.replaceAll(API_GUARD, '').replaceAll("path === '/api'", ''))) {
+    failures.push('sw.js names an /api/ path other than in its exclusion guard')
+  }
+
+  const message = listenerSpans(source, 'message')
+  for (const read of source.matchAll(/\.data\b/g)) {
+    const typeRead = source.startsWith(MESSAGE_TYPE, read.index - 'event'.length)
+    if (!typeRead || !within(message, read.index)) failures.push(`sw.js reads a message's or push's data other than ${MESSAGE_TYPE} in its message listener`)
+  }
+  for (const call of source.matchAll(/\bskipWaiting\b/g)) {
+    if (!within(message, call.index)) failures.push('sw.js takes over from the running worker other than when a page asks (HID_SKIP_WAITING)')
+  }
+  for (const span of listenerSpans(source, 'install')) {
+    if (/\bcaches\b|\bfetch\s*\(|\bskipWaiting\b|waitUntil/.test(source.slice(span.start, span.end))) {
+      failures.push('sw.js does work at install; the shell is saved only when a page asks (HID_SHELL_ENABLE)')
+    }
+  }
+  for (const event of ['push', 'notificationclick']) {
+    for (const span of listenerSpans(source, event)) {
+      if (/\bcaches\b|\bfetch\s*\(/.test(source.slice(span.start, span.end))) failures.push(`sw.js uses the network or the Cache API on ${event}`)
+    }
+  }
+  inspectCacheUse(source, failures)
+  inspectShellRequests(source, failures)
+  const pushStart = source.indexOf(PUSH_SECTION_START)
+  const pushEnd = source.indexOf(PUSH_SECTION_END)
+  const pushSection = pushStart === -1 || pushEnd === -1 ? '' : source.slice(pushStart, pushEnd + PUSH_SECTION_END.length)
+  if (createHash('sha256').update(pushSection).digest('hex') !== PUSH_SECTION_SHA256) {
+    failures.push('sw.js push and tap listeners are not the ones B6 shipped (their SHA-256 differs)')
+  }
+  // Each of them exactly once, and that one inside the pinned section: a second listener would escape the pin.
+  for (const event of REQUIRED_WORKER_EVENTS) {
+    const spans = listenerSpans(source, event)
+    if (spans.length !== 1 || pushStart === -1 || spans[0].start < pushStart || spans[0].end > pushStart + pushSection.length) {
+      failures.push(`sw.js listens for ${event} other than once, in B6's pinned listeners`)
+    }
+  }
+  if (createHash('sha256').update(source.replace(SHELL_MANIFEST, 'self.__HID_SHELL__ = null')).digest('hex') !== WORKER_SHA256) {
+    failures.push('sw.js is not the reviewed public/sw.js (its SHA-256 differs from WORKER_SHA256)')
+  }
+  inspectShellManifest(source, paths, indexHtml, failures)
 }
 
-/** pushDevice's chunk registers /sw.js at most, and nothing else: every register() it makes names that file. */
-function inspectPushDeviceChunk(path, source, failures) {
+/**
+ * A chunk allowed the worker API registers /sw.js and nothing else: pushDevice's always registers it; the shell's
+ * may not, where the build has offline off and only its purge is kept.
+ */
+function inspectWorkerApiChunk(path, source, failures) {
   const registered = [...source.matchAll(/\.register\s*\(\s*(?:(['"`])([^'"`]*)\1|([^,)]*))/g)].map(match => match[2] ?? `(${match[3].trim()})`)
-  if (!registered.includes('/sw.js')) failures.push(`${path} does not register /sw.js`)
+  if (path.startsWith('assets/pushDevice-') && !registered.includes('/sw.js')) failures.push(`${path} does not register /sw.js`)
   for (const script of registered) {
     if (script !== '/sw.js') failures.push(`${path} registers ${script}; only /sw.js may be registered`)
   }
@@ -304,6 +524,11 @@ try {
 }
 
 const failures = []
+const indexHtml = paths.includes('index.html') ? await readFile(join(dist, 'index.html'), 'utf8') : ''
+// The offline debug panel (VITE_HID_OFFLINE_DEBUG) is for staging builds only (docs/OFFLINE-CONTRACT.md 2.3).
+if (process.env.VITE_HID_OFFLINE_DEBUG === 'true' && process.env.VITE_HID_ENVIRONMENT === 'production') {
+  failures.push('the build environment turns the offline debug panel on for production')
+}
 if (!paths.includes('index.html')) failures.push('index.html is missing at the build root')
 for (const path of paths) {
   classify(path, failures)
@@ -311,10 +536,18 @@ for (const path of paths) {
   const source = await readFile(join(dist, path), 'utf8')
   if (/sourceMappingURL\s*=/.test(source)) failures.push(`${path} references a source map`)
   if (path.endsWith('.js') && /\bserviceWorker\b/.test(source)) {
-    if (PUSH_DEVICE_CHUNK.test(path)) inspectPushDeviceChunk(path, source, failures)
+    if (WORKER_API_CHUNK.test(path)) inspectWorkerApiChunk(path, source, failures)
     else failures.push(`${path} registers a service worker`)
   }
-  if (path === 'sw.js') inspectServiceWorker(source, failures)
+  if (path === 'sw.js') inspectServiceWorker(source, paths, indexHtml, failures)
+  if (path === 'index.html') {
+    for (const preload of source.matchAll(WORKER_API_PRELOAD)) failures.push(`index.html preloads ${preload[1]}, which loads only when asked for`)
+  }
+  if (path.endsWith('.js')) {
+    for (const imported of source.matchAll(WORKER_API_STATIC_IMPORT)) {
+      failures.push(`${path} imports assets/${imported[1]} statically; it loads only when asked for (import())`)
+    }
+  }
   if (GOOGLE_SIGN_IN.test(source)) {
     failures.push(`${path} carries Google sign-in (Google Identity Services or a Google OAuth client id)`)
   }
@@ -327,4 +560,4 @@ if (failures.length > 0) {
   for (const failure of failures) process.stdout.write(`  ✗ ${failure}\n`)
   process.exit(1)
 }
-process.stdout.write(`Launch build check: ${paths.length} files; no Google sign-in, source map, or file outside assets/ but the icon files, their manifest and the push worker; no service worker but sw.js, which only shows a fixed notification, registered only by pushDevice's chunk; index.html is the Vite shell with its icon links.\n`)
+process.stdout.write(`Launch build check: ${paths.length} files; no Google sign-in, source map, or file outside assets/ but the icon files, their manifest and the push worker; no service worker but sw.js, which shows a fixed notification and keeps only the build's own app shell, registered only by pushDevice's and the shell's chunks; index.html is the Vite shell with its icon links.\n`)

@@ -15,4 +15,11 @@ export const PUBLIC_ENVIRONMENT = {
   VITE_HID_PATIENT_CHAT_ENABLED: import.meta.env.VITE_HID_PATIENT_CHAT_ENABLED as string | undefined,
   VITE_HID_SUPPORT_CHAT_ENABLED: import.meta.env.VITE_HID_SUPPORT_CHAT_ENABLED as string | undefined,
   VITE_HID_SUPPORT_CONTACT: import.meta.env.VITE_HID_SUPPORT_CONTACT as string | undefined,
+  // Offline-first (docs/OFFLINE-CONTRACT.md 2.3), from the config's offline block: off|pilot|on, the pilot facility ids
+  // (comma-separated), the app names offline is built for, and the debug panel switch (never true in production).
+  // scripts/build-staging.py builds every host not in the block's hosts with mode off.
+  VITE_HID_OFFLINE_MODE: import.meta.env.VITE_HID_OFFLINE_MODE as string | undefined,
+  VITE_HID_OFFLINE_FACILITIES: import.meta.env.VITE_HID_OFFLINE_FACILITIES as string | undefined,
+  VITE_HID_OFFLINE_HOSTS: import.meta.env.VITE_HID_OFFLINE_HOSTS as string | undefined,
+  VITE_HID_OFFLINE_DEBUG: import.meta.env.VITE_HID_OFFLINE_DEBUG as string | undefined,
 }
