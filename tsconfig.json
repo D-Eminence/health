@@ -5,6 +5,7 @@
     { "path": "./packages/observability" },
     { "path": "./packages/contracts" },
     { "path": "./packages/http" },
+    { "path": "./packages/offline" },
     { "path": "./packages/auth" },
     { "path": "./packages/api" }
   ]
