@@ -26,14 +26,17 @@ describe('1. a signed-out vault keeps its unsent audit and discarded entries', (
     const idb = new IDBFactory()
     const rt = makeRuntime({ server, env, idb })
     await signIn(rt, { server })
-    server.state.offline = true
+    // C2 is down from the chart open through the sign-out, so the event cannot be delivered early (round 3, item 5).
+    server.state.auditDown = true
     rt.audit.recordOpen(PATIENT, 'encounters')
     const store = (await rt.storeForDiagnostics())!
     await until(async () => (await store.dump()).audit.length > 0)
-    server.state.offline = false
     await rt.commands.save('ehr.encounter.create', { patientId: PATIENT })
+    await settle(rt)
     await rt.signOut({ online: false })
     rt.dispose()
+    expect((await store.dump()).audit.length).toBeGreaterThan(0)
+    server.state.auditDown = false
     const from = server.calls.length
 
     later(env, 2 * 60_000)
@@ -149,7 +152,13 @@ describe('4. a right password on a wiped vault does not reset the failed-unlock 
   }
 
   it('right password first among ten parallel attempts: the counter ends at the limit', async () => {
-    const { server, env, idb } = await signedOutDevice()
+    // A readable vault (round 3, item 6): the wipe lands while the right attempt is deriving.
+    const server = createServer()
+    const env = makeEnv()
+    const idb = new IDBFactory()
+    const first = makeRuntime({ server, env, idb })
+    await signIn(first, { server })
+    first.dispose()
     const tabs = Array.from({ length: 10 }, () => makeRuntime({ server, env, idb }))
     const results = await Promise.all(tabs.map((t, i) => t.unlockOffline(SESSION.email, i === 0 ? PASSWORD : `wrong password ${i}`)))
     expect(results.every(r => !r.ok)).toBe(true)

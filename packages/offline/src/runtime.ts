@@ -51,7 +51,7 @@ import type {
   SafetyProbe,
   StagedMedia,
 } from './types'
-import { VaultLimitError, Vaults, hasPendingWork, sweepExpired, type OpenVault } from './vault'
+import { VaultLimitError, Vaults, hasPendingWork, isReadable, sweepExpired, type OpenVault } from './vault'
 
 export interface OfflineRuntimeOptions {
   /** `ehr` or `ocr` (the Migrate host). */
@@ -484,13 +484,14 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
   }
 
   /** Key-free expiry of 30-day holds and of wiped vaults left with nothing to send (D9). Trusted time only. */
-  async function sweep(): Promise<void> {
+  /** `spare`: the vault this sign-in matched, never treated as abandoned (A9.2). */
+  async function sweep(spare: string | null = null): Promise<void> {
     // Server time only: a device clock moved forward must never bring a 30-day deletion closer (D9).
     const serverNow = clock.serverNow()
     if (serverNow === null) return
     const s = await storeIfExists()
     if (!s) return
-    await sweepExpired(s, appHost, serverNow).catch(() => undefined)
+    await sweepExpired(s, appHost, serverNow, spare).catch(() => undefined)
   }
 
   async function recordAuditUnlock(): Promise<void> {
@@ -529,6 +530,7 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
     const vs = await vaults()
     const candidates = (await vs.list()).filter(r => onlyVaultId === null || r.vaultId === onlyVaultId)
     if (candidates.length === 0) return { ok: false, reason: 'no-vault' }
+    const readableBefore = new Set(candidates.filter(isReadable).map(r => r.vaultId))
     const refused = await reserveAttempt(vs)
     if (refused) return refused
     let kek: CryptoKey
@@ -543,8 +545,8 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
     if (opened.length === 0) return failedUnlock()
     const usable = opened.filter(v => v.header !== null && !v.record.flags.killed && !v.record.flags.logoutPending)
       .sort((a, b) => b.record.lease.lastServerContactAt - a.record.lease.lastServerContactAt)
-    await vs.releaseAttempt(all.length === (await vs.list()).length, usable.length > 0)
-    const pick = usable[0]
+    const stillReadable = await vs.releaseAttempt(all.length === (await vs.list()).length, { ids: opened.map(v => v.record.vaultId), readableBefore })
+    const pick = stillReadable ? usable[0] : undefined
     if (!pick || !pick.header) return { ok: false, reason: 'wiped' }
     const allowed = facilityAllowed(config, appHost, pick.header.facilityId)
     if (allowed) return { ok: false, reason: 'no-vault' }
@@ -682,9 +684,15 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
       }
       const { kek, meta, fresh } = derived
       const vs = fresh ? null : await vaults()
-      if (vs) await sweep()
-      const opened = vs ? await vs.openWith(kek) : []
+      let opened = vs ? await vs.openWith(kek) : []
       let match = await matchFor(opened, s)
+      if (vs) {
+        // After matching, so this sign-in's own vault is spared; anything the sweep deleted is dropped from the lists.
+        await sweep(match?.record.vaultId ?? null)
+        const left = new Set((await vs.list()).map(r => r.vaultId))
+        opened = opened.filter(v => left.has(v.record.vaultId))
+        if (match && !left.has(match.record.vaultId)) match = null
+      }
 
       if (reason) {
         // Not enabled for this facility (or the kill switch): never read or fill; send what is pending, then delete.
@@ -704,16 +712,25 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
 
       // A vault made while escrow could not be reached may stand in for an older one escrow can still recover.
       const placeholder = match && match.record.flags.escrowRetry && !hasPendingWork(match.record) ? match : null
+      let escrowAsked = false
       if (vs && (!match || placeholder)) {
         // Password changed online: a vault with unsent work that the new key cannot open is recovered through escrow
         // (§2.5, A8.9). The escrow key is bound to the facility, so only this facility's vault opens; at most 5 calls.
         const openedIds = new Set(opened.map(v => v.record.vaultId))
-        for (const record of (await vs.list()).filter(r => r.wraps.qkEsc && hasPendingWork(r) && !openedIds.has(r.vaultId))) {
+        const candidates = (await vs.list()).filter(r => r.wraps.qkEsc && hasPendingWork(r) && !openedIds.has(r.vaultId))
+        escrowAsked = candidates.length === 0
+        for (const record of candidates) {
           const escrow = await fetchEscrow(record.vaultId, s.facilityId)
           if (!escrow) continue
+          escrowAsked = true
           const recovered = await vs.rewrapAfterPasswordChange(kek, record, escrow.key, s)
           if (recovered) {
-            if (placeholder) await vs.deleteIfIdle(placeholder.record.vaultId)
+            if (placeholder && !(await vs.deleteIfIdle(placeholder.record.vaultId))) {
+              // Kept for a discarded or held entry (§2.9, D9): its readable copy goes now, so signing out of the
+              // recovered vault leaves nothing readable, and it no longer stands in for anything.
+              await vs.wipeCache([placeholder.record.vaultId])
+              await vs.update(placeholder.record.vaultId, r => ({ ...r, flags: { ...r.flags, escrowRetry: false } }))
+            }
             match = recovered
             break
           }
@@ -757,10 +774,12 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
       match = await v.writeHeader(match, s, lease)
       if (!match.record.wraps.qkEsc) {
         const escrow = await fetchEscrow(match.record.vaultId, s.facilityId)
-        if (escrow) {
-          match = await v.addEscrow(kek, match, escrow)
-          match = { ...match, record: await v.update(match.record.vaultId, r => ({ ...r, flags: { ...r.flags, escrowRetry: false } })) }
-        }
+        if (escrow) match = await v.addEscrow(kek, match, escrow)
+      }
+      // A placeholder keeps asking at later sign-ins until the recovery itself ran with escrow answering (it is skipped
+      // while the placeholder holds unsent work), not merely until its own wrap was added.
+      if (match.record.flags.escrowRetry && escrowAsked && match.record.wraps.qkEsc) {
+        match = { ...match, record: await v.update(match.record.vaultId, r => ({ ...r, flags: { ...r.flags, escrowRetry: false } })) }
       }
       await v.clearFailures()
       await openVault(match, kek, s, false)
@@ -781,16 +800,21 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
         if (!s) return { ok: false, reason: 'no-vault' }
         openStore = s
         const vs = await vaults()
+        const readableBefore = new Set((await vs.list()).filter(isReadable).map(r => r.vaultId))
         const refused = await reserveAttempt(vs)
         if (refused) return refused
         let kek: CryptoKey
         try { kek = await vs.deriveKek(email, password) } catch { await vs.releaseAttempt(false); return { ok: false, reason: 'no-vault' } }
         const opened = await vs.openWith(kek)
         if (opened.length === 0) return failedUnlock()
-        await vs.releaseAttempt(opened.length === (await vs.list()).length, opened.some(v => v.header !== null))
-        const match = await matchFor(opened, attachedSession)
+        await vs.releaseAttempt(opened.length === (await vs.list()).length, { ids: opened.map(v => v.record.vaultId), readableBefore })
+        let match = await matchFor(opened, attachedSession)
         if (!match) return { ok: false, reason: 'no-vault' }
         if (facilityAllowed(config, appHost, attachedSession.facilityId)) return { ok: false, reason: 'no-vault' }
+        if (match.record.flags.membershipEndedAt !== null) {
+          // The attached session is a server-verified session at this facility: the membership is current (A9.2).
+          match = { ...match, record: await vs.update(match.record.vaultId, r => ({ ...r, flags: { ...r.flags, membershipEndedAt: null } })) }
+        }
         await openVault(match, kek, attachedSession, false)
         setPolicy({ mode: config.mode, enabled: true })
         await recordAuditUnlock()

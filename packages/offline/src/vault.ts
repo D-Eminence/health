@@ -60,6 +60,11 @@ export function headerAad(vaultId: string): string {
   return recordAad(vaultId, 'vaults', [vaultId, 'header'])
 }
 
+/** The vault restores a readable session offline (a header, not killed, no sign-out pending). */
+export function isReadable(r: VaultRecord): boolean {
+  return r.header !== null && !r.flags.killed && !r.flags.logoutPending
+}
+
 export function hasPendingWork(r: VaultRecord): boolean {
   return r.pending.commands > 0 || r.pending.audit > 0 || r.pending.mediaBytes > 0
 }
@@ -262,15 +267,29 @@ export class Vaults {
    * guessed against another account, so only then is the counter cleared; otherwise just this attempt is given back
    * (failures made against other accounts keep counting until the next online sign-in, amendment to §2.6).
    */
-  async releaseAttempt(openedAll: boolean, readable = true): Promise<void> {
-    await this.store.write(['meta'], async tx => {
+  async releaseAttempt(openedAll: boolean, opened?: { ids: readonly string[]; readableBefore: ReadonlySet<string> }): Promise<boolean> {
+    return this.store.write(['meta', 'vaults'], async tx => {
+      // Read in the same transaction as the counter, so a wipe that ran while this attempt derived is seen.
+      let readable = true
+      let wipedDuring = false
+      if (opened) {
+        const current: VaultRecord[] = []
+        for (const id of opened.ids) {
+          const r = await tx.get('vaults', id)
+          if (r) current.push(r)
+        }
+        readable = current.some(isReadable)
+        wipedDuring = !readable && current.some(r => opened.readableBefore.has(r.vaultId))
+      }
       const meta = await tx.get('meta', 'device')
-      if (!meta) return
-      // A right password on a wiped vault opens nothing readable: once the limit is reached it gives nothing back,
-      // so the counter stays at the limit until an online sign-in.
-      if (!readable && meta.failedUnlocks >= LIMITS.maxFailedUnlocks) return
+      if (!meta) return readable
+      // The readable copy was wiped (failed unlocks elsewhere) while this attempt ran: at the limit it gives nothing
+      // back, so the counter stays at the limit until an online sign-in. A right password on a vault that was already
+      // signed out is not a wrong guess: it gives its attempt back.
+      if (wipedDuring && meta.failedUnlocks >= LIMITS.maxFailedUnlocks) return readable
       const failedUnlocks = openedAll && readable ? 0 : Math.max(0, meta.failedUnlocks - 1)
       await tx.put('meta', { ...meta, failedUnlocks, ...(failedUnlocks === 0 ? { lastFailureAt: null } : {}) })
+      return readable
     })
   }
 
@@ -334,15 +353,16 @@ export class Vaults {
 export interface SweepResult { deletedRecords: number; deletedVaults: number }
 
 /**
- * Key-free expiry (D9, §2.9), run on server time only (TrustedClock.serverNow, never the device clock):
+ * Key-free expiry (D9, §2.9, A9.2), run on server time only (TrustedClock.serverNow, never the device clock):
  * - outbox records whose keep time has passed are deleted one by one (applied after 60 s, discarded and
  *   membership-held entries after 30 days);
- * - a wiped (headerless) vault is deleted whole only when its membership ended more than 30 days ago, or when it
- *   is abandoned: every remaining outbox record is applied and its last server contact is more than 30 days old.
- *   Its undelivered offline audit goes with it (contract note: §2.11 residual risk).
- * An emptied vault that is not abandoned is left to deleteIfIdle and eviction.
+ * - a whole vault is deleted only when it has no header and its membership ended more than 30 days ago, or when it is
+ *   abandoned: every remaining outbox record is applied and its last server contact is more than 30 days old (with
+ *   or without a header). `spare`, the vault matched by the current sign-in, is never abandoned.
+ *   An abandoned vault's undelivered offline audit goes with it (A9.2 amends §2.11).
+ * Any other emptied vault is left to deleteIfIdle and eviction.
  */
-export async function sweepExpired(store: OfflineStore, appHost: string, now: number): Promise<SweepResult> {
+export async function sweepExpired(store: OfflineStore, appHost: string, now: number, spare: string | null = null): Promise<SweepResult> {
   return store.write(['vaults', 'cache', ...KEPT_STORES], async tx => {
     const result: SweepResult = { deletedRecords: 0, deletedVaults: 0 }
     for (const vault of (await tx.all('vaults')).filter(v => v.v === 1 && v.appHost === appHost)) {
@@ -352,8 +372,11 @@ export async function sweepExpired(store: OfflineStore, appHost: string, now: nu
       result.deletedRecords += expired.length
       const remaining = outbox.filter(r => !expired.includes(r))
       const membershipGone = vault.flags.membershipEndedAt !== null && vault.flags.membershipEndedAt + LIMITS.membershipEndedKeepMs <= now
-      const abandoned = remaining.every(r => r.state === 'applied') && vault.lease.lastServerContactAt + LIMITS.membershipEndedKeepMs <= now
-      if (vault.header === null && (membershipGone || abandoned)) {
+      // The vault matched by the current sign-in is never abandoned: that sign-in is server contact and sends its
+      // audit (A9.2). Abandoned applies with or without a header: every lease expired long before.
+      const abandoned = vault.vaultId !== spare && remaining.every(r => r.state === 'applied')
+        && vault.lease.lastServerContactAt + LIMITS.membershipEndedKeepMs <= now
+      if ((vault.header === null && membershipGone) || abandoned) {
         // Nothing that may still be sent or must still be kept: the vault goes, with its media and unsendable audit.
         await deleteVaultIn(tx, vault.vaultId)
         result.deletedVaults += 1

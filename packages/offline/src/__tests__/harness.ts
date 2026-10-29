@@ -24,6 +24,8 @@ export function createServer() {
   const state = {
     offline: false,
     escrow: true,
+    /** C2 answers 503 (audit unavailable), so offline audit stays queued. */
+    auditDown: false,
     receiptsDown: false,
     /** Apply the write but lose the answer (network error after commit). */
     loseNextAnswer: false,
@@ -70,6 +72,7 @@ export function createServer() {
       return { status: 200, date: null, body: { keyVersion: 1, key: await escrowKey((spec.body as { vaultId: string }).vaultId, spec.headers?.['X-Facility-ID'] ?? ''), algorithm: 'HKDF-SHA256' } }
     }
     if (spec.path === OFFLINE_PATHS.audit) {
+      if (state.auditDown) throw new TransportError({ status: 503, problem: true })
       const b = spec.body as { vaultId: string; events: { eventId: string; seq: number; action: string }[] }
       audit.push(b)
       return {
