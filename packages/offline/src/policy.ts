@@ -82,5 +82,6 @@ export function policyReasonText(reason: PolicyReason): string {
     case 'not-opted-in': return 'This device does not keep an offline copy.'
     case 'password-too-short': return 'Change your password to 12+ characters to use offline'
     case 'unsupported-browser': return 'This browser cannot keep an offline copy safely.'
+    case 'device-full': return 'This device already keeps offline copies for five people with unsent work. Send their work first.'
   }
 }
