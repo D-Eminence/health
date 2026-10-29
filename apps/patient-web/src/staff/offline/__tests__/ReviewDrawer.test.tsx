@@ -1,13 +1,16 @@
 import type * as ApiModuleNs from '../../api'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import type { PendingView } from '@hid/offline'
-import { fakeRuntime } from './fakeRuntime'
+import type { Json } from '@hid/offline'
+import { openVault, PILOT, snapshotOf } from './offlineFixture'
 
 type ApiModule = typeof ApiModuleNs
 
-/** The author's review of changes Health ID could not take as they were (OFFLINE-CONTRACT §2.9). */
+/**
+ * The author's review of changes Health ID could not take as they were (OFFLINE-CONTRACT §2.9), with each class
+ * produced by Stream A's in-memory runtime from the answers its fake server gives.
+ */
 const api = vi.hoisted(() => ({ records: vi.fn(), encounter: vi.fn(), reportedHealthProfile: vi.fn() }))
 vi.mock('../../api', async importOriginal => {
   const original = await importOriginal<ApiModule>()
@@ -17,86 +20,100 @@ vi.mock('../../env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gate
 const { ReviewDrawer } = await import('../ReviewDrawer')
 
 const PATIENT_ID = 'b1000000-0000-4000-8000-00000000a7c3'
-const scope = { facilityId: 'facility-1', patientId: PATIENT_ID, encounter: { server: 'enc-1' } }
+const scope = { facilityId: PILOT, patientId: PATIENT_ID, encounter: { server: 'enc-1' } }
+const lost = { status: null, networkError: true } as const
 
-function pending(commandId: string, op: PendingView['op'], input: Record<string, unknown>): PendingView {
-  return { commandId, op, state: 'review', capturedAt: '2026-10-29T09:00:00.000Z', label: op, input: { ...scope, ...input } as never }
+async function drawer(fake: Awaited<ReturnType<typeof openVault>>) {
+  await fake.controls.flush()
+  render(<MemoryRouter><ReviewDrawer runtime={fake.runtime} onClose={() => undefined} /></MemoryRouter>)
+  expect(await screen.findByRole('dialog', { name: 'Changes that need your review' })).toBeTruthy()
 }
 
 beforeEach(() => { for (const mock of Object.values(api)) mock.mockReset() })
 
 describe('review drawer', () => {
-  it('412: shows your change and the current record side by side, with nothing preselected', async () => {
+  it('412: shows your change and the current record side by side, with nothing preselected, and applies on top', async () => {
     api.records.mockResolvedValue({ items: [{ id: 'note-1', patientId: PATIENT_ID, encounterId: 'enc-1', createdAt: '2026-10-29T08:00:00.000Z',
       status: 'amended', title: 'Cough review', rowVersion: 3 }], nextCursor: null })
-    const runtime = fakeRuntime({
-      review: [{ commandId: 'cmd-1', class: 'CC2', laneBlocked: 2, patientId: PATIENT_ID, op: 'ehr.note.update' }],
-      pending: [pending('cmd-1', 'ehr.note.update', { note: { server: 'note-1' },
-        body: { expectedRowVersion: 2, changeReason: 'Signed after review', status: 'signed' } })],
-    })
-    render(<MemoryRouter><ReviewDrawer runtime={runtime} onClose={() => undefined} /></MemoryRouter>)
+    const fake = await openVault(snapshotOf(PILOT))
+    // Sent once with no answer, then refused as changed: the re-read finds the note amended, not signed (CC2).
+    fake.controls.respondNext(lost, { status: 412, code: 'VERSION_CONFLICT' })
+    const input = { ...scope, note: { server: 'note-1' }, body: { expectedRowVersion: 2, changeReason: 'Signed after review', status: 'signed' } }
+    await fake.runtime.commands.save('ehr.note.update', input as unknown as Json, { awaitMs: 8000 })
+    const resolve = vi.spyOn(fake.runtime.review, 'resolve')
+    await drawer(fake)
 
-    expect(await screen.findByRole('dialog', { name: 'Changes that need your review' })).toBeTruthy()
     expect(await screen.findByText('Note status change: The record changed since you saw it')).toBeTruthy()
-    expect(screen.getByText('This visit and 2 entries could not be sent.')).toBeTruthy()
     const yours = screen.getByRole('heading', { name: 'Your change' }).parentElement as HTMLElement
     expect(await within(yours).findByText('signed')).toBeTruthy()
     const current = screen.getByRole('heading', { name: 'Current record' }).parentElement as HTMLElement
     expect(await within(current).findByText('amended')).toBeTruthy()
-    expect(api.records).toHaveBeenCalledWith('facility-1', PATIENT_ID, 'enc-1', 'clinical-notes', { cursor: undefined, fresh: true })
+    expect(api.records).toHaveBeenCalledWith(PILOT, PATIENT_ID, 'enc-1', 'clinical-notes', { cursor: undefined, fresh: true })
     // Nothing is chosen for the author.
     for (const radio of screen.getAllByRole('radio')) expect((radio as HTMLInputElement).checked).toBe(false)
-    expect(screen.getByRole('radio', { name: 'Apply my change on top' })).toBeTruthy()
 
     // A reason of fewer than 8 characters is refused; nothing is resolved.
     fireEvent.click(screen.getByRole('radio', { name: 'Apply my change on top' }))
     fireEvent.change(screen.getByRole('textbox', { name: /Reason/ }), { target: { value: 'short' } })
     fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
     expect(await screen.findByRole('alert')).toHaveProperty('textContent', 'Enter a reason of at least 8 characters.')
-    expect(runtime.review.resolve).not.toHaveBeenCalled()
+    expect(resolve).not.toHaveBeenCalled()
 
     fireEvent.change(screen.getByRole('textbox', { name: /Reason/ }), { target: { value: 'Signed again after reading the amendment' } })
     fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
     await screen.findByText('Saved. It will be sent when Health ID can be reached.')
-    expect(runtime.review.resolve).toHaveBeenCalledWith('cmd-1', 'apply-on-top', { reason: 'Signed again after reading the amendment' })
+    // A new entry at the record's current version replaces the one refused.
+    expect(resolve).toHaveBeenCalledWith(expect.any(String), 'apply-on-top', { reason: 'Signed again after reading the amendment',
+      input: { ...input, body: { ...input.body, expectedRowVersion: 3 } } })
+    await waitFor(() => expect(fake.controls.commands().some(command => command.state === 'discarded')).toBe(true))
   })
 
   it('CC4: shows the new allergy beside the held prescription', async () => {
     api.reportedHealthProfile.mockResolvedValue({ bloodGroup: null, genotype: null, allergies: 'Penicillin (rash)',
       currentMedications: 'Metformin 500 mg', chronicConditions: null, medicalNotes: null, updatedAt: '2026-10-29T09:30:00.000Z' })
-    const runtime = fakeRuntime({
-      review: [{ commandId: 'cmd-2', class: 'CC4', laneBlocked: 0, patientId: PATIENT_ID, op: 'ehr.prescription.create' }],
-      pending: [pending('cmd-2', 'ehr.prescription.create', { body: { medicationDisplay: 'Amoxicillin 500 mg', frequency: 'three times a day',
-        instructions: 'With food', status: 'draft' } })],
-    })
-    render(<MemoryRouter><ReviewDrawer runtime={runtime} onClose={() => undefined} /></MemoryRouter>)
+    const fake = await openVault(snapshotOf(PILOT))
+    fake.controls.safetyChanged(true)
+    await fake.runtime.commands.save('ehr.prescription.create', { ...scope, body: { medicationDisplay: 'Amoxicillin 500 mg',
+      frequency: 'three times a day', instructions: 'With food', status: 'draft' } } as unknown as Json, { awaitMs: 8000 })
+    await drawer(fake)
+
     expect(await screen.findByText('Prescription: Check before sending this prescription')).toBeTruthy()
     expect(await screen.findByText('Penicillin (rash)')).toBeTruthy()
     expect(screen.getByText('Metformin 500 mg')).toBeTruthy()
-    expect(screen.getByText('Amoxicillin 500 mg')).toBeTruthy()
-    expect(api.reportedHealthProfile).toHaveBeenCalledWith('facility-1', PATIENT_ID)
+    expect(await screen.findByText('Amoxicillin 500 mg')).toBeTruthy()
+    expect(api.reportedHealthProfile).toHaveBeenCalledWith(PILOT, PATIENT_ID)
     expect(screen.getByRole('radio', { name: 'Send as is (I have checked)' })).toBeTruthy()
     expect(screen.getByRole('radio', { name: 'Discard' })).toBeTruthy()
+    // Held before it was ever sent.
+    expect(fake.controls.requests).toEqual([])
   })
 
   it('CC5: asking for access again keeps the change and leads to patient access', async () => {
-    const runtime = fakeRuntime({
-      review: [{ commandId: 'cmd-3', class: 'CC5', laneBlocked: 0, patientId: PATIENT_ID, op: 'ehr.note.create' }],
-      pending: [pending('cmd-3', 'ehr.note.create', { body: { title: 'Ward round', content: 'Stable' } })],
-    })
-    render(<MemoryRouter><ReviewDrawer runtime={runtime} onClose={() => undefined} /></MemoryRouter>)
+    const fake = await openVault(snapshotOf(PILOT))
+    fake.controls.respondNext(lost)
+    fake.controls.forbidNext({ code: 'CONSENT_REQUIRED' })
+    await fake.runtime.commands.save('ehr.note.create', { ...scope, body: { title: 'Ward round', content: 'Stable' } } as unknown as Json,
+      { awaitMs: 8000 })
+    const resolve = vi.spyOn(fake.runtime.review, 'resolve')
+    await drawer(fake)
+
     expect(await screen.findByText('Clinical note: Access to this patient ended')).toBeTruthy()
     fireEvent.click(screen.getByRole('radio', { name: 'Ask for access again' }))
     fireEvent.change(screen.getByRole('textbox', { name: /Reason/ }), { target: { value: 'Patient still on the ward' } })
     fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
     expect(await screen.findByText('Kept on this device until access is approved.')).toBeTruthy()
-    expect(runtime.review.resolve).toHaveBeenCalledWith('cmd-3', 'ask-access', { reason: 'Patient still on the ward' })
+    expect(resolve).toHaveBeenCalledWith(expect.any(String), 'ask-access', { reason: 'Patient still on the ward' })
     expect(screen.getByRole('link', { name: 'Patient access' }).getAttribute('href')).toBe('/provider/patients')
+    expect(fake.controls.commands()[0]!.state).toBe('held_access')
   })
 
   it('CC1 offers no action: the change waits for confirmation', async () => {
-    const runtime = fakeRuntime({ review: [{ commandId: 'cmd-4', class: 'CC1', laneBlocked: 0, patientId: PATIENT_ID, op: 'ehr.vital.create' }] })
-    render(<MemoryRouter><ReviewDrawer runtime={runtime} onClose={() => undefined} /></MemoryRouter>)
+    const fake = await openVault(snapshotOf(PILOT))
+    fake.controls.receiptsUnreachable(true)
+    fake.controls.respondNext(lost)
+    fake.controls.forbidNext({ code: 'CONSENT_REQUIRED' })
+    await fake.runtime.commands.save('ehr.vital.create', { ...scope, body: { pulseBpm: 80 } } as unknown as Json, { awaitMs: 8000 })
+    await drawer(fake)
     expect(await screen.findByText('Health ID has not confirmed this change yet. Don’t enter it again.')).toBeTruthy()
     expect(screen.queryByRole('radio')).toBeNull()
   })

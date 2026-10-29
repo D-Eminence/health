@@ -1,65 +1,69 @@
-import type { OfflineMode } from '@hid/offline'
+import { parseOfflineEnv, type OfflineConfig, type OfflineEnv } from '@hid/offline'
 import { PUBLIC_ENVIRONMENT } from '../../publicEnvironment'
 import { resolveStaffProductHostname } from '../../productHostname'
 
 /**
- * The offline block of the build's configuration (OFFLINE-CONTRACT §2.3), read
- * from the four VITE_HID_OFFLINE_* variables Stream C adds to publicEnvironment.ts.
- * Read through this accessor only, so a test can set it and a build without the
- * variables is offline 'off': exactly today's behaviour.
+ * The offline block of the build's configuration (OFFLINE-CONTRACT §2.3, A7), read from the four VITE_HID_OFFLINE_*
+ * variables Stream C adds to publicEnvironment.ts, and parsed by the core's own `parseOfflineEnv`. Read through this
+ * accessor only, so a test can set it, and a build without the variables is offline 'off': exactly today's behaviour.
  */
-export interface OfflineEnvironment {
-  readonly mode: OfflineMode
-  /** Facilities in the pilot (mode 'pilot'); ignored in mode 'on'. */
-  readonly facilities: readonly string[]
-  /** Config app keys built with offline (`ehr`, `ocr`); empty means the build did not say. */
-  readonly hosts: readonly string[]
-  readonly debug: boolean
-}
-
-const OFF: OfflineEnvironment = { mode: 'off', facilities: [], hosts: [], debug: false }
-
-function list(value: string | undefined): string[] {
-  return (value ?? '').split(',').map(item => item.trim()).filter(Boolean)
-}
-
-function fromBuild(): OfflineEnvironment {
+function fromBuild(): OfflineEnv {
   const read = PUBLIC_ENVIRONMENT as Readonly<Record<string, string | undefined>>
-  const mode = read.VITE_HID_OFFLINE_MODE
-  if (mode !== 'pilot' && mode !== 'on') return OFF
-  return { mode, facilities: list(read.VITE_HID_OFFLINE_FACILITIES).map(id => id.toLowerCase()), hosts: list(read.VITE_HID_OFFLINE_HOSTS),
-    debug: read.VITE_HID_OFFLINE_DEBUG === 'true' }
+  return { mode: read.VITE_HID_OFFLINE_MODE ?? null, facilities: read.VITE_HID_OFFLINE_FACILITIES ?? null,
+    hosts: read.VITE_HID_OFFLINE_HOSTS ?? null, debug: read.VITE_HID_OFFLINE_DEBUG ?? null }
 }
 
-let override: OfflineEnvironment | null = null
-
-/** Tests only: replaces what the build says. `null` goes back to the build. */
-export function setOfflineEnvironmentForTests(value: Partial<OfflineEnvironment> | null): void {
-  override = value === null ? null : { ...OFF, ...value }
+interface TestEnvironment {
+  mode?: string
+  facilities?: readonly string[] | string
+  hosts?: readonly string[] | string
+  /** The config app key this page is served as; tests run on localhost, which is no product host. */
+  appHost?: string | null
 }
 
-export function offlineEnvironment(): OfflineEnvironment {
-  return override ?? fromBuild()
+let override: { env: OfflineEnv; appHost: string | null } | null = null
+
+/** Tests only: replaces what the build says (pilot on `ehr` and `ocr`, served as `ehr`, unless given). `null` goes back to the build. */
+export function setOfflineEnvironmentForTests(value: TestEnvironment | null): void {
+  const joined = (item: readonly string[] | string | undefined, fallback: string) => item === undefined ? fallback : typeof item === 'string' ? item : item.join(',')
+  override = value === null ? null : {
+    env: { mode: value.mode ?? 'pilot', facilities: joined(value.facilities, ''), hosts: joined(value.hosts, 'ehr,ocr'), debug: 'false' },
+    appHost: value.appHost === undefined ? 'ehr' : value.appHost,
+  }
 }
 
-/** The config's app key for each staff product host that can work offline (config `hosts`). */
+/** The raw variables, as the core's factory takes them. */
+export function offlineEnv(): OfflineEnv {
+  return override?.env ?? fromBuild()
+}
+
+export function offlineConfig(): OfflineConfig {
+  return parseOfflineEnv(offlineEnv())
+}
+
+/** The config's app key for each staff product host that can work offline (config `hosts`, A7). */
 const HOST_KEYS: Readonly<Record<string, string>> = { ehr: 'ehr', migrate: 'ocr' }
 
-/** Whether this page's host is one the build lists. A build that names no hosts was built for this host alone. */
-export function offlineHostAllowed(hostname: string = window.location.hostname): boolean {
-  const { mode, hosts } = offlineEnvironment()
-  if (mode === 'off') return false
-  if (hosts.length === 0) return true
+/** This page's app key (`ehr`, `ocr`), or null on a host that is not one of them. */
+export function offlineAppHost(hostname: string = window.location.hostname): string | null {
+  if (override) return override.appHost
   const product = resolveStaffProductHostname(hostname)?.key
-  return product !== undefined && hosts.includes(HOST_KEYS[product] ?? product)
+  return product ? HOST_KEYS[product] ?? product : null
+}
+
+/** Whether this page's host is one the build lists for offline. */
+export function offlineHostAllowed(): boolean {
+  const config = offlineConfig()
+  const appHost = offlineAppHost()
+  return config.mode !== 'off' && appHost !== null && config.hosts.has(appHost)
 }
 
 /**
  * Whether offline may be offered at `facilityId` at all (before any person opts in): the mode is on, or the
- * facility is in the pilot list, and the host is one the build lists. Drives the visit-length default (D4).
+ * facility is in the pilot list, on a host the build lists. Drives the visit-length default (D4).
  */
 export function offlineFacility(facilityId: string | undefined): boolean {
   if (!facilityId || !offlineHostAllowed()) return false
-  const { mode, facilities } = offlineEnvironment()
-  return mode === 'on' || (mode === 'pilot' && facilities.includes(facilityId.toLowerCase()))
+  const config = offlineConfig()
+  return config.mode === 'on' || (config.mode === 'pilot' && config.facilities.has(facilityId.toLowerCase()))
 }

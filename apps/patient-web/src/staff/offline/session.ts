@@ -1,7 +1,6 @@
 import { isHidApiError } from '@hid/http'
-import type { OfflineRuntime, StaffSessionSnapshot } from '@hid/offline'
+import type { OfflineCore, OfflineRuntime, StaffSessionSnapshot } from '@hid/offline'
 import type { StaffSession } from '../api'
-import { offlineFacility } from './environment'
 import { staffSnapshot } from './runtime'
 
 /**
@@ -21,20 +20,23 @@ export async function offersOfflineSignIn(runtime: OfflineRuntime | null): Promi
 }
 
 /**
- * After an online session is ready (amendment A5): the runtime opens this account's vault for the facility if the
- * person chose to keep one before. Answers 'choice' when the facility is in the pilot and this device keeps no copy
- * for it yet, so the one-time question is asked; 'none' when nothing changes (offline off, or not this facility).
+ * After an online session is ready (amendment A5). The runtime says what to do (`offer`, which writes nothing):
+ * - `ask`: the facility is in the pilot and this device keeps no copy for it; the one-time question is asked, and
+ *   `attachSession` waits for the answer (the key derived at sign-in is kept in memory until then);
+ * - `existing`: this account's vault for the facility opens without asking;
+ * - `paused`: vaults exist but this tab has no key (an online reload): offline is paused until the person unlocks;
+ * - `unavailable`: nothing is shown; `attachSession` drops the key.
  */
-export async function attachOnlineSession(runtime: OfflineRuntime | null, session: StaffSession): Promise<{ result: 'attached' | 'choice' | 'none'; snapshot: StaffSessionSnapshot | null }> {
+export async function attachOnlineSession(runtime: OfflineCore | null, session: StaffSession): Promise<{ result: 'attached' | 'choice' | 'paused' | 'none'; snapshot: StaffSessionSnapshot | null }> {
   const snapshot = staffSnapshot(session)
   if (!runtime || !snapshot) return { result: 'none', snapshot }
   try {
+    const offer = await runtime.offer(snapshot)
+    if (offer.kind === 'ask') return { result: 'choice', snapshot }
     await runtime.attachSession(snapshot, { optIn: false, online: true })
+    if (runtime.policy().enabled && runtime.summary().vault === 'unlocked') return { result: 'attached', snapshot }
+    return { result: offer.kind === 'paused' ? 'paused' : 'none', snapshot }
   } catch { return { result: 'none', snapshot } }
-  const policy = runtime.policy()
-  if (policy.enabled && runtime.summary().vault === 'unlocked') return { result: 'attached', snapshot }
-  if (offlineFacility(snapshot.facilityId) && policy.reason === 'not-opted-in' && runtime.summary().vault === 'none') return { result: 'choice', snapshot }
-  return { result: 'none', snapshot }
 }
 
 /** Whether a session read still lists the facility the vault was opened for; a membership that ended does not. */

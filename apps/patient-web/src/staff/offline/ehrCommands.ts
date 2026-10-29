@@ -1,11 +1,12 @@
-import { HidApiError, isHidApiError } from '@hid/http'
-import { LIMITS, type CommandOutcome, type Json, type OpName, type Receipt, type Ref } from '@hid/offline'
+import { HidApiError } from '@hid/http'
+import { isTransportError, LIMITS, SaveRefused, type CommandOutcome, type Json, type OpName, type Receipt, type Ref, type TransportError } from '@hid/offline'
 import {
   staffApi, type ClinicalRecord, type DiagnosisUpdate, type Encounter, type GrantResult, type NoteRevision, type RecordKind,
   type SavedRecord, type VitalCorrection, type VitalMeasurements,
 } from '../api'
 import { offlineActive, offlineRuntime } from './runtime'
 import { refFromId } from './registry'
+import { SAVE } from './copy'
 
 /**
  * The EHR's writes, with the signatures of the `staffApi` methods they replace and a `CommandOutcome` for an answer.
@@ -31,14 +32,26 @@ export function appliedOnline<V>(value: V, resourceType: string): CommandOutcome
   return { kind: 'applied', value, receipt }
 }
 
-/** A refusal the runtime reports, as the HidApiError the forms read (useFieldProblems, refusalText). */
+/** The server's refusal the core passes back, as the HidApiError the forms read (useFieldProblems, refusalText). */
+function fromTransport(cause: TransportError): HidApiError {
+  const body = (cause.body && typeof cause.body === 'object' ? cause.body : {}) as Record<string, unknown>
+  const message = typeof body.detail === 'string' ? body.detail : typeof body.title === 'string' ? body.title : 'Health ID refused this change.'
+  return new HidApiError(cause.status ?? 0, message, { code: cause.code ?? undefined, details: body.errors ?? body.details ?? undefined,
+    retryable: false, cause })
+}
+
+/**
+ * What a save the runtime refused means to the form (§2.8 save path): a definitive first refusal is the server's
+ * error, as today; a body over 8000 bytes is "Too long to save; split it". Anything else passes as it came.
+ */
 export function asHidApiError(caught: unknown): unknown {
-  if (isHidApiError(caught) || !caught || typeof caught !== 'object') return caught
-  const problem = caught as { status?: unknown; message?: unknown; code?: unknown; details?: unknown; requestId?: unknown }
-  if (typeof problem.status !== 'number') return caught
-  return new HidApiError(problem.status, typeof problem.message === 'string' ? problem.message : 'Health ID refused this change.', {
-    code: typeof problem.code === 'string' ? problem.code : undefined, details: problem.details ?? undefined,
-    requestId: typeof problem.requestId === 'string' ? problem.requestId : undefined, retryable: false, cause: caught })
+  if (caught instanceof SaveRefused) {
+    if (caught.reason === 'too-long') return new Error(SAVE.tooLong)
+    if (caught.cause) return fromTransport(caught.cause)
+    return caught
+  }
+  if (isTransportError(caught)) return fromTransport(caught)
+  return caught
 }
 
 /** Commands saved on this device that this one must follow: the visit (or record) they create. */
@@ -56,7 +69,11 @@ export async function saveCommand<V>(op: OpName, input: Record<string, unknown>,
   const dependsOn = localDependencies(...refs)
   try {
     return await runtime.commands.save<V>(op, input as Json, { awaitMs: LIMITS.receiptWaitMs, ...(dependsOn.length ? { dependsOn } : {}) })
-  } catch (caught) { throw asHidApiError(caught) }
+  } catch (caught) {
+    // No open vault after all (it locked meanwhile): the change goes straight online, as without offline.
+    if (caught instanceof SaveRefused && caught.reason === 'unavailable') return appliedOnline(await online(), resourceType)
+    throw asHidApiError(caught)
+  }
 }
 
 /** The day's clock for a time captured at save: the trusted clock when offline is in use (§2.6). */

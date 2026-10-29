@@ -3,14 +3,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { HidApiError } from '@hid/http'
-import { fakeRuntime } from './fakeRuntime'
+import { openVault, snapshotOf } from './offlineFixture'
 import { setOfflineRuntimeForTests } from '../runtime'
-import { forgetDeviceCopies } from '../ehrReads'
+import { ehrReads, forgetDeviceCopies } from '../ehrReads'
 
 type ApiModule = typeof ApiModuleNs
 
 /**
- * The clinical record with offline in use (a fake runtime of the frozen interface): a note saved offline shows as a
+ * The clinical record with offline in use (Stream A's in-memory runtime, `@hid/offline/testing`): a note saved offline shows as a
  * pending row, never as saved by the backend; a definitive first refusal reaches the form's fields as it does today;
  * a read answered from the device says so; and the emergency summary never goes near the device.
  */
@@ -55,6 +55,25 @@ beforeEach(() => {
 })
 afterEach(() => { setOfflineRuntimeForTests(undefined); forgetDeviceCopies() })
 
+/** A vault open at Demo Hospital, registered as the portal's runtime. */
+async function vault() {
+  const fake = await openVault(snapshotOf(FACILITY_ID))
+  setOfflineRuntimeForTests(fake.runtime)
+  return fake
+}
+
+/**
+ * The reads the chart makes, made once online so this device keeps them (the grant comes with the lookup): the
+ * second lookup is the one answered through the device, now that the patient is on it.
+ */
+async function keepChart() {
+  await ehrReads.lookupPatient(FACILITY_ID, 'HID-ABCDEF23', 'direct-care')
+  await ehrReads.lookupPatient(FACILITY_ID, 'HID-ABCDEF23', 'direct-care')
+  await ehrReads.consentStatus(FACILITY_ID, PATIENT_ID)
+  await ehrReads.encounters(FACILITY_ID, PATIENT_ID, { cursor: undefined, fresh: false })
+  await ehrReads.records(FACILITY_ID, PATIENT_ID, 'enc-1', 'clinical-notes')
+}
+
 function renderClinical() {
   render(<MemoryRouter><Clinical /></MemoryRouter>)
 }
@@ -68,8 +87,9 @@ async function writeNote(title: string) {
 
 describe('saving with offline in use', () => {
   it('shows a note saved offline as a pending row, not as saved by the backend', async () => {
-    const runtime = fakeRuntime({ summary: { connectivity: 'offline' } })
-    setOfflineRuntimeForTests(runtime)
+    const { controls } = await vault()
+    await keepChart()
+    controls.setConnectivity('offline')
     renderClinical()
     await writeNote('Follow-up note')
 
@@ -80,26 +100,34 @@ describe('saving with offline in use', () => {
     expect(screen.getByText('Saved on this device. It will be sent when Health ID can be reached.')).toBeTruthy()
     expect(screen.queryByText('Clinical record saved by the backend.')).toBeNull()
     expect(api.createRecord).not.toHaveBeenCalled()
-    expect(runtime.commands.save).toHaveBeenCalledWith('ehr.note.create', expect.objectContaining({
-      facilityId: FACILITY_ID, patientId: PATIENT_ID, encounter: { server: 'enc-1' },
-      body: { noteType: 'Consultation', title: 'Follow-up note', status: 'draft', content: 'Chest clear. Review in a week.' },
-    }), { awaitMs: 8000 })
+    const [saved] = controls.commands()
+    expect(saved).toMatchObject({ op: 'ehr.note.create', state: 'queued', everSent: false, patientId: PATIENT_ID })
+    expect(saved!.input).toMatchObject({ facilityId: FACILITY_ID, patientId: PATIENT_ID, encounter: { server: 'enc-1' },
+      body: { noteType: 'Consultation', title: 'Follow-up note', status: 'draft', content: 'Chest clear. Review in a week.' } })
+    expect(controls.requests).toEqual([])
+
+    // Back online, it is sent once, with the body exactly as staffApi sends it, under its own key.
+    controls.setConnectivity('online')
+    await waitFor(() => expect(controls.commands()[0]!.state).toBe('applied'))
+    expect(controls.requests).toHaveLength(1)
+    expect(controls.requests[0]).toMatchObject({ method: 'POST', path: `/api/v1/ehr/patients/${PATIENT_ID}/encounters/enc-1/clinical-notes` })
+    expect(JSON.parse(controls.requests[0]!.bodyText)).toEqual({ noteType: 'Consultation', title: 'Follow-up note', status: 'draft',
+      content: 'Chest clear. Review in a week.' })
+    expect(controls.requests[0]!.headers).toMatchObject({ 'X-Facility-ID': FACILITY_ID, 'X-Purpose-Of-Use': 'direct-care' })
   })
 
   it('shows a definitive first refusal online at the form’s fields, as today', async () => {
-    const runtime = fakeRuntime({ saveOutcome: async () => {
-      // The runtime reports the 400 as a problem; the form reads it as the HidApiError it reads today.
-      throw { status: 400, code: 'VALIDATION_FAILED', message: 'The request is not valid.',
-        details: [{ field: 'title', messages: ['title must be shorter than or equal to 240 characters'] }] }
-    } })
-    setOfflineRuntimeForTests(runtime)
+    const { controls } = await vault()
+    controls.respondNext({ status: 400, code: 'VALIDATION_FAILED', body: { detail: 'The request is not valid.', code: 'VALIDATION_FAILED',
+      errors: [{ field: 'title', messages: ['title must be shorter than or equal to 240 characters'] }] } })
     renderClinical()
     await writeNote('An over-long title')
 
     expect((await screen.findAllByText(/Title must be shorter than or equal to 240 characters/)).length).toBeGreaterThan(0)
     expect(screen.getByRole('textbox', { name: /^Title/ }).getAttribute('aria-invalid')).toBe('true')
-    // Nothing was kept: no pending row.
+    // Nothing was kept: no pending row, and no command left on the device.
     expect(screen.queryByText('Not sent yet')).toBeNull()
+    expect(controls.commands()).toEqual([])
   })
 
   it('without offline, a 400 is the staffApi refusal it always was', async () => {
@@ -114,29 +142,32 @@ describe('saving with offline in use', () => {
 })
 
 describe('reading with offline in use', () => {
-  it('says when the chart is the copy saved on this device', async () => {
-    const runtime = fakeRuntime({ offline: true, summary: { connectivity: 'offline' }, cache: {
-      encounters: { value: { items: [encounter], nextCursor: null }, savedAt: '2026-10-29T09:42:00.000Z' },
-    } })
-    setOfflineRuntimeForTests(runtime)
-    api.encounters.mockRejectedValue(new HidApiError(0, 'Network error', { code: 'NETWORK_ERROR' }))
+  it('says when the chart is the copy saved on this device, and records the offline open', async () => {
+    const { controls } = await vault()
+    await keepChart()
+    controls.setConnectivity('offline')
     renderClinical()
     expect(await screen.findByText(/^Saved copy from .* on this device$/)).toBeTruthy()
-    expect(runtime.audit.recordOpen).toHaveBeenCalledWith(PATIENT_ID, 'encounters')
+    expect(await screen.findByText('Cough')).toBeTruthy()
+    expect(controls.auditEvents().some(event => event.action === 'ehr.record.read' && event.patientId === PATIENT_ID
+      && event.section === 'encounters')).toBe(true)
   })
 
   it('never sends the emergency summary or its lookup through the device', async () => {
     staff.purpose = 'emergency'
-    const runtime = fakeRuntime({})
-    setOfflineRuntimeForTests(runtime)
+    const { runtime, controls } = await vault()
+    const read = vi.spyOn(runtime.reads, 'read')
+    const grant = vi.spyOn(runtime.reads, 'setGrant')
+    const remember = vi.spyOn(runtime, 'rememberPatient')
     api.lookupPatient.mockResolvedValue({ authorization: { decision: 'allow', breakGlass: true, consentGrantId: 'grant-9' },
       patient: { patientId: PATIENT_ID, hid: 'HID-ABCDEF23', fullName: 'Chidi Okafor' } })
     api.emergencyRecords.mockResolvedValue({ encounters: [], notes: [], diagnoses: [], prescriptions: [], labRequests: [], documents: [] })
     renderClinical()
     await waitFor(() => expect(api.emergencyRecords).toHaveBeenCalled())
     expect(api.lookupPatient).toHaveBeenCalledWith(FACILITY_ID, 'HID-ABCDEF23', 'emergency')
-    expect(runtime.reads.read).not.toHaveBeenCalled()
-    expect(runtime.reads.setGrant).not.toHaveBeenCalled()
-    expect(runtime.reads.keepOffline).not.toHaveBeenCalled()
+    expect(read).not.toHaveBeenCalled()
+    expect(grant).not.toHaveBeenCalled()
+    expect(remember).not.toHaveBeenCalled()
+    expect(controls.cachedPatients()).toEqual([])
   })
 })

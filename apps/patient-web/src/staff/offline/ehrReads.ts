@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react'
-import type { OfflineRuntime } from '@hid/offline'
+import { HidApiError } from '@hid/http'
+import { isTransportError, type OfflineCore } from '@hid/offline'
 import {
   isAllowedPatientLookup, staffApi, type ConsentStatus, type EmergencyRecords, type PatientLookup, type RecordKind,
 } from '../api'
@@ -46,21 +47,32 @@ export function useDeviceCopySavedAt(patientId: string | undefined): string | nu
 export function forgetDeviceCopies(): void { shownFromDevice.clear(); changed() }
 
 async function cached<T>(method: string, args: readonly unknown[], patientId: string, section: Section, network: () => Promise<T>,
-  runtime: OfflineRuntime | null = offlineRuntime()): Promise<T> {
+  runtime: OfflineCore | null = offlineRuntime()): Promise<T> {
   if (!offlineActive(runtime)) return network()
-  const result = await runtime.reads.read({ method, args, patientId, network })
+  let result: Awaited<ReturnType<typeof runtime.reads.read<T>>>
+  try { result = await runtime.reads.read({ method, args, patientId, network }) }
+  catch (caught) {
+    // Offline with no readable copy on this device: said as the network error the pages already handle.
+    if (isTransportError(caught) && caught.networkError) {
+      throw new HidApiError(0, 'Health ID can’t be reached, and this is not kept on this device.', { code: 'NETWORK_ERROR', retryable: false, cause: caught })
+    }
+    throw caught
+  }
   note(patientId, method, result.source, result.savedAt)
   if (result.source === 'cache') runtime.audit.recordOpen(patientId, section)
   return result.value
 }
 
 /** Records the grant a lookup reported, so the device keeps the chart only while access lasts (§2.7 "Readable only when"). */
-async function keepGrant(runtime: OfflineRuntime, lookup: PatientLookup) {
+async function keepGrant(runtime: OfflineCore, lookup: PatientLookup) {
   if (!isAllowedPatientLookup(lookup)) return
   const { authorization: auth, patient } = lookup
   await runtime.reads.setGrant({ patientId: patient.patientId, readAllowed: true, writeAllowed: auth.scope === 'write_records',
     expiresAt: auth.expiresAt ?? null, grantId: auth.consentGrantId ?? null, breakGlass: auth.breakGlass === true,
     observedAt: runtime.trustedNow().at.toISOString() })
+  // The patient joins this device's index ("On this device"); a break-glass opening never does.
+  if (!auth.breakGlass) await runtime.rememberPatient({ patientId: patient.patientId, displayName: patient.fullName ?? patient.hid,
+    hidCode: patient.hid, grantExpiresAt: auth.expiresAt ?? null })
 }
 
 export const ehrReads = {

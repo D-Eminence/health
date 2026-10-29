@@ -11,11 +11,18 @@ import type { ReportedHealthProfile } from '../../profileParity'
 export type ReviewAction = keyof typeof ACTIONS
 interface ReviewItem { commandId: string; class: ConflictClass; laneBlocked: number; patientId: string; op: OpName }
 
-/** What the author may do for each class (§2.9). CC1, CC6 and CC8 offer nothing here: they wait, sign in, or are kept. */
+/**
+ * What the author may do for each class (§2.9). CC1, CC6 and CC8 offer nothing here: they wait, sign in, or are kept.
+ * "Attach to a new visit" (CC3) and "Edit as a new entry" (CC7) need the entry opened in an editor, which this drawer
+ * does not have yet: there the change can be discarded (its copy stays on this device for 30 days) and entered again.
+ */
 export const CLASS_ACTIONS: Readonly<Record<ConflictClass, readonly ReviewAction[]>> = {
-  CC1: [], CC2: ['apply-on-top', 'discard'], CC3: ['new-visit', 'discard'], CC4: ['send-as-is', 'discard'],
-  CC5: ['ask-access', 'discard'], CC6: [], CC7: ['edit-as-new', 'discard'], CC8: [],
+  CC1: [], CC2: ['apply-on-top', 'discard'], CC3: ['discard'], CC4: ['send-as-is', 'discard'],
+  CC5: ['ask-access', 'discard'], CC6: [], CC7: ['discard'], CC8: [],
 }
+
+/** Said where the entry can only be discarded here: enter it again in the chart first if it is still needed. */
+const ENTER_AGAIN = 'To keep it, enter it again in the chart. A discarded entry stays on this device for 30 days.'
 
 const MIN_REASON = 8
 
@@ -41,7 +48,10 @@ function resolvedOf(op: OpName, input: Json): Record<string, string> | null {
   return resolved
 }
 
-function Comparison({ runtime, item }: { runtime: OfflineRuntime; item: ReviewItem }) {
+/** What the drawer read for an entry: the change as saved, and the record as Health ID has it now. */
+interface Compared { mine: Json | null; current: unknown }
+
+function Comparison({ runtime, item, onRead }: { runtime: OfflineRuntime; item: ReviewItem; onRead: (read: Partial<Compared>) => void }) {
   const [mine, setMine] = useState<Json | null | undefined>(undefined)
   const [current, setCurrent] = useState<unknown>(undefined)
   const [safety, setSafety] = useState<ReportedHealthProfile | null | undefined>(undefined)
@@ -51,13 +61,14 @@ function Comparison({ runtime, item }: { runtime: OfflineRuntime; item: ReviewIt
       const input = views.find(view => view.commandId === item.commandId)?.input ?? null
       if (!active) return
       setMine(input)
+      onRead({ mine: input })
       const facilityId = (input as { facilityId?: string } | null)?.facilityId
       if (item.class === 'CC2' && input) {
         const definition = definitionOf(item.op)
         const resolved = resolvedOf(item.op, input)
         const read = definition?.reread && resolved ? definition.reread(input, resolved).catch(() => null) : Promise.resolve(null)
         const value = await read
-        if (active) setCurrent(value)
+        if (active) { setCurrent(value); onRead({ current: value }) }
       }
       // The safety hold shows the patient's allergies and medications as Health ID has them now (§2.9 CC4).
       if (item.class === 'CC4' && facilityId) {
@@ -95,6 +106,7 @@ function ReviewEntry({ runtime, item, onDone }: { runtime: OfflineRuntime; item:
   const [problem, setProblem] = useState('')
   const [busy, setBusy] = useState(false)
   const id = `review-${item.commandId}`
+  const read = useRef<Partial<Compared>>({})
   const text = CLASS_TEXT[item.class]
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -104,7 +116,15 @@ function ReviewEntry({ runtime, item, onDone }: { runtime: OfflineRuntime; item:
     if (reason.trim().length < MIN_REASON) { setProblem(REVIEW.reasonShort); document.getElementById(`${id}-reason`)?.focus(); return }
     setProblem(''); setBusy(true)
     try {
-      await runtime.review.resolve(item.commandId, action, { reason: reason.trim() })
+      // Applied on top: a new entry at the record's current version, which replaces this one (§2.9 CC2).
+      let input: Json | undefined
+      if (action === 'apply-on-top') {
+        const version = Number((read.current.current as { rowVersion?: unknown } | null | undefined)?.rowVersion)
+        const mine = read.current.mine as { body?: Record<string, Json> } | null | undefined
+        if (!mine?.body || !Number.isInteger(version) || version < 1) { setProblem(REVIEW.currentUnavailable); return }
+        input = { ...mine, body: { ...mine.body, expectedRowVersion: version } } as Json
+      }
+      await runtime.review.resolve(item.commandId, action, { reason: reason.trim(), ...(input !== undefined ? { input } : {}) })
       onDone(action === 'ask-access' ? 'ask-access' : action === 'discard' ? 'Discarded on this device.' : 'Saved. It will be sent when Health ID can be reached.')
     } catch (caught) { setProblem(caught instanceof Error ? caught.message : 'This could not be saved. Try again.') }
     finally { setBusy(false) }
@@ -114,7 +134,8 @@ function ReviewEntry({ runtime, item, onDone }: { runtime: OfflineRuntime; item:
     <h3 id={`${id}-title`}>{OP_LABELS[item.op]}: {text.title}</h3>
     <p>{text.body}</p>
     {item.laneBlocked > 0 && <p className="staff-muted">{REVIEW.blocked(item.laneBlocked)}</p>}
-    <Comparison runtime={runtime} item={item} />
+    <Comparison runtime={runtime} item={item} onRead={value => { read.current = { ...read.current, ...value } }} />
+    {(item.class === 'CC3' || item.class === 'CC7') && <p className="staff-muted">{ENTER_AGAIN}</p>}
     {actions.length > 0 && <form className="staff-form" noValidate onSubmit={event => void submit(event)} aria-labelledby={`${id}-title`}>
       <fieldset disabled={busy}>
         <legend>What to do</legend>

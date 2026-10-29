@@ -87,6 +87,7 @@ export const POLICY_REASONS: Readonly<Record<PolicyReason, string>> = {
   'not-opted-in': 'This device does not keep an offline copy.',
   'password-too-short': 'Change your password to 12+ characters to use offline.',
   'unsupported-browser': 'This browser cannot keep a safe offline copy. Use a recent Chrome, Edge, Firefox or Safari.',
+  'device-full': 'This device already keeps unsent work for 5 accounts. Send it before keeping another offline copy here.',
 }
 
 export const PANEL = {

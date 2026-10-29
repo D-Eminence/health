@@ -1,10 +1,10 @@
 import { useSyncExternalStore } from 'react'
 import * as offlinePackage from '@hid/offline'
-import type { OfflineRuntime, StaffSessionSnapshot, SyncSummary } from '@hid/offline'
+import type { OfflineCore, OfflineEnv, OfflineRuntime, StaffSessionSnapshot, SyncSummary } from '@hid/offline'
 import type { ApiClient } from '@hid/http'
 import { staffTransport, type StaffSession } from '../api'
 import { staffSessionGeneration, staffSessionReadyFor, untilStaffSessionReady } from '../session'
-import { offlineEnvironment, offlineHostAllowed, type OfflineEnvironment } from './environment'
+import { offlineAppHost, offlineEnv, offlineHostAllowed } from './environment'
 import { STAFF_OFFLINE_REGISTRY } from './registry'
 import { provideOfflineRuntime } from './holder'
 
@@ -15,9 +15,12 @@ import { provideOfflineRuntime } from './holder'
  * engine checks before each send (OFFLINE-CONTRACT §2.8, "Eligible").
  */
 export interface StaffOfflineOptions {
+  /** The staff client; Stream A's `transportFromApiClient` adapts it to the core's OfflineTransport. */
   readonly transport: ApiClient
+  /** The config app key this page is (`ehr` or `ocr`). */
   readonly appHost: string
-  readonly environment: OfflineEnvironment
+  /** The raw VITE_HID_OFFLINE_* values. */
+  readonly env: OfflineEnv
   readonly session: {
     generation(): number
     readyFor(generation: number): boolean
@@ -25,7 +28,7 @@ export interface StaffOfflineOptions {
   }
 }
 
-export type OfflineRuntimeFactory = (options: StaffOfflineOptions) => OfflineRuntime
+export type OfflineRuntimeFactory = (options: StaffOfflineOptions) => OfflineCore
 
 // Stream A's public entry exports the factory once its runtime lands; until then there is none, and the portal
 // works online exactly as before.
@@ -34,11 +37,11 @@ function packagedFactory(): OfflineRuntimeFactory | null {
   return typeof found === 'function' ? found as OfflineRuntimeFactory : null
 }
 
-let built: OfflineRuntime | null | undefined
-let testRuntime: OfflineRuntime | null | undefined
+let built: OfflineCore | null | undefined
+let testRuntime: OfflineCore | null | undefined
 
 /** Tests only: the runtime the portal uses (a fake), or null for none. `undefined` goes back to the real one. */
-export function setOfflineRuntimeForTests(runtime: OfflineRuntime | null | undefined): void {
+export function setOfflineRuntimeForTests(runtime: OfflineCore | null | undefined): void {
   testRuntime = runtime
   if (runtime) runtime.commands.register(STAFF_OFFLINE_REGISTRY)
 }
@@ -47,13 +50,13 @@ export function setOfflineRuntimeForTests(runtime: OfflineRuntime | null | undef
  * The offline runtime for this page, or null when the build's mode is off, the host is not one built for offline,
  * or @hid/offline has no runtime yet. Null means every screen behaves exactly as it does today.
  */
-export function offlineRuntime(): OfflineRuntime | null {
+export function offlineRuntime(): OfflineCore | null {
   if (testRuntime !== undefined) return testRuntime
   if (!offlineHostAllowed()) return null
   if (built !== undefined) return built
   const create = packagedFactory()
   built = create ? create({
-    transport: staffTransport, appHost: window.location.hostname, environment: offlineEnvironment(),
+    transport: staffTransport, appHost: offlineAppHost() ?? '', env: offlineEnv(),
     session: { generation: staffSessionGeneration, readyFor: staffSessionReadyFor, untilReady: untilStaffSessionReady },
   }) : null
   built?.commands.register(STAFF_OFFLINE_REGISTRY)
@@ -64,7 +67,7 @@ export function offlineRuntime(): OfflineRuntime | null {
  * Whether reads and writes go through the device right now: the policy is enabled for this session and its
  * vault is open. A locked vault while online sends writes straight to the server, as today (§2.6).
  */
-export function offlineActive(runtime: OfflineRuntime | null = offlineRuntime()): runtime is OfflineRuntime {
+export function offlineActive<R extends OfflineRuntime = OfflineCore>(runtime: R | null = offlineRuntime() as R | null): runtime is R {
   if (!runtime) return false
   return runtime.policy().enabled && runtime.summary().vault === 'unlocked'
 }

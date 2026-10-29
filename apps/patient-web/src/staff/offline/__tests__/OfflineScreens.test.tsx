@@ -2,8 +2,8 @@ import type * as ApiModuleNs from '../../api'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import type { PatientIndexEntry } from '@hid/offline'
-import { fakeRuntime } from './fakeRuntime'
+import type { Json } from '@hid/offline'
+import { openVault, snapshotOf } from './offlineFixture'
 
 type ApiModule = typeof ApiModuleNs
 
@@ -31,32 +31,50 @@ const { CapturePage } = await import('../CapturePage')
 const { Patients } = await import('../../routes/Patients')
 const { indicatorState } = await import('../ConnectivityIndicator')
 
-const entry = (patientId: string, displayName: string, hidCode: string, grantExpiresAt: string | null, pendingCount = 0): PatientIndexEntry =>
-  ({ patientId, displayName, hidCode, lastOpenedAt: '2026-10-29T08:00:00.000Z', grantExpiresAt, pendingCount })
-const PATIENTS = [
-  entry('p-1', 'Chidi Okafor', 'HID-ABCDEF23', '2026-10-29T18:00:00.000Z', 2),
-  entry('p-2', 'Ngozi Adeyemi', 'HID-QWERTY45', '2026-10-29T17:00:00.000Z'),
+type Fake = Awaited<ReturnType<typeof openVault>>
+interface Kept { patientId: string; displayName: string; hidCode: string; expiresAt: string; writeAllowed?: boolean }
+const PATIENTS: Kept[] = [
+  { patientId: 'p-1', displayName: 'Chidi Okafor', hidCode: 'HID-ABCDEF23', expiresAt: '2026-10-29T18:00:00.000Z', writeAllowed: true },
+  { patientId: 'p-2', displayName: 'Ngozi Adeyemi', hidCode: 'HID-QWERTY45', expiresAt: '2026-10-29T17:00:00.000Z' },
 ]
+
+/** Keeps patients on the device as an online open would: the grant the lookup reported, then the index entry. */
+async function keep(fake: Fake, patients: readonly Kept[]) {
+  for (const item of patients) {
+    await fake.runtime.reads.setGrant({ patientId: item.patientId, readAllowed: true, writeAllowed: item.writeAllowed ?? false,
+      expiresAt: item.expiresAt, breakGlass: false, observedAt: '2026-10-29T09:00:00.000Z' })
+    await fake.runtime.rememberPatient({ patientId: item.patientId, displayName: item.displayName, hidCode: item.hidCode, grantExpiresAt: item.expiresAt })
+  }
+}
 
 beforeEach(() => { for (const mock of Object.values(api)) mock.mockReset() })
 afterEach(() => { setOfflineRuntimeForTests(undefined); setOfflineEnvironmentForTests(null) })
 
 describe('On this device', () => {
   it('lists the patients kept here with access-until and pending counts, and searches on the device', async () => {
-    const runtime = fakeRuntime({ patients: PATIENTS })
+    const fake = await openVault(snapshotOf(FACILITY_ID))
+    await keep(fake, PATIENTS)
+    fake.controls.setConnectivity('offline')
+    for (const title of ['Ward round', 'Discharge plan']) {
+      await fake.runtime.commands.save('ehr.note.create', { facilityId: FACILITY_ID, patientId: 'p-1', encounter: { server: 'enc-1' },
+        body: { title } } as unknown as Json)
+    }
+    const search = vi.spyOn(fake.runtime.patients, 'search')
     const opened: string[] = []
-    render(<OnThisDevice runtime={runtime} onOpen={item => opened.push(item.hidCode)} />)
+    render(<OnThisDevice runtime={fake.runtime} onOpen={item => opened.push(item.hidCode)} />)
     expect(await screen.findByText('Chidi Okafor', { selector: 'strong' })).toBeTruthy()
     expect(screen.getByText(/HID-ABCDEF23 · Access until .* · 2 waiting to send/)).toBeTruthy()
 
     fireEvent.change(screen.getByRole('searchbox', { name: 'Search patients on this device' }), { target: { value: 'ngozi' } })
     await waitFor(() => expect(screen.queryByText('Chidi Okafor', { selector: 'strong' })).toBeNull())
     expect(screen.getByText('Ngozi Adeyemi', { selector: 'strong' })).toBeTruthy()
-    expect(runtime.patients.search).toHaveBeenLastCalledWith('ngozi')
+    expect(search).toHaveBeenLastCalledWith('ngozi')
 
     fireEvent.click(screen.getByRole('button', { name: 'Open Ngozi Adeyemi' }))
     expect(opened).toEqual(['HID-QWERTY45'])
 
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search patients on this device' }), { target: { value: 'HID-ABCDEF' } })
+    expect(await screen.findByText('Chidi Okafor', { selector: 'strong' })).toBeTruthy()
     fireEvent.change(screen.getByRole('searchbox', { name: 'Search patients on this device' }), { target: { value: 'nobody' } })
     expect(await screen.findByText('No patient on this device matches.')).toBeTruthy()
   })
@@ -64,10 +82,12 @@ describe('On this device', () => {
 
 describe('Migrate capture', () => {
   it('refuses a patient whose access does not allow writing', async () => {
-    const runtime = fakeRuntime({ patients: PATIENTS })
-    setOfflineRuntimeForTests(runtime)
+    const fake = await openVault(snapshotOf(FACILITY_ID))
+    await keep(fake, PATIENTS)
+    setOfflineRuntimeForTests(fake.runtime)
+    const save = vi.spyOn(fake.runtime.commands, 'save')
     api.consentStatus.mockResolvedValue({ patientId: 'p-2', facilityId: FACILITY_ID, purpose: 'direct-care', readAllowed: true, writeAllowed: false })
-    render(<MemoryRouter><CapturePage runtime={runtime} facilityId={FACILITY_ID} /></MemoryRouter>)
+    render(<MemoryRouter><CapturePage runtime={fake.runtime} facilityId={FACILITY_ID} /></MemoryRouter>)
     const picker = await screen.findByRole('combobox', { name: /Patient/ })
     await waitFor(() => expect(screen.getByRole('option', { name: /Ngozi Adeyemi/ })).toBeTruthy())
     fireEvent.change(picker, { target: { value: 'p-2' } })
@@ -76,15 +96,16 @@ describe('Migrate capture', () => {
     const file = new File([new Uint8Array([37, 80, 68, 70])], 'page.pdf', { type: 'application/pdf' })
     fireEvent.change(screen.getByLabelText(/Page or document/), { target: { files: [file] } })
     fireEvent.click(screen.getByRole('button', { name: 'Save to upload' }))
-    expect(runtime.commands.save).not.toHaveBeenCalled()
+    expect(save).not.toHaveBeenCalled()
     expect(api.uploadDocument).not.toHaveBeenCalled()
     expect(screen.queryByRole('combobox', { name: 'Visit' })).toBeNull()
   })
 
   it('offers only patients whose access has not ended', async () => {
-    const runtime = fakeRuntime({ patients: [...PATIENTS, entry('p-3', 'Ended Access', 'HID-ZXCVBN67', '2026-10-29T09:00:00.000Z')] })
-    setOfflineRuntimeForTests(runtime)
-    render(<MemoryRouter><CapturePage runtime={runtime} facilityId={FACILITY_ID} /></MemoryRouter>)
+    const fake = await openVault(snapshotOf(FACILITY_ID))
+    await keep(fake, [...PATIENTS, { patientId: 'p-3', displayName: 'Ended Access', hidCode: 'HID-ZXCVBN67', expiresAt: '2026-10-29T08:00:00.000Z' }])
+    setOfflineRuntimeForTests(fake.runtime)
+    render(<MemoryRouter><CapturePage runtime={fake.runtime} facilityId={FACILITY_ID} /></MemoryRouter>)
     await waitFor(() => expect(screen.getByRole('option', { name: /Chidi Okafor/ })).toBeTruthy())
     expect(screen.queryByRole('option', { name: /Ended Access/ })).toBeNull()
   })
