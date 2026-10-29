@@ -22,6 +22,20 @@ Code references use two prefixes: `health:` is this repository; `hid:` is D-Emin
 
 **A7. Update-safe messages.** On channel `health-id-offline` the shell posts `{type:'update-safe-query', id}`; every tab whose outbox has a command in state `sending` answers `{type:'update-safe', id, safe:false}` (other tabs may answer `safe:true`). No answer within 500 ms means nothing is sending. The types are `UpdateSafeQuery` and `UpdateSafeAnswer` in `contracts.ts`. The unsaved-form check plugs into `shell.ts` through `setUnsavedFormsSource(fn)`.
 
+**A8. Answers to the core stream's questions (PR #34).**
+1. `OfflineCore` (in `packages/offline/src/types.ts`) is the interface apps use. It extends `OfflineRuntime` with the wiring seams (`offer`, `onResponseMeta`, `setSessionReady`, `noteActivity`, `noteVisibility`, `connectivity`, `updateSafe`, `rememberPatient`, `stageMedia`, `logoutPending`/`logoutSent`, `dispose`). `OfflineRuntime` in `contracts.ts` stays the minimal frozen subset.
+2. `rememberPatient(entry)` fills the patient index; `PatientIndex` stays read-only.
+3. The prescription safety hold needs app data: the app supplies a `SafetyProbe`. Without one, every prescription saved offline, or saved from data older than 15 minutes, is held for review. That is the required behaviour.
+4. The four offline paths are registered by the shell stream (PR #36) in `packages/contracts/src/registry.ts`.
+5. Kill switch: when the mode is `off` or the facility has left the pilot, `prepareFromSignIn` derives a key only if the offline database already exists; the vault then opens send-only (no reads, no new saves) and is deleted once its outbox is empty.
+6. Document `/complete` must be idempotent on the server: a replayed complete for an already-completed document returns 2xx. The server stream adds this. A document counts as applied only on its own `/complete` 2xx.
+7. A device whose 5 vaults all hold unsent work refuses a sixth account with the new policy reason `device-full`.
+8. `replay` may be `false` for `via:'response'` until the transport exposes `Idempotent-Replay`.
+9. After a password change the client may ask the escrow endpoint once for each vault with unsent work that the new key cannot open (at most 5 calls, each audited).
+10. Audit `seq` values are reserved in their own transaction, so a crash can leave a gap. The daily gap query reports gaps for investigation; a single missing `seq` with no later event from that vault is expected after a crash.
+11. Sign-out wipes the readable copy and the vault header (the outbox, audit and media stay). Offline unlock afterwards needs an online sign-in first (as T10). A sign-out from a tab that never unlocked wipes every readable copy on that host.
+12. Offline unlock while the mode is `off` returns `no-vault`.
+
 **A3. Approved owner decisions.** D1 to D15 below were approved by the owner on 29 October 2026 ("Yes to D1-D15"). The pilot facility for testing is Demo Hospital; the first real pilot facility is named by the owner before it is switched on.
 
 ## Owner decisions (approved 29 October 2026)

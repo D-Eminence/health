@@ -21,7 +21,7 @@ export const LIMITS = {
 } as const
 
 export type OfflineMode = 'off' | 'pilot' | 'on'
-export type PolicyReason = 'mode-off' | 'host-off' | 'facility-off' | 'not-opted-in' | 'password-too-short' | 'unsupported-browser'
+export type PolicyReason = 'mode-off' | 'host-off' | 'facility-off' | 'not-opted-in' | 'password-too-short' | 'unsupported-browser' | 'device-full'
 export interface OfflinePolicy { mode: OfflineMode; enabled: boolean; reason?: PolicyReason }
 
 export type ClockState = 'anchored' | 'wall' | 'suspect'
