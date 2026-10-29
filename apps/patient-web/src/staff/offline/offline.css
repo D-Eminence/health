@@ -1,0 +1,25 @@
+/* Offline screens (staff/offline). Narrow first: everything stacks at 390 px and nothing scrolls sideways. */
+.offline-indicator { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--color-muted); max-width: 100%; }
+.offline-indicator-icon { flex: none; }
+.offline-indicator-ok { color: var(--color-success, #1f7a4d); }
+.offline-indicator-busy { color: var(--color-brand); }
+.offline-indicator-warn { color: var(--color-warning, #8a5a00); }
+.offline-indicator-off { color: var(--color-ink); }
+.offline-panel { margin: 0 0 16px; }
+.offline-panel-head { justify-content: space-between; }
+.offline-facts { display: grid; gap: 6px; margin: 8px 0; font-size: 13px; }
+.offline-facts > div { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.offline-facts dt { color: var(--color-muted); min-width: 9em; }
+.offline-facts dd { margin: 0; color: var(--color-ink); overflow-wrap: anywhere; }
+.offline-list { margin: 4px 0 12px; padding-left: 18px; font-size: 13px; }
+.offline-cached { margin: 0 0 12px; }
+.offline-pending { border-style: dashed; }
+.offline-compare { display: grid; gap: 12px; grid-template-columns: 1fr; }
+@media (min-width: 720px) { .offline-compare { grid-template-columns: 1fr 1fr; } }
+.offline-drawer-backdrop { position: fixed; inset: 0; background: rgb(0 0 0 / 0.35); display: flex; justify-content: flex-end; z-index: 50; }
+.offline-drawer { background: var(--color-surface, #fff); width: min(560px, 100%); height: 100%; overflow-y: auto; padding: 16px; box-sizing: border-box; }
+.offline-review-list { list-style: none; padding: 0; }
+.offline-update { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 12px; }
+.offline-choice { margin: 0 0 16px; }
+.offline-sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+.offline-topbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }

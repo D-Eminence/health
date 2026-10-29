@@ -15,6 +15,7 @@
     "@hid/contracts": "*",
     "@hid/http": "*",
     "@hid/observability": "*",
+    "@hid/offline": "*",
     "@hid/ui": "*",
     "qrcode-generator": "2.0.4",
     "react": "^19.2.0",

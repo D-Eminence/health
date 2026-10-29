@@ -1201,6 +1201,12 @@ function reportingSessionEnd(inner: ApiClient): ApiClient {
 
 const client = createRegisteredBrowserClient(reportingSessionEnd(transport), 'staff-web')
 
+/**
+ * The staff client, for @hid/offline's engine (staff/offline/runtime.ts): every request it sends goes through
+ * the same session readiness, facility check and registry as the portal's own.
+ */
+export const staffTransport: ApiClient = client
+
 let refreshing: Promise<StaffSession> | null = null
 
 /**
@@ -1937,7 +1943,9 @@ export const staffApi = {
   documentDownload: (facilityId: string, documentId: string) =>
     client.get<{ url: string; expiresInSeconds: number }>(`/api/v1/ehr/documents/${encodeURIComponent(documentId)}/download`,
       { headers: facilityHeaders(facilityId) }),
-  async uploadDocument(facilityId: string, patientId: string, encounterId: string, file: File) {
+  // `idempotencyKey`: one per file chosen, so sending the same file again after no answer replays the intent
+  // (the same document, a fresh upload link) rather than making a second document.
+  async uploadDocument(facilityId: string, patientId: string, encounterId: string, file: File, idempotencyKey?: string) {
     // Every step runs only while the session the upload started in is ready: each
     // waits while that session is checked, unconfirmed or away, and the upload is
     // abandoned once it has ended (another account signed in, or signed out), so
@@ -1954,7 +1962,7 @@ export const staffApi = {
     }>('/api/v1/ehr/documents/upload-intents', {
       patientId, encounterId, fileName: file.name, mediaType: file.type, sizeBytes: file.size,
       sha256Hex, classification: 'phi', retentionClass: 'clinical-10y',
-    }, { headers: { ...facilityHeaders(facilityId), ...keyHeaders() } })
+    }, { headers: { ...facilityHeaders(facilityId), ...keyHeaders(idempotencyKey) } })
     await untilStaffSessionReady(sentIn)
     await uploadPresignedObject({ url: intent.upload.url, body: file, requiredHeaders: intent.upload.requiredHeaders, signal,
       allowLocalHttp: getEnvironment().name === 'local' })
