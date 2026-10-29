@@ -3,12 +3,15 @@ import { PUBLIC_ENVIRONMENT } from '../publicEnvironment'
 
 /**
  * The app shell's side of the page (docs/OFFLINE-CONTRACT.md 2.12, amendment A5): the only module besides pushDevice.ts
- * allowed the service worker API (ESLint NO_SERVICE_WORKER is off here). Vite puts it in a chunk of its own
- * (assets/shell-<hash>.js, vite.config.ts), which the launch build check lets register /sw.js and nothing else.
+ * allowed the service worker API (ESLint NO_SERVICE_WORKER is off here). Load it only with import(), so Vite emits it
+ * as a chunk of its own (assets/shell-<hash>.js) that no page preloads; the launch build check lets that chunk
+ * register /sw.js and nothing else, and refuses a static import or preload of it.
  *
  * - enableShell(): the EHR calls it once the offline runtime has opened a vault for an enabled facility. It registers
  *   /sw.js (or finds it) and asks the worker to keep this build's shell (HID_SHELL_ENABLE). Before that, nothing is
  *   registered for the shell and the worker keeps nothing.
+ * - purgeShell(): the offline runtime calls it when this facility left the pilot (policy reason facility-off, the vault
+ *   open send-only) while the build stays pilot; it asks any worker already there to delete the shell.
  * - purgeShellWhenOff(): on load, in a build whose offline mode is off for this host, asks any worker already there
  *   to delete its shell (HID_PURGE_SHELL): the kill switch. It never registers and never unregisters, because push
  *   may use the same registration.
@@ -110,12 +113,15 @@ export async function enableShell(): Promise<boolean> {
 }
 
 /**
- * Called on every load. In a build whose offline mode is off for this host, asks each worker of this site's
- * registration (if there is one) to delete the shell. Never registers, never unregisters.
+ * Asks each worker of this site's /sw.js registration (if there is one) to delete the shell (HID_PURGE_SHELL), whatever
+ * the build's mode. The offline runtime calls it when the policy reason is facility-off and a vault opens send-only
+ * (docs/OFFLINE-CONTRACT.md 2.3 kill switch, T19, A8.5): the facility left the pilot while the build stays pilot.
+ * enableShell() saves the shell again if a vault for a still-enabled facility opens later. Never registers, never
+ * unregisters, never throws.
  */
-export async function purgeShellWhenOff(): Promise<void> {
+export async function purgeShell(): Promise<void> {
   const api = workerApi()
-  if (shellMode() !== 'off' || !api) return
+  if (!api) return
   try {
     const registration = await api.getRegistration('/')
     if (!registration || !new URL(registration.active?.scriptURL ?? registration.waiting?.scriptURL
@@ -124,6 +130,12 @@ export async function purgeShellWhenOff(): Promise<void> {
       worker?.postMessage({ type: 'HID_PURGE_SHELL' })
     }
   } catch { /* nothing registered, or the browser refused: nothing to purge */ }
+}
+
+/** Called on every load (main.tsx): in a build whose offline mode is off for this host, purgeShell(). */
+export async function purgeShellWhenOff(): Promise<void> {
+  if (shellMode() !== 'off') return
+  return purgeShell()
 }
 
 // --- Is it safe to update now? ---

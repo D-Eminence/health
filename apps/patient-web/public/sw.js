@@ -13,7 +13,9 @@
  * until a health-id-shell- cache exists every request passes straight through. The shell is index.html and the
  * build's own files, identical for every user; nothing about a person or a patient is ever kept here. It never
  * handles the API or the worker scripts (sw.js, service-worker.js), and it takes over from an older worker only when
- * a page asks with HID_SKIP_WAITING. scripts/check-launch-build.mjs refuses a build whose sw.js does more; see pushWorker.test.ts and
+ * a page asks with HID_SKIP_WAITING. It fetches only the request it answers (shellResponse) and its own shell files
+ * (precacheShell), and writes Cache Storage only in precacheShell. scripts/check-launch-build.mjs refuses a build
+ * whose sw.js does more, or whose push and tap listeners differ from B6's; see pushWorker.test.ts and
  * shellWorker.test.ts.
  */
 const TITLE = 'Health ID'
@@ -50,7 +52,7 @@ self.addEventListener('notificationclick', event => {
 
 // --- App shell ------------------------------------------------------------------------------------------------------
 
-// Written by the build (vite.config.ts, hidShellManifest): null, or { build, environment, debug, assets }.
+// Written by the build (vite.config.ts, hidShellManifest): null, or { build, environment, debug, entry, assets }.
 self.__HID_SHELL__ = null
 const SHELL = self.__HID_SHELL__
 // Never "hid-": /service-worker.js deletes every cache with that prefix.
@@ -76,7 +78,10 @@ async function refreshShellKept() {
 
 /**
  * This build's shell, complete or not at all: every file is fetched first, and the page goes in last, so a generation
- * that holds the page holds everything. The page is fetched at '/', which the Worker answers with index.html.
+ * that holds the page holds everything. The page is fetched at '/', which the Worker answers with index.html. Once
+ * another build is deployed, Cloudflare answers a file of this build that no longer exists with the new build's page
+ * (its single-page fallback): so no file may be a page, and the page must be this build's own (it loads SHELL.entry).
+ * Anything else saves nothing, and the next HID_SHELL_ENABLE or activation tries again.
  */
 async function precacheShell() {
   const ownName = SHELL_PREFIX + SHELL.build
@@ -84,8 +89,14 @@ async function precacheShell() {
   const responses = await Promise.all(['/', ...SHELL.assets].map(async path => {
     const response = await fetch(new Request(path, { cache: 'reload', credentials: 'same-origin', redirect: 'error' }))
     if (!response.ok || response.type !== 'basic') throw new Error('The app shell could not be saved on this device.')
+    if (path !== '/' && /^text\/html/i.test(response.headers.get('content-type') ?? '')) {
+      throw new Error('The app shell could not be saved on this device.')
+    }
     return [path, response]
   }))
+  if (!(await responses[0][1].clone().text()).includes('src="' + SHELL.entry + '"')) {
+    throw new Error('The app shell could not be saved on this device.')
+  }
   const cache = await caches.open(SHELL_PREFIX + SHELL.build)
   for (const [path, response] of responses.slice(1)) await cache.put(path, response)
   await cache.put(SHELL_PAGE, responses[0][1])

@@ -940,8 +940,16 @@ Vite plugin in `apps/patient-web/vite.config.ts`); everywhere else `/sw.js`
 handles no request. Even there it saves nothing at install and passes every
 request through until `apps/patient-web/src/offline/shell.ts` posts
 `HID_SHELL_ENABLE`, which it does only after a vault opened for an enabled
-facility (A5); in a build with offline off it posts `HID_PURGE_SHELL`, and it
-never unregisters (push may share the registration). The worker never handles
+facility (A5). It posts `HID_PURGE_SHELL` on load in a build with offline off,
+and `purgeShell()` lets the offline runtime do the same when the facility has
+left the pilot while the build stays pilot (policy reason `facility-off`, the
+vault open send-only; A8.5, T19); `enableShell()` saves the shell again if a
+vault for a still-enabled facility opens later. It never unregisters (push may
+share the registration). Precaching saves nothing unless every file is the
+build's own (no file may be a page, and the page must load the build's entry
+script), so a deploy between two builds never leaves a shell that cannot
+start; the frontend Worker also answers 404, not the single-page fallback, for
+a missing file under `/assets/`. The worker never handles
 `/api/`, `/sw.js` or `/service-worker.js`; navigations are network first for 4
 seconds, then the saved index.html. A new build waits until the page's "Update
 now", which is enabled only while no form is unsaved and no tab is sending, and
@@ -957,11 +965,16 @@ access is left to review. `NO_INDEXED_DB` is lifted only for
 `packages/offline/src/store.ts`. `NO_SERVICE_WORKER` is lifted for exactly
 three files, `apps/patient-web/src/pushDevice.ts`,
 `apps/patient-web/src/offline/shell.ts` and `apps/patient-web/public/sw.js`;
-`NO_CACHE_STORAGE` (and the raw fetch rule) only for `apps/patient-web/public/sw.js`.
-`scripts/check-launch-build.mjs` checks the built worker: storage, IndexedDB,
-imported scripts, a cache by another name, any API path but its exclusion
-guard, work at install, an unrequested takeover and a shell list naming a file
-outside the build are refused. The portal's pages keep each read's last answer
+`NO_CACHE_STORAGE` and `NO_RAW_FETCH` are lifted only for
+`apps/patient-web/public/sw.js`, which ESLint therefore no longer limits there:
+`scripts/check-launch-build.mjs` does, on the built worker. It refuses storage,
+IndexedDB, imported scripts, a cache by another name, a write to Cache Storage
+outside `precacheShell`, a fetch of anything but the request being answered
+(in `shellResponse`) or the build's own shell files (in `precacheShell`), an
+answer other than through `shellResponse`, any API path but its exclusion
+guard, work at install, an unrequested takeover, push and tap listeners that
+differ from B6's (pinned by SHA-256), and a shell list naming a file outside the
+build or an entry that is not the built page's script. The portal's pages keep each read's last answer
 in memory for the patient signed in (`apps/patient-web/src/resourceCache.ts`),
 so a page opened again shows it at once while it reads again; it goes as that
 patient signs out or another account signs in, and is never written to browser

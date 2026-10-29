@@ -475,3 +475,21 @@ test('never adds the CSP to API responses, API refusals, or files that are not H
   }))
   assert.equal(sw.headers.get(CSP), null)
 })
+
+// A file under /assets/ that the build lacks is never answered with the single-page fallback's index.html: the
+// offline app shell would otherwise save a page as a script (docs/OFFLINE-CONTRACT.md 2.12).
+test('answers 404, never the single-page fallback page, for a missing file under /assets/', async () => {
+  const fallback = { ASSETS: { fetch: async () => new Response('<!doctype html><title>Health ID</title>', {
+    status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } }) } }
+  for (const method of ['GET', 'HEAD']) {
+    const response = await worker.fetch(new Request('https://ehr.healthidentitydirectory.com/assets/index-OldBuild1.js', { method }), environment(fallback))
+    assert.equal(response.status, 404, method)
+    assert.match(response.headers.get('content-type'), /problem\+json/)
+  }
+  const page = await worker.fetch(new Request('https://ehr.healthidentitydirectory.com/patients/1'), environment(fallback))
+  assert.equal(page.status, 200)
+  const script = await worker.fetch(new Request('https://ehr.healthidentitydirectory.com/assets/index-AbCdEf12.js'), environment({
+    ASSETS: { fetch: async () => new Response('export {}', { status: 200, headers: { 'content-type': 'text/javascript' } }) },
+  }))
+  assert.equal(script.status, 200)
+})

@@ -14,12 +14,28 @@ import { describe, expect, it, vi } from 'vitest'
 const source = readFileSync(fileURLToPath(new URL('../../public/sw.js', import.meta.url)), 'utf8')
 const ORIGIN = 'https://ehr.healthidentitydirectory.com'
 const BUILD = '0123456789abcdef'
-const SHELL = { build: BUILD, environment: 'production', debug: false,
-  assets: ['/assets/index-AbCdEf12.js', '/assets/index-GhIjKl34.css', '/health-id.webmanifest', '/icons/icon-192.png'] }
+const ENTRY = '/assets/index-AbCdEf12.js'
+const SHELL = { build: BUILD, environment: 'production', debug: false, entry: ENTRY,
+  assets: [ENTRY, '/assets/index-GhIjKl34.css', '/health-id.webmanifest', '/icons/icon-192.png'] }
 const OWN = `health-id-shell-${BUILD}`
+/** This build's index.html, as the Worker serves it at '/'. */
+const PAGE = `<!doctype html><title>Health ID</title><script type="module" crossorigin src="${ENTRY}"></script>`
+/** Another build's index.html: what Cloudflare's single-page fallback answers for a file that no longer exists. */
+const OTHER_PAGE = '<!doctype html><title>Health ID</title><script type="module" crossorigin src="/assets/index-NeWbUiLd.js"></script>'
 
-interface FakeResponse { readonly ok: boolean; readonly status: number; readonly type: string; readonly body: string }
-const answer = (body: string, status = 200): FakeResponse => ({ ok: status >= 200 && status < 300, status, type: 'basic', body })
+interface FakeResponse {
+  readonly ok: boolean; readonly status: number; readonly type: string; readonly body: string
+  readonly headers: { get(name: string): string | null }
+  clone(): { text(): Promise<string> }
+}
+const TYPES: Record<string, string> = { js: 'text/javascript', css: 'text/css', png: 'image/png', webmanifest: 'application/manifest+json' }
+function answer(body: string, status = 200, contentType = 'text/html; charset=utf-8'): FakeResponse {
+  return { ok: status >= 200 && status < 300, status, type: 'basic', body,
+    headers: { get: name => name.toLowerCase() === 'content-type' ? contentType : null },
+    clone: () => ({ text: async () => body }) }
+}
+/** A file of the build, typed by its extension. */
+const file = (path: string, body = `network ${path}`) => answer(body, 200, TYPES[path.split('.').at(-1) ?? ''] ?? 'text/html; charset=utf-8')
 
 /** Cache Storage in memory: names in creation order, entries keyed by absolute URL. */
 class FakeCaches {
@@ -43,7 +59,13 @@ class FakeCaches {
 }
 
 type Network = (url: string) => Promise<FakeResponse>
-const served: Network = async url => answer(`network ${new URL(url).pathname}`)
+/** The Worker as deployed for this build: '/' is its page, its files are themselves, other paths are navigations. */
+const served: Network = async url => {
+  const path = new URL(url).pathname
+  return path === '/' ? answer(PAGE) : SHELL.assets.includes(path) ? file(path) : answer(`network ${path}`)
+}
+/** The Worker after another build was deployed: '/' and every missing file answer that build's page (SPA fallback). */
+const deployedElsewhere: Network = async () => answer(OTHER_PAGE)
 
 function worker({ shell = SHELL as typeof SHELL | null, caches = new FakeCaches(), network = served, windows = 0 } = {}) {
   const listeners = new Map<string, (event: Record<string, unknown>) => void>()
@@ -138,6 +160,30 @@ describe('HID_SHELL_ENABLE', () => {
     expect(await run.request('/patients', { mode: 'navigate' })).toBeNull()
   })
 
+  it('saves nothing when the files answer another build\'s page (a deploy since this build), and tries again next time', async () => {
+    let network = deployedElsewhere
+    const run = worker({ network: url => network(url) })
+    await enable(run)
+    expect(run.caches.stores.size).toBe(0)
+    run.fetch.mockClear()
+    network = served
+    await enable(run)
+    expect(run.fetch).toHaveBeenCalled()
+    expect(run.caches.files(OWN)).toContain('/index.html')
+  })
+
+  it('saves nothing when only the page is another build\'s, its files still answering', async () => {
+    const run = worker({ network: async url => new URL(url).pathname === '/' ? answer(OTHER_PAGE) : served(url) })
+    await enable(run)
+    expect(run.caches.stores.size).toBe(0)
+  })
+
+  it('saves nothing when a file of the build answers with a page', async () => {
+    const run = worker({ network: async url => new URL(url).pathname.endsWith('.css') ? answer(PAGE) : served(url) })
+    await enable(run)
+    expect(run.caches.stores.size).toBe(0)
+  })
+
   it('is ignored by a build without the app shell', async () => {
     const run = worker({ shell: null })
     await enable(run)
@@ -175,7 +221,7 @@ describe('once the shell is kept', () => {
 
   it('answers a navigation with the saved index.html when the network fails', async () => {
     const run = await enabled(async () => { throw new TypeError('Failed to fetch') })
-    expect((await (await run.request('/patients/1', { mode: 'navigate' }))!).body).toBe('network /')
+    expect((await (await run.request('/patients/1', { mode: 'navigate' }))!).body).toBe(PAGE)
   })
 
   it('answers a navigation with the saved index.html after 4 s without an answer', async () => {
@@ -184,7 +230,7 @@ describe('once the shell is kept', () => {
     await run.settle()
     expect(run.timers).toHaveLength(1)
     run.timers[0]?.()
-    expect((await (await response)!).body).toBe('network /')
+    expect((await (await response)!).body).toBe(PAGE)
   })
 
   it('serves the build\'s files, its manifest and icons from the shell without the network', async () => {
@@ -247,6 +293,14 @@ describe('a new build activating', () => {
     expect([...caches.stores.keys()]).toEqual([OLDER])
     const response = await run.request('/patients', { mode: 'navigate' })
     expect((await response!).body).toBe('older')
+  })
+
+  it('keeps the older shell, and saves none of its own, when the site already serves another build', async () => {
+    const caches = new FakeCaches()
+    caches.seed(OLDER, { '/index.html': 'older' })
+    const run = worker({ caches, network: deployedElsewhere })
+    await run.fire('activate')
+    expect([...caches.stores.keys()]).toEqual([OLDER])
   })
 
   it('deletes every shell when its build has the shell off (the kill switch)', async () => {

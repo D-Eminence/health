@@ -49,6 +49,7 @@
  * Run after `npm run build:patient-web`.
  */
 
+import { createHash } from 'node:crypto'
 import { readdir, readFile } from 'node:fs/promises'
 import { join, relative, sep } from 'node:path'
 import process from 'node:process'
@@ -73,6 +74,9 @@ const MANIFEST_ICONS = new Set(['icon', 'apple-touch-icon', 'manifest-icon'])
 // The chunks Vite makes of apps/patient-web/src/pushDevice.ts and apps/patient-web/src/offline/shell.ts: the only code
 // that may use the worker API.
 const WORKER_API_CHUNK = /^assets\/(?:pushDevice|shell)-[A-Za-z0-9_-]{8,}\.js$/
+// Those chunks load only when asked for (import()), never with the page: no preload, no static import.
+const WORKER_API_PRELOAD = /<link\b[^>]*\brel="modulepreload"[^>]*\bhref="\/(assets\/(?:pushDevice|shell)-[A-Za-z0-9_-]{8,}\.js)"/g
+const WORKER_API_STATIC_IMPORT = /(?:\bfrom|\bimport)\s*["']\.\/((?:pushDevice|shell)-[A-Za-z0-9_-]{8,}\.js)["']/g
 // What the worker may never do: use storage or IndexedDB, import code, open other connections, assign handler
 // properties, or take control of pages on its own. Matched on the file as served, comments included, so its comments
 // may not name them either.
@@ -94,6 +98,12 @@ const REQUIRED_WORKER_EVENTS = ['push', 'notificationclick']
 const SHELL_PREFIX_DECLARATION = "const SHELL_PREFIX = 'health-id-shell-'"
 const API_GUARD = "startsWith('/api/')"
 const MESSAGE_TYPE = 'event.data?.type'
+// B6's push and tap listeners, from `const TITLE` to the end of the tap listener, pinned by SHA-256 (as in
+// pushWorker.test.ts): anything they call is theirs, so a change there must come through review with a new pin.
+const PUSH_SECTION_START = 'const TITLE'
+const PUSH_SECTION_END = 'return self.clients.openWindow(target)\n  })())\n})\n'
+const PUSH_SECTION_SHA256 = 'e371d4159600c5004259be9b57f8b35faaedf33170a50906bc5992601802c3b8'
+const SHELL_RESPOND = 'respondWith(shellResponse(request, path, navigation))'
 // The file list the build writes into sw.js (vite.config.ts, hidShellManifest).
 const SHELL_MANIFEST = /self\.__HID_SHELL__ = (.*)$/gm
 const SHELL_FILE = /^(?:assets\/[A-Za-z0-9][A-Za-z0-9_.-]*|health-id\.webmanifest|icons\/[A-Za-z0-9][A-Za-z0-9_.-]*\.png)$/
@@ -289,34 +299,39 @@ function inspectManifest(source, paths, failures) {
 }
 
 /**
- * Where each listener for `event` starts and ends in the worker's source (from addEventListener to its closing
- * parenthesis). Strings, template literals and comments are skipped while counting brackets; a listener whose end
- * cannot be found runs to the end of the file.
+ * The index just past the bracket that closes the one at `open` (a '(', '{' or '['), or the end of the source when
+ * there is none. Strings, template literals and comments are skipped while counting brackets.
  */
-function listenerSpans(source, event) {
-  const spans = []
-  for (const found of source.matchAll(new RegExp(`addEventListener\\s*\\(\\s*(['"\`])${event}\\1`, 'g'))) {
-    const start = found.index
-    let depth = 0
-    let end = source.length
-    for (let index = source.indexOf('(', start); index >= 0 && index < source.length; index += 1) {
-      const character = source[index]
-      if (character === '/' && source[index + 1] === '/') index = source.indexOf('\n', index)
-      else if (character === '/' && source[index + 1] === '*') index = source.indexOf('*/', index) + 1
-      else if (character === "'" || character === '"' || character === '`') {
-        for (index += 1; index < source.length && source[index] !== character; index += source[index] === '\\' ? 2 : 1) { /* inside a string */ }
-      } else if (character === '(' || character === '{' || character === '[') depth += 1
-      else if (character === ')' || character === '}' || character === ']') {
-        depth -= 1
-        if (depth === 0) {
-          end = index + 1
-          break
-        }
-      }
+function closingBracket(source, open) {
+  let depth = 0
+  for (let index = open; index >= 0 && index < source.length; index += 1) {
+    const character = source[index]
+    if (character === '/' && source[index + 1] === '/') index = source.indexOf('\n', index)
+    else if (character === '/' && source[index + 1] === '*') index = source.indexOf('*/', index) + 1
+    else if (character === "'" || character === '"' || character === '`') {
+      for (index += 1; index < source.length && source[index] !== character; index += source[index] === '\\' ? 2 : 1) { /* inside a string */ }
+    } else if (character === '(' || character === '{' || character === '[') depth += 1
+    else if (character === ')' || character === '}' || character === ']') {
+      depth -= 1
+      if (depth === 0) return index + 1
     }
-    spans.push({ start, end })
+    if (index < 0) break
   }
-  return spans
+  return source.length
+}
+
+/** Where each listener for `event` starts and ends (from addEventListener to its closing parenthesis). */
+function listenerSpans(source, event) {
+  return [...source.matchAll(new RegExp(`addEventListener\\s*\\(\\s*(['"\`])${event}\\1`, 'g'))]
+    .map(found => ({ start: found.index, end: closingBracket(source, source.indexOf('(', found.index)) }))
+}
+
+/** Where each top-level `function name(` or `async function name(` declaration starts and ends (to its body's close). */
+function functionSpans(source, name) {
+  return [...source.matchAll(new RegExp(`^(?:async\\s+)?function\\s+${name}\\s*\\(`, 'gm'))].map(found => {
+    const parameters = source.indexOf('(', found.index)
+    return { start: found.index, end: closingBracket(source, source.indexOf('{', closingBracket(source, parameters))) }
+  })
 }
 
 const within = (spans, index) => spans.some(span => index >= span.start && index < span.end)
@@ -346,8 +361,32 @@ function inspectCacheUse(source, failures) {
   }
 }
 
+/**
+ * What the shell may fetch and write: Cache Storage is written (opened, put, added) only inside precacheShell, which
+ * fetches only `new Request(path, …)` for its own list; any other fetch is only the request being answered, inside
+ * shellResponse; and the fetch listener answers only through shellResponse, once.
+ */
+function inspectShellRequests(source, failures) {
+  const precache = functionSpans(source, 'precacheShell')
+  const answer = functionSpans(source, 'shellResponse')
+  for (const write of source.matchAll(/\bcaches\s*\.\s*open\s*\(|\.(?:put|add|addAll)\s*\(/g)) {
+    if (!within(precache, write.index)) failures.push('sw.js writes to the Cache API outside precacheShell')
+  }
+  for (const call of source.matchAll(/\bfetch\s*\(/g)) {
+    const rest = source.slice(call.index)
+    const allowed = (rest.startsWith('fetch(request)') && within(answer, call.index))
+      || (rest.startsWith('fetch(new Request(path, {') && within(precache, call.index))
+    if (!allowed) failures.push(`sw.js fetches other than the request it answers or its own shell files (${rest.slice(0, 40).split('\n')[0]})`)
+  }
+  const listeners = listenerSpans(source, 'fetch')
+  const answers = [...source.matchAll(/\brespondWith\s*\(/g)]
+  if (answers.length > 1 || answers.some(found => !within(listeners, found.index) || !source.startsWith(SHELL_RESPOND, found.index))) {
+    failures.push('sw.js answers requests other than through shellResponse')
+  }
+}
+
 /** The shell's file list the build wrote: null, or this build's own files (vite.config.ts, hidShellManifest). */
-function inspectShellManifest(source, paths, failures) {
+function inspectShellManifest(source, paths, indexHtml, failures) {
   const written = [...source.matchAll(SHELL_MANIFEST)]
   if (written.length !== 1) {
     failures.push(`sw.js must set self.__HID_SHELL__ exactly once; it does ${written.length} times`)
@@ -357,10 +396,14 @@ function inspectShellManifest(source, paths, failures) {
   try { shell = JSON.parse(written[0][1]) } catch { failures.push('sw.js sets self.__HID_SHELL__ to something other than JSON'); return }
   if (shell === null) return
   const keys = shell && typeof shell === 'object' && !Array.isArray(shell) ? Object.keys(shell).sort().join(',') : ''
-  if (keys !== 'assets,build,debug,environment' || !/^[0-9a-f]{16}$/.test(shell.build) || typeof shell.environment !== 'string'
-    || typeof shell.debug !== 'boolean' || !Array.isArray(shell.assets)) {
-    failures.push('sw.js has a shell file list that is not { build, environment, debug, assets }')
+  if (keys !== 'assets,build,debug,entry,environment' || !/^[0-9a-f]{16}$/.test(shell.build) || typeof shell.environment !== 'string'
+    || typeof shell.debug !== 'boolean' || typeof shell.entry !== 'string' || !Array.isArray(shell.assets)) {
+    failures.push('sw.js has a shell file list that is not { build, environment, debug, entry, assets }')
     return
+  }
+  // The worker saves a page only if it loads this entry, so it must be the built page's own module script.
+  if (!shell.assets.includes(shell.entry) || !indexHtml.includes(`src="${shell.entry}"`)) {
+    failures.push(`sw.js names ${shell.entry} as the page's entry, which is not the built index.html's module script`)
   }
   if (shell.debug && shell.environment === 'production') failures.push('sw.js is a production build with the offline debug panel on')
   for (const asset of shell.assets) {
@@ -375,7 +418,7 @@ function inspectShellManifest(source, paths, failures) {
  * reads only a message's type, and takes over only when a page asks. Neither uses storage, IndexedDB or other
  * connections, or imports a script.
  */
-function inspectServiceWorker(source, paths, failures) {
+function inspectServiceWorker(source, paths, indexHtml, failures) {
   for (const [pattern, reason] of WORKER_REFUSALS) {
     if (pattern.test(source)) failures.push(`sw.js ${reason}`)
   }
@@ -414,7 +457,14 @@ function inspectServiceWorker(source, paths, failures) {
     }
   }
   inspectCacheUse(source, failures)
-  inspectShellManifest(source, paths, failures)
+  inspectShellRequests(source, failures)
+  const pushStart = source.indexOf(PUSH_SECTION_START)
+  const pushEnd = source.indexOf(PUSH_SECTION_END)
+  const pushSection = pushStart === -1 || pushEnd === -1 ? '' : source.slice(pushStart, pushEnd + PUSH_SECTION_END.length)
+  if (createHash('sha256').update(pushSection).digest('hex') !== PUSH_SECTION_SHA256) {
+    failures.push('sw.js push and tap listeners are not the ones B6 shipped (their SHA-256 differs)')
+  }
+  inspectShellManifest(source, paths, indexHtml, failures)
 }
 
 /**
@@ -438,6 +488,7 @@ try {
 }
 
 const failures = []
+const indexHtml = paths.includes('index.html') ? await readFile(join(dist, 'index.html'), 'utf8') : ''
 // The offline debug panel (VITE_HID_OFFLINE_DEBUG) is for staging builds only (docs/OFFLINE-CONTRACT.md 2.3).
 if (process.env.VITE_HID_OFFLINE_DEBUG === 'true' && process.env.VITE_HID_ENVIRONMENT === 'production') {
   failures.push('the build environment turns the offline debug panel on for production')
@@ -452,7 +503,15 @@ for (const path of paths) {
     if (WORKER_API_CHUNK.test(path)) inspectWorkerApiChunk(path, source, failures)
     else failures.push(`${path} registers a service worker`)
   }
-  if (path === 'sw.js') inspectServiceWorker(source, paths, failures)
+  if (path === 'sw.js') inspectServiceWorker(source, paths, indexHtml, failures)
+  if (path === 'index.html') {
+    for (const preload of source.matchAll(WORKER_API_PRELOAD)) failures.push(`index.html preloads ${preload[1]}, which loads only when asked for`)
+  }
+  if (path.endsWith('.js')) {
+    for (const imported of source.matchAll(WORKER_API_STATIC_IMPORT)) {
+      failures.push(`${path} imports assets/${imported[1]} statically; it loads only when asked for (import())`)
+    }
+  }
   if (GOOGLE_SIGN_IN.test(source)) {
     failures.push(`${path} carries Google sign-in (Google Identity Services or a Google OAuth client id)`)
   }

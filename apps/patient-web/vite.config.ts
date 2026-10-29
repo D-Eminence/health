@@ -40,7 +40,8 @@ function builtFiles(directory: string): string[] {
  * `self.__HID_SHELL__ = null`. Only a build whose offline mode is pilot or on gets one: scripts/build-staging.py
  * builds every other host with mode off, and there the worker stays a push-only worker that handles no request.
  * The list is the build's own files and nothing else; the build name is a digest of them, so a new build is a new
- * cache generation. A production build with the offline debug panel on is refused here, before anything ships.
+ * cache generation, and the entry names the page's module script. A production build with the offline debug panel
+ * on is refused here, before anything ships.
  */
 function hidShellManifest(): Plugin {
   let outDir = ''
@@ -67,10 +68,14 @@ function hidShellManifest(): Plugin {
         .filter(path => SHELL_FILE.test(path)).sort()
       const digest = createHash('sha256')
       for (const path of ['index.html', ...assets]) digest.update(path).update('\0').update(readFileSync(join(outDir, path))).update('\0')
+      // The page's entry script: the worker saves a page only if it loads this, so never another build's page.
+      const entry = /<script\b[^>]*\btype="module"[^>]*\bsrc="(\/assets\/[^"]+)"/.exec(readFileSync(join(outDir, 'index.html'), 'utf8'))?.[1]
+      if (!entry || !assets.includes(entry.slice(1))) throw new Error('index.html must load one module script from its own assets/.')
       const shell = {
         build: digest.digest('hex').slice(0, 16),
         environment: env.VITE_HID_ENVIRONMENT ?? 'local',
         debug: env.VITE_HID_OFFLINE_DEBUG === 'true',
+        entry,
         assets: assets.map(path => `/${path}`),
       }
       writeFileSync(workerPath, worker.replace(SHELL_PLACEHOLDER, `self.__HID_SHELL__ = ${JSON.stringify(shell)}`))
@@ -110,9 +115,6 @@ export default defineConfig(({ mode }) => {
       rollupOptions: {
         output: {
           manualChunks(id: string) {
-            // The app shell's registration gets a chunk of its own, the one besides pushDevice's that the launch build
-            // check lets use the service worker API (scripts/check-launch-build.mjs).
-            if (id.endsWith('/src/offline/shell.ts')) return 'shell'
             if (!id.includes('node_modules')) return undefined
             if (id.includes('/react-router')) return 'vendor-router'
             if (id.includes('/react-dom/') || id.includes('/react/')) return 'vendor-react'

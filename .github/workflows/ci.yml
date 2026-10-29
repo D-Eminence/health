@@ -56,5 +56,23 @@ jobs:
       - name: Launch build check
         run: npm run audit:launch-build
 
+      # The same check on a build with the offline app shell (docs/OFFLINE-CONTRACT.md 2.12-2.13): an EHR/Migrate
+      # pilot build writes the shell's file list into sw.js, which the build above (offline off) leaves null. Local
+      # placeholder configuration as above, so no Google client ID and nothing points at production.
+      - name: Launch build check (offline pilot shell)
+        env:
+          VITE_HID_ENVIRONMENT: local
+          VITE_HID_API_BASE_URL: http://127.0.0.1:54321
+          VITE_HID_APP_ORIGIN: http://localhost:3200
+          VITE_HID_OFFLINE_MODE: pilot
+          VITE_HID_OFFLINE_HOSTS: ehr,ocr
+          VITE_HID_OFFLINE_FACILITIES: 98d00002-0000-4000-8000-000000000001
+          VITE_HID_OFFLINE_DEBUG: 'false'
+        run: |
+          rm -rf apps/patient-web/dist
+          npm run build:patient-web
+          grep -q '^self.__HID_SHELL__ = {' apps/patient-web/dist/sw.js
+          npm run audit:launch-build
+
       - name: Dependency audit
         run: npm audit --audit-level=high

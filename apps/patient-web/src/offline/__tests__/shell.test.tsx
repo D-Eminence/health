@@ -105,6 +105,29 @@ describe('purgeShellWhenOff (the kill switch)', () => {
     expect(registration.unregister).not.toHaveBeenCalled()
   })
 
+  it('purgeShell() purges in a pilot build too (a facility left the pilot), without registering or unregistering', async () => {
+    const registration = new FakeRegistration()
+    registration.waiting = new FakeWorker()
+    registration.installing = new FakeWorker()
+    container.registration = registration
+    await shell.purgeShell()
+    for (const worker of [registration.active, registration.waiting, registration.installing]) {
+      expect(worker!.postMessage).toHaveBeenCalledWith({ type: 'HID_PURGE_SHELL' })
+    }
+    expect(container.register).not.toHaveBeenCalled()
+    expect(registration.unregister).not.toHaveBeenCalled()
+  })
+
+  it('purgeShell() leaves a registration of another script alone, and never throws', async () => {
+    const registration = new FakeRegistration()
+    registration.active = new FakeWorker('https://ehr.healthidentitydirectory.com/service-worker.js')
+    container.registration = registration
+    await shell.purgeShell()
+    expect(registration.active.postMessage).not.toHaveBeenCalled()
+    container.getRegistration.mockRejectedValueOnce(new DOMException('refused', 'SecurityError'))
+    await expect(shell.purgeShell()).resolves.toBeUndefined()
+  })
+
   it('does nothing in an offline build, or without a registration', async () => {
     container.registration = new FakeRegistration()
     await shell.purgeShellWhenOff()

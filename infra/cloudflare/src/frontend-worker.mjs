@@ -187,6 +187,15 @@ function servesWorker(path, response) {
     || (response.status >= 200 && response.status < 300 && JAVASCRIPT.test(response.headers.get('content-type') ?? ''))
 }
 
+/**
+ * A file under /assets/ that the build lacks must not be answered with index.html by the single-page fallback: the
+ * offline app shell (apps/patient-web/public/sw.js) would save that page as a script or stylesheet. The build's own
+ * files there are never HTML.
+ */
+function servesPageAsFile(path, response) {
+  return path.startsWith('/assets/') && HTML.test(response.headers.get('content-type') ?? '')
+}
+
 function applicationRouteRedirect(request, requestUrl, deployment) {
   if (!['GET', 'HEAD'].includes(request.method)) return null
   const adminPaths = new Set(['integrations', 'overview', 'facilities', 'principals', 'applications',
@@ -296,7 +305,7 @@ export function createFrontendWorker() {
       const redirect = applicationRouteRedirect(request, url, deployment)
       if (redirect) return withSecurityHeaders(redirect, false, deployment.application, url.pathname, deployment.contentSecurityPolicy)
       const assetResponse = await environment.ASSETS.fetch(request)
-      if (!servesWorker(url.pathname, assetResponse)) {
+      if (!servesWorker(url.pathname, assetResponse) || servesPageAsFile(url.pathname, assetResponse)) {
         return problem(404, 'NOT_FOUND', 'The requested file is not available.', correlationId(request))
       }
       return withSecurityHeaders(assetResponse, false, deployment.application, url.pathname, deployment.contentSecurityPolicy)
