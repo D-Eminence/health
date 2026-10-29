@@ -174,9 +174,12 @@ export function asJson(v: unknown): Json {
 
 let channelSeq = 0
 /** A BroadcastChannel private to one test, so parallel test files never hear each other. */
-export function privateChannel(): new (name: string) => BroadcastChannel {
+export function privateChannel(): (new (name: string) => BroadcastChannel) & { channelName: string } {
   const name = `hid-offline-test-${(channelSeq += 1)}-${Math.random()}`
-  return class extends BroadcastChannel { constructor() { super(name) } }
+  return class extends BroadcastChannel {
+    static channelName = name
+    constructor() { super(name) }
+  }
 }
 
 /** Poll until `check` holds (or fail after `ms`). */

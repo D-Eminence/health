@@ -120,7 +120,7 @@ export interface OfflineCore extends OfflineRuntime {
   /** Page visibility changed. Hidden for 5 minutes locks. */
   noteVisibility(hidden: boolean): void
   connectivity(): Connectivity
-  /** True when no command is `sending` in any tab of this origin (the shell's Update now gate). */
+  /** True when no command is `sending` in this origin's outbox (amendment A7; asks other tabs too). */
   updateSafe(): Promise<boolean>
   /**
    * Add or refresh a patient in the sealed offline index (100 per vault, least

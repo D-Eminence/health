@@ -1,18 +1,20 @@
 /**
  * Cross-tab messages on BroadcastChannel `health-id-offline` (§2.6, §2.12):
  * lock (keys dropped in every tab), outbox-changed (the sender re-reads),
- * wipe, and the shell's update-safe query (is any command on the wire?).
+ * wipe, and the shell's update-safe query (amendment A7: a tab whose outbox
+ * has a command in state `sending` answers `safe:false`; no answer within
+ * 500 ms means nothing is sending).
  * Messages carry ids only, never content.
  */
 
-import { CHANNEL } from './contracts'
+import { CHANNEL, type UpdateSafeAnswer, type UpdateSafeQuery } from './contracts'
 
 export type OfflineMessage =
   | { type: 'lock'; reason: string }
   | { type: 'outbox-changed'; vaultId: string }
   | { type: 'wipe'; reason: string }
-  | { type: 'update-safe?'; id: string }
-  | { type: 'update-safe!'; id: string; sending: number }
+  | UpdateSafeQuery
+  | UpdateSafeAnswer
   | { type: 'summary-changed' }
 
 type ChannelCtor = new (name: string) => BroadcastChannel
@@ -41,16 +43,24 @@ export class OfflineBroadcast {
     return () => { this.listeners.delete(listener) }
   }
 
-  /** Ask every other tab how many commands it has on the wire. Resolves after `waitMs`. */
-  async othersSending(waitMs = 300): Promise<number> {
-    if (!this.channel) return 0
+  /** Answer every update-safe query (A7) with `safe: !(await sending())`. Returns the unsubscribe. */
+  answerUpdateSafe(sending: () => Promise<boolean>): () => void {
+    return this.on(m => {
+      if (m.type !== 'update-safe-query' || typeof m.id !== 'string') return
+      void sending().catch(() => true).then(busy => this.post({ type: 'update-safe', id: m.id, safe: !busy }))
+    })
+  }
+
+  /** Ask the other tabs (A7). True when none answers `safe:false` within `waitMs`. */
+  async othersSafe(waitMs = 500): Promise<boolean> {
+    if (!this.channel) return true
     const id = globalThis.crypto.randomUUID()
-    let total = 0
-    const off = this.on(m => { if (m.type === 'update-safe!' && m.id === id) total += m.sending })
-    this.post({ type: 'update-safe?', id })
+    let safe = true
+    const off = this.on(m => { if (m.type === 'update-safe' && m.id === id && m.safe === false) safe = false })
+    this.post({ type: 'update-safe-query', id })
     await new Promise(resolve => setTimeout(resolve, waitMs))
     off()
-    return total
+    return safe
   }
 
   close(): void {

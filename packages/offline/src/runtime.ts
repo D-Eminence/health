@@ -548,14 +548,23 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
         }
         changed()
         break
-      case 'update-safe?':
-        broadcast.post({ type: 'update-safe!', id: m.id, sending: engine.inFlight() })
-        break
       default:
         break
     }
   }
   broadcast.on(m => { void onMessage(m) })
+  broadcast.answerUpdateSafe(() => outboxSending())
+
+  /**
+   * A7: this origin's outbox has a command in state `sending` (or one on the wire from this tab). Read from the
+   * plaintext state field, so a locked tab answers too.
+   */
+  async function outboxSending(): Promise<boolean> {
+    if (engine.inFlight() > 0) return true
+    if (!openStore) return false
+    const recs = await openStore.read(['outbox'], tx => tx.all('outbox'))
+    return recs.some(r => r.state === 'sending')
+  }
 
   // Kill switch (§2.3): a release with mode `off` wipes every readable copy on the next load; pending work is kept
   // and sent after the next sign-in (attachSession opens those vaults send-only).
@@ -811,8 +820,8 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
     connectivity: (): Connectivity => connectivity.current(),
 
     async updateSafe() {
-      if (engine.inFlight() > 0) return false
-      return (await broadcast.othersSending()) === 0
+      if (await outboxSending()) return false
+      return broadcast.othersSafe()
     },
 
     async rememberPatient(e: PatientEntryInput) {
