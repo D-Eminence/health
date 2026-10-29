@@ -582,8 +582,11 @@ export function createFakeOfflineRuntime(options: FakeOptions = {}): { runtime: 
       }
       failedUnlocks = 0
       if (clockNow >= leaseUntil(v)) { wipeCache(v); return { ok: false, reason: 'lease-expired' } }
+      // As the real runtime: a facility no longer enabled (kill switch, left the pilot) never opens offline.
+      if (facilityAllowed(config, appHost, v.session.facilityId)) return { ok: false, reason: 'no-vault' }
       open = v
       status = 'unlocked'
+      lastPolicy = { mode: config.mode, enabled: true }
       lastActivity = clockNow
       pushAudit(v, { action: 'ehr.offline.unlock', patientId: null, section: null, resourceId: null, grantExpiresAt: null })
       notify()
