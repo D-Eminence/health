@@ -11,9 +11,10 @@ import { CHANNEL, type UpdateSafeAnswer, type UpdateSafeQuery } from '../../../.
 const environment = vi.hoisted(() => ({ VITE_HID_OFFLINE_MODE: 'pilot' as string | undefined }))
 vi.mock('../../publicEnvironment', () => ({ PUBLIC_ENVIRONMENT: environment }))
 
-import type * as Shell from '../shell'
+import type * as ShellUpdate from '../shellUpdate'
 
 const shell = await import('../shell')
+const shellUpdate = await import('../shellUpdate')
 
 class FakeWorker extends EventTarget {
   postMessage = vi.fn()
@@ -46,6 +47,7 @@ beforeEach(() => {
   container = new FakeContainer()
   Object.defineProperty(navigator, 'serviceWorker', { configurable: true, value: container })
   shell.resetShellForTests({ reload })
+  shellUpdate.resetShellUpdateForTests()
   reload.mockReset()
 })
 
@@ -55,17 +57,17 @@ afterEach(() => {
 
 describe('shellMode', () => {
   it('is pilot or on only when the build says exactly that; anything else is off', () => {
-    expect(shell.shellMode({ VITE_HID_OFFLINE_MODE: 'pilot' })).toBe('pilot')
-    expect(shell.shellMode({ VITE_HID_OFFLINE_MODE: 'on' })).toBe('on')
-    for (const mode of [undefined, '', 'off', 'ON', 'true']) expect(shell.shellMode({ VITE_HID_OFFLINE_MODE: mode })).toBe('off')
+    expect(shellUpdate.shellMode({ VITE_HID_OFFLINE_MODE: 'pilot' })).toBe('pilot')
+    expect(shellUpdate.shellMode({ VITE_HID_OFFLINE_MODE: 'on' })).toBe('on')
+    for (const mode of [undefined, '', 'off', 'ON', 'true']) expect(shellUpdate.shellMode({ VITE_HID_OFFLINE_MODE: mode })).toBe('off')
   })
 
   it('uses the offline package\'s channel name and its update-safe message types (A7)', () => {
-    expect(shell.OFFLINE_CHANNEL).toBe(CHANNEL)
+    expect(shellUpdate.OFFLINE_CHANNEL).toBe(CHANNEL)
     // Compile-time: the shell's messages are assignable both ways to the frozen contract's.
-    const query: UpdateSafeQuery = { type: 'update-safe-query', id: 'q' } satisfies Shell.UpdateSafeQuery
-    const answer: UpdateSafeAnswer = { type: 'update-safe', id: 'q', safe: false } satisfies Shell.UpdateSafeAnswer
-    const back: [Shell.UpdateSafeQuery, Shell.UpdateSafeAnswer] = [query, answer]
+    const query: UpdateSafeQuery = { type: 'update-safe-query', id: 'q' } satisfies ShellUpdate.UpdateSafeQuery
+    const answer: UpdateSafeAnswer = { type: 'update-safe', id: 'q', safe: false } satisfies ShellUpdate.UpdateSafeAnswer
+    const back: [ShellUpdate.UpdateSafeQuery, ShellUpdate.UpdateSafeAnswer] = [query, answer]
     expect(back).toHaveLength(2)
   })
 })
@@ -157,21 +159,21 @@ describe('broadcastSending (the update-safe query)', () => {
   it('asks on the health-id-offline channel and is true when a runtime answers that it is sending', async () => {
     const channel = channelWith(query => ({ type: 'update-safe', id: query.id, safe: false }))
     const open = vi.fn(() => channel)
-    expect(await shell.broadcastSending(open as never, 50)).toBe(true)
+    expect(await shellUpdate.broadcastSending(open as never, 50)).toBe(true)
     expect(open).toHaveBeenCalledWith('health-id-offline')
     expect(channel.postMessage).toHaveBeenCalledWith({ type: 'update-safe-query', id: expect.any(String) })
     expect(channel.close).toHaveBeenCalled()
   })
 
   it('is false when every answer is safe, when nobody answers, and without BroadcastChannel', async () => {
-    expect(await shell.broadcastSending((() => channelWith(query => ({ type: 'update-safe', id: query.id, safe: true }))) as never, 20)).toBe(false)
-    expect(await shell.broadcastSending((() => channelWith(null)) as never, 20)).toBe(false)
-    expect(await shell.broadcastSending(() => null, 20)).toBe(false)
+    expect(await shellUpdate.broadcastSending((() => channelWith(query => ({ type: 'update-safe', id: query.id, safe: true }))) as never, 20)).toBe(false)
+    expect(await shellUpdate.broadcastSending((() => channelWith(null)) as never, 20)).toBe(false)
+    expect(await shellUpdate.broadcastSending(() => null, 20)).toBe(false)
   })
 
   it('ignores answers to another question', async () => {
     const channel = channelWith(() => ({ type: 'update-safe', id: 'someone-else', safe: false }))
-    expect(await shell.broadcastSending((() => channel) as never, 20)).toBe(false)
+    expect(await shellUpdate.broadcastSending((() => channel) as never, 20)).toBe(false)
   })
 })
 
@@ -188,14 +190,14 @@ describe('useShellUpdate', () => {
   it('is ready when a new build waits behind the running one, and can update when nothing is unsaved or sending', async () => {
     waitingUpdate()
     const safe = safety(false, false)
-    const { result } = renderHook(() => shell.useShellUpdate(safe))
+    const { result } = renderHook(() => shellUpdate.useShellUpdate(safe))
     await waitFor(() => expect(result.current.ready).toBe(true))
     await waitFor(() => expect(result.current.canUpdate).toBe(true))
   })
 
   it('cannot update while a form is unsaved', async () => {
     waitingUpdate()
-    const { result } = renderHook(() => shell.useShellUpdate(safety(true, false)))
+    const { result } = renderHook(() => shellUpdate.useShellUpdate(safety(true, false)))
     await waitFor(() => expect(result.current.ready).toBe(true))
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)) })
     expect(result.current.canUpdate).toBe(false)
@@ -203,16 +205,17 @@ describe('useShellUpdate', () => {
 
   it('cannot update while any tab is sending, and update() then does nothing', async () => {
     const registration = waitingUpdate()
-    const { result } = renderHook(() => shell.useShellUpdate(safety(false, true)))
+    const { result } = renderHook(() => shellUpdate.useShellUpdate(safety(false, true)))
     await waitFor(() => expect(result.current.ready).toBe(true))
     await act(async () => { await result.current.update() })
     expect(result.current.canUpdate).toBe(false)
+    expect(result.current.sending).toBe(true)
     expect(registration.waiting!.postMessage).not.toHaveBeenCalled()
   })
 
   it('update() asks the waiting worker to take over, then reloads this tab once it has', async () => {
     const registration = waitingUpdate()
-    const { result } = renderHook(() => shell.useShellUpdate(safety(false, false)))
+    const { result } = renderHook(() => shellUpdate.useShellUpdate(safety(false, false)))
     await waitFor(() => expect(result.current.canUpdate).toBe(true))
     await act(async () => { await result.current.update() })
     expect(registration.waiting!.postMessage).toHaveBeenCalledWith({ type: 'HID_SKIP_WAITING' })
@@ -223,7 +226,7 @@ describe('useShellUpdate', () => {
 
   it('says another tab updated, and never reloads by itself, when the takeover was not asked for here', async () => {
     waitingUpdate()
-    const { result } = renderHook(() => shell.useShellUpdate(safety(false, false)))
+    const { result } = renderHook(() => shellUpdate.useShellUpdate(safety(false, false)))
     await waitFor(() => expect(result.current.ready).toBe(true))
     act(() => { container.dispatchEvent(new Event('controllerchange')) })
     expect(result.current.updatedElsewhere).toBe(true)
@@ -234,7 +237,7 @@ describe('useShellUpdate', () => {
   it('is not ready on a first install, with no worker running the page', async () => {
     const registration = waitingUpdate()
     container.controller = null
-    const { result } = renderHook(() => shell.useShellUpdate(safety(false, false)))
+    const { result } = renderHook(() => shellUpdate.useShellUpdate(safety(false, false)))
     await waitFor(() => expect(container.getRegistration).toHaveBeenCalled())
     expect(result.current.ready).toBe(false)
     expect(registration.waiting!.postMessage).not.toHaveBeenCalled()
@@ -243,9 +246,20 @@ describe('useShellUpdate', () => {
   it('is never ready in a build with offline off', async () => {
     environment.VITE_HID_OFFLINE_MODE = 'off'
     waitingUpdate()
-    const { result } = renderHook(() => shell.useShellUpdate(safety(false, false)))
+    const { result } = renderHook(() => shellUpdate.useShellUpdate(safety(false, false)))
     await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)) })
     expect(result.current).toMatchObject({ ready: false, canUpdate: false })
     expect(container.getRegistration).not.toHaveBeenCalled()
+  })
+})
+
+describe('shellUpdate.ts, which apps import statically', () => {
+  it('has no service worker API and reaches shell.ts only through import()', async () => {
+    const [{ readFileSync }, { dirname, resolve }, { fileURLToPath }] = await Promise.all([import('node:fs'), import('node:path'), import('node:url')])
+    const source = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../shellUpdate.ts'), 'utf8')
+    expect(source).not.toMatch(/serviceWorker|pushManager|showNotification/)
+    expect(source).not.toMatch(/^\s*import\b[^(]*['"]\.\/shell['"]/m)
+    expect(source).not.toMatch(/^\s*export\b[^(]*from\s*['"]\.\/shell['"]/m)
+    expect(source).toContain("import('./shell')")
   })
 })

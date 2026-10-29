@@ -954,6 +954,12 @@ a missing file under `/assets/`. The worker never handles
 seconds, then the saved index.html. A new build waits until the page's "Update
 now", which is enabled only while no form is unsaved and no tab is sending, and
 which asks it to take over (`HID_SKIP_WAITING`); it never takes over by itself.
+The banner's hook (`useShellUpdate`) and `setUnsavedFormsSource` live in
+`apps/patient-web/src/offline/shellUpdate.ts`, which has no service worker API
+and may be imported statically; it loads `shell.ts` itself. Everything that
+touches the worker is in `shell.ts`, which apps reach only through `import()`
+(`enableShell`, `purgeShell`), so it stays a chunk of its own that no page
+preloads or imports statically.
 HTML responses carry a report-only Content-Security-Policy
 (`infra/cloudflare/src/frontend-worker.mjs`, D11), to be enforced after 48
 hours without violations.
@@ -971,10 +977,13 @@ three files, `apps/patient-web/src/pushDevice.ts`,
 IndexedDB, imported scripts, a cache by another name, a write to Cache Storage
 outside `precacheShell`, a fetch of anything but the request being answered
 (in `shellResponse`) or the build's own shell files (in `precacheShell`), an
-answer other than through `shellResponse`, any API path but its exclusion
-guard, work at install, an unrequested takeover, push and tap listeners that
-differ from B6's (pinned by SHA-256), and a shell list naming a file outside the
-build or an entry that is not the built page's script. The portal's pages keep each read's last answer
+answer other than through `shellResponse` (and `shellResponse` called from
+anywhere but the fetch event's answer), `fetch` aliased or passed rather than
+called, the shell saved other than on `HID_SHELL_ENABLE` or activate, any API
+path but its exclusion guard, work at install, an unrequested takeover, push
+and tap listeners that differ from B6's (pinned by SHA-256) or a second one of
+either, and a shell list naming a file outside the build or an entry that is
+not the built page's script. The portal's pages keep each read's last answer
 in memory for the patient signed in (`apps/patient-web/src/resourceCache.ts`),
 so a page opened again shows it at once while it reads again; it goes as that
 patient signs out or another account signs in, and is never written to browser

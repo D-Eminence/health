@@ -378,7 +378,28 @@ function inspectShellRequests(source, failures) {
       || (rest.startsWith('fetch(new Request(path, {') && within(precache, call.index))
     if (!allowed) failures.push(`sw.js fetches other than the request it answers or its own shell files (${rest.slice(0, 40).split('\n')[0]})`)
   }
+  // fetch is only ever called, never aliased or passed (`const get = self.fetch`); its listener's name is the one exception.
+  for (const reference of source.matchAll(/\bfetch\b(?!\s*\()/g)) {
+    if (!/addEventListener\s*\(\s*['"`]$/.test(source.slice(Math.max(0, reference.index - 24), reference.index))) {
+      failures.push('sw.js refers to fetch other than by calling it')
+    }
+  }
+  const declaration = index => /\bfunction\s+$/.test(source.slice(Math.max(0, index - 16), index))
+  // The shell is saved only when a page asks (HID_SHELL_ENABLE) or on activate (A5): never at start or on a request.
+  const asked = [...listenerSpans(source, 'message'), ...listenerSpans(source, 'activate')]
+  for (const call of source.matchAll(/\bprecacheShell\s*\(/g)) {
+    if (!declaration(call.index) && !within(asked, call.index)) {
+      failures.push('sw.js saves the shell other than when a page asks (HID_SHELL_ENABLE) or on activate')
+    }
+  }
   const listeners = listenerSpans(source, 'fetch')
+  // shellResponse fetches the request it is given, so only the fetch event may give it one.
+  for (const call of source.matchAll(/\bshellResponse\s*\(/g)) {
+    if (declaration(call.index)) continue
+    if (!within(listeners, call.index) || !source.startsWith(SHELL_RESPOND, call.index - 'respondWith('.length)) {
+      failures.push('sw.js calls shellResponse other than to answer the fetch event')
+    }
+  }
   const answers = [...source.matchAll(/\brespondWith\s*\(/g)]
   if (answers.length > 1 || answers.some(found => !within(listeners, found.index) || !source.startsWith(SHELL_RESPOND, found.index))) {
     failures.push('sw.js answers requests other than through shellResponse')
@@ -463,6 +484,13 @@ function inspectServiceWorker(source, paths, indexHtml, failures) {
   const pushSection = pushStart === -1 || pushEnd === -1 ? '' : source.slice(pushStart, pushEnd + PUSH_SECTION_END.length)
   if (createHash('sha256').update(pushSection).digest('hex') !== PUSH_SECTION_SHA256) {
     failures.push('sw.js push and tap listeners are not the ones B6 shipped (their SHA-256 differs)')
+  }
+  // Each of them exactly once, and that one inside the pinned section: a second listener would escape the pin.
+  for (const event of REQUIRED_WORKER_EVENTS) {
+    const spans = listenerSpans(source, event)
+    if (spans.length !== 1 || pushStart === -1 || spans[0].start < pushStart || spans[0].end > pushStart + pushSection.length) {
+      failures.push(`sw.js listens for ${event} other than once, in B6's pinned listeners`)
+    }
   }
   inspectShellManifest(source, paths, indexHtml, failures)
 }
