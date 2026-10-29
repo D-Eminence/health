@@ -12,6 +12,14 @@ Code references use two prefixes: `health:` is this repository; `hid:` is D-Emin
 
 **A4. Test cards run on production.** The Chrome-extension cards in section 2.15 run on the production hosts in Demo Hospital, not on staging builds. The debug panel (`VITE_HID_OFFLINE_DEBUG`) stays off in production, so testers simulate loss of connection with the browser's own switch (Developer tools, Network, Offline; or turning Wi-Fi off) and read state from the visible sync status. Automated tests (section 2.15 unit, integration and Playwright suites) run in CI as written.
 
+**A5. Real facilities see nothing while the pilot runs.** In `pilot` mode the facility is unknown before sign-in, so:
+- The sign-in page shows no offline checkbox. When the mode is not `off`, `prepareFromSignIn` still derives the KEK in memory during sign-in (invisible). After the session is ready, `attachSession` checks the facility: if it is in the pilot list and the device has no vault yet, the EHR shows a one-time choice "Keep an offline copy on this device (personal devices only)"; if the facility is not enabled, or the person declines, the KEK is dropped and nothing is written.
+- `shell.ts` registers or updates the shell only after `attachSession` has opened a vault for an enabled facility. It then posts `{type:'HID_SHELL_ENABLE'}`.
+- `/sw.js` precaches nothing at `install` and its `fetch` handler passes everything through unless a `health-id-shell-*` cache already exists. The first precache happens on `HID_SHELL_ENABLE`; on later `activate`, a worker that finds an older shell cache precaches its own build before deleting old generations. This keeps every existing push registration (patients on `app.`) behaving exactly as today.
+- The Demo Hospital facility ID is `98d00002-0000-4000-8000-000000000001` (fixed by hid-system migration 0098). `config/production.json` gets `offline: { mode: "pilot", facilities: ["98d00002-0000-4000-8000-000000000001"], debug: false }`; `config/staging.json` gets `mode: "off"`.
+
+**A6. Branches and pull requests.** The coordinator runs each stream as its own Claude Code session. Each session works on the branch its session gives it, starts from `offline/base` (health) or `staging-novu-ci-20261005` (hid-system), and opens a **draft** pull request into `offline/base` (health) or `staging-novu-ci-20261005` (hid-system). Stream A's `testing.ts` is merged into `offline/base` by the coordinator as soon as it is pushed, so Stream B can build on it. The Terraform escrow work (Stream C, D6) is held until the owner asks for it; C4 returns 503 until then.
+
 **A3. Approved owner decisions.** D1 to D15 below were approved by the owner on 29 October 2026 ("Yes to D1-D15"). The pilot facility for testing is Demo Hospital; the first real pilot facility is named by the owner before it is switched on.
 
 ## Owner decisions (approved 29 October 2026)
