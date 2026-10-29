@@ -2,6 +2,12 @@
 export const OFFLINE_SCHEMA = 1 as const
 export const DB_NAME = 'health-id-offline'
 export const CHANNEL = 'health-id-offline'
+
+// Update-safe query on CHANNEL (coordinator amendment A7). The shell asks before activating a waiting
+// service worker; every tab whose outbox has a command in state `sending` answers `safe:false`.
+// No answer within 500 ms means nothing is sending.
+export interface UpdateSafeQuery { type: 'update-safe-query'; id: string }
+export interface UpdateSafeAnswer { type: 'update-safe'; id: string; safe: boolean }
 export const KEY_PREFIX = 'off1.'
 export const LIMITS = {
   leaseMs: 8 * 3600_000, absoluteMs: 24 * 3600_000, idleLockMs: 5 * 60_000, hiddenRecheckMs: 60_000,
