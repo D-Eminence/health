@@ -5,6 +5,8 @@ import { Button, Field, Textarea } from '@hid/ui'
 import { staffApi } from '../api'
 import { ACTIONS, CLASS_TEXT, OP_LABELS, REVIEW } from './copy'
 import { definitionOf } from './registry'
+import { dayTime } from './time'
+import type { ReportedHealthProfile } from '../../profileParity'
 
 export type ReviewAction = keyof typeof ACTIONS
 interface ReviewItem { commandId: string; class: ConflictClass; laneBlocked: number; patientId: string; op: OpName }
@@ -42,7 +44,7 @@ function resolvedOf(op: OpName, input: Json): Record<string, string> | null {
 function Comparison({ runtime, item }: { runtime: OfflineRuntime; item: ReviewItem }) {
   const [mine, setMine] = useState<Json | null | undefined>(undefined)
   const [current, setCurrent] = useState<unknown>(undefined)
-  const [safety, setSafety] = useState<unknown>(undefined)
+  const [safety, setSafety] = useState<ReportedHealthProfile | null | undefined>(undefined)
   useEffect(() => {
     let active = true
     void runtime.commands.pendingFor(item.patientId).then(async views => {
@@ -75,21 +77,13 @@ function Comparison({ runtime, item }: { runtime: OfflineRuntime; item: ReviewIt
   </>
 }
 
-/** Allergies and medications as the patient reported them, in words. */
-function SafetyFacts({ value }: { value: unknown }) {
-  const profile = (value && typeof value === 'object' ? value : {}) as Record<string, unknown>
-  const lines = (name: string) => {
-    const items = Array.isArray(profile[name]) ? profile[name] as unknown[] : []
-    return items.map(item => typeof item === 'string' ? item
-      : item && typeof item === 'object' ? String((item as Record<string, unknown>).name ?? (item as Record<string, unknown>).display
-        ?? (item as Record<string, unknown>).substance ?? (item as Record<string, unknown>).medication ?? '') : '').filter(Boolean)
-  }
-  const allergies = lines('allergies')
-  const medications = lines('medications')
-  if (!allergies.length && !medications.length) return <p className="staff-muted">{REVIEW.currentUnavailable}</p>
+/** Allergies and medications as the patient reported them, as Health ID has them now (ReportedHealthProfile). */
+function SafetyFacts({ value }: { value: ReportedHealthProfile | null }) {
+  if (!value || (!value.allergies && !value.currentMedications)) return <p className="staff-muted">{REVIEW.currentUnavailable}</p>
   return <dl className="offline-facts">
-    {allergies.length > 0 && <div><dt>Allergies</dt><dd>{allergies.join(', ')}</dd></div>}
-    {medications.length > 0 && <div><dt>Medications</dt><dd>{medications.join(', ')}</dd></div>}
+    {value.allergies && <div><dt>Allergies</dt><dd>{value.allergies}</dd></div>}
+    {value.currentMedications && <div><dt>Medications</dt><dd>{value.currentMedications}</dd></div>}
+    {value.updatedAt && <div><dt>Updated</dt><dd>{dayTime(value.updatedAt)}</dd></div>}
   </dl>
 }
 

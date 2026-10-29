@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { isHidApiError } from '@hid/http'
 import { Badge, Card } from '@hid/ui'
-import { staffApi } from '../api'
+import { ehrReads } from '../offline/ehrReads'
 import { HEALTH_FIELDS, type HealthFields, type ReportedHealthProfile } from '../../profileParity'
 
 /** As the patient's profile names them (hid-1.0's biodata). */
@@ -30,7 +30,7 @@ export function PatientReportedHealth({ facilityId, patientId }: { facilityId: s
     setState({ status: 'loading' })
     void (async () => {
       try {
-        const profile = await staffApi.reportedHealthProfile(facilityId, patientId, controller.signal)
+        const profile = await ehrReads.reportedHealthProfile(facilityId, patientId, controller.signal)
         if (!controller.signal.aborted) setState(profile ? { status: 'shown', profile } : { status: 'hidden' })
       } catch (caught) {
         if (controller.signal.aborted) return

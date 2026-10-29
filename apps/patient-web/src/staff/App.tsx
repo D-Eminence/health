@@ -34,7 +34,21 @@ import { resolveStaffProductHostname, STAFF_JOIN_PATH } from '../productHostname
 import { revealFocusedLink } from '../navStrip'
 import { useDocumentTitle } from '../authSteps'
 import { focusPageHeading, useFocusOnPageChange } from '../pageFocus'
+import { LIMITS, type LockReason, type OfflineRuntime, type StaffSessionSnapshot } from '@hid/offline'
+import { offlineActive, offlineRuntime, restoredStaffSession, useOfflineActive, useOfflineSummary } from './offline/runtime'
+import { offlineFacility } from './offline/environment'
+import { attachOnlineSession, healthIdUnreachable, keepsVaultFacility, offersOfflineSignIn } from './offline/session'
+import { OfflineSignIn } from './offline/OfflineSignIn'
+import { UnlockScreen } from './offline/UnlockScreen'
+import { KeepOfflineChoice } from './offline/KeepOfflineChoice'
+import { ConnectivityIndicator } from './offline/ConnectivityIndicator'
+import { SyncPanel } from './offline/SyncPanel'
+import { ReviewDrawer } from './offline/ReviewDrawer'
+import { UpdateBanner } from './offline/UpdateBanner'
+import { PANEL, SIGN_IN, UNLOCK } from './offline/copy'
+import { CaptureRoute } from './offline/OfflineCards'
 import './style.css'
+import './offline/offline.css'
 
 /** `reason`: why Identity ended the session, when it said (see StaffSessionEndReason). */
 type SessionState =
@@ -48,7 +62,12 @@ type SessionState =
    * from the actor's facilities; the session is the one it read, and the facility
    * must be chosen again before any page opens.
    */
-  | { status: 'ready'; session: StaffSession; facilityLost?: boolean }
+  | { status: 'ready'; session: StaffSession; facilityLost?: boolean; mode?: 'offline' }
+  /**
+   * Health ID could not be reached to read the session, and this device keeps an offline copy: the offline sign-in
+   * is offered (OFFLINE-CONTRACT §2.6). Never reached without an offline runtime.
+   */
+  | { status: 'offline-sign-in'; session: null }
 
 export interface ActivePatient {
   hid: string
@@ -62,10 +81,28 @@ export interface ActivePatient {
  * session still holds, or it could not say. Locked, the workspace is hidden and
  * inert, and protected requests wait (see `staffSessionReadyFor`).
  */
-type SessionLock = 'away' | 'checking' | 'unconfirmed' | null
+type SessionLock = 'away' | 'checking' | 'unconfirmed' | 'offline' | null
 
 /** A tab back in view after this long asks the server before it shows the workspace again. */
 const RECHECK_AFTER_HIDDEN_MS = 60_000
+
+/**
+ * The offline side of the session (OFFLINE-CONTRACT §2.6), present only while an offline runtime exists. `lockReason`
+ * is why the vault locked while the workspace shows the password unlock (lock 'offline'); `choice` is the one-time
+ * "Keep an offline copy" question (amendment A5); `paused` says this tab's vault is closed though offline is in use
+ * at this facility (an online reload: writes go straight online until the person unlocks).
+ */
+interface StaffOffline {
+  runtime: OfflineRuntime
+  lockReason: LockReason | 'unconfirmed' | null
+  choice: boolean
+  paused: boolean
+  restore(snapshot: StaffSessionSnapshot): void
+  unlocked(): void
+  keep(): Promise<void>
+  decline(): void
+  openUnlock(): void
+}
 
 interface StaffContextValue {
   state: SessionState
@@ -102,6 +139,8 @@ interface StaffContextValue {
    * late answer can neither reopen a patient nor move to their record.
    */
   setActivePatient(patient: ActivePatient | null): boolean
+  /** Null unless this page has an offline runtime: every screen then behaves as it always has. */
+  offline: StaffOffline | null
 }
 
 const StaffContext = createContext<StaffContextValue | null>(null)
@@ -118,6 +157,14 @@ export function StaffProvider({ children }: { children: ReactNode }) {
   const status = useRef<SessionState['status']>('loading')
   const currentSession = useRef<StaffSession | null>(null)
   const facilityLost = useRef(false)
+  // The offline runtime, when the build has one for this host (null otherwise: nothing below changes then).
+  const runtime = useMemo(() => offlineRuntime(), [])
+  // Whether the session in use was restored from this device's vault, with Health ID out of reach.
+  const offlineMode = useRef(false)
+  // The facility whose vault is open: a session read that no longer lists it ends the membership on this device.
+  const vaultFacility = useRef<string | null>(null)
+  const [offlineLockReason, setOfflineLockReason] = useState<LockReason | 'unconfirmed' | null>(null)
+  const [offlineChoice, setOfflineChoice] = useState<StaffSessionSnapshot | null>(null)
   const [lock, setLockState] = useState<SessionLock>(null)
   const lockRef = useRef<SessionLock>(null)
   // Where focus was when the workspace locked, given back when it opens again.
@@ -133,6 +180,7 @@ export function StaffProvider({ children }: { children: ReactNode }) {
   // Readiness for protected requests follows the state and the lock at once, not after a render.
   const setState = useCallback((next: SessionState) => {
     status.current = next.status; currentSession.current = next.session
+    offlineMode.current = next.status === 'ready' && next.mode === 'offline'
     facilityLost.current = next.status === 'ready' && next.facilityLost === true
     setSessionState(next)
     setStaffSessionActor(next.status === 'ready' ? next.session.actor.id : null)
@@ -174,6 +222,20 @@ export function StaffProvider({ children }: { children: ReactNode }) {
     }
   }, [currentPeriod])
 
+  // Locks the vault and shows the password unlock over the workspace, which stays mounted (§2.6).
+  const lockOffline = useCallback((reason: LockReason | 'unconfirmed') => {
+    if (!runtime) return
+    runtime.lock(reason === 'unconfirmed' ? 'session' : reason)
+    setOfflineLockReason(reason)
+    setLock('offline')
+  }, [runtime, setLock])
+  // A session read that no longer lists the vault's facility: the membership ended (§2.6, D9).
+  const checkVaultFacility = useCallback((session: StaffSession) => {
+    if (!runtime || keepsVaultFacility(session, vaultFacility.current)) return
+    vaultFacility.current = null
+    void runtime.wipe('membership').catch(() => undefined)
+  }, [runtime])
+
   // A protected request in the current session was refused with 401. That alone
   // does not prove the session ended, so the server is asked; but the refusal is
   // reason enough to lock the workspace at once, hiding every patient it shows,
@@ -211,9 +273,11 @@ export function StaffProvider({ children }: { children: ReactNode }) {
         if (document.visibilityState === 'hidden' && !away.current) away.current = { since: Date.now(), sentIn, cached: false }
         setLock(away.current?.sentIn === sentIn ? 'away' : null)
       }
+      // Offline, Health ID cannot confirm the session: the password reopens the workspace instead (§2.6).
+      else if (offlineActive(runtime) && runtime.summary().connectivity === 'offline') lockOffline('unconfirmed')
       else setLock('unconfirmed')
     })
-  }, [setState, setLock, startPeriod])
+  }, [setState, setLock, startPeriod, runtime, lockOffline])
   useEffect(() => onStaffSessionEnded(ask), [ask])
 
   // A refresh or check of this session that finds the facility this tab works at no
@@ -227,6 +291,7 @@ export function StaffProvider({ children }: { children: ReactNode }) {
     const current = currentSession.current
     const working = current?.actor.facility?.id
     if (status.current !== 'ready' || sentIn !== staffSessionGeneration() || !current || !working) return
+    if (read.actor.id === current.actor.id) checkVaultFacility(read)
     // A tab still asking has no facility of its own to lose: the facility it holds is only
     // the one Identity reported. Its question stays; a facility gone meanwhile is refused
     // when chosen, and the refusal says so.
@@ -236,7 +301,7 @@ export function StaffProvider({ children }: { children: ReactNode }) {
     // The question replaces the page and takes focus (FacilityChoice): focus held before a check is not given back.
     focusBeforeLock.current = null
     setState({ status: 'ready', session: read, facilityLost: true })
-  }), [setState, startPeriod])
+  }), [setState, startPeriod, checkVaultFacility])
   const askIfHeardWhileOpening = useCallback(() => {
     if (!heardWhileOpening.current) return
     heardWhileOpening.current = false
@@ -271,6 +336,8 @@ export function StaffProvider({ children }: { children: ReactNode }) {
       if (status.current !== 'ready') return
       // A restore whose visibility change already asked has nothing more to ask.
       if (!left) { if (restored && lockRef.current === null) recheck(); return }
+      // Hidden 5 minutes or more with offline in use: the vault locks, and only the password reopens it (§2.6).
+      if (offlineActive(runtime) && Date.now() - left.since >= LIMITS.idleLockMs) { lockOffline('hidden'); return }
       const brief = !restored && !left.cached && left.sentIn === staffSessionGeneration()
         && Date.now() - left.since < RECHECK_AFTER_HIDDEN_MS
       if (!brief) recheck()
@@ -296,7 +363,28 @@ export function StaffProvider({ children }: { children: ReactNode }) {
       window.removeEventListener('pageshow', onPageShow)
       window.removeEventListener('focus', onFocus)
     }
-  }, [ask, setLock])
+  }, [ask, setLock, runtime, lockOffline])
+
+  // Idle 5 minutes (no key, pointer, touch or wheel) with offline in use: the vault locks in every tab (§2.6). A lock
+  // made in another tab reaches this one through the runtime, and locks it too.
+  useEffect(() => {
+    if (!runtime) return
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const idle = () => { if (status.current === 'ready' && lockRef.current === null && offlineActive(runtime)) lockOffline('idle') }
+    const reset = () => { clearTimeout(timer); timer = setTimeout(idle, LIMITS.idleLockMs) }
+    const events = ['keydown', 'pointerdown', 'touchstart', 'wheel'] as const
+    for (const name of events) document.addEventListener(name, reset, { passive: true, capture: true })
+    reset()
+    let wasOpen = runtime.summary().vault === 'unlocked'
+    const stop = runtime.subscribe(() => {
+      const open = runtime.summary().vault === 'unlocked'
+      if (wasOpen && !open && status.current === 'ready' && lockRef.current !== 'offline' && runtime.policy().enabled) {
+        setOfflineLockReason('idle'); setLock('offline')
+      }
+      wasOpen = open
+    })
+    return () => { clearTimeout(timer); stop(); for (const name of events) document.removeEventListener(name, reset, { capture: true }) }
+  }, [runtime, lockOffline, setLock])
 
   const refresh = useCallback(async () => {
     startStaffSessionGeneration()
@@ -319,17 +407,61 @@ export function StaffProvider({ children }: { children: ReactNode }) {
       }
       if (!current()) return
       if (session.actor.kind === 'patient') throw new Error('This account does not have a staff session.')
+      checkVaultFacility(session)
       setState({ status: 'ready', session })
       askIfHeardWhileOpening()
     } catch (error) {
       if (!current()) return
       if (endsStaffSession(error)) {
         setState({ status: 'signed-out', session: null, reason: staffSessionEndReason(sentIn) })
-      } else {
-        setState({ status: 'error', session: null, error: error instanceof Error ? error.message : 'Session could not be verified.' })
+        return
       }
+      // Health ID out of reach, and this device keeps an offline copy: offer it (§2.6, "Offline cold start").
+      if (healthIdUnreachable(error) && await offersOfflineSignIn(runtime)) {
+        if (current()) setState({ status: 'offline-sign-in', session: null })
+        return
+      }
+      if (!current()) return
+      setState({ status: 'error', session: null, error: error instanceof Error ? error.message : 'Session could not be verified.' })
     }
-  }, [setState, setLock, startPeriod, askIfHeardWhileOpening])
+  }, [setState, setLock, startPeriod, askIfHeardWhileOpening, runtime, checkVaultFacility])
+
+  // After an online sign-in or facility switch, the runtime opens this account's vault for the facility, or the
+  // one-time "Keep an offline copy" question is asked (amendment A5). Without a runtime nothing happens.
+  const attachOffline = useCallback(async (session: StaffSession) => {
+    if (!runtime) return
+    const owner = period.current
+    const { result, snapshot } = await attachOnlineSession(runtime, session)
+    if (period.current !== owner) return
+    if (result === 'attached' && snapshot) vaultFacility.current = snapshot.facilityId
+    setOfflineChoice(result === 'choice' ? snapshot : null)
+  }, [runtime])
+
+  // Back online after working offline: the session is read in the background, keeping the workspace and its forms.
+  // A session that cannot be restored locks the vault and asks for an online sign-in (§2.6).
+  useEffect(() => {
+    if (!runtime) return
+    let reading = false
+    return runtime.subscribe(() => {
+      if (!offlineMode.current || reading || runtime.summary().connectivity !== 'online') return
+      reading = true
+      const sentIn = staffSessionGeneration()
+      const actorId = currentSession.current?.actor.id
+      void staffApi.session().then(read => {
+        if (sentIn !== staffSessionGeneration() || !offlineMode.current) return
+        if (read?.actor?.id !== actorId) throw new Error('another account')
+        checkVaultFacility(read)
+        setState({ status: 'ready', session: read })
+      }).catch((error: unknown) => {
+        if (sentIn !== staffSessionGeneration() || !offlineMode.current) return
+        if (healthIdUnreachable(error)) return
+        runtime.lock('session')
+        startStaffSessionGeneration(); startPeriod(); away.current = null
+        setState({ status: 'signed-out', session: null })
+        setLock(null)
+      }).finally(() => { reading = false })
+    })
+  }, [runtime, setState, setLock, startPeriod, checkVaultFacility])
 
   useEffect(() => { void refresh() }, [refresh])
 
@@ -362,6 +494,7 @@ export function StaffProvider({ children }: { children: ReactNode }) {
     setState({ status: 'ready', session })
     announceStaffSessionChange()
     askIfHeardWhileOpening()
+    void attachOffline(session)
   }
 
   async function selectFacility(id: string) {
@@ -372,7 +505,9 @@ export function StaffProvider({ children }: { children: ReactNode }) {
     startPeriod()
     // Identity accepted this tab's own choice: an answer for the facility sent is that choice, whatever
     // selection it reports. Asking again straight away would leave the person no way on.
-    setState({ status: 'ready', session: session.actor.facility?.id === id ? { ...session, facilitySelection: 'selected' } : session })
+    const chosen: StaffSession = session.actor.facility?.id === id ? { ...session, facilitySelection: 'selected' } : session
+    setState({ status: 'ready', session: chosen })
+    void attachOffline(chosen)
     return true
   }
 
@@ -380,7 +515,14 @@ export function StaffProvider({ children }: { children: ReactNode }) {
     // No next session can start meanwhile: signing in waits for a sign-out in progress.
     // So a sign-out answered while the session-ended screen shows also completes, as asked.
     // From a workspace locked for a check, the server is asked first whose session the browser holds.
-    await staffApi.logout(lockRef.current === 'checking' || lockRef.current === 'unconfirmed')
+    // Offline, the sign-out is noted on the device and sent first on the next online load (§2.6, "Wipe triggers").
+    if (runtime && offlineMode.current) await runtime.signOut({ online: false })
+    else {
+      await staffApi.logout(lockRef.current === 'checking' || lockRef.current === 'unconfirmed')
+      if (runtime) await runtime.signOut({ online: true }).catch(() => undefined)
+    }
+    vaultFacility.current = null
+    setOfflineChoice(null); setOfflineLockReason(null)
     startStaffSessionGeneration()
     startPeriod()
     away.current = null
@@ -390,9 +532,40 @@ export function StaffProvider({ children }: { children: ReactNode }) {
   }
 
   const checkSession = useCallback(() => ask(staffSessionGeneration()), [ask])
+  const summary = useOfflineSummary(runtime)
+  const facilityId = state.status === 'ready' ? state.session.actor.facility?.id : undefined
+  const offline = useMemo<StaffOffline | null>(() => !runtime ? null : {
+    runtime,
+    lockReason: offlineLockReason,
+    choice: offlineChoice !== null,
+    // A vault closed on this tab at a facility that works offline: an online reload, with no password typed yet.
+    paused: !offlineMode.current && summary?.vault === 'locked' && offlineFacility(facilityId) && offlineChoice === null,
+    restore(snapshot) {
+      const session = restoredStaffSession(snapshot)
+      if (!session) return
+      startStaffSessionGeneration()
+      startPeriod()
+      away.current = null
+      vaultFacility.current = snapshot.facilityId
+      setLock(null)
+      setState({ status: 'ready', session, mode: 'offline' })
+    },
+    unlocked() { setOfflineLockReason(null); setLock(null) },
+    async keep() {
+      const snapshot = offlineChoice
+      if (!snapshot) return
+      await runtime.attachSession(snapshot, { optIn: true, online: true })
+      if (!offlineActive(runtime)) throw new Error('not kept')
+      vaultFacility.current = snapshot.facilityId
+      setOfflineChoice(null)
+    },
+    // Declined: nothing is written, and the key derived at sign-in is dropped.
+    decline() { setOfflineChoice(null); runtime.lock('manual') },
+    openUnlock() { setOfflineLockReason('manual'); setLock('offline') },
+  }, [runtime, offlineLockReason, offlineChoice, summary, facilityId, startPeriod, setLock, setState])
   const value = useMemo<StaffContextValue>(() => ({ state, lock, checkSession, activePatient, login, verifyMfa,
     sendEnrollmentCode: staffApi.sendEnrollmentCode, startEnrollment: staffApi.startEnrollment, activateEnrollment,
-    completeSignIn, refresh, selectFacility, signOut, setActivePatient }), [state, lock, checkSession, activePatient, refresh, setActivePatient])
+    completeSignIn, refresh, selectFacility, signOut, setActivePatient, offline }), [state, lock, checkSession, activePatient, refresh, setActivePatient, offline])
   return <StaffContext.Provider value={value}>{children}</StaffContext.Provider>
 }
 
@@ -456,9 +629,12 @@ function SessionCheck({ unconfirmed }: { unconfirmed: boolean }) {
 }
 
 function Gate({ children }: { children: ReactNode }) {
-  const { state, lock, refresh } = useStaff()
+  const { state, lock, refresh, offline, signOut } = useStaff()
   const { pathname } = useLocation()
   if (state.status === 'ended') return <SessionEnded reason={state.reason} />
+  if (state.status === 'offline-sign-in') {
+    return offline ? <OfflineSignIn runtime={offline.runtime} onRestored={offline.restore} onRetry={() => void refresh()} /> : null
+  }
   // Each state screen is the page: a main landmark, and an h1 where it has a title.
   if (state.status === 'loading') return <main className="staff-centered"><BrandLogo className="staff-state-logo" /><div role="status"><h1>Checking your secure session…</h1></div></main>
   if (state.status === 'error') return <main className="staff-centered"><BrandLogo className="staff-state-logo" /><EmptyState titleAs="h1" title="Session unavailable" description={state.error} action={<Button onClick={() => void refresh()}>Try again</Button>} /></main>
@@ -473,7 +649,12 @@ function Gate({ children }: { children: ReactNode }) {
   if (state.session.actor.facilities.length === 0) return <main className="staff-centered"><BrandLogo className="staff-state-logo" /><EmptyState titleAs="h1" title="No facility assignment" description="Your account has no active facility membership. Ask your organization administrator for access." /></main>
   // Locked, the workspace is hidden and inert but stays mounted: nothing reloads,
   // and a session the server still accepts gets it back as it was.
-  return <>{lock && <SessionCheck unconfirmed={lock === 'unconfirmed'} />}<div hidden={lock !== null} inert={lock !== null}>{children}</div></>
+  // Locked for offline use, the password reopens it; the forms beneath keep what was typed.
+  const unlock = lock === 'offline' && offline
+    ? <UnlockScreen runtime={offline.runtime} reason={offline.lockReason ?? 'idle'} onUnlocked={offline.unlocked}
+      onSignOut={() => void signOut().catch(() => undefined)} onCancel={offline.lockReason === 'manual' ? offline.unlocked : undefined} />
+    : null
+  return <>{unlock ?? (lock && <SessionCheck unconfirmed={lock === 'unconfirmed'} />)}<div hidden={lock !== null} inert={lock !== null}>{children}</div></>
 }
 
 /**
@@ -585,6 +766,7 @@ function FacilityChoice({ reason, onChosen }: { reason: FacilityQuestion; onChos
 const PAGE_TITLES: Readonly<Record<string, string>> = Object.fromEntries([
   ...navigation.map(item => [item.to, item.label]),
   ['/provider/migrate', 'Migration workspace'],
+  ['/provider/capture', 'Capture documents'],
   [STAFF_JOIN_PATH, 'Join a facility'],
 ])
 /** Pages only Novu serves (P4b): on main their paths are not routed, so the tab says so. */
@@ -601,6 +783,8 @@ function ProviderTitle() {
   const path = useLocation().pathname.replace(/\/+$/, '').toLowerCase()
   const page = path === '/provider/sign-in' ? 'Sign in'
     : state.status === 'ended' ? 'Session ended'
+      : state.status === 'offline-sign-in' ? 'Offline sign in'
+      : lock === 'offline' ? 'Locked'
       : state.status === 'loading' || lock === 'checking' ? 'Checking your session'
         : state.status === 'error' ? 'Session unavailable'
           : lock === 'unconfirmed' ? 'Session not confirmed'
@@ -612,8 +796,20 @@ function ProviderTitle() {
   return null
 }
 
+/** Offline status and sync in the top bar, shown only while offline is in use at this facility (or paused on this tab). */
+function OfflineTopbar({ runtime, open, onToggle }: { runtime: OfflineRuntime; open: boolean; onToggle: () => void }) {
+  return <div className="offline-topbar">
+    <ConnectivityIndicator runtime={runtime} />
+    <Button tone="quiet" size="sm" aria-expanded={open} aria-controls="offline-panel" onClick={onToggle}>{PANEL.title}</Button>
+  </div>
+}
+
 function Shell() {
-  const { state, selectFacility, signOut, activePatient, lock } = useStaff()
+  const { state, selectFacility, signOut, activePatient, lock, offline } = useStaff()
+  const offlineInUse = useOfflineActive(offline?.runtime ?? null)
+  const showOffline = offline !== null && (offlineInUse || offline.paused)
+  const [panelOpen, setPanelOpen] = useState(false)
+  const [reviewOpen, setReviewOpen] = useState(false)
   const [facilityError, setFacilityError] = useState('')
   const [signOutError, setSignOutError] = useState('')
   const [switching, setSwitching] = useState(false)
@@ -702,6 +898,7 @@ function Shell() {
         ? <span className="staff-brand"><BrandLogo /><small>Provider</small></span>
         : <NavLink to="/provider" className="staff-brand" aria-label="Health ID provider home"><BrandLogo /><small>Provider</small></NavLink>}
       <div className="staff-topbar-actions">
+        {showOffline && offline && <OfflineTopbar runtime={offline.runtime} open={panelOpen} onToggle={() => setPanelOpen(value => !value)} />}
         <span className="staff-user">{actor.displayName ?? actor.email ?? 'Staff member'}</span>
         <Button tone="quiet" size="sm" onClick={() => void leave()} disabled={signingOut}>{signingOut ? 'Signing out…' : 'Sign out'}</Button>
       </div>
@@ -729,10 +926,27 @@ function Shell() {
       </aside>}
       {/* Hidden itself while the workspace is locked: only the session check's main is exposed then. */}
       <main ref={main} className="staff-main" hidden={lock !== null}>{signOutError && <p role="alert" className="staff-error">{signOutError}</p>}
+        {offline && <OfflineNotices offline={offline} mode={state.mode} showPanel={showOffline && panelOpen} onClosePanel={() => setPanelOpen(false)}
+          onReview={() => setReviewOpen(true)} />}
+        {offline && reviewOpen && <ReviewDrawer runtime={offline.runtime} onClose={() => setReviewOpen(false)} />}
         {/* Asked again for another reason (an answer to the choice that reports another facility), it starts afresh. */}
         {choiceNeeded ? <FacilityChoice key={choiceNeeded} reason={choiceNeeded} onChosen={() => setFocusHeading(true)} /> : <><ReviewBanner /><BillingBanner /><Outlet /></>}</main>
     </div>
   </div>
+}
+
+/** What the workspace says about offline above the page: nothing unless offline is in use or offered here. */
+function OfflineNotices({ offline, mode, showPanel, onClosePanel, onReview }: {
+  offline: StaffOffline; mode?: 'offline'; showPanel: boolean; onClosePanel: () => void; onReview: () => void
+}) {
+  return <>
+    {offline.choice && <KeepOfflineChoice onKeep={offline.keep} onDecline={offline.decline} />}
+    {mode === 'offline' && <p className="staff-notice" role="status">{SIGN_IN.offlineMode}</p>}
+    {offline.paused && <div className="staff-notice offline-update" role="status"><span>{UNLOCK.pausedBanner}</span>
+      <Button size="sm" tone="secondary" onClick={offline.openUnlock}>{UNLOCK.pausedAction}</Button></div>}
+    {showPanel && <div id="offline-panel"><SyncPanel runtime={offline.runtime} onReview={onReview} onClose={onClosePanel} /></div>}
+    <UpdateBanner />
+  </>
 }
 
 export function App() {
@@ -755,6 +969,8 @@ export function App() {
       <Route path="outreach" element={<Outreach />} />
       <Route path="migrate" element={<MigrateGap />} />
       <Route path="billing" element={<Billing />} />
+      {/* Migrate capture (D7): shown only while offline is in use at this facility; otherwise "Page not found". */}
+      <Route path="capture" element={<CaptureRoute />} />
       {/* A self-signed-up facility's staff, and joining a facility signed in (Novu, P4b). */}
       {novu && <Route path="staff" element={<StaffPage />} />}
       {novu && <Route path="staff/join" element={<StaffJoin />} />}

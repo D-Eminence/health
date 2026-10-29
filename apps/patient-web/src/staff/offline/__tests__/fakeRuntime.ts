@@ -39,7 +39,7 @@ export function fakeRuntime(options: FakeOptions = {}) {
   const runtime = {
     policy: vi.fn(() => policy),
     prepareFromSignIn: vi.fn(),
-    attachSession: vi.fn(async () => summary),
+    attachSession: vi.fn(async (_session: StaffSessionSnapshot, _o: { optIn: boolean; online: true }) => summary),
     unlockOffline: vi.fn(async () => options.unlock ?? ok),
     unlockLocked: vi.fn(async () => options.unlock ?? ok),
     restoreSession: vi.fn(() => options.restored ?? null),

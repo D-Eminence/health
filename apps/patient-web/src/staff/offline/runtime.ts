@@ -6,6 +6,7 @@ import { staffTransport, type StaffSession } from '../api'
 import { staffSessionGeneration, staffSessionReadyFor, untilStaffSessionReady } from '../session'
 import { offlineEnvironment, offlineHostAllowed, type OfflineEnvironment } from './environment'
 import { STAFF_OFFLINE_REGISTRY } from './registry'
+import { provideOfflineRuntime } from './holder'
 
 /**
  * What the staff portal hands @hid/offline to build its runtime: the staff
@@ -114,3 +115,5 @@ export function useOffline(runtime: OfflineRuntime | null = offlineRuntime()): b
   const summary = useOfflineSummary(runtime)
   return summary !== null && summary.connectivity === 'offline'
 }
+
+provideOfflineRuntime(offlineRuntime)

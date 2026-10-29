@@ -34,8 +34,8 @@ export function OnThisDevice({ runtime, onOpen, busy = false }: {
         <strong>{entry.displayName}</strong>
         <p className="staff-muted">{entry.hidCode} · {ended ? ON_DEVICE.accessEnded : entry.grantExpiresAt ? ON_DEVICE.accessUntil(dayTime(entry.grantExpiresAt)) : ''}
           {entry.pendingCount > 0 ? ` · ${ON_DEVICE.pending(entry.pendingCount)}` : ''}</p>
-        {!ended && <Button size="sm" tone="secondary" onClick={() => onOpen(entry)} aria-disabled={busy || undefined}>
-          {ON_DEVICE.open}<span className="offline-sr-only"> {entry.displayName}</span></Button>}
+        {!ended && <Button size="sm" tone="secondary" onClick={() => onOpen(entry)} aria-disabled={busy || undefined}
+          aria-label={`${ON_DEVICE.open} ${entry.displayName}`}>{ON_DEVICE.open}</Button>}
       </li>
     })}</ul>}
   </section></Card>

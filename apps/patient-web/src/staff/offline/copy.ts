@@ -146,6 +146,8 @@ export const UNLOCK = {
   wrong: 'That password does not unlock this device. After 5 wrong tries the offline copy is cleared; waiting changes are kept.',
   signOut: 'Sign out',
   pausedBanner: 'Offline use is paused on this tab.',
+  paused: 'Enter your password to use the offline copy on this tab. Until then, changes go straight to Health ID.',
+  notNow: 'Not now',
   pausedAction: 'Unlock',
 } as const
 

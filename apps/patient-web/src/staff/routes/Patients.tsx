@@ -13,6 +13,12 @@ import { useFieldProblems } from '../useFieldProblems'
 import { staffSessionGeneration, untilStaffSessionReady } from '../session'
 import { selfServiceReview } from '../staffAccess'
 import { ShareInvitationsForMe, SharedWithYou } from './SharedPatients'
+import { ehrReads } from '../offline/ehrReads'
+import { ehrCommands } from '../offline/ehrCommands'
+import { offlineFacility } from '../offline/environment'
+import { offlineRuntime, useOfflineActive } from '../offline/runtime'
+import { OnThisDevice } from '../offline/OnThisDevice'
+import { DURATION } from '../offline/copy'
 
 const HID_FORMAT = 'Starts with HID-, then 6 to 32 letters and digits. Health IDs never use 0, 1, I or O.'
 
@@ -96,6 +102,12 @@ export function Patients() {
   const [pin, setPin] = useState('')
   const [scope, setScope] = useState<'read_records' | 'write_records'>('read_records')
   const [mode, setMode] = useState<AccessMethod>('request')
+  // How long access is asked for (D4). At a facility that works offline the clinician chooses 1, 4, 8 or 12 hours,
+  // 8 by default, and the patient sees it before approving; everywhere else it stays 60 minutes, with no choice shown.
+  const offersVisitLength = offlineFacility(facility?.id)
+  const [duration, setDuration] = useState(480)
+  const runtime = offlineRuntime()
+  const offlineInUse = useOfflineActive(runtime)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
@@ -136,7 +148,7 @@ export function Patients() {
 
   async function openPatient(purpose: 'direct-care' | 'emergency', candidate = normalized) {
     if (!facility) throw new Error('Select an active facility first.')
-    const lookup = await staffApi.lookupPatient(facility.id, candidate, purpose)
+    const lookup = await ehrReads.lookupPatient(facility.id, candidate, purpose)
     if (!isAllowedPatientLookup(lookup)) {
       setActivePatient(null)
       throw new Error('The backend has not granted access to this patient. Request approval, verify their PIN, or use documented emergency access when justified.')
@@ -174,7 +186,7 @@ export function Patients() {
     try {
       if (!facility) throw new Error('Select a facility first.')
       if (mode === 'request') {
-        const request = await staffApi.requestAccess(facility.id, normalized, scope, reason.trim(), 60)
+        const request = await staffApi.requestAccess(facility.id, normalized, scope, reason.trim(), offersVisitLength ? duration : 60)
         setMessage(`Request ${request.accessRequestId} is ${request.status}. The patient must approve before records are available.`)
       } else if (mode === 'pin') {
         await staffApi.verifyPin(facility.id, normalized, compactPin)
@@ -223,7 +235,9 @@ export function Patients() {
     if (!facility || !grantId || busy || closeUnavailable) return
     clearFeedback(); setBusy(true)
     try {
-      await staffApi.closeGrant(facility.id, grantId, 'Clinician closed completed patient access'); setActivePatient(null); setMessage('Access was closed by the backend.')
+      const patientId = activePatient?.lookup.patient.patientId ?? ''
+      const outcome = await ehrCommands.closeGrant(facility.id, patientId, grantId, 'Clinician closed completed patient access'); setActivePatient(null)
+      setMessage(outcome.kind === 'saved' ? 'The patient was removed from this device. Access is closed when Health ID can be reached.' : 'Access was closed by the backend.')
       focus('patients-title', true)
     }
     catch (caught) { setError(caught instanceof Error ? caught.message : 'Grant could not be closed.') }
@@ -238,7 +252,8 @@ export function Patients() {
       <Card className="staff-card"><h2>Obtain access</h2><div className="staff-tabs" role="group" aria-label="Access method"><button type="button" aria-pressed={mode === 'request'} onClick={() => { problems.clear(); setMode('request') }}>Request</button><button type="button" aria-pressed={mode === 'pin'} onClick={() => { problems.clear(); setMode('pin') }}>Patient PIN</button><button type="button" aria-pressed={mode === 'emergency'} onClick={() => { problems.clear(); setMode('emergency') }}>Emergency</button></div>
         {/* The page checks each method's fields itself and says what is wrong at the field. */}
         <form className="staff-form" noValidate onSubmit={event => void submitAccess(event)}>
-          {mode === 'request' && <><p className="staff-muted">Ask the patient to approve access. A pending request does not expose their record.</p><Field label="Access scope" htmlFor="request-scope"><Select id="request-scope" value={scope} onChange={event => setScope(event.target.value as 'read_records' | 'write_records')}><option value="read_records">Read records</option><option value="write_records">Read and write records</option></Select></Field><Field label="Clinical reason" htmlFor="request-reason" error={problems.error('request-reason')} required><Textarea id="request-reason" value={reason} onChange={event => setReason(event.target.value)} minLength={8} maxLength={500} required {...problems.control('request-reason')} /></Field></>}
+          {mode === 'request' && <><p className="staff-muted">Ask the patient to approve access. A pending request does not expose their record.</p><Field label="Access scope" htmlFor="request-scope"><Select id="request-scope" value={scope} onChange={event => setScope(event.target.value as 'read_records' | 'write_records')}><option value="read_records">Read records</option><option value="write_records">Read and write records</option></Select></Field><Field label="Clinical reason" htmlFor="request-reason" error={problems.error('request-reason')} required><Textarea id="request-reason" value={reason} onChange={event => setReason(event.target.value)} minLength={8} maxLength={500} required {...problems.control('request-reason')} /></Field>
+            {offersVisitLength && <Field label={DURATION.label} htmlFor="request-duration" hint={DURATION.hint}><Select id="request-duration" value={String(duration)} onChange={event => setDuration(Number(event.target.value))} aria-describedby="request-duration-hint">{DURATION.options.map(minutes => <option key={minutes} value={minutes}>{DURATION.text(minutes)}</option>)}</Select></Field>}</>}
           {mode === 'pin' && <><p className="staff-muted">Only the patient should share their access PIN. Verification and grant creation happen on the server.</p><Field label="Patient access PIN" htmlFor="patient-pin" hint="4 to 8 digits." error={problems.error('patient-pin')} required><Input id="patient-pin" type="password" inputMode="numeric" autoComplete="off" pattern="\s*(\d\s*){4,8}" maxLength={16} value={pin} onChange={event => setPin(event.target.value)} required aria-describedby="patient-pin-hint" {...problems.control('patient-pin')} /></Field></>}
           {mode === 'emergency' && <><div className="staff-notice staff-danger">Use emergency access only when the patient cannot consent and care cannot wait. The action is time limited and audited.{usesNovuBackend() && ` ${EMERGENCY_CONTACTS_TOLD}`} It opens a read-only summary from this facility: completed encounters and signed notes, and the diagnoses, prescriptions, lab requests and documents your role may read. It shows no vital signs and opens no files.</div><Field label="Emergency reason" htmlFor="emergency-reason" error={problems.error('emergency-reason')} required><Textarea id="emergency-reason" value={emergencyReason} onChange={event => setEmergencyReason(event.target.value)} minLength={8} maxLength={500} required {...problems.control('emergency-reason')} /></Field></>}
           {unavailable && <p id="access-method-unavailable" className="staff-muted">{unavailable}</p>}
@@ -246,6 +261,7 @@ export function Patients() {
         </form>
       </Card>
     </div>
+    {runtime && offlineInUse && <OnThisDevice runtime={runtime} busy={busy} onOpen={entry => void openShared(entry.hidCode)} />}
     <div className="staff-two-col">
       <SharedWithYou facilityId={facility?.id} permissions={permissions} openUnavailable={openSharedUnavailable} busy={busy}
         onOpen={sharedHid => void openShared(sharedHid)} />

@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react'
 import type { OfflineRuntime } from '@hid/offline'
 import {
-  isAllowedPatientLookup, staffApi, type ConsentStatus, type EmergencyRecords, type PageRequest, type PatientLookup, type RecordKind,
+  isAllowedPatientLookup, staffApi, type ConsentStatus, type EmergencyRecords, type PatientLookup, type RecordKind,
 } from '../api'
 import { offlineActive, offlineRuntime } from './runtime'
 
@@ -94,22 +94,22 @@ export const ehrReads = {
       return status
     }, runtime)
   },
-  encounters: (facilityId: string, patientId: string, page: PageRequest = {}) =>
-    cached('encounters', [page.cursor ?? null], patientId, 'encounters', () => staffApi.encounters(facilityId, patientId, page)),
+  // Each read passes on exactly the arguments it was given: without offline it is the staffApi call, unchanged.
+  encounters: (...args: Parameters<typeof staffApi.encounters>) =>
+    cached('encounters', [args[2]?.cursor ?? null], args[1], 'encounters', () => staffApi.encounters(...args)),
   encounter: (facilityId: string, patientId: string, encounterId: string) =>
     cached('encounter', [encounterId], patientId, 'encounter', () => staffApi.encounter(facilityId, patientId, encounterId)),
   /** A visit saved on this device and not sent yet has no records on the server: only its pending rows. */
-  records: (facilityId: string, patientId: string, encounterId: string, kind: RecordKind, page: PageRequest = {}) =>
-    encounterId.startsWith('local:') ? Promise.resolve({ items: [], nextCursor: null })
-      : cached('records', [encounterId, kind, page.cursor ?? null], patientId, kind,
-        () => staffApi.records(facilityId, patientId, encounterId, kind, page)),
+  records: (...args: Parameters<typeof staffApi.records>): ReturnType<typeof staffApi.records> =>
+    args[2].startsWith('local:') ? Promise.resolve({ items: [], nextCursor: null })
+      : cached('records', [args[2], args[3], args[4]?.cursor ?? null], args[1], args[3], () => staffApi.records(...args)),
   noteRevisions: (facilityId: string, patientId: string, encounterId: string, noteId: string) =>
     cached('noteRevisions', [encounterId, noteId], patientId, 'note-revisions', () => staffApi.noteRevisions(facilityId, patientId, encounterId, noteId)),
   vitalCorrections: (facilityId: string, patientId: string, encounterId: string, vitalId: string) =>
     cached('vitalCorrections', [encounterId, vitalId], patientId, 'vital-corrections',
       () => staffApi.vitalCorrections(facilityId, patientId, encounterId, vitalId)),
   /** Metadata only: document bytes from the server are never kept (§2.4). */
-  documents: (facilityId: string, patientId: string, encounterId: string) =>
+  documents: (facilityId: string, patientId: string, encounterId: string): ReturnType<typeof staffApi.documents> =>
     encounterId.startsWith('local:') ? Promise.resolve({ items: [], nextCursor: null })
       : cached('documents', [encounterId], patientId, 'documents', () => staffApi.documents(facilityId, patientId, encounterId)),
   reportedHealthProfile: (facilityId: string, patientId: string, signal?: AbortSignal) =>

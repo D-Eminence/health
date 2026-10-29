@@ -8,12 +8,14 @@ import { SIGN_IN, UNLOCK } from './copy'
  * Over the locked workspace, which stays mounted beneath it (inert and hidden), so a form in progress keeps its text
  * (OFFLINE-CONTRACT §2.6, idle and hidden locks). Only the password reopens it.
  */
-export function UnlockScreen({ runtime, reason, onUnlocked, onSignOut }: {
+export function UnlockScreen({ runtime, reason, onUnlocked, onSignOut, onCancel }: {
   runtime: OfflineRuntime
   /** Why it locked; 'unconfirmed' when Health ID could not confirm the session while offline. */
   reason: LockReason | 'unconfirmed'
   onUnlocked: () => void
   onSignOut: () => void
+  /** Offered when the person opened the unlock themselves (offline paused on this tab). */
+  onCancel?: () => void
 }) {
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
@@ -35,7 +37,7 @@ export function UnlockScreen({ runtime, reason, onUnlocked, onSignOut }: {
     finally { setBusy(false) }
   }
 
-  const why = reason === 'unconfirmed' ? UNLOCK.unconfirmed : reason === 'hidden' ? UNLOCK.hidden : UNLOCK.idle
+  const why = reason === 'unconfirmed' ? UNLOCK.unconfirmed : reason === 'hidden' ? UNLOCK.hidden : reason === 'manual' ? UNLOCK.paused : UNLOCK.idle
   return <main className="staff-centered"><BrandLogo className="staff-state-logo" />
     <section className="staff-session-ended" aria-labelledby="offline-unlock-title">
       <h1 id="offline-unlock-title" ref={heading} tabIndex={-1}>{UNLOCK.title}</h1>
@@ -46,6 +48,7 @@ export function UnlockScreen({ runtime, reason, onUnlocked, onSignOut }: {
         {error && <p role="alert" className="staff-error">{error}</p>}
         <Button type="submit" aria-disabled={busy || undefined}>{busy ? UNLOCK.working : UNLOCK.submit}</Button>
       </form>
+      {onCancel && <Button tone="quiet" onClick={onCancel}>{UNLOCK.notNow}</Button>}
       <Button tone="quiet" onClick={onSignOut}>{UNLOCK.signOut}</Button>
     </section>
   </main>

@@ -4,6 +4,7 @@ import { isHidApiError } from '@hid/http'
 import { Badge, Button, Card, EmptyState, Field, Input, Select, Textarea } from '@hid/ui'
 import { staffApi, type Facility, type LabAbnormalFlag, type LabAccession, type LabExecution, type LabResult, type LabResultValue, type LabImport, type LabSpecimen, type LabWorkItem, type OcrExtraction, type OcrJob, type OcrPublication, type OcrTargetDomain, type OcrValidation, type OcrValidationInput, type OutreachCampaign, type OutreachCase, type PharmacyImport, type PharmacyWorkItem, type ReceivingAnswer, type WorkItemOrderRoute } from '../api'
 import { useStaff } from '../App'
+import { CaptureLink, OnlineOnlyNotice } from '../offline/OfflineCards'
 import { describedBy } from '../../authSteps'
 import { FieldInputError, problemProps, problemText, refusal, refusalText, type FieldProblem } from '../fieldProblem'
 import { BUSY, focusIsLost, UNAVAILABLE, useFocusById } from '../focus'
@@ -1596,9 +1597,11 @@ export function Ocr() {
     finally { setBusy(false) }
   }
 
-  if (!facilityId || !canRead) return <EmptyState titleAs="h1" title="Document OCR unavailable" description="This facility membership needs OCR job read permission." />
+  // With offline in use, Migrate's capture is offered here too: the migrate site opens on this page (D7).
+  if (!facilityId || !canRead) return <><EmptyState titleAs="h1" title="Document OCR unavailable" description="This facility membership needs OCR job read permission." /><CaptureLink permissions={permissions} /></>
   return <>
     <PageHead eyebrow="Governed document processing" title="Document OCR">Find a job by its clinical document ID. The document must be available and virus scan clean before extraction can begin.</PageHead>
+    <OnlineOnlyNotice /><CaptureLink permissions={permissions} />
     <div className="staff-two-col"><Card className="staff-card"><h2>Find document job</h2><form className="staff-form" noValidate onSubmit={event => void find(event)}><Field label="Document ID" htmlFor="ocr-document" error={problemText(problem, 'ocr-document')} required><Input id="ocr-document" value={documentId} onChange={event => { setDocumentId(event.target.value); setSearched(false); setJob(null); setNotice(''); setProblem(null); setStepFocus(null) }} placeholder="Document UUID" required {...problemProps(problem, 'ocr-document')} /></Field><Button id="ocr-find-submit" type="submit" disabled={busy}>{busy ? 'Checking…' : 'Find job'}</Button></form>
       {searched && !visibleJob && <p className="staff-muted">No OCR job exists for this document.</p>}
       {/* Only after a lookup has answered that no job exists: a failed or missing lookup must not invite a duplicate job. */}
@@ -1752,9 +1755,10 @@ export function Outreach() {
 export function MigrateGap() {
   const { facilityId, permissions } = useFacilityAccess()
   // The workspace leads only to Document OCR, so it opens on the same permission (no role holds it since hid-system 0091).
-  if (!facilityId || !permissions.includes('ocr.job.read')) return <EmptyState titleAs="h1" title="Migration workspace unavailable" description="This facility membership needs OCR job read permission." />
+  if (!facilityId || !permissions.includes('ocr.job.read')) return <><EmptyState titleAs="h1" title="Migration workspace unavailable" description="This facility membership needs OCR job read permission." /><CaptureLink permissions={permissions} /></>
   return <>
     <PageHead eyebrow="HID Migrate" title="Migration workspace">The approved backend snapshot supports document OCR jobs tied to authorized clinical documents. It does not yet expose a project, bulk import, matching queue, or completed migration index.</PageHead>
+    <OnlineOnlyNotice /><CaptureLink permissions={permissions} />
     <EmptyState title="Project migration requires backend support" description="You can process an eligible clinical document in Document OCR. Bulk migration needs governed project and reconciliation APIs before its controls can safely be enabled." action={<Link className="staff-text-link" to="/provider/ocr">Open document OCR →</Link>} />
   </>
 }
