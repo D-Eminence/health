@@ -28,6 +28,19 @@ const NO_INDEXED_DB = {
   message: 'IndexedDB must not be used to hold Health ID data. See docs/ARCHITECTURE.md, PHI handling.',
 }
 
+// Raw key handling lives in one file, so every key's extractability, usages and wrapping can be reviewed in one place
+// (docs/OFFLINE-CONTRACT.md §2.5). The method names are Web Crypto's own, so any member access with one of them is
+// refused, which also catches an aliased SubtleCrypto (const s = crypto.subtle; s.wrapKey(...)).
+const KEY_METHODS = '/^(deriveKey|deriveBits|wrapKey|unwrapKey|exportKey|importKey|generateKey)$/'
+const NO_KEY_HANDLING = {
+  selector: [
+    `MemberExpression[property.name=${KEY_METHODS}]`,
+    `ObjectPattern > Property[key.name=${KEY_METHODS}]`,
+  ].join(', '),
+  message:
+    'Key derivation, generation, import, export and wrapping happen only in packages/offline/src/crypto.ts. Call its functions instead. See docs/OFFLINE-CONTRACT.md §2.5.',
+}
+
 // Plain, dotted and destructured uses are caught; computed (navigator['serviceWorker'])
 // and aliased ones (const N = Notification) are not: review catches those.
 const NO_SERVICE_WORKER = {
@@ -105,7 +118,7 @@ export default tseslint.config(
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
       ],
       eqeqeq: ['error', 'always', { null: 'ignore' }],
-      'no-restricted-syntax': ['error', NO_RAW_FETCH, NO_BROWSER_STORAGE, NO_INDEXED_DB, NO_SERVICE_WORKER, NO_CACHE_STORAGE, NO_CONSOLE, NO_DEFERRED_FOCUS],
+      'no-restricted-syntax': ['error', NO_RAW_FETCH, NO_BROWSER_STORAGE, NO_INDEXED_DB, NO_SERVICE_WORKER, NO_CACHE_STORAGE, NO_CONSOLE, NO_DEFERRED_FOCUS, NO_KEY_HANDLING],
 
       'no-restricted-imports': [
         'error',
@@ -140,37 +153,48 @@ export default tseslint.config(
     // The transport layer is where fetch is allowed to exist. That is the point
     // of having a transport layer.
     files: ['packages/http/src/client.ts'],
-    rules: { 'no-restricted-syntax': ['error', NO_BROWSER_STORAGE, NO_INDEXED_DB, NO_SERVICE_WORKER, NO_CACHE_STORAGE, NO_CONSOLE, NO_DEFERRED_FOCUS] },
+    rules: { 'no-restricted-syntax': ['error', NO_BROWSER_STORAGE, NO_INDEXED_DB, NO_SERVICE_WORKER, NO_CACHE_STORAGE, NO_CONSOLE, NO_DEFERRED_FOCUS, NO_KEY_HANDLING] },
   },
   {
     // The logger is the sanctioned console call.
     files: ['packages/observability/src/logger.ts'],
-    rules: { 'no-restricted-syntax': ['error', NO_RAW_FETCH, NO_BROWSER_STORAGE, NO_INDEXED_DB, NO_SERVICE_WORKER, NO_CACHE_STORAGE, NO_DEFERRED_FOCUS] },
+    rules: { 'no-restricted-syntax': ['error', NO_RAW_FETCH, NO_BROWSER_STORAGE, NO_INDEXED_DB, NO_SERVICE_WORKER, NO_CACHE_STORAGE, NO_DEFERRED_FOCUS, NO_KEY_HANDLING] },
   },
   {
     // The session module owns the portal hint, the single permitted persisted value.
     files: ['packages/auth/src/session.ts'],
-    rules: { 'no-restricted-syntax': ['error', NO_RAW_FETCH, NO_INDEXED_DB, NO_SERVICE_WORKER, NO_CACHE_STORAGE, NO_CONSOLE, NO_DEFERRED_FOCUS] },
+    rules: { 'no-restricted-syntax': ['error', NO_RAW_FETCH, NO_INDEXED_DB, NO_SERVICE_WORKER, NO_CACHE_STORAGE, NO_CONSOLE, NO_DEFERRED_FOCUS, NO_KEY_HANDLING] },
   },
   {
     // The script that retires an earlier HID service worker (no Health ID page
     // registers it): a classic worker script that deletes that app's caches.
     files: ['apps/*/public/service-worker.js'],
     languageOptions: { sourceType: 'script', globals: { self: 'readonly', caches: 'readonly' } },
-    rules: { 'no-restricted-syntax': ['error', NO_RAW_FETCH, NO_BROWSER_STORAGE, NO_INDEXED_DB, NO_SERVICE_WORKER, NO_CONSOLE, NO_DEFERRED_FOCUS] },
+    rules: { 'no-restricted-syntax': ['error', NO_RAW_FETCH, NO_BROWSER_STORAGE, NO_INDEXED_DB, NO_SERVICE_WORKER, NO_CONSOLE, NO_DEFERRED_FOCUS, NO_KEY_HANDLING] },
   },
   {
     // "Notifications on this device" (B6): the one module allowed the service worker, push and notification APIs.
     // Every other restriction stays, the Cache API and browser storage among them.
     files: ['apps/patient-web/src/pushDevice.ts'],
-    rules: { 'no-restricted-syntax': ['error', NO_RAW_FETCH, NO_BROWSER_STORAGE, NO_INDEXED_DB, NO_CACHE_STORAGE, NO_CONSOLE, NO_DEFERRED_FOCUS] },
+    rules: { 'no-restricted-syntax': ['error', NO_RAW_FETCH, NO_BROWSER_STORAGE, NO_INDEXED_DB, NO_CACHE_STORAGE, NO_CONSOLE, NO_DEFERRED_FOCUS, NO_KEY_HANDLING] },
   },
   {
     // The portal's push-only worker (B6), a classic worker script: it shows a fixed notification and opens
     // Notifications. No fetch, Cache API, storage or IndexedDB (scripts/check-launch-build.mjs checks the build too).
     files: ['apps/patient-web/public/sw.js'],
     languageOptions: { sourceType: 'script', globals: { self: 'readonly', URL: 'readonly' } },
-    rules: { 'no-restricted-syntax': ['error', NO_RAW_FETCH, NO_BROWSER_STORAGE, NO_INDEXED_DB, NO_CACHE_STORAGE, NO_CONSOLE, NO_DEFERRED_FOCUS] },
+    rules: { 'no-restricted-syntax': ['error', NO_RAW_FETCH, NO_BROWSER_STORAGE, NO_INDEXED_DB, NO_CACHE_STORAGE, NO_CONSOLE, NO_DEFERRED_FOCUS, NO_KEY_HANDLING] },
+  },
+  {
+    // The offline store (docs/OFFLINE-CONTRACT.md §2.4) is the one module that opens IndexedDB. Everything it keeps is
+    // sealed by crypto.ts except the non-identifying fields the contract lists.
+    files: ['packages/offline/src/store.ts'],
+    rules: { 'no-restricted-syntax': ['error', NO_RAW_FETCH, NO_BROWSER_STORAGE, NO_SERVICE_WORKER, NO_CACHE_STORAGE, NO_CONSOLE, NO_DEFERRED_FOCUS, NO_KEY_HANDLING] },
+  },
+  {
+    // The offline key file (§2.5): the one module allowed raw key derivation, generation and wrapping.
+    files: ['packages/offline/src/crypto.ts'],
+    rules: { 'no-restricted-syntax': ['error', NO_RAW_FETCH, NO_BROWSER_STORAGE, NO_INDEXED_DB, NO_SERVICE_WORKER, NO_CACHE_STORAGE, NO_CONSOLE, NO_DEFERRED_FOCUS] },
   },
   {
     // Tests construct fake transports and assert on storage behaviour.

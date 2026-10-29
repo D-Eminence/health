@@ -8,6 +8,7 @@ export type {
   HttpMethod,
   QueryValue,
   RequestSpec,
+  ResponseMeta,
 } from './client'
 export {
   HidApiError,
