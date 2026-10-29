@@ -36,7 +36,7 @@ import { useDocumentTitle } from '../authSteps'
 import { focusPageHeading, useFocusOnPageChange } from '../pageFocus'
 import { LIMITS, type LockReason, type OfflineCore, type StaffSessionSnapshot } from '@hid/offline'
 import { offlineActive, offlineRuntime, restoredStaffSession, useOfflineActive, useOfflineSummary } from './offline/runtime'
-import { attachOnlineSession, healthIdUnreachable, keepsVaultFacility, offersOfflineSignIn } from './offline/session'
+import { attachOnlineSession, healthIdUnreachable, keepsVaultFacility, offersOfflineSignIn, syncShell } from './offline/session'
 import { OfflineSignIn } from './offline/OfflineSignIn'
 import { UnlockScreen } from './offline/UnlockScreen'
 import { KeepOfflineChoice } from './offline/KeepOfflineChoice'
@@ -571,6 +571,7 @@ export function StaffProvider({ children }: { children: ReactNode }) {
       if (!snapshot) return
       await runtime.attachSession(snapshot, { optIn: true, online: true })
       if (!offlineActive(runtime)) throw new Error('not kept')
+      syncShell(runtime)
       vaultFacility.current = snapshot.facilityId
       setOfflineChoice(null)
     },

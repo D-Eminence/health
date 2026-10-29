@@ -20,3 +20,18 @@ const NONE: ShellUpdate = { ready: false, updatedElsewhere: false, sending: fals
 export function useShellUpdate(): ShellUpdate {
   return NONE
 }
+
+/**
+ * Registers or updates the shell after a vault opens for an enabled facility (amendment A5). Stream C's `enableShell()`;
+ * a no-op until it lands.
+ */
+export function enableShell(): void { /* Stream C's shell.ts (#36) */ }
+
+/**
+ * Deletes the shell caches when the facility has left the pilot and its vault opens send-only (§2.3 kill switch, T19,
+ * A8.5). Stream C's `purgeShell()`; a no-op until it lands.
+ */
+export function purgeShell(): void { /* Stream C's shell.ts (#36) */ }
+
+/** Tells the shell whether a form has unsaved changes, for its Update now gate (A7). A no-op until it lands. */
+export function setUnsavedFormsSource(_source: () => boolean): void { /* Stream C's shell.ts (#36) */ }

@@ -2,6 +2,7 @@ import { isHidApiError } from '@hid/http'
 import type { OfflineCore, OfflineRuntime, StaffSessionSnapshot } from '@hid/offline'
 import type { StaffSession } from '../api'
 import { staffSnapshot } from './runtime'
+import { enableShell, purgeShell } from './shellAdapter'
 
 /**
  * Whether reading the session failed because Health ID could not be reached at all (OFFLINE-CONTRACT §2.6, "Offline
@@ -34,9 +35,22 @@ export async function attachOnlineSession(runtime: OfflineCore | null, session: 
     const offer = await runtime.offer(snapshot)
     if (offer.kind === 'ask') return { result: 'choice', snapshot }
     await runtime.attachSession(snapshot, { optIn: false, online: true })
+    syncShell(runtime)
     if (runtime.policy().enabled && runtime.summary().vault === 'unlocked') return { result: 'attached', snapshot }
     return { result: offer.kind === 'paused' ? 'paused' : 'none', snapshot }
   } catch { return { result: 'none', snapshot } }
+}
+
+/**
+ * After a vault is attached: the shell is registered only once a vault opens for an enabled facility (A5); when the
+ * facility has left the pilot and its vault opens send-only, the shell caches are purged (§2.3 kill switch, A8.5).
+ * Anything else leaves the shell alone, so a facility that was never in the pilot sees no change.
+ */
+export function syncShell(runtime: OfflineRuntime): void {
+  const policy = runtime.policy()
+  if (runtime.summary().vault !== 'unlocked') return
+  if (policy.enabled) enableShell()
+  else if (policy.reason === 'facility-off') purgeShell()
 }
 
 /** Whether a session read still lists the facility the vault was opened for; a membership that ended does not. */
