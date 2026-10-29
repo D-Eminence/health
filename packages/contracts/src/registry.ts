@@ -101,6 +101,10 @@ const ACCOUNT_DELETION_NOTE = 'Novu: hid-system 0096; 404 before'
  * on a backend before 0097, each route answers 404, which the portal takes as not offered (the section is hidden).
  */
 const WEB_PUSH_NOTE = 'Novu: hid-system 0097 (B6); 404 before, and while push is not configured'
+const OFFLINE_NOTE = 'Offline-first wave 1 (docs/OFFLINE-CONTRACT.md 2.10), built in hid-system ehr-api src/offline on '
+  + 'staging-novu-ci-20261005, code only, no migration; 404 before. Staff session with X-Facility-ID and X-Purpose-Of-Use: '
+  + 'direct-care, CSRF on POST; any of ehr.encounter.read or ehr.document.write (any-of, so no permission is listed here); '
+  + 'Cache-Control: no-store; problem+json errors'
 const CHAT_NOTE = `${NOT_ON_MAIN} The screen is off unless the build turns it on.`
 const STAFF_CHAT_NOTE = 'Staff sessions holding ehr.record-chat.use, for direct care only (X-Purpose-Of-Use: direct-care, never break-glass). '
   + 'Off by default in hid-system (ADR-069, 0101): 503 RECORD_CHAT_DISABLED until RECORD_CHAT_STAFF_ENABLED and the platform control are on.'
@@ -712,6 +716,20 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     + 'endpointDigest, pushService }; 409 WEB_PUSH_KEY_CHANGED when keyId is not the current key; 429 WEB_PUSH_RATE_LIMITED.')),
   proposed(r('notifications.webPushSubscriptionRemove','notifications','/api/v1/identity/me/web-push/subscription/remove',P,false,undefined,
     `${WEB_PUSH_NOTE}. Body { endpoint }; 200 { removed }; idempotent and never rate limited.`)),
+
+  // Offline-first wave 1 (docs/OFFLINE-CONTRACT.md 2.10; the paths are OFFLINE_PATHS in @hid/offline's contracts).
+  proposed(r('ehr.offlinePing','ehr','/api/v1/ehr/offline/ping',G,true,undefined,
+    'Offline-first wave 1 (docs/OFFLINE-CONTRACT.md 2.10 C0); 404 before. Public and not audited. 200 { service: "ehr-api", '
+    + 'serverTime }: the connectivity probe and the clock on the sign-in screen.')),
+  proposed(r('ehr.offlineReceipts','ehr','/api/v1/ehr/offline/receipts/lookup',P,false,undefined,
+    `${OFFLINE_NOTE}. C1: body { keys } (1 to 50 off1. keys); 200 { receipts: [{ key, operation, state, resourceType, resourceId, `
+    + 'responseStatus, createdAt, completedAt }], unknown }, owner-scoped, no consent check, no patient data; 400 INVALID_KEYS.')),
+  proposed(r('ehr.offlineAuditEvents','ehr','/api/v1/ehr/offline/audit-events',P,false,undefined,
+    `${OFFLINE_NOTE}. C2: body { vaultId, events } (at most 20); 200 { accepted, duplicate, rejected: [{ eventId, code }] }; `
+    + 'never consent-gated.')),
+  proposed(r('ehr.offlineEscrowKey','ehr','/api/v1/ehr/offline/escrow-key',P,false,undefined,
+    `${OFFLINE_NOTE}. C4: body { vaultId, keyVersion }; 200 { keyVersion, key, algorithm: "HKDF-SHA256" }; 503 `
+    + 'OFFLINE_ESCROW_UNAVAILABLE until the escrow secret is applied (A6), 404 OFFLINE_ESCROW_VERSION_UNKNOWN, 429 over 30 an hour.')),
 
   r('ehr.myRecords','ehr','/api/v1/ehr/me/records',G),
   // hid-1.0 patient parity B3 (hid-system 0094 on staging-novu-ci-20261005): the health information the patient enters,
