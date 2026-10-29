@@ -2,7 +2,7 @@ import { isHidApiError } from '@hid/http'
 import type { OfflineCore, OfflineRuntime, StaffSessionSnapshot } from '@hid/offline'
 import type { StaffSession } from '../api'
 import { staffSnapshot } from './runtime'
-import { enableShell, purgeShell } from './shellAdapter'
+import { loadShell } from './shellLoader'
 
 /**
  * Whether reading the session failed because Health ID could not be reached at all (OFFLINE-CONTRACT §2.6, "Offline
@@ -49,8 +49,9 @@ export async function attachOnlineSession(runtime: OfflineCore | null, session: 
 export function syncShell(runtime: OfflineRuntime): void {
   const policy = runtime.policy()
   if (runtime.summary().vault !== 'unlocked') return
-  if (policy.enabled) enableShell()
-  else if (policy.reason === 'facility-off') purgeShell()
+  // The shell module is loaded only now, and only for these two cases (see shellLoader.ts).
+  if (policy.enabled) void loadShell().then(shell => shell.enableShell(), () => undefined)
+  else if (policy.reason === 'facility-off') void loadShell().then(shell => shell.purgeShell(), () => undefined)
 }
 
 /** Whether a session read still lists the facility the vault was opened for; a membership that ended does not. */

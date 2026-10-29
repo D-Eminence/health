@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { waitFor } from '@testing-library/react'
 import type { StaffSession } from '../../api'
 import { fakeOffline, PASSWORD, PILOT, snapshotOf } from './offlineFixture'
 
 /** When the shell is registered or purged after sign-in (A5, §2.3 kill switch, A8.5). */
 const shell = vi.hoisted(() => ({ enableShell: vi.fn(), purgeShell: vi.fn() }))
-vi.mock('../shellAdapter', () => ({ ...shell, setUnsavedFormsSource: vi.fn() }))
+vi.mock('../shellLoader', () => ({ loadShell: () => Promise.resolve(shell) }))
 vi.mock('../../env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.example.test' }) }))
 const { attachOnlineSession } = await import('../session')
 
@@ -22,7 +23,7 @@ describe('shell after sign-in', () => {
     controls.seedVault(snapshotOf(PILOT), PASSWORD)
     runtime.prepareFromSignIn('ada@example.test', PASSWORD)
     expect(await attachOnlineSession(runtime, session(PILOT))).toMatchObject({ result: 'attached' })
-    expect(shell.enableShell).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(shell.enableShell).toHaveBeenCalledTimes(1))
     expect(shell.purgeShell).not.toHaveBeenCalled()
   })
 
@@ -30,6 +31,7 @@ describe('shell after sign-in', () => {
     const { runtime } = fakeOffline()
     runtime.prepareFromSignIn('ada@example.test', PASSWORD)
     expect(await attachOnlineSession(runtime, session(REAL))).toMatchObject({ result: 'none' })
+    await Promise.resolve()
     expect(shell.enableShell).not.toHaveBeenCalled()
     expect(shell.purgeShell).not.toHaveBeenCalled()
   })
@@ -40,7 +42,7 @@ describe('shell after sign-in', () => {
     vi.spyOn(runtime, 'policy').mockReturnValue({ mode: 'pilot', enabled: false, reason: 'facility-off' })
     vi.spyOn(runtime, 'summary').mockReturnValue({ ...runtime.summary(), vault: 'unlocked' })
     await attachOnlineSession(runtime, session(PILOT))
-    expect(shell.purgeShell).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(shell.purgeShell).toHaveBeenCalledTimes(1))
     expect(shell.enableShell).not.toHaveBeenCalled()
   })
 })

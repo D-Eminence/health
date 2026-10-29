@@ -1,6 +1,6 @@
 import { Button } from '@hid/ui'
 import { UPDATE } from './copy'
-import { useShellUpdate } from './shellAdapter'
+import { useShellUpdate } from './shellUpdateAdapter'
 
 /**
  * Says a new version of Health ID is ready, and never reloads by itself (§2.12 "Update"). Update now waits while a
