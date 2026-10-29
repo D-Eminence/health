@@ -11,16 +11,24 @@ export interface ShellUpdate {
   readonly updatedElsewhere: boolean
   /** Whether a change is being sent in any tab (the update waits for it). */
   readonly sending: boolean
+  /**
+   * Whether "Update now" may be pressed: ready, no form with unsaved changes (setUnsavedFormsSource) and nothing
+   * sending in any tab (A7, A9).
+   */
+  readonly canUpdate: boolean
   /** Posts HID_SKIP_WAITING, waits for the new worker and reloads this tab. */
   update(): void
   reload(): void
 }
 
-const NONE: ShellUpdate = { ready: false, updatedElsewhere: false, sending: false, update: () => undefined, reload: () => undefined }
+const NONE: ShellUpdate = { ready: false, canUpdate: false, updatedElsewhere: false, sending: false, update: () => undefined, reload: () => undefined }
 
 export function useShellUpdate(): ShellUpdate {
   return NONE
 }
 
-/** Tells the shell whether a form has unsaved changes, for its Update now gate (A7). A no-op until it lands. */
-export function setUnsavedFormsSource(_source: () => boolean): void { /* Stream C's offline/shellUpdate.ts (#36) */ }
+/**
+ * Tells the shell whether a form has unsaved changes, for its Update now gate (A7, A9). A no-op until it lands. Returns
+ * a cleanup when the shell gives one.
+ */
+export function setUnsavedFormsSource(_source: () => boolean): (() => void) | void { /* Stream C's offline/shellUpdate.ts (#36) */ }

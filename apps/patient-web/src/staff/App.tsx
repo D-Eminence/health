@@ -44,6 +44,8 @@ import { ConnectivityIndicator } from './offline/ConnectivityIndicator'
 import { SyncPanel } from './offline/SyncPanel'
 import { ReviewDrawer } from './offline/ReviewDrawer'
 import { UpdateBanner } from './offline/UpdateBanner'
+import { setUnsavedFormsSource } from './offline/shellUpdateAdapter'
+import { anyUnsavedForms, trackUnsavedForms } from './offline/unsavedForms'
 import { PANEL, SIGN_IN, UNLOCK } from './offline/copy'
 import { CaptureRoute } from './offline/OfflineCards'
 import './style.css'
@@ -395,6 +397,14 @@ export function StaffProvider({ children }: { children: ReactNode }) {
       document.removeEventListener('visibilitychange', visibility)
     }
   }, [runtime, setLock])
+
+  // The shell's "Update now" waits while any staff form holds unsaved edits (A7, A9): the update reloads this tab.
+  useEffect(() => {
+    if (!runtime) return
+    const stop = trackUnsavedForms(document)
+    const unplug = setUnsavedFormsSource(anyUnsavedForms)
+    return () => { stop(); if (typeof unplug === 'function') unplug() }
+  }, [runtime])
 
   // Set once attachOffline exists (below): a session read on load asks the runtime too.
   const attachAfterRead = useRef<((session: StaffSession) => Promise<void>) | null>(null)

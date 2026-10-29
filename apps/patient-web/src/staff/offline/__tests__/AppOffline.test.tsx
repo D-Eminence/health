@@ -10,6 +10,12 @@ import { fakeOffline, PASSWORD, PILOT, snapshotOf } from './offlineFixture'
  * not in the pilot seeing nothing new.
  */
 vi.mock('../../env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gateway.example.test', turnstileSiteKey: null }) }))
+// The shell's update hook is Stream C's; here only its unsaved-form plug is watched.
+const shellPlug = vi.hoisted(() => ({ source: null as (() => boolean) | null }))
+vi.mock('../shellUpdateAdapter', async importOriginal => ({
+  ...await importOriginal<Record<string, unknown>>(),
+  setUnsavedFormsSource: (source: () => boolean) => { shellPlug.source = source; return () => { shellPlug.source = null } },
+}))
 vi.mock('../../clinicianApplicationApi', () => ({ clinicianApplicationApi: { availability: () => Promise.resolve({ open: false }) } }))
 
 const REAL = '11111111-0000-4000-8000-000000000001'
@@ -148,6 +154,8 @@ describe('idle lock', () => {
     await screen.findByText('Offline and sync')
     const reason = await screen.findByRole('textbox', { name: /Clinical reason/ })
     fireEvent.change(reason, { target: { value: 'Follow-up for the cough seen last week' } })
+    // The shell's "Update now" waits for this form (A9): the workspace told it which forms hold unsaved edits.
+    expect(shellPlug.source?.()).toBe(true)
 
     await act(async () => { await controls.advance(5 * 60_000 + 1) })
     expect(await screen.findByRole('heading', { name: 'Health ID is locked' })).toBeTruthy()
