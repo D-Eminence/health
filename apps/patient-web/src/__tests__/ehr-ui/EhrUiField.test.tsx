@@ -1,0 +1,82 @@
+import { fireEvent, render, screen } from '@testing-library/react'
+import { describe, expect, it } from 'vitest'
+import { EhrField, EhrInput, EhrSelect, EhrTextarea } from '@hid/ui/ehr'
+
+/**
+ * EhrField: a visible label tied to its control, a hint and an error tied by
+ * aria-describedby, aria-invalid in error, and the error written as text.
+ */
+
+const described = (element: HTMLElement) => (element.getAttribute('aria-describedby') ?? '').split(' ')
+  .map(id => document.getElementById(id)?.textContent ?? `(no #${id})`).join(' | ')
+
+describe('EhrField', () => {
+  it('ties a visible label to its input, which carries the control border class', () => {
+    render(<EhrField label="Ward name"><EhrInput /></EhrField>)
+    const input = screen.getByRole('textbox', { name: 'Ward name' })
+    expect(input.tagName).toBe('INPUT')
+    expect(input.classList.contains('hid-ehr-control')).toBe(true)
+    expect(screen.getByText('Ward name').tagName).toBe('LABEL')
+    expect(input.getAttribute('aria-describedby')).toBeNull()
+    expect(input.getAttribute('aria-invalid')).toBeNull()
+  })
+
+  it('describes its control by the hint', () => {
+    render(<EhrField label="Bed count" hint="Count only beds in use."><EhrInput inputMode="numeric" /></EhrField>)
+    const input = screen.getByRole('textbox', { name: 'Bed count' })
+    expect(described(input)).toBe('Count only beds in use.')
+    expect(input.getAttribute('aria-invalid')).toBeNull()
+  })
+
+  it('marks the control invalid and describes it by the error, in words, then the hint', () => {
+    render(<EhrField label="Bed count" hint="Count only beds in use." error="Enter a number from 1 to 400."><EhrInput /></EhrField>)
+    const input = screen.getByRole('textbox', { name: 'Bed count' })
+    expect(input.getAttribute('aria-invalid')).toBe('true')
+    expect(described(input)).toBe('Enter a number from 1 to 400. | Count only beds in use.')
+    const error = screen.getByText('Enter a number from 1 to 400.')
+    expect(error.closest('.hid-ehr-error')).not.toBeNull()
+    // An icon beside the words, hidden from assistive technology: not colour alone.
+    expect(error.closest('.hid-ehr-error')!.querySelector('[aria-hidden="true"] svg')).not.toBeNull()
+  })
+
+  it('works the same for a select and a textarea', () => {
+    render(
+      <>
+        <EhrField label="Department" error="Choose a department."><EhrSelect><option>Surgery</option></EhrSelect></EhrField>
+        <EhrField label="Handover note" hint="Visible to the next shift."><EhrTextarea /></EhrField>
+      </>,
+    )
+    const select = screen.getByRole('combobox', { name: 'Department' })
+    expect(select.getAttribute('aria-invalid')).toBe('true')
+    expect(described(select)).toBe('Choose a department.')
+    const textarea = screen.getByRole('textbox', { name: 'Handover note' })
+    expect(textarea.tagName).toBe('TEXTAREA')
+    expect(described(textarea)).toBe('Visible to the next shift.')
+  })
+
+  it('keeps a description and an id the caller gives the control', () => {
+    render(
+      <>
+        <p id="ward-policy">Wards follow the facility naming policy.</p>
+        <EhrField label="Ward name" hint="Up to 40 characters."><EhrInput aria-describedby="ward-policy" /></EhrField>
+      </>,
+    )
+    const input = screen.getByRole('textbox', { name: 'Ward name' })
+    expect(described(input)).toBe('Up to 40 characters. | Wards follow the facility naming policy.')
+  })
+
+  it('keeps the value typed and supports the disabled state', () => {
+    render(<><EhrField label="Surname"><EhrInput defaultValue="" /></EhrField><EhrField label="Record number"><EhrInput disabled /></EhrField></>)
+    const input = screen.getByRole('textbox', { name: 'Surname' }) as HTMLInputElement
+    fireEvent.change(input, { target: { value: 'Okafor-Test' } })
+    expect(input.value).toBe('Okafor-Test')
+    expect((screen.getByRole('textbox', { name: 'Record number' }) as HTMLInputElement).disabled).toBe(true)
+  })
+
+  it('leaves a control outside a field as the caller made it', () => {
+    render(<EhrInput aria-label="Search patients" />)
+    const input = screen.getByRole('textbox', { name: 'Search patients' })
+    expect(input.getAttribute('aria-describedby')).toBeNull()
+    expect(input.getAttribute('aria-invalid')).toBeNull()
+  })
+})
