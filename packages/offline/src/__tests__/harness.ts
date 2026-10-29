@@ -38,8 +38,9 @@ export function createServer() {
   }
   let n = 0
 
-  async function escrowKey(vaultId: string): Promise<string> {
-    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`server-secret|${state.account}|${vaultId}`))
+  // Like the server's HKDF: bound to the signed-in account and the facility the request names (§2.10 C4).
+  async function escrowKey(vaultId: string, facilityId: string): Promise<string> {
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`server-secret|${state.account}|${facilityId}|${vaultId}`))
     return b64url(new Uint8Array(digest))
   }
 
@@ -47,6 +48,8 @@ export function createServer() {
     const bodyText = spec.body === undefined ? '' : JSON.stringify(spec.body)
     calls.push({ spec, bodyText })
     if (state.offline) throw new TransportError({ status: null, networkError: true })
+    // The WAF refuses bodies over 8 KB with a 403 that is not problem+json.
+    if (new TextEncoder().encode(bodyText).length > 8192) throw new TransportError({ status: 403, problem: false })
     if (spec.path === OFFLINE_PATHS.ping) return { status: 200, body: { service: 'ehr-api', serverTime: new Date().toISOString() }, date: null }
     if (spec.path === OFFLINE_PATHS.receipts) {
       if (state.receiptsDown) throw new TransportError({ status: null, networkError: true })
@@ -64,7 +67,7 @@ export function createServer() {
     }
     if (spec.path === OFFLINE_PATHS.escrow) {
       if (!state.escrow) throw new TransportError({ status: 503, code: 'OFFLINE_ESCROW_UNAVAILABLE', problem: true })
-      return { status: 200, date: null, body: { keyVersion: 1, key: await escrowKey((spec.body as { vaultId: string }).vaultId), algorithm: 'HKDF-SHA256' } }
+      return { status: 200, date: null, body: { keyVersion: 1, key: await escrowKey((spec.body as { vaultId: string }).vaultId, spec.headers?.['X-Facility-ID'] ?? ''), algorithm: 'HKDF-SHA256' } }
     }
     if (spec.path === OFFLINE_PATHS.audit) {
       const b = spec.body as { vaultId: string; events: { eventId: string; seq: number; action: string }[] }

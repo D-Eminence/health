@@ -33,10 +33,20 @@ export interface EligibilityContext {
   busy: ReadonlySet<string>
 }
 
-/** The head (lowest unfinished seq) of every lane. */
+/** A command's place in its lane: its original's place for a review successor, else its own seq. */
+export function orderKey(c: { seq: number; cmd: Command }): number {
+  return c.cmd.orderSeq ?? c.seq
+}
+
+/** Lane order: by place, then by seq (a successor sorts just after its original). */
+export function byLaneOrder(a: { seq: number; cmd: Command }, b: { seq: number; cmd: Command }): number {
+  return orderKey(a) - orderKey(b) || a.seq - b.seq
+}
+
+/** The head (first unfinished in lane order) of every lane. */
 export function laneHeads<T extends { seq: number; cmd: Command }>(commands: readonly T[]): Map<string, T> {
   const heads = new Map<string, T>()
-  for (const item of [...commands].sort((a, b) => a.seq - b.seq)) {
+  for (const item of [...commands].sort(byLaneOrder)) {
     if (!isUnfinished(item.cmd.state)) continue
     if (!heads.has(item.cmd.lane)) heads.set(item.cmd.lane, item)
   }
@@ -62,6 +72,24 @@ export function eligible<T extends { seq: number; cmd: Command }>(commands: read
 }
 
 /** How many unfinished commands wait behind this one in its lane. */
-export function blockedBehind(commands: readonly { seq: number; cmd: Command }[], seq: number, lane: string): number {
-  return commands.filter(c => c.cmd.lane === lane && c.seq > seq && isUnfinished(c.cmd.state)).length
+export function blockedBehind(commands: readonly { seq: number; cmd: Command }[], item: { seq: number; cmd: Command }): number {
+  return commands.filter(c => c.cmd.lane === item.cmd.lane && c.seq !== item.seq && byLaneOrder(c, item) > 0 && isUnfinished(c.cmd.state)).length
+}
+
+/**
+ * The names a visit lane goes by. A visit saved offline is `p:<patient>:v:local:<cmdId>` until it is applied and
+ * `p:<patient>:v:<serverId>` after; both name one visit, so its entries must stay in one lane (I4).
+ */
+export function laneAliases(lane: string, receipts: ReadonlyMap<string, { resourceId: string }>): string[] {
+  const m = /^p:(.+):v:(local:)?([^:]+)$/.exec(lane)
+  if (!m) return [lane]
+  const [, patientId, local, id] = m
+  const names = new Set([lane])
+  if (local) {
+    const serverId = receipts.get(id!)?.resourceId
+    if (serverId) names.add(`p:${patientId}:v:${serverId}`)
+  } else {
+    for (const [commandId, r] of receipts) if (r.resourceId === id) names.add(`p:${patientId}:v:local:${commandId}`)
+  }
+  return [...names]
 }

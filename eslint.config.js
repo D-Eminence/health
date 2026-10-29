@@ -24,18 +24,24 @@ const NO_BROWSER_STORAGE = {
 }
 
 const NO_INDEXED_DB = {
-  selector: "MemberExpression[property.name='indexedDB'], Identifier[name='indexedDB']",
+  selector: "MemberExpression[property.name='indexedDB'], MemberExpression[computed=true][property.value='indexedDB'], Identifier[name='indexedDB']",
   message: 'IndexedDB must not be used to hold Health ID data. See docs/ARCHITECTURE.md, PHI handling.',
 }
 
 // Raw key handling lives in one file, so every key's extractability, usages and wrapping can be reviewed in one place
 // (docs/OFFLINE-CONTRACT.md §2.5). The method names are Web Crypto's own, so any member access with one of them is
-// refused, which also catches an aliased SubtleCrypto (const s = crypto.subtle; s.wrapKey(...)).
+// refused, which also catches an aliased SubtleCrypto (const s = crypto.subtle; s.wrapKey(...)). String and template
+// keys (s['wrapKey'], s[`wrapKey`], const { 'wrapKey': w } = s) are caught too; a fully dynamic key (s[name],
+// Reflect.get) is not, and is left to review.
 const KEY_METHODS = '/^(deriveKey|deriveBits|wrapKey|unwrapKey|exportKey|importKey|generateKey)$/'
 const NO_KEY_HANDLING = {
   selector: [
     `MemberExpression[property.name=${KEY_METHODS}]`,
     `ObjectPattern > Property[key.name=${KEY_METHODS}]`,
+    `MemberExpression[computed=true][property.value=${KEY_METHODS}]`,
+    `ObjectPattern > Property[key.value=${KEY_METHODS}]`,
+    `MemberExpression[computed=true][property.type='TemplateLiteral'][property.quasis.0.value.cooked=${KEY_METHODS}]`,
+    `ObjectPattern > Property[key.type='TemplateLiteral'][key.quasis.0.value.cooked=${KEY_METHODS}]`,
   ].join(', '),
   message:
     'Key derivation, generation, import, export and wrapping happen only in packages/offline/src/crypto.ts. Call its functions instead. See docs/OFFLINE-CONTRACT.md §2.5.',

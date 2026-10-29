@@ -6,7 +6,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import type { CachedResult, ConflictClass, OpName, PendingView, Ref, SyncSummary } from './contracts'
-import type { OfflineCore } from './types'
+import { TransportError, type OfflineCore } from './types'
 
 const OfflineContext = createContext<OfflineCore | null>(null)
 
@@ -62,6 +62,10 @@ export interface CachedReadState<T> {
  * Network first, then the saved copy (§2.7). `key` identifies the read for
  * re-running (include the patient and args). When the answer comes from the
  * saved copy, the open is recorded for the offline audit trail under `section`.
+ *
+ * While the saved copy is on screen the hook follows it: a late network answer
+ * replaces it, and when the copy stops being readable (grant expiry, lock,
+ * lease, a wipe) the data is cleared.
  */
 export function useCachedRead<T>(spec: {
   key: string
@@ -74,28 +78,60 @@ export function useCachedRead<T>(spec: {
   enabled?: boolean
 }): CachedReadState<T> {
   const runtime = useOffline()
+  const version = useRuntimeVersion(runtime)
   const [state, setState] = useState<Omit<CachedReadState<T>, 'reload'>>({ data: undefined, source: null, savedAt: null, error: null, loading: true })
   const [nonce, setNonce] = useState(0)
   const specRef = useRef(spec)
   specRef.current = spec
+  const fromCache = useRef(false)
   const enabled = spec.enabled ?? true
 
   useEffect(() => {
     if (!enabled) return
     let live = true
     const s = specRef.current
+    fromCache.current = false
+    // One request per load: the runtime may answer from the saved copy first, and this same request then refreshes it.
+    let request: Promise<T>
+    try { request = s.network() } catch (error) { request = Promise.reject(error) }
+    request.catch(() => undefined)
     setState(prev => ({ ...prev, loading: true, error: null }))
     runtime.reads.read<T>({
-      method: s.method, args: s.args, patientId: s.patientId, network: s.network, ...(s.emergency ? { emergency: true } : {}),
+      method: s.method, args: s.args, patientId: s.patientId, network: () => request, ...(s.emergency ? { emergency: true } : {}),
     }).then(result => {
       if (!live) return
       setState({ data: result.value, source: result.source, savedAt: result.savedAt, error: null, loading: false })
-      if (result.source === 'cache' && s.section) runtime.audit.recordOpen(s.patientId, s.section)
+      if (result.source !== 'cache') return
+      fromCache.current = true
+      if (s.section) runtime.audit.recordOpen(s.patientId, s.section)
+      request.then(value => {
+        if (!live) return
+        fromCache.current = false
+        setState({ data: value, source: 'network', savedAt: null, error: null, loading: false })
+      }, () => undefined)
     }, (error: unknown) => {
       if (live) setState(prev => ({ ...prev, error, loading: false }))
     })
     return () => { live = false }
   }, [runtime, spec.key, nonce, enabled])
+
+  // Whenever the runtime changes while the saved copy is shown, check that it is still readable.
+  useEffect(() => {
+    if (!enabled || !fromCache.current) return
+    let live = true
+    const s = specRef.current
+    runtime.reads.read<T>({
+      method: s.method, args: s.args, patientId: s.patientId,
+      network: () => Promise.reject(new TransportError({ status: null, networkError: true })),
+    }).then(result => {
+      if (live && fromCache.current) setState({ data: result.value, source: result.source, savedAt: result.savedAt, error: null, loading: false })
+    }, (error: unknown) => {
+      if (!live || !fromCache.current) return
+      fromCache.current = false
+      setState({ data: undefined, source: null, savedAt: null, error, loading: false })
+    })
+    return () => { live = false }
+  }, [runtime, version, spec.key, nonce, enabled])
 
   const reload = useCallback(() => setNonce(n => n + 1), [])
   return { ...state, reload }

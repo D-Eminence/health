@@ -36,7 +36,7 @@ import { calibrateIterations, cryptoSupported, deriveKek, fromB64url, importEscr
 import { leaseUntil, leaseVerdict, touchLease } from './lease'
 import { MediaStore, type Reencoder } from './media'
 import { ConnectivityMonitor } from './connectivity'
-import { OutboxEngine, type LockManagerLike } from './outbox/engine'
+import { MAX_REASON, OutboxEngine, type LockManagerLike } from './outbox/engine'
 import { evaluatePolicy, facilityAllowed, parseOfflineEnv, passwordLongEnough } from './policy'
 import { StorageHealth } from './storageHealth'
 import { OfflineStore, databaseExists, defaultFactory, vaultRange, type MetaRecord, type VaultRecord } from './store'
@@ -51,7 +51,7 @@ import type {
   SafetyProbe,
   StagedMedia,
 } from './types'
-import { VaultLimitError, Vaults, hasPendingWork, type OpenVault } from './vault'
+import { VaultLimitError, Vaults, hasPendingWork, sweepExpired, type OpenVault } from './vault'
 
 export interface OfflineRuntimeOptions {
   /** `ehr` or `ocr` (the Migrate host). */
@@ -300,7 +300,7 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
     broadcast: vaultId => broadcast.post({ type: 'outbox-changed', vaultId }),
     audit: e => audit.record({
       action: 'ehr.offline.command.discarded', patientId: e.patientId, section: null,
-      details: { op: e.op, reason: e.reason, bodySha256: e.bodySha256, capturedAt: e.capturedAt },
+      details: { op: e.op, reason: e.reason.slice(0, MAX_REASON), bodySha256: e.bodySha256, capturedAt: e.capturedAt },
     }),
     idle: () => audit.flush(),
     readMedia: m => media.read(m.blobId, m.mediaType, m.sha256Hex),
@@ -311,8 +311,9 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
     refreshing = (async () => {
       try {
         const counts = openStore ? await engine.counts().catch(() => null) : null
-        const auditPending = unlocked && openStore
-          ? (await (await vaults()).get(unlocked.open.record.vaultId).catch(() => undefined))?.pending.audit ?? 0 : 0
+        const u = unlocked
+        const auditPending = u && openStore
+          ? (await (await vaults()).get(u.open.record.vaultId).catch(() => undefined))?.pending.audit ?? 0 : 0
         const st = storageHealth.current()
         summaryCache = {
           connectivity: connectivity.current(),
@@ -418,18 +419,21 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
 
   /**
    * The vault this KEK opens for this account and facility. A vault whose
-   * header was wiped (sign-out, failed unlocks) no longer says whose it is; the
-   * KEK opening it already proves the account (same email on this device), so
-   * it is matched by the facility its queued commands were saved for.
+   * header was wiped (sign-out, failed unlocks) no longer has a readable header;
+   * it is matched by its QK-sealed binding (or, for a vault without one, by the
+   * facility its first queued command names), and never reused for another
+   * facility: its queued work and audit events belong to the facility it was
+   * made for.
    */
   async function matchFor(opened: OpenVault[], s: StaffSessionSnapshot): Promise<OpenVault | null> {
+    const same = (f: string | null | undefined) => f != null && f.toLowerCase() === s.facilityId.toLowerCase()
     for (const v of opened) {
-      if (v.header && v.header.accountId === s.accountId && v.header.facilityId.toLowerCase() === s.facilityId.toLowerCase()) return v
+      if (v.header && v.header.accountId === s.accountId && same(v.header.facilityId)) return v
     }
     for (const v of opened) {
       if (v.header) continue
-      const facility = await headerlessFacility(v)
-      if (facility === null || facility.toLowerCase() === s.facilityId.toLowerCase()) return v
+      if (v.binding && v.binding.accountId !== s.accountId) continue
+      if (same(v.binding?.facilityId ?? await headerlessFacility(v))) return v
     }
     return null
   }
@@ -462,11 +466,27 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
     })().catch(() => null)
   }
 
-  async function ensureMeta(meta: MetaRecord): Promise<void> {
+  /** Store the device record unless another tab stored one first; returns the record that is stored. */
+  async function ensureMeta(meta: MetaRecord): Promise<MetaRecord> {
     const s = await store()
-    await s.write(['meta'], async tx => {
-      if (!(await tx.get('meta', 'device'))) await tx.put('meta', meta)
+    return s.write(['meta'], async tx => {
+      const current = await tx.get('meta', 'device')
+      if (current) return current
+      await tx.put('meta', meta)
+      return meta
     })
+  }
+
+  function sameDevice(a: MetaRecord, b: MetaRecord): boolean {
+    return a.kdf.iterations === b.kdf.iterations && a.deviceSalt.length === b.deviceSalt.length
+      && a.deviceSalt.every((x, i) => x === b.deviceSalt[i])
+  }
+
+  /** Key-free expiry of 30-day holds and of wiped vaults left with nothing to send (D9). Trusted time only. */
+  async function sweep(): Promise<void> {
+    const s = await storeIfExists()
+    if (!s) return
+    await sweepExpired(s, appHost, clock.now()).catch(() => undefined)
   }
 
   async function recordAuditUnlock(): Promise<void> {
@@ -478,14 +498,23 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
     await audit.record({ action: 'ehr.offline.wipe', patientId: null, section: reason }).catch(() => undefined)
   }
 
+  /**
+   * A reserved attempt opened nothing: it stays counted. At the limit every readable copy is wiped, and the counter
+   * stays at the limit so later attempts are refused before any key is derived, until an online sign-in.
+   */
   async function failedUnlock(): Promise<UnlockResult> {
-    const count = await (await vaults()).recordFailure()
-    if (count >= LIMITS.maxFailedUnlocks) {
+    if ((await (await vaults()).failures()) >= LIMITS.maxFailedUnlocks) {
       await runtime.wipe('failed-unlocks')
-      await (await vaults()).clearFailures()
       return { ok: false, reason: 'wiped' }
     }
     return { ok: false, reason: 'wrong-credentials' }
+  }
+
+  /** Reserve an attempt (D2); at the limit, wipe and refuse without deriving. */
+  async function reserveAttempt(vs: Vaults): Promise<UnlockResult | null> {
+    if (await vs.beginAttempt()) return null
+    await runtime.wipe('failed-unlocks')
+    return { ok: false, reason: 'wiped' }
   }
 
   async function unlockWith(email: string, password: string, onlyVaultId: string | null): Promise<UnlockResult> {
@@ -496,15 +525,19 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
     const vs = await vaults()
     const candidates = (await vs.list()).filter(r => onlyVaultId === null || r.vaultId === onlyVaultId)
     if (candidates.length === 0) return { ok: false, reason: 'no-vault' }
+    const refused = await reserveAttempt(vs)
+    if (refused) return refused
     let kek: CryptoKey
     try {
       kek = await vs.deriveKek(email, password)
     } catch {
+      await vs.releaseAttempt(false)
       return { ok: false, reason: 'no-vault' }
     }
-    const opened = (await vs.openWith(kek)).filter(v => onlyVaultId === null || v.record.vaultId === onlyVaultId)
+    const all = await vs.openWith(kek)
+    const opened = all.filter(v => onlyVaultId === null || v.record.vaultId === onlyVaultId)
     if (opened.length === 0) return failedUnlock()
-    await vs.clearFailures()
+    await vs.releaseAttempt(all.length === (await vs.list()).length)
     const usable = opened.filter(v => v.header !== null && !v.record.flags.killed && !v.record.flags.logoutPending)
       .sort((a, b) => b.record.lease.lastServerContactAt - a.record.lease.lastServerContactAt)
     const pick = usable[0]
@@ -542,14 +575,18 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
         if (unlocked && unlocked.open.record.vaultId === m.vaultId) engine.external()
         changed()
         break
-      case 'wipe':
-        if (unlocked) {
-          const record = await (await vaults()).get(unlocked.open.record.vaultId).catch(() => undefined)
-          if (!record) dropKeys('none')
-          else if (!record.header && !unlocked.sendOnly) dropKeys('locked')
+      case 'wipe': {
+        const u = unlocked
+        if (u) {
+          const record = await (await vaults()).get(u.open.record.vaultId).catch(() => undefined)
+          if (unlocked === u) {
+            if (!record) dropKeys('none')
+            else if (!record.header && !u.sendOnly) dropKeys('locked')
+          }
         }
         changed()
         break
+      }
       default:
         break
     }
@@ -611,6 +648,7 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
       }
       if (!prepared.passwordOk) return { kind: 'unavailable', reason: 'password-too-short' }
       if (derived && !derived.fresh) {
+        await sweep()
         const all = await (await vaults()).list()
         if (all.length >= LIMITS.maxVaultsPerOrigin && all.every(hasPendingWork)) return { kind: 'unavailable', reason: 'device-full' }
       }
@@ -640,6 +678,7 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
       }
       const { kek, meta, fresh } = derived
       const vs = fresh ? null : await vaults()
+      if (vs) await sweep()
       const opened = vs ? await vs.openWith(kek) : []
       let match = await matchFor(opened, s)
 
@@ -659,9 +698,11 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
         return summaryCache
       }
 
-      if (!match && vs && opened.length === 0) {
-        // Password changed online: a vault with unsent work is recovered through escrow (§2.5).
-        for (const record of (await vs.list()).filter(r => r.wraps.qkEsc && hasPendingWork(r))) {
+      if (!match && vs) {
+        // Password changed online: a vault with unsent work that the new key cannot open is recovered through escrow
+        // (§2.5, A8.9). The escrow key is bound to the facility, so only this facility's vault opens; at most 5 calls.
+        const openedIds = new Set(opened.map(v => v.record.vaultId))
+        for (const record of (await vs.list()).filter(r => r.wraps.qkEsc && hasPendingWork(r) && !openedIds.has(r.vaultId))) {
           const escrow = await fetchEscrow(record.vaultId, s.facilityId)
           if (!escrow) continue
           const recovered = await vs.rewrapAfterPasswordChange(kek, record, escrow.key, s)
@@ -670,7 +711,14 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
       }
 
       if (!match && opts.optIn && p.passwordOk) {
-        if (fresh) await ensureMeta(meta)
+        if (fresh && !sameDevice(await ensureMeta(meta), meta)) {
+          // Another tab stored the device record first: this KEK used a salt that is not stored and could never open
+          // a vault again. Drop it; the next sign-in derives with the stored salt.
+          setPolicy({ mode: config.mode, enabled: false, reason: 'not-opted-in' })
+          status = (await runtime.hasVaults()) ? 'locked' : 'none'
+          await refreshSummary()
+          return summaryCache
+        }
         const v = await vaults()
         const vaultId = randomUuid()
         const escrow = await fetchEscrow(vaultId, s.facilityId)
@@ -719,11 +767,13 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
         if (!s) return { ok: false, reason: 'no-vault' }
         openStore = s
         const vs = await vaults()
+        const refused = await reserveAttempt(vs)
+        if (refused) return refused
         let kek: CryptoKey
-        try { kek = await vs.deriveKek(email, password) } catch { return { ok: false, reason: 'no-vault' } }
+        try { kek = await vs.deriveKek(email, password) } catch { await vs.releaseAttempt(false); return { ok: false, reason: 'no-vault' } }
         const opened = await vs.openWith(kek)
         if (opened.length === 0) return failedUnlock()
-        await vs.clearFailures()
+        await vs.releaseAttempt(opened.length === (await vs.list()).length)
         const match = await matchFor(opened, attachedSession)
         if (!match) return { ok: false, reason: 'no-vault' }
         if (facilityAllowed(config, appHost, attachedSession.facilityId)) return { ok: false, reason: 'no-vault' }
@@ -778,7 +828,9 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
         case 'membership':
           // CC8 (D9): unsent work stays sealed 30 days, then is deleted.
           if (unlocked) await engine.holdMembership()
-          if (current) await vs.wipeCache([current])
+          // While locked the queue cannot be resealed as held: the end time is recorded so the sweep removes the
+          // vault 30 days later.
+          if (current) await vs.wipeCache([current], unlocked ? {} : { membershipEndedAt: clock.now() })
           if (unlocked) dropKeys('locked')
           break
         case 'lease':

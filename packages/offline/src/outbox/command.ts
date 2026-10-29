@@ -53,6 +53,11 @@ export interface Command {
   review?: { class: ConflictClass; openedAt: string }
   /** CC5: the author asked for access again; resume when consent allows writing. */
   awaitingAccess?: boolean
+  /**
+   * Where the command sorts in its lane when it is not its own `seq`: a review successor (apply on top, edit as new,
+   * new visit) takes its original's place instead of the tail of the lane.
+   */
+  orderSeq?: number
   /** CC4: the author chose "Send as is (I have checked)". */
   safetyCleared?: boolean
   supersedes?: string

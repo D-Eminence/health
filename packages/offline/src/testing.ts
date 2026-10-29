@@ -154,6 +154,8 @@ interface FakeVault {
 }
 interface CommandRec {
   seq: number
+  /** A review successor's place in its lane (its original's), as the real engine. */
+  orderSeq?: number
   id: string
   key: `off1.${string}`
   op: OpName
@@ -409,7 +411,7 @@ export function createFakeOfflineRuntime(options: FakeOptions = {}): { runtime: 
 
   function eligible(v: FakeVault): CommandRec[] {
     const heads = new Map<string, CommandRec>()
-    for (const c of [...v.commands].sort((a, b) => a.seq - b.seq)) {
+    for (const c of [...v.commands].sort((a, b) => (a.orderSeq ?? a.seq) - (b.orderSeq ?? b.seq) || a.seq - b.seq)) {
       if (!UNFINISHED.has(c.state)) continue
       if (!heads.has(c.lane)) heads.set(c.lane, c)
     }
@@ -456,6 +458,7 @@ export function createFakeOfflineRuntime(options: FakeOptions = {}): { runtime: 
     if (bytes > LIMITS.maxBodyBytes) throw new SaveRefused('too-long', { bytes })
     const id = crypto.randomUUID()
     const { patientId, lane } = laneOf(def, input, id)
+    const prior = o.supersedes ? v.commands.find(c => c.id === o.supersedes) : undefined
     const local = Object.values(def.refs(input)).flatMap(r => ('local' in r ? [r.local] : []))
     v.cmdSeq += 1
     const c: CommandRec = {
@@ -464,6 +467,7 @@ export function createFakeOfflineRuntime(options: FakeOptions = {}): { runtime: 
       lane, dependsOn: [...new Set([...(o.dependsOn ?? []), ...local])], capturedAt: iso(wall()), clock: clockState(),
       state: 'queued', everSent: false, attempts: 0, nextAttemptAt: 0, frozen: null, receipt: null, review: null, awaitingAccess: false,
       ...(o.supersedes ? { supersedes: o.supersedes } : {}),
+      ...(prior && prior.lane === lane ? { orderSeq: prior.orderSeq ?? prior.seq } : {}),
     }
     v.commands.push(c)
     notify()
@@ -799,6 +803,7 @@ export function createFakeOfflineRuntime(options: FakeOptions = {}): { runtime: 
         const reason = (o.reason ?? '').trim()
         if (!c.review || !ALLOWED_ACTIONS[c.review].includes(action)) throw new Error('That action is not available for this entry.')
         if (action !== 'send-as-is' && reason.length < 8) throw new Error('Give a reason of at least 8 characters.')
+        if (reason.length > 500) throw new Error('Keep the reason under 500 characters.')
         switch (action) {
           case 'send-as-is':
             if (c.review !== 'CC4') throw new Error('Only a safety hold can be sent as is.')

@@ -46,7 +46,7 @@ import { STILL_TRYING_MS, backoffMs } from './backoff'
 import { classify, isDefinitiveFirstRefusal, needsReceiptCheck, type FailureClass } from './classify'
 import { isUnfinished, type Command, type LastProblem } from './command'
 import { TooLongError, freeze, newCommandKey, resolveRefs, sizeAtSave, type ResolvedRef } from './freeze'
-import { MEDIA_LANE, blockedBehind, eligible, laneFor, visitLane } from './lanes'
+import { MEDIA_LANE, blockedBehind, eligible, laneAliases, laneFor, visitLane } from './lanes'
 
 export interface OpenVaultRef {
   vaultId: string
@@ -99,6 +99,8 @@ export interface EngineHost {
 interface Item { seq: number; rec: OutboxRecord; cmd: Command }
 
 const APPLIED_KEEP_MS = 60_000
+/** Longest review reason (it travels in the discard audit event). */
+export const MAX_REASON = 500
 const SEND_TIMEOUT_MS = 15_000
 const ALLOWED_ACTIONS: Record<ConflictClass, readonly string[]> = {
   CC1: [], CC2: ['apply-on-top', 'discard'], CC3: ['new-visit', 'edit-as-new', 'discard'], CC4: ['send-as-is', 'discard'],
@@ -215,7 +217,8 @@ export class OutboxEngine implements CommandQueue, ReviewQueue {
     if (!v) return
     await this.load(true)
     for (const it of this.items.filter(i => i.cmd.state === 'held_session')) {
-      await this.persist(v, it, { ...it.cmd, state: it.cmd.everSent ? 'sending' : 'queued', nextAttemptAt: 0, review: undefined })
+      await this.persist(v, it, { ...it.cmd, state: it.cmd.everSent ? 'sending' : 'queued', nextAttemptAt: 0, review: undefined },
+        { guard: this.unchanged(it) })
     }
     this.kick()
   }
@@ -287,6 +290,8 @@ export class OutboxEngine implements CommandQueue, ReviewQueue {
   ): Promise<boolean> {
     const rec = await this.plaintext(v, item.seq, cmd, OutboxEngine.expiryFor(cmd, this.host.now()))
     const ok = await this.host.store.write(['vaults', 'outbox', 'audit', 'media', 'receipts'], async tx => {
+      // The vault may have been deleted by another tab (an online sign-out) since this command was prepared (I1).
+      if (!(await tx.get('vaults', v.vaultId))) return false
       const current = await tx.get('outbox', [v.vaultId, item.seq])
       if (o.guard && !o.guard(current)) return false
       await tx.put('outbox', rec)
@@ -309,6 +314,19 @@ export class OutboxEngine implements CommandQueue, ReviewQueue {
     return ok
   }
 
+  /** Guard: the stored record is still the one this tab loaded (another tab may have changed it since). */
+  private unchanged(item: Item): (current: OutboxRecord | undefined) => boolean {
+    const at = item.rec.updatedAt
+    return current => current !== undefined && current.updatedAt === at
+  }
+
+  /** For a new command: the name of its visit's lane that already holds unfinished commands, else the one planned. */
+  private laneInUse(planned: string): string {
+    const names = laneAliases(planned, this.receipts)
+    if (names.length === 1) return planned
+    return names.find(n => this.items.some(i => i.cmd.lane === n && isUnfinished(i.cmd.state))) ?? planned
+  }
+
   private lookupRef = (commandId: string): ResolvedRef | null => {
     const r = this.receipts.get(commandId)
     return r ? { id: r.resourceId, ...(r.rowVersion !== undefined ? { rowVersion: r.rowVersion } : {}) } : null
@@ -325,7 +343,17 @@ export class OutboxEngine implements CommandQueue, ReviewQueue {
     if (bytes > LIMITS.maxBodyBytes) throw new SaveRefused('too-long', { bytes })
 
     const id = randomUuid()
-    const { patientId, lane, priority } = laneFor(def, input, id)
+    await this.load(!this.sender)
+    const planned = laneFor(def, input, id)
+    const { patientId, priority } = planned
+    // A visit saved offline keeps one lane under its local and its server name (I4).
+    let lane = this.laneInUse(planned.lane)
+    let orderSeq: number | undefined
+    const prior = o.supersedes ? this.items.find(i => i.cmd.id === o.supersedes) : undefined
+    if (prior && laneAliases(prior.cmd.lane, this.receipts).includes(lane)) {
+      lane = prior.cmd.lane
+      orderSeq = prior.cmd.orderSeq ?? prior.seq
+    }
     const refs = def.refs(input)
     const local = Object.values(refs).flatMap(r => ('local' in r ? [r.local] : []))
     const offline = this.host.offline()
@@ -338,6 +366,7 @@ export class OutboxEngine implements CommandQueue, ReviewQueue {
       ...(def.intent ? { intent: def.intent(input) } : {}),
       ...(safety ? { safety } : {}),
       ...(o.supersedes ? { supersedes: o.supersedes } : {}),
+      ...(orderSeq !== undefined ? { orderSeq } : {}),
       state: 'queued', everSent: false, attempts: 0, nextAttemptAt: 0,
     }
 
@@ -350,7 +379,7 @@ export class OutboxEngine implements CommandQueue, ReviewQueue {
       return next
     })
     const item: Item = { seq, rec: undefined as unknown as OutboxRecord, cmd }
-    await this.persist(v, item, cmd, { guard: current => current === undefined })
+    if (!(await this.persist(v, item, cmd, { guard: current => current === undefined }))) throw new SaveRefused('unavailable')
     // I1: from here the command is saved on this device.
 
     const awaitMs = o.awaitMs ?? LIMITS.receiptWaitMs
@@ -453,15 +482,18 @@ export class OutboxEngine implements CommandQueue, ReviewQueue {
       const bytes = sizeAtSave(def, input)
       if (bytes > LIMITS.maxBodyBytes) throw new SaveRefused('too-long', { bytes })
       const refs = def.refs(input)
-      const { lane } = laneFor(def, input, item.cmd.id)
+      const planned = laneFor(def, input, item.cmd.id).lane
       // Moving an entry to another visit would break that visit's order (I4): save it as a new entry instead.
-      if (lane !== item.cmd.lane) throw new Error('This entry belongs to another visit now. Save it as a new entry.')
+      if (!laneAliases(planned, this.receipts).includes(item.cmd.lane)) throw new Error('This entry belongs to another visit now. Save it as a new entry.')
+      const lane = item.cmd.lane
       const oldLocal = new Set(Object.values(item.cmd.refs).flatMap(r => ('local' in r ? [r.local] : [])))
       const newLocal = Object.values(refs).flatMap(r => ('local' in r ? [r.local] : []))
       const dependsOn = [...new Set([...item.cmd.dependsOn.filter(id => !oldLocal.has(id)), ...newLocal])]
       const fromSafety = item.cmd.review?.class === 'CC4'
       return {
         ...item.cmd, input, refs, lane, dependsOn, frozen: undefined,
+        // An edit is a new entry for CC4: "Send as is" covered what the author checked, not this.
+        safetyCleared: undefined, savedOffline: item.cmd.savedOffline || this.host.offline(),
         ...(def.intent ? { intent: def.intent(input) } : {}),
         ...(safety ? { safety } : {}),
         ...(fromSafety ? { state: 'queued' as const, review: undefined, savedOffline: this.host.offline() } : {}),
@@ -476,10 +508,10 @@ export class OutboxEngine implements CommandQueue, ReviewQueue {
   async pendingFor(patientId: string, visit?: Ref): Promise<PendingView[]> {
     if (!this.host.vault()) return []
     await this.load(!this.sender)
-    const lane = visit ? visitLane(patientId, visit) : null
+    const lanes = visit ? new Set(laneAliases(visitLane(patientId, visit), this.receipts)) : null
     const now = this.host.now()
     return this.items
-      .filter(i => isUnfinished(i.cmd.state) && i.cmd.scope.patientId === patientId && (lane === null || i.cmd.lane === lane))
+      .filter(i => isUnfinished(i.cmd.state) && i.cmd.scope.patientId === patientId && (lanes === null || lanes.has(i.cmd.lane)))
       .map(i => ({ commandId: i.cmd.id, op: i.cmd.op, state: i.cmd.state, capturedAt: i.cmd.capturedAt, label: stateLabel(i.cmd, now), input: i.cmd.input }))
   }
 
@@ -526,7 +558,7 @@ export class OutboxEngine implements CommandQueue, ReviewQueue {
       .filter(i => i.cmd.review && isUnfinished(i.cmd.state))
       .map(i => ({
         commandId: i.cmd.id, class: i.cmd.review!.class, patientId: i.cmd.scope.patientId, op: i.cmd.op,
-        laneBlocked: blockedBehind(this.items, i.seq, i.cmd.lane),
+        laneBlocked: blockedBehind(this.items, i),
       }))
   }
 
@@ -541,6 +573,8 @@ export class OutboxEngine implements CommandQueue, ReviewQueue {
     if (!ALLOWED_ACTIONS[cls].includes(action)) throw new Error('That action is not available for this entry.')
     const reason = (o.reason ?? '').trim()
     if (action !== 'send-as-is' && reason.length < 8) throw new Error('Give a reason of at least 8 characters.')
+    // The reason travels in the discard audit event, which must fit the 8 KB edge limit with its batch.
+    if (reason.length > MAX_REASON) throw new Error('Keep the reason under 500 characters.')
     const loadedAt = item.rec.updatedAt
     const guard = (current: OutboxRecord | undefined) => current !== undefined && current.updatedAt === loadedAt
 
@@ -583,7 +617,8 @@ export class OutboxEngine implements CommandQueue, ReviewQueue {
     if (!v) return
     await this.load(true)
     for (const it of this.items.filter(i => i.cmd.state === 'held_access' && i.cmd.scope.patientId === patientId && i.cmd.awaitingAccess)) {
-      await this.persist(v, it, { ...it.cmd, state: it.cmd.everSent ? 'sending' : 'queued', review: undefined, awaitingAccess: false, nextAttemptAt: 0 })
+      await this.persist(v, it, { ...it.cmd, state: it.cmd.everSent ? 'sending' : 'queued', review: undefined, awaitingAccess: false, nextAttemptAt: 0 },
+        { guard: this.unchanged(it) })
     }
     this.kick()
   }
@@ -656,7 +691,10 @@ export class OutboxEngine implements CommandQueue, ReviewQueue {
       // A command whose dependency was discarded can never be sent as it is (CC3).
       for (const it of this.items.filter(i => isUnfinished(i.cmd.state) && !i.cmd.review)) {
         const dead = it.cmd.dependsOn.some(id => this.items.find(x => x.cmd.id === id)?.cmd.state === 'discarded')
-        if (dead) await this.persist(v, it, { ...it.cmd, state: 'review', review: { class: 'CC3', openedAt: new Date(this.host.now()).toISOString() } })
+        if (dead) {
+          await this.persist(v, it, { ...it.cmd, state: 'review', review: { class: 'CC3', openedAt: new Date(this.host.now()).toISOString() } },
+            { guard: this.unchanged(it) })
+        }
       }
       if (!this.host.canSend()) return
       const now = this.host.now()
@@ -727,7 +765,7 @@ export class OutboxEngine implements CommandQueue, ReviewQueue {
     const now = () => this.host.now()
     const at = () => new Date(now()).toISOString()
     if (!def) {
-      await this.persist(v, it, { ...it.cmd, state: 'review', review: { class: 'CC7', openedAt: at() } })
+      await this.persist(v, it, { ...it.cmd, state: 'review', review: { class: 'CC7', openedAt: at() } }, { guard: this.unchanged(it) })
       return
     }
     let cmd: Command = { ...it.cmd }

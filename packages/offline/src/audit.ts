@@ -125,10 +125,12 @@ export class AuditQueue implements OfflineAudit {
         })
         this.host.report?.({ kind: 'audit-rejected', dropped: expiredRejected.length, code: 'EXPIRED' })
       }
-      const batch = recs.filter(r => r.v === 1 && r.state === 'pending').sort((a, b) => a.seq - b.seq).slice(0, LIMITS.auditBatch)
-      if (batch.length === 0) return
-      const events: OfflineAuditEvent[] = []
-      for (const r of batch) events.push(await open<OfflineAuditEvent>(v.keys.qk, auditAad(v.vaultId, r.seq), r.value))
+      const candidates = recs.filter(r => r.v === 1 && r.state === 'pending').sort((a, b) => a.seq - b.seq).slice(0, LIMITS.auditBatch)
+      if (candidates.length === 0) return
+      const opened: OfflineAuditEvent[] = []
+      for (const r of candidates) opened.push(await open<OfflineAuditEvent>(v.keys.qk, auditAad(v.vaultId, r.seq), r.value))
+      const events = fitAuditBatch(v.vaultId, opened)
+      const batch = candidates.slice(0, events.length)
       let body: { accepted?: unknown; duplicate?: unknown; rejected?: unknown }
       try {
         const res = await this.host.transport({
@@ -162,4 +164,37 @@ export class AuditQueue implements OfflineAudit {
       if (progressed === 0) return
     }
   }
+}
+
+const encoder = new TextEncoder()
+const bodySize = (vaultId: string, events: readonly OfflineAuditEvent[]) => encoder.encode(JSON.stringify({ vaultId, events })).length
+
+/**
+ * The events for one C2 request, in seq order: at most 20, and only while the request body stays within 8000
+ * bytes (the edge refuses larger bodies with a 403). The first event always goes; if it is too large on its own,
+ * a copy is sent with `details.reason` cut to fit and `details.reasonTruncated: true` (the sealed record is not
+ * changed).
+ */
+export function fitAuditBatch(vaultId: string, events: readonly OfflineAuditEvent[]): OfflineAuditEvent[] {
+  const out: OfflineAuditEvent[] = []
+  for (const e of events.slice(0, LIMITS.auditBatch)) {
+    if (bodySize(vaultId, [...out, e]) <= LIMITS.maxBodyBytes) { out.push(e); continue }
+    if (out.length === 0) out.push(truncated(vaultId, e))
+    break
+  }
+  return out
+}
+
+function truncated(vaultId: string, e: OfflineAuditEvent): OfflineAuditEvent {
+  const details = (e.details && typeof e.details === 'object' && !Array.isArray(e.details) ? e.details : {}) as Record<string, Json>
+  const reason = typeof details.reason === 'string' ? details.reason : ''
+  const withReason = (r: string): OfflineAuditEvent => ({ ...e, details: { ...details, reason: r, reasonTruncated: true } })
+  let lo = 0
+  let hi = reason.length
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2)
+    if (bodySize(vaultId, [withReason(reason.slice(0, mid))]) <= LIMITS.maxBodyBytes) lo = mid
+    else hi = mid - 1
+  }
+  return withReason(reason.slice(0, lo))
 }

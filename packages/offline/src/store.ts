@@ -40,6 +40,11 @@ export interface VaultRecord {
   pending: { commands: number; audit: number; mediaBytes: number }
   /** Sealed with DK: VaultHeader. null once the readable copy is wiped. */
   header: Envelope | null
+  /**
+   * Sealed with QK: the account, membership and facility the vault was made for. QK survives a wipe and a
+   * password change, so a wiped vault is still only reused for its own facility.
+   */
+  bind?: Envelope
 }
 
 export type CacheKind = 'session' | 'index' | 'grant' | 'read'
