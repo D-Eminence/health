@@ -519,6 +519,7 @@ export function createFakeOfflineRuntime(options: FakeOptions = {}): { runtime: 
       if (!prepared) return vaults.length > 0 ? { kind: 'paused' } : { kind: 'unavailable', reason: 'not-opted-in' }
       if (existing && existing.passwordProof === prepared.passwordProof) return { kind: 'existing' }
       if (!prepared.passwordOk) return { kind: 'unavailable', reason: 'password-too-short' }
+      if (vaults.length >= LIMITS.maxVaultsPerOrigin && vaults.every(v => pendingCount(v) > 0)) return { kind: 'unavailable', reason: 'device-full' }
       return { kind: 'ask' }
     },
 
@@ -538,9 +539,14 @@ export function createFakeOfflineRuntime(options: FakeOptions = {}): { runtime: 
         wipeCache(v)
         v.passwordProof = key.passwordProof
       }
-      if (!v && o.optIn && key.passwordOk) v = newVault(s, key.passwordProof) ?? undefined
+      let full = false
+      if (!v && o.optIn && key.passwordOk) {
+        v = newVault(s, key.passwordProof) ?? undefined
+        full = !v
+      }
       if (!v) {
-        lastPolicy = evaluatePolicy(config, { appHost, facilityId: s.facilityId, optedIn: o.optIn, passwordOk: key.passwordOk })
+        lastPolicy = full ? { mode: config.mode, enabled: false, reason: 'device-full' }
+          : evaluatePolicy(config, { appHost, facilityId: s.facilityId, optedIn: o.optIn, passwordOk: key.passwordOk })
         status = 'none'
         notify()
         return summary()

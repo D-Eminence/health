@@ -218,8 +218,12 @@ describe('vault: unlock, lock, wipe', () => {
       rt.dispose()
     }
     const sixth = makeRuntime({ server, env, idb })
-    const s = await signIn(sixth, { server, session: { ...SESSION, accountId: 'acc-6', email: 'user6@demo.example' } })
+    const sixthSession = { ...SESSION, accountId: 'acc-6', email: 'user6@demo.example' }
+    sixth.prepareFromSignIn(sixthSession.email, PASSWORD)
+    expect(await sixth.offer(sixthSession)).toEqual({ kind: 'unavailable', reason: 'device-full' })
+    const s = await signIn(sixth, { server, session: sixthSession })
     expect(s.vault).not.toBe('unlocked')
+    expect(sixth.policy()).toMatchObject({ enabled: false, reason: 'device-full' })
     const dump = await (await sixth.storeForDiagnostics())!.dump()
     expect(dump.vaults).toHaveLength(5)
   })

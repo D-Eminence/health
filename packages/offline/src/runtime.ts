@@ -51,7 +51,7 @@ import type {
   SafetyProbe,
   StagedMedia,
 } from './types'
-import { Vaults, hasPendingWork, type OpenVault } from './vault'
+import { VaultLimitError, Vaults, hasPendingWork, type OpenVault } from './vault'
 
 export interface OfflineRuntimeOptions {
   /** `ehr` or `ocr` (the Migrate host). */
@@ -610,6 +610,10 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
         if (await matchFor(await vs.openWith(derived.kek), s)) return { kind: 'existing' }
       }
       if (!prepared.passwordOk) return { kind: 'unavailable', reason: 'password-too-short' }
+      if (derived && !derived.fresh) {
+        const all = await (await vaults()).list()
+        if (all.length >= LIMITS.maxVaultsPerOrigin && all.every(hasPendingWork)) return { kind: 'unavailable', reason: 'device-full' }
+      }
       if (!derived) return { kind: 'unavailable', reason: 'unsupported-browser' }
       return { kind: 'ask' }
     },
@@ -672,8 +676,9 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
         const escrow = await fetchEscrow(vaultId, s.facilityId)
         try {
           match = await v.createWithId(kek, vaultId, s, escrow ?? undefined)
-        } catch {
-          setPolicy({ mode: config.mode, enabled: false, reason: 'not-opted-in' })
+        } catch (error) {
+          // Five vaults all with unsent work: no room for another (A8, `device-full`).
+          setPolicy({ mode: config.mode, enabled: false, reason: error instanceof VaultLimitError ? 'device-full' : 'not-opted-in' })
           await refreshSummary()
           return summaryCache
         }
