@@ -151,7 +151,9 @@ export function useShellUpdate(safety: ShellUpdateSafety = defaultSafety, load: 
     if (!offline) return
     let live = true
     let stop: (() => void) | null = null
-    load().then(shell => shell.watchShellUpdate(setState)).then(unwatch => {
+    // A reporter of this instance's own: shell.ts keeps reporters in a Set, so a shared one would be dropped for every
+    // banner when the first of them unmounts.
+    load().then(shell => shell.watchShellUpdate(next => setState(next))).then(unwatch => {
       if (live) stop = unwatch
       else unwatch()
     }).catch(() => { /* no worker API, or the chunk could not load: nothing to update */ })

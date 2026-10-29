@@ -104,6 +104,11 @@ const PUSH_SECTION_START = 'const TITLE'
 const PUSH_SECTION_END = 'return self.clients.openWindow(target)\n  })())\n})\n'
 const PUSH_SECTION_SHA256 = 'e371d4159600c5004259be9b57f8b35faaedf33170a50906bc5992601802c3b8'
 const SHELL_RESPOND = 'respondWith(shellResponse(request, path, navigation))'
+// The whole worker as reviewed: apps/patient-web/public/sw.js, with the build's shell list put back to null. The rules
+// above match how code is written, so a call through .call, an alias or a computed name could slip past them; this pin
+// cannot. Any change to public/sw.js must update this pin in the same reviewed commit (launchBuildShell.test.ts checks
+// the pin is the file's SHA-256). The rules stay: they state what a reviewed change must still hold.
+const WORKER_SHA256 = '918ef7f352f5d67522f018df46f13400176203774ed92c47af66d252f31fcb8b'
 // The file list the build writes into sw.js (vite.config.ts, hidShellManifest).
 const SHELL_MANIFEST = /self\.__HID_SHELL__ = (.*)$/gm
 const SHELL_FILE = /^(?:assets\/[A-Za-z0-9][A-Za-z0-9_.-]*|health-id\.webmanifest|icons\/[A-Za-z0-9][A-Za-z0-9_.-]*\.png)$/
@@ -491,6 +496,9 @@ function inspectServiceWorker(source, paths, indexHtml, failures) {
     if (spans.length !== 1 || pushStart === -1 || spans[0].start < pushStart || spans[0].end > pushStart + pushSection.length) {
       failures.push(`sw.js listens for ${event} other than once, in B6's pinned listeners`)
     }
+  }
+  if (createHash('sha256').update(source.replace(SHELL_MANIFEST, 'self.__HID_SHELL__ = null')).digest('hex') !== WORKER_SHA256) {
+    failures.push('sw.js is not the reviewed public/sw.js (its SHA-256 differs from WORKER_SHA256)')
   }
   inspectShellManifest(source, paths, indexHtml, failures)
 }

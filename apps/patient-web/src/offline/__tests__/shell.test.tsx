@@ -234,6 +234,18 @@ describe('useShellUpdate', () => {
     expect(reload).not.toHaveBeenCalled()
   })
 
+  it('keeps telling the other banners when one unmounts', async () => {
+    waitingUpdate()
+    const first = renderHook(() => shellUpdate.useShellUpdate(safety(false, false)))
+    const second = renderHook(() => shellUpdate.useShellUpdate(safety(false, false)))
+    await waitFor(() => expect(second.result.current.ready).toBe(true))
+    await waitFor(() => expect(container.getRegistration).toHaveBeenCalledTimes(2))
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
+    first.unmount()
+    act(() => { container.dispatchEvent(new Event('controllerchange')) })
+    expect(second.result.current.updatedElsewhere).toBe(true)
+  })
+
   it('is not ready on a first install, with no worker running the page', async () => {
     const registration = waitingUpdate()
     container.controller = null

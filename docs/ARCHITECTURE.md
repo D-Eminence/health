@@ -973,7 +973,13 @@ three files, `apps/patient-web/src/pushDevice.ts`,
 `apps/patient-web/src/offline/shell.ts` and `apps/patient-web/public/sw.js`;
 `NO_CACHE_STORAGE` and `NO_RAW_FETCH` are lifted only for
 `apps/patient-web/public/sw.js`, which ESLint therefore no longer limits there:
-`scripts/check-launch-build.mjs` does, on the built worker. It refuses storage,
+`scripts/check-launch-build.mjs` does, on the built worker. Above all it pins
+the whole worker: the built `sw.js`, with its shell list put back to `null`,
+must have the SHA-256 recorded in the check (`WORKER_SHA256`), so any change
+to `public/sw.js` updates that pin in the same reviewed commit. Its other rules
+state what a reviewed change must still hold, matched on how the code is
+written (a call through `.call`, an alias or a computed name is caught by the
+pin, not by them). It refuses storage,
 IndexedDB, imported scripts, a cache by another name, a write to Cache Storage
 outside `precacheShell`, a fetch of anything but the request being answered
 (in `shellResponse`) or the build's own shell files (in `precacheShell`), an

