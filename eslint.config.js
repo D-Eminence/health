@@ -24,7 +24,14 @@ const NO_BROWSER_STORAGE = {
 }
 
 const NO_INDEXED_DB = {
-  selector: "MemberExpression[property.name='indexedDB'], MemberExpression[computed=true][property.value='indexedDB'], Identifier[name='indexedDB']",
+  selector: [
+    "MemberExpression[property.name='indexedDB']",
+    "MemberExpression[computed=true][property.value='indexedDB']",
+    "MemberExpression[computed=true][property.type='TemplateLiteral'][property.quasis.0.value.cooked='indexedDB']",
+    "ObjectPattern > Property[key.value='indexedDB']",
+    "ObjectPattern > Property[key.type='TemplateLiteral'][key.quasis.0.value.cooked='indexedDB']",
+    "Identifier[name='indexedDB']",
+  ].join(', '),
   message: 'IndexedDB must not be used to hold Health ID data. See docs/ARCHITECTURE.md, PHI handling.',
 }
 

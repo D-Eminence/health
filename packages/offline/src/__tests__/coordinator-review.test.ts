@@ -6,7 +6,7 @@ import { fitAuditBatch } from '../audit'
 import type { OfflineStore } from '../store'
 import { createMemoryLocks } from '../testing'
 import { OTHER_FACILITY, PASSWORD, PATIENT, SESSION } from './fixtures'
-import { createServer, makeEnv, makeRuntime, settle, signIn, until, type Server } from './harness'
+import { createServer, makeEnv, makeRuntime, serverContact, settle, signIn, until, type Env, type Server } from './harness'
 
 const TWO_PILOTS = { env: { mode: 'pilot', facilities: `${SESSION.facilityId},${OTHER_FACILITY}`, hosts: 'ehr' } }
 const AT_Y = { ...SESSION, facilityId: OTHER_FACILITY, facilityName: 'Second Pilot' }
@@ -374,7 +374,7 @@ describe('13. save fails if its vault is deleted between reserving the seq and w
 describe('14. membership-ended work is deleted after 30 days', () => {
   it('a later sign-in elsewhere removes the expired hold and its vault', async () => {
     const server = createServer()
-    const env = makeEnv()
+    const env: Env = { ...makeEnv(), serverClock: true }
     const idb = new IDBFactory()
     const rt = makeRuntime({ server, env, idb, extra: TWO_PILOTS })
     await signIn(rt, { server })
@@ -394,7 +394,7 @@ describe('14. membership-ended work is deleted after 30 days', () => {
 
   it('five expired holds no longer make the device full', async () => {
     const server = createServer()
-    const env = makeEnv()
+    const env: Env = { ...makeEnv(), serverClock: true }
     const idb = new IDBFactory()
     for (let i = 0; i < 5; i += 1) {
       const rt = makeRuntime({ server, env, idb })
@@ -411,6 +411,7 @@ describe('14. membership-ended work is deleted after 30 days', () => {
     const sixth = makeRuntime({ server, env, idb })
     const s6 = { ...SESSION, accountId: 'acc-6', email: 'user6@demo.example' }
     sixth.prepareFromSignIn(s6.email, PASSWORD)
+    serverContact(sixth)
     expect(await sixth.offer(s6)).toEqual({ kind: 'ask' })
   })
 })

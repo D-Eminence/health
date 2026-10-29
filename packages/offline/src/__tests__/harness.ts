@@ -127,7 +127,15 @@ export type Server = ReturnType<typeof createServer>
 export interface Env {
   wall: number
   mono: number
+  /**
+   * Feed a server `Date` through onResponseMeta on every response (as the app's HTTP client does), so the runtime
+   * has a trusted anchor. The server's clock is `server` when set, else the device's `wall`.
+   */
+  serverClock?: boolean
+  server?: number
 }
+
+const clocked = new WeakMap<OfflineRuntimeHandle, () => void>()
 
 export function makeEnv(): Env {
   return { wall: Date.parse('2026-10-29T09:00:00.000Z'), mono: 1_000_000 }
@@ -137,10 +145,26 @@ export function makeRuntime(o: {
   server: Server; env: Env; idb?: IDBFactory; locks?: ReturnType<typeof createMemoryLocks> | null; mode?: string
   extra?: Partial<OfflineRuntimeOptions>
 }): OfflineRuntimeHandle {
+  const date = () => new Date(o.env.server ?? o.env.wall).toUTCString()
+  const meta = (spec: SendSpec, status: number | null, networkError: boolean) => ({
+    method: spec.method, path: spec.path, status, date: status === null ? null : date(), problem: false, code: null, networkError,
+    authenticated: spec.auth !== 'none',
+  })
+  const transport = !o.env.serverClock ? o.server.transport : async (spec: SendSpec): Promise<SendResult> => {
+    try {
+      const res = await o.server.transport(spec)
+      runtime.onResponseMeta(meta(spec, res.status, false))
+      return res
+    } catch (error) {
+      const status = error instanceof TransportError ? error.status : null
+      runtime.onResponseMeta(meta(spec, status, status === null))
+      throw error
+    }
+  }
   const runtime = createOfflineRuntime({
     appHost: 'ehr',
     env: { mode: o.mode ?? 'pilot', facilities: SESSION.facilityId, hosts: 'ehr,ocr' },
-    transport: o.server.transport,
+    transport,
     idbFactory: o.idb ?? new IDBFactory(),
     locks: o.locks === undefined ? null : o.locks,
     BroadcastChannel: null,
@@ -155,13 +179,21 @@ export function makeRuntime(o: {
     ...o.extra,
   })
   runtime.commands.register(ALL_DEFS)
+  // The sign-in request itself is a server response the runtime sees before attachSession.
+  if (o.env.serverClock) clocked.set(runtime, () => runtime.onResponseMeta(meta({ method: 'POST', path: '/api/v1/auth/staff/login' }, 200, false)))
   return runtime
+}
+
+/** The sign-in's own server response, for tests that call offer() or attachSession() directly. */
+export function serverContact(runtime: OfflineRuntimeHandle): void {
+  clocked.get(runtime)?.()
 }
 
 /** Sign in online with the one-time choice accepted. */
 export async function signIn(runtime: OfflineRuntimeHandle, o: { optIn?: boolean; password?: string; session?: typeof SESSION; server?: Server } = {}) {
   if (o.server) o.server.state.account = (o.session ?? SESSION).accountId
   runtime.prepareFromSignIn((o.session ?? SESSION).email, o.password ?? PASSWORD)
+  clocked.get(runtime)?.()
   const summary = await runtime.attachSession(o.session ?? SESSION, { optIn: o.optIn ?? true, online: true })
   runtime.setSessionReady(true)
   return summary

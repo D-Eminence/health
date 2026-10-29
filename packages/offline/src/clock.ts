@@ -78,6 +78,15 @@ export class TrustedClock {
     return { offsetMs: this.offsetMs, lastWallSeen: this.lastWallSeen }
   }
 
+  /**
+   * Server time from this tab's anchor (its last server `Date` plus the monotonic time since), or null before one
+   * is seen. Unlike `now()` it never follows the device clock, so deletions that must wait real days (the 30-day
+   * keeps) use this and are skipped while it is null.
+   */
+  serverNow(): number | null {
+    return this.anchor ? this.anchor.serverMs + (this.mono() - this.anchor.perf0) : null
+  }
+
   anchored(): boolean {
     return this.anchor !== null
   }

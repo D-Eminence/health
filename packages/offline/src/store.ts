@@ -36,7 +36,11 @@ export interface VaultRecord {
   wraps: VaultWraps
   lease: { signedInAt: number; lastServerContactAt: number; leaseUntil: number; serverOffsetMs: number; lastWallSeen: number }
   counters: { cmdSeq: number; auditSeq: number }
-  flags: { logoutPending: boolean; escrow: boolean; killed: boolean; membershipEndedAt: number | null }
+  flags: {
+    logoutPending: boolean; escrow: boolean; killed: boolean; membershipEndedAt: number | null
+    /** Created while escrow was unreachable after a password change: ask escrow again at the next sign-in. */
+    escrowRetry?: boolean
+  }
   pending: { commands: number; audit: number; mediaBytes: number }
   /** Sealed with DK: VaultHeader. null once the readable copy is wiped. */
   header: Envelope | null

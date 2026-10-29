@@ -75,6 +75,8 @@ export interface EngineHost {
   offline(): boolean
   /** Trusted time, ms. */
   now(): number
+  /** Server time from this tab's anchor, or null before one is seen. 30-day deletions wait for it. */
+  serverNow?(): number | null
   clock(): 'anchored' | 'wall' | 'suspect'
   random(): number
   saveData(): boolean
@@ -657,7 +659,11 @@ export class OutboxEngine implements CommandQueue, ReviewQueue {
 
   private async prune(v: OpenVaultRef): Promise<void> {
     const now = this.host.now()
-    const expired = this.items.filter(i => i.rec?.expiresAt != null && i.rec.expiresAt <= now)
+    // Applied records go after 60 s on trusted time; the 30-day keeps (discarded, membership-held) only by server
+    // time, so a device clock moved forward cannot delete them early.
+    const serverNow = this.host.serverNow?.() ?? null
+    const expired = this.items.filter(i => i.rec?.expiresAt != null
+      && (i.cmd.state === 'applied' ? i.rec.expiresAt <= now : serverNow !== null && i.rec.expiresAt <= serverNow))
     const receiptsDue = now - this.receiptsPrunedAt > 3600_000
     if (expired.length === 0 && !receiptsDue) return
     this.receiptsPrunedAt = now
@@ -670,7 +676,7 @@ export class OutboxEngine implements CommandQueue, ReviewQueue {
       // A receipt an unfinished command still depends on is kept past 30 days, or that command could never resolve.
       const needed = new Set(this.items.filter(i => isUnfinished(i.cmd.state)).flatMap(i => i.cmd.dependsOn))
       for (const r of await tx.all('receipts', vaultRange(v.vaultId))) {
-        if (r.appliedAt + LIMITS.receiptKeepMs <= now && !needed.has(r.commandId)) await tx.delete('receipts', [v.vaultId, r.commandId])
+        if (serverNow !== null && r.appliedAt + LIMITS.receiptKeepMs <= serverNow && !needed.has(r.commandId)) await tx.delete('receipts', [v.vaultId, r.commandId])
       }
       if (expired.length > 0) await recountPending(tx, v.vaultId)
     })

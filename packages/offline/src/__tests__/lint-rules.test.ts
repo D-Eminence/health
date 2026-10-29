@@ -24,8 +24,14 @@ describe('guard-rail lint rules', () => {
     })
   }
 
-  for (const code of ["export const d = globalThis['indexedDB']", 'export const e = globalThis.indexedDB']) {
-    it(`refuses IndexedDB outside store.ts: ${code}`, async () => {
+  for (const code of [
+    "export const d = globalThis['indexedDB']",
+    'export const e = globalThis.indexedDB',
+    'export const g = globalThis[`indexedDB`]',
+    "const { 'indexedDB': m } = globalThis\nexport { m }",
+    "const { ['indexedDB']: n } = globalThis\nexport { n }",
+  ]) {
+    it(`refuses IndexedDB outside store.ts: ${code.split('\n')[0]}`, async () => {
       expect(await restricted(code)).toBeGreaterThan(0)
       expect(await restricted(code, 'packages/offline/src/store.ts')).toBe(0)
     })

@@ -188,7 +188,8 @@ export class Vaults {
     const record = await this.store.write(['vaults'], async tx => {
       const current = await tx.get('vaults', open.record.vaultId)
       if (!current) throw new Error('Vault disappeared')
-      const next: VaultRecord = { ...current, header, lease, flags: { ...current.flags, logoutPending: false, killed: false } }
+      // A server-verified sign-in at this facility: the membership is current again.
+      const next: VaultRecord = { ...current, header, lease, flags: { ...current.flags, logoutPending: false, killed: false, membershipEndedAt: null } }
       await tx.put('vaults', next)
       return next
     })
@@ -261,11 +262,14 @@ export class Vaults {
    * guessed against another account, so only then is the counter cleared; otherwise just this attempt is given back
    * (failures made against other accounts keep counting until the next online sign-in, amendment to §2.6).
    */
-  async releaseAttempt(openedAll: boolean): Promise<void> {
+  async releaseAttempt(openedAll: boolean, readable = true): Promise<void> {
     await this.store.write(['meta'], async tx => {
       const meta = await tx.get('meta', 'device')
       if (!meta) return
-      const failedUnlocks = openedAll ? 0 : Math.max(0, meta.failedUnlocks - 1)
+      // A right password on a wiped vault opens nothing readable: once the limit is reached it gives nothing back,
+      // so the counter stays at the limit until an online sign-in.
+      if (!readable && meta.failedUnlocks >= LIMITS.maxFailedUnlocks) return
+      const failedUnlocks = openedAll && readable ? 0 : Math.max(0, meta.failedUnlocks - 1)
       await tx.put('meta', { ...meta, failedUnlocks, ...(failedUnlocks === 0 ? { lastFailureAt: null } : {}) })
     })
   }
@@ -301,7 +305,7 @@ export class Vaults {
             ...current.flags,
             ...(o.logoutPending !== undefined ? { logoutPending: o.logoutPending } : {}),
             ...(o.killed !== undefined ? { killed: o.killed } : {}),
-            ...(o.membershipEndedAt !== undefined ? { membershipEndedAt: o.membershipEndedAt } : {}),
+            ...(o.membershipEndedAt !== undefined ? { membershipEndedAt: current.flags.membershipEndedAt ?? o.membershipEndedAt } : {}),
           },
         })
       }
@@ -330,9 +334,13 @@ export class Vaults {
 export interface SweepResult { deletedRecords: number; deletedVaults: number }
 
 /**
- * Key-free expiry (D9, §2.9): delete outbox records whose keep time has passed (discarded and membership-held
- * entries after 30 days), and a wiped vault left with nothing to send, or whose membership ended more than 30 days
- * ago. Run on trusted time only.
+ * Key-free expiry (D9, §2.9), run on server time only (TrustedClock.serverNow, never the device clock):
+ * - outbox records whose keep time has passed are deleted one by one (applied after 60 s, discarded and
+ *   membership-held entries after 30 days);
+ * - a wiped (headerless) vault is deleted whole only when its membership ended more than 30 days ago, or when it
+ *   is abandoned: every remaining outbox record is applied and its last server contact is more than 30 days old.
+ *   Its undelivered offline audit goes with it (contract note: §2.11 residual risk).
+ * An emptied vault that is not abandoned is left to deleteIfIdle and eviction.
  */
 export async function sweepExpired(store: OfflineStore, appHost: string, now: number): Promise<SweepResult> {
   return store.write(['vaults', 'cache', ...KEPT_STORES], async tx => {
@@ -342,10 +350,11 @@ export async function sweepExpired(store: OfflineStore, appHost: string, now: nu
       const expired = outbox.filter(r => r.expiresAt !== null && r.expiresAt <= now)
       for (const o of expired) await tx.delete('outbox', [vault.vaultId, o.seq])
       result.deletedRecords += expired.length
-      const live = outbox.some(r => (r.expiresAt === null || r.expiresAt > now) && r.state !== 'applied' && r.state !== 'discarded')
+      const remaining = outbox.filter(r => !expired.includes(r))
       const membershipGone = vault.flags.membershipEndedAt !== null && vault.flags.membershipEndedAt + LIMITS.membershipEndedKeepMs <= now
-      if (vault.header === null && (membershipGone || (!live && expired.length > 0))) {
-        // Nothing left that could ever be sent from here: the vault goes, with its media and unsendable audit.
+      const abandoned = remaining.every(r => r.state === 'applied') && vault.lease.lastServerContactAt + LIMITS.membershipEndedKeepMs <= now
+      if (vault.header === null && (membershipGone || abandoned)) {
+        // Nothing that may still be sent or must still be kept: the vault goes, with its media and unsendable audit.
         await deleteVaultIn(tx, vault.vaultId)
         result.deletedVaults += 1
       } else if (expired.length > 0) {

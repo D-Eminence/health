@@ -288,6 +288,7 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
     acceptsNew: () => unlocked !== null && !unlocked.sendOnly,
     offline: () => connectivity.current() === 'offline',
     now: () => clock.now(),
+    serverNow: () => clock.serverNow(),
     clock: () => clock.state(),
     random,
     saveData: o.saveData ?? (() => Boolean((globalThis as { navigator?: { connection?: { saveData?: boolean } } }).navigator?.connection?.saveData)),
@@ -484,9 +485,12 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
 
   /** Key-free expiry of 30-day holds and of wiped vaults left with nothing to send (D9). Trusted time only. */
   async function sweep(): Promise<void> {
+    // Server time only: a device clock moved forward must never bring a 30-day deletion closer (D9).
+    const serverNow = clock.serverNow()
+    if (serverNow === null) return
     const s = await storeIfExists()
     if (!s) return
-    await sweepExpired(s, appHost, clock.now()).catch(() => undefined)
+    await sweepExpired(s, appHost, serverNow).catch(() => undefined)
   }
 
   async function recordAuditUnlock(): Promise<void> {
@@ -537,9 +541,9 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
     const all = await vs.openWith(kek)
     const opened = all.filter(v => onlyVaultId === null || v.record.vaultId === onlyVaultId)
     if (opened.length === 0) return failedUnlock()
-    await vs.releaseAttempt(all.length === (await vs.list()).length)
     const usable = opened.filter(v => v.header !== null && !v.record.flags.killed && !v.record.flags.logoutPending)
       .sort((a, b) => b.record.lease.lastServerContactAt - a.record.lease.lastServerContactAt)
+    await vs.releaseAttempt(all.length === (await vs.list()).length, usable.length > 0)
     const pick = usable[0]
     if (!pick || !pick.header) return { ok: false, reason: 'wiped' }
     const allowed = facilityAllowed(config, appHost, pick.header.facilityId)
@@ -698,7 +702,9 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
         return summaryCache
       }
 
-      if (!match && vs) {
+      // A vault made while escrow could not be reached may stand in for an older one escrow can still recover.
+      const placeholder = match && match.record.flags.escrowRetry && !hasPendingWork(match.record) ? match : null
+      if (vs && (!match || placeholder)) {
         // Password changed online: a vault with unsent work that the new key cannot open is recovered through escrow
         // (§2.5, A8.9). The escrow key is bound to the facility, so only this facility's vault opens; at most 5 calls.
         const openedIds = new Set(opened.map(v => v.record.vaultId))
@@ -706,7 +712,11 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
           const escrow = await fetchEscrow(record.vaultId, s.facilityId)
           if (!escrow) continue
           const recovered = await vs.rewrapAfterPasswordChange(kek, record, escrow.key, s)
-          if (recovered) { match = recovered; break }
+          if (recovered) {
+            if (placeholder) await vs.deleteIfIdle(placeholder.record.vaultId)
+            match = recovered
+            break
+          }
         }
       }
 
@@ -724,6 +734,7 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
         const escrow = await fetchEscrow(vaultId, s.facilityId)
         try {
           match = await v.createWithId(kek, vaultId, s, escrow ?? undefined)
+          if (!escrow) match = { ...match, record: await v.update(vaultId, r => ({ ...r, flags: { ...r.flags, escrowRetry: true } })) }
         } catch (error) {
           // Five vaults all with unsent work: no room for another (A8, `device-full`).
           setPolicy({ mode: config.mode, enabled: false, reason: error instanceof VaultLimitError ? 'device-full' : 'not-opted-in' })
@@ -746,7 +757,10 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
       match = await v.writeHeader(match, s, lease)
       if (!match.record.wraps.qkEsc) {
         const escrow = await fetchEscrow(match.record.vaultId, s.facilityId)
-        if (escrow) match = await v.addEscrow(kek, match, escrow)
+        if (escrow) {
+          match = await v.addEscrow(kek, match, escrow)
+          match = { ...match, record: await v.update(match.record.vaultId, r => ({ ...r, flags: { ...r.flags, escrowRetry: false } })) }
+        }
       }
       await v.clearFailures()
       await openVault(match, kek, s, false)
@@ -773,7 +787,7 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
         try { kek = await vs.deriveKek(email, password) } catch { await vs.releaseAttempt(false); return { ok: false, reason: 'no-vault' } }
         const opened = await vs.openWith(kek)
         if (opened.length === 0) return failedUnlock()
-        await vs.releaseAttempt(opened.length === (await vs.list()).length)
+        await vs.releaseAttempt(opened.length === (await vs.list()).length, opened.some(v => v.header !== null))
         const match = await matchFor(opened, attachedSession)
         if (!match) return { ok: false, reason: 'no-vault' }
         if (facilityAllowed(config, appHost, attachedSession.facilityId)) return { ok: false, reason: 'no-vault' }
@@ -828,9 +842,9 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
         case 'membership':
           // CC8 (D9): unsent work stays sealed 30 days, then is deleted.
           if (unlocked) await engine.holdMembership()
-          // While locked the queue cannot be resealed as held: the end time is recorded so the sweep removes the
-          // vault 30 days later.
-          if (current) await vs.wipeCache([current], unlocked ? {} : { membershipEndedAt: clock.now() })
+          // The end time is recorded on the vault (also when locked, when the queue cannot be resealed as held) so
+          // the sweep removes it 30 days later; a later sign-in at this facility clears it (writeHeader).
+          if (current) await vs.wipeCache([current], { membershipEndedAt: clock.serverNow() ?? clock.now() })
           if (unlocked) dropKeys('locked')
           break
         case 'lease':
