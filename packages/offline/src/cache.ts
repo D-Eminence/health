@@ -85,14 +85,16 @@ export class ReadCache implements CachedReads {
 
   /** The full gate for one patient. Drops the patient when the grant has expired by trusted time. */
   async readable(patientId: string): Promise<boolean> {
-    if (!this.host.gateOpen() || this.breakGlass.has(patientId)) return false
+    if (!this.host.vault() || this.breakGlass.has(patientId)) return false
     const g = await this.grant(patientId)
-    if (!g || !g.readAllowed || g.breakGlass) return false
-    if (g.expiresAt !== null && this.host.now() >= Date.parse(g.expiresAt)) {
+    // Expiry is judged by trusted time, which never runs behind real time, so it is acted on even when the
+    // clock is suspect: the patient's data is deleted, not just hidden.
+    if (g && g.expiresAt !== null && this.host.now() >= Date.parse(g.expiresAt)) {
       await this.dropPatient(patientId)
       return false
     }
-    return true
+    if (!this.host.gateOpen()) return false
+    return g !== null && g.readAllowed && !g.breakGlass
   }
 
   private async cached<T>(patientId: string, logical: string): Promise<CachedResult<T> | null> {
@@ -287,8 +289,13 @@ export class ReadCache implements CachedReads {
 
   /** Drop every patient whose grant has expired by trusted time (run on unlock and every minute). */
   async sweep(): Promise<void> {
-    if (!this.host.vault()) return
-    for (const e of await this.index()) await this.readable(e.patientId)
+    const v = this.host.vault()
+    if (!v) return
+    const grants = (await this.host.store.read(['cache'], tx => tx.all('cache', vaultRange(v.vaultId)))).filter(r => r.kind === 'grant')
+    for (const r of grants) {
+      const g = await open<GrantState>(v.keys.dk, recordAad(v.vaultId, 'cache', [v.vaultId, r.tag]), r.value).catch(() => null)
+      if (g && g.expiresAt !== null && this.host.now() >= Date.parse(g.expiresAt)) await this.dropPatient(g.patientId)
+    }
   }
 
   /** Size of what is cached for a vault (bytes), for diagnostics. */

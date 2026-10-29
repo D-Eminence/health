@@ -77,6 +77,8 @@ export interface OfflineRuntimeOptions {
   readonly saveData?: () => boolean
   /** Start the probe, idle and storage timers. Default true; tests pass false and drive `tick()`. */
   readonly timers?: boolean
+  /** How long a read waits for the network before showing the saved copy. Default 4 s (§2.7). */
+  readonly networkFirstMs?: number
 }
 
 interface Prepared {
@@ -238,6 +240,7 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
     gateOpen,
     now: () => clock.now(),
     changed: () => { notify() },
+    ...(o.networkFirstMs !== undefined ? { networkFirstMs: o.networkFirstMs } : {}),
   })
 
   const audit = new AuditQueue({
@@ -573,8 +576,14 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
 
     prepareFromSignIn(email, password) {
       prepared = null
-      if (config.mode === 'off' || !supported || !config.hosts.has(appHost)) return
+      if (!supported) return
       const passwordOk = passwordLongEnough(password)
+      if (config.mode === 'off' || !config.hosts.has(appHost)) {
+        // Kill switch (§2.3): derive only to drain vaults that still hold unsent work; a device without the
+        // database derives nothing.
+        prepared = { email: email.trim().toLowerCase(), passwordOk, kek: dbExists().then(exists => (exists ? deriveFor(email, password) : null)) }
+        return
+      }
       // Derivation runs while the server sign-in runs. The password is referenced only by this closure until it ends.
       prepared = { email: email.trim().toLowerCase(), passwordOk, kek: deriveFor(email, password) }
     },
@@ -837,6 +846,8 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
       if (disposed) return
       const u = unlocked
       if (u && status === 'unlocked' && !u.sendOnly) {
+        // Grant expiry first: trusted time never runs behind, so this holds even when the clock is suspect.
+        await cache.sweep().catch(() => undefined)
         const idleFor = mono() - lastActivity
         if (idleFor >= LIMITS.idleLockMs) { runtime.lock('idle'); return }
         if (hiddenSince !== null && mono() - hiddenSince >= LIMITS.idleLockMs) { runtime.lock('hidden'); return }
@@ -851,7 +862,6 @@ export function createOfflineRuntime(o: OfflineRuntimeOptions): OfflineRuntimeHa
           clock.noteWall()
           await persistLease()
         }
-        await cache.sweep().catch(() => undefined)
       }
       changed()
     },

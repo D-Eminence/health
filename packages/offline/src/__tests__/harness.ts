@@ -3,7 +3,7 @@ import { IDBFactory } from 'fake-indexeddb'
 import { OFFLINE_PATHS, type Json } from '../contracts'
 import { b64url } from '../crypto'
 import { createOfflineRuntime, type OfflineRuntimeHandle, type OfflineRuntimeOptions } from '../runtime'
-import { createMemoryLocks } from '../testing'
+import type { createMemoryLocks } from '../testing'
 import { TransportError, type SendSpec, type SendResult } from '../types'
 import { ALL_DEFS, PASSWORD, SESSION } from './fixtures'
 
@@ -19,6 +19,7 @@ export function createServer() {
   const calls: ServerCall[] = []
   const keys = new Map<string, { status: number; body: unknown; operationPath: string }>()
   const faults: Fault[] = []
+  const rules: { when: (spec: SendSpec, bodyText: string) => boolean; faults: Fault[] }[] = []
   const audit: { vaultId: string; events: { eventId: string; seq: number; action: string }[] }[] = []
   const state = {
     offline: false,
@@ -26,8 +27,10 @@ export function createServer() {
     receiptsDown: false,
     /** Apply the write but lose the answer (network error after commit). */
     loseNextAnswer: false,
+    /** Apply the write and never answer (the tab is closed mid-send). */
+    hangNextAnswer: false,
     rereadBody: null as unknown,
-    auditReject: new Set<string>(),
+    auditReject: new Set<number>(),
     /** The signed-in account, as the cookie session would tell the real server. */
     account: SESSION.accountId,
   }
@@ -67,21 +70,36 @@ export function createServer() {
       return {
         status: 200, date: null,
         body: {
-          accepted: b.events.filter(e => !state.auditReject.has(e.eventId)).map(e => e.eventId), duplicate: [],
-          rejected: b.events.filter(e => state.auditReject.has(e.eventId)).map(e => ({ eventId: e.eventId, code: 'INVALID_EVENT' })),
+          accepted: b.events.filter(e => !state.auditReject.has(e.seq)).map(e => e.eventId), duplicate: [],
+          rejected: b.events.filter(e => state.auditReject.has(e.seq)).map(e => ({ eventId: e.eventId, code: 'INVALID_EVENT' })),
         },
       }
+    }
+    const ruled = rules.findIndex(r => r.when(spec, bodyText))
+    if (ruled >= 0) {
+      const r = rules[ruled]!
+      const f = r.faults.shift()
+      if (r.faults.length === 0) rules.splice(ruled, 1)
+      if (f) throw new TransportError({ ...f, problem: f.problem ?? (f.status !== null && f.status >= 400) })
     }
     const fault = faults.shift()
     if (fault) throw new TransportError({ ...fault, problem: fault.problem ?? (fault.status !== null && fault.status >= 400) })
     const key = spec.headers?.['Idempotency-Key']
+    if (spec.path.endsWith('/complete')) return { status: 200, body: { ok: true }, date: null }
     if (key && keys.has(key)) {
       const prior = keys.get(key)!
       return { status: prior.status, body: prior.body, date: null }
     }
     n += 1
-    const body = { id: `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`, rowVersion: 1, ...(state.rereadBody && spec.method === 'GET' ? state.rereadBody as object : {}) }
+    const id = `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`
+    const body = spec.path.endsWith('/upload-intents')
+      ? { document: { id }, upload: { method: 'PUT', url: `https://storage.example/${id}?sig=${n}`, requiredHeaders: { 'Content-Type': 'application/pdf' }, expiresInSeconds: 300 } }
+      : { id, rowVersion: 1 }
     if (key) keys.set(key, { status: 201, body, operationPath: spec.path })
+    if (state.hangNextAnswer) {
+      state.hangNextAnswer = false
+      return new Promise<SendResult>(() => undefined)
+    }
     if (state.loseNextAnswer) {
       state.loseNextAnswer = false
       throw new TransportError({ status: null, networkError: true })
@@ -92,6 +110,8 @@ export function createServer() {
   return {
     transport, calls, keys, audit, state,
     fail(...f: Fault[]) { faults.push(...f) },
+    /** Faults for the requests whose body contains `text`, in order. */
+    failWhenBody(text: string, ...f: Fault[]) { rules.push({ when: (_s, b) => b.includes(text), faults: f }) },
     writes: () => calls.filter(c => !Object.values(OFFLINE_PATHS).includes(c.spec.path as never)),
   }
 }
@@ -125,6 +145,7 @@ export function makeRuntime(o: {
     calibrate: async () => 1000,
     reencode: null,
     timers: false,
+    networkFirstMs: 50,
     ...o.extra,
   })
   runtime.commands.register(ALL_DEFS)
@@ -149,4 +170,20 @@ export async function settle(runtime: OfflineRuntimeHandle) {
 
 export function asJson(v: unknown): Json {
   return v as Json
+}
+
+let channelSeq = 0
+/** A BroadcastChannel private to one test, so parallel test files never hear each other. */
+export function privateChannel(): new (name: string) => BroadcastChannel {
+  const name = `hid-offline-test-${(channelSeq += 1)}-${Math.random()}`
+  return class extends BroadcastChannel { constructor() { super(name) } }
+}
+
+/** Poll until `check` holds (or fail after `ms`). */
+export async function until(check: () => Promise<boolean> | boolean, ms = 3000): Promise<void> {
+  const end = Date.now() + ms
+  while (!(await check())) {
+    if (Date.now() > end) throw new Error('Timed out waiting for a condition')
+    await new Promise(r => setTimeout(r, 5))
+  }
 }

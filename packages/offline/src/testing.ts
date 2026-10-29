@@ -377,10 +377,9 @@ export function createFakeOfflineRuntime(options: FakeOptions = {}): { runtime: 
       c.nextAttemptAt = clockNow + (res.retryAfterMs ?? 0)
       return null
     }
-    if (!sentBefore && isDefinitiveFirstRefusal(answer)) {
-      return new TransportError({ status: res.status, code: res.code ?? null, problem, body: res.body })
-    }
-    if (needsReceiptCheck(cls, sentBefore)) {
+    const firstRefusal = !sentBefore && isDefinitiveFirstRefusal(answer)
+      ? new TransportError({ status: res.status, code: res.code ?? null, problem, body: res.body }) : null
+    if (needsReceiptCheck(cls, sentBefore) && !firstRefusal) {
       if (receiptsDown) { c.state = 'sending'; c.review = 'CC1'; return null }
       if (receiptsFound || cls === 'applied-unreadable') {
         c.state = 'applied'
@@ -404,7 +403,8 @@ export function createFakeOfflineRuntime(options: FakeOptions = {}): { runtime: 
       session: 'CC6', access: 'CC5', edge: 'CC7', invalid: 'CC7', missing: 'CC3', state: 'CC3', version: 'CC2', 'applied-unreadable': 'CC1',
     }
     toReview(c, map[cls] ?? 'CC7')
-    return null
+    // Nothing was applied: a waiting save removes it and hands the error to the form; otherwise it stays in review.
+    return firstRefusal
   }
 
   function eligible(v: FakeVault): CommandRec[] {

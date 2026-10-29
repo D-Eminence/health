@@ -296,6 +296,9 @@ export class OutboxEngine implements CommandQueue, ReviewQueue {
     if (ok) {
       item.rec = rec
       item.cmd = cmd
+      const at = this.items.findIndex(i => i.seq === item.seq)
+      if (at >= 0) this.items[at] = item
+      else this.items.push(item)
       if (cmd.receipt && cmd.state === 'applied') this.receipts.set(cmd.id, cmd.receipt)
       this.host.broadcast(v.vaultId)
       this.host.changed()
@@ -344,9 +347,7 @@ export class OutboxEngine implements CommandQueue, ReviewQueue {
       await tx.put('vaults', { ...r, counters: { ...r.counters, cmdSeq: next } })
       return next
     })
-    await this.load()
     const item: Item = { seq, rec: undefined as unknown as OutboxRecord, cmd }
-    this.items.push(item)
     await this.persist(v, item, cmd, { guard: current => current === undefined })
     // I1: from here the command is saved on this device.
 
@@ -356,37 +357,46 @@ export class OutboxEngine implements CommandQueue, ReviewQueue {
       return { kind: 'saved', commandId: id }
     }
     this.kick()
-    return this.awaitOutcome<V>(v, id, awaitMs)
+    return this.awaitOutcome<V>(v, id, seq, awaitMs)
   }
 
   private wake(): void {
     for (const w of [...this.waiters]) w()
   }
 
-  private async awaitOutcome<V>(v: OpenVaultRef, id: string, ms: number): Promise<CommandOutcome<V>> {
+  /** One record straight from the store (another tab may be the sender). */
+  private async readOne(v: OpenVaultRef, seq: number): Promise<Item | null> {
+    const rec = await this.host.store.read(['outbox'], tx => tx.get('outbox', [v.vaultId, seq]))
+    if (!rec || rec.v !== 1) return null
+    const cmd = await open<Command>(v.keys.qk, outboxAad(v.vaultId, seq), rec.value)
+    cmd.nextAttemptAt = rec.nextAttemptAt
+    return { seq, rec, cmd }
+  }
+
+  private async awaitOutcome<V>(v: OpenVaultRef, id: string, seq: number, ms: number): Promise<CommandOutcome<V>> {
     const deadline = Date.now() + ms
     for (;;) {
-      await this.load(!this.sender)
-      const item = this.items.find(i => i.cmd.id === id)
-      if (!item) return { kind: 'saved', commandId: id }
+      const item = await this.readOne(v, seq)
+      if (!item || item.cmd.id !== id) return { kind: 'saved', commandId: id }
       const c = item.cmd
       if (c.state === 'applied' && c.receipt) return { kind: 'applied', value: c.value as V, receipt: c.receipt }
       if (c.lastProblem?.firstRefusal && c.attempts === 1) {
         // Nothing was applied: remove the command and hand the error to the form.
         const removed = await this.host.store.write(['vaults', 'outbox', 'audit', 'media', 'receipts'], async tx => {
           const current = await tx.get('outbox', [v.vaultId, item.seq])
-          if (!current || current.attempts !== 1 || current.state === 'applied') return false
+          if (!current || current.attempts !== 1 || current.updatedAt !== item.rec.updatedAt) return false
           await tx.delete('outbox', [v.vaultId, item.seq])
           await recountPending(tx, v.vaultId)
           return true
         })
         if (removed) {
-          this.items = this.items.filter(i => i !== item)
+          this.items = this.items.filter(i => i.seq !== item.seq)
           this.host.broadcast(v.vaultId)
           this.host.changed()
           const p = c.lastProblem
           throw new SaveRefused('refused', { cause: new TransportError({ status: p.status, code: p.code ?? null, problem: p.problem, body: p.body }) })
         }
+        continue
       }
       const left = deadline - Date.now()
       if (left <= 0 || this.disposed) return { kind: 'saved', commandId: id }
