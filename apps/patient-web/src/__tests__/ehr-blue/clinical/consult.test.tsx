@@ -263,6 +263,7 @@ describe('Consultation list', () => {
   })
 
   it('item 4: opens the order Home links to (accepted for the wrong person) for the open patient, replacing the address with record ids only', async () => {
+    staff.permissions = [...ALL, 'ehr.lab-request.read', 'ehr.prescription.read']
     for (const [kind, ours, orderId] of [['lab_request', 'laboratory', 'lab-1'], ['prescription', 'pharmacy', 'rx-1']] as const) {
       const view = openFromHome({ patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, kind, orderId })
       expect(await screen.findByText('Order pages part')).toBeTruthy()
@@ -271,6 +272,17 @@ describe('Consultation list', () => {
       expect(address()).not.toContain(PATIENT_HID)
       // The list is not read on the way.
       expect(api.encounters).not.toHaveBeenCalled()
+      view.unmount()
+    }
+  })
+
+  it('item 4: ignores a linked order of a kind the role may not read, and shows the encounters', async () => {
+    for (const [kind, orderId, other] of [['lab_request', 'lab-1', 'ehr.prescription.read'], ['prescription', 'rx-1', 'ehr.lab-request.read']] as const) {
+      staff.permissions = [...ALL, other]
+      const view = openFromHome({ patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, kind, orderId })
+      expect(await screen.findByRole('table', { name: 'Encounters' })).toBeTruthy()
+      expect(screen.queryByText('Order pages part')).toBeNull()
+      expect(address()).toMatch(/^POP \/provider\/clinical /)
       view.unmount()
     }
   })

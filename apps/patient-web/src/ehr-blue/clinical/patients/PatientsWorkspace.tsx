@@ -121,14 +121,21 @@ function PatientList() {
 
   /**
    * The PIN is a Patients page; a request is External record access, which the frame opens only with
-   * identity.consent.write, the permission sending a request needs: a role without it is not offered the step, so the
-   * Health ID is handed over only where the form can open and read it.
+   * identity.consent.write, the permission sending a request needs, and break-glass is Emergency's own page, which
+   * needs identity.break-glass.write: a role without the permission is not offered the step, so the Health ID is handed
+   * over only where the form can open and read it.
    */
-  function obtain(target: 'new' | 'pin') {
+  function obtain(target: 'new' | 'pin' | 'emergency') {
     if (!refused || !facility) return
     if (target === 'pin') {
       offerHealthId(refused.hid, facility.id, setActivePatient)
       navigate(href('pin'))
+      return
+    }
+    if (target === 'emergency') {
+      if (emergencyUnavailable) return
+      offerHealthId(refused.hid, facility.id, setActivePatient)
+      navigate(href.to('emergency', 'break-glass'))
       return
     }
     if (requestUnavailable) return
@@ -198,7 +205,7 @@ function PatientList() {
                   variant="secondary"
                   disabled={emergencyUnavailable !== null}
                   aria-describedby={emergencyUnavailable ? 'emergency-access-unavailable' : undefined}
-                  onClick={() => { if (!emergencyUnavailable) navigate(href.to('emergency', 'break-glass')) }}
+                  onClick={() => obtain('emergency')}
                 >
                   Emergency break-glass access
                 </EhrButton>

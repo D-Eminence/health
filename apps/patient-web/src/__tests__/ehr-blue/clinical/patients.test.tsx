@@ -784,6 +784,19 @@ describe('Design audit', () => {
     expect(where()).not.toContain(PATIENT_HID)
   })
 
+  it('follow-up 5: the refused lookup’s Emergency break-glass access hands its Health ID to the break-glass form, and none without the permission', async () => {
+    const without = await refusedBanner()
+    fireEvent.click(within(without).getByRole('button', { name: 'Emergency break-glass access' }))
+    expect(offeredHealthId(FACILITY_ID, staff.setActivePatient)).toBe('')
+    cleanup()
+    staff.permissions = [...ALL, 'identity.break-glass.write']
+    const banner = await refusedBanner()
+    fireEvent.click(within(banner).getByRole('button', { name: 'Emergency break-glass access' }))
+    // Offered in memory for the form, never in the address.
+    expect(offeredHealthId(FACILITY_ID, staff.setActivePatient)).toBe(PATIENT_HID)
+    expect(where()).not.toContain(PATIENT_HID)
+  })
+
   it('audit 9: Saved record lists the patient-reported allergies, read for direct care with ehr.note.read', async () => {
     staff.activePatient = activePatient()
     api.reportedHealthProfile.mockResolvedValue({ bloodGroup: null, genotype: null, allergies: 'Fictional Med A', currentMedications: null, chronicConditions: null, medicalNotes: null, updatedAt: null })

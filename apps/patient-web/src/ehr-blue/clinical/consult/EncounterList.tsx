@@ -53,6 +53,8 @@ function useLinkedOrder(chart: Chart | null): string | null {
   const { patientId, encounterId, kind, orderId } = value as Record<string, unknown>
   if (patientId !== chart.patientId || !isRecordId(encounterId) || !isRecordId(orderId)) return null
   if (kind !== 'lab_request' && kind !== 'prescription') return null
+  // Only a role that may read that kind of order is sent to its page.
+  if (!chart.can(kind === 'lab_request' ? 'ehr.lab-request.read' : 'ehr.prescription.read')) return null
   return href(orderPath(encounterId, LINKED_KINDS[kind], orderId))
 }
 

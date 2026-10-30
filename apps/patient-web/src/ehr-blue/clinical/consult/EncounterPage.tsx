@@ -270,7 +270,7 @@ function EncounterRecord({ chart, initial }: { chart: Chart; initial: Encounter 
     finish(diagnosis ? `${REVISION_RECORDED} ${RECORD_SAVED}` : REVISION_RECORDED)
     // The consultation note is on the first page: the list shows it again, with its revisions (and a new diagnosis,
     // today's create read: the first page).
-    await reloaded(notes.reload(true), revisions.reload(), ...(diagnosis ? [diagnoses.reload(true)] : []))
+    await reloaded(notes.reload(true), revisions.refresh(), ...(diagnosis ? [diagnoses.reload(true)] : []))
   }
 
   /** Today's note status change on the consultation note, under the clinician's typed reason. */
@@ -363,7 +363,7 @@ function EncounterRecord({ chart, initial }: { chart: Chart; initial: Encounter 
       })
     }
   }
-  if (writes.notes) {
+  if (writes.notes && reads.notes) {
     actions.push({ id: 'write-note', label: WRITE_NOTE_LABEL, fields: WRITE_FIELDS, hint: NOTES_ARE_DRAFTS, submit: SAVE_DRAFT, validate: writeCheck, run: writeNote })
   }
   if (writes.encounter) {
@@ -622,7 +622,8 @@ type Lists = { readonly [K in 'notes' | 'vitals' | 'prescriptions' | 'labs']: Re
 /**
  * "Connected hospital history": the records of other workspaces this encounter holds, in the sidebar's order (Triage &
  * Vitals, Laboratory, Pharmacy, Nursing observations, Documents), each with its status. Every row opens: a record's
- * page, by record ids only, or a document's file.
+ * page, by record ids only, or a document's file. Vitals, orders and documents page in this card; nursing
+ * observations come from the notes' first page, whichever page the Clinical notes card shows.
  */
 function historyItems(href: ReturnType<typeof useWorkspaceHref>, encounterId: string, lists: Lists, documents: RecordList<DocumentRecord>, documentRow: (document: DocumentRecord) => HistoryItem): HistoryItem[] {
   const rows = (records: readonly ClinicalRecord[], kind: string, title: (record: ClinicalRecord) => string, status: (record: ClinicalRecord) => string, link: (record: ClinicalRecord) => string) =>
@@ -631,7 +632,7 @@ function historyItems(href: ReturnType<typeof useWorkspaceHref>, encounterId: st
     ...rows(lists.vitals.items ?? [], 'Triage & Vitals', record => shortId(record.id), vitalStatus, record => href.to('triage', recordKey(encounterId, record.id))),
     ...rows(lists.labs.items ?? [], 'Laboratory', record => field(record, 'testDisplay') || 'Lab request', record => recordStatus(record), record => href(orderPath(encounterId, 'laboratory', record.id))),
     ...rows(lists.prescriptions.items ?? [], 'Pharmacy', record => field(record, 'medicationDisplay') || 'Prescription', record => recordStatus(record), record => href(orderPath(encounterId, 'pharmacy', record.id))),
-    ...rows((lists.notes.items ?? []).filter(isObservation), 'Nursing observations', record => shortId(record.id), observationStatus, record => href.to('nursing', recordKey(encounterId, record.id))),
+    ...rows((lists.notes.first ?? []).filter(isObservation), 'Nursing observations', record => shortId(record.id), observationStatus, record => href.to('nursing', recordKey(encounterId, record.id))),
     ...(documents.items ?? []).map(documentRow),
   ]
 }

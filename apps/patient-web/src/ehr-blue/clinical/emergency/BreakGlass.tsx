@@ -1,11 +1,12 @@
 import { HEALTH_ID_PREFIX, normalizeHealthIdInput } from '@hid/contracts'
 import { EhrButton, EhrCard, EhrField, EhrInput, EhrTextarea } from '@hid/ui/ehr'
-import { useId, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { usesNovuBackend } from '../../../backendContract'
 import { isAllowedPatientLookup, staffApi } from '../../../staff/api'
 import { staffSessionGeneration, untilStaffSessionReady } from '../../../staff/session'
 import { selfServiceReview } from '../../../staff/staffAccess'
+import { dropOfferedHealthId, offeredHealthId } from '../consent/access'
 import { ErrorBox, RecordHeading } from '../parts/Notices'
 import { patientFacts } from '../parts/PatientHeader'
 import { COMPLETE_FIELD } from '../parts/RecordForm'
@@ -74,7 +75,9 @@ export function BreakGlassForm() {
   const navigate = useNavigate()
   const href = useWorkspaceHref()
   const id = useId()
-  const [hid, setHid] = useState(HEALTH_ID_PREFIX)
+  // A Health ID offered from Patients (a refused lookup's "Emergency break-glass access") starts the field, read once.
+  const [hid, setHid] = useState(() => offeredHealthId(facility?.id, setActivePatient) || HEALTH_ID_PREFIX)
+  useEffect(() => { dropOfferedHealthId() }, [])
   const [reason, setReason] = useState('')
   const [justification, setJustification] = useState('')
   const [ack, setAck] = useState(false)

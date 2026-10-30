@@ -321,6 +321,44 @@ describe('Consultation record: record pages past 50 (item 6)', () => {
     expect(pager().getByText('Page 1')).toBeTruthy()
   })
 
+  it('follow-up 1: Connected hospital history keeps the first page’s nursing observations while the Notes card shows another page', async () => {
+    const first = [NOTE, OBSERVATION, ...many('note-p1', 48, index => ({ noteType: 'Progress', title: `Progress note ${index}`, status: 'signed', rowVersion: 1 }))]
+    const second = many('note-p2', 2, index => ({ noteType: 'Progress', title: `Older progress note ${index}`, status: 'signed', rowVersion: 1 }))
+    pages['clinical-notes'] = { '': { items: first, nextCursor: 'notes-cursor-2' }, 'notes-cursor-2': { items: second, nextCursor: null } }
+    await openEncounter()
+    const history = () => within(card('Connected hospital history'))
+    expect(history().getByRole('link', { name: 'Nursing observations · b1c6ef36' })).toBeTruthy()
+    const notes = () => within(card('Clinical notes'))
+    fireEvent.click(within(notes().getByRole('navigation', { name: 'Record pages' })).getByRole('button', { name: 'Next page' }))
+    expect(await notes().findByText('Older progress note 1')).toBeTruthy()
+    expect(history().getByRole('link', { name: 'Nursing observations · b1c6ef36' })).toBeTruthy()
+    expect(savedValues()).toMatchObject({ History: 'Cough for three days.' })
+  })
+
+  it('follow-up 2: a saved draft edit whose revisions cannot be read again shows neither the old content nor "Sign note"', async () => {
+    await openEncounter()
+    expect(within(card('Available actions')).getByRole('button', { name: 'Sign note' })).toBeTruthy()
+    api.noteRevisions.mockRejectedValue(new HidApiError(503, 'Unavailable', { code: 'SERVICE_UNAVAILABLE' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Edit unsigned draft' }))
+    const saved = within(card('Saved record'))
+    fireEvent.change(saved.getByLabelText(labelled('Clinical note')), { target: { value: 'History\nCough for four days.' } })
+    fireEvent.change(saved.getByLabelText(labelled('Reason for revision')), { target: { value: 'Duration corrected' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save draft changes' }))
+    expect(await screen.findByText('A new note revision was recorded.', { exact: false })).toBeTruthy()
+    await waitFor(() => expect(within(card('Saved record')).queryByText('Cough for three days.', { exact: false })).toBeNull())
+    expect(within(card('Available actions')).queryByRole('button', { name: 'Sign note' })).toBeNull()
+    expect(within(card('Saved record')).getAllByRole('alert').length).toBeGreaterThan(0)
+  })
+
+  it('follow-up 3: offers no "Write clinical note" to a role that may write notes but not read them', async () => {
+    staff.permissions = ALL.filter(permission => permission !== 'ehr.note.read')
+    renderPage(<ConsultWorkspace />, 'consult', `/${ENCOUNTER_ID}`)
+    expect(await screen.findByRole('heading', { level: 1, name: 'e0000000' })).toBeTruthy()
+    await within(card('Connected hospital history')).findByRole('button', { name: 'Documents · referral-letter.pdf' })
+    expect(within(card('Available actions')).queryByRole('button', { name: 'Write clinical note' })).toBeNull()
+    expect(api.noteRevisions).not.toHaveBeenCalled()
+  })
+
   it('item 6: pages the diagnoses of "Change diagnosis" (audit 9) past 50 under "Record pages", a change re-reading the page shown', async () => {
     const first = many('dx-p1', 50, index => ({ codeSystem: 'ICD-10', code: `R${index}`, display: `Finding ${index} (fictional)`, clinicalStatus: 'active', verificationStatus: 'provisional', rowVersion: 1 }))
     const second = [DIAGNOSIS]

@@ -1,6 +1,7 @@
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { HidApiError } from '@hid/http'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { dropOfferedHealthId, offerHealthId, offeredHealthId } from '../../../ehr-blue/clinical/consent/access'
 import { EMERGENCY_ACCESS, actionUnavailable } from '../../../ehr-blue/clinical/emergency/access'
 import { EmergencyWorkspace, emergencyStatus } from '../../../ehr-blue/clinical/emergency/EmergencyWorkspace'
 import { SAMPLE_NOTICE } from '../../../ehr-blue/clinical/parts/SampleBanner'
@@ -20,7 +21,10 @@ const api = vi.hoisted(() => ({
   labReleasedResultsForOrder: vi.fn(),
 }))
 const staff = vi.hoisted(() => ({ permissions: [] as string[], activePatient: null as unknown, setActivePatient: vi.fn((_value: unknown) => true), facilityId: undefined as string | undefined }))
-const session = vi.hoisted(() => ({ staffSessionGeneration: vi.fn(() => 7), untilStaffSessionReady: vi.fn(async (_sentIn: number) => {}) }))
+const session = vi.hoisted(() => ({
+  staffSessionGeneration: vi.fn(() => 7), untilStaffSessionReady: vi.fn(async (_sentIn: number) => {}),
+  staffSessionSignal: vi.fn(() => new AbortController().signal),
+}))
 
 vi.mock('../../../staff/api', async () => ({ staffApi: api, isAllowedPatientLookup: (await import('./harness')).isAllowedPatientLookup }))
 vi.mock('../../../staff/App', async () => {
@@ -51,6 +55,7 @@ const emergencyLookup = { ...allowedLookup, authorization: { ...allowedLookup.au
 
 beforeEach(() => {
   vi.clearAllMocks()
+  dropOfferedHealthId()
   staff.facilityId = undefined
   staff.permissions = [...EMERGENCY_PERMISSIONS]
   staff.activePatient = null
@@ -139,6 +144,23 @@ describe('the Emergency page', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Back to list' }))
     expect(screen.getByRole('heading', { level: 1, name: 'Emergency' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Record emergency access' })).toBeNull()
+  })
+
+  it('follow-up 5: the break-glass form starts at a Health ID offered from Patients, read once', () => {
+    offerHealthId(PATIENT_HID, FACILITY_ID, staff.setActivePatient)
+    const first = openForm()
+    expect(hidField().value).toBe(PATIENT_HID)
+    expect(offeredHealthId(FACILITY_ID, staff.setActivePatient)).toBe('')
+    first.unmount()
+    openForm()
+    expect(hidField().value).toBe('HID-')
+  })
+
+  it('follow-up 5: the break-glass form takes no Health ID offered for another facility', () => {
+    offerHealthId(PATIENT_HID, DEMO_HOSPITAL_ID, staff.setActivePatient)
+    openForm()
+    expect(hidField().value).toBe('HID-')
+    dropOfferedHealthId()
   })
 
   it('audit 7: the break-glass page is served at a demo facility too, never the sample board', () => {
