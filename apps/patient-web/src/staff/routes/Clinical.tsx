@@ -1405,11 +1405,25 @@ export function Clinical() {
   const offlineInUse = useOfflineActive(runtime)
   const offline = useOffline(runtime)
   const deviceCopy = useDeviceCopySavedAt(patientId)
-  const [pending, setPending] = useState<{ patientId: string; items: PendingView[] }>({ patientId: '', items: [] })
+  // `visits` names the server visit of each visit saved on this device that Health ID has applied, so the changes still
+  // waiting on it stay shown on that visit once the page documents it (A12.9).
+  const [pending, setPending] = useState<{ patientId: string; items: PendingView[]; visits: Readonly<Record<string, string>> }>(
+    { patientId: '', items: [], visits: {} })
   const [keeping, setKeeping] = useState<'idle' | 'busy' | 'done' | 'failed'>('idle')
   const loadPending = useCallback(() => {
     if (!runtime || !offlineInUse || !patientId) return
-    void runtime.commands.pendingFor(patientId).then(items => setPending({ patientId, items }), () => undefined)
+    void runtime.commands.pendingFor(patientId).then(async items => {
+      const locals = new Set(items.flatMap(item => {
+        const visit = (item.input as { encounter?: Ref } | null)?.encounter
+        return visit && 'local' in visit ? [visit.local] : []
+      }))
+      const visits: Record<string, string> = {}
+      for (const local of locals) {
+        const receipt = await receiptOf(runtime, local).catch(() => null)
+        if (receipt?.resourceId) visits[`local:${local}`] = receipt.resourceId
+      }
+      setPending({ patientId, items, visits })
+    }, () => undefined)
   }, [runtime, offlineInUse, patientId])
   useEffect(() => {
     if (!runtime || !offlineInUse) return
@@ -1417,6 +1431,9 @@ export function Clinical() {
     return runtime.subscribe(loadPending)
   }, [runtime, offlineInUse, loadPending])
   const pendingHere = pending.patientId === patientId ? pending.items : []
+  const pendingVisitIds = pending.patientId === patientId ? pending.visits : {}
+  // The local visit each server visit replaced here, so a form being typed on it is not remounted empty (A12.9).
+  const [replacedVisits, setReplacedVisits] = useState<Readonly<Record<string, string>>>({})
   // A visit saved on this device and documented here becomes Health ID's visit as soon as its command is applied
   // (A12.9): the page then documents the server visit, never the local one it no longer sends to.
   const documentingLocal = selectedEncounter?.id.startsWith('local:') ? selectedEncounter.id : null
@@ -1432,6 +1449,7 @@ export function Clinical() {
         if (!active || !receipt?.resourceId) return
         const server = await ehrReads.encounter(facility.id, patientId, receipt.resourceId).catch(() => null)
         if (!active) return
+        setReplacedVisits(map => ({ ...map, [receipt.resourceId]: documentingLocal }))
         setSelection(current => current?.id !== documentingLocal ? current
           : server ?? { ...current, id: receipt.resourceId })
         void loadEncounters({ fresh: true })
@@ -1462,7 +1480,8 @@ export function Clinical() {
   const pendingVisits = pendingHere.filter(item => item.op === 'ehr.encounter.create')
   const pendingRecords = pendingHere.filter(item => {
     const input = item.input as { encounter?: Ref } | null
-    return item.op !== 'ehr.encounter.create' && input?.encounter && idFromRef(input.encounter) === encounterId
+    const visit = input?.encounter ? idFromRef(input.encounter) : null
+    return item.op !== 'ehr.encounter.create' && visit !== null && (pendingVisitIds[visit] ?? visit) === encounterId
       && PENDING_TABS[item.op] === activeTab
   })
   async function keepOffline() {
@@ -1929,7 +1948,7 @@ export function Clinical() {
       {!activeTab ? <p className="staff-muted">Your current facility role does not grant access to encounter records.</p>
         : <><TabList items={visibleTabs} selectedId={activeTab} onSelect={id => setTab(id as RecordKind | 'documents')} label="Clinical record section"
           idPrefix="clinical-record" className="staff-tabs" />
-        <TabPanel id={activeTab} idPrefix="clinical-record">{activeTab === 'documents' ? <Documents key={selected.id} patientId={patientId!} encounterId={selected.id} facilityId={facility.id} canWrite={canMutate && permissions.includes(writePermissions.documents)} canOcr={permissions.includes('ocr.job.read')} verify={verify} /> : <div className="staff-two-col"><Card className="staff-card"><h2 id="clinical-records-title" tabIndex={-1}>{tabs.find(item => item.id === activeTab)?.label}</h2>{recordsLoading && <p role="status">Loading records…</p>}
+        <TabPanel id={activeTab} idPrefix="clinical-record">{activeTab === 'documents' ? <Documents key={replacedVisits[selected.id] ?? selected.id} patientId={patientId!} encounterId={selected.id} facilityId={facility.id} canWrite={canMutate && permissions.includes(writePermissions.documents)} canOcr={permissions.includes('ocr.job.read')} verify={verify} /> : <div className="staff-two-col"><Card className="staff-card"><h2 id="clinical-records-title" tabIndex={-1}>{tabs.find(item => item.id === activeTab)?.label}</h2>{recordsLoading && <p role="status">Loading records…</p>}
         <Notice notice={recordNotice} scope={recordScope} />
         <Pager label="Record pages" position={recordPosition} busy={recordsLoading} onShow={cursors => void loadRecords(activeTab, cursors, false)} />
         {pendingRecords.length > 0 && <div className="staff-list">{pendingRecords.map(view => <PendingRow key={view.commandId} view={view} />)}</div>}
@@ -1979,7 +1998,7 @@ export function Clinical() {
           <SendToFacility key={`send-route-${record.id}`} id={`record-${record.id}-route`} kind={routeKindOf(activeTab)} context={routeContext}
             priority={typeof record.priority === 'string' ? record.priority : undefined}
             onSend={(destination, version, key) => sendOrder(activeTab, record, destination, version, key)} />}
-      </div>)}</div></Card>{canMutate && permissions.includes(writePermissions[activeTab]) && <RecordForm key={`${selected.id}-${activeTab}`} tab={activeTab} onCreated={createRecord} disabled={!selected}
+      </div>)}</div></Card>{canMutate && permissions.includes(writePermissions[activeTab]) && <RecordForm key={`${replacedVisits[selected.id] ?? selected.id}-${activeTab}`} tab={activeTab} onCreated={createRecord} disabled={!selected}
         canSendToLab={canSendToLab && !offline && !localVisit}
         routing={activeTab === 'lab-requests' && canRoute('lab-requests') ? routeContext : null} onCreateAndSend={createAndSend}
         prescriptionRouting={activeTab === 'prescriptions' && canRoute('prescriptions')} />}</div>}</TabPanel></>}

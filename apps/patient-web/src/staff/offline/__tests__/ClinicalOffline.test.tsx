@@ -246,3 +246,41 @@ describe('a visit saved on this device becomes Health ID’s visit (A12.9)', () 
     expect(screen.queryByRole('button', { name: 'Document this visit', pressed: true })).toBeNull()
   })
 })
+
+describe('after a visit saved offline becomes Health ID’s visit (re-review 7, 8)', () => {
+  it('its unsent notes stay shown on it, and a note being typed is kept', async () => {
+    const { runtime, controls } = await vault()
+    await keepChart()
+    controls.setConnectivity('offline')
+    renderClinical()
+    fireEvent.change(await screen.findByRole('combobox', { name: /Encounter type/ }), { target: { value: 'emergency' } })
+    fireEvent.change(screen.getByRole('textbox', { name: /Chief complaint/ }), { target: { value: 'Fall at home' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Start encounter' }))
+    await screen.findByRole('button', { name: 'Document this visit', pressed: true })
+    await writeNote('Saved on the visit')
+    await screen.findByText('Not sent yet')
+    const visit = controls.commands().find(command => command.op === 'ehr.encounter.create')!
+    // A second note, half typed.
+    await waitFor(() => expect((screen.getByRole('textbox', { name: /^Title/ }) as HTMLInputElement).value).toBe(''))
+    fireEvent.change(screen.getByRole('textbox', { name: /^Title/ }), { target: { value: 'Half typed' } })
+
+    // Health ID takes the visit; the note does not get through yet.
+    const server = { ...encounter, id: 'enc-9', encounterType: 'emergency', chiefComplaint: 'Fall at home', rowVersion: 1 }
+    api.encounter.mockResolvedValue(server)
+    api.encounters.mockResolvedValue({ items: [server, encounter], nextCursor: null })
+    controls.respondWith(request => request.path.endsWith('/clinical-notes') ? { status: null, networkError: true } : undefined)
+    Object.assign(runtime, { receiptFor: vi.fn(async (commandId: string) => commandId === visit.id
+      ? { commandId, resourceType: 'encounter', resourceId: 'enc-9', status: 201, replay: false, serverDate: '2026-10-30T08:00:00.000Z', via: 'response' }
+      : null) })
+    controls.setConnectivity('online')
+    await waitFor(() => expect(api.encounter).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, 'enc-9'))
+    await screen.findByRole('button', { current: true })
+
+    // The unsent note is still shown on the visit, not "No clinical notes".
+    const pendingNotes = () => [...document.querySelectorAll('.offline-pending')].filter(row => /Clinical note/.test(row.textContent ?? ''))
+    await waitFor(() => expect(pendingNotes()).toHaveLength(1))
+    expect(screen.queryByText(/^No clinical notes for this encounter\.$/)).toBeNull()
+    // What was being typed is still there.
+    expect((screen.getByRole('textbox', { name: /^Title/ }) as HTMLInputElement).value).toBe('Half typed')
+  })
+})

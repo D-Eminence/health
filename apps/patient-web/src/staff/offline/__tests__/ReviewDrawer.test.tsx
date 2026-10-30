@@ -146,6 +146,46 @@ describe('review drawer', () => {
     expect(screen.getByRole('radio', { name: 'Send as is (I have checked)' })).toBeTruthy()
   })
 
+  /** A visit saved offline, then a prescription on it, held for review once the visit reached Health ID. */
+  async function heldOnLocalVisit(receiptFor: (commandId: string) => Promise<unknown>) {
+    const fake = await openVault(snapshotOf(PILOT))
+    fake.controls.safetyChanged(true)
+    const visit = await fake.runtime.commands.save('ehr.encounter.create', { facilityId: PILOT, patientId: PATIENT_ID, localId: 'v1',
+      body: { encounterType: 'ambulatory', status: 'in_progress', startedAt: '2026-10-30T09:00:00.000Z', chiefComplaint: 'Cough' } } as unknown as Json,
+      { awaitMs: 0 })
+    if (visit.kind !== 'saved') throw new Error('expected the visit saved on the device')
+    await fake.runtime.commands.save('ehr.prescription.create', { facilityId: PILOT, patientId: PATIENT_ID, encounter: { local: visit.commandId },
+      body: { medicationDisplay: 'Amoxicillin 500 mg', frequency: 'three times a day', instructions: 'With food', status: 'draft' } } as unknown as Json,
+      { awaitMs: 0 })
+    Object.assign(fake.runtime, { receiptFor: vi.fn(receiptFor) })
+    await drawer(fake)
+    await screen.findByText('Prescription: Check before sending this prescription')
+    return visit.commandId
+  }
+
+  it('CC4 on a visit saved offline: reads the prescriptions of the visit Health ID made of it (re-review 3)', async () => {
+    api.reportedHealthProfile.mockResolvedValue(null)
+    api.records.mockResolvedValue({ items: [{ id: 'rx-9', patientId: PATIENT_ID, encounterId: 'enc-9', createdAt: '2026-10-30T09:30:00.000Z',
+      medicationDisplay: 'Co-amoxiclav 625 mg', rowVersion: 1 }], nextCursor: null })
+    const visit = await heldOnLocalVisit(async commandId => ({ commandId, resourceType: 'encounter', resourceId: 'enc-9', status: 201,
+      replay: false, serverDate: '2026-10-30T09:10:00.000Z', via: 'response' }))
+    expect(await screen.findByText('Co-amoxiclav 625 mg')).toBeTruthy()
+    expect(api.records).toHaveBeenCalledWith(PILOT, PATIENT_ID, 'enc-9', 'prescriptions')
+    expect(screen.queryByText('No prescriptions on Health ID for this visit.')).toBeNull()
+    expect(screen.getByRole('radio', { name: 'Send as is (I have checked)' })).toBeTruthy()
+    expect(visit).toBeTruthy()
+  })
+
+  it('CC4 on a visit saved offline whose server visit is not known: says it could not read, and offers no "Send as is"', async () => {
+    api.reportedHealthProfile.mockResolvedValue(null)
+    api.records.mockResolvedValue({ items: [], nextCursor: null })
+    await heldOnLocalVisit(async () => null)
+    expect(await screen.findByText(/could not be read\. Try again when online\./)).toBeTruthy()
+    expect(screen.queryByText('No prescriptions on Health ID for this visit.')).toBeNull()
+    expect(screen.queryByRole('radio', { name: 'Send as is (I have checked)' })).toBeNull()
+    expect(api.records).not.toHaveBeenCalled()
+  })
+
   it('CC5: asking for access again keeps the change and leads to patient access', async () => {
     const fake = await openVault(snapshotOf(PILOT))
     fake.controls.respondNext(lost)

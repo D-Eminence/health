@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
-import type { ConflictClass, Json, OfflineRuntime, OpName, Ref } from '@hid/offline'
+import type { ConflictClass, Json, OfflineCore, OfflineRuntime, OpName, Ref } from '@hid/offline'
 import { Button, Field, Textarea } from '@hid/ui'
 import { staffApi, type ClinicalRecord } from '../api'
 import { ACTIONS, CLASS_TEXT, OP_LABELS, REVIEW } from './copy'
+import { receiptOf } from './holder'
 import { definitionOf } from './registry'
 import { dayTime } from './time'
 import type { ReportedHealthProfile } from '../../profileParity'
@@ -82,8 +83,13 @@ function Comparison({ runtime, item, onRead }: { runtime: OfflineRuntime; item: 
       // The safety hold shows the patient's allergies and medications, and the visit's prescriptions, as Health ID has
       // them now (§2.9 CC4). "Send as is" is offered only once they were read: a failed read is not "nothing reported".
       if (item.class === 'CC4') {
-        const encounterId = input ? resolvedOf(item.op, input)?.encounterId : undefined
-        const read: SafetyRead = !facilityId ? 'failed' : await Promise.all([
+        // A visit saved on this device is read as the visit Health ID made of it; one not known yet is not read at all,
+        // and never said to have no prescriptions (A12.4).
+        const ref = input ? (definitionOf(item.op)?.refs(input) as Record<string, Ref> | undefined)?.encounterId : undefined
+        const encounterId = !ref ? undefined : 'server' in ref ? ref.server
+          : ((await receiptOf(runtime as OfflineCore, ref.local).catch(() => null))?.resourceId || null)
+        if (!active) return
+        const read: SafetyRead = !facilityId || encounterId === null ? 'failed' : await Promise.all([
           staffApi.reportedHealthProfile(facilityId, item.patientId),
           encounterId ? staffApi.records(facilityId, item.patientId, encounterId, 'prescriptions').then(page => page.items) : Promise.resolve([]),
         ]).then(([profile, prescriptions]) => ({ profile, prescriptions }), () => 'failed' as const)
