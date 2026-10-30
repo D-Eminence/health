@@ -72,6 +72,18 @@ describe('EhrAppShell', () => {
   })
 })
 
+describe('EhrAppShell mainHidden', () => {
+  it('hides main, and only main, while something else stands in for the page', () => {
+    const { rerender } = render(<EhrAppShell topBar={<EhrTopBar start="Fictional clinic" />}><p>Fictional page</p></EhrAppShell>)
+    const main = screen.getByRole('main')
+    expect(main.hidden).toBe(false)
+    rerender(<EhrAppShell topBar={<EhrTopBar start="Fictional clinic" />} mainHidden><p>Fictional page</p></EhrAppShell>)
+    expect(main.hidden).toBe(true)
+    expect(screen.queryByRole('main')).toBeNull()
+    expect(screen.getByRole('banner')).toBeDefined()
+  })
+})
+
 describe('EhrTopBar', () => {
   it('is a header with start and end slots and, in a shell with a sidebar, the menu button', () => {
     render(

@@ -38,6 +38,12 @@ export function navigationGroups(pages: readonly EhrBluePage[]): EhrNavGroup[] {
 }
 
 /**
+ * Today's pages that send a request before they refuse (Access requests reads the requests; Clinical record looks up
+ * the patient, consent and encounters): without the permission, the frame refuses for them instead.
+ */
+const READS_BEFORE_REFUSING: ReadonlySet<string> = new Set(['requests', 'clinical'])
+
+/**
  * The blue Hospital EHR's frame: EhrAppShell with the design's sidebar and top bar, and the page
  * the address opens. Session, sign-out and facility switch are today's (useStaff). A page another folder exports
  * replaces the frame's stand-in for its path; an address no page takes says so.
@@ -86,18 +92,22 @@ export function BlueFrame() {
   }
 
   // Today's page refuses in its own words ("Laboratory unavailable"), and reads nothing without the permission.
+  const shownHere = match === null || (match.page.visible?.(session) ?? true)
   const todayRefuses = match !== null && match.page.status === 'live' && isValidElement(match.page.element)
-    && match.page.element.type === LivePage && (match.page.visible?.(session) ?? true)
+    && match.page.element.type === LivePage && shownHere && !READS_BEFORE_REFUSING.has(basePath(match.page.path))
   const content = match
     ? pageAllowed(match.page, session) || todayRefuses
       ? <BluePageProvider value={match}>{match.page.element}</BluePageProvider>
-      : match.page.refusal ?? <DeniedPage label={match.page.label} facility={facility?.name ?? 'this facility'} />
+      : match.page.refusal ?? <DeniedPage label={match.page.label} facility={facility?.name ?? 'this facility'}
+        reason={shownHere ? 'permission' : 'not-here'} />
     : isLiveOnlyPath(location.pathname) ? <LivePage /> : <UnknownPage />
 
   return (
     <BluePagesProvider value={BLUE_PAGES}><OpenPagesProvider value={allowed}>
       <AttentionProvider facilityId={facility?.id} permissions={permissions}>
         <EhrAppShell
+          // While the session is checked, today's lock screen stands in for the page, as today's <main> hides.
+          mainHidden={lock !== null}
           sidebar={(
             <EhrSidebar
               groups={navigationGroups(listed.filter(page => !page.tabOf))}

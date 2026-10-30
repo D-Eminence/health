@@ -45,11 +45,24 @@ export function UnknownPage() {
 }
 
 /** A live or partial page the working facility's permissions do not open. Nothing of it is read. */
-export function DeniedPage({ label, facility }: { readonly label: string; readonly facility: string }) {
+/**
+ * A page this session may not open, by its address. Its permission missing, an administrator can grant it; a page
+ * visible() turns down here (one of the demo's) no role can open, and the words say so.
+ */
+export function DeniedPage({ label, facility, reason = 'permission' }: {
+  readonly label: string
+  readonly facility: string
+  readonly reason?: 'permission' | 'not-here'
+}) {
   return <>
     <EhrPageHeading title={label} />
-    <EhrEmptyState title={`${label} is not open to you here`}
-      message={`Your role at ${facility} does not include ${label}. Ask your facility administrator to review your access.`}
-      action={<Link className="hid-ehr-button hid-ehr-button-secondary" to="/provider">Go to Home</Link>} />
+    {reason === 'permission' ? (
+      <EhrEmptyState title={`${label} is not open to you here`}
+        message={`Your role at ${facility} does not include ${label}. Ask your facility administrator to review your access.`}
+        action={<Link className="hid-ehr-button hid-ehr-button-secondary" to="/provider">Go to Home</Link>} />
+    ) : (
+      <EhrEmptyState title={`${label} is part of the Health ID demo only`} message={`It is not available at ${facility}.`}
+        action={<Link className="hid-ehr-button hid-ehr-button-secondary" to="/provider">Go to Home</Link>} />
+    )}
   </>
 }

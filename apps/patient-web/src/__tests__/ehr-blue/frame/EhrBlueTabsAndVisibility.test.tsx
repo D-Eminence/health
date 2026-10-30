@@ -66,7 +66,7 @@ describe('visible()', () => {
     withFramePages(() => [page(session => session.actor.facility?.name === 'Riverside Teaching Hospital (fictional)')])
     const nav = await openDemo('/provider/self-signed')
     expect(within(nav).queryByRole('link', { name: 'Self-signed setup' })).toBeNull()
-    expect(screen.getByText('Self-signed setup is not open to you here')).toBeDefined()
+    expect(screen.getByText('Self-signed setup is part of the Health ID demo only')).toBeDefined()
     expect(screen.queryByText('Self-signed setup page')).toBeNull()
     fireEvent.keyDown(document, { key: 'k', ctrlKey: true })
     const search = await screen.findByRole('dialog', { name: 'Search Health ID' })
