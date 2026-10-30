@@ -21,6 +21,7 @@ vi.mock('../../env', () => ({ getEnvironment: () => ({ apiBaseUrl: 'https://gate
 const { setOfflineRuntimeForTests } = await import('../runtime')
 const { forgetDeviceCopies } = await import('../ehrReads')
 const { staffSafetyProbe } = await import('../safetyProbe')
+const { ehrCommands } = await import('../ehrCommands')
 
 const PATIENT = 'a0000000-0000-4000-8000-00000000000a'
 const profile = (allergies: string | null) => ({ bloodGroup: null, genotype: null, allergies, currentMedications: 'Metformin 500 mg',
@@ -77,8 +78,10 @@ describe('the CC4 safety probe', () => {
     const server = fakeServer()
     const runtime = await realVault(new IDBFactory(), server.transport, undefined, { safety: staffSafetyProbe })
     setOfflineRuntimeForTests(runtime)
-    // Read once online, so the device has the chart the form shows offline.
-    await staffSafetyProbe.capture(input as unknown as Json)
+    // Access allows writing and the chart was read once online, so the device has the chart the form shows offline.
+    await runtime.reads.setGrant({ patientId: PATIENT, readAllowed: true, writeAllowed: true, expiresAt: null, breakGlass: false,
+      observedAt: runtime.trustedNow().at.toISOString() })
+    expect(await staffSafetyProbe.capture(input as unknown as Json)).not.toBeNull()
     // Health ID stops answering: the runtime hears it as the staff client tells it (onResponseMeta).
     server.state.offline = true
     for (let i = 0; i < 3; i += 1) runtime.onResponseMeta(meta(null))
@@ -94,5 +97,105 @@ describe('the CC4 safety probe', () => {
     expect(server.sent.filter(spec => spec.path.endsWith('/prescriptions'))).toEqual([])
     expect((await runtime.review.list()).map(item => item.class)).toEqual(['CC4'])
     runtime.dispose()
+  })
+})
+
+/**
+ * The coordinator's rule for this device's own prescriptions on one visit: the prescriber saw them, so they are not a
+ * change. They are matched by receipt at send time (`receiptFor`, #39, stood in for here from the server's answers).
+ */
+describe('this device’s own earlier prescriptions on the visit', () => {
+  async function offlineVisit() {
+    const server = fakeServer()
+    const onServer: ReturnType<typeof rx>[] = []
+    const byCommand = new Map<string, string>()
+    // Health ID gives each prescription an id from its medicine; the visit's list is what it holds.
+    server.state.answer = spec => {
+      if (!spec.path.endsWith('/prescriptions') || spec.method !== 'POST') return null
+      const id = `rx-${String((spec.body as { medicationDisplay: string }).medicationDisplay).split(' ')[0]!.toLowerCase()}`
+      onServer.push(rx(id))
+      return { status: 201, body: { id, rowVersion: 1 }, date: null }
+    }
+    api.records.mockImplementation(async () => {
+      if (server.state.offline) throw new HidApiError(0, 'Network error', { code: 'NETWORK_ERROR' })
+      return { items: [...onServer], nextCursor: null }
+    })
+    api.reportedHealthProfile.mockImplementation(async () => {
+      if (server.state.offline) throw new HidApiError(0, 'Network error', { code: 'NETWORK_ERROR' })
+      return profile('Penicillin (rash)')
+    })
+    const runtime = await realVault(new IDBFactory(), server.transport, undefined, { safety: staffSafetyProbe })
+    setOfflineRuntimeForTests(runtime)
+    Object.assign(runtime, { receiptFor: async (commandId: string) => {
+      const medicine = byCommand.get(commandId)
+      const found = medicine ? onServer.find(item => item.id === `rx-${medicine}`) : undefined
+      return found ? { commandId, resourceType: 'prescriptions', resourceId: found.id, status: 201, replay: false,
+        serverDate: '2026-10-30T08:00:00.000Z', via: 'response' } : null
+    } })
+    // Access allows writing, and the chart was read once online, so the form has it offline; then Health ID stops answering.
+    await runtime.reads.setGrant({ patientId: PATIENT, readAllowed: true, writeAllowed: true, expiresAt: null, breakGlass: false,
+      observedAt: runtime.trustedNow().at.toISOString() })
+    expect(await staffSafetyProbe.capture(input as unknown as Json)).not.toBeNull()
+    server.state.offline = true
+    for (let i = 0; i < 3; i += 1) runtime.onResponseMeta(meta(null))
+    const prescribe = async (medicine: string) => {
+      const outcome = await ehrCommands.createRecord(PILOT, PATIENT, 'enc-1', 'prescriptions',
+        { medicationDisplay: `${medicine} 500 mg`, frequency: 'twice a day', instructions: 'With food', status: 'draft' })
+      if (outcome.kind !== 'saved') throw new Error('expected it saved on the device')
+      byCommand.set(outcome.commandId, medicine.toLowerCase())
+      return outcome.commandId
+    }
+    const reconnect = async () => {
+      server.state.offline = false
+      for (let i = 0; i < 3; i += 1) runtime.onResponseMeta(meta(200))
+      runtime.commands.syncNow()
+      for (let i = 0; i < 6; i += 1) { await runtime.tick(); await runtime.settle() }
+    }
+    const sentMedicines = () => server.sent.filter(spec => spec.path.endsWith('/prescriptions'))
+      .map(spec => (spec.body as { medicationDisplay: string }).medicationDisplay)
+    return { server, runtime, onServer, prescribe, reconnect, sentMedicines }
+  }
+  const reviewed = async (runtime: { review: { list(): Promise<{ commandId: string; class: string }[]> } }) =>
+    (await runtime.review.list()).map(item => [item.commandId, item.class])
+
+  beforeEach(() => { api.records.mockReset(); api.reportedHealthProfile.mockReset() })
+
+  it('two prescriptions saved offline on one visit are both sent; neither is held', async () => {
+    const visit = await offlineVisit()
+    await visit.prescribe('Amoxicillin')
+    await visit.prescribe('Paracetamol')
+    await visit.reconnect()
+    expect(visit.sentMedicines()).toEqual(['Amoxicillin 500 mg', 'Paracetamol 500 mg'])
+    expect(await reviewed(visit.runtime)).toEqual([])
+    visit.runtime.dispose()
+  })
+
+  it('a prescription added on the visit from another browser before they are sent holds them', async () => {
+    const visit = await offlineVisit()
+    const first = await visit.prescribe('Amoxicillin')
+    const second = await visit.prescribe('Paracetamol')
+    visit.onServer.push(rx('rx-from-elsewhere'))
+    await visit.reconnect()
+    // The first is held; the second waits behind it on the visit.
+    expect(visit.sentMedicines()).toEqual([])
+    expect(await reviewed(visit.runtime)).toEqual([[first, 'CC4']])
+
+    // Sent as is after checking: the second is still held, for the prescription from elsewhere, not for the first.
+    await visit.runtime.review.resolve(first, 'send-as-is', {})
+    for (let i = 0; i < 6; i += 1) { await visit.runtime.tick(); await visit.runtime.settle() }
+    expect(visit.sentMedicines()).toEqual(['Amoxicillin 500 mg'])
+    expect(await reviewed(visit.runtime)).toEqual([[second, 'CC4']])
+    visit.runtime.dispose()
+  })
+
+  it('the first one discarded before it was sent holds the second, which relied on it', async () => {
+    const visit = await offlineVisit()
+    const first = await visit.prescribe('Amoxicillin')
+    const second = await visit.prescribe('Paracetamol')
+    await visit.runtime.commands.cancel(first)
+    await visit.reconnect()
+    expect(visit.sentMedicines()).toEqual([])
+    expect(await reviewed(visit.runtime)).toEqual([[second, 'CC4']])
+    visit.runtime.dispose()
   })
 })

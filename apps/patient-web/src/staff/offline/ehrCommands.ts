@@ -5,7 +5,7 @@ import {
   type SavedRecord, type VitalCorrection, type VitalMeasurements,
 } from '../api'
 import { offlineActive, offlineRuntime } from './runtime'
-import { refFromId } from './registry'
+import { idFromRef, refFromId } from './registry'
 import { SAVE } from './copy'
 
 /**
@@ -15,6 +15,12 @@ import { SAVE } from './copy'
  * answer, and otherwise says it is saved on this device. A definitive refusal of a first attempt (400, 403, 404, 409,
  * 412 before any earlier send) applied nothing, so it is thrown as the HidApiError the form shows today.
  */
+
+/**
+ * Prescriptions this tab saved through the device, per patient, with their visit: once one is applied it leaves the
+ * pending list, and the safety hold still needs to know it was this device's own (CC4).
+ */
+const ownPrescriptions = new Map<string, { commandId: string; visit: string }[]>()
 
 const OP_KINDS: Readonly<Record<RecordKind, OpName>> = {
   'clinical-notes': 'ehr.note.create',
@@ -100,8 +106,22 @@ export const ehrCommands = {
       if ('local' in encounter) throw new Error(SAVE.activeLabNeedsVisit)
       return appliedOnline(await staffApi.createRecord(facilityId, patientId, encounterId, kind, input, idempotencyKey), kind)
     }
-    return await saveCommand(OP_KINDS[kind], { facilityId, patientId, encounter, body: input },
+    // A prescription names this device's own prescriptions on the visit saved before it: the prescriber saw them, so
+    // the safety hold does not count them as a change (CC4). Kept beside the body, never sent.
+    const runtime = offlineRuntime()
+    let safetyContext: { ownBefore: string[] } | undefined
+    if (kind === 'prescriptions' && offlineActive(runtime)) {
+      const pending = (await runtime.commands.pendingFor(patientId, encounter)).filter(view => view.op === 'ehr.prescription.create')
+      const sent = (ownPrescriptions.get(patientId) ?? []).filter(item => item.visit === idFromRef(encounter))
+      safetyContext = { ownBefore: [...new Set([...pending.map(view => view.commandId), ...sent.map(item => item.commandId)])] }
+    }
+    const outcome = await saveCommand<SavedRecord>(OP_KINDS[kind], { facilityId, patientId, encounter, body: input, ...(safetyContext ? { safetyContext } : {}) },
       () => staffApi.createRecord(facilityId, patientId, encounterId, kind, input, idempotencyKey), kind, [encounter])
+    const commandId = outcome.kind === 'saved' ? outcome.commandId : outcome.receipt.commandId
+    if (safetyContext && commandId) {
+      ownPrescriptions.set(patientId, [...(ownPrescriptions.get(patientId) ?? []), { commandId, visit: idFromRef(encounter) }])
+    }
+    return outcome
   },
 
   updateEncounter: (facilityId: string, patientId: string, encounterId: string,

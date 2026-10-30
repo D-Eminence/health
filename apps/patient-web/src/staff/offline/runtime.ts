@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import * as offlinePackage from '@hid/offline'
-import { createOfflineRuntime, transportFromApiClient, type MediaUploader, type OfflineCore, type OfflineEnv, type OfflineReport, type OfflineRuntime, type Receipt,
+import { createOfflineRuntime, transportFromApiClient, type MediaUploader, type OfflineCore, type OfflineEnv, type OfflineReport, type OfflineRuntime,
   type StaffSessionSnapshot, type SyncSummary } from '@hid/offline'
 import { uploadPresignedObject } from '@hid/http'
 import { staffTransport, type StaffSession } from '../api'
@@ -8,6 +8,7 @@ import { getEnvironment } from '../env'
 import { offlineAppHost, offlineConfig, offlineEnv, offlineHostAllowed } from './environment'
 import { STAFF_OFFLINE_REGISTRY } from './registry'
 import { provideOfflineRuntime } from './holder'
+export { receiptOf } from './holder'
 import { staffSafetyProbe } from './safetyProbe'
 
 /**
@@ -139,16 +140,6 @@ export function markSessionReady(runtime: OfflineCore | null, ready: boolean, ac
   if (!runtime) return
   const setReady = runtime.setSessionReady as (ready: boolean, accountId?: string) => void
   setReady.call(runtime, ready, ready && accountId ? accountId : undefined)
-}
-
-/**
- * The receipt of a command once Health ID applied it, or null (A12.9). Answered by the runtime's `receiptFor(commandId)`
- * (#39); a runtime without it answers null, and a visit saved on this device stays shown as such until it is reopened.
- */
-export async function receiptOf(runtime: OfflineCore, commandId: string): Promise<Receipt | null> {
-  const receiptFor = (runtime as Partial<{ receiptFor(commandId: string): Promise<Receipt | null> | Receipt | null }>).receiptFor
-  if (typeof receiptFor !== 'function') return null
-  return (await receiptFor.call(runtime, commandId)) ?? null
 }
 
 /** Locks the open vault when it belongs to another account than `accountId` (A12.3): a different account signed in. */
