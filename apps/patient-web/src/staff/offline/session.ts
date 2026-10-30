@@ -50,8 +50,8 @@ export function syncShell(runtime: OfflineRuntime): void {
   const policy = runtime.policy()
   if (runtime.summary().vault !== 'unlocked') return
   // The shell module is loaded only now, and only for these two cases (see shellLoader.ts).
-  if (policy.enabled) void loadShell().then(shell => shell.enableShell(), () => undefined)
-  else if (policy.reason === 'facility-off') void loadShell().then(shell => shell.purgeShell(), () => undefined)
+  if (policy.enabled) void loadShell().then(shell => shell.enableShell()).catch(() => undefined)
+  else if (policy.reason === 'facility-off') void loadShell().then(shell => shell.purgeShell()).catch(() => undefined)
 }
 
 /** Whether a session read still lists the facility the vault was opened for; a membership that ended does not. */

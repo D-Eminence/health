@@ -15,7 +15,7 @@ export function UpdateBanner() {
   const waiting = shell.sending ? UPDATE.waitSending : !shell.canUpdate ? UPDATE.waitForms : ''
   return <div className="staff-notice offline-update" role="status">
     <span>{UPDATE.ready}</span>
-    <Button size="sm" onClick={shell.update} disabled={!shell.canUpdate} aria-describedby={waiting ? 'offline-update-wait' : undefined}>{UPDATE.button}</Button>
+    <Button size="sm" onClick={() => void shell.update()} disabled={!shell.canUpdate} aria-describedby={waiting ? 'offline-update-wait' : undefined}>{UPDATE.button}</Button>
     {waiting && <span id="offline-update-wait" className="staff-muted">{waiting}</span>}
   </div>
 }
