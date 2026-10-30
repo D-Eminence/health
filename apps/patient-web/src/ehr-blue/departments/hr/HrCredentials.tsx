@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState, type FormEvent } from 'react'
+import { Fragment, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type ReactElement } from 'react'
 import { EhrButton, EhrField, EhrInput, EhrSkeleton } from '@hid/ui/ehr'
 import { useFocusById } from '../../../staff/focus'
 import { useDeptAccess } from '../parts/access'
@@ -26,6 +26,8 @@ import {
 const TITLE = 'HR & Credentials'
 const SAVED_ID = 'hr-saved-record'
 const CREATE_ID = 'hr-create'
+const RETRY_ID = 'hr-live-retry'
+const LIVE_LIST_ID = 'hr-live-list'
 const NO_ACTIONS = 'No further actions for your permission and this record state.'
 
 type View =
@@ -43,29 +45,44 @@ export function HrCredentials() {
   const [view, setView] = useState<View>({ kind: 'list' })
   const [liveSearch, setLiveSearch] = useState('')
   const [sampleSearch, setSampleSearch] = useState('')
+  /** What the page last did, read out by the status line that stays mounted under every view. */
+  const [announcement, setAnnouncement] = useState('')
   const focus = useFocusById()
+  const retrying = useRef(false)
+  const read = live.kind === 'failed' || live.kind === 'ready' ? live.read : null
 
-  const show = (next: View) => { setView(next); focus(TITLE_ID) }
+  // After "Try again", once the read is answered, focus goes to what replaced the button: the button again on another
+  // refusal (whose alert is read out anew), the live list's search once it is read, or the page's title otherwise.
+  useLayoutEffect(() => {
+    if (!retrying.current || live.kind === 'loading') return
+    retrying.current = false
+    const search = document.getElementById(LIVE_LIST_ID)?.querySelector('input')
+    focus(live.kind === 'failed' ? RETRY_ID : search?.id ? [search.id, TITLE_ID] : TITLE_ID)
+  }, [live.kind, read, focus])
+
+  const show = (next: View) => { setView(next); setAnnouncement(''); focus(TITLE_ID) }
   /** Back to the list, with focus on the record just left (or the list's title, when the search hides it). */
-  const toList = (target: string) => { setView({ kind: 'list' }); focus([target, TITLE_ID]) }
+  const toList = (target: string) => { setView({ kind: 'list' }); setAnnouncement(''); focus([target, TITLE_ID]) }
+  const announced = (content: ReactElement) => <>{content}<p className="hid-ehr-sr-only" role="status">{announcement}</p></>
 
   if (view.kind === 'new') {
-    return <NewRecord onBack={() => toList(CREATE_ID)} onSave={values => {
+    return announced(<NewRecord onBack={() => toList(CREATE_ID)} onSave={values => {
       const record = createSample(values, crypto.randomUUID(), new Date().toISOString())
       setRecords(current => [record, ...current])
       show({ kind: 'sample', id: record.id })
-    }} />
+      setAnnouncement(`Record created: ${record.data.name}.`)
+    }} />)
   }
   if (view.kind === 'sample') {
     const record = records.find(entry => entry.id === view.id)
     if (record) {
-      return <SampleDetail key={record.id} record={record} onBack={() => toList(`hr-sample-${record.id}`)}
-        onChange={next => setRecords(current => current.map(entry => entry.id === next.id ? next : entry))} />
+      return announced(<SampleDetail key={record.id} record={record} onBack={() => toList(`hr-sample-${record.id}`)} onAnnounce={setAnnouncement}
+        onChange={next => setRecords(current => current.map(entry => entry.id === next.id ? next : entry))} />)
     }
   }
   if (view.kind === 'live' && view.facilityId === facility?.id) {
     const credential = credentials.find(entry => entry.key === view.key)
-    if (credential) return <LiveDetail credential={credential} onBack={() => toList(`hr-live-${credential.key}`)} />
+    if (credential) return announced(<LiveDetail credential={credential} onBack={() => toList(`hr-live-${credential.key}`)} />)
   }
 
   const liveRows: HrRow[] = credentials
@@ -83,21 +100,23 @@ export function HrCredentials() {
       updatedAt: record.updatedAt, facts: sampleFacts(record.data), context: staffName(record.data.staff),
     }))
 
-  return (
+  return announced(
     <DeptPage title={<HrTitle>{TITLE}</HrTitle>}
       primaryAction={<EhrButton id={CREATE_ID} onClick={() => show({ kind: 'new' })}>Create record</EhrButton>}>
       <LiveList live={live} rows={liveRows} total={credentials.length} search={liveSearch} onSearch={setLiveSearch}
+        onRetry={() => { if (live.kind !== 'failed') return; retrying.current = true; live.retry() }}
         onOpen={key => { if (facility) show({ kind: 'live', facilityId: facility.id, key }) }} />
       <SampleBanner />
       <HrRecordList label="Search sample records" search={sampleSearch} onSearch={setSampleSearch} rows={sampleRows}
         total={records.length} onOpen={id => show({ kind: 'sample', id })} />
-    </DeptPage>
+    </DeptPage>,
   )
 }
 
 /** The live list, or what stands in its place: a line on why it is not shown, its loading, or a refused read. */
-function LiveList({ live, rows, total, search, onSearch, onOpen }: {
+function LiveList({ live, rows, total, search, onSearch, onRetry, onOpen }: {
   readonly live: LiveStaff
+  readonly onRetry: () => void
   readonly rows: HrRow[]
   readonly total: number
   readonly search: string
@@ -110,17 +129,19 @@ function LiveList({ live, rows, total, search, onSearch, onOpen }: {
   }
   if (live.kind === 'failed') {
     return (
-      <DeptNotice tone="critical">
+      <DeptNotice tone="critical" role="alert">
         <p>{live.message}</p>
-        <EhrButton variant="secondary" size="sm" onClick={live.retry}>Try again</EhrButton>
+        <EhrButton id={RETRY_ID} variant="secondary" size="sm" onClick={onRetry}>Try again</EhrButton>
       </DeptNotice>
     )
   }
   const pending = pendingCheckText(live.staff)
-  return <>
-    {pending ? <DeptNotice title="Waiting for Health ID support">{pending}</DeptNotice> : null}
-    <HrRecordList label={`Search ${TITLE}`} search={search} onSearch={onSearch} rows={rows} total={total} onOpen={onOpen} />
-  </>
+  return (
+    <div id={LIVE_LIST_ID}>
+      {pending ? <DeptNotice title="Waiting for Health ID support">{pending}</DeptNotice> : null}
+      <HrRecordList label={`Search ${TITLE}`} search={search} onSearch={onSearch} rows={rows} total={total} onOpen={onOpen} />
+    </div>
+  )
 }
 
 /** A member's licence as a record: what Health ID holds, and no action here. */
@@ -153,23 +174,24 @@ function NewRecord({ onBack, onSave }: { readonly onBack: () => void; readonly o
  * A sample record: its fields ("Saved record"), editing while it is only recorded, the catalog's review as its one
  * action, and each version kept before a change ("Preserved versions & amendments").
  */
-function SampleDetail({ record, onBack, onChange }: {
+function SampleDetail({ record, onBack, onChange, onAnnounce }: {
   readonly record: SampleRecord
   readonly onBack: () => void
   readonly onChange: (record: SampleRecord) => void
+  /** Says what changed through the page's status line. */
+  readonly onAnnounce: (text: string) => void
 }) {
   const [editing, setEditing] = useState(false)
   const [reviewing, setReviewing] = useState(false)
   const [review, setReview] = useState('')
   const [problem, setProblem] = useState<string | undefined>()
-  const [said, setSaid] = useState('')
   const focus = useFocusById()
   const recorded = record.status === 'recorded'
 
   function saveEdit(values: SampleValues) {
     onChange(editSample(record, values, new Date().toISOString()))
     setEditing(false)
-    setSaid('Record changes saved.')
+    onAnnounce('Record changes saved.')
     focus(SAVED_ID)
   }
 
@@ -180,7 +202,7 @@ function SampleDetail({ record, onBack, onChange }: {
     setReviewing(false)
     setReview('')
     setProblem(undefined)
-    setSaid('Credential review recorded.')
+    onAnnounce('Credential review recorded.')
     focus(SAVED_ID)
   }
 
@@ -203,14 +225,13 @@ function SampleDetail({ record, onBack, onChange }: {
     <DeptPage title={<HrTitle>{record.data.name}</HrTitle>} onBack={onBack}>
       <SampleBanner />
       <HrContextLine status={record.status} saved={`Saved ${dateText(record.updatedAt)}`} />
-      <p role="status" className="hid-ehr-sr-only">{said}</p>
       <DeptRecordLayout
         main={(
           <DeptSection title="Saved record" headingId={SAVED_ID}>
             {recorded ? (
               <div className="hid-ehr-dept-toolbar">
                 <EhrButton id="hr-edit-toggle" variant="secondary" aria-expanded={editing}
-                  onClick={() => { setSaid(''); setEditing(!editing); focus(editing ? 'hr-edit-toggle' : 'hr-edit-staff') }}>
+                  onClick={() => { onAnnounce(''); setEditing(!editing); focus(editing ? 'hr-edit-toggle' : 'hr-edit-staff') }}>
                   {editing ? 'Cancel editing' : 'Edit record'}</EhrButton>
               </div>
             ) : null}

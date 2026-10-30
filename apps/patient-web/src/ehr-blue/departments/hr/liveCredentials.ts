@@ -31,12 +31,15 @@ type Loaded =
   | { facilityId: string; status: 'ready'; staff: FacilityStaff }
   | { facilityId: string; status: 'failed'; caught: unknown }
 
-/** What the live list shows: a line in place of the list, the list loading, a refused read with a retry, or the staff. */
+/**
+ * What the live list shows: a line in place of the list, the list loading, a refused read with a retry, or the staff.
+ * `read` is the answer itself, new for each one, so a page can tell a repeated refusal from the one before.
+ */
 export type LiveStaff =
   | { kind: 'notice'; tone: 'info' | 'critical'; message: string }
   | { kind: 'loading' }
-  | { kind: 'failed'; message: string; retry: () => void }
-  | { kind: 'ready'; staff: FacilityStaff }
+  | { kind: 'failed'; message: string; retry: () => void; read: object }
+  | { kind: 'ready'; staff: FacilityStaff; read: object }
 
 export const LIVE_LOADING = 'Loading staff records…'
 
@@ -75,10 +78,10 @@ export function useLiveStaff(facility: Facility | undefined): LiveStaff {
     const { caught } = current
     if (isRouteMissing(caught)) return { kind: 'notice', tone: 'info', message: 'Staff records aren’t available on Health ID yet. Check again later.' }
     if (isHidApiError(caught) && caught.code === 'STAFF_MANAGEMENT_NOT_AVAILABLE') return notAvailable
-    return { kind: 'failed', retry: reload, message: isUnavailable(caught) ? staffProblemText(caught, { facility: facility.name })
+    return { kind: 'failed', retry: reload, read: current, message: isUnavailable(caught) ? staffProblemText(caught, { facility: facility.name })
       : `${facility.name}’s staff couldn’t be loaded. ${staffProblemText(caught, { facility: facility.name })}` }
   }
-  return { kind: 'ready', staff: current.staff }
+  return { kind: 'ready', staff: current.staff, read: current }
 }
 
 /** One member as an HR & Credentials record: their licence, in the design's record shape. */

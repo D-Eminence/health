@@ -127,6 +127,8 @@ describe('creating a record', () => {
     expect(screen.getByRole('textbox', { name: 'Leave request (optional)' })).toBeTruthy()
     expect(screen.getByLabelText(/^Expiry/).getAttribute('type')).toBe('date')
 
+    const status = screen.getByRole('status')
+    expect(status.textContent).toBe('')
     fireEvent.click(screen.getByRole('button', { name: 'Save record' }))
     expect(screen.getAllByText('Complete this field.')).toHaveLength(4)
     expect(document.activeElement).toBe(staffSelect)
@@ -144,6 +146,8 @@ describe('creating a record', () => {
 
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Pharmacy licence (fictional)')
     expect(document.activeElement?.id).toBe('hr-title')
+    expect(screen.getByRole('status')).toBe(status)
+    expect(status.textContent).toBe('Record created: Pharmacy licence (fictional).')
     expect(screen.getByRole('note').textContent).toBe(SAMPLE_NOTICE)
     expect(screen.getByText('recorded')).toBeTruthy()
     expect(screen.getByText(/^Saved \d/)).toBeTruthy()
