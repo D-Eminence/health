@@ -73,9 +73,18 @@ function PatientRecord({ chart }: { chart: Chart }) {
     navigate(href(), { state: { notice: CLOSED_NOTICE } })
   }
 
-  /** External record access opens only with identity.consent.write (the frame's rule): only then is the Health ID handed over. */
+  /**
+   * As the design's Next steps, a step shows only to a role that may take it: External record access opens only with
+   * identity.consent.write (the frame's rule, the permission its request form needs), the encounters list only with
+   * ehr.encounter.read (Consultation's).
+   */
+  const mayOpenConsent = can('identity.consent.write')
+  const mayOpenChart = chart.can('ehr.encounter.read')
+
+  /** The Health ID is handed over in memory only, and only where the request form can open and read it. */
   function openConsent() {
-    if (can('identity.consent.write')) offerHealthId(chart.patient.hid, chart.facilityId, setActivePatient)
+    if (!mayOpenConsent) return
+    offerHealthId(chart.patient.hid, chart.facilityId, setActivePatient)
     navigate(href.to('consent', 'new'))
   }
 
@@ -113,15 +122,16 @@ function PatientRecord({ chart }: { chart: Chart }) {
           ) : (
             <>
               {/* Appointments and patient visits are samples: offered only at the demo facilities. Today's Patients
-                  page offers no registration, so a real facility gets neither step. */}
+                  page offers no registration, so a real facility gets neither step. Each opens the sample's new form, as
+                  the design's hand-off does; no live patient is carried into a sample, so its "Patient *" starts unchosen. */}
               {isDemoFacility(chart.facilityId) ? (
                 <>
-                  <Step><EhrButton variant="secondary" onClick={() => navigate(href.to('appointments'))}>Open appointments</EhrButton></Step>
+                  <Step><EhrButton variant="secondary" onClick={() => navigate(href.to('appointments', 'new'))}>Open appointments</EhrButton></Step>
                   <Step><EhrButton variant="secondary" onClick={() => navigate(href.to('journey', 'new'))}>Register walk-in visit</EhrButton></Step>
                 </>
               ) : null}
-              <Step><EhrButton variant="secondary" onClick={openConsent}>Open consent</EhrButton></Step>
-              <Step><EhrButton variant="secondary" onClick={() => navigate(href.to('consult'))}>Open clinical record</EhrButton></Step>
+              {mayOpenConsent ? <Step><EhrButton variant="secondary" onClick={openConsent}>Open consent</EhrButton></Step> : null}
+              {mayOpenChart ? <Step><EhrButton variant="secondary" onClick={() => navigate(href.to('consult'))}>Open clinical record</EhrButton></Step> : null}
             </>
           )}
         </EhrCard>

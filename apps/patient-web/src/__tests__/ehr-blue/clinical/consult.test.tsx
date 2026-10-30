@@ -1,8 +1,9 @@
-import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { HidApiError } from '@hid/http'
+import { MemoryRouter, Route, Routes, useLocation, useNavigationType } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ConsultWorkspace, consultStatus } from '../../../ehr-blue/clinical/consult/ConsultWorkspace'
-import { ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, labelled, renderPage } from './harness'
+import { BASE, ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, labelled, renderPage } from './harness'
 
 /**
  * Consultation, the list and "New consultation": the open patient's encounters (today's paging, the access re-check
@@ -72,6 +73,27 @@ function open(rest = '') {
 function where() {
   return screen.queryByTestId('elsewhere')?.textContent ?? null
 }
+
+/** Where the address is now, how it got there (POP for the first entry, PUSH or REPLACE), and its router state. */
+function Address() {
+  const location = useLocation()
+  const how = useNavigationType()
+  return <p data-testid="address">{`${how} ${location.pathname} ${JSON.stringify(location.state ?? null)}`}</p>
+}
+
+/** The list opened as Home's "Orders accepted for the wrong person" link opens it: /provider/clinical with { order }. */
+function openFromHome(order: unknown) {
+  return render(
+    <MemoryRouter initialEntries={[{ pathname: `${BASE}/clinical`, state: { order } }]}>
+      <Address />
+      <Routes>
+        <Route path={`${BASE}/clinical/*`} element={<ConsultWorkspace />} />
+      </Routes>
+    </MemoryRouter>,
+  )
+}
+
+const address = () => screen.getByTestId('address').textContent
 
 describe('Consultation list', () => {
   it('is partial: encounters, notes, diagnoses and documents are live; some connected orders are sample', () => {
@@ -220,6 +242,35 @@ describe('Consultation list', () => {
     expect(api.encounters).not.toHaveBeenCalled()
   })
 
+  it('item 4: opens the order Home links to (accepted for the wrong person) for the open patient, replacing the address with record ids only', async () => {
+    for (const [kind, ours, orderId] of [['lab_request', 'laboratory', 'lab-1'], ['prescription', 'pharmacy', 'rx-1']] as const) {
+      const view = openFromHome({ patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, kind, orderId })
+      expect(await screen.findByText('Order pages part')).toBeTruthy()
+      expect(address()).toBe(`REPLACE /provider/clinical/${ENCOUNTER_ID}/orders/${ours}/${orderId} null`)
+      expect(address()).not.toContain(PATIENT_ID)
+      expect(address()).not.toContain(PATIENT_HID)
+      // The list is not read on the way.
+      expect(api.encounters).not.toHaveBeenCalled()
+      view.unmount()
+    }
+  })
+
+  it('item 4: ignores a linked order for a different patient and shows the encounters', async () => {
+    openFromHome({ patientId: 'a0000000-0000-4000-8000-000000000999', encounterId: ENCOUNTER_ID, kind: 'lab_request', orderId: 'lab-1' })
+    expect(await screen.findByRole('table', { name: 'Encounters' })).toBeTruthy()
+    expect(screen.queryByText('Order pages part')).toBeNull()
+    expect(address()).toMatch(/^POP \/provider\/clinical /)
+  })
+
+  it('item 4: ignores a linked order for an emergency patient', async () => {
+    staff.activePatient = activePatient('emergency')
+    openFromHome({ patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, kind: 'prescription', orderId: 'rx-1' })
+    expect(screen.getByText('Emergency access is read-only')).toBeTruthy()
+    await act(async () => {})
+    expect(screen.queryByText('Order pages part')).toBeNull()
+    expect(address()).toMatch(/^POP \/provider\/clinical /)
+  })
+
   it('shows the read-only emergency notice for an emergency patient, and nothing to create', () => {
     staff.activePatient = activePatient('emergency')
     open()
@@ -297,7 +348,8 @@ describe('New consultation', () => {
     const save = await openNew()
     expect(save.getAttribute('type')).toBe('submit')
     fireEvent.click(save)
-    expect(screen.getAllByText('Complete this field.').length).toBeGreaterThanOrEqual(4)
+    // Only the presenting complaint (the encounter type starts as Outpatient); the note's fields are optional.
+    expect(screen.getAllByText('Complete this field.')).toHaveLength(1)
     expect(document.activeElement).toBe(screen.getByLabelText(labelled('Presenting complaint')))
     expect(screen.getByLabelText(labelled('Presenting complaint')).getAttribute('aria-invalid')).toBe('true')
     expect(api.createEncounter).not.toHaveBeenCalled()
@@ -314,6 +366,45 @@ describe('New consultation', () => {
     expect((screen.getByLabelText(labelled('Diagnosis / assessment')) as HTMLInputElement).maxLength).toBe(500)
     expect((screen.getByLabelText(labelled('Diagnosis code system')) as HTMLInputElement).maxLength).toBe(255)
     expect((screen.getByLabelText(labelled('Diagnosis code')) as HTMLInputElement).maxLength).toBe(100)
+  })
+
+  it('item 5: History, Examination and Clinical note are optional: type and complaint alone start the encounter, with no note', async () => {
+    const save = await openNew()
+    for (const label of ['History', 'Examination', 'Clinical note', 'Follow-up']) {
+      const field = screen.getByLabelText(labelled(label))
+      expect(field.hasAttribute('required')).toBe(false)
+      // Labelled without the required " *".
+      expect(screen.getByLabelText(new RegExp(`^${label}$`))).toBe(field)
+    }
+    fireEvent.change(screen.getByLabelText(labelled('Encounter type')), { target: { value: 'virtual' } })
+    fill('Presenting complaint', 'Cough')
+    fireEvent.click(save)
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'e1111111' })).toBeTruthy()
+    expect(api.createEncounter).toHaveBeenCalledTimes(1)
+    expect(api.createEncounter).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID,
+      { encounterType: 'virtual', status: 'in_progress', startedAt: expect.any(String), chiefComplaint: 'Cough' }, expect.any(String))
+    expect(api.createRecord).not.toHaveBeenCalled()
+  })
+
+  it('item 5: writes the draft note once when any one of History, Examination, Clinical note or Follow-up has text', async () => {
+    for (const label of ['History', 'Examination', 'Clinical note', 'Follow-up']) {
+      const view = open('/new')
+      const save = await screen.findByRole('button', { name: 'Save record' })
+      fill('Presenting complaint', 'Cough')
+      fill(label, 'Fictional text.')
+      fireEvent.click(save)
+      expect(await screen.findByRole('heading', { level: 1, name: 'e1111111' })).toBeTruthy()
+      const notes = api.createRecord.mock.calls.filter(call => call[3] === 'clinical-notes')
+      expect(notes).toHaveLength(1)
+      expect(notes[0]!.slice(0, 5)).toEqual([FACILITY_ID, PATIENT_ID, NEW_ID, 'clinical-notes', {
+        noteType: 'Consultation', title: 'Consultation note', status: 'draft', content: `${label}\nFictional text.`,
+      }])
+      expect(api.createEncounter).toHaveBeenCalledTimes(1)
+      view.unmount()
+      api.createRecord.mockClear()
+      api.createEncounter.mockClear()
+    }
   })
 
   it('starts the encounter, writes its draft note and diagnosis, each after the access re-check, then opens it', async () => {

@@ -1,5 +1,6 @@
-import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { HidApiError } from '@hid/http'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ConsultWorkspace } from '../../../ehr-blue/clinical/consult/ConsultWorkspace'
 import { ENCOUNTER_ID, FACILITY_ID, PATIENT_HID, PATIENT_ID, PATIENT_NAME, activePatient, allowedLookup, labelled, renderPage } from './harness'
@@ -106,6 +107,41 @@ function dialog() {
   return screen.getByRole('alertdialog')
 }
 
+/** The open action's submit button (the action's own button toggles its form). */
+function submitOf(name: string) {
+  return actions().getAllByRole('button', { name }).find(button => button.getAttribute('type') === 'submit')!
+}
+
+/** Opens "Sign note" in Available actions and gives today's reason. */
+function openSign(reason = 'Reviewed with the patient') {
+  fireEvent.click(actions().getByRole('button', { name: 'Sign note' }))
+  fireEvent.change(actions().getByLabelText(labelled('Reason for change')), { target: { value: reason } })
+}
+
+/** Today's OCR page stand-in: where it was opened, and what router state it was handed. */
+function OcrPage() {
+  const location = useLocation()
+  return (
+    <div data-testid="ocr-page">
+      <p data-testid="ocr-path">{location.pathname}</p>
+      <p data-testid="ocr-search">{location.search}</p>
+      <p data-testid="ocr-state">{JSON.stringify(location.state)}</p>
+    </div>
+  )
+}
+
+/** The encounter page with today's OCR route beside it. */
+function renderWithOcr() {
+  return render(
+    <MemoryRouter initialEntries={[`/provider/clinical/${ENCOUNTER_ID}`]}>
+      <Routes>
+        <Route path="/provider/clinical/*" element={<ConsultWorkspace />} />
+        <Route path="/provider/ocr" element={<OcrPage />} />
+      </Routes>
+    </MemoryRouter>,
+  )
+}
+
 describe('Consultation record', () => {
   it('shows the design’s record page on today’s encounter, note and diagnosis', async () => {
     await openEncounter()
@@ -119,7 +155,7 @@ describe('Consultation record', () => {
       Note: 'History\nCough for three days.',
     })
     expect(actions().getAllByRole('button').map(button => button.textContent)).toEqual([
-      'Sign encounter', 'Mark note entered in error', 'Put encounter on hold', 'Complete encounter', 'Cancel encounter', 'Mark encounter entered in error',
+      'Sign note', 'Write clinical note', 'Put encounter on hold', 'Complete encounter', 'Cancel encounter', 'Mark encounter entered in error',
     ])
     expect(actions().getByText(`Connected orders for ${ENCOUNTER_ID}`)).toBeTruthy()
     expect(saved.getByRole('button', { name: 'Edit unsigned draft' })).toBeTruthy()
@@ -161,21 +197,41 @@ describe('Consultation record', () => {
     }
   })
 
-  it('offers "Write clinical note" again once the consultation note is entered in error', async () => {
-    records['clinical-notes'] = [{ ...NOTE, status: 'entered_in_error' }]
+  it('item 1: offers "Write clinical note" while the encounter already has a note, with today’s note type, title and content', async () => {
     api.createRecord.mockResolvedValue({ id: 'note-2', patientId: PATIENT_ID, encounterId: ENCOUNTER_ID, createdAt: '2026-10-30T09:00:00.000Z' })
     await openEncounter()
-    expect(actions().queryByRole('button', { name: 'Sign encounter' })).toBeNull()
-    expect(actions().queryByRole('button', { name: 'Mark note entered in error' })).toBeNull()
+    // The draft is there and still offered for signing; a second note can be written beside it.
+    expect(actions().getByRole('button', { name: 'Sign note' })).toBeTruthy()
     fireEvent.click(actions().getByRole('button', { name: 'Write clinical note' }))
-    fireEvent.change(actions().getByLabelText(labelled('Clinical note')), { target: { value: 'History\nCough for three days, correct patient.' } })
+    expect(actions().getByText('Notes are saved as drafts. Signing needs its own reviewed action.')).toBeTruthy()
+    const type = actions().getByLabelText(labelled('Note type')) as HTMLInputElement
+    const title = actions().getByLabelText(labelled('Title')) as HTMLInputElement
+    const content = actions().getByLabelText(labelled('Clinical note')) as HTMLTextAreaElement
+    expect([type.maxLength, type.placeholder, title.maxLength, content.maxLength]).toEqual([80, 'Consultation', 240, 100_000])
+    fireEvent.click(actions().getByRole('button', { name: 'Save draft' }))
+    expect(actions().getAllByText('Complete this field.')).toHaveLength(3)
+    expect(api.createRecord).not.toHaveBeenCalled()
+    fireEvent.change(type, { target: { value: ' Progress ' } })
+    fireEvent.change(title, { target: { value: 'Evening review' } })
+    fireEvent.change(content, { target: { value: 'Fever settling.' } })
     const checks = api.lookupPatient.mock.calls.length
-    fireEvent.click(actions().getAllByRole('button', { name: 'Write clinical note' }).find(button => button.getAttribute('type') === 'submit')!)
+    fireEvent.click(actions().getByRole('button', { name: 'Save draft' }))
     expect(await screen.findByText('Clinical record saved by the backend.')).toBeTruthy()
     expect(api.createRecord).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'clinical-notes', {
-      noteType: 'Consultation', title: 'Consultation note', status: 'draft', content: 'History\nCough for three days, correct patient.',
+      noteType: 'Progress', title: 'Evening review', status: 'draft', content: 'Fever settling.',
     }, expect.any(String))
     expect(api.lookupPatient.mock.calls.length).toBe(checks + 1)
+    // Today's create reads the notes' first page again, fresh.
+    expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'clinical-notes', { cursor: undefined, fresh: true })
+    expect(actions().getByRole('button', { name: 'Write clinical note' })).toBeTruthy()
+  })
+
+  it('item 1: still offers "Write clinical note" once the consultation note is entered in error', async () => {
+    records['clinical-notes'] = [{ ...NOTE, status: 'entered_in_error' }]
+    await openEncounter()
+    expect(actions().queryByRole('button', { name: 'Sign note' })).toBeNull()
+    expect(actions().queryByRole('button', { name: 'Mark note entered in error' })).toBeNull()
+    expect(actions().getByRole('button', { name: 'Write clinical note' })).toBeTruthy()
   })
 
   it('leaves a refuted diagnosis out of the encounter’s Diagnosis, and badges it refuted', async () => {
@@ -209,14 +265,18 @@ describe('Consultation record', () => {
     expect(screen.queryByText('Your current facility role does not grant access to encounter records.')).toBeNull()
   })
 
-  it('signs the encounter’s note only after SIGN is typed, after the access re-check', async () => {
+  it('item 7: signs the consultation note under the clinician’s typed reason, only after SIGN is typed, after the access re-check', async () => {
     await openEncounter()
-    fireEvent.click(actions().getByRole('button', { name: 'Sign encounter' }))
-    const submit = actions().getAllByRole('button', { name: 'Sign encounter' }).find(button => button.getAttribute('type') === 'submit')!
-    fireEvent.click(submit)
-    expect(within(dialog()).getByRole('heading', { name: 'Sign encounter?' })).toBeTruthy()
+    fireEvent.click(actions().getByRole('button', { name: 'Sign note' }))
+    fireEvent.change(actions().getByLabelText(labelled('Reason for change')), { target: { value: 'ok' } })
+    fireEvent.click(submitOf('Sign note'))
+    expect(actions().getByText('Give a reason of at least 3 characters.')).toBeTruthy()
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+    fireEvent.change(actions().getByLabelText(labelled('Reason for change')), { target: { value: 'Reviewed with the patient' } })
+    fireEvent.click(submitOf('Sign note'))
+    expect(within(dialog()).getByRole('heading', { name: 'Sign note?' })).toBeTruthy()
     expect(within(dialog()).getByText('Review the entered details before continuing. This action changes the saved record and is recorded in its history.')).toBeTruthy()
-    const confirm = within(dialog()).getByRole('button', { name: 'Sign encounter' }) as HTMLButtonElement
+    const confirm = within(dialog()).getByRole('button', { name: 'Sign note' }) as HTMLButtonElement
     expect(confirm.disabled).toBe(true)
     fireEvent.change(within(dialog()).getByLabelText('Type SIGN to confirm'), { target: { value: 'sign' } })
     expect(confirm.disabled).toBe(true)
@@ -228,17 +288,17 @@ describe('Consultation record', () => {
 
     expect(await screen.findByText('Clinical note status updated.')).toBeTruthy()
     expect(api.updateRecord).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'clinical-notes', 'note-1',
-      { expectedRowVersion: 2, changeReason: 'Sign encounter', status: 'signed' })
+      { expectedRowVersion: 2, changeReason: 'Reviewed with the patient', status: 'signed' })
     expect(api.lookupPatient.mock.calls.length).toBe(checks + 1)
-    expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'clinical-notes', { fresh: true })
-    await waitFor(() => expect(actions().queryByRole('button', { name: 'Sign encounter' })).toBeNull())
+    expect(api.records).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'clinical-notes', { cursor: undefined, fresh: true })
+    await waitFor(() => expect(actions().queryByRole('button', { name: 'Sign note' })).toBeNull())
     expect(actions().getByRole('button', { name: 'Amend signed note' })).toBeTruthy()
   })
 
   it('keeps the draft when the sign dialog is cancelled, or closed with Escape', async () => {
     await openEncounter()
-    fireEvent.click(actions().getByRole('button', { name: 'Sign encounter' }))
-    const submit = () => actions().getAllByRole('button', { name: 'Sign encounter' }).find(button => button.getAttribute('type') === 'submit')!
+    openSign()
+    const submit = () => submitOf('Sign note')
     fireEvent.click(submit())
     // Focus starts on Cancel, a real button.
     expect(document.activeElement).toBe(within(dialog()).getByRole('button', { name: 'Cancel' }))
@@ -257,7 +317,7 @@ describe('Consultation record', () => {
     api.noteRevisions.mockReturnValue(new Promise(() => {}))
     renderPage(<ConsultWorkspace />, 'consult', `/${ENCOUNTER_ID}`)
     expect(await screen.findByText('Loading note revisions…')).toBeTruthy()
-    expect(actions().queryByRole('button', { name: 'Sign encounter' })).toBeNull()
+    expect(actions().queryByRole('button', { name: 'Sign note' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Edit unsigned draft' })).toBeNull()
   })
 
@@ -265,29 +325,35 @@ describe('Consultation record', () => {
     api.noteRevisions.mockRejectedValue(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' }))
     renderPage(<ConsultWorkspace />, 'consult', `/${ENCOUNTER_ID}`)
     expect((await screen.findByRole('alert')).textContent).toBe('EHR is unavailable.')
-    expect(actions().queryByRole('button', { name: 'Sign encounter' })).toBeNull()
+    expect(actions().queryByRole('button', { name: 'Sign note' })).toBeNull()
   })
 
   it('shows a stale sign in the form, as today', async () => {
     api.updateRecord.mockRejectedValueOnce(STALE)
     await openEncounter()
-    fireEvent.click(actions().getByRole('button', { name: 'Sign encounter' }))
-    fireEvent.click(actions().getAllByRole('button', { name: 'Sign encounter' }).find(button => button.getAttribute('type') === 'submit')!)
+    openSign()
+    fireEvent.click(submitOf('Sign note'))
     fireEvent.change(within(dialog()).getByLabelText('Type SIGN to confirm'), { target: { value: 'SIGN' } })
-    fireEvent.click(within(dialog()).getByRole('button', { name: 'Sign encounter' }))
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Sign note' }))
     expect((await actions().findByRole('alert')).textContent).toBe('The record changed since it was read.')
   })
 
-  it('edits the unsigned draft as a new revision, prefilled with its content', async () => {
+  it('item 7: edits the unsigned draft as a new revision under the clinician’s typed reason, prefilled with its content', async () => {
     await openEncounter()
     fireEvent.click(screen.getByRole('button', { name: 'Edit unsigned draft' }))
-    const content = within(card('Saved record')).getByLabelText(labelled('Clinical note')) as HTMLTextAreaElement
+    const saved = within(card('Saved record'))
+    const content = saved.getByLabelText(labelled('Clinical note')) as HTMLTextAreaElement
     expect(content.value).toBe('History\nCough for three days.')
     fireEvent.change(content, { target: { value: 'History\nCough for four days.' } })
+    fireEvent.change(saved.getByLabelText(labelled('Reason for revision')), { target: { value: 'ok' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save draft changes' }))
+    expect(saved.getByText('Give a reason of at least 3 characters.')).toBeTruthy()
+    expect(api.addNoteRevision).not.toHaveBeenCalled()
+    fireEvent.change(saved.getByLabelText(labelled('Reason for revision')), { target: { value: 'Duration corrected' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save draft changes' }))
     expect(await screen.findByText('A new note revision was recorded.')).toBeTruthy()
     expect(api.addNoteRevision).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'note-1',
-      { expectedRowVersion: 2, changeReason: 'Draft edited', content: 'History\nCough for four days.' }, expect.any(String))
+      { expectedRowVersion: 2, changeReason: 'Duration corrected', content: 'History\nCough for four days.' }, expect.any(String))
     expect(screen.getByRole('button', { name: 'Edit unsigned draft' }).getAttribute('aria-expanded')).toBe('false')
   })
 
@@ -395,11 +461,11 @@ describe('Consultation record', () => {
 
   it('closes the patient when the re-check before a change is refused (403), and changes nothing', async () => {
     await openEncounter()
-    fireEvent.click(actions().getByRole('button', { name: 'Sign encounter' }))
-    fireEvent.click(actions().getAllByRole('button', { name: 'Sign encounter' }).find(button => button.getAttribute('type') === 'submit')!)
+    openSign()
+    fireEvent.click(submitOf('Sign note'))
     fireEvent.change(within(dialog()).getByLabelText('Type SIGN to confirm'), { target: { value: 'SIGN' } })
     api.lookupPatient.mockRejectedValue(new HidApiError(403, 'Forbidden', { code: 'CONSENT_REQUIRED' }))
-    fireEvent.click(within(dialog()).getByRole('button', { name: 'Sign encounter' }))
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Sign note' }))
     expect(await screen.findByText('Access to this patient ended')).toBeTruthy()
     expect(screen.getByText(ENDED)).toBeTruthy()
     expect(staff.setActivePatient).toHaveBeenCalledWith(null)
@@ -522,6 +588,40 @@ describe('Consultation record: documents', () => {
     api.documents.mockResolvedValue({ items: [], nextCursor: null })
     await openEncounter()
     expect(within(card('Documents')).getByText('No documents for this encounter.')).toBeTruthy()
+  })
+
+  it('item 3: links a clean document to today’s OCR page with the ids in router state only, as today', async () => {
+    staff.permissions = [...ALL, 'ocr.job.read']
+    renderWithOcr()
+    expect(await screen.findByRole('heading', { level: 1, name: 'e0000000' })).toBeTruthy()
+    const link = await within(card('Documents')).findByRole('link', { name: 'Extract with OCR' })
+    // The address names no record, patient or facility: today's route, and the ids in router state.
+    expect(link.getAttribute('href')).toBe('/provider/ocr')
+    for (const id of ['doc-1', PATIENT_ID, PATIENT_HID, FACILITY_ID, 'staff-1']) expect(link.getAttribute('href')).not.toContain(id)
+    fireEvent.click(link)
+    expect(await screen.findByTestId('ocr-page')).toBeTruthy()
+    expect(screen.getByTestId('ocr-path').textContent).toBe('/provider/ocr')
+    expect(screen.getByTestId('ocr-search').textContent).toBe('')
+    expect(JSON.parse(screen.getByTestId('ocr-state').textContent ?? 'null')).toEqual({
+      ocrDocumentId: 'doc-1', ocrPatientId: PATIENT_ID, actorId: 'staff-1', facilityId: FACILITY_ID,
+    })
+  })
+
+  it('item 3: offers no OCR link without ocr.job.read, nor for a document whose scan is not clean', async () => {
+    api.documents.mockResolvedValue({ items: [DOCUMENT, { ...DOCUMENT, id: 'doc-2', fileName: 'lab-scan.pdf', scanStatus: 'pending' }], nextCursor: null })
+    await openEncounter()
+    expect(within(card('Documents')).getByText('referral-letter.pdf')).toBeTruthy()
+    expect(within(card('Documents')).queryByRole('link', { name: 'Extract with OCR' })).toBeNull()
+  })
+
+  it('item 3: links only the clean document when the role may read OCR jobs', async () => {
+    staff.permissions = [...ALL, 'ocr.job.read']
+    api.documents.mockResolvedValue({ items: [DOCUMENT, { ...DOCUMENT, id: 'doc-2', fileName: 'lab-scan.pdf', scanStatus: 'pending' }], nextCursor: null })
+    await openEncounter()
+    const documents = within(card('Documents'))
+    expect(documents.getAllByRole('link', { name: 'Extract with OCR' })).toHaveLength(1)
+    expect(within(documents.getByText('lab-scan.pdf').closest('li') as HTMLElement).queryByRole('link', { name: 'Extract with OCR' })).toBeNull()
+    expect(within(documents.getByText('referral-letter.pdf').closest('li') as HTMLElement).getByRole('link', { name: 'Extract with OCR' })).toBeTruthy()
   })
 
   it('shows a refused document list as an alert', async () => {

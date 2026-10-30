@@ -4,7 +4,7 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { staffApi, type AccessRequest } from '../../../staff/api'
 import { outcome } from '../../../staff/routes/AccessRequests'
 import { ACCESS_ENDED } from '../parts/chart'
-import { ActionList, ConfirmAction, DetailGrid, DetailMeta, SavedRecord, Step, SubHeading } from '../parts/Detail'
+import { ActionList, DetailGrid, DetailMeta, SavedRecord, Step, SubHeading } from '../parts/Detail'
 import { Banner, ErrorBox, Loading, NoActions, RecordHeading, RecordNotFound } from '../parts/Notices'
 import { useClinical, useWorkspaceHref } from '../parts/Workspace'
 import { ACCESS_CLOSED, CLOSE_GRANT, CLOSE_REASON, METHOD_ROUTES, actionUnavailable, administratorOf } from './access'
@@ -28,7 +28,10 @@ function StateBanner({ request }: { request: AccessRequest }) {
   return <Banner tone="warning" title={label} />
 }
 
-/** One access request: the design's record page, with Close access for an active grant. */
+/**
+ * One access request: the design's record page, with Close access for an active grant. Close access closes at once,
+ * as today's Access requests does (and Patients and Emergency here): nothing stands between a clinician and ending access.
+ */
 export function RequestDetail() {
   const { recordId = '' } = useParams()
   const href = useWorkspaceHref()
@@ -42,8 +45,10 @@ export function RequestDetail() {
   })
   const [failure, setFailure] = useState('')
   const [ended, setEnded] = useState(false)
-  const [confirming, setConfirming] = useState(false)
+  const [closing, setClosing] = useState(false)
   const [settled, setSettled] = useState(0)
+  // A close already on its way is not sent again by a second press.
+  const sending = useRef(false)
   const status = useRef<HTMLDivElement>(null)
   const administrator = administratorOf(facility, permissions)
   const closeUnavailable = actionUnavailable(CLOSE_GRANT, permissions, administrator)
@@ -59,8 +64,10 @@ export function RequestDetail() {
   const request = list.requests?.find(item => item.accessRequestId === recordId)
 
   async function close() {
-    if (!facility || !request?.consentGrantId || closeUnavailable) return
+    if (!facility || !request?.consentGrantId || closeUnavailable || sending.current) return
     const grantId = request.consentGrantId
+    sending.current = true
+    setClosing(true)
     setFailure('')
     setNotice('')
     let refused = ''
@@ -76,8 +83,12 @@ export function RequestDetail() {
       refused = closeError(caught)
     }
     // Read again either way, then say what happened.
-    await list.load()
-    setConfirming(false)
+    try {
+      await list.load()
+    } finally {
+      sending.current = false
+      setClosing(false)
+    }
     if (refused) setFailure(refused)
     else { setNotice(ACCESS_CLOSED); setEnded(endedOpen) }
     setSettled(value => value + 1)
@@ -130,7 +141,8 @@ export function RequestDetail() {
                   variant="secondary"
                   disabled={closeUnavailable !== null}
                   aria-describedby={closeUnavailable ? 'close-access-unavailable' : undefined}
-                  onClick={() => setConfirming(true)}
+                  busy={closing}
+                  onClick={close}
                 >
                   Close access
                 </EhrButton>
@@ -147,7 +159,6 @@ export function RequestDetail() {
           ) : null}
         </EhrCard>
       </DetailGrid>
-      <ConfirmAction open={confirming} label="Close access" onConfirm={close} onCancel={() => setConfirming(false)} />
     </>
   )
 }

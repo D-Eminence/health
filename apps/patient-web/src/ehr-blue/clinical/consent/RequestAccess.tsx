@@ -1,6 +1,6 @@
-import { normalizeHealthIdInput } from '@hid/contracts'
+import { HEALTH_ID_PREFIX, normalizeHealthIdInput } from '@hid/contracts'
 import { EhrCard } from '@hid/ui/ehr'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { staffApi } from '../../../staff/api'
 import { failureText } from '../parts/chart'
@@ -16,6 +16,7 @@ export const DEFAULT_MINUTES = '60'
 export const DURATION_PROBLEM = 'Access duration must be 1–60 minutes.'
 export const REASON_PROBLEM = 'Enter a clinical reason of at least 8 characters.'
 
+/** The Health ID comes first: it is the form's first input. */
 const FIELDS: readonly FieldDef[] = [
   { key: 'hid', label: 'Health ID', required: true, hint: HID_FORMAT, autoComplete: 'off', full: true },
   { key: 'reason', label: 'Purpose of access', required: true, maxLength: 500 },
@@ -31,7 +32,11 @@ function text(values: FormValues, key: string): string {
   return typeof value === 'string' ? value : ''
 }
 
-/** Today's checks for an access request, in today's words; the design's 1 to 60 minutes for the duration. */
+/**
+ * Today's checks for an access request, in today's words; the design's 1 to 60 minutes for the duration. A Health ID
+ * of HID- alone (the field's start) is empty: "Enter the patient’s Health ID.", in place of the form's own "Complete
+ * this field.".
+ */
 export function requestProblems(values: FormValues): FieldErrors {
   const errors: Record<string, string> = {}
   const hidProblem = healthIdProblem(normalizeHealthIdInput(text(values, 'hid')))
@@ -50,10 +55,22 @@ export function RequestAccess() {
   const { facility, permissions, setActivePatient } = useClinical()
   const href = useWorkspaceHref()
   const navigate = useNavigate()
-  // A Health ID handed over from Patients, read once.
-  const [hid] = useState(() => offeredHealthId(facility?.id, setActivePatient))
+  // A Health ID handed over from Patients, read once; otherwise the field starts at HID-, as today's does.
+  const [hid] = useState(() => offeredHealthId(facility?.id, setActivePatient) || HEALTH_ID_PREFIX)
   useEffect(() => { dropOfferedHealthId() }, [])
+  const form = useRef<HTMLDivElement>(null)
   const unavailable = actionUnavailable(METHOD_ROUTES.request, permissions, administratorOf(facility, permissions))
+
+  /**
+   * Today's Health ID field is normalized as it changes (capitals, no spaces, the prefix once; emptied, it holds HID-
+   * again). The form keeps its own values, so the Health ID is normalized here, on its way to the form's handler.
+   */
+  function normalizeHealthId(event: FormEvent<HTMLDivElement>) {
+    const control = event.target
+    if (control instanceof HTMLInputElement && control === form.current?.querySelector('input')) {
+      control.value = normalizeHealthIdInput(control.value)
+    }
+  }
 
   async function send(values: FormValues) {
     if (!facility || unavailable) return
@@ -74,17 +91,19 @@ export function RequestAccess() {
       <RecordHeading title="New external record access" backHref={href()} />
       <EhrCard>
         <p>Ask the patient to approve access. A pending request does not expose their record.</p>
-        <RecordForm
-          fields={FIELDS}
-          initial={{ hid, scope: 'read_records', duration: DEFAULT_MINUTES }}
-          submitLabel="Send access request"
-          busyLabel="Working…"
-          validate={requestProblems}
-          disabled={!facility || unavailable !== null}
-          onSubmit={send}
-        >
-          {unavailable ? <p className="hid-ehr-clinical-note">{unavailable}</p> : null}
-        </RecordForm>
+        <div ref={form} onChangeCapture={normalizeHealthId}>
+          <RecordForm
+            fields={FIELDS}
+            initial={{ hid, scope: 'read_records', duration: DEFAULT_MINUTES }}
+            submitLabel="Send access request"
+            busyLabel="Working…"
+            validate={requestProblems}
+            disabled={!facility || unavailable !== null}
+            onSubmit={send}
+          >
+            {unavailable ? <p className="hid-ehr-clinical-note">{unavailable}</p> : null}
+          </RecordForm>
+        </div>
       </EhrCard>
     </>
   )
