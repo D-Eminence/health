@@ -65,6 +65,8 @@ export interface PharmacyRecordProps {
   readonly holds: boolean
   readonly crossFacilityWork?: boolean
   readonly onChanged: () => Promise<void>
+  /** Whether a dispensing or reversal is being sent: the page holds Back to list meanwhile, so its outcome is said here. */
+  readonly onBusy: (busy: boolean) => void
   readonly onEnded: (ending: WrongPatientEnding) => void
   readonly onNotCompleted: (ending: Omit<CannotCompleteEnding, 'key'>) => void
   readonly onReread: (routeId: string, mode: OrderEndingMode, said?: string) => Promise<void>
@@ -76,7 +78,7 @@ export interface PharmacyRecordProps {
  * are today's PharmacyAction (staff/routes/Operations.tsx), ported line for line; the look and words are the design's.
  */
 export function PharmacyRecord({ facilityId, item, permissions, undispensable, onUndispensable, said, holds, crossFacilityWork,
-  onChanged, onEnded, onNotCompleted, onReread }: PharmacyRecordProps) {
+  onChanged, onBusy, onEnded, onNotCompleted, onReread }: PharmacyRecordProps) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
@@ -101,6 +103,7 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
       return problems.refuse(!Number.isFinite(quantity) || quantity <= 0 ? `pharmacy-quantity-${item.id}` : `pharmacy-unit-${item.id}`, 'Enter a positive quantity and unit.')
     }
     setBusy(true)
+    onBusy(true)
     try {
       if (reverse) {
         if (!item.dispensing) throw new Error('No dispensing is available to reverse.')
@@ -111,7 +114,9 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
         await staffApi.dispense(facilityId, item, quantity, unit, reason)
         setSuccess('Dispensing recorded.')
       }
+      // The form goes now, so focus goes to the title in the same update, not once the list is read again.
       setOpened(null)
+      focus(title, true)
       await onChanged()
       focus(title, true)
     } catch (caught) {
@@ -122,7 +127,7 @@ export function PharmacyRecord({ facilityId, item, permissions, undispensable, o
         focus(title, true)
       } else setError(errorText(caught, ACTION_FAILED))
     }
-    finally { setBusy(false) }
+    finally { setBusy(false); onBusy(false) }
   }
 
   // On work from another facility the services refuse a write once its order is closed (item 3, B3): the action goes.

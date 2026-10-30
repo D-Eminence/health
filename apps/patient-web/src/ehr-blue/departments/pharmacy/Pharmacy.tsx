@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useState } from 'react'
 import { EhrBadge, EhrButton, EhrDataTable, EhrDrawer, EhrEmptyState, EhrSkeleton, type EhrDataTableColumn } from '@hid/ui/ehr'
 import { staffApi, type PharmacyWorkItem } from '../../../staff/api'
 import { useFocusById } from '../../../staff/focus'
@@ -64,6 +64,8 @@ export function Pharmacy() {
   const [quick, setQuick] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(0)
+  // A dispensing or reversal being sent from the open record: Back to list waits for its outcome.
+  const [recording, setRecording] = useState(false)
   const focus = useFocusById()
 
   // The rows shown: an order this pharmacy couldn't complete and later withdrew as the wrong person is no longer shown.
@@ -72,7 +74,8 @@ export function Pharmacy() {
   // never shown again, even once other work is listed.
   const selected = opened && opened.facilityId === facilityId ? visible?.find(item => item.id === opened.id) ?? null : null
   const gone = Boolean(opened && (opened.facilityId !== facilityId || (visible !== null && !selected)))
-  useEffect(() => {
+  // In the commit that removes the record, so focus is never left on the page meanwhile.
+  useLayoutEffect(() => {
     if (!gone) return
     setOpened(null)
     focus(HEADING, true)
@@ -99,6 +102,8 @@ export function Pharmacy() {
     focus(`pharmacy-${item.id}-title`)
   }
   function back() {
+    // Focusable while a request runs, but a press does nothing: the record must stay to say how it ended.
+    if (recording) return
     const id = selected?.id
     setOpened(null)
     focus(id ? [`pharmacy-${id}-name`, HEADING] : HEADING)
@@ -160,7 +165,8 @@ export function Pharmacy() {
   return (
     <DeptPage title={selected ? <span id={`pharmacy-${selected.id}-title`} tabIndex={-1}>{selected.medication.display}</span>
       : <span id={HEADING} tabIndex={-1}>Pharmacy</span>}
-      onBack={selected ? back : undefined} secondaryActions={refresh}>
+      primaryAction={selected ? <EhrButton variant="secondary" aria-disabled={recording || undefined} onClick={back}>Back to list</EhrButton>
+        : undefined} secondaryActions={refresh}>
       {read.error && <div className="hid-ehr-dept-pharmacy-error hid-ehr-dept-pharmacy-page-error" role="alert">{read.error}</div>}
       <SaidAboveTheList service="pharmacy" said={ended} facilityId={here} onClose={() => setEnded(null)} />
       {notCompleted.endings.length > 0 && <DeptEmbedded><CannotCompleteEndings service="pharmacy" endings={notCompleted.endings}
@@ -208,7 +214,7 @@ export function Pharmacy() {
         onUndispensable={() => setUndispensable(current => ({ facilityId: here,
           ids: new Set(current.facilityId === here ? current.ids : []).add(selected.id) }))}
         said={said.rowSaid(selected.orderRoute?.id)} holds={holds} crossFacilityWork={read.value?.crossFacilityWork}
-        onChanged={read.refresh} onEnded={endedHere} onNotCompleted={notCompletedHere} onReread={said.reread} />}
+        onChanged={read.refresh} onBusy={setRecording} onEnded={endedHere} onNotCompleted={notCompletedHere} onReread={said.reread} />}
     </DeptPage>
   )
 }
