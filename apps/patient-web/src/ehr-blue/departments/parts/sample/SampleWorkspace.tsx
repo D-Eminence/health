@@ -24,7 +24,9 @@ export function SampleWorkspace({ definition }: { readonly definition: SampleDef
   const [records, setRecords] = useState<readonly SampleRecord[]>(definition.records)
   const [view, setView] = useState<View>({ kind: 'list' })
   const [search, setSearch] = useState('')
-  const [announcement, setAnnouncement] = useState('')
+  // Each result is a new node in the live region, so the same words said twice are announced twice.
+  const [announcement, setAnnouncementState] = useState({ text: '', count: 0 })
+  const setAnnouncement = (text: string) => setAnnouncementState(old => ({ text, count: old.count + 1 }))
   const requestFocus = useSampleFocus(rootRef)
   const { href, follow } = useSiblingPages()
 
@@ -62,7 +64,9 @@ export function SampleWorkspace({ definition }: { readonly definition: SampleDef
     </>
   )
 
-  const create = (patientId: string | undefined, values: SampleValues) => {
+  const create = (patientId: string | undefined, values: SampleValues): string | undefined => {
+    const refused = definition.validate?.(givenValues(values), records)
+    if (refused) return refused
     // Records are only ever added, so the count names each new one once.
     const sequence = records.length + 1
     const extra = definition.created?.(values, sequence)
@@ -79,12 +83,14 @@ export function SampleWorkspace({ definition }: { readonly definition: SampleDef
     setView({ kind: 'record', id: record.id })
     setAnnouncement(`Record created: ${recordName(record)}.`)
     requestFocus()
+    return undefined
   }
 
   const act = (record: SampleRecord, action: SampleAction, values: SampleValues): string | undefined => {
     const given = givenValues(values)
     const at = new Date().toISOString()
-    const applied = definition.apply?.({ record, action, values: given, at }) ?? {}
+    const others = records.filter(row => row.id !== record.id)
+    const applied = definition.apply?.({ record, records: others, action, values: given, at }) ?? {}
     if ('error' in applied) return applied.error
     const status = applied.status ?? action.to
     const next: SampleRecord = {
@@ -101,8 +107,10 @@ export function SampleWorkspace({ definition }: { readonly definition: SampleDef
     return undefined
   }
 
-  const edit = (record: SampleRecord, values: SampleValues) => {
+  const edit = (record: SampleRecord, values: SampleValues): string | undefined => {
     const given = givenValues(values)
+    const refused = definition.validate?.({ ...record.values, ...given }, records.filter(row => row.id !== record.id))
+    if (refused) return refused
     const at = new Date().toISOString()
     const extra = definition.edited?.(record, given)
     const next: SampleRecord = {
@@ -114,6 +122,7 @@ export function SampleWorkspace({ definition }: { readonly definition: SampleDef
     setRecords(old => old.map(row => row.id === record.id ? next : row))
     setAnnouncement('Record changes saved.')
     requestFocus(savedHeadingId)
+    return undefined
   }
 
   const exportRows = (rows: readonly SampleRecord[]) => {
@@ -132,10 +141,12 @@ export function SampleWorkspace({ definition }: { readonly definition: SampleDef
           onAct={act} onEdit={edit} focus={requestFocus} savedHeadingId={savedHeadingId} />
       ) : (
         <SampleList definition={definition} records={records} search={search} onSearch={setSearch} above={above}
+          // "Clear search" goes as it is pressed: focus goes to the search field it cleared.
+          onClearSearch={() => { setSearch(''); requestFocus({ selector: 'input[type="search"]' }) }}
           onCreate={() => { setView({ kind: 'new' }); setAnnouncement(''); requestFocus() }} onExport={exportRows} onOpen={open}
           nameId={nameId} createId={createId} />
       )}
-      <p className="hid-ehr-sr-only" role="status">{announcement}</p>
+      <p className="hid-ehr-sr-only" role="status">{announcement.text ? <span key={announcement.count}>{announcement.text}</span> : null}</p>
     </div>
   )
 }

@@ -19,9 +19,10 @@ export function useSiblingPages() {
   return { href, follow }
 }
 
-/** Where focus goes after a change of view: an element by id, else the view's heading. */
+/** Where focus goes after a change of view: an element by id or a selector within the page, else the view's heading. */
 export interface SampleFocusRequest {
   readonly id?: string
+  readonly selector?: string
 }
 
 /**
@@ -33,11 +34,13 @@ export function useSampleFocus(root: RefObject<HTMLElement | null>) {
   useLayoutEffect(() => {
     if (!request) return
     setRequest(null)
-    const asked = request.id ? document.getElementById(request.id) : null
+    const asked = request.id ? document.getElementById(request.id)
+      : request.selector ? root.current?.querySelector<HTMLElement>(request.selector) ?? null : null
     const heading = root.current?.querySelector<HTMLElement>('h1') ?? null
     if (!asked && heading && !heading.hasAttribute('tabindex')) heading.setAttribute('tabindex', '-1')
     const target = asked ?? heading
     target?.focus()
   }, [request, root])
-  return useCallback((id?: string) => setRequest({ id }), [])
+  return useCallback((target?: string | { readonly selector: string }) =>
+    setRequest(typeof target === 'object' ? { selector: target.selector } : { id: target }), [])
 }

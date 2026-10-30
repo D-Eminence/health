@@ -1,7 +1,7 @@
 import { EhrButton } from '@hid/ui/ehr'
 import { DeptFacts } from '../parts/DeptRecord'
 import {
-  downloadFile, patientLine, recordName, recordOptions, samplePatient, type SampleConnection, type SampleDefinition, type SampleRecord,
+  above, AMOUNT_TEXT, downloadFile, patientLine, QUANTITY_TEXT, recordName, recordOptions, samplePatient, type SampleApplied, type SampleConnection, type SampleDefinition, type SampleRecord,
   type SampleTabs, type SampleValues,
 } from '../parts/sample/model'
 import { SAMPLE_SERVICES } from './admin'
@@ -131,6 +131,12 @@ export const billingSample: SampleDefinition = {
     { key: 'source', label: 'Unique charge reference (order / service ID)' },
   ],
   defaults: { quantity: '1' },
+  validate: (values, records) => {
+    if (above(values.quantity) === undefined) return QUANTITY_TEXT
+    // One charge for one service event: an invoice that was voided frees its reference.
+    if (records.some(record => record.values.source === values.source && record.status !== 'void')) return 'This service event has already been charged.'
+    return undefined
+  },
   created: (values, sequence) => {
     const unit = unitCents(values.service)
     return {
@@ -159,13 +165,16 @@ export const billingSample: SampleDefinition = {
     },
     { id: 'void', label: 'Void invoice', from: ['draft', 'issued'], to: 'void', fields: [reason] },
   ],
-  apply: ({ record, action, values }) => {
+  apply: ({ record, records, action, values }) => {
     const { paid, due } = balance(record)
     if (action.id === 'void' && paid > 0) return { error: 'Refund collected payments before voiding.' }
     if (action.id !== 'pay' && action.id !== 'refund') return {}
     const amount = cents(values.amount)
-    if (amount === undefined) return { error: 'Amount must be greater than zero.' }
+    if (amount === undefined) return { error: AMOUNT_TEXT }
     if (action.id === 'pay' && amount > due) return { error: 'Payment exceeds outstanding balance.' }
+    if (action.id === 'pay' && [record, ...records].some(row => row.values.reference === values.reference)) {
+      return { error: 'Transaction reference already recorded.' }
+    }
     if (action.id === 'refund' && amount > paid) return { error: 'Refund exceeds refundable balance.' }
     const nowPaid = action.id === 'pay' ? paid + amount : paid - amount
     const nowDue = Number(record.values.totalCents ?? 0) - nowPaid
@@ -221,6 +230,18 @@ export const insuranceSample: SampleDefinition = {
       fields: [{ key: 'amount', label: 'Received amount', type: 'number' }, { key: 'reference', label: 'Unique settlement reference' }],
     },
   ],
+  apply: ({ record, records, action, values }): SampleApplied => {
+    if (action.id !== 'approve' && action.id !== 'settle') return {}
+    const amount = cents(action.id === 'approve' ? values.approvedAmount : values.amount)
+    if (amount === undefined) return { error: AMOUNT_TEXT }
+    const invoice = INVOICES.find(row => row.values.number === record.values.invoice)
+    if (action.id === 'approve') return invoice && amount > balance(invoice).total ? { error: 'Approval exceeds invoice total.' } : {}
+    if (amount > (cents(record.values.approvedAmount) ?? 0) || (invoice !== undefined && amount > balance(invoice).due)) {
+      return { error: 'Settlement exceeds approval or outstanding invoice balance.' }
+    }
+    if (records.some(row => row.values.reference === values.reference)) return { error: 'Settlement reference already recorded.' }
+    return {}
+  },
   connected: connectedTo('insurance'),
   records: CLAIMS,
 }

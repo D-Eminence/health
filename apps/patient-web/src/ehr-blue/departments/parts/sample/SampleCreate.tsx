@@ -8,7 +8,8 @@ export interface SampleCreateProps {
   readonly definition: SampleDefinition
   readonly above: ReactNode
   readonly onBack: () => void
-  readonly onCreate: (patientId: string | undefined, values: SampleValues) => void
+  /** Creates the record; a refusal in plain words keeps the form open with it. */
+  readonly onCreate: (patientId: string | undefined, values: SampleValues) => string | undefined
 }
 
 /**
@@ -31,7 +32,7 @@ export function SampleCreate({ definition, above, onBack, onCreate }: SampleCrea
         ) : null}
         {ready ? (
           <SampleForm key={patientId} fields={definition.fields} initial={definition.defaults} context={{ patientId: patientId || undefined }}
-            submitLabel="Save record" onSubmit={values => { onCreate(patientId || undefined, values); return undefined }} />
+            submitLabel="Save record" onSubmit={values => onCreate(patientId || undefined, values)} />
         ) : null}
       </DeptSection>
     </DeptPage>

@@ -11,6 +11,7 @@ export interface SampleListProps {
   readonly records: readonly SampleRecord[]
   readonly search: string
   readonly onSearch: (value: string) => void
+  readonly onClearSearch: () => void
   readonly above: ReactNode
   readonly onCreate: () => void
   readonly onExport: (records: readonly SampleRecord[]) => void
@@ -25,7 +26,7 @@ export interface SampleListProps {
  * the page; each row's name (and the start of its id), its patient or the record itself, its status, when it last
  * changed, and "Quick view" (a drawer with its values) and "Open".
  */
-export function SampleList({ definition, records, search, onSearch, above, onCreate, onExport, onOpen, nameId, createId }: SampleListProps) {
+export function SampleList({ definition, records, search, onSearch, onClearSearch, above, onCreate, onExport, onOpen, nameId, createId }: SampleListProps) {
   const [quickId, setQuickId] = useState<string | null>(null)
   const openerRef = useRef<HTMLElement | null>(null)
   const filtered = records.filter(record => matchesSampleSearch(record, search))
@@ -69,7 +70,7 @@ export function SampleList({ definition, records, search, onSearch, above, onCre
         ) : null}
       </EhrDrawer>
       <DeptSearch label={`Search ${definition.title}`} value={search} onChange={onSearch}>
-        {search ? <EhrButton variant="secondary" className="hid-ehr-dept-sample-clear" onClick={() => onSearch('')}>Clear search</EhrButton> : null}
+        {search ? <EhrButton variant="secondary" className="hid-ehr-dept-sample-clear" onClick={onClearSearch}>Clear search</EhrButton> : null}
         <EhrDataTable caption={`${definition.title} records`} captionHidden columns={columns} rows={filtered} rowKey={record => record.id}
           emptyTitle="No matching records"
           emptyMessage={records.length ? 'Change your search.' : 'Create the first record when you have the appropriate permission.'} />

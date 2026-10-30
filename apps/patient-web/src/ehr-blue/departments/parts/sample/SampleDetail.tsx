@@ -16,8 +16,8 @@ export interface SampleDetailProps {
   readonly onBack: () => void
   /** Records the action; a refusal in plain words keeps its form open with it. */
   readonly onAct: (record: SampleRecord, action: SampleAction, values: SampleValues) => string | undefined
-  /** Saves the edited fields, keeping the version before. */
-  readonly onEdit: (record: SampleRecord, values: SampleValues) => void
+  /** Saves the edited fields, keeping the version before; a refusal in plain words keeps the form open with it. */
+  readonly onEdit: (record: SampleRecord, values: SampleValues) => string | undefined
   /** Moves focus to an element by id, in the commit that shows it. */
   readonly focus: (id: string) => void
   /** The id of the "Saved record" heading, where focus goes after an action. */
@@ -95,7 +95,11 @@ export function SampleDetail({ definition, record, above, onBack, onAct, onEdit,
             {editable && editing ? (
               <SampleForm key={`${record.id}-edit-${record.updatedAt}`} id={editFormId} className="hid-ehr-dept-action-form" focusFirst
                 fields={definition.fields} initial={record.values} context={{ patientId: record.patientId, record }} submitLabel="Save changes"
-                onSubmit={values => { setEditing(false); onEdit(record, values); return undefined }} />
+                onSubmit={values => {
+                  const refused = onEdit(record, values)
+                  if (refused === undefined) setEditing(false)
+                  return refused
+                }} />
             ) : null}
             <DeptFacts facts={valueFacts(record.values)} />
             {definition.savedExtra?.(record)}

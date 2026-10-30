@@ -87,6 +87,8 @@ export interface SampleConnection {
 
 export interface SampleApplyContext {
   readonly record: SampleRecord
+  /** The page's other records (a vehicle already out, a reference already used). */
+  readonly records: readonly SampleRecord[]
   readonly action: SampleAction
   readonly values: SampleValues
   readonly at: string
@@ -121,6 +123,11 @@ export interface SampleDefinition {
   readonly tabs?: SampleTabs
   /** Values worked out when a record is created, after the form's (an invoice's number and totals). */
   readonly created?: (values: SampleValues, sequence: number) => { readonly values?: SampleValues; readonly state?: SampleState }
+  /**
+   * A record's own rule on create and edit, against the page's other records: a refusal in the design's words (a
+   * quantity of zero, a charge already made, an overlapping shift).
+   */
+  readonly validate?: (values: SampleValues, records: readonly SampleRecord[]) => string | undefined
   /** Values worked out again when a record is edited (an invoice's totals). */
   readonly edited?: (record: SampleRecord, values: SampleValues) => { readonly values?: SampleValues }
   /** An action's own rule (a payment over the balance, negative stock). */
@@ -261,6 +268,18 @@ export function downloadFile(name: string, type: string, text: string) {
  */
 export function recordOptions(records: readonly SampleRecord[]): readonly SampleOption[] {
   return records.map(record => ({ value: recordName(record), label: `${recordName(record)} · ${record.status} · ${record.id.slice(0, 6)}` }))
+}
+
+/** The design's refusal for a quantity of zero or less. */
+export const QUANTITY_TEXT = 'Quantity must be greater than zero.'
+
+/** The design's refusal for an amount of zero or less. */
+export const AMOUNT_TEXT = 'Amount must be greater than zero.'
+
+/** A number above zero, or undefined. */
+export function above(value: string | undefined) {
+  const number = Number(value)
+  return Number.isFinite(number) && number > 0 ? number : undefined
 }
 
 /** A whole number above zero, or undefined. */

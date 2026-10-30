@@ -32,6 +32,7 @@ export const servicesSample: SampleDefinition = {
     { key: 'name', label: 'Service name' },
     { key: 'price', label: 'Price', type: 'number' },
   ],
+  validate: values => Number(values.price) < 0 ? 'Service price cannot be negative.' : undefined,
   actions: [],
   records: SERVICE_ROWS,
 }
@@ -92,6 +93,14 @@ export const shiftsSample: SampleDefinition = {
     { key: 'ends', label: 'Shift end', type: 'datetime-local' },
     { key: 'department', label: 'Department', options: DEPARTMENTS },
   ],
+  validate: (values, records) => {
+    const starts = Date.parse(values.starts ?? '')
+    const ends = Date.parse(values.ends ?? '')
+    if (!(ends > starts)) return 'Shift end must follow its start.'
+    const overlaps = records.some(record => record.values.staff === values.staff
+      && Date.parse(record.values.starts ?? '') < ends && Date.parse(record.values.ends ?? '') > starts)
+    return overlaps ? 'Staff roster conflict.' : undefined
+  },
   actions: [
     { id: 'clockin', label: 'Simulated clock-in', from: ['assigned'], to: 'on-duty' },
     { id: 'clockout', label: 'Simulated clock-out', from: ['on-duty'], to: 'completed', fields: [{ key: 'handover', label: 'Handover notes', type: 'textarea' }] },
@@ -142,6 +151,13 @@ export const ambulanceSample: SampleDefinition = {
     { id: 'complete', label: 'Complete dispatch', from: ['dispatched'], to: 'completed', fields: [{ key: 'handover', label: 'Handover details' }] },
     { id: 'cancel', label: 'Cancel dispatch', from: ['requested', 'dispatched'], to: 'cancelled', fields: [reason] },
   ],
+  // A vehicle goes out only when it is available and not already out on another dispatch.
+  apply: ({ record, records, action }): SampleApplied => {
+    if (action.id !== 'dispatch') return {}
+    const vehicle = VEHICLE_ROWS.find(row => row.values.name === record.values.vehicle)
+    const out = records.some(row => row.values.vehicle === record.values.vehicle && row.status === 'dispatched')
+    return vehicle?.status !== 'available' || out ? { error: 'Vehicle is unavailable.' } : {}
+  },
   records: [
     row('0465c81e-5c6d-4e7f-9a8b-7e6f9a0b1c17', 'dispatched', firstDispatch, '2026-10-26T11:41:16.578Z', [
       { at: '2026-10-26T11:41:16.578Z', status: 'requested', reason: 'Dispatch vehicle', values: firstDispatch },

@@ -18,7 +18,10 @@ function workspace(definition: SampleDefinition): ReactElement {
 /**
  * The sample-only workspaces: the design's list, create form and record view for each, with fictional records kept
  * in the page's memory only. Nothing here reaches Health ID: no request, no browser storage, no record in the address.
- * Paths, groups and labels follow the design's navigation.
+ *
+ * Paths are the design's module ids. In the design's navigation, Policies is a tab of Insurance & Claims, and Stock
+ * and Procurement are the tabs of Supply; they are listed here as their own entries because the shared page type has
+ * no tab-only flag. Each page draws its module tabs itself.
  */
 export const samplePages: EhrBluePage[] = [
   { path: 'billing', group: 'Finance', label: 'Patient billing', icon: <ReceiptIcon />, status: 'sample', element: workspace(billingSample) },

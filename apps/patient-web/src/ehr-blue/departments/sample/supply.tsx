@@ -1,5 +1,5 @@
 import {
-  recordOptions, wholeAbove, type SampleBatch, type SampleDefinition, type SampleRecord, type SampleTabs, type SampleValues,
+  above, QUANTITY_TEXT, recordOptions, wholeAbove, type SampleBatch, type SampleDefinition, type SampleRecord, type SampleTabs, type SampleValues,
 } from '../parts/sample/model'
 
 /*
@@ -65,6 +65,8 @@ export const inventorySample: SampleDefinition = {
     { key: 'threshold', label: 'Reorder threshold', type: 'number' },
   ],
   defaults: { packSize: '1' },
+  validate: values => Number(values.packSize) < 1 || Number(values.threshold) < 0
+    ? 'Pack size must be positive and reorder threshold cannot be negative.' : undefined,
   created: () => ({ state: { batches: [] } }),
   actions: [
     {
@@ -94,7 +96,7 @@ export const inventorySample: SampleDefinition = {
     const batches = batchesOf(record)
     if (action.id === 'receive') {
       const quantity = wholeAbove(values.quantity)
-      if (quantity === undefined) return { error: 'Quantity must be greater than zero.' }
+      if (quantity === undefined) return { error: QUANTITY_TEXT }
       const lot = values.lot ?? ''
       const expiry = values.expiry ?? ''
       // The same batch received again adds to it.
@@ -141,6 +143,7 @@ export const procurementSample: SampleDefinition = {
     { key: 'reason', label: 'Request reason' },
   ],
   defaults: { quantity: '1' },
+  validate: values => above(values.quantity) === undefined ? QUANTITY_TEXT : undefined,
   actions: [
     { id: 'approve', label: 'Approve request', from: ['requested'], to: 'approved' },
     { id: 'order', label: 'Create purchase order', from: ['approved'], to: 'ordered', fields: [{ key: 'reference', label: 'Purchase order reference' }] },
@@ -157,7 +160,7 @@ export const procurementSample: SampleDefinition = {
   apply: ({ record, action, values }) => {
     if (action.id !== 'receive') return {}
     const quantity = wholeAbove(values.quantity)
-    if (quantity === undefined) return { error: 'Quantity must be greater than zero.' }
+    if (quantity === undefined) return { error: QUANTITY_TEXT }
     const ordered = Number(record.values.quantity)
     const received = Number(record.values.received ?? 0) + quantity
     if (received > ordered) return { error: 'Receipt exceeds the remaining purchase quantity.' }
