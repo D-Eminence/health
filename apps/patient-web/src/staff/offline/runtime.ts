@@ -8,6 +8,7 @@ import { getEnvironment } from '../env'
 import { offlineAppHost, offlineConfig, offlineEnv, offlineHostAllowed } from './environment'
 import { STAFF_OFFLINE_REGISTRY } from './registry'
 import { provideOfflineRuntime } from './holder'
+import { staffSafetyProbe } from './safetyProbe'
 
 /**
  * The storage PUT of an offline upload (§2.8 `ehr.document.upload`), as the online upload makes it. The engine sends
@@ -42,7 +43,8 @@ function packagedDatabaseExists(): Promise<boolean> {
 
 const DEFAULT_DEPS: OfflineRuntimeDeps = {
   exists: packagedDatabaseExists,
-  create: ({ appHost, env }) => createOfflineRuntime({ appHost, env, transport: transportFromApiClient(staffTransport), upload }),
+  create: ({ appHost, env }) => createOfflineRuntime({ appHost, env, transport: transportFromApiClient(staffTransport), upload,
+    safety: staffSafetyProbe }),
 }
 let deps: OfflineRuntimeDeps = DEFAULT_DEPS
 

@@ -1,5 +1,5 @@
 import { createFakeOfflineRuntime, DEMO_HOSPITAL_FACILITY_ID } from '@hid/offline/testing'
-import { createOfflineRuntime, TransportError, type OfflineEnv, type SendResult, type SendSpec, type StaffSessionSnapshot } from '@hid/offline'
+import { createOfflineRuntime, TransportError, type OfflineEnv, type SafetyProbe, type SendResult, type SendSpec, type StaffSessionSnapshot } from '@hid/offline'
 import type { IDBFactory } from 'fake-indexeddb'
 import { STAFF_OFFLINE_REGISTRY } from '../registry'
 
@@ -47,16 +47,18 @@ export function fakeServer() {
 }
 
 /** The real core on an in-memory IndexedDB (fake-indexeddb), with this registry; timers off. */
-export function realRuntime(idb: IDBFactory, transport: (spec: SendSpec) => Promise<SendResult>, env: OfflineEnv = { mode: 'pilot', facilities: PILOT, hosts: 'ehr,ocr' }, appHost = 'ehr') {
+export function realRuntime(idb: IDBFactory, transport: (spec: SendSpec) => Promise<SendResult>, env: OfflineEnv = { mode: 'pilot', facilities: PILOT, hosts: 'ehr,ocr' }, appHost = 'ehr',
+  extra: { safety?: SafetyProbe } = {}) {
   const runtime = createOfflineRuntime({ appHost, env, transport, idbFactory: idb, calibrate: async () => 1000, timers: false,
-    BroadcastChannel: null, locks: null, storage: null })
+    BroadcastChannel: null, locks: null, storage: null, ...extra })
   runtime.commands.register(STAFF_OFFLINE_REGISTRY)
   return runtime
 }
 
 /** A real runtime with an open vault for `snapshot` (signed in online, "Keep an offline copy" chosen). */
-export async function realVault(idb: IDBFactory, transport: (spec: SendSpec) => Promise<SendResult>, snapshot: StaffSessionSnapshot = snapshotOf()) {
-  const runtime = realRuntime(idb, transport)
+export async function realVault(idb: IDBFactory, transport: (spec: SendSpec) => Promise<SendResult>, snapshot: StaffSessionSnapshot = snapshotOf(),
+  extra: { safety?: SafetyProbe } = {}) {
+  const runtime = realRuntime(idb, transport, undefined, undefined, extra)
   runtime.prepareFromSignIn(snapshot.email, PASSWORD)
   await runtime.attachSession(snapshot, { optIn: true, online: true })
   runtime.setSessionReady(true)

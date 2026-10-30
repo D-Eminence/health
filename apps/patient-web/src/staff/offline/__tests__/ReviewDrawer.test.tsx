@@ -82,6 +82,8 @@ describe('review drawer', () => {
   })
 
   it('CC4: shows the new allergy beside the held prescription', async () => {
+    api.records.mockResolvedValue({ items: [{ id: 'rx-1', patientId: PATIENT_ID, encounterId: 'enc-1', createdAt: '2026-10-29T09:00:00.000Z',
+      medicationDisplay: 'Ibuprofen 400 mg', rowVersion: 1 }], nextCursor: null })
     api.reportedHealthProfile.mockResolvedValue({ bloodGroup: null, genotype: null, allergies: 'Penicillin (rash)',
       currentMedications: 'Metformin 500 mg', chronicConditions: null, medicalNotes: null, updatedAt: '2026-10-29T09:30:00.000Z' })
     const fake = await openVault(snapshotOf(PILOT))
@@ -95,10 +97,53 @@ describe('review drawer', () => {
     expect(screen.getByText('Metformin 500 mg')).toBeTruthy()
     expect(await screen.findByText('Amoxicillin 500 mg')).toBeTruthy()
     expect(api.reportedHealthProfile).toHaveBeenCalledWith(PILOT, PATIENT_ID)
+    // The visit's prescriptions as Health ID has them now, read from the server visit.
+    expect(screen.getByText('Ibuprofen 400 mg')).toBeTruthy()
+    expect(api.records).toHaveBeenCalledWith(PILOT, PATIENT_ID, 'enc-1', 'prescriptions')
     expect(screen.getByRole('radio', { name: 'Send as is (I have checked)' })).toBeTruthy()
     expect(screen.getByRole('radio', { name: 'Discard' })).toBeTruthy()
     // Held before it was ever sent.
     expect(fake.controls.requests).toEqual([])
+  })
+
+  /** A prescription held for review (CC4) before it was ever sent. */
+  async function heldPrescription() {
+    const fake = await openVault(snapshotOf(PILOT))
+    fake.controls.safetyChanged(true)
+    await fake.runtime.commands.save('ehr.prescription.create', { ...scope, body: { medicationDisplay: 'Amoxicillin 500 mg',
+      frequency: 'three times a day', instructions: 'With food', status: 'draft' } } as unknown as Json, { awaitMs: 8000 })
+    await drawer(fake)
+    await screen.findByText('Prescription: Check before sending this prescription')
+    return fake
+  }
+
+  it('CC4: offers no "Send as is" while the current allergies and medications could not be read', async () => {
+    api.reportedHealthProfile.mockRejectedValue(new Error('Failed to fetch'))
+    api.records.mockResolvedValue({ items: [], nextCursor: null })
+    await heldPrescription()
+    expect(await screen.findByText(/could not be read\. Try again when online\. Until they are read/)).toBeTruthy()
+    expect(screen.queryByRole('radio', { name: 'Send as is (I have checked)' })).toBeNull()
+    expect(screen.getByRole('radio', { name: 'Discard' })).toBeTruthy()
+    expect(screen.queryByText('No allergies or medications reported.')).toBeNull()
+  })
+
+  it('CC4: says when nothing is reported, and then offers "Send as is"', async () => {
+    api.reportedHealthProfile.mockResolvedValue(null)
+    api.records.mockResolvedValue({ items: [], nextCursor: null })
+    await heldPrescription()
+    expect(await screen.findByText('No allergies or medications reported.')).toBeTruthy()
+    expect(screen.getByText('No prescriptions on Health ID for this visit.')).toBeTruthy()
+    expect(screen.getByRole('radio', { name: 'Send as is (I have checked)' })).toBeTruthy()
+    expect(screen.queryByText('The current record could not be read. Try again when online.')).toBeNull()
+  })
+
+  it('CC4: an empty profile reads as nothing reported, not as a failed read', async () => {
+    api.reportedHealthProfile.mockResolvedValue({ bloodGroup: null, genotype: null, allergies: '  ', currentMedications: null,
+      chronicConditions: null, medicalNotes: null, updatedAt: null })
+    api.records.mockResolvedValue({ items: [], nextCursor: null })
+    await heldPrescription()
+    expect(await screen.findByText('No allergies or medications reported.')).toBeTruthy()
+    expect(screen.getByRole('radio', { name: 'Send as is (I have checked)' })).toBeTruthy()
   })
 
   it('CC5: asking for access again keeps the change and leads to patient access', async () => {

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEve
 import { Link } from 'react-router-dom'
 import type { ConflictClass, Json, OfflineRuntime, OpName, Ref } from '@hid/offline'
 import { Button, Field, Textarea } from '@hid/ui'
-import { staffApi } from '../api'
+import { staffApi, type ClinicalRecord } from '../api'
 import { ACTIONS, CLASS_TEXT, OP_LABELS, REVIEW } from './copy'
 import { definitionOf } from './registry'
 import { dayTime } from './time'
@@ -51,13 +51,19 @@ function resolvedOf(op: OpName, input: Json): Record<string, string> | null {
   return resolved
 }
 
-/** What the drawer read for an entry: the change as saved, and the record as Health ID has it now. */
-interface Compared { mine: Json | null; current: unknown }
+/**
+ * What the drawer read for an entry: the change as saved, the record as Health ID has it now, and for a safety hold
+ * whether the patient's allergies, medications and the visit's prescriptions were actually read (A12.4).
+ */
+interface Compared { mine: Json | null; current: unknown; safetyRead: boolean }
+
+/** A safety hold's reading of Health ID now: loading, failed, or what it has. */
+type SafetyRead = undefined | 'failed' | { profile: ReportedHealthProfile | null; prescriptions: ClinicalRecord[] }
 
 function Comparison({ runtime, item, onRead }: { runtime: OfflineRuntime; item: ReviewItem; onRead: (read: Partial<Compared>) => void }) {
   const [mine, setMine] = useState<Json | null | undefined>(undefined)
   const [current, setCurrent] = useState<unknown>(undefined)
-  const [safety, setSafety] = useState<ReportedHealthProfile | null | undefined>(undefined)
+  const [safety, setSafety] = useState<SafetyRead>(undefined)
   useEffect(() => {
     let active = true
     void runtime.commands.pendingFor(item.patientId).then(async views => {
@@ -73,10 +79,17 @@ function Comparison({ runtime, item, onRead }: { runtime: OfflineRuntime; item: 
         const value = await read
         if (active) { setCurrent(value); onRead({ current: value }) }
       }
-      // The safety hold shows the patient's allergies and medications as Health ID has them now (§2.9 CC4).
-      if (item.class === 'CC4' && facilityId) {
-        const profile = await staffApi.reportedHealthProfile(facilityId, item.patientId).catch(() => null)
-        if (active) setSafety(profile)
+      // The safety hold shows the patient's allergies and medications, and the visit's prescriptions, as Health ID has
+      // them now (§2.9 CC4). "Send as is" is offered only once they were read: a failed read is not "nothing reported".
+      if (item.class === 'CC4') {
+        const encounterId = input ? resolvedOf(item.op, input)?.encounterId : undefined
+        const read: SafetyRead = !facilityId ? 'failed' : await Promise.all([
+          staffApi.reportedHealthProfile(facilityId, item.patientId),
+          encounterId ? staffApi.records(facilityId, item.patientId, encounterId, 'prescriptions').then(page => page.items) : Promise.resolve([]),
+        ]).then(([profile, prescriptions]) => ({ profile, prescriptions }), () => 'failed' as const)
+        if (!active) return
+        setSafety(read)
+        onRead({ safetyRead: read !== 'failed' })
       }
     })
     return () => { active = false }
@@ -86,14 +99,17 @@ function Comparison({ runtime, item, onRead }: { runtime: OfflineRuntime; item: 
     {(item.class === 'CC2' || item.class === 'CC4' || item.class === 'CC7') && <div className="offline-compare">
       <div><h4>{REVIEW.yourChange}</h4>{mine === undefined ? <p className="staff-muted">{REVIEW.currentLoading}</p> : <Fields value={body} />}</div>
       {item.class === 'CC2' && <div><h4>{REVIEW.currentRecord}</h4>{current === undefined ? <p className="staff-muted">{REVIEW.currentLoading}</p> : <Fields value={current} />}</div>}
-      {item.class === 'CC4' && <div><h4>{REVIEW.newSafety}</h4>{safety === undefined ? <p className="staff-muted">{REVIEW.currentLoading}</p> : <SafetyFacts value={safety} />}</div>}
+      {item.class === 'CC4' && <div><h4>{REVIEW.newSafety}</h4>{safety === undefined ? <p className="staff-muted">{REVIEW.currentLoading}</p>
+        : safety === 'failed' ? <p className="staff-muted">{REVIEW.safetyUnavailable}</p>
+          : <><SafetyFacts value={safety.profile} /><VisitPrescriptions items={safety.prescriptions} /></>}</div>}
     </div>}
   </>
 }
 
 /** Allergies and medications as the patient reported them, as Health ID has them now (ReportedHealthProfile). */
 function SafetyFacts({ value }: { value: ReportedHealthProfile | null }) {
-  if (!value || (!value.allergies && !value.currentMedications)) return <p className="staff-muted">{REVIEW.currentUnavailable}</p>
+  if (!value?.allergies?.trim() && !value?.currentMedications?.trim()) return <p>{REVIEW.noSafetyReported}</p>
+  if (!value) return null
   return <dl className="offline-facts">
     {value.allergies && <div><dt>Allergies</dt><dd>{value.allergies}</dd></div>}
     {value.currentMedications && <div><dt>Medications</dt><dd>{value.currentMedications}</dd></div>}
@@ -101,8 +117,19 @@ function SafetyFacts({ value }: { value: ReportedHealthProfile | null }) {
   </dl>
 }
 
+/** The visit's prescriptions as Health ID has them now. */
+function VisitPrescriptions({ items }: { items: readonly ClinicalRecord[] }) {
+  return <>
+    <h4>{REVIEW.visitPrescriptions}</h4>
+    {items.length === 0 ? <p>{REVIEW.noVisitPrescriptions}</p>
+      : <ul className="offline-facts">{items.map(item => <li key={item.id}>{String(item.medicationDisplay ?? 'Prescription')}</li>)}</ul>}
+  </>
+}
+
 function ReviewEntry({ runtime, item, onDone }: { runtime: OfflineRuntime; item: ReviewItem; onDone: (said: string) => void }) {
-  const actions = CLASS_ACTIONS[item.class]
+  const [safetyRead, setSafetyRead] = useState(false)
+  // "Send as is (I have checked)" only once there was something to check (A12.4).
+  const actions = CLASS_ACTIONS[item.class].filter(choice => choice !== 'send-as-is' || safetyRead)
   // Nothing is preselected: the author chooses.
   const [action, setAction] = useState<ReviewAction | ''>('')
   const [reason, setReason] = useState('')
@@ -115,7 +142,7 @@ function ReviewEntry({ runtime, item, onDone }: { runtime: OfflineRuntime; item:
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (busy) return
-    if (!action) { setProblem(REVIEW.chooseAction); document.getElementById(`${id}-${actions[0]}`)?.focus(); return }
+    if (!action || !actions.includes(action)) { setProblem(REVIEW.chooseAction); document.getElementById(`${id}-${actions[0]}`)?.focus(); return }
     if (reason.trim().length < MIN_REASON) { setProblem(REVIEW.reasonShort); document.getElementById(`${id}-reason`)?.focus(); return }
     setProblem(''); setBusy(true)
     try {
@@ -137,7 +164,10 @@ function ReviewEntry({ runtime, item, onDone }: { runtime: OfflineRuntime; item:
     <h3 id={`${id}-title`}>{OP_LABELS[item.op]}: {text.title}</h3>
     <p>{text.body}</p>
     {item.laneBlocked > 0 && <p className="staff-muted">{REVIEW.blocked(item.laneBlocked)}</p>}
-    <Comparison runtime={runtime} item={item} onRead={value => { read.current = { ...read.current, ...value } }} />
+    <Comparison runtime={runtime} item={item} onRead={value => {
+      read.current = { ...read.current, ...value }
+      if (value.safetyRead !== undefined) setSafetyRead(value.safetyRead)
+    }} />
     {(item.class === 'CC3' || item.class === 'CC7') && <p className="staff-muted">{ENTER_AGAIN}</p>}
     {actions.length > 0 && <form className="staff-form" noValidate onSubmit={event => void submit(event)} aria-labelledby={`${id}-title`}>
       <fieldset disabled={busy}>
