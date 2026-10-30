@@ -737,6 +737,10 @@ export const HID_ENDPOINTS: readonly EndpointDescriptor[] = [
     'Patient sessions only. GET { shared, updatedAt }; POST { shared } answers { shared, changed, updatedAt }. Turning sharing on '
     + 'needs a recent sign-in (403 PATIENT_RECENT_AUTH_REQUIRED) and no recovery in the last 24 hours (403 PATIENT_RECENT_RECOVERY_HOLD); '
     + '503 IMPORTED_HISTORY_SHARING_DISABLED while the switch is off.'),
+  proposed(r('ehr.myPatientEntries','ehr','/api/v1/ehr/me/patient-entries',P,false,undefined,
+    'PROPOSED by the patient-portal redesign (BACKEND-NEEDS.md); no backend serves it. Patient sessions only. POST { kind, title, '
+    + 'facilityName, occurredOn, notes, attachments[{ fileName, mediaType, sizeBytes, contentBase64 }] } answers 201 { id }. A record the '
+    + 'patient adds themselves, kept apart from clinicians\' and shown as "added by you". Until served it answers 404 and nothing is saved.')),
   proposed(r('ehr.myImportedAttachment','ehr','/api/v1/ehr/me/imported-attachments/:fileId/download',G,false,undefined,
     `${NOT_ON_MAIN} Offered only when ehr.myRecords carries importedRecords, which main's does not.`)),
   proposed(r('ehr.importedRecords','ehr','/api/v1/ehr/patients/:patientId/imported-records',G,false,one('GET','ehr.note.read'),

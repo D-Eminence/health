@@ -44,11 +44,12 @@ const patient = {
     limit: 50,
   },
   accessHistory: () => ({ items: [
-    { consentGrantId: 'g-1', scope: 'read', purpose: 'direct-care', status: 'active', startsAt: iso(-2 * DAY), expiresAt: iso(28 * DAY), reason: null, facilityName: 'Lagos General Hospital', patientRevocable: true, shareLevel: 'clinical_review', shareDuration: '30d' },
+    ...shared.map(share => ({ consentGrantId: share.consentGrantId, scope: share.scope, purpose: 'patient-share', status: 'active', startsAt: share.startsAt, expiresAt: share.expiresAt, reason: null, facilityName: share.facilityName, clinicianName: share.clinicianName, patientRevocable: true, shareLevel: share.level, shareDuration: share.duration })),
+    { consentGrantId: 'g-1', scope: 'read', purpose: 'direct-care', status: ended.has('g-1') ? 'revoked' : 'active', startsAt: iso(-2 * DAY), expiresAt: iso(28 * DAY), reason: null, facilityName: 'Lagos General Hospital', patientRevocable: true, shareLevel: 'clinical_review', shareDuration: '30d' },
     { consentGrantId: 'g-2', scope: 'read', purpose: 'direct-care', status: 'expired', startsAt: iso(-90 * DAY), expiresAt: iso(-60 * DAY), reason: null, facilityName: 'Reddington Clinic', patientRevocable: false },
   ] }),
   accessRequests: () => [
-    { accessRequestId: 'r-1', facilityId: 'f-3', facilityName: 'Ikeja Medical Centre', scope: 'read', reason: 'Follow-up consultation', status: 'pending', requestedDurationMinutes: 60, requestedAt: iso(-30 * MIN), approvedAt: null, deniedAt: null, deniedReason: null },
+    { accessRequestId: 'r-1', facilityId: 'f-3', facilityName: 'Ikeja Medical Centre', scope: 'read', reason: 'Follow-up consultation', status: decided.get('r-1') ?? 'pending', requestedDurationMinutes: 60, requestedAt: iso(-30 * MIN), approvedAt: null, deniedAt: null, deniedReason: null },
   ],
   notifications: () => [
     { id: 'n-1', notificationCode: 'ACCESS_REQUEST_RECEIVED', resourceType: 'access-request', resourceId: 'r-1', metadata: {}, readAt: null, createdAt: iso(-30 * MIN) },
@@ -61,9 +62,33 @@ const patient = {
   ], nextBefore: null }),
 }
 
+/*
+ * What the patient did in this preview, kept in memory for the page's life (never stored): a decided request, an ended
+ * grant, a share. The bodies are not read here, so a share goes to the first sample clinician for 7 days.
+ */
+const decided = new Map()
+const ended = new Set()
+const shared = []
+const SHARE_PROVIDERS = [
+  { membershipId: 'm-1', clinicianName: 'Dr Tunde Bello', role: 'doctor', facilityName: 'Lagos General Hospital', organizationName: 'Lagos State Health Service', newOnHealthId: false },
+  { membershipId: 'm-2', clinicianName: 'Dr Amaka Eze', role: 'doctor', facilityName: 'Ikeja Medical Centre', organizationName: '', newOnHealthId: true },
+  { membershipId: 'm-3', clinicianName: 'Nurse Bisi Adeyemi', role: 'nurse', facilityName: 'Reddington Clinic', organizationName: '', newOnHealthId: false },
+]
+
 function patientRoute(method, path) {
   if (method !== 'GET') {
     if (/^\/identity\/me\/notifications\/[^/]+\/read$/.test(path)) return [200, { id: path.split('/')[4], readAt: iso() }]
+    const decision = path.match(/^\/identity\/access-requests\/([^/]+)\/(approve|deny)$/)
+    if (decision) { decided.set(decision[1], decision[2] === 'approve' ? 'approved' : 'denied'); return [200, { accessRequestId: decision[1], status: decided.get(decision[1]) }] }
+    const revoke = path.match(/^\/identity\/me\/consent-grants\/([^/]+)\/revoke$/)
+    if (revoke) { ended.add(revoke[1]); const i = shared.findIndex(x => x.consentGrantId === revoke[1]); if (i >= 0) shared.splice(i, 1); return [200, { consentGrantId: revoke[1], status: 'revoked', replayed: false }] }
+    if (path === '/identity/me/share-providers/search') return [200, { items: SHARE_PROVIDERS }]
+    if (path === '/identity/me/shares') {
+      const p = SHARE_PROVIDERS[0]
+      const share = { consentGrantId: `s-${shared.length + 1}`, membershipId: p.membershipId, scope: 'read_records', level: 'view_only', duration: '7d', startsAt: iso(), expiresAt: iso(7 * DAY), clinicianName: p.clinicianName, facilityName: p.facilityName, replacedConsentGrantId: null }
+      shared.push(share)
+      return [201, share]
+    }
     return null
   }
   switch (path) {

@@ -6,81 +6,87 @@
  * future brand override does not turn into a repository-wide colour hunt.
  */
 
-@theme {
-  /* Brand: used as a deliberate interaction signal, never as a page fill. */
-  --color-brand: #086dd9;
-  --color-brand-dark: #0762c3; /* backwards-compatible hover alias */
-  --color-brand-hover: #0762c3;
-  --color-brand-active: #0657ad;
-  --color-brand-tint: #eff6fd;
-  --color-brand-tint-hover: #e5f1fc;
-  --color-brand-border: #b8d8f7;
 
-  /* Light surfaces. */
-  --color-page: #ffffff;
+@theme {
+  /*
+   * 2026 redesign: the Kasuwa language (cool-grey canvas, white cards on grey
+   * trays, one confident blue, large radii, generous air) in Health ID blue.
+   * Every text colour below passes WCAG AA (4.5:1) on every light surface.
+   */
+
+  /* Brand: a deliberate interaction signal, never a page fill. */
+  --color-brand: #1570ef;
+  --color-brand-dark: #175cd3; /* backwards-compatible hover alias */
+  --color-brand-hover: #175cd3;
+  --color-brand-active: #1849a9;
+  --color-brand-tint: #eff6ff;
+  --color-brand-tint-hover: #e0eeff;
+  --color-brand-border: #b2ddff;
+
+  /* Light surfaces: a cool-grey canvas with white cards on it. */
+  --color-page: #f5f7fa;
   --color-surface: #ffffff;
   --color-surface-raised: #ffffff;
-  --color-surface-sunk: #f8f8f8;
-  --color-surface-tint: #f6f6f6;
-  --color-surface-hover: #f3f3f3;
-  --color-surface-selected: #eeeeee;
+  --color-surface-sunk: #f8f9fb;
+  --color-surface-tint: #f2f4f7;
+  --color-surface-hover: #f2f4f7;
+  --color-surface-selected: #eaecf0;
 
   /* Text and separation. */
-  --color-ink: #222222;
-  --color-text: #262626;
-  --color-muted: #555555;
-  --color-faint: #6f6f6f; /* small text: 4.5:1 from white down to surface-hover */
-  --color-line: #f0f0f0;
-  --color-line-strong: #e3e3e3;
-  --color-line-control: #898989; /* a form control's boundary: 3:1 on every light surface */
+  --color-ink: #101828;
+  --color-text: #1d2939;
+  --color-muted: #475467;
+  --color-faint: #667085; /* small text: 4.5:1 on every light surface */
+  --color-line: #eaecf0;
+  --color-line-strong: #d0d5dd;
+  --color-line-control: #7d8799; /* a form control's boundary: 3:1 on every light surface */
 
   /* Elevated/inverse surfaces. */
-  --color-inverse-surface: #252525;
+  --color-inverse-surface: #101828;
   --color-inverse-ink: #ffffff;
-  --color-inverse-muted: #cccccc;
+  --color-inverse-muted: #d0d5dd;
 
-  /* Semantic status. */
-  --color-positive: #00a94f;
-  --color-caution: #d89600;
-  /* Status text, alone or on its own 10% tint over white, surface-sunk, surface-tint or brand-tint:
-     4.5:1 (not over surface-hover). The bright values stay for icons and fills. */
-  --color-positive-ink: #007a39;
-  --color-caution-ink: #8f5f00;
-  --color-critical: #ba3a35;
-  --color-information: #25a4ff;
-  --color-stage: #25a4ff; /* compatibility alias for existing workflow UI */
+  /* Semantic status: bright values for icons and fills, -ink values for text. */
+  --color-positive: #079455;
+  --color-caution: #dc6803;
+  --color-positive-ink: #067647;
+  --color-caution-ink: #b54708;
+  --color-critical: #b42318;
+  --color-information: #0086c9;
+  --color-stage: #0086c9; /* compatibility alias for existing workflow UI */
 
-  /* Type: Forum is editorial only; Inter serves every product control. */
-  --font-display: var(--font-forum), Forum, Georgia, 'Times New Roman', serif;
-  --font-sans: var(--font-inter), Inter, Arial, Helvetica, sans-serif;
-  --font-mono: var(--font-inter), Inter, Arial, Helvetica, sans-serif;
-  --font-jetbrains-mono: var(--font-inter); /* legacy labels stay in Inter */
+  /* Type: one family, Figtree, bundled with the app (no third-party request). */
+  --font-display: 'Figtree Variable', Figtree, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-sans: 'Figtree Variable', Figtree, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'Figtree Variable', Figtree, ui-sans-serif, system-ui, sans-serif;
+  --font-jetbrains-mono: var(--font-sans); /* legacy labels stay in the sans */
 
-  /* Layout and compact component geometry. */
+  /* Layout and component geometry (4px grid). */
   --spacing-gutter: 16px;
   --container-wrap: 1440px;
-  --sidebar-expanded: 247px;
-  --sidebar-collapsed: 60px;
-  --radius-tiny: 3px;
-  --radius-compact: 4px;
-  --radius-button: 5px;
-  --radius-control: 6px;
-  --radius-card: 8px;
-  --radius-panel: 8px; /* compatibility alias for legacy cards */
-  --radius-popover: 8px;
-  --radius-dialog: 10px;
-  --radius-sheet: 12px;
+  --sidebar-expanded: 264px;
+  --sidebar-collapsed: 64px;
+  --radius-tiny: 6px;
+  --radius-compact: 8px;
+  --radius-button: 10px;
+  --radius-control: 10px;
+  --radius-card: 16px;
+  --radius-panel: 16px; /* compatibility alias for legacy cards */
+  --radius-popover: 12px;
+  --radius-dialog: 20px;
+  --radius-sheet: 24px;
   --radius-pill: 999px;
-  --border-quiet: 0.5px;
+  --border-quiet: 1px;
   --border-control: 1px;
 
   /* Purposeful elevation, motion and layering. */
-  --shadow-popover: 0 8px 20px rgb(34 34 34 / 10%);
-  --shadow-dialog: 0 20px 48px rgb(34 34 34 / 16%);
-  --shadow-toast: 0 8px 20px rgb(34 34 34 / 12%);
+  --shadow-card: 0 1px 2px rgb(16 24 40 / 4%), 0 1px 3px rgb(16 24 40 / 3%);
+  --shadow-popover: 0 12px 24px -6px rgb(16 24 40 / 14%), 0 4px 8px -4px rgb(16 24 40 / 6%);
+  --shadow-dialog: 0 24px 48px -12px rgb(16 24 40 / 24%);
+  --shadow-toast: 0 12px 24px -6px rgb(16 24 40 / 18%);
   --motion-quick: 150ms;
   --motion-sidebar: 180ms;
-  --motion-standard: 250ms;
+  --motion-standard: 220ms;
   --motion-slow: 350ms;
   --motion-emphasis: 500ms;
   --ease-standard: cubic-bezier(0.2, 0, 0, 1);
@@ -97,35 +103,207 @@
 :root {
   color-scheme: light;
   --focus-ring-color: var(--color-brand);
-  --focus-ring: 0 0 0 2px color-mix(in srgb, var(--color-brand) 45%, transparent);
+  --focus-ring: 0 0 0 4px rgb(8 109 217 / 16%);
 }
 
 /*
- * The applications are light by default. This deliberately authored opt-in
- * palette is available to a future theme switcher without relying on a naive
- * inversion of the light values.
+ * Dark theme, authored (not inverted): near-black canvas, charcoal cards,
+ * a lighter blue for contrast. Opt in with data-theme="dark" on <html>.
  */
 [data-theme='dark'] {
   color-scheme: dark;
-  --color-page: #0b0b0b;
-  --color-surface: #0b0b0b;
-  --color-surface-raised: #151515;
-  --color-surface-sunk: #121212;
-  --color-surface-tint: #1a1a1a;
-  --color-surface-hover: #202020;
-  --color-surface-selected: #242424;
-  --color-ink: #ffffff;
-  --color-text: #f2f2f2;
-  --color-muted: #cccccc;
-  --color-faint: #aaaaaa;
-  --color-line: #242424;
-  --color-line-strong: #343434;
-  --color-line-control: #8f8f8f;
-  --color-positive-ink: #00a94f;
-  --color-caution-ink: #d89600;
-  --color-inverse-surface: #f2f2f2;
-  --color-inverse-ink: #0b0b0b;
-  --color-inverse-muted: #555555;
+  --color-brand: #3b8cff;
+  --color-brand-hover: #5a9dff;
+  --color-brand-dark: #5a9dff;
+  --color-brand-active: #84b6ff;
+  --color-brand-tint: rgb(59 140 255 / 12%);
+  --color-brand-tint-hover: rgb(59 140 255 / 18%);
+  --color-brand-border: rgb(59 140 255 / 35%);
+  --color-page: #141414;
+  --color-surface: #1b1b1b;
+  --color-surface-raised: #1f1f1f;
+  --color-surface-sunk: #181818;
+  --color-surface-tint: #202020;
+  --color-surface-hover: #262626;
+  --color-surface-selected: #2c2c2c;
+  --color-ink: #f5f5f6;
+  --color-text: #e4e4e7;
+  --color-muted: #b4b4b8;
+  --color-faint: #9a9aa0;
+  --color-line: #2a2a2a;
+  --color-line-strong: #3a3a3a;
+  --color-line-control: #74747a;
+  --color-positive: #2fbf7a;
+  --color-positive-ink: #6ee0a6;
+  --color-caution: #f79009;
+  --color-caution-ink: #fdb022;
+  --color-critical: #f97066;
+  --color-information: #36bffa;
+  --color-inverse-surface: #f5f5f6;
+  --color-inverse-ink: #101828;
+  --color-inverse-muted: #475467;
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 35%);
+  --shadow-popover: 0 16px 32px -8px rgb(0 0 0 / 60%);
+  --shadow-dialog: 0 24px 48px -12px rgb(0 0 0 / 70%);
+  --focus-ring: 0 0 0 4px rgb(59 140 255 / 25%);
+}
+
+
+/*
+ * Kasuwa: the design system of paytrail (Usetally), the source of truth for the Health ID rebuild. Same names and
+ * values as paytrail's app/globals.css, so a screen ported from it reads the same. One deliberate change: ink-3 is
+ * #667085, not #98a2b3, because small grey text must reach WCAG AA 4.5:1 (paytrail's measures 2.6:1 on white).
+ *
+ * SPACING (4px grid) page gutter px-4 sm:px-6 lg:px-8 · section gap 32 · card padding 20 · tray padding 6
+ * RADIUS xs 6 · sm 8 · md 10 · lg 12 · xl 16 · 2xl 20 · 3xl 24 · CONTROL HEIGHTS sm 32 · md 40 · lg 48
+ * TYPE display 32/40 600 · title-1 24/32 · title-2 18/26 · title-3 15/22 · body 14/22 · caption 12/16 · overline 11/16
+ */
+@theme {
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 20px;
+  --radius-3xl: 24px;
+
+  --color-canvas: #f5f7fa;
+  --color-subtle: #f8f9fb;
+  --color-tray: #f2f4f7;
+  --color-hover: #f2f4f7;
+  --color-ink-2: #475467;
+  --color-ink-3: #667085;
+  --color-contrast: #101828;
+  --color-contrast-hover: #1d2939;
+
+  --color-brand-soft: #eff6ff;
+  --color-brand-line: #b2ddff;
+  --color-brand-ink: #175cd3;
+
+  --color-success: #079455;
+  --color-success-soft: #ecfdf3;
+  --color-success-ink: #067647;
+  --color-warn: #dc6803;
+  --color-warn-soft: #fffaeb;
+  --color-warn-ink: #b54708;
+  --color-info: #0086c9;
+  --color-info-soft: #f0f9ff;
+  --color-info-ink: #026aa2;
+  --color-violet: #7a5af8;
+  --color-violet-soft: #f4f3ff;
+  --color-violet-ink: #5925dc;
+  --color-danger: #d92d20;
+  --color-danger-soft: #fef3f2;
+  --color-danger-ink: #b42318;
+
+  --color-tint-mint: #f1fbf6;
+  --color-tint-mint-line: #d3f3e3;
+  --color-tint-amber: #fffaf0;
+  --color-tint-amber-line: #fcebcb;
+  --color-tint-rose: #fff6f5;
+  --color-tint-rose-line: #fcdcd8;
+  --color-tint-blue: #f3f8ff;
+  --color-tint-blue-line: #d6e7ff;
+
+  --color-notice: #f9f9f9;
+  --color-notice-line: #e4e4e7;
+  --color-notice-body: #52525b;
+  --color-intent-success: #047857;
+  --color-intent-error: #be123c;
+  --color-intent-warning: #b45309;
+  --color-intent-info: #1d4ed8;
+
+  /* Sign-in (paytrail's landing world): warm paper, near-black ink, one confident blue. */
+  --color-hero: #f4f1ea;
+  --color-hero-ink: #151513;
+  --color-hero-ink-2: #5d5b53;
+  --color-hero-line: #dcd7cb;
+  --color-hero-accent: #175cd3;
+  --color-hero-paper: #fffdf8;
+  --color-hero-tint: #ebe7dd;
+
+  --shadow-xs: 0 1px 2px rgba(16, 24, 40, 0.05);
+  --shadow-pop: 0 12px 24px -6px rgba(16, 24, 40, 0.14), 0 4px 8px -4px rgba(16, 24, 40, 0.06);
+  --shadow-focus: 0 0 0 4px rgba(21, 112, 239, 0.16);
+
+  --animate-fade-in: kasuwa-fade-in 160ms ease-out;
+  --animate-rise: kasuwa-rise 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes kasuwa-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes kasuwa-rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+:root[data-theme='dark'] {
+  --color-canvas: #141414;
+  --color-subtle: #181818;
+  --color-tray: #202020;
+  --color-hover: #262626;
+  --color-ink-2: #b4b4b8;
+  --color-ink-3: #8f8f96;
+  --color-contrast: #262626;
+  --color-contrast-hover: #303030;
+  --color-brand-soft: rgba(59, 140, 255, 0.12);
+  --color-brand-line: rgba(59, 140, 255, 0.35);
+  --color-brand-ink: #84b6ff;
+  --color-success: #2fbf7a;
+  --color-success-soft: rgba(47, 191, 122, 0.12);
+  --color-success-ink: #6ee0a6;
+  --color-warn: #f79009;
+  --color-warn-soft: rgba(247, 144, 9, 0.12);
+  --color-warn-ink: #fdb022;
+  --color-info: #36bffa;
+  --color-info-soft: rgba(54, 191, 250, 0.12);
+  --color-info-ink: #7cd4fd;
+  --color-violet: #9b8afb;
+  --color-violet-soft: rgba(155, 138, 251, 0.14);
+  --color-violet-ink: #bdb4fe;
+  --color-danger: #f97066;
+  --color-danger-soft: rgba(249, 112, 102, 0.12);
+  --color-danger-ink: #fda29b;
+  --color-tint-mint: #0d1a14;
+  --color-tint-mint-line: #163a29;
+  --color-tint-amber: #1a1307;
+  --color-tint-amber-line: #3b2a0b;
+  --color-tint-rose: #1c0b0b;
+  --color-tint-rose-line: #4a1717;
+  --color-tint-blue: #0b1424;
+  --color-tint-blue-line: #17325c;
+  --color-notice: #141414;
+  --color-notice-line: #2a2a2a;
+  --color-notice-body: #a1a1aa;
+  --color-intent-success: #34d399;
+  --color-intent-error: #fb7185;
+  --color-intent-warning: #fbbf24;
+  --color-intent-info: #60a5fa;
+  --color-hero: #131210;
+  --color-hero-ink: #f2efe7;
+  --color-hero-ink-2: #a29e93;
+  --color-hero-line: #2e2c27;
+  --color-hero-accent: #5a9dff;
+  --color-hero-paper: #1c1b18;
+  --color-hero-tint: #1f1e1b;
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-pop: 0 16px 32px -8px rgba(0, 0, 0, 0.6);
+  --shadow-focus: 0 0 0 4px rgba(59, 140, 255, 0.25);
+}
+
+@layer utilities {
+  .tabular { font-variant-numeric: tabular-nums; }
+  .no-scrollbar { scrollbar-width: none; }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .scroll-thin { scrollbar-width: thin; scrollbar-color: var(--color-line-strong) transparent; }
+  .text-display { font-size: 32px; line-height: 40px; font-weight: 600; letter-spacing: -0.02em; }
+  .text-title-1 { font-size: 24px; line-height: 32px; font-weight: 600; letter-spacing: -0.015em; }
+  .text-title-2 { font-size: 18px; line-height: 26px; font-weight: 600; letter-spacing: -0.01em; }
+  .text-title-3 { font-size: 15px; line-height: 22px; font-weight: 600; }
+  .text-overline { font-size: 11px; line-height: 16px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+  .bg-primary-gradient {
+    background-image: linear-gradient(180deg, color-mix(in srgb, var(--color-brand) 78%, white) 0%, var(--color-brand) 100%);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 1px 2px rgba(16, 24, 40, 0.12), 0 0 0 1px color-mix(in srgb, var(--color-brand) 85%, black);
+  }
+  .bg-primary-gradient:hover { background-image: linear-gradient(180deg, var(--color-brand) 0%, var(--color-brand-hover) 100%); }
+  .bg-dots { background-image: radial-gradient(var(--color-line-strong) 1px, transparent 1px); background-size: 16px 16px; }
 }
 
 @layer base {
@@ -138,8 +316,16 @@
     background: var(--color-page);
     color: var(--color-text);
     font-family: var(--font-sans);
-    font-size: 15px;
-    line-height: 1.45;
+    font-size: 14px;
+    line-height: 1.55;
+    font-feature-settings: 'cv11', 'ss01';
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Phones zoom when a field under 16px gets focus; keep fields at 16px there. */
+  @media (max-width: 767px) and (pointer: coarse) {
+    :where(input:not([type='checkbox'], [type='radio'], [type='range'], [type='color'], [type='file']), select, textarea) { font-size: 16px; }
   }
 
   :where(button, a, input, select, textarea, summary):focus-visible {

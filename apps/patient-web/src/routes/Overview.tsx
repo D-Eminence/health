@@ -1,4 +1,8 @@
-import { useMemo, useRef, type ReactNode } from 'react'
+import { useMemo, useRef } from 'react'
+import { ArrowRight, BadgeCheck, ChevronRight, CircleDashed, History, IdCard, NotebookPen, PhoneCall, ShieldAlert, ShieldCheck, Stethoscope } from 'lucide-react'
+import { Allergies, BloodDrop, Dna, MedicalRecords } from '@healthicons/react'
+import { Alert, Button, Card, CardHeader, EmptyState, IconChip, ListRow, PageHeader, PageSkeleton, StatCard, StatGroup, Timeline, greeting, timeAgo, type Icon } from '../kasuwa/ui'
+import { COMPLETION_ITEMS, type CompletionKey } from './profileCompletion'
 import { Link } from 'react-router-dom'
 import type { AccessHistory, AccessRequest, PatientNotification, PatientProfile, PatientRecords } from '../api'
 import type { AccessLogEvent, AccessLogPage } from '../accessLog'
@@ -9,9 +13,8 @@ import { usePatientResource } from './usePatientResource'
 import { useDocumentTitle } from '../authSteps'
 import { useRetryFocus } from './actionFocus'
 import { ItemName } from '../ItemName'
-import { HealthIdCode } from './HealthIdCode'
+import { HealthIdCard } from './HealthIdCard'
 import { Avatar, usePatientPhoto } from './ProfilePhoto'
-import { ProfileCompletionCard } from './ProfileCompletion'
 import { completionOf, servedOrNull, useProfileSources } from './profileSources'
 import type { ProfileCompletion } from './profileCompletion'
 import { contactsToCount } from './AccountSafety'
@@ -107,20 +110,6 @@ function healthValue(entered: string | null, fromHid1: string | undefined, saved
 
 const short = (text: string, limit = 80) => text.length > limit ? `${text.slice(0, limit - 1).trimEnd()}…` : text
 
-/** A card that reads for itself: what it showed stays while it reads again; a failed read says so, with its own Try again. */
-function DashboardCard({ title, id, loading, error, hasData, retry, children, retryName }: {
-  title: string; id: string; loading: boolean; error: string | null; hasData: boolean; retry: () => Promise<unknown>
-  children: ReactNode; retryName: string
-}) {
-  const heading = useRef<HTMLHeadingElement>(null)
-  const retryFocus = useRetryFocus(heading)
-  return <div className="patient-card" aria-labelledby={id} aria-busy={(loading && hasData) || undefined}>
-    <h2 ref={heading} id={id} tabIndex={-1}>{title}</h2>
-    {loading && !hasData && !error && <p className="patient-loading" role="status">Loading…</p>}
-    {error ? <div role="alert"><p>{error}</p><button ref={retryFocus.button} type="button" onClick={() => retryFocus.retry(retry)}>Try again <ItemName>loading {retryName}</ItemName></button></div> : children}
-  </div>
-}
-
 export function Overview() {
   const { api } = useSession()
   useDocumentTitle('Overview · Health ID')
@@ -151,69 +140,118 @@ export function Overview() {
   const contributions = useMemo(() => providerContributions(records.error ? null : records.data), [records.data, records.error])
   const savedHealth = health.error ? null : health.data
 
-  return <section className="patient-section">
-    <p className="patient-eyebrow">Your account</p>
-    <h1 ref={heading} tabIndex={-1} className="patient-page-title">Your health, connected.</h1>
-    <p className="patient-page-copy">Your Health ID helps keep your records linked while you manage who can access them.</p>
-    {/* The profile last shown stays while it is read again (usePatientResource), with no loading state. */}
-    {profile.loading && !profile.data ? <div role="status" className="patient-card patient-loading">Loading your profile…</div>
-      : profile.error ? <div role="alert" className="patient-card"><p>{profile.error}</p><button ref={retryFocus.button} type="button" onClick={() => retryFocus.retry(profile.reload)}>Try again</button></div>
-      : shown ? <div className="patient-card patient-identity-card patient-overview-profile" aria-busy={profile.loading || undefined}>
-          <div className="patient-overview-person">
-            <Avatar profile={shown} url={photo.url} size="medium" />
-            <div>
-              <h2 className="patient-overview-name">{shown.fullName}</h2>
-              {typeof shown.ninVerified === 'boolean' && <span className={ninVerifiedOf(shown) ? 'patient-status-tag patient-status-tag-ok' : 'patient-status-tag'}>
-                {ninVerifiedOf(shown) ? 'NIN verified' : 'NIN not verified'}</span>}
-            </div>
-          </div>
-          <span className="patient-eyebrow">Health ID</span><HealthIdCode code={shown.hid} />
-          {completion && <ProfileCompletionCard completion={completion} compact />}
-          <div className="patient-overview-actions">
-            {/* Share Records opens the share flow once the backend serves sharing; until then, Access and consent. */}
-            <Link className="patient-primary-button" to={share.served === true ? '/access/share' : '/access'}>Share Records</Link>
-            {savedHealth && <Link className="patient-secondary-button" to="/profile#health-information">Add Health Information</Link>}
-          </div>
-          <Link to="/profile">View profile →</Link></div>
-      : <div className="patient-card">No profile was returned.</div>}
+  const pending = (requests.error ? [] : list<AccessRequest>(requests.data)).filter(item => typeof item?.status === 'string' && item.status.toLowerCase() === 'pending')
+  const firstName = shown?.firstName?.trim() || shown?.fullName?.split(' ')[0] || ''
+  const shareTo = share.served === true ? '/access/share' : '/access'
+  const others = attention.filter(item => item.id !== 'requests' && item.id !== 'completion')
+  const steps = completion ? COMPLETION_ITEMS.filter(item => completion.done.some(d => d.key === item.key) || completion.missing.some(m => m.key === item.key)) : []
+  const checklist = completion && completion.percent < 100 ? CHECKLIST.filter(c => steps.some(item => item.key === c.key)) : []
+  const active = history.data && !history.error ? activeAccesses(history.data) : null
 
-    {shown && <div className="patient-overview-tiles" role="list" aria-label="Health summary">
-      {savedHealth && <>
-        <Tile label="Blood group" value={healthValue(savedHealth.bloodGroup, fromHid1?.content.blood_group, savedHealth)} />
-        <Tile label="Genotype" value={healthValue(savedHealth.genotype, fromHid1?.content.genotype, savedHealth)} />
-        <Tile label="Allergies" value={short(healthValue(savedHealth.allergies, fromHid1?.content.allergies, savedHealth))} />
-      </>}
-      <Tile label="Active accesses" value={history.data && !history.error ? String(activeAccesses(history.data)) : history.error ? 'Unavailable' : 'Loading…'} />
-    </div>}
+  if (profile.loading && !profile.data) return <PageSkeleton />
+  if (profile.error) return <div className="flex flex-col gap-6"><PageHeader title="Overview" titleRef={heading} />
+    <Alert intent="error" title="We couldn't load your Health ID" action={<Button size="sm" variant="primary" onClick={() => retryFocus.retry(profile.reload)}>Try again</Button>}>{profile.error}</Alert></div>
+  if (!shown) return <div className="flex flex-col gap-6"><PageHeader title="Overview" titleRef={heading} />
+    <EmptyState icon={IdCard} title="No profile was returned" description="Your Health ID could not be read. Sign out and in again, or contact support." /></div>
 
-    {shown && attention.length > 0 && <div className="patient-card patient-attention" aria-labelledby="overview-attention">
-      <h2 id="overview-attention">Attention required</h2>
-      <ul className="patient-attention-list">{attention.map(item => <li key={item.id}><Link to={item.to}>{item.text}<span aria-hidden="true"> →</span></Link></li>)}</ul>
-    </div>}
+  // One place for each thing: requests as alerts (the decision), profile gaps in the checklist, anything else as a note.
+  const notes = checklist.length > 0 ? others.filter(item => !checklist.some(c => ATTENTION_KEY[item.id] === c.key)) : others
+  const today = new Intl.DateTimeFormat('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Africa/Lagos' }).format(new Date())
 
-    {shown && <DashboardCard title="Recent activity" id="overview-activity" loading={notifications.loading || log.loading}
-      error={notifications.error} hasData={notifications.data !== null} retry={notifications.reload} retryName="recent activity">
-      {activity.length === 0 ? <p className="patient-empty">No recent activity yet.</p>
-        : <ul className="patient-list">{activity.map(row => <li key={row.id}><div><Link to={row.to}>{row.text}</Link>
-          <span><time dateTime={row.at}>{when(row.at, true)}</time></span></div></li>)}</ul>}
-    </DashboardCard>}
+  return <div className="flex flex-col gap-6">
+    <PageHeader titleRef={heading} eyebrow={today} title={`${greeting()}${firstName ? `, ${firstName}` : ''}`} />
 
-    {shown && <DashboardCard title="Recent provider contributions" id="overview-contributions" loading={records.loading} error={records.error}
-      hasData={records.data !== null} retry={records.reload} retryName="recent provider contributions">
-      {contributions.length === 0 ? <p className="patient-empty">Records your providers add will appear here.</p>
-        : <ul className="patient-list">{contributions.map(row => <li key={row.id}><div><strong>{row.title}</strong>
-          <span>{[row.kind, when(row.at, false)].filter(Boolean).join(' · ')}</span></div></li>)}</ul>}
-      <Link to="/records">See all your records →</Link>
-    </DashboardCard>}
+    {/* The Health ID card is first on a phone (it is what a front desk asks for), and heads the side column on a computer. */}
+    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:grid-rows-[auto_1fr]">
+      <HealthIdCard className="self-start lg:col-start-2 lg:row-start-1" name={shown.fullName} hid={shown.hid}
+        verified={typeof shown.ninVerified === 'boolean' ? ninVerifiedOf(shown) : null}
+        photo={<Avatar profile={shown} url={photo.url} size="medium" />} shareTo={shareTo} />
 
-    <div className="patient-overview-grid">
-      <Link className="patient-card patient-action-card" to="/records"><strong>Health records</strong><span>View completed encounters and signed clinical notes.</span><b>Open records →</b></Link>
-      <Link className="patient-card patient-action-card" to="/access"><strong>Access and consent</strong><span>Review access requests and see who has been granted access.</span><b>Manage access →</b></Link>
-      <Link className="patient-card patient-action-card" to="/notifications"><strong>Notifications</strong><span>See updates related to your account and access requests.</span><b>View notifications →</b></Link>
+      <div className="flex min-w-0 flex-col gap-6 lg:col-start-1 lg:row-span-2 lg:row-start-1">
+        {/* Each decision waiting for the patient, in words they act on (inverted pyramid). */}
+        {pending.map(item => <Alert key={item.accessRequestId} intent="warning" icon={ShieldAlert}
+          title={`${item.facilityName} wants to see your records`}
+          action={<Button to="/access" size="sm" variant="primary">Review</Button>}>
+          {item.reason ? `“${item.reason}”` : 'No reason given.'}{forHowLong(item.requestedDurationMinutes)} Nothing is shared until you approve.
+        </Alert>)}
+        {notes.map(item => <Alert key={item.id} intent="info" icon={ATTENTION_ICON[item.id]} title={item.text} action={<Button to={item.to} size="sm">Fix</Button>}>{ATTENTION_HINT[item.id]}</Alert>)}
+
+        {checklist.length > 0 && completion && <Card>
+          <CardHeader title="Finish your Health ID" description={`${completion.percent}% done · ${completion.missing.length} to go`} icon={IdCard} iconTone="brand" />
+          <div className="h-1 bg-tray" role="progressbar" aria-label="Health ID completion" aria-valuenow={completion.percent} aria-valuemin={0} aria-valuemax={100}><div className="h-full bg-brand" style={{ width: `${completion.percent}%` }} /></div>
+          <ul className="m-0 grid list-none gap-1.5 bg-tray p-1.5 sm:grid-cols-2">
+            {/* Only what is left: done steps are the progress bar's, not a list to read past. */}
+            {checklist.filter(c => !completion.done.some(d => d.key === c.key)).map(c =>
+              <li key={c.key}><Link to={c.to} className="flex h-full min-h-12 items-center gap-3 rounded-xl bg-surface px-4 py-3 no-underline ring-1 ring-line transition-shadow hover:shadow-[var(--shadow-card)]">
+                <CircleDashed className="size-5 shrink-0 text-ink-3" aria-hidden />
+                <span className="flex-1 text-[13px] font-medium text-ink">{c.label}</span>
+                <ChevronRight className="size-4 text-ink-3" aria-hidden />
+              </Link></li>)}
+          </ul>
+        </Card>}
+
+        <StatGroup label="Health summary">
+          {savedHealth && <>
+            <StatCard icon={BloodDrop as Icon} tone="danger" label="Blood group" value={healthValue(savedHealth.bloodGroup, fromHid1?.content.blood_group, savedHealth)} to="/profile#health-information" />
+            <StatCard icon={Dna as Icon} tone="violet" label="Genotype" value={healthValue(savedHealth.genotype, fromHid1?.content.genotype, savedHealth)} to="/profile#health-information" />
+            <StatCard icon={Allergies as Icon} tone="warn" label="Allergies" value={short(healthValue(savedHealth.allergies, fromHid1?.content.allergies, savedHealth), 24)} to="/profile#health-information" />
+          </>}
+          <StatCard icon={ShieldCheck} tone="success" label={active === 1 ? 'Facility with access' : 'Facilities with access'} value={active ?? (history.error ? '—' : '…')} to="/access" />
+        </StatGroup>
+
+        <Card aria-labelledby="overview-contributions" aria-busy={(records.loading && records.data !== null) || undefined}>
+          <CardHeader as="h2" titleId="overview-contributions" title="Latest from your providers" icon={MedicalRecords as Icon} iconTone="brand"
+            actions={<Button to="/records" size="sm" variant="ghost" iconRight={ArrowRight}>All records</Button>} />
+          {records.loading && !records.data ? <PageSkeletonRows />
+            : records.error ? <div className="p-5"><Alert intent="error" title="Couldn't load your records" action={<Button size="sm" onClick={() => void records.reload()}>Try again <ItemName>loading recent provider contributions</ItemName></Button>}>{records.error}</Alert></div>
+            : contributions.length === 0 ? <p className="m-0 px-5 py-6 text-[13px] text-ink-3">Visits and notes appear here once a provider signs them.</p>
+            : <ul className="m-0 list-none divide-y divide-line p-0">{contributions.map(row => <li key={row.id}>
+                <ListRow to="/records" leading={<IconChip size="sm" icon={row.kind === 'Clinical note' ? NotebookPen : Stethoscope} />}
+                  title={plain(row.title)} subtitle={[row.kind, when(row.at, false)].filter(Boolean).join(' · ')} trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li>)}</ul>}
+        </Card>
+      </div>
+
+      <Card className="self-start lg:col-start-2 lg:row-start-2" aria-labelledby="overview-activity" aria-busy={(notifications.loading && notifications.data !== null) || undefined}>
+        <CardHeader as="h2" titleId="overview-activity" title="Activity" icon={History} actions={<Button to="/notifications" size="sm" variant="ghost" iconRight={ArrowRight}>All</Button>} />
+        {notifications.error ? <div className="p-5"><Alert intent="error" title="Couldn't load activity" action={<Button size="sm" onClick={() => void notifications.reload()}>Try again <ItemName>loading recent activity</ItemName></Button>}>{notifications.error}</Alert></div>
+          : <Timeline items={activity.map(row => ({ id: row.id, text: row.text, when: timeAgo(row.at), to: row.to, tone: row.to === '/access' ? 'success' : undefined }))}
+              empty="When a facility asks for, opens or is given access, you'll see it here." />}
+      </Card>
     </div>
-  </section>
+  </div>
 }
 
-function Tile({ label, value }: { label: string; value: string }) {
-  return <div className="patient-card patient-tile" role="listitem"><span className="patient-tile-label">{label}</span><strong className="patient-tile-value">{value}</strong></div>
+/** The checklist's places: the profile items worth a tile, in the order a patient would do them. */
+const CHECKLIST: ReadonlyArray<{ key: CompletionKey; label: string; to: string }> = [
+  { key: 'nin', label: 'Verify your NIN', to: '/profile#nin-verification' },
+  { key: 'bloodGroup', label: 'Add your blood group', to: '/profile#health-information' },
+  { key: 'emergencyContact', label: 'Add an emergency contact', to: '/profile#emergency-contacts' },
+  { key: 'photo', label: 'Add a profile photo', to: '/profile#bio-data' },
+  { key: 'genotype', label: 'Add your genotype', to: '/profile#health-information' },
+  { key: 'hmo', label: 'Add your HMO', to: '/profile#coverage' },
+  { key: 'hospital', label: 'Name the hospital you use', to: '/profile#coverage' },
+  { key: 'phone', label: 'Add a phone number', to: '/profile#contact-details' },
+]
+
+const ATTENTION_KEY: Readonly<Record<string, CompletionKey>> = { nin: 'nin', 'emergency-contact': 'emergencyContact' }
+const ATTENTION_ICON: Readonly<Record<string, Icon>> = { requests: ShieldAlert, nin: BadgeCheck, completion: IdCard, 'emergency-contact': PhoneCall }
+const ATTENTION_HINT: Readonly<Record<string, string>> = {
+  requests: 'Approve or deny. Nothing is shared until you decide.',
+  nin: 'Links your record to your National Identity Number',
+  completion: 'A complete profile helps clinicians in an emergency',
+  'emergency-contact': 'Who we tell if your records are opened in an emergency',
+}
+
+function forHowLong(minutes: number | null | undefined) {
+  if (typeof minutes !== 'number' || !Number.isFinite(minutes) || minutes <= 0) return ''
+  const unit = (n: number, w: string) => ` For ${n} ${w}${n === 1 ? '' : 's'}.`
+  if (minutes % 1440 === 0) return unit(minutes / 1440, 'day')
+  if (minutes % 60 === 0 && minutes > 60) return unit(minutes / 60, 'hour')
+  return unit(minutes, 'minute')
+}
+
+const plain = (text: string) => { const t = text.replace(/[_-]+/g, ' ').trim(); return t.charAt(0).toUpperCase() + t.slice(1) }
+
+function PageSkeletonRows() {
+  return <div className="divide-y divide-line">{[0, 1, 2].map(i => <div key={i} className="flex items-center gap-4 px-5 py-4"><div className="size-8 animate-pulse rounded-full bg-hover" /><div className="flex-1 space-y-2"><div className="h-3.5 w-1/3 animate-pulse rounded-md bg-hover" /><div className="h-3 w-1/4 animate-pulse rounded-md bg-hover" /></div></div>)}</div>
 }

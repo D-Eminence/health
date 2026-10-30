@@ -1,14 +1,15 @@
-import { useCallback, type ReactNode } from 'react'
-import { Link } from 'react-router-dom'
+import { useCallback } from 'react'
 import { adminApi, type AdminActor, type CursorPage, type PlatformOverview } from './api'
 import { UNAVAILABLE_CAPABILITIES, canOpen, navigationItemFor, visibleNavigation } from './navigation'
-import { Page, Refresh, ResourceView, has, useResource, type Resource } from './ui'
+import { has, useResource, type Resource } from './ui'
+import { Blocks, Building2, ChevronRight, ClipboardCheck, FileCheck2, Megaphone, RefreshCw, ScanFace, Stethoscope, Users } from 'lucide-react'
+import { Alert, Button, Card, IconChip, ListRow, PageHeader, SectionHeader, StatCard, StatGroup, type Icon, type Tone } from '../kasuwa/ui'
 import { WrongPatientReportsTile } from './WrongPatientReports'
 
 const number = (value: number) => new Intl.NumberFormat('en-NG').format(value)
 
 /** `GET /admin/overview` totals, labelled as the backend defines them. */
-const TOTALS: ReadonlyArray<{ key: keyof PlatformOverview; title: string; link?: string }> = [
+export const TOTALS: ReadonlyArray<{ key: keyof PlatformOverview; title: string; link?: string }> = [
   { key: 'registeredPatients', title: 'Registered patients' },
   { key: 'facilities', title: 'Facilities', link: '/admin/facilities' },
   { key: 'verifiedFacilities', title: 'Verified facilities', link: '/admin/facilities?status=verified' },
@@ -27,52 +28,48 @@ function counted(page: CursorPage<unknown>) {
   return page.nextCursor ? `${number(page.items.length)}+` : number(page.items.length)
 }
 
-function AttentionTile<T>({ title, to, resource, children }: {
-  title: string; to: string; resource: Resource<T>; children: (value: T) => ReactNode
+/** A waiting-work row (paytrail's ListRow): the count, what it is, and the way to it. */
+function AttentionRow<T>({ title, to, icon, tone = 'brand', resource, children }: {
+  title: string; to: string; icon: Icon; tone?: Tone; resource: Resource<T>; children: (value: T) => { count: string; detail: string; urgent?: boolean }
 }) {
-  return <article className="admin-tile admin-attention">
-    <h3><Link to={to}>{title}</Link></h3>
-    {resource.loading ? <p role="status">Loading…</p>
-      : resource.error ? <p className="admin-error" role="alert">{resource.error}</p>
-        : resource.data !== null ? children(resource.data) : <p>No information was returned.</p>}
-  </article>
+  const shown = resource.data !== null && !resource.error ? children(resource.data) : null
+  return <li><ListRow to={to} leading={<IconChip size="sm" icon={icon} tone={tone} />}
+    title={<span className="flex items-baseline gap-2"><span>{title}</span>{shown && <span className={shown.urgent ? 'font-semibold text-danger-ink tabular' : 'font-semibold text-ink tabular'}>{shown.count}</span>}</span>}
+    subtitle={resource.loading && resource.data === null ? 'Loading…' : resource.error ? <span role="alert" className="text-danger-ink">{resource.error}</span> : shown?.detail ?? 'No information was returned.'}
+    trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li>
 }
 
 function PendingApprovals() {
   const load = useCallback((signal?: AbortSignal) => adminApi.approvals('pending', {}, signal), [])
   const resource = useResource(load, 'Approvals could not be loaded.')
-  return <AttentionTile title="Pending approvals" to="/admin/approvals" resource={resource}>{value =>
-    <p><strong className="admin-attention-count">{counted(value)}</strong> waiting for a second Super Admin</p>}
-  </AttentionTile>
+  return <AttentionRow title="Pending approvals" to="/admin/approvals" icon={ClipboardCheck} tone="violet" resource={resource}>{value =>
+    ({ count: counted(value), detail: 'Waiting for a second Super Admin', urgent: value.items.length > 0 })}</AttentionRow>
 }
 
 function OpenApplications() {
   const load = useCallback((signal?: AbortSignal) => adminApi.applications(undefined, signal), [])
   const resource = useResource(load, 'Applications could not be loaded.')
-  return <AttentionTile title="Organization applications" to="/admin/applications" resource={resource}>{value => {
+  return <AttentionRow title="Organization applications" to="/admin/applications" icon={FileCheck2} resource={resource}>{value => {
     const ready = value.items.filter(item => item.status === 'ready_for_review').length
     const verifying = value.items.filter(item => item.status === 'pending_verification').length
-    return <p><strong className="admin-attention-count">{number(ready)}</strong> ready for review ·{' '}
-      {number(verifying)} awaiting CAC verification</p>
-  }}</AttentionTile>
+    return { count: number(ready), detail: `Ready for review · ${number(verifying)} awaiting CAC verification` }
+  }}</AttentionRow>
 }
 
 function NewDemoRequests() {
   const load = useCallback((signal?: AbortSignal) => adminApi.demos({ status: 'new' }, { limit: ATTENTION_PAGE }, signal), [])
   const resource = useResource(load, 'Demo requests could not be loaded.')
-  return <AttentionTile title="New demo requests" to="/admin/demos?status=new" resource={resource}>{value =>
-    <p><strong className="admin-attention-count">{counted(value)}</strong> not yet contacted</p>}
-  </AttentionTile>
+  return <AttentionRow title="New demo requests" to="/admin/demos?status=new" icon={Megaphone} tone="info" resource={resource}>{value =>
+    ({ count: counted(value), detail: 'Not yet contacted' })}</AttentionRow>
 }
 
 function IntegrationHealth() {
   const resource = useResource(adminApi.integrations, 'Integrations could not be loaded.')
-  return <AttentionTile title="Integrations" to="/admin/integrations" resource={resource}>{value => {
+  return <AttentionRow title="Integrations" to="/admin/integrations" icon={Blocks} tone="success" resource={resource}>{value => {
     const failed = value.items.filter(item => item.health === 'failed').length
     const enabled = value.items.filter(item => item.enabled).length
-    return <p><strong className="admin-attention-count">{number(failed)}</strong> with a failed last test ·{' '}
-      {number(enabled)} of {number(value.items.length)} enabled</p>
-  }}</AttentionTile>
+    return { count: number(failed), detail: `With a failed last test · ${number(enabled)} of ${number(value.items.length)} enabled`, urgent: failed > 0 }
+  }}</AttentionRow>
 }
 
 /**
@@ -96,33 +93,38 @@ export function OverviewPage({ actor }: { actor: AdminActor }) {
     has(actor, 'platform.integration.read') && <IntegrationHealth key="integrations" />,
   ].filter(Boolean)
 
-  return <Page eyebrow="Platform" title="Overview" description="Current totals and the work waiting for administrators."
-    action={<Refresh onClick={totals.reload} disabled={totals.loading} />}>
-    <div className="admin-stack">
-      <section aria-labelledby="admin-totals-title">
-        <h2 id="admin-totals-title" className="admin-section-title">Platform totals</h2>
-        <ResourceView resource={totals}>{overview => <div className="admin-metric-grid">
-          {TOTALS.map(metric => <article className="admin-metric" key={metric.key}>
-            <span>{metric.link && opens(metric.link) ? <Link to={metric.link}>{metric.title}</Link> : metric.title}</span>
-            <strong>{number(overview[metric.key])}</strong>
-          </article>)}
-        </div>}</ResourceView>
-      </section>
-      {attention.length > 0 && <section aria-labelledby="admin-attention-title">
-        <h2 id="admin-attention-title" className="admin-section-title">Waiting for attention</h2>
-        <div className="admin-tile-grid">{attention}</div>
-      </section>}
-      <section aria-labelledby="admin-areas-title">
-        <h2 id="admin-areas-title" className="admin-section-title">Your areas</h2>
-        <ul className="admin-area-list">{areas.map(item => <li key={item.path}>
-          <Link to={item.path}>{item.title}</Link><span>{item.description}</span></li>)}</ul>
-      </section>
-      <section className="admin-panel" aria-labelledby="admin-unavailable-title">
-        <h2 id="admin-unavailable-title">Not available yet</h2>
-        <p className="admin-note">These capabilities have no backend support yet, so this console does not show them.</p>
-        <ul className="admin-area-list">{UNAVAILABLE_CAPABILITIES.map(item => <li key={item.title}>
-          <strong>{item.title}</strong><span>{item.detail}</span></li>)}</ul>
+  const t = totals.data
+  return <div className="flex flex-col gap-8">
+    <PageHeader title="Health ID overview" description="Every patient and facility on the platform, and the work waiting for administrators."
+      actions={<Button icon={RefreshCw} onClick={totals.reload} disabled={totals.loading}>Refresh</Button>} />
+    {totals.error && <Alert intent="error" title="The platform overview could not be loaded" action={<Button size="sm" onClick={totals.reload}>Try again</Button>}>{totals.error}</Alert>}
+    <section aria-labelledby="admin-totals-title" className="flex flex-col gap-3">
+      <h2 id="admin-totals-title" className="sr-only">Platform totals</h2>
+      <StatGroup>
+        <StatCard icon={Users} tone="brand" label="Registered patients" value={t ? number(t.registeredPatients) : '…'} hint="Health IDs issued" />
+        <StatCard icon={Building2} tone="info" label="Facilities" value={t ? number(t.facilities) : '…'} to={opens('/admin/facilities') ? '/admin/facilities' : undefined}
+          hint={t ? <>{number(t.verifiedFacilities)} verified · {t.suspendedFacilities ? <span className="text-danger-ink">{number(t.suspendedFacilities)} suspended</span> : 'none suspended'}</> : undefined} />
+        <StatCard icon={Stethoscope} tone="success" label="Active staff memberships" value={t ? number(t.activeStaffMemberships) : '…'} hint="Clinicians and staff at facilities" />
+        <StatCard icon={ScanFace} tone="warn" label="Pending identity reviews" value={t ? number(t.pendingIdentityReviews) : '…'} to={opens('/admin/reviews') ? '/admin/reviews' : undefined}
+          hint={t?.pendingIdentityReviews ? 'NIN matches to check' : 'Nothing to review'} />
+      </StatGroup>
+    </section>
+    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="flex min-w-0 flex-col gap-6">
+        {attention.length > 0 && <section aria-labelledby="admin-attention-title" className="flex flex-col gap-3">
+          <SectionHeader id="admin-attention-title" title="Waiting for attention" count={attention.length} />
+          <Card><ul className="m-0 list-none divide-y divide-line p-0">{attention}</ul></Card>
+        </section>}
+        <Alert intent="info" title="Not available yet" live={false}>
+          These capabilities have no backend support yet, so this console does not show them:{' '}
+          {UNAVAILABLE_CAPABILITIES.map(item => item.title).join(', ')}.
+        </Alert>
+      </div>
+      <section aria-labelledby="admin-areas-title" className="flex flex-col gap-3">
+        <SectionHeader id="admin-areas-title" title="Your areas" count={areas.length} />
+        <Card><ul className="m-0 list-none divide-y divide-line p-0">{areas.slice(0, 9).map(item => <li key={item.path}>
+          <ListRow to={item.path} title={item.title} subtitle={item.description} trailing={<ChevronRight className="size-4 text-ink-3" aria-hidden />} /></li>)}</ul></Card>
       </section>
     </div>
-  </Page>
+  </div>
 }

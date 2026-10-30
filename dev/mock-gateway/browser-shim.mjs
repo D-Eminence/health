@@ -84,6 +84,7 @@ function renderBar() {
       [data-mock-bar] button[aria-current="page"]{background:#f9fafb;color:#111827}
       [data-mock-bar] button:focus-visible{outline:2px solid #60a5fa;outline-offset:1px}
       [data-mock-bar] em{font-style:normal;color:#fbbf24;padding:0 10px 0 4px;cursor:help}
+      @media (max-width:900px){[data-mock-bar]{bottom:calc(84px + env(safe-area-inset-bottom,0px));right:8px;font-size:11px}[data-mock-bar] span{display:none}[data-mock-bar] button{padding:6px 10px}}
       @media print{[data-mock-bar]{display:none}}`
     document.head.appendChild(style)
     document.body.appendChild(bar)

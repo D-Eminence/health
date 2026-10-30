@@ -39,7 +39,9 @@ export function WorkspaceSearch({ pages }: { readonly pages: readonly EhrBluePag
   const found = pages.filter(page => !words || page.label.toLowerCase().includes(words) || page.group.toLowerCase().includes(words))
   const close = () => { setOpen(false); setQuery('') }
   return <>
-    <EhrButton variant="secondary" aria-keyshortcuts="Control+K Meta+K" onClick={() => setOpen(true)}>Search Health ID</EhrButton>
+    <EhrButton variant="secondary" icon={<EhrIcon name="search" />} aria-keyshortcuts="Control+K Meta+K" onClick={() => setOpen(true)}>
+      <span className="hid-ehr-blue-label">Search Health ID</span><kbd className="hid-ehr-blue-kbd" aria-hidden="true">Ctrl K</kbd>
+    </EhrButton>
     <EhrDrawer open={open} title="Search Health ID" onClose={close}>
       <EhrField label="Search work areas" hint="Patient and staff search is not connected yet: it finds the work areas you may open.">
         <EhrInput type="search" autoComplete="off" value={query} onChange={event => setQuery(event.target.value)} />
@@ -72,7 +74,7 @@ export function NotificationsButton() {
   return <>
     <EhrButton variant="secondary" icon={<EhrIcon name="bell" />} onClick={() => { setOpen(true); reload() }}
       aria-label={pending > 0 ? `Notifications, ${pending} pending` : 'Notifications'}>
-      Notifications{pending > 0 ? <span className="hid-ehr-blue-count" aria-hidden="true">{pending}</span> : null}
+      <span className="hid-ehr-blue-label">Notifications</span>{pending > 0 ? <span className="hid-ehr-blue-count" aria-hidden="true">{pending}</span> : null}
     </EhrButton>
     <EhrDrawer open={open} title="Notifications" onClose={() => setOpen(false)}>
       {read.state === 'none' ? <EhrEmptyState title="Nothing waiting" message="Access requests show here for roles that answer them." />

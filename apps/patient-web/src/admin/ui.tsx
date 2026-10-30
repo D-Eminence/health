@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { RefreshCw } from 'lucide-react'
+import { Button as KButton, PageHeader as KPageHeader } from '../kasuwa/ui'
 import { useSearchParams } from 'react-router-dom'
 import { newIdempotencyKey, type AdminActor, type CursorPage } from './api'
 import { failure } from './problems'
@@ -58,17 +60,15 @@ export function useResource<T>(load: (signal?: AbortSignal) => Promise<T>, error
 export function Page({ eyebrow, title, description, children, action }: {
   eyebrow: string; title: string; description: string; children: ReactNode; action?: ReactNode
 }) {
-  return <section className="admin-page">
-    <header className="admin-page-head">
-      <div><p className="admin-eyebrow">{eyebrow}</p><h1>{title}</h1><p>{description}</p></div>
-      {action}
-    </header>
+  // paytrail's PageHeader, with the area's section as a quiet overline above the title.
+  return <section className="admin-page flex flex-col gap-6">
+    <KPageHeader eyebrow={<p className="m-0 text-overline text-ink-3">{eyebrow}</p>} title={title} description={description} actions={action} />
     {children}
   </section>
 }
 
 export function Refresh({ onClick, disabled = false }: { onClick: () => void; disabled?: boolean }) {
-  return <button type="button" className="admin-secondary" onClick={onClick} disabled={disabled}>Refresh</button>
+  return <KButton icon={RefreshCw} onClick={onClick} disabled={disabled}>Refresh</KButton>
 }
 
 export function ResourceView<T>({ resource, empty, children }: {

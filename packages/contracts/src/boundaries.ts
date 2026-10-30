@@ -143,7 +143,7 @@ export const APP_ROUTE_GRANTS: Partial<Record<HidApp,
       'identity.shareInvitationConfirm'],
     access: ['access.patientRequests', 'access.approve', 'access.deny', 'access.revokeMyGrant'],
     // Imported history (#94) and patient record chat (#95, ADR-068) are patient-only routes.
-    ehr: ['ehr.myRecords', 'ehr.myImportedHistory', 'ehr.patientChatAvailability', 'ehr.patientChat', 'ehr.patientChatHistory',
+    ehr: ['ehr.myRecords', 'ehr.myPatientEntries', 'ehr.myImportedHistory', 'ehr.patientChatAvailability', 'ehr.patientChat', 'ehr.patientChatHistory',
       // Served by hid-system's staging branches, not main; off unless the build turns the screens on.
       'ehr.myImportedAttachment', 'ehr.patientChatSource',
       // The patient's orders sent to other facilities, and Stop before acceptance (P4c; Novu only, main answers 404).

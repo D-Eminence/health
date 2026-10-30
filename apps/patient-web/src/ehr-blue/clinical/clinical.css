@@ -340,30 +340,58 @@
 
 /* ---- Patient header -------------------------------------------------------- */
 
-/* Name, Health ID, age, sex and flags, in the design's meta-row style. */
+/*
+ * The patient banner (clinical safety): the same band on every chart page, so the right patient is confirmed at a glance
+ * before anything is read or saved. Name first and largest, then the Health ID and date of birth, the two identifiers.
+ */
 .hid-ehr .hid-ehr-clinical-patient {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas: 'avatar name flags' 'avatar facts flags';
   align-items: center;
-  gap: 8px 16px;
+  gap: 2px 14px;
   margin: 0 0 20px;
+  padding: 14px 18px;
+  border: 1px solid var(--ehr-line);
+  border-left: 4px solid var(--ehr-brand);
+  border-radius: 16px;
+  background: var(--ehr-surface);
+  box-shadow: 0 1px 2px #1018280a, 0 1px 3px #10182808;
+}
+
+.hid-ehr .hid-ehr-clinical-patient-avatar {
+  grid-area: avatar;
+  display: inline-grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--ehr-tint);
+  color: var(--ehr-brand-dark);
+  font-size: 15px;
+  font-weight: 700;
 }
 
 .hid-ehr .hid-ehr-clinical-patient-name {
+  grid-area: name;
   margin: 0;
-  font-size: 17px;
-  font-weight: 500;
-  line-height: 21px;
-  color: var(--ehr-text);
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 24px;
+  color: var(--ehr-ink);
 }
 
 .hid-ehr .hid-ehr-clinical-patient-facts {
+  grid-area: facts;
   display: flex;
   flex-wrap: wrap;
-  gap: 4px 16px;
+  gap: 2px 18px;
   margin: 0;
   padding: 0;
   list-style: none;
+  color: var(--ehr-ink);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
 }
 
 .hid-ehr .hid-ehr-clinical-patient-facts > li {
@@ -376,9 +404,23 @@
 }
 
 .hid-ehr .hid-ehr-clinical-patient-flags {
+  grid-area: flags;
   display: flex;
   flex-wrap: wrap;
+  justify-content: flex-end;
   gap: 8px;
+}
+
+@media (max-width: 700px) {
+  .hid-ehr .hid-ehr-clinical-patient {
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas: 'avatar name' 'facts facts' 'flags flags';
+    gap: 8px 12px;
+  }
+
+  .hid-ehr .hid-ehr-clinical-patient-flags {
+    justify-content: flex-start;
+  }
 }
 
 /* ---- Create form and inline action form ------------------------------------ */

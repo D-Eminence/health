@@ -9,75 +9,75 @@
  */
 export const ehrTokens = {
   // Core identity (brand.css).
-  brand: '#086dd9',
-  brandDark: '#075fbe',
-  tint: '#eaf4ff',
-  ink: '#0b1b2e',
-  muted: '#5b6b80',
+  brand: '#1570ef',
+  brandDark: '#175cd3',
+  tint: '#eff6ff',
+  ink: '#101828',
+  muted: '#475467',
   /** Borders and icons only, never text. */
-  faint: '#7b8a9c',
+  faint: '#98a2b3',
   surface: '#ffffff',
-  surfaceSunk: '#eef2f7',
-  surfaceTint: '#f4f7fb',
-  line: '#e3e9f0',
-  lineStrong: '#d7deea',
-  positive: '#12805c',
+  surfaceSunk: '#f2f4f7',
+  surfaceTint: '#f5f7fa',
+  line: '#eaecf0',
+  lineStrong: '#d0d5dd',
+  positive: '#067647',
   /** Fills and borders only, never text (4.27:1 on white). */
-  caution: '#b06a12',
-  critical: '#b3261e',
+  caution: '#dc6803',
+  critical: '#b42318',
 
   // Body text (base.css).
-  text: '#484f58',
+  text: '#344054',
 
   // Primary ramp and status colours (redesign.css).
-  primary50: '#eaf4ff',
+  primary50: '#eff6ff',
   primary100: '#d5e8fc',
   primary200: '#b7d8fb',
   primary300: '#8fc2f7',
   primary400: '#559fee',
-  primary500: '#086dd9',
-  primary600: '#075fbe',
+  primary500: '#1570ef',
+  primary600: '#175cd3',
   primary700: '#0855a7',
   primary800: '#084788',
   primary900: '#093769',
-  success50: '#edf8f1',
-  success600: '#146d3e',
-  warning50: '#fff8e9',
-  warning600: '#855b00',
-  danger50: '#fdf0ef',
+  success50: '#ecfdf3',
+  success600: '#067647',
+  warning50: '#fffaeb',
+  warning600: '#b54708',
+  danger50: '#fef3f2',
   danger300: '#d56c65',
-  dangerText: '#a9322d',
+  dangerText: '#b42318',
 
   // Warning banner (feedback.css) and the current module tab (application.css).
-  warningBannerSurface: '#fff7e6',
-  warningBannerText: '#94600c',
-  tabCurrentSurface: '#e7f1ff',
-  tabCurrentText: '#005dbd',
-  tabCurrentBorder: '#006fe6',
-  tabRule: '#dce4ed',
+  warningBannerSurface: '#fffaeb',
+  warningBannerText: '#b54708',
+  tabCurrentSurface: '#eff6ff',
+  tabCurrentText: '#175cd3',
+  tabCurrentBorder: '#1570ef',
+  tabRule: '#eaecf0',
 
   // The design's exact values (owner decision): both are below WCAG contrast, by design.
   /** A control's border, as the design draws it: 1.70:1 on white (WCAG 1.4.11 asks 3:1). */
-  controlBorder: '#c6c6cc',
+  controlBorder: '#d0d5dd',
   /** Sidebar group headings, as the design draws them: 4.39:1 on surface-tint (WCAG 1.4.3 asks 4.5:1). */
-  navGroupText: '#63758b',
+  navGroupText: '#667085',
 
   // Shape and depth.
-  radiusMd: '6px',
-  radiusLg: '6px',
-  radiusXl: '8px',
-  radius2xl: '8px',
-  radiusOverlay: '16px',
-  shadowLg: '0 12px 35px #0000001f',
+  radiusMd: '10px',
+  radiusLg: '12px',
+  radiusXl: '16px',
+  radius2xl: '16px',
+  radiusOverlay: '20px',
+  shadowLg: '0 12px 24px -6px #10182824, 0 4px 8px -4px #1018280f',
 
   // Type.
-  fontBody: 'Geist, Inter, Arial, sans-serif',
-  fontDisplay: "'Playfair Display', Georgia, serif",
+  fontBody: "'Figtree Variable', Figtree, ui-sans-serif, system-ui, sans-serif",
+  fontDisplay: "'Figtree Variable', Figtree, ui-sans-serif, system-ui, sans-serif",
   textMd: '14px',
   leadingMd: '21px',
   textSm: '12px',
-  headingMd: '40px',
-  headingSm: '30px',
+  headingMd: '30px',
+  headingSm: '24px',
   trackingTight: '-0.035em',
 
   // Motion (feedback.css).
@@ -92,15 +92,15 @@ export const ehrTokens = {
   zSkipLink: '300',
 
   // Overlays and focus.
-  scrim: '#0b1b2e66',
+  scrim: '#10182873',
   drawerWidth: 'min(680px, 95vw)',
-  focusRingColor: '#086dd9',
+  focusRingColor: '#1570ef',
   focusRingWidth: '3px',
   focusRingOffset: '3px',
 
   // Layout.
-  sidebarWidth: '247px',
-  sidebarCollapsedWidth: '60px',
+  sidebarWidth: '264px',
+  sidebarCollapsedWidth: '64px',
   topbarHeight: '76px',
   topbarHeightPhone: '64px',
 } as const

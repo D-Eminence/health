@@ -1,17 +1,23 @@
 /** Shared text formats for the clinical workspaces, as the design prints them. */
 
-/** "10/26/2026, 12:41:13 PM", the design's date and time; '' when the value is missing or not a date. */
+/*
+ * Clinical safety: a date is never written all in numbers. "3/4/1991" is 4 March in Lagos and 3 April in an American
+ * template; "4 Mar 1991" is one day everywhere. Times use the 24-hour clock, as wards do.
+ */
+const DAY: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short', year: 'numeric' }
+
+/** "26 Oct 2026, 12:41"; '' when the value is missing or not a date. */
 export function formatWhen(value: string | null | undefined): string {
   if (!value) return ''
   const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? '' : date.toLocaleString('en-US')
+  return Number.isNaN(date.getTime()) ? '' : date.toLocaleString('en-GB', { ...DAY, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
 }
 
-/** "10/26/2026", for a date of birth or a date-only value. Date-only strings are read as calendar dates. */
+/** "26 Oct 2026", for a date of birth or a date-only value. Date-only strings are read as calendar dates. */
 export function formatDate(value: string | null | undefined): string {
   if (!value) return ''
   const day = /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(`${value}T00:00:00`) : new Date(value)
-  return Number.isNaN(day.getTime()) ? '' : day.toLocaleDateString('en-US')
+  return Number.isNaN(day.getTime()) ? '' : day.toLocaleDateString('en-GB', DAY)
 }
 
 /** The short reference under a record's name: the first eight characters of its id. */

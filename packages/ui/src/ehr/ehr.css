@@ -26,60 +26,60 @@
 }
 
 .hid-ehr {
-  --ehr-brand: #086dd9;
-  --ehr-brand-dark: #075fbe;
-  --ehr-tint: #eaf4ff;
-  --ehr-ink: #0b1b2e;
-  --ehr-muted: #5b6b80;
-  --ehr-faint: #7b8a9c;
+  --ehr-brand: #1570ef;
+  --ehr-brand-dark: #175cd3;
+  --ehr-tint: #eff6ff;
+  --ehr-ink: #101828;
+  --ehr-muted: #475467;
+  --ehr-faint: #98a2b3;
   --ehr-surface: #ffffff;
-  --ehr-surface-sunk: #eef2f7;
-  --ehr-surface-tint: #f4f7fb;
-  --ehr-line: #e3e9f0;
-  --ehr-line-strong: #d7deea;
-  --ehr-positive: #12805c;
-  --ehr-caution: #b06a12;
-  --ehr-critical: #b3261e;
-  --ehr-text: #484f58;
-  --ehr-primary-50: #eaf4ff;
+  --ehr-surface-sunk: #f2f4f7;
+  --ehr-surface-tint: #f5f7fa;
+  --ehr-line: #eaecf0;
+  --ehr-line-strong: #d0d5dd;
+  --ehr-positive: #067647;
+  --ehr-caution: #dc6803;
+  --ehr-critical: #b42318;
+  --ehr-text: #344054;
+  --ehr-primary-50: #eff6ff;
   --ehr-primary-100: #d5e8fc;
   --ehr-primary-200: #b7d8fb;
   --ehr-primary-300: #8fc2f7;
   --ehr-primary-400: #559fee;
-  --ehr-primary-500: #086dd9;
-  --ehr-primary-600: #075fbe;
+  --ehr-primary-500: #1570ef;
+  --ehr-primary-600: #175cd3;
   --ehr-primary-700: #0855a7;
   --ehr-primary-800: #084788;
   --ehr-primary-900: #093769;
-  --ehr-success-50: #edf8f1;
-  --ehr-success-600: #146d3e;
-  --ehr-warning-50: #fff8e9;
-  --ehr-warning-600: #855b00;
-  --ehr-danger-50: #fdf0ef;
+  --ehr-success-50: #ecfdf3;
+  --ehr-success-600: #067647;
+  --ehr-warning-50: #fffaeb;
+  --ehr-warning-600: #b54708;
+  --ehr-danger-50: #fef3f2;
   --ehr-danger-300: #d56c65;
-  --ehr-danger-text: #a9322d;
-  --ehr-warning-banner-surface: #fff7e6;
-  --ehr-warning-banner-text: #94600c;
-  --ehr-tab-current-surface: #e7f1ff;
-  --ehr-tab-current-text: #005dbd;
-  --ehr-tab-current-border: #006fe6;
-  --ehr-tab-rule: #dce4ed;
+  --ehr-danger-text: #b42318;
+  --ehr-warning-banner-surface: #fffaeb;
+  --ehr-warning-banner-text: #b54708;
+  --ehr-tab-current-surface: #eff6ff;
+  --ehr-tab-current-text: #175cd3;
+  --ehr-tab-current-border: #1570ef;
+  --ehr-tab-rule: #eaecf0;
   /* The design's exact values (owner decision), both below WCAG contrast by design: one token each. */
-  --ehr-control-border: #c6c6cc;
-  --ehr-nav-group-text: #63758b;
-  --ehr-radius-md: 6px;
-  --ehr-radius-lg: 6px;
-  --ehr-radius-xl: 8px;
-  --ehr-radius-2xl: 8px;
-  --ehr-radius-overlay: 16px;
-  --ehr-shadow-lg: 0 12px 35px #0000001f;
-  --ehr-font-body: Geist, Inter, Arial, sans-serif;
-  --ehr-font-display: 'Playfair Display', Georgia, serif;
+  --ehr-control-border: #d0d5dd;
+  --ehr-nav-group-text: #667085;
+  --ehr-radius-md: 10px;
+  --ehr-radius-lg: 12px;
+  --ehr-radius-xl: 16px;
+  --ehr-radius-2xl: 16px;
+  --ehr-radius-overlay: 20px;
+  --ehr-shadow-lg: 0 12px 24px -6px #10182824, 0 4px 8px -4px #1018280f;
+  --ehr-font-body: 'Figtree Variable', Figtree, ui-sans-serif, system-ui, sans-serif;
+  --ehr-font-display: 'Figtree Variable', Figtree, ui-sans-serif, system-ui, sans-serif;
   --ehr-text-md: 14px;
   --ehr-leading-md: 21px;
   --ehr-text-sm: 12px;
-  --ehr-heading-md: 40px;
-  --ehr-heading-sm: 30px;
+  --ehr-heading-md: 30px;
+  --ehr-heading-sm: 24px;
   --ehr-tracking-tight: -0.035em;
   --ehr-modal-open: 250ms;
   --ehr-modal-close: 150ms;
@@ -89,13 +89,13 @@
   --ehr-z-popover: 110;
   --ehr-z-overlay: 200;
   --ehr-z-skip-link: 300;
-  --ehr-scrim: #0b1b2e66;
+  --ehr-scrim: #10182873;
   --ehr-drawer-width: min(680px, 95vw);
-  --ehr-focus-ring-color: #086dd9;
+  --ehr-focus-ring-color: #1570ef;
   --ehr-focus-ring-width: 3px;
   --ehr-focus-ring-offset: 3px;
-  --ehr-sidebar-width: 247px;
-  --ehr-sidebar-collapsed-width: 60px;
+  --ehr-sidebar-width: 264px;
+  --ehr-sidebar-collapsed-width: 64px;
   --ehr-topbar-height: 76px;
   --ehr-topbar-height-phone: 64px;
 
@@ -125,7 +125,7 @@
 .hid-ehr.hid-ehr-shell {
   isolation: isolate;
   min-height: 100vh;
-  background: var(--ehr-surface);
+  background: var(--ehr-surface-tint);
 }
 
 .hid-ehr .hid-ehr-workspace {
@@ -145,7 +145,7 @@
   box-sizing: border-box;
   flex: 1;
   padding: 32px 32px 48px;
-  background: var(--ehr-surface);
+  background: var(--ehr-surface-tint);
 }
 
 .hid-ehr .hid-ehr-main:focus {
@@ -185,8 +185,8 @@
   width: var(--ehr-sidebar-width);
   height: 100vh;
   padding: 0 12px;
-  background: var(--ehr-surface-tint);
-  border-right: 1px solid #ededed;
+  background: var(--ehr-surface);
+  border-right: 1px solid var(--ehr-line);
   color: var(--ehr-muted);
 }
 
@@ -244,9 +244,9 @@
   width: 100%;
   min-height: 36px;
   margin: 12px 0 2px;
-  padding: 11px;
+  padding: 8px 12px;
   border: 0;
-  border-radius: 5px;
+  border-radius: 10px;
   background: transparent;
   color: var(--ehr-nav-group-text);
   font: inherit;
@@ -259,7 +259,7 @@
 }
 
 .hid-ehr .hid-ehr-nav-group-toggle:hover {
-  background: #f0f0f0;
+  background: var(--ehr-surface-sunk);
 }
 
 .hid-ehr .hid-ehr-nav-group-sign {
@@ -276,25 +276,31 @@
   width: 100%;
   min-height: 40px;
   margin: 2px 0;
-  padding: 11px;
-  border-radius: 5px;
+  padding: 10px 12px;
+  border-radius: 12px;
   background: transparent;
   color: var(--ehr-muted);
-  font-size: 13px;
+  font-size: 14px;
+  font-weight: 500;
   line-height: 18px;
   text-decoration: none;
   transition: background-color var(--ehr-modal-close) var(--ehr-ease);
 }
 
 .hid-ehr .hid-ehr-nav-link:hover {
-  background: #f0f0f0;
+  background: var(--ehr-surface-sunk);
+  color: var(--ehr-ink);
 }
 
 .hid-ehr .hid-ehr-nav-link[aria-current='page'] {
   background: var(--ehr-tint);
   color: var(--ehr-brand-dark);
-  font-weight: 500;
+  font-weight: 600;
 }
+
+.hid-ehr .hid-ehr-nav-link .hid-ehr-nav-icon { color: var(--ehr-faint); }
+.hid-ehr .hid-ehr-nav-link:hover .hid-ehr-nav-icon { color: var(--ehr-muted); }
+.hid-ehr .hid-ehr-nav-link[aria-current='page'] .hid-ehr-nav-icon { color: var(--ehr-brand); }
 
 .hid-ehr .hid-ehr-nav-icon {
   display: inline-flex;
@@ -311,8 +317,8 @@
 
 .hid-ehr .hid-ehr-sidebar-footer {
   flex-shrink: 0;
-  padding: 16px 0;
-  border-top: 1px solid #eaeaea;
+  padding: 12px 0;
+  border-top: 1px solid var(--ehr-line);
 }
 
 .hid-ehr .hid-ehr-sidebar-toggle {
@@ -321,19 +327,19 @@
   align-items: center;
   gap: 12px;
   width: 100%;
-  padding: 10px;
+  padding: 10px 12px;
   border: 0;
-  border-radius: 5px;
+  border-radius: 10px;
   background: transparent;
   color: var(--ehr-muted);
   font: inherit;
-  font-size: 11px;
+  font-size: 12px;
   text-align: left;
   cursor: pointer;
 }
 
 .hid-ehr .hid-ehr-sidebar-toggle:hover {
-  background: #f0f0f0;
+  background: var(--ehr-surface-sunk);
 }
 
 .hid-ehr .hid-ehr-sidebar-collapsed .hid-ehr-sidebar-toggle {
@@ -382,8 +388,10 @@
   gap: 12px;
   height: var(--ehr-topbar-height);
   padding: 0 32px;
-  background: var(--ehr-surface);
-  border-bottom: 1px solid #efefef;
+  background: color-mix(in srgb, var(--ehr-surface-tint) 86%, transparent);
+  -webkit-backdrop-filter: saturate(1.4) blur(12px);
+  backdrop-filter: saturate(1.4) blur(12px);
+  border-bottom: 1px solid var(--ehr-line);
 }
 
 .hid-ehr .hid-ehr-topbar-start {
@@ -414,8 +422,8 @@
   justify-content: space-between;
   gap: 20px;
   margin: 0 0 24px;
-  padding-bottom: 24px;
-  border-bottom: 1px solid #ececec;
+  padding-bottom: 0;
+  border-bottom: 0;
 }
 
 .hid-ehr .hid-ehr-page-heading-text {
@@ -423,9 +431,10 @@
 }
 
 .hid-ehr .hid-ehr-page-eyebrow {
-  margin: 0 0 4px;
-  color: var(--ehr-text);
-  font-size: 13px;
+  margin: 0 0 6px;
+  color: var(--ehr-nav-group-text);
+  font-size: 11px;
+  font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
@@ -434,9 +443,9 @@
   margin: 0;
   font-family: var(--ehr-font-display);
   font-size: var(--ehr-heading-md);
-  font-weight: 400;
-  line-height: 1.15;
-  letter-spacing: -0.04em;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
   white-space: normal;
   color: var(--ehr-ink);
 }
@@ -487,9 +496,10 @@
 }
 
 .hid-ehr .hid-ehr-button.hid-ehr-button-secondary {
-  border-color: var(--ehr-line);
+  border-color: var(--ehr-line-strong);
   background: var(--ehr-surface);
   color: var(--ehr-ink);
+  box-shadow: 0 1px 2px #1018280d;
 }
 
 .hid-ehr .hid-ehr-button.hid-ehr-button-secondary:hover:not(:disabled):not([aria-busy='true']) {
@@ -632,9 +642,10 @@
   box-sizing: border-box;
   min-width: 0;
   padding: 20px;
-  border: 0.5px solid #e7e7e7;
+  border: 1px solid var(--ehr-line);
   border-radius: var(--ehr-radius-xl);
   background: var(--ehr-surface);
+  box-shadow: 0 1px 2px #1018280a, 0 1px 3px #10182808;
 }
 
 /* The design sets every button inside a card at 12px (redesign.css: .hid-card .hid-button). */
@@ -652,8 +663,8 @@
 
 .hid-ehr .hid-ehr-card-title {
   margin: 0;
-  font-size: 17px;
-  font-weight: 500;
+  font-size: 16px;
+  font-weight: 600;
   line-height: 1.4;
   color: var(--ehr-ink);
 }
@@ -969,25 +980,58 @@
 /* ---- Empty, error and loading states -------------------------------------- */
 
 .hid-ehr .hid-ehr-empty-state {
-  padding: 36px 20px;
-  border: 1px dashed var(--ehr-line-strong);
-  border-radius: 12px;
+  display: grid;
+  justify-items: center;
+  padding: 40px 24px;
+  border: 1px solid var(--ehr-line);
+  border-radius: 16px;
+  background: var(--ehr-surface);
   color: var(--ehr-muted);
   text-align: center;
 }
 
+/* A quiet emblem above the words: what is empty, at a glance. */
+.hid-ehr .hid-ehr-empty-state::before {
+  content: '';
+  width: 48px;
+  height: 48px;
+  margin-bottom: 14px;
+  border-radius: 14px;
+  background: var(--ehr-tint) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='22' height='22' fill='none' stroke='%23086dd9' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round' viewBox='0 0 24 24'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m20 20-3.5-3.5'/%3E%3C/svg%3E") no-repeat center;
+}
+
 .hid-ehr .hid-ehr-state-title {
   margin: 0;
-  font-weight: 500;
+  font-size: 16px;
+  font-weight: 600;
   color: var(--ehr-ink);
 }
 
 .hid-ehr .hid-ehr-state-message {
+  max-width: 52ch;
   margin: 6px 0 0;
+  line-height: 1.55;
 }
 
 .hid-ehr .hid-ehr-state-action {
-  margin-top: 16px;
+  margin-top: 18px;
+}
+
+/* The way out of an empty state is the page's main action: a button, not a small link. */
+.hid-ehr .hid-ehr-state-action > a:not(.hid-ehr-button) {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  padding: 10px 16px;
+  border-radius: var(--ehr-radius-md);
+  background: var(--ehr-brand);
+  color: #ffffff;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.hid-ehr .hid-ehr-state-action > a:not(.hid-ehr-button):hover {
+  background: var(--ehr-brand-dark);
 }
 
 .hid-ehr .hid-ehr-error-state {

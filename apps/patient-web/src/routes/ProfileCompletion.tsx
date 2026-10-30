@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { ChevronRight, CircleCheck, CircleDashed, ListChecks } from 'lucide-react'
 import type { ProfileCompletion } from './profileCompletion'
 import { ItemName } from '../ItemName'
 
@@ -17,13 +18,18 @@ export function ProfileCompletionCard({ completion, compact = false }: { complet
       {missing.length > 0 && <Link to="/profile#profile-completion">See what is missing <ItemName>from your profile</ItemName></Link>}
     </div>
   }
-  return <div className="patient-card patient-completion" id="profile-completion">
-    <h2 tabIndex={-1}>Profile completion</h2>
-    <p className="patient-completion-figure"><strong>{percent}%</strong> complete</p>
-    {bar}
-    {missing.length === 0 ? <p className="patient-field-hint">Your profile is complete.</p> : <>
-      <p className="patient-field-hint">Still to add:</p>
-      <ul className="patient-completion-missing">{missing.map(item => <li key={item.key}><Link to={item.href}>{item.label}</Link></li>)}</ul>
-    </>}
-  </div>
+  return <section className="overflow-hidden rounded-2xl bg-surface shadow-[var(--shadow-card)] ring-1 ring-line" id="profile-completion" aria-labelledby="profile-completion-title">
+    <div className="flex items-center gap-3 px-5 pt-4 pb-3">
+      <span className={`inline-flex size-9 shrink-0 items-center justify-center rounded-full ${percent === 100 ? 'bg-success-soft text-success-ink' : 'bg-brand-soft text-brand-ink'}`}>
+        {percent === 100 ? <CircleCheck className="size-[18px]" aria-hidden /> : <ListChecks className="size-[18px]" aria-hidden />}</span>
+      <div className="min-w-0 flex-1">
+        <h2 id="profile-completion-title" tabIndex={-1} className="m-0 text-title-3 text-ink">{percent === 100 ? 'Profile complete' : 'Finish your profile'}</h2>
+        <p className="m-0 text-[13px] text-ink-3"><span className="tabular font-medium text-ink">{percent}%</span>{missing.length > 0 ? ` · ${missing.length} to add` : ' · nothing left to add'}</p>
+      </div>
+    </div>
+    <div className="mx-5 mb-4 h-1.5 overflow-hidden rounded-full bg-tray" aria-hidden="true"><div className={`h-full rounded-full ${percent === 100 ? 'bg-success' : 'bg-brand'}`} style={{ width: `${percent}%` }} /></div>
+    {missing.length > 0 && <ul className="m-0 list-none divide-y divide-line border-t border-line p-0">{missing.map(item => <li key={item.key}>
+      <Link to={item.href} className="flex min-h-11 items-center gap-3 px-5 py-2.5 text-[13px] font-medium text-ink no-underline hover:bg-subtle">
+        <CircleDashed className="size-4 shrink-0 text-ink-3" aria-hidden /><span className="flex-1">{item.label}</span><ChevronRight className="size-4 text-ink-3" aria-hidden /></Link></li>)}</ul>}
+  </section>
 }

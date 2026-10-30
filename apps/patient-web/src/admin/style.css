@@ -437,3 +437,66 @@
 .admin-flag-text { display: block; margin-top: 3px; color: #7a4b00; font-size: 11px; }
 .admin-table tr[data-flagged] td:first-child { box-shadow: inset 3px 0 0 #b45309; }
 .admin-note-content { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* ==========================================================================
+   Rebuild: paytrail's Kasuwa look for every admin page (source of truth:
+   paytrail components/ui.js and document-list.js). Unlayered, after the rules
+   above, so it wins without touching each page.
+   ========================================================================== */
+.admin-main { width: auto; min-height: 0; margin: 0; padding: 0; }
+.admin-page { gap: 24px; }
+
+/* Cards: white on the canvas, a hairline ring, the card shadow, 16px corners. */
+.admin-panel, .admin-filters, .admin-state, .admin-message, .admin-dialog, .admin-auth-card, .admin-tile {
+  border: 1px solid var(--color-line);
+  border-radius: 16px;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-card);
+}
+.admin-panel-head { border-bottom: 1px solid var(--color-line); }
+.admin-panel h2, .admin-panel h3, .admin-panel-head h2 { font-size: 15px; font-weight: 600; letter-spacing: 0; color: var(--color-ink); }
+.admin-note, .admin-hint, .admin-panel-head p { color: var(--color-ink-3); font-size: 13px; }
+
+/* Tables (paytrail's list): a subtle header row, hairline dividers, rows that answer the pointer. */
+.admin-table-scroll { border: 1px solid var(--color-line); border-radius: 16px; box-shadow: var(--shadow-card); }
+.admin-table { font-size: 14px; }
+.admin-table thead { background: var(--color-subtle); }
+.admin-table th { padding: 10px 20px; border-bottom: 1px solid var(--color-line); color: var(--color-ink-3); font-size: 12px; font-weight: 500; letter-spacing: 0; text-transform: none; }
+.admin-table td { padding: 14px 20px; border-bottom: 1px solid var(--color-line); color: var(--color-ink-2); }
+.admin-table td strong { color: var(--color-ink); font-weight: 600; }
+.admin-table td small { color: var(--color-ink-3); font-size: 12px; }
+.admin-table tbody tr { transition: background-color 120ms; }
+.admin-table tbody tr:hover { background: var(--color-subtle); }
+
+/* Buttons: paytrail's primary gradient and its white secondary. */
+.admin-primary, .admin-secondary { display: inline-flex; min-height: 40px; align-items: center; justify-content: center; gap: 8px; padding: 0 16px; border: 0; border-radius: 10px; font-size: 14px; font-weight: 500; cursor: pointer; }
+.admin-primary { background-image: linear-gradient(180deg, color-mix(in srgb, var(--color-brand) 78%, white) 0%, var(--color-brand) 100%); color: #fff;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), 0 1px 2px rgba(16, 24, 40, 0.12), 0 0 0 1px color-mix(in srgb, var(--color-brand) 85%, black); }
+.admin-primary:hover:not(:disabled) { background-image: linear-gradient(180deg, var(--color-brand) 0%, var(--color-brand-hover) 100%); }
+.admin-secondary { background: var(--color-surface); color: var(--color-ink); box-shadow: inset 0 0 0 1px var(--color-line-strong), var(--shadow-xs); }
+.admin-secondary:hover:not(:disabled) { background: var(--color-subtle); }
+.admin-link, .admin-action summary, .admin-inline-links a { color: var(--color-brand-ink); font-weight: 500; }
+
+/* Fields: paytrail's control. */
+.admin-app input:not([type='checkbox']):not([type='radio']), .admin-page input:not([type='checkbox']):not([type='radio']),
+.admin-page select, .admin-page textarea, .admin-dialog input, .admin-dialog select, .admin-dialog textarea {
+  min-height: 40px; border: 0; border-radius: 10px; background: var(--color-surface); color: var(--color-ink); font: inherit; font-size: 14px;
+  box-shadow: inset 0 0 0 1px var(--color-line-strong), var(--shadow-xs);
+}
+.admin-page input:focus, .admin-page select:focus, .admin-page textarea:focus, .admin-dialog input:focus { outline: none; box-shadow: inset 0 0 0 1px var(--color-brand), var(--shadow-focus); }
+.admin-page label, .admin-filters label { color: var(--color-ink-2); font-size: 13px; font-weight: 500; }
+
+/* Status pills: paytrail's Badge (6px corners, soft tone fills). */
+.admin-status { display: inline-flex; height: 24px; align-items: center; gap: 6px; padding: 0 8px; border: 0; border-radius: 6px; font-size: 11px; font-weight: 600; box-shadow: inset 0 0 0 1px currentColor; }
+.admin-status::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.admin-status[data-state='available'] { background: var(--color-success-soft); color: var(--color-success-ink); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-success) 25%, transparent); }
+.admin-status[data-state='degraded'] { background: var(--color-warn-soft); color: var(--color-warn-ink); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-warn) 30%, transparent); }
+.admin-status[data-state='unavailable'] { background: var(--color-danger-soft); color: var(--color-danger-ink); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-danger) 25%, transparent); }
+
+/* Notices: paytrail's Alert, a neutral surface with the intent on the words. */
+.admin-error, .admin-warning { padding: 12px 16px; border: 1px solid var(--color-notice-line); border-radius: 10px; background: var(--color-notice); font-size: 13.5px; }
+.admin-error { color: var(--color-intent-error); }
+.admin-warning { color: var(--color-intent-warning); }
+/* Words wrap at their breaks; only long identifiers (codes, ids) may break anywhere. */
+.admin-table td { overflow-wrap: break-word; word-break: normal; }
+.admin-table td :is(code, small) { overflow-wrap: anywhere; }

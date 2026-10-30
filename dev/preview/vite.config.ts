@@ -24,13 +24,25 @@ function mockGatewayShim(): Plugin {
   }
 }
 
-export default defineConfig(env => {
+// PREVIEW_SINGLE=1 inlines every script, style and font into one index.html, so a
+// hosted preview updates with a single file (the live redesign preview does this).
+const single = process.env.PREVIEW_SINGLE === '1'
+
+export default defineConfig(async env => {
   const base = typeof portalConfig === 'function' ? portalConfig(env) : portalConfig
-  return mergeConfig(base, {
+  const merged = mergeConfig(base, {
     root: fileURLToPath(new URL('../../apps/patient-web', import.meta.url)),
     base: './',
     envDir: fileURLToPath(new URL('.', import.meta.url)),
     plugins: [mockGatewayShim()],
     build: { outDir: fileURLToPath(new URL('./dist', import.meta.url)), emptyOutDir: true },
   })
+  if (!single) return merged
+  const { viteSingleFile } = await import('vite-plugin-singlefile')
+  // One file means one chunk: the portal's vendor split has to go.
+  const output = merged.build?.rollupOptions?.output
+  if (output && !Array.isArray(output)) delete output.manualChunks
+  merged.plugins = [...(merged.plugins ?? []), viteSingleFile({ removeViteModuleLoader: true })]
+  merged.build = { ...merged.build, assetsInlineLimit: 100_000_000, chunkSizeWarningLimit: 100_000 }
+  return merged
 })

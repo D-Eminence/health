@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { Link, Navigate, NavLink, Route, Routes, useLocation } from 'react-router-dom'
+import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom'
+import { Activity, BadgeCheck, Blocks, Building2, CircleDollarSign, ClipboardCheck, FileCheck2, Gauge, KeyRound, LayoutDashboard, Lock, Megaphone, PhoneOff, Route as RouteIcon, ScanFace, ScrollText, ShieldCheck, SlidersHorizontal, Stethoscope, TriangleAlert, UserPlus, UserSearch, Users } from 'lucide-react'
+import { AppShell } from '../kasuwa/AppShell'
+import { Badge, type Icon } from '../kasuwa/ui'
 import { isHidApiError } from '@hid/http'
 import {
   adminApi, adminSessionAccount, closeAdminSession, setAdminSessionAccount, type AdminActor, type AdminSession,
@@ -269,29 +272,24 @@ export function App() {
 
   return (
     <StepUpProvider>
-      <div className="admin-app">
-        <a className="admin-skip" href="#admin-main">Skip to content</a>
-        <aside className="admin-sidebar" aria-label="Platform administration">
-          <div className="admin-brand"><BrandLogo /><small>Platform</small></div>
-          <nav className="admin-nav" aria-label="Platform areas">
-            {sections.map(section => <div className="admin-nav-section" key={section.title}>
-              <p className="admin-nav-heading">{section.title}</p>
-              <ul>{section.items.map(item => <li key={item.path}>
-                <NavLink to={item.path} className={({ isActive }) => `admin-nav-link${isActive ? ' active' : ''}`}>
-                  {item.title}
-                </NavLink></li>)}</ul>
-            </div>)}
-          </nav>
-          <div className="admin-sidebar-footer"><span>{actor.displayName || actor.email || 'Platform administrator'}</span>
-            <button type="button" disabled={signingOut} onClick={() => void signOut()}>Sign out</button></div>
-        </aside>
-        <div className="admin-main-wrap">
-          <header className="admin-mobile-header"><Link to="/admin/overview" className="admin-mobile-logo"><BrandLogo /><span>Platform</span></Link>
-            <button type="button" disabled={signingOut} onClick={() => void signOut()}>Sign out</button></header>
-          <nav className="admin-mobile-nav" aria-label="Platform areas">
-            {sections.flatMap(section => section.items).map(item => <NavLink key={item.path} to={item.path}>{item.title}</NavLink>)}
-          </nav>
-          <main id="admin-main" className="admin-main">
+      <AppShell
+        brand={<Link to="/admin/overview" aria-label="Health ID platform home" className="inline-flex items-center gap-2.5 no-underline"><BrandLogo className="h-7 w-auto" /><Badge tone="violet" size="sm">Admin</Badge></Link>}
+        switcher={{ name: 'Health ID platform', subtitle: actor.platformRoles.map(role => role.replace(/^platform_/, '').replace(/_/g, ' ')).join(', ') || 'Administrator',
+          avatar: <span aria-hidden="true" className="inline-flex size-9 shrink-0 items-center justify-center rounded-lg bg-violet text-white"><ShieldCheck className="size-5" /></span> }}
+        nav={sections.map(section => ({ title: section.title === 'Platform' ? undefined : section.title,
+          items: section.items.map(item => ({ to: item.path, label: item.title, icon: ADMIN_ICONS[item.path] ?? LayoutDashboard })) }))}
+        person={{ name: actor.displayName || actor.email || 'Platform administrator', detail: actor.email || 'Platform', profileTo: has(actor, 'platform.admin.access') ? '/admin/security' : undefined }}
+        onSignOut={() => void signOut()}
+        signingOut={signingOut}
+        headerStart={<Link to="/admin/overview" aria-label="Health ID platform home" className="inline-flex items-center gap-2 no-underline lg:hidden"><BrandLogo className="h-7 w-auto" /><Badge tone="violet" size="sm">Admin</Badge></Link>}
+        tabs={[{ to: '/admin/overview', label: 'Overview', icon: LayoutDashboard }, { to: '/admin/facilities', label: 'Facilities', icon: Building2 }, { to: '/admin/audit', label: 'Audit', icon: ScrollText }]}
+        create={{ label: 'Find or review', items: [
+          { to: '/admin/principals', label: 'Find a user', hint: 'Accounts, roles and sessions', icon: UserSearch, main: true },
+          { to: '/admin/applications', label: 'Review applications', hint: 'Organizations waiting for approval', icon: FileCheck2 },
+          { to: '/admin/reviews', label: 'Identity reviews', hint: 'NIN matches to check', icon: ScanFace },
+          { to: '/admin/approvals', label: 'Approvals', hint: 'Two-person grants and resets', icon: KeyRound },
+        ] }}>
+          <div id="admin-main" className="admin-main">
             <SessionWarning />
             {signOutError ? <p role="alert" className="admin-error">{signOutError}</p> : null}
             <Routes>
@@ -319,12 +317,22 @@ export function App() {
               <Route path="demos" element={<Area path="/admin/demos" actor={actor}><DemosPage actor={actor} /></Area>} />
               <Route path="*" element={<NotFound />} />
             </Routes>
-          </main>
-        </div>
-      </div>
+          </div>
+      </AppShell>
     </StepUpProvider>
   )
 }
+
+/** Each platform area's icon, by path. */
+const ADMIN_ICONS: Readonly<Record<string, Icon>> = {
+  '/admin/overview': LayoutDashboard, '/admin/applications': FileCheck2, '/admin/self-service-facilities': UserPlus,
+  '/admin/facilities': Building2, '/admin/order-routes': RouteIcon, '/admin/wrong-patient-reports': TriangleAlert,
+  '/admin/principals': Users, '/admin/emergency-contacts': PhoneOff, '/admin/approvals': ClipboardCheck,
+  '/admin/reviews': ScanFace, '/admin/clinicians': Stethoscope, '/admin/audit': ScrollText, '/admin/security': Lock,
+  '/admin/operations': Activity, '/admin/integrations': Blocks, '/admin/controls': SlidersHorizontal,
+  '/admin/pricing': CircleDollarSign, '/admin/demos': Megaphone,
+}
+void BadgeCheck; void Gauge
 
 /** Warn before the idle or absolute expiry the server last reported. */
 export const SESSION_WARNING_MS = 2 * 60_000
