@@ -171,6 +171,9 @@ describe('before Health ID support’s check', () => {
     expect(within(card).getByText('Complete this field.')).toBeTruthy()
     await waitFor(() => expect(document.activeElement).toBe(number))
     expect(number.getAttribute('aria-invalid')).toBe('true')
+    expect(number.id).toBe('ehr-staff-own-licence-number')
+    expect(body.id).toBe('ehr-staff-own-licence-body')
+    expect(document.getElementById(number.getAttribute('aria-describedby')!)?.textContent).toBe('Complete this field.')
     fireEvent.change(number, { target: { value: 'rn/' } })
     fireEvent.click(within(card).getByRole('button', { name: 'Save licence' }))
     expect(within(card).getByText('Enter the NMCN licence number as it is on the licence: letters, digits, spaces, slashes, dots '

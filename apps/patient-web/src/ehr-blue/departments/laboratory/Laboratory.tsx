@@ -143,9 +143,9 @@ export function Laboratory() {
       </div>
     } },
     { id: 'status', header: 'Status', cell: item => <EhrBadge>{workStatus(item)}</EhrBadge> },
-    { id: 'updated', header: 'Updated', cell: item => dateText(item.acceptedAt) },
+    { id: 'updated', header: 'Updated', cell: item => <span className="hid-ehr-dept-nowrap">{dateText(item.acceptedAt)}</span> },
     { id: 'actions', header: <span className="hid-ehr-sr-only">Actions</span>, cell: item => <div className="hid-ehr-dept-table-actions">
-      <EhrButton variant="secondary" size="sm" aria-describedby={`lab-${item.id}-record`} onClick={() => setQuickId(item.id)}>Quick view</EhrButton>
+      <EhrButton variant="secondary" aria-describedby={`lab-${item.id}-record`} onClick={() => setQuickId(item.id)}>Quick view</EhrButton>
       <DeptLinkButton describedBy={`lab-${item.id}-record`} onClick={() => open(item)}>Open <span aria-hidden="true">→</span></DeptLinkButton>
     </div> },
   ]

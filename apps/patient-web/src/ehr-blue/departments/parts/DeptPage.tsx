@@ -12,8 +12,6 @@ export interface DeptPageProps {
   /** A detail or form view's way back to its list: "Back to list" beside the title. */
   readonly onBack?: () => void
   readonly backLabel?: string
-  /** Module tabs or anything else above the heading. */
-  readonly above?: ReactNode
   readonly children?: ReactNode
   readonly className?: string
 }
@@ -24,11 +22,10 @@ export interface DeptPageProps {
  * its sections. The frame supplies the shell; this is the content of its main.
  */
 export function DeptPage({ eyebrow, title, description, primaryAction, secondaryActions, onBack, backLabel = 'Back to list',
-  above, children, className }: DeptPageProps) {
+  children, className }: DeptPageProps) {
   const back = onBack ? <EhrButton variant="secondary" onClick={onBack}>{backLabel}</EhrButton> : undefined
   return (
     <div className={['hid-ehr-dept', className].filter(Boolean).join(' ')}>
-      {above}
       {eyebrow ? <p className="hid-ehr-dept-eyebrow">{eyebrow}</p> : null}
       <EhrPageHeading
         className={eyebrow ? 'hid-ehr-dept-heading-after-eyebrow' : undefined}

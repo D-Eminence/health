@@ -1,10 +1,15 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
-import { actionButtons, guardBrowser, heading, renderSample, SAMPLE_TEXT, savedFacts, statusBadge, where } from './sampleHarness'
+import { Route, Routes } from 'react-router-dom'
+import { useSiblingPages } from '../../../../ehr-blue/departments/parts/sample/navigation'
+import { renderDept } from '../harness'
+import {
+  actionButtons, guardBrowser, heading, noticeUnderHeading, renderSample, SAMPLE_TEXT, savedFacts, statusBadge, where,
+} from './sampleHarness'
 
 /*
  * The sample workspaces' engine (parts/sample), through real definitions: the design's list, create form, record
- * view, actions, Quick view and module tabs, all in the page's memory. All data is fictional.
+ * view, actions, Quick view and links to the pages beside them, all in the page's memory. All data is fictional.
  */
 
 const touched = vi.hoisted(() => [] as string[])
@@ -38,12 +43,13 @@ function type(name: string | RegExp, value: string, role: 'textbox' | 'spinbutto
 }
 
 describe('the list', () => {
-  it('shows the sample notice, the title with its two actions, the search and the rows, as the design does', () => {
+  it('shows the title with "Create record", the sample notice under it, the search and the rows, as the design does', () => {
     renderSample('patient-billing')
-    expect(screen.getByRole('note').textContent).toBe(SAMPLE_TEXT)
     expect(heading().textContent).toBe('Patient billing')
+    noticeUnderHeading()
     const heads = heading().closest('.hid-ehr-page-heading')!
-    expect(within(heads as HTMLElement).getAllByRole('button').map(button => button.textContent)).toEqual(['Create record', 'Export filtered records'])
+    // A sample hands out no file: the design's "Export filtered records" is left out.
+    expect(within(heads as HTMLElement).getAllByRole('button').map(button => button.textContent)).toEqual(['Create record'])
     const search = screen.getByRole('searchbox', { name: 'Search Patient billing' })
     expect(search.getAttribute('placeholder')).toBe('Search saved records…')
     expect(screen.getAllByRole('columnheader').map(cell => cell.textContent)).toEqual(['Record', 'Patient / context', 'Status', 'Updated', 'Actions'])
@@ -76,7 +82,7 @@ describe('the list', () => {
     expect(screen.getByRole('button', { name: 'DEMO-1' })).toBeDefined()
     expect(screen.queryByRole('button', { name: 'DEMO-2' })).toBeNull()
 
-    fireEvent.change(search, { target: { value: 'HID-ZDEMAAC4' } })
+    fireEvent.change(search, { target: { value: 'HID-DEMO-003' } })
     expect(screen.getByRole('button', { name: 'DEMO-3' })).toBeDefined()
 
     fireEvent.change(search, { target: { value: 'nothing like this' } })
@@ -90,6 +96,17 @@ describe('the list', () => {
     expect(document.activeElement).toBe(search)
     expect(screen.getAllByRole('row')).toHaveLength(4)
     expect(screen.queryByRole('button', { name: 'Clear search' })).toBeNull()
+  })
+
+  it('opens Quick view in a drawer with the sample notice first, in its exact words', () => {
+    renderSample('policies')
+    fireEvent.click(within(row('POL-DEMO')).getByRole('button', { name: 'Quick view' }))
+    const drawer = screen.getByRole('dialog', { name: 'Record quick view' })
+    const notice = within(drawer).getByRole('note')
+    expect(notice.textContent).toBe(SAMPLE_TEXT)
+    expect(drawer.querySelector('.hid-ehr-drawer-body')?.firstElementChild).toBe(notice)
+    expect(notice.compareDocumentPosition(within(drawer).getByRole('heading', { level: 3, name: 'POL-DEMO' })) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy()
   })
 
   it('opens Quick view in a drawer with the record\'s values, moves focus in, and gives it back on Escape', () => {
@@ -130,61 +147,17 @@ describe('the list', () => {
     expect(document.activeElement).toBe(heading())
   })
 
-  describe('export', () => {
-    const created: Blob[] = []
-    const revoked: string[] = []
-    const originals = { create: URL.createObjectURL, revoke: URL.revokeObjectURL }
-    beforeEach(() => {
-      created.length = 0
-      revoked.length = 0
-      URL.createObjectURL = (blob: Blob) => { created.push(blob); return `blob:sample/${created.length}` }
-      URL.revokeObjectURL = (url: string) => { revoked.push(url) }
-    })
-    afterEach(() => {
-      URL.createObjectURL = originals.create
-      URL.revokeObjectURL = originals.revoke
-    })
-
-    it('downloads the filtered fictional rows as a CSV made on the page, and lets the object URL go', async () => {
-      const clicks: HTMLAnchorElement[] = []
-      vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) { clicks.push(this) })
-      renderSample('patient-billing')
-      fireEvent.change(screen.getByRole('searchbox', { name: 'Search Patient billing' }), { target: { value: 'Patient Two' } })
-      fireEvent.click(screen.getByRole('button', { name: 'Export filtered records' }))
-
-      expect(clicks).toHaveLength(1)
-      expect(clicks[0]!.download).toBe('health-id-sample-billing.csv')
-      expect(clicks[0]!.getAttribute('href')).toBe('blob:sample/1')
-      expect(clicks[0]!.isConnected).toBe(false)
-      const text = await created[0]!.text()
-      const lines = text.trim().split('\r\n')
-      expect(lines[0]).toBe('Record,Reference,Patient / context,Status,Updated,Service charge,Service quantity,Unique charge reference (order / service ID)')
-      expect(lines).toHaveLength(2)
-      expect(lines[1]).toBe('DEMO-2,c0eaed9b,Patient Two,issued,2026-10-26T11:41:16.100Z,General consultation,1,SERVICE-002')
-      await waitFor(() => expect(revoked).toEqual(['blob:sample/1']))
-      const status = screen.getByRole('status')
-      expect(status.textContent).toBe('Exported 1 record.')
-      // The same result again is a new node in the live region, so it is announced again.
-      const said = status.firstElementChild
-      fireEvent.click(screen.getByRole('button', { name: 'Export filtered records' }))
-      expect(status.textContent).toBe('Exported 1 record.')
-      expect(status.firstElementChild).not.toBe(said)
-      expect(said?.isConnected).toBe(false)
-    })
-
-    it('never lets a value start a spreadsheet formula', async () => {
-      vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
-      renderSample('services')
-      fireEvent.click(screen.getByRole('button', { name: 'Create record' }))
-      type(/Service name/, '=SUM(A1)')
-      type(/Price/, '10', 'spinbutton')
-      fireEvent.click(screen.getByRole('button', { name: 'Save record' }))
-      fireEvent.click(screen.getByRole('button', { name: 'Back to list' }))
-      fireEvent.click(screen.getByRole('button', { name: 'Export filtered records' }))
-      const text = await created[0]!.text()
-      expect(text).toContain('\'=SUM(A1)')
-      expect(text).not.toMatch(/(^|,)=SUM/m)
-    })
+  it('hands out no file: no export, no receipt download, and Print stays', () => {
+    const made = vi.spyOn(URL, 'createObjectURL')
+    const clicked = vi.spyOn(HTMLAnchorElement.prototype, 'click')
+    renderSample('patient-billing')
+    expect(screen.queryByRole('button', { name: /Export|Download/ })).toBeNull()
+    openRecord('DEMO-1')
+    expect(screen.queryByRole('button', { name: /Export|Download|receipt/i })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Print' })).toBeDefined()
+    expect(document.querySelector('a[download]')).toBeNull()
+    expect(made).not.toHaveBeenCalled()
+    expect(clicked).not.toHaveBeenCalled()
   })
 })
 
@@ -194,14 +167,14 @@ describe('the create form', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Create record' }))
     expect(heading().textContent).toBe('New patient billing')
     expect(document.activeElement).toBe(heading())
-    expect(screen.getByRole('note').textContent).toBe(SAMPLE_TEXT)
+    noticeUnderHeading()
     expect(screen.getByRole('button', { name: 'Back to list' })).toBeDefined()
     const patient = screen.getByRole('combobox', { name: 'Patient' }) as HTMLSelectElement
     expect(patient.labels?.[0]?.textContent).toBe('Patient *')
     expect(patient.labels?.[0]?.querySelector('[aria-hidden="true"]')?.textContent).toBe(' *')
     expect([...patient.options].map(option => option.textContent)).toEqual([
-      'Select registered patient', 'Patient One · HID-ZDEMAAA2', 'Patient Two · HID-ZDEMAAB3', 'Patient Three · HID-ZDEMAAC4',
-      'Patient Four · HID-ZDEMAAD5', 'Patient Five · HID-ZDEMAAE6',
+      'Select registered patient', 'Patient One · HID-DEMO-001', 'Patient Two · HID-DEMO-002', 'Patient Three · HID-DEMO-003',
+      'Patient Four · HID-DEMO-004', 'Patient Five · HID-DEMO-005',
     ])
     expect(screen.queryByRole('button', { name: 'Save record' })).toBeNull()
 
@@ -236,7 +209,7 @@ describe('the create form', () => {
 
     expect(heading().textContent).toBe('DEMO-4')
     expect(document.activeElement).toBe(heading())
-    expect(screen.getByText('Patient Two · HID-ZDEMAAB3')).toBeDefined()
+    expect(screen.getByText('Patient Two · HID-DEMO-002')).toBeDefined()
     expect(statusBadge()).toBe('draft')
     expect(savedFacts()).toEqual({
       Service: 'Specialist consultation', Quantity: '2', Source: 'SERVICE-009', Number: 'DEMO-4', 'Unit Cents': '1500000',
@@ -270,12 +243,12 @@ describe('the record view', () => {
     renderSample('patient-billing')
     openRecord('DEMO-3')
     expect(document.activeElement).toBe(heading())
-    expect(screen.getByRole('note').textContent).toBe(SAMPLE_TEXT)
+    const notice = noticeUnderHeading()
     const context = document.querySelector('.hid-ehr-dept-context')!
-    expect(context.textContent).toBe(`draftPatient Three · HID-ZDEMAAC4Saved ${new Date('2026-10-26T11:41:16.000Z').toLocaleString()}`)
+    expect(notice.nextElementSibling).toBe(context)
+    expect(context.textContent).toBe(`draftPatient Three · HID-DEMO-003Saved ${new Date('2026-10-26T11:41:16.000Z').toLocaleString()}`)
     expect(savedFacts()).toMatchObject({ Service: 'General consultation', Quantity: '1', Source: 'SERVICE-003', Number: 'DEMO-3' })
     expect(screen.getByText('Totals above are integer minor currency units (cents / kobo). All payments are fictional.')).toBeDefined()
-    expect(screen.getByRole('button', { name: 'Download invoice / receipts' })).toBeDefined()
     expect(screen.getByRole('button', { name: 'Print' })).toBeDefined()
     expect(actionButtons().map(button => button.textContent)).toEqual(['Issue invoice', 'Void invoice'])
     expect(actionButtons().every(button => button.getAttribute('aria-expanded') === 'false')).toBe(true)
@@ -644,51 +617,35 @@ describe('Edit record', () => {
   })
 })
 
-describe('module tabs', () => {
-  it('links Stock and Procurement by the current route and moves between them in the app', () => {
-    renderSample('supply')
-    const nav = screen.getByRole('navigation', { name: 'Supply' })
-    const stock = within(nav).getByRole('link', { name: 'Stock' })
-    const procurement = within(nav).getByRole('link', { name: 'Procurement' })
-    expect(stock.getAttribute('aria-current')).toBe('page')
-    expect(stock.getAttribute('href')).toBe('/ehr/supply')
-    expect(procurement.getAttribute('href')).toBe('/ehr/procurement')
-    expect(procurement.hasAttribute('aria-current')).toBe(false)
-    // The notice comes first, above the tabs.
-    expect(screen.getByRole('note').compareDocumentPosition(nav) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-
-    fireEvent.click(procurement)
-    expect(where()).toBe('/ehr/procurement')
-    expect(heading().textContent).toBe('Procurement')
-    expect(within(screen.getByRole('navigation', { name: 'Supply' })).getByRole('link', { name: 'Procurement' }).getAttribute('aria-current')).toBe('page')
-    expect(screen.getByRole('button', { name: 'Stock request' })).toBeDefined()
+describe('an address below the page', () => {
+  it('opens the list even when the rest names one of its own records: the id is never looked up', async () => {
+    renderSample('insurance/2a6f15aa-7c8d-4e9f-9a0b-9e8f1a2b3c29')
+    expect(heading().textContent).toBe('Insurance & Claims')
+    expect(screen.queryByRole('heading', { name: 'Saved record' })).toBeNull()
+    noticeUnderHeading()
+    await waitFor(() => expect(where()).toBe('/ehr/insurance'))
+    expect(heading().textContent).toBe('Insurance & Claims')
+    expect(within(screen.getByRole('table')).getAllByRole('row')).toHaveLength(4)
   })
+})
 
-  it('shows Claims | Policies on every view, and its own tab goes back to the list', () => {
+describe('the pages beside it', () => {
+  it('lists a claim\'s connected records and chooses among the patient\'s own invoices and policies', () => {
     renderSample('insurance')
     openRecord('2a6f15aa')
-    const nav = screen.getByRole('navigation', { name: 'Insurance & Claims' })
-    expect(within(nav).getAllByRole('link').map(link => link.textContent)).toEqual(['Claims', 'Policies'])
     const history = screen.getByRole('heading', { name: 'Connected hospital history' }).closest('section')!
-    expect(within(history).getAllByRole('link').map(link => link.textContent)).toEqual(['Patient billing · DEMO-2', 'Policies · POL-DEMO'])
+    const links = within(history).getAllByRole('link')
+    expect(links.map(link => link.textContent)).toEqual(['Patient billing · DEMO-2', 'Policies · POL-DEMO'])
+    expect(links.map(link => link.getAttribute('href'))).toEqual(['/ehr/patient-billing', '/ehr/policies'])
 
-    fireEvent.click(within(nav).getByRole('link', { name: 'Claims' }))
-    expect(heading().textContent).toBe('Insurance & Claims')
-    expect(where()).toBe('/ehr/insurance')
-
+    fireEvent.click(screen.getByRole('button', { name: 'Back to list' }))
     fireEvent.click(screen.getByRole('button', { name: 'Create record' }))
     expect(heading().textContent).toBe('New insurance & claims')
-    expect(screen.getByRole('navigation', { name: 'Insurance & Claims' })).toBeDefined()
     choose('Patient', 'sample-patient-2')
-    // A claim chooses among the patient's own invoices and policies.
     const invoice = screen.getByRole('combobox', { name: 'Invoice' }) as HTMLSelectElement
     expect([...invoice.options].map(option => option.textContent)).toEqual(['Select…', 'DEMO-2 · issued · c0eaed'])
     const policy = screen.getByRole('combobox', { name: 'Patient policy' }) as HTMLSelectElement
     expect([...policy.options].map(option => option.textContent)).toEqual(['Select…', 'POL-DEMO · active · b85705'])
-
-    fireEvent.click(within(screen.getByRole('navigation', { name: 'Insurance & Claims' })).getByRole('link', { name: 'Policies' }))
-    expect(where()).toBe('/ehr/policies')
-    expect(heading().textContent).toBe('Policies')
   })
 
   it('follows a connected record to its workspace', () => {
@@ -698,12 +655,30 @@ describe('module tabs', () => {
     expect(where()).toBe('/ehr/patient-billing')
     expect(heading().textContent).toBe('Patient billing')
   })
+
+  it('links the pages beside it from its own base, also at an address below it', () => {
+    function Links() {
+      const { href, follow } = useSiblingPages('policies')
+      return <a href={href('patient-billing')} onClick={event => follow('patient-billing', event)}>Patient billing</a>
+    }
+    renderDept(
+      <Routes>
+        <Route path="/ehr/policies/*" element={<Links />} />
+        <Route path="/ehr/patient-billing" element={<h1>Patient billing</h1>} />
+      </Routes>,
+      { route: '/ehr/policies/5a200001/edit' },
+    )
+    const link = screen.getByRole('link', { name: 'Patient billing' })
+    expect(link.getAttribute('href')).toBe('/ehr/patient-billing')
+    fireEvent.click(link)
+    expect(heading().textContent).toBe('Patient billing')
+  })
 })
 
 describe('keyboard', () => {
   it('reaches every control as a native button or field', () => {
     renderSample('patient-billing')
-    for (const name of ['Create record', 'Export filtered records', 'DEMO-1']) {
+    for (const name of ['Create record', 'DEMO-1']) {
       const button = screen.getByRole('button', { name })
       expect(button.tagName).toBe('BUTTON')
       expect(button.getAttribute('type')).toBe('button')

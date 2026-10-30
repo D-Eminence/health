@@ -1,8 +1,9 @@
-import { useId, useState, type ReactNode } from 'react'
+import { useId, useState } from 'react'
 import { EhrBadge, EhrButton } from '@hid/ui/ehr'
 import { DeptPage, DeptSection } from '../DeptPage'
 import { DeptActions, DeptFacts, DeptHistory, DeptRecordLayout } from '../DeptRecord'
 import { dateText } from '../format'
+import { SampleBanner } from '../SampleBanner'
 import { SampleForm, type SampleConfirm } from './SampleForm'
 import { useSiblingPages } from './navigation'
 import {
@@ -10,9 +11,10 @@ import {
 } from './model'
 
 export interface SampleDetailProps {
+  /** The page's own path without '/*' ('insurance'), where its connected records' pages are found beside it. */
+  readonly base: string
   readonly definition: SampleDefinition
   readonly record: SampleRecord
-  readonly above: ReactNode
   readonly onBack: () => void
   /** Records the action; a refusal in plain words keeps its form open with it. */
   readonly onAct: (record: SampleRecord, action: SampleAction, values: SampleValues) => string | undefined
@@ -39,15 +41,16 @@ function confirmFor(action: SampleAction): SampleConfirm | undefined {
 }
 
 /**
- * The design's record view: the record's name with "Back to list"; its status, patient and when it was saved; "Saved
- * record" beside "Available actions" (each action the record's status allows, its form under the actions once
- * chosen); "Connected hospital history" on a record about a patient; and "Preserved versions & amendments".
+ * The design's record view: the record's name with "Back to list", and the sample notice under it; its status, patient
+ * and when it was saved; "Saved record" beside "Available actions" (each action the record's status allows, its form
+ * under the actions once chosen); "Connected hospital history" on a record about a patient; and "Preserved versions &
+ * amendments".
  *
  * "Edit record" is the design's "Edit unsigned draft" pattern (as on HR & Credentials): a button in "Saved record"
  * while the record is still in the status it was created in, opening the fields there with "Save changes"; each edit
  * keeps the version before.
  */
-export function SampleDetail({ definition, record, above, onBack, onAct, onEdit, focus, savedHeadingId }: SampleDetailProps) {
+export function SampleDetail({ base, definition, record, onBack, onAct, onEdit, focus, savedHeadingId }: SampleDetailProps) {
   const uid = useId()
   const formId = `${uid}-action-form`
   const editToggleId = `${uid}-edit-toggle`
@@ -55,7 +58,7 @@ export function SampleDetail({ definition, record, above, onBack, onAct, onEdit,
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
   const editable = record.status === definition.initial
-  const { href, follow } = useSiblingPages()
+  const { href, follow } = useSiblingPages(base)
   const patient = samplePatient(record.patientId)
   const available = definition.actions.filter(action => action.from.includes(record.status))
   const selected = available.find(action => action.id === selectedId)
@@ -71,7 +74,8 @@ export function SampleDetail({ definition, record, above, onBack, onAct, onEdit,
   }
 
   return (
-    <DeptPage title={recordName(record)} above={above} onBack={onBack}>
+    <DeptPage title={recordName(record)} onBack={onBack}>
+      <SampleBanner />
       <div className="hid-ehr-dept-context">
         <EhrBadge>{record.status}</EhrBadge>
         {patient ? <span className="hid-ehr-dept-context-item">{patientLine(patient)}</span> : null}

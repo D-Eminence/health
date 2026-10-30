@@ -1,16 +1,11 @@
 import {
-  above, QUANTITY_TEXT, recordOptions, wholeAbove, type SampleBatch, type SampleDefinition, type SampleRecord, type SampleTabs, type SampleValues,
+  above, QUANTITY_TEXT, recordOptions, wholeAbove, type SampleBatch, type SampleDefinition, type SampleRecord, type SampleValues,
 } from '../parts/sample/model'
 
 /*
  * Sample definitions: Stock and Procurement, the design's Supply module. Fields, actions and statuses follow the
  * design's catalogue; every row is fictional.
  */
-
-const SUPPLY_TABS: SampleTabs = {
-  label: 'Supply',
-  tabs: [{ id: 'inventory', label: 'Stock', path: 'supply' }, { id: 'procurement', label: 'Procurement' }],
-}
 
 const reason = { key: 'reason', label: 'Reason', type: 'textarea' } as const
 
@@ -56,7 +51,6 @@ export const inventorySample: SampleDefinition = {
   id: 'inventory',
   title: 'Stock',
   initial: 'active',
-  tabs: SUPPLY_TABS,
   fields: [
     { key: 'name', label: 'Item name' },
     { key: 'category', label: 'Category', options: ['Medication', 'Consumable', 'Equipment'] },
@@ -135,7 +129,6 @@ export const procurementSample: SampleDefinition = {
   id: 'procurement',
   title: 'Procurement',
   initial: 'requested',
-  tabs: SUPPLY_TABS,
   fields: [
     { key: 'item', label: 'Inventory item', options: () => recordOptions(STOCK_ROWS) },
     { key: 'quantity', label: 'Base units requested', type: 'number' },

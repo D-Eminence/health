@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { isHidApiError } from '@hid/http'
 import { toast } from '@hid/ui'
-import { EhrInput, EhrSelect } from '@hid/ui/ehr'
+import { EhrField, EhrInput, EhrSelect } from '@hid/ui/ehr'
 import { facilityStaffApi } from '../../../staff/api'
 import { useFocusById } from '../../../staff/focus'
 import { normalizePersonName, personNameProblem } from '../../../staff/routes/Staff'
@@ -12,7 +12,7 @@ import {
 import { DeptSection } from '../parts/DeptPage'
 import { DeptNotice } from '../parts/DeptNotice'
 import type { StaffShared } from './shared'
-import { fieldAria, FormFooter, StaffCheck, StaffField, StaffPassword } from './StaffFields'
+import { FormFooter, RequiredLabel, StaffCheck, StaffPassword } from './StaffFields'
 import {
   attestationText, deliveryNotice, EMAIL, EMAIL_PROBLEM, holders, licenceNumberProblem, REQUIRED, type StaffNotice,
 } from './staffText'
@@ -30,19 +30,18 @@ export function RoleFields({ idPrefix, roleLabelText, roles, role, onRole, numbe
 }) {
   const body = licenceBodyForRole(role)
   return <>
-    <StaffField id={`${idPrefix}-role`} label={roleLabelText} required error={errors.role}>
-      <EhrSelect id={`${idPrefix}-role`} value={role} required {...fieldAria(`${idPrefix}-role`, { error: errors.role })}
-        onChange={event => onRole(event.target.value)}>
+    <EhrField controlId={`${idPrefix}-role`} label={<RequiredLabel>{roleLabelText}</RequiredLabel>} error={errors.role}>
+      <EhrSelect value={role} required onChange={event => onRole(event.target.value)}>
         <option value="">Select…</option>
         {roles.map(option => <option key={option.code} value={option.code}>{roleLabel(option.code)}</option>)}
       </EhrSelect>
-    </StaffField>
+    </EhrField>
     {body ? (
-      <StaffField id={`${idPrefix}-licence`} label="Licence number" required error={errors.number}
+      <EhrField controlId={`${idPrefix}-licence`} label={<RequiredLabel>Licence number</RequiredLabel>} error={errors.number}
         hint={`${body}: ${LICENCE_BODIES[body].regulator}`}>
-        <EhrInput id={`${idPrefix}-licence`} value={number} autoComplete="off" spellCheck={false} maxLength={100} required
-          {...fieldAria(`${idPrefix}-licence`, { error: errors.number, hint: true })} onChange={event => onNumber(event.target.value)} />
-      </StaffField>
+        <EhrInput value={number} autoComplete="off" spellCheck={false} maxLength={100} required
+          onChange={event => onNumber(event.target.value)} />
+      </EhrField>
     ) : null}
   </>
 }
@@ -121,14 +120,13 @@ export function InviteCard({ shared, onSent }: { readonly shared: StaffShared; r
         {' '}{limits.emailsPerDay} emails. Waiting: {limits.pendingInvitations} of {limits.pendingLimit}.</p>
       <form className="hid-ehr-dept-staff-form" noValidate onSubmit={event => void submit(event)} aria-labelledby="ehr-staff-invite-title">
         <div className="hid-ehr-dept-form-grid">
-          <StaffField id="ehr-staff-invite-name" label="Name" required error={errors.name}>
-            <EhrInput id="ehr-staff-invite-name" value={name} autoComplete="off" maxLength={80} required
-              {...fieldAria('ehr-staff-invite-name', { error: errors.name })} onChange={event => edit('name', setName)(event.target.value)} />
-          </StaffField>
-          <StaffField id="ehr-staff-invite-email" label="Email" required error={errors.email}>
-            <EhrInput id="ehr-staff-invite-email" type="email" value={email} autoComplete="off" maxLength={254} required
-              {...fieldAria('ehr-staff-invite-email', { error: errors.email })} onChange={event => edit('email', setEmail)(event.target.value)} />
-          </StaffField>
+          <EhrField controlId="ehr-staff-invite-name" label={<RequiredLabel>Name</RequiredLabel>} error={errors.name}>
+            <EhrInput value={name} autoComplete="off" maxLength={80} required onChange={event => edit('name', setName)(event.target.value)} />
+          </EhrField>
+          <EhrField controlId="ehr-staff-invite-email" label={<RequiredLabel>Email</RequiredLabel>} error={errors.email}>
+            <EhrInput type="email" value={email} autoComplete="off" maxLength={254} required
+              onChange={event => edit('email', setEmail)(event.target.value)} />
+          </EhrField>
           <RoleFields idPrefix="ehr-staff-invite" roleLabelText="Assigned role" roles={staff.inviteOptions.roles} role={role}
             onRole={value => { edit('role', setRole)(value); setErrors(({ licence: _cleared, ...rest }) => rest) }}
             number={number} onNumber={edit('licence', setNumber)} errors={{ role: errors.role, number: errors.licence }} />
@@ -191,18 +189,16 @@ export function OwnLicenceCard({ shared }: { readonly shared: StaffShared }) {
         {' '}Health ID support’s check.</DeptNotice> : null}
       <form className="hid-ehr-dept-staff-form" noValidate onSubmit={event => void submit(event)} aria-labelledby="ehr-staff-own-licence-title">
         <div className="hid-ehr-dept-form-grid">
-          <StaffField id="ehr-staff-own-licence-body" label="Licence" required error={errors.body}>
-            <EhrSelect id="ehr-staff-own-licence-body" value={body} required {...fieldAria('ehr-staff-own-licence-body', { error: errors.body })}
-              onChange={event => { setBody(event.target.value); setErrors(({ body: _cleared, ...rest }) => rest) }}>
+          <EhrField controlId="ehr-staff-own-licence-body" label={<RequiredLabel>Licence</RequiredLabel>} error={errors.body}>
+            <EhrSelect value={body} required onChange={event => { setBody(event.target.value); setErrors(({ body: _cleared, ...rest }) => rest) }}>
               <option value="">Select…</option>
               {bodies.map(option => <option key={option} value={option}>{option} ({LICENCE_BODIES[option].holder})</option>)}
             </EhrSelect>
-          </StaffField>
-          <StaffField id="ehr-staff-own-licence-number" label="Licence number" required error={errors.number}>
-            <EhrInput id="ehr-staff-own-licence-number" value={number} autoComplete="off" spellCheck={false} maxLength={100} required
-              {...fieldAria('ehr-staff-own-licence-number', { error: errors.number })}
+          </EhrField>
+          <EhrField controlId="ehr-staff-own-licence-number" label={<RequiredLabel>Licence number</RequiredLabel>} error={errors.number}>
+            <EhrInput value={number} autoComplete="off" spellCheck={false} maxLength={100} required
               onChange={event => { setNumber(event.target.value); setErrors(({ number: _cleared, ...rest }) => rest) }} />
-          </StaffField>
+          </EhrField>
         </div>
         <FormFooter busy={busy} label={saved ? 'Save new licence' : 'Save licence'} error={error} />
       </form>

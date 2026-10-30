@@ -3,6 +3,7 @@ import { EhrBadge, EhrButton, EhrDataTable, EhrDrawer, EhrField, EhrInput, EhrSe
 import { useFocusById } from '../../../staff/focus'
 import { DeptSearch } from '../parts/DeptSearch'
 import { DeptFacts, DeptLinkButton, DeptRecordName, type DeptFact } from '../parts/DeptRecord'
+import { SampleBanner } from '../parts/SampleBanner'
 import { dateText } from '../parts/format'
 import { SAMPLE_FIELDS, SAMPLE_STAFF, sampleProblems, type SampleFieldKey, type SampleValues } from './sampleCredentials'
 
@@ -43,9 +44,9 @@ export interface HrRow {
 /**
  * The design's list card: "Search …" over the rows already on the page (nothing is sent), and the table under it:
  * Record | Patient / context | Status | Updated | Quick view and Open. Quick view opens the design's "Record quick view"
- * drawer.
+ * drawer, which opens with the sample notice when the rows are samples.
  */
-export function HrRecordList({ label, search, onSearch, rows, total, onOpen }: {
+export function HrRecordList({ label, search, onSearch, rows, total, onOpen, sample = false }: {
   readonly label: string
   readonly search: string
   readonly onSearch: (value: string) => void
@@ -54,6 +55,8 @@ export function HrRecordList({ label, search, onSearch, rows, total, onOpen }: {
   /** How many rows there are before the search. */
   readonly total: number
   readonly onOpen: (key: string) => void
+  /** Sample rows: the drawer says so first. */
+  readonly sample?: boolean
 }) {
   const [quick, setQuick] = useState<HrRow | null>(null)
   return (
@@ -72,7 +75,7 @@ export function HrRecordList({ label, search, onSearch, rows, total, onOpen }: {
           { id: 'updated', header: 'Updated', cell: row => dateText(row.updatedAt) },
           { id: 'actions', header: <span className="hid-ehr-sr-only">Actions</span>, cell: row => (
             <div className="hid-ehr-dept-table-actions">
-              <EhrButton variant="secondary" size="sm" aria-describedby={row.linkId} onClick={() => setQuick(row)}>Quick view</EhrButton>
+              <EhrButton variant="secondary" aria-describedby={row.linkId} onClick={() => setQuick(row)}>Quick view</EhrButton>
               <DeptLinkButton describedBy={row.linkId} onClick={() => onOpen(row.key)}>Open <span aria-hidden="true">→</span></DeptLinkButton>
             </div>
           ) },
@@ -81,6 +84,7 @@ export function HrRecordList({ label, search, onSearch, rows, total, onOpen }: {
       <EhrDrawer open={quick !== null} title="Record quick view" onClose={() => setQuick(null)}>
         {quick ? (
           <div className="hid-ehr-dept-hr-quick">
+            {sample ? <SampleBanner /> : null}
             <h3>{quick.name}</h3>
             <p className="hid-ehr-dept-muted">Last updated {dateText(quick.updatedAt)}</p>
             <DeptFacts facts={quick.facts} />
@@ -121,14 +125,14 @@ export function SampleForm({ idPrefix, initial, submitLabel, onSubmit, className
     <form className={['hid-ehr-dept-form', className].filter(Boolean).join(' ')} noValidate onSubmit={submit}>
       <div className="hid-ehr-dept-form-grid">
         {SAMPLE_FIELDS.map(field => (
-          <EhrField key={field.key} label={<>{field.label}{field.required ? <span aria-hidden="true"> *</span> : null}</>} error={problems[field.key]}>
+          <EhrField key={field.key} controlId={`${idPrefix}-${field.key}`} label={<>{field.label}{field.required ? <span aria-hidden="true"> *</span> : null}</>} error={problems[field.key]}>
             {field.type === 'select' ? (
-              <EhrSelect id={`${idPrefix}-${field.key}`} aria-label={field.label} value={values[field.key]} required onChange={event => set(field.key, event.target.value)}>
+              <EhrSelect aria-label={field.label} value={values[field.key]} required onChange={event => set(field.key, event.target.value)}>
                 <option value="">Select…</option>
                 {SAMPLE_STAFF.map(member => <option key={member.value} value={member.value}>{member.name} · {member.role}</option>)}
               </EhrSelect>
             ) : (
-              <EhrInput id={`${idPrefix}-${field.key}`} aria-label={field.label} type={field.type} value={values[field.key]} required={field.required} autoComplete="off"
+              <EhrInput aria-label={field.label} type={field.type} value={values[field.key]} required={field.required} autoComplete="off"
                 maxLength={200} onChange={event => set(field.key, event.target.value)} />
             )}
           </EhrField>

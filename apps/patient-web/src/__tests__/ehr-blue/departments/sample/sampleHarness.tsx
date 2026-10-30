@@ -6,7 +6,8 @@ import { renderDept } from '../harness'
 
 /**
  * Shared helpers for the sample workspaces' tests. The pages run as the frame mounts them: each sample page at
- * /ehr/<path>, beside one another, so module tabs and connected records can move between them.
+ * /ehr/<path> ('/ehr/insurance/*'), beside one another, so connected records can move between them. The frame draws
+ * the tabs (sampleInFrame.test.tsx); here the pages run without it.
  */
 
 /** Shows where the router is, so a test can check nothing about a record reaches the address. */
@@ -36,6 +37,14 @@ export function heading() {
 }
 
 export const SAMPLE_TEXT = 'Sample only: not connected to Health ID yet. Nothing you do here is saved.'
+
+/** The page's sample notice, checked to be the first thing right under its heading, in its exact words. */
+export function noticeUnderHeading() {
+  const notice = screen.getByRole('note')
+  expect(notice.textContent).toBe(SAMPLE_TEXT)
+  expect(heading().closest('.hid-ehr-page-heading')?.nextElementSibling).toBe(notice)
+  return notice
+}
 
 /** The record view's "Saved record" values, label to value. */
 export function savedFacts() {

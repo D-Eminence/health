@@ -175,6 +175,27 @@ describe('inviting', () => {
     expect(within(card).getAllByText('Complete this field.').length).toBe(4)
   })
 
+  it('keeps each field’s fixed id, and describes a field only by lines on the page', async () => {
+    const card = await openInvite()
+    fill(card, { name: '', number: '', attest: false, password: '' })
+    send(card)
+    const ids = { Name: 'name', Email: 'email', 'Assigned role': 'role', 'Licence number': 'licence', 'Current password': 'password' }
+    for (const [label, id] of Object.entries(ids)) expect(within(card).getByLabelText(new RegExp(`^${label}`)).id).toBe(`ehr-staff-invite-${id}`)
+    expect(within(card).getByRole('checkbox').id).toBe('ehr-staff-invite-attested')
+    const toggle = within(card).getByRole('button', { name: 'Show current password' })
+    expect(document.getElementById(toggle.getAttribute('aria-controls')!)).toBe(within(card).getByLabelText(/^Current password/))
+    const described = () => [...card.querySelectorAll('[aria-describedby]')].flatMap(control => control.getAttribute('aria-describedby')!.split(' '))
+    // Name, the licence number (its problem and its regulator), the confirmation and the password.
+    expect(described().length).toBe(5)
+    expect(described().filter(id => !document.getElementById(id))).toEqual([])
+    fireEvent.change(within(card).getByLabelText(/^Name/), { target: { value: 'Demo Doctor' } })
+    fireEvent.click(within(card).getByRole('checkbox'))
+    expect(within(card).getByLabelText(/^Name/).getAttribute('aria-describedby')).toBeNull()
+    expect(within(card).getByLabelText(/^Name/).getAttribute('aria-invalid')).toBeNull()
+    expect(within(card).getByRole('checkbox').getAttribute('aria-describedby')).toBeNull()
+    expect(described().filter(id => !document.getElementById(id))).toEqual([])
+  })
+
   it.each([
     ['definitive_failure', 'The invitation to demo.doctor@example.test couldn’t be delivered. Check the address: if it’s wrong, revoke '
       + 'this invitation and invite the right one.'],

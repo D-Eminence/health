@@ -70,6 +70,9 @@ async function press(button: HTMLElement) {
 }
 
 const focused = () => document.activeElement
+/** What describes a control, in order: a refused control's error first, then anything else that describes it. */
+const descriptions = (control: HTMLElement) =>
+  (control.getAttribute('aria-describedby') ?? '').split(' ').map(id => document.getElementById(id)?.textContent)
 const heading = (name: string) => screen.getByRole('heading', { name })
 const button = (name: string | RegExp) => screen.getByRole('button', { name })
 const statusRegion = () => {
@@ -102,14 +105,14 @@ function onlyCalled(...names: Array<keyof typeof api>) {
 }
 
 describe('Migrate page entry', () => {
-  it('is listed under Network & Services as Migrate, at today\'s OCR address, for OCR job read, live', () => {
-    expect(migratePage).toMatchObject({ path: 'ocr', group: 'Network & Services', label: 'Migrate', permission: 'ocr.job.read', status: 'live' })
+  it('is listed under Network & Services as Document OCR, at today\'s OCR address, for OCR job read, live', () => {
+    expect(migratePage).toMatchObject({ path: 'ocr', group: 'Network & Services', label: 'Document OCR', permission: 'ocr.job.read', status: 'live' })
   })
 
   it('refuses a membership without OCR job read, even with document read and write, and reads nothing', () => {
     session.permissions = ['ehr.document.read', 'ehr.document.write', 'ocr.job.write']
     renderMigrate()
-    expect(screen.getAllByRole('heading', { level: 1 }).map(element => element.textContent)).toEqual(['Migrate'])
+    expect(screen.getAllByRole('heading', { level: 1 }).map(element => element.textContent)).toEqual(['Document OCR'])
     expect(screen.getAllByRole('alert').map(alert => alert.textContent)).toEqual([
       'Permission denied. This membership or branch cannot open this module: it needs OCR job read permission.'])
     expect(screen.queryByRole('button', { name: 'Find job' })).toBeNull()
@@ -122,7 +125,7 @@ describe('Migrate page entry', () => {
     session.permissions = ['ocr.job.read']
     renderMigrate()
     expect(button('Find job')).toBeTruthy()
-    expect(screen.getByRole('searchbox', { name: 'Search Migrate' })).toBeTruthy()
+    expect(screen.getByRole('searchbox', { name: 'Search Document OCR' })).toBeTruthy()
     expect(screen.queryByRole('heading', { name: 'Patient documents' })).toBeNull()
     onlyCalled()
   })
@@ -140,10 +143,12 @@ describe('Migrate page entry', () => {
 describe('Migrate list view', () => {
   it('shows one h1, the migration notice, Find document job, and the list with its columns empty', () => {
     renderMigrate()
-    expect(screen.getAllByRole('heading', { level: 1 }).map(element => element.textContent)).toEqual(['Migrate'])
+    expect(screen.getAllByRole('heading', { level: 1 }).map(element => element.textContent)).toEqual(['Document OCR'])
     expect(screen.getByText('Project migration is not available yet')).toBeTruthy()
     expect(heading('Find document job')).toBeTruthy()
-    expect(screen.getByRole('searchbox', { name: 'Search Migrate' })).toBeTruthy()
+    // The search is described by its hint, which says what the list holds.
+    expect(descriptions(screen.getByRole('searchbox', { name: 'Search Document OCR' })))
+      .toEqual(['OCR has no facility-wide job list: jobs you find or create here are listed until you leave this page.'])
     expect(screen.getByText('No matching records')).toBeTruthy()
     expect(screen.getByText('Find a job by its document ID, or create one when you have the appropriate permission.')).toBeTruthy()
     expect(button('Create record')).toBeTruthy()
@@ -316,10 +321,10 @@ describe('Migrate record view', () => {
     await screen.findByRole('heading', { name: 'Saved record' })
     await press(button('Back to list'))
     expect(screen.getAllByRole('row')).toHaveLength(3)
-    fireEvent.change(screen.getByRole('searchbox', { name: 'Search Migrate' }), { target: { value: 'queued' } })
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search Document OCR' }), { target: { value: 'queued' } })
     expect(screen.getAllByRole('row')).toHaveLength(2)
     expect(screen.getByRole('button', { name: 'Document ••••0000b2' })).toBeTruthy()
-    fireEvent.change(screen.getByRole('searchbox', { name: 'Search Migrate' }), { target: { value: 'nothing like it' } })
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search Document OCR' }), { target: { value: 'nothing like it' } })
     expect(screen.getByText('Change your search.')).toBeTruthy()
     await press(button('Clear search'))
     expect(screen.getAllByRole('row')).toHaveLength(3)
@@ -517,11 +522,17 @@ describe('Migrate: each step moves focus to where the work continues and says wh
     expect(then).toBe('ocr-review-requirements')
     fireEvent.change(payload, { target: { value: '[]' } })
     await press(submit)
-    await waitFor(() => expect(document.getElementById('ocr-reviewed-payload-error')?.textContent).toBe('Reviewed payload must be a JSON object.'))
+    await waitFor(() => expect(descriptions(payload)[0]).toBe('Reviewed payload must be a JSON object.'))
     fireEvent.change(payload, { target: { value: '{}' } })
-    fireEvent.change(screen.getByLabelText(/^Corrections/), { target: { value: '[1]' } })
+    const corrections = screen.getByLabelText(/^Corrections/)
+    fireEvent.change(corrections, { target: { value: '[1]' } })
     await press(submit)
-    await waitFor(() => expect(document.getElementById('ocr-corrections-error')?.textContent).toBe('Corrections must be a JSON array of objects.'))
+    await waitFor(() => expect(focused()).toBe(corrections))
+    expect(corrections.getAttribute('aria-invalid')).toBe('true')
+    expect(descriptions(corrections)).toEqual(['Corrections must be a JSON array of objects.'])
+    // The payload, no longer refused, is described only by what the owning domains require.
+    expect(payload.getAttribute('aria-invalid')).toBeNull()
+    expect(payload.getAttribute('aria-describedby')).toBe('ocr-review-requirements')
     expect(api.validateOcrJob).not.toHaveBeenCalled()
   })
 
@@ -572,16 +583,18 @@ describe('Migrate: each step moves focus to where the work continues and says wh
     fireEvent.change(patient, { target: { value: '' } })
     await press(submit)
     await waitFor(() => expect(focused()).toBe(patient))
-    expect(document.getElementById('ocr-confirm-patient-error')?.textContent).toBe('Complete this field.')
+    expect(descriptions(patient)).toEqual(['Complete this field.'])
     fireEvent.change(patient, { target: { value: 'HID-ZDEMAAA2' } })
     await press(submit)
-    await waitFor(() => expect(document.getElementById('ocr-confirm-patient-error')?.textContent).toBe('Enter a valid canonical patient ID (a UUID).'))
+    await waitFor(() => expect(descriptions(patient)).toEqual(['Enter a valid canonical patient ID (a UUID).']))
     fireEvent.change(patient, { target: { value: PATIENT } })
     const reason = screen.getByLabelText(/^Confirmation reason/)
     fireEvent.change(reason, { target: { value: 'short' } })
     await press(submit)
     await waitFor(() => expect(focused()).toBe(reason))
-    expect(document.getElementById('ocr-confirm-reason-error')?.textContent).toBe('Enter a patient confirmation reason of at least 8 characters.')
+    expect(descriptions(reason)).toEqual(['Enter a patient confirmation reason of at least 8 characters.'])
+    expect(reason.getAttribute('aria-invalid')).toBe('true')
+    expect(patient.getAttribute('aria-describedby')).toBeNull()
     expect(api.confirmOcrPatient).not.toHaveBeenCalled()
   })
 
@@ -637,7 +650,7 @@ describe('Migrate: each step moves focus to where the work continues and says wh
     const submit = within(screen.getByRole('form', { name: 'Retry job' })).getByRole('button', { name: 'Retry job' })
     await press(submit)
     await waitFor(() => expect(focused()).toBe(reason))
-    expect(document.getElementById('ocr-retry-reason-error')?.textContent).toBe('Enter a reason of at least 8 characters.')
+    expect(descriptions(reason)).toEqual(['Enter a reason of at least 8 characters.'])
     expect(api.retryOcrJob).not.toHaveBeenCalled()
     fireEvent.change(reason, { target: { value: 'The scan was replaced with a clearer copy' } })
     api.retryOcrJob.mockRejectedValue(unavailable())
@@ -701,7 +714,7 @@ describe('Migrate: facility, account and hand-over', () => {
     session.facilityId = DEMO_LABORATORY_ID
     view.rerender(<MemoryRouter><div className="hid-ehr"><Migrate /></div></MemoryRouter>)
     await waitFor(() => expect(screen.queryByRole('heading', { name: 'Saved record' })).toBeNull())
-    expect(screen.getByRole('heading', { level: 1, name: 'Migrate' })).toBeTruthy()
+    expect(screen.getByRole('heading', { level: 1, name: 'Document OCR' })).toBeTruthy()
     expect(screen.getByText('No matching records')).toBeTruthy()
     onlyCalled('findOcrJob', 'ocrExtractions', 'ocrValidations')
   })

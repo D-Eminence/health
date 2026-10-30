@@ -2,6 +2,7 @@ import { Fragment, useLayoutEffect, useMemo, useRef, useState, type FormEvent, t
 import { EhrButton, EhrField, EhrInput, EhrSkeleton } from '@hid/ui/ehr'
 import { useFocusById } from '../../../staff/focus'
 import { useDeptAccess } from '../parts/access'
+import { useListAtBase } from '../parts/baseAddress'
 import { DeptNotice } from '../parts/DeptNotice'
 import { DeptPage, DeptSection } from '../parts/DeptPage'
 import { DeptActions, DeptFacts, DeptHistory, DeptRecordLayout } from '../parts/DeptRecord'
@@ -16,7 +17,9 @@ import {
 
 /**
  * HR & Credentials, as the design draws it (screens/workspaces/hr-1-list, hr-2-new, hr-3-detail): a list, a create
- * form and a record view, each in this page's state, never in the address.
+ * form and a record view, each in this page's state, never in the address. An address below the page's own
+ * (/provider/hr/<id>, a record link from Home or the Notifications drawer) opens the list and goes back to /provider/hr:
+ * the id is never looked up.
  *
  * Partial: the first list is live, each member of the facility and the licence on record for them, from today's Staff
  * read (read only; role and licence changes stay on Staff & access). The second list, "Create record", editing and the
@@ -38,7 +41,8 @@ type View =
 
 export function HrCredentials() {
   const { facility } = useDeptAccess()
-  const live = useLiveStaff(facility)
+  const leaving = useListAtBase('hr')
+  const live = useLiveStaff(facility, leaving)
   const staff = live.kind === 'ready' ? live.staff : null
   const credentials = useMemo(() => staff ? liveCredentials(staff) : [], [staff])
   const [records, setRecords] = useState<SampleRecord[]>(sampleSeed)
@@ -108,7 +112,7 @@ export function HrCredentials() {
         onOpen={key => { if (facility) show({ kind: 'live', facilityId: facility.id, key }) }} />
       <SampleBanner />
       <HrRecordList label="Search sample records" search={sampleSearch} onSearch={setSampleSearch} rows={sampleRows}
-        total={records.length} onOpen={id => show({ kind: 'sample', id })} />
+        total={records.length} onOpen={id => show({ kind: 'sample', id })} sample />
     </DeptPage>,
   )
 }
@@ -212,8 +216,8 @@ function SampleDetail({ record, onBack, onChange, onAnnounce }: {
         onClick={() => { setReviewing(!reviewing); focus(reviewing ? 'hr-review-toggle' : 'hr-review') }}>{REVIEW_ACTION.label}</EhrButton>
       {reviewing ? (
         <form id="hr-review-form" className="hid-ehr-dept-action-form" noValidate onSubmit={submitReview}>
-          <EhrField label={<>{REVIEW_ACTION.field}<span aria-hidden="true"> *</span></>} error={problem}>
-            <EhrInput id="hr-review" aria-label={REVIEW_ACTION.field} value={review} required autoComplete="off" maxLength={500} onChange={event => setReview(event.target.value)} />
+          <EhrField controlId="hr-review" label={<>{REVIEW_ACTION.field}<span aria-hidden="true"> *</span></>} error={problem}>
+            <EhrInput aria-label={REVIEW_ACTION.field} value={review} required autoComplete="off" maxLength={500} onChange={event => setReview(event.target.value)} />
           </EhrField>
           <div className="hid-ehr-dept-form-actions"><EhrButton type="submit">{REVIEW_ACTION.label}</EhrButton></div>
         </form>

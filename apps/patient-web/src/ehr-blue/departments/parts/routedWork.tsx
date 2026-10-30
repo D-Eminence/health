@@ -62,7 +62,7 @@ export function WorkListCap({ count, children }: { readonly count: number; reado
 
 /** A list's refresh: focusable while its read runs (aria-busy), when a second press does nothing. */
 export function RefreshButton({ loading, onRefresh, children }: { readonly loading: boolean; readonly onRefresh: () => Promise<void>; readonly children: ReactNode }) {
-  return <EhrButton variant="secondary" size="sm" busy={loading} onClick={() => { if (!loading) void onRefresh() }}>{children}</EhrButton>
+  return <EhrButton variant="secondary" busy={loading} onClick={() => { if (!loading) void onRefresh() }}>{children}</EhrButton>
 }
 
 /** A work list's loading, refusal and empty states, with today's words. */

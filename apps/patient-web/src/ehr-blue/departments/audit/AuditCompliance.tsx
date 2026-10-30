@@ -154,7 +154,7 @@ export function AuditCompliance() {
         placeholder="Search actions, actor types, resources or correlation IDs…"
         hint="Search and outcome apply to the events loaded on this page. Use Older events to look further back."
         filters={(
-          <EhrField label="Outcome">
+          <EhrField label="Outcome" className="hid-ehr-dept-audit-outcome">
             <EhrSelect value={outcome} onChange={event => setOutcome(event.target.value)}>
               {OUTCOMES.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
             </EhrSelect>

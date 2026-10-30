@@ -1,5 +1,5 @@
 import { useId, type ReactNode } from 'react'
-import { EhrInput } from '@hid/ui/ehr'
+import { EhrField, EhrInput } from '@hid/ui/ehr'
 
 export interface DeptSearchProps {
   /** "Search Laboratory". */
@@ -25,12 +25,9 @@ export function DeptSearch({ label, value, onChange, placeholder = 'Search saved
   return (
     <section className="hid-ehr-card hid-ehr-dept-section hid-ehr-dept-list-card" aria-label={label}>
       <div className={filters ? 'hid-ehr-dept-search-row' : undefined}>
-        <div className="hid-ehr-field hid-ehr-dept-search">
-          <label className="hid-ehr-label" htmlFor={`${id}-search`}>{label}</label>
-          <EhrInput id={`${id}-search`} type="search" value={value} placeholder={placeholder} autoComplete="off"
-            aria-describedby={hint ? `${id}-hint` : undefined} onChange={event => onChange(event.target.value)} />
-          {hint ? <p id={`${id}-hint`} className="hid-ehr-hint">{hint}</p> : null}
-        </div>
+        <EhrField label={label} hint={hint || undefined} controlId={`${id}-search`} className="hid-ehr-dept-search">
+          <EhrInput type="search" value={value} placeholder={placeholder} autoComplete="off" onChange={event => onChange(event.target.value)} />
+        </EhrField>
         {filters}
       </div>
       {children}

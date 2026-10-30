@@ -77,7 +77,7 @@ beforeEach(() => {
 
 describe('the page entry', () => {
   it('keeps its path, group, label, permission and partial status', () => {
-    expect(hrPage).toMatchObject({ path: 'hr', group: 'People', label: 'HR & Credentials', permission: 'workforce.manage', status: 'partial' })
+    expect(hrPage).toMatchObject({ path: 'hr/*', group: 'People', label: 'HR & Credentials', permission: 'workforce.manage', status: 'partial' })
   })
 })
 
@@ -179,6 +179,8 @@ describe('the live list', () => {
     fireEvent.click(quick)
     const drawer = screen.getByRole('dialog', { name: 'Record quick view' })
     expect(within(drawer).getByRole('heading', { name: 'NMCN licence' })).toBeTruthy()
+    // A live record is not a sample: no sample notice in its drawer.
+    expect(within(drawer).queryByRole('note')).toBeNull()
     expect(within(drawer).getByText(`Last updated ${new Date('2026-10-25T08:00:00.000Z').toLocaleString()}`)).toBeTruthy()
     expect(fact(drawer, 'Staff')).toBe('Demo Nurse')
     fireEvent.click(within(drawer).getByRole('button', { name: 'Close' }))

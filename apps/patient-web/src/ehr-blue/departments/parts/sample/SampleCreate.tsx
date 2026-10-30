@@ -1,26 +1,27 @@
-import { useState, type ReactNode } from 'react'
+import { useState } from 'react'
 import { EhrField, EhrSelect } from '@hid/ui/ehr'
 import { DeptPage, DeptSection } from '../DeptPage'
+import { SampleBanner } from '../SampleBanner'
 import { SampleForm } from './SampleForm'
 import { patientLine, SAMPLE_PATIENTS, type SampleDefinition, type SampleValues } from './model'
 
 export interface SampleCreateProps {
   readonly definition: SampleDefinition
-  readonly above: ReactNode
   readonly onBack: () => void
   /** Creates the record; a refusal in plain words keeps the form open with it. */
   readonly onCreate: (patientId: string | undefined, values: SampleValues) => string | undefined
 }
 
 /**
- * The design's create form, "New <title>": on a workspace about patients, the registered patient first, and the
- * record's fields once one is chosen; then "Save record", which opens the new record.
+ * The design's create form, "New <title>", with the sample notice under it: on a workspace about patients, the
+ * registered patient first, and the record's fields once one is chosen; then "Save record", which opens the new record.
  */
-export function SampleCreate({ definition, above, onBack, onCreate }: SampleCreateProps) {
+export function SampleCreate({ definition, onBack, onCreate }: SampleCreateProps) {
   const [patientId, setPatientId] = useState('')
   const ready = !definition.patient || patientId !== ''
   return (
-    <DeptPage title={`New ${definition.title.toLowerCase()}`} above={above} onBack={onBack}>
+    <DeptPage title={`New ${definition.title.toLowerCase()}`} onBack={onBack}>
+      <SampleBanner />
       <DeptSection>
         {definition.patient ? (
           <EhrField label={<>Patient<span aria-hidden="true"> *</span></>} className="hid-ehr-dept-sample-patient">

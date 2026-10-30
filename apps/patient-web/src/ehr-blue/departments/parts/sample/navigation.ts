@@ -1,21 +1,34 @@
 import { useCallback, useLayoutEffect, useState, type MouseEvent, type RefObject } from 'react'
-import { useHref, useNavigate } from 'react-router-dom'
+import { useHref, useLocation, useNavigate } from 'react-router-dom'
 
 /**
- * The sample workspaces' sibling pages (Stock and Procurement, Claims and Policies, the other workspaces about a
- * patient), resolved against the current route: useHref('..', { relative: 'path' }) is the frame's base, and each
- * sibling is a page under it. Only the page is put in the address: never a record or a patient.
+ * Where the pages sit (the frame's '/provider'): the address up to this page's own base. The base, not '..', as the
+ * page also takes the addresses below it (/provider/insurance/<id>), where '..' would be the page itself.
  */
-export function useSiblingPages() {
-  const base = useHref('..', { relative: 'path' })
+function mountOf(pathname: string, base: string) {
+  const segments = pathname.split('/')
+  // The router matches an address in any case: /provider/Insurance opens Insurance & Claims too.
+  const at = segments.findIndex(segment => segment.toLowerCase() === base)
+  return at > 0 ? segments.slice(0, at).join('/') : ''
+}
+
+/**
+ * The sample workspaces' sibling pages (the other workspaces about a patient, for "Connected hospital history"),
+ * resolved from this page's own base ('insurance'): each sibling is a page beside it. Only the page is put in the
+ * address: never a record or a patient.
+ */
+export function useSiblingPages(base: string) {
+  const { pathname } = useLocation()
   const navigate = useNavigate()
-  const href = useCallback((page: string) => `${base.endsWith('/') ? base : `${base}/`}${page}`, [base])
+  const mount = mountOf(pathname, base)
+  const root = useHref(mount || '/')
+  const href = useCallback((page: string) => `${root.endsWith('/') ? root : `${root}/`}${page}`, [root])
   const follow = useCallback((page: string, event: MouseEvent<HTMLAnchorElement>) => {
     // A new tab or window, as the browser does it.
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
     event.preventDefault()
-    navigate(`../${page}`, { relative: 'path' })
-  }, [navigate])
+    navigate(`${mount}/${page}`)
+  }, [mount, navigate])
   return { href, follow }
 }
 

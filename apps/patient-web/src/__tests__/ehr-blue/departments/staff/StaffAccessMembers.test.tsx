@@ -259,6 +259,17 @@ describe('removing a member (Account access: ended)', () => {
     expect(within(drawer).getByText('Enter a reason of 8 to 500 characters.')).toBeTruthy()
     expect(within(drawer).getByText('Complete this field.')).toBeTruthy()
     expect(screen.queryByRole('alertdialog')).toBeNull()
+    // Each field keeps its fixed id (a refusal focuses it), and is described only by lines on the page.
+    const prefix = 'ehr-staff-access-membership-demo-nurse'
+    expect(within(drawer).getByLabelText(/^Account access/).id).toBe(`${prefix}-access`)
+    const reason = within(drawer).getByLabelText(/^Reason/)
+    expect(reason.id).toBe(`${prefix}-reason`)
+    expect(reason.getAttribute('aria-invalid')).toBe('true')
+    expect(document.getElementById(reason.getAttribute('aria-describedby')!)?.textContent).toBe('Enter a reason of 8 to 500 characters.')
+    const password = within(drawer).getByLabelText(/^Current password/)
+    expect(password.id).toBe(`${prefix}-password`)
+    expect(document.getElementById(password.getAttribute('aria-describedby')!)?.textContent).toBe('Complete this field.')
+    expect(within(drawer).getByLabelText(/^Account access/).getAttribute('aria-describedby')).toBeNull()
   })
 
   it.each([

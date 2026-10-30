@@ -1,4 +1,5 @@
-import { cleanup, fireEvent, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
+import { useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { FacilityStaff } from '../../../../staff/api'
 import { HrCredentials } from '../../../../ehr-blue/departments/hr/HrCredentials'
@@ -106,7 +107,11 @@ describe('the sample list', () => {
     await open()
     fireEvent.click(within(row('Medical licence (fictional)')).getByRole('button', { name: 'Quick view' }))
     const drawer = screen.getByRole('dialog', { name: 'Record quick view' })
-    expect(within(drawer).getByRole('heading', { name: 'Medical licence (fictional)' })).toBeTruthy()
+    // The sample notice comes first in the drawer, before the record it describes.
+    const notice = within(drawer).getByRole('note')
+    expect(notice.textContent).toBe(SAMPLE_NOTICE)
+    expect(notice.compareDocumentPosition(within(drawer).getByRole('heading', { name: 'Medical licence (fictional)' }))
+      & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
     expect(fact(drawer, 'Review')).toBe('Local review only')
     fireEvent.click(within(drawer).getByRole('button', { name: 'Open full record' }))
     expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Medical licence (fictional)')
@@ -290,6 +295,26 @@ describe('a reviewed record', () => {
     const summary = screen.getByText('2026-10-26T11:41:16.706Z · recorded · Record credential review')
     expect(summary.tagName).toBe('SUMMARY')
     expect(screen.queryByText(/waiting to sync/)).toBeNull()
+    expectNoSampleRequest()
+  })
+})
+
+describe('an address below the page’s own', () => {
+  /** The page as the frame draws it: anew for each address (BluePageBoundary is keyed by it), with the address shown. */
+  function Framed() {
+    const { pathname } = useLocation()
+    return <><output data-testid="where">{pathname}</output><HrCredentials key={pathname} /></>
+  }
+
+  it('shows the list and goes back to /provider/hr, never opening the record the address names, reading once', async () => {
+    // A record link from Home or the Notifications drawer, here naming a record the page holds: it is still not opened.
+    renderDept(<Framed />, { route: '/provider/hr/f8f25d2e-3c1a-4b7e-9d10-5a6b7c8d9e01' })
+    await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/provider/hr'))
+    expect(screen.getAllByRole('heading', { level: 1 }).map(heading => heading.textContent)).toEqual(['HR & Credentials'])
+    await screen.findByRole('button', { name: 'No licence on record' })
+    expect(within(sampleList()).getAllByRole('row')).toHaveLength(3)
+    expect(screen.queryByRole('heading', { name: 'Saved record' })).toBeNull()
+    expect(api.read).toHaveBeenCalledTimes(1)
     expectNoSampleRequest()
   })
 })

@@ -78,7 +78,7 @@ export interface SampleRecord {
 /** A record of another sample workspace about the same patient, for "Connected hospital history". */
 export interface SampleConnection {
   readonly key: string
-  /** The other workspace's path, a sibling of this one. */
+  /** The other workspace's base, its path without '/*' ('patient-billing'): a sibling of this one. */
   readonly page: string
   readonly title: string
   readonly name: string
@@ -99,16 +99,8 @@ export type SampleApplied =
   | { readonly error: string }
   | { readonly status?: string; readonly values?: SampleValues; readonly state?: SampleState }
 
-/** The module tabs a workspace shares with its siblings: Stock | Procurement, Claims | Policies. */
-export interface SampleTabs {
-  /** Names the navigation landmark. */
-  readonly label: string
-  /** Each tab's workspace id, label, and its path when the page's address differs from its id (Stock is at supply). */
-  readonly tabs: readonly { readonly id: string; readonly label: string; readonly path?: string }[]
-}
-
 export interface SampleDefinition {
-  /** The page's path and the design's module id. */
+  /** The design's module id ('billing', 'inventory'), which keys the page and seeds its new records' ids. Not its path. */
   readonly id: string
   readonly title: string
   /** Records belong to a patient: the create form asks for one first. */
@@ -121,7 +113,6 @@ export interface SampleDefinition {
   readonly defaults?: SampleValues
   /** The fictional rows the page opens with. */
   readonly records: readonly SampleRecord[]
-  readonly tabs?: SampleTabs
   /** Values worked out when a record is created, after the form's (an invoice's number and totals). */
   readonly created?: (values: SampleValues, sequence: number) => { readonly values?: SampleValues; readonly state?: SampleState }
   /**
@@ -145,20 +136,23 @@ export interface SamplePatient {
   readonly healthId: string
 }
 
-/** The fictional registered patients every sample workspace chooses from. */
+/**
+ * The fictional registered patients every sample workspace chooses from. Their Health IDs are made up (HID-DEMO-…), so
+ * none can be taken for a real login, such as the demo facilities' own demo patient.
+ */
 export const SAMPLE_PATIENTS: readonly SamplePatient[] = [
-  { id: 'sample-patient-1', name: 'Patient One', healthId: 'HID-ZDEMAAA2' },
-  { id: 'sample-patient-2', name: 'Patient Two', healthId: 'HID-ZDEMAAB3' },
-  { id: 'sample-patient-3', name: 'Patient Three', healthId: 'HID-ZDEMAAC4' },
-  { id: 'sample-patient-4', name: 'Patient Four', healthId: 'HID-ZDEMAAD5' },
-  { id: 'sample-patient-5', name: 'Patient Five', healthId: 'HID-ZDEMAAE6' },
+  { id: 'sample-patient-1', name: 'Patient One', healthId: 'HID-DEMO-001' },
+  { id: 'sample-patient-2', name: 'Patient Two', healthId: 'HID-DEMO-002' },
+  { id: 'sample-patient-3', name: 'Patient Three', healthId: 'HID-DEMO-003' },
+  { id: 'sample-patient-4', name: 'Patient Four', healthId: 'HID-DEMO-004' },
+  { id: 'sample-patient-5', name: 'Patient Five', healthId: 'HID-DEMO-005' },
 ]
 
 export function samplePatient(id: string | undefined): SamplePatient | undefined {
   return id ? SAMPLE_PATIENTS.find(patient => patient.id === id) : undefined
 }
 
-/** What the design shows for a record of a patient: "Patient One · HID-ZDEMAAA2". */
+/** What the design shows for a record of a patient: "Patient One · HID-DEMO-001". */
 export function patientLine(patient: SamplePatient) {
   return `${patient.name} · ${patient.healthId}`
 }
@@ -228,39 +222,6 @@ export function sampleId(seed: string, sequence: number) {
   let hash = 2166136261
   for (const char of `${seed}:${sequence}`) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619)
   return `${(hash >>> 0).toString(16).padStart(8, '0')}-0000-4000-8000-${sequence.toString(16).padStart(12, '0')}`
-}
-
-/** One CSV cell: quoted when it must be, and never read as a formula by a spreadsheet. */
-function csvCell(value: string) {
-  const safe = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value
-  return /[",\r\n]/.test(safe) ? `"${safe.replaceAll('"', '""')}"` : safe
-}
-
-/** The filtered rows as CSV: the list's columns, then each field. */
-export function sampleCsv(definition: SampleDefinition, records: readonly SampleRecord[]) {
-  const header = ['Record', 'Reference', 'Patient / context', 'Status', 'Updated', ...definition.fields.map(field => field.label)]
-  const rows = records.map(record => {
-    const patient = samplePatient(record.patientId)
-    return [recordName(record), record.id.slice(0, 8), patient ? patient.name : recordName(record), record.status, record.updatedAt,
-      ...definition.fields.map(field => record.values[field.key] ?? '')]
-  })
-  return [header, ...rows].map(row => row.map(csvCell).join(',')).join('\r\n') + '\r\n'
-}
-
-/**
- * Hands the viewer a file made on this page from fictional rows: a Blob and an object URL, revoked once the
- * download has started. Nothing is sent anywhere.
- */
-export function downloadFile(name: string, type: string, text: string) {
-  const url = URL.createObjectURL(new Blob([text], { type }))
-  const link = document.createElement('a')
-  link.href = url
-  link.download = name
-  link.hidden = true
-  document.body.append(link)
-  link.click()
-  link.remove()
-  window.setTimeout(() => URL.revokeObjectURL(url), 0)
 }
 
 /**

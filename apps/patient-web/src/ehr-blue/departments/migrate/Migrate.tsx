@@ -1,9 +1,9 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { EhrBadge, EhrButton, EhrDataTable, EhrDrawer, EhrInput, EhrTextarea } from '@hid/ui/ehr'
+import { EhrBadge, EhrButton, EhrDataTable, EhrDrawer, EhrField, EhrInput, EhrTextarea } from '@hid/ui/ehr'
 import { staffApi, type OcrExtraction, type OcrJob, type OcrValidation } from '../../../staff/api'
 import { useStaff } from '../../../staff/App'
-import { refusal, type FieldProblem } from '../../../staff/fieldProblem'
+import { problemText, refusal, type FieldProblem } from '../../../staff/fieldProblem'
 import { focusIsLost, useFocusById } from '../../../staff/focus'
 import { useDeptAccess } from '../parts/access'
 import { DeptNotice } from '../parts/DeptNotice'
@@ -13,8 +13,7 @@ import { DeptSearch } from '../parts/DeptSearch'
 import { errorText } from '../parts/errors'
 import { dateText, matchesSearch, shortId } from '../parts/format'
 import { DocumentCapture } from './DocumentCapture'
-import { FormRefusal, MigrateField, controlProps } from './MigrateField'
-import { ConfirmForm, ReviewForm, ReviewPublication, UUID_V4, statusTone, statusWords, type PublicationAttempt } from './ocrSteps'
+import { ConfirmForm, FormRefusal, ReviewForm, ReviewPublication, UUID_V4, statusTone, statusWords, type PublicationAttempt } from './ocrSteps'
 
 /*
  * Health ID Migrate: document capture and OCR, on today's API. The OCR flow is today's Document OCR page
@@ -266,13 +265,13 @@ export function Migrate() {
   }
 
   // The page opens as today's Migrate and Document OCR pages do: at a facility, with OCR job read.
-  if (!facilityId || !canRead) return <DeptPage title="Migrate">
+  if (!facilityId || !canRead) return <DeptPage title="Document OCR">
     <DeptNotice tone="critical" role="alert">Permission denied. This membership or branch cannot open this module: it needs OCR job read permission.</DeptNotice>
   </DeptPage>
 
   const detail = view === 'detail' && canRead && visibleJob ? visibleJob : null
   const creating = view === 'new' && canWrite
-  const title = detail ? jobName(detail) : creating ? 'New document job' : 'Migrate'
+  const title = detail ? jobName(detail) : creating ? 'New document job' : 'Document OCR'
   // Mounted throughout, in the same place in every view, so a message put in it is announced.
   const status = <div key="status" id="ocr-status" role="status" className="hid-ehr-dept-migrate-status">{notice && <DeptNotice tone="positive">{notice}</DeptNotice>}</div>
   return <DeptPage title={<ViewTitle>{title}</ViewTitle>} onBack={detail || creating ? backToList : undefined}
@@ -306,7 +305,7 @@ export function Migrate() {
       <DeptNotice title="Project migration is not available yet">
         <p>This Health ID deployment runs document OCR jobs for authorized clinical documents. Project setup, bulk import, record matching and a migration index need backend support before they can be offered.</p>
       </DeptNotice>
-      <DeptSearch label="Search Migrate" value={search} onChange={setSearch}
+      <DeptSearch label="Search Document OCR" value={search} onChange={setSearch}
         hint="OCR has no facility-wide job list: jobs you find or create here are listed until you leave this page."
         filters={search ? <div className="hid-ehr-dept-migrate-clear"><EhrButton variant="secondary" onClick={() => setSearch('')}>Clear search</EhrButton></div> : undefined}>
         <EhrDataTable caption="OCR jobs opened on this page" captionHidden rows={shown} rowKey={row => row.job.id}
@@ -321,7 +320,7 @@ export function Migrate() {
             { id: 'status', header: 'Status', cell: row => <EhrBadge tone={statusTone(row.job.status)}>{statusWords(row.job.status)}</EhrBadge> },
             { id: 'read', header: 'Last read', cell: row => dateText(row.readAt) },
             { id: 'actions', header: <span className="hid-ehr-sr-only">Actions</span>, cell: row => <div className="hid-ehr-dept-table-actions">
-              <EhrButton variant="secondary" size="sm" aria-describedby={`ocr-row-${row.job.id}`} onClick={() => setQuick(row)}>Quick view</EhrButton>
+              <EhrButton variant="secondary" aria-describedby={`ocr-row-${row.job.id}`} onClick={() => setQuick(row)}>Quick view</EhrButton>
               <DeptLinkButton describedBy={`ocr-row-${row.job.id}`} onClick={() => openRecord(row.job)}>Open <span aria-hidden="true">→</span></DeptLinkButton>
             </div> },
           ]} />
@@ -329,10 +328,10 @@ export function Migrate() {
       <DeptSection title="Find document job" headingId="ocr-find-title">
         <p className="hid-ehr-dept-muted">Use the document ID from an authorized clinical record. The document must be available and virus scan clean before extraction can begin.</p>
         <form className="hid-ehr-dept-form hid-ehr-dept-migrate-find" noValidate aria-labelledby="ocr-find-title" onSubmit={event => void find(event)}>
-          <MigrateField id="ocr-document" label="Document ID" required problem={problem}>
-            <EhrInput value={findDocument} placeholder="Document UUID" required autoComplete="off" {...controlProps(problem, 'ocr-document')}
+          <EhrField label={<>Document ID<span aria-hidden="true"> *</span></>} controlId="ocr-document" error={problemText(problem, 'ocr-document')}>
+            <EhrInput value={findDocument} placeholder="Document UUID" required autoComplete="off"
               onChange={event => { setFindDocument(event.target.value); setSearched(false); setJob(null); setNotice(''); setProblem(null); setStepFocus(null) }} />
-          </MigrateField>
+          </EhrField>
           <div className="hid-ehr-dept-form-actions"><EhrButton id="ocr-find-submit" type="submit" busy={busy}>{busy ? 'Checking…' : 'Find job'}</EhrButton></div>
         </form>
         <div className={nothingFound ? 'hid-ehr-empty-state hid-ehr-dept-migrate-none' : undefined}>
@@ -354,14 +353,14 @@ export function Migrate() {
       <form className="hid-ehr-dept-form" noValidate aria-label="New document job" onSubmit={event => void create(event)}>
         <p className="hid-ehr-dept-muted">Create an extraction job for a verified patient document. The document must be virus scan clean. If it already has a job, that job opens instead.</p>
         <div className="hid-ehr-dept-form-grid">
-          <MigrateField id="ocr-new-document" label="Document ID" required problem={problem}>
-            <EhrInput value={newDocument} placeholder="Document UUID" required autoComplete="off" {...controlProps(problem, 'ocr-new-document')}
+          <EhrField label={<>Document ID<span aria-hidden="true"> *</span></>} controlId="ocr-new-document" error={problemText(problem, 'ocr-new-document')}>
+            <EhrInput value={newDocument} placeholder="Document UUID" required autoComplete="off"
               onChange={event => { setNewDocument(event.target.value); setProblem(null) }} />
-          </MigrateField>
-          <MigrateField id="ocr-patient" label="Patient ID" required problem={problem}>
-            <EhrInput value={patientId} placeholder="Patient UUID" required autoComplete="off" {...controlProps(problem, 'ocr-patient')}
+          </EhrField>
+          <EhrField label={<>Patient ID<span aria-hidden="true"> *</span></>} controlId="ocr-patient" error={problemText(problem, 'ocr-patient')}>
+            <EhrInput value={patientId} placeholder="Patient UUID" required autoComplete="off"
               onChange={event => { setPatientId(event.target.value); setProblem(null) }} />
-          </MigrateField>
+          </EhrField>
         </div>
         <FormRefusal error={createError} />
         <div className="hid-ehr-dept-form-actions"><EhrButton id="ocr-create-submit" type="submit" busy={busy}>{busy ? 'Saving…' : 'Save record'}</EhrButton></div>
@@ -378,9 +377,9 @@ export function Migrate() {
     const selected = action && available.includes(action) ? action : null
     const formFor = (id: ActionId) => id === 'retry'
       ? <form key={`retry-${shown.id}-${shown.version}`} className="hid-ehr-dept-form hid-ehr-dept-action-form" noValidate aria-label="Retry job" onSubmit={event => void retry(event)}>
-        <MigrateField id="ocr-retry-reason" label="Retry reason" required problem={problem}>
-          <EhrTextarea name="reason" minLength={8} maxLength={500} required {...controlProps(problem, 'ocr-retry-reason')} />
-        </MigrateField>
+        <EhrField label={<>Retry reason<span aria-hidden="true"> *</span></>} controlId="ocr-retry-reason" error={problemText(problem, 'ocr-retry-reason')}>
+          <EhrTextarea name="reason" minLength={8} maxLength={500} required />
+        </EhrField>
         <FormRefusal error={retryError} />
         <div className="hid-ehr-dept-form-actions"><EhrButton id="ocr-retry-submit" type="submit" busy={busy} disabled={!shown.version}>{busy ? 'Saving…' : 'Retry job'}</EhrButton></div>
       </form>

@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { toast } from '@hid/ui'
-import { EhrButton, EhrDialog, EhrDrawer, EhrSelect, EhrTextarea } from '@hid/ui/ehr'
+import { EhrButton, EhrDialog, EhrDrawer, EhrField, EhrSelect, EhrTextarea } from '@hid/ui/ehr'
 import { facilityStaffApi, type FacilityStaffMember } from '../../../staff/api'
 import { useFocusById } from '../../../staff/focus'
 import { licenceBodyForRole, licenceNumberAcceptable, normalizeLicenceNumber, roleLabels } from '../../../staff/staffAccess'
@@ -8,7 +8,7 @@ import { DeptSection } from '../parts/DeptPage'
 import { DeptFacts, type DeptFact } from '../parts/DeptRecord'
 import { RoleFields } from './InviteCard'
 import type { StaffShared } from './shared'
-import { fieldAria, FormFooter, StaffCheck, StaffField, StaffPassword } from './StaffFields'
+import { FormFooter, RequiredLabel, StaffCheck, StaffPassword } from './StaffFields'
 import { attestationText, dateText, IDS, initials, licenceNumberProblem, licenceNumberText, licenceVouch, reasonProblem, REQUIRED } from './staffText'
 
 const memberName = (id: string) => `ehr-staff-member-${id}`
@@ -164,17 +164,17 @@ function MemberAccess({ member, shared, onDirty, onClose }: {
               onRole={value => { edit('role', setRole)(value); setErrors(({ licence: _cleared, ...rest }) => rest) }}
               number={number} onNumber={edit('licence', setNumber)} errors={{ role: errors.role, number: errors.licence }} />
           )}
-          <StaffField id={`${prefix}-access`} label="Account access" required error={errors.access}>
-            <EhrSelect id={`${prefix}-access`} value={access} required {...fieldAria(`${prefix}-access`, { error: errors.access })}
+          <EhrField controlId={`${prefix}-access`} label={<RequiredLabel>Account access</RequiredLabel>} error={errors.access}>
+            <EhrSelect value={access} required
               onChange={event => edit('access', setAccess)(event.target.value === 'ended' ? 'ended' : 'active')}>
               <option value="active">active</option>
               <option value="ended">ended</option>
             </EhrSelect>
-          </StaffField>
-          <StaffField id={`${prefix}-reason`} label="Reason" required error={errors.reason} full>
-            <EhrTextarea id={`${prefix}-reason`} value={reason} rows={3} maxLength={500} required
-              {...fieldAria(`${prefix}-reason`, { error: errors.reason })} onChange={event => edit('reason', setReason)(event.target.value)} />
-          </StaffField>
+          </EhrField>
+          <EhrField controlId={`${prefix}-reason`} label={<RequiredLabel>Reason</RequiredLabel>} error={errors.reason}
+            className="hid-ehr-dept-full">
+            <EhrTextarea value={reason} rows={3} maxLength={500} required onChange={event => edit('reason', setReason)(event.target.value)} />
+          </EhrField>
           {ending ? null : (
             <StaffCheck id={`${prefix}-attested`} checked={attested} onChange={edit('attested', setAttested)} error={errors.attested}>
               {attestationText(staff.inviteOptions.attestation?.text, member.name, facilityName)}

@@ -1,23 +1,29 @@
 import { useId, useRef, useState } from 'react'
-import { EhrModuleTabs } from '@hid/ui/ehr'
-import { SampleBanner } from '../SampleBanner'
+import { useLocation } from 'react-router-dom'
+import { useListAtBase } from '../baseAddress'
 import { SampleCreate } from './SampleCreate'
 import { SampleDetail } from './SampleDetail'
 import { SampleList } from './SampleList'
-import { useSampleFocus, useSiblingPages } from './navigation'
+import { useSampleFocus } from './navigation'
 import {
-  downloadFile, EDIT_REASON, givenValues, recordName, sampleCsv, sampleId, type SampleAction, type SampleDefinition, type SampleRecord, type SampleValues,
+  EDIT_REASON, givenValues, recordName, sampleId, type SampleAction, type SampleDefinition, type SampleRecord, type SampleValues,
 } from './model'
 
 type View = { readonly kind: 'list' } | { readonly kind: 'new' } | { readonly kind: 'record'; readonly id: string }
 
 /**
- * One sample-only workspace from its definition: the design's list, create form and record view, with its module
- * tabs where the design groups workspaces. Its records are fictional and live only in this page's memory: they reset
- * when the page is left or reloaded, nothing is sent, nothing is stored in the browser, and the address names only
- * the page. Every view opens with the sample notice.
+ * One sample-only workspace from its definition: the design's list, create form and record view. Its records are
+ * fictional and live only in this page's memory: they reset when the page is left or reloaded, nothing is sent,
+ * nothing is stored in the browser, and the address names only the page. Every view has the sample notice under its
+ * heading. Where the design groups workspaces as tabs (Claims | Policies, Stock | Procurement), the frame draws them.
+ *
+ * `base` is the page's own path without '/*' ('insurance'). An address below it (a record link from Home or the
+ * Notifications drawer, /provider/insurance/<id>) opens the list and goes back to the base: the id is never looked up.
+ * The page's own tab or sidebar entry, followed while it is open, opens its list again, as the design's tab does.
  */
-export function SampleWorkspace({ definition }: { readonly definition: SampleDefinition }) {
+export function SampleWorkspace({ base, definition }: { readonly base: string; readonly definition: SampleDefinition }) {
+  useListAtBase(base)
+  const { key: locationKey } = useLocation()
   const uid = useId()
   const rootRef = useRef<HTMLDivElement>(null)
   const [records, setRecords] = useState<readonly SampleRecord[]>(definition.records)
@@ -27,13 +33,24 @@ export function SampleWorkspace({ definition }: { readonly definition: SampleDef
   const [announcement, setAnnouncementState] = useState({ text: '', count: 0 })
   const setAnnouncement = (text: string) => setAnnouncementState(old => ({ text, count: old.count + 1 }))
   const requestFocus = useSampleFocus(rootRef)
-  const { href, follow } = useSiblingPages()
+
+  // The page's own tab or sidebar entry goes to the address the page is already at, where the frame keeps the page as
+  // it is: each new visit shows the list, focus on its heading.
+  const [shownAt, setShownAt] = useState(locationKey)
+  if (locationKey !== shownAt) {
+    setShownAt(locationKey)
+    if (view.kind !== 'list') {
+      setView({ kind: 'list' })
+      setAnnouncement('')
+      requestFocus()
+    }
+  }
 
   const nameId = (id: string) => `${uid}-record-${id}`
   const createId = `${uid}-create`
   const savedHeadingId = `${uid}-saved`
 
-  const showList = (focusId?: string) => {
+  const showList = (focusId: string) => {
     setView({ kind: 'list' })
     setAnnouncement('')
     requestFocus(focusId)
@@ -43,25 +60,6 @@ export function SampleWorkspace({ definition }: { readonly definition: SampleDef
     setAnnouncement('')
     requestFocus()
   }
-
-  const above = (
-    <>
-      <SampleBanner />
-      {definition.tabs ? (
-        <EhrModuleTabs label={definition.tabs.label} currentId={definition.id}
-          tabs={definition.tabs.tabs.map(tab => ({ id: tab.id, label: tab.label, href: href(tab.path ?? tab.id) }))}
-          onNavigate={(tab, event) => {
-            if (tab.id !== definition.id) {
-              follow(definition.tabs?.tabs.find(entry => entry.id === tab.id)?.path ?? tab.id, event)
-              return
-            }
-            // This workspace's own tab: its list, as the design's tab does.
-            event.preventDefault()
-            showList()
-          }} />
-      ) : null}
-    </>
-  )
 
   const create = (patientId: string | undefined, values: SampleValues): string | undefined => {
     const refused = definition.validate?.(givenValues(values), records)
@@ -124,25 +122,20 @@ export function SampleWorkspace({ definition }: { readonly definition: SampleDef
     return undefined
   }
 
-  const exportRows = (rows: readonly SampleRecord[]) => {
-    downloadFile(`health-id-sample-${definition.id}.csv`, 'text/csv;charset=utf-8', sampleCsv(definition, rows))
-    setAnnouncement(`Exported ${rows.length} ${rows.length === 1 ? 'record' : 'records'}.`)
-  }
-
   const current = view.kind === 'record' ? records.find(record => record.id === view.id) : undefined
 
   return (
     <div ref={rootRef} className="hid-ehr-dept-sample">
       {view.kind === 'new' ? (
-        <SampleCreate definition={definition} above={above} onBack={() => showList(createId)} onCreate={create} />
+        <SampleCreate definition={definition} onBack={() => showList(createId)} onCreate={create} />
       ) : current ? (
-        <SampleDetail key={current.id} definition={definition} record={current} above={above} onBack={() => showList(nameId(current.id))}
+        <SampleDetail key={current.id} base={base} definition={definition} record={current} onBack={() => showList(nameId(current.id))}
           onAct={act} onEdit={edit} focus={requestFocus} savedHeadingId={savedHeadingId} />
       ) : (
-        <SampleList definition={definition} records={records} search={search} onSearch={setSearch} above={above}
+        <SampleList definition={definition} records={records} search={search} onSearch={setSearch}
           // "Clear search" goes as it is pressed: focus goes to the search field it cleared.
           onClearSearch={() => { setSearch(''); requestFocus({ selector: 'input[type="search"]' }) }}
-          onCreate={() => { setView({ kind: 'new' }); setAnnouncement(''); requestFocus() }} onExport={exportRows} onOpen={open}
+          onCreate={() => { setView({ kind: 'new' }); setAnnouncement(''); requestFocus() }} onOpen={open}
           nameId={nameId} createId={createId} />
       )}
       <p className="hid-ehr-sr-only" role="status">{announcement.text ? <span key={announcement.count}>{announcement.text}</span> : null}</p>

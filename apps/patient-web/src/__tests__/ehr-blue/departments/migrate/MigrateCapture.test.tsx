@@ -65,6 +65,9 @@ async function press(button: HTMLElement) {
 
 const card = () => screen.getByRole('heading', { name: 'Patient documents' }).closest('section') as HTMLElement
 const focused = () => document.activeElement
+/** What describes a control, in order: a refused control's error first, then its hint. */
+const descriptions = (control: HTMLElement) =>
+  (control.getAttribute('aria-describedby') ?? '').split(' ').map(id => document.getElementById(id)?.textContent)
 
 async function openDocuments() {
   renderDept(<Migrate />)
@@ -201,6 +204,8 @@ describe('Patient documents: an encounter\'s documents', () => {
 })
 
 describe('Patient documents: capturing a document', () => {
+  const HINT = 'Files are scanned for viruses before they can be opened or sent to OCR.'
+
   it('uploads a file into the chosen encounter, checks access first, and says it is being scanned', async () => {
     await openDocuments()
     const file = pdf()
@@ -216,14 +221,17 @@ describe('Patient documents: capturing a document', () => {
   it('refuses no file, and a file of another type, at the field, sending nothing', async () => {
     await openDocuments()
     const field = screen.getByLabelText(/^Clinical document/)
+    expect(field.id).toBe('migrate-document-file')
+    expect(field.getAttribute('aria-invalid')).toBeNull()
+    expect(descriptions(field)).toEqual([HINT])
     await press(screen.getByRole('button', { name: 'Upload document' }))
     await waitFor(() => expect(focused()).toBe(field))
     expect(field.getAttribute('aria-invalid')).toBe('true')
-    expect(document.getElementById('migrate-document-file-error')?.textContent).toBe('Choose a file first.')
+    expect(descriptions(field)[0]).toBe('Choose a file first.')
     fireEvent.change(field, { target: { files: [pdf('notes.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')] } })
     await press(screen.getByRole('button', { name: 'Upload document' }))
-    await waitFor(() => expect(document.getElementById('migrate-document-file-error')?.textContent).toBe('Choose a PDF, JPEG, PNG or TIFF file of 50 MiB or less.'))
-    expect(field.getAttribute('aria-describedby')).toBe('migrate-document-file-error migrate-document-file-hint')
+    await waitFor(() => expect(descriptions(field)[0]).toBe('Choose a PDF, JPEG, PNG or TIFF file of 50 MiB or less.'))
+    expect(descriptions(field)).toEqual(['Choose a PDF, JPEG, PNG or TIFF file of 50 MiB or less.', HINT])
     expect(api.uploadDocument).not.toHaveBeenCalled()
   })
 

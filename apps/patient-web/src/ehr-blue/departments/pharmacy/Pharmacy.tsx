@@ -150,10 +150,10 @@ export function Pharmacy() {
         {alert && <small className="hid-ehr-dept-pharmacy-alert">{alert}</small>}
       </>
     } },
-    { id: 'accepted', header: 'Accepted', cell: item => dateText(item.acceptedAt) },
+    { id: 'accepted', header: 'Accepted', cell: item => <span className="hid-ehr-dept-nowrap">{dateText(item.acceptedAt)}</span> },
     { id: 'actions', header: <span className="hid-ehr-sr-only">Actions</span>, cell: item => (
       <div className="hid-ehr-dept-table-actions">
-        <EhrButton variant="secondary" size="sm" aria-describedby={`pharmacy-${item.id}-name`} onClick={() => setQuick(item.id)}>Quick view</EhrButton>
+        <EhrButton variant="secondary" aria-describedby={`pharmacy-${item.id}-name`} onClick={() => setQuick(item.id)}>Quick view</EhrButton>
         <DeptLinkButton describedBy={`pharmacy-${item.id}-name`} onClick={() => open(item)}>Open<span aria-hidden="true"> →</span></DeptLinkButton>
       </div>
     ) },

@@ -46,9 +46,10 @@ export const LIVE_LOADING = 'Loading staff records…'
 /**
  * Today's Staff page read (StaffPage): only for a facility that signed itself up and a membership holding
  * workforce.manage there, again on `retry`; an answer for an earlier facility is dropped, and a list already read stays
- * shown while it is read again.
+ * shown while it is read again. `waiting` holds the read back while the address is going back to the page's base, where
+ * the frame draws the page anew and it reads then.
  */
-export function useLiveStaff(facility: Facility | undefined): LiveStaff {
+export function useLiveStaff(facility: Facility | undefined, waiting = false): LiveStaff {
   const facilityId = facility?.id ?? ''
   const canManage = facility?.permissions.includes('workforce.manage') ?? false
   const selfService = selfServiceReview(facility) !== null
@@ -57,7 +58,7 @@ export function useLiveStaff(facility: Facility | undefined): LiveStaff {
   const reload = useCallback(() => setRevision(value => value + 1), [])
 
   useEffect(() => {
-    if (!facilityId || !canManage || !selfService) return
+    if (waiting || !facilityId || !canManage || !selfService) return
     let active = true
     setLoaded(previous => previous?.facilityId === facilityId && previous.status === 'ready' ? previous
       : { facilityId, status: 'loading' })
@@ -65,7 +66,7 @@ export function useLiveStaff(facility: Facility | undefined): LiveStaff {
       staff => { if (active) setLoaded({ facilityId, status: 'ready', staff }) },
       caught => { if (active) setLoaded({ facilityId, status: 'failed', caught }) })
     return () => { active = false }
-  }, [facilityId, canManage, selfService, revision])
+  }, [waiting, facilityId, canManage, selfService, revision])
 
   if (!facility) return { kind: 'notice', tone: 'info', message: 'Choose the facility you are working at first.' }
   if (!canManage) return { kind: 'notice', tone: 'critical', message: `Permission denied. Only ${facility.name}’s administrator can open its staff records.` }

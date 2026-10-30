@@ -1,39 +1,15 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { EhrButton, EhrInput } from '@hid/ui/ehr'
+import { EhrButton, EhrField, EhrInput } from '@hid/ui/ehr'
 
 /**
  * The target's form parts (prototype src/ui.tsx Form, ErrorBox, PasswordInput) in the blue look, with fixed ids so
- * that a refused field can be focused: "Label *" over the control, the field's problem under it.
+ * that a refused field can be focused: "Label *" over the control, the field's problem under it. A field is an
+ * EhrField that carries the fixed id as its controlId.
  */
 
-/** The aria a control takes from its field. */
-export function fieldAria(id: string, { error, hint }: { error?: string; hint?: ReactNode }) {
-  const describedBy = [error ? `${id}-error` : null, hint !== undefined ? `${id}-hint` : null].filter(Boolean).join(' ')
-  return { 'aria-describedby': describedBy || undefined, 'aria-invalid': error ? true : undefined } as const
-}
-
-export function StaffField({ id, label, required, hint, error, full, children }: {
-  readonly id: string
-  readonly label: ReactNode
-  readonly required?: boolean
-  readonly hint?: ReactNode
-  readonly error?: string
-  /** Spans both columns of the form grid. */
-  readonly full?: boolean
-  readonly children: ReactNode
-}) {
-  return (
-    <div className={['hid-ehr-field', full ? 'hid-ehr-dept-full' : null].filter(Boolean).join(' ')}>
-      <label className="hid-ehr-label" htmlFor={id}>{label}{required ? <span aria-hidden="true"> *</span> : null}</label>
-      {children}
-      {hint !== undefined ? <p id={`${id}-hint`} className="hid-ehr-hint">{hint}</p> : null}
-      <FieldError id={id} error={error} />
-    </div>
-  )
-}
-
-export function FieldError({ id, error }: { readonly id: string; readonly error?: string }) {
-  return error ? <p id={`${id}-error`} className="hid-ehr-error">{error}</p> : null
+/** A required field's label, "Label *": the star is hidden from screen readers, as the control says it is required. */
+export function RequiredLabel({ children }: { readonly children: ReactNode }) {
+  return <>{children}<span aria-hidden="true"> *</span></>
 }
 
 /** The target's ErrorBox: a refusal, said where the action was taken. */
@@ -52,11 +28,11 @@ export function StaffCheck({ id, checked, onChange, error, children }: {
   return (
     <div className="hid-ehr-dept-full">
       <label className="hid-ehr-dept-staff-check">
-        <input id={id} type="checkbox" checked={checked} required {...fieldAria(id, { error })}
-          onChange={event => onChange(event.target.checked)} />
-        <span>{children}<span aria-hidden="true"> *</span></span>
+        <input id={id} type="checkbox" checked={checked} required aria-describedby={error ? `${id}-error` : undefined}
+          aria-invalid={error ? true : undefined} onChange={event => onChange(event.target.checked)} />
+        <span><RequiredLabel>{children}</RequiredLabel></span>
       </label>
-      <FieldError id={id} error={error} />
+      {error ? <p id={`${id}-error`} className="hid-ehr-error">{error}</p> : null}
     </div>
   )
 }
@@ -97,17 +73,16 @@ export function StaffPassword({ id, value, onChange, error, actorEmail }: {
   }, [shown])
   const toggle = `${shown ? 'Hide' : 'Show'} current password`
   return (
-    <StaffField id={id} label="Current password" required error={error}>
+    <EhrField controlId={id} label={<RequiredLabel>Current password</RequiredLabel>} error={error}>
       <input type="email" hidden readOnly autoComplete="username" value={actorEmail} />
       <span className="hid-ehr-dept-staff-password">
-        <EhrInput ref={input} id={id} type={shown ? 'text' : 'password'} value={value} autoComplete="current-password"
-          maxLength={256} spellCheck={false} autoCapitalize="none" required {...fieldAria(id, { error })}
-          onChange={event => onChange(event.target.value)} />
+        <EhrInput ref={input} type={shown ? 'text' : 'password'} value={value} autoComplete="current-password"
+          maxLength={256} spellCheck={false} autoCapitalize="none" required onChange={event => onChange(event.target.value)} />
         <button type="button" className="hid-ehr-dept-staff-password-toggle" aria-label={toggle} title={toggle}
           aria-controls={id} aria-pressed={shown} onMouseDown={event => event.preventDefault()}
           onClick={() => setShown(value => !value)}>{shown ? EYE_OFF : EYE}</button>
       </span>
-    </StaffField>
+    </EhrField>
   )
 }
 

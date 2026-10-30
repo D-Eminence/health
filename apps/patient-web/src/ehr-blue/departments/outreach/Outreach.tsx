@@ -231,7 +231,7 @@ function OutreachList({ canReadCases, canReadCampaigns, canWrite, cases, campaig
     {
       id: 'actions', header: <span className="hid-ehr-sr-only">Actions</span>, cell: item => (
         <div className="hid-ehr-dept-table-actions">
-          <EhrButton variant="secondary" size="sm" aria-describedby={`outreach-case-${item.id}-open`} onClick={() => setQuick({ kind: 'case', item })}>Quick view</EhrButton>
+          <EhrButton variant="secondary" aria-describedby={`outreach-case-${item.id}-open`} onClick={() => setQuick({ kind: 'case', item })}>Quick view</EhrButton>
           <DeptLinkButton describedBy={`outreach-case-${item.id}-open`} onClick={() => onOpenCase(item)}>Open <span aria-hidden="true">→</span></DeptLinkButton>
         </div>
       ),
@@ -245,7 +245,7 @@ function OutreachList({ canReadCases, canReadCampaigns, canWrite, cases, campaig
     {
       id: 'actions', header: <span className="hid-ehr-sr-only">Actions</span>, cell: campaign => (
         <div className="hid-ehr-dept-table-actions">
-          <EhrButton variant="secondary" size="sm" aria-describedby={`outreach-campaign-${campaign.id}-open`} onClick={() => setQuick({ kind: 'campaign', campaign })}>Quick view</EhrButton>
+          <EhrButton variant="secondary" aria-describedby={`outreach-campaign-${campaign.id}-open`} onClick={() => setQuick({ kind: 'campaign', campaign })}>Quick view</EhrButton>
           <DeptLinkButton describedBy={`outreach-campaign-${campaign.id}-open`} onClick={() => onOpenCampaign(campaign)}>Open <span aria-hidden="true">→</span></DeptLinkButton>
         </div>
       ),

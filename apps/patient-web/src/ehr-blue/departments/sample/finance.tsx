@@ -1,8 +1,8 @@
 import { EhrButton } from '@hid/ui/ehr'
 import { DeptFacts } from '../parts/DeptRecord'
 import {
-  above, AMOUNT_TEXT, downloadFile, patientLine, QUANTITY_TEXT, recordName, recordOptions, samplePatient, type SampleApplied, type SampleConnection, type SampleDefinition, type SampleRecord,
-  type SampleTabs, type SampleValues,
+  above, AMOUNT_TEXT, QUANTITY_TEXT, recordName, recordOptions, type SampleApplied, type SampleConnection, type SampleDefinition, type SampleRecord,
+  type SampleValues,
 } from '../parts/sample/model'
 import { SAMPLE_SERVICES } from './admin'
 
@@ -10,11 +10,6 @@ import { SAMPLE_SERVICES } from './admin'
  * Sample definitions: Patient billing, Insurance & Claims and Policies, the design's Finance module. Fields, actions
  * and statuses follow the design's catalogue; every row and patient is fictional, and every payment simulated.
  */
-
-const INSURANCE_TABS: SampleTabs = {
-  label: 'Insurance & Claims',
-  tabs: [{ id: 'insurance', label: 'Claims' }, { id: 'policies', label: 'Policies' }],
-}
 
 const reason = { key: 'reason', label: 'Reason', type: 'textarea' } as const
 
@@ -180,9 +175,9 @@ export const billingSample: SampleDefinition = {
     const nowDue = Number(record.values.totalCents ?? 0) - nowPaid
     return { status: nowDue === 0 ? 'paid' : nowPaid > 0 ? 'partial' : 'issued', state: { ...record.state, paidCents: nowPaid } }
   },
+  // No receipt to download: a sample hands out no file. Print stays.
   savedExtra: record => {
     const totals = balance(record)
-    const patient = samplePatient(record.patientId)
     return (
       <>
         <DeptFacts className="hid-ehr-dept-sample-totals" facts={[
@@ -192,11 +187,6 @@ export const billingSample: SampleDefinition = {
         ]} />
         <p>Totals above are integer minor currency units (cents / kobo). All payments are fictional.</p>
         <div className="hid-ehr-dept-sample-buttons">
-          <EhrButton variant="secondary" onClick={() => downloadFile(`receipt-${record.id}.json`, 'application/json', JSON.stringify({
-            sample: 'Fictional sample invoice: not connected to Health ID.',
-            invoice: { number: record.values.number, status: record.status, patient: patient ? patientLine(patient) : undefined, values: record.values },
-            balance: totals,
-          }, null, 2))}>Download invoice / receipts</EhrButton>
           <EhrButton variant="secondary" onClick={() => window.print()}>Print</EhrButton>
         </div>
       </>
@@ -211,7 +201,6 @@ export const insuranceSample: SampleDefinition = {
   title: 'Insurance & Claims',
   patient: true,
   initial: 'draft',
-  tabs: INSURANCE_TABS,
   fields: [
     { key: 'invoice', label: 'Invoice', options: patientOptions(INVOICES) },
     { key: 'policy', label: 'Patient policy', options: patientOptions(POLICIES) },
@@ -251,7 +240,6 @@ export const policiesSample: SampleDefinition = {
   title: 'Policies',
   patient: true,
   initial: 'active',
-  tabs: INSURANCE_TABS,
   fields: [
     { key: 'insurer', label: 'Fictional insurer' },
     { key: 'number', label: 'Policy number' },

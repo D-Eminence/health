@@ -3,7 +3,7 @@ import {
   type RefObject,
 } from 'react'
 import { isHidApiError } from '@hid/http'
-import { EhrBadge, EhrButton, EhrInput, EhrSelect, EhrTextarea } from '@hid/ui/ehr'
+import { EhrBadge, EhrButton, EhrField, EhrInput, EhrSelect, EhrTextarea } from '@hid/ui/ehr'
 import {
   staffApi, type LabAbnormalFlag, type LabAccession, type LabExecution, type LabResult, type LabResultRevision, type LabResultValue,
   type LabSpecimen, type LabWorkItem,
@@ -18,7 +18,7 @@ import { DeptFacts, DeptRecordLayout, type DeptFact } from '../parts/DeptRecord'
 import { errorText } from '../parts/errors'
 import { dateText } from '../parts/format'
 import { patientLabel } from '../parts/routedWork'
-import { fieldControl, LabActionButton, LabActions, LabField, statusWord } from './labParts'
+import { LabActionButton, LabActions, statusWord } from './labParts'
 
 /*
  * An accession and everything recorded on it: its samples' custody, their processing (analytical executions) and
@@ -71,13 +71,12 @@ export function AccessionForm({ facilityId, item, onCreated }: {
   }
   return <form className="hid-ehr-dept-action-form" aria-label="Create accession" noValidate onSubmit={event => void submit(event)}>
     <p className="hid-ehr-dept-muted">{item.testName ?? 'Lab test'} · {patientLabel(item)}</p>
-    <LabField label="Sample type" htmlFor="lab-specimen-type" required error={problems.error('lab-specimen-type')}>
-      <EhrInput id="lab-specimen-type" name="specimenType" maxLength={240} placeholder="Blood, urine, swab…" required
-        {...fieldControl(problems.control('lab-specimen-type'))} />
-    </LabField>
-    <LabField label="Clinical reason" htmlFor="lab-accession-reason" required error={problems.error('lab-accession-reason')}>
-      <EhrTextarea id="lab-accession-reason" name="reason" maxLength={500} required {...fieldControl(problems.control('lab-accession-reason'))} />
-    </LabField>
+    <EhrField label={<>Sample type<span aria-hidden="true"> *</span></>} controlId="lab-specimen-type" error={problems.error('lab-specimen-type')}>
+      <EhrInput name="specimenType" maxLength={240} placeholder="Blood, urine, swab…" required />
+    </EhrField>
+    <EhrField label={<>Clinical reason<span aria-hidden="true"> *</span></>} controlId="lab-accession-reason" error={problems.error('lab-accession-reason')}>
+      <EhrTextarea name="reason" maxLength={500} required />
+    </EhrField>
     {error && <DeptNotice tone="critical" role="alert">{error}</DeptNotice>}
     <div className="hid-ehr-dept-form-actions"><EhrButton type="submit" busy={busy}>{busy ? 'Creating…' : 'Create accession'}</EhrButton></div>
   </form>
@@ -119,10 +118,9 @@ function SpecimenStepForm({ facilityId, accessionId, specimen, action, onStarted
   }
   const label = action === 'reject' ? 'Reason' : action === 'collect' ? 'Collection notes' : 'Condition on receipt'
   return <form className="hid-ehr-dept-action-form" aria-label={SPECIMEN_STEP[action]} noValidate onSubmit={event => void submit(event)}>
-    <LabField label={label} htmlFor={detailId} required={action === 'reject'} error={problems.error(detailId)}>
-      <EhrInput id={detailId} name="detail" maxLength={action === 'collect' ? 1000 : 500} required={action === 'reject'}
-        {...fieldControl(problems.control(detailId))} />
-    </LabField>
+    <EhrField label={<>{label}{action === 'reject' ? <span aria-hidden="true"> *</span> : null}</>} controlId={detailId} error={problems.error(detailId)}>
+      <EhrInput name="detail" maxLength={action === 'collect' ? 1000 : 500} required={action === 'reject'} />
+    </EhrField>
     {error && <DeptNotice tone="critical" role="alert">{error}</DeptNotice>}
     <div className="hid-ehr-dept-form-actions"><EhrButton type="submit" busy={busy}>{busy ? 'Saving…' : SPECIMEN_STEP[action]}</EhrButton></div>
   </form>
@@ -217,40 +215,40 @@ function ResultEntry({ facilityId, execution, result, label, onStarted, onChange
   return <form className="hid-ehr-dept-action-form" aria-label={label} noValidate onSubmit={event => void submit(event)}>
     <p className="hid-ehr-dept-muted">{result ? 'A correction is saved as a new draft version. Earlier and published versions are kept.'
       : 'The result stays a draft until someone else verifies it.'}</p>
-    <LabField label="Result type" htmlFor={`lab-result-type-${id}`}>
-      <EhrSelect id={`lab-result-type-${id}`} value={resultType} onChange={event => setResultType(event.target.value as 'numeric' | 'text')}>
+    <EhrField label="Result type" controlId={`lab-result-type-${id}`}>
+      <EhrSelect value={resultType} onChange={event => setResultType(event.target.value as 'numeric' | 'text')}>
         <option value="numeric">Number</option><option value="text">Text</option>
       </EhrSelect>
-    </LabField>
+    </EhrField>
     {resultType === 'numeric'
-      ? <LabField label="Result value" htmlFor={`lab-numeric-${id}`} required error={problems.error(`lab-numeric-${id}`)}>
-        <EhrInput id={`lab-numeric-${id}`} name="numericValue" type="number" step="any" required
-          defaultValue={current?.resultType === 'numeric' ? current.numericValue ?? '' : ''} {...fieldControl(problems.control(`lab-numeric-${id}`))} />
-      </LabField>
-      : <LabField label="Result value" htmlFor={`lab-text-${id}`} required error={problems.error(`lab-text-${id}`)}>
-        <EhrTextarea id={`lab-text-${id}`} name="textValue" maxLength={4000} required
-          defaultValue={current?.resultType === 'text' ? current.textValue ?? '' : ''} {...fieldControl(problems.control(`lab-text-${id}`))} />
-      </LabField>}
+      ? <EhrField label={<>Result value<span aria-hidden="true"> *</span></>} controlId={`lab-numeric-${id}`} error={problems.error(`lab-numeric-${id}`)}>
+        <EhrInput name="numericValue" type="number" step="any" required
+          defaultValue={current?.resultType === 'numeric' ? current.numericValue ?? '' : ''} />
+      </EhrField>
+      : <EhrField label={<>Result value<span aria-hidden="true"> *</span></>} controlId={`lab-text-${id}`} error={problems.error(`lab-text-${id}`)}>
+        <EhrTextarea name="textValue" maxLength={4000} required
+          defaultValue={current?.resultType === 'text' ? current.textValue ?? '' : ''} />
+      </EhrField>}
     <div className="hid-ehr-dept-form-grid">
-      <LabField label="Unit" htmlFor={`lab-unit-${id}`}>
-        <EhrInput id={`lab-unit-${id}`} name="unit" maxLength={80} defaultValue={current?.unit ?? ''} />
-      </LabField>
-      <LabField label="Reference range" htmlFor={`lab-range-${id}`}>
-        <EhrInput id={`lab-range-${id}`} name="referenceRange" maxLength={240} defaultValue={current?.referenceRange ?? ''} />
-      </LabField>
+      <EhrField label="Unit" controlId={`lab-unit-${id}`}>
+        <EhrInput name="unit" maxLength={80} defaultValue={current?.unit ?? ''} />
+      </EhrField>
+      <EhrField label="Reference range" controlId={`lab-range-${id}`}>
+        <EhrInput name="referenceRange" maxLength={240} defaultValue={current?.referenceRange ?? ''} />
+      </EhrField>
     </div>
-    <LabField label="Flag" htmlFor={`lab-flag-${id}`} error={problems.error(`lab-flag-${id}`)}>
-      <EhrSelect id={`lab-flag-${id}`} name="abnormalFlag" defaultValue={current?.abnormalFlag ?? 'unknown'} {...fieldControl(problems.control(`lab-flag-${id}`))}>
+    <EhrField label="Flag" controlId={`lab-flag-${id}`} error={problems.error(`lab-flag-${id}`)}>
+      <EhrSelect name="abnormalFlag" defaultValue={current?.abnormalFlag ?? 'unknown'}>
         {abnormalFlags.map(flag => <option key={flag} value={flag}>{statusWord(flag)}</option>)}
       </EhrSelect>
-    </LabField>
+    </EhrField>
     {result && <>
-      <LabField label="Type of change" htmlFor={`lab-revision-kind-${id}`}>
-        <EhrSelect id={`lab-revision-kind-${id}`} name="revisionKind"><option value="correction">Correction</option><option value="amendment">Amendment</option></EhrSelect>
-      </LabField>
-      <LabField label="Reason" htmlFor={`lab-result-reason-${id}`} required error={problems.error(`lab-result-reason-${id}`)}>
-        <EhrTextarea id={`lab-result-reason-${id}`} name="reason" maxLength={500} required {...fieldControl(problems.control(`lab-result-reason-${id}`))} />
-      </LabField>
+      <EhrField label="Type of change" controlId={`lab-revision-kind-${id}`}>
+        <EhrSelect name="revisionKind"><option value="correction">Correction</option><option value="amendment">Amendment</option></EhrSelect>
+      </EhrField>
+      <EhrField label={<>Reason<span aria-hidden="true"> *</span></>} controlId={`lab-result-reason-${id}`} error={problems.error(`lab-result-reason-${id}`)}>
+        <EhrTextarea name="reason" maxLength={500} required />
+      </EhrField>
     </>}
     {error && <DeptNotice tone="critical" role="alert">{error}</DeptNotice>}
     <div className="hid-ehr-dept-form-actions"><EhrButton type="submit" busy={busy}>{busy ? 'Saving…' : label}</EhrButton></div>
@@ -287,9 +285,9 @@ function ResultGovernance({ facilityId, result, action, onStarted, onChanged, on
     <p className="hid-ehr-dept-muted">{action === 'verify'
       ? `Verify version ${result.currentVersion} after an independent review. The person who entered it cannot verify it.`
       : `Publish verified version ${result.currentVersion} to authorized readers.`}</p>
-    <LabField label={action === 'verify' ? 'Review note' : 'Reason'} htmlFor={reasonId} required error={problems.error(reasonId)}>
-      <EhrTextarea id={reasonId} name="reason" maxLength={500} required {...fieldControl(problems.control(reasonId))} />
-    </LabField>
+    <EhrField label={<>{action === 'verify' ? 'Review note' : 'Reason'}<span aria-hidden="true"> *</span></>} controlId={reasonId} error={problems.error(reasonId)}>
+      <EhrTextarea name="reason" maxLength={500} required />
+    </EhrField>
     {error && <DeptNotice tone="critical" role="alert">{error}</DeptNotice>}
     <div className="hid-ehr-dept-form-actions"><EhrButton type="submit" busy={busy}>{busy ? 'Saving…' : label}</EhrButton></div>
   </form>
@@ -313,9 +311,9 @@ function CompleteForm({ facilityId, execution, onStarted, onChanged, onRefused }
     finally { setBusy(false) }
   }
   return <form className="hid-ehr-dept-action-form" aria-label="Complete processing" noValidate onSubmit={event => void complete(event)}>
-    <LabField label="Completion notes" htmlFor={`lab-completion-${execution.id}`}>
-      <EhrTextarea id={`lab-completion-${execution.id}`} name="notes" maxLength={1000} />
-    </LabField>
+    <EhrField label="Completion notes" controlId={`lab-completion-${execution.id}`}>
+      <EhrTextarea name="notes" maxLength={1000} />
+    </EhrField>
     {error && <DeptNotice tone="critical" role="alert">{error}</DeptNotice>}
     <div className="hid-ehr-dept-form-actions"><EhrButton type="submit" busy={busy}>{busy ? 'Completing…' : 'Complete processing'}</EhrButton></div>
   </form>
@@ -570,13 +568,13 @@ function ExecutionPanel({ facilityId, specimen, permissions, generation, recheck
           {executionActionLabel(entry.action, entry.execution.result)}{several ? ` · ${entry.execution.test.name}` : ''}</LabActionButton>)}
         {shown === 'start' && <form className="hid-ehr-dept-action-form" aria-label="Start processing" noValidate onSubmit={event => void start(event)}>
           <p className="hid-ehr-dept-muted">Start analysis of this received sample. Health ID checks the sample’s version and the patient’s permission.</p>
-          <LabField label="Method" htmlFor={`lab-method-${specimen.id}`}>
-            <EhrInput id={`lab-method-${specimen.id}`} name="method" maxLength={240} />
-          </LabField>
-          <LabField label="Processing details" htmlFor={`lab-start-reason-${specimen.id}`} required error={startProblems.error(`lab-start-reason-${specimen.id}`)}>
-            <EhrTextarea id={`lab-start-reason-${specimen.id}`} name="reason" maxLength={500} required
-              {...fieldControl(startProblems.control(`lab-start-reason-${specimen.id}`))} />
-          </LabField>
+          <EhrField label="Method" controlId={`lab-method-${specimen.id}`}>
+            <EhrInput name="method" maxLength={240} />
+          </EhrField>
+          <EhrField label={<>Processing details<span aria-hidden="true"> *</span></>} controlId={`lab-start-reason-${specimen.id}`}
+            error={startProblems.error(`lab-start-reason-${specimen.id}`)}>
+            <EhrTextarea name="reason" maxLength={500} required />
+          </EhrField>
           {startError && <DeptNotice tone="critical" role="alert">{startError}</DeptNotice>}
           <div className="hid-ehr-dept-form-actions"><EhrButton type="submit" busy={busy}>{busy ? 'Starting…' : 'Start processing'}</EhrButton></div>
         </form>}

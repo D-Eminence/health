@@ -1,18 +1,17 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { assertSignedStorageUrl, isHidApiError } from '@hid/http'
-import { EhrBadge, EhrButton, EhrDataTable, EhrEmptyState, EhrInput, EhrSelect, EhrSkeleton } from '@hid/ui/ehr'
+import { EhrBadge, EhrButton, EhrDataTable, EhrEmptyState, EhrField, EhrInput, EhrSelect, EhrSkeleton } from '@hid/ui/ehr'
 import { isAllowedPatientLookup, staffApi, type DocumentRecord, type Encounter, type Page } from '../../../staff/api'
 import { useStaff } from '../../../staff/App'
 import { getEnvironment } from '../../../staff/env'
-import { refusal, refusalText, type FieldProblem } from '../../../staff/fieldProblem'
+import { problemText, refusal, refusalText, type FieldProblem } from '../../../staff/fieldProblem'
 import { useFocusById } from '../../../staff/focus'
 import { staffSessionGeneration, untilStaffSessionReady } from '../../../staff/session'
 import { DeptSection } from '../parts/DeptPage'
 import { DeptNotice } from '../parts/DeptNotice'
 import { DeptLinkButton } from '../parts/DeptRecord'
 import { dateText } from '../parts/format'
-import { FormRefusal, MigrateField, controlProps } from './MigrateField'
-import { statusWords } from './ocrSteps'
+import { FormRefusal, statusWords } from './ocrSteps'
 
 /*
  * Document capture: a file uploaded into a patient's documents, on the encounter it belongs to, as today's clinical
@@ -150,12 +149,11 @@ function PatientDocuments({ facilityId, permissions, onExtract, onAccessEnded }:
     {encounters && items.length === 0 && <EhrEmptyState title="No encounters yet"
       message="Documents are kept on an encounter. Start one in the patient's record, then upload here." />}
     {items.length > 0 && <div className="hid-ehr-dept-migrate-encounter">
-      <div className="hid-ehr-field">
-        <label className="hid-ehr-label" htmlFor="migrate-encounter">Encounter</label>
-        <EhrSelect id="migrate-encounter" value={selected?.id ?? ''} onChange={event => setChosen(event.target.value)}>
+      <EhrField label="Encounter" controlId="migrate-encounter">
+        <EhrSelect value={selected?.id ?? ''} onChange={event => setChosen(event.target.value)}>
           {items.map(item => <option key={item.id} value={item.id}>{`${statusWords(item.encounterType)} · started ${dateText(item.startedAt)} · ${statusWords(item.status)}`}</option>)}
         </EhrSelect>
-      </div>
+      </EhrField>
       {(cursors.length > 1 || encounters?.next) && <nav className="hid-ehr-dept-toolbar" aria-label="Encounter pages">
         <EhrButton variant="secondary" size="sm" aria-disabled={previousOff || undefined}
           onClick={() => { if (!previousOff) void load(cursors.slice(0, -1), true) }}>Previous page</EhrButton>
@@ -250,11 +248,10 @@ function EncounterDocuments({ facilityId, patientId, encounterId, canWrite, canO
       ]} />
     {canWrite && <form className="hid-ehr-dept-form hid-ehr-dept-migrate-upload" noValidate aria-labelledby="migrate-upload-title" onSubmit={event => void upload(event)}>
       <h3 id="migrate-upload-title">Upload a document</h3>
-      <MigrateField id="migrate-document-file" label="Clinical document (PDF, JPEG, PNG or TIFF, max 50 MiB)" required problem={problem}
-        hint="Files are scanned for viruses before they can be opened or sent to OCR.">
-        <EhrInput name="document" type="file" accept=".pdf,.jpg,.jpeg,.png,.tif,.tiff" required
-          {...controlProps(problem, 'migrate-document-file', 'migrate-document-file-hint')} />
-      </MigrateField>
+      <EhrField label={<>Clinical document (PDF, JPEG, PNG or TIFF, max 50 MiB)<span aria-hidden="true"> *</span></>} controlId="migrate-document-file"
+        hint="Files are scanned for viruses before they can be opened or sent to OCR." error={problemText(problem, 'migrate-document-file')}>
+        <EhrInput name="document" type="file" accept=".pdf,.jpg,.jpeg,.png,.tif,.tiff" required />
+      </EhrField>
       <FormRefusal error={uploadError} />
       <div className="hid-ehr-dept-form-actions"><EhrButton id="migrate-document-submit" type="submit" busy={busy}>{busy ? 'Uploading…' : 'Upload document'}</EhrButton></div>
       {/* Mounted throughout, so what an upload says is announced. */}

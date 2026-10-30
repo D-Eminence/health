@@ -2,38 +2,10 @@ import type { ReactNode } from 'react'
 import { EhrButton } from '@hid/ui/ehr'
 
 /*
- * Small pieces of the Laboratory page in the target's look: a field whose control keeps the id today's focus and field
- * refusals use, the "Available actions" card that holds a form opened from it, and an action button in that card.
+ * Small pieces of the Laboratory page in the target's look: the "Available actions" card that holds a form opened from
+ * it, and an action button in that card. The page's fields are EhrFields given the control's id (controlId), so a refusal
+ * made by useFieldProblems and focus after a step both find the control; the field ties its error to it.
  */
-
-/**
- * A labelled field, as the target draws one. Unlike EhrField it takes the control's id, so a refusal made by
- * useFieldProblems (which names the control and renders its error as `${id}-error`) and focus after a step both find it.
- */
-export function LabField({ label, htmlFor, hint, error, required = false, children }: {
-  readonly label: string
-  readonly htmlFor: string
-  readonly hint?: ReactNode
-  readonly error?: ReactNode
-  readonly required?: boolean
-  readonly children: ReactNode
-}) {
-  return (
-    <div className="hid-ehr-field">
-      <label className="hid-ehr-label" htmlFor={htmlFor}>
-        {label}{required ? <span aria-hidden="true"> *</span> : null}
-      </label>
-      {children}
-      {hint !== undefined && !error ? <p id={`${htmlFor}-hint`} className="hid-ehr-hint">{hint}</p> : null}
-      {error ? <p id={`${htmlFor}-error`} className="hid-ehr-error">{error}</p> : null}
-    </div>
-  )
-}
-
-/** useFieldProblems' control props (`invalid`, `aria-describedby`) for an EhrInput, EhrSelect or EhrTextarea. */
-export function fieldControl(props: { readonly invalid?: boolean; readonly 'aria-describedby'?: string }) {
-  return props.invalid ? { 'aria-invalid': true as const, 'aria-describedby': props['aria-describedby'] } : {}
-}
 
 /** Said in an actions card that offers nothing. */
 export const NO_ACTIONS = 'No further actions for your permission and this record state.'

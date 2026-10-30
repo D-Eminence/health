@@ -1,16 +1,15 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { isHidApiError } from '@hid/http'
-import { EhrBadge, EhrButton, EhrInput, EhrSelect, EhrTextarea, type EhrBadgeTone } from '@hid/ui/ehr'
+import { EhrBadge, EhrButton, EhrField, EhrInput, EhrSelect, EhrTextarea, type EhrBadgeTone } from '@hid/ui/ehr'
 import {
   staffApi, type LabImport, type OcrExtraction, type OcrJob, type OcrPublication, type OcrTargetDomain, type OcrValidation,
   type OcrValidationInput, type PharmacyImport,
 } from '../../../staff/api'
-import { FieldInputError, refusal, type FieldProblem } from '../../../staff/fieldProblem'
+import { FieldInputError, problemText, refusal, type FieldProblem } from '../../../staff/fieldProblem'
 import { useFocusById } from '../../../staff/focus'
 import { DeptNotice } from '../parts/DeptNotice'
 import { errorText } from '../parts/errors'
 import { dateText } from '../parts/format'
-import { FormRefusal, MigrateField, controlProps } from './MigrateField'
 
 /*
  * The steps of an OCR job as today's Document OCR page takes them (staff/routes/Operations.tsx Ocr): review an
@@ -29,6 +28,15 @@ export function statusWords(status: string) {
 /** The design's single badge; a state that needs attention is critical, its word says which. */
 export function statusTone(status: string): EhrBadgeTone {
   return status === 'failed' || status === 'rejected' ? 'critical' : 'brand'
+}
+
+/** What a form says once a request is refused: the refusal, and the design's line on what to do next. */
+export function FormRefusal({ error }: { readonly error: string }) {
+  if (!error) return null
+  return <>
+    <DeptNotice tone="critical" role="alert" className="hid-ehr-dept-migrate-form-error">{error}</DeptNotice>
+    <p className="hid-ehr-dept-muted">Correct the issue or retry using the same button. No success is reported until saved.</p>
+  </>
 }
 
 const candidateTypes = {
@@ -103,38 +111,40 @@ export function ReviewForm({ facilityId, job, extractions, disposition, onChange
   }
   if (!extractions.length) return <p className="hid-ehr-dept-muted">An extraction must be available before review.</p>
   const label = disposition === 'rejected' ? 'Reject extraction' : 'Validate extraction'
-  // A JSON field is described by its error, when refused, and by what the owning domains require.
-  const json = (id: string) => controlProps(problem, id, 'ocr-review-requirements')
   return <form className="hid-ehr-dept-form hid-ehr-dept-action-form" noValidate aria-label={label} onSubmit={event => void submit(event)}>
     <p className="hid-ehr-dept-muted">Check the extracted text first. Only validated evidence can be published.</p>
-    <MigrateField id="ocr-review-extraction" label="Extraction" problem={problem}>
-      <EhrSelect value={extractionId} onChange={event => setExtractionId(event.target.value)} {...controlProps(problem, 'ocr-review-extraction')}>
+    <EhrField label="Extraction" controlId="ocr-review-extraction" error={problemText(problem, 'ocr-review-extraction')}>
+      <EhrSelect value={extractionId} onChange={event => setExtractionId(event.target.value)}>
         {extractions.map(item => <option key={item.id} value={item.id}>Version {item.version} · {item.provider}</option>)}
       </EhrSelect>
-    </MigrateField>
-    {disposition === 'validated' && <MigrateField id="ocr-review-domain" label="Owning domain" problem={problem}>
-      <EhrSelect id="ocr-review-domain" value={domain} onChange={event => setDomain(event.target.value as OcrTargetDomain)}>
+    </EhrField>
+    {disposition === 'validated' && <EhrField label="Owning domain" controlId="ocr-review-domain">
+      <EhrSelect value={domain} onChange={event => setDomain(event.target.value as OcrTargetDomain)}>
         <option value="DOCUMENT_ONLY">Retain validated document</option><option value="EHR">Clinical note</option>
         <option value="LAB">Historical lab evidence</option><option value="PHARMACY">Historical medication evidence</option>
       </EhrSelect>
-    </MigrateField>}
-    <MigrateField id="ocr-reviewed-payload" label="Reviewed payload (JSON object)" required problem={problem}>
-      <EhrTextarea key={`payload-${selected?.id}`} name="validatedPayload" rows={7} spellCheck={false} required {...json('ocr-reviewed-payload')}
+    </EhrField>}
+    {/* A JSON object field is described by its error, when refused, and by what the owning domains require. */}
+    <EhrField label={<>Reviewed payload (JSON object)<span aria-hidden="true"> *</span></>} controlId="ocr-reviewed-payload"
+      error={problemText(problem, 'ocr-reviewed-payload')}>
+      <EhrTextarea key={`payload-${selected?.id}`} name="validatedPayload" rows={7} spellCheck={false} required aria-describedby="ocr-review-requirements"
         defaultValue={JSON.stringify(selected?.structuredPayload && typeof selected.structuredPayload === 'object' && !Array.isArray(selected.structuredPayload) ? selected.structuredPayload : {}, null, 2)} />
-    </MigrateField>
-    <MigrateField id="ocr-accepted-fields" label="Accepted fields (JSON object)" required problem={problem}>
-      <EhrTextarea name="acceptedFields" rows={6} spellCheck={false} defaultValue="{}" required {...json('ocr-accepted-fields')} />
-    </MigrateField>
+    </EhrField>
+    <EhrField label={<>Accepted fields (JSON object)<span aria-hidden="true"> *</span></>} controlId="ocr-accepted-fields"
+      error={problemText(problem, 'ocr-accepted-fields')}>
+      <EhrTextarea name="acceptedFields" rows={6} spellCheck={false} defaultValue="{}" required aria-describedby="ocr-review-requirements" />
+    </EhrField>
     <p id="ocr-review-requirements" className="hid-ehr-hint">A clinical note needs encounterId, noteType, title and content. Lab evidence needs observations. Medication evidence needs medicationText. A retained document can use an empty object.</p>
-    <MigrateField id="ocr-rejected-fields" label="Rejected fields (JSON array)" required problem={problem}>
-      <EhrTextarea name="rejectedFields" spellCheck={false} defaultValue="[]" required {...controlProps(problem, 'ocr-rejected-fields')} />
-    </MigrateField>
-    <MigrateField id="ocr-corrections" label="Corrections (JSON array)" required problem={problem}>
-      <EhrTextarea name="corrections" spellCheck={false} defaultValue="[]" required {...controlProps(problem, 'ocr-corrections')} />
-    </MigrateField>
-    <MigrateField id="ocr-review-reason" label="Review reason" required problem={problem}>
-      <EhrTextarea name="reason" minLength={8} maxLength={500} required {...controlProps(problem, 'ocr-review-reason')} />
-    </MigrateField>
+    <EhrField label={<>Rejected fields (JSON array)<span aria-hidden="true"> *</span></>} controlId="ocr-rejected-fields"
+      error={problemText(problem, 'ocr-rejected-fields')}>
+      <EhrTextarea name="rejectedFields" spellCheck={false} defaultValue="[]" required />
+    </EhrField>
+    <EhrField label={<>Corrections (JSON array)<span aria-hidden="true"> *</span></>} controlId="ocr-corrections" error={problemText(problem, 'ocr-corrections')}>
+      <EhrTextarea name="corrections" spellCheck={false} defaultValue="[]" required />
+    </EhrField>
+    <EhrField label={<>Review reason<span aria-hidden="true"> *</span></>} controlId="ocr-review-reason" error={problemText(problem, 'ocr-review-reason')}>
+      <EhrTextarea name="reason" minLength={8} maxLength={500} required />
+    </EhrField>
     <FormRefusal error={error} />
     <div className="hid-ehr-dept-form-actions"><EhrButton id="ocr-review-submit" type="submit" busy={busy}>{busy ? 'Saving…' : label}</EhrButton></div>
   </form>
@@ -181,12 +191,12 @@ export function ConfirmForm({ facilityId, job, onChanged }: {
   }
   return <form className="hid-ehr-dept-form hid-ehr-dept-action-form" noValidate aria-label="Confirm source patient" onSubmit={event => void submit(event)}>
     <p className="hid-ehr-dept-muted">Check the patient against the source document before publishing. Health ID checks for an exact match and write access.</p>
-    <MigrateField id="ocr-confirm-patient" label="Canonical patient ID" required problem={problem}>
-      <EhrInput name="patientId" defaultValue={job.patientId ?? ''} required autoComplete="off" {...controlProps(problem, 'ocr-confirm-patient')} />
-    </MigrateField>
-    <MigrateField id="ocr-confirm-reason" label="Confirmation reason" required problem={problem}>
-      <EhrTextarea name="reason" minLength={8} maxLength={500} required {...controlProps(problem, 'ocr-confirm-reason')} />
-    </MigrateField>
+    <EhrField label={<>Canonical patient ID<span aria-hidden="true"> *</span></>} controlId="ocr-confirm-patient" error={problemText(problem, 'ocr-confirm-patient')}>
+      <EhrInput name="patientId" defaultValue={job.patientId ?? ''} required autoComplete="off" />
+    </EhrField>
+    <EhrField label={<>Confirmation reason<span aria-hidden="true"> *</span></>} controlId="ocr-confirm-reason" error={problemText(problem, 'ocr-confirm-reason')}>
+      <EhrTextarea name="reason" minLength={8} maxLength={500} required />
+    </EhrField>
     <FormRefusal error={error} />
     <div className="hid-ehr-dept-form-actions"><EhrButton id="ocr-confirm-submit" type="submit" busy={busy}>{busy ? 'Saving…' : 'Confirm source patient'}</EhrButton></div>
   </form>

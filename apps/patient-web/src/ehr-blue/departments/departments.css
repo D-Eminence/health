@@ -99,7 +99,8 @@
   margin-top: 4px;
   color: var(--ehr-muted);
   font-size: 11px;
-  overflow-wrap: anywhere;
+  /* Between words where it can: 'anywhere' let a table squeeze the Record column to one character. */
+  overflow-wrap: break-word;
 }
 
 .hid-ehr .hid-ehr-dept-mono {
@@ -126,7 +127,7 @@
   text-align: left;
   text-decoration: none;
   cursor: pointer;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 
 .hid-ehr .hid-ehr-dept-link:hover {
@@ -573,8 +574,10 @@
 }
 
 @media (max-width: 1000px) {
+  /* Stacked, each card's own bottom margin spaces it: a row gap too would set a card further from its actions. */
   .hid-ehr .hid-ehr-dept-two-col {
     grid-template-columns: minmax(0, 1fr);
+    row-gap: 0;
   }
 }
 
@@ -1166,6 +1169,12 @@
   border-bottom: 0;
 }
 
+@media (min-width: 769px) {
+  .hid-ehr .hid-ehr-dept-facility .hid-ehr-page-title {
+    font-size: 28px;
+  }
+}
+
 .hid-ehr .hid-ehr-dept-facility-intro {
   margin: 0 0 20px;
   color: var(--ehr-muted);
@@ -1320,9 +1329,9 @@
   margin-top: 12px;
 }
 
-/* An invoice's totals and its download and print buttons. */
+/* An invoice's totals and its Print button. */
 .hid-ehr .hid-ehr-dept-sample-totals {
-  margin-top: 12px;
+  margin: 12px 0;
 }
 
 .hid-ehr .hid-ehr-dept-sample-buttons {
@@ -1334,4 +1343,14 @@
 /* "Connected hospital history": each record a link and its status. */
 .hid-ehr .hid-ehr-dept-sample-connected .hid-ehr-dept-link {
   font-size: 15px;
+}
+
+/* A date in a list keeps its time on one line. */
+.hid-ehr .hid-ehr-dept-nowrap {
+  white-space: nowrap;
+}
+
+/* Audit's Outcome filter lines up with the search box beside it, not with its hint below. */
+.hid-ehr .hid-ehr-dept-audit-outcome {
+  align-self: start;
 }
