@@ -84,6 +84,24 @@ function searchField() {
   return screen.getByLabelText('Search Patients') as HTMLInputElement
 }
 
+const REQUEST_UNAVAILABLE = 'Your role at this facility cannot send access requests: it needs identity.consent.write. Ask your organization administrator.'
+const EMERGENCY_UNAVAILABLE = 'Your role at this facility cannot activate emergency access: it also needs identity.break-glass.write. Ask your organization administrator.'
+
+/** Searches for the patient, whom the lookup refuses, and answers the refusal banner. */
+async function refusedBanner() {
+  api.lookupPatient.mockRejectedValue(new HidApiError(403, 'Patient access is not authorized', { code: 'PATIENT_ACCESS_DENIED' }))
+  open()
+  fireEvent.change(searchField(), { target: { value: PATIENT_HID } })
+  fireEvent.click(screen.getByRole('button', { name: 'Verify access' }))
+  return (await screen.findByText('No access to this patient yet')).closest('section')!
+}
+
+/** The text an element's aria-describedby names. */
+function describedBy(element: Element) {
+  return (element.getAttribute('aria-describedby') ?? '').split(' ').filter(Boolean)
+    .map(id => document.getElementById(id)?.textContent ?? '').join(' ')
+}
+
 describe('Patients list', () => {
   it('is live, has no Create record, and says how to open a patient while none is open', async () => {
     expect(patientsStatus).toBe('live')
@@ -183,15 +201,64 @@ describe('Patients list', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'Patients' })).toBeTruthy()
   })
 
-  it('hands no Health ID to a request form the role cannot open (no identity.consent.write)', async () => {
-    staff.permissions = ['identity.patient.read']
-    api.lookupPatient.mockRejectedValue(new HidApiError(403, 'Patient access is not authorized', { code: 'PATIENT_ACCESS_DENIED' }))
-    open()
-    fireEvent.change(searchField(), { target: { value: PATIENT_HID } })
-    fireEvent.click(screen.getByRole('button', { name: 'Verify access' }))
-    fireEvent.click(within((await screen.findByText('No access to this patient yet')).closest('section')!).getByRole('button', { name: 'Request access' }))
-    expect(where()).toBe('/provider/requests/new')
+  it('review item 11: a role without identity.consent.write sees Request access disabled with today’s sentence, and hands no Health ID over', async () => {
+    staff.permissions = ['identity.patient.read', 'identity.patient-access-pin.verify']
+    const banner = await refusedBanner()
+    const request = within(banner).getByRole('button', { name: 'Request access' }) as HTMLButtonElement
+    expect(request.disabled).toBe(true)
+    expect(describedBy(request)).toBe(REQUEST_UNAVAILABLE)
+    expect(within(banner).getByText(REQUEST_UNAVAILABLE)).toBeTruthy()
+    fireEvent.click(request)
+    expect(where()).toBeNull()
     expect(offeredHealthId(FACILITY_ID, staff.setActivePatient)).toBe('')
+    // The PIN, which needs no identity.consent.write, is still offered.
+    expect((within(banner).getByRole('button', { name: 'Verify patient PIN' }) as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('review item 11: a role without identity.break-glass.write sees Emergency break-glass access disabled with today’s sentence', async () => {
+    // This file's role holds every permission emergency access needs but identity.break-glass.write.
+    const banner = await refusedBanner()
+    const emergency = within(banner).getByRole('button', { name: 'Emergency break-glass access' }) as HTMLButtonElement
+    expect(emergency.disabled).toBe(true)
+    expect(describedBy(emergency)).toBe(EMERGENCY_UNAVAILABLE)
+    expect(within(banner).getByText(EMERGENCY_UNAVAILABLE)).toBeTruthy()
+    fireEvent.click(emergency)
+    expect(where()).toBeNull()
+    // Sending a request needs only identity.consent.write, which the role holds.
+    expect((within(banner).getByRole('button', { name: 'Request access' }) as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('review item 11: with identity.consent.write and identity.break-glass.write, Request access and Emergency break-glass access are both enabled', async () => {
+    staff.permissions = [...ALL, 'identity.break-glass.write']
+    const banner = await refusedBanner()
+    for (const name of ['Request access', 'Emergency break-glass access']) {
+      const button = within(banner).getByRole('button', { name }) as HTMLButtonElement
+      expect(button.disabled).toBe(false)
+      expect(button.getAttribute('aria-describedby')).toBeNull()
+    }
+    expect(screen.queryByText(REQUEST_UNAVAILABLE)).toBeNull()
+    expect(screen.queryByText(EMERGENCY_UNAVAILABLE)).toBeNull()
+    fireEvent.click(within(banner).getByRole('button', { name: 'Emergency break-glass access' }))
+    expect(where()).toBe('/provider/emergency')
+  })
+
+  it('review item 10: the search’s Health ID starts at HID-, is normalized as typed, and HID- alone is empty', () => {
+    open()
+    expect(searchField().value).toBe('HID-')
+    fireEvent.click(screen.getByRole('button', { name: 'Verify access' }))
+    expect(screen.getByText('Enter the patient’s Health ID.')).toBeTruthy()
+    expect(api.lookupPatient).not.toHaveBeenCalled()
+    fireEvent.change(searchField(), { target: { value: ' hid zdem aaa2' } })
+    expect(searchField().value).toBe(PATIENT_HID)
+    fireEvent.change(searchField(), { target: { value: '' } })
+    expect(searchField().value).toBe('HID-')
+    // Only the HID- the field starts with: nothing typed, so no "Clear search".
+    expect(screen.queryByRole('button', { name: 'Clear search' })).toBeNull()
+    fireEvent.change(searchField(), { target: { value: 'hid-zdemaaa2' } })
+    // Clear search goes back to the field's start, HID-.
+    fireEvent.click(screen.getByRole('button', { name: 'Clear search' }))
+    expect(searchField().value).toBe('HID-')
+    expect(document.activeElement).toBe(searchField())
   })
 
   it('closes any open patient on a lookup that is not allowed, and keeps an outage apart from a refusal', async () => {
@@ -248,26 +315,76 @@ describe('The open patient’s page', () => {
     expect(offeredHealthId(FACILITY_ID, staff.setActivePatient)).toBe(PATIENT_HID)
   })
 
-  it('Open consent hands no Health ID over without identity.consent.write', () => {
-    staff.permissions = ['identity.patient.read']
+  it('hand-off 01: offers Open consent only with identity.consent.write, so no Health ID is handed to a page the role cannot open', async () => {
+    staff.permissions = ['identity.patient.read', 'ehr.encounter.read']
     staff.activePatient = activePatient()
     open('/open')
-    fireEvent.click(screen.getByRole('button', { name: 'Open consent' }))
-    expect(where()).toBe('/provider/requests/new')
+    expect(screen.getByRole('heading', { level: 3, name: 'Next steps' })).toBeTruthy()
+    expect(nextSteps()).toEqual(['Open clinical record'])
+    expect(screen.queryByRole('button', { name: 'Open consent' })).toBeNull()
     expect(offeredHealthId(FACILITY_ID, staff.setActivePatient)).toBe('')
+    expect(await screen.findByRole('link', { name: 'Consultation · e0000000' })).toBeTruthy()
   })
 
-  // Appointments and patient visits are sample workspaces: their steps show only at the four demo facilities.
+  it('hand-off 01: offers Open clinical record only with ehr.encounter.read, Consultation’s permission, and reads no encounters without it', async () => {
+    staff.permissions = ['identity.patient.read', 'identity.consent.write']
+    staff.activePatient = activePatient()
+    open('/open')
+    expect(nextSteps()).toEqual(['Open consent'])
+    expect(screen.queryByRole('button', { name: 'Open clinical record' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Connected hospital history' })).toBeNull()
+    await act(async () => {})
+    expect(api.encounters).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Open consent' }))
+    expect(where()).toBe('/provider/requests/new')
+    expect(offeredHealthId(FACILITY_ID, staff.setActivePatient)).toBe(PATIENT_HID)
+  })
+
+  it('hand-off 01: a role with neither sees the design’s bare Next steps at a real facility, and the two sample steps at a demo one', async () => {
+    staff.permissions = ['identity.patient.read']
+    staff.activePatient = activePatient()
+    const real = open('/open')
+    expect(screen.getByRole('heading', { level: 3, name: 'Next steps' })).toBeTruthy()
+    expect(nextSteps()).toEqual([])
+    real.unmount()
+    // The design's own capture (a receptionist): "Open appointments" and "Register walk-in visit" only.
+    atDemoHospital()
+    open('/open')
+    expect(nextSteps()).toEqual(['Open appointments', 'Register walk-in visit'])
+    await act(async () => {})
+    expect(api.encounters).not.toHaveBeenCalled()
+  })
+
+  it('hand-off 01: each step is a native button in reading order, after Close my grant', () => {
+    atDemoHospital()
+    staff.activePatient = activePatient()
+    open('/open')
+    const actions = screen.getByRole('heading', { name: 'Available actions' }).closest('section')!
+    const buttons = within(actions).getAllByRole('button')
+    expect(buttons.map(button => button.textContent)).toEqual(['Close my grant', 'Open appointments', 'Register walk-in visit', 'Open consent', 'Open clinical record'])
+    for (const button of buttons) {
+      expect(button.tagName).toBe('BUTTON')
+      expect(button.getAttribute('type')).toBe('button')
+      expect(button.getAttribute('tabindex')).toBeNull()
+      expect((button as HTMLButtonElement).disabled).toBe(false)
+    }
+  })
+
+  // Appointments and patient visits are sample workspaces: their steps show only at the four demo facilities. Each
+  // opens the sample's new form, as the design's hand-off does, carrying nothing of the live patient.
   it.each([
-    ['Open appointments', '/provider/appointments'],
+    ['Open appointments', '/provider/appointments/new'],
     ['Register walk-in visit', '/provider/journey/new'],
-  ])('%s goes to %s at a demo facility', (label, path) => {
+  ])('hand-off 01: %s goes to %s at a demo facility', (label, path) => {
     atDemoHospital()
     staff.activePatient = activePatient()
     open('/open')
     expect(nextSteps()).toEqual(['Open appointments', 'Register walk-in visit', 'Open consent', 'Open clinical record'])
     fireEvent.click(screen.getByRole('button', { name: label }))
     expect(where()).toBe(path)
+    expect(offeredHealthId(DEMO_HOSPITAL_ID, staff.setActivePatient)).toBe('')
+    expect(where()).not.toContain(PATIENT_HID)
+    expect(where()).not.toContain(PATIENT_ID)
   })
 
   it('leads into no sample at a real facility: no appointments or walk-in visit, while consent and the clinical record work', () => {

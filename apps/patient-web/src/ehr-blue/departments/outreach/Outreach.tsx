@@ -5,7 +5,7 @@ import { useStaff } from '../../../staff/App'
 import { focusLost } from '../../../pageFocus'
 import { useDeptAccess } from '../parts/access'
 import { DeptNotice } from '../parts/DeptNotice'
-import { DeptPage } from '../parts/DeptPage'
+import { DeptPage, DeptUnavailable } from '../parts/DeptPage'
 import { DeptFacts, DeptLinkButton, DeptRecordName } from '../parts/DeptRecord'
 import { DeptSearch } from '../parts/DeptSearch'
 import { dateText, matchesSearch } from '../parts/format'
@@ -121,13 +121,7 @@ export function Outreach() {
       </DeptPage>
     )
   }
-  if (!canReadCases && !canReadCampaigns) {
-    return (
-      <DeptPage title="Outreach">
-        <ErrorBox message={NO_READ_PERMISSION} />
-      </DeptPage>
-    )
-  }
+  if (!canReadCases && !canReadCampaigns) return <OutreachRefusal />
 
   const readers = canReadCampaigns ? campaigns.value?.map(campaign => (
     <CampaignMembersRead key={campaign.id} facilityId={facilityId} membershipId={membershipId} campaign={campaign}
@@ -351,4 +345,12 @@ function RecordList<T>({ label, caption, pagesLabel, read, columns, rowKey, sear
       </DeptSearch>
     </div>
   )
+}
+
+/**
+ * What Outreach says to a membership with neither campaign nor registration read, in today's words (staff/routes/
+ * Operations.tsx Outreach); the frame shows it at the address.
+ */
+export function OutreachRefusal() {
+  return <DeptUnavailable title="Outreach unavailable" message={NO_READ_PERMISSION} />
 }
