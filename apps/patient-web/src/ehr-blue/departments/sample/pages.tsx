@@ -19,16 +19,17 @@ function workspace(definition: SampleDefinition): ReactElement {
  * The sample-only workspaces: the design's list, create form and record view for each, with fictional records kept
  * in the page's memory only. Nothing here reaches Health ID: no request, no browser storage, no record in the address.
  *
- * Paths are the design's module ids. In the design's navigation, Policies is a tab of Insurance & Claims, and Stock
+ * Paths are the frame's addresses for these workspaces (the design's module ids, except Patient billing at
+ * patient-billing, as billing is today's live Facility subscription, and Stock at supply, the design's Supply entry). In the design's navigation, Policies is a tab of Insurance & Claims, and Stock
  * and Procurement are the tabs of Supply; they are listed here as their own entries because the shared page type has
  * no tab-only flag. Each page draws its module tabs itself.
  */
 export const samplePages: EhrBluePage[] = [
-  { path: 'billing', group: 'Finance', label: 'Patient billing', icon: <ReceiptIcon />, status: 'sample', element: workspace(billingSample) },
+  { path: 'patient-billing', group: 'Finance', label: 'Patient billing', icon: <ReceiptIcon />, status: 'sample', element: workspace(billingSample) },
   { path: 'insurance', group: 'Finance', label: 'Insurance & Claims', icon: <ShieldIcon />, status: 'sample', element: workspace(insuranceSample) },
   { path: 'policies', group: 'Finance', label: 'Policies', icon: <ShieldIcon />, status: 'sample', element: workspace(policiesSample) },
   { path: 'services', group: 'Settings', label: 'Service catalogue', icon: <TagIcon />, status: 'sample', element: workspace(servicesSample) },
-  { path: 'inventory', group: 'Supply', label: 'Stock', icon: <BoxIcon />, status: 'sample', element: workspace(inventorySample) },
+  { path: 'supply', group: 'Supply', label: 'Stock', icon: <BoxIcon />, status: 'sample', element: workspace(inventorySample) },
   { path: 'procurement', group: 'Supply', label: 'Procurement', icon: <BoxIcon />, status: 'sample', element: workspace(procurementSample) },
   { path: 'quality', group: 'Administration', label: 'Quality & Safety', icon: <FlagIcon />, status: 'sample', element: workspace(qualitySample) },
   { path: 'shifts', group: 'People', label: 'Shifts & Roster', icon: <ClockIcon />, status: 'sample', element: workspace(shiftsSample) },

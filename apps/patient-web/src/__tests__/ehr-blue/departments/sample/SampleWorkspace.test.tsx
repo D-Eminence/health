@@ -39,7 +39,7 @@ function type(name: string | RegExp, value: string, role: 'textbox' | 'spinbutto
 
 describe('the list', () => {
   it('shows the sample notice, the title with its two actions, the search and the rows, as the design does', () => {
-    renderSample('billing')
+    renderSample('patient-billing')
     expect(screen.getByRole('note').textContent).toBe(SAMPLE_TEXT)
     expect(heading().textContent).toBe('Patient billing')
     const heads = heading().closest('.hid-ehr-page-heading')!
@@ -66,7 +66,7 @@ describe('the list', () => {
   })
 
   it('filters the rows on the page as the search is typed, says when nothing matches, and clears', () => {
-    renderSample('billing')
+    renderSample('patient-billing')
     const search = screen.getByRole('searchbox', { name: 'Search Patient billing' })
     fireEvent.change(search, { target: { value: 'patient two' } })
     expect(screen.getAllByRole('row')).toHaveLength(2)
@@ -93,7 +93,7 @@ describe('the list', () => {
   })
 
   it('opens Quick view in a drawer with the record\'s values, moves focus in, and gives it back on Escape', () => {
-    renderSample('billing')
+    renderSample('patient-billing')
     const opener = within(row('DEMO-1')).getByRole('button', { name: 'Quick view' })
     fireEvent.click(opener)
     const drawer = screen.getByRole('dialog', { name: 'Record quick view' })
@@ -116,7 +116,7 @@ describe('the list', () => {
   })
 
   it('closes Quick view from Close, and opens the full record from it', () => {
-    renderSample('inventory')
+    renderSample('supply')
     const opener = within(row('Fictional Med A')).getByRole('button', { name: 'Quick view' })
     fireEvent.click(opener)
     fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Close' }))
@@ -148,7 +148,7 @@ describe('the list', () => {
     it('downloads the filtered fictional rows as a CSV made on the page, and lets the object URL go', async () => {
       const clicks: HTMLAnchorElement[] = []
       vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) { clicks.push(this) })
-      renderSample('billing')
+      renderSample('patient-billing')
       fireEvent.change(screen.getByRole('searchbox', { name: 'Search Patient billing' }), { target: { value: 'Patient Two' } })
       fireEvent.click(screen.getByRole('button', { name: 'Export filtered records' }))
 
@@ -190,7 +190,7 @@ describe('the list', () => {
 
 describe('the create form', () => {
   it('asks for the registered patient first, then shows the record\'s fields, as the design does', () => {
-    renderSample('billing')
+    renderSample('patient-billing')
     fireEvent.click(screen.getByRole('button', { name: 'Create record' }))
     expect(heading().textContent).toBe('New patient billing')
     expect(document.activeElement).toBe(heading())
@@ -215,7 +215,7 @@ describe('the create form', () => {
   })
 
   it('marks each empty required field "Complete this field." and focuses the first, then opens the new record', () => {
-    renderSample('billing')
+    renderSample('patient-billing')
     fireEvent.click(screen.getByRole('button', { name: 'Create record' }))
     choose('Patient', 'sample-patient-2')
     type('Service quantity', '', 'spinbutton')
@@ -252,7 +252,7 @@ describe('the create form', () => {
   })
 
   it('shows the fields at once where records have no patient, and Back to list returns to Create record', () => {
-    renderSample('inventory')
+    renderSample('supply')
     fireEvent.click(screen.getByRole('button', { name: 'Create record' }))
     expect(heading().textContent).toBe('New stock')
     expect(screen.queryByRole('combobox', { name: 'Patient' })).toBeNull()
@@ -267,7 +267,7 @@ describe('the create form', () => {
 
 describe('the record view', () => {
   it('shows the status, patient and save time, "Saved record", the actions the status allows and the connected records', () => {
-    renderSample('billing')
+    renderSample('patient-billing')
     openRecord('DEMO-3')
     expect(document.activeElement).toBe(heading())
     expect(screen.getByRole('note').textContent).toBe(SAMPLE_TEXT)
@@ -299,7 +299,7 @@ describe('the record view', () => {
   })
 
   it('opens an action\'s form under the actions; submitting it changes the status and preserves the version', () => {
-    renderSample('billing')
+    renderSample('patient-billing')
     openRecord('DEMO-3')
     const issue = screen.getByRole('button', { name: 'Issue invoice' })
     fireEvent.click(issue)
@@ -332,7 +332,7 @@ describe('the record view', () => {
   })
 
   it('validates an action\'s fields, keeps a refusal on the form, and records the values given', () => {
-    renderSample('billing')
+    renderSample('patient-billing')
     openRecord('DEMO-2')
     fireEvent.click(screen.getByRole('button', { name: 'Record simulated payment' }))
     const form = document.querySelector('.hid-ehr-dept-action-form') as HTMLElement
@@ -358,7 +358,7 @@ describe('the record view', () => {
   })
 
   it('asks before a consequential action; Cancel and Escape change nothing', () => {
-    renderSample('billing')
+    renderSample('patient-billing')
     openRecord('DEMO-3')
     fireEvent.click(screen.getByRole('button', { name: 'Void invoice' }))
     const form = document.querySelector('.hid-ehr-dept-action-form') as HTMLElement
@@ -391,7 +391,7 @@ describe('the record view', () => {
   })
 
   it('asks for REFUND to be typed before a refund', () => {
-    renderSample('billing')
+    renderSample('patient-billing')
     openRecord('DEMO-1')
     fireEvent.click(screen.getByRole('button', { name: 'Refund payment' }))
     type('Refund amount', '1000', 'spinbutton')
@@ -408,7 +408,7 @@ describe('the record view', () => {
   })
 
   it('keeps stock batches and refuses an adjustment below zero', () => {
-    renderSample('inventory')
+    renderSample('supply')
     openRecord('Fictional Med A')
     expect(screen.getByRole('heading', { name: 'Stock batches', level: 3 })).toBeDefined()
     expect(screen.getByText('DEMO-LOT · 94 units · expires 2030-01-01')).toBeDefined()
@@ -428,12 +428,12 @@ describe('the record view', () => {
   })
 
   it('never puts a record in the address', () => {
-    renderSample('billing')
+    renderSample('patient-billing')
     openRecord('DEMO-1')
-    expect(where()).toBe('/ehr/billing')
+    expect(where()).toBe('/ehr/patient-billing')
     fireEvent.click(screen.getByRole('button', { name: 'Back to list' }))
     fireEvent.click(screen.getByRole('button', { name: 'Create record' }))
-    expect(where()).toBe('/ehr/billing')
+    expect(where()).toBe('/ehr/patient-billing')
   })
 })
 
@@ -449,7 +449,7 @@ describe('the design\'s refusals', () => {
   }
 
   it('refuses an invoice for no quantity or for a service event already charged, keeping the form', () => {
-    renderSample('billing')
+    renderSample('patient-billing')
     fireEvent.click(screen.getByRole('button', { name: 'Create record' }))
     choose('Patient', 'sample-patient-2')
     choose('Service charge', 'General consultation')
@@ -486,7 +486,7 @@ describe('the design\'s refusals', () => {
   })
 
   it('refuses a stock item with no pack size, and an edit to a negative price, keeping the record', () => {
-    const stock = renderSample('inventory')
+    const stock = renderSample('supply')
     fireEvent.click(screen.getByRole('button', { name: 'Create record' }))
     type('Item name', 'Fictional Bandage')
     choose('Category', 'Consumable')
@@ -560,7 +560,7 @@ describe('Edit record', () => {
   }
 
   it('opens the fields in "Saved record", saves the edit in memory and keeps the version before', () => {
-    renderSample('billing')
+    renderSample('patient-billing')
     openRecord('DEMO-3')
     const toggle = editToggle()
     expect(toggle.textContent).toBe('Edit record')
@@ -605,7 +605,7 @@ describe('Edit record', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Back to list' }))
     fireEvent.click(screen.getByRole('button', { name: 'DEMO-3' }))
     expect(savedFacts()).toMatchObject({ Quantity: '3', Source: 'SERVICE-030' })
-    expect(where()).toBe('/ehr/billing')
+    expect(where()).toBe('/ehr/patient-billing')
   })
 
   it('keeps the record as it was on Cancel editing and gives focus back to the button', () => {
@@ -646,12 +646,12 @@ describe('Edit record', () => {
 
 describe('module tabs', () => {
   it('links Stock and Procurement by the current route and moves between them in the app', () => {
-    renderSample('inventory')
+    renderSample('supply')
     const nav = screen.getByRole('navigation', { name: 'Supply' })
     const stock = within(nav).getByRole('link', { name: 'Stock' })
     const procurement = within(nav).getByRole('link', { name: 'Procurement' })
     expect(stock.getAttribute('aria-current')).toBe('page')
-    expect(stock.getAttribute('href')).toBe('/ehr/inventory')
+    expect(stock.getAttribute('href')).toBe('/ehr/supply')
     expect(procurement.getAttribute('href')).toBe('/ehr/procurement')
     expect(procurement.hasAttribute('aria-current')).toBe(false)
     // The notice comes first, above the tabs.
@@ -695,14 +695,14 @@ describe('module tabs', () => {
     renderSample('policies')
     openRecord('POL-DEMO')
     fireEvent.click(screen.getByRole('link', { name: 'Patient billing · DEMO-2' }))
-    expect(where()).toBe('/ehr/billing')
+    expect(where()).toBe('/ehr/patient-billing')
     expect(heading().textContent).toBe('Patient billing')
   })
 })
 
 describe('keyboard', () => {
   it('reaches every control as a native button or field', () => {
-    renderSample('billing')
+    renderSample('patient-billing')
     for (const name of ['Create record', 'Export filtered records', 'DEMO-1']) {
       const button = screen.getByRole('button', { name })
       expect(button.tagName).toBe('BUTTON')

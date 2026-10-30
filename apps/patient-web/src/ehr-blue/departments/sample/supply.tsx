@@ -9,7 +9,7 @@ import {
 
 const SUPPLY_TABS: SampleTabs = {
   label: 'Supply',
-  tabs: [{ id: 'inventory', label: 'Stock' }, { id: 'procurement', label: 'Procurement' }],
+  tabs: [{ id: 'inventory', label: 'Stock', path: 'supply' }, { id: 'procurement', label: 'Procurement' }],
 }
 
 const reason = { key: 'reason', label: 'Reason', type: 'textarea' } as const

@@ -3,7 +3,7 @@ import { FlaskIcon } from '../parts/icons'
 import { Laboratory } from './Laboratory'
 
 export const laboratoryPage: EhrBluePage = {
-  path: 'lab',
+  path: 'laboratory',
   group: 'Diagnostics',
   label: 'Laboratory',
   permission: 'lab.work-item.read',

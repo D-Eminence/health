@@ -155,7 +155,7 @@ afterEach(() => {
 
 describe('the page entry', () => {
   it('keeps its path, group, label, permission and status', () => {
-    expect(laboratoryPage).toMatchObject({ path: 'lab', group: 'Diagnostics', label: 'Laboratory', permission: 'lab.work-item.read', status: 'live' })
+    expect(laboratoryPage).toMatchObject({ path: 'laboratory', group: 'Diagnostics', label: 'Laboratory', permission: 'lab.work-item.read', status: 'live' })
   })
 })
 

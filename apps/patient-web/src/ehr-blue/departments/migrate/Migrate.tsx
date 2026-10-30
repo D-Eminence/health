@@ -63,10 +63,10 @@ function ViewTitle({ children }: { readonly children: ReactNode }) {
 export function Migrate() {
   const { facilityId, permissions, actorId } = useDeptAccess()
   const { lock } = useStaff()
-  // OCR's parts need OCR job read; Patient documents needs document read, as the clinical record's Documents tab does.
+  // OCR's parts need OCR job read (so does the page); Patient documents needs document read, as the clinical record's
+  // Documents tab does, and checks it itself.
   const canRead = permissions.includes('ocr.job.read')
   const canWrite = canRead && permissions.includes('ocr.job.write')
-  const canDocuments = permissions.includes('ehr.document.read')
   // A clinical document's "Extract with OCR" link hands over its IDs in router state, never in the URL. The history
   // entry holding them outlives the session and the facility that made it (Back, Forward and a reload bring it back),
   // so they count only for that account and facility, and only once.
@@ -265,8 +265,9 @@ export function Migrate() {
     else focus('ocr-document')
   }
 
-  if (!facilityId || (!canRead && !canDocuments)) return <DeptPage title="Migrate">
-    <DeptNotice tone="critical" role="alert">Permission denied. This membership or branch cannot open this module: it needs OCR job read or document read permission.</DeptNotice>
+  // The page opens as today's Migrate and Document OCR pages do: at a facility, with OCR job read.
+  if (!facilityId || !canRead) return <DeptPage title="Migrate">
+    <DeptNotice tone="critical" role="alert">Permission denied. This membership or branch cannot open this module: it needs OCR job read permission.</DeptNotice>
   </DeptPage>
 
   const detail = view === 'detail' && canRead && visibleJob ? visibleJob : null

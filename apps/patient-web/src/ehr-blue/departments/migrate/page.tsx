@@ -3,10 +3,10 @@ import { UploadIcon } from '../parts/icons'
 import { Migrate } from './Migrate'
 
 export const migratePage: EhrBluePage = {
-  path: 'migrate',
-  group: 'Operations',
+  path: 'ocr',
+  group: 'Network & Services',
   label: 'Migrate',
-  permission: 'ehr.document.read',
+  permission: 'ocr.job.read',
   status: 'live',
   icon: <UploadIcon />,
   element: <Migrate />,

@@ -24,14 +24,14 @@ afterEach(() => {
 
 /** Each page: its path, the design's navigation group and label, its title, and the names of its fictional rows. */
 const EXPECTED = [
-  { path: 'billing', group: 'Finance', label: 'Patient billing', title: 'Patient billing', rows: ['DEMO-1', 'DEMO-2', 'DEMO-3'], newTitle: 'New patient billing' },
+  { path: 'patient-billing', group: 'Finance', label: 'Patient billing', title: 'Patient billing', rows: ['DEMO-1', 'DEMO-2', 'DEMO-3'], newTitle: 'New patient billing' },
   { path: 'insurance', group: 'Finance', label: 'Insurance & Claims', title: 'Insurance & Claims', rows: ['2a6f15aa', '9d41c7b3', 'e5f20b68'], newTitle: 'New insurance & claims' },
   { path: 'policies', group: 'Finance', label: 'Policies', title: 'Policies', rows: ['POL-DEMO', 'POL-DEMO-2', 'POL-DEMO-3'], newTitle: 'New policies' },
   {
     path: 'services', group: 'Settings', label: 'Service catalogue', title: 'Service catalogue', newTitle: 'New service catalogue',
     rows: ['Fictional consultation', 'General consultation', 'Specialist consultation', 'Full blood count', 'Malaria test', 'Chest X-ray', 'Antenatal visit'],
   },
-  { path: 'inventory', group: 'Supply', label: 'Stock', title: 'Stock', rows: ['Fictional Med A', 'Fictional Gloves', 'Fictional Syringe 5 ml'], newTitle: 'New stock' },
+  { path: 'supply', group: 'Supply', label: 'Stock', title: 'Stock', rows: ['Fictional Med A', 'Fictional Gloves', 'Fictional Syringe 5 ml'], newTitle: 'New stock' },
   { path: 'procurement', group: 'Supply', label: 'Procurement', title: 'Procurement', rows: ['Stock request', 'Quarterly restock', 'Glove top-up'], newTitle: 'New procurement' },
   {
     path: 'quality', group: 'Administration', label: 'Quality & Safety', title: 'Quality & Safety', newTitle: 'New quality & safety',

@@ -103,7 +103,8 @@ export type SampleApplied =
 export interface SampleTabs {
   /** Names the navigation landmark. */
   readonly label: string
-  readonly tabs: readonly { readonly id: string; readonly label: string }[]
+  /** Each tab's workspace id, label, and its path when the page's address differs from its id (Stock is at supply). */
+  readonly tabs: readonly { readonly id: string; readonly label: string; readonly path?: string }[]
 }
 
 export interface SampleDefinition {

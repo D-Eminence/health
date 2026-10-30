@@ -103,7 +103,7 @@ const POLICIES: readonly SampleRecord[] = [
 ]
 
 const FINANCE = [
-  { page: 'billing', title: 'Patient billing', records: INVOICES },
+  { page: 'patient-billing', title: 'Patient billing', records: INVOICES },
   { page: 'insurance', title: 'Insurance & Claims', records: CLAIMS },
   { page: 'policies', title: 'Policies', records: POLICIES },
 ]
@@ -202,7 +202,7 @@ export const billingSample: SampleDefinition = {
       </>
     )
   },
-  connected: connectedTo('billing'),
+  connected: connectedTo('patient-billing'),
   records: INVOICES,
 }
 

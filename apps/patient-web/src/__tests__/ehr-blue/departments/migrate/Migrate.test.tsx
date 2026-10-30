@@ -102,40 +102,38 @@ function onlyCalled(...names: Array<keyof typeof api>) {
 }
 
 describe('Migrate page entry', () => {
-  it('is listed under Operations as Migrate, for document read (capture), live', () => {
-    expect(migratePage).toMatchObject({ path: 'migrate', group: 'Operations', label: 'Migrate', permission: 'ehr.document.read', status: 'live' })
+  it('is listed under Network & Services as Migrate, at today\'s OCR address, for OCR job read, live', () => {
+    expect(migratePage).toMatchObject({ path: 'ocr', group: 'Network & Services', label: 'Migrate', permission: 'ocr.job.read', status: 'live' })
   })
 
-  it('refuses a membership with neither OCR job read nor document read, once, naming both, and reads nothing', () => {
-    session.permissions = ['ocr.job.write', 'ehr.document.write']
-    renderMigrate()
-    expect(screen.getByRole('heading', { level: 1, name: 'Migrate' })).toBeTruthy()
-    expect(screen.getAllByRole('alert').map(alert => alert.textContent)).toEqual([
-      'Permission denied. This membership or branch cannot open this module: it needs OCR job read or document read permission.'])
-    expect(screen.queryByRole('button', { name: 'Find job' })).toBeNull()
-    expect(screen.queryByRole('heading', { name: 'Patient documents' })).toBeNull()
-    onlyCalled()
-  })
-
-  it('a membership with document read only reaches Patient documents, and sees the OCR refusal in place of OCR', () => {
+  it('refuses a membership without OCR job read, even with document read and write, and reads nothing', () => {
     session.permissions = ['ehr.document.read', 'ehr.document.write', 'ocr.job.write']
     renderMigrate()
     expect(screen.getAllByRole('heading', { level: 1 }).map(element => element.textContent)).toEqual(['Migrate'])
-    expect(screen.getByText('Permission denied. Finding, creating and reviewing OCR jobs needs OCR job read permission.')).toBeTruthy()
-    expect(screen.getByRole('heading', { name: 'Patient documents' })).toBeTruthy()
-    expect(screen.getByText('No patient open')).toBeTruthy()
+    expect(screen.getAllByRole('alert').map(alert => alert.textContent)).toEqual([
+      'Permission denied. This membership or branch cannot open this module: it needs OCR job read permission.'])
     expect(screen.queryByRole('button', { name: 'Find job' })).toBeNull()
     expect(screen.queryByRole('button', { name: 'Create record' })).toBeNull()
-    expect(screen.queryByRole('searchbox', { name: 'Search Migrate' })).toBeNull()
-    expect(screen.queryByText('Project migration is not available yet')).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Patient documents' })).toBeNull()
     onlyCalled()
   })
 
-  it('a membership with OCR job read only has no Patient documents', () => {
+  it('a membership with OCR job read only has OCR and no Patient documents', () => {
     session.permissions = ['ocr.job.read']
     renderMigrate()
     expect(button('Find job')).toBeTruthy()
+    expect(screen.getByRole('searchbox', { name: 'Search Migrate' })).toBeTruthy()
     expect(screen.queryByRole('heading', { name: 'Patient documents' })).toBeNull()
+    onlyCalled()
+  })
+
+  it('a membership with OCR job read and document read has both', () => {
+    session.permissions = ['ocr.job.read', 'ehr.document.read']
+    renderMigrate()
+    expect(button('Find job')).toBeTruthy()
+    expect(screen.getByRole('heading', { name: 'Patient documents' })).toBeTruthy()
+    expect(screen.getByText('No patient open')).toBeTruthy()
+    onlyCalled()
   })
 })
 

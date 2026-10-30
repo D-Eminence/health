@@ -49,10 +49,10 @@ export function SampleWorkspace({ definition }: { readonly definition: SampleDef
       <SampleBanner />
       {definition.tabs ? (
         <EhrModuleTabs label={definition.tabs.label} currentId={definition.id}
-          tabs={definition.tabs.tabs.map(tab => ({ id: tab.id, label: tab.label, href: href(tab.id) }))}
+          tabs={definition.tabs.tabs.map(tab => ({ id: tab.id, label: tab.label, href: href(tab.path ?? tab.id) }))}
           onNavigate={(tab, event) => {
             if (tab.id !== definition.id) {
-              follow(tab.id, event)
+              follow(definition.tabs?.tabs.find(entry => entry.id === tab.id)?.path ?? tab.id, event)
               return
             }
             // This workspace's own tab: its list, as the design's tab does.
