@@ -89,33 +89,6 @@
 
 /* ---- Notices --------------------------------------------------------------- */
 
-/* "Sample only: not connected to Health ID yet. Nothing you do here is saved."
-   The frame's EhrSampleBanner, drawn the same way (values from its rule in the
-   frame's ehr.css): above the page heading, where the design puts banners. */
-.hid-ehr .hid-ehr-clinical-sample-banner {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  margin: 0 0 20px;
-  padding: 12px 16px;
-  border-left: 4px solid var(--ehr-caution);
-  border-radius: var(--ehr-radius-md);
-  background: var(--ehr-warning-banner-surface);
-  color: var(--ehr-warning-banner-text);
-  font-size: 13px;
-  font-weight: 500;
-  line-height: 19px;
-}
-
-.hid-ehr .hid-ehr-clinical-sample-banner-mark {
-  flex-shrink: 0;
-  width: 8px;
-  height: 8px;
-  margin-top: 6px;
-  border-radius: 50%;
-  background: var(--ehr-caution);
-}
-
 /* Design Banner: strong title on its own line, then the message. */
 .hid-ehr .hid-ehr-clinical-banner {
   margin: 0 0 18px;

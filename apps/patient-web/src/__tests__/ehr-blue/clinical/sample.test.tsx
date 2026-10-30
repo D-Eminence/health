@@ -103,7 +103,7 @@ describe('sample engine', () => {
     for (const id of SAMPLE_WORKSPACE_IDS) {
       const view = open(id)
       expect(screen.getAllByText(SAMPLE_NOTICE)).toHaveLength(1)
-      expect(document.querySelector('.hid-ehr-clinical-sample-banner[data-ehr-sample]')?.textContent).toBe(SAMPLE_NOTICE)
+      expect(document.querySelector('.hid-ehr-sample-banner[data-ehr-sample]')?.textContent).toBe(SAMPLE_NOTICE)
       expect(heading()).toBe(SAMPLE_DEFINITIONS[id]!.title)
       expect(screen.getByRole('button', { name: 'Create record' })).toBeTruthy()
       view.unmount()
