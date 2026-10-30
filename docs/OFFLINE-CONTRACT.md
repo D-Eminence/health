@@ -75,7 +75,9 @@ Code references use two prefixes: `health:` is this repository; `hid:` is D-Emin
    - A document `/complete` refused because the document was entered in error answers 409 `INVALID_DOCUMENT_TRANSITION`, which classifies as state (CC3).
 7. **Handoffs.**
    - The `pharmacy-work-item` and `lab-work-item` handoffs do not use `ehr.idempotency_keys`, so C1 answers `unknown` for them.
-   - Their operation definitions use intent plus reread. A 412 after a lost success then resolves as applied via `reread`, not as a CC2 review.
+   - `ehr.lab-request.to-lab` uses intent plus reread, through Lab's released-results route, which carries the source EHR order and version. A 412 after a lost success then resolves as applied via `reread`, not as a CC2 review.
+   - `ehr.prescription.to-pharmacy` has no read that shows Pharmacy's state for one prescription. Until Pharmacy offers one (`?sourceEhrPrescriptionId=`, BACKEND_OWNER_HANDOFF B6), a 412 after a lost success still goes to CC2 review. That is safe, never a wrong "applied".
+   - The engine applies intent plus reread to any operation that declares both, whatever its method.
 8. **§2.11 gap query.**
    - It groups by `(actor_account_id, details->>'vaultId')`, because `vaultId` is chosen by the client.
    - It casts `seq` to `bigint`.
