@@ -16,7 +16,7 @@ import { initialsOf, useObjectUrl, usePatientPhoto } from './ProfilePhoto'
 
 /**
  * The patient's Health ID as the card they would carry: a bank-card shape (ISO ID-1, 85.6 × 54 mm) in the brand blue, the
- * Health ID logo reversed out in white and its fingerprint mark as the only print. Minimal on purpose. On it, what a front desk or an
+ * Health ID logo reversed out in white and its fingerprint mark as the only print, on a gradient from Health ID blue to black. On it, what a front desk or an
  * emergency team asks first: the photo, the name, the ID (large, copyable) and, when the patient has added them, blood
  * group and genotype. It opens every page about the patient (Home, Profile), first on a phone.
  *
@@ -103,11 +103,10 @@ export function HealthIdCard({ profile, verified, bloodGroup, genotype, shareTo,
         (ISO ID-1, 85.6 × 54 mm), on any screen. */}
     <div className="@container">
     <section aria-label="Your Health ID card"
-      className="group/card relative isolate aspect-[1.586/1] w-full overflow-hidden rounded-[4.5cqw] text-white select-none [background:linear-gradient(135deg,#071f45_0%,#0b3f94_42%,#0e63c9_72%,#0f8a96_100%)] shadow-[0_24px_48px_-24px_rgba(7,31,69,.75),0_2px_6px_rgba(16,24,40,.14)] motion-safe:transition-transform motion-safe:duration-500 motion-safe:hover:[transform:perspective(1000px)_rotateX(3deg)_rotateY(-4deg)]">
+      className="relative isolate aspect-[1.586/1] w-full overflow-hidden rounded-[4.5cqw] text-white select-none [background:linear-gradient(135deg,#1570ef_0%,#0d3f99_38%,#071a3d_70%,#03060d_100%)] shadow-[0_24px_48px_-24px_rgba(3,6,13,.8),0_2px_6px_rgba(16,24,40,.14)] motion-safe:transition-transform motion-safe:duration-300 motion-safe:hover:-translate-y-0.5">
       <CardPrint />
-      {/* Laminate: a hairline inner edge, and a sheen that passes over on hover. */}
+      {/* A hairline inner edge, as on a laminated card. */}
       <span aria-hidden="true" className="pointer-events-none absolute inset-0 rounded-[inherit] ring-1 ring-white/15 ring-inset" />
-      <span aria-hidden="true" className="pointer-events-none absolute inset-0 -translate-x-full bg-[linear-gradient(105deg,transparent_35%,rgba(255,255,255,.16)_50%,transparent_65%)] motion-safe:transition-transform motion-safe:duration-[900ms] motion-safe:group-hover/card:translate-x-full" />
 
       <div className="relative grid h-full grid-rows-[auto_1fr_auto] p-[6cqw]">
         <div className="flex items-start justify-between">
@@ -128,11 +127,6 @@ export function HealthIdCard({ profile, verified, bloodGroup, genotype, shareTo,
             {verified !== null && <p className={cx('m-0 mt-[1.2cqw] inline-flex items-center gap-[1cqw] text-[3cqw] font-medium', verified ? 'text-[#9ff0cf]' : 'text-amber-200')}>
               {verified ? <BadgeCheck className="size-[3.6cqw]" aria-hidden /> : <CircleAlert className="size-[3.6cqw]" aria-hidden />}{verified ? 'NIN verified' : 'NIN not verified'}</p>}
           </div>
-          {/* A plain gold contact chip: the one detail that says "card". */}
-          <span aria-hidden="true" className="relative h-[9.5cqw] w-[12.5cqw] shrink-0 self-start overflow-hidden rounded-[1.8cqw] [background:linear-gradient(135deg,#f7e9b8_0%,#d8b56a_45%,#f1d891_70%,#c9a457_100%)] shadow-[inset_0_0_0_1px_rgba(120,90,30,.35)]">
-            <span className="absolute inset-x-0 top-1/3 h-px bg-[#8f6f2e]/45" /><span className="absolute inset-x-0 top-2/3 h-px bg-[#8f6f2e]/45" />
-            <span className="absolute inset-y-0 left-1/3 w-px bg-[#8f6f2e]/45" /><span className="absolute inset-y-0 left-2/3 w-px bg-[#8f6f2e]/45" />
-          </span>
         </div>
 
         <div className="flex items-end justify-between gap-[4cqw]">
@@ -172,16 +166,7 @@ export function HealthIdCard({ profile, verified, bloodGroup, genotype, shareTo,
   </div>
 }
 
-/** The card's print, kept quiet: a soft light, fine guilloche rings, and the brand's fingerprint mark. Decoration only. */
+/** The card's only print: the brand's fingerprint mark, faint, bleeding off the corner. */
 function CardPrint() {
-  return <>
-    <svg aria-hidden="true" className="pointer-events-none absolute inset-0 size-full" viewBox="0 0 400 252" preserveAspectRatio="xMidYMid slice">
-      <defs><radialGradient id="hid-light" cx="88%" cy="0%" r="75%"><stop offset="0" stopColor="#6fd8ff" stopOpacity=".38" /><stop offset="1" stopColor="#6fd8ff" stopOpacity="0" /></radialGradient></defs>
-      <rect width="400" height="252" fill="url(#hid-light)" />
-      <g fill="none" stroke="#fff" strokeOpacity=".06" strokeWidth=".7">
-        {Array.from({ length: 22 }, (_, i) => <ellipse key={i} cx={340} cy={40} rx={36 + i * 9} ry={24 + i * 7} transform={`rotate(${i * 6} 340 40)`} />)}
-      </g>
-    </svg>
-    <img src={markSrc} alt="" aria-hidden="true" className="pointer-events-none absolute -right-[9%] -bottom-[30%] h-[110%] w-auto opacity-[.07] brightness-0 invert" />
-  </>
+  return <img src={markSrc} alt="" aria-hidden="true" className="pointer-events-none absolute -right-[9%] -bottom-[30%] h-[110%] w-auto opacity-[.08] brightness-0 invert" />
 }
