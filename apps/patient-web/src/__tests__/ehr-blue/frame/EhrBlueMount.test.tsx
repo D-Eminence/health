@@ -172,7 +172,7 @@ describe('Use the classic EHR', () => {
     serve({ [SESSION]: [sessionAt(demo, [demo])], [REQUESTS]: [() => json([])] })
     await openStaffApp('/provider/appointments')
     expect(await screen.findByRole('heading', { level: 1, name: 'Appointments' })).toBeDefined()
-    fireEvent.click(screen.getByRole('button', { name: 'Account menu' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Demo' }))
     fireEvent.click(screen.getByRole('button', { name: 'Use the classic EHR' }))
     // Appointments is a blue sample page: today's workspace opens on its Overview.
     await expectToday()
@@ -183,12 +183,12 @@ describe('Use the classic EHR', () => {
 
   it('keeps a page today\'s workspace serves at the same address, as today\'s page', async () => {
     pageSets.files = [...TODAY, CLINICAL, DEPARTMENTS]
-    clinic.switchedOn = true
-    const riverside = real()
-    serve({ [SESSION]: [sessionAt(riverside, [riverside])], [REQUESTS]: [() => json([]), () => json([]), () => json([])] })
+    // The demo's own control: only the demo facilities have the Demo chip.
+    const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', ['identity.consent.write'])
+    serve({ [SESSION]: [sessionAt(demo, [demo])], [REQUESTS]: [() => json([]), () => json([]), () => json([])] })
     await openStaffApp('/provider/requests')
     await screen.findByRole('navigation', { name: 'Main navigation' })
-    fireEvent.click(screen.getByRole('button', { name: 'Account menu' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Demo' }))
     fireEvent.click(screen.getByRole('button', { name: 'Use the classic EHR' }))
     expect(await screen.findByRole('complementary', { name: 'Provider navigation' })).toBeDefined()
     expect(document.querySelector('.hid-ehr')).toBeNull()
@@ -200,7 +200,7 @@ describe('Use the classic EHR', () => {
     serve({ [SESSION]: [sessionAt(demo, [demo])], [REQUESTS]: [() => json([])] })
     await openStaffApp('/provider/whats-left')
     await screen.findByRole('navigation', { name: 'Main navigation' })
-    fireEvent.click(screen.getByRole('button', { name: 'Account menu' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Demo' }))
     fireEvent.click(screen.getByRole('button', { name: 'Use the classic EHR' }))
     await expectToday()
     expect(where()).toBe('/provider')
