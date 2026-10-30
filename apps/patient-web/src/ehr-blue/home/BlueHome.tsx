@@ -2,6 +2,7 @@ import { useEffect, useState, useSyncExternalStore } from 'react'
 import { Link } from 'react-router-dom'
 import { EhrButton, EhrCard, EhrDrawer, EhrField, EhrPageHeading, EhrSampleBanner, EhrSelect } from '@hid/ui/ehr'
 import { useStaff } from '../../staff/App'
+import { holdsClinicalModule } from '../../staff/routes/Dashboard'
 import { FacilityCheckCard } from '../../staff/routes/ReviewBanner'
 import { usesNovuBackend } from '../../backendContract'
 import { isDemoFacility } from '../blueFacilities'
@@ -49,8 +50,6 @@ export function BlueHome() {
   const shortcuts = chosen
     ? candidates.filter(page => chosen.includes(page.path))
     : candidates.filter(page => page.status === 'live').slice(0, MAX_SHORTCUTS)
-  // As today's Overview says when none of its workspaces is open to the member: here, no live or partial page.
-  const holdsLivePage = pages.some(page => page.status !== 'sample' && page.permission !== undefined && permissions.includes(page.permission))
   const lab = permissions.includes('lab.work-item.read')
   const pharmacy = permissions.includes('pharmacy.work-item.read')
 
@@ -101,7 +100,8 @@ export function BlueHome() {
       <ul className="hid-ehr-blue-shortcuts">
         {shortcuts.map(page => <li key={page.path}><Link className="hid-ehr-button hid-ehr-button-secondary" to={pageHrefOf(page)}>{page.label}</Link></li>)}
       </ul>
-      {facility && !holdsLivePage ? (
+      {/* Today's Overview rule: none of the six clinical modules' permissions held (an administrator's audit and billing are not). */}
+      {facility && !holdsClinicalModule(permissions) ? (
         <p className="hid-ehr-blue-muted">Your active facility has no clinical module permissions. Ask an administrator to review your assignment.</p>
       ) : null}
     </section>

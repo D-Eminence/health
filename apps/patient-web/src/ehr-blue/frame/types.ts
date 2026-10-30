@@ -36,6 +36,12 @@ export interface EhrBluePage {
    */
   readonly visible?: (session: StaffSession) => boolean
   /**
+   * Whether the page has a sidebar entry and a search result for this session; left out, it has both wherever it is
+   * allowed. Unlike `visible`, the address still opens: Choose workspace is the account menu's facility switch at every
+   * facility, and a design review entry only at the demo facilities.
+   */
+  readonly listed?: (session: StaffSession) => boolean
+  /**
    * The path of the page whose tabs this page joins, as the design draws Insurance & Claims (Claims | Policies) and
    * Supply (Stock | Procurement): it has no sidebar entry of its own, the frame draws the tabs above the heading, and the
    * sidebar marks the page it joins as current.

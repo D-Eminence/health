@@ -106,7 +106,7 @@ describe('2. Home says what today\'s Overview says (a novu-v1 build)', () => {
     expect(within(check as HTMLElement).getByText(/Health ID support is checking Demo Hospital/)).toBeDefined()
   })
 
-  it('says when the member may open no live page, as today\'s Overview does, and not otherwise', async () => {
+  it('says when the member holds no clinical module\'s permission, as today\'s Overview does, and not otherwise', async () => {
     const none = facility(DEMO_HOSPITAL, 'Demo Hospital', [])
     serve({ [SESSION]: [sessionAt(none, [none])] })
     const { unmount } = await openStaffApp('/provider')
@@ -115,7 +115,7 @@ describe('2. Home says what today\'s Overview says (a novu-v1 build)', () => {
     unmount()
     vi.resetModules()
     withFramePages()
-    const some = facility(DEMO_HOSPITAL, 'Demo Hospital', ['identity.consent.write'])
+    const some = facility(DEMO_HOSPITAL, 'Demo Hospital', ['identity.consent.write', 'identity.patient.read'])
     serve({ [SESSION]: [sessionAt(some, [some])], [REQUESTS]: many(() => json([])) })
     await openStaffApp('/provider')
     await screen.findByRole('heading', { level: 1, name: 'Welcome, Demo Clinician' })
