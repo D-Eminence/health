@@ -189,18 +189,54 @@ export function defaultFactory(): IDBFactory | undefined {
 
 /**
  * Whether this origin already has the offline database, without creating it
- * (a device that never opted in keeps no database at all). Browsers without
- * `databases()` answer true, and the caller opens it.
+ * (a device that never opted in keeps no database at all).
  */
 export async function databaseExists(factory: IDBFactory | undefined): Promise<boolean> {
   if (!factory) return false
   const list = (factory as IDBFactory & { databases?: () => Promise<{ name?: string }[]> }).databases
-  if (typeof list !== 'function') return true
-  try {
-    return (await list.call(factory)).some(d => d.name === DB_NAME)
-  } catch {
-    return true
+  if (typeof list === 'function') {
+    try {
+      return (await list.call(factory)).some(d => d.name === DB_NAME)
+    } catch { /* fall through to the probe */ }
   }
+  return probeExists(factory)
+}
+
+/**
+ * Without `databases()`: open with no version. A database that does not exist yet gets an upgrade from version 0,
+ * which is aborted at once, so nothing is created; an existing one opens and is closed again.
+ */
+function probeExists(factory: IDBFactory): Promise<boolean> {
+  return new Promise(resolve => {
+    let created = false
+    let request: IDBOpenDBRequest
+    try {
+      request = factory.open(DB_NAME)
+    } catch {
+      resolve(false)
+      return
+    }
+    request.onupgradeneeded = event => {
+      if (event.oldVersion === 0) {
+        created = true
+        request.transaction?.abort()
+      }
+    }
+    request.onsuccess = () => {
+      request.result.close()
+      resolve(!created)
+    }
+    request.onerror = () => resolve(false)
+    request.onblocked = () => resolve(true)
+  })
+}
+
+/**
+ * Whether this origin already has an offline database, without creating one (A11.1). An `off` build creates the
+ * runtime only when this is true, to drain pending work send-only.
+ */
+export async function offlineDatabaseExists(): Promise<boolean> {
+  return databaseExists(defaultFactory())
 }
 
 export class OfflineStore {
