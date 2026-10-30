@@ -172,8 +172,11 @@ describe('Use the classic EHR', () => {
     serve({ [SESSION]: [sessionAt(demo, [demo])], [REQUESTS]: [() => json([])] })
     await openStaffApp('/provider/appointments')
     expect(await screen.findByRole('heading', { level: 1, name: 'Appointments' })).toBeDefined()
+    // At a demo facility it is the Demo chip's, with the demo's other controls, not the account menu's.
+    fireEvent.click(screen.getByRole('button', { name: 'Account menu' }))
+    expect(within(screen.getByRole('region', { name: 'Account' })).queryByRole('button', { name: 'Use the classic EHR' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Demo' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Use the classic EHR' }))
+    fireEvent.click(within(screen.getByRole('region', { name: 'About this demo' })).getByRole('button', { name: 'Use the classic EHR' }))
     // Appointments is a blue sample page: today's workspace opens on its Overview.
     await expectToday()
     expect(where()).toBe('/provider')
@@ -183,13 +186,15 @@ describe('Use the classic EHR', () => {
 
   it('keeps a page today\'s workspace serves at the same address, as today\'s page', async () => {
     pageSets.files = [...TODAY, CLINICAL, DEPARTMENTS]
-    // The demo's own control: only the demo facilities have the Demo chip.
-    const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', ['identity.consent.write'])
-    serve({ [SESSION]: [sessionAt(demo, [demo])], [REQUESTS]: [() => json([]), () => json([]), () => json([])] })
+    clinic.switchedOn = true
+    const riverside = real()
+    serve({ [SESSION]: [sessionAt(riverside, [riverside])], [REQUESTS]: [() => json([]), () => json([]), () => json([])] })
     await openStaffApp('/provider/requests')
     await screen.findByRole('navigation', { name: 'Main navigation' })
-    fireEvent.click(screen.getByRole('button', { name: 'Demo' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Use the classic EHR' }))
+    // A clinic has no Demo chip: its way back to today's portal stays in the account menu.
+    expect(screen.queryByRole('button', { name: 'Demo' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Account menu' }))
+    fireEvent.click(within(screen.getByRole('region', { name: 'Account' })).getByRole('button', { name: 'Use the classic EHR' }))
     expect(await screen.findByRole('complementary', { name: 'Provider navigation' })).toBeDefined()
     expect(document.querySelector('.hid-ehr')).toBeNull()
     expect(where()).toBe('/provider/requests')

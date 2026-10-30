@@ -130,7 +130,7 @@ export function BlueFrame() {
                 <WorkspaceSearch pages={listed} />
                 {isDemoFacility(facility?.id) ? <DemoChip facility={facility?.name ?? 'This facility'} onClassic={classicEhr} /> : null}
                 <NotificationsButton />
-                <AccountMenu onSample={setSamplePanel} />
+                <AccountMenu onSample={setSamplePanel} onClassic={classicEhr} />
               </>}
             />
           )}

@@ -6,6 +6,7 @@ import {
 import { useStaff } from '../../staff/App'
 import { roleLabels } from '../../staff/staffAccess'
 import { usesNovuBackend } from '../../backendContract'
+import { isDemoFacility } from '../blueFacilities'
 import { useAccessRequests, useReloadAccessRequests } from './attention'
 import { DEMO_ROLES, useRoleView } from './roleView'
 import { modulePath } from './sample/paths'
@@ -142,8 +143,16 @@ function initials(name: string): string {
   return (letters.length > 1 ? letters[0]! + letters.at(-1)! : letters[0] ?? 'H').slice(0, 2)
 }
 
-/** The account menu, as the design draws it (screens/panels/account-menu.png); the demo's controls are the Demo chip's. */
-export function AccountMenu({ onSample }: { readonly onSample?: (panel: 'profile' | 'preferences' | 'help') => void }) {
+/**
+ * The account menu, as the design draws it (screens/panels/account-menu.png). At a clinic it also keeps "Use the classic
+ * EHR", the way back to today's portal during the switch-over; at a demo facility that is the Demo chip's, with the
+ * demo's other controls.
+ */
+export function AccountMenu({ onSample, onClassic }: {
+  readonly onSample?: (panel: 'profile' | 'preferences' | 'help') => void
+  /** "Use the classic EHR": back to today's staff portal in this tab, until it reloads. */
+  readonly onClassic?: () => void
+}) {
   const { state, signOut } = useStaff()
   const navigate = useNavigate()
   const [signingOut, setSigningOut] = useState(false)
@@ -180,6 +189,8 @@ export function AccountMenu({ onSample }: { readonly onSample?: (panel: 'profile
           {actor.facilities.length > 1 ? (
             <EhrButton variant="secondary" onClick={() => { close(false); navigate('/provider/institutions') }}>Switch facility</EhrButton>
           ) : null}
+          {onClassic && !isDemoFacility(facility?.id)
+            ? <EhrButton variant="secondary" onClick={() => { close(false); onClassic() }}>Use the classic EHR</EhrButton> : null}
           <EhrButton variant="secondary" busy={signingOut} onClick={leave}>
             {signingOut ? 'Signing out…' : 'Sign out'}
           </EhrButton>

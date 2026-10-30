@@ -53,9 +53,8 @@ export const pages: EhrBluePage[] = [
   page('', '', 'Home', 'home', 'sample', createElement(SampleWorkspace, { moduleId: 'patients' })),
 
   live('patients', 'Clinical', 'Patients', 'user', 'identity.patient.read'),
-  // Not in the design's sidebar: Patients › Create record opens them (clinical/), and their addresses stay.
-  { ...live('registration', 'Clinical', 'Patient registration', 'registration', 'identity.registration.write'), listed: () => false },
-  { ...live('in-person-check', 'Clinical', 'In-person check', 'badge', 'identity.patient.assisted_registration'), listed: () => false },
+  live('registration', 'Clinical', 'Patient registration', 'registration', 'identity.registration.write'),
+  live('in-person-check', 'Clinical', 'In-person check', 'badge', 'identity.patient.assisted_registration'),
   sample('appointments', 'Clinical', 'Appointments', 'calendar'),
   sample('journey', 'Clinical', 'Patient visits', 'route'),
   sample('triage', 'Clinical', 'Triage & Vitals', 'activity'),

@@ -99,13 +99,15 @@ describe('the sidebar follows the design\'s roles', () => {
     expect(groupsOf()).not.toContain('People')
   })
 
-  it('leaves Patient registration, In-person check and Choose workspace out of the sidebar; their addresses still open', async () => {
+  it('leaves Choose workspace out of the sidebar and keeps Patient registration and In-person check, live as today', async () => {
     const demo = facility(DEMO_HOSPITAL, 'Demo Hospital', ['identity.registration.write', 'identity.patient.assisted_registration'])
     const annex = facility(REAL_FACILITY, 'Riverside Annex (fictional)', [])
     serve({ [SESSION]: [sessionAt(demo, [demo, annex])] })
     await openStaffApp('/provider/registration')
     await screen.findByRole('navigation', { name: 'Main navigation' })
-    for (const name of ['Patient registration', 'In-person check', 'Choose workspace']) expect(linksOf()).not.toContain(name)
+    expect(linksOf()).not.toContain('Choose workspace')
+    // Listed until Patients › Create record is their way in.
+    expect(linksOf()).toEqual(expect.arrayContaining(['Patient registration', 'In-person check']))
     expect(where()).toBe('/provider/registration')
     expect(screen.queryByText(NOTICE)).toBeNull()
     expect(document.querySelector('.hid-ehr-blue-live')).not.toBeNull()
