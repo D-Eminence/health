@@ -83,6 +83,14 @@ Code references use two prefixes: `health:` is this repository; `hid:` is D-Emin
    - It casts `seq` to `bigint`.
 9. **Migration numbers.** 0098 is the sealed demo tenant and 0099 is `offline_audit_patient_allowed`. The rows of the "Later work" table move up by two: 0100 `offline_platform_control`, 0101 `offline_parked_commands`, 0102 `pharmacy_offline_claims`, 0103 `consent_at_capture`.
 
+**A11. Screens (PR #35) questions.**
+1. **Kill switch in an `off` build.**
+   - On the EHR or Migrate host, the staff app creates the offline runtime only when an offline database already exists on this origin.
+   - When it does, the runtime runs send-only, as A8.5 says: it sends pending work and deletes each vault once it is empty.
+   - When no offline database exists, the app does not create the runtime and does not open IndexedDB.
+   - The host comes from the app's own identity (`ehr` or `ocr`), not from `VITE_HID_OFFLINE_HOSTS`.
+2. **Refusal details.** `transportFromApiClient` passes the refusal's `details` (including field errors) in the `TransportError` body, so a first-attempt 400 `VALIDATION_FAILED` marks the refused fields as the online path does.
+
 **A3. Approved owner decisions.** D1 to D15 below were approved by the owner on 29 October 2026 ("Yes to D1-D15"). The pilot facility for testing is Demo Hospital; the first real pilot facility is named by the owner before it is switched on.
 
 ## Owner decisions (approved 29 October 2026)
