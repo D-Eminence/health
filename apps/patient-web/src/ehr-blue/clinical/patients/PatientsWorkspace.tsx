@@ -57,7 +57,8 @@ function PatientList() {
   const location = useLocation()
   const ended = useAccessEnded()
   const openPatient = useOpenPatient()
-  const [hid, setHid] = useState('')
+  // Registration hands over the new Health ID (location state), so the next step is one press of Find.
+  const [hid, setHid] = useState(() => { const handed = (location.state as { hid?: unknown } | null)?.hid; return typeof handed === 'string' ? handed : '' })
   const [problem, setProblem] = useState<{ message: string; alert: boolean } | null>(null)
   const [attempt, setAttempt] = useState(0)
   const [busy, setBusy] = useState(false)
