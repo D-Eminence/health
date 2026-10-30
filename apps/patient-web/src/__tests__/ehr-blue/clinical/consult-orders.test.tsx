@@ -17,7 +17,7 @@ import { DEMO_HOSPITAL_ID, ENCOUNTER_ID, FACILITY_ID, FACILITY_NAME, PATIENT_ID,
 
 const api = vi.hoisted(() => ({
   lookupPatient: vi.fn(), consentStatus: vi.fn(), records: vi.fn(), createRecord: vi.fn(), updateRecord: vi.fn(),
-  acceptPrescription: vi.fn(), sendLabRequestToLab: vi.fn(), labReleasedResultsForOrder: vi.fn(),
+  acceptPrescription: vi.fn(), sendLabRequestToLab: vi.fn(), labReleasedResultsForOrder: vi.fn(), reportedHealthProfile: vi.fn(),
 }))
 const routes = vi.hoisted(() => ({ destinations: vi.fn(), attestation: vi.fn(), send: vi.fn(), routes: vi.fn(), withdraw: vi.fn() }))
 const staff = vi.hoisted(() => ({ permissions: [] as string[], activePatient: null as unknown, setActivePatient: vi.fn((_value: unknown) => true), facilityId: undefined as string | undefined }))
@@ -88,6 +88,7 @@ beforeEach(() => {
   }))
   api.createRecord.mockResolvedValue(prescription())
   api.updateRecord.mockResolvedValue(prescription())
+  api.reportedHealthProfile.mockResolvedValue(null)
   routes.attestation.mockImplementation(async (_facility: string, kind: string) => kind === 'lab_request'
     ? { kind, version: 'order-route-lab-attestation-v1', text: 'I confirm that {patient} agreed that {orderingFacility} sends this test request to {receivingFacility}.' }
     : { kind, version: 'order-route-prescription-attestation-v1', text: 'I confirm that {patient} agreed that {orderingFacility} sends this prescription to {receivingFacility}.' })
@@ -999,6 +1000,202 @@ describe('Sending to another facility, and what it reported', () => {
     expect(await screen.findByText(/^Haemoglobin: Released by Demo Laboratory on .*: 9\.8 g\/dL, flagged low, reference 12\.0-15\.5$/)).toBeTruthy()
     expect(routes.routes).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'lab_request', LAB)
     expect(screen.getByRole('button', { name: 'Hide details' }).getAttribute('aria-expanded')).toBe('true')
+  })
+})
+
+/** A select's options, as their visible text. */
+function options(label: string) {
+  return Array.from((field(label) as unknown as HTMLSelectElement).options).map(option => option.textContent)
+}
+
+/** The form grid's field labels, in order. */
+function gridLabels() {
+  const grid = document.querySelector('.hid-ehr-clinical-form .hid-ehr-clinical-form-grid')!
+  return Array.from(grid.querySelectorAll(':scope > .hid-ehr-field > label.hid-ehr-label'))
+    .map(label => label.textContent?.replace(/\s*\*$/, '').trim())
+}
+
+const ALLERGIES = 'Recorded allergies: Penicillin (patient-reported: entered by the patient in their Health ID portal, not clinically verified).'
+const NONE_RECORDED = 'Recorded allergies: None recorded. Confirm with the patient.'
+const NOT_LOADED = 'Recorded allergies: what the patient entered about their health could not be loaded. Confirm with the patient.'
+
+describe('Hand-off 06: the design’s "Patient *" and "Encounter *" on New laboratory and New pharmacy', () => {
+  it.each([
+    ['laboratory', 'New laboratory'],
+    ['pharmacy', 'New pharmacy'],
+  ] as const)('06: New %s holds only the open patient and this encounter, both chosen', async (kind, title) => {
+    open(`${ENCOUNTER_ID}/orders/new/${kind}`)
+    expect(await screen.findByRole('heading', { level: 1, name: title })).toBeTruthy()
+    const patient = field('Patient') as unknown as HTMLSelectElement
+    expect(patient.tagName).toBe('SELECT')
+    expect(patient.required).toBe(true)
+    expect(options('Patient')).toEqual(['Patient One · HID-ZDEMAAA2'])
+    expect(patient.selectedOptions[0]!.textContent).toBe('Patient One · HID-ZDEMAAA2')
+    const encounter = field('Encounter') as unknown as HTMLSelectElement
+    expect(encounter.tagName).toBe('SELECT')
+    expect(encounter.required).toBe(true)
+    // The design's ref select: "Select…", then the one encounter it may name (its short reference).
+    expect(options('Encounter')).toEqual(['Select…', 'e0000000'])
+    expect(encounter.value).toBe(ENCOUNTER_ID)
+    // "Patient *" above the form, "Encounter *" first in its grid (beside the first of today's fields).
+    expect(patient.closest('form')).toBeNull()
+    expect(gridLabels()[0]).toBe('Encounter')
+    expect(gridLabels()[1]).toBe(kind === 'laboratory' ? 'Test code system' : 'Medication')
+    // The old block's "Encounter e0000000" line is gone; the address names record ids only.
+    expect(screen.queryByText('Encounter e0000000')).toBeNull()
+    expect(document.title).not.toContain('Patient One')
+  })
+
+  it('06: New laboratory draws no "Patient context" (the design draws one only for consult, triage and pharmacy) and reads no allergies', async () => {
+    staff.permissions = [...READ_WRITE, 'ehr.note.read']
+    open(`${ENCOUNTER_ID}/orders/new/laboratory`)
+    await screen.findByRole('button', { name: 'Save record' })
+    expect(screen.queryByRole('heading', { name: 'Patient context' })).toBeNull()
+    await act(async () => {})
+    expect(api.reportedHealthProfile).not.toHaveBeenCalled()
+  })
+
+  it('06: the lab request is raised on the encounter in the address, and the field is never sent', async () => {
+    api.createRecord.mockResolvedValue(labRequest())
+    open(`${ENCOUNTER_ID}/orders/new/laboratory`)
+    const save = await screen.findByRole('button', { name: 'Save record' })
+    change('Test code system', 'LOINC')
+    change('Test code', '718-7')
+    change('Test display', 'Haemoglobin')
+    fireEvent.click(save)
+    expect(await screen.findByRole('heading', { level: 1, name: 'Haemoglobin' })).toBeTruthy()
+    expect(api.createRecord).toHaveBeenCalledTimes(1)
+    const [facilityId, patientId, encounterId, kind, body] = api.createRecord.mock.calls[0]!
+    expect([facilityId, patientId, encounterId, kind]).toEqual([FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'lab-requests'])
+    expect(Object.keys(body as object)).not.toContain('encounter')
+    expect(Object.keys(body as object)).not.toContain('patient')
+  })
+
+  it('06: a blank "Encounter *" is the design’s "Complete this field.", focused, and nothing is sent; chosen again, it saves (keyboard: Enter submits)', async () => {
+    open(`${ENCOUNTER_ID}/orders/new/pharmacy`)
+    await screen.findByRole('button', { name: 'Save record' })
+    fireEvent.change(field('Encounter'), { target: { value: '' } })
+    change('Medication', 'Amoxicillin')
+    change('Frequency', 'Twice daily')
+    change('Instructions', 'After meals')
+    field('Instructions').focus()
+    await act(async () => { fireEvent.submit(field('Instructions').closest('form')!) })
+    expect(document.activeElement).toBe(field('Encounter'))
+    expect(field('Encounter').getAttribute('aria-invalid')).toBe('true')
+    expect(screen.getAllByText('Complete this field.')).toHaveLength(1)
+    expect(api.lookupPatient).not.toHaveBeenCalled()
+    expect(api.createRecord).not.toHaveBeenCalled()
+    fireEvent.change(field('Encounter'), { target: { value: ENCOUNTER_ID } })
+    expect(field('Encounter').getAttribute('aria-invalid')).toBeNull()
+    await act(async () => { fireEvent.submit(field('Instructions').closest('form')!) })
+    expect(await screen.findByRole('heading', { level: 1, name: 'Amoxicillin' })).toBeTruthy()
+    expect(api.createRecord).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, ENCOUNTER_ID, 'prescriptions', expect.not.objectContaining({ encounter: expect.anything() }), expect.any(String))
+  })
+
+  it('06: the same values sent again after no answer are the same create (one Idempotency-Key), with the encounter shown', async () => {
+    open(`${ENCOUNTER_ID}/orders/new/laboratory`)
+    const save = await screen.findByRole('button', { name: 'Save record' })
+    change('Test code system', 'LOINC')
+    change('Test code', '718-7')
+    change('Test display', 'Haemoglobin')
+    api.createRecord.mockRejectedValueOnce(new Error('Network error'))
+    fireEvent.click(save)
+    expect((await screen.findByRole('alert')).textContent).toBe('Network error')
+    api.createRecord.mockResolvedValueOnce(labRequest())
+    fireEvent.click(screen.getByRole('button', { name: 'Save record' }))
+    expect(await screen.findByRole('heading', { level: 1, name: 'Haemoglobin' })).toBeTruthy()
+    expect(api.createRecord.mock.calls[1]![5]).toBe(api.createRecord.mock.calls[0]![5])
+  })
+
+  it('06: after a save the page cannot name, the form starts again with this encounter still chosen', async () => {
+    api.createRecord.mockResolvedValue({})
+    open(`${ENCOUNTER_ID}/orders/new/laboratory`)
+    const save = await screen.findByRole('button', { name: 'Save record' })
+    change('Test code system', 'LOINC')
+    change('Test code', '718-7')
+    change('Test display', 'Haemoglobin')
+    fireEvent.click(save)
+    expect(await screen.findByText('Clinical record saved by the backend.')).toBeTruthy()
+    expect((field('Encounter') as unknown as HTMLSelectElement).value).toBe(ENCOUNTER_ID)
+    expect(field('Test code').value).toBe('')
+  })
+
+  it('06: New pharmacy keeps the design’s "Patient context": the name, then nothing while its allergy read runs', async () => {
+    staff.permissions = [...READ_WRITE, 'ehr.note.read']
+    let answer: (value: unknown) => void = () => {}
+    api.reportedHealthProfile.mockReturnValue(new Promise(resolve => { answer = resolve }))
+    open(`${ENCOUNTER_ID}/orders/new/pharmacy`)
+    const context = (await screen.findByRole('heading', { level: 2, name: 'Patient context' })).closest('section')!
+    expect(within(context).getByText('Patient One')).toBeTruthy()
+    expect(within(context).queryByText(/^Recorded allergies/)).toBeNull()
+    expect(api.reportedHealthProfile).toHaveBeenCalledWith(FACILITY_ID, PATIENT_ID, expect.any(AbortSignal))
+    await act(async () => { answer({ allergies: 'Penicillin', bloodGroup: null, genotype: null, currentMedications: null, chronicConditions: null, medicalNotes: null, updatedAt: null }) })
+    expect(within(context).getByText(ALLERGIES)).toBeTruthy()
+    // Patient context comes between "Patient *" and the form.
+    const patient = field('Patient')
+    expect(patient.compareDocumentPosition(context) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(context.compareDocumentPosition(field('Encounter')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
+  it.each([
+    ['an answer with no allergies', () => api.reportedHealthProfile.mockResolvedValue({ allergies: null }), NONE_RECORDED],
+    ['no profile', () => api.reportedHealthProfile.mockResolvedValue(null), NONE_RECORDED],
+    ['an outage (503)', () => api.reportedHealthProfile.mockRejectedValue(new HidApiError(503, 'EHR is unavailable.', { code: 'UNAVAILABLE' })), NOT_LOADED],
+  ])('06: New pharmacy’s Patient context after %s says today’s sentence', async (_label, arrange, sentence) => {
+    staff.permissions = [...READ_WRITE, 'ehr.note.read']
+    arrange()
+    open(`${ENCOUNTER_ID}/orders/new/pharmacy`)
+    const context = (await screen.findByRole('heading', { level: 2, name: 'Patient context' })).closest('section')!
+    expect(await within(context).findByText(sentence)).toBeTruthy()
+  })
+
+  it.each([
+    ['a refusal (403)', new HidApiError(403, 'Forbidden', { code: 'FORBIDDEN' })],
+    ['a route EHR does not serve (404)', new HidApiError(404, 'Cannot GET', { code: 'NOT_FOUND' })],
+  ])('06: New pharmacy’s Patient context says nothing of allergies after %s', async (_label, refusal) => {
+    staff.permissions = [...READ_WRITE, 'ehr.note.read']
+    api.reportedHealthProfile.mockRejectedValue(refusal)
+    open(`${ENCOUNTER_ID}/orders/new/pharmacy`)
+    const context = (await screen.findByRole('heading', { level: 2, name: 'Patient context' })).closest('section')!
+    await waitFor(() => expect(api.reportedHealthProfile).toHaveBeenCalled())
+    await act(async () => {})
+    expect(within(context).queryByText(/^Recorded allergies/)).toBeNull()
+    expect(within(context).getByText('Patient One')).toBeTruthy()
+  })
+
+  it('06: New pharmacy reads no allergies without ehr.note.read, as today’s chart', async () => {
+    open(`${ENCOUNTER_ID}/orders/new/pharmacy`)
+    const context = (await screen.findByRole('heading', { level: 2, name: 'Patient context' })).closest('section')!
+    await act(async () => {})
+    expect(api.reportedHealthProfile).not.toHaveBeenCalled()
+    expect(within(context).queryByText(/^Recorded allergies/)).toBeNull()
+  })
+
+  it('06: no select or context shows without the write permission, under read-only access or for an emergency patient', async () => {
+    staff.permissions = ['ehr.encounter.read', 'ehr.lab-request.read']
+    const refused = open(`${ENCOUNTER_ID}/orders/new/laboratory`)
+    expect(await screen.findByText('You do not have permission to create this record.')).toBeTruthy()
+    expect(screen.queryByLabelText(labelled('Patient'))).toBeNull()
+    refused.unmount()
+    staff.permissions = [...READ_WRITE]
+    api.consentStatus.mockResolvedValue({ writeAllowed: false })
+    const readOnly = open(`${ENCOUNTER_ID}/orders/new/pharmacy`)
+    expect(await screen.findByText(READ_ONLY)).toBeTruthy()
+    expect(screen.queryByLabelText(labelled('Encounter'))).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Patient context' })).toBeNull()
+    readOnly.unmount()
+    staff.activePatient = activePatient('emergency')
+    open(`${ENCOUNTER_ID}/orders/new/pharmacy`)
+    expect(await screen.findByText('Emergency access is read-only')).toBeTruthy()
+    expect(screen.queryByLabelText(labelled('Patient'))).toBeNull()
+    expect(api.reportedHealthProfile).not.toHaveBeenCalled()
+  })
+
+  it('06: shows "Checking write access…" while the grant is asked about, with no select yet', async () => {
+    api.consentStatus.mockReturnValue(new Promise(() => {}))
+    open(`${ENCOUNTER_ID}/orders/new/laboratory`)
+    expect(await screen.findByText('Checking write access…')).toBeTruthy()
+    expect(screen.queryByLabelText(labelled('Patient'))).toBeNull()
   })
 })
 

@@ -1,6 +1,6 @@
 import { isHidApiError } from '@hid/http'
 import { EhrCard, EhrField, EhrSelect } from '@hid/ui/ehr'
-import { useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { orderRoutesApi, staffApi, type SavedRecord } from '../../../../staff/api'
 import { refusalSentences, refusalText, refusedFields } from '../../../../staff/fieldProblem'
@@ -59,8 +59,9 @@ function refused(caught: unknown, fields: readonly FieldDef[]): SubmitOutcome {
 
 /**
  * The design's create page ("New pharmacy", "New laboratory") for a prescription or a lab request on this encounter,
- * with today's fields, limits, checks, calls and refusals. The patient and encounter carry in; "Save record" opens the
- * saved order.
+ * with today's fields, limits, checks, calls and refusals. The patient and encounter carry in, drawn as the design's
+ * "Patient *" and "Encounter *" selects (New pharmacy also has its "Patient context"); "Save record" opens the saved
+ * order.
  */
 export function CreateOrder({ kind, chart, encounterId }: { kind: OrderKind; chart: Chart; encounterId: string }) {
   const href = useWorkspaceHref()
@@ -87,12 +88,71 @@ export function CreateOrder({ kind, chart, encounterId }: { kind: OrderKind; cha
   )
 }
 
-function PatientContext({ chart, encounterId }: { chart: Chart; encounterId: string }) {
+/**
+ * The design's "Patient *" select on a create page, holding only the open patient, already chosen (as Triage, Nursing
+ * and Consultation draw it): the order is for the patient open in the chart, never another.
+ */
+function PatientSelect({ chart }: { chart: Chart }) {
   return (
-    <section className="hid-ehr-clinical-context-block">
-      <h2>Patient context</h2>
-      <p>{patientLine(chart.facts)}</p>
-      <p>Encounter {shortId(encounterId)}</p>
+    <EhrField label={<>Patient<span aria-hidden="true"> *</span></>}>
+      <EhrSelect value="open" required onChange={() => undefined}>
+        <option value="open">{patientLine(chart.facts)}</option>
+      </EhrSelect>
+    </EhrField>
+  )
+}
+
+/**
+ * The design's "Encounter *" (its `ref` select: "Select…", then the encounters it may name), first in the form's grid,
+ * holding only this encounter, already chosen. The order is always raised on the encounter in the address (record ids
+ * only); the field only shows it, and is never sent.
+ */
+function encounterField(encounterId: string): FieldDef {
+  return { key: 'encounter', label: 'Encounter', required: true, choices: [{ value: encounterId, label: shortId(encounterId) }] }
+}
+
+type Reported = { readonly state: 'loading' | 'hidden' | 'none' | 'failed' } | { readonly state: 'shown'; readonly allergies: string }
+
+/**
+ * The design's "Patient context" on New pharmacy (it draws one for consult, triage and pharmacy): the patient and their
+ * allergies. Restated word for word from NewConsultation.tsx and NewTriage.tsx, which keep theirs private. Today's only
+ * allergy record is what the patient reported in their Health ID portal, which today's chart page reads beside the
+ * prescription form (staff/routes/PatientReportedHealth.tsx, direct care with ehr.note.read): nothing is said while it
+ * loads, without ehr.note.read, or when EHR refuses (403) or does not serve it (404); "None recorded" only after a read
+ * that answered.
+ */
+function PatientContext({ chart }: { chart: Chart }) {
+  const { facilityId, patientId } = chart
+  const reads = chart.can('ehr.note.read')
+  const [reported, setReported] = useState<Reported>({ state: reads ? 'loading' : 'hidden' })
+
+  useEffect(() => {
+    if (!reads) return
+    const controller = new AbortController()
+    staffApi.reportedHealthProfile(facilityId, patientId, controller.signal).then(
+      profile => controller.signal.aborted ? undefined : setReported(profile?.allergies ? { state: 'shown', allergies: profile.allergies } : { state: 'none' }),
+      caught => {
+        if (controller.signal.aborted) return
+        const hidden = !isHidApiError(caught) || caught.status === 403 || caught.status === 404
+        setReported({ state: hidden ? 'hidden' : 'failed' })
+      },
+    )
+    return () => controller.abort()
+  }, [facilityId, patientId, reads])
+
+  return (
+    <section className="hid-ehr-clinical-context-block" aria-labelledby="orders-patient-context">
+      <h2 id="orders-patient-context">Patient context</h2>
+      <p>{chart.facts.name}</p>
+      {reported.state === 'loading' || reported.state === 'hidden' ? null : (
+        <p>
+          {reported.state === 'shown'
+            ? `Recorded allergies: ${reported.allergies} (patient-reported: entered by the patient in their Health ID portal, not clinically verified).`
+            : reported.state === 'failed'
+              ? 'Recorded allergies: what the patient entered about their health could not be loaded. Confirm with the patient.'
+              : 'Recorded allergies: None recorded. Confirm with the patient.'}
+        </p>
+      )}
     </section>
   )
 }
@@ -119,6 +179,8 @@ function PrescriptionForm({ chart, encounterId }: { chart: Chart; encounterId: s
   const [crossFacilityOrders, setCrossFacilityOrders] = useState(false)
   const rights = orderRights(chart, crossFacilityOrders)
   useCrossFacility(chart, encounterId, 'pharmacy', setCrossFacilityOrders)
+  const fields = useMemo(() => [encounterField(encounterId), ...PRESCRIPTION_FIELDS], [encounterId])
+  const initial = useMemo(() => ({ encounter: encounterId }), [encounterId])
 
   const validate = (values: FormValues): FieldErrors => {
     const quantity = value(values, 'doseQuantity')
@@ -159,9 +221,10 @@ function PrescriptionForm({ chart, encounterId }: { chart: Chart; encounterId: s
 
   return (
     <EhrCard>
-      <PatientContext chart={chart} encounterId={encounterId} />
+      <PatientSelect chart={chart} />
+      <PatientContext chart={chart} />
       <div role="status">{success ? <p className="hid-ehr-clinical-status">{success}</p> : null}</div>
-      <RecordForm key={form} fields={PRESCRIPTION_FIELDS} validate={validate} onSubmit={submit}>
+      <RecordForm key={form} fields={fields} initial={initial} validate={validate} onSubmit={submit}>
         <p className="hid-ehr-clinical-note">{rights.canRoute('pharmacy') ? PRESCRIPTION_ROUTING_HINT : PRESCRIPTION_HINT}</p>
       </RecordForm>
     </EhrCard>
@@ -205,6 +268,8 @@ function LabRequestForm({ chart, encounterId }: { chart: Chart; encounterId: str
   const queryRef = useRef<HTMLInputElement>(null)
   const attestedRef = useRef<HTMLInputElement>(null)
   useCrossFacility(chart, encounterId, 'laboratory', setCrossFacilityOrders)
+  const fields = useMemo(() => [encounterField(encounterId), ...LAB_FIELDS], [encounterId])
+  const initial = useMemo(() => ({ encounter: encounterId }), [encounterId])
   const rights = orderRights(chart, crossFacilityOrders)
   const canSendToLab = rights.canSendToLab
   const routable = rights.canRoute('laboratory')
@@ -352,12 +417,13 @@ function LabRequestForm({ chart, encounterId }: { chart: Chart; encounterId: str
 
   return (
     <EhrCard>
-      <PatientContext chart={chart} encounterId={encounterId} />
+      <PatientSelect chart={chart} />
       <div role="status">{success ? <p className="hid-ehr-clinical-status">{success}</p> : null}</div>
       {pageError ? <ErrorBox>{pageError}</ErrorBox> : null}
       <RecordForm
         key={form}
-        fields={LAB_FIELDS}
+        fields={fields}
+        initial={initial}
         onSubmit={submit}
         submitLabel={sendingElsewhere && choice.destination ? `Create and send to ${choice.destination.facilityName}` : 'Save record'}
         busyLabel={sendingElsewhere ? 'Sending…' : 'Saving…'}

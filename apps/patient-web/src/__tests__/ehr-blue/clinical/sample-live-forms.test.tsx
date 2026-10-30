@@ -100,15 +100,19 @@ describe('review item 8: a sample hand-off never opens a live create form', () =
     }
   })
 
-  it('item 8: journey’s Continue care offers no "Create triage & vitals" or "Create consultation"', () => {
+  it('item 8 (hand-off 09): journey’s Continue care offers no "Create triage & vitals" or "Create consultation", under the design’s bare heading', () => {
     const visits = listedRecords(sampleState(), SAMPLE_DEFINITIONS.journey!)
     expect(visits.length).toBeGreaterThan(0)
     for (const visit of visits) {
       const view = open('journey', `/${visit.id}`)
-      expect(screen.getByRole('heading', { name: 'Available actions' })).toBeTruthy()
-      expect(screen.queryByRole('button', { name: 'Create triage & vitals' })).toBeNull()
-      expect(screen.queryByRole('button', { name: 'Create consultation' })).toBeNull()
-      expect(screen.queryByRole('heading', { name: 'Continue care' })).toBeNull()
+      const actions = screen.getByRole('heading', { name: 'Available actions' }).closest('section')!
+      expect(within(actions).queryByRole('button', { name: 'Create triage & vitals' })).toBeNull()
+      expect(within(actions).queryByRole('button', { name: 'Create consultation' })).toBeNull()
+      // The design draws "Continue care" on every visit, as its capture for a role that may create neither does.
+      const heading = within(actions).getByRole('heading', { level: 3, name: 'Continue care' })
+      expect(heading.nextElementSibling).toBeNull()
+      expect(continueCareButtons()).toEqual([])
+      expect(within(actions).queryAllByRole('button', { name: /^Create / })).toEqual([])
       view.unmount()
     }
   })
