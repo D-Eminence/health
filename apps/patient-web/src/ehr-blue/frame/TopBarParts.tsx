@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  EhrButton, EhrDrawer, EhrEmptyState, EhrField, EhrIcon, EhrInput, EhrPopover, EhrSampleBanner, EhrSkeleton,
+  EhrButton, EhrCard, EhrDrawer, EhrEmptyState, EhrField, EhrIcon, EhrInput, EhrPopover, EhrSampleBanner, EhrSelect, EhrSkeleton,
+  EhrTextarea,
 } from '@hid/ui/ehr'
 import { useStaff } from '../../staff/App'
 import { roleLabels } from '../../staff/staffAccess'
@@ -187,18 +188,51 @@ export function AccountMenu({ onSample, onClassic }: {
 
 /** The sample panels the account menu opens (screens/admin/profile.png and the design's preferences and help). */
 export function AccountSamplePanel({ panel, onClose }: { readonly panel: 'profile' | 'preferences' | 'help' | null; readonly onClose: () => void }) {
-  const { state } = useStaff()
-  const actor = state.status === 'ready' ? state.session.actor : null
-  const title = panel === 'profile' ? 'My profile' : panel === 'preferences' ? 'Preferences' : 'Help'
+  const title = panel === 'profile' ? 'Edit my profile' : panel === 'preferences' ? 'Preferences' : 'Help'
   return (
     <EhrDrawer open={panel !== null} title={title} onClose={onClose}>
       <EhrSampleBanner />
-      {panel === 'profile' ? <dl className="hid-ehr-blue-facts">
-        <div className="hid-ehr-blue-fact"><dt>Name</dt><dd>{actor?.displayName ?? 'Not recorded'}</dd></div>
-        <div className="hid-ehr-blue-fact"><dt>Status</dt><dd>Online (sample)</dd></div>
-        <div className="hid-ehr-blue-fact"><dt>Photo</dt><dd>Not added (sample)</dd></div>
-      </dl> : panel === 'preferences' ? <p>Sound, notification and display preferences arrive with the presence service.</p>
+      {panel === 'profile' ? <ProfileSample />
+        : panel === 'preferences' ? <p>Sound, notification and display preferences arrive with the presence service.</p>
         : <p>Use Search Health ID (Ctrl+K or Command+K) to find work areas. Contact your facility administrator for access or account help.</p>}
     </EhrDrawer>
   )
+}
+
+/** A label with the design's required mark: a star, hidden from screen readers. */
+const required = (label: string) => <>{label}<span aria-hidden="true"> *</span></>
+
+/**
+ * My profile (screens/admin/profile.png), as a sample: the person's own name and sign-in email from the session, and the
+ * design's fields, which save nothing and keep nothing (Health ID has no staff profile to save them to yet).
+ */
+function ProfileSample() {
+  const { state } = useStaff()
+  const actor = state.status === 'ready' ? state.session.actor : null
+  const name = actor?.displayName ?? actor?.email ?? 'Staff member'
+  return <>
+    <div className="hid-ehr-blue-profile-heading">
+      <p className="hid-ehr-page-eyebrow">Personal details and account security</p>
+      <h3 className="hid-ehr-page-title">My profile</h3>
+    </div>
+    <EhrCard title="Profile picture" titleLevel={3}>
+      <div className="hid-ehr-blue-profile-picture">
+        <span className="hid-ehr-blue-avatar hid-ehr-blue-avatar-large" aria-hidden="true">{initials(name)}<span className="hid-ehr-blue-presence" /></span>
+        <p className="hid-ehr-blue-muted">PNG, JPEG, WebP or GIF · up to 2 MB. Adding a picture is not available yet.</p>
+      </div>
+    </EhrCard>
+    <EhrCard title="Personal details" titleLevel={3}>
+      <p className="hid-ehr-blue-flush">Sign-in email: <strong>{actor?.email ?? 'Not recorded'}</strong></p>
+      <div className="hid-ehr-blue-profile-fields">
+        <EhrField label={required('Full name')}><EhrInput defaultValue={actor?.displayName ?? ''} required autoComplete="off" /></EhrField>
+        <EhrField label={required('Phone')}><EhrInput type="tel" required autoComplete="off" /></EhrField>
+        <EhrField label="Job title (display only)"><EhrInput autoComplete="off" /></EhrField>
+        <EhrField label="About you" className="hid-ehr-blue-profile-wide"><EhrTextarea /></EhrField>
+        <EhrField label="Department (display only)"><EhrInput autoComplete="off" /></EhrField>
+        <EhrField label="Preferred language">
+          <EhrSelect defaultValue="English">{['English', 'Hausa', 'Igbo', 'Yoruba'].map(language => <option key={language}>{language}</option>)}</EhrSelect>
+        </EhrField>
+      </div>
+    </EhrCard>
+  </>
 }
